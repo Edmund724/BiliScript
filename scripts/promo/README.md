@@ -26,12 +26,13 @@ pnpm promo:studio
 | 输出单镜头关键帧 | `pnpm promo:audio && node scripts/promo/render.mjs --scene=hero --stills-only` | `.scratch/promo/evidence/hero/` |
 | 渲染全片草稿 | `pnpm promo:audio && node scripts/promo/render.mjs --draft` | `.scratch/promo/evidence/BiliScript-promo-draft.mp4` |
 | 正式渲染 | `pnpm promo:render` | `release/` 中的 MP4、封面、SRT 与 credits |
-| 最终验收 | `pnpm promo:verify` | `.scratch/promo/evidence/` 中的回放、音频与联系表证据 |
+| 草稿验收 | `pnpm promo:verify -- --kind=draft .scratch/promo/evidence/BiliScript-promo-draft.mp4` | `.scratch/promo/evidence/draft-*` |
+| 最终验收 | `pnpm promo:verify -- --kind=final release/BiliScript-promo-1080p.mp4` | `.scratch/promo/evidence/final-*` |
 | 重录单镜头 | 见下节 | 替换 `public/media/` 中对应素材后重新渲染 |
 
 单镜头 id：`hero`、`subtitle`、`overview`、`chat`、`appearance`、`providers`、`outro`。把 `--scene=hero` 换成目标 id；去掉 `--stills-only` 还会输出该镜头的草稿视频。
 
-`promo:verify` 默认验收 `release/BiliScript-promo-1080p.mp4`，只应在正式渲染后运行。不要在草稿渲染后用它判断新草稿：当前命令不会自动选择 draft 产物。
+`promo:verify` 必须显式指定产物类型和路径，并在检查前打印绝对路径。draft 按 960×540 验收，final 按 1920×1080 验收；完整回放、音频和视觉证据检查保持一致。
 
 ## 重录
 

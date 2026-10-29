@@ -80,9 +80,9 @@ function progressLogger(label, alreadyPercent = false) {
   };
 }
 
-async function validateFinalVideo(output) {
+async function remuxMasteredAudio(output) {
   const mixWavPath = path.join(PROMO_DIR, "assets", "audio", "remotion-mix.wav");
-  const remuxedOutput = path.join(EVIDENCE_DIR, "remuxed-1080p.mp4");
+  const remuxedOutput = path.join(EVIDENCE_DIR, `remuxed-${path.basename(output)}`);
   await execFileAsync(
     "ffmpeg",
     [
@@ -115,7 +115,9 @@ async function validateFinalVideo(output) {
   const remuxedBytes = await readFile(remuxedOutput);
   await writeFile(output, remuxedBytes);
   await unlink(remuxedOutput).catch(() => {});
+}
 
+async function validateFinalVideo(output) {
   const metadata = await getVideoMetadata(output);
   if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS) {
     throw new Error(`成片规格不符：${JSON.stringify(metadata)}`);
@@ -307,6 +309,7 @@ await renderStill({
   output: draft ? path.join(EVIDENCE_DIR, "cover-draft.png") : path.join(RELEASE_DIR, "BiliScript-promo-cover.png"),
   overwrite: true
 });
+if (!stillsOnly) await remuxMasteredAudio(output);
 if (!draft) {
   await writeReleaseText();
   await validateFinalVideo(output);

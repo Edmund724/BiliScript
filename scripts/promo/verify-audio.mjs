@@ -3,13 +3,13 @@ import {execFile} from "node:child_process";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
-import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO} from "./audio.mjs";
 import {PROMO_DURATION, PROMO_FPS} from "./timeline.mjs";
+import {resolveVerificationTarget} from "./verification-target.mjs";
 
 const execFileAsync = promisify(execFile);
-const input = path.resolve(process.argv[2] || path.join(REPO_ROOT, "release", "BiliScript-promo-1080p.mp4"));
-const output = path.join(PROMO_DIR, "evidence", process.argv[2] ? "draft-audio" : "final-audio");
+const {input, kind, evidenceRoot} = await resolveVerificationTarget();
+const output = path.join(evidenceRoot, `${kind}-audio`);
 await mkdir(output, {recursive: true});
 const pcmPath = path.join(output, "encoded-audio.wav");
 const loudness = await execFileAsync("ffmpeg", ["-hide_banner", "-i", input, "-af", "loudnorm=I=-16:TP=-1.5:LRA=8:print_format=json", "-f", "null", "-"], {maxBuffer: 4 * 1024 * 1024}).catch((error) => {

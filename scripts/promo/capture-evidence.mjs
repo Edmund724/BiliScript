@@ -7,15 +7,16 @@ import {AUDIO} from "./audio.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {EVIDENCE_TIMES, EVIDENCE_TRANSITIONS, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
+import {resolveVerificationTarget} from "./verification-target.mjs";
 
 const execFileAsync = promisify(execFile);
-const input = path.resolve(process.argv[2] || path.join(REPO_ROOT, "release", "BiliScript-promo-1080p.mp4"));
-const root = path.join(PROMO_DIR, "evidence", process.argv[2] ? "draft-visual" : "final-visual");
+const {input, kind, width, height, evidenceRoot} = await resolveVerificationTarget();
+const root = path.join(evidenceRoot, `${kind}-visual`);
 const sheetsDir = path.join(root, "contact-sheets");
 const transitionsDir = path.join(root, "transitions");
 const stillsDir = path.join(root, "stills");
 const mobileDir = path.join(root, "mobile-360");
-const audioDir = path.join(PROMO_DIR, "evidence", process.argv[2] ? "draft-audio" : "final-audio");
+const audioDir = path.join(evidenceRoot, `${kind}-audio`);
 await rm(root, {recursive: true, force: true});
 await Promise.all([sheetsDir, transitionsDir, stillsDir, mobileDir, audioDir].map((dir) => mkdir(dir, {recursive: true})));
 
@@ -86,8 +87,8 @@ await writeFile(path.join(audioDir, "sfx-measurements.json"), JSON.stringify({so
 const manifest = {
   video: path.relative(REPO_ROOT, input).replaceAll("\\", "/"),
   source: "encoded-video",
-  width: 1920,
-  height: 1080,
+  width,
+  height,
   fps: PROMO_FPS,
   durationInSeconds: duration,
   contactSheets,
@@ -98,4 +99,4 @@ const manifest = {
   listeningReview: {status: "not-verified", reason: "结构、电平与频谱检查不替代实际试听；最终混音和独立音效轨的听感需人工确认。"}
 };
 await writeFile(path.join(root, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", "utf8");
-console.log(`最终成片视觉证据与独立音效轨：${root}`);
+console.log(`${kind} 成片视觉证据与独立音效轨：${root}`);
