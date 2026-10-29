@@ -450,9 +450,17 @@ function wrapCanvasText(
 }
 
 /**
- * 在 Canvas 2D 上绘制 iOS 连续圆角（Squircle / n=4 超椭圆，对应 CSS corner-shape: squircle）闭合矩形路径。
+ * 连续圆角曲线的超椭圆指数 K，与样式令牌
+ * `--biliscript-primitive-corner-shape-continuous` 的 `superellipse(K)` 同值。
+ * 导出图与 DOM 预览卡的角部曲率必须一致，改一处必须同改另一处。
  */
-function traceSquircleRectPath(
+const CORNER_SUPERELLIPSE_K = 1.25;
+
+/**
+ * 在 Canvas 2D 上绘制连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
+ * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径。
+ */
+function traceContinuousCornerRectPath(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -462,12 +470,13 @@ function traceSquircleRectPath(
   stepsPerCorner = 24
 ): void {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const exponent = 1 / (2 * CORNER_SUPERELLIPSE_K);
   const superellipseCoord = (t: number): { dx: number; dy: number } => {
     const c = Math.cos(t);
     const s = Math.sin(t);
     return {
-      dx: Math.sign(c) * Math.sqrt(Math.abs(c)) * r,
-      dy: Math.sign(s) * Math.sqrt(Math.abs(s)) * r
+      dx: Math.sign(c) * Math.pow(Math.abs(c), exponent) * r,
+      dy: Math.sign(s) * Math.pow(Math.abs(s), exponent) * r
     };
   };
 
@@ -512,10 +521,10 @@ async function renderQuoteCardToCanvas(
 
   ctx.scale(scale, scale);
 
-  // 1. 20px 连续圆角（squircle）裁切路径
+  // 1. 20px 连续圆角（superellipse）裁切路径
   ctx.save();
   ctx.beginPath();
-  traceSquircleRectPath(ctx, 0, 0, width, height, 20);
+  traceContinuousCornerRectPath(ctx, 0, 0, width, height, 20);
   ctx.clip();
 
   // 2. 底层线性渐变（165deg）
@@ -670,7 +679,7 @@ async function renderQuoteCardToCanvas(
   // 7. 内侧 0.5px 精细微描边（与 20px 连续圆角同心对齐）
   ctx.save();
   ctx.beginPath();
-  traceSquircleRectPath(ctx, 0.25, 0.25, width - 0.5, height - 0.5, 20 - 0.25);
+  traceContinuousCornerRectPath(ctx, 0.25, 0.25, width - 0.5, height - 0.5, 20 - 0.25);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
   ctx.lineWidth = 0.5;
   ctx.stroke();

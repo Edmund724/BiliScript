@@ -380,7 +380,7 @@
   margin-right: auto;
   padding: 0 4px;
   border-radius: var(--biliscript-radius-xs);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
   font-size: var(--biliscript-font-size-sm);

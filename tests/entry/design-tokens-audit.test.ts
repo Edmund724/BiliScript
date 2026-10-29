@@ -19,7 +19,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(primitiveCss).toContain("--biliscript-primitive-color-terracotta-500:");
       expect(primitiveCss).toContain("--biliscript-primitive-font-size-base:");
       expect(primitiveCss).toContain("--biliscript-primitive-radius-28:");
-      expect(primitiveCss).toContain("--biliscript-primitive-corner-shape-squircle: squircle;");
+      expect(primitiveCss).toContain("--biliscript-primitive-corner-shape-continuous: superellipse(1.25);");
       expect(primitiveCss).toContain("--biliscript-primitive-space-12:");
 
       // Primitive 层不得依赖业务选择器
@@ -32,7 +32,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       // 语义字阶与圆角
       expect(gateCss).toContain("--biliscript-font-size-base:");
       expect(gateCss).toContain("--biliscript-radius-panel:");
-      expect(gateCss).toContain("--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-squircle);");
+      expect(gateCss).toContain("--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-continuous);");
       // 组件层 Token
       expect(gateCss).toContain("--btn-radius:");
       expect(gateCss).toContain("--chip-radius:");
@@ -131,13 +131,14 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(violations, `发现未收敛的裸写 border-radius：\n${violations.join("\n")}`).toEqual([]);
     });
 
-    it("所有非胶囊、非正圆、非直角的 border-radius 规则块均同步声明 corner-shape: squircle 或 inherit", () => {
+    it("所有非胶囊、非正圆、非直角的 border-radius 规则块均同步声明连续圆角或 inherit", () => {
       const violations: string[] = [];
       const cornerAuditedStyles = [...AUDITED_STYLES, "github-markdown.css"];
-      // 连续圆角统一经语义令牌声明（取值 squircle），兜底值同款；
-      // 直接裸写 squircle 也算合规，避免令牌尚未挂载时的样式表失效。
-      const SQUIRCLE_SHAPE = /^var\(--biliscript-corner-shape(?:,\s*squircle)?\)$|^squircle$/;
-      const INHERIT_SHAPE = /^(?:inherit|squircle)$/;
+      // 连续圆角统一经语义令牌声明，兜底值与令牌同值（superellipse(1.25)）；
+      // 裸写同款曲线也算合规。squircle（≡ superellipse(2)）比令牌更扁、观感上
+      // 圆角变小，不得作为兜底值出现。
+      const CONTINUOUS_SHAPE = /^var\(--biliscript-corner-shape(?:,\s*superellipse\(1\.25\))?\)$|^superellipse\(1\.25\)$/;
+      const INHERIT_SHAPE = /^(?:inherit|superellipse\(1\.25\))$/;
 
       for (const fileName of cornerAuditedStyles) {
         const fullPath = `extension/entry/styles/${fileName}`;
@@ -167,7 +168,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
               );
 
             if (isExempt) {
-              // 胶囊与正圆必须是正圆弧：squircle 会把半圆端头压成超椭圆，端头变形。
+              // 胶囊与正圆必须是正圆弧：超椭圆会把半圆端头压成方肩。
               if (shapeVal && shapeVal !== "round") {
                 violations.push(`${fileName}:${lineNum}: 胶囊/正圆块声明了 corner-shape: ${shapeVal}，应为 round`);
               }
@@ -181,8 +182,8 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
               return;
             }
 
-            if (!SQUIRCLE_SHAPE.test(shapeVal)) {
-              violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少 corner-shape: squircle`);
+            if (!CONTINUOUS_SHAPE.test(shapeVal)) {
+              violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少连续圆角声明`);
             }
           });
         }

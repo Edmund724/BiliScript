@@ -39,7 +39,7 @@
   padding: 6px;
   border: 1px solid var(--select-dropdown-border, var(--biliscript-reader-border));
   border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--select-dropdown-bg, var(--biliscript-reader-card));
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
@@ -148,7 +148,7 @@
   min-height: 38px;
   border: 0;
   border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   padding: 4px 10px;
   text-align: start;
@@ -203,7 +203,7 @@
   padding: 0 8px;
   border: 1px solid var(--select-trigger-border, var(--biliscript-reader-border));
   border-radius: var(--select-trigger-radius, var(--biliscript-radius-panel));
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--select-trigger-bg, var(--biliscript-reader-card));
   color: var(--select-trigger-text, var(--biliscript-reader-text));
   font: inherit;

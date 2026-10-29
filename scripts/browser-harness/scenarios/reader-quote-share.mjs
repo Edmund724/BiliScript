@@ -2,7 +2,7 @@
 // 分享金句卡片弹窗真机场景 —— `pnpm harness:scenario reader-quote-share`。
 //
 // 判据（为什么在真机上跑）：弹窗形态是「与阅读面板同一套 token」的产物——
-// 容器 28px 圆角/squircle/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
+// 容器 28px 圆角/superellipse(1.25)/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
 // 12px 圆角、卡片 20px 圆角与 clamp(16px,5.5cqi,21px) 字号。四象限（flyme/
@@ -59,7 +59,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/squircle/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/5.5cqi 全契约" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/5.5cqi 全契约" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -711,7 +711,7 @@ async function main() {
       checkEquals("Q1.view-palette-flyme", q1.probe?.view?.palette ?? "flyme", "flyme");
       checkEquals("Q1.dialog-radius-28", s.borderRadius, "28px");
       if (s.cornerShape) {
-        check("Q1.dialog-corner-shape-squircle", ["squircle", "superellipse(2)"].includes(s.cornerShape), { actual: s.cornerShape, equivalentTo: "squircle" });
+        check("Q1.dialog-corner-shape-continuous", s.cornerShape === "superellipse(1.25)", { actual: s.cornerShape, expected: "superellipse(1.25)" });
       } else {
         q1.cornerShape = "unsupported（引擎不返回 corner-shape 计算值，按需求不硬断言）";
         log("corner-shape 计算值探不到，Q1.corner-shape 记为边界不判");
@@ -753,7 +753,7 @@ async function main() {
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
       check("Q1.card-text-vertically-centered", q1.probe?.card?.verticalCenterDelta <= 1, { delta: q1.probe?.card?.verticalCenterDelta });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
-      await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/squircle/面板阴影/mask）");
+      await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/superellipse(1.25)/面板阴影/mask）");
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
     }
 

@@ -19,7 +19,7 @@
   /* 面板族圆角 28px、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-shadow);
   font-family: var(--biliscript-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
@@ -205,7 +205,7 @@
   border: 0;
   background: transparent;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   cursor: pointer;
   padding: 0;
   color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
@@ -312,7 +312,7 @@
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
@@ -394,7 +394,7 @@
   padding: var(--biliscript-tab-pad-y) var(--biliscript-tab-pad-x);
   background: var(--biliscript-reader-pill-bg);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 /* 滑动气泡指示器：从源位置到新位置平滑过渡（类似 Gemini 网页端分段胶囊动效） */
@@ -406,7 +406,7 @@
   left: var(--biliscript-tab-pad-x);
   width: calc((100% - 2 * var(--biliscript-tab-pad-x) - 2 * var(--biliscript-tab-gap)) / 3);
   border-radius: var(--biliscript-radius-2xl);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-accent);
   box-shadow: 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb), 0.12);
   pointer-events: none;
@@ -445,7 +445,7 @@
   cursor: pointer;
   padding: 7px 16px;
   border-radius: var(--biliscript-radius-2xl);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   font-size: var(--biliscript-font-size-base);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
@@ -486,7 +486,7 @@
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   /* Follow 悬浮按钮、选区「解释」浮层与解释卡片的定位上下文 */
   position: relative;
 }
@@ -530,7 +530,7 @@
   background: var(--biliscript-reader-card);
   border: none;
   border-radius: var(--biliscript-radius-xl);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
   text-align: center;
 }
@@ -645,7 +645,7 @@
   border: 0;
   background: transparent;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 10px 12px;
   text-align: left;
   color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
@@ -759,7 +759,7 @@
 
 #biliscript-reading-view .biliscript-reading-panel {
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 14px 16px;
   pointer-events: auto;
   background: var(--biliscript-reader-surface);
@@ -808,7 +808,7 @@
   width: auto;
   max-width: 100%;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.9);
 }
@@ -886,7 +886,7 @@
   gap: 6px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 0 4px 0 10px;
   background: var(--biliscript-reader-card);
 }
@@ -925,7 +925,7 @@
   border: none;
   background: transparent;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 0;
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
@@ -979,7 +979,7 @@
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
   border-radius: var(--biliscript-radius-xs);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 0 1px;
 }
 
@@ -998,7 +998,7 @@
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-highlight);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 12px 14px;
   margin-bottom: 10px;
 }
@@ -1165,7 +1165,7 @@
   position: absolute;
   inset: 0;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-mask-bg);
 }
 
@@ -1180,7 +1180,7 @@
   overflow: hidden;
   border: none;
   border-radius: var(--biliscript-radius-xl);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   box-shadow: 0 18px 44px rgba(var(--biliscript-primitive-color-black-rgb), 0.24), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
 }
@@ -1204,7 +1204,7 @@
   border: 0;
   padding: 2px 8px;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-faint);
   font-size: var(--biliscript-font-size-xl);
@@ -1387,7 +1387,7 @@
   border-left: 3px solid var(--biliscript-reader-accent);
   background: var(--biliscript-reader-card);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 10px 12px;
   margin-bottom: 8px;
 }
@@ -1417,7 +1417,7 @@
   padding: 0;
   border: 0;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-faint);
   font: inherit;
@@ -1508,7 +1508,7 @@
   border: 0;
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1611,7 +1611,7 @@
   border: 0;
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 10px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
@@ -1714,7 +1714,7 @@
   height: 28px;
   border: 0;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -1756,7 +1756,7 @@
   gap: 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 9px 12px;
   margin-bottom: 12px;
 }
@@ -1840,7 +1840,7 @@
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
@@ -1926,7 +1926,7 @@
 .biliscript-md-math::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-black-rgb), 0.15));
   border-radius: var(--biliscript-radius-xs);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
@@ -2073,7 +2073,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-dark-gray-900));
   border: 1px solid var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-white-rgb), 0.1));
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-shadow);
   padding: 16px;
   box-sizing: border-box;
@@ -2103,7 +2103,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   background: transparent;
   color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2144,7 +2144,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 5px;
   padding: 4px 8px;
   border-radius: var(--biliscript-radius-md);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 0;
   background: var(--biliscript-reader-surface-2, rgba(var(--biliscript-primitive-color-white-rgb), 0.04));
   color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-dark-gray-400));
@@ -2191,7 +2191,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   justify-content: center;
   padding: 3px 10px;
   border-radius: var(--biliscript-radius-md);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 0;
   background: var(--biliscript-reader-surface-2, rgba(var(--biliscript-primitive-color-white-rgb), 0.04));
   color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-dark-gray-400));
@@ -2230,7 +2230,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   width: 100%;
   min-height: 315px;
   border-radius: var(--biliscript-radius-xl);
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12)), 0 8px 32px rgba(var(--biliscript-primitive-color-black-rgb), 0.28);
   overflow: hidden;
   display: flex;

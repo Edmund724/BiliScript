@@ -291,7 +291,7 @@
   white-space: break-spaces;
   background-color: var(--bgColor-neutral-muted);
   border-radius: 6px;
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .markdown-body code br {
@@ -323,7 +323,7 @@
   color: var(--fgColor-default);
   background-color: var(--bgColor-muted);
   border-radius: 6px;
-  corner-shape: var(--biliscript-corner-shape, squircle);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .markdown-body pre code {

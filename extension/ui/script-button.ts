@@ -73,12 +73,9 @@ const PLAYER_SELECTORS = [
 ];
 
 // 造型对齐站内投稿等圆润矩形按钮风格（90×34、border-radius 8px、14px/500 白字、内容居中）。
-// corner-shape 消费语义令牌并带 squircle 兜底：按钮挂在播放器子树里，令牌只在
-// #biliscript-reading-view 作用域内声明，取不到时按同款连续圆角渲染。
 const BUTTON_BASE_STYLE =
   "display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;" +
-  "height:34px;padding:0 20px;border:none;border-radius:8px;" +
-  "corner-shape:var(--biliscript-corner-shape, squircle);cursor:pointer;" +
+  "height:34px;padding:0 20px;border:none;border-radius:8px;cursor:pointer;" +
   "font-size:14px;font-weight:500;line-height:20px;color:#fff;white-space:nowrap;";
 
 // ===== 模块求值即启动生命周期（content.ts init() 直接触发装载） =====
