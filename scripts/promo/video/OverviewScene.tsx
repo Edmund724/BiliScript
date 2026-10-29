@@ -82,9 +82,9 @@ export function overviewVoiceCaptionOpacityAtFrame(frame: number, duration = SCE
 const REFERENCE_CROP: Crop = {x: 56, y: 236, width: 1344, height: 664};
 const REFERENCE_WIDTH = 780;
 
-const PANEL_STAGE = {left: 964, top: 72, width: 860};
-const POLAROID_STAGE = {left: 1036, top: 82, width: 728};
-const POLAROID_LIFT = {x: 18, y: 112, scale: 0.76};
+const PANEL_STAGE = {left: 964, top: 256, width: 860};
+const POLAROID_STAGE = {left: 1068, top: 420, width: 728};
+const POLAROID_LIFT = {x: -36, y: 72, scale: 0.76};
 
 const VideoReference = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
@@ -103,7 +103,7 @@ const VideoReference = ({duration}: {duration: number}) => {
       badgeText={OVERVIEW_VIDEO_REFERENCE.badgeText}
       tilt={-6}
       delay={2}
-      style={{position: "absolute", left: 96, top: 352}}
+      style={{position: "absolute", left: 96, top: 388}}
     >
       {captionOpacity > 0.01 && (
         <BottomLectureCaption
@@ -129,9 +129,10 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
   const frame = useCurrentFrame();
   const enter = interpolate(frame, [0, 12], [0, 1], {...CLAMP, easing: SMOOTH});
   const enterY = interpolate(frame, [0, 12], [22, 0], {...CLAMP, easing: SMOOTH});
-  const quoteDefocus = interpolate(frame, [chapterDuration, chapterDuration + 16], [0, 3.6], {...CLAMP, easing: SMOOTH});
-  const quoteDimOpacity = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.54], {...CLAMP, easing: SMOOTH});
-  const quoteBackScale = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.972], {...CLAMP, easing: SMOOTH});
+  const quoteDefocus = interpolate(frame, [chapterDuration, chapterDuration + 16], [0, 2.6], {...CLAMP, easing: SMOOTH});
+  const quoteDimOpacity = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.68], {...CLAMP, easing: SMOOTH});
+  const quoteBackScale = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.965], {...CLAMP, easing: SMOOTH});
+  const quoteRetreatY = interpolate(frame, [chapterDuration, chapterDuration + 16], [0, -76], {...CLAMP, easing: SMOOTH});
 
   const cursorMoveStart = QUOTE_CLICK_FRAME - 18;
   const cursorOpacity =
@@ -165,7 +166,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
         top: PANEL_STAGE.top,
         width: PANEL_STAGE.width,
         opacity: enter * quoteDimOpacity,
-        translate: `0px ${enterY.toFixed(1)}px`,
+        translate: `0px ${(enterY + quoteRetreatY).toFixed(1)}px`,
         scale: quoteBackScale,
         filter: quoteDefocus > 0.05 ? `blur(${quoteDefocus.toFixed(2)}px)` : undefined,
         transformOrigin: "50% 50%",
@@ -609,7 +610,7 @@ export const OverviewScene = ({duration}: {duration: number}) => {
       <SceneTitle
         title={OVERVIEW_HEADLINE}
         size={66}
-        style={{left: 96, top: 150, width: 848}}
+        style={{left: 96, top: 186, width: 848}}
       />
       <VideoReference duration={duration} />
       <div
