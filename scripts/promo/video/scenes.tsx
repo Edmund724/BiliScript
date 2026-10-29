@@ -489,77 +489,114 @@ export const ChatScene = () => {
 
 /* ==========================================================================
    Scene 5: SubtoolsScene (19.0s–22.5s, 105 frames)
-   先介绍硅基流动免费 API 转写与双语对照，再介绍字幕复制与导出
+   无字幕的视频只有一路语音转写；双语对照只在视频本身有两条字幕轨时成立
    ========================================================================== */
 
-export const SUBTOOLS_HEADLINE = "遇到没字幕的视频？\n语音转写 · 双语对照。";
-export const SUBTOOLS_SUBHEADLINE = "调用硅基流动免费 API";
-export const SUBTOOLS_EXPORT_HEADLINE = "字幕复制与导出。";
-export const SUBTOOLS_EXPORT_SUBHEADLINE = "Markdown · SRT · TXT";
+const SUBTOOLS_ASR_HEADLINE_LINES: HeadlinePart[][] = [
+  [{text: "没字幕的视频？"}],
+  [{text: "语音转写", accent: true}, {text: "。"}]
+];
 
-const SUBTOOLS_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "遇到"}, {text: "没字幕", accent: true}, {text: "的视频？"}],
-  [{text: "语音转写", accent: true}, {text: " · 双语对照。"}]
+const SUBTOOLS_BILINGUAL_HEADLINE_LINES: HeadlinePart[][] = [
+  [{text: "多语言字幕的视频？"}],
+  [{text: "双语对照", accent: true}, {text: "。"}]
 ];
 
 const SUBTOOLS_EXPORT_HEADLINE_LINES: HeadlinePart[][] = [
   [{text: "字幕"}, {text: "复制与导出", accent: true}, {text: "。"}]
 ];
 
-export const SUBTOOLS_BILINGUAL_ROWS = [
+export const SUBTOOLS_ROWS = [
   {
     timestamp: "01:14",
     source: "Attention mechanisms allow the model to focus on relevant tokens.",
-    translation: "注意力机制让模型能够聚焦于上下文中最相关的词元。"
+    translation: "注意力机制让模型能够聚焦于上下文中最相关的词元。",
+    active: true
   },
   {
     timestamp: "01:28",
     source: "We project queries, keys, and values into latent subspaces.",
-    translation: "我们将查询、键与值向量投影至低维潜在子空间。"
+    translation: "我们将查询、键与值向量投影至低维潜在子空间。",
+    active: false
+  },
+  {
+    timestamp: "01:42",
+    source: "Softmax normalizes attention weights across the sequence.",
+    translation: "Softmax 在序列维度上对注意力权重进行归一化。",
+    active: false
   }
 ] as const;
 
-export const SUBTOOLS_EXPORT_BUTTONS = ["复制 Markdown", "导出 SRT · TXT"] as const;
+const SUBTOOLS_EXPORT_BUTTONS = ["复制字幕", "导出字幕"] as const;
 
 export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, SUBTOOLS_HANDOFF, WEBSEARCH_HANDOFF);
+  const bilingualAt = SUBTOOLS_TIMELINE.bilingualAt;
   const exportAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;
   const isExported = frame >= clickAt;
-  const exportPhase = interpolate(frame, [exportAt - 4, exportAt + 4], [0, 1], {...CLAMP, easing: SMOOTH});
-  const exportCardProgress = interpolate(frame, [clickAt, clickAt + 12], [0, 1], {...CLAMP, easing: SMOOTH});
+  const showCheck = frame >= clickAt + 2;
+  const dualActive = frame >= bilingualAt;
+
+  const bilingualReveal = interpolate(frame, [bilingualAt, bilingualAt + 8], [0, 1], {...CLAMP, easing: SMOOTH});
+  const asrStatusIn = interpolate(frame, [6, 12], [0, 1], CLAMP) * interpolate(frame, [bilingualAt - 4, bilingualAt], [1, 0], CLAMP);
+  const headlineAFade = interpolate(frame, [bilingualAt - 4, bilingualAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
+  const headlineCFade = interpolate(frame, [exportAt - 4, exportAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
+
+  const isHoveringCopy = frame >= clickAt - 10 && frame < clickAt;
+  const copyPopScale = showCheck
+    ? interpolate(frame, [clickAt + 2, clickAt + 8], [0.7, 1], {...CLAMP, easing: Easing.bezier(0.34, 1.56, 0.64, 1)})
+    : 1;
+  const copyPopOpacity = showCheck ? interpolate(frame, [clickAt + 2, clickAt + 7], [0.6, 1], CLAMP) : 1;
+  const copyPressScale = interpolate(frame, [clickAt - 2, clickAt, clickAt + 3], [1, 0.91, 1], CLAMP);
+  const statusSlideProgress = interpolate(frame, [clickAt, clickAt + 8], [0, 1], {...CLAMP, easing: SMOOTH});
   const pointerOpacity =
     interpolate(frame, [clickAt - 16, clickAt - 10], [0, 1], CLAMP) *
-    interpolate(frame, [clickAt + 6, clickAt + 12], [1, 0], CLAMP);
-  const pointerX = interpolate(frame, [clickAt - 16, clickAt - 2], [140, 48], {...CLAMP, easing: SMOOTH});
-  const pointerY = interpolate(frame, [clickAt - 16, clickAt - 2], [96, 26], {...CLAMP, easing: SMOOTH});
+    interpolate(frame, [clickAt + 2, clickAt + 8], [1, 0], CLAMP);
+  const pointerX = interpolate(frame, [clickAt - 16, clickAt - 2], [96, 22], {...CLAMP, easing: SMOOTH});
+  const pointerY = interpolate(frame, [clickAt - 16, clickAt - 2], [84, 24], {...CLAMP, easing: SMOOTH});
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <BrandWhisper />
-      <SectionHeadline lines={SUBTOOLS_HEADLINE_LINES} subtext={SUBTOOLS_SUBHEADLINE} opacity={1 - exportPhase} />
       <SectionHeadline
-        lines={SUBTOOLS_EXPORT_HEADLINE_LINES}
-        subtext={SUBTOOLS_EXPORT_SUBHEADLINE}
-        opacity={exportPhase}
+        lines={SUBTOOLS_ASR_HEADLINE_LINES}
+        subtext="调用硅基流动免费 API"
+        opacity={1 - headlineAFade}
       />
+      <SectionHeadline
+        lines={SUBTOOLS_BILINGUAL_HEADLINE_LINES}
+        subtext="视频本身已有多语言字幕轨"
+        opacity={headlineAFade * (1 - headlineCFade)}
+      />
+      <SectionHeadline lines={SUBTOOLS_EXPORT_HEADLINE_LINES} subtext="Markdown · SRT · TXT" opacity={headlineCFade} />
 
-      <VideoReferenceCard
-        variant="bar"
-        width={760}
-        headerText="正在阅读：MIT 6.S191 · 英文生肉"
-        badgeText="无原生字幕"
-        delay={4}
-        style={{position: "absolute", left: 96, top: 430}}
-      />
+      <div style={{position: "absolute", left: 96, top: 430, opacity: 1 - bilingualReveal}}>
+        <VideoReferenceCard
+          variant="bar"
+          width={760}
+          headerText="正在阅读：MIT 6.S191 · 英文生肉"
+          badgeText="无原生字幕"
+          delay={4}
+        />
+      </div>
+      <div style={{position: "absolute", left: 96, top: 430, opacity: bilingualReveal}}>
+        <VideoReferenceCard
+          variant="bar"
+          width={760}
+          headerText="正在阅读：MIT 6.S191 · 中英双轨"
+          badgeText="2 条字幕轨"
+          delay={4}
+        />
+      </div>
 
       {/* Right Subtitle Panel */}
       <div
         style={{
           position: "absolute",
           left: 916,
-          top: 146,
+          top: 132,
           width: 908,
           transformOrigin: "0 0",
           scale: focusScale,
@@ -571,94 +608,213 @@ export const SubtoolsScene = () => {
             position: "relative",
             width: 908,
             borderRadius: 30,
+            overflow: "hidden",
             background: MIST_GLASS.surface,
             backdropFilter: "blur(24px) saturate(1.2)",
             boxShadow: MIST_GLASS.shellShadow,
-            padding: "28px 34px 34px",
+            padding: "22px 26px 26px",
             transform: microPerspective(-5),
             color: MIST_GLASS.text
           }}
         >
-          {/* Tabs + Export Action Bar */}
-          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
-            <div style={{display: "flex", alignItems: "center", gap: 8}}>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: MIST_GLASS.blobs,
+              filter: "blur(28px)",
+              pointerEvents: "none"
+            }}
+          />
+
+          {/* Row 1: .biliscript-reading-header */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0 6px",
+              marginBottom: 8
+            }}
+          >
+            <span style={{fontSize: 19, fontWeight: 560, color: MIST_GLASS.muted}}>UP主：MIT 6.S191</span>
+            <div style={{display: "flex", alignItems: "center", gap: 18, color: MIST_GLASS.text}}>
+              <AppearanceIcon name="theme" size={20} />
+              <AppearanceIcon name="settings" size={20} />
+              <AppearanceIcon name="close" size={20} />
+            </div>
+          </div>
+
+          {/* Row 2: #biliscript-reading-status */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              padding: "0 6px",
+              marginBottom: 12,
+              minHeight: 28,
+              display: "flex",
+              alignItems: "center",
+              fontSize: 19,
+              fontWeight: 560,
+              color: MIST_GLASS.muted
+            }}
+          >
+            {isExported ? (
+              <span style={{opacity: statusSlideProgress, translate: `0px ${(1 - statusSlideProgress) * 4}px`}}>
+                字幕已复制到剪贴板。
+              </span>
+            ) : (
+              <span style={{opacity: asrStatusIn}}>语音识别完成，已生成 412 条字幕。</span>
+            )}
+          </div>
+
+          {/* Row 3: .biliscript-reading-tabs-row */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 16
+            }}
+          >
+            <div
+              style={{
+                display: "inline-grid",
+                gridAutoFlow: "column",
+                gridAutoColumns: "1fr",
+                gap: 6,
+                padding: 5,
+                borderRadius: 18,
+                background: "#e9ebef"
+              }}
+            >
               {["字幕", "概览", "AI 对话"].map((tab, idx) => (
                 <div
                   key={tab}
                   style={{
-                    padding: "10px 22px",
-                    borderRadius: 12,
+                    minWidth: 112,
+                    padding: "9px 24px",
+                    borderRadius: 14,
                     background: idx === 0 ? MIST_GLASS.cardElevated : "transparent",
                     boxShadow: idx === 0 ? MIST_GLASS.tabActiveShadow : "none",
                     color: idx === 0 ? MIST_GLASS.accent : MIST_GLASS.muted,
-                    fontSize: 21,
-                    fontWeight: idx === 0 ? 740 : 580
+                    fontSize: 20,
+                    fontWeight: idx === 0 ? 700 : 600,
+                    textAlign: "center"
                   }}
                 >
                   {tab}
                 </div>
               ))}
             </div>
-
-            <div style={{display: "flex", alignItems: "center", gap: 10}}>
-              <span
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 999,
-                  background: "rgba(16, 185, 129, 0.14)",
-                  color: "#047857",
-                  fontSize: 18,
-                  fontWeight: 740
-                }}
-              >
-                ✓ 硅基流动免费 API · 转写完成
-              </span>
-              <span
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 999,
-                  background: "rgba(0, 140, 255, 0.14)",
-                  color: MIST_GLASS.accent,
-                  fontSize: 18,
-                  fontWeight: 740
-                }}
-              >
-                双语对照 ON
-              </span>
-            </div>
           </div>
 
-          {/* Subtitle Toolbar: Copy Markdown & Export SRT/TXT */}
+          {/* Row 4: .biliscript-reading-tab-body */}
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "14px 20px",
-              borderRadius: 18,
-              background: MIST_GLASS.cardElevated,
-              boxShadow: MIST_GLASS.cardShadow,
-              marginBottom: 20
+              position: "relative",
+              zIndex: 1,
+              padding: "18px 20px 20px",
+              borderRadius: 26,
+              background: MIST_GLASS.card,
+              boxShadow: MIST_GLASS.cardShadow
             }}
           >
-            <span style={{fontSize: 20, fontWeight: 650, color: MIST_GLASS.muted}}>
-              共 412 条双语时间轴字幕
-            </span>
-            <div style={{display: "flex", alignItems: "center", gap: 12}}>
+            {/* .biliscript-reading-sub-toolbar */}
+            <div style={{display: "flex", alignItems: "center", gap: 12, marginBottom: 16}}>
+              {/* .biliscript-reading-search */}
               <div
                 style={{
-                  position: "relative",
-                  padding: "10px 22px",
-                  borderRadius: 12,
-                  background: isExported ? COLORS.pink : "rgba(0, 140, 255, 0.12)",
-                  color: isExported ? "#FFFFFF" : MIST_GLASS.accent,
-                  fontSize: 20,
-                  fontWeight: 760,
-                  boxShadow: isExported ? "0 12px 26px -8px rgba(232, 93, 135, 0.52)" : "none",
-                  scale: interpolate(frame, [clickAt - 2, clickAt, clickAt + 4], [1, 0.94, 1], CLAMP)
+                  flex: "1 1 180px",
+                  height: 46,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0 8px 0 16px",
+                  borderRadius: 20,
+                  border: "1px solid #dcdfe5",
+                  background: MIST_GLASS.cardElevated
                 }}
               >
-                {isExported ? "✓ 已复制 Markdown" : SUBTOOLS_EXPORT_BUTTONS[0]}
+                <span style={{fontSize: 19, color: MIST_GLASS.faint}}>搜索字幕…</span>
+                <div style={{display: "flex", alignItems: "center", gap: 4, color: MIST_GLASS.muted, opacity: 0.45, fontSize: 18}}>
+                  <span style={{width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center"}}>↑</span>
+                  <span style={{width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center"}}>↓</span>
+                </div>
+              </div>
+
+              {/* .biliscript-reading-track-picker（.custom-select-trigger + .biliscript-bilingual-badge） */}
+              <div
+                style={{
+                  flex: "0 0 auto",
+                  height: 46,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "0 14px",
+                  borderRadius: 20,
+                  border: "1px solid #dcdfe5",
+                  background: MIST_GLASS.cardElevated,
+                  color: MIST_GLASS.text,
+                  fontSize: 19,
+                  fontWeight: 560
+                }}
+              >
+                <span>{dualActive ? "英文" : "自配平台转写（英文）"}</span>
+                {bilingualReveal > 0.01 && (
+                  <span
+                    style={{
+                      opacity: bilingualReveal,
+                      padding: "2px 7px",
+                      borderRadius: 6,
+                      background: MIST_GLASS.accentSoft,
+                      color: MIST_GLASS.accent,
+                      fontSize: 16,
+                      fontWeight: 680,
+                      lineHeight: "20px"
+                    }}
+                  >
+                    双语
+                  </span>
+                )}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={MIST_GLASS.faint} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+
+              {/* #biliscript-reading-copy-subtitle-btn (.biliscript-reading-icon-btn) */}
+              <div
+                aria-label={showCheck ? "已复制" : SUBTOOLS_EXPORT_BUTTONS[0]}
+                style={{
+                  position: "relative",
+                  width: 46,
+                  height: 46,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 16,
+                  background: isHoveringCopy || showCheck ? "rgba(23, 24, 26, 0.06)" : "transparent",
+                  color: showCheck ? MIST_GLASS.accent : MIST_GLASS.text,
+                  scale: copyPressScale
+                }}
+              >
+                <div style={{display: "inline-flex", scale: copyPopScale, opacity: copyPopOpacity}}>
+                  {showCheck ? (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="10" height="10" rx="2" />
+                      <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </div>
                 {pointerOpacity > 0.01 && (
                   <svg
                     viewBox="0 0 30 38"
@@ -685,87 +841,126 @@ export const SubtoolsScene = () => {
                   </svg>
                 )}
               </div>
+
+              {/* #biliscript-reading-export-subtitle-btn (.biliscript-reading-icon-btn) */}
               <div
+                aria-label={SUBTOOLS_EXPORT_BUTTONS[1]}
                 style={{
-                  padding: "10px 18px",
-                  borderRadius: 12,
-                  background: "rgba(15, 23, 42, 0.06)",
-                  color: MIST_GLASS.text,
-                  fontSize: 20,
-                  fontWeight: 680
+                  width: 46,
+                  height: 46,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 16,
+                  background: "transparent",
+                  color: MIST_GLASS.text
                 }}
               >
-                {SUBTOOLS_EXPORT_BUTTONS[1]}
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                </svg>
               </div>
             </div>
-          </div>
 
-          {/* Bilingual Subtitle Rows */}
-          <div style={{display: "flex", flexDirection: "column", gap: 16}}>
-            {SUBTOOLS_BILINGUAL_ROWS.map((row) => (
-              <div
-                key={row.timestamp}
-                style={{
-                  padding: "20px 24px",
-                  borderRadius: 20,
-                  background: MIST_GLASS.cardElevated,
-                  boxShadow: MIST_GLASS.cardShadow
-                }}
-              >
-                <div style={{display: "flex", alignItems: "center", gap: 14, marginBottom: 8}}>
+            {/* .biliscript-reading-subtitle */}
+            <div style={{display: "flex", flexDirection: "column", gap: 6, padding: "4px 4px 2px"}}>
+              {SUBTOOLS_ROWS.map((row) => (
+                <div
+                  key={row.timestamp}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "82px minmax(0, 1fr)",
+                    gap: 14,
+                    alignItems: "start",
+                    padding: "14px 16px",
+                    borderRadius: 22,
+                    background: row.active ? MIST_GLASS.cardElevated : "transparent",
+                    boxShadow: row.active ? MIST_GLASS.tabActiveShadow : "none"
+                  }}
+                >
+                  {/* .biliscript-reading-time */}
                   <span
                     style={{
-                      padding: "4px 14px",
+                      justifySelf: "start",
+                      alignSelf: "start",
+                      padding: row.active ? "2px 10px" : 0,
                       borderRadius: 999,
-                      background: MIST_GLASS.timeBg,
-                      color: MIST_GLASS.timeColor,
+                      background: row.active ? MIST_GLASS.timeBg : "transparent",
+                      color: row.active ? MIST_GLASS.timeColor : MIST_GLASS.muted,
                       fontFamily: BRAND_FONT_FAMILY,
-                      fontSize: 21,
-                      fontWeight: 780
+                      fontVariantNumeric: "tabular-nums",
+                      fontSize: 20,
+                      fontWeight: 650,
+                      lineHeight: 1.5
                     }}
                   >
                     {row.timestamp}
                   </span>
-                  <span style={{fontSize: 22, fontWeight: 640, color: MIST_GLASS.text}}>{row.source}</span>
-                </div>
-                <div
-                  style={{
-                    paddingLeft: 14,
-                    borderLeft: `3px solid ${MIST_GLASS.accent}`,
-                    fontSize: 24,
-                    fontWeight: 720,
-                    color: "#0F172A"
-                  }}
-                >
-                  {row.translation}
-                </div>
-              </div>
-            ))}
-          </div>
 
-          {/* Floating Markdown Preview Card after clicking Copy Markdown */}
-          {exportCardProgress > 0.01 && (
+                  {/* .biliscript-reading-text + .biliscript-reading-subtext（副行只在双语态出现） */}
+                  <div style={{minWidth: 0, lineHeight: 1.48}}>
+                    <div style={{fontSize: 21, fontWeight: row.active ? 650 : 500, color: MIST_GLASS.text}}>
+                      {row.source}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 4 * bilingualReveal,
+                        maxHeight: 40 * bilingualReveal,
+                        opacity: bilingualReveal,
+                        overflow: "hidden",
+                        fontSize: 19,
+                        fontWeight: 480,
+                        lineHeight: 1.42,
+                        color: MIST_GLASS.faint
+                      }}
+                    >
+                      {row.translation}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* .biliscript-bilingual-footer：双语开关 + 单轨说明 */}
             <div
               style={{
-                marginTop: 18,
-                padding: "18px 24px",
-                borderRadius: 20,
-                background: "#111827",
-                color: "#F8FAFC",
-                boxShadow: "0 24px 48px -14px rgba(15, 23, 42, 0.45), 0 0 0 1.5px rgba(232, 93, 135, 0.48)",
-                opacity: exportCardProgress,
-                translate: `0px ${(1 - exportCardProgress) * 18}px`,
-                fontFamily: BRAND_FONT_FAMILY
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 12,
+                marginTop: 14,
+                padding: "0 4px"
               }}
             >
-              <div style={{marginBottom: 8, color: "#FB7299", fontSize: 18, fontWeight: 740}}>
-                已复制 · 含时间轴与双语对照
-              </div>
-              <div style={{fontSize: 19, lineHeight: 1.5, color: "#E2E8F0"}}>
-                - **[01:14]** Attention mechanisms... / 注意力机制让模型聚焦相关词元。
-              </div>
+              <span style={{fontSize: 17, fontWeight: 600, color: MIST_GLASS.muted}}>双语字幕</span>
+              {dualActive ? null : (
+                <span style={{fontSize: 17, color: MIST_GLASS.muted}}>本视频只有一条字幕轨</span>
+              )}
+              <span
+                style={{
+                  width: 46,
+                  height: 26,
+                  borderRadius: 999,
+                  background: dualActive ? MIST_GLASS.accent : "#d5d8dd",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: 3
+                }}
+              >
+                <span
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 999,
+                    background: "#ffffff",
+                    translate: `${dualActive ? 20 : 0}px 0px`
+                  }}
+                />
+              </span>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </AbsoluteFill>

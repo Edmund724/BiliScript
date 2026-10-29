@@ -24,8 +24,8 @@ export const OVERVIEW_TIMELINE = {
 
 export const SUBTOOLS_TIMELINE = {
   duration: 105,
-  bilingualAt: 10,
-  exportAt: 48,
+  bilingualAt: 34,
+  exportAt: 70,
   exportClickAt: 66
 };
 

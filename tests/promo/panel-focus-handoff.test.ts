@@ -49,7 +49,7 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
     expect(allCaptionTexts).toContain("硅基流动免费 API");
     expect(allCaptionTexts).not.toContain("免费语音转写");
     expect(allCaptionTexts).toContain("双语对照");
-    expect(allCaptionTexts).toContain("复制 Markdown");
+    expect(allCaptionTexts).toContain("一键复制字幕");
     expect(allCaptionTexts).not.toContain("笔记");
     expect(allCaptionTexts).toContain("UP 主说得对不对？AI 联网检索辅助核对");
     expect(allCaptionTexts).toContain("超纲概念背景补充");
