@@ -12,7 +12,7 @@ export const CAPTIONS = [
   {sceneId: "chat", text: "追问为何适配才是关键，点时间戳听原片实证：“这里有一个研究……”", startMs: 11800, endMs: 17300, timestampMs: null, confidence: null},
   {sceneId: "appearance", text: "浅色与深色模式，搭配蓝雾玻璃与数字刊物色板。", startMs: 17800, endMs: 20300, timestampMs: null, confidence: null},
   {sceneId: "providers", text: "14 个 AI 平台预设，另支持自定义端点。", startMs: 20900, endMs: 24900, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "双语字幕｜字幕导出｜语音识别｜联网搜索", startMs: outroMilliseconds(OUTRO_TIMELINE.features[0].at - 6), endMs: outroMilliseconds(OUTRO_TIMELINE.convergeAt), timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "04:07 吃灰进度条 → 切分知识卡片，48:16 全片「已读完 ✅」", startMs: outroMilliseconds(OUTRO_TIMELINE.flashbackAt), endMs: outroMilliseconds(OUTRO_TIMELINE.flashbackAt + OUTRO_TIMELINE.flashbackDuration), timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "Edge 应用商店｜GitHub 开源", startMs: outroMilliseconds(OUTRO_TIMELINE.brandResolveAt + 24), endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
+  {sceneId: "outro", text: "01/04 双语字幕｜02/04 字幕导出｜03/04 语音识别｜04/04 联网搜索", startMs: outroMilliseconds(OUTRO_TIMELINE.features[0].at - OUTRO_TIMELINE.featureEnterFrames), endMs: outroMilliseconds(OUTRO_TIMELINE.convergeAt), timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "BiliScript｜在 B 站，读下一条视频。", startMs: outroMilliseconds(OUTRO_TIMELINE.brandNameAt), endMs: outroMilliseconds(OUTRO_TIMELINE.taglineAt), timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "Edge 应用商店｜GitHub 开源", startMs: outroMilliseconds(OUTRO_TIMELINE.ctaAt), endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
 ];

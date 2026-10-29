@@ -5,13 +5,13 @@ import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, FONT_FAMILY, entranceOpacity} f
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
-const FEATURE_CARD = {width: 382, asrWidth: 504, height: 388, gap: 24, top: 344};
 const CANVAS_WIDTH = 1920;
-const FEATURE_WIDTHS = OUTRO_TIMELINE.features.map((f) => (f.id === "feature-asr" ? FEATURE_CARD.asrWidth : FEATURE_CARD.width));
-const FEATURE_ROW_WIDTH =
-  FEATURE_WIDTHS.reduce((sum, w) => sum + w, 0) + (OUTRO_TIMELINE.features.length - 1) * FEATURE_CARD.gap;
-const FEATURE_ROW_LEFT = (CANVAS_WIDTH - FEATURE_ROW_WIDTH) / 2;
-const FEATURE_ROW_CENTER_Y = FEATURE_CARD.top + FEATURE_CARD.height / 2;
+const FEATURE_COUNT = OUTRO_TIMELINE.features.length;
+
+const BEAT_BADGE = {size: 104, top: 328};
+const BEAT_INDEX_TOP = 280;
+const BEAT_WORD = {top: 470, size: 200};
+const BEAT_NOTE_TOP = 744;
 
 const BRAND_ICON = {size: 110, top: 350};
 const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
@@ -42,725 +42,215 @@ const GitHubIcon = () => (
   </svg>
 );
 
-const AsrSoundwaveBadge = ({activeProgress}: {activeProgress: number}) => {
-  const frame = useCurrentFrame();
-  const pulsePhase = Math.max(0, frame - 34);
-  const ring1Progress = (pulsePhase % 24) / 24;
-  const ring2Progress = ((pulsePhase + 12) % 24) / 24;
-  const iconHeights = [0.46, 0.88, 1.0, 0.76, 0.52];
-
-  return (
-    <div
-      style={{
-        position: "relative",
-        width: 54,
-        height: 54,
-        borderRadius: 18,
-        background: "linear-gradient(135deg, #FB7299 0%, #E85D87 55%, #00AEEC 100%)",
-        boxShadow: "0 12px 26px -8px rgba(232, 93, 135, 0.58), inset 0 1px 1px rgba(255, 255, 255, 0.42)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 3.5,
-        opacity: activeProgress,
-        scale: interpolate(activeProgress, [0, 1], [0.65, 1], CLAMP) * (1 + 0.04 * Math.sin(pulsePhase * 0.45)),
-        flexShrink: 0
-      }}
-    >
-      {/* 动态扩散声波涟漪圈 1 */}
-      <div
-        style={{
-          position: "absolute",
-          inset: -2,
-          borderRadius: 20,
-          border: "2px solid rgba(251, 114, 153, 0.62)",
-          scale: 1 + ring1Progress * 0.46,
-          opacity: (1 - ring1Progress) * 0.78 * activeProgress,
-          pointerEvents: "none"
-        }}
-      />
-      {/* 动态扩散声波涟漪圈 2 */}
-      <div
-        style={{
-          position: "absolute",
-          inset: -2,
-          borderRadius: 20,
-          border: "1.5px solid rgba(0, 174, 236, 0.52)",
-          scale: 1 + ring2Progress * 0.54,
-          opacity: (1 - ring2Progress) * 0.64 * activeProgress,
-          pointerEvents: "none"
-        }}
-      />
-      {iconHeights.map((baseH, idx) => {
-        const bounce = 0.42 + 0.58 * Math.abs(Math.sin(pulsePhase * 0.52 + idx * 0.95));
-        const barH = Math.max(8, Math.round(28 * baseH * bounce));
-        return (
-          <div
-            key={idx}
-            style={{
-              width: 4,
-              height: barH,
-              borderRadius: 999,
-              background: "#FFFFFF",
-              boxShadow: "0 0 8px rgba(255, 255, 255, 0.65)"
-            }}
+const BeatGlyph = ({id}: {id: string}) => (
+  <svg width={64} height={64} viewBox="0 0 72 72" fill="none" aria-hidden="true">
+    {id === "feature-bilingual" ? (
+      <>
+        <rect x="16" y="25" width="40" height="8" rx="4" fill={COLORS.pink} />
+        <rect x="16" y="41" width="27" height="8" rx="4" fill={COLORS.blue} fillOpacity={0.72} />
+      </>
+    ) : id === "feature-export" ? (
+      <>
+        <path d="M36 16v23" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" />
+        <path d="m26 32 10 10 10-10" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M21 53h30" stroke={COLORS.blue} strokeWidth={4.5} strokeLinecap="round" />
+      </>
+    ) : id === "feature-asr" ? (
+      <>
+        {[18, 32, 46, 32, 18].map((height, index) => (
+          <rect
+            key={index}
+            x={15 + index * 9}
+            y={36 - height / 2}
+            width={5.5}
+            height={height}
+            rx={2.75}
+            fill={index === 2 ? COLORS.pink : COLORS.blue}
+            fillOpacity={index === 2 ? 1 : 0.68}
           />
-        );
-      })}
-    </div>
-  );
-};
-
-const FeatureMicroPreview = ({id, activeProgress}: {id: string; activeProgress: number}) => {
-  const frame = useCurrentFrame();
-  if (id === "feature-bilingual") {
-    return (
-      <div
-        style={{
-          padding: "14px 18px",
-          borderRadius: 18,
-          background: "rgba(244, 245, 248, 0.88)",
-          opacity: activeProgress,
-          translate: `0px ${(1 - activeProgress) * 14}px`
-        }}
-      >
-        <div style={{display: "flex", alignItems: "center", gap: 10, color: COLORS.foreground, fontSize: 18, fontWeight: 600}}>
-          <span style={{color: COLORS.pink, fontFamily: BRAND_FONT_FAMILY}}>04:07</span>
-          <span>即使给出证据也难避幻觉</span>
-        </div>
-        <div style={{marginTop: 4, color: COLORS.muted, fontSize: 14, fontWeight: 500, whiteSpace: "nowrap"}}>
-          Even with evidence, hallucinations persist
-        </div>
-      </div>
-    );
-  }
-  if (id === "feature-export") {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          opacity: activeProgress,
-          translate: `0px ${(1 - activeProgress) * 14}px`
-        }}
-      >
-        {["SRT", "TXT", "MD", "复制全文"].map((tag, idx) => (
-          <div
-            key={tag}
-            style={{
-              padding: "9px 12px",
-              borderRadius: 999,
-              background: idx === 2 ? "rgba(232, 93, 135, 0.14)" : "rgba(244, 245, 248, 0.92)",
-              color: idx === 2 ? COLORS.pink : COLORS.foreground,
-              fontSize: 16,
-              fontWeight: 600,
-              whiteSpace: "nowrap"
-            }}
-          >
-            {tag}
-          </div>
         ))}
-      </div>
-    );
-  }
-  if (id === "feature-asr") {
-    const baseBars = [0.42, 0.85, 0.62, 0.96, 0.54, 0.78, 0.9, 0.48, 0.74, 0.38];
-    const line1Text = "00:12 即使给出证据也难避幻觉";
-    const line2Text = "00:18 生肉/公开课音轨实时转写";
-    const streamProgress = interpolate(frame, [35, 62], [0, 1], CLAMP);
-    const line1Count = Math.max(4, Math.round(interpolate(streamProgress, [0, 0.52], [0, line1Text.length], CLAMP)));
-    const line2Count = Math.round(interpolate(streamProgress, [0.35, 0.95], [0, line2Text.length], CLAMP));
+      </>
+    ) : (
+      <>
+        <circle cx="33" cy="31" r="13" stroke={COLORS.pink} strokeWidth={4.5} />
+        <path d="m43 41 10 10" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" />
+        <circle cx="33" cy="31" r="3.2" fill={COLORS.blue} fillOpacity={0.8} />
+      </>
+    )}
+  </svg>
+);
 
-    return (
-      <div
-        style={{
-          padding: "12px 16px",
-          borderRadius: 18,
-          background: "linear-gradient(135deg, rgba(251, 114, 153, 0.10) 0%, rgba(38, 121, 184, 0.08) 100%)",
-          boxShadow: "inset 0 0 0 1px rgba(232, 93, 135, 0.22)",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          opacity: activeProgress,
-          translate: `0px ${(1 - activeProgress) * 14}px`
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            height: 44,
-            padding: "0 10px",
-            borderRadius: 12,
-            background: "rgba(255, 255, 255, 0.78)"
-          }}
-        >
-          {baseBars.map((h, i) => {
-            const waveMod = 0.55 + 0.45 * Math.abs(Math.sin((frame - 36) * 0.36 + i * 0.85));
-            const barHeight = Math.max(6, Math.round(36 * h * waveMod * activeProgress));
-            return (
-              <div
-                key={i}
-                style={{
-                  width: 5,
-                  height: barHeight,
-                  borderRadius: 999,
-                  background: i % 2 === 0 ? COLORS.pink : COLORS.blue
-                }}
-              />
-            );
-          })}
-        </div>
+const badgeTileStyle = {
+  width: BEAT_BADGE.size,
+  height: BEAT_BADGE.size,
+  borderRadius: 30,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "linear-gradient(158deg, rgba(255, 255, 255, 0.99) 0%, rgba(255, 243, 247, 0.94) 100%)",
+  boxShadow:
+    "0 24px 52px -20px rgba(232, 93, 135, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(232, 93, 135, 0.10)"
+} as const;
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            color: COLORS.pink,
-            fontSize: 18,
-            fontWeight: 800,
-            opacity: interpolate(streamProgress, [0, 0.2], [0.4, 1], CLAMP),
-            translate: `${Math.round(Math.sin(frame * 0.3) * 2)}px 0px`
-          }}
-        >
-          →
-        </div>
+type Feature = (typeof OUTRO_TIMELINE.features)[number];
 
-        <div style={{flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4}}>
-          <div
-            style={{
-              color: COLORS.foreground,
-              fontSize: 15,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              overflow: "hidden"
-            }}
-          >
-            <span style={{color: COLORS.pink, fontFamily: BRAND_FONT_FAMILY, marginRight: 6}}>
-              {line1Text.slice(0, Math.min(5, line1Count))}
-            </span>
-            <span>{line1Text.slice(6, line1Count)}</span>
-          </div>
-          <div
-            style={{
-              color: COLORS.blue,
-              fontSize: 14,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              display: "flex",
-              alignItems: "center"
-            }}
-          >
-            <span style={{fontFamily: BRAND_FONT_FAMILY, marginRight: 6}}>
-              {line2Count > 0 ? line2Text.slice(0, Math.min(5, line2Count)) : "00:18"}
-            </span>
-            <span>{line2Count > 6 ? line2Text.slice(6, line2Count) : "实时声波转文字流..."}</span>
-            <span
-              style={{
-                display: "inline-block",
-                width: 2,
-                height: 14,
-                marginLeft: 3,
-                background: COLORS.pink,
-                opacity: frame % 10 < 6 ? 1 : 0.25
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        opacity: activeProgress,
-        translate: `0px ${(1 - activeProgress) * 14}px`
-      }}
-    >
-      <div
-        style={{
-          padding: "10px 16px",
-          borderRadius: 999,
-          background: "rgba(38, 121, 184, 0.10)",
-          color: COLORS.blue,
-          fontSize: 16,
-          fontWeight: 600
-        }}
-      >
-        实时检索
-      </div>
-      <div
-        style={{
-          padding: "10px 16px",
-          borderRadius: 999,
-          background: "rgba(244, 245, 248, 0.92)",
-          color: COLORS.foreground,
-          fontSize: 16,
-          fontWeight: 600
-        }}
-      >
-        外部事实核验 [1][2]
-      </div>
-    </div>
-  );
-};
-
-const FeatureCards = () => {
+const FeatureBeat = ({feature, index}: {feature: Feature; index: number}) => {
   const frame = useCurrentFrame();
-  const boardStart = OUTRO_TIMELINE.featureBoardAt;
-  const boardOpacity = entranceOpacity(frame, boardStart);
-  const boardRise = interpolate(frame, [boardStart, boardStart + 8], [22, 0], {...CLAMP, easing: ENTRANCE_EASING});
-  const converge = interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 7], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const convergeOpacity = interpolate(frame, [OUTRO_TIMELINE.convergeAt + 4, OUTRO_TIMELINE.convergeAt + 8], [1, 0], CLAMP);
-  const contentOpacity = interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 4], [1, 0], CLAMP);
+  const last = index === FEATURE_COUNT - 1;
+  const enterStart = feature.at - OUTRO_TIMELINE.featureEnterFrames;
+  const exitStart = last ? OUTRO_TIMELINE.convergeAt : feature.at + OUTRO_TIMELINE.featureHoldFrames;
+  const exitEnd = last ? exitStart + OUTRO_TIMELINE.convergeFrames : exitStart + OUTRO_TIMELINE.featureExitFrames;
+  if (frame < enterStart || frame > exitEnd) return null;
+
+  const enter = interpolate(frame, [enterStart, enterStart + 2], [0.4, 1], CLAMP);
+  const rise = interpolate(frame, [enterStart, feature.at], [86, 0], {...CLAMP, easing: ENTRANCE_EASING});
+  const badgeExit = last ? 0 : interpolate(frame, [exitStart, exitEnd], [0, 1], CLAMP);
+  const contentExit = interpolate(frame, [exitStart, exitEnd], [0, 1], {
+    ...CLAMP,
+    easing: last ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic)
+  });
+  const contentDrift = interpolate(frame, [exitStart, exitEnd], [0, last ? -104 : -74], {
+    ...CLAMP,
+    easing: last ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic)
+  });
+  const contentScale = last ? 1 - contentExit * 0.8 : 0.97 + enter * 0.03;
 
   return (
     <>
-      <BrandWhisper opacity={boardOpacity * contentOpacity} />
-      {OUTRO_TIMELINE.features.map((feature, index) => {
-        const cardWidth = FEATURE_WIDTHS[index];
-        const left =
-          FEATURE_ROW_LEFT +
-          FEATURE_WIDTHS.slice(0, index).reduce((sum, w) => sum + w, 0) +
-          index * FEATURE_CARD.gap;
-        const isAsr = feature.id === "feature-asr";
-        const dx = BRAND_MARK.x - (left + cardWidth / 2);
-        const dy = BRAND_MARK.y - FEATURE_ROW_CENTER_Y;
-        const activeProgress = interpolate(
-          frame,
-          [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at],
-          [0, 1],
-          {...CLAMP, easing: ENTRANCE_EASING}
-        );
-        const hitPulse = interpolate(frame, [feature.at - 2, feature.at + 2, feature.at + 14], [0, 1, 0], CLAMP);
-        const asrSpotlight = isAsr
-          ? interpolate(frame, [feature.at - 4, feature.at + 4, OUTRO_TIMELINE.convergeAt - 2, OUTRO_TIMELINE.convergeAt + 4], [0, 1, 1, 0], CLAMP)
-          : 0;
-        const convergeScale = BRAND_ICON.size / cardWidth;
-
-        return (
-          <div
-            key={feature.id}
-            style={{
-              position: "absolute",
-              left,
-              top: FEATURE_CARD.top - asrSpotlight * 8,
-              width: cardWidth,
-              height: FEATURE_CARD.height,
-              padding: isAsr ? "30px 32px 26px" : "34px 36px 32px",
-              display: "flex",
-              flexDirection: "column",
-              borderRadius: 32,
-              background: isAsr
-                ? `linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 245, 249, ${0.95 + asrSpotlight * 0.04}) 100%)`
-                : "rgba(255, 255, 255, 0.94)",
-              backdropFilter: "blur(24px)",
-              boxShadow: `0 32px 76px -28px rgba(17, 24, 39, ${(0.18 + asrSpotlight * 0.08) * (1 - converge)}), 0 0 ${Math.round((hitPulse + asrSpotlight * 0.7) * 42)}px rgba(232, 93, 135, ${hitPulse * 0.28 + asrSpotlight * 0.22}), 0 0 0 ${isAsr ? 2 : 1}px rgba(232, 93, 135, ${0.06 + hitPulse * 0.34 + asrSpotlight * 0.42})`,
-              opacity: boardOpacity * convergeOpacity,
-              translate: `${dx * converge}px ${boardRise + dy * converge}px`,
-              scale: (1 + hitPulse * (isAsr ? 0.032 : 0.02) + asrSpotlight * 0.015) * (1 + (convergeScale - 1) * converge),
-              zIndex: isAsr ? 3 : 1
-            }}
-          >
-            <div style={{flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", opacity: contentOpacity}}>
-              <div>
-                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: isAsr ? 14 : 20}}>
-                  <div style={{width: isAsr ? 52 : 40, height: 4, borderRadius: 99, background: COLORS.pink}} />
-                  {isAsr ? (
-                    <div
-                      style={{
-                        padding: "4px 12px",
-                        borderRadius: 999,
-                        background: "rgba(232, 93, 135, 0.14)",
-                        border: "1px solid rgba(232, 93, 135, 0.32)",
-                        color: COLORS.pink,
-                        fontSize: 14,
-                        fontWeight: 700,
-                        letterSpacing: 0.2,
-                        opacity: activeProgress
-                      }}
-                    >
-                      无字幕救星 · 免费 ASR
-                    </div>
-                  ) : null}
-                </div>
-                <div style={{height: 68, overflow: "visible", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14}}>
-                  <div style={{height: 66, overflow: "hidden", display: "flex", alignItems: "center"}}>
-                    <div
-                      style={{
-                        color: COLORS.foreground,
-                        fontSize: 52,
-                        fontWeight: 600,
-                        lineHeight: 1.15,
-                        letterSpacing: -1.4,
-                        whiteSpace: "nowrap",
-                        translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 72px", "0px 0px"], {
-                          ...CLAMP,
-                          easing: ENTRANCE_EASING
-                        })
-                      }}
-                    >
-                      {feature.label}
-                    </div>
-                  </div>
-                  {isAsr ? <AsrSoundwaveBadge activeProgress={activeProgress} /> : null}
-                </div>
-              </div>
-
-              <FeatureMicroPreview id={feature.id} activeProgress={activeProgress} />
-
-              <div style={{height: isAsr ? 58 : 34, overflow: "hidden", display: "flex", alignItems: "flex-end"}}>
-                <div
-                  style={{
-                    color: isAsr ? COLORS.foreground : COLORS.muted,
-                    fontSize: isAsr ? 19 : 22,
-                    fontWeight: isAsr ? 600 : 500,
-                    lineHeight: isAsr ? 1.42 : 1.4,
-                    whiteSpace: isAsr ? "normal" : "nowrap",
-                    translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], [isAsr ? "0px 58px" : "0px 34px", "0px 0px"], {
-                      ...CLAMP,
-                      easing: ENTRANCE_EASING
-                    })
-                  }}
-                >
-                  {isAsr ? (
-                    <>
-                      <span style={{color: COLORS.pink, fontWeight: 700}}>没字幕也能读：</span>
-                      <span>支持接入免费的 ASR 模型进行语音识别，生肉/网课照样转写</span>
-                    </>
-                  ) : (
-                    feature.description
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: BEAT_INDEX_TOP,
+          textAlign: "center",
+          fontFamily: BRAND_FONT_FAMILY,
+          fontSize: 30,
+          fontWeight: 700,
+          letterSpacing: 2,
+          opacity: enter * (1 - contentExit),
+          translate: `0px ${rise}px`
+        }}
+      >
+        <span style={{color: COLORS.pink}}>{String(index + 1).padStart(2, "0")}</span>
+        <span style={{color: COLORS.subtle}}> / {String(FEATURE_COUNT).padStart(2, "0")}</span>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: BEAT_BADGE.top,
+          display: "flex",
+          justifyContent: "center",
+          opacity: enter * (1 - badgeExit),
+          translate: `0px ${rise}px`
+        }}
+      >
+        <div style={badgeTileStyle}>
+          <BeatGlyph id={feature.id} />
+        </div>
+      </div>
+      <div style={{position: "absolute", inset: 0, opacity: enter * (1 - contentExit), translate: `0px ${rise + contentDrift}px`, scale: contentScale}}>
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: BEAT_WORD.top,
+            textAlign: "center",
+            color: COLORS.foreground,
+            fontSize: BEAT_WORD.size,
+            fontWeight: 700,
+            lineHeight: 1,
+            letterSpacing: -7,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {feature.label}
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: BEAT_NOTE_TOP,
+            textAlign: "center",
+            color: COLORS.muted,
+            fontSize: 46,
+            fontWeight: 500,
+            letterSpacing: 0.4,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {feature.note}
+        </div>
+      </div>
     </>
   );
 };
 
-const FLASHBACK_SLICES = [
-  {
-    time: "00:00",
-    tag: "章节导览",
-    title: "机器幻觉定义与评测边界",
-    accent: COLORS.pink
-  },
-  {
-    time: "02:32",
-    tag: "金句卡片",
-    title: "“如果他不答，一定是零分。”",
-    accent: COLORS.blue
-  },
-  {
-    time: "04:07",
-    tag: "原片实证",
-    title: "“也很难避免幻觉” · 象棋实验",
-    accent: "#10B981"
-  }
-] as const;
-
-const FlashbackClosureCard = () => {
+const FeatureBeats = () => {
   const frame = useCurrentFrame();
-  const startAt = OUTRO_TIMELINE.flashbackAt;
-  const splitAt = OUTRO_TIMELINE.flashbackSplitAt;
-  const doneAt = OUTRO_TIMELINE.flashbackDoneAt;
-  const endAt = startAt + OUTRO_TIMELINE.flashbackDuration;
+  const whisperOpacity = entranceOpacity(frame, OUTRO_TIMELINE.featureBoardAt) *
+    (1 - interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 6], [0, 1], CLAMP));
+  const lastFeature = OUTRO_TIMELINE.features[FEATURE_COUNT - 1];
 
-  if (frame < startAt - 1 || frame > endAt + 3) return null;
-
-  const enterProgress = interpolate(frame, [startAt - 1, startAt + 4], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const splitProgress = interpolate(frame, [splitAt - 1, splitAt + 5], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const doneProgress = interpolate(frame, [doneAt - 1, doneAt + 4], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const exitProgress = interpolate(frame, [endAt - 5, endAt + 2], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-
-  const stageOpacity = enterProgress * (1 - exitProgress);
-  const stageScale =
-    interpolate(enterProgress, [0, 1], [0.9, 1]) *
-    interpolate(exitProgress, [0, 1], [1, 0.24]);
-  const stageTranslateY =
-    interpolate(enterProgress, [0, 1], [24, 0]) +
-    interpolate(exitProgress, [0, 1], [0, -48]);
-
-  const progressFill = interpolate(frame, [startAt, splitAt - 1, doneAt + 1], [0.085, 0.085, 1], {
-    ...CLAMP,
-    easing: ENTRANCE_EASING
-  });
-  const currentMinutes = Math.round(interpolate(progressFill, [0.085, 1], [4, 48], CLAMP));
-  const currentSeconds = Math.round(interpolate(progressFill, [0.085, 1], [7, 16], CLAMP));
-  const timecodeText = `${String(currentMinutes).padStart(2, "0")}:${String(currentSeconds).padStart(2, "0")} / 48:16`;
-
-  const stampScale = interpolate(
-    frame,
-    [doneAt - 1, doneAt + 3, doneAt + 8],
-    [1.45, 0.96, 1],
-    {...CLAMP, easing: ENTRANCE_EASING}
+  return (
+    <>
+      <BrandWhisper opacity={whisperOpacity} />
+      {OUTRO_TIMELINE.features.map((feature, index) => (
+        <FeatureBeat key={feature.id} feature={feature} index={index} />
+      ))}
+      <BrandSeal feature={lastFeature} />
+    </>
   );
-  const stampRingScale = interpolate(frame, [doneAt, doneAt + 14], [0.85, 1.45], CLAMP);
-  const stampRingOpacity = interpolate(frame, [doneAt, doneAt + 3, doneAt + 14], [0, 0.75, 0], CLAMP);
+};
+
+const BrandSeal = ({feature}: {feature: Feature}) => {
+  const frame = useCurrentFrame();
+  const startAt = OUTRO_TIMELINE.convergeAt + OUTRO_TIMELINE.convergeFrames;
+  const resolveAt = OUTRO_TIMELINE.brandResolveAt;
+  if (frame < startAt || frame > resolveAt) return null;
+
+  const drift = interpolate(frame, [startAt, resolveAt], [0, BRAND_MARK.y - (BEAT_BADGE.top + BEAT_BADGE.size / 2)], {
+    ...CLAMP,
+    easing: Easing.inOut(Easing.cubic)
+  });
+  const swell = interpolate(frame, [startAt, startAt + 5, resolveAt], [1, 1.42, BRAND_ICON.size / BEAT_BADGE.size], {
+    ...CLAMP,
+    easing: Easing.inOut(Easing.cubic)
+  });
+  const fade = interpolate(frame, [resolveAt - 4, resolveAt], [1, 0], CLAMP);
+  const ringProgress = interpolate(frame, [startAt, resolveAt], [0, 1], CLAMP);
 
   return (
     <div
       style={{
         position: "absolute",
-        left: (CANVAS_WIDTH - 1280) / 2,
-        top: 216,
-        width: 1280,
-        padding: "38px 44px 42px",
-        borderRadius: 40,
-        background:
-          doneProgress > 0.4
-            ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(240, 253, 244, 0.98) 100%)"
-            : "rgba(255, 255, 255, 0.97)",
-        backdropFilter: "blur(28px)",
-        boxShadow:
-          doneProgress > 0.4
-            ? "0 40px 96px -24px rgba(16, 185, 129, 0.28), 0 0 0 2.5px rgba(16, 185, 129, 0.45)"
-            : "0 36px 90px -24px rgba(17, 24, 39, 0.24), 0 0 0 2px rgba(232, 93, 135, 0.28)",
-        opacity: stageOpacity,
-        translate: `0px ${stageTranslateY.toFixed(1)}px`,
-        scale: stageScale,
-        transformOrigin: "50% 42%",
-        zIndex: 8
+        left: CANVAS_WIDTH / 2 - BEAT_BADGE.size / 2,
+        top: BEAT_BADGE.top,
+        width: BEAT_BADGE.size,
+        height: BEAT_BADGE.size,
+        opacity: fade,
+        translate: `0px ${drift}px`,
+        scale: swell,
+        zIndex: 4
       }}
     >
-      {/* Top Header: 00:00 Callback Status -> Completed Status */}
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 26
+          position: "absolute",
+          inset: -6,
+          borderRadius: "50%",
+          border: "2.5px solid rgba(232, 93, 135, 0.55)",
+          opacity: (1 - ringProgress) * 0.7,
+          scale: 1 + ringProgress * 1.6,
+          pointerEvents: "none"
         }}
-      >
-        <div style={{display: "flex", alignItems: "center", gap: 18}}>
-          <div
-            style={{
-              padding: "10px 22px",
-              borderRadius: 999,
-              background:
-                doneProgress > 0.4
-                  ? "rgba(16, 185, 129, 0.16)"
-                  : "rgba(232, 93, 135, 0.16)",
-              color: doneProgress > 0.4 ? "#047857" : "#C81E5B",
-              fontSize: 22,
-              fontWeight: 800,
-              letterSpacing: -0.3
-            }}
-          >
-            {splitProgress < 0.45 ? "⏸ 收藏夹吃灰 · 停在半路" : "⚡ 全片切分知识卡片"}
-          </div>
-          <div
-            style={{
-              fontFamily: BRAND_FONT_FAMILY,
-              fontSize: 36,
-              fontWeight: 800,
-              color: doneProgress > 0.4 ? "#059669" : COLORS.foreground,
-              letterSpacing: -1
-            }}
-          >
-            {timecodeText}
-          </div>
-        </div>
-
-        {/* Prominent 已读完 ✅ Stamp Badge with Impact Pulse */}
-        <div style={{position: "relative", display: "flex", alignItems: "center", justifyContent: "center"}}>
-          <div
-            style={{
-              position: "absolute",
-              inset: -6,
-              borderRadius: 999,
-              border: "3px solid #10B981",
-              opacity: stampRingOpacity,
-              scale: stampRingScale,
-              pointerEvents: "none"
-            }}
-          />
-          <div
-            style={{
-              padding: "14px 34px",
-              borderRadius: 999,
-              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-              boxShadow: "0 18px 42px -8px rgba(16, 185, 129, 0.65), 0 0 0 3px rgba(255, 255, 255, 0.95)",
-              color: "#FFFFFF",
-              fontSize: 32,
-              fontWeight: 800,
-              letterSpacing: -0.5,
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              opacity: doneProgress,
-              scale: stampScale
-            }}
-          >
-            <span>已读完 ✅</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Dusty 04:07 / 48:16 -> 48:16 / 48:16 Full Progress Bar */}
-      <div
-        style={{
-          position: "relative",
-          height: 30,
-          borderRadius: 999,
-          background: "rgba(17, 24, 39, 0.09)",
-          overflow: "visible",
-          marginBottom: 30
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${(progressFill * 100).toFixed(1)}%`,
-            borderRadius: 999,
-            background:
-              doneProgress > 0.3
-                ? "linear-gradient(90deg, #10B981 0%, #059669 100%)"
-                : "linear-gradient(90deg, #FB7299 0%, #E85D87 100%)",
-            boxShadow:
-              doneProgress > 0.3
-                ? "0 0 28px rgba(16, 185, 129, 0.52)"
-                : "0 0 20px rgba(232, 93, 135, 0.42)"
-          }}
-        />
-        {/* Slice Dividers on Progress Bar */}
-        {[0.333, 0.666].map((pos) => (
-          <div
-            key={pos}
-            style={{
-              position: "absolute",
-              left: `${pos * 100}%`,
-              top: -5,
-              bottom: -5,
-              width: 5,
-              borderRadius: 99,
-              background: "#FFFFFF",
-              opacity: splitProgress,
-              boxShadow: "0 0 10px rgba(17, 24, 39, 0.22)"
-            }}
-          />
-        ))}
-        {/* Playhead Knob */}
-        <div
-          style={{
-            position: "absolute",
-            left: `calc(${(progressFill * 100).toFixed(1)}% - 17px)`,
-            top: -4,
-            width: 38,
-            height: 38,
-            borderRadius: "50%",
-            background: "#FFFFFF",
-            border: `5px solid ${doneProgress > 0.3 ? "#059669" : COLORS.pink}`,
-            boxShadow: "0 6px 18px rgba(17, 24, 39, 0.28)"
-          }}
-        />
-      </div>
-
-      {/* 3 Sliced Knowledge Cards Row */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: interpolate(splitProgress, [0, 1], [6, 22]),
-          opacity: interpolate(frame, [startAt, splitAt + 2], [0.45, 1], CLAMP)
-        }}
-      >
-        {FLASHBACK_SLICES.map((slice, idx) => {
-          const cardLift = interpolate(splitProgress, [0, 1], [14, 0]);
-          const cardScale = interpolate(splitProgress, [0, 1], [0.95, 1]);
-          return (
-            <div
-              key={slice.time}
-              style={{
-                padding: "24px 26px",
-                borderRadius: 26,
-                background:
-                  doneProgress > 0.4
-                    ? "#FFFFFF"
-                    : "rgba(244, 245, 248, 0.94)",
-                border:
-                  doneProgress > 0.4
-                    ? "2px solid rgba(16, 185, 129, 0.48)"
-                    : "1.5px solid rgba(17, 24, 39, 0.08)",
-                boxShadow:
-                  splitProgress > 0.5
-                    ? "0 20px 42px -16px rgba(17, 24, 39, 0.14)"
-                    : "none",
-                translate: `${(idx - 1) * (1 - splitProgress) * -28}px ${cardLift.toFixed(1)}px`,
-                scale: cardScale,
-                display: "flex",
-                flexDirection: "column",
-                gap: 12
-              }}
-            >
-              <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-                <div style={{display: "flex", alignItems: "center", gap: 10}}>
-                  <span
-                    style={{
-                      fontFamily: BRAND_FONT_FAMILY,
-                      fontSize: 22,
-                      fontWeight: 800,
-                      color: doneProgress > 0.4 ? "#059669" : slice.accent
-                    }}
-                  >
-                    {slice.time}
-                  </span>
-                  <span
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 999,
-                      background:
-                        doneProgress > 0.4
-                          ? "rgba(16, 185, 129, 0.14)"
-                          : "rgba(255, 255, 255, 0.92)",
-                      color: doneProgress > 0.4 ? "#047857" : COLORS.foreground,
-                      fontSize: 15,
-                      fontWeight: 700
-                    }}
-                  >
-                    {slice.tag}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 800,
-                    color: "#059669",
-                    opacity: doneProgress
-                  }}
-                >
-                  ✓ 已读
-                </span>
-              </div>
-              <div
-                style={{
-                  color: COLORS.foreground,
-                  fontSize: 24,
-                  fontWeight: 700,
-                  lineHeight: 1.3,
-                  letterSpacing: -0.5,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis"
-                }}
-              >
-                {slice.title}
-              </div>
-            </div>
-          );
-        })}
+      />
+      <div style={{...badgeTileStyle, width: "100%", height: "100%"}}>
+        <BeatGlyph id={feature.id} />
       </div>
     </div>
   );
@@ -1099,8 +589,7 @@ export const OutroScene = () => {
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
       <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.06) 0%, rgba(232, 93, 135, 0) 72%)"}} />
-      <FeatureCards />
-      <FlashbackClosureCard />
+      <FeatureBeats />
       <BrandStage />
       <div
         style={{

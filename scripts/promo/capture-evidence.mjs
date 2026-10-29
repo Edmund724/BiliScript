@@ -63,7 +63,7 @@ const mobileShots = [
   {id: "appearance", at: 18.0},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 56)},
-  {id: "features", at: outroSeconds(OUTRO_TIMELINE.features.at(-1).at) + 0.5},
+  {id: "features", at: outroSeconds(OUTRO_TIMELINE.features[OUTRO_TIMELINE.features.length - 1].at) + 0.1},
   {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];
 for (const shot of mobileShots) {

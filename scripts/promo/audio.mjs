@@ -77,8 +77,6 @@ export const AUDIO = {
       gain: Number((0.40 + index * 0.04).toFixed(2)),
       duckDb: 3.5 + index * 0.4
     })),
-    {id: "flashback-slice", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackSplitAt, src: "media/sfx/shutter-2.wav", gain: 0.52, duckDb: 4.5},
-    {id: "flashback-done", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackDoneAt, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 5.0},
     {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.56, duckDb: 6},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2}
   ],

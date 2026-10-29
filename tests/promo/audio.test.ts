@@ -74,8 +74,6 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["provider-exit", PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, "media/sfx/snap.wav"],
       ["outro-cut", OUTRO_TIMELINE.from, "media/sfx/whoosh.wav"],
       ...OUTRO_TIMELINE.features.map((feature) => [feature.id, OUTRO_TIMELINE.from + feature.at, "media/sfx/pop.wav"]),
-      ["flashback-slice", OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackSplitAt, "media/sfx/shutter-2.wav"],
-      ["flashback-done", OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackDoneAt, "media/sfx/snap.wav"],
       ["brand-resolve", OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, "media/sfx/resolve.wav"],
       ["install-click", OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, "media/sfx/snap.wav"]
     ]);
@@ -102,7 +100,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(OVERVIEW_FROM + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(CHAT_FROM + CHAT_PLAYER_VERIFY_FROM + 15)).toBeCloseTo(base * 10 ** (-11.5 / 20));
-    expect(musicVolumeAtFrame(860)).toBe(base);
+    expect(musicVolumeAtFrame(850)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / AUDIO.music.fadeOutFrames);

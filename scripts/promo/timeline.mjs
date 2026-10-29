@@ -54,7 +54,7 @@ export const EVIDENCE_TIMES = [
   11.7, 12.5, 13.0, 14.3, 15.0, 15.8, 16.7, 17.3,
   17.7, 18.3, 19.0, 19.6, 20.3,
   20.7, 21.3, 21.6, 21.9, 23.0, 24.0, 25.0,
-  25.7, 26.3, 27.1, 28.1, 28.7, 29.0, 29.8, 30.9, 31.5, 32.3, 33.1,
+  25.7, 26.6, 27.1, 27.6, 28.1, 29.0, 29.4, 31.2, 31.6, 32.3, 33.1,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
@@ -84,8 +84,8 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "provider-exit", at: providerSeconds(PROVIDER_TIMELINE.exitAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
   {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
-  {id: "flashback-loop", at: outroSeconds(OUTRO_TIMELINE.flashbackDoneAt)},
   {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
+  {id: "brand-tagline", at: outroSeconds(OUTRO_TIMELINE.taglineAt)},
   {id: "brand-cta", at: outroSeconds(OUTRO_TIMELINE.ctaAt + 12)},
   {id: "install-click", at: outroSeconds(OUTRO_TIMELINE.installClickAt)},
   {id: "final-hold", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt), holdToEnd: true}

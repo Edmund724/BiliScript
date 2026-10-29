@@ -213,7 +213,8 @@ function makeScore() {
   }
 
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
-  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, 28.9, 30.9];
+  const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
+  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, resolveAt, 30.9];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
   }
@@ -241,8 +242,7 @@ function makeScore() {
     add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
   }
 
-  // 28.50–30.70s 闪回闭环（30.52–30.88s 收束留白呼吸），30.90s 品牌清晰时刻 Resolve
-  const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
+  // 28.70s 徽章胀开成品牌落定 Resolve；30.52–30.88s 收尾留白呼吸，30.90s 标语落点
   add(track, subHit(0.56), resolveAt);
   add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
   add(track, tone(78, 1.8, {type: "bell", gain: 0.14}), resolveAt, -0.2);
