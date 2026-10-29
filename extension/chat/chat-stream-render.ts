@@ -33,12 +33,19 @@ import {
 } from "../ui/markdown.js";
 
 const CHAT_MARKDOWN_OPTIONS: MarkdownRenderOptions = { dropHeadingAdjacentHr: true };
+
+function createChevronSpan(className: string): HTMLSpanElement {
+  const chevron = document.createElement("span");
+  chevron.className = className;
+  chevron.innerHTML = READING_CHEVRON_DOWN_ICON.trim();
+  return chevron;
+}
 // mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
-import { READING_COPY_ICON } from "../ui/reading-icons.js";
+import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON } from "../ui/reading-icons.js";
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
@@ -285,8 +292,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     thinkingStartTimes.set(node, Date.now());
     const label = document.createElement("span");
     label.className = "chat-thinking-label";
-    // 图标与文案各占一个子节点：折叠态只改文案（见 collapseThinking），
-    // 直接写 label.textContent 会连图标一起清掉。
+    // 图标、文案与折叠 chevron 各占一个子节点：折叠态只改文案（见
+    // collapseThinking），直接写 label.textContent 会连图标一起清掉。
     const icon = document.createElement("span");
     icon.className = "chat-thinking-icon";
     icon.innerHTML = THINKING_ICON_SVG;
@@ -295,6 +302,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     labelText.textContent = "思考中…";
     label.appendChild(icon);
     label.appendChild(labelText);
+    label.appendChild(createChevronSpan("chat-thinking-chevron"));
     const text = document.createElement("div");
     text.className = "chat-thinking-text";
     node.appendChild(label);
@@ -841,7 +849,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const status = document.createElement("span");
     status.className = "chat-search-card-status";
     status.textContent = statusText;
-    head.append(label, query, status);
+    head.append(createChevronSpan("chat-search-card-chevron"), label, query, status);
     const steps = document.createElement("div");
     steps.className = "chat-search-card-steps";
     card.append(head, steps);

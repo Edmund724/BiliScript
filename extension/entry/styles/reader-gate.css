@@ -435,6 +435,8 @@ body[data-biliscript-reader-mode="1"],
   --select-search-radius: var(--biliscript-radius-pill);
   --select-search-font-size: var(--biliscript-font-size-sm);
   --select-arrow-color: var(--biliscript-reader-faint);
+  --select-arrow-size: 14px;
+  --select-arrow-stroke-width: 2;
 
   /* 3.5 开关（Toggle Switch）组件 Token */
   --toggle-track-width: 40px;

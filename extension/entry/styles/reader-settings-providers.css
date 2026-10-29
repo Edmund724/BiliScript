@@ -853,6 +853,10 @@
   #biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active {
     transform: none;
   }
+
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle svg {
+    transition: none;
+  }
 }
 
 /* ===== 减弱透明度 =====

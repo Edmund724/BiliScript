@@ -293,19 +293,23 @@
   }
 }
 
-/* 箭头取类型选择器那套观感：8px 见方、faint 色、1px 描边——本 SVG 是 24 视框，
- * stroke-width 换算成 3 才与 12 视框的 1.5 等宽。SVG 上的 stroke-width 是演示
- * 属性，CSS 规则可直接覆盖。 */
+/* 箭头与模型拉取键、聊天模型 chip 共用同一枚 24 视框 chevron：14px 见方、
+ * 2px 描边、faint 色。展开时翻朝上，用高度换「点开了」的即时反馈。 */
 #biliscript-reading-view .custom-select-arrow {
   display: inline-flex;
   flex: 0 0 auto;
   color: var(--select-arrow-color, var(--biliscript-reader-faint));
+  transition: transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 #biliscript-reading-view .custom-select-arrow svg {
-  width: 8px;
-  height: 8px;
-  stroke-width: 3;
+  width: var(--select-arrow-size, 14px);
+  height: var(--select-arrow-size, 14px);
+  stroke-width: var(--select-arrow-stroke-width, 2);
+}
+
+#biliscript-reading-view .custom-select-trigger[aria-expanded="true"] .custom-select-arrow {
+  transform: rotate(180deg);
 }
 
 /* 减少动态（原 reader-settings-providers.css:812-813 表尾降级块里的两条）：按压缩
@@ -320,6 +324,10 @@
   #biliscript-reading-view .custom-select-option:active,
   #biliscript-reading-view .custom-select-trigger:active {
     transform: none;
+  }
+
+  #biliscript-reading-view .custom-select-arrow {
+    transition: none;
   }
 
   /* 忙碌点同上：呼吸动画关停，圆点留在场作静态指示。 */

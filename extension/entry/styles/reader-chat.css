@@ -695,21 +695,37 @@
   height: 0;
 }
 
-/* 思考流结束后的折叠态：收成一行「思考过程 ▸」，点击展开回看（当轮有效，
- * 思考不落盘）；折叠/展开箭头经 ::after 呈现，无需 JS 维护，间距由标题行的
- * flex gap 给。 */
+/* 思考流结束后的折叠态：收成一行「思考过程 ⌄」，点击展开回看（当轮有效，
+ * 思考不落盘）；chevron 与下拉共用同一枚 SVG，间距由标题行的 flex gap 给。 */
 .biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-label {
   cursor: pointer;
   user-select: none;
 }
 
-.biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-label::after {
-  content: "▾";
-  font-weight: 400;
+.biliscript-reading-chat .chat-thinking-chevron {
+  display: none;
+  flex: none;
+  color: var(--select-arrow-color, var(--biliscript-reader-faint));
+  transition: transform 150ms ease-out;
 }
 
-.biliscript-reading-chat .chat-thinking-collapsed .chat-thinking-label::after {
-  content: "▸";
+.biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-chevron {
+  display: inline-flex;
+}
+
+.biliscript-reading-chat .chat-thinking-chevron svg {
+  display: block;
+  width: var(--select-arrow-size, 14px);
+  height: var(--select-arrow-size, 14px);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--select-arrow-stroke-width, 2);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-thinking-collapsed .chat-thinking-chevron {
+  transform: rotate(-90deg);
 }
 
 .biliscript-reading-chat .chat-thinking-collapsed .chat-thinking-text {
@@ -1449,11 +1465,11 @@
 
 .biliscript-reading-chat .chat-model-chip svg {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
+  width: var(--select-arrow-size, 14px);
+  height: var(--select-arrow-size, 14px);
   fill: none;
-  stroke: var(--biliscript-reader-faint);
-  stroke-width: 2;
+  stroke: var(--select-arrow-color, var(--biliscript-reader-faint));
+  stroke-width: var(--select-arrow-stroke-width, 2);
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: transform 150ms ease-out;
@@ -1937,7 +1953,7 @@
 }
 
 /* 头部即折叠开关：<button> 取按钮语义与 Enter/Space 激活，故归零浏览器默认
- * 外观（字体/边框/底色/内边距）；chevron 左置（::before）▸/▾，与思考块同族语言。 */
+ * 外观（字体/边框/底色/内边距）；chevron 左置，与思考块同族语言。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-search-card-head {
   display: flex;
   align-items: center;
@@ -1955,13 +1971,26 @@
   cursor: pointer;
 }
 
-.biliscript-reading-chat .chat-search-card-head::before {
-  content: "▾";
-  font-weight: 400;
+.biliscript-reading-chat .chat-search-card-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--select-arrow-color, var(--biliscript-reader-faint));
+  transition: transform 150ms ease-out;
 }
 
-.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-head::before {
-  content: "▸";
+.biliscript-reading-chat .chat-search-card-chevron svg {
+  display: block;
+  width: var(--select-arrow-size, 14px);
+  height: var(--select-arrow-size, 14px);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--select-arrow-stroke-width, 2);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-chevron {
+  transform: rotate(-90deg);
 }
 
 /* 工具名不参与收缩：中文可在任意字间断行，长查询词会把「联网搜索」挤成竖条。 */
@@ -2516,5 +2545,12 @@
   #biliscript-reading-view .biliscript-reading-chat-more-menu[hidden] {
     transition: none;
     transform: none;
+  }
+
+  .biliscript-reading-chat .chat-model-chip svg,
+  .biliscript-reading-chat .chat-scroll-bottom,
+  .biliscript-reading-chat .chat-thinking-chevron,
+  .biliscript-reading-chat .chat-search-card-chevron {
+    transition: none;
   }
 }

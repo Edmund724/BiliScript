@@ -107,6 +107,8 @@ describe("Component Tokens: 组件层契约测试", () => {
       expect(block).toContain("--select-search-radius: var(--biliscript-radius-pill)");
       expect(block).toContain("--select-search-font-size: var(--biliscript-font-size-sm)");
       expect(block).toContain("--select-arrow-color: var(--biliscript-reader-faint)");
+      expect(block).toContain("--select-arrow-size: 14px");
+      expect(block).toContain("--select-arrow-stroke-width: 2");
     });
 
     it("custom-select.css 全面消费组件 Token 与语义 Token，无裸 HEX 与硬编码 28px/14px", () => {

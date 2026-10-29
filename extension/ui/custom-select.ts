@@ -13,6 +13,7 @@
 //（真机 run13：滚动位置不在节点身份里，子树一脱离文档 scrollTop 就归零）。调用方不
 // 需要知道替换实现，也不需要自己快照滚动位置、自己按引用把卡片搬回去。
 import { ensureCustomSelectStyles } from "../shared/style-injector.js";
+import { READING_CHEVRON_DOWN_ICON } from "./reading-icons.js";
 
 ensureCustomSelectStyles();
 
@@ -502,7 +503,7 @@ export function initCustomSelect(
 
   const arrow = document.createElement("span");
   arrow.className = "custom-select-arrow";
-  arrow.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>`;
+  arrow.innerHTML = READING_CHEVRON_DOWN_ICON;
 
   trigger.appendChild(valueSpan);
   trigger.appendChild(arrow);

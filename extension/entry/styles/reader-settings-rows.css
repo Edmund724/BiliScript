@@ -322,13 +322,18 @@
 }
 
 #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle svg {
-  width: 8px;
-  height: 8px;
+  width: var(--select-arrow-size, 14px);
+  height: var(--select-arrow-size, 14px);
   stroke: currentColor;
-  stroke-width: 3;
+  stroke-width: var(--select-arrow-stroke-width, 2);
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+#biliscript-reading-view .provider-editor-host .ai-provider-model-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
 }
 
 #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle:disabled {

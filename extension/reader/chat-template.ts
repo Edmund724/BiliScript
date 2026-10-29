@@ -2,8 +2,8 @@
 //
 // 为什么是纯模板叶子：chat-tab.ts（对话组合根）已反向 import ui-renderer 的
 // setReaderScriptTab/openReaderSettingsPanel——对话 tab 模板若直接搬进
-// chat-tab.ts 会成环；本模块只依赖 reader/state.js 的 ids 表（零 reader/ui
-// 依赖、零逻辑），壳（ui-renderer）组装、chat-tab 消费 els，依赖图保持无环。
+// chat-tab.ts 会成环；本模块只依赖 reader/state.js 的 ids 表与纯字符串图标
+//（无逻辑、无状态），壳（ui-renderer）组装、chat-tab 消费 els，依赖图保持无环。
 //
 // 结构对应 sidepanel.html 的 sp* 树（id 换 readingChat* 前缀）。对话组合根
 //（reader/chat-tab.ts）首次激活时接线；未激活前壳保持静默空态（空消息区 +
@@ -22,6 +22,7 @@
 // .biliscript-reading-tabs-tools），对话 tab 内不再有工具条行。
 
 import { ids } from "./state.js";
+import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
 
 export function buildChatTabBodyHtml(): string {
   return `
@@ -61,9 +62,7 @@ export function buildChatTabBodyHtml(): string {
                滚走；footer 是 relative 的定位父级，按钮才固定浮在输入卡上方。历史
                整页打开时 footer 整体 display:none，按钮随之退场，无需另判。 -->
           <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="m6 9 6 6 6-6"></path>
-            </svg>
+            ${READING_CHEVRON_DOWN_ICON}
           </button>
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
@@ -106,9 +105,7 @@ export function buildChatTabBodyHtml(): string {
                   <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
                   <span class="chat-model-chip-model">未配置平台</span>
                   <span class="chat-model-chip-level">Off</span>
-                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                    <path d="m6 9 6 6 6-6"></path>
-                  </svg>
+                  ${READING_CHEVRON_DOWN_ICON}
                 </button>
                 <!-- 模型 + 思考档位面板：点 chip 弹出。上部分组模型列表（滚动），底部固定区
                      内联「思考强度 <当前值> + ↻ 重置键」与胶囊滑轨/单档胶囊 + 「关不掉」提示行。

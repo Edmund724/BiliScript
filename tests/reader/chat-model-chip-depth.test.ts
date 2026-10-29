@@ -70,7 +70,7 @@ describe("chip 主次：模型名持正文字色，档位退 muted", () => {
 describe("chip chevron 与档位同组（faint，不再吃 currentColor）", () => {
   it("chevron 用 faint，与面板一级行的「当前值 + chevron」同配色", () => {
     expect(declarationBody(ruleBody(readChatCss(), `${CHIP} svg`), "stroke")).toBe(
-      "var(--biliscript-reader-faint)"
+      "var(--select-arrow-color, var(--biliscript-reader-faint))"
     );
   });
 });
