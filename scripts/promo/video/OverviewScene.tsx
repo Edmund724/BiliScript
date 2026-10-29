@@ -1,4 +1,5 @@
 import {Easing, Sequence, interpolate, useCurrentFrame} from "remotion";
+import {OVERVIEW_TIMELINE} from "../timeline.mjs";
 import {
   BRAND_FONT_FAMILY,
   BottomLectureCaption,
@@ -26,14 +27,14 @@ export const OVERVIEW_VIDEO_REFERENCE = {
 
 export const OVERVIEW_POLAROID_QUOTE = "他只要去答这个题目，\n得的就不是零分；\n但如果他不答，一定是零分！";
 
-const CHAPTER_RATIO = 2.6 / 4;
+const CHAPTER_RATIO = OVERVIEW_TIMELINE.chapterRatio;
 const SCENE_REFERENCE_DURATION = 120;
 
 export const OVERVIEW_CHAPTER_DURATION = Math.round(SCENE_REFERENCE_DURATION * CHAPTER_RATIO);
 export const OVERVIEW_QUOTE_START_FRAME = OVERVIEW_CHAPTER_DURATION;
 export const OVERVIEW_QUOTE_DURATION = SCENE_REFERENCE_DURATION - OVERVIEW_CHAPTER_DURATION;
 
-const QUOTE_LIFT_FRAMES = 18;
+const QUOTE_LIFT_FRAMES = OVERVIEW_TIMELINE.quoteLiftFrames;
 
 export function overviewChapterDuration(duration: number): number {
   return Math.round(duration * CHAPTER_RATIO);

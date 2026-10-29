@@ -1,9 +1,29 @@
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
+import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 
 export const PROMO_WIDTH = 1920;
 export const PROMO_HEIGHT = 1080;
 export const PROMO_FPS = OUTRO_TIMELINE.fps;
 export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
+
+export const HERO_TIMELINE = {
+  hookPopAt: 4,
+  hookHoldUntil: 51,
+  pullbackEnd: 57,
+  clickAt: 56,
+  headlineRevealAt: 57,
+  snapEmphasisAt: 76
+};
+
+export const OVERVIEW_TIMELINE = {
+  chapterRatio: 2.6 / 4,
+  quoteLiftFrames: 18
+};
+
+export const APPEARANCE_TIMELINE = {
+  darkFrom: 21,
+  editorialFrom: 57
+};
 
 export const PROVIDER_TIMELINE = {
   duration: 150,
@@ -50,7 +70,7 @@ export const APPEARANCE_SHOTS = [
 export const EVIDENCE_TIMES = [
   0, 0.2, 0.6, 1.2, 1.6, 2.0, 2.5, 3.1,
   3.7, 5.0, 5.5, 5.9, 7.3,
-  7.7, 8.7, 10.0, 10.7, 11.3,
+  7.7, 8.7, 10.1, 10.7, 11.3,
   11.7, 12.5, 13.0, 14.3, 15.0, 15.8, 16.7, 17.3,
   17.7, 18.3, 19.0, 19.6, 20.3,
   20.7, 21.3, 21.6, 21.9, 23.0, 24.0, 25.0,
@@ -64,13 +84,13 @@ const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 
 export const EVIDENCE_TRANSITIONS = [
   {id: "pain-point-hook", at: 0.55},
-  {id: "hero-pullback-open", at: 2.0},
-  {id: "hero-slogan-zoom", at: 2.6},
+  {id: "hero-pullback-open", at: 1.8},
+  {id: "hero-slogan-zoom", at: 2.53},
   {id: "keyword-slice", at: 3.6},
   {id: "timestamp-match", at: 5.6},
   {id: "chapters", at: 7.5},
-  {id: "quote-lift", at: 9.4},
-  {id: "quote-card", at: 9.77},
+  {id: "quote-lift", at: 10.1},
+  {id: "quote-freeze", at: 10.57},
   {id: "overview-chat-defocus", at: 11.5},
   {id: "chat-timestamp-click", at: 14.3},
   {id: "chat-player-verify", at: 15.6},
@@ -80,7 +100,7 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},
-  {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 30)},
+  {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + (PROVIDER_LOGOS.length - 1) * PROVIDER_TIMELINE.logoStagger)},
   {id: "provider-exit", at: providerSeconds(PROVIDER_TIMELINE.exitAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
   {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},

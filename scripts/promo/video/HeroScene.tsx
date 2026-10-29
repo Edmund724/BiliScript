@@ -1,16 +1,17 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {HERO_TIMELINE} from "../timeline.mjs";
 import {BRAND_FONT_FAMILY, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1356, y: 52, width: 554, height: 1014};
 
-export const HERO_HOOK_HOLD_UNTIL_FRAME = 51;
+export const HERO_HOOK_HOLD_UNTIL_FRAME = HERO_TIMELINE.hookHoldUntil;
 export const HERO_PULLBACK_START = HERO_HOOK_HOLD_UNTIL_FRAME;
-export const HERO_PULLBACK_END = 57;
-export const HERO_CLICK_AT = 56;
+export const HERO_PULLBACK_END = HERO_TIMELINE.pullbackEnd;
+export const HERO_CLICK_AT = HERO_TIMELINE.clickAt;
 const PANEL_OPEN_FRAMES = 14;
-const HEADER_REVEAL_AT = 57;
-const SNAP_EMPHASIS_AT = 76;
+const HEADER_REVEAL_AT = HERO_TIMELINE.headlineRevealAt;
+const SNAP_EMPHASIS_AT = HERO_TIMELINE.snapEmphasisAt;
 const HERO_SOURCE_CLICK_FRAME = 36;
 
 export const HERO_PAIN_POINT = "1 小时干货长视频，还在收藏夹吃灰？";
@@ -18,7 +19,7 @@ export const HERO_STEM = "1 小时干货长视频，";
 export const HERO_HEADLINE = "BiliScript · 在 B 站直接「读」视频";
 
 export const HERO_SLOT_BEATS = [
-  {text: HERO_PAIN_POINT, from: 0, to: HERO_HOOK_HOLD_UNTIL_FRAME, popAt: 4}
+  {text: HERO_PAIN_POINT, from: 0, to: HERO_HOOK_HOLD_UNTIL_FRAME, popAt: HERO_TIMELINE.hookPopAt}
 ] as const;
 
 export function heroBeatIndexAtFrame(_frame: number): number {
@@ -50,8 +51,8 @@ const SinglePainPointHook = () => {
   const collapseBlur = interpolate(collapse, [0, 1], [0, 10]);
 
   const popPulse =
-    frame >= 4 && frame <= 12
-      ? interpolate(frame, [4, 6, 12], [1, 1.032, 1], {
+    frame >= HERO_TIMELINE.hookPopAt && frame <= HERO_TIMELINE.hookPopAt + 8
+      ? interpolate(frame, [HERO_TIMELINE.hookPopAt, HERO_TIMELINE.hookPopAt + 2, HERO_TIMELINE.hookPopAt + 8], [1, 1.032, 1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp"
         })

@@ -38,12 +38,10 @@ describe("宣传片配乐与三幕原声问答", () => {
 
   it("把定制拟音与三段原片老师回应放在真实交互帧上", () => {
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
-      ["hook-q1", 4, "media/sfx/pop.wav"],
-      ["hook-q2", 16, "media/sfx/pop.wav"],
-      ["hook-q3", 28, "media/sfx/pop.wav"],
-      ["hero-pullback", 40, "media/sfx/whoosh.wav"],
-      ["hero-open", 42, "media/sfx/click.wav"],
-      ["hero-snap", 75, "media/sfx/finger-snap.wav"],
+      ["hook-pain", 4, "media/sfx/pop.wav"],
+      ["hero-pullback", 51, "media/sfx/whoosh.wav"],
+      ["hero-open", 56, "media/sfx/click.wav"],
+      ["hero-snap", 76, "media/sfx/finger-snap.wav"],
       ["subtitle-cut", 105, "media/sfx/whoosh.wav"],
       ["subtitle-keyword-resolve", 113, "media/sfx/click.wav"],
       ["type-huan", 117, "media/sfx/mech-key-1.wav"],
@@ -52,11 +50,8 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["subtitle-seek-snap", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, "media/sfx/snap.wav"],
       ["overview-cut", 225, "media/sfx/whoosh.wav"],
       ["voice-0232-fade", 270, "media/sfx/voice-fade.wav"],
-      ["chapters-quote-cut", 277, "media/sfx/whoosh.wav"],
-      ["quote-card", 291, "media/sfx/shutter-1.wav"],
-      ["quote-slate", 298, "media/sfx/shutter-2.wav"],
-      ["quote-mist", 310, "media/sfx/shutter-3.wav"],
-      ["quote-save", 319, "media/sfx/polaroid-shutter.wav"],
+      ["chapters-quote-cut", 303, "media/sfx/whoosh.wav"],
+      ["quote-save", 317, "media/sfx/polaroid-shutter.wav"],
       ["overview-defocus", 339, "media/sfx/click.wav"],
       ["chat-focus", 352, "media/sfx/whoosh.wav"],
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
@@ -91,7 +86,8 @@ describe("宣传片配乐与三幕原声问答", () => {
     const base = AUDIO.music.gain;
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
-    expect(musicVolumeAtFrame(24)).toBeCloseTo(base * 10 ** (-3.5 / 20));
+    expect(musicVolumeAtFrame(12)).toBeCloseTo(base * 0.5 * 10 ** (-4 / 20));
+    expect(musicVolumeAtFrame(24)).toBe(base);
     expect(musicVolumeAtFrame(94)).toBe(base);
     expect(musicVolumeAtFrame(105)).toBeCloseTo(base * 10 ** (-5 / 20));
     expect(musicVolumeAtFrame(117)).toBeCloseTo(base * 10 ** (-3.8 / 20));

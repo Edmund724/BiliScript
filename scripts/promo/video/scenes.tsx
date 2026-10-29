@@ -1,6 +1,7 @@
 import {AbsoluteFill, Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {
   APPEARANCE_SHOTS,
+  APPEARANCE_TIMELINE,
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_PLAYER_VERIFY_TO,
   CHAT_TIMESTAMP_CLICK_FRAME,
@@ -457,8 +458,8 @@ export const ChatScene = () => {
 
 const APPEARANCE_PANEL = {left: 984, top: 132, width: 820, radius: 32};
 const APPEARANCE_PANEL_TILT = -8;
-const APPEARANCE_DARK_FROM = 21;
-const APPEARANCE_EDITORIAL_FROM = 57;
+const APPEARANCE_DARK_FROM = APPEARANCE_TIMELINE.darkFrom;
+const APPEARANCE_EDITORIAL_FROM = APPEARANCE_TIMELINE.editorialFrom;
 
 const appearanceCrop = (index: number): Crop =>
   index === 0

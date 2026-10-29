@@ -4,10 +4,14 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
-import {PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
+import {HERO_TIMELINE, OVERVIEW_TIMELINE, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const SAMPLE_RATE = 48000;
 const DURATION = PROMO_DURATION / PROMO_FPS;
+const OVERVIEW_SCENE = SCENES.find((scene) => scene.id === "overview");
+const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_SCENE.duration * OVERVIEW_TIMELINE.chapterRatio);
+const QUOTE_FREEZE_FROM = (OVERVIEW_SCENE.from + OVERVIEW_CHAPTER_FRAMES) / PROMO_FPS;
+const QUOTE_FREEZE_TO = (OVERVIEW_SCENE.from + OVERVIEW_SCENE.duration) / PROMO_FPS;
 const OUTPUT_DIR = path.join(PROMO_DIR, "assets", "audio");
 const TAU = Math.PI * 2;
 let randomState = 0x42b1115c;
@@ -167,8 +171,8 @@ function makeScore() {
       const stepAt = at + step * beat / 2;
       if (stepAt >= 30.45 && stepAt < 31.08) continue;
       const inVoice = inVoiceWindow(stepAt);
-      // 9.5–10.7s 金句切换色板与原片人声期间留出清透空间
-      if ((stepAt >= 9.55 && stepAt <= 10.65 || inVoice) && step % 2 === 1) continue;
+      // 金句单卡定格期间与原片人声段留出清透空间
+      if ((stepAt >= QUOTE_FREEZE_FROM && stepAt < QUOTE_FREEZE_TO || inVoice) && step % 2 === 1) continue;
       const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.55 : 1);
       const note = chord[arp[step]] + (stepAt >= 20.5 && stepAt < 25.5 ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
@@ -192,15 +196,15 @@ function makeScore() {
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
-    // 前 3.5 秒痛点三连问与主 Slogan 停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；9.5–10.7s 金句色板切换与原片人声段减轻高频打击乐
-    const inQuotePaletteWindow = at >= 9.5 && at <= 10.7;
+    // 前 1.7 秒单句痛点与品牌主张停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；金句单卡定格与原片人声段减轻高频打击乐
+    const inQuoteFreezeWindow = at >= QUOTE_FREEZE_FROM && at < QUOTE_FREEZE_TO;
     const inVoice = inVoiceWindow(at);
     const inProviderWave = at >= 20.5 && at < 25.5;
     add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProviderWave ? dyn * 1.08 : dyn), at);
-    if (index % 2 === 1 && at >= 3.5 && !inQuotePaletteWindow && !inVoice) {
+    if (index % 2 === 1 && at >= 3.5 && !inQuoteFreezeWindow && !inVoice) {
       add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
     }
-    if (at >= 2.5 && !inQuotePaletteWindow) {
+    if (at >= 2.5 && !inQuoteFreezeWindow) {
       add(track, hat(index % 4 === 3 && !inVoice, inVoice ? dyn * 0.45 : dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
       if (inProviderWave) {
         add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
@@ -214,7 +218,7 @@ function makeScore() {
 
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
-  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, resolveAt, 30.9];
+  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, resolveAt, 30.9];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
   }

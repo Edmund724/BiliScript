@@ -58,7 +58,7 @@ const mobileShots = [
   {id: "poster", at: 0},
   {id: "search", at: 4.5},
   {id: "chapters", at: 8.2},
-  {id: "quote", at: 9.5},
+  {id: "quote", at: 10.7},
   {id: "chat-verify", at: 15.1},
   {id: "appearance", at: 18.0},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
