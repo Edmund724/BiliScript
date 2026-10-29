@@ -140,7 +140,7 @@ describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设�
     // 即改前 content-box 下真机渲染出来的行高；理由见 custom-select.css 该规则块注释）
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*min-height:\s*38px/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-wrapper\s*\{[^}]*position:\s*relative/);
-    expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*3/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*var\(--select-arrow-stroke-width,\s*2\)/);
   });
 
   it("搬走后设置表不重复声明，且同度量的模型弹层声明仍在场（两边渲染度量都不变）", () => {

@@ -40,7 +40,7 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
@@ -130,7 +130,7 @@
   padding: var(--biliscript-space-xs) var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   font: inherit;
   font-size: var(--biliscript-font-size-base);
   background: var(--biliscript-reader-card);
@@ -348,7 +348,7 @@
 #biliscript-reading-view .provider-editor-model-badge {
   padding: 2px var(--biliscript-space-xs);
   border-radius: var(--biliscript-radius-xs);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-3);
   font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
 }
@@ -457,7 +457,7 @@
   padding: 0;
   border: 0;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-faint);
   cursor: pointer;
@@ -565,7 +565,7 @@
   gap: var(--biliscript-space-10);
   padding: var(--biliscript-space-14) var(--biliscript-space-lg);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -594,7 +594,7 @@
   padding: 0;
   border: 0;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: transparent;
   color: var(--biliscript-reader-faint);
   font-size: var(--biliscript-font-size-md);
@@ -623,7 +623,7 @@
   padding: var(--biliscript-space-xs) var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   font: inherit;
   font-size: var(--biliscript-font-size-base);
   background: var(--biliscript-reader-card);
@@ -651,7 +651,7 @@
   padding: var(--biliscript-space-6);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   display: flex;
   flex-direction: column;
@@ -665,7 +665,7 @@
   min-height: 30px;
   padding: 0 var(--biliscript-space-6);
   border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 #biliscript-reading-view .provider-editor-fetch-item:hover {
@@ -852,6 +852,10 @@
   #biliscript-reading-view .provider-editor-fetch-confirm:active,
   #biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active {
     transform: none;
+  }
+
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle svg {
+    transition: none;
   }
 }
 

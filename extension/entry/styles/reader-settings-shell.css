@@ -44,7 +44,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
   /* 半透明材质：overlay token（gate 段两主题定义）+ blur/saturate 毛玻璃，
    * 与 reader header 同款（reduced-transparency 见文件尾降级块） */
@@ -296,7 +296,7 @@
   padding: 0 var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -326,7 +326,7 @@
   padding: 0 var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--select-trigger-radius, var(--biliscript-radius-panel));
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -350,7 +350,7 @@
   padding: var(--biliscript-space-sm) var(--biliscript-space-10);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-lg);
-  corner-shape: squircle;
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;

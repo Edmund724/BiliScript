@@ -21,6 +21,7 @@ import {
   createSearchableOptionList,
   CUSTOM_SELECT_SEARCH_THRESHOLD
 } from "./custom-select.js";
+import { READING_CHEVRON_DOWN_ICON } from "./reading-icons.js";
 import type { ProviderRowElement, ProviderRowShowStatus } from "./provider-row.js";
 
 const modelDropdownDismissal = createOutsideClickDismissal({
@@ -39,10 +40,8 @@ export function buildModelPickerField({ inputClass, placeholder, value }: ModelP
   return `
     <div class="ai-provider-model-wrapper">
       <input class="${inputClass}" type="text" placeholder="${placeholder}" value="${escapeHtml(value)}" />
-      <button type="button" class="ai-provider-model-toggle" title="从 baseUrl 拉取可用模型" aria-label="从 baseUrl 拉取可用模型">
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M6 9l6 6 6-6"></path>
-        </svg>
+      <button type="button" class="ai-provider-model-toggle" title="从 baseUrl 拉取可用模型" aria-label="从 baseUrl 拉取可用模型" aria-haspopup="listbox" aria-expanded="false">
+        ${READING_CHEVRON_DOWN_ICON}
       </button>
       <ul class="ai-provider-model-dropdown" hidden></ul>
     </div>`;
@@ -90,8 +89,7 @@ export function wireModelPicker(
       // 选值即输入：draft 模型（provider-editor 片 3）靠 input 事件回写真源
       modelInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
-    const dropdown = row.querySelector<HTMLElement>(".ai-provider-model-dropdown");
-    if (dropdown) dropdown.hidden = true;
+    closeAllModelDropdowns();
   };
 
   const searchableList = initialDropdown
@@ -119,6 +117,7 @@ export function wireModelPicker(
 
   row.querySelector(".ai-provider-model-toggle")?.addEventListener("click", async (e) => {
     e.stopPropagation();
+    const toggle = e.currentTarget as HTMLButtonElement;
     const statusNode = row.querySelector(`.${statusClass}`) as HTMLElement | null;
     const baseUrl = (row.querySelector(`.${baseUrlClass}`) as HTMLInputElement).value.trim();
     const apiKey = (row.querySelector(`.${apiKeyClass}`) as HTMLInputElement).value.trim();
@@ -146,6 +145,7 @@ export function wireModelPicker(
     optionLis = [];
     countLi = null;
     dropdown.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
 
     const keyRequired = isKeyRequired ? isKeyRequired() : false;
     const savedKey = hasSavedKey ? hasSavedKey() : false;
@@ -236,8 +236,7 @@ export function wireModelPicker(
   });
 
   row.querySelector(`.${inputClass}`)?.addEventListener("input", () => {
-    const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
-    if (dropdown) dropdown.hidden = true;
+    closeAllModelDropdowns();
   });
 
   row.querySelector(".ai-provider-model-dropdown")?.addEventListener("click", (e) => {
@@ -251,6 +250,9 @@ export function wireModelPicker(
 export function closeAllModelDropdowns(): void {
   document.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
     dropdown.hidden = true;
+  });
+  document.querySelectorAll<HTMLElement>(".ai-provider-model-toggle").forEach((toggle) => {
+    toggle.setAttribute("aria-expanded", "false");
   });
   modelDropdownDismissal.sync();
 }

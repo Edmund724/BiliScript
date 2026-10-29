@@ -673,6 +673,8 @@ describe("quote-share 样式与架构契约", () => {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
   const cssContent = fs.readFileSync(cssPath, "utf-8").replace(/\r\n/g, "\n");
+  // 连续圆角统一经语义令牌声明，兜底值与令牌同值。
+  const CONTINUOUS_CORNER = "corner-shape: var(--biliscript-corner-shape, superellipse(1.25));";
 
   function rule(selector: string): string {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -701,15 +703,15 @@ describe("quote-share 样式与架构契约", () => {
 
   it("容器、关闭键、操作按钮与切换按钮遵循面板圆角和令牌契约", () => {
     expect(rule(".biliscript-quote-share-dialog")).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
-    expect(rule(".biliscript-quote-share-dialog")).toContain("corner-shape: squircle;");
+    expect(rule(".biliscript-quote-share-dialog")).toContain(CONTINUOUS_CORNER);
     expect(rule(".biliscript-quote-share-dialog")).toContain("box-shadow: var(--biliscript-reader-shadow);");
     expect(rule(".biliscript-quote-share-close")).toContain("width: 34px;");
-    expect(rule(".biliscript-quote-share-close")).toContain("corner-shape: squircle;");
+    expect(rule(".biliscript-quote-share-close")).toContain(CONTINUOUS_CORNER);
     expect(rule(".biliscript-quote-action-btn")).toContain("height: 32px;");
     expect(rule(".biliscript-quote-action-btn.is-primary")).toContain("background: var(--biliscript-reader-accent);");
-    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain("corner-shape: squircle;");
-    expect(rule(".biliscript-quote-preset-btn")).toContain("corner-shape: squircle;");
-    expect(rule(".biliscript-quote-pattern-btn")).toContain("corner-shape: squircle;");
+    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain(CONTINUOUS_CORNER);
+    expect(rule(".biliscript-quote-preset-btn")).toContain(CONTINUOUS_CORNER);
+    expect(rule(".biliscript-quote-pattern-btn")).toContain(CONTINUOUS_CORNER);
   });
 
   it("quote-share-modal.ts 与 reader/index.ts 仅导出 3 个公共模态函数，不泄露内部状态与辅助实现", async () => {
