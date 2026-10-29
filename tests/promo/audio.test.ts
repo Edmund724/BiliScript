@@ -59,7 +59,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["subtitle-seek-snap", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, "media/sfx/snap.wav"],
       ["overview-cut", 225, "media/sfx/whoosh.wav"],
       ["chapters-quote-cut", 309, "media/sfx/whoosh.wav"],
-      ["quote-share-open", 331, "media/sfx/pop.wav"],
+      ["quote-save", 323, "media/sfx/polaroid-shutter.wav"],
       ["voice-0232-fade", 351, "media/sfx/voice-fade.wav"],
       ["overview-defocus", 384, "media/sfx/click.wav"],
       ["chat-focus", 397, "media/sfx/whoosh.wav"],

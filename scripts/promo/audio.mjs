@@ -63,11 +63,11 @@ export const AUDIO = {
     {id: "overview-cut", frame: OVERVIEW_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "chapters-quote-cut", frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
     {
-      id: "quote-share-open",
-      frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + OVERVIEW_TIMELINE.quoteModalFrame,
-      src: "media/sfx/pop.wav",
-      gain: 0.40,
-      duckDb: 4.0
+      id: "quote-save",
+      frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + OVERVIEW_TIMELINE.quoteLiftFrames - 4,
+      src: "media/sfx/polaroid-shutter.wav",
+      gain: 0.62,
+      duckDb: 5.0
     },
     {id: "voice-0232-fade", frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 42, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
     {id: `${CHAT_HANDOFF.from}-defocus`, frame: CHAT_HANDOFF.at - CHAT_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},

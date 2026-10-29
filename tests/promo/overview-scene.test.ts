@@ -4,8 +4,8 @@ import {describe, expect, it} from "vitest";
 const overviewModulePath = "../../scripts/promo/video/OverviewScene";
 const overviewFilePath = "scripts/promo/video/OverviewScene.tsx";
 
-describe("概览镜头真实章节与金句分享录屏", () => {
-  it("保留用户场景主标题与视频参照元数据，使用真实章节和金句分享录屏", async () => {
+describe("概览镜头局部放大双章节脉络与金句拍立得印证", () => {
+  it("导出用户场景主标题、2 个局部放大章节卡片与视频参照元数据，移除密集 4 章节原片录屏墙", async () => {
     const mod = await import(overviewModulePath);
     expect(mod.OVERVIEW_HEADLINE).toBe("48 分钟长视频，\n3 秒提炼章节脉络与金句。");
     expect(mod.OVERVIEW_VIDEO_REFERENCE).toEqual({
@@ -14,18 +14,20 @@ describe("概览镜头真实章节与金句分享录屏", () => {
       captionTimestamp: "02:32",
       captionQuote: "“如果他不答，一定是零分！”"
     });
+    expect(mod.OVERVIEW_CHAPTERS).toHaveLength(2);
+    expect(mod.OVERVIEW_CHAPTERS.map((chapter: {timestamp: string}) => chapter.timestamp)).toEqual(["00:00", "02:32"]);
 
     const source = readFileSync(overviewFilePath, "utf8");
-    expect(source).toContain("overview-04-chapters.mp4");
-    expect(source).toContain("overview-04-quote.mp4");
-    expect(source).toContain("OffthreadVideo");
+    expect(source).not.toContain("AI 为什么爱犯幻觉？");
+    expect(source).not.toContain("SpatialChapterStack");
+    expect(source).not.toContain("VoiceWaveBar");
+    expect(source).not.toContain("overview-04-chapters.mp4");
     expect(source).toContain("VideoReferenceCard");
     expect(source).toContain("BottomLectureCaption");
-    expect(source).not.toContain("生成金句卡");
-    expect(source).not.toContain("QuotePolaroid");
+    expect(source).toContain("生成金句卡");
   });
 
-  it("将 165 帧（5.5 秒）镜头拆分为前 2.8 秒（84 帧）章节阅读与后 2.7 秒（81 帧）金句分享，且章节阶段隐藏底部原声字幕", async () => {
+  it("将 165 帧（5.5 秒）镜头拆分为前 2.8 秒（84 帧）双章节聚焦阅读与后 2.7 秒（81 帧）金句拍立得印证，且章节阶段隐藏底部原声字幕", async () => {
     const {
       OVERVIEW_CHAPTER_DURATION,
       OVERVIEW_QUOTE_DURATION,
@@ -54,12 +56,17 @@ describe("概览镜头真实章节与金句分享录屏", () => {
     expect(overviewVoiceCaptionOpacityAtFrame(92, 165)).toBe(1);
   });
 
-  it("后 2.7 秒从真实金句列表推进到分享弹窗，不重绘产品界面", () => {
+  it("后 2.7 秒从金句提炼栏平滑抬升定格单张 3D 拍立得金句成片卡，移除三次换色快门与 6×6 选项网格", async () => {
+    const mod = await import(overviewModulePath);
+    expect(mod.OVERVIEW_POLAROID_QUOTE).toContain("如果他不答，一定是零分！");
+    expect(mod.overviewQuoteLiftProgress(84)).toBe(0);
+    expect(mod.overviewQuoteLiftProgress(102)).toBe(1);
+    expect(mod.overviewQuoteLiftProgress(150)).toBe(1);
+
     const source = readFileSync(overviewFilePath, "utf8");
-    expect(source).toContain("startFrom={45}");
-    expect(source).toContain("playbackRate={1.2}");
-    expect(source).toContain("QUOTE_MODAL_CROP_Y");
-    expect(source).not.toContain("PaperGrainOverlay");
-    expect(source).not.toContain("ReadingLampBeam");
+    expect(source).not.toContain("PaletteSwatches");
+    expect(source).not.toContain("modalPalettes");
+    expect(source).not.toContain("无纹样");
+    expect(source).not.toContain("等高线");
   });
 });

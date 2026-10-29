@@ -1009,14 +1009,14 @@ const THEME_CONFIGS: readonly ThemeStyleConfig[] = [
     modeLabel: "夜间模式",
     fontScale: 1.06,
     isSerif: false,
-    panelBg: "linear-gradient(155deg, rgba(15, 23, 42, 0.97) 0%, rgba(23, 37, 68, 0.96) 100%)",
-    cardBg: "rgba(30, 41, 59, 0.92)",
-    textPrimary: "#F8FAFC",
-    textSecondary: "#94A3B8",
-    accent: "#38BDF8",
-    accentSoft: "rgba(56, 189, 248, 0.18)",
-    border: "rgba(56, 189, 248, 0.30)",
-    shadow: "-28px 44px 104px -22px rgba(2, 6, 23, 0.55), 0 0 56px -14px rgba(56, 189, 248, 0.32)"
+    panelBg: "linear-gradient(155deg, rgba(16, 17, 20, 0.97) 0%, rgba(27, 31, 38, 0.96) 100%)",
+    cardBg: "rgba(35, 38, 43, 0.92)",
+    textPrimary: "#F4F5F7",
+    textSecondary: "#A3A8B3",
+    accent: "#3D9BFF",
+    accentSoft: "rgba(61, 155, 255, 0.18)",
+    border: "rgba(255, 255, 255, 0.12)",
+    shadow: "-28px 44px 104px -22px rgba(2, 6, 23, 0.55), 0 0 56px -14px rgba(61, 155, 255, 0.24)"
   },
   {
     id: "editorial-light",
@@ -1025,14 +1025,14 @@ const THEME_CONFIGS: readonly ThemeStyleConfig[] = [
     modeLabel: "日间模式",
     fontScale: 1.12,
     isSerif: true,
-    panelBg: "linear-gradient(155deg, #FBF6EC 0%, #F4EBD9 100%)",
-    cardBg: "#FFFDF8",
-    textPrimary: "#221C16",
-    textSecondary: "#6B5E51",
-    accent: "#B5472A",
-    accentSoft: "rgba(181, 71, 42, 0.14)",
-    border: "rgba(181, 71, 42, 0.28)",
-    shadow: "-28px 44px 100px -24px rgba(68, 46, 24, 0.26), 0 0 52px -14px rgba(214, 148, 86, 0.28)"
+    panelBg: "linear-gradient(155deg, #FAF7F2 0%, #F5F0E8 100%)",
+    cardBg: "#F3EDE2",
+    textPrimary: "#2A2521",
+    textSecondary: "#6F665C",
+    accent: "#B85435",
+    accentSoft: "rgba(184, 84, 53, 0.12)",
+    border: "#E4DCCB",
+    shadow: "-28px 44px 100px -24px rgba(68, 46, 24, 0.26), 0 0 52px -14px rgba(184, 84, 53, 0.20)"
   },
   {
     id: "editorial-dark",
@@ -1041,14 +1041,14 @@ const THEME_CONFIGS: readonly ThemeStyleConfig[] = [
     modeLabel: "夜间模式",
     fontScale: 1.18,
     isSerif: true,
-    panelBg: "linear-gradient(155deg, #1C1917 0%, #29231E 100%)",
-    cardBg: "#26201B",
-    textPrimary: "#F5EFE6",
-    textSecondary: "#A89F91",
-    accent: "#F59E0B",
-    accentSoft: "rgba(245, 158, 11, 0.18)",
-    border: "rgba(245, 158, 11, 0.34)",
-    shadow: "-28px 44px 104px -22px rgba(12, 10, 9, 0.62), 0 0 64px -12px rgba(245, 158, 11, 0.36)"
+    panelBg: "linear-gradient(155deg, #171513 0%, #211E1B 100%)",
+    cardBg: "#211E1B",
+    textPrimary: "#ECE6DF",
+    textSecondary: "#9E9489",
+    accent: "#E07A5F",
+    accentSoft: "rgba(224, 122, 95, 0.16)",
+    border: "#3A322C",
+    shadow: "-28px 44px 104px -22px rgba(12, 10, 9, 0.62), 0 0 64px -12px rgba(224, 122, 95, 0.24)"
   }
 ] as const;
 
@@ -1059,12 +1059,85 @@ export function appearanceThemeIndexAtFrame(frame: number): number {
   return 3;
 }
 
+const APPEARANCE_CHAPTERS = [
+  {
+    timestamp: "0:00",
+    title: "机器幻觉的成因：大模型的评分机制与语言本质",
+    summary: "通过考试猜题的类比，解释大模型训练机制中“答错不扣分、答对得非零分、不答得零分”的逻辑，说明模型宁可“蒙”也不空着；同时指出对话模型只模仿语言规律，追求“说得像人”而非“事实正确”。"
+  },
+  {
+    timestamp: "2:32",
+    title: "幻觉无法彻底避免：商业价值与数据局限",
+    summary: "分析若模型过度谨慎只会回答“不知道”则失去商业价值。即使给出大量精确数据，也无法推测无关联的事实，因此幻觉无法彻底杜绝，只能通过横向比对和多重查证来降低。"
+  },
+  {
+    timestamp: "4:27",
+    title: "人机协作国际象棋实验：适配重于强弱",
+    summary: "介绍一项“强AI与弱搭档”协作的下象棋实验。结果显示懂得为同伴留后路、注重协作的组合击败了单纯追求最强算力的组合，证明协作中强弱并非决定因素。"
+  }
+] as const;
+
+const APPEARANCE_QUOTES = [
+  {
+    timestamp: "2:10",
+    content: "他只要去答这个题目，得的就不是零分，但是他如果不答一定是零分。我们训练大模型的时候就是这样训练的，那么在这种情况下，他一定会去蒙。"
+  },
+  {
+    timestamp: "2:59",
+    content: "它模仿的只是语言规律。对于它来说，只要这句话说得像个人说的自然语言就成了，而不在乎它是不是事实，它并不知道什么是事实。"
+  }
+] as const;
+
+const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy" | "theme" | "settings" | "close"; size?: number}) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill={name === "play" ? "currentColor" : "none"}
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {name === "play" ? <path d="M8.8 5.5v13l11-6.5z" /> : null}
+    {name === "share" ? (
+      <>
+        <circle cx="18" cy="5" r="3" />
+        <circle cx="6" cy="12" r="3" />
+        <circle cx="18" cy="19" r="3" />
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+      </>
+    ) : null}
+    {name === "copy" ? (
+      <>
+        <rect x="9" y="9" width="10" height="10" rx="2" />
+        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+      </>
+    ) : null}
+    {name === "theme" ? (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 4v16" />
+        <path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none" />
+      </>
+    ) : null}
+    {name === "settings" ? (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+      </>
+    ) : null}
+    {name === "close" ? <path d="M18 6 6 18M6 6l12 12" /> : null}
+  </svg>
+);
+
 export const AppearanceScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(90, APPEARANCE_HANDOFF);
   const themeIndex = appearanceThemeIndexAtFrame(frame);
   const theme = THEME_CONFIGS[themeIndex];
-  const fontPercent = Math.round(theme.fontScale * 100);
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
@@ -1125,7 +1198,6 @@ export const AppearanceScene = () => {
         })}
       </div>
 
-      {/* Right Reading Panel: Pure Reading Experience (Zero Settings Menu) */}
       <div
         style={{
           position: "absolute",
@@ -1145,136 +1217,159 @@ export const AppearanceScene = () => {
             boxSizing: "border-box",
             width: 908,
             height: 820,
-            borderRadius: 32,
+            borderRadius: 30,
+            overflow: "hidden",
             background: theme.panelBg,
             boxShadow: theme.shadow,
             border: `1.5px solid ${theme.border}`,
-            padding: "30px 38px 38px",
+            padding: "24px 30px 28px",
             transform: microPerspective(-6),
             color: theme.textPrimary,
-            fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
+            fontFamily: FONT_FAMILY
           }}
         >
-          {/* Top Reader Bar with Live Theme & Font Scale HUD */}
-          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexShrink: 0}}>
-            <div style={{display: "flex", alignItems: "center", gap: 10}}>
-              <span
-                style={{
-                  padding: "7px 16px",
-                  borderRadius: 999,
-                  background: theme.accentSoft,
-                  color: theme.accent,
-                  fontSize: 19,
-                  fontWeight: 780,
-                  fontFamily: FONT_FAMILY
-                }}
-              >
-                {theme.label}
-              </span>
-              <span
-                style={{
-                  padding: "7px 14px",
-                  borderRadius: 999,
-                  background: theme.accentSoft,
-                  color: theme.accent,
-                  fontSize: 18,
-                  fontWeight: 740,
-                  fontFamily: FONT_FAMILY
-                }}
-              >
-                {theme.isSerif ? "刊物衬线排版" : "现代无衬线"} · 字号 {fontPercent}%
-              </span>
+          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexShrink: 0}}>
+            <span style={{fontSize: 17, fontWeight: 650, color: theme.textSecondary}}>UP主：复旦赵斌</span>
+            <div style={{display: "flex", alignItems: "center", gap: 18, color: theme.textSecondary}}>
+              <AppearanceIcon name="theme" size={19} />
+              <AppearanceIcon name="settings" size={19} />
+              <AppearanceIcon name="close" size={19} />
             </div>
-            <span style={{color: theme.textSecondary, fontSize: 19, fontWeight: 640, fontFamily: FONT_FAMILY}}>
-              复旦赵斌 · 大模型公开课
-            </span>
           </div>
 
-          {/* Magazine / Reader Article Card */}
-          <div
-            style={{
-              display: "flex",
-              flex: 1,
-              flexDirection: "column",
-              minHeight: 0,
-              padding: "32px 34px 34px",
-              borderRadius: 24,
-              background: theme.cardBg,
-              border: `1px solid ${theme.border}`
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                marginBottom: 18,
-                fontFamily: BRAND_FONT_FAMILY
-              }}
-            >
-              <span
-                style={{
-                  padding: "5px 14px",
-                  borderRadius: 999,
-                  background: theme.accentSoft,
-                  color: theme.accent,
-                  fontSize: 19,
-                  fontWeight: 780
-                }}
-              >
-                02:32 章节精读
-              </span>
-              <span style={{fontSize: 19, color: theme.textSecondary, fontFamily: FONT_FAMILY}}>
-                {theme.isSerif ? "DIGITAL EDITORIAL EDITION" : "MIST GLASS READER"}
+          <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 24, flexShrink: 0}}>
+            {["字幕", "概览", "AI 对话"].map((tab) => {
+              const active = tab === "概览";
+              return (
+                <span
+                  key={tab}
+                  style={{
+                    minWidth: 108,
+                    padding: "10px 24px",
+                    borderRadius: 12,
+                    background: active ? theme.cardBg : "transparent",
+                    boxShadow: active ? "0 2px 8px rgba(15, 23, 42, 0.10)" : "none",
+                    color: active ? theme.accent : theme.textSecondary,
+                    fontSize: 18,
+                    fontWeight: active ? 740 : 580,
+                    textAlign: "center"
+                  }}
+                >
+                  {tab}
+                </span>
+              );
+            })}
+          </div>
+
+          <div style={{minHeight: 0, overflow: "hidden"}}>
+            <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 12}}>
+              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>章节</span>
+              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
+                AI 生成
               </span>
             </div>
 
-            <div
-              style={{
-                fontSize: Math.round(28 * theme.fontScale),
-                fontWeight: 780,
-                lineHeight: 1.32,
-                letterSpacing: theme.isSerif ? 0.2 : -0.6,
-                marginBottom: 20
-              }}
-            >
-              大模型为什么宁可编造答案，也不愿承认「我不知道」？
+            <div style={{display: "grid", gap: 12}}>
+              {APPEARANCE_CHAPTERS.map((chapter) => (
+                <div
+                  key={chapter.timestamp}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto 1fr",
+                    gap: 14,
+                    padding: "15px 17px",
+                    borderRadius: 16,
+                    background: theme.cardBg,
+                    border: `1px solid ${theme.border}`
+                  }}
+                >
+                  <span
+                    style={{
+                      alignSelf: "start",
+                      padding: "3px 9px",
+                      borderRadius: 999,
+                      background: theme.accentSoft,
+                      color: theme.accent,
+                      fontFamily: BRAND_FONT_FAMILY,
+                      fontSize: 15,
+                      fontWeight: 760,
+                      fontVariantNumeric: "tabular-nums"
+                    }}
+                  >
+                    {chapter.timestamp}
+                  </span>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: Math.round(18 * theme.fontScale),
+                        fontWeight: theme.isSerif ? 600 : 730,
+                        lineHeight: 1.32,
+                        fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
+                      }}
+                    >
+                      {chapter.title}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 7,
+                        color: theme.textSecondary,
+                        fontSize: Math.round(14 * theme.fontScale),
+                        lineHeight: 1.48
+                      }}
+                    >
+                      {chapter.summary}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gap: 14,
-                marginBottom: 24,
-                fontSize: Math.round(21 * theme.fontScale),
-                lineHeight: 1.62,
-                color: theme.textSecondary
-              }}
-            >
-              <p style={{margin: 0}}>
-                现行评测体系按答对计分、空缺记零分，激励模型在不确定时依然输出高置信度文本，从而产生系统性幻觉。
-              </p>
-              <p style={{margin: 0}}>
-                当训练目标更偏爱完整、流利的回答时，「我不知道」反而成了不被奖励的选择。语言上的自信，并不等于事实上的可靠。
-              </p>
-              <p style={{margin: 0}}>
-                因此，面对模型给出的结论，仍需要回到原文与上下文中核对，留意它是否提供了可以验证的依据。
-              </p>
+            <div style={{display: "flex", alignItems: "center", gap: 10, marginTop: 18, marginBottom: 12}}>
+              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>金句</span>
+              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
+                AI 精选
+              </span>
             </div>
 
-            <div
-              style={{
-                marginTop: "auto",
-                padding: "16px 22px",
-                borderLeft: `4px solid ${theme.accent}`,
-                background: theme.accentSoft,
-                borderRadius: "0 16px 16px 0",
-                fontSize: Math.round(22 * theme.fontScale),
-                fontWeight: 720,
-                color: theme.textPrimary
-              }}
-            >
-              “如果他不答，一定是零分；哪怕瞎猜，也有概率得分。”
+            <div style={{display: "grid", gap: 12}}>
+              {APPEARANCE_QUOTES.map((quote) => (
+                <div
+                  key={quote.timestamp}
+                  style={{padding: "14px 18px 11px", borderRadius: 16, background: theme.cardBg, border: `1px solid ${theme.border}`}}
+                >
+                  <div
+                    style={{
+                      fontSize: Math.round(17 * theme.fontScale),
+                      lineHeight: 1.5,
+                      fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
+                    }}
+                  >
+                    「{quote.content}」
+                  </div>
+                  <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, color: theme.textSecondary}}>
+                    <div style={{display: "flex", alignItems: "center", gap: 8}}>
+                      <AppearanceIcon name="play" size={16} />
+                      <span
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 999,
+                          background: theme.accentSoft,
+                          color: theme.accent,
+                          fontFamily: BRAND_FONT_FAMILY,
+                          fontSize: 15,
+                          fontWeight: 760
+                        }}
+                      >
+                        {quote.timestamp}
+                      </span>
+                    </div>
+                    <div style={{display: "flex", alignItems: "center", gap: 15}}>
+                      <AppearanceIcon name="share" size={17} />
+                      <AppearanceIcon name="copy" size={17} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

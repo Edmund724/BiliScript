@@ -18,7 +18,8 @@ export const HERO_TIMELINE = {
 export const OVERVIEW_TIMELINE = {
   duration: 165,
   chapterRatio: 84 / 165,
-  quoteModalFrame: 22
+  quoteClickFrame: 75,
+  quoteLiftFrames: 18
 };
 
 export const SUBTOOLS_TIMELINE = {
