@@ -431,8 +431,9 @@ export const ChapterInterstitial = ({
 };
 
 export const ChapterTitleCard = ChapterInterstitial;
+export const ChapterCard = ChapterInterstitial;
 
-export type LectureBottomCaptionProps = {
+export type BottomLectureCaptionProps = {
   timestamp: string;
   quote?: string;
   text?: string;
@@ -443,7 +444,9 @@ export type LectureBottomCaptionProps = {
   style?: CSSProperties;
 };
 
-export const LectureBottomCaption = ({
+export type LectureBottomCaptionProps = BottomLectureCaptionProps;
+
+export const BottomLectureCaption = ({
   timestamp,
   quote,
   text,
@@ -452,7 +455,7 @@ export const LectureBottomCaption = ({
   from,
   duration,
   style = {}
-}: LectureBottomCaptionProps) => {
+}: BottomLectureCaptionProps) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const local = from !== undefined ? frame - from : frame;
@@ -565,7 +568,270 @@ export const LectureBottomCaption = ({
   );
 };
 
-export const LectureSubtitleBar = LectureBottomCaption;
+export const LectureBottomCaption = BottomLectureCaption;
+export const LectureSubtitleBar = BottomLectureCaption;
+
+const DEFAULT_PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
+
+export type VideoReferenceCardProps = {
+  source?: string;
+  poster?: string;
+  startFrom?: number;
+  playbackRate?: number;
+  width?: number;
+  height?: number;
+  crop?: Crop;
+  upName?: string;
+  title?: string;
+  durationLabel?: string;
+  headerText?: string;
+  badgeText?: string;
+  captionTimestamp?: string;
+  captionQuote?: string;
+  captionActive?: boolean;
+  variant?: "window" | "bar";
+  tilt?: number;
+  delay?: number;
+  style?: CSSProperties;
+  children?: ReactNode;
+};
+
+export type BiliVideoReferenceCardProps = VideoReferenceCardProps;
+
+export const VideoReferenceCard = ({
+  source = "subtitle-seek-03.mp4",
+  poster,
+  startFrom = 84,
+  playbackRate = 0.2,
+  width = 760,
+  height,
+  crop = DEFAULT_PLAYER_CROP,
+  upName = "复旦赵斌",
+  title = "《大模型公开课》",
+  durationLabel = "48:16",
+  headerText,
+  badgeText,
+  captionTimestamp,
+  captionQuote,
+  captionActive = true,
+  variant = "window",
+  tilt = -7,
+  delay = 2,
+  style = {},
+  children
+}: VideoReferenceCardProps) => {
+  const playerScale = width / crop.width;
+  const resolvedHeight = height ?? Math.round(crop.height * playerScale * 0.78);
+  const resolvedHeader = headerText ?? `正在阅读：${upName}${title} ${durationLabel}`;
+  const resolvedBadge = badgeText ?? `${upName} · ${durationLabel} 公开课`;
+
+  if (variant === "bar") {
+    return (
+      <Reveal
+        delay={delay}
+        distance={14}
+        style={{
+          width,
+          padding: "16px 24px",
+          borderRadius: 999,
+          background: "rgba(255, 255, 255, 0.94)",
+          backdropFilter: "blur(20px)",
+          boxShadow: ELEVATION.cardSoft,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          pointerEvents: "none",
+          ...style
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", gap: 14}}>
+          <span
+            style={{
+              padding: "5px 14px",
+              borderRadius: 999,
+              background: "rgba(232, 93, 135, 0.14)",
+              color: COLORS.pink,
+              fontSize: 18,
+              fontWeight: 700,
+              whiteSpace: "nowrap"
+            }}
+          >
+            当前 B 站视频
+          </span>
+          <span style={{color: COLORS.foreground, fontSize: 22, fontWeight: 680, letterSpacing: -0.4}}>
+            {resolvedHeader}
+          </span>
+        </div>
+        <span
+          style={{
+            padding: "5px 14px",
+            borderRadius: 999,
+            background: "rgba(38, 121, 184, 0.10)",
+            color: COLORS.blue,
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 18,
+            fontWeight: 700,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {resolvedBadge}
+        </span>
+      </Reveal>
+    );
+  }
+
+  return (
+    <Reveal
+      delay={delay}
+      distance={16}
+      style={{
+        width,
+        transform: tilt === 0 ? undefined : `perspective(1600px) rotateX(4deg) rotateY(${tilt}deg)`,
+        ...style
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 14,
+          padding: "12px 22px",
+          marginBottom: 14,
+          borderRadius: 999,
+          background: "rgba(255, 255, 255, 0.94)",
+          backdropFilter: "blur(20px)",
+          boxShadow: "0 14px 34px -16px rgba(17, 24, 39, 0.14), 0 0 0 1px rgba(17, 24, 39, 0.06)"
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", gap: 12, minWidth: 0}}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: COLORS.pink,
+              boxShadow: "0 0 10px rgba(232, 93, 135, 0.65)",
+              flexShrink: 0
+            }}
+          />
+          <span
+            style={{
+              color: COLORS.foreground,
+              fontSize: 21,
+              fontWeight: 700,
+              letterSpacing: -0.3,
+              whiteSpace: "nowrap"
+            }}
+          >
+            {resolvedHeader}
+          </span>
+        </div>
+        <span
+          style={{
+            padding: "4px 14px",
+            borderRadius: 999,
+            background: "rgba(232, 93, 135, 0.12)",
+            color: COLORS.pink,
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 18,
+            fontWeight: 700,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {resolvedBadge}
+        </span>
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          width,
+          height: resolvedHeight,
+          borderRadius: 26,
+          overflow: "hidden",
+          boxShadow: ELEVATION.videoPlane,
+          background: "#0F172A"
+        }}
+      >
+        {poster ? (
+          <Img
+            src={staticFile(`media/${poster}`)}
+            style={{
+              position: "absolute",
+              left: -crop.x * playerScale,
+              top: -crop.y * playerScale - 28,
+              width: 1920 * playerScale,
+              height: 1080 * playerScale,
+              maxWidth: "none"
+            }}
+          />
+        ) : (
+          <OffthreadVideo
+            muted
+            src={staticFile(`media/${source}`)}
+            startFrom={startFrom}
+            playbackRate={playbackRate}
+            style={{
+              position: "absolute",
+              left: -crop.x * playerScale,
+              top: -crop.y * playerScale - 28,
+              width: 1920 * playerScale,
+              height: 1080 * playerScale,
+              maxWidth: "none"
+            }}
+          />
+        )}
+        <div
+          style={{
+            position: "absolute",
+            left: 18,
+            top: 18,
+            padding: "7px 16px",
+            borderRadius: 999,
+            background: "rgba(15, 23, 42, 0.76)",
+            backdropFilter: "blur(14px)",
+            boxShadow: "0 8px 24px -8px rgba(15, 23, 42, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.16)",
+            color: "#FFFFFF",
+            fontSize: 18,
+            fontWeight: 650,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            pointerEvents: "none"
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#FF709A"
+            }}
+          />
+          <span>{resolvedBadge}</span>
+        </div>
+        {captionTimestamp && captionQuote ? (
+          <BottomLectureCaption
+            timestamp={captionTimestamp}
+            quote={captionQuote}
+            active={captionActive}
+            style={{
+              bottom: 18,
+              padding: "10px 24px 10px 16px",
+              scale: 0.78,
+              transformOrigin: "50% 100%"
+            }}
+          />
+        ) : null}
+        {children}
+      </div>
+    </Reveal>
+  );
+};
+
+export const BiliVideoReferenceCard = VideoReferenceCard;
 
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
 export const microPerspective = (tilt = 6) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)`;
