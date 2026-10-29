@@ -5,6 +5,7 @@ import {promisify} from "node:util";
 import {bundle} from "@remotion/bundler";
 import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remotion/renderer";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
+import {resolveSharedBrowserExecutable} from "./browser-executable.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
@@ -212,6 +213,8 @@ await mkdir(EVIDENCE_DIR, {recursive: true});
 console.log("素材校验通过；面板素材为 3840×2160，01-intro 不在素材清单中");
 
 const RENDER_PORT = 3100;
+const browserExecutable = resolveSharedBrowserExecutable(REPO_ROOT);
+if (browserExecutable) console.log(`复用浏览器：${browserExecutable}`);
 const serveUrl = await bundle({
   entryPoint: path.join(REPO_ROOT, "scripts", "promo", "index.ts"),
   publicDir,
@@ -219,7 +222,7 @@ const serveUrl = await bundle({
   rspack: true,
   onProgress: progressLogger("打包", true)
 });
-const compositions = await getCompositions(serveUrl, {inputProps: {}, port: RENDER_PORT});
+const compositions = await getCompositions(serveUrl, {inputProps: {}, port: RENDER_PORT, browserExecutable});
 if (sceneArg) {
   const targetScene = SCENES.find((scene) => scene.id === sceneArg);
   const sceneComposition = compositions.find((composition) => composition.id === `Scene-${sceneArg}`);
@@ -235,6 +238,7 @@ if (sceneArg) {
       serveUrl,
       inputProps: sceneComposition.defaultProps,
       port: RENDER_PORT,
+      browserExecutable,
       codec: "h264",
       crf: 20,
       pixelFormat: "yuv420p",
@@ -258,6 +262,7 @@ if (sceneArg) {
       serveUrl,
       inputProps: sceneComposition.defaultProps,
       port: RENDER_PORT,
+      browserExecutable,
       frame: localFrame,
       imageFormat: "png",
       output: outputStill,
@@ -281,6 +286,7 @@ if (!stillsOnly && !postOnly) {
     serveUrl,
     inputProps: {},
     port: RENDER_PORT,
+    browserExecutable,
     codec: "h264",
     audioCodec: "aac",
     audioBitrate: "192k",
@@ -304,6 +310,7 @@ await renderStill({
   serveUrl,
   inputProps: {},
   port: RENDER_PORT,
+  browserExecutable,
   frame: 0,
   imageFormat: "png",
   output: draft ? path.join(EVIDENCE_DIR, "cover-draft.png") : path.join(RELEASE_DIR, "BiliScript-promo-cover.png"),
@@ -327,6 +334,7 @@ for (const seconds of EVIDENCE_TIMES) {
     serveUrl,
     inputProps: {},
     port: RENDER_PORT,
+    browserExecutable,
     frame,
     scale: 1,
     imageFormat: "png",

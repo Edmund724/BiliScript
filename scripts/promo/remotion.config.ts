@@ -1,5 +1,7 @@
 import {Config} from "@remotion/cli/config";
+import {resolveSharedBrowserExecutable} from "./browser-executable.mjs";
 
+Config.setBrowserExecutable(resolveSharedBrowserExecutable(process.cwd()));
 Config.setPublicDir("./.scratch/promo/public");
 Config.setBundleOutDir("./.scratch/promo/bundle");
 Config.setRspack(true);

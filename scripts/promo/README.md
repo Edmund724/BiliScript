@@ -18,6 +18,16 @@ pnpm promo:studio
 3. `video/Root.tsx` → `video/Promo.tsx` → 对应镜头实现。
 4. `audio.mjs`、`captions.mjs`：声音事件与字幕。
 
+## 浏览器缓存
+
+Remotion 的 Chrome Headless Shell 只保留主 checkout 的 `node_modules/.remotion/chrome-headless-shell`，worktree 直接复用，不再各下载约 280MB。`render.mjs` 与 `remotion.config.ts` 都通过 `browser-executable.mjs` 解析：
+
+1. `BILISCRIPT_REMOTION_BROWSER_EXECUTABLE` 指定的路径优先；
+2. 否则用 `git rev-parse --git-common-dir` 找到主 checkout，缓存里的可执行文件存在就复用；
+3. 都不成立时返回 `null`，由 Remotion 按默认逻辑下载。
+
+浏览器二进制不进版本库，也不在 worktree 之间复制。
+
 ## 按任务开始
 
 | 任务 | 命令 | 产物 |
