@@ -3,6 +3,7 @@ import {execFile} from "node:child_process";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
+import {FADE_OUT_TAIL_MAX_DB, measureFadeOutTail, windowRmsDb} from "./audio-measurements.mjs";
 import {AUDIO} from "./audio.mjs";
 import {PROMO_DURATION, PROMO_FPS} from "./timeline.mjs";
 import {resolveVerificationTarget} from "./verification-target.mjs";
@@ -43,24 +44,13 @@ const sampleRate = file.readUInt32LE(formatOffset + 4);
 const samples = new Int16Array(file.buffer, file.byteOffset + dataOffset, (file.length - dataOffset) / 2);
 
 function rms(from, to) {
-  const start = Math.max(0, Math.round(from * sampleRate));
-  const end = Math.min(samples.length / channels, Math.round(to * sampleRate));
-  let energy = 0;
-  let count = 0;
-  for (let frame = start; frame < end; frame += 1) {
-    for (let channel = 0; channel < channels; channel += 1) {
-      const value = samples[frame * channels + channel] / 32768;
-      energy += value * value;
-      count += 1;
-    }
-  }
-  return count ? 20 * Math.log10(Math.sqrt(energy / count)) : -Infinity;
+  return windowRmsDb(samples, {channels, sampleRate, fromSeconds: from, toSeconds: to});
 }
 
 let samplePeak = 0;
 for (const sample of samples) samplePeak = Math.max(samplePeak, Math.abs(sample) / 32768);
 const duration = samples.length / channels / sampleRate;
-const fadeOutEnd = AUDIO.music.fadeOutEndFrame / PROMO_FPS;
+const fadeOut = measureFadeOutTail({samples, channels, sampleRate, duration});
 const report = {
   video: path.relative(REPO_ROOT, input).replaceAll("\\", "/"),
   durationInSeconds: duration,
@@ -69,7 +59,11 @@ const report = {
   loudness: measured,
   samplePeakDbfs: 20 * Math.log10(samplePeak),
   fadeIn: {first100MsRmsDb: rms(0, 0.1), next400MsRmsDb: rms(0.1, 0.5)},
-  fadeOut: {last100MsRmsDb: rms(fadeOutEnd - 0.1, fadeOutEnd), previous400MsRmsDb: rms(fadeOutEnd - 0.5, fadeOutEnd - 0.1), tailRmsDb: rms(fadeOutEnd, duration)},
+  fadeOut: {
+    tailWindowSeconds: [fadeOut.fromSeconds, fadeOut.toSeconds],
+    tailRmsDb: fadeOut.tailRmsDb,
+    previous400MsRmsDb: fadeOut.previousRmsDb
+  },
   cues: AUDIO.cues.map((cue) => ({
     id: cue.id,
     actionFrame: cue.frame,
@@ -86,8 +80,10 @@ if (inputI < -14.5 || inputI > -13.5) throw new Error(`成片综合响度超出 
 if (inputLra < 4.0 || inputLra > 6.0) throw new Error(`成片 LRA 超出 4–6 范围：${measured.input_lra}`);
 if (samplePeak >= 0.99) throw new Error(`成片存在削波风险：${report.samplePeakDbfs} dBFS`);
 if (!(report.fadeIn.first100MsRmsDb < report.fadeIn.next400MsRmsDb)) throw new Error("片头未检测到自然淡入");
-if (!(report.fadeOut.last100MsRmsDb < report.fadeOut.previous400MsRmsDb)) throw new Error("片尾未检测到自然淡出");
-if (report.fadeOut.tailRmsDb > -60) throw new Error(`配乐未在 ${PROMO_DURATION / PROMO_FPS} 秒完成淡出：${report.fadeOut.tailRmsDb} dBFS`);
+if (!(report.fadeOut.tailRmsDb < report.fadeOut.previous400MsRmsDb)) throw new Error("片尾未检测到自然淡出");
+if (!(report.fadeOut.tailRmsDb <= FADE_OUT_TAIL_MAX_DB)) {
+  throw new Error(`配乐未在 ${PROMO_DURATION / PROMO_FPS} 秒前淡至 ${FADE_OUT_TAIL_MAX_DB} dBFS 以下：${report.fadeOut.tailRmsDb.toFixed(2)} dBFS`);
+}
 await writeFile(path.join(output, "audio-measurements.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
 console.log(JSON.stringify(report, null, 2));
 console.log(`音频测量工件：${output}`);

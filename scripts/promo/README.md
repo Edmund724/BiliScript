@@ -36,6 +36,7 @@ Remotion 的 Chrome Headless Shell 只保留主 checkout 的 `node_modules/.remo
 | 输出单镜头关键帧 | `pnpm promo:audio && node scripts/promo/render.mjs --scene=hero --stills-only` | `.scratch/promo/evidence/hero/` |
 | 渲染全片草稿 | `pnpm promo:audio && node scripts/promo/render.mjs --draft` | `.scratch/promo/evidence/BiliScript-promo-draft.mp4` |
 | 正式渲染 | `pnpm promo:render` | `release/` 中的 MP4、封面、SRT 与 credits |
+| 只改字幕或致谢 | `node scripts/promo/render.mjs --post-only` | 按新事实源重生成 `release/` 的 SRT、credits、封面与母版，并刷新 `.scratch/promo/evidence/final-*`；不重渲视频帧 |
 | 草稿验收 | `pnpm promo:verify -- --kind=draft .scratch/promo/evidence/BiliScript-promo-draft.mp4` | `.scratch/promo/evidence/draft-*` |
 | 最终验收 | `pnpm promo:verify -- --kind=final release/BiliScript-promo-1080p.mp4` | `.scratch/promo/evidence/final-*` |
 | 重录单镜头 | 见下节 | 替换 `public/media/` 中对应素材后重新渲染 |

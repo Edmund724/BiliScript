@@ -623,7 +623,7 @@ export const AppearanceScene = () => {
         )}
       </div>
 
-      {/* 居中偏右的真实文摘面板：浅色蓝雾玻璃 → 深色夜读 → 数字刊物暖纸衬线 */}
+      {/* 居中偏右的真实文摘面板：浅色蓝雾玻璃 → 深色夜读 → 数字刊物暖炭黑赤陶衬线 */}
       {APPEARANCE_SHOTS.map((shot, index) => (
         <Sequence key={shot.title} from={shotOffset(APPEARANCE_SHOTS, index)} durationInFrames={shot.duration}>
           <AppearancePanel
