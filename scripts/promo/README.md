@@ -75,7 +75,7 @@ overview、chat、appearance 重录会分别更新 `generated/panel-crops.json` 
 | 类别 | 位置 | 内容 |
 | --- | --- | --- |
 | 镜头实现 | `scripts/promo/video/`、`index.ts` | Remotion 合成与视觉实现 |
-| 时间事实 | `timeline.mjs`、`outro-timeline.mjs`、`subtitle-timeline.mjs` | 帧区间、镜头内部节拍、跳播数学与证据采样点 |
+| 时间事实 | `timeline.mjs`、`outro-timeline.mjs`、`subtitle-timeline.mjs` | 帧区间、镜头内部节拍、跳播接缝与证据采样点 |
 | 声音与字幕事实 | `audio.mjs`、`captions.mjs`、`synthesize-audio.mjs` | cue、字幕与音频合成 |
 | 已跟踪媒体 | `public/media/`、`assets/providers/`、`assets/voice/` | 录屏、海报、平台 Logo 与原片人声 |
 | 裁剪框事实 | `generated/panel-crops.json` | 由录制入口按镜头更新，`prepare` 与渲染只读 |

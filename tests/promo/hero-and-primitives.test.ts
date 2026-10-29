@@ -4,25 +4,10 @@ const designModulePath = "../../scripts/promo/video/design";
 const heroModulePath = "../../scripts/promo/video/HeroScene";
 
 describe("宣传片公共原语与开场单句痛点钩子 (Ticket 01)", () => {
-  it("导出当前 B 站视频参照窗/标题条与原片底部大号讲课字幕原语，并保留兼容导出", async () => {
-    const {
-      VideoReferenceCard,
-      BiliVideoReferenceCard,
-      BottomLectureCaption,
-      LectureBottomCaption,
-      LectureSubtitleBar,
-      ChapterInterstitial,
-      ChapterTitleCard,
-      ChapterCard
-    } = await import(designModulePath);
+  it("导出当前 B 站视频参照窗/标题条与原片底部大号讲课字幕原语", async () => {
+    const {VideoReferenceCard, BottomLectureCaption} = await import(designModulePath);
     expect(typeof VideoReferenceCard).toBe("function");
-    expect(BiliVideoReferenceCard).toBe(VideoReferenceCard);
     expect(typeof BottomLectureCaption).toBe("function");
-    expect(LectureBottomCaption).toBe(BottomLectureCaption);
-    expect(LectureSubtitleBar).toBe(BottomLectureCaption);
-    expect(typeof ChapterInterstitial).toBe("function");
-    expect(ChapterTitleCard).toBe(ChapterInterstitial);
-    expect(ChapterCard).toBe(ChapterInterstitial);
   });
 
   it("开场前 1.6–1.8 秒全屏居中仅展示 1 句核心痛点，且第 0 帧即 100% 不透明", async () => {

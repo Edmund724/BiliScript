@@ -211,170 +211,6 @@ export const ReadingLampBeam = ({
   );
 };
 
-export type ChapterInterstitialProps = {
-  kicker?: string;
-  title: string;
-  titleNode?: ReactNode;
-  subtitle?: string;
-  from?: number;
-  duration?: number;
-  accentColor?: string;
-  style?: CSSProperties;
-};
-
-export const ChapterInterstitial = ({
-  kicker,
-  title,
-  titleNode,
-  subtitle,
-  from = 0,
-  duration = 18,
-  accentColor = COLORS.pink,
-  style = {}
-}: ChapterInterstitialProps) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const local = frame - from;
-  if (local < 0 || local >= duration) return null;
-
-  const separatorIndex = !kicker ? title.indexOf("·") : -1;
-  const resolvedKicker = kicker ?? (separatorIndex >= 0 ? title.slice(0, separatorIndex).trim() : undefined);
-  const resolvedTitle = kicker ? title : separatorIndex >= 0 ? title.slice(separatorIndex + 1).trim() : title;
-
-  const enterSpring = spring({
-    frame: Math.max(0, local),
-    fps,
-    config: {damping: 16, stiffness: 180, mass: 0.72}
-  });
-  const exitFrames = Math.min(5, Math.max(3, Math.floor(duration * 0.25)));
-  const exitProgress = interpolate(local, [duration - exitFrames, duration], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.in(Easing.cubic)
-  });
-
-  const stageOpacity = 1 - exitProgress;
-  const lockupScale = interpolate(enterSpring, [0, 1], [0.92, 1]) * interpolate(exitProgress, [0, 1], [1, 1.04]);
-  const lockupLift = interpolate(enterSpring, [0, 1], [22, 0]) - exitProgress * 16;
-  const slashSweep = interpolate(local, [0, Math.min(8, duration - 4)], [0.35, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.bezier(0.16, 1, 0.3, 1)
-  });
-
-  return (
-    <AbsoluteFill
-      style={{
-        background: [
-          "radial-gradient(ellipse 58% 62% at 24% 40%, rgba(232, 93, 135, 0.10) 0%, rgba(232, 93, 135, 0) 70%)",
-          "radial-gradient(ellipse 62% 66% at 78% 56%, rgba(38, 121, 184, 0.09) 0%, rgba(38, 121, 184, 0) 72%)",
-          "linear-gradient(156deg, #FDFBF7 0%, #F6F3EC 52%, #F2F4F8 100%)"
-        ].join(", "),
-        fontFamily: FONT_FAMILY,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: stageOpacity,
-        zIndex: 45,
-        pointerEvents: "none",
-        ...style
-      }}
-    >
-      <PaperGrainOverlay opacity={0.12} warm borderRadius={0} />
-      <div
-        style={{
-          position: "relative",
-          padding: "48px 84px",
-          borderRadius: 44,
-          background: "rgba(255, 255, 255, 0.92)",
-          boxShadow: ELEVATION.heroFloat,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 18,
-          translate: `0px ${lockupLift.toFixed(1)}px`,
-          scale: lockupScale
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "center",
-            gap: 24,
-            whiteSpace: "nowrap"
-          }}
-        >
-          {resolvedKicker ? (
-            <>
-              <span
-                style={{
-                  fontFamily: BRAND_FONT_FAMILY,
-                  fontSize: 88,
-                  fontWeight: 700,
-                  lineHeight: 1.05,
-                  letterSpacing: -2.2,
-                  color: accentColor
-                }}
-              >
-                {resolvedKicker}
-              </span>
-              <span
-                style={{
-                  fontSize: 76,
-                  fontWeight: 600,
-                  lineHeight: 1,
-                  color: COLORS.subtle
-                }}
-              >
-                ·
-              </span>
-            </>
-          ) : null}
-          <span
-            style={{
-              fontSize: 102,
-              fontWeight: 800,
-              lineHeight: 1.08,
-              letterSpacing: -3.6,
-              color: COLORS.foreground
-            }}
-          >
-            {titleNode ?? resolvedTitle}
-          </span>
-        </div>
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 520,
-            height: 8,
-            borderRadius: 999,
-            background: `linear-gradient(90deg, ${accentColor} 0%, ${COLORS.blue} 100%)`,
-            transformOrigin: "0% 50%",
-            transform: `scaleX(${slashSweep.toFixed(3)})`,
-            opacity: 0.85
-          }}
-        />
-        {subtitle ? (
-          <div
-            style={{
-              fontSize: 28,
-              fontWeight: 500,
-              letterSpacing: -0.4,
-              color: COLORS.muted
-            }}
-          >
-            {subtitle}
-          </div>
-        ) : null}
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-export const ChapterTitleCard = ChapterInterstitial;
-export const ChapterCard = ChapterInterstitial;
-
 export type BottomLectureCaptionProps = {
   timestamp: string;
   quote?: string;
@@ -385,8 +221,6 @@ export type BottomLectureCaptionProps = {
   duration?: number;
   style?: CSSProperties;
 };
-
-export type LectureBottomCaptionProps = BottomLectureCaptionProps;
 
 export const BottomLectureCaption = ({
   timestamp,
@@ -510,9 +344,6 @@ export const BottomLectureCaption = ({
   );
 };
 
-export const LectureBottomCaption = BottomLectureCaption;
-export const LectureSubtitleBar = BottomLectureCaption;
-
 const DEFAULT_PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
 
 export type VideoReferenceCardProps = {
@@ -537,8 +368,6 @@ export type VideoReferenceCardProps = {
   style?: CSSProperties;
   children?: ReactNode;
 };
-
-export type BiliVideoReferenceCardProps = VideoReferenceCardProps;
 
 export const VideoReferenceCard = ({
   source = "subtitle-seek-03.mp4",
@@ -773,11 +602,8 @@ export const VideoReferenceCard = ({
   );
 };
 
-export const BiliVideoReferenceCard = VideoReferenceCard;
-
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
 export const microPerspective = (tilt = 6) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)`;
-export const MICRO_PERSPECTIVE = microPerspective(6);
 
 const ENTRANCE_FRAMES = 8;
 const ENTRANCE_OPACITY = 0.35;
@@ -791,32 +617,6 @@ export const entranceOpacity = (frame: number, start = 0, from = ENTRANCE_OPACIT
         extrapolateRight: "clamp",
         easing: ENTRANCE_EASING
       });
-
-export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", distance = 32, fade = true, style = {}}: {
-  children: ReactNode;
-  delay?: number;
-  direction?: number;
-  axis?: "x" | "y";
-  distance?: number;
-  fade?: boolean;
-  style?: CSSProperties;
-}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const progress = spring({frame: Math.max(0, frame - delay), fps, config: SPRING_LAYOUT});
-  const offset = (1 - progress) * direction * distance;
-  return (
-    <AbsoluteFill
-      style={{
-        opacity: fade ? entranceOpacity(frame, delay) : 1,
-        translate: axis === "x" ? `${offset}px 0px` : `0px ${offset}px`,
-        ...style
-      }}
-    >
-      {children}
-    </AbsoluteFill>
-  );
-};
 
 export const SceneTitle = ({title, titleNode, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
   title: string;
