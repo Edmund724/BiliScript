@@ -1079,11 +1079,11 @@ export const AppearanceScene = () => {
         style={{
           position: "absolute",
           left: 96,
-          top: 436,
+          top: 500,
           width: 740,
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
+          gridTemplateColumns: "1fr",
+          gap: 18,
           opacity: entranceOpacity(frame, 4, 0)
         }}
       >
@@ -1096,8 +1096,8 @@ export const AppearanceScene = () => {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "18px 24px",
-                borderRadius: 20,
+                padding: "20px 26px",
+                borderRadius: 22,
                 background: active ? "#111827" : "rgba(255, 255, 255, 0.86)",
                 color: active ? "#FFFFFF" : COLORS.foreground,
                 boxShadow: active
@@ -1106,7 +1106,7 @@ export const AppearanceScene = () => {
                 scale: active ? 1.02 : 1
               }}
             >
-              <span style={{fontSize: 23, fontWeight: 740}}>{item.label}</span>
+              <span style={{fontSize: 24, fontWeight: 740}}>{item.label}</span>
               <span
                 style={{
                   padding: "4px 12px",
@@ -1130,7 +1130,7 @@ export const AppearanceScene = () => {
         style={{
           position: "absolute",
           left: 916,
-          top: 136,
+          top: 116,
           width: 908,
           transformOrigin: "0 0",
           scale: focusScale,
@@ -1140,7 +1140,11 @@ export const AppearanceScene = () => {
         <div
           style={{
             position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            boxSizing: "border-box",
             width: 908,
+            height: 820,
             borderRadius: 32,
             background: theme.panelBg,
             boxShadow: theme.shadow,
@@ -1152,7 +1156,7 @@ export const AppearanceScene = () => {
           }}
         >
           {/* Top Reader Bar with Live Theme & Font Scale HUD */}
-          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22}}>
+          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexShrink: 0}}>
             <div style={{display: "flex", alignItems: "center", gap: 10}}>
               <span
                 style={{
@@ -1189,11 +1193,14 @@ export const AppearanceScene = () => {
           {/* Magazine / Reader Article Card */}
           <div
             style={{
-              padding: "28px 32px",
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              minHeight: 0,
+              padding: "32px 34px 34px",
               borderRadius: 24,
               background: theme.cardBg,
-              border: `1px solid ${theme.border}`,
-              marginBottom: 18
+              border: `1px solid ${theme.border}`
             }}
           >
             <div
@@ -1201,7 +1208,7 @@ export const AppearanceScene = () => {
                 display: "flex",
                 alignItems: "center",
                 gap: 12,
-                marginBottom: 14,
+                marginBottom: 18,
                 fontFamily: BRAND_FONT_FAMILY
               }}
             >
@@ -1228,7 +1235,7 @@ export const AppearanceScene = () => {
                 fontWeight: 780,
                 lineHeight: 1.32,
                 letterSpacing: theme.isSerif ? 0.2 : -0.6,
-                marginBottom: 14
+                marginBottom: 20
               }}
             >
               大模型为什么宁可编造答案，也不愿承认「我不知道」？
@@ -1236,17 +1243,28 @@ export const AppearanceScene = () => {
 
             <div
               style={{
+                display: "grid",
+                gap: 14,
+                marginBottom: 24,
                 fontSize: Math.round(21 * theme.fontScale),
                 lineHeight: 1.62,
-                color: theme.textSecondary,
-                marginBottom: 18
+                color: theme.textSecondary
               }}
             >
-              现行评测体系按答对计分、空缺记零分，激励模型在不确定时依然输出高置信度文本，从而产生系统性幻觉。
+              <p style={{margin: 0}}>
+                现行评测体系按答对计分、空缺记零分，激励模型在不确定时依然输出高置信度文本，从而产生系统性幻觉。
+              </p>
+              <p style={{margin: 0}}>
+                当训练目标更偏爱完整、流利的回答时，「我不知道」反而成了不被奖励的选择。语言上的自信，并不等于事实上的可靠。
+              </p>
+              <p style={{margin: 0}}>
+                因此，面对模型给出的结论，仍需要回到原文与上下文中核对，留意它是否提供了可以验证的依据。
+              </p>
             </div>
 
             <div
               style={{
+                marginTop: "auto",
                 padding: "16px 22px",
                 borderLeft: `4px solid ${theme.accent}`,
                 background: theme.accentSoft,
