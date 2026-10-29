@@ -46,7 +46,8 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       "editorial-dark"
     ]);
     const allCaptionTexts = CAPTIONS.map((item) => item.text).join(" ");
-    expect(allCaptionTexts).toContain("免费语音转写");
+    expect(allCaptionTexts).toContain("硅基流动免费 API");
+    expect(allCaptionTexts).not.toContain("免费语音转写");
     expect(allCaptionTexts).toContain("双语对照");
     expect(allCaptionTexts).toContain("复制 Markdown");
     expect(allCaptionTexts).not.toContain("笔记");

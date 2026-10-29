@@ -21,7 +21,7 @@ export const CAPTIONS = [
   {sceneId: "overview", text: "02:32 赵老师原声：“如果他不答，一定是零分！”", ...voiceMilliseconds("voice-0232"), timestampMs: null, confidence: null},
   {sceneId: "chat", text: "带着问题追问视频，点按时间戳让 UP 主亲自举证。", startMs: 13200, endMs: 16700, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "04:44 原片举证：“这里有一个研究……”", ...voiceMilliseconds("voice-0444"), timestampMs: null, confidence: null},
-  {sceneId: "subtools", text: "遇到没字幕的视频？免费语音转写 + 外语视频双语对照。", startMs: 19150, endMs: 20700, timestampMs: null, confidence: null},
+  {sceneId: "subtools", text: "遇到没字幕的视频？调用硅基流动免费 API 转写，原文译文双语对照。", startMs: 19150, endMs: 20700, timestampMs: null, confidence: null},
   {sceneId: "subtools", text: "一键复制 Markdown 或导出 SRT / TXT 字幕。", startMs: 20750, endMs: 22350, timestampMs: null, confidence: null},
   {sceneId: "websearch", text: "UP 主说得对不对？AI 联网检索辅助核对，超纲概念背景补充。", startMs: 22650, endMs: 24850, timestampMs: null, confidence: null},
   {sceneId: "appearance", text: "蓝雾玻璃与数字刊物日夜四主题，字号放大与杂志排版随心切换。", startMs: 25150, endMs: 27850, timestampMs: null, confidence: null},

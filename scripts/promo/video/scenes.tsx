@@ -489,15 +489,21 @@ export const ChatScene = () => {
 
 /* ==========================================================================
    Scene 5: SubtoolsScene (19.0s–22.5s, 105 frames)
-   遇到没字幕的视频？免费语音转写 / 外语视频双语对照 + 一键复制 Markdown / 导出 SRT·TXT 字幕
+   先介绍硅基流动免费 API 转写与双语对照，再介绍字幕复制与导出
    ========================================================================== */
 
-export const SUBTOOLS_HEADLINE = "遇到没字幕的视频？\n免费语音转写 · 双语对照。";
-export const SUBTOOLS_SUBHEADLINE = "一键复制 Markdown / 导出 SRT · TXT 字幕";
+export const SUBTOOLS_HEADLINE = "遇到没字幕的视频？\n语音转写 · 双语对照。";
+export const SUBTOOLS_SUBHEADLINE = "调用硅基流动免费 API";
+export const SUBTOOLS_EXPORT_HEADLINE = "字幕复制与导出。";
+export const SUBTOOLS_EXPORT_SUBHEADLINE = "Markdown · SRT · TXT";
 
 const SUBTOOLS_HEADLINE_LINES: HeadlinePart[][] = [
   [{text: "遇到"}, {text: "没字幕", accent: true}, {text: "的视频？"}],
-  [{text: "免费语音转写", accent: true}, {text: " · 双语对照。"}]
+  [{text: "语音转写", accent: true}, {text: " · 双语对照。"}]
+];
+
+const SUBTOOLS_EXPORT_HEADLINE_LINES: HeadlinePart[][] = [
+  [{text: "字幕"}, {text: "复制与导出", accent: true}, {text: "。"}]
 ];
 
 export const SUBTOOLS_BILINGUAL_ROWS = [
@@ -518,8 +524,10 @@ export const SUBTOOLS_EXPORT_BUTTONS = ["复制 Markdown", "导出 SRT · TXT"] 
 export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, SUBTOOLS_HANDOFF, WEBSEARCH_HANDOFF);
+  const exportAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;
   const isExported = frame >= clickAt;
+  const exportPhase = interpolate(frame, [exportAt - 4, exportAt + 4], [0, 1], {...CLAMP, easing: SMOOTH});
   const exportCardProgress = interpolate(frame, [clickAt, clickAt + 12], [0, 1], {...CLAMP, easing: SMOOTH});
   const pointerOpacity =
     interpolate(frame, [clickAt - 16, clickAt - 10], [0, 1], CLAMP) *
@@ -530,88 +538,20 @@ export const SubtoolsScene = () => {
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <BrandWhisper />
-      <SectionHeadline lines={SUBTOOLS_HEADLINE_LINES} subtext={SUBTOOLS_SUBHEADLINE} />
-
-      {/* Left feature callout cards */}
-      <div
-        style={{
-          position: "absolute",
-          left: 96,
-          top: 416,
-          width: 760,
-          display: "flex",
-          flexDirection: "column",
-          gap: 18,
-          opacity: entranceOpacity(frame, 6, 0)
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            padding: "20px 26px",
-            borderRadius: 22,
-            background: "rgba(255, 255, 255, 0.88)",
-            boxShadow: ELEVATION.cardSoft,
-            border: "1px solid rgba(0, 140, 255, 0.18)"
-          }}
-        >
-          <span
-            style={{
-              padding: "8px 16px",
-              borderRadius: 999,
-              background: "rgba(0, 140, 255, 0.12)",
-              color: MIST_GLASS.accent,
-              fontSize: 21,
-              fontWeight: 760
-            }}
-          >
-            语音识别 + 双语
-          </span>
-          <span style={{fontSize: 25, fontWeight: 680, color: COLORS.foreground}}>
-            生肉无字幕自动免费转写，原文译文逐行对照
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            padding: "20px 26px",
-            borderRadius: 22,
-            background: isExported ? "rgba(255, 244, 248, 0.96)" : "rgba(255, 255, 255, 0.88)",
-            boxShadow: isExported
-              ? "0 20px 44px -16px rgba(232, 93, 135, 0.28), 0 0 0 2px rgba(232, 93, 135, 0.42)"
-              : ELEVATION.cardSoft
-          }}
-        >
-          <span
-            style={{
-              padding: "8px 16px",
-              borderRadius: 999,
-              background: isExported ? COLORS.pink : "rgba(232, 93, 135, 0.14)",
-              color: isExported ? "#FFFFFF" : "#C81E5B",
-              fontSize: 21,
-              fontWeight: 760
-            }}
-          >
-            字幕导出
-          </span>
-          <span style={{fontSize: 25, fontWeight: 680, color: COLORS.foreground}}>
-            一键复制 Markdown 或下载 SRT / TXT 字幕文件
-          </span>
-        </div>
-      </div>
+      <SectionHeadline lines={SUBTOOLS_HEADLINE_LINES} subtext={SUBTOOLS_SUBHEADLINE} opacity={1 - exportPhase} />
+      <SectionHeadline
+        lines={SUBTOOLS_EXPORT_HEADLINE_LINES}
+        subtext={SUBTOOLS_EXPORT_SUBHEADLINE}
+        opacity={exportPhase}
+      />
 
       <VideoReferenceCard
         variant="bar"
         width={760}
-        headerText="正在阅读：MIT 6.S191《Deep Learning》英文生肉"
-        badgeText="无原生字幕 · 免费转写"
+        headerText="正在阅读：MIT 6.S191 · 英文生肉"
+        badgeText="无原生字幕"
         delay={4}
-        style={{position: "absolute", left: 96, top: 690}}
+        style={{position: "absolute", left: 96, top: 430}}
       />
 
       {/* Right Subtitle Panel */}
@@ -671,7 +611,7 @@ export const SubtoolsScene = () => {
                   fontWeight: 740
                 }}
               >
-                ✓ 免费语音识别已完成
+                ✓ 硅基流动免费 API · 转写完成
               </span>
               <span
                 style={{
@@ -818,15 +758,11 @@ export const SubtoolsScene = () => {
                 fontFamily: BRAND_FONT_FAMILY
               }}
             >
-              <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8}}>
-                <span style={{color: "#FB7299", fontSize: 18, fontWeight: 740}}>
-                  MARKDOWN 剪贴板预览 · 含时间轴与双语对照
-                </span>
-                <span style={{color: "#94A3B8", fontSize: 16}}>支持直接粘贴至任意编辑器</span>
+              <div style={{marginBottom: 8, color: "#FB7299", fontSize: 18, fontWeight: 740}}>
+                已复制 · 含时间轴与双语对照
               </div>
               <div style={{fontSize: 19, lineHeight: 1.5, color: "#E2E8F0"}}>
-                <div>- **[01:14]** Attention mechanisms allow... / 注意力机制让模型聚焦相关词元。</div>
-                <div>- **[01:28]** We project queries, keys... / 将查询、键与值投影至潜在子空间。</div>
+                - **[01:14]** Attention mechanisms... / 注意力机制让模型聚焦相关词元。
               </div>
             </div>
           )}

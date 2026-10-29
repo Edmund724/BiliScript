@@ -25,7 +25,8 @@ export const OVERVIEW_TIMELINE = {
 export const SUBTOOLS_TIMELINE = {
   duration: 105,
   bilingualAt: 10,
-  exportClickAt: 52
+  exportAt: 48,
+  exportClickAt: 66
 };
 
 export const WEBSEARCH_TIMELINE = {
