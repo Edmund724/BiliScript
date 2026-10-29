@@ -44,7 +44,7 @@ export const CHAT_SHOTS = [
 
 export const APPEARANCE_SHOTS = [
   { title: "深色模式，\n完整切换。", startFrom: 0, duration: 45, playbackRate: 1.35, width: 860, top: 172 },
-  { title: "阅读色板，\n随你偏好。", startFrom: 80, duration: 45, playbackRate: 1.25, width: 788, top: 172 }
+  { title: "阅读色板，\n随你偏好。", startFrom: 101, duration: 45, playbackRate: 1.25, width: 788, top: 172 }
 ];
 
 export const EVIDENCE_TIMES = [
