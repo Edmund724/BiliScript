@@ -15,9 +15,7 @@ import {
   ELEVATION,
   FONT_FAMILY,
   PANEL_CROPS,
-  PaperGrainOverlay,
   ProductFrame,
-  ReadingLampBeam,
   VideoReferenceCard,
   entranceOpacity,
   microPerspective
@@ -457,440 +455,183 @@ export const ChatScene = () => {
   );
 };
 
+const APPEARANCE_PANEL = {left: 984, top: 132, width: 820, radius: 32};
+const APPEARANCE_PANEL_TILT = -8;
+const APPEARANCE_DARK_FROM = 21;
+const APPEARANCE_EDITORIAL_FROM = 57;
+
+const appearanceCrop = (index: number): Crop =>
+  index === 0
+    ? {x: PANEL_CROPS.appearance.x, y: PANEL_CROPS.appearance.y + 132, width: PANEL_CROPS.appearance.width, height: 600}
+    : {x: PANEL_CROPS.appearance.x, y: PANEL_CROPS.appearance.y + 420, width: PANEL_CROPS.appearance.width, height: 560};
+
+const AppearancePanel = ({
+  index,
+  shot,
+  isDark,
+  isEditorial,
+  lampGlow,
+  paperGlow
+}: {
+  index: number;
+  shot: (typeof APPEARANCE_SHOTS)[number];
+  isDark: boolean;
+  isEditorial: boolean;
+  lampGlow: number;
+  paperGlow: number;
+}) => {
+  const crop = appearanceCrop(index);
+  const height = Math.round((crop.height * APPEARANCE_PANEL.width) / crop.width);
+  const panelShadow = isEditorial
+    ? "-26px 42px 100px -26px rgba(68, 46, 24, 0.24), 0 0 52px -14px rgba(214, 148, 86, 0.26), 0 0 0 1px rgba(184, 134, 88, 0.22)"
+    : isDark
+      ? "-26px 42px 96px -24px rgba(17, 24, 39, 0.34), 0 0 72px -12px rgba(245, 158, 11, 0.42), 0 0 0 1px rgba(146, 96, 36, 0.20)"
+      : "-28px 44px 104px -26px rgba(17, 24, 39, 0.20), 0 12px 32px -12px rgba(17, 24, 39, 0.06), 0 0 0 1px rgba(17, 24, 39, 0.05)";
+
+  return (
+    <>
+      {lampGlow > 0.01 && (
+        <div
+          style={{
+            position: "absolute",
+            left: APPEARANCE_PANEL.left - 150,
+            top: APPEARANCE_PANEL.top - 110,
+            width: APPEARANCE_PANEL.width + 300,
+            height: height + 220,
+            borderRadius: 999,
+            background:
+              "radial-gradient(ellipse 54% 48% at 50% 46%, rgba(255, 206, 130, 0.46) 0%, rgba(245, 158, 11, 0.22) 42%, rgba(245, 158, 11, 0) 76%)",
+            filter: "blur(30px)",
+            opacity: lampGlow,
+            pointerEvents: "none",
+            zIndex: 8
+          }}
+        />
+      )}
+      {paperGlow > 0.01 && (
+        <div
+          style={{
+            position: "absolute",
+            left: APPEARANCE_PANEL.left - 130,
+            top: APPEARANCE_PANEL.top - 100,
+            width: APPEARANCE_PANEL.width + 260,
+            height: height + 200,
+            borderRadius: 999,
+            background:
+              "radial-gradient(ellipse 54% 48% at 50% 46%, rgba(238, 208, 164, 0.44) 0%, rgba(214, 166, 104, 0.18) 44%, rgba(214, 166, 104, 0) 76%)",
+            filter: "blur(30px)",
+            opacity: paperGlow,
+            pointerEvents: "none",
+            zIndex: 9
+          }}
+        />
+      )}
+      <ProductFrame
+        source="appearance.mp4"
+        crop={crop}
+        width={APPEARANCE_PANEL.width}
+        startFrom={index === 0 ? 22 : shot.startFrom}
+        playbackRate={shot.playbackRate}
+        duration={shot.duration}
+        animate={false}
+        tilt={APPEARANCE_PANEL_TILT}
+        focus={index === 0 ? {direction: "in", frames: APPEARANCE_HANDOFF.enterFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur} : undefined}
+        style={{
+          left: APPEARANCE_PANEL.left,
+          top: APPEARANCE_PANEL.top,
+          zIndex: 10,
+          boxShadow: panelShadow
+        }}
+      />
+      {lampGlow > 0.01 && (
+        <div
+          style={{
+            position: "absolute",
+            left: APPEARANCE_PANEL.left,
+            top: APPEARANCE_PANEL.top,
+            width: APPEARANCE_PANEL.width,
+            height,
+            borderRadius: APPEARANCE_PANEL.radius,
+            overflow: "hidden",
+            transform: microPerspective(APPEARANCE_PANEL_TILT),
+            background: [
+              "radial-gradient(ellipse 68% 46% at 86% 2%, rgba(255, 214, 148, 0.40) 0%, rgba(238, 168, 88, 0.15) 46%, rgba(238, 168, 88, 0) 76%)",
+              "linear-gradient(128deg, rgba(255, 232, 190, 0.14) 0%, rgba(255, 232, 190, 0) 58%)"
+            ].join(", "),
+            mixBlendMode: "screen",
+            opacity: lampGlow,
+            pointerEvents: "none",
+            zIndex: 11
+          }}
+        />
+      )}
+    </>
+  );
+};
+
 export const AppearanceScene = () => {
   const frame = useCurrentFrame();
-  const isDark = frame >= 21;
-  const isEditorial = frame >= 57;
-  const activeStep = isEditorial ? 2 : isDark ? 1 : 0;
-
-  // Global fourth-wall ambient transitions:
-  // 1) Dark Night-Reading mode (frames 21..56): entire canvas dims + warm amber reading lamp blooms behind cards
-  // 2) Editorial Warm-Paper mode (frames 57..89): entire canvas reveals delicate yellowish paper grain & warm parchment light
-  const darkStageBlend = interpolate(
+  const isDark = frame >= APPEARANCE_DARK_FROM && frame < APPEARANCE_EDITORIAL_FROM;
+  const isEditorial = frame >= APPEARANCE_EDITORIAL_FROM;
+  const lampGlow = interpolate(
     frame,
-    [18, 25, 54, 61],
+    [APPEARANCE_DARK_FROM - 3, APPEARANCE_DARK_FROM + 5, APPEARANCE_EDITORIAL_FROM - 5, APPEARANCE_EDITORIAL_FROM + 3],
     [0, 1, 1, 0],
     {...CLAMP, easing: SMOOTH}
   );
-  const editorialStageBlend = interpolate(
-    frame,
-    [54, 62],
-    [0, 1],
-    {...CLAMP, easing: SMOOTH}
-  );
-
-  let pageFlipPulse = 0;
-  for (const switchFrame of [21, 57]) {
-    const dt = frame - switchFrame;
-    if (dt >= -1 && dt <= 9) {
-      pageFlipPulse = Math.max(
-        pageFlipPulse,
-        interpolate(dt, [-1, 2, 9], [0, 1, 0], {...CLAMP, easing: SMOOTH})
-      );
-    }
-  }
-
-  const badges = [
-    {label: "浅色 · 蓝雾玻璃", dot: "#008CFF", glow: "rgba(0, 140, 255, 0.22)", centerX: 1185},
-    {label: "深色 · 夜读", dot: "#F59E0B", glow: "rgba(245, 158, 11, 0.34)", centerX: 1412},
-    {label: "数字刊物 · 暖纸衬线", dot: "#E08B5B", glow: "rgba(224, 139, 91, 0.28)", centerX: 1668}
-  ];
-
-  // Pointer interaction on theme badges at frame 21 (Dark) and frame 57 (Editorial)
-  const showBadgeCursor = (frame >= 12 && frame <= 28) || (frame >= 48 && frame <= 65);
-  const badgeCursorOpacity =
-    frame <= 35
-      ? interpolate(frame, [12, 16, 24, 28], [0, 1, 1, 0], CLAMP)
-      : interpolate(frame, [48, 52, 61, 65], [0, 1, 1, 0], CLAMP);
-  const badgeCursorX =
-    frame <= 35
-      ? interpolate(frame, [12, 20], [1240, 1418], {...CLAMP, easing: SMOOTH})
-      : interpolate(frame, [48, 56], [1428, 1676], {...CLAMP, easing: SMOOTH});
-  const badgeCursorY =
-    frame <= 35
-      ? interpolate(frame, [12, 20], [116, 82], {...CLAMP, easing: SMOOTH})
-      : interpolate(frame, [48, 56], [108, 82], {...CLAMP, easing: SMOOTH});
-  const badgeCursorScale =
-    frame <= 35
-      ? interpolate(frame, [19, 21, 24], [1, 0.84, 1], CLAMP)
-      : interpolate(frame, [55, 57, 60], [1, 0.84, 1], CLAMP);
-
-  const cardBg = isEditorial
-    ? "linear-gradient(145deg, rgba(252, 246, 233, 0.97) 0%, rgba(242, 231, 210, 0.98) 100%)"
-    : isDark
-      ? "linear-gradient(145deg, rgba(22, 30, 46, 0.96) 0%, rgba(12, 17, 28, 0.98) 100%)"
-      : "rgba(255, 255, 255, 0.96)";
-
-  const cardText = isEditorial ? "#241B14" : isDark ? "#F8FAFC" : COLORS.foreground;
-  const cardSub = isEditorial ? "#6E5A48" : isDark ? "#94A3B8" : COLORS.muted;
-  const cardAccent = isEditorial ? "#B8562B" : isDark ? "#F59E0B" : "#008CFF";
-  const cardShadow = isEditorial
-    ? "-28px 44px 110px -22px rgba(68, 46, 24, 0.28), 0 0 64px -10px rgba(214, 148, 86, 0.28), 0 0 0 1.5px rgba(184, 134, 88, 0.28)"
-    : isDark
-      ? "-28px 44px 110px -18px rgba(2, 6, 23, 0.78), 0 0 84px -8px rgba(245, 158, 11, 0.36), 0 0 0 1.5px rgba(255, 214, 148, 0.22)"
-      : ELEVATION.heroFloat;
-
-  const stageTitleColor = darkStageBlend > 0.5 ? "#F8FAFC" : isEditorial ? "#231A12" : COLORS.foreground;
-  const stageSubColor = darkStageBlend > 0.5 ? "#CBD5E1" : isEditorial ? "#695544" : COLORS.muted;
-
-  const rotateY = -8 - pageFlipPulse * 8.5;
-  const rotateX = 5 + pageFlipPulse * 2.4;
+  const paperGlow = interpolate(frame, [APPEARANCE_EDITORIAL_FROM - 2, APPEARANCE_EDITORIAL_FROM + 10], [0, 1], {
+    ...CLAMP,
+    easing: SMOOTH
+  });
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
-      {/* 1. Full-Screen Dark Night-Reading Global Backdrop + Amber Desk Lamp Halo */}
-      {darkStageBlend > 0.01 && (
-        <AbsoluteFill
-          style={{
-            opacity: darkStageBlend,
-            background: [
-              "radial-gradient(ellipse 58% 64% at 28% 58%, rgba(245, 158, 11, 0.26) 0%, rgba(217, 119, 6, 0.11) 42%, rgba(15, 23, 42, 0) 74%)",
-              "radial-gradient(ellipse 46% 52% at 74% 48%, rgba(251, 191, 36, 0.14) 0%, rgba(56, 189, 248, 0.07) 48%, rgba(15, 23, 42, 0) 76%)",
-              "linear-gradient(158deg, #090D16 0%, #0F172A 54%, #131C31 100%)"
-            ].join(", "),
-            pointerEvents: "none"
-          }}
-        >
-          {/* Warm Amber Desk Lamp Cone & Backlight Halo behind the preview card */}
-          <div
-            style={{
-              position: "absolute",
-              left: 18,
-              top: 260,
-              width: 980,
-              height: 680,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle at 46% 44%, rgba(255, 196, 108, 0.46) 0%, rgba(245, 158, 11, 0.24) 36%, rgba(217, 119, 6, 0.08) 62%, rgba(217, 119, 6, 0) 80%)",
-              filter: "blur(24px)"
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: 520,
-              top: -80,
-              width: 680,
-              height: 620,
-              background:
-                "conic-gradient(from 195deg at 58% 8%, rgba(255, 214, 148, 0) 0deg, rgba(255, 204, 128, 0.22) 24deg, rgba(245, 158, 11, 0.08) 48deg, rgba(255, 214, 148, 0) 72deg)",
-              filter: "blur(18px)"
-            }}
-          />
-        </AbsoluteFill>
-      )}
+      <BrandWhisper />
 
-      {/* 2. Full-Screen Editorial Warm-Paper Global Backdrop + Delicate Yellowish Paper Grain */}
-      {editorialStageBlend > 0.01 && (
-        <AbsoluteFill
-          style={{
-            opacity: editorialStageBlend,
-            background: [
-              "radial-gradient(ellipse 68% 62% at 26% 24%, rgba(255, 251, 240, 0.78) 0%, rgba(244, 232, 208, 0.24) 56%, rgba(212, 186, 146, 0) 82%)",
-              "radial-gradient(ellipse 62% 58% at 78% 72%, rgba(226, 194, 148, 0.28) 0%, rgba(212, 180, 136, 0) 74%)",
-              "linear-gradient(162deg, #F8F2E4 0%, #F1E6D0 52%, #E8D9BC 100%)"
-            ].join(", "),
-            pointerEvents: "none"
-          }}
-        >
-          {/* Full-screen woven yellowish paper fiber & laid-paper watermark lines */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              backgroundImage: [
-                "repeating-linear-gradient(0deg, rgba(148, 114, 76, 0.055) 0px 1px, transparent 1px 28px)",
-                "repeating-linear-gradient(90deg, rgba(168, 132, 92, 0.035) 0px 1px, transparent 1px 64px)",
-                "repeating-linear-gradient(34deg, rgba(162, 122, 78, 0.07) 0px 1px, transparent 1px 4px)",
-                "repeating-linear-gradient(-56deg, rgba(124, 92, 58, 0.055) 0px 1px, transparent 1px 5px)"
-              ].join(", "),
-              boxShadow: "inset 0 0 120px rgba(146, 108, 66, 0.16)"
-            }}
-          />
-          <PaperGrainOverlay opacity={0.68} warm borderRadius={0} />
-        </AbsoluteFill>
-      )}
-
-      <BrandWhisper
-        style={{
-          color: stageTitleColor
-        }}
-      />
-
-      <div
-        style={{
-          position: "absolute",
-          right: 96,
-          top: 52,
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          zIndex: 20
-        }}
-      >
-        {badges.map((badge, index) => {
-          const active = index === activeStep;
-          const isDarkStage = darkStageBlend > 0.5;
-          return (
-            <div
-              key={badge.label}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 22px",
-                borderRadius: 999,
-                background: active
-                  ? isDarkStage
-                    ? "rgba(30, 41, 59, 0.96)"
-                    : isEditorial
-                      ? "rgba(255, 250, 240, 0.98)"
-                      : "rgba(255, 255, 255, 0.98)"
-                  : isDarkStage
-                    ? "rgba(15, 23, 42, 0.68)"
-                    : isEditorial
-                      ? "rgba(246, 236, 218, 0.74)"
-                      : "rgba(255, 255, 255, 0.68)",
-                backdropFilter: "blur(20px)",
-                boxShadow: active
-                  ? `0 16px 38px -14px rgba(17, 24, 39, 0.28), 0 0 28px ${badge.glow}, 0 0 0 1.5px ${badge.dot}`
-                  : isDarkStage
-                    ? "0 10px 24px -14px rgba(2, 6, 23, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.10)"
-                    : "0 10px 24px -14px rgba(17, 24, 39, 0.10), 0 0 0 1px rgba(17, 24, 39, 0.06)",
-                color: isDarkStage ? (active ? "#FEF3C7" : "#CBD5E1") : isEditorial ? "#241B14" : COLORS.foreground,
-                fontSize: 21,
-                fontWeight: active ? 600 : 500,
-                scale: active ? 1.04 : 1
-              }}
-            >
-              <span
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  background: badge.dot,
-                  boxShadow: active ? `0 0 10px ${badge.dot}` : "none",
-                  display: "inline-block"
-                }}
-              />
-              <span>{badge.label}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Cursor clicking Dark Mode & Editorial badges */}
-      {showBadgeCursor && (
-        <svg
-          viewBox="0 0 30 38"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width: 32,
-            height: 40,
-            filter: "drop-shadow(0 6px 12px rgba(2, 6, 23, 0.42))",
-            opacity: badgeCursorOpacity,
-            translate: `${badgeCursorX}px ${badgeCursorY}px`,
-            scale: badgeCursorScale,
-            pointerEvents: "none",
-            zIndex: 30
-          }}
-        >
-          <path
-            d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
-            fill="white"
-            stroke="#111827"
-            strokeWidth="2"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-
-      {/* Scene Title adapting to Dark Night-Reading & Editorial Paper stage */}
-      <div style={{position: "absolute", left: 96, top: 152, width: 760, zIndex: 10}}>
-        <div
-          style={{
-            color: stageTitleColor,
-            fontSize: 68,
-            lineHeight: 1.16,
-            fontWeight: 600,
-            letterSpacing: -2.4,
-            textShadow: darkStageBlend > 0.5 ? "0 8px 28px rgba(2, 6, 23, 0.55)" : "none"
-          }}
-        >
-          {frame < APPEARANCE_SHOTS[0].duration ? (
-            <>
-              <div>明暗模式切换，</div>
-              <div>
-                <span style={{color: isDark ? "#FBBF24" : COLORS.foreground}}>夜读台灯</span>护眼。
-              </div>
-            </>
-          ) : (
-            <>
-              <div>外观色板定制，</div>
-              <div>
-                如读<span style={{color: "#B8562B"}}>纸质刊物</span>。
-              </div>
-            </>
-          )}
-        </div>
-        <div
-          style={{
-            marginTop: 18,
-            fontSize: 25,
-            fontWeight: 450,
-            lineHeight: 1.5,
-            letterSpacing: -0.3,
-            color: stageSubColor
-          }}
-        >
-          {isEditorial
-            ? "当前演示：数字刊物色板 · 暖黄纸张肌理与人文衬线排版"
-            : isDark
-              ? "当前演示：深色夜读模式 · 全场暗室护眼与琥珀色台灯光晕"
-              : "默认浅色 · 蓝雾玻璃色板，通透毛玻璃与空间景深"}
-        </div>
-      </div>
-
-      {/* Left Spatial Floating Preview Surface */}
+      {/* 左上极简标题：先讲明暗模式，再讲外观色板 */}
       <div
         style={{
           position: "absolute",
           left: 96,
-          top: 444,
-          width: 790,
-          padding: "36px 42px",
-          borderRadius: 32,
-          background: cardBg,
-          backdropFilter: "blur(28px)",
-          boxShadow: cardShadow,
-          overflow: "hidden",
-          transformOrigin: "10% 50%",
-          transform: `perspective(1600px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg)`,
-          zIndex: 10
+          top: 392,
+          width: 760,
+          zIndex: 10,
+          color: COLORS.foreground,
+          fontSize: 76,
+          fontWeight: 700,
+          lineHeight: 1.16,
+          letterSpacing: -2.6,
+          opacity: entranceOpacity(frame, 2, 0),
+          translate: interpolate(frame, [2, 20], ["0px 22px", "0px 0px"], {...CLAMP, easing: SMOOTH})
         }}
       >
-        <PaperGrainOverlay opacity={isEditorial ? 0.64 : 0.34} warm />
-        <ReadingLampBeam intensity={isEditorial ? 0.88 : isDark ? 0.96 : 0.30} warm={true} />
-        {pageFlipPulse > 0.02 && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background:
-                "linear-gradient(108deg, rgba(255, 244, 218, 0.38) 0%, rgba(255, 244, 218, 0.12) 42%, rgba(255, 244, 218, 0) 78%)",
-              opacity: pageFlipPulse,
-              pointerEvents: "none"
-            }}
-          />
+        {isEditorial ? (
+          <>
+            <div>外观色板定制，</div>
+            <div>
+              如读<span style={{color: "#B8562B"}}>纸质刊物</span>。
+            </div>
+          </>
+        ) : (
+          <>
+            <div>明暗模式切换，</div>
+            <div>
+              <span style={{color: "#B45309"}}>夜读台灯</span>护眼。
+            </div>
+          </>
         )}
-        <div style={{position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
-          <div style={{display: "flex", alignItems: "center", gap: 14}}>
-            <span
-              style={{
-                background: cardAccent,
-                color: isDark && !isEditorial ? "#0F172A" : "#FFFFFF",
-                fontFamily: BRAND_FONT_FAMILY,
-                fontSize: 20,
-                fontWeight: 700,
-                padding: "4px 15px",
-                borderRadius: 999
-              }}
-            >
-              02:32
-            </span>
-            <span
-              style={{
-                fontSize: 28,
-                fontWeight: 600,
-                color: cardText,
-                letterSpacing: -0.6,
-                fontFamily: isEditorial ? '"Noto Serif SC", "Source Han Serif SC", Georgia, serif' : FONT_FAMILY
-              }}
-            >
-              AI 并非越强越好，适配才是关键
-            </span>
-          </div>
-          <span
-            style={{
-              padding: "5px 14px",
-              borderRadius: 999,
-              background: isEditorial
-                ? "rgba(184, 86, 43, 0.12)"
-                : isDark
-                  ? "rgba(245, 158, 11, 0.16)"
-                  : "rgba(17, 24, 39, 0.06)",
-              color: isEditorial ? "#9A4420" : isDark ? "#FCD34D" : cardSub,
-              fontSize: 18,
-              fontWeight: 600
-            }}
-          >
-            {isEditorial ? "数字刊物" : isDark ? "深色夜读" : "蓝雾玻璃"}
-          </span>
-        </div>
-        <div
-          style={{
-            position: "relative",
-            fontSize: 28,
-            fontWeight: isEditorial ? 560 : 600,
-            lineHeight: 1.48,
-            letterSpacing: isEditorial ? 0.1 : -0.6,
-            color: cardText,
-            fontFamily: isEditorial ? '"Noto Serif SC", "Source Han Serif SC", Georgia, serif' : FONT_FAMILY,
-            marginBottom: 22
-          }}
-        >
-          “人与 AI 的关系是<span style={{color: cardAccent, fontWeight: 700}}>「协作」</span>，而非<span style={{color: cardAccent, fontWeight: 700}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
-        </div>
-        <div
-          style={{
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingTop: 16,
-            borderTop: isEditorial
-              ? "1px solid rgba(138, 102, 68, 0.16)"
-              : isDark
-                ? "1px solid rgba(255, 255, 255, 0.10)"
-                : "1px solid rgba(17, 24, 39, 0.06)",
-            color: cardSub,
-            fontSize: 19
-          }}
-        >
-          <span>{isEditorial ? "微黄纸张肌理 · 纸质杂志衬线排版" : isDark ? "琥珀色夜读台灯 · 全局暗场伴随" : "明暗模式 × 外观色板 · 像读杂志一样看 B 站"}</span>
-          <span style={{color: cardAccent, fontFamily: BRAND_FONT_FAMILY, fontWeight: 600}}>04:07 – 05:15 ↗</span>
-        </div>
       </div>
 
-      {/* Right Foreground 3D Plane: Real Appearance Extension Panel */}
+      {/* 居中偏右的真实文摘面板：浅色蓝雾玻璃 → 深色夜读 → 数字刊物暖纸衬线 */}
       {APPEARANCE_SHOTS.map((shot, index) => (
         <Sequence key={shot.title} from={shotOffset(APPEARANCE_SHOTS, index)} durationInFrames={shot.duration}>
-          <ProductFrame
-            source="appearance.mp4"
-            crop={
-              index === 0
-                ? {x: PANEL_CROPS.appearance.x, y: PANEL_CROPS.appearance.y + 132, width: PANEL_CROPS.appearance.width, height: 600}
-                : {x: PANEL_CROPS.appearance.x, y: PANEL_CROPS.appearance.y + 420, width: PANEL_CROPS.appearance.width, height: 560}
-            }
-            width={820}
-            startFrom={index === 0 ? 22 : shot.startFrom}
-            playbackRate={shot.playbackRate}
-            duration={shot.duration}
-            animate={false}
-            tilt={-8}
-            focus={index === 0 ? {direction: "in", frames: APPEARANCE_HANDOFF.enterFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur} : undefined}
-            style={{
-              left: 984,
-              top: 132,
-              zIndex: 10,
-              boxShadow: isDark && !isEditorial
-                ? "-28px 44px 110px -20px rgba(2, 6, 23, 0.72), 0 0 68px -12px rgba(245, 158, 11, 0.28), 0 0 0 1px rgba(255, 214, 148, 0.18)"
-                : isEditorial
-                  ? "-28px 44px 104px -24px rgba(68, 46, 24, 0.28), 0 0 48px -12px rgba(214, 148, 86, 0.22), 0 0 0 1px rgba(184, 134, 88, 0.22)"
-                  : undefined
-            }}
+          <AppearancePanel
+            index={index}
+            shot={shot}
+            isDark={isDark}
+            isEditorial={isEditorial}
+            lampGlow={lampGlow}
+            paperGlow={paperGlow}
           />
         </Sequence>
       ))}
