@@ -96,7 +96,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(OVERVIEW_FROM + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(CHAT_FROM + CHAT_PLAYER_VERIFY_FROM + 15)).toBeCloseTo(base * 10 ** (-11.5 / 20));
-    expect(musicVolumeAtFrame(850)).toBe(base);
+    expect(musicVolumeAtFrame(835)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / AUDIO.music.fadeOutFrames);

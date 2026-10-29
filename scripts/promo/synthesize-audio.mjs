@@ -223,12 +223,12 @@ function makeScore() {
     add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
   }
 
-  // 26.0 / 26.5 / 27.0 / 27.5 四拍能力落点递进强调（峰值严格非递减）
+  // 四拍能力落点递进强调（峰值严格非递减）
   const featureBuild = [
-    {at: 26.0, notes: [62, 69], gain: 0.14, sub: 0.36},
-    {at: 26.5, notes: [64, 71], gain: 0.17, sub: 0.42},
-    {at: 27.0, notes: [66, 74], gain: 0.20, sub: 0.48},
-    {at: 27.5, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[0].at) / PROMO_FPS, notes: [62, 69], gain: 0.14, sub: 0.36},
+    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[1].at) / PROMO_FPS, notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[2].at) / PROMO_FPS, notes: [66, 74], gain: 0.20, sub: 0.48},
+    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[3].at) / PROMO_FPS, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
   ];
   for (const step of featureBuild) {
     add(track, subHit(step.sub), step.at);
@@ -246,7 +246,7 @@ function makeScore() {
     add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
   }
 
-  // 28.70s 徽章胀开成品牌落定 Resolve；30.52–30.88s 收尾留白呼吸，30.90s 标语落点
+  // 30.70s 徽章胀开成品牌落定 Resolve；30.52–30.88s 收尾留白呼吸，31.03s 标语落点
   add(track, subHit(0.56), resolveAt);
   add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
   add(track, tone(78, 1.8, {type: "bell", gain: 0.14}), resolveAt, -0.2);

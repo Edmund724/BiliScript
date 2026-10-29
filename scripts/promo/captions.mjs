@@ -26,6 +26,6 @@ export const CAPTIONS = [
   {sceneId: "providers", text: "选择平台，从预设开始。", startMs: 20600, endMs: 21700, timestampMs: null, confidence: null},
   {sceneId: "providers", text: "14 个 AI 平台预设，另支持自定义端点。", startMs: 21900, endMs: 25000, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "双语字幕、字幕导出、语音识别、联网搜索。", startMs: outroMilliseconds(OUTRO_TIMELINE.features[0].at - OUTRO_TIMELINE.featureEnterFrames), endMs: outroMilliseconds(OUTRO_TIMELINE.convergeAt), timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "BiliScript", startMs: 28800, endMs: 30850, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频。\nEdge 应用商店｜GitHub 开源", startMs: 30900, endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
+  {sceneId: "outro", text: "BiliScript", startMs: outroMilliseconds(OUTRO_TIMELINE.brandResolveAt), endMs: outroMilliseconds(OUTRO_TIMELINE.taglineAt), timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "在 B 站，读下一条视频。\nEdge 应用商店｜GitHub 开源", startMs: outroMilliseconds(OUTRO_TIMELINE.taglineAt), endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
 ];
