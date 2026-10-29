@@ -1,177 +1,180 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {Brand, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1356, y: 52, width: 554, height: 1014};
-const PULLBACK_START = 36;
+const PULLBACK_START = 38;
 const PULLBACK_END = 43;
 const CLICK_AT = 42;
 const PANEL_OPEN_FRAMES = 14;
-const HEADER_REVEAL_AT = 40;
-const ZOOM_FOCUS_START = 72;
-const ZOOM_FOCUS_END = 98;
+const HEADER_REVEAL_AT = 43;
+const SNAP_EMPHASIS_AT = 75;
 const HERO_SOURCE_CLICK_FRAME = 36;
 
-const QUESTIONS = [
-  {
-    enterAt: 0,
-    prefix: "1 小时公开课，在",
-    highlight: "收藏夹吃灰",
-    suffix: "多久了？",
-    left: 210,
-    top: 196
-  },
-  {
-    enterAt: 13,
-    prefix: "记得 UP 主说过那句话，",
-    highlight: "死活拖不到",
-    suffix: "那一秒？",
-    left: 280,
-    top: 432
-  },
-  {
-    enterAt: 26,
-    prefix: "看视频卡在半路，想",
-    highlight: "追问没人答",
-    suffix: "？",
-    left: 350,
-    top: 668
-  }
+export const HERO_STEM = "看 B 站长视频 ——";
+export const HERO_HEADLINE = "BiliScript · 直接「读」视频";
+
+export const HERO_SLOT_BEATS = [
+  {text: "收藏夹吃灰？", from: 0, to: 14, popAt: 4},
+  {text: "死活拖不到那秒？", from: 14, to: 28, popAt: 16},
+  {text: "想追问没人答？", from: 28, to: 42, popAt: 28}
 ] as const;
 
-const PainPointQuestionStack = () => {
+export function heroBeatIndexAtFrame(frame: number): number {
+  if (frame < HERO_SLOT_BEATS[1].from) return 0;
+  if (frame < HERO_SLOT_BEATS[2].from) return 1;
+  return 2;
+}
+
+export function heroSlotOpacityAtFrame(frame: number): number {
+  if (frame <= 0) return 1;
+  if (frame >= PULLBACK_END) return 0;
+  return interpolate(frame, [PULLBACK_START, PULLBACK_END - 0.5], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+}
+
+const SlotFlipHook = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   if (frame >= PULLBACK_END) return null;
+
+  const beatIndex = heroBeatIndexAtFrame(frame);
+  const activeBeat = HERO_SLOT_BEATS[beatIndex];
+  const localBeatFrame = frame - activeBeat.from;
 
   const collapse = interpolate(frame, [PULLBACK_START, PULLBACK_END], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
-  const collapseScale = interpolate(collapse, [0, 1], [1, 0.72]);
-  const collapseOpacity = interpolate(collapse, [0, 0.82], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp"
-  });
-  const collapseBlur = interpolate(collapse, [0, 1], [0, 12]);
+  const collapseScale = interpolate(collapse, [0, 1], [1, 0.78]);
+  const collapseOpacity = heroSlotOpacityAtFrame(frame);
+  const collapseBlur = interpolate(collapse, [0, 1], [0, 10]);
+
+  const flipSpring =
+    beatIndex === 0
+      ? 1
+      : spring({
+          frame: Math.max(0, localBeatFrame),
+          fps,
+          config: {damping: 14, stiffness: 220, mass: 0.65}
+        });
+  const slotLiftY = beatIndex === 0 ? 0 : interpolate(flipSpring, [0, 1], [44, 0]);
+  const slotRotateX = beatIndex === 0 ? 0 : interpolate(flipSpring, [0, 1], [-58, 0]);
+  const popPulse =
+    frame >= activeBeat.popAt && frame <= activeBeat.popAt + 7
+      ? interpolate(frame, [activeBeat.popAt, activeBeat.popAt + 2, activeBeat.popAt + 7], [1, 1.045, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp"
+        })
+      : 1;
+
+  const markerSweep =
+    beatIndex === 0
+      ? 1
+      : interpolate(localBeatFrame, [0, 5], [0.42, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.bezier(0.16, 1, 0.3, 1)
+        });
 
   return (
-    <>
-      {QUESTIONS.map((question, index) => {
-        if (frame < question.enterAt) return null;
-        const enterProgress = spring({
-          frame: Math.max(0, frame - question.enterAt),
-          fps,
-          config: {damping: 16, stiffness: 155, mass: 0.78}
-        });
-        const markerSweep = interpolate(
-          frame,
-          [question.enterAt + 1, question.enterAt + 9],
-          [0, 1],
-          {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1)
-          }
-        );
-        const enterOpacity =
-          index === 0
-            ? interpolate(frame, [0, 5], [0.92, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
-            : interpolate(frame, [question.enterAt, question.enterAt + 5], [0, 1], {
-                extrapolateLeft: "clamp",
-                extrapolateRight: "clamp",
-                easing: Easing.out(Easing.cubic)
-              });
-        const enterLift = interpolate(enterProgress, [0, 1], [index === 0 ? 10 : 36, 0]);
-        const enterScale = interpolate(enterProgress, [0, 1], [index === 0 ? 0.96 : 0.92, 1]);
-
-        let depthLevel = 0;
-        for (let nextIdx = index + 1; nextIdx < QUESTIONS.length; nextIdx += 1) {
-          depthLevel += interpolate(
-            frame,
-            [QUESTIONS[nextIdx].enterAt, QUESTIONS[nextIdx].enterAt + 10],
-            [0, 1],
-            {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-              easing: Easing.out(Easing.cubic)
-            }
-          );
-        }
-
-        const recedeScale = 1 - depthLevel * 0.032;
-        const recedeOpacity = 1 - depthLevel * 0.14;
-        const recedeY = -depthLevel * 8;
-        const isFrontCard = depthLevel < 0.5;
-
-        return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 18,
+        pointerEvents: "none"
+      }}
+    >
+      <div
+        style={{
+          padding: "40px 62px",
+          borderRadius: 42,
+          background: "rgba(255, 255, 255, 0.96)",
+          backdropFilter: "blur(26px)",
+          boxShadow: ELEVATION.heroFloat,
+          display: "flex",
+          alignItems: "center",
+          gap: 20,
+          whiteSpace: "nowrap",
+          opacity: collapseOpacity,
+          translate: `0px ${(-collapse * 22).toFixed(1)}px`,
+          scale: collapseScale,
+          filter: collapseBlur > 0.2 ? `blur(${collapseBlur.toFixed(1)}px)` : undefined
+        }}
+      >
+        <span
+          style={{
+            color: COLORS.inkSoft,
+            fontSize: 64,
+            fontWeight: 700,
+            lineHeight: 1.16,
+            letterSpacing: -2.2
+          }}
+        >
+          {HERO_STEM}
+        </span>
+        <div
+          style={{
+            position: "relative",
+            minWidth: 590,
+            height: 112,
+            padding: "0 28px",
+            borderRadius: 26,
+            background: "rgba(251, 245, 247, 0.95)",
+            boxShadow: "inset 0 2px 8px rgba(17, 24, 39, 0.06), 0 0 0 1.5px rgba(232, 93, 135, 0.26)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden"
+          }}
+        >
           <div
-            key={question.highlight}
+            key={activeBeat.text}
             style={{
-              position: "absolute",
-              left: question.left,
-              top: question.top,
-              padding: "30px 50px",
-              borderRadius: 32,
-              background: isFrontCard ? "rgba(255, 255, 255, 0.96)" : "rgba(255, 255, 255, 0.89)",
-              backdropFilter: "blur(24px)",
-              boxShadow: isFrontCard ? ELEVATION.heroFloat : ELEVATION.cardSoft,
-              color: COLORS.inkSoft,
-              fontSize: 54,
-              fontWeight: 550,
-              lineHeight: 1.24,
-              letterSpacing: -1.7,
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "baseline",
-              opacity: enterOpacity * recedeOpacity * collapseOpacity,
-              translate: `0px ${enterLift + recedeY - collapse * 24}px`,
-              scale: enterScale * recedeScale * collapseScale,
-              filter: collapseBlur > 0.2 ? `blur(${collapseBlur.toFixed(1)}px)` : undefined,
-              transformOrigin: "50% 50%",
-              zIndex: 10 + index
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "6px 20px",
+              fontSize: 70,
+              fontWeight: 800,
+              lineHeight: 1.08,
+              letterSpacing: -2.4,
+              color: "#C81E5B",
+              transform: `perspective(900px) translateY(${slotLiftY.toFixed(1)}px) rotateX(${slotRotateX.toFixed(1)}deg) scale(${popPulse.toFixed(3)})`,
+              transformOrigin: "50% 50%"
             }}
           >
-            <span>{question.prefix}</span>
             <span
               style={{
-                position: "relative",
-                display: "inline-block",
-                margin: "0 8px",
-                padding: "4px 16px",
-                fontSize: 64,
-                fontWeight: 800,
-                lineHeight: 1.08,
-                letterSpacing: -2.1,
-                color: "#C81E5B"
+                position: "absolute",
+                inset: "4px 0",
+                borderRadius: 16,
+                background: "linear-gradient(96deg, rgba(255, 212, 59, 0.78) 0%, rgba(251, 114, 153, 0.46) 100%)",
+                boxShadow: "0 8px 22px -6px rgba(232, 93, 135, 0.36)",
+                transformOrigin: "0% 50%",
+                transform: `scaleX(${markerSweep.toFixed(3)}) skewX(-6deg)`,
+                zIndex: -1
               }}
-            >
-              <span
-                style={{
-                  position: "absolute",
-                  inset: "2px 0",
-                  borderRadius: 14,
-                  background: "linear-gradient(96deg, rgba(255, 212, 59, 0.72) 0%, rgba(251, 114, 153, 0.42) 100%)",
-                  boxShadow: "0 6px 18px -6px rgba(232, 93, 135, 0.35)",
-                  transformOrigin: "0% 50%",
-                  transform: `scaleX(${markerSweep.toFixed(3)}) skewX(-6deg)`,
-                  zIndex: -1
-                }}
-              />
-              {question.highlight}
-            </span>
-            <span>{question.suffix}</span>
+            />
+            {activeBeat.text}
           </div>
-        );
-      })}
-    </>
+        </div>
+      </div>
+    </div>
   );
 };
 
 const Cursor = () => {
   const frame = useCurrentFrame();
-  if (frame < PULLBACK_END - 5) return null;
+  if (frame < PULLBACK_START) return null;
   return (
     <>
       <div
@@ -197,11 +200,11 @@ const Cursor = () => {
           width: 30,
           height: 38,
           filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
-          opacity: interpolate(frame, [PULLBACK_END - 5, PULLBACK_END - 2, CLICK_AT + 5, CLICK_AT + 12], [0, 1, 1, 0], {
+          opacity: interpolate(frame, [PULLBACK_START, PULLBACK_START + 2, CLICK_AT + 6, CLICK_AT + 13], [0, 1, 1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp"
           }),
-          translate: interpolate(frame, [PULLBACK_END - 5, CLICK_AT - 1], ["980px 860px", `${BUTTON.x}px ${BUTTON.y}px`], {
+          translate: interpolate(frame, [PULLBACK_START, CLICK_AT], ["980px 860px", `${BUTTON.x}px ${BUTTON.y}px`], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1)
@@ -231,8 +234,8 @@ const ReaderPanel = () => {
   });
   const paperSheenX = interpolate(unfoldProgress, [0, 1], [105, -25]);
   const paperSheenOpacity = interpolate(unfoldProgress, [0, 0.35, 1], [0, 0.82, 0]);
-  const panelOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 2], [0.72, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
-  const zoomHighlight = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+  const panelOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 2], [0.76, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const snapHighlight = interpolate(frame, [SNAP_EMPHASIS_AT - 2, SNAP_EMPHASIS_AT + 12], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
@@ -252,7 +255,6 @@ const ReaderPanel = () => {
         zIndex: 6
       }}
     >
-      {/* Book Spine Crease Shadow on Left Seam */}
       <div
         style={{
           position: "absolute",
@@ -271,7 +273,7 @@ const ReaderPanel = () => {
           inset: 0,
           borderRadius: 24,
           background: "#FBF9F4",
-          boxShadow: `-36px 24px 96px -20px rgba(17, 24, 39, ${(0.28 + zoomHighlight * 0.14).toFixed(2)}), 0 0 ${Math.round(zoomHighlight * 44)}px rgba(232, 93, 135, ${(zoomHighlight * 0.28).toFixed(2)}), 0 0 0 ${(1 + zoomHighlight * 1.2).toFixed(1)}px rgba(232, 93, 135, ${(0.18 + zoomHighlight * 0.36).toFixed(2)})`
+          boxShadow: `-36px 24px 96px -20px rgba(17, 24, 39, ${(0.28 + snapHighlight * 0.14).toFixed(2)}), 0 0 ${Math.round(snapHighlight * 44)}px rgba(232, 93, 135, ${(snapHighlight * 0.28).toFixed(2)}), 0 0 0 ${(1 + snapHighlight * 1.2).toFixed(1)}px rgba(232, 93, 135, ${(0.18 + snapHighlight * 0.36).toFixed(2)})`
         }}
       />
       <div
@@ -303,7 +305,7 @@ const ReaderPanel = () => {
   );
 };
 
-const HeroMessage = () => {
+const HeroBrandHeadline = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   if (frame < HEADER_REVEAL_AT) return null;
@@ -311,34 +313,39 @@ const HeroMessage = () => {
   const enterSpring = spring({
     frame: Math.max(0, frame - HEADER_REVEAL_AT),
     fps,
-    config: {damping: 18, stiffness: 150, mass: 0.8}
+    config: {damping: 16, stiffness: 160, mass: 0.78}
   });
-  const bandOpacity = interpolate(frame, [HEADER_REVEAL_AT, HEADER_REVEAL_AT + 6], [0, 1], {
+  const bandOpacity = interpolate(frame, [HEADER_REVEAL_AT, HEADER_REVEAL_AT + 5], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic)
   });
-  const dockProgress = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+  const snapPulse =
+    frame >= SNAP_EMPHASIS_AT - 1
+      ? spring({
+          frame: Math.max(0, frame - (SNAP_EMPHASIS_AT - 1)),
+          fps,
+          config: {damping: 14, stiffness: 185, mass: 0.7}
+        })
+      : 0;
+  const enterScale = interpolate(enterSpring, [0, 1], [0.9, 1]) * interpolate(snapPulse, [0, 0.5, 1], [1, 1.04, 1.02]);
+  const enterLift = interpolate(enterSpring, [0, 1], [28, 0]);
+  const readSweep = interpolate(frame, [HEADER_REVEAL_AT + 3, SNAP_EMPHASIS_AT + 4], [0.65, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
 
-  const left = interpolate(dockProgress, [0, 1], [230, 64]);
-  const top = interpolate(dockProgress, [0, 1], [440, 56]);
-  const baseScale = interpolate(dockProgress, [0, 1], [1.12, 0.86]);
-  const enterScale = interpolate(enterSpring, [0, 1], [0.92, 1]);
-  const enterLift = interpolate(enterSpring, [0, 1], [28, 0]);
-
   return (
     <div
       style={{
         position: "absolute",
-        left,
-        top,
-        padding: "26px 46px",
+        left: 678,
+        top: "50%",
+        translate: `-50% calc(-50% + ${enterLift.toFixed(1)}px)`,
+        padding: "32px 58px",
         borderRadius: 999,
-        background: "rgba(251, 251, 253, 0.95)",
+        background: "rgba(255, 255, 255, 0.96)",
         backdropFilter: "blur(28px)",
         boxShadow: ELEVATION.heroFloat,
         display: "flex",
@@ -346,31 +353,51 @@ const HeroMessage = () => {
         gap: 24,
         zIndex: 24,
         opacity: bandOpacity,
-        translate: `0px ${enterLift.toFixed(1)}px`,
-        scale: enterScale * baseScale,
-        transformOrigin: "0% 50%"
+        scale: enterScale,
+        whiteSpace: "nowrap"
       }}
     >
-      <Brand size={32} iconSize={44} />
-      <div
-        style={{
-          width: 2,
-          height: 36,
-          borderRadius: 999,
-          background: "rgba(17, 24, 39, 0.12)"
-        }}
-      />
+      <Img src={staticFile("media/logo.svg")} style={{width: 58, height: 58, borderRadius: 15}} />
       <div
         style={{
           color: COLORS.foreground,
-          fontSize: 50,
-          fontWeight: 650,
-          lineHeight: 1.16,
-          letterSpacing: -1.8,
-          whiteSpace: "nowrap"
+          fontSize: 64,
+          fontWeight: 800,
+          lineHeight: 1.1,
+          letterSpacing: -2.4,
+          display: "flex",
+          alignItems: "baseline",
+          gap: 16
         }}
       >
-        不用等课代表，在 B 站直接<span style={{color: COLORS.pink}}>「读」</span>视频。
+        <span style={{fontFamily: BRAND_FONT_FAMILY, fontWeight: 700, letterSpacing: -1.8}}>BiliScript</span>
+        <span style={{color: COLORS.subtle, fontWeight: 600}}>·</span>
+        <span>
+          直接
+          <span
+            style={{
+              position: "relative",
+              display: "inline-block",
+              margin: "0 -6px 0 -2px",
+              padding: "2px 4px",
+              color: "#C81E5B"
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                inset: "4px 6px",
+                borderRadius: 12,
+                background: "linear-gradient(96deg, rgba(255, 212, 59, 0.72) 0%, rgba(251, 114, 153, 0.44) 100%)",
+                transformOrigin: "0% 50%",
+                transform: `scaleX(${readSweep.toFixed(3)}) skewX(-6deg)`,
+                zIndex: -1
+              }}
+            />
+            「读」
+          </span>
+          视频
+        </span>
       </div>
     </div>
   );
@@ -378,8 +405,8 @@ const HeroMessage = () => {
 
 const ToolbarEntryCallout = () => {
   const frame = useCurrentFrame();
-  if (frame < PULLBACK_END - 4 || frame > CLICK_AT + 10) return null;
-  const opacity = interpolate(frame, [PULLBACK_END - 4, CLICK_AT - 1, CLICK_AT + 2, CLICK_AT + 10], [0, 1, 0.92, 0], {
+  if (frame < PULLBACK_START || frame > CLICK_AT + 10) return null;
+  const opacity = interpolate(frame, [PULLBACK_START, CLICK_AT - 1, CLICK_AT + 2, CLICK_AT + 10], [0, 1, 0.92, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
@@ -408,20 +435,20 @@ export const HeroScene = () => {
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
-  const zoomFocusProgress = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+  const focusProgress = interpolate(frame, [SNAP_EMPHASIS_AT - 3, SNAP_EMPHASIS_AT + 18], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
-  const hookDriftScale = interpolate(frame, [0, PULLBACK_START], [1.34, 1.30], {
+  const hookDriftScale = interpolate(frame, [0, PULLBACK_START], [1.28, 1.24], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
   const videoScale = interpolate(pullbackProgress, [0, 1], [hookDriftScale, 1]);
-  const pullbackBlur = interpolate(pullbackProgress, [0, 1], [4.5, 1.2]);
-  const videoBlur = interpolate(zoomFocusProgress, [0, 1], [pullbackBlur, 5.2]);
-  const veilOpacity = interpolate(pullbackProgress, [0, 1], [1, 0.32]);
-  const stageZoomScale = interpolate(zoomFocusProgress, [0, 1], [1, 1.34]);
+  const pullbackBlur = interpolate(pullbackProgress, [0, 1], [5.5, 1.2]);
+  const videoBlur = interpolate(focusProgress, [0, 1], [pullbackBlur, 3.6]);
+  const veilOpacity = interpolate(pullbackProgress, [0, 1], [0.88, 0.24]);
+  const stageZoomScale = interpolate(focusProgress, [0, 1], [1, 1.08]);
 
   return (
     <AbsoluteFill style={{background: COLORS.background, fontFamily: FONT_FAMILY, overflow: "hidden"}}>
@@ -429,7 +456,7 @@ export const HeroScene = () => {
         style={{
           position: "absolute",
           inset: 0,
-          transformOrigin: "96% 16%",
+          transformOrigin: "92% 42%",
           scale: stageZoomScale
         }}
       >
@@ -453,9 +480,9 @@ export const HeroScene = () => {
           <AbsoluteFill
             style={{
               background: [
-                "radial-gradient(ellipse 55% 60% at 24% 42%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 70%)",
-                "radial-gradient(ellipse 60% 65% at 78% 52%, rgba(38, 121, 184, 0.08) 0%, rgba(38, 121, 184, 0) 72%)",
-                "linear-gradient(160deg, rgba(251, 251, 253, 0.34) 0%, rgba(244, 245, 248, 0.28) 100%)"
+                "radial-gradient(ellipse 55% 60% at 24% 42%, rgba(232, 93, 135, 0.10) 0%, rgba(232, 93, 135, 0) 70%)",
+                "radial-gradient(ellipse 60% 65% at 78% 52%, rgba(38, 121, 184, 0.10) 0%, rgba(38, 121, 184, 0) 72%)",
+                "linear-gradient(160deg, rgba(251, 251, 253, 0.76) 0%, rgba(244, 245, 248, 0.68) 100%)"
               ].join(", "),
               opacity: veilOpacity,
               pointerEvents: "none"
@@ -466,8 +493,8 @@ export const HeroScene = () => {
         <ReaderPanel />
         <Cursor />
       </div>
-      <HeroMessage />
-      <PainPointQuestionStack />
+      <HeroBrandHeadline />
+      <SlotFlipHook />
     </AbsoluteFill>
   );
 };

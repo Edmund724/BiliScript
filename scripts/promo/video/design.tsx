@@ -269,6 +269,304 @@ export const VoiceWaveBar = ({
   );
 };
 
+export type ChapterInterstitialProps = {
+  kicker?: string;
+  title: string;
+  titleNode?: ReactNode;
+  subtitle?: string;
+  from?: number;
+  duration?: number;
+  accentColor?: string;
+  style?: CSSProperties;
+};
+
+export const ChapterInterstitial = ({
+  kicker,
+  title,
+  titleNode,
+  subtitle,
+  from = 0,
+  duration = 18,
+  accentColor = COLORS.pink,
+  style = {}
+}: ChapterInterstitialProps) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const local = frame - from;
+  if (local < 0 || local >= duration) return null;
+
+  const separatorIndex = !kicker ? title.indexOf("·") : -1;
+  const resolvedKicker = kicker ?? (separatorIndex >= 0 ? title.slice(0, separatorIndex).trim() : undefined);
+  const resolvedTitle = kicker ? title : separatorIndex >= 0 ? title.slice(separatorIndex + 1).trim() : title;
+
+  const enterSpring = spring({
+    frame: Math.max(0, local),
+    fps,
+    config: {damping: 16, stiffness: 180, mass: 0.72}
+  });
+  const exitFrames = Math.min(5, Math.max(3, Math.floor(duration * 0.25)));
+  const exitProgress = interpolate(local, [duration - exitFrames, duration], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.in(Easing.cubic)
+  });
+
+  const stageOpacity = 1 - exitProgress;
+  const lockupScale = interpolate(enterSpring, [0, 1], [0.92, 1]) * interpolate(exitProgress, [0, 1], [1, 1.04]);
+  const lockupLift = interpolate(enterSpring, [0, 1], [22, 0]) - exitProgress * 16;
+  const slashSweep = interpolate(local, [0, Math.min(8, duration - 4)], [0.35, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+
+  return (
+    <AbsoluteFill
+      style={{
+        background: [
+          "radial-gradient(ellipse 58% 62% at 24% 40%, rgba(232, 93, 135, 0.10) 0%, rgba(232, 93, 135, 0) 70%)",
+          "radial-gradient(ellipse 62% 66% at 78% 56%, rgba(38, 121, 184, 0.09) 0%, rgba(38, 121, 184, 0) 72%)",
+          "linear-gradient(156deg, #FDFBF7 0%, #F6F3EC 52%, #F2F4F8 100%)"
+        ].join(", "),
+        fontFamily: FONT_FAMILY,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: stageOpacity,
+        zIndex: 45,
+        pointerEvents: "none",
+        ...style
+      }}
+    >
+      <PaperGrainOverlay opacity={0.12} warm borderRadius={0} />
+      <div
+        style={{
+          position: "relative",
+          padding: "48px 84px",
+          borderRadius: 44,
+          background: "rgba(255, 255, 255, 0.92)",
+          boxShadow: ELEVATION.heroFloat,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 18,
+          translate: `0px ${lockupLift.toFixed(1)}px`,
+          scale: lockupScale
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "center",
+            gap: 24,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {resolvedKicker ? (
+            <>
+              <span
+                style={{
+                  fontFamily: BRAND_FONT_FAMILY,
+                  fontSize: 88,
+                  fontWeight: 700,
+                  lineHeight: 1.05,
+                  letterSpacing: -2.2,
+                  color: accentColor
+                }}
+              >
+                {resolvedKicker}
+              </span>
+              <span
+                style={{
+                  fontSize: 76,
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  color: COLORS.subtle
+                }}
+              >
+                ·
+              </span>
+            </>
+          ) : null}
+          <span
+            style={{
+              fontSize: 102,
+              fontWeight: 800,
+              lineHeight: 1.08,
+              letterSpacing: -3.6,
+              color: COLORS.foreground
+            }}
+          >
+            {titleNode ?? resolvedTitle}
+          </span>
+        </div>
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 520,
+            height: 8,
+            borderRadius: 999,
+            background: `linear-gradient(90deg, ${accentColor} 0%, ${COLORS.blue} 100%)`,
+            transformOrigin: "0% 50%",
+            transform: `scaleX(${slashSweep.toFixed(3)})`,
+            opacity: 0.85
+          }}
+        />
+        {subtitle ? (
+          <div
+            style={{
+              fontSize: 28,
+              fontWeight: 500,
+              letterSpacing: -0.4,
+              color: COLORS.muted
+            }}
+          >
+            {subtitle}
+          </div>
+        ) : null}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+export const ChapterTitleCard = ChapterInterstitial;
+
+export type LectureBottomCaptionProps = {
+  timestamp: string;
+  quote?: string;
+  text?: string;
+  speaker?: string;
+  active?: boolean;
+  from?: number;
+  duration?: number;
+  style?: CSSProperties;
+};
+
+export const LectureBottomCaption = ({
+  timestamp,
+  quote,
+  text,
+  speaker,
+  active = true,
+  from,
+  duration,
+  style = {}
+}: LectureBottomCaptionProps) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const local = from !== undefined ? frame - from : frame;
+  if (from !== undefined && local < 0) return null;
+  if (duration !== undefined && local >= duration) return null;
+
+  const enterProgress = spring({
+    frame: Math.max(0, local),
+    fps,
+    config: {damping: 18, stiffness: 165, mass: 0.76}
+  });
+  const enterOpacity = from !== undefined
+    ? interpolate(local, [0, 5], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+    : 1;
+  const exitOpacity = duration !== undefined
+    ? interpolate(local, [Math.max(0, duration - 6), duration], [1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+    : 1;
+  const liftY = from !== undefined ? interpolate(enterProgress, [0, 1], [18, 0]) : 0;
+  const baseHeights = [10, 19, 13, 21, 15, 11];
+  const contentText = quote ?? text ?? "";
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: 48,
+        translate: `-50% ${liftY.toFixed(1)}px`,
+        padding: "16px 36px 16px 22px",
+        borderRadius: 999,
+        background: "rgba(15, 23, 42, 0.90)",
+        backdropFilter: "blur(22px)",
+        boxShadow:
+          "0 28px 64px -18px rgba(15, 23, 42, 0.62), 0 0 0 1.5px rgba(255, 255, 255, 0.18), 0 0 36px rgba(232, 93, 135, 0.24)",
+        color: "#FFFFFF",
+        display: "flex",
+        alignItems: "center",
+        gap: 18,
+        whiteSpace: "nowrap",
+        opacity: enterOpacity * exitOpacity,
+        zIndex: 35,
+        pointerEvents: "none",
+        ...style
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 18px",
+          borderRadius: 999,
+          background: "rgba(232, 93, 135, 0.24)",
+          boxShadow: "inset 0 0 0 1px rgba(232, 93, 135, 0.54)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", gap: 3.5, height: 22}}>
+          {baseHeights.map((base, idx) => {
+            const wave = active ? 0.55 + 0.45 * Math.abs(Math.sin(frame * 0.45 + idx * 1.15)) : 0.4;
+            return (
+              <span
+                key={idx}
+                style={{
+                  display: "inline-block",
+                  width: 3.5,
+                  height: Math.max(6, Math.round(base * wave)),
+                  borderRadius: 99,
+                  background: "#FF709A"
+                }}
+              />
+            );
+          })}
+        </div>
+        <strong
+          style={{
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 27,
+            fontWeight: 700,
+            letterSpacing: 0.4,
+            color: "#FFE4EC"
+          }}
+        >
+          {timestamp}
+        </strong>
+      </div>
+      {speaker ? (
+        <span
+          style={{
+            fontSize: 24,
+            fontWeight: 600,
+            color: "rgba(255, 255, 255, 0.72)",
+            letterSpacing: -0.3
+          }}
+        >
+          {speaker}
+        </span>
+      ) : null}
+      <span
+        style={{
+          fontSize: 34,
+          fontWeight: 700,
+          letterSpacing: -0.6,
+          color: "#FFFFFF",
+          textShadow: "0 2px 10px rgba(0, 0, 0, 0.35)"
+        }}
+      >
+        {contentText}
+      </span>
+    </div>
+  );
+};
+
+export const LectureSubtitleBar = LectureBottomCaption;
+
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
 export const microPerspective = (tilt = 6) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)`;
 export const MICRO_PERSPECTIVE = microPerspective(6);
