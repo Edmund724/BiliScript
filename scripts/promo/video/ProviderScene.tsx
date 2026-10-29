@@ -55,6 +55,10 @@ const OrbitTrack = ({opacity}: {opacity: number}) => (
   </svg>
 );
 
+export const PROVIDER_HEADLINE = "接入你顺手的 AI 大脑";
+export const PROVIDER_SUBHEADLINE = "支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型";
+export const PROVIDER_BENEFIT_TAG = "不被单一 AI 绑定 · 自由接入外部 API";
+
 const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
   const frame = useCurrentFrame();
   const enter = interpolate(frame, [plateAt, plateAt + 12], [0, 1], {...CLAMP, easing: ENTRANCE});
@@ -78,11 +82,11 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
           position: "absolute",
           left: "50%",
           top: "50%",
-          width: 980,
-          height: 460,
+          width: 1080,
+          height: 480,
           translate: "-50% -50%",
           borderRadius: "50%",
-          background: "radial-gradient(ellipse at center, rgba(232, 93, 135, 0.13) 0%, rgba(232, 93, 135, 0) 68%)",
+          background: "radial-gradient(ellipse at center, rgba(232, 93, 135, 0.14) 0%, rgba(232, 93, 135, 0) 68%)",
           pointerEvents: "none"
         }}
       />
@@ -91,8 +95,8 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
           position: "relative",
           display: "flex",
           alignItems: "center",
-          gap: 26,
-          padding: "30px 58px 30px 46px",
+          gap: 30,
+          padding: "30px 54px 30px 44px",
           borderRadius: 42,
           background: "rgba(255, 255, 255, 0.96)",
           backdropFilter: "blur(26px)",
@@ -103,39 +107,56 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
           style={{
             color: COLORS.pink,
             fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 196,
+            fontSize: 156,
             fontWeight: 700,
-            lineHeight: 0.86,
-            letterSpacing: -8
+            lineHeight: 0.88,
+            letterSpacing: -6,
+            whiteSpace: "nowrap"
           }}
         >
-          {PROVIDER_LOGOS.length}
+          14+
         </div>
         <div>
           <div
             style={{
+              display: "inline-flex",
+              alignItems: "center",
+              padding: "5px 14px",
+              borderRadius: 999,
+              background: "rgba(232, 93, 135, 0.10)",
+              color: "#C81E5B",
+              fontSize: 18,
+              fontWeight: 700,
+              letterSpacing: 0.2,
+              marginBottom: 10
+            }}
+          >
+            {PROVIDER_BENEFIT_TAG}
+          </div>
+          <div
+            style={{
               color: COLORS.foreground,
               fontSize: 46,
-              fontWeight: 600,
-              lineHeight: 1.1,
+              fontWeight: 700,
+              lineHeight: 1.12,
               letterSpacing: -1.6,
               whiteSpace: "nowrap"
             }}
           >
-            个 AI 平台预设
+            {PROVIDER_HEADLINE}
           </div>
           <div
             style={{
-              marginTop: 12,
+              marginTop: 10,
               color: COLORS.muted,
-              fontSize: 24,
-              fontWeight: 500,
-              lineHeight: 1.2,
+              fontSize: 23,
+              fontWeight: 560,
+              lineHeight: 1.25,
               letterSpacing: -0.2,
               whiteSpace: "nowrap"
             }}
           >
-            另支持自定义端点
+            {PROVIDER_SUBHEADLINE}
           </div>
         </div>
       </div>

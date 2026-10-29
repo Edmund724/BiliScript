@@ -22,18 +22,31 @@ export const OVERVIEW_TIMELINE = {
   quoteLiftFrames: 18
 };
 
+export const SUBTOOLS_TIMELINE = {
+  duration: 105,
+  bilingualAt: 10,
+  exportClickAt: 52
+};
+
+export const WEBSEARCH_TIMELINE = {
+  duration: 75,
+  searchBadgeAt: 8,
+  verifyCardAt: 22
+};
+
 export const APPEARANCE_TIMELINE = {
-  darkFrom: 21,
-  editorialFrom: 57
+  flymeDarkFrom: 22,
+  editorialLightFrom: 44,
+  editorialDarkFrom: 67
 };
 
 export const PROVIDER_TIMELINE = {
-  duration: 105,
+  duration: 90,
   plateAt: 2,
-  orbitAt: 8,
-  logoStagger: 3.75,
-  exitAt: 91,
-  exitDuration: 12
+  orbitAt: 6,
+  logoStagger: 3.2,
+  exitAt: 78,
+  exitDuration: 10
 };
 
 export const SCENES = [
@@ -41,14 +54,18 @@ export const SCENES = [
   { id: "subtitle", from: 105, duration: 120 },
   { id: "overview", from: 225, duration: OVERVIEW_TIMELINE.duration },
   { id: "chat", from: 390, duration: 180 },
-  { id: "appearance", from: 570, duration: 90 },
-  { id: "providers", from: 660, duration: PROVIDER_TIMELINE.duration },
+  { id: "subtools", from: 570, duration: SUBTOOLS_TIMELINE.duration },
+  { id: "websearch", from: 675, duration: WEBSEARCH_TIMELINE.duration },
+  { id: "appearance", from: 750, duration: 90 },
+  { id: "providers", from: 840, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
   {from: "overview", to: "chat", at: 390, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "chat", to: "appearance", at: 570, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "chat", to: "subtools", at: 570, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "subtools", to: "websearch", at: 675, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "websearch", to: "appearance", at: 750, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
@@ -62,8 +79,10 @@ export const CHAT_SHOTS = [
 ];
 
 export const APPEARANCE_SHOTS = [
-  { title: "深色模式，\n完整切换。", startFrom: 0, duration: 45, playbackRate: 1.35, width: 860, top: 172 },
-  { title: "阅读色板，\n随你偏好。", startFrom: 101, duration: 45, playbackRate: 1.25, width: 788, top: 172 }
+  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 22, fontScale: 1.0 },
+  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 22, duration: 22, fontScale: 1.06 },
+  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 44, duration: 23, fontScale: 1.12 },
+  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 67, duration: 23, fontScale: 1.18 }
 ];
 
 export const EVIDENCE_TIMES = [
@@ -71,9 +90,11 @@ export const EVIDENCE_TIMES = [
   3.7, 5.0, 5.5, 5.9, 7.3,
   7.7, 8.7, 10.0, 10.3, 10.9, 12.0, 12.8,
   13.2, 14.0, 14.5, 15.8, 16.5, 17.3, 18.2, 18.8,
-  19.2, 19.8, 20.5, 21.1, 21.8,
-  22.1, 22.4, 23.0, 24.0, 25.0,
-  26.0, 27.2, 28.4, 29.6, 30.4, 30.8, 31.1, 31.4, 31.7, 32.3, 33.1,
+  19.2, 19.8, 20.6, 21.2, 22.1,
+  22.7, 23.3, 24.0, 24.7,
+  25.2, 25.9, 26.6, 27.4,
+  28.2, 28.8, 29.6, 30.5,
+  31.3, 31.8, 32.5, 33.1, 34.0,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
@@ -93,16 +114,19 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "overview-chat-defocus", at: 13.0},
   {id: "chat-timestamp-click", at: 15.8},
   {id: "chat-player-verify", at: 17.1},
-  {id: "chat-appearance-defocus", at: 19.0},
-  {id: "appearance-dark-wipe", at: 19.7},
-  {id: "appearance-palette-wipe", at: 20.9},
+  {id: "chat-subtools-defocus", at: 19.0},
+  {id: "subtools-export-click", at: (570 + SUBTOOLS_TIMELINE.exportClickAt) / PROMO_FPS},
+  {id: "subtools-websearch-defocus", at: 22.5},
+  {id: "websearch-verify-card", at: (675 + WEBSEARCH_TIMELINE.verifyCardAt) / PROMO_FPS},
+  {id: "websearch-appearance-defocus", at: 25.0},
+  {id: "appearance-flyme-dark", at: (750 + APPEARANCE_TIMELINE.flymeDarkFrom) / PROMO_FPS},
+  {id: "appearance-editorial-light", at: (750 + APPEARANCE_TIMELINE.editorialLightFrom) / PROMO_FPS},
+  {id: "appearance-editorial-dark", at: (750 + APPEARANCE_TIMELINE.editorialDarkFrom) / PROMO_FPS},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},
   {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + (PROVIDER_LOGOS.length - 1) * PROVIDER_TIMELINE.logoStagger)},
   {id: "provider-exit", at: providerSeconds(PROVIDER_TIMELINE.exitAt)},
-  ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
-  {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
   {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
   {id: "brand-tagline", at: outroSeconds(OUTRO_TIMELINE.taglineAt)},
   {id: "brand-cta", at: outroSeconds(OUTRO_TIMELINE.ctaAt + 12)},

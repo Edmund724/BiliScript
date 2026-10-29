@@ -21,10 +21,11 @@ export const CAPTIONS = [
   {sceneId: "overview", text: "02:32 赵老师原声：“如果他不答，一定是零分！”", ...voiceMilliseconds("voice-0232"), timestampMs: null, confidence: null},
   {sceneId: "chat", text: "带着问题追问视频，点按时间戳让 UP 主亲自举证。", startMs: 13200, endMs: 16700, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "04:44 原片举证：“这里有一个研究……”", ...voiceMilliseconds("voice-0444"), timestampMs: null, confidence: null},
-  {sceneId: "appearance", text: "明暗模式切换：浅色 / 深色夜读。", startMs: 19200, endMs: 20700, timestampMs: null, confidence: null},
-  {sceneId: "appearance", text: "外观色板：蓝雾玻璃 / 数字刊物。", startMs: 20900, endMs: 21850, timestampMs: null, confidence: null},
-  {sceneId: "providers", text: "14 个 AI 平台预设，另支持自定义端点。", startMs: 22100, endMs: 25200, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "双语字幕、字幕导出、语音识别、联网搜索。", startMs: outroMilliseconds(OUTRO_TIMELINE.features[0].at - OUTRO_TIMELINE.featureEnterFrames), endMs: outroMilliseconds(OUTRO_TIMELINE.convergeAt), timestampMs: null, confidence: null},
+  {sceneId: "subtools", text: "遇到没字幕的视频？免费语音转写 + 外语视频双语对照。", startMs: 19150, endMs: 20700, timestampMs: null, confidence: null},
+  {sceneId: "subtools", text: "一键复制 Markdown 或导出 SRT / TXT 字幕。", startMs: 20750, endMs: 22350, timestampMs: null, confidence: null},
+  {sceneId: "websearch", text: "UP 主说得对不对？AI 联网检索辅助核对，超纲概念背景补充。", startMs: 22650, endMs: 24850, timestampMs: null, confidence: null},
+  {sceneId: "appearance", text: "蓝雾玻璃与数字刊物日夜四主题，字号放大与杂志排版随心切换。", startMs: 25150, endMs: 27850, timestampMs: null, confidence: null},
+  {sceneId: "providers", text: "接入你顺手的 AI 大脑：支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型。", startMs: 28150, endMs: 30850, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "BiliScript", startMs: outroMilliseconds(OUTRO_TIMELINE.brandResolveAt), endMs: outroMilliseconds(OUTRO_TIMELINE.taglineAt), timestampMs: null, confidence: null},
   {sceneId: "outro", text: "在 B 站，读下一条视频。\nEdge 应用商店｜GitHub 开源", startMs: outroMilliseconds(OUTRO_TIMELINE.taglineAt), endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
 ];

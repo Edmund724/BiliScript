@@ -10,17 +10,23 @@ import {
   PANEL_FOCUS_HANDOFFS,
   PROMO_DURATION,
   PROVIDER_TIMELINE,
-  SCENES
+  SCENES,
+  SUBTOOLS_TIMELINE,
+  WEBSEARCH_TIMELINE
 } from "./timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 const OVERVIEW_FROM = SCENES.find((scene) => scene.id === "overview").from;
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat").from;
+const SUBTOOLS_FROM = SCENES.find((scene) => scene.id === "subtools").from;
+const WEBSEARCH_FROM = SCENES.find((scene) => scene.id === "websearch").from;
 const APPEARANCE_FROM = SCENES.find((scene) => scene.id === "appearance").from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const OVERVIEW_DURATION = SCENES.find((scene) => scene.id === "overview").duration;
 const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_DURATION * OVERVIEW_TIMELINE.chapterRatio);
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat");
+const SUBTOOLS_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "subtools");
+const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch");
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance");
 
 const PROVIDER_BUBBLE_CUES = PROVIDER_LOGOS.map((logo, index) => ({
@@ -67,22 +73,23 @@ export const AUDIO = {
     {id: `${CHAT_HANDOFF.from}-defocus`, frame: CHAT_HANDOFF.at - CHAT_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${CHAT_HANDOFF.to}-focus`, frame: CHAT_HANDOFF.at + CHAT_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
+    {id: `${SUBTOOLS_HANDOFF.from}-defocus`, frame: SUBTOOLS_HANDOFF.at - SUBTOOLS_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
+    {id: `${SUBTOOLS_HANDOFF.to}-focus`, frame: SUBTOOLS_HANDOFF.at + SUBTOOLS_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
+    {id: "subtools-bilingual", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, src: "media/sfx/pop.wav", gain: 0.46, duckDb: 3.8},
+    {id: "subtools-export", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, src: "media/sfx/snap.wav", gain: 0.56, duckDb: 4.5},
+    {id: `${WEBSEARCH_HANDOFF.from}-defocus`, frame: WEBSEARCH_HANDOFF.at - WEBSEARCH_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
+    {id: `${WEBSEARCH_HANDOFF.to}-focus`, frame: WEBSEARCH_HANDOFF.at + WEBSEARCH_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
+    {id: "websearch-verify", frame: WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4.2},
     {id: `${APPEARANCE_HANDOFF.from}-defocus`, frame: APPEARANCE_HANDOFF.at - APPEARANCE_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${APPEARANCE_HANDOFF.to}-focus`, frame: APPEARANCE_HANDOFF.at + APPEARANCE_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
-    {id: "dark-mode", frame: APPEARANCE_FROM + APPEARANCE_TIMELINE.darkFrom, src: "media/sfx/toggle.wav", gain: 0.56, duckDb: 4.5},
-    {id: "editorial-palette", frame: APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialFrom, src: "media/sfx/shutter-2.wav", gain: 0.54, duckDb: 4.2},
+    {id: "flyme-dark", frame: APPEARANCE_FROM + APPEARANCE_TIMELINE.flymeDarkFrom, src: "media/sfx/toggle.wav", gain: 0.54, duckDb: 4.2},
+    {id: "editorial-light", frame: APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialLightFrom, src: "media/sfx/shutter-2.wav", gain: 0.54, duckDb: 4.2},
+    {id: "editorial-dark", frame: APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialDarkFrom, src: "media/sfx/shutter-3.wav", gain: 0.54, duckDb: 4.2},
     {id: "provider-plate", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.plateAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
     {id: "provider-orbit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, src: "media/sfx/chord.wav", gain: 0.42, duckDb: 4.2},
     ...PROVIDER_BUBBLE_CUES,
     {id: "provider-exit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, src: "media/sfx/snap.wav", gain: 0.52, duckDb: 4},
     {id: "outro-cut", frame: OUTRO_TIMELINE.from, src: "media/sfx/whoosh.wav", gain: 0.38, duckDb: 4},
-    ...OUTRO_TIMELINE.features.map((feature, index) => ({
-      id: feature.id,
-      frame: OUTRO_TIMELINE.from + feature.at,
-      src: "media/sfx/pop.wav",
-      gain: Number((0.40 + index * 0.04).toFixed(2)),
-      duckDb: 3.5 + index * 0.4
-    })),
     {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.56, duckDb: 6},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2}
   ],

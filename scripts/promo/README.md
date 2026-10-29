@@ -41,7 +41,7 @@ Remotion 的 Chrome Headless Shell 只保留主 checkout 的 `node_modules/.remo
 | 最终验收 | `pnpm promo:verify -- --kind=final release/BiliScript-promo-1080p.mp4` | `.scratch/promo/evidence/final-*` |
 | 重录单镜头 | 见下节 | 替换 `public/media/` 中对应素材后重新渲染 |
 
-单镜头 id：`hero`、`subtitle`、`overview`、`chat`、`appearance`、`providers`、`outro`。把 `--scene=hero` 换成目标 id；去掉 `--stills-only` 还会输出该镜头的草稿视频。
+单镜头 id：`hero`、`subtitle`、`overview`、`chat`、`subtools`、`websearch`、`appearance`、`providers`、`outro`。把 `--scene=hero` 换成目标 id；去掉 `--stills-only` 还会输出该镜头的草稿视频。
 
 `promo:verify` 必须显式指定产物类型和路径，并在检查前打印绝对路径。draft 按 960×540 验收，final 按 1920×1080 验收；完整回放、音频和视觉证据检查保持一致。
 

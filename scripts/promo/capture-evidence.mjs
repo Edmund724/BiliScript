@@ -60,10 +60,11 @@ const mobileShots = [
   {id: "chapters", at: 8.2},
   {id: "quote", at: 11.2},
   {id: "chat-verify", at: 16.6},
-  {id: "appearance", at: 19.5},
+  {id: "subtools", at: 21.0},
+  {id: "websearch", at: 23.8},
+  {id: "appearance", at: 26.8},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
-  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 56)},
-  {id: "features", at: outroSeconds(OUTRO_TIMELINE.features[OUTRO_TIMELINE.features.length - 1].at) + 0.1},
+  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 42)},
   {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];
 for (const shot of mobileShots) {

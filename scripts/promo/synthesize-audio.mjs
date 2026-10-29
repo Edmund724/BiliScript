@@ -219,17 +219,17 @@ function makeScore() {
 
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
-  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 13.0, 19.0, 22.0, 25.5, resolveAt, 30.9];
+  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 13.0, 19.0, 22.5, 25.0, 28.0, resolveAt];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 19.0 ? 0.62 : 0.52), cutAt);
   }
 
   // 四拍能力落点递进强调（峰值严格非递减）
   const featureBuild = [
-    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[0].at) / PROMO_FPS, notes: [62, 69], gain: 0.14, sub: 0.36},
-    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[1].at) / PROMO_FPS, notes: [64, 71], gain: 0.17, sub: 0.42},
-    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[2].at) / PROMO_FPS, notes: [66, 74], gain: 0.20, sub: 0.48},
-    {at: (OUTRO_TIMELINE.from + OUTRO_TIMELINE.features[3].at) / PROMO_FPS, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+    {at: 19.33, notes: [62, 69], gain: 0.14, sub: 0.36},
+    {at: 20.73, notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: 23.23, notes: [66, 74], gain: 0.20, sub: 0.48},
+    {at: 26.47, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
   ];
   for (const step of featureBuild) {
     add(track, subHit(step.sub), step.at);

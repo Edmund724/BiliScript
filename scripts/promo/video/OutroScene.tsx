@@ -1,23 +1,14 @@
 import {Easing, Img, interpolate, interpolateColors, staticFile, useCurrentFrame} from "remotion";
 import {OUTRO_TIMELINE} from "../outro-timeline.mjs";
-import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, FONT_FAMILY, entranceOpacity} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY, entranceOpacity} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
-
-const CANVAS_WIDTH = 1920;
-const FEATURE_COUNT = OUTRO_TIMELINE.features.length;
-
-const BEAT_BADGE = {size: 104, top: 328};
-const BEAT_INDEX_TOP = 280;
-const BEAT_WORD = {top: 470, size: 200};
-const BEAT_NOTE_TOP = 744;
 
 const BRAND_ICON = {size: 110, top: 350};
 const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
 const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
 const BRAND_ICON_OUTSET = (BRAND_GROUP_WIDTH - BRAND_ICON.size) / 2;
-const BRAND_MARK = {x: CANVAS_WIDTH / 2, y: BRAND_ICON.top + BRAND_ICON.size / 2};
 const TAGLINE_TOP = 520;
 const CTA_TOP = 616;
 const INSTALL_POINTER = {x: 880, y: CTA_TOP + 42};
@@ -42,225 +33,11 @@ const GitHubIcon = () => (
   </svg>
 );
 
-const BeatGlyph = ({id}: {id: string}) => (
-  <svg width={64} height={64} viewBox="0 0 72 72" fill="none" aria-hidden="true">
-    {id === "feature-bilingual" ? (
-      <>
-        <rect x="16" y="25" width="40" height="8" rx="4" fill={COLORS.pink} />
-        <rect x="16" y="41" width="27" height="8" rx="4" fill={COLORS.blue} fillOpacity={0.72} />
-      </>
-    ) : id === "feature-export" ? (
-      <>
-        <path d="M36 16v23" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" />
-        <path d="m26 32 10 10 10-10" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M21 53h30" stroke={COLORS.blue} strokeWidth={4.5} strokeLinecap="round" />
-      </>
-    ) : id === "feature-asr" ? (
-      <>
-        {[18, 32, 46, 32, 18].map((height, index) => (
-          <rect
-            key={index}
-            x={15 + index * 9}
-            y={36 - height / 2}
-            width={5.5}
-            height={height}
-            rx={2.75}
-            fill={index === 2 ? COLORS.pink : COLORS.blue}
-            fillOpacity={index === 2 ? 1 : 0.68}
-          />
-        ))}
-      </>
-    ) : (
-      <>
-        <circle cx="33" cy="31" r="13" stroke={COLORS.pink} strokeWidth={4.5} />
-        <path d="m43 41 10 10" stroke={COLORS.pink} strokeWidth={4.5} strokeLinecap="round" />
-        <circle cx="33" cy="31" r="3.2" fill={COLORS.blue} fillOpacity={0.8} />
-      </>
-    )}
-  </svg>
-);
-
-const badgeTileStyle = {
-  width: BEAT_BADGE.size,
-  height: BEAT_BADGE.size,
-  borderRadius: 30,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "linear-gradient(158deg, rgba(255, 255, 255, 0.99) 0%, rgba(255, 243, 247, 0.94) 100%)",
-  boxShadow:
-    "0 24px 52px -20px rgba(232, 93, 135, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(232, 93, 135, 0.10)"
-} as const;
-
-type Feature = (typeof OUTRO_TIMELINE.features)[number];
-
-const FeatureBeat = ({feature, index}: {feature: Feature; index: number}) => {
-  const frame = useCurrentFrame();
-  const last = index === FEATURE_COUNT - 1;
-  const enterStart = feature.at - OUTRO_TIMELINE.featureEnterFrames;
-  const exitStart = last ? OUTRO_TIMELINE.convergeAt : feature.at + OUTRO_TIMELINE.featureHoldFrames;
-  const exitEnd = last ? exitStart + OUTRO_TIMELINE.convergeFrames : exitStart + OUTRO_TIMELINE.featureExitFrames;
-  if (frame < enterStart || frame > exitEnd) return null;
-
-  const enter = interpolate(frame, [enterStart, enterStart + 2], [0.4, 1], CLAMP);
-  const rise = interpolate(frame, [enterStart, feature.at], [86, 0], {...CLAMP, easing: ENTRANCE_EASING});
-  const badgeExit = last ? 0 : interpolate(frame, [exitStart, exitEnd], [0, 1], CLAMP);
-  const contentExit = interpolate(frame, [exitStart, exitEnd], [0, 1], {
-    ...CLAMP,
-    easing: last ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic)
-  });
-  const contentDrift = interpolate(frame, [exitStart, exitEnd], [0, last ? -104 : -74], {
-    ...CLAMP,
-    easing: last ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic)
-  });
-  const contentScale = last ? 1 - contentExit * 0.8 : 0.97 + enter * 0.03;
-
-  return (
-    <>
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: BEAT_INDEX_TOP,
-          textAlign: "center",
-          fontFamily: BRAND_FONT_FAMILY,
-          fontSize: 30,
-          fontWeight: 700,
-          letterSpacing: 2,
-          opacity: enter * (1 - contentExit),
-          translate: `0px ${rise}px`
-        }}
-      >
-        <span style={{color: COLORS.pink}}>{String(index + 1).padStart(2, "0")}</span>
-        <span style={{color: COLORS.subtle}}> / {String(FEATURE_COUNT).padStart(2, "0")}</span>
-      </div>
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: BEAT_BADGE.top,
-          display: "flex",
-          justifyContent: "center",
-          opacity: enter * (1 - badgeExit),
-          translate: `0px ${rise}px`
-        }}
-      >
-        <div style={badgeTileStyle}>
-          <BeatGlyph id={feature.id} />
-        </div>
-      </div>
-      <div style={{position: "absolute", inset: 0, opacity: enter * (1 - contentExit), translate: `0px ${rise + contentDrift}px`, scale: contentScale}}>
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: BEAT_WORD.top,
-            textAlign: "center",
-            color: COLORS.foreground,
-            fontSize: BEAT_WORD.size,
-            fontWeight: 700,
-            lineHeight: 1,
-            letterSpacing: -7,
-            whiteSpace: "nowrap"
-          }}
-        >
-          {feature.label}
-        </div>
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: BEAT_NOTE_TOP,
-            textAlign: "center",
-            color: COLORS.muted,
-            fontSize: 46,
-            fontWeight: 500,
-            letterSpacing: 0.4,
-            whiteSpace: "nowrap"
-          }}
-        >
-          {feature.note}
-        </div>
-      </div>
-    </>
-  );
-};
-
-const FeatureBeats = () => {
-  const frame = useCurrentFrame();
-  const whisperOpacity = entranceOpacity(frame, OUTRO_TIMELINE.featureBoardAt) *
-    (1 - interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 6], [0, 1], CLAMP));
-  const lastFeature = OUTRO_TIMELINE.features[FEATURE_COUNT - 1];
-
-  return (
-    <>
-      <BrandWhisper opacity={whisperOpacity} />
-      {OUTRO_TIMELINE.features.map((feature, index) => (
-        <FeatureBeat key={feature.id} feature={feature} index={index} />
-      ))}
-      <BrandSeal feature={lastFeature} />
-    </>
-  );
-};
-
-const BrandSeal = ({feature}: {feature: Feature}) => {
-  const frame = useCurrentFrame();
-  const startAt = OUTRO_TIMELINE.convergeAt + OUTRO_TIMELINE.convergeFrames;
-  const resolveAt = OUTRO_TIMELINE.brandResolveAt;
-  if (frame < startAt || frame > resolveAt) return null;
-
-  const drift = interpolate(frame, [startAt, resolveAt], [0, BRAND_MARK.y - (BEAT_BADGE.top + BEAT_BADGE.size / 2)], {
-    ...CLAMP,
-    easing: Easing.inOut(Easing.cubic)
-  });
-  const swell = interpolate(frame, [startAt, startAt + 5, resolveAt], [1, 1.42, BRAND_ICON.size / BEAT_BADGE.size], {
-    ...CLAMP,
-    easing: Easing.inOut(Easing.cubic)
-  });
-  const fade = interpolate(frame, [resolveAt - 4, resolveAt], [1, 0], CLAMP);
-  const ringProgress = interpolate(frame, [startAt, resolveAt], [0, 1], CLAMP);
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: CANVAS_WIDTH / 2 - BEAT_BADGE.size / 2,
-        top: BEAT_BADGE.top,
-        width: BEAT_BADGE.size,
-        height: BEAT_BADGE.size,
-        opacity: fade,
-        translate: `0px ${drift}px`,
-        scale: swell,
-        zIndex: 4
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          inset: -6,
-          borderRadius: "50%",
-          border: "2.5px solid rgba(232, 93, 135, 0.55)",
-          opacity: (1 - ringProgress) * 0.7,
-          scale: 1 + ringProgress * 1.6,
-          pointerEvents: "none"
-        }}
-      />
-      <div style={{...badgeTileStyle, width: "100%", height: "100%"}}>
-        <BeatGlyph id={feature.id} />
-      </div>
-    </div>
-  );
-};
-
 const FinalBrand = () => {
   const frame = useCurrentFrame();
   const nameSettledAt = OUTRO_TIMELINE.brandNameAt + 14;
-  const iconAt = OUTRO_TIMELINE.brandResolveAt - 4;
-  const iconSoftAt = iconAt - 3;
+  const iconAt = Math.max(0, OUTRO_TIMELINE.brandResolveAt - 4);
+  const iconSoftAt = Math.max(0, iconAt - 3);
   const lockup = interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
   const nameRevealLockup = 1 - BRAND_NAME.gap / BRAND_ICON_OUTSET;
   const nameOpacity = interpolate(lockup, [nameRevealLockup, 1], [0, 1], CLAMP);
@@ -367,7 +144,6 @@ const TripleLikeBurst = ({clickAt}: {clickAt: number}) => {
         zIndex: 12
       }}
     >
-      {/* Dual Bilibili Pink + Gold Pulse Rings */}
       <div
         style={{
           position: "absolute",
@@ -382,7 +158,6 @@ const TripleLikeBurst = ({clickAt}: {clickAt: number}) => {
           scale: ringScale
         }}
       />
-      {/* Radiating Geometric Triple-Like Sparks */}
       {TRIPLE_SPARK_RAYS.map((ray, index) => {
         const rad = (ray.angle * Math.PI) / 180;
         const r = ray.dist * burstProgress;
@@ -589,7 +364,6 @@ export const OutroScene = () => {
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
       <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.06) 0%, rgba(232, 93, 135, 0) 72%)"}} />
-      <FeatureBeats />
       <BrandStage />
       <div
         style={{

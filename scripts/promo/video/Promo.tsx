@@ -2,7 +2,7 @@ import {Audio, AbsoluteFill, Sequence, staticFile} from "remotion";
 import {AUDIO, musicVolumeAtFrame} from "../audio.mjs";
 import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
-import {AppearanceScene, ChatScene} from "./scenes";
+import {AppearanceScene, ChatScene, SubtoolsScene, WebSearchScene} from "./scenes";
 import {HeroScene} from "./HeroScene";
 import {OutroScene} from "./OutroScene";
 import {OverviewScene} from "./OverviewScene";
@@ -19,6 +19,10 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
       return <OverviewScene duration={duration} />;
     case "chat":
       return <ChatScene />;
+    case "subtools":
+      return <SubtoolsScene />;
+    case "websearch":
+      return <WebSearchScene />;
     case "appearance":
       return <AppearanceScene />;
     case "providers":

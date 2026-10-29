@@ -4,13 +4,16 @@ import {OUTRO_TIMELINE} from "../../scripts/promo/outro-timeline.mjs";
 import {PROVIDER_LOGOS} from "../../scripts/promo/provider-logos.mjs";
 import {SUBTITLE_MATCH_FRAME} from "../../scripts/promo/subtitle-timeline.mjs";
 import {
+  APPEARANCE_TIMELINE,
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_TIMESTAMP_CLICK_FRAME,
   OVERVIEW_TIMELINE,
   PROMO_DURATION,
   PROMO_FPS,
   PROVIDER_TIMELINE,
-  SCENES
+  SCENES,
+  SUBTOOLS_TIMELINE,
+  WEBSEARCH_TIMELINE
 } from "../../scripts/promo/timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle")!.from;
@@ -18,6 +21,8 @@ const OVERVIEW_SCENE = SCENES.find((scene) => scene.id === "overview")!;
 const OVERVIEW_FROM = OVERVIEW_SCENE.from;
 const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_SCENE.duration * OVERVIEW_TIMELINE.chapterRatio);
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat")!.from;
+const SUBTOOLS_FROM = SCENES.find((scene) => scene.id === "subtools")!.from;
+const WEBSEARCH_FROM = SCENES.find((scene) => scene.id === "websearch")!.from;
 const APPEARANCE_FROM = SCENES.find((scene) => scene.id === "appearance")!.from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers")!.from;
 
@@ -60,9 +65,17 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["chat-focus", 397, "media/sfx/whoosh.wav"],
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
       ["chat-defocus", 564, "media/sfx/click.wav"],
-      ["appearance-focus", 577, "media/sfx/whoosh.wav"],
-      ["dark-mode", APPEARANCE_FROM + 21, "media/sfx/toggle.wav"],
-      ["editorial-palette", APPEARANCE_FROM + 57, "media/sfx/shutter-2.wav"],
+      ["subtools-focus", 577, "media/sfx/whoosh.wav"],
+      ["subtools-bilingual", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, "media/sfx/pop.wav"],
+      ["subtools-export", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, "media/sfx/snap.wav"],
+      ["subtools-defocus", 669, "media/sfx/click.wav"],
+      ["websearch-focus", 682, "media/sfx/whoosh.wav"],
+      ["websearch-verify", WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, "media/sfx/pop.wav"],
+      ["websearch-defocus", 744, "media/sfx/click.wav"],
+      ["appearance-focus", 757, "media/sfx/whoosh.wav"],
+      ["flyme-dark", APPEARANCE_FROM + APPEARANCE_TIMELINE.flymeDarkFrom, "media/sfx/toggle.wav"],
+      ["editorial-light", APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialLightFrom, "media/sfx/shutter-2.wav"],
+      ["editorial-dark", APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialDarkFrom, "media/sfx/shutter-3.wav"],
       ["provider-plate", PROVIDERS_FROM + PROVIDER_TIMELINE.plateAt, "media/sfx/pop.wav"],
       ["provider-orbit", PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, "media/sfx/chord.wav"],
       ...PROVIDER_LOGOS.map((logo, index) => [
@@ -72,7 +85,6 @@ describe("宣传片配乐与三幕原声问答", () => {
       ]),
       ["provider-exit", PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, "media/sfx/snap.wav"],
       ["outro-cut", OUTRO_TIMELINE.from, "media/sfx/whoosh.wav"],
-      ...OUTRO_TIMELINE.features.map((feature) => [feature.id, OUTRO_TIMELINE.from + feature.at, "media/sfx/pop.wav"]),
       ["brand-resolve", OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, "media/sfx/resolve.wav"],
       ["install-click", OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, "media/sfx/snap.wav"]
     ]);
