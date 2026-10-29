@@ -211,64 +211,6 @@ export const ReadingLampBeam = ({
   );
 };
 
-export const VoiceWaveBar = ({
-  timestamp,
-  quote,
-  active = true,
-  style = {}
-}: {
-  timestamp: string;
-  quote: string;
-  active?: boolean;
-  style?: CSSProperties;
-}) => {
-  const frame = useCurrentFrame();
-  const baseHeights = [9, 17, 12, 19, 14, 10];
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 22,
-        top: 22,
-        padding: "10px 22px",
-        borderRadius: 999,
-        background: "rgba(15, 23, 42, 0.74)",
-        backdropFilter: "blur(16px)",
-        boxShadow: "0 12px 32px -12px rgba(15, 23, 42, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12)",
-        color: "#FFFFFF",
-        fontSize: 19,
-        fontWeight: 500,
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        pointerEvents: "none",
-        ...style
-      }}
-    >
-      <div style={{display: "flex", alignItems: "center", gap: 3.5, height: 20}}>
-        {baseHeights.map((base, idx) => {
-          const wave = active ? 0.55 + 0.45 * Math.abs(Math.sin(frame * 0.45 + idx * 1.15)) : 0.4;
-          return (
-            <span
-              key={idx}
-              style={{
-                display: "inline-block",
-                width: 3.5,
-                height: Math.max(5, Math.round(base * wave)),
-                borderRadius: 99,
-                background: COLORS.pink
-              }}
-            />
-          );
-        })}
-      </div>
-      <span style={{letterSpacing: -0.2}}>
-        <strong style={{fontFamily: BRAND_FONT_FAMILY, fontWeight: 600, marginRight: 6}}>{timestamp}</strong>· {quote}
-      </span>
-    </div>
-  );
-};
-
 export type ChapterInterstitialProps = {
   kicker?: string;
   title: string;

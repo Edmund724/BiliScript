@@ -13,8 +13,7 @@ describe("宣传片公共原语与开场单句痛点钩子 (Ticket 01)", () => {
       LectureSubtitleBar,
       ChapterInterstitial,
       ChapterTitleCard,
-      ChapterCard,
-      VoiceWaveBar
+      ChapterCard
     } = await import(designModulePath);
     expect(typeof VideoReferenceCard).toBe("function");
     expect(BiliVideoReferenceCard).toBe(VideoReferenceCard);
@@ -24,7 +23,6 @@ describe("宣传片公共原语与开场单句痛点钩子 (Ticket 01)", () => {
     expect(typeof ChapterInterstitial).toBe("function");
     expect(ChapterTitleCard).toBe(ChapterInterstitial);
     expect(ChapterCard).toBe(ChapterInterstitial);
-    expect(typeof VoiceWaveBar).toBe("function");
   });
 
   it("开场前 1.6–1.8 秒全屏居中仅展示 1 句核心痛点，且第 0 帧即 100% 不透明", async () => {
