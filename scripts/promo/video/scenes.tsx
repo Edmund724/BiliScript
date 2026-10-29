@@ -544,7 +544,7 @@ export const SubtoolsScene = () => {
   const headlineAFade = interpolate(frame, [bilingualAt - 4, bilingualAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
   const headlineCFade = interpolate(frame, [exportAt - 4, exportAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
 
-  const isHoveringCopy = frame >= clickAt - 10 && frame < clickAt;
+  const copyHoverOpacity = interpolate(frame, [clickAt - 10, clickAt - 4, clickAt + 2, clickAt + 8], [0, 1, 1, 0], CLAMP);
   const copyPopScale = showCheck
     ? interpolate(frame, [clickAt + 2, clickAt + 8], [0.7, 1], {...CLAMP, easing: Easing.bezier(0.34, 1.56, 0.64, 1)})
     : 1;
@@ -798,7 +798,7 @@ export const SubtoolsScene = () => {
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: 16,
-                  background: isHoveringCopy || showCheck ? "rgba(23, 24, 26, 0.06)" : "transparent",
+                  background: `rgba(23, 24, 26, ${(0.06 * copyHoverOpacity).toFixed(3)})`,
                   color: showCheck ? MIST_GLASS.accent : MIST_GLASS.text,
                   scale: copyPressScale
                 }}
