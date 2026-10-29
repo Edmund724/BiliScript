@@ -1,13 +1,11 @@
-import {Easing, Img, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROVIDER_LOGOS} from "../provider-logos.mjs";
 import {PROVIDER_TIMELINE} from "../timeline.mjs";
-import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY, ProductFrame, entranceOpacity} from "./design";
+import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
-const TITLE_DELAY = 3;
-const {dialogShot, shotsExitAt, shotsExitDuration, plateAt, orbitAt, logoStagger, exitAt, exitDuration} =
-  PROVIDER_TIMELINE;
+const {plateAt, orbitAt, logoStagger, exitAt, exitDuration} = PROVIDER_TIMELINE;
 
 const ORBIT = {
   centerX: 960,
@@ -223,9 +221,8 @@ const OrbitLogo = ({
   );
 };
 
-const OrbitArray = () => {
+const OrbitArray = ({exitProgress}: {exitProgress: number}) => {
   const frame = useCurrentFrame();
-  const exitProgress = interpolate(frame, [exitAt, exitAt + exitDuration], [0, 1], {...CLAMP, easing: Easing.in(Easing.cubic)});
   const trackOpacity = interpolate(frame, [orbitAt - 2, orbitAt + 10], [0, 1], {...CLAMP, easing: ENTRANCE}) * (1 - exitProgress);
 
   return (
@@ -241,63 +238,12 @@ const OrbitArray = () => {
 
 export const ProviderScene = () => {
   const frame = useCurrentFrame();
-  const titleOpacity =
-    entranceOpacity(frame, TITLE_DELAY) * interpolate(frame, [shotsExitAt - 2, shotsExitAt + 4], [1, 0], CLAMP);
-  const modalOpacity =
-    entranceOpacity(frame) * interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0], CLAMP);
-  const modalScale = interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0.94], {
-    ...CLAMP,
-    easing: ENTRANCE
-  });
-  const modalTranslateX = interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [0, 48], {
-    ...CLAMP,
-    easing: ENTRANCE
-  });
+  const exitProgress = interpolate(frame, [exitAt, exitAt + exitDuration], [0, 1], {...CLAMP, easing: Easing.in(Easing.cubic)});
 
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
-      <BrandWhisper opacity={titleOpacity} />
-      <div style={{position: "absolute", left: 96, top: 156, width: 620, opacity: titleOpacity}}>
-        <div
-          style={{
-            color: COLORS.foreground,
-            fontSize: 68,
-            fontWeight: 600,
-            lineHeight: 1.16,
-            letterSpacing: -2.4
-          }}
-        >
-          选择平台，
-          <br />
-          从预设开始。
-        </div>
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          opacity: modalOpacity,
-          translate: `${modalTranslateX}px 0px`,
-          scale: modalScale
-        }}
-      >
-        <Sequence from={dialogShot.from} durationInFrames={shotsExitAt + shotsExitDuration}>
-          <ProductFrame
-            source="ai-providers.mp4"
-            crop={{x: 1396, y: 298, width: 478, height: 432}}
-            width={976}
-            startFrom={dialogShot.source}
-            playbackRate={dialogShot.playbackRate}
-            duration={dialogShot.duration}
-            animate
-            tilt={-7}
-            style={{left: 848, top: 88}}
-          />
-        </Sequence>
-      </div>
-
-      <OrbitArray />
+      <BrandWhisper opacity={1 - exitProgress} />
+      <OrbitArray exitProgress={exitProgress} />
     </div>
   );
 };

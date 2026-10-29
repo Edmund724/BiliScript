@@ -6,6 +6,7 @@ import {SUBTITLE_MATCH_FRAME} from "../../scripts/promo/subtitle-timeline.mjs";
 import {
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_TIMESTAMP_CLICK_FRAME,
+  OVERVIEW_TIMELINE,
   PROMO_DURATION,
   PROMO_FPS,
   PROVIDER_TIMELINE,
@@ -13,8 +14,11 @@ import {
 } from "../../scripts/promo/timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle")!.from;
-const OVERVIEW_FROM = SCENES.find((scene) => scene.id === "overview")!.from;
+const OVERVIEW_SCENE = SCENES.find((scene) => scene.id === "overview")!;
+const OVERVIEW_FROM = OVERVIEW_SCENE.from;
+const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_SCENE.duration * OVERVIEW_TIMELINE.chapterRatio);
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat")!.from;
+const APPEARANCE_FROM = SCENES.find((scene) => scene.id === "appearance")!.from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers")!.from;
 
 describe("宣传片配乐与三幕原声问答", () => {
@@ -36,7 +40,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     }
   });
 
-  it("把定制拟音与三段原片老师回应放在真实交互帧上", () => {
+  it("把定制拟音与三段原片老师回应放在真实交互帧上，02:32 原声延后至金句卡弹出时印证", () => {
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
       ["hook-pain", 4, "media/sfx/pop.wav"],
       ["hero-pullback", 51, "media/sfx/whoosh.wav"],
@@ -49,16 +53,16 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["type-enter", 125, "media/sfx/mech-enter.wav"],
       ["subtitle-seek-snap", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, "media/sfx/snap.wav"],
       ["overview-cut", 225, "media/sfx/whoosh.wav"],
-      ["voice-0232-fade", 270, "media/sfx/voice-fade.wav"],
-      ["chapters-quote-cut", 303, "media/sfx/whoosh.wav"],
-      ["quote-save", 317, "media/sfx/polaroid-shutter.wav"],
-      ["overview-defocus", 339, "media/sfx/click.wav"],
-      ["chat-focus", 352, "media/sfx/whoosh.wav"],
+      ["chapters-quote-cut", 309, "media/sfx/whoosh.wav"],
+      ["quote-save", 323, "media/sfx/polaroid-shutter.wav"],
+      ["voice-0232-fade", 351, "media/sfx/voice-fade.wav"],
+      ["overview-defocus", 384, "media/sfx/click.wav"],
+      ["chat-focus", 397, "media/sfx/whoosh.wav"],
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
-      ["chat-defocus", 519, "media/sfx/click.wav"],
-      ["appearance-focus", 532, "media/sfx/whoosh.wav"],
-      ["dark-mode", 546, "media/sfx/toggle.wav"],
-      ["editorial-palette", 582, "media/sfx/shutter-2.wav"],
+      ["chat-defocus", 564, "media/sfx/click.wav"],
+      ["appearance-focus", 577, "media/sfx/whoosh.wav"],
+      ["dark-mode", APPEARANCE_FROM + 21, "media/sfx/toggle.wav"],
+      ["editorial-palette", APPEARANCE_FROM + 57, "media/sfx/shutter-2.wav"],
       ["provider-plate", PROVIDERS_FROM + PROVIDER_TIMELINE.plateAt, "media/sfx/pop.wav"],
       ["provider-orbit", PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, "media/sfx/chord.wav"],
       ...PROVIDER_LOGOS.map((logo, index) => [
@@ -74,7 +78,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     ]);
     expect(AUDIO.voices.map((voice) => [voice.id, voice.frame, voice.src])).toEqual([
       ["voice-0407", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, "media/sfx/voice-0407.wav"],
-      ["voice-0232", OVERVIEW_FROM + 5, "media/sfx/voice-0232.wav"],
+      ["voice-0232", OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 2, "media/sfx/voice-0232.wav"],
       ["voice-0444", CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, "media/sfx/voice-0444.wav"]
     ]);
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
@@ -82,7 +86,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(AUDIO.cues.every((cue) => cue.gain > 0 && cue.gain <= 0.66)).toBe(true);
   });
 
-  it("让配乐在音效前预先让位，重叠时只取最深压低并自然淡入淡出", () => {
+  it("让配乐在音效前预先让位，章节阅读段不触发人声深压低，重叠时只取最深压低并自然淡入淡出", () => {
     const base = AUDIO.music.gain;
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
@@ -94,7 +98,10 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(119)).toBeCloseTo(base * 10 ** (-3.8 / 20));
     expect(musicVolumeAtFrame(137)).toBeGreaterThan(musicVolumeAtFrame(133));
     expect(musicVolumeAtFrame(SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
-    expect(musicVolumeAtFrame(OVERVIEW_FROM + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
+    // 章节阅读阶段（如 frame 260）不播原声，保持正常配乐音量
+    expect(musicVolumeAtFrame(OVERVIEW_FROM + 35)).toBe(base);
+    // 金句阶段播放 02:32 原声时执行 11.5 dB 闪避
+    expect(musicVolumeAtFrame(OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(CHAT_FROM + CHAT_PLAYER_VERIFY_FROM + 15)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(835)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));

@@ -16,7 +16,9 @@ export const HERO_TIMELINE = {
 };
 
 export const OVERVIEW_TIMELINE = {
-  chapterRatio: 2.6 / 4,
+  duration: 165,
+  chapterRatio: 84 / 165,
+  quoteClickFrame: 75,
   quoteLiftFrames: 18
 };
 
@@ -26,30 +28,27 @@ export const APPEARANCE_TIMELINE = {
 };
 
 export const PROVIDER_TIMELINE = {
-  duration: 150,
-  dialogShot: {from: 0, duration: 48, source: 106, playbackRate: 1.4},
-  shotsExitAt: 36,
-  shotsExitDuration: 10,
-  plateAt: 44,
-  orbitAt: 52,
+  duration: 105,
+  plateAt: 2,
+  orbitAt: 8,
   logoStagger: 3.75,
-  exitAt: 136,
+  exitAt: 91,
   exitDuration: 12
 };
 
 export const SCENES = [
   { id: "hero", from: 0, duration: 105 },
   { id: "subtitle", from: 105, duration: 120 },
-  { id: "overview", from: 225, duration: 120 },
-  { id: "chat", from: 345, duration: 180 },
-  { id: "appearance", from: 525, duration: 90 },
-  { id: "providers", from: 615, duration: PROVIDER_TIMELINE.duration },
+  { id: "overview", from: 225, duration: OVERVIEW_TIMELINE.duration },
+  { id: "chat", from: 390, duration: 180 },
+  { id: "appearance", from: 570, duration: 90 },
+  { id: "providers", from: 660, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
-  {from: "overview", to: "chat", at: 345, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "chat", to: "appearance", at: 525, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "overview", to: "chat", at: 390, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "chat", to: "appearance", at: 570, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
@@ -70,10 +69,10 @@ export const APPEARANCE_SHOTS = [
 export const EVIDENCE_TIMES = [
   0, 0.2, 0.6, 1.2, 1.6, 2.0, 2.5, 3.1,
   3.7, 5.0, 5.5, 5.9, 7.3,
-  7.7, 8.7, 10.1, 10.7, 11.3,
-  11.7, 12.5, 13.0, 14.3, 15.0, 15.8, 16.7, 17.3,
-  17.7, 18.3, 19.0, 19.6, 20.3,
-  20.7, 21.3, 21.6, 21.9, 23.0, 24.0, 25.0,
+  7.7, 8.7, 10.0, 10.3, 10.9, 12.0, 12.8,
+  13.2, 14.0, 14.5, 15.8, 16.5, 17.3, 18.2, 18.8,
+  19.2, 19.8, 20.5, 21.1, 21.8,
+  22.1, 22.4, 23.0, 24.0, 25.0,
   26.0, 27.2, 28.4, 29.6, 30.4, 30.8, 31.1, 31.4, 31.7, 32.3, 33.1,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
@@ -89,14 +88,14 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "keyword-slice", at: 3.6},
   {id: "timestamp-match", at: 5.6},
   {id: "chapters", at: 7.5},
-  {id: "quote-lift", at: 10.1},
-  {id: "quote-freeze", at: 10.57},
-  {id: "overview-chat-defocus", at: 11.5},
-  {id: "chat-timestamp-click", at: 14.3},
-  {id: "chat-player-verify", at: 15.6},
-  {id: "chat-appearance-defocus", at: 17.5},
-  {id: "appearance-dark-wipe", at: 18.2},
-  {id: "appearance-palette-wipe", at: 19.4},
+  {id: "quote-lift", at: 10.3},
+  {id: "quote-freeze", at: 10.77},
+  {id: "overview-chat-defocus", at: 13.0},
+  {id: "chat-timestamp-click", at: 15.8},
+  {id: "chat-player-verify", at: 17.1},
+  {id: "chat-appearance-defocus", at: 19.0},
+  {id: "appearance-dark-wipe", at: 19.7},
+  {id: "appearance-palette-wipe", at: 20.9},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},

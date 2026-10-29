@@ -55,7 +55,6 @@ export const AUDIO = {
     {id: "type-enter", frame: SUBTITLE_FROM + 20, src: "media/sfx/mech-enter.wav", gain: 0.64, duckDb: 4.2},
     {id: "subtitle-seek-snap", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/snap.wav", gain: 0.66, duckDb: 5.2},
     {id: "overview-cut", frame: OVERVIEW_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
-    {id: "voice-0232-fade", frame: OVERVIEW_FROM + 45, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
     {id: "chapters-quote-cut", frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
     {
       id: "quote-save",
@@ -64,6 +63,7 @@ export const AUDIO = {
       gain: 0.62,
       duckDb: 5.0
     },
+    {id: "voice-0232-fade", frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 42, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
     {id: `${CHAT_HANDOFF.from}-defocus`, frame: CHAT_HANDOFF.at - CHAT_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${CHAT_HANDOFF.to}-focus`, frame: CHAT_HANDOFF.at + CHAT_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
@@ -88,7 +88,7 @@ export const AUDIO = {
   ],
   voices: [
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
-    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
+    {id: "voice-0232", frame: OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 2, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
     {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 40}
   ]
 };

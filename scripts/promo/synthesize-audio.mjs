@@ -128,9 +128,10 @@ function snare(gainScale = 1) {
 function sectionDynamicsAt(seconds) {
   if (seconds < 3.5) return 0.66;
   if (seconds < 7.5) return 0.76;
-  if (seconds < 11.5) return 0.86;
-  if (seconds < 17.5) return 0.90;
-  if (seconds < 20.5) return 1.12;
+  if (seconds < 10.3) return 0.72;
+  if (seconds < 13.0) return 0.86;
+  if (seconds < 19.0) return 0.90;
+  if (seconds < 22.0) return 1.12;
   if (seconds < 25.5) return 1.16;
   if (seconds < 30.48) return 1.14;
   if (seconds < 30.9) return 0.05;
@@ -174,9 +175,9 @@ function makeScore() {
       // 金句单卡定格期间与原片人声段留出清透空间
       if ((stepAt >= QUOTE_FREEZE_FROM && stepAt < QUOTE_FREEZE_TO || inVoice) && step % 2 === 1) continue;
       const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.55 : 1);
-      const note = chord[arp[step]] + (stepAt >= 20.5 && stepAt < 25.5 ? 24 : 12);
+      const note = chord[arp[step]] + (stepAt >= 22.0 && stepAt < 25.5 ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
-      add(track, tone(note, stepAt >= 20.5 && stepAt < 25.5 ? 0.19 : 0.28, {type: stepAt >= 7.5 && stepAt < 11.5 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+      add(track, tone(note, stepAt >= 22.0 && stepAt < 25.5 ? 0.19 : 0.28, {type: stepAt >= 7.5 && stepAt < 13.0 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
     }
     // 22.23–24.1s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
     if (at >= 20.0 && at < 26.0) {
@@ -199,7 +200,7 @@ function makeScore() {
     // 前 1.7 秒单句痛点与品牌主张停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；金句单卡定格与原片人声段减轻高频打击乐
     const inQuoteFreezeWindow = at >= QUOTE_FREEZE_FROM && at < QUOTE_FREEZE_TO;
     const inVoice = inVoiceWindow(at);
-    const inProviderWave = at >= 20.5 && at < 25.5;
+    const inProviderWave = at >= 22.0 && at < 25.5;
     add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProviderWave ? dyn * 1.08 : dyn), at);
     if (index % 2 === 1 && at >= 3.5 && !inQuoteFreezeWindow && !inVoice) {
       add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
@@ -218,9 +219,9 @@ function makeScore() {
 
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
-  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, resolveAt, 30.9];
+  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 13.0, 19.0, 22.0, 25.5, resolveAt, 30.9];
   for (const cutAt of cutHits) {
-    add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
+    add(track, subHit(cutAt >= 19.0 ? 0.62 : 0.52), cutAt);
   }
 
   // 四拍能力落点递进强调（峰值严格非递减）
@@ -259,12 +260,12 @@ function makeScore() {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < track[ch].length; i += 1) {
       const time = i / SAMPLE_RATE;
-      const boost = time >= 17.5 && time < 30.48 ? 1.12 : 0.96;
+      const boost = time >= 19.0 && time < 30.48 ? 1.12 : 0.96;
       if (time >= 30.52 && time < 30.88) {
         const edge = Math.min(1, Math.max(0, (30.57 - time) / 0.05));
         track[ch][i] *= edge;
       }
-      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.5 && time < 30.48 ? 1.04 : 0.94);
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 19.0 && time < 30.48 ? 1.04 : 0.94);
     }
   }
   return track;
