@@ -7,6 +7,7 @@ import {
   PANEL_FOCUS_HANDOFFS
 } from "../timeline.mjs";
 import {
+  BottomLectureCaption,
   BRAND_FONT_FAMILY,
   BrandWhisper,
   COLORS,
@@ -17,8 +18,8 @@ import {
   PaperGrainOverlay,
   ProductFrame,
   ReadingLampBeam,
-  SceneTitle,
-  VoiceWaveBar,
+  VideoReferenceCard,
+  entranceOpacity,
   microPerspective
 } from "./design";
 
@@ -33,112 +34,163 @@ const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
 const shotOffset = (shots: ReadonlyArray<{duration: number}>, index: number) =>
   shots.slice(0, index).reduce((total, previous) => total + previous.duration, 0);
 
-const ChatLeftContext = () => {
+const CHAT_VIDEO_SOURCE = "subtitle-seek-03.mp4";
+const CHAT_REFERENCE_START_FROM = 84;
+const CHAT_SEEK_START_FROM = 215;
+// 参照窗按合成起点计帧，点击后需要按该帧反算，画面才停在 04:44
+const CHAT_REFERENCE_SEEK_START_FROM = CHAT_SEEK_START_FROM - (CHAT_TIMESTAMP_CLICK_FRAME + 2) * 0.2;
+
+const CHAT_REFERENCE = {left: 96, top: 312, width: 840};
+const CHAT_REFERENCE_WINDOW_TOP = 378;
+const CHAT_PLAYER = {left: 96, top: 124, width: 1080, height: 649};
+
+const CHAT_PUSH_IN_FROM = CHAT_PLAYER_VERIFY_FROM - 6;
+const CHAT_PUSH_IN_TO = CHAT_PLAYER_VERIFY_FROM + 12;
+const CHAT_PUSH_OUT_FROM = CHAT_PLAYER_VERIFY_TO - 4;
+const CHAT_PUSH_OUT_TO = CHAT_PLAYER_VERIFY_TO + 6;
+const PUSH_EASING = Easing.bezier(0.45, 0, 0.15, 1);
+
+type ChatHeadlinePart = {text: string; accent?: boolean};
+
+const CHAT_HEADLINE: ChatHeadlinePart[][] = [
+  [{text: "带着问题"}, {text: "追问视频", accent: true}, {text: "，"}],
+  [{text: "点按"}, {text: "时间戳", accent: true}, {text: "让 UP 主亲自举证。"}]
+];
+
+const CHAT_QUESTION = "为什么作者说 AI 并非越强越好，适配才是关键？";
+const CHAT_CONCLUSIONS = ["人与 AI 是「协作」，不是「替代」", "象棋实验：会配合的组合胜过最强单兵"];
+const CHAT_CITATION = "(04:44–05:15)";
+const CHAT_VERIFY_QUOTE = "“这里有一个研究……”";
+
+const ChatHeadline = ({opacity}: {opacity: number}) => {
   const frame = useCurrentFrame();
-  const verifyBlend = interpolate(
-    frame,
-    [CHAT_PLAYER_VERIFY_FROM - 4, CHAT_PLAYER_VERIFY_FROM + 4, CHAT_PLAYER_VERIFY_TO - 4, CHAT_PLAYER_VERIFY_TO + 4],
-    [0, 1, 1, 0],
-    {...CLAMP, easing: SMOOTH}
-  );
-  const leftOpacity = 1 - verifyBlend;
-  if (leftOpacity <= 0.01) return null;
+  if (opacity <= 0.01) return null;
+  const markerSweep = interpolate(frame, [8, 24], [0.55, 1], {...CLAMP, easing: SMOOTH});
 
   return (
-    <div style={{position: "absolute", inset: 0, opacity: leftOpacity, pointerEvents: "none"}}>
-      <SceneTitle
-        title={"既然难免幻觉，\n怎么选 AI 才对？"}
-        subtitle="带着问题追问视频上下文，点按时间戳让原片老师亲自举证。"
-        style={{left: 96, top: 152, width: 760}}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: 96,
-          top: 438,
-          width: 760,
-          padding: "28px 34px",
-          borderRadius: 28,
-          background: "rgba(255, 255, 255, 0.96)",
-          boxShadow: ELEVATION.heroFloat,
-          transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 16
-        }}
-      >
-        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-          <span
-            style={{
-              padding: "5px 14px",
-              borderRadius: 999,
-              background: "rgba(232, 93, 135, 0.12)",
-              color: COLORS.pink,
-              fontSize: 18,
-              fontWeight: 720
-            }}
-          >
-            追问原片上下文
-          </span>
-          <span style={{color: COLORS.muted, fontSize: 18, fontWeight: 560}}>自动挂载完整字幕与章节索引</span>
-        </div>
-        <div style={{color: COLORS.foreground, fontSize: 30, fontWeight: 740, lineHeight: 1.36, letterSpacing: -0.6}}>
-          “为什么作者说 <span style={{color: COLORS.pink}}>AI 并非越强越好</span>，适配才是关键？”
-        </div>
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          left: 96,
-          top: 660,
-          width: 760,
-          padding: "22px 28px",
-          borderRadius: 24,
-          background: "rgba(251, 246, 236, 0.96)",
-          boxShadow: "0 24px 56px -20px rgba(17, 24, 39, 0.16), 0 0 0 1.5px rgba(180, 142, 108, 0.32)",
-          transform: "perspective(1600px) rotateX(3deg) rotateY(-6deg)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 18
-        }}
-      >
-        <div style={{color: "#8C7B6B", fontSize: 20, fontWeight: 540}}>回车发送，Shift+Enter 换行</div>
-        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: "50%",
-              background: "rgba(140, 123, 107, 0.12)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#6E5D4F",
-              fontSize: 18
-            }}
-          >
-            🌐
-          </div>
-          <div style={{display: "flex", alignItems: "center", gap: 14}}>
-            <span style={{color: "#5C4D40", fontFamily: BRAND_FONT_FAMILY, fontSize: 19, fontWeight: 620}}>
-              ModelScope · DeepSeek-V3 ▾
-            </span>
+    <div
+      style={{
+        position: "absolute",
+        left: 96,
+        top: 128,
+        width: 840,
+        color: COLORS.foreground,
+        fontSize: 62,
+        fontWeight: 700,
+        lineHeight: 1.16,
+        letterSpacing: -2.4,
+        opacity,
+        zIndex: 4
+      }}
+    >
+      {CHAT_HEADLINE.map((line, lineIndex) => {
+        const start = lineIndex * 3;
+        return (
+          <div key={lineIndex} style={{overflow: "hidden", paddingBottom: 4, whiteSpace: "nowrap"}}>
             <div
               style={{
-                width: 38,
-                height: 38,
-                borderRadius: "50%",
-                background: "#B5472A",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
+                opacity: entranceOpacity(frame, start, 0),
+                translate: interpolate(frame, [start, start + 16], ["0px 1.15em", "0px 0em"], {
+                  ...CLAMP,
+                  easing: SMOOTH
+                })
               }}
             >
-              <div style={{width: 12, height: 12, borderRadius: 2, background: "#FFFFFF"}} />
+              {line.map((part) =>
+                part.accent ? (
+                  <span key={part.text} style={{position: "relative", display: "inline-block", padding: "0 3px", color: "#C81E5B"}}>
+                    <span
+                      style={{
+                        position: "absolute",
+                        inset: "9px 0",
+                        borderRadius: 14,
+                        background: "linear-gradient(96deg, rgba(255, 212, 59, 0.72) 0%, rgba(251, 114, 153, 0.44) 100%)",
+                        transformOrigin: "0% 50%",
+                        transform: `scaleX(${markerSweep.toFixed(3)}) skewX(-6deg)`,
+                        zIndex: -1
+                      }}
+                    />
+                    {part.text}
+                  </span>
+                ) : (
+                  <span key={part.text}>{part.text}</span>
+                )
+              )}
             </div>
           </div>
-        </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const ChatReferenceBar = ({opacity}: {opacity: number}) => {
+  if (opacity <= 0.01) return null;
+
+  return (
+    <VideoReferenceCard
+      variant="bar"
+      width={CHAT_REFERENCE.width}
+      badgeText="B 站原片"
+      delay={4}
+      style={{
+        position: "absolute",
+        left: CHAT_REFERENCE.left,
+        top: CHAT_REFERENCE.top,
+        opacity,
+        zIndex: 7
+      }}
+    />
+  );
+};
+
+const ChatVerifyWindow = ({progress}: {progress: number}) => {
+  const frame = useCurrentFrame();
+  const cropScale = CHAT_PLAYER.width / PLAYER_CROP.width;
+  const scale = interpolate(progress, [0, 1], [CHAT_REFERENCE.width / CHAT_PLAYER.width, 1], CLAMP);
+  const lift = interpolate(progress, [0, 1], [CHAT_REFERENCE_WINDOW_TOP - CHAT_PLAYER.top, 0], CLAMP);
+  const seeked = frame >= CHAT_TIMESTAMP_CLICK_FRAME + 2;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: CHAT_PLAYER.left,
+        top: CHAT_PLAYER.top,
+        width: CHAT_PLAYER.width,
+        height: CHAT_PLAYER.height,
+        transformOrigin: "0 0",
+        scale,
+        translate: `0px ${lift.toFixed(1)}px`,
+        opacity: entranceOpacity(frame, 2, 0),
+        zIndex: 6
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          borderRadius: 26,
+          overflow: "hidden",
+          boxShadow: ELEVATION.videoPlane,
+          background: "#0F172A"
+        }}
+      >
+        <OffthreadVideo
+          muted
+          src={staticFile(`media/${CHAT_VIDEO_SOURCE}`)}
+          startFrom={seeked ? Math.round(CHAT_REFERENCE_SEEK_START_FROM) : CHAT_REFERENCE_START_FROM}
+          playbackRate={0.2}
+          style={{
+            position: "absolute",
+            left: -PLAYER_CROP.x * cropScale,
+            top: -PLAYER_CROP.y * cropScale - 28,
+            width: 1920 * cropScale,
+            height: 1080 * cropScale,
+            maxWidth: "none"
+          }}
+        />
       </div>
     </div>
   );
@@ -168,7 +220,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
 
   const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
   const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
-  const moveEnd = CHAT_PLAYER_VERIFY_FROM - 2;
+  const moveEnd = CHAT_PUSH_IN_FROM - 2;
   const showPointer = frame >= moveStart && frame <= moveEnd;
   const pointerOpacity =
     interpolate(frame, [moveStart, moveStart + 5], [0, 1], CLAMP) *
@@ -178,8 +230,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
   const rippleScale = interpolate(frame, [clickAt - 1, clickAt + 14], [0.45, 1.85], {...CLAMP, easing: SMOOTH});
   const isClicked = frame >= clickAt;
 
-  const cursorOffsetX = interpolate(frame, [moveStart, clickAt - 2], [-120, 68], {...CLAMP, easing: SMOOTH});
-  const cursorOffsetY = interpolate(frame, [moveStart, clickAt - 2], [210, 18], {...CLAMP, easing: SMOOTH});
+  const cursorOffsetX = interpolate(frame, [moveStart, clickAt - 2], [150, 52], {...CLAMP, easing: SMOOTH});
+  const cursorOffsetY = interpolate(frame, [moveStart, clickAt - 2], [206, 30], {...CLAMP, easing: SMOOTH});
 
   const answerReveal = interpolate(frame, [6, 22], [0.92, 1], {...CLAMP, easing: SMOOTH});
 
@@ -188,7 +240,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
       style={{
         position: "absolute",
         left: panelLeft,
-        top: 52,
+        top: 300,
         width: 880,
         transformOrigin: "0 0",
         scale: panelScale * focusScale,
@@ -250,231 +302,127 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
           <div style={{padding: "0 10px", color: "#6B5E51", fontSize: 22, fontWeight: 700}}>⋮</div>
         </div>
 
-        {/* Jump Toast Banner */}
-        <div
-          style={{
-            padding: "13px 22px",
-            borderRadius: 14,
-            background: "#F3EBDC",
-            boxShadow: "0 0 0 1px rgba(140, 123, 107, 0.24) inset",
-            textAlign: "center",
-            color: "#5C4E41",
-            fontSize: 20,
-            fontWeight: 620,
-            marginBottom: 24,
-            opacity: interpolate(frame, [clickAt - 6, clickAt + 2], [0.78, 1], CLAMP)
-          }}
-        >
-          {isClicked ? "正在跳转到 04:44..." : "已关联 247 条时间轴字幕 · 点击时间戳即可跳播"}
-        </div>
-
-        {/* AI Structured Response Hero Content */}
+        {/* AI 回答：一句提问 + 两条单行结论 */}
         <div style={{opacity: answerReveal}}>
-          <div
-            style={{
-              fontFamily: '"Noto Serif SC", "Source Han Serif SC", Georgia, serif',
-              fontSize: 34,
-              fontWeight: 760,
-              color: "#1E1914",
-              letterSpacing: -0.6,
-              marginBottom: 18
-            }}
-          >
-            作者主张「适配优先」的三个理由
-          </div>
-
-          {/* Citation Row 1 with Inline Timestamp Pill + Native Capsule & Cursor */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 10,
-              fontSize: 27,
-              fontWeight: 780,
-              color: "#1E1914",
-              lineHeight: 1.4,
-              marginBottom: 18
-            }}
-          >
-            <span>1. 人与 AI 的关系是「协作」，而非「替代」</span>
-            <span
+          <div style={{display: "flex", justifyContent: "flex-end", marginBottom: 30}}>
+            <div
               style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "3px 14px",
-                borderRadius: 999,
-                background: isClicked ? "rgba(232, 93, 135, 0.20)" : "rgba(181, 71, 42, 0.10)",
-                boxShadow:
-                  highlightOpacity > 0.05
-                    ? `0 10px 28px -6px rgba(232, 93, 135, ${(0.48 * highlightOpacity).toFixed(2)}), 0 0 0 2px rgba(232, 93, 135, ${(0.58 * highlightOpacity).toFixed(2)})`
-                    : "0 0 0 1px rgba(181, 71, 42, 0.26)",
-                fontFamily: BRAND_FONT_FAMILY,
-                fontSize: 24,
-                fontWeight: 740,
-                color: isClicked ? COLORS.pink : "#B5472A",
-                fontVariantNumeric: "tabular-nums"
+                maxWidth: 720,
+                padding: "16px 26px",
+                borderRadius: "22px 22px 8px 22px",
+                background: "rgba(232, 93, 135, 0.12)",
+                color: "#3C2A31",
+                fontSize: 25,
+                fontWeight: 660,
+                lineHeight: 1.45,
+                letterSpacing: -0.3
               }}
             >
-              (04:44–05:15)
-              {/* Concentric Click Ripple centered directly on the timestamp badge */}
+              {CHAT_QUESTION}
+            </div>
+          </div>
+
+          {CHAT_CONCLUSIONS.map((conclusion, index) => (
+            <div
+              key={conclusion}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                marginBottom: index === 0 ? 20 : 0
+              }}
+            >
               <span
                 style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  width: 56,
-                  height: 56,
-                  marginLeft: -28,
-                  marginTop: -28,
+                  width: 26,
+                  height: 26,
                   borderRadius: "50%",
-                  background: "rgba(232, 93, 135, 0.26)",
-                  boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
-                  opacity: rippleOpacity,
-                  scale: rippleScale,
-                  pointerEvents: "none"
+                  background: "rgba(181, 71, 42, 0.12)",
+                  color: "#B5472A",
+                  fontSize: 16,
+                  fontWeight: 800,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0
                 }}
-              />
-              {/* Vector Cursor anchored directly to the timestamp badge */}
-              {showPointer && (
-                <svg
-                  viewBox="0 0 30 38"
+              >
+                ✓
+              </span>
+              <span style={{fontSize: 28, fontWeight: 700, color: "#1E1914", letterSpacing: -0.6, whiteSpace: "nowrap"}}>
+                {conclusion}
+              </span>
+              {index > 0 ? null : (
+                <span
                   style={{
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
-                    width: 34,
-                    height: 43,
-                    filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
-                    opacity: pointerOpacity,
-                    translate: `${cursorOffsetX}px ${cursorOffsetY}px`,
-                    scale: interpolate(frame, [clickAt - 2, clickAt, clickAt + 4], [1, 0.82, 1], CLAMP),
-                    pointerEvents: "none",
-                    zIndex: 10
+                    position: "relative",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    marginLeft: 6,
+                    padding: "10px 22px",
+                    borderRadius: 999,
+                    background: isClicked ? "rgba(232, 93, 135, 0.22)" : "rgba(181, 71, 42, 0.12)",
+                    boxShadow:
+                      highlightOpacity > 0.05
+                        ? `0 14px 32px -8px rgba(232, 93, 135, ${(0.52 * highlightOpacity).toFixed(2)}), 0 0 0 2.5px rgba(232, 93, 135, ${(0.6 * highlightOpacity).toFixed(2)})`
+                        : "0 0 0 1px rgba(181, 71, 42, 0.26)",
+                    fontFamily: BRAND_FONT_FAMILY,
+                    fontSize: 28,
+                    fontWeight: 750,
+                    color: isClicked ? COLORS.pink : "#B5472A",
+                    fontVariantNumeric: "tabular-nums",
+                    whiteSpace: "nowrap"
                   }}
                 >
-                  <path
-                    d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
-                    fill="white"
-                    stroke={COLORS.foreground}
-                    strokeWidth="2"
-                    strokeLinejoin="round"
+                  {CHAT_CITATION}
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "50%",
+                      width: 56,
+                      height: 56,
+                      marginLeft: -28,
+                      marginTop: -28,
+                      borderRadius: "50%",
+                      background: "rgba(232, 93, 135, 0.26)",
+                      boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
+                      opacity: rippleOpacity,
+                      scale: rippleScale,
+                      pointerEvents: "none"
+                    }}
                   />
-                </svg>
+                  {showPointer && (
+                    <svg
+                      viewBox="0 0 30 38"
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        width: 34,
+                        height: 43,
+                        filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
+                        opacity: pointerOpacity,
+                        translate: `${cursorOffsetX}px ${cursorOffsetY}px`,
+                        scale: interpolate(frame, [clickAt - 2, clickAt, clickAt + 4], [1, 0.82, 1], CLAMP),
+                        pointerEvents: "none",
+                        zIndex: 10
+                      }}
+                    >
+                      <path
+                        d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
+                        fill="white"
+                        stroke={COLORS.foreground}
+                        strokeWidth="2"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </span>
               )}
-            </span>
-          </div>
-
-          <p
-            style={{
-              margin: "0 0 26px 0",
-              fontSize: 23,
-              fontWeight: 510,
-              lineHeight: 1.62,
-              color: "#332B24"
-            }}
-          >
-            UP 主先驳斥一个常见预设：人们总以为强大的 AI 能替代自己、弥补智力不足。但他认为，「用 AI 换掉人脑」不是这个时代能做的事；现实形态是人与 AI 协作。关键推论是：如果只是替代，那当然越强越好；但既然是协作，最强就未必带来最大优势。这是整段论证的前提。
-          </p>
-
-          <div
-            style={{
-              fontSize: 26,
-              fontWeight: 780,
-              color: "#1E1914",
-              lineHeight: 1.42,
-              marginBottom: 14
-            }}
-          >
-            2. 象棋实验：会配合的组合胜过拥有最强成员的组合{" "}
-            <span
-              style={{
-                padding: "2px 10px",
-                borderRadius: 999,
-                background: "rgba(181, 71, 42, 0.08)",
-                color: "#B5472A",
-                fontFamily: BRAND_FONT_FAMILY,
-                fontSize: 23,
-                fontWeight: 700
-              }}
-            >
-              (05:17–06:33)
-            </span>
-          </div>
-
-          <p
-            style={{
-              margin: 0,
-              fontSize: 23,
-              fontWeight: 510,
-              lineHeight: 1.62,
-              color: "#332B24"
-            }}
-          >
-            他引用一个象棋实验：每队两人，一强一弱，每轮下完后抽签决定下一轮由谁走，因此队员必须为同伴留棋，并照顾较弱的队友。结果，整体上「更会协作、会照顾较弱成员并充分理解对方」的组合表现优异。
-          </p>
+            </div>
+          ))}
         </div>
-      </div>
-    </div>
-  );
-};
-
-const ChatReturnVerification = () => {
-  const frame = useCurrentFrame();
-  if (frame < CHAT_PLAYER_VERIFY_FROM - 4 || frame > CHAT_PLAYER_VERIFY_TO + 6) return null;
-  const progress = interpolate(
-    frame,
-    [CHAT_PLAYER_VERIFY_FROM - 4, CHAT_PLAYER_VERIFY_FROM + 4, CHAT_PLAYER_VERIFY_TO - 4, CHAT_PLAYER_VERIFY_TO + 4],
-    [0, 1, 1, 0],
-    {...CLAMP, easing: SMOOTH}
-  );
-  const playerScale = 1080 / PLAYER_CROP.width;
-  const playerHeight = PLAYER_CROP.height * playerScale;
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 96,
-        top: 124,
-        width: 1080,
-        height: playerHeight,
-        opacity: progress,
-        scale: interpolate(progress, [0, 1], [0.95, 1]),
-        translate: `${(1 - progress) * -28}px 0px`,
-        transform: "perspective(1600px) rotateX(3deg) rotateY(5deg)",
-        zIndex: 8
-      }}
-    >
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          height: "100%",
-          borderRadius: 28,
-          overflow: "hidden",
-          boxShadow: ELEVATION.videoPlane,
-          background: "#0F172A"
-        }}
-      >
-        <Sequence from={CHAT_PLAYER_VERIFY_FROM - 4} layout="none">
-          <OffthreadVideo
-            muted
-            src={staticFile("media/subtitle-seek-03.mp4")}
-            startFrom={215}
-            playbackRate={0.2}
-            style={{
-              position: "absolute",
-              left: -PLAYER_CROP.x * playerScale,
-              top: -PLAYER_CROP.y * playerScale,
-              width: 1920 * playerScale,
-              height: 1080 * playerScale,
-              maxWidth: "none"
-            }}
-          />
-        </Sequence>
-        <VoiceWaveBar timestamp="04:44 · 赵老师原声举证" quote="“这里有一个研究 · 人机协作象棋实验”" active={true} />
       </div>
     </div>
   );
@@ -484,9 +432,9 @@ export const ChatScene = () => {
   const frame = useCurrentFrame();
   const verifyBlend = interpolate(
     frame,
-    [CHAT_PLAYER_VERIFY_FROM - 4, CHAT_PLAYER_VERIFY_FROM + 4, CHAT_PLAYER_VERIFY_TO - 4, CHAT_PLAYER_VERIFY_TO + 4],
+    [CHAT_PUSH_IN_FROM, CHAT_PUSH_IN_TO, CHAT_PUSH_OUT_FROM, CHAT_PUSH_OUT_TO],
     [0, 1, 1, 0],
-    {...CLAMP, easing: SMOOTH}
+    {...CLAMP, easing: PUSH_EASING}
   );
   const panelLeft = interpolate(verifyBlend, [0, 1], [940, 1220]);
   const panelScale = interpolate(verifyBlend, [0, 1], [1, 0.68]);
@@ -494,9 +442,17 @@ export const ChatScene = () => {
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <BrandWhisper />
-      <ChatLeftContext />
+      <ChatHeadline opacity={1 - Math.min(1, verifyBlend * 3)} />
+      <ChatVerifyWindow progress={verifyBlend} />
+      <ChatReferenceBar opacity={1 - Math.min(1, verifyBlend * 4)} />
       <ChatHeroPanel panelLeft={panelLeft} panelScale={panelScale} />
-      <ChatReturnVerification />
+      <BottomLectureCaption
+        timestamp="04:44"
+        speaker="赵老师原声举证"
+        quote={CHAT_VERIFY_QUOTE}
+        from={CHAT_PLAYER_VERIFY_FROM}
+        duration={CHAT_PLAYER_VERIFY_TO - CHAT_PLAYER_VERIFY_FROM + 6}
+      />
     </AbsoluteFill>
   );
 };
