@@ -6,12 +6,9 @@ export const PROMO_MEDIA_DIR = path.join(REPO_ROOT, "scripts", "promo", "public"
 export const RECORDED_MEDIA_FILES = [
   "hero-hook.mp4",
   "hero-panel.png",
-  "overview-04-chapters.mp4",
-  "overview-04-quote.mp4",
   "overview-poster.jpg",
   "subtitle-seek-03.mp4",
   "chat.mp4",
-  "appearance.mp4",
   "ai-providers.mp4"
 ];
 

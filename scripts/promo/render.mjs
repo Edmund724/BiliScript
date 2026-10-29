@@ -205,10 +205,7 @@ const {publicDir, manifest} = await preparePromoAssets();
 for (const [name, duration, width, height] of [
   ["hero-hook.mp4", 4, 1920, 1080],
   ["subtitle-seek-03.mp4", 8, 3840, 2160],
-  ["overview-04-chapters.mp4", 5.6, 3840, 2160],
-  ["overview-04-quote.mp4", 4.733333, 3840, 2160],
   ["chat.mp4", 15, 3840, 2160],
-  ["appearance.mp4", 6, 3840, 2160],
   ["ai-providers.mp4", 5.9, 3840, 2160]
 ]) {
   const metadata = await getVideoMetadata(path.join(publicDir, "media", name));

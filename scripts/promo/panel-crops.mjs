@@ -6,8 +6,7 @@ export const PANEL_CROPS_FILE = path.join(REPO_ROOT, "scripts", "promo", "genera
 
 const PANEL_RECORDINGS = {
   overview: "04-overview-chapters",
-  chat: "04-chat",
-  appearance: "05-appearance-motion"
+  chat: "04-chat"
 };
 
 function validateCrop(panel, context) {
@@ -20,7 +19,7 @@ function validateCrop(panel, context) {
 export async function readPanelCrops() {
   const text = await readFile(PANEL_CROPS_FILE, "utf8").catch((error) => {
     if (error?.code !== "ENOENT") throw error;
-    throw new Error("宣传片裁剪框缺失：请恢复已提交的 generated/panel-crops.json，或完整重录 overview、chat、appearance");
+    throw new Error("宣传片裁剪框缺失：请恢复已提交的 generated/panel-crops.json，或完整重录 overview、chat");
   });
   const crops = JSON.parse(text);
   for (const scene of Object.keys(PANEL_RECORDINGS)) {

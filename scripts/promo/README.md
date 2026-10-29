@@ -62,14 +62,13 @@ node scripts/promo/session.mjs start
 | --- | --- | --- |
 | hero | `node scripts/promo/record.mjs hero` | `hero-hook.mp4`、`hero-panel.png` |
 | subtitle | `node scripts/promo/record.mjs subtitle` | `subtitle-seek-03.mp4` |
-| overview | `node scripts/promo/record.mjs overview` | 两条 overview MP4 与 `overview-poster.jpg` |
+| overview | `node scripts/promo/record.mjs overview` | `overview-poster.jpg` |
 | chat | `node scripts/promo/record.mjs chat` | `chat.mp4` |
-| appearance | `node scripts/promo/record.mjs appearance` | `appearance.mp4` |
 | providers | `node scripts/promo/record.mjs providers` | `ai-providers.mp4` |
 
 重录后运行 `pnpm promo:render`。`media.mjs` 是录制素材文件名的唯一清单，录制 module 与 `prepare` 都从这里读取输出契约。
 
-overview、chat、appearance 重录会分别更新 `generated/panel-crops.json` 中的对应项，与入库素材一起提交。`prepare` 只读取并校验该文件，不读取 `.scratch/promo/frames/`；原始帧仅作为本地录制证据保留。
+overview、chat 重录会分别更新 `generated/panel-crops.json` 中的对应项，与入库素材一起提交。`prepare` 只读取并校验该文件，不读取 `.scratch/promo/frames/`；原始帧仅作为本地录制证据保留。
 
 ## 工件地图
 

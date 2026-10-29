@@ -6,7 +6,6 @@ const loaders = {
   subtitle: () => import("./record-subtitle-seek-03.mjs"),
   overview: () => import("./record-overview-04.mjs"),
   chat: () => import("./record-chat.mjs"),
-  appearance: () => import("./record-appearance-05.mjs"),
   providers: () => import("./record-providers-06.mjs")
 };
 

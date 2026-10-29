@@ -29,8 +29,7 @@ export type Crop = {x: number; y: number; width: number; height: number};
 
 export const PANEL_CROPS = {
   overview: panelCrops.overview,
-  chat: panelCrops.chat,
-  appearance: panelCrops.appearance
+  chat: panelCrops.chat
 } satisfies Record<string, Crop>;
 
 export const ELEVATION = {
