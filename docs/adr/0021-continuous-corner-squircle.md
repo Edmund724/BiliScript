@@ -14,12 +14,15 @@
 ## 裁定细节与后果
 
 1. **三层设计令牌与样式契约**：
-   - 在 `tokens-primitive.css` 声明原始值 `--biliscript-primitive-corner-shape-squircle: squircle;`；在 `reader-gate.css` 声明语义令牌 `--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-squircle);`。
-   - 全量样式表中所有非胶囊（非 `--biliscript-radius-pill` / `--btn-radius` / `--pill-radius` / `--toggle-track-radius` / `999px`）、非正圆（非 `--biliscript-radius-circle` / `50%`）、非 `0` 的 `border-radius` 规则块，统一声明 `corner-shape: squircle;`。
+   - 在 `tokens-primitive.css` 声明原始值 `--biliscript-primitive-corner-shape-squircle: squircle;`；在 `reader-gate.css` 的 `#biliscript-reading-view` 语义层声明 `--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-squircle);`。该令牌是连续圆角的唯一取值来源，换曲线（如 `superellipse(1.25)`）只改这一处。
+   - 全量样式表中所有非胶囊（非 `--biliscript-radius-pill` / `--btn-radius` / `--chip-radius` / `--pill-radius` / `--toggle-track-radius` / `999px`）、非正圆（非 `--biliscript-radius-circle` / `50%`）、非 `0` 的 `border-radius` 规则块，统一声明 `corner-shape: var(--biliscript-corner-shape, squircle);`——令牌随阅读视图作用域注入，兜底值保证作用域外（如播放器浮层按钮）仍拿到同款曲线。
+   - 胶囊与正圆必须显式声明 `corner-shape: round`：超椭圆会把半圆端头压扁，胶囊在 44px 高下离右缘 1px 处首个可见点由 13.5px 抬到 5.5px，端头观感从半圆变成方肩；正圆在 `border-radius: 50%` 下同理退化为圆角方块。
    - 鉴于 CSS 规范中 `corner-shape` 默认不继承（`Inherited: no`），凡使用 `border-radius: inherit` 的伪元素或内层节点（如 `#biliscript-reading-view::before` 光雾层、流光遮罩层），必须显式声明 `corner-shape: inherit;`，确保伪元素与宿主容器曲率严丝合缝。
+   - 不走 `@supports (corner-shape: …) { :where(*) { … } }` 全局降级：样式表以文档级 `<link>` 注入 B 站 light DOM，`:where(*)` 会命中站内自有元素并改形。
+   - `minimum_chrome_version` 仍为 120，早于 `corner-shape` 落地的 Chrome 139：120–138 用户解析期丢弃该声明，回落到 `border-radius` 正圆弧。
 
 2. **静态架构审计守卫**：
-   - `tests/entry/design-tokens-audit.test.ts` 对 `extension/entry/styles/*.css` 执行全量规则块扫描，任何新增或修改的矩形圆角规则块若遗漏 `corner-shape: squircle`（或 `inherit`）将直接阻断单测。
+   - `tests/entry/design-tokens-audit.test.ts` 对 `extension/entry/styles/*.css` 执行全量规则块扫描：矩形圆角块缺 `corner-shape`（令牌或 `squircle`）阻断，胶囊/正圆块声明了非 `round` 的曲线同样阻断。
 
 3. **金句分享卡 Canvas 2D 光栅化导出对齐**：
    - `extension/reader/quote-share-export.ts` 的 `renderQuoteCardBlob` 内部通过 `traceSquircleRectPath` 按参数方程 $(cx + r \cdot \operatorname{sgn}(\cos t)\sqrt{|\cos t|},\ cy + r \cdot \operatorname{sgn}(\sin t)\sqrt{|\sin t|})$ 采样四角超椭圆路径，替代正圆弧 `ctx.roundRect(..., 20)`，同时用于卡片底图 `ctx.clip()` 与 `0.5px` 内侧微描边 `ctx.stroke()`，确保导出的 PNG 图片与 DOM 预览卡 `.biliscript-quote-card` 视觉一致。

@@ -134,6 +134,10 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
     it("所有非胶囊、非正圆、非直角的 border-radius 规则块均同步声明 corner-shape: squircle 或 inherit", () => {
       const violations: string[] = [];
       const cornerAuditedStyles = [...AUDITED_STYLES, "github-markdown.css"];
+      // 连续圆角统一经语义令牌声明（取值 squircle），兜底值同款；
+      // 直接裸写 squircle 也算合规，避免令牌尚未挂载时的样式表失效。
+      const SQUIRCLE_SHAPE = /^var\(--biliscript-corner-shape(?:,\s*squircle)?\)$|^squircle$/;
+      const INHERIT_SHAPE = /^(?:inherit|squircle)$/;
 
       for (const fileName of cornerAuditedStyles) {
         const fullPath = `extension/entry/styles/${fileName}`;
@@ -144,6 +148,8 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           const blockStartIdx = match.index ?? 0;
           const baseLine = content.slice(0, blockStartIdx).split("\n").length;
           const blockLines = blockBody.split("\n");
+          const shapeMatch = blockBody.match(/\bcorner-shape\s*:\s*([^;]+);/);
+          const shapeVal = shapeMatch ? shapeMatch[1].trim() : "";
 
           blockLines.forEach((line, offset) => {
             const lineNum = baseLine + offset;
@@ -160,16 +166,22 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
                 radiusVal
               );
 
-            if (isExempt) return;
+            if (isExempt) {
+              // 胶囊与正圆必须是正圆弧：squircle 会把半圆端头压成超椭圆，端头变形。
+              if (shapeVal && shapeVal !== "round") {
+                violations.push(`${fileName}:${lineNum}: 胶囊/正圆块声明了 corner-shape: ${shapeVal}，应为 round`);
+              }
+              return;
+            }
 
             if (/^inherit(?:\s+!important)?$/.test(radiusVal)) {
-              if (!/\bcorner-shape\s*:\s*(?:inherit|squircle)\b/.test(blockBody)) {
+              if (!INHERIT_SHAPE.test(shapeVal)) {
                 violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少 corner-shape: inherit`);
               }
               return;
             }
 
-            if (!/\bcorner-shape\s*:\s*squircle\b/.test(blockBody)) {
+            if (!SQUIRCLE_SHAPE.test(shapeVal)) {
               violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少 corner-shape: squircle`);
             }
           });
