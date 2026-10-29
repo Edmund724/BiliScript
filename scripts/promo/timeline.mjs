@@ -7,20 +7,14 @@ export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
 export const PROVIDER_TIMELINE = {
   duration: 150,
-  dialogShot: {from: 0, duration: 48, source: 60, playbackRate: 1.8},
-  expandAt: 19,
-  countAt: 22,
-  countHoldFrames: 22,
-  countMoveFrames: 14,
-  countDuration: 22,
-  shotsExitAt: 42,
+  dialogShot: {from: 0, duration: 48, source: 106, playbackRate: 1.4},
+  shotsExitAt: 36,
   shotsExitDuration: 10,
-  wallAt: 52,
-  cardStagger: 3.75,
-  collapseAt: 136,
-  wallExitAt: 138,
-  wallExitDuration: 10,
-  collapseDuration: 12
+  plateAt: 44,
+  orbitAt: 52,
+  logoStagger: 3.75,
+  exitAt: 136,
+  exitDuration: 12
 };
 
 export const SCENES = [
@@ -84,10 +78,10 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "appearance-dark-wipe", at: 18.2},
   {id: "appearance-palette-wipe", at: 19.4},
   {id: "providers", at: providerSeconds(0)},
-  {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
-  {id: "provider-count-glide", at: providerSeconds(PROVIDER_TIMELINE.countAt + PROVIDER_TIMELINE.countHoldFrames)},
-  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt)},
-  {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
+  {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
+  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},
+  {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 30)},
+  {id: "provider-exit", at: providerSeconds(PROVIDER_TIMELINE.exitAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
   {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
   {id: "flashback-loop", at: outroSeconds(OUTRO_TIMELINE.flashbackDoneAt)},
