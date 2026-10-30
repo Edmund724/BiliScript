@@ -5,8 +5,8 @@
 // 容器 28px 圆角/superellipse(1.25)/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
-// 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内左下时间戳、
-// 相纸底栏品牌角标、卡面不再出现视频标题，字号由共享布局按卡宽落值（非固定 clamp），
+// 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内只有引号与正文、
+// 相纸底栏品牌角标、卡面不再出现视频标题与时间戳，字号由共享布局按卡宽落值（非固定 clamp），
 // 导出画布固定 1261×806（不随窗口宽度变化）。四象限（flyme/editorial × light/dark）
 // 下这些值全部来自 --biliscript-reader-* token，computed style、真 hover/:active
 // 伪类、focus-visible、busy 禁用态、真实下载与剪贴板写入全都够不着 jsdom。
@@ -60,7 +60,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/时间戳/品牌" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/品牌" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -94,18 +94,6 @@ function pickFixtureQuote() {
   return seg ? { from: seg.from, content: seg.content } : null;
 }
 const QUOTE = pickFixtureQuote();
-
-// 时刻文本（与 shared/clock-text 的 never 档同口径：分钟不补零）。
-function formatClockText(seconds) {
-  const total = Math.max(0, Math.floor(Number(seconds) || 0));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-    : `${Math.floor(total / 60)}:${String(s).padStart(2, "0")}`;
-}
-const QUOTE_CLOCK = QUOTE ? formatClockText(QUOTE.from) : null;
 
 // ===== 断言 =====
 const checks = [];
@@ -151,7 +139,6 @@ const JS = {
     const cardText = host.querySelector('.biliscript-quote-card-text');
     const sheet = host.querySelector('.biliscript-quote-card-sheet');
     const brand = host.querySelector('.biliscript-quote-card-brand');
-    const stamp = host.querySelector('.biliscript-quote-card-timestamp');
     const scrim = host.querySelector('.biliscript-quote-card-scrim');
     const source = host.querySelector('.biliscript-quote-card-source');
     if (!dialog || !mask || !close || !copy || !save || !card || !cardText || !sheet || !brand) {
@@ -192,25 +179,18 @@ const JS = {
     const csMask = getComputedStyle(mask);
     const csSheet = getComputedStyle(sheet);
     const csBrand = getComputedStyle(brand);
-    const csStamp = stamp ? getComputedStyle(stamp) : null;
     const csScrim = scrim ? getComputedStyle(scrim) : null;
     const presetBtn = host.querySelector('.biliscript-quote-preset-btn.is-active');
     const patternBtn = host.querySelector('.biliscript-quote-pattern-btn.is-active');
     const cornerShape = csDialog.cornerShape || csDialog.getPropertyValue('corner-shape') || '';
     return {
       view: (() => { const v = document.getElementById('biliscript-reading-view'); return v ? { theme: v.getAttribute('data-theme'), palette: v.getAttribute('data-palette') } : null; })(),
-      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), sheet: rect(sheet), brand: rect(brand), stamp: stamp ? rect(stamp) : null, preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), sheet: rect(sheet), brand: rect(brand), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
       sheet: { backgroundColor: csSheet.backgroundColor },
       brand: { text: brand.textContent.trim(), color: csBrand.color, fontWeight: csBrand.fontWeight, fontSize: csBrand.fontSize },
-      stamp: stamp ? {
-        text: stamp.textContent.trim(),
-        borderRadius: csStamp.borderRadius,
-        fontSize: csStamp.fontSize,
-        letterSpacing: csStamp.letterSpacing,
-        color: csStamp.color
-      } : null,
       scrim: scrim ? { backgroundColor: csScrim.backgroundColor } : null,
       hasSourceTitle: !!source,
+      hasTimestamp: !!host.querySelector('.biliscript-quote-card-timestamp'),
       dialog: {
         backgroundColor: csDialog.backgroundColor,
         borderTopColor: csDialog.borderTopColor,
@@ -775,12 +755,11 @@ async function main() {
         checkEquals(`Q1.${kind}-active-font-weight-600`, pill?.fontWeight, "600");
         check(`Q1.${kind}-active-has-no-border-or-shadow`, pill?.borderTopWidth === "0px" && pill?.boxShadow === "none", { borderTopWidth: pill?.borderTopWidth, boxShadow: pill?.boxShadow });
       }
-      // 卡片本体：白边相纸 + 16:9 卡 + 左下时间戳 + 底栏品牌，卡面不带视频标题
+      // 卡片本体：白边相纸 + 16:9 卡 + 底栏品牌，卡面不带视频标题与时间戳
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
       const cardRect = q1.probe?.rects?.card;
       const sheetRect = q1.probe?.rects?.sheet;
       const textRect = q1.probe?.rects?.text;
-      const stampRect = q1.probe?.rects?.stamp;
       const brandRect = q1.probe?.rects?.brand;
       check("Q1.card-ratio-16x9", !!cardRect && Math.abs(cardRect.h / cardRect.w - 9 / 16) < 0.01, { cardRect });
       checkEquals("Q1.sheet-white", q1.probe?.sheet?.backgroundColor, "rgb(255, 255, 255)");
@@ -791,11 +770,10 @@ async function main() {
       check("Q1.card-font-fitted", fitSize > 0 && Math.abs(fitSize - fontSize) < 0.06 && fontSize <= 21.1, { fontSize, fitSize });
       check("Q1.card-system-serif-lining-nums", q1.probe?.card?.fontFamily?.startsWith("Georgia") && q1.probe?.card?.fontVariantNumeric === "lining-nums", { family: q1.probe?.card?.fontFamily, numeric: q1.probe?.card?.fontVariantNumeric });
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
-      check("Q1.card-text-above-stamp", !!textRect && !!stampRect && textRect.bottom <= stampRect.top + 0.5, { textRect, stampRect });
+      check("Q1.card-text-inside-card", !!textRect && !!cardRect && textRect.top >= cardRect.top && textRect.bottom <= cardRect.bottom, { textRect, cardRect });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
       check("Q1.card-has-no-video-title", q1.probe?.hasSourceTitle === false, { hasSourceTitle: q1.probe?.hasSourceTitle });
-      checkEquals("Q1.timestamp-pill-from-fixture", q1.probe?.stamp?.text, QUOTE_CLOCK);
-      check("Q1.timestamp-pill-motif", q1.probe?.stamp?.borderRadius === "999px" && parseFloat(q1.probe?.stamp?.letterSpacing || "0") > 0, { borderRadius: q1.probe?.stamp?.borderRadius, letterSpacing: q1.probe?.stamp?.letterSpacing });
+      check("Q1.card-has-no-timestamp", q1.probe?.hasTimestamp === false, { hasTimestamp: q1.probe?.hasTimestamp });
       checkEquals("Q1.brand-wordmark", q1.probe?.brand?.text, "BiliScript");
       check("Q1.brand-ink-and-weight", q1.probe?.brand?.color === "rgb(23, 24, 26)" && q1.probe?.brand?.fontWeight === "600", { color: q1.probe?.brand?.color, weight: q1.probe?.brand?.fontWeight });
       check("Q1.brand-in-bottom-band", !!brandRect && !!cardRect && !!sheetRect && brandRect.top >= cardRect.bottom - 0.5 && brandRect.bottom <= sheetRect.bottom + 0.5, { brandRect, cardRect, sheetRect });

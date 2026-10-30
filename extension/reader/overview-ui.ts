@@ -310,7 +310,7 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
           <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
         </span>
         <span class="biliscript-reading-ov-quote-actions">
-          <span class="biliscript-reading-ov-quote-share" role="button" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
+          <span class="biliscript-reading-ov-quote-share" role="button" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
           <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
         </span>
       </span>
@@ -341,11 +341,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "share-quote") {
       const quote = target.dataset.quote || "";
-      const seconds = Number(target.dataset.seconds) || 0;
-      openQuoteShareModal({
-        content: quote,
-        from: seconds
-      });
+      openQuoteShareModal({ content: quote });
       return;
     }
     return;

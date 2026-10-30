@@ -2,7 +2,6 @@
 // 金句分享卡片预览模态弹窗、视差弹簧微动效与图片光栅化导出。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { formatClock } from "../shared/clock-text.js";
 import {
   READING_CLOSE_ICON,
   READING_COPY_ICON,
@@ -28,7 +27,6 @@ import { ids } from "./state.js";
 
 export interface OpenQuoteShareModalOptions {
   content: string;
-  from?: number;
   preset?: string;
   pattern?: QuotePatternId;
 }
@@ -46,7 +44,6 @@ interface Spring2DInstance {
 interface QuoteShareModalState {
   open: boolean;
   content: string;
-  from: number | null;
   activePreset: string;
   activePattern: QuotePatternId;
   host: HTMLElement | null;
@@ -60,7 +57,6 @@ interface QuoteShareModalState {
 const state: QuoteShareModalState = {
   open: false,
   content: "",
-  from: null,
   activePreset: "mist-deep-sea",
   activePattern: "none",
   host: null,
@@ -294,10 +290,6 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
 
   state.open = true;
   state.content = content;
-  state.from =
-    typeof options.from === "number" && Number.isFinite(options.from)
-      ? Math.max(0, options.from)
-      : null;
   if (options.preset && QUOTE_CARD_PRESETS.some((p) => p.id === options.preset)) {
     state.activePreset = options.preset;
   } else {
@@ -497,7 +489,6 @@ function bindModalEvents(host: HTMLElement): void {
 function buildExportOptions(): QuoteCardExportOptions {
   return {
     content: state.content,
-    from: state.from ?? undefined,
     preset: state.activePreset,
     pattern: state.activePattern
   };
@@ -641,13 +632,6 @@ function buildModalHtml(): string {
     `;
   }).join("");
 
-  const stampHtml =
-    state.from === null
-      ? ""
-      : `<span class="biliscript-quote-card-timestamp">${escapeHtml(
-          formatClock(state.from, { hours: "auto" })
-        )}</span>`;
-
   return `
     <div class="biliscript-quote-share-mask" data-action="close"></div>
     <section class="biliscript-quote-share-dialog" role="dialog" aria-modal="true" aria-label="分享金句卡片" tabindex="-1">
@@ -679,7 +663,6 @@ function buildModalHtml(): string {
               <div class="biliscript-quote-card-quote-mark" aria-hidden="true">“</div>
               <p class="biliscript-quote-card-text"><span class="biliscript-quote-card-text-inner">${escapeHtml(state.content)}</span></p>
             </div>
-            ${stampHtml}
           </div>
           <div class="biliscript-quote-card-brand">BiliScript</div>
         </div>

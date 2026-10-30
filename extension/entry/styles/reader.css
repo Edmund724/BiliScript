@@ -2417,29 +2417,6 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   white-space: nowrap;
 }
 
-/* 时间戳 pill：卡内左下，半透明白底 + 1px 白描边，等宽数字 */
-.biliscript-quote-card-timestamp {
-  position: absolute;
-  left: 8.824cqi;
-  bottom: 5.637cqi;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  height: 5.392cqi;
-  padding: 0 2.941cqi;
-  border-radius: var(--biliscript-radius-pill);
-  border: 1px solid rgba(var(--biliscript-primitive-color-white-rgb), 0.18);
-  background: rgba(var(--biliscript-primitive-color-white-rgb), 0.14);
-  color: rgba(var(--biliscript-primitive-color-white-rgb), 0.92);
-  font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: 2.696cqi;
-  font-weight: 500;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-  pointer-events: none;
-}
-
 /* 导出与复制操作按钮区 */
 .biliscript-quote-share-actions {
   width: 100%;

@@ -1,8 +1,6 @@
 // extension/reader/quote-share-export.ts
 // 金句分享卡片预设表、细线几何纹样、物理灰度噪点、客户端光栅化导出、剪贴板写入与文件下载。
 
-import { formatClock } from "../shared/clock-text.js";
-
 export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";
 
 export interface QuoteCardPattern {
@@ -45,7 +43,6 @@ export interface QuoteCardPreset {
 
 export interface QuoteCardExportOptions {
   content: string;
-  from?: number;
   preset?: string;
   pattern?: QuotePatternId;
 }
@@ -414,7 +411,7 @@ function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement | null>
 
 // ===== 版式度量（单一来源：预览 DOM 与 Canvas 导出共用同一份数字）=====
 // 标称卡 408×229.5（16:9）：预览里 1cqi = 卡宽的 1%，导出的设计画布按 1200 宽等比放大。
-// 字号档位、折行、内边距、时间戳与品牌位都从这一份常量推导，两边不会各算一套。
+// 字号档位、折行、内边距与品牌位都从这一份常量推导，两边不会各算一套。
 export const QUOTE_CARD_CANONICAL_WIDTH = 408;
 export const QUOTE_CARD_CANONICAL_HEIGHT = 229.5;
 
@@ -641,62 +638,7 @@ const CARD_RADIUS = 20;
 const QUOTE_MARK_SIZE = 34;
 const QUOTE_MARK_LEFT = 36;
 const QUOTE_MARK_CENTER_Y = 42;
-const STAMP_INSET_X = 36;
-const STAMP_BOTTOM = 23;
-const STAMP_HEIGHT = 22;
-const STAMP_FONT_SIZE = 11;
-const STAMP_PADDING_X = 12;
 const BRAND_FONT_SIZE = 11;
-
-/** 时间戳 pill：半透明白底 + 1px 白描边，字距 0.06em，画在其后由调用方恢复状态。 */
-function drawQuoteCardTimestamp(
-  ctx: CanvasRenderingContext2D,
-  cardX: number,
-  cardY: number,
-  from: number
-): void {
-  const text = formatClock(from, { hours: "auto" });
-  ctx.save();
-  ctx.font = `500 ${STAMP_FONT_SIZE}px ${QUOTE_CARD_FONT_SANS}`;
-
-  let letterSpacingApplied = false;
-  try {
-    if ("letterSpacing" in ctx) {
-      (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(
-        STAMP_FONT_SIZE * 0.06
-      ).toFixed(2)}px`;
-      letterSpacingApplied = true;
-    }
-  } catch {
-    letterSpacingApplied = false;
-  }
-
-  const trackedWidth =
-    ctx.measureText(text).width +
-    (letterSpacingApplied ? 0 : text.length * STAMP_FONT_SIZE * 0.06);
-
-  const pillX = cardX + STAMP_INSET_X;
-  const pillY = cardY + QUOTE_CARD_CANONICAL_HEIGHT - STAMP_BOTTOM - STAMP_HEIGHT;
-  const pillWidth = trackedWidth + STAMP_PADDING_X * 2;
-
-  ctx.beginPath();
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(pillX, pillY, pillWidth, STAMP_HEIGHT, STAMP_HEIGHT / 2);
-  } else {
-    ctx.rect(pillX, pillY, pillWidth, STAMP_HEIGHT);
-  }
-  ctx.fillStyle = "rgba(255, 255, 255, 0.14)";
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, pillX + STAMP_PADDING_X, pillY + STAMP_HEIGHT / 2);
-  ctx.restore();
-}
 
 /**
  * 离屏渲染分享卡至高分辨率 Canvas：白边相纸 + 16:9 内卡 + 品牌角标。
@@ -857,13 +799,7 @@ async function renderQuoteCardToCanvas(
   });
   ctx.restore();
 
-  // 9. 时间戳 pill（from 有效才画）
-  const from = Number(options.from);
-  if (options.from !== undefined && options.from !== null && Number.isFinite(from)) {
-    drawQuoteCardTimestamp(ctx, cardX, cardY, from);
-  }
-
-  // 10. 卡片内侧 0.5px 精细描边（与圆角同心）
+  // 9. 卡片内侧 0.5px 精细描边（与圆角同心）
   ctx.save();
   ctx.beginPath();
   traceContinuousCornerRectPath(ctx, cardX + 0.25, cardY + 0.25, cardW - 0.5, cardH - 0.5, CARD_RADIUS - 0.25);
@@ -874,7 +810,7 @@ async function renderQuoteCardToCanvas(
 
   ctx.restore();
 
-  // 11. 相纸底栏品牌角标
+  // 10. 相纸底栏品牌角标
   ctx.save();
   ctx.font = `600 ${BRAND_FONT_SIZE}px ${QUOTE_CARD_FONT_SANS}`;
   try {
@@ -896,7 +832,7 @@ async function renderQuoteCardToCanvas(
   );
   ctx.restore();
 
-  // 12. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
+  // 11. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
   ctx.save();
   ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
   ctx.lineWidth = 1;
