@@ -50,10 +50,9 @@ export const AUDIO = {
     fadeOutEndFrame: PROMO_DURATION
   },
   cues: [
-    {id: "hook-pain", frame: HERO_TIMELINE.hookPopAt, src: "media/sfx/pop.wav", gain: 0.52, duckDb: 4},
-    {id: "hero-pullback", frame: HERO_TIMELINE.hookHoldUntil, src: "media/sfx/whoosh.wav", gain: 0.44, duckDb: 4.5},
-    {id: "hero-open", frame: HERO_TIMELINE.clickAt, src: "media/sfx/click.wav", gain: 0.50, duckDb: 4},
-    {id: "hero-snap", frame: HERO_TIMELINE.snapEmphasisAt, src: "media/sfx/finger-snap.wav", gain: 0.56, duckDb: 4.2},
+    {id: "hero-click", frame: HERO_TIMELINE.clickAt, src: "media/sfx/click.wav", gain: 0.50, duckDb: 4},
+    {id: "hero-page", frame: HERO_TIMELINE.pageTurnAt, src: "media/sfx/shutter-1.wav", gain: 0.54, duckDb: 4.2},
+    {id: "hero-answer", frame: HERO_TIMELINE.answerAt, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4.5},
     {id: "subtitle-cut", frame: SUBTITLE_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "subtitle-keyword-resolve", frame: SUBTITLE_FROM + 8, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
     {id: "type-huan", frame: SUBTITLE_FROM + 12, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},

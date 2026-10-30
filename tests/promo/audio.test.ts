@@ -7,6 +7,7 @@ import {
   APPEARANCE_TIMELINE,
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_TIMESTAMP_CLICK_FRAME,
+  HERO_TIMELINE,
   OVERVIEW_TIMELINE,
   PROMO_DURATION,
   PROMO_FPS,
@@ -46,11 +47,13 @@ describe("宣传片配乐与三幕原声问答", () => {
   });
 
   it("把定制拟音与三段原片老师回应放在真实交互帧上，02:32 原声延后至金句卡弹出时印证", () => {
+    expect(HERO_TIMELINE.clickAt).toBe(41);
+    expect(HERO_TIMELINE.pageTurnAt).toBe(48);
+    expect(HERO_TIMELINE.answerAt).toBe(66);
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
-      ["hook-pain", 4, "media/sfx/pop.wav"],
-      ["hero-pullback", 51, "media/sfx/whoosh.wav"],
-      ["hero-open", 56, "media/sfx/click.wav"],
-      ["hero-snap", 76, "media/sfx/finger-snap.wav"],
+      ["hero-click", 41, "media/sfx/click.wav"],
+      ["hero-page", 48, "media/sfx/shutter-1.wav"],
+      ["hero-answer", 66, "media/sfx/whoosh.wav"],
       ["subtitle-cut", SUBTITLE_FROM, "media/sfx/whoosh.wav"],
       ["subtitle-keyword-resolve", SUBTITLE_FROM + 8, "media/sfx/click.wav"],
       ["type-huan", SUBTITLE_FROM + 12, "media/sfx/mech-key-1.wav"],
@@ -102,9 +105,13 @@ describe("宣传片配乐与三幕原声问答", () => {
     const base = AUDIO.music.gain;
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
-    expect(musicVolumeAtFrame(12)).toBeCloseTo(base * 0.5 * 10 ** (-4 / 20));
+    expect(musicVolumeAtFrame(12)).toBeCloseTo(base * 0.5);
     expect(musicVolumeAtFrame(24)).toBe(base);
-    // 开场钩子音效收尾后、字幕镜头音效之前保持基准音量
+    // 开场点击、翻页与答案跳切各自在新帧让位
+    expect(musicVolumeAtFrame(41)).toBeCloseTo(base * 10 ** (-4 / 20));
+    expect(musicVolumeAtFrame(48)).toBeCloseTo(base * 10 ** (-4.2 / 20));
+    expect(musicVolumeAtFrame(66)).toBeCloseTo(base * 10 ** (-4.5 / 20));
+    // 开场音效收尾后、字幕镜头音效之前保持基准音量
     expect(musicVolumeAtFrame(94)).toBe(base);
     expect(musicVolumeAtFrame(SUBTITLE_FROM)).toBeCloseTo(base * 10 ** (-5 / 20));
     expect(musicVolumeAtFrame(SUBTITLE_FROM + 12)).toBeCloseTo(base * 10 ** (-3.8 / 20));

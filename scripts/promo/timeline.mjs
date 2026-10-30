@@ -8,12 +8,14 @@ export const PROMO_FPS = OUTRO_TIMELINE.fps;
 export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
 export const HERO_TIMELINE = {
-  hookPopAt: 4,
-  hookHoldUntil: 51,
-  pullbackEnd: 57,
-  clickAt: 56,
-  headlineRevealAt: 57,
-  snapEmphasisAt: 76
+  firstLineAt: 2,
+  iconAt: 24,
+  clickAt: 41,
+  pageTurnAt: 48,
+  answerAt: 66,
+  pushInFrom: 78,
+  pushInTo: 108,
+  holdAt: 132
 };
 
 export const OVERVIEW_TIMELINE = {
@@ -89,7 +91,7 @@ export const APPEARANCE_SHOTS = [
 ];
 
 export const EVIDENCE_TIMES = [
-  0, 0.2, 0.6, 1.2, 1.6, 2.0, 2.5, 3.1,
+  0, 0.4, 0.8, 1.2, 1.4, 1.6, 2.0, 2.2, 3.2, 4.4,
   5.0, 5.4, 5.9, 7.1, 8.0,
   9.2, 10.0, 10.9, 11.8, 12.3, 13.2, 14.0,
   14.6, 15.4, 17.1, 17.8, 18.1, 19.0,
@@ -108,9 +110,11 @@ const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_TIMELINE.duration * OVERVIEW_TIMELINE.chapterRatio);
 
 export const EVIDENCE_TRANSITIONS = [
-  {id: "pain-point-hook", at: 0.4},
-  {id: "hero-pullback-open", at: sceneSeconds("hero", HERO_TIMELINE.hookHoldUntil)},
-  {id: "hero-slogan-zoom", at: sceneSeconds("hero", HERO_TIMELINE.snapEmphasisAt)},
+  {id: "hero-icon", at: sceneSeconds("hero", HERO_TIMELINE.iconAt)},
+  {id: "hero-click", at: sceneSeconds("hero", HERO_TIMELINE.clickAt)},
+  {id: "hero-panel-open", at: sceneSeconds("hero", HERO_TIMELINE.pageTurnAt)},
+  {id: "hero-answer", at: sceneSeconds("hero", HERO_TIMELINE.answerAt)},
+  {id: "hero-tldr-push", at: sceneSeconds("hero", HERO_TIMELINE.pushInFrom)},
   {id: "keyword-slice", at: sceneSeconds("subtitle", 12)},
   {id: "timestamp-match", at: sceneSeconds("subtitle", SUBTITLE_MATCH_FRAME)},
   {id: "chapters", at: sceneSeconds("overview")},
