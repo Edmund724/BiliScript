@@ -1257,21 +1257,32 @@ export function appearanceThemeIndexAtFrame(frame: number): number {
 
 const APPEARANCE_CHAPTERS = [
   {
-    timestamp: "00:00",
-    title: "为什么模型宁可“蒙”也不空着？",
-    lineWidths: ["86%", "58%"] as const
+    timestamp: "0:00",
+    title: "机器幻觉的成因：大模型的评分机制与语言本质",
+    summary: "通过考试猜题的类比，解释大模型训练机制中“答错不扣分、答对得非零分、不答得零分”的逻辑，说明模型宁可“蒙”也不空着；同时指出对话模型只模仿语言规律，追求“说得像人”而非“事实正确”。"
   },
   {
-    timestamp: "02:32",
-    title: "语言模型模仿规律，而非事实",
-    lineWidths: ["78%", "52%"] as const
+    timestamp: "2:32",
+    title: "幻觉无法彻底避免：商业价值与数据局限",
+    summary: "分析若模型过度谨慎只会回答“不知道”则失去商业价值。即使给出大量精确数据，也无法推测无关联的事实，因此幻觉无法彻底杜绝，只能通过横向比对和多重查证来降低。"
+  },
+  {
+    timestamp: "4:27",
+    title: "人机协作国际象棋实验：适配重于强弱",
+    summary: "介绍一项“强AI与弱搭档”协作的下象棋实验。结果显示懂得为同伴留后路、注重协作的组合击败了单纯追求最强算力的组合，证明协作中强弱并非决定因素。"
   }
 ] as const;
 
-const APPEARANCE_QUOTE = {
-  timestamp: "02:10",
-  content: "他只要去答这个题目，得的就不是零分；如果不答，一定是零分！"
-} as const;
+const APPEARANCE_QUOTES = [
+  {
+    timestamp: "2:10",
+    content: "他只要去答这个题目，得的就不是零分，但是他如果不答一定是零分。我们训练大模型的时候就是这样训练的，那么在这种情况下，他一定会去蒙。"
+  },
+  {
+    timestamp: "2:59",
+    content: "它模仿的只是语言规律。对于它来说，只要这句话说得像个人说的自然语言就成了，而不在乎它是不是事实，它并不知道什么是事实。"
+  }
+] as const;
 
 const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy" | "theme" | "settings" | "close"; size?: number}) => (
   <svg
@@ -1367,13 +1378,13 @@ export const AppearanceScene = () => {
               <span style={{fontSize: 24, fontWeight: 740}}>{item.label}</span>
               <span
                 style={{
-                  padding: "5px 14px",
+                  padding: "4px 12px",
                   borderRadius: 999,
                   background: active ? "rgba(251, 114, 153, 0.24)" : "rgba(15, 23, 42, 0.06)",
                   color: active ? "#FB7299" : COLORS.muted,
                   fontFamily: BRAND_FONT_FAMILY,
-                  fontSize: 22,
-                  fontWeight: 780
+                  fontSize: 18,
+                  fontWeight: 760
                 }}
               >
                 {Math.round(item.fontScale * 100)}%
@@ -1407,18 +1418,18 @@ export const AppearanceScene = () => {
             background: theme.panelBg,
             boxShadow: theme.shadow,
             border: `1.5px solid ${switchFlash > 0.02 ? theme.accent : theme.border}`,
-            padding: "26px 32px 30px",
+            padding: "24px 30px 28px",
             transform: microPerspective(-6, focusScale * switchScale),
             color: theme.textPrimary,
             fontFamily: FONT_FAMILY
           }}
         >
           <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexShrink: 0}}>
-            <span style={{fontSize: 22, fontWeight: 660, color: theme.textSecondary}}>UP主：复旦赵斌</span>
+            <span style={{fontSize: 17, fontWeight: 650, color: theme.textSecondary}}>UP主：复旦赵斌</span>
             <div style={{display: "flex", alignItems: "center", gap: 18, color: theme.textSecondary}}>
-              <AppearanceIcon name="theme" size={22} />
-              <AppearanceIcon name="settings" size={22} />
-              <AppearanceIcon name="close" size={22} />
+              <AppearanceIcon name="theme" size={19} />
+              <AppearanceIcon name="settings" size={19} />
+              <AppearanceIcon name="close" size={19} />
             </div>
           </div>
 
@@ -1429,13 +1440,13 @@ export const AppearanceScene = () => {
                 <span
                   key={tab}
                   style={{
-                    minWidth: 112,
+                    minWidth: 108,
                     padding: "10px 24px",
                     borderRadius: 12,
                     background: active ? theme.cardBg : "transparent",
                     boxShadow: active ? "0 2px 8px rgba(15, 23, 42, 0.10)" : "none",
                     color: active ? theme.accent : theme.textSecondary,
-                    fontSize: 22,
+                    fontSize: 18,
                     fontWeight: active ? 740 : 580,
                     textAlign: "center"
                   }}
@@ -1447,21 +1458,23 @@ export const AppearanceScene = () => {
           </div>
 
           <div style={{minHeight: 0, overflow: "hidden"}}>
-            <div style={{display: "flex", alignItems: "center", gap: 12, marginBottom: 14}}>
-              <span style={{width: 6, height: 22, borderRadius: 999, background: theme.accent}} />
-              <span style={{fontSize: 24, fontWeight: 780, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>章节</span>
+            <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 12}}>
+              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>章节</span>
+              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
+                AI 生成
+              </span>
             </div>
 
-            <div style={{display: "grid", gap: 16}}>
+            <div style={{display: "grid", gap: 12}}>
               {APPEARANCE_CHAPTERS.map((chapter) => (
                 <div
                   key={chapter.timestamp}
                   style={{
                     display: "grid",
                     gridTemplateColumns: "auto 1fr",
-                    gap: 18,
-                    padding: "20px 22px",
-                    borderRadius: 20,
+                    gap: 14,
+                    padding: "15px 17px",
+                    borderRadius: 16,
                     background: theme.cardBg,
                     border: `1px solid ${theme.border}`
                   }}
@@ -1469,13 +1482,13 @@ export const AppearanceScene = () => {
                   <span
                     style={{
                       alignSelf: "start",
-                      padding: "6px 14px",
+                      padding: "3px 9px",
                       borderRadius: 999,
                       background: theme.accentSoft,
                       color: theme.accent,
                       fontFamily: BRAND_FONT_FAMILY,
-                      fontSize: 22,
-                      fontWeight: 780,
+                      fontSize: 15,
+                      fontWeight: 760,
                       fontVariantNumeric: "tabular-nums"
                     }}
                   >
@@ -1484,78 +1497,75 @@ export const AppearanceScene = () => {
                   <div>
                     <div
                       style={{
-                        fontSize: Math.round(25 * theme.fontScale),
-                        fontWeight: theme.isSerif ? 660 : 750,
-                        lineHeight: 1.3,
+                        fontSize: Math.round(18 * theme.fontScale),
+                        fontWeight: theme.isSerif ? 600 : 730,
+                        lineHeight: 1.32,
                         fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
                       }}
                     >
                       {chapter.title}
                     </div>
-                    <div style={{display: "flex", flexDirection: "column", gap: 9, marginTop: 14}}>
-                      {chapter.lineWidths.map((width, lineIdx) => (
-                        <span
-                          key={width}
-                          style={{
-                            width,
-                            height: Math.round(10 * theme.fontScale),
-                            borderRadius: 999,
-                            background: lineIdx === 0 ? theme.accentSoft : theme.border,
-                            opacity: lineIdx === 0 ? 0.95 : 0.72
-                          }}
-                        />
-                      ))}
+                    <div
+                      style={{
+                        marginTop: 7,
+                        color: theme.textSecondary,
+                        fontSize: Math.round(14 * theme.fontScale),
+                        lineHeight: 1.48
+                      }}
+                    >
+                      {chapter.summary}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div style={{display: "flex", alignItems: "center", gap: 12, marginTop: 22, marginBottom: 14}}>
-              <span style={{width: 6, height: 22, borderRadius: 999, background: theme.accent}} />
-              <span style={{fontSize: 24, fontWeight: 780, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>金句</span>
+            <div style={{display: "flex", alignItems: "center", gap: 10, marginTop: 18, marginBottom: 12}}>
+              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>金句</span>
+              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
+                AI 精选
+              </span>
             </div>
 
-            <div
-              style={{
-                padding: "22px 24px 18px",
-                borderRadius: 20,
-                background: theme.cardBg,
-                border: `1px solid ${theme.border}`
-              }}
-            >
-              <div
-                style={{
-                  fontSize: Math.round(24 * theme.fontScale),
-                  fontWeight: theme.isSerif ? 620 : 700,
-                  lineHeight: 1.48,
-                  fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
-                }}
-              >
-                「{APPEARANCE_QUOTE.content}」
-              </div>
-              <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, color: theme.textSecondary}}>
-                <div style={{display: "flex", alignItems: "center", gap: 10}}>
-                  <AppearanceIcon name="play" size={20} />
-                  <span
+            <div style={{display: "grid", gap: 12}}>
+              {APPEARANCE_QUOTES.map((quote) => (
+                <div
+                  key={quote.timestamp}
+                  style={{padding: "14px 18px 11px", borderRadius: 16, background: theme.cardBg, border: `1px solid ${theme.border}`}}
+                >
+                  <div
                     style={{
-                      padding: "5px 14px",
-                      borderRadius: 999,
-                      background: theme.accentSoft,
-                      color: theme.accent,
-                      fontFamily: BRAND_FONT_FAMILY,
-                      fontSize: 22,
-                      fontWeight: 780
+                      fontSize: Math.round(17 * theme.fontScale),
+                      lineHeight: 1.5,
+                      fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
                     }}
                   >
-                    {APPEARANCE_QUOTE.timestamp}
-                  </span>
+                    「{quote.content}」
+                  </div>
+                  <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, color: theme.textSecondary}}>
+                    <div style={{display: "flex", alignItems: "center", gap: 8}}>
+                      <AppearanceIcon name="play" size={16} />
+                      <span
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 999,
+                          background: theme.accentSoft,
+                          color: theme.accent,
+                          fontFamily: BRAND_FONT_FAMILY,
+                          fontSize: 15,
+                          fontWeight: 760
+                        }}
+                      >
+                        {quote.timestamp}
+                      </span>
+                    </div>
+                    <div style={{display: "flex", alignItems: "center", gap: 15}}>
+                      <AppearanceIcon name="share" size={17} />
+                      <AppearanceIcon name="copy" size={17} />
+                    </div>
+                  </div>
                 </div>
-                <div style={{display: "flex", alignItems: "center", gap: 18}}>
-                  <AppearanceIcon name="share" size={21} />
-                  <AppearanceIcon name="copy" size={21} />
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
