@@ -11,6 +11,12 @@
 - 阶段完成才运行完整草稿验收；最终交付前运行 `promo:verify` 并完成全片视听验收。
 - 只有修改共享组件或构建流程时，才运行相关代码测试。
 
+分支与 worktree 约束：
+
+- 本分支只把 main 的更新合入自己；不要把本分支合回 main，也不要把视频改动 cherry-pick 到 main。
+- 视频相关文件只提交在 promo-video 分支；main 不包含 scripts/promo 与 Remotion 依赖。
+- 不要清理 `.scratch/worktrees/promo-video` 这个 worktree；它只服务 `promo-video` 分支。
+
 ## 工具链
 
 依赖与脚本用 PATH 上的 pnpm（12.x）——`pnpm install` / `pnpm exec vitest run` 直接可用；npm 装依赖会被 `devEngines` 拒（EBADDEVENGINES）。
