@@ -424,10 +424,10 @@ export const QUOTE_CARD_FONT_SANS =
   '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
 
 const TEXT_INSET_X = QUOTE_CARD_CANONICAL_WIDTH * 0.088;
-const TEXT_INSET_TOP = QUOTE_CARD_CANONICAL_WIDTH * 0.083;
-const TEXT_INSET_BOTTOM = QUOTE_CARD_CANONICAL_WIDTH * 0.163;
+/** 正文区上下等距：文字块在卡面内几何居中，引号只占左上角的空白。 */
+const TEXT_INSET_Y = QUOTE_CARD_CANONICAL_WIDTH * 0.083;
 const TEXT_MAX_WIDTH = QUOTE_CARD_CANONICAL_WIDTH - TEXT_INSET_X * 2;
-const TEXT_AREA_HEIGHT = QUOTE_CARD_CANONICAL_HEIGHT - TEXT_INSET_TOP - TEXT_INSET_BOTTOM;
+const TEXT_AREA_HEIGHT = QUOTE_CARD_CANONICAL_HEIGHT - TEXT_INSET_Y * 2;
 const BASE_FONT_SIZE = 21;
 const MIN_FONT_SIZE = 14;
 const FONT_STEP = 1;
@@ -552,7 +552,10 @@ export function layoutQuoteCardText(
 
   for (; fontSize >= MIN_FONT_SIZE; fontSize -= FONT_STEP) {
     lines = wrapQuoteText(content, fontSize, measure);
-    if (lines.length * fontSize * lineHeightRatio <= TEXT_AREA_HEIGHT + 0.01) {
+    if (
+      lines.length <= MAX_LINES &&
+      lines.length * fontSize * lineHeightRatio <= TEXT_AREA_HEIGHT + 0.01
+    ) {
       break;
     }
   }
@@ -572,7 +575,7 @@ export function layoutQuoteCardText(
     lineHeight,
     lines,
     textLeft: TEXT_INSET_X,
-    textTop: TEXT_INSET_TOP + (TEXT_AREA_HEIGHT - lines.length * lineHeight) / 2,
+    textTop: TEXT_INSET_Y + (TEXT_AREA_HEIGHT - lines.length * lineHeight) / 2,
     textWidth: TEXT_MAX_WIDTH,
     truncated
   };

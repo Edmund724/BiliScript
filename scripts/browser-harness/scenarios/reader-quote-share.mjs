@@ -137,6 +137,7 @@ const JS = {
     const save = host.querySelector('.biliscript-quote-download-btn');
     const card = host.querySelector('.biliscript-quote-card');
     const cardText = host.querySelector('.biliscript-quote-card-text');
+    const cardTextInner = host.querySelector('.biliscript-quote-card-text-inner');
     const sheet = host.querySelector('.biliscript-quote-card-sheet');
     const brand = host.querySelector('.biliscript-quote-card-brand');
     const motifBars = Array.from(host.querySelectorAll('.biliscript-quote-card-motif-bar'));
@@ -186,7 +187,7 @@ const JS = {
     const cornerShape = csDialog.cornerShape || csDialog.getPropertyValue('corner-shape') || '';
     return {
       view: (() => { const v = document.getElementById('biliscript-reading-view'); return v ? { theme: v.getAttribute('data-theme'), palette: v.getAttribute('data-palette') } : null; })(),
-      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), sheet: rect(sheet), brand: rect(brand), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), textInner: cardTextInner ? rect(cardTextInner) : null, sheet: rect(sheet), brand: rect(brand), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
       sheet: { backgroundColor: csSheet.backgroundColor },
       brand: { text: brand.textContent.trim(), color: csBrand.color, fontWeight: csBrand.fontWeight, fontSize: csBrand.fontSize },
       scrim: scrim ? { backgroundColor: csScrim.backgroundColor } : null,
@@ -780,6 +781,10 @@ async function main() {
       check("Q1.card-system-serif-lining-nums", q1.probe?.card?.fontFamily?.startsWith("Georgia") && q1.probe?.card?.fontVariantNumeric === "lining-nums", { family: q1.probe?.card?.fontFamily, numeric: q1.probe?.card?.fontVariantNumeric });
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
       check("Q1.card-text-inside-card", !!textRect && !!cardRect && textRect.top >= cardRect.top && textRect.bottom <= cardRect.bottom, { textRect, cardRect });
+      const textInnerRect = q1.probe?.rects?.textInner;
+      check("Q1.card-text-block-centered", !!textInnerRect && !!cardRect &&
+        Math.abs((textInnerRect.top + textInnerRect.bottom) / 2 - (cardRect.top + cardRect.bottom) / 2) <= 1,
+        { textInner: textInnerRect, card: cardRect });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
       check("Q1.card-has-no-video-title", q1.probe?.hasSourceTitle === false, { hasSourceTitle: q1.probe?.hasSourceTitle });
       check("Q1.card-has-no-timestamp", q1.probe?.hasTimestamp === false, { hasTimestamp: q1.probe?.hasTimestamp });

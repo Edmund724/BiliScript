@@ -2420,11 +2420,11 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   user-select: none;
 }
 
-/* 正文区：上 8.3cqi、下 16.3cqi（给时间戳 pill 留位），字号由 JS 按共享布局落值 */
+/* 正文区：上下等距 8.3cqi，文字块在卡面内几何居中；字号由 JS 按共享布局落值 */
 .biliscript-quote-card-text {
   position: absolute;
   top: 8.3cqi;
-  bottom: 16.3cqi;
+  bottom: 8.3cqi;
   left: 8.8cqi;
   right: 8.8cqi;
   margin: 0;
