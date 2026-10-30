@@ -422,8 +422,8 @@ export const VideoReferenceCard = ({
               borderRadius: 999,
               background: "rgba(232, 93, 135, 0.14)",
               color: COLORS.pink,
-              fontSize: 18,
-              fontWeight: 700,
+              fontSize: 20,
+              fontWeight: 720,
               whiteSpace: "nowrap"
             }}
           >
@@ -440,8 +440,8 @@ export const VideoReferenceCard = ({
             background: "rgba(38, 121, 184, 0.10)",
             color: COLORS.blue,
             fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 18,
-            fontWeight: 700,
+            fontSize: 20,
+            fontWeight: 720,
             whiteSpace: "nowrap"
           }}
         >
@@ -505,8 +505,8 @@ export const VideoReferenceCard = ({
             background: "rgba(232, 93, 135, 0.12)",
             color: COLORS.pink,
             fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 18,
-            fontWeight: 700,
+            fontSize: 20,
+            fontWeight: 720,
             whiteSpace: "nowrap"
           }}
         >
@@ -564,8 +564,8 @@ export const VideoReferenceCard = ({
             backdropFilter: "blur(14px)",
             boxShadow: "0 8px 24px -8px rgba(15, 23, 42, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.16)",
             color: "#FFFFFF",
-            fontSize: 18,
-            fontWeight: 650,
+            fontSize: 20,
+            fontWeight: 680,
             display: "flex",
             alignItems: "center",
             gap: 8,

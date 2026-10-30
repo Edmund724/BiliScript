@@ -219,7 +219,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
                   background: index === 1 ? MIST_GLASS.cardElevated : "transparent",
                   boxShadow: index === 1 ? MIST_GLASS.tabActiveShadow : "none",
                   color: index === 1 ? MIST_GLASS.accent : MIST_GLASS.muted,
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: index === 1 ? 740 : 580
                 }}
               >
@@ -227,9 +227,10 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
               </div>
             ))}
           </div>
-          <span style={{color: MIST_GLASS.muted, fontSize: 18, fontWeight: 620}}>
-            AI 章节脉络 · 精要
-          </span>
+          <div style={{display: "flex", alignItems: "center", gap: 8}}>
+            <span style={{width: 28, height: 8, borderRadius: 999, background: MIST_GLASS.accent}} />
+            <span style={{width: 14, height: 8, borderRadius: 999, background: "rgba(0, 140, 255, 0.24)"}} />
+          </div>
         </div>
 
         {/* Zoomed-in 2 Chapter Cards */}
@@ -307,7 +308,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
             position: "relative",
             zIndex: 1,
             marginTop: 18,
-            padding: "20px 26px",
+            padding: "22px 26px",
             borderRadius: 22,
             background: isQuoteClicked
               ? "linear-gradient(135deg, rgba(255, 244, 248, 0.98) 0%, rgba(242, 249, 255, 0.98) 100%)"
@@ -321,43 +322,33 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
             gap: 20
           }}
         >
-          <div style={{minWidth: 0, flex: 1}}>
-            <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 6}}>
-              <span
-                style={{
-                  padding: "3px 11px",
-                  borderRadius: 999,
-                  background: "rgba(232, 93, 135, 0.14)",
-                  color: COLORS.pink,
-                  fontSize: 16,
-                  fontWeight: 740
-                }}
-              >
-                金句提炼
-              </span>
-              <span
-                style={{
-                  fontFamily: BRAND_FONT_FAMILY,
-                  fontSize: 18,
-                  fontWeight: 760,
-                  color: MIST_GLASS.timeColor,
-                  fontVariantNumeric: "tabular-nums"
-                }}
-              >
-                02:32
-              </span>
-            </div>
+          <div style={{display: "flex", alignItems: "center", gap: 16, minWidth: 0, flex: 1}}>
+            <span
+              style={{
+                padding: "6px 16px",
+                borderRadius: 999,
+                background: "rgba(232, 93, 135, 0.14)",
+                color: COLORS.pink,
+                fontFamily: BRAND_FONT_FAMILY,
+                fontSize: 22,
+                fontWeight: 800,
+                fontVariantNumeric: "tabular-nums",
+                flexShrink: 0
+              }}
+            >
+              02:32
+            </span>
             <div
               style={{
                 color: MIST_GLASS.text,
-                fontSize: 17.5,
-                fontWeight: 680,
-                lineHeight: 1.35,
-                letterSpacing: -0.3,
+                fontSize: 25,
+                fontWeight: 740,
+                lineHeight: 1.3,
+                letterSpacing: -0.4,
                 whiteSpace: "nowrap"
               }}
             >
-              “他只要去答这个题目，得的就不是零分；但如果他不答，一定是零分！”
+              “如果他不答，一定是零分！”
             </div>
           </div>
 
@@ -375,15 +366,15 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
             />
             <div
               style={{
-                padding: "11px 20px",
+                padding: "11px 22px",
                 borderRadius: 999,
                 background: isQuoteClicked ? COLORS.pink : "rgba(232, 93, 135, 0.12)",
                 color: isQuoteClicked ? "#FFFFFF" : COLORS.pink,
                 boxShadow: isQuoteClicked
                   ? "0 12px 26px -6px rgba(232, 93, 135, 0.52)"
                   : "0 0 0 1.5px rgba(232, 93, 135, 0.34)",
-                fontSize: 18,
-                fontWeight: 740,
+                fontSize: 22,
+                fontWeight: 760,
                 whiteSpace: "nowrap",
                 scale: buttonPress
               }}
@@ -572,13 +563,14 @@ const QuotePolaroid = ({chapterDuration}: {chapterDuration: number}) => {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "15px 8px 18px"
+            padding: "16px 10px 18px"
           }}
         >
-          <span style={{fontSize: 18, fontWeight: 520, color: COLORS.muted, letterSpacing: -0.2}}>
-            复旦赵斌《大模型公开课》
-          </span>
-          <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 17, fontWeight: 700, color: COLORS.inkSoft}}>
+          <div style={{display: "flex", alignItems: "center", gap: 10}}>
+            <span style={{width: 28, height: 8, borderRadius: 999, background: COLORS.pink}} />
+            <span style={{width: 64, height: 8, borderRadius: 999, background: "rgba(15, 23, 42, 0.12)"}} />
+          </div>
+          <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 22, fontWeight: 740, color: COLORS.inkSoft}}>
             BiliScript
           </span>
         </div>

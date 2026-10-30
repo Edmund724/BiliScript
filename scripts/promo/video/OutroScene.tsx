@@ -1,6 +1,6 @@
 import {Easing, Img, interpolate, interpolateColors, staticFile, useCurrentFrame} from "remotion";
 import {OUTRO_TIMELINE} from "../outro-timeline.mjs";
-import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY, entranceOpacity} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
@@ -431,26 +431,9 @@ const BrandStage = () => {
   );
 };
 
-export const OutroScene = () => {
-  const frame = useCurrentFrame();
-  return (
-    <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
-      <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.06) 0%, rgba(232, 93, 135, 0) 72%)"}} />
-      <BrandStage />
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 48,
-          textAlign: "center",
-          color: COLORS.muted,
-          fontSize: 14,
-          opacity: entranceOpacity(frame, OUTRO_TIMELINE.finalHoldAt)
-        }}
-      >
-        Music: “BiliScript Pulse” — BiliScript, MIT License
-      </div>
-    </div>
-  );
-};
+export const OutroScene = () => (
+  <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
+    <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.06) 0%, rgba(232, 93, 135, 0) 72%)"}} />
+    <BrandStage />
+  </div>
+);

@@ -5,44 +5,47 @@ import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
 export const PROMO_WIDTH = 1920;
 export const PROMO_HEIGHT = 1080;
 export const PROMO_FPS = OUTRO_TIMELINE.fps;
+export const PROMO_BPM = 120;
+export const BEAT_FRAMES = (PROMO_FPS * 60) / PROMO_BPM;
+export const beatF = (beats) => Math.round(beats * BEAT_FRAMES);
 export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
 export const HERO_TIMELINE = {
   firstLineAt: 2,
-  iconAt: 24,
-  clickAt: 41,
-  pageTurnAt: 48,
-  answerAt: 66,
-  pushInFrom: 80,
-  pushInTo: 116,
-  holdAt: 132
+  iconAt: beatF(1.5),
+  clickAt: beatF(2.5),
+  pageTurnAt: beatF(3),
+  answerAt: beatF(4.5),
+  pushInFrom: beatF(5.5),
+  pushInTo: beatF(7.5),
+  holdAt: beatF(9)
 };
 
 export const OVERVIEW_TIMELINE = {
-  duration: 165,
+  duration: beatF(11),
   chapterRatio: 84 / 165,
-  quoteClickFrame: 75,
+  quoteClickFrame: beatF(5),
   quoteLiftFrames: 18
 };
 
 export const SUBTOOLS_TIMELINE = {
-  duration: 135,
-  bilingualAt: 66,
-  exportAt: 74,
-  exportClickAt: 100
+  duration: beatF(9),
+  bilingualAt: beatF(4.5),
+  exportAt: beatF(5),
+  exportClickAt: beatF(6.5)
 };
 
 export const WEBSEARCH_TIMELINE = {
-  duration: 75,
-  searchBadgeAt: 8,
-  verifyCardAt: 22
+  duration: beatF(5),
+  searchBadgeAt: beatF(0.5),
+  verifyCardAt: beatF(1.5)
 };
 
 export const APPEARANCE_TIMELINE = {
-  duration: 60,
-  flymeDarkFrom: 14,
-  editorialLightFrom: 26,
-  editorialDarkFrom: 38
+  duration: beatF(4),
+  flymeDarkFrom: beatF(1),
+  editorialLightFrom: beatF(2),
+  editorialDarkFrom: beatF(3)
 };
 
 export const PROVIDER_TIMELINE = {
@@ -75,7 +78,7 @@ export const PANEL_FOCUS_HANDOFFS = [
   {from: "websearch", to: "appearance", at: 810, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
-export const CHAT_TIMESTAMP_CLICK_FRAME = 78;
+export const CHAT_TIMESTAMP_CLICK_FRAME = beatF(5);
 export const CHAT_PLAYER_VERIFY_FROM = 106;
 export const CHAT_PLAYER_VERIFY_TO = 144;
 
@@ -86,10 +89,10 @@ export const CHAT_SHOTS = [
 ];
 
 export const APPEARANCE_SHOTS = [
-  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 14, fontScale: 1.0 },
-  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 14, duration: 12, fontScale: 1.06 },
-  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 26, duration: 12, fontScale: 1.12 },
-  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 38, duration: 22, fontScale: 1.18 }
+  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: beatF(1), fontScale: 1.0 },
+  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: APPEARANCE_TIMELINE.flymeDarkFrom, duration: beatF(1), fontScale: 1.06 },
+  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: APPEARANCE_TIMELINE.editorialLightFrom, duration: beatF(1), fontScale: 1.12 },
+  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: APPEARANCE_TIMELINE.editorialDarkFrom, duration: beatF(1), fontScale: 1.18 }
 ];
 
 export const EVIDENCE_TIMES = [

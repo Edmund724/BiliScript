@@ -160,7 +160,7 @@ const PageSheet = ({cameraScale = 1}: {cameraScale?: number}) => {
     easing: Easing.out(Easing.quad)
   });
   const angle = open * 104;
-  const opacity = interpolate(frame, [42, HERO_SOURCE.panelFrame, 62, HERO_TIMELINE.answerAt], [0, 1, 1, 0], {
+  const opacity = interpolate(frame, [42, HERO_SOURCE.panelFrame, HERO_TIMELINE.answerAt - 4, HERO_TIMELINE.answerAt], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });

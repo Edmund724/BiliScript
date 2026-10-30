@@ -11,19 +11,19 @@ describe("宣传片公共原语与开场一键总结", () => {
     expect(typeof BottomLectureCaption).toBe("function");
   });
 
-  it("开场五拍落在 0–150 帧：鼠标进入、图标、点击、翻页、答案与推近", async () => {
-    const {HERO_TIMELINE, SCENES} = await import(timelineModulePath);
+  it("开场五拍落在 0–150 帧：鼠标进入、图标、点击、翻页、答案与推近对齐 120 BPM 正拍/半拍网格", async () => {
+    const {HERO_TIMELINE, SCENES, beatF} = await import(timelineModulePath);
     const hero = SCENES.find((scene: {id: string}) => scene.id === "hero");
     expect(hero).toMatchObject({from: 0, duration: 150});
     expect(HERO_TIMELINE).toEqual({
       firstLineAt: 2,
-      iconAt: 24,
-      clickAt: 41,
-      pageTurnAt: 48,
-      answerAt: 66,
-      pushInFrom: 80,
-      pushInTo: 116,
-      holdAt: 132
+      iconAt: beatF(1.5),
+      clickAt: beatF(2.5),
+      pageTurnAt: beatF(3),
+      answerAt: beatF(4.5),
+      pushInFrom: beatF(5.5),
+      pushInTo: beatF(7.5),
+      holdAt: beatF(9)
     });
   });
 
