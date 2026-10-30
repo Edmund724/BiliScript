@@ -45,17 +45,20 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       "editorial-light",
       "editorial-dark"
     ]);
-    const allCaptionTexts = CAPTIONS.map((item) => item.text).join(" ");
-    expect(allCaptionTexts).toContain("没字幕的视频，整段转成文字。");
-    expect(allCaptionTexts).toContain("免费语音识别 · 412 条字幕");
-    expect(allCaptionTexts).toContain("中英双轨，逐句对照着看。");
-    expect(allCaptionTexts).toContain("选中复制 · SRT / Markdown / TXT");
-    expect(allCaptionTexts).not.toContain("笔记");
-    expect(allCaptionTexts).toContain("UP 主说得对不对？AI 联网检索辅助核对");
-    expect(allCaptionTexts).toContain("超纲概念背景补充");
-    expect(allCaptionTexts).not.toContain("内置");
-    expect(allCaptionTexts).not.toContain("预设");
-    expect(allCaptionTexts).not.toContain("自定义端点");
+    const captionTexts = CAPTIONS.map((item) => item.text);
+    expect(captionTexts).toContain("没字幕的视频，");
+    expect(captionTexts).toContain("整段转成文字。");
+    expect(captionTexts).not.toContain("免费语音识别 · 412 条字幕");
+    expect(captionTexts).toContain("中英双轨，");
+    expect(captionTexts).toContain("逐句对照着看。");
+    expect(captionTexts).not.toContain("选中复制 · SRT / Markdown / TXT");
+    expect(captionTexts.join(" ")).not.toContain("笔记");
+    expect(captionTexts).toContain("UP 主说得对不对？");
+    expect(captionTexts).toContain("AI 联网检索辅助核对。");
+    expect(captionTexts.join(" ")).not.toContain("超纲概念背景补充");
+    expect(captionTexts.join(" ")).not.toContain("内置");
+    expect(captionTexts.join(" ")).not.toContain("预设");
+    expect(captionTexts.join(" ")).not.toContain("自定义端点");
 
     expect(providerMod.PROVIDER_HEADLINE).toBe("接入你顺手的 AI 大脑");
     expect(providerMod.PROVIDER_SUBHEADLINE).toBe("支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型");

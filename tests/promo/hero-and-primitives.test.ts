@@ -45,11 +45,89 @@ describe("宣传片公共原语与开场一键总结", () => {
     });
   });
 
-  it("hero 字幕按两行大字合并 + 一行小字重切，时间码落在 0–5 秒内", async () => {
+  it("hero 字幕按两行大字 + 一行小字重切，时间码落在 0–5 秒内", async () => {
     const {CAPTIONS} = await import("../../scripts/promo/captions.mjs");
     expect(CAPTIONS.filter((caption: {sceneId: string}) => caption.sceneId === "hero")).toEqual([
-      {sceneId: "hero", text: "点一下播放器，整期视频自动读完。", startMs: 100, endMs: 2100, timestampMs: null, confidence: null},
+      {sceneId: "hero", text: "点一下播放器，", startMs: 0, endMs: 1000, timestampMs: null, confidence: null},
+      {sceneId: "hero", text: "整期视频自动读完。", startMs: 1000, endMs: 2100, timestampMs: null, confidence: null},
       {sceneId: "hero", text: "TL;DR · 分节要点 · 时间戳", startMs: 2100, endMs: 5000, timestampMs: null, confidence: null}
+    ]);
+  });
+
+  it("整条字幕轨与九镜画面文案逐条一致，镜内不重叠、镜界首条对齐、非原声条目不超过 10 字/秒（品牌专名除外）", async () => {
+    const {CAPTIONS} = await import("../../scripts/promo/captions.mjs");
+    const {AUDIO} = await import("../../scripts/promo/audio.mjs");
+    const {PROMO_FPS, SCENES} = await import("../../scripts/promo/timeline.mjs");
+
+    const toMs = (frame: number) => Math.round((frame / PROMO_FPS) * 1000);
+    const voiceWindows = AUDIO.voices.map((voice: {frame: number; durationFrames?: number}) => ({
+      startMs: toMs(voice.frame),
+      endMs: toMs(voice.frame + (voice.durationFrames ?? 40))
+    }));
+    const isVoice = (caption: {startMs: number; endMs: number}) =>
+      voiceWindows.some((window: {startMs: number; endMs: number}) => window.startMs === caption.startMs && window.endMs === caption.endMs);
+    const isBrandName = (caption: {text: string}) => caption.text === "BiliScript";
+    const visibleChars = (text: string) => [...text.matchAll(/[\p{L}\p{N}]/gu)].length;
+    const charsPerSecond = (caption: {text: string; startMs: number; endMs: number}) =>
+      visibleChars(caption.text) / ((caption.endMs - caption.startMs) / 1000);
+
+    expect(CAPTIONS.map((caption: {text: string}) => caption.text)).toEqual([
+      "点一下播放器，",
+      "整期视频自动读完。",
+      "TL;DR · 分节要点 · 时间戳",
+      "记得 UP 主提过那句话？搜词秒跳那一秒。",
+      "……也很难避免幻觉。",
+      "48 分钟长视频，",
+      "3 秒提炼章节脉络与金句。",
+      "如果他不答，一定是零分！",
+      "带着问题追问视频，",
+      "点按时间戳让 UP 主亲自举证。",
+      "这里有一个研究……",
+      "没字幕的视频，",
+      "整段转成文字。",
+      "中英双轨，",
+      "逐句对照着看。",
+      "UP 主说得对不对？",
+      "AI 联网检索辅助核对。",
+      "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。",
+      "接入你顺手的 AI 大脑",
+      "BiliScript",
+      "在 B 站，读下一条视频。",
+      "搜原话 · 读章节 · 问依据"
+    ]);
+
+    let previousEnd = 0;
+    for (const caption of CAPTIONS) {
+      const scene = SCENES.find((candidate) => candidate.id === caption.sceneId);
+      expect(caption.startMs).toBeGreaterThanOrEqual(toMs(scene.from));
+      expect(caption.endMs).toBeLessThanOrEqual(toMs(scene.from + scene.duration));
+      expect(caption.startMs).toBeGreaterThanOrEqual(previousEnd);
+      expect(charsPerSecond(caption)).toBeLessThanOrEqual(isBrandName(caption) ? 20 : 10);
+      previousEnd = caption.endMs;
+    }
+
+    for (const scene of SCENES) {
+      const inScene = CAPTIONS.filter((caption) => caption.sceneId === scene.id);
+      expect(inScene.length).toBeGreaterThan(0);
+      expect(inScene[0].startMs).toBe(toMs(scene.from));
+      const last = inScene[inScene.length - 1];
+      if (!isVoice(last)) expect(last.endMs).toBe(toMs(scene.from + scene.duration));
+    }
+
+    for (const window of voiceWindows) {
+      expect(CAPTIONS.some((caption) => caption.startMs === window.startMs && caption.endMs === window.endMs)).toBe(true);
+    }
+
+    const voiceTailScenes = SCENES.filter((scene) => {
+      const inScene = CAPTIONS.filter((caption) => caption.sceneId === scene.id);
+      const last = inScene[inScene.length - 1];
+      return isVoice(last) && last.endMs < toMs(scene.from + scene.duration);
+    });
+    expect(voiceTailScenes.map((scene) => scene.id)).toEqual(["subtitle", "overview", "chat"]);
+
+    expect(CAPTIONS.filter((caption) => !isVoice(caption) && !isBrandName(caption) && charsPerSecond(caption) > 8).map((caption) => caption.text)).toEqual([
+      "记得 UP 主提过那句话？搜词秒跳那一秒。",
+      "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。"
     ]);
   });
 
