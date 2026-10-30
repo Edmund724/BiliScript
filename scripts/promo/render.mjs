@@ -203,7 +203,8 @@ async function validateFinalVideo(output) {
 
 const {publicDir, manifest} = await preparePromoAssets();
 for (const [name, duration, width, height] of [
-  ["hero-hook.mp4", 4, 1920, 1080],
+  // hero-hook 源素材含约 10s 模型思考段（03 在镜头内压缩或跳切），素材契约按源素材 18s。
+  ["hero-hook.mp4", 18, 1920, 1080],
   ["subtitle-seek-03.mp4", 8, 3840, 2160],
   ["chat.mp4", 15, 3840, 2160],
   ["ai-providers.mp4", 5.9, 3840, 2160]
