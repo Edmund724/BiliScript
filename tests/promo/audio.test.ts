@@ -53,7 +53,6 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(HERO_TIMELINE.answerAt).toBe(beatF(4.5));
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
       ["hero-click", HERO_TIMELINE.clickAt, "media/sfx/click.wav"],
-      ["hero-page", HERO_TIMELINE.pageTurnAt, "media/sfx/shutter-1.wav"],
       ["hero-answer", HERO_TIMELINE.answerAt, "media/sfx/whoosh.wav"],
       ["subtitle-cut", SUBTITLE_FROM, "media/sfx/whoosh.wav"],
       ["subtitle-keyword-resolve", SUBTITLE_FROM + 8, "media/sfx/click.wav"],
@@ -128,9 +127,8 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(0)).toBe(0);
     expect(musicVolumeAtFrame(12)).toBeCloseTo(base * 0.5);
     expect(musicVolumeAtFrame(24)).toBe(base);
-    // 开场点击、翻页与答案跳切各自在新帧让位
+    // 开场点击与答案跳切各自在新帧让位
     expect(musicVolumeAtFrame(HERO_TIMELINE.clickAt)).toBeCloseTo(base * 10 ** (-4 / 20));
-    expect(musicVolumeAtFrame(HERO_TIMELINE.pageTurnAt)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(HERO_TIMELINE.answerAt)).toBeCloseTo(base * 10 ** (-4.5 / 20));
     // 开场音效收尾后、字幕镜头音效之前保持基准音量
     expect(musicVolumeAtFrame(94)).toBe(base);

@@ -1,8 +1,11 @@
 import {AbsoluteFill, Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {HERO_TIMELINE} from "../timeline.mjs";
-import {COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
+import {COLORS, FONT_FAMILY} from "./design";
 
 const PANEL = {x: 1365, y: 64, width: 540, height: 1016};
+const PANEL_SLIDE_FRAMES = 13;
+const PANEL_BACKDROP = {x: 1320, y: 64, width: 592, height: 1016};
+const PANEL_BACKDROP_SOURCE_FRAME = 32;
 const ICON = {x: 1359, y: 563, size: 36};
 const CAMERA = {originX: 1470 / 1920, originY: 0.5, zoom: 2.05, drift: 0.04};
 
@@ -145,93 +148,86 @@ const HeroCopy = () => {
   );
 };
 
-const PageSheet = ({cameraScale = 1}: {cameraScale?: number}) => {
-  const frame = useCurrentFrame();
-  if (frame < HERO_SOURCE.panelFrame || frame >= HERO_TIMELINE.answerAt) return null;
+const PanelSlideIn = ({cameraScale = 1}: {cameraScale?: number}) => {
+  const localFrame = useCurrentFrame();
+  const scaledWidth = 1920 * cameraScale;
+  const scaledHeight = 1080 * cameraScale;
 
-  const land = interpolate(frame, [HERO_SOURCE.panelFrame, HERO_TIMELINE.pageTurnAt], [0, 1], {
+  const translateX = interpolate(localFrame, [0, 7], [PANEL.width, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic)
+    easing: Easing.bezier(0, 0, 0.2, 1)
   });
-  const open = interpolate(frame, [HERO_TIMELINE.pageTurnAt, HERO_TIMELINE.answerAt - 2], [0, 1], {
+  const scaleProgress = interpolate(localFrame, [0, PANEL_SLIDE_FRAMES], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: Easing.out(Easing.quad)
+    easing: Easing.bezier(0.3, 1.2, 0.4, 1)
   });
-  const angle = open * 104;
-  const opacity = interpolate(frame, [42, HERO_SOURCE.panelFrame, HERO_TIMELINE.answerAt - 4, HERO_TIMELINE.answerAt], [0, 1, 1, 0], {
+  const scaleX = 0.92 + 0.08 * scaleProgress;
+  const scaleY = 0.98 + 0.02 * scaleProgress;
+  const opacity = interpolate(localFrame, [0, 5], [0, 1], {
     extrapolateLeft: "clamp",
-    extrapolateRight: "clamp"
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0, 0, 0.2, 1)
   });
 
   return (
     <div
       style={{
         position: "absolute",
-        left: PANEL.x,
-        top: PANEL.y,
-        width: PANEL.width,
-        height: PANEL.height,
-        zoom: cameraScale,
+        left: PANEL_BACKDROP.x * cameraScale,
+        top: PANEL_BACKDROP.y * cameraScale,
+        width: PANEL_BACKDROP.width * cameraScale,
+        height: PANEL_BACKDROP.height * cameraScale,
+        overflow: "hidden",
         zIndex: 8,
         pointerEvents: "none"
       }}
     >
+      <OffthreadVideo
+        muted
+        src={staticFile(HERO_SOURCE.recording)}
+        trimBefore={PANEL_BACKDROP_SOURCE_FRAME}
+        playbackRate={1}
+        style={{
+          position: "absolute",
+          left: -PANEL_BACKDROP.x * cameraScale,
+          top: -PANEL_BACKDROP.y * cameraScale,
+          width: scaledWidth,
+          height: scaledHeight,
+          maxWidth: "none"
+        }}
+      />
       <div
         style={{
           position: "absolute",
-          inset: 0,
-          borderRadius: 24,
+          left: (PANEL.x - PANEL_BACKDROP.x) * cameraScale,
+          top: (PANEL.y - PANEL_BACKDROP.y) * cameraScale,
+          width: PANEL.width * cameraScale,
+          height: PANEL.height * cameraScale,
+          borderRadius: 28 * cameraScale,
           overflow: "hidden",
+          transformOrigin: "100% 50%",
+          translate: `${(translateX * cameraScale).toFixed(2)}px 0px`,
+          scale: `${scaleX.toFixed(4)} ${scaleY.toFixed(4)}`,
           opacity,
-          transformOrigin: "0% 50%",
-          transform: `translateY(${((1 - land) * -34).toFixed(1)}px) perspective(1800px) rotateX(${((1 - land) * 8).toFixed(2)}deg) rotateY(${angle.toFixed(2)}deg)`,
-          background: "linear-gradient(158deg, #FFFFFF 0%, #FFFDF8 44%, #F7F1E6 100%)",
-          boxShadow: `${ELEVATION.heroFloat}, -34px 26px 76px -26px rgba(17, 24, 39, 0.34)`,
-          backfaceVisibility: "hidden"
+          boxShadow: "0 20px 48px -8px rgba(15, 23, 42, 0.14), 0 4px 14px -2px rgba(15, 23, 42, 0.06)"
         }}
       >
-        <div
+        <OffthreadVideo
+          muted
+          src={staticFile(HERO_SOURCE.recording)}
+          trimBefore={HERO_SOURCE.promptFrame}
+          playbackRate={1}
           style={{
             position: "absolute",
-            left: 28,
-            top: 0,
-            width: 12,
-            height: 118,
-            borderRadius: "0 0 8px 8px",
-            background: "linear-gradient(180deg, rgba(232, 93, 135, 0.86), rgba(251, 114, 153, 0.42))",
-            boxShadow: "0 12px 24px -10px rgba(232, 93, 135, 0.55)"
+            left: -PANEL.x * cameraScale,
+            top: -PANEL.y * cameraScale,
+            width: scaledWidth,
+            height: scaledHeight,
+            maxWidth: "none"
           }}
         />
-        <div
-          style={{
-            position: "absolute",
-            left: 64,
-            top: 62,
-            color: "rgba(29, 41, 57, 0.34)",
-            fontSize: 22,
-            fontWeight: 600,
-            letterSpacing: 2
-          }}
-        >
-          文摘
-        </div>
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <div
-            key={index}
-            style={{
-              position: "absolute",
-              left: 64,
-              top: 136 + index * 42,
-              width: index === 5 ? 236 : index === 4 ? 352 : 416,
-              height: 9,
-              borderRadius: 5,
-              background: index === 0 ? "rgba(29, 41, 57, 0.18)" : "rgba(29, 41, 57, 0.07)"
-            }}
-          />
-        ))}
-        <PaperGrainOverlay opacity={0.12} warm borderRadius={24} />
       </div>
     </div>
   );
@@ -239,14 +235,14 @@ const PageSheet = ({cameraScale = 1}: {cameraScale?: number}) => {
 
 const IconOrbit = () => {
   const frame = useCurrentFrame();
-  if (frame < HERO_TIMELINE.iconAt || frame >= HERO_TIMELINE.pageTurnAt) return null;
+  if (frame < HERO_TIMELINE.iconAt || frame >= HERO_SOURCE.panelFrame + 6) return null;
 
   const appear = interpolate(frame, [HERO_TIMELINE.iconAt, HERO_TIMELINE.iconAt + 7], [0.35, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic)
   });
-  const fade = interpolate(frame, [HERO_SOURCE.panelFrame, HERO_SOURCE.panelFrame + 4], [1, 0], {
+  const fade = interpolate(frame, [HERO_SOURCE.panelFrame + 1, HERO_SOURCE.panelFrame + 6], [1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
@@ -392,7 +388,9 @@ const HeroVideo = ({cameraScale}: {cameraScale: number}) => {
           style={{position: "absolute", left: 0, top: 0, width: scaledWidth, height: scaledHeight, maxWidth: "none"}}
         />
       </Sequence>
-      <PageSheet cameraScale={cameraScale} />
+      <Sequence from={HERO_SOURCE.panelFrame} durationInFrames={PANEL_SLIDE_FRAMES} premountFor={12}>
+        <PanelSlideIn cameraScale={cameraScale} />
+      </Sequence>
     </>
   );
 };
