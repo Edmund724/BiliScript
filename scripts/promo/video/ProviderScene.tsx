@@ -1,17 +1,17 @@
 import {Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROVIDER_LOGOS} from "../provider-logos.mjs";
 import {PROVIDER_TIMELINE} from "../timeline.mjs";
-import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY} from "./design";
+import {BrandWhisper, COLORS, ELEVATION, FONT_FAMILY} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
 const {plateAt, orbitAt, logoOffsets, logoPopFrames, exitAt, exitDuration} = PROVIDER_TIMELINE;
 
 const ORBIT = {
-  centerX: 960,
-  centerY: 548,
-  radiusX: 762,
-  radiusY: 234,
+  centerX: 944,
+  centerY: 552,
+  radiusX: 746,
+  radiusY: 296,
   startAngle: 90,
   stepDegrees: 360 / PROVIDER_LOGOS.length,
   spinPerFrame: 0.42
@@ -62,8 +62,8 @@ export const PROVIDER_BENEFIT_TAG = "不被单一 AI 绑定 · 自由接入外�
 const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
   const frame = useCurrentFrame();
   const enter = interpolate(frame, [plateAt, plateAt + 12], [0, 1], {...CLAMP, easing: ENTRANCE});
-  const lift = interpolate(enter, [0, 1], [26, 0]);
-  const float = Math.sin(Math.max(0, frame - plateAt) * 0.032) * 3;
+  const lift = interpolate(enter, [0, 1], [24, 0]);
+  const plateZoom = interpolate(enter, [0, 1], [0.9, 1]) * (1 + exitProgress * 0.04);
 
   return (
     <div
@@ -71,8 +71,7 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
         position: "absolute",
         left: ORBIT.centerX,
         top: ORBIT.centerY,
-        translate: `-50% calc(-50% + ${(lift + float).toFixed(2)}px)`,
-        scale: interpolate(enter, [0, 1], [0.84, 1]) * (1 + exitProgress * 0.05),
+        translate: `-50% calc(-50% + ${lift.toFixed(1)}px)`,
         opacity: enter * (1 - exitProgress),
         zIndex: 200
       }}
@@ -94,70 +93,40 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
         style={{
           position: "relative",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 30,
-          padding: "30px 54px 30px 44px",
+          gap: 14,
+          padding: "34px 42px",
           borderRadius: 42,
           background: "rgba(255, 255, 255, 0.96)",
           backdropFilter: "blur(26px)",
-          boxShadow: ELEVATION.heroFloat
+          boxShadow: ELEVATION.heroFloat,
+          zoom: Math.abs(plateZoom - 1) > 0.001 ? plateZoom : undefined
         }}
       >
         <div
           style={{
-            color: COLORS.pink,
-            fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 156,
+            color: COLORS.foreground,
+            fontSize: 58,
             fontWeight: 700,
-            lineHeight: 0.88,
-            letterSpacing: -6,
+            lineHeight: 1.14,
+            letterSpacing: -1.8,
             whiteSpace: "nowrap"
           }}
         >
-          14+
+          {PROVIDER_HEADLINE}
         </div>
-        <div>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "5px 14px",
-              borderRadius: 999,
-              background: "rgba(232, 93, 135, 0.10)",
-              color: "#C81E5B",
-              fontSize: 18,
-              fontWeight: 700,
-              letterSpacing: 0.2,
-              marginBottom: 10
-            }}
-          >
-            {PROVIDER_BENEFIT_TAG}
-          </div>
-          <div
-            style={{
-              color: COLORS.foreground,
-              fontSize: 46,
-              fontWeight: 700,
-              lineHeight: 1.12,
-              letterSpacing: -1.6,
-              whiteSpace: "nowrap"
-            }}
-          >
-            {PROVIDER_HEADLINE}
-          </div>
-          <div
-            style={{
-              marginTop: 10,
-              color: COLORS.muted,
-              fontSize: 23,
-              fontWeight: 560,
-              lineHeight: 1.25,
-              letterSpacing: -0.2,
-              whiteSpace: "nowrap"
-            }}
-          >
-            {PROVIDER_SUBHEADLINE}
-          </div>
+        <div
+          style={{
+            color: COLORS.muted,
+            fontSize: 32,
+            fontWeight: 600,
+            lineHeight: 1.3,
+            letterSpacing: -0.8,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {PROVIDER_SUBHEADLINE}
         </div>
       </div>
     </div>
@@ -187,7 +156,7 @@ const OrbitLogo = ({
   const pop = interpolate(local, [0, 3, 7, 11], [1, 1.12, 0.988, 1], {...CLAMP, easing: ENTRANCE});
   const flash = interpolate(local, [0, 2, 14], [0, 1, 0], CLAMP);
   const opacity = dormant + (1 - dormant) * lit;
-  const scale = interpolate(lit, [0, 1], [0.93, 1]) * pop * (0.92 + 0.14 * depthRatio) * (1 - 0.1 * exitProgress);
+  const scale = interpolate(lit, [0, 1], [0.94, 1]) * pop * (0.95 + 0.12 * depthRatio) * (1 - 0.1 * exitProgress);
 
   return (
     <div
@@ -197,7 +166,7 @@ const OrbitLogo = ({
         top: ORBIT.centerY + Math.sin(angle) * ORBIT.radiusY,
         translate: "-50% -50%",
         scale,
-        opacity: opacity * (0.66 + 0.34 * depthRatio) * (1 - exitProgress),
+        opacity: opacity * (0.68 + 0.32 * depthRatio) * (1 - exitProgress),
         zIndex: 100 + Math.round(depth * 45)
       }}
     >
@@ -205,34 +174,34 @@ const OrbitLogo = ({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          padding: "9px 22px 9px 10px",
+          gap: 16,
+          padding: logo.id === "amd" ? "12px 24px 12px 14px" : "13px 28px 13px 15px",
           borderRadius: 999,
-          background: "rgba(255, 255, 255, 0.95)",
+          background: "rgba(255, 255, 255, 0.96)",
           backdropFilter: "blur(18px)",
           boxShadow: `0 22px 46px -20px rgba(17, 24, 39, ${(0.1 + 0.1 * depthRatio).toFixed(2)}), 0 0 0 ${(1.2 + flash * 2.4).toFixed(2)}px rgba(232, 93, 135, ${(0.1 + flash * 0.42).toFixed(2)})`
         }}
       >
         <div
           style={{
-            width: 46,
-            height: 46,
-            borderRadius: 14,
-            background: "rgba(244, 245, 248, 0.9)",
+            width: 62,
+            height: 62,
+            borderRadius: 19,
+            background: "rgba(244, 245, 248, 0.92)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center"
           }}
         >
-          <Img src={staticFile(`media/providers/${logo.file}`)} style={{width: 34, height: 34, objectFit: "contain"}} />
+          <Img src={staticFile(`media/providers/${logo.file}`)} style={{width: 46, height: 46, objectFit: "contain"}} />
         </div>
         <div
           style={{
             color: COLORS.foreground,
-            fontSize: logo.id === "amd" ? 21 : 24,
-            fontWeight: 600,
+            fontSize: logo.id === "amd" ? 29 : 34,
+            fontWeight: 650,
             lineHeight: 1.2,
-            letterSpacing: -0.4,
+            letterSpacing: -0.5,
             whiteSpace: "nowrap"
           }}
         >

@@ -261,7 +261,7 @@ const CallToAction = () => {
               [COLORS.pink, "#D94D79", "#D94D79", "#C9436D", "#D94D79", COLORS.pink]
             ),
             boxShadow: "0 18px 40px -12px rgba(232, 93, 135, 0.38)",
-            scale: interpolate(
+            zoom: interpolate(
               frame,
               buttonFrames,
               [1, 1.045, 1.045, 0.965, 1.045, 1],
@@ -422,8 +422,19 @@ const CapabilityRecap = () => {
 const BrandStage = () => {
   const frame = useCurrentFrame();
   const push = interpolate(frame, [OUTRO_TIMELINE.brandPushAt, OUTRO_TIMELINE.duration - 1], [1, OUTRO_TIMELINE.brandPushScale], CLAMP);
+  const offsetX = 960 / push - 960;
+  const offsetY = 540 / push - 540;
   return (
-    <div style={{position: "absolute", inset: 0, scale: push, transformOrigin: "50% 50%"}}>
+    <div
+      style={{
+        position: "absolute",
+        left: offsetX,
+        top: offsetY,
+        width: 1920,
+        height: 1080,
+        zoom: Math.abs(push - 1) > 0.0005 ? push : undefined
+      }}
+    >
       <FinalBrand />
       <CallToAction />
       <CapabilityRecap />

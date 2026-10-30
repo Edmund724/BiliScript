@@ -174,9 +174,17 @@ const ChatReferenceBar = ({opacity}: {opacity: number}) => {
 
 const ChatVerifyWindow = ({progress}: {progress: number}) => {
   const frame = useCurrentFrame();
-  const cropScale = CHAT_PLAYER.width / PLAYER_CROP.width;
-  const scale = interpolate(progress, [0, 1], [CHAT_REFERENCE.width / CHAT_PLAYER.width, 1], CLAMP);
-  const lift = interpolate(progress, [0, 1], [CHAT_REFERENCE_WINDOW_TOP - CHAT_PLAYER.top, 0], CLAMP);
+  const width = interpolate(progress, [0, 1], [CHAT_REFERENCE.width, CHAT_PLAYER.width], CLAMP);
+  const height = interpolate(
+    progress,
+    [0, 1],
+    [Math.round((CHAT_REFERENCE.width * CHAT_PLAYER.height) / CHAT_PLAYER.width), CHAT_PLAYER.height],
+    CLAMP
+  );
+  const top = interpolate(progress, [0, 1], [CHAT_REFERENCE_WINDOW_TOP, CHAT_PLAYER.top], CLAMP);
+  const cropScale = width / PLAYER_CROP.width;
+  const borderRadius = interpolate(progress, [0, 1], [20, 26], CLAMP);
+  const topOffset = 28 * (width / CHAT_PLAYER.width);
   const seeked = frame >= CHAT_TIMESTAMP_CLICK_FRAME + 2;
 
   return (
@@ -184,12 +192,9 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
       style={{
         position: "absolute",
         left: CHAT_PLAYER.left,
-        top: CHAT_PLAYER.top,
-        width: CHAT_PLAYER.width,
-        height: CHAT_PLAYER.height,
-        transformOrigin: "0 0",
-        scale,
-        translate: `0px ${lift.toFixed(1)}px`,
+        top,
+        width,
+        height,
         opacity: entranceOpacity(frame, 2, 0),
         zIndex: 6
       }}
@@ -199,7 +204,7 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
           position: "relative",
           width: "100%",
           height: "100%",
-          borderRadius: 26,
+          borderRadius,
           overflow: "hidden",
           boxShadow: ELEVATION.videoPlane,
           background: "#0F172A"
@@ -213,7 +218,7 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
           style={{
             position: "absolute",
             left: -PLAYER_CROP.x * cropScale,
-            top: -PLAYER_CROP.y * cropScale - 28,
+            top: -PLAYER_CROP.y * cropScale - topOffset,
             width: 1920 * cropScale,
             height: 1080 * cropScale,
             maxWidth: "none"
@@ -273,6 +278,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
 
   const answerReveal = interpolate(frame, [6, 22], [0.92, 1], {...CLAMP, easing: SMOOTH});
 
+  const panelZoom = panelScale * focusScale;
+
   return (
     <div
       style={{
@@ -280,8 +287,6 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
         left: panelLeft,
         top: 300,
         width: 880,
-        transformOrigin: "0 0",
-        scale: Math.abs(panelScale * focusScale - 1) > 0.001 ? panelScale * focusScale : undefined,
         filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
       }}
     >
@@ -296,6 +301,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
           WebkitBackdropFilter: "blur(24px) saturate(1.2)",
           boxShadow: MIST_GLASS.shellShadow,
           padding: "28px 36px 36px",
+          zoom: Math.abs(panelZoom - 1) > 0.001 ? panelZoom : undefined,
           transform: microPerspective(-6),
           transformOrigin: "50% 50%",
           color: MIST_GLASS.text
