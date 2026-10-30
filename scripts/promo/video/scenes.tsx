@@ -6,6 +6,7 @@ import {
   CHAT_PLAYER_VERIFY_TO,
   CHAT_TIMESTAMP_CLICK_FRAME,
   PANEL_FOCUS_HANDOFFS,
+  SCENES,
   SUBTOOLS_TIMELINE,
   WEBSEARCH_TIMELINE
 } from "../timeline.mjs";
@@ -31,6 +32,7 @@ const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat
 const SUBTOOLS_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "subtools")!;
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch")!;
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
+const CHAT_DURATION = SCENES.find((scene) => scene.id === "chat")!.duration;
 
 const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
 
@@ -249,7 +251,7 @@ const usePanelHandoffFocus = (
 
 const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: number}) => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(180, CHAT_HANDOFF, SUBTOOLS_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION, CHAT_HANDOFF, SUBTOOLS_HANDOFF);
 
   const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
   const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
@@ -488,7 +490,7 @@ export const ChatScene = () => {
 };
 
 /* ==========================================================================
-   Scene 5: SubtoolsScene (19.0s–22.5s, 105 frames)
+   Scene 5: SubtoolsScene (20.0s–24.5s, 135 frames)
    无字幕的视频只有一路语音转写；双语对照只在视频本身有两条字幕轨时成立
    ========================================================================== */
 
@@ -968,7 +970,7 @@ export const SubtoolsScene = () => {
 };
 
 /* ==========================================================================
-   Scene 6: WebSearchScene (22.5s–25.0s, 75 frames)
+   Scene 6: WebSearchScene (24.5s–27.0s, 75 frames)
    主标题：UP 主说得对不对？AI 联网检索辅助核对
    副标/追问气泡：超纲概念背景补充
    ========================================================================== */
@@ -1151,7 +1153,7 @@ export const WebSearchScene = () => {
 };
 
 /* ==========================================================================
-   Scene 7: AppearanceScene (25.0s–28.0s, 90 frames)
+   Scene 7: AppearanceScene (27.0s–29.0s, 60 frames)
    同一阅读面板连续切换 4 种主题实际阅读效果（蓝雾玻璃日/夜 + 数字刊物日/夜）
    搭配字号变大、刊物衬线排版动态变化，彻底移除后台设置菜单
    ========================================================================== */
@@ -1330,7 +1332,7 @@ const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy" | "t
 
 export const AppearanceScene = () => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(90, APPEARANCE_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(APPEARANCE_TIMELINE.duration, APPEARANCE_HANDOFF);
   const themeIndex = appearanceThemeIndexAtFrame(frame);
   const theme = THEME_CONFIGS[themeIndex];
 

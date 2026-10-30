@@ -56,15 +56,15 @@ for (const seconds of EVIDENCE_TIMES) {
 
 const mobileShots = [
   {id: "poster", at: 0},
-  {id: "search", at: 4.5},
-  {id: "chapters", at: 8.2},
-  {id: "quote", at: 11.2},
-  {id: "chat-verify", at: 16.6},
-  {id: "subtools", at: 21.0},
-  {id: "websearch", at: 23.8},
-  {id: "appearance", at: 26.8},
+  {id: "search", at: 6.0},
+  {id: "chapters", at: 9.8},
+  {id: "quote", at: 12.6},
+  {id: "chat-verify", at: 18.3},
+  {id: "subtools", at: 21.5},
+  {id: "websearch", at: 25.4},
+  {id: "appearance", at: 28.2},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
-  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 42)},
+  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 30)},
   {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];
 for (const shot of mobileShots) {

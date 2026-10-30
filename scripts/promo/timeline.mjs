@@ -1,5 +1,6 @@
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
+import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
 
 export const PROMO_WIDTH = 1920;
 export const PROMO_HEIGHT = 1080;
@@ -23,10 +24,10 @@ export const OVERVIEW_TIMELINE = {
 };
 
 export const SUBTOOLS_TIMELINE = {
-  duration: 105,
-  bilingualAt: 34,
-  exportAt: 70,
-  exportClickAt: 66
+  duration: 135,
+  bilingualAt: 44,
+  exportAt: 90,
+  exportClickAt: 85
 };
 
 export const WEBSEARCH_TIMELINE = {
@@ -36,93 +37,96 @@ export const WEBSEARCH_TIMELINE = {
 };
 
 export const APPEARANCE_TIMELINE = {
-  flymeDarkFrom: 22,
-  editorialLightFrom: 44,
-  editorialDarkFrom: 67
+  duration: 60,
+  flymeDarkFrom: 15,
+  editorialLightFrom: 30,
+  editorialDarkFrom: 45
 };
 
 export const PROVIDER_TIMELINE = {
-  duration: 90,
+  duration: 60,
   plateAt: 2,
-  orbitAt: 6,
-  logoStagger: 3.2,
-  exitAt: 78,
-  exitDuration: 10
+  orbitAt: 4,
+  logoStagger: 2.5,
+  exitAt: 46,
+  exitDuration: 12
 };
 
 export const SCENES = [
-  { id: "hero", from: 0, duration: 105 },
-  { id: "subtitle", from: 105, duration: 120 },
-  { id: "overview", from: 225, duration: OVERVIEW_TIMELINE.duration },
-  { id: "chat", from: 390, duration: 180 },
-  { id: "subtools", from: 570, duration: SUBTOOLS_TIMELINE.duration },
-  { id: "websearch", from: 675, duration: WEBSEARCH_TIMELINE.duration },
-  { id: "appearance", from: 750, duration: 90 },
-  { id: "providers", from: 840, duration: PROVIDER_TIMELINE.duration },
+  { id: "hero", from: 0, duration: 150 },
+  { id: "subtitle", from: 150, duration: 120 },
+  { id: "overview", from: 270, duration: OVERVIEW_TIMELINE.duration },
+  { id: "chat", from: 435, duration: 165 },
+  { id: "subtools", from: 600, duration: SUBTOOLS_TIMELINE.duration },
+  { id: "websearch", from: 735, duration: WEBSEARCH_TIMELINE.duration },
+  { id: "appearance", from: 810, duration: APPEARANCE_TIMELINE.duration },
+  { id: "providers", from: 870, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
-  {from: "overview", to: "chat", at: 390, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "chat", to: "subtools", at: 570, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "subtools", to: "websearch", at: 675, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "websearch", to: "appearance", at: 750, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "overview", to: "chat", at: 435, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "chat", to: "subtools", at: 600, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "subtools", to: "websearch", at: 735, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "websearch", to: "appearance", at: 810, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
-export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
-export const CHAT_PLAYER_VERIFY_FROM = 114;
-export const CHAT_PLAYER_VERIFY_TO = 154;
+export const CHAT_TIMESTAMP_CLICK_FRAME = 78;
+export const CHAT_PLAYER_VERIFY_FROM = 106;
+export const CHAT_PLAYER_VERIFY_TO = 144;
 
 export const CHAT_SHOTS = [
-  { startFrom: 0, duration: 54, playbackRate: 1.5 },
-  { startFrom: 300, duration: 60, playbackRate: 1.5 },
-  { startFrom: 390, duration: 66, playbackRate: 0.75 }
+  { startFrom: 0, duration: 50, playbackRate: 1.5 },
+  { startFrom: 300, duration: 55, playbackRate: 1.5 },
+  { startFrom: 390, duration: 60, playbackRate: 0.75 }
 ];
 
 export const APPEARANCE_SHOTS = [
-  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 22, fontScale: 1.0 },
-  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 22, duration: 22, fontScale: 1.06 },
-  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 44, duration: 23, fontScale: 1.12 },
-  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 67, duration: 23, fontScale: 1.18 }
+  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 15, fontScale: 1.0 },
+  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 15, duration: 15, fontScale: 1.06 },
+  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 30, duration: 15, fontScale: 1.12 },
+  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 45, duration: 15, fontScale: 1.18 }
 ];
 
 export const EVIDENCE_TIMES = [
   0, 0.2, 0.6, 1.2, 1.6, 2.0, 2.5, 3.1,
-  3.7, 5.0, 5.5, 5.9, 7.3,
-  7.7, 8.7, 10.0, 10.3, 10.9, 12.0, 12.8,
-  13.2, 14.0, 14.5, 15.8, 16.5, 17.3, 18.2, 18.8,
-  19.2, 19.8, 20.6, 21.2, 22.1,
-  22.7, 23.3, 24.0, 24.7,
-  25.2, 25.9, 26.6, 27.4,
-  28.2, 28.8, 29.6, 30.5,
+  5.0, 5.4, 5.9, 7.1, 8.0,
+  9.2, 10.0, 10.9, 11.8, 12.3, 13.2, 14.0,
+  14.6, 15.4, 17.1, 17.8, 18.1, 19.0,
+  20.3, 21.0, 21.5, 22.5, 22.9, 23.5,
+  24.7, 25.2, 26.0, 26.6,
+  27.2, 27.5, 28.0, 28.5, 28.9,
+  29.2, 29.6, 30.0, 30.3, 30.8,
   31.3, 31.8, 32.5, 33.1, 34.0,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
-const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
-const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
+const sceneFrom = (id) => SCENES.find((scene) => scene.id === id).from;
+const sceneSeconds = (id, frame = 0) => (sceneFrom(id) + frame) / PROMO_FPS;
+const providerSeconds = (frame) => sceneSeconds("providers", frame);
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
+const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_TIMELINE.duration * OVERVIEW_TIMELINE.chapterRatio);
 
 export const EVIDENCE_TRANSITIONS = [
-  {id: "pain-point-hook", at: 0.55},
-  {id: "hero-pullback-open", at: 1.8},
-  {id: "hero-slogan-zoom", at: 2.53},
-  {id: "keyword-slice", at: 3.6},
-  {id: "timestamp-match", at: 5.6},
-  {id: "chapters", at: 7.5},
-  {id: "quote-lift", at: 10.3},
-  {id: "quote-freeze", at: 10.77},
-  {id: "overview-chat-defocus", at: 13.0},
-  {id: "chat-timestamp-click", at: 15.8},
-  {id: "chat-player-verify", at: 17.1},
-  {id: "chat-subtools-defocus", at: 19.0},
-  {id: "subtools-export-click", at: (570 + SUBTOOLS_TIMELINE.exportClickAt) / PROMO_FPS},
-  {id: "subtools-websearch-defocus", at: 22.5},
-  {id: "websearch-verify-card", at: (675 + WEBSEARCH_TIMELINE.verifyCardAt) / PROMO_FPS},
-  {id: "websearch-appearance-defocus", at: 25.0},
-  {id: "appearance-flyme-dark", at: (750 + APPEARANCE_TIMELINE.flymeDarkFrom) / PROMO_FPS},
-  {id: "appearance-editorial-light", at: (750 + APPEARANCE_TIMELINE.editorialLightFrom) / PROMO_FPS},
-  {id: "appearance-editorial-dark", at: (750 + APPEARANCE_TIMELINE.editorialDarkFrom) / PROMO_FPS},
+  {id: "pain-point-hook", at: 0.4},
+  {id: "hero-pullback-open", at: sceneSeconds("hero", HERO_TIMELINE.hookHoldUntil)},
+  {id: "hero-slogan-zoom", at: sceneSeconds("hero", HERO_TIMELINE.snapEmphasisAt)},
+  {id: "keyword-slice", at: sceneSeconds("subtitle", 12)},
+  {id: "timestamp-match", at: sceneSeconds("subtitle", SUBTITLE_MATCH_FRAME)},
+  {id: "chapters", at: sceneSeconds("overview")},
+  {id: "quote-lift", at: sceneSeconds("overview", OVERVIEW_CHAPTER_FRAMES)},
+  {id: "quote-freeze", at: sceneSeconds("overview", OVERVIEW_CHAPTER_FRAMES + OVERVIEW_TIMELINE.quoteLiftFrames - 4)},
+  {id: "overview-chat-defocus", at: sceneSeconds("chat")},
+  {id: "chat-timestamp-click", at: sceneSeconds("chat", CHAT_TIMESTAMP_CLICK_FRAME)},
+  {id: "chat-player-verify", at: sceneSeconds("chat", CHAT_PLAYER_VERIFY_FROM - 6)},
+  {id: "chat-subtools-defocus", at: sceneSeconds("subtools")},
+  {id: "subtools-export-click", at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.exportClickAt)},
+  {id: "subtools-websearch-defocus", at: sceneSeconds("websearch")},
+  {id: "websearch-verify-card", at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt)},
+  {id: "websearch-appearance-defocus", at: sceneSeconds("appearance")},
+  {id: "appearance-flyme-dark", at: sceneSeconds("appearance", APPEARANCE_TIMELINE.flymeDarkFrom)},
+  {id: "appearance-editorial-light", at: sceneSeconds("appearance", APPEARANCE_TIMELINE.editorialLightFrom)},
+  {id: "appearance-editorial-dark", at: sceneSeconds("appearance", APPEARANCE_TIMELINE.editorialDarkFrom)},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},

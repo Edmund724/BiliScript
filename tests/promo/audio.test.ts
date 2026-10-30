@@ -51,28 +51,28 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["hero-pullback", 51, "media/sfx/whoosh.wav"],
       ["hero-open", 56, "media/sfx/click.wav"],
       ["hero-snap", 76, "media/sfx/finger-snap.wav"],
-      ["subtitle-cut", 105, "media/sfx/whoosh.wav"],
-      ["subtitle-keyword-resolve", 113, "media/sfx/click.wav"],
-      ["type-huan", 117, "media/sfx/mech-key-1.wav"],
-      ["type-jue", 121, "media/sfx/mech-key-2.wav"],
-      ["type-enter", 125, "media/sfx/mech-enter.wav"],
+      ["subtitle-cut", SUBTITLE_FROM, "media/sfx/whoosh.wav"],
+      ["subtitle-keyword-resolve", SUBTITLE_FROM + 8, "media/sfx/click.wav"],
+      ["type-huan", SUBTITLE_FROM + 12, "media/sfx/mech-key-1.wav"],
+      ["type-jue", SUBTITLE_FROM + 16, "media/sfx/mech-key-2.wav"],
+      ["type-enter", SUBTITLE_FROM + 20, "media/sfx/mech-enter.wav"],
       ["subtitle-seek-snap", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, "media/sfx/snap.wav"],
-      ["overview-cut", 225, "media/sfx/whoosh.wav"],
-      ["chapters-quote-cut", 309, "media/sfx/whoosh.wav"],
-      ["quote-save", 323, "media/sfx/polaroid-shutter.wav"],
-      ["voice-0232-fade", 351, "media/sfx/voice-fade.wav"],
-      ["overview-defocus", 384, "media/sfx/click.wav"],
-      ["chat-focus", 397, "media/sfx/whoosh.wav"],
+      ["overview-cut", OVERVIEW_FROM, "media/sfx/whoosh.wav"],
+      ["chapters-quote-cut", OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES, "media/sfx/whoosh.wav"],
+      ["quote-save", OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + OVERVIEW_TIMELINE.quoteLiftFrames - 4, "media/sfx/polaroid-shutter.wav"],
+      ["voice-0232-fade", OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 42, "media/sfx/voice-fade.wav"],
+      ["overview-defocus", CHAT_FROM - 6, "media/sfx/click.wav"],
+      ["chat-focus", CHAT_FROM + 7, "media/sfx/whoosh.wav"],
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
-      ["chat-defocus", 564, "media/sfx/click.wav"],
-      ["subtools-focus", 577, "media/sfx/whoosh.wav"],
+      ["chat-defocus", SUBTOOLS_FROM - 6, "media/sfx/click.wav"],
+      ["subtools-focus", SUBTOOLS_FROM + 7, "media/sfx/whoosh.wav"],
       ["subtools-bilingual", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, "media/sfx/pop.wav"],
       ["subtools-export", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, "media/sfx/snap.wav"],
-      ["subtools-defocus", 669, "media/sfx/click.wav"],
-      ["websearch-focus", 682, "media/sfx/whoosh.wav"],
+      ["subtools-defocus", WEBSEARCH_FROM - 6, "media/sfx/click.wav"],
+      ["websearch-focus", WEBSEARCH_FROM + 7, "media/sfx/whoosh.wav"],
       ["websearch-verify", WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, "media/sfx/pop.wav"],
-      ["websearch-defocus", 744, "media/sfx/click.wav"],
-      ["appearance-focus", 757, "media/sfx/whoosh.wav"],
+      ["websearch-defocus", APPEARANCE_FROM - 6, "media/sfx/click.wav"],
+      ["appearance-focus", APPEARANCE_FROM + 7, "media/sfx/whoosh.wav"],
       ["flyme-dark", APPEARANCE_FROM + APPEARANCE_TIMELINE.flymeDarkFrom, "media/sfx/toggle.wav"],
       ["editorial-light", APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialLightFrom, "media/sfx/shutter-2.wav"],
       ["editorial-dark", APPEARANCE_FROM + APPEARANCE_TIMELINE.editorialDarkFrom, "media/sfx/shutter-3.wav"],
@@ -104,18 +104,20 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(0)).toBe(0);
     expect(musicVolumeAtFrame(12)).toBeCloseTo(base * 0.5 * 10 ** (-4 / 20));
     expect(musicVolumeAtFrame(24)).toBe(base);
+    // 开场钩子音效收尾后、字幕镜头音效之前保持基准音量
     expect(musicVolumeAtFrame(94)).toBe(base);
-    expect(musicVolumeAtFrame(105)).toBeCloseTo(base * 10 ** (-5 / 20));
-    expect(musicVolumeAtFrame(117)).toBeCloseTo(base * 10 ** (-3.8 / 20));
-    expect(musicVolumeAtFrame(119)).toBeCloseTo(base * 10 ** (-3.8 / 20));
-    expect(musicVolumeAtFrame(137)).toBeGreaterThan(musicVolumeAtFrame(133));
+    expect(musicVolumeAtFrame(SUBTITLE_FROM)).toBeCloseTo(base * 10 ** (-5 / 20));
+    expect(musicVolumeAtFrame(SUBTITLE_FROM + 12)).toBeCloseTo(base * 10 ** (-3.8 / 20));
+    expect(musicVolumeAtFrame(SUBTITLE_FROM + 14)).toBeCloseTo(base * 10 ** (-3.8 / 20));
+    expect(musicVolumeAtFrame(SUBTITLE_FROM + 32)).toBeGreaterThan(musicVolumeAtFrame(SUBTITLE_FROM + 28));
     expect(musicVolumeAtFrame(SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
-    // 章节阅读阶段（如 frame 260）不播原声，保持正常配乐音量
+    // 章节阅读阶段（如 frame 305）不播原声，保持正常配乐音量
     expect(musicVolumeAtFrame(OVERVIEW_FROM + 35)).toBe(base);
     // 金句阶段播放 02:32 原声时执行 11.5 dB 闪避
     expect(musicVolumeAtFrame(OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(CHAT_FROM + CHAT_PLAYER_VERIFY_FROM + 15)).toBeCloseTo(base * 10 ** (-11.5 / 20));
-    expect(musicVolumeAtFrame(835)).toBe(base);
+    // 片尾品牌落定音效收尾后、安装入口点击之前回到基准音量
+    expect(musicVolumeAtFrame(960)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / AUDIO.music.fadeOutFrames);

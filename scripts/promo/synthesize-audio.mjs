@@ -4,7 +4,17 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
-import {HERO_TIMELINE, OVERVIEW_TIMELINE, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
+import {
+  APPEARANCE_TIMELINE,
+  HERO_TIMELINE,
+  OVERVIEW_TIMELINE,
+  PROMO_DURATION,
+  PROMO_FPS,
+  PROVIDER_TIMELINE,
+  SCENES,
+  SUBTOOLS_TIMELINE,
+  WEBSEARCH_TIMELINE
+} from "./timeline.mjs";
 
 const SAMPLE_RATE = 48000;
 const DURATION = PROMO_DURATION / PROMO_FPS;
@@ -12,6 +22,17 @@ const OVERVIEW_SCENE = SCENES.find((scene) => scene.id === "overview");
 const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_SCENE.duration * OVERVIEW_TIMELINE.chapterRatio);
 const QUOTE_FREEZE_FROM = (OVERVIEW_SCENE.from + OVERVIEW_CHAPTER_FRAMES) / PROMO_FPS;
 const QUOTE_FREEZE_TO = (OVERVIEW_SCENE.from + OVERVIEW_SCENE.duration) / PROMO_FPS;
+const sceneFrame = (id) => SCENES.find((scene) => scene.id === id).from;
+const sceneSeconds = (id, frame = 0) => (sceneFrame(id) + frame) / PROMO_FPS;
+const SUBTITLE_FROM = sceneSeconds("subtitle");
+const OVERVIEW_FROM = sceneSeconds("overview");
+const CHAT_FROM = sceneSeconds("chat");
+const SUBTOOLS_FROM = sceneSeconds("subtools");
+const WEBSEARCH_FROM = sceneSeconds("websearch");
+const APPEARANCE_FROM = sceneSeconds("appearance");
+const PROVIDERS_SCENE = SCENES.find((scene) => scene.id === "providers");
+const PROVIDER_PULSE_FROM = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.orbitAt) / PROMO_FPS;
+const PROVIDER_PULSE_TO = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.exitAt) / PROMO_FPS;
 const OUTPUT_DIR = path.join(PROMO_DIR, "assets", "audio");
 const TAU = Math.PI * 2;
 let randomState = 0x42b1115c;
@@ -126,17 +147,21 @@ function snare(gainScale = 1) {
 }
 
 function sectionDynamicsAt(seconds) {
-  if (seconds < 3.5) return 0.66;
-  if (seconds < 7.5) return 0.76;
-  if (seconds < 10.3) return 0.72;
-  if (seconds < 13.0) return 0.86;
-  if (seconds < 19.0) return 0.90;
-  if (seconds < 22.0) return 1.12;
-  if (seconds < 25.5) return 1.16;
+  if (seconds < SUBTITLE_FROM) return 0.66;
+  if (seconds < OVERVIEW_FROM) return 0.76;
+  if (seconds < QUOTE_FREEZE_FROM) return 0.72;
+  if (seconds < CHAT_FROM) return 0.86;
+  if (seconds < SUBTOOLS_FROM) return 0.90;
+  if (seconds < WEBSEARCH_FROM) return 1.12;
+  if (seconds < APPEARANCE_FROM) return 1.16;
   if (seconds < 30.48) return 1.14;
   if (seconds < 30.9) return 0.05;
   if (seconds < 33.1) return 1.06;
   return 0.74;
+}
+
+function inProviderWave(seconds) {
+  return seconds >= PROVIDER_PULSE_FROM && seconds < PROVIDER_PULSE_TO;
 }
 
 function inVoiceWindow(seconds) {
@@ -175,15 +200,16 @@ function makeScore() {
       // 金句单卡定格期间与原片人声段留出清透空间
       if ((stepAt >= QUOTE_FREEZE_FROM && stepAt < QUOTE_FREEZE_TO || inVoice) && step % 2 === 1) continue;
       const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.55 : 1);
-      const note = chord[arp[step]] + (stepAt >= 22.0 && stepAt < 25.5 ? 24 : 12);
+      const stepInProviderWave = inProviderWave(stepAt);
+      const note = chord[arp[step]] + (stepInProviderWave ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
-      add(track, tone(note, stepAt >= 22.0 && stepAt < 25.5 ? 0.19 : 0.28, {type: stepAt >= 7.5 && stepAt < 13.0 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+      add(track, tone(note, stepInProviderWave ? 0.19 : 0.28, {type: stepAt >= OVERVIEW_FROM && stepAt < CHAT_FROM ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
     }
-    // 22.23–24.1s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
-    if (at >= 20.0 && at < 26.0) {
+    // 29.13–30.60s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
+    if (at >= PROVIDER_PULSE_FROM - 1 && at < PROVIDER_PULSE_TO) {
       for (let sixteenth = 0; sixteenth < 16; sixteenth += 1) {
         const pulseAt = at + sixteenth * (beat / 4);
-        if (pulseAt < 22.2 || pulseAt > 24.15) continue;
+        if (pulseAt < PROVIDER_PULSE_FROM || pulseAt >= PROVIDER_PULSE_TO) continue;
         const pulseNote = chord[sixteenth % chord.length] + 12;
         add(track, tone(pulseNote, 0.09, {type: "pluck", gain: 0.045}), pulseAt, ((sixteenth % 7) - 3) * 0.14);
       }
@@ -200,14 +226,14 @@ function makeScore() {
     // 前 1.7 秒单句痛点与品牌主张停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；金句单卡定格与原片人声段减轻高频打击乐
     const inQuoteFreezeWindow = at >= QUOTE_FREEZE_FROM && at < QUOTE_FREEZE_TO;
     const inVoice = inVoiceWindow(at);
-    const inProviderWave = at >= 22.0 && at < 25.5;
-    add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProviderWave ? dyn * 1.08 : dyn), at);
-    if (index % 2 === 1 && at >= 3.5 && !inQuoteFreezeWindow && !inVoice) {
-      add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
+    const inProvider = inProviderWave(at);
+    add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProvider ? dyn * 1.08 : dyn), at);
+    if (index % 2 === 1 && at >= SUBTITLE_FROM && !inQuoteFreezeWindow && !inVoice) {
+      add(track, snare(inProvider ? dyn * 1.05 : dyn), at);
     }
     if (at >= 2.5 && !inQuoteFreezeWindow) {
       add(track, hat(index % 4 === 3 && !inVoice, inVoice ? dyn * 0.45 : dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
-      if (inProviderWave) {
+      if (inProvider) {
         add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
         add(track, hat(false, dyn * 0.65), at + (beat * 3) / 4, 0.2);
       }
@@ -217,19 +243,20 @@ function makeScore() {
     }
   }
 
-  // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
+  // 核心切点的 60–90Hz 短 sub-hit 瞬态强调：开场两个英雄节拍 + 除片头片尾外的每个镜头切点 + 品牌落定
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
-  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, 3.5, 7.5, 13.0, 19.0, 22.5, 25.0, 28.0, resolveAt];
+  const sceneCutHits = SCENES.filter((scene) => scene.id !== "hero" && scene.id !== "outro").map((scene) => scene.from / PROMO_FPS);
+  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, ...sceneCutHits, resolveAt];
   for (const cutAt of cutHits) {
-    add(track, subHit(cutAt >= 19.0 ? 0.62 : 0.52), cutAt);
+    add(track, subHit(cutAt >= SUBTOOLS_FROM ? 0.62 : 0.52), cutAt);
   }
 
-  // 四拍能力落点递进强调（峰值严格非递减）
+  // 四拍能力落点递进强调（峰值严格非递减）：转写、双语、联网核对、四主题
   const featureBuild = [
-    {at: 19.33, notes: [62, 69], gain: 0.14, sub: 0.36},
-    {at: 20.73, notes: [64, 71], gain: 0.17, sub: 0.42},
-    {at: 23.23, notes: [66, 74], gain: 0.20, sub: 0.48},
-    {at: 26.47, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+    {at: SUBTOOLS_FROM + 0.33, notes: [62, 69], gain: 0.14, sub: 0.36},
+    {at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.bilingualAt), notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt), notes: [66, 74], gain: 0.20, sub: 0.48},
+    {at: sceneSeconds("appearance", APPEARANCE_TIMELINE.flymeDarkFrom), notes: [69, 76, 81], gain: 0.23, sub: 0.55}
   ];
   for (const step of featureBuild) {
     add(track, subHit(step.sub), step.at);
@@ -247,7 +274,7 @@ function makeScore() {
     add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
   }
 
-  // 30.70s 徽章胀开成品牌落定 Resolve；30.52–30.88s 收尾留白呼吸，31.03s 标语落点
+  // 31.27s 品牌落定 Resolve；30.52–30.88s 收尾留白呼吸；31.60s 标语落点
   add(track, subHit(0.56), resolveAt);
   add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
   add(track, tone(78, 1.8, {type: "bell", gain: 0.14}), resolveAt, -0.2);
@@ -260,12 +287,12 @@ function makeScore() {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < track[ch].length; i += 1) {
       const time = i / SAMPLE_RATE;
-      const boost = time >= 19.0 && time < 30.48 ? 1.12 : 0.96;
+      const boost = time >= SUBTOOLS_FROM && time < 30.48 ? 1.12 : 0.96;
       if (time >= 30.52 && time < 30.88) {
         const edge = Math.min(1, Math.max(0, (30.57 - time) / 0.05));
         track[ch][i] *= edge;
       }
-      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 19.0 && time < 30.48 ? 1.04 : 0.94);
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= SUBTOOLS_FROM && time < 30.48 ? 1.04 : 0.94);
     }
   }
   return track;
@@ -299,7 +326,7 @@ function makeWhoosh() {
   return track;
 }
 
-// 0:00 痛点气泡弹出音（Pop-Pop）：双段式弹性气泡连弹（预膨胀 Pop + 清脆高八度释压 Pop）
+// 0.20s 开场痛点气泡弹出音（Pop-Pop）：双段式弹性气泡连弹（预膨胀 Pop + 清脆高八度释压 Pop）
 function makePopPop() {
   const seconds = 0.2;
   const track = buffer(seconds);
@@ -333,7 +360,7 @@ function makePopPop() {
   return track;
 }
 
-// 0:02 切场响指声（Finger Snap）：指腹摩擦预振 + 掌心空腔清脆脆响 + 瞬态切场聚焦余韵
+// 3.63s 开场切场响指声（Finger Snap）：指腹摩擦预振 + 掌心空腔清脆脆响 + 瞬态切场聚焦余韵
 function makeFingerSnap() {
   const seconds = 0.22;
   const track = buffer(seconds);
@@ -375,7 +402,7 @@ function makeFingerSnap() {
   return track;
 }
 
-// 0:08 原声淡出过渡音（Voice Fade Transition）：温润空气感收束 + 泛音微光桥接
+// 13.20s 原声淡出过渡音（Voice Fade Transition）：温润空气感收束 + 泛音微光桥接
 function makeVoiceFadeTransition() {
   const seconds = 0.36;
   const track = buffer(seconds);
@@ -397,7 +424,7 @@ function makeVoiceFadeTransition() {
   return track;
 }
 
-// 0:10 金句保存快门声（Polaroid Shutter + Pop-up）：拍立得双叶机械快门 + 闪光灯电容微鸣 + 实体相纸弹起共鸣
+// 12.27s 金句保存快门声（Polaroid Shutter + Pop-up）：拍立得双叶机械快门 + 闪光灯电容微鸣 + 实体相纸弹起共鸣
 function makePolaroidShutter() {
   const seconds = 0.32;
   const track = buffer(seconds);
@@ -445,7 +472,7 @@ function makePolaroidShutter() {
   return track;
 }
 
-// 0:03 定制清脆机械键盘敲击音效（段落轴簧片 Click + PBT 键帽触底 Thock，回车键叠加平衡杆共鸣）
+// 5.40s 定制清脆机械键盘敲击音效（段落轴簧片 Click + PBT 键帽触底 Thock，回车键叠加平衡杆共鸣）
 function makeMechKey({pitchScale = 1, isEnter = false} = {}) {
   const seconds = isEnter ? 0.14 : 0.105;
   const track = buffer(seconds);
@@ -490,7 +517,7 @@ function makeMechKey({pitchScale = 1, isEnter = false} = {}) {
   return track;
 }
 
-// 0:05 磁吸吸附音效（Snap）：微吸附预收束 + 钕磁铁清脆咬合瞬态 + 瞬移锁定泛音
+// 7.03s 磁吸吸附音效（Snap）：微吸附预收束 + 钕磁铁清脆咬合瞬态 + 瞬移锁定泛音
 function makeMagneticSnap() {
   const seconds = 0.22;
   const track = buffer(seconds);
@@ -541,7 +568,7 @@ function makeMagneticSnap() {
   return track;
 }
 
-// 0:09 切换金句卡片配色：成音阶递进的清脆水滴声 + 胶片快门声（咔嚓）
+// 11.80s 金句翻页与 28.00/28.50s 数字刊物主题切换：成音阶递进的清脆水滴声 + 胶片快门声（咔嚓）
 function makeShutterDrop(noteMidi, stepIndex = 0) {
   const seconds = 0.28;
   const track = buffer(seconds);
@@ -588,7 +615,7 @@ function makeShutterDrop(noteMidi, stepIndex = 0) {
   return track;
 }
 
-// 0:21 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
+// 29.13–30.23s 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
 function makeBubblePop(noteMidi, index = 0) {
   const seconds = 0.19;
   const track = buffer(seconds);
