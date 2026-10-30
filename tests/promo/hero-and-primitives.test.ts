@@ -99,6 +99,7 @@ describe("宣传片公共原语与开场一键总结", () => {
     let previousEnd = 0;
     for (const caption of CAPTIONS) {
       const scene = SCENES.find((candidate) => candidate.id === caption.sceneId);
+      if (!scene) throw new Error(`未知镜头：${caption.sceneId}`);
       expect(caption.startMs).toBeGreaterThanOrEqual(toMs(scene.from));
       expect(caption.endMs).toBeLessThanOrEqual(toMs(scene.from + scene.duration));
       expect(caption.startMs).toBeGreaterThanOrEqual(previousEnd);
