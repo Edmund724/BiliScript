@@ -435,8 +435,8 @@ const LINE_HEIGHT_RATIO = 1.5;
 /** 正文最多 4 行：超过的用省略号收尾，宁可少字也不把卡面塞满。 */
 const MAX_LINES = 4;
 
-/** 正文字重：轻薄宋体，与相纸版式的留白气质一致。 */
-export const QUOTE_CARD_TEXT_WEIGHT = 300;
+/** 正文字重：参考卡的宋体笔画厚度；可变字重字体上可在 380–450 之间连续微调。 */
+export const QUOTE_CARD_TEXT_WEIGHT = 400;
 
 export interface QuoteCardTextMeasurer {
   measure(text: string, fontSize: number): number;
