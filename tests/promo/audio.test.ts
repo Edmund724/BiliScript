@@ -70,7 +70,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["chat-defocus", SUBTOOLS_FROM - 6, "media/sfx/click.wav"],
       ["subtools-focus", SUBTOOLS_FROM + 7, "media/sfx/whoosh.wav"],
       ["subtools-bilingual", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, "media/sfx/pop.wav"],
-      ["subtools-export", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, "media/sfx/snap.wav"],
+      ["subtools-export", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportAt, "media/sfx/snap.wav"],
       ["subtools-defocus", WEBSEARCH_FROM - 6, "media/sfx/click.wav"],
       ["websearch-focus", WEBSEARCH_FROM + 7, "media/sfx/whoosh.wav"],
       ["websearch-verify", WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, "media/sfx/pop.wav"],
@@ -99,6 +99,19 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
     expect(AUDIO.cues.every((cue) => cue.frame >= 0 && cue.frame < PROMO_DURATION)).toBe(true);
     expect(AUDIO.cues.every((cue) => cue.gain > 0 && cue.gain <= 0.66)).toBe(true);
+  });
+
+  it("把转写与双语+导出拆成两拍，双语提示音落在第 666 帧、导出音效随第二拍副行出现", () => {
+    const scene = SCENES.find((item) => item.id === "subtools")!;
+    const beat = SUBTOOLS_TIMELINE.bilingualAt;
+    expect(beat / PROMO_FPS).toBeGreaterThanOrEqual(1.8);
+    expect((scene.duration - beat) / PROMO_FPS).toBeGreaterThanOrEqual(1.8);
+    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-bilingual", scene.from + beat]);
+    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-export", scene.from + SUBTOOLS_TIMELINE.exportAt]);
+    expect(SUBTOOLS_TIMELINE.exportAt).toBeGreaterThan(beat);
+    expect(SUBTOOLS_TIMELINE.exportAt).toBeLessThan(scene.duration);
+    expect(SUBTOOLS_TIMELINE.exportClickAt).toBeGreaterThan(SUBTOOLS_TIMELINE.exportAt);
+    expect(SUBTOOLS_TIMELINE.exportClickAt).toBeLessThan(scene.duration);
   });
 
   it("让配乐在音效前预先让位，章节阅读段不触发人声深压低，重叠时只取最深压低并自然淡入淡出", () => {

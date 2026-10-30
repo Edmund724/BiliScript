@@ -67,11 +67,13 @@ export const CHAT_VERIFY_QUOTE = "“这里有一个研究……”";
 const SectionHeadline = ({
   lines,
   opacity = 1,
-  subtext
+  subtext,
+  subtextOpacity = 1
 }: {
   lines: HeadlinePart[][];
   opacity?: number;
   subtext?: string;
+  subtextOpacity?: number;
 }) => {
   const frame = useCurrentFrame();
   if (opacity <= 0.01) return null;
@@ -139,7 +141,8 @@ const SectionHeadline = ({
             lineHeight: 1.4,
             letterSpacing: -0.4,
             color: COLORS.muted,
-            opacity: entranceOpacity(frame, 6, 0)
+            opacity: entranceOpacity(frame, 6, 0) * subtextOpacity,
+            translate: `0px ${((1 - subtextOpacity) * 10).toFixed(1)}px`
           }}
         >
           {subtext}
@@ -491,21 +494,18 @@ export const ChatScene = () => {
 
 /* ==========================================================================
    Scene 5: SubtoolsScene (20.0s–24.5s, 135 frames)
-   无字幕的视频只有一路语音转写；双语对照只在视频本身有两条字幕轨时成立
+   两拍：0–66 无字幕的视频整段转写；66–135 视频自带双轨时的中英对照与复制导出
+   （双语对照只在视频本身有两条字幕轨时成立，复制导出并入第二拍的副行）
    ========================================================================== */
 
 const SUBTOOLS_ASR_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "没字幕的视频？"}],
-  [{text: "语音转写", accent: true}, {text: "。"}]
+  [{text: "没字幕的视频，"}],
+  [{text: "整段转成文字", accent: true}, {text: "。"}]
 ];
 
 const SUBTOOLS_BILINGUAL_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "多语言字幕的视频？"}],
-  [{text: "双语对照", accent: true}, {text: "。"}]
-];
-
-const SUBTOOLS_EXPORT_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "字幕"}, {text: "复制与导出", accent: true}, {text: "。"}]
+  [{text: "中英双轨，"}],
+  [{text: "逐句对照着看", accent: true}, {text: "。"}]
 ];
 
 export const SUBTOOLS_ROWS = [
@@ -535,16 +535,16 @@ export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, SUBTOOLS_HANDOFF, WEBSEARCH_HANDOFF);
   const bilingualAt = SUBTOOLS_TIMELINE.bilingualAt;
-  const exportAt = SUBTOOLS_TIMELINE.exportAt;
+  const sublineAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;
   const isExported = frame >= clickAt;
   const showCheck = frame >= clickAt + 2;
   const dualActive = frame >= bilingualAt;
+  const dualReveal = dualActive ? 1 : 0;
 
-  const bilingualReveal = interpolate(frame, [bilingualAt, bilingualAt + 8], [0, 1], {...CLAMP, easing: SMOOTH});
-  const asrStatusIn = interpolate(frame, [6, 12], [0, 1], CLAMP) * interpolate(frame, [bilingualAt - 4, bilingualAt], [1, 0], CLAMP);
-  const headlineAFade = interpolate(frame, [bilingualAt - 4, bilingualAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
-  const headlineCFade = interpolate(frame, [exportAt - 4, exportAt + 2], [0, 1], {...CLAMP, easing: SMOOTH});
+  const asrFadeOut = interpolate(frame, [bilingualAt - 2, bilingualAt], [0, 1], CLAMP);
+  const sublineReveal = interpolate(frame, [sublineAt, sublineAt + 6], [0, 1], {...CLAMP, easing: SMOOTH});
+  const asrStatusIn = interpolate(frame, [6, 12], [0, 1], CLAMP) * (1 - asrFadeOut);
 
   const copyHoverOpacity = interpolate(frame, [clickAt - 10, clickAt - 4, clickAt + 2, clickAt + 8], [0, 1, 1, 0], CLAMP);
   const copyPopScale = showCheck
@@ -564,17 +564,17 @@ export const SubtoolsScene = () => {
       <BrandWhisper />
       <SectionHeadline
         lines={SUBTOOLS_ASR_HEADLINE_LINES}
-        subtext="调用硅基流动免费 API"
-        opacity={1 - headlineAFade}
+        subtext="免费语音识别 · 412 条字幕"
+        opacity={1 - asrFadeOut}
       />
       <SectionHeadline
         lines={SUBTOOLS_BILINGUAL_HEADLINE_LINES}
-        subtext="视频本身已有多语言字幕轨"
-        opacity={headlineAFade * (1 - headlineCFade)}
+        subtext="选中复制 · SRT / Markdown / TXT"
+        opacity={dualReveal}
+        subtextOpacity={sublineReveal}
       />
-      <SectionHeadline lines={SUBTOOLS_EXPORT_HEADLINE_LINES} subtext="Markdown · SRT · TXT" opacity={headlineCFade} />
 
-      <div style={{position: "absolute", left: 96, top: 430, opacity: 1 - bilingualReveal}}>
+      <div style={{position: "absolute", left: 96, top: 430, opacity: 1 - dualReveal}}>
         <VideoReferenceCard
           variant="bar"
           width={760}
@@ -583,7 +583,7 @@ export const SubtoolsScene = () => {
           delay={4}
         />
       </div>
-      <div style={{position: "absolute", left: 96, top: 430, opacity: bilingualReveal}}>
+      <div style={{position: "absolute", left: 96, top: 430, opacity: dualReveal}}>
         <VideoReferenceCard
           variant="bar"
           width={760}
@@ -768,10 +768,9 @@ export const SubtoolsScene = () => {
                 }}
               >
                 <span>{dualActive ? "英文" : "自配平台转写（英文）"}</span>
-                {bilingualReveal > 0.01 && (
+                {dualActive && (
                   <span
                     style={{
-                      opacity: bilingualReveal,
                       padding: "2px 7px",
                       borderRadius: 6,
                       background: MIST_GLASS.accentSoft,
@@ -908,9 +907,9 @@ export const SubtoolsScene = () => {
                     </div>
                     <div
                       style={{
-                        marginTop: 4 * bilingualReveal,
-                        maxHeight: 40 * bilingualReveal,
-                        opacity: bilingualReveal,
+                        marginTop: 4 * dualReveal,
+                        maxHeight: 40 * dualReveal,
+                        opacity: dualReveal,
                         overflow: "hidden",
                         fontSize: 19,
                         fontWeight: 480,

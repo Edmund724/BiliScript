@@ -46,10 +46,10 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       "editorial-dark"
     ]);
     const allCaptionTexts = CAPTIONS.map((item) => item.text).join(" ");
-    expect(allCaptionTexts).toContain("硅基流动免费 API");
-    expect(allCaptionTexts).not.toContain("免费语音转写");
-    expect(allCaptionTexts).toContain("双语对照");
-    expect(allCaptionTexts).toContain("一键复制字幕");
+    expect(allCaptionTexts).toContain("没字幕的视频，整段转成文字。");
+    expect(allCaptionTexts).toContain("免费语音识别 · 412 条字幕");
+    expect(allCaptionTexts).toContain("中英双轨，逐句对照着看。");
+    expect(allCaptionTexts).toContain("选中复制 · SRT / Markdown / TXT");
     expect(allCaptionTexts).not.toContain("笔记");
     expect(allCaptionTexts).toContain("UP 主说得对不对？AI 联网检索辅助核对");
     expect(allCaptionTexts).toContain("超纲概念背景补充");

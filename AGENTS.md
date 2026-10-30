@@ -17,10 +17,6 @@
 
 `npx` 同样过不去 `devEngines`：还没跑到目标 CLI 就报 EBADDEVENGINES。一次性命令行工具用 `pnpm dlx <pkg>`，非 npx 不可时加 `--force`。
 
-GitHub 直连在这台机器上不通（git clone 连不上 443，codeload 也会断），网络命令走本机 HTTP 代理 `http://127.0.0.1:7890`：`HTTPS_PROXY=http://127.0.0.1:7890 git clone …`。
-
-Agent skills 装在 `.agents/skills/`（DSH 的项目级发现路径），`.agents` 与 `skills-lock.json` 都不入库。安装/更新用 `pnpm skills add <owner/repo>`（即 `pnpm dlx skills`），代理同上；该命令在 modules 目录状态与锁文件不一致时会重整 `node_modules`，渲染、验收或长任务进行中不要执行。
-
 DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 ≥12 → 它切到 12.5.1 时生成的 Windows shim 指向无扩展名的 `sh` 占位脚本（生命周期脚本被拦、原生包 `@pnpm/exe.win32-x64` 未装），cmd 报 `'...\node_modules\pnpm\pnpm' is not recognized`。
 
 ## 真机验证

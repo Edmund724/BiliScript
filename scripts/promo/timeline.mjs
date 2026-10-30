@@ -27,9 +27,9 @@ export const OVERVIEW_TIMELINE = {
 
 export const SUBTOOLS_TIMELINE = {
   duration: 135,
-  bilingualAt: 44,
-  exportAt: 90,
-  exportClickAt: 85
+  bilingualAt: 66,
+  exportAt: 74,
+  exportClickAt: 100
 };
 
 export const WEBSEARCH_TIMELINE = {
@@ -95,7 +95,7 @@ export const EVIDENCE_TIMES = [
   5.0, 5.4, 5.9, 7.1, 8.0,
   9.2, 10.0, 10.9, 11.8, 12.3, 13.2, 14.0,
   14.6, 15.4, 17.1, 17.8, 18.1, 19.0,
-  20.3, 21.0, 21.5, 22.5, 22.9, 23.5,
+  20.3, 21.0, 21.5, 22.2, 22.5, 22.9, 23.5,
   24.7, 25.2, 26.0, 26.6,
   27.2, 27.5, 28.0, 28.5, 28.9,
   29.2, 29.6, 30.0, 30.3, 30.8,
