@@ -42,7 +42,7 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     expect(mermaidStack).toBeDefined();
     expectHarmonyOSFallback(mermaidStack!);
 
-    const canvasStack = quoteExport.match(/ctx\.font = '11px ([^']+)'/)?.[1];
+    const canvasStack = quoteExport.match(/QUOTE_CARD_FONT_SANS\s*=\s*\n?\s*'([^']+)'/)?.[1];
     expect(canvasStack).toBeDefined();
     expectHarmonyOSFallback(canvasStack!);
   });
@@ -139,6 +139,8 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     expect(reader.match(/font-variant-numeric:\s*lining-nums;/g)).toHaveLength(3);
     expect(quoteExport).not.toContain("document.fonts.load");
     expect(quoteExport).toContain('textCtx.fontVariantNumeric = "lining-nums";');
-    expect(quoteExport).toContain(`ctx.font = \`400 \${fontSize}px ${systemSerif}\``);
+    const exportSerif = quoteExport.match(/QUOTE_CARD_FONT_SERIF\s*=\s*\n?\s*'([^']+)'/)?.[1];
+    expect(exportSerif).toBe(systemSerif);
+    expect(quoteExport).toContain("ctx.font = `400 ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`");
   });
 });

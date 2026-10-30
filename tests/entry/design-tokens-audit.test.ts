@@ -199,8 +199,10 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
         "0.95em",
         "100%",
         "32px", // 历史金句水印引号装饰尺寸
-        "34px", // 金句卡片固定引号装饰尺寸
-        "clamp(16px, 5.5cqi, 21px)" // 金句卡片自适应容器查询字号
+        "8.333cqi", // 金句分享卡引号装饰（随卡宽等比）
+        "var(--quote-fit-size", // 金句分享卡正文字号（JS 按共享布局落值）
+        "2.696cqi", // 金句分享卡时间戳 pill
+        "2.567cqi" // 金句分享卡品牌角标
       ];
 
       for (const fileName of AUDITED_STYLES) {

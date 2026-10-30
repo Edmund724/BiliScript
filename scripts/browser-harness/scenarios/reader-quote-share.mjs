@@ -5,11 +5,12 @@
 // 容器 28px 圆角/superellipse(1.25)/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
-// 12px 圆角、卡片 20px 圆角与 clamp(16px,5.5cqi,21px) 字号。四象限（flyme/
-// editorial × light/dark）下这些值全部来自 --biliscript-reader-* token，
-// computed style、真 hover/:active 伪类、focus-visible、busy 禁用态、真实
-// 下载与剪贴板写入全都够不着 jsdom。柔光/视差/导出的像素逻辑本场景不改不判，
-// 只验「弹窗长得和面板一致、交互状态诚实」。
+// 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内左下时间戳、
+// 相纸底栏品牌角标、卡面不再出现视频标题，字号由共享布局按卡宽落值（非固定 clamp），
+// 导出画布固定 1261×806（不随窗口宽度变化）。四象限（flyme/editorial × light/dark）
+// 下这些值全部来自 --biliscript-reader-* token，computed style、真 hover/:active
+// 伪类、focus-visible、busy 禁用态、真实下载与剪贴板写入全都够不着 jsdom。
+// 柔光/视差/导出的像素逻辑本场景不改不判，只验「弹窗长得和面板一致、交互状态诚实」。
 //
 // 数据口径（诚实标注）：字幕 fixture 与 reader-follow-button 同一份 committed
 // 数据（SW fetch 补丁换两个网络应答）；金句文本直接取 fixture 首句正文，经
@@ -27,7 +28,7 @@
 // tests/fixtures/（可提交数据），场景代码里不出现 .scratch/ 路径。
 
 import path from "node:path";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import {
   CDP,
   DEFAULT_DIST,
@@ -59,7 +60,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/5.5cqi 全契约" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/时间戳/品牌" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -93,6 +94,18 @@ function pickFixtureQuote() {
   return seg ? { from: seg.from, content: seg.content } : null;
 }
 const QUOTE = pickFixtureQuote();
+
+// 时刻文本（与 shared/clock-text 的 never 档同口径：分钟不补零）。
+function formatClockText(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${Math.floor(total / 60)}:${String(s).padStart(2, "0")}`;
+}
+const QUOTE_CLOCK = QUOTE ? formatClockText(QUOTE.from) : null;
 
 // ===== 断言 =====
 const checks = [];
@@ -136,7 +149,12 @@ const JS = {
     const save = host.querySelector('.biliscript-quote-download-btn');
     const card = host.querySelector('.biliscript-quote-card');
     const cardText = host.querySelector('.biliscript-quote-card-text');
-    if (!dialog || !mask || !close || !copy || !save || !card || !cardText) {
+    const sheet = host.querySelector('.biliscript-quote-card-sheet');
+    const brand = host.querySelector('.biliscript-quote-card-brand');
+    const stamp = host.querySelector('.biliscript-quote-card-timestamp');
+    const scrim = host.querySelector('.biliscript-quote-card-scrim');
+    const source = host.querySelector('.biliscript-quote-card-source');
+    if (!dialog || !mask || !close || !copy || !save || !card || !cardText || !sheet || !brand) {
       return { error: 'modal-node-missing' };
     }
     const probe = document.createElement('div');
@@ -172,12 +190,27 @@ const JS = {
     const csCard = getComputedStyle(card);
     const csCardText = getComputedStyle(cardText);
     const csMask = getComputedStyle(mask);
+    const csSheet = getComputedStyle(sheet);
+    const csBrand = getComputedStyle(brand);
+    const csStamp = stamp ? getComputedStyle(stamp) : null;
+    const csScrim = scrim ? getComputedStyle(scrim) : null;
     const presetBtn = host.querySelector('.biliscript-quote-preset-btn.is-active');
     const patternBtn = host.querySelector('.biliscript-quote-pattern-btn.is-active');
     const cornerShape = csDialog.cornerShape || csDialog.getPropertyValue('corner-shape') || '';
     return {
       view: (() => { const v = document.getElementById('biliscript-reading-view'); return v ? { theme: v.getAttribute('data-theme'), palette: v.getAttribute('data-palette') } : null; })(),
-      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), sheet: rect(sheet), brand: rect(brand), stamp: stamp ? rect(stamp) : null, preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      sheet: { backgroundColor: csSheet.backgroundColor },
+      brand: { text: brand.textContent.trim(), color: csBrand.color, fontWeight: csBrand.fontWeight, fontSize: csBrand.fontSize },
+      stamp: stamp ? {
+        text: stamp.textContent.trim(),
+        borderRadius: csStamp.borderRadius,
+        fontSize: csStamp.fontSize,
+        letterSpacing: csStamp.letterSpacing,
+        color: csStamp.color
+      } : null,
+      scrim: scrim ? { backgroundColor: csScrim.backgroundColor } : null,
+      hasSourceTitle: !!source,
       dialog: {
         backgroundColor: csDialog.backgroundColor,
         borderTopColor: csDialog.borderTopColor,
@@ -198,14 +231,10 @@ const JS = {
       card: {
         borderRadius: csCard.borderRadius,
         fontSize: csCardText.fontSize,
-        fontSizeExpected: Math.min(21, Math.max(16, Math.round((card.getBoundingClientRect().width) * 0.055))) + 'px',
+        fitSize: card.style.getPropertyValue('--quote-fit-size').trim(),
         fontFamily: csCardText.fontFamily,
         fontVariantNumeric: csCardText.fontVariantNumeric,
         textAlign: csCardText.textAlign,
-        verticalCenterDelta: Math.abs(
-          (cardText.getBoundingClientRect().top - card.getBoundingClientRect().top) -
-          (card.getBoundingClientRect().bottom - cardText.getBoundingClientRect().bottom)
-        ),
         text: cardText.textContent,
         preset: card.dataset.preset,
         pattern: card.dataset.pattern,
@@ -746,13 +775,31 @@ async function main() {
         checkEquals(`Q1.${kind}-active-font-weight-600`, pill?.fontWeight, "600");
         check(`Q1.${kind}-active-has-no-border-or-shadow`, pill?.borderTopWidth === "0px" && pill?.boxShadow === "none", { borderTopWidth: pill?.borderTopWidth, boxShadow: pill?.boxShadow });
       }
-      // 卡片本体
+      // 卡片本体：白边相纸 + 16:9 卡 + 左下时间戳 + 底栏品牌，卡面不带视频标题
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
-      checkEquals("Q1.card-font-5.5cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);
+      const cardRect = q1.probe?.rects?.card;
+      const sheetRect = q1.probe?.rects?.sheet;
+      const textRect = q1.probe?.rects?.text;
+      const stampRect = q1.probe?.rects?.stamp;
+      const brandRect = q1.probe?.rects?.brand;
+      check("Q1.card-ratio-16x9", !!cardRect && Math.abs(cardRect.h / cardRect.w - 9 / 16) < 0.01, { cardRect });
+      checkEquals("Q1.sheet-white", q1.probe?.sheet?.backgroundColor, "rgb(255, 255, 255)");
+      check("Q1.sheet-ratio", !!sheetRect && Math.abs(sheetRect.h / sheetRect.w - 0.6395) < 0.01, { sheetRect });
+      check("Q1.sheet-wraps-card", !!sheetRect && !!cardRect && sheetRect.left <= cardRect.left + 0.5 && sheetRect.top <= cardRect.top + 0.5 && sheetRect.bottom >= cardRect.bottom - 0.5, { sheetRect, cardRect });
+      const fitSize = parseFloat(q1.probe?.card?.fitSize || "0");
+      const fontSize = parseFloat(q1.probe?.card?.fontSize || "0");
+      check("Q1.card-font-fitted", fitSize > 0 && Math.abs(fitSize - fontSize) < 0.06 && fontSize <= 21.1, { fontSize, fitSize });
       check("Q1.card-system-serif-lining-nums", q1.probe?.card?.fontFamily?.startsWith("Georgia") && q1.probe?.card?.fontVariantNumeric === "lining-nums", { family: q1.probe?.card?.fontFamily, numeric: q1.probe?.card?.fontVariantNumeric });
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
-      check("Q1.card-text-vertically-centered", q1.probe?.card?.verticalCenterDelta <= 1, { delta: q1.probe?.card?.verticalCenterDelta });
+      check("Q1.card-text-above-stamp", !!textRect && !!stampRect && textRect.bottom <= stampRect.top + 0.5, { textRect, stampRect });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
+      check("Q1.card-has-no-video-title", q1.probe?.hasSourceTitle === false, { hasSourceTitle: q1.probe?.hasSourceTitle });
+      checkEquals("Q1.timestamp-pill-from-fixture", q1.probe?.stamp?.text, QUOTE_CLOCK);
+      check("Q1.timestamp-pill-motif", q1.probe?.stamp?.borderRadius === "999px" && parseFloat(q1.probe?.stamp?.letterSpacing || "0") > 0, { borderRadius: q1.probe?.stamp?.borderRadius, letterSpacing: q1.probe?.stamp?.letterSpacing });
+      checkEquals("Q1.brand-wordmark", q1.probe?.brand?.text, "BiliScript");
+      check("Q1.brand-ink-and-weight", q1.probe?.brand?.color === "rgb(23, 24, 26)" && q1.probe?.brand?.fontWeight === "600", { color: q1.probe?.brand?.color, weight: q1.probe?.brand?.fontWeight });
+      check("Q1.brand-in-bottom-band", !!brandRect && !!cardRect && !!sheetRect && brandRect.top >= cardRect.bottom - 0.5 && brandRect.bottom <= sheetRect.bottom + 0.5, { brandRect, cardRect, sheetRect });
+      checkEquals("Q1.scrim-16", q1.probe?.scrim?.backgroundColor, "rgba(0, 0, 0, 0.16)");
       await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/superellipse(1.25)/面板阴影/mask）");
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
     }
@@ -949,8 +996,15 @@ async function main() {
           q5.download = { ok: false, error: error.message };
         }
       }
+      // 导出成图覆盖纹样层：默认是「无纹样」，先切到「射线」再保存
+      const patternHit = await clickElement(pageCdp, "射线纹样", `document.querySelector("[data-pattern='rays']")`);
+      check("Q5.pattern-selected-for-export", patternHit.ok === true, patternHit);
+      const patternNow = await pageCdp.evaluate(`document.querySelector('.biliscript-quote-card')?.dataset.pattern || null`);
+      checkEquals("Q5.pattern-for-export", patternNow, "rays");
       const hit = await clickElement(pageCdp, "保存 PNG", `document.querySelector('.biliscript-quote-download-btn')`);
       check("Q5.save-click-hittable", hit.ok === true, hit);
+      // 目录里可能留着上一次运行的导出图：只认本次点击之后落盘的文件。
+      const saveStartedAt = Date.now();
       // 成功态约 1500ms 即复位，不能先等文件——文件落盘与成功态同一轮询循环里盯：
       const deadline = Date.now() + 20000;
       const dirs = [OUT_DIR, path.join(browser.profileDir, "Downloads")];
@@ -968,7 +1022,12 @@ async function main() {
         if (!file) {
           for (const dir of dirs) {
             try {
-              const found = readdirSync(dir).filter((f) => /^biliscript-quote-.*\.png$/i.test(f)).sort().at(-1);
+              const found = readdirSync(dir)
+                .filter((f) => /^biliscript-quote-.*\.png$/i.test(f))
+                .map((f) => ({ name: f, mtime: statSync(path.join(dir, f)).mtimeMs }))
+                .filter((entry) => entry.mtime >= saveStartedAt - 2000)
+                .sort((a, b) => a.mtime - b.mtime)
+                .at(-1)?.name;
               if (found) { file = path.join(dir, found); break; }
             } catch {}
           }
@@ -987,16 +1046,15 @@ async function main() {
       if (file) {
         const buf = readFileSync(file);
         const pngMagic = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-        const cardRect = (await pageCdp.evaluate(JS.probe))?.rects?.card;
         const dimensions = { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
         q5.pngDimensions = dimensions;
         check("Q5.png-nonempty", buf.length > 200, { bytes: buf.length });
         check("Q5.png-magic", pngMagic, { head: buf.subarray(0, 8).toString("hex") });
-        check("Q5.png-matches-current-card-geometry", cardRect && dimensions.width === Math.round(cardRect.w * 2) && dimensions.height === Math.round(cardRect.h * 2), { dimensions, cardRect });
+        check("Q5.png-fixed-design-dimensions", dimensions.width === 1261 && dimensions.height === 806, { dimensions, expected: { width: 1261, height: 806 } });
       }
       await sleep(1800);
       await shot("05-save-png", "保存 PNG 真实下载");
-      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与当前卡片尺寸" });
+      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与固定设计尺寸（1261×806）" });
     }
 
     // ---------- Q6 三条关闭路径，每条后可重开 ----------
@@ -1101,6 +1159,7 @@ async function main() {
         q10.hitTests.push(ht);
         check(`Q10.reachable.${label}`, ht?.ok === true, ht);
       }
+      await sleep(300);
       await shot("10-narrow-viewport", "窄视口（420px）：不横向溢出、操作可达");
       // 关闭键在窄屏也可真点（可操作性收尾），随后恢复视口
       await mustClick(pageCdp, "Q10.close-hittable", "关闭键", `document.querySelector('.biliscript-quote-share-close')`, NARROW_VIEWPORT);

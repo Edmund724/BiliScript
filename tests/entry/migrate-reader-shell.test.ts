@@ -64,11 +64,14 @@ describe("阅读主面板与门控样式 Token 迁移契约", () => {
       const lines = text.split("\n");
       const violations: string[] = [];
 
-      // 允许的非字阶特例：装饰性引号尺寸（32px, 34px）、clamp 响应式卡片正文、相对字号 0.95em
+      // 允许的非字阶特例：装饰性引号尺寸（32px）、分享卡的卡宽等比字号
+      // （正文由 JS 落值、引号/时间戳/品牌随卡宽 cqi）与相对字号 0.95em
       const allowedSpecial = [
         "32px",
-        "34px",
-        "clamp(16px, 5.5cqi, 21px)",
+        "8.333cqi",
+        "var(--quote-fit-size",
+        "2.696cqi",
+        "2.567cqi",
         "0.95em"
       ];
 

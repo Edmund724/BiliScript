@@ -1,6 +1,8 @@
 // extension/reader/quote-share-export.ts
 // 金句分享卡片预设表、细线几何纹样、物理灰度噪点、客户端光栅化导出、剪贴板写入与文件下载。
 
+import { formatClock } from "../shared/clock-text.js";
+
 export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";
 
 export interface QuoteCardPattern {
@@ -43,12 +45,9 @@ export interface QuoteCardPreset {
 
 export interface QuoteCardExportOptions {
   content: string;
-  videoTitle?: string;
+  from?: number;
   preset?: string;
   pattern?: QuotePatternId;
-  width?: number;
-  height?: number;
-  scale?: number;
 }
 
 const BLOB_GEOMETRIES = [
@@ -413,40 +412,168 @@ function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement | null>
   });
 }
 
-/**
- * 文本折行算法，支持中英文混合排版。
- */
-function wrapCanvasText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number
-): string[] {
-  const lines: string[] = [];
-  const normalized = text.replace(/\r\n/g, "\n").trim();
-  const rawParagraphs = normalized.split("\n");
+// ===== 版式度量（单一来源：预览 DOM 与 Canvas 导出共用同一份数字）=====
+// 标称卡 408×229.5（16:9）：预览里 1cqi = 卡宽的 1%，导出的设计画布按 1200 宽等比放大。
+// 字号档位、折行、内边距、时间戳与品牌位都从这一份常量推导，两边不会各算一套。
+export const QUOTE_CARD_CANONICAL_WIDTH = 408;
+export const QUOTE_CARD_CANONICAL_HEIGHT = 229.5;
 
-  for (const para of rawParagraphs) {
+/** 正文衬线栈：与 `--biliscript-reader-font-serif` 同序，测量与绘制必须同源。 */
+export const QUOTE_CARD_FONT_SERIF =
+  'Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif';
+
+/** 品牌角标与时间戳的无衬线栈：与 `--biliscript-reader-font-sans-medium` 同序。 */
+export const QUOTE_CARD_FONT_SANS =
+  '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
+
+const TEXT_INSET_X = QUOTE_CARD_CANONICAL_WIDTH * 0.088;
+const TEXT_INSET_TOP = QUOTE_CARD_CANONICAL_WIDTH * 0.083;
+const TEXT_INSET_BOTTOM = QUOTE_CARD_CANONICAL_WIDTH * 0.163;
+const TEXT_MAX_WIDTH = QUOTE_CARD_CANONICAL_WIDTH - TEXT_INSET_X * 2;
+const TEXT_AREA_HEIGHT = QUOTE_CARD_CANONICAL_HEIGHT - TEXT_INSET_TOP - TEXT_INSET_BOTTOM;
+const BASE_FONT_SIZE = 21;
+const MIN_FONT_SIZE = 14;
+const FONT_STEP = 1;
+const LINE_HEIGHT_RATIO = 1.85;
+
+export interface QuoteCardTextMeasurer {
+  measure(text: string, fontSize: number): number;
+}
+
+export interface QuoteCardTextLayout {
+  /** 正文标称字号（408 卡宽下的 px）。 */
+  fontSize: number;
+  lineHeight: number;
+  lines: string[];
+  textLeft: number;
+  textTop: number;
+  textWidth: number;
+  truncated: boolean;
+}
+
+/**
+ * 用 Canvas 上下文构造文字测量器（预览与导出共用）。上下文不可用时返回 null，
+ * 布局退回按全角/半角估算的测量器——jsdom 与降级环境仍能出稳定折行。
+ */
+export function createQuoteCardTextMeasurer(
+  ctx: CanvasRenderingContext2D | null | undefined
+): QuoteCardTextMeasurer | null {
+  if (!ctx) {
+    return null;
+  }
+  const measurer: QuoteCardTextMeasurer = {
+    measure(text, fontSize) {
+      ctx.font = `400 ${fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
+      return ctx.measureText(text).width;
+    }
+  };
+  return measurer;
+}
+
+function createApproximateMeasurer(): QuoteCardTextMeasurer {
+  return {
+    measure(text, fontSize) {
+      let em = 0;
+      for (const char of text) {
+        if (char === " ") {
+          em += 0.28;
+        } else if (/[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f\u2014\u2026\u2018\u2019\u201c\u201d]/.test(char)) {
+          em += 1;
+        } else {
+          em += 0.52;
+        }
+      }
+      return em * fontSize;
+    }
+  };
+}
+
+/** 按宽度逐字折行；保留段落换行（模型产出的金句可能自带 \n）。 */
+function wrapQuoteText(
+  content: string,
+  fontSize: number,
+  measurer: QuoteCardTextMeasurer
+): string[] {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  const paragraphs = normalized.split("\n");
+  const lines: string[] = [];
+
+  for (const para of paragraphs) {
     if (!para.trim()) {
       continue;
     }
-    let currentLine = "";
-    for (let i = 0; i < para.length; i++) {
-      const char = para[i];
-      const candidate = currentLine + char;
-      const metrics = ctx.measureText(candidate);
-      if (metrics.width > maxWidth && currentLine.length > 0) {
-        lines.push(currentLine);
-        currentLine = char === " " ? "" : char;
+    let current = "";
+    for (const char of para) {
+      const candidate = current + char;
+      if (current.length > 0 && measurer.measure(candidate, fontSize) > TEXT_MAX_WIDTH) {
+        lines.push(current);
+        current = char === " " ? "" : char;
       } else {
-        currentLine = candidate;
+        current = candidate;
       }
     }
-    if (currentLine.length > 0) {
-      lines.push(currentLine);
+    if (current.length > 0) {
+      lines.push(current);
     }
   }
 
-  return lines.length > 0 ? lines : [text];
+  return lines.length > 0 ? lines : [content];
+}
+
+function truncateQuoteLines(
+  lines: string[],
+  maxLines: number,
+  fontSize: number,
+  measurer: QuoteCardTextMeasurer
+): string[] {
+  const kept = lines.slice(0, maxLines);
+  let last = kept[maxLines - 1] ?? "";
+  while (last.length > 0 && measurer.measure(`${last}…`, fontSize) > TEXT_MAX_WIDTH) {
+    last = last.slice(0, -1);
+  }
+  kept[maxLines - 1] = `${last}…`;
+  return kept;
+}
+
+/**
+ * 金句正文布局：字号从 21px 逐级降到 14px，取第一档能塞进正文区的；
+ * 14px 仍超高则按行数截断并补省略号。返回值全部是标称单位。
+ */
+export function layoutQuoteCardText(
+  content: string,
+  measurer?: QuoteCardTextMeasurer | null
+): QuoteCardTextLayout {
+  const measure = measurer ?? createApproximateMeasurer();
+  const lineHeightRatio = LINE_HEIGHT_RATIO;
+  let fontSize = BASE_FONT_SIZE;
+  let lines: string[] = [];
+
+  for (; fontSize >= MIN_FONT_SIZE; fontSize -= FONT_STEP) {
+    lines = wrapQuoteText(content, fontSize, measure);
+    if (lines.length * fontSize * lineHeightRatio <= TEXT_AREA_HEIGHT + 0.01) {
+      break;
+    }
+  }
+
+  fontSize = Math.max(MIN_FONT_SIZE, fontSize);
+  const lineHeight = fontSize * lineHeightRatio;
+  const maxLines = Math.max(1, Math.floor((TEXT_AREA_HEIGHT + 0.01) / lineHeight));
+  let truncated = false;
+
+  if (lines.length > maxLines) {
+    lines = truncateQuoteLines(lines, maxLines, fontSize, measure);
+    truncated = true;
+  }
+
+  return {
+    fontSize,
+    lineHeight,
+    lines,
+    textLeft: TEXT_INSET_X,
+    textTop: TEXT_INSET_TOP + (TEXT_AREA_HEIGHT - lines.length * lineHeight) / 2,
+    textWidth: TEXT_MAX_WIDTH,
+    truncated
+  };
 }
 
 /**
@@ -498,33 +625,110 @@ function traceContinuousCornerRectPath(
   ctx.closePath();
 }
 
+// ===== 导出画布（标称单位绘制，整体放大约 2.94 倍）=====
+// 相纸：纯白满版，左右/上留白 2.4%、底栏 8%（承载品牌角标）。
+const CANONICAL_SHEET_WIDTH = QUOTE_CARD_CANONICAL_WIDTH / (1 - 0.048);
+const CANONICAL_SHEET_SIDE = CANONICAL_SHEET_WIDTH * 0.024;
+const CANONICAL_SHEET_BAND = CANONICAL_SHEET_WIDTH * 0.08;
+const CANONICAL_SHEET_HEIGHT =
+  CANONICAL_SHEET_SIDE + QUOTE_CARD_CANONICAL_HEIGHT + CANONICAL_SHEET_BAND;
+
+/** 导出内卡宽：固定 1200，成品约 1261×806，不随预览窗口变化。 */
+const EXPORT_CARD_WIDTH = 1200;
+const EXPORT_SCALE = EXPORT_CARD_WIDTH / QUOTE_CARD_CANONICAL_WIDTH;
+
+const CARD_RADIUS = 20;
+const QUOTE_MARK_SIZE = 34;
+const QUOTE_MARK_LEFT = 36;
+const QUOTE_MARK_CENTER_Y = 42;
+const STAMP_INSET_X = 36;
+const STAMP_BOTTOM = 23;
+const STAMP_HEIGHT = 22;
+const STAMP_FONT_SIZE = 11;
+const STAMP_PADDING_X = 12;
+const BRAND_FONT_SIZE = 11;
+
+/** 时间戳 pill：半透明白底 + 1px 白描边，字距 0.06em，画在其后由调用方恢复状态。 */
+function drawQuoteCardTimestamp(
+  ctx: CanvasRenderingContext2D,
+  cardX: number,
+  cardY: number,
+  from: number
+): void {
+  const text = formatClock(from, { hours: "auto" });
+  ctx.save();
+  ctx.font = `500 ${STAMP_FONT_SIZE}px ${QUOTE_CARD_FONT_SANS}`;
+
+  let letterSpacingApplied = false;
+  try {
+    if ("letterSpacing" in ctx) {
+      (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(
+        STAMP_FONT_SIZE * 0.06
+      ).toFixed(2)}px`;
+      letterSpacingApplied = true;
+    }
+  } catch {
+    letterSpacingApplied = false;
+  }
+
+  const trackedWidth =
+    ctx.measureText(text).width +
+    (letterSpacingApplied ? 0 : text.length * STAMP_FONT_SIZE * 0.06);
+
+  const pillX = cardX + STAMP_INSET_X;
+  const pillY = cardY + QUOTE_CARD_CANONICAL_HEIGHT - STAMP_BOTTOM - STAMP_HEIGHT;
+  const pillWidth = trackedWidth + STAMP_PADDING_X * 2;
+
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(pillX, pillY, pillWidth, STAMP_HEIGHT, STAMP_HEIGHT / 2);
+  } else {
+    ctx.rect(pillX, pillY, pillWidth, STAMP_HEIGHT);
+  }
+  ctx.fillStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, pillX + STAMP_PADDING_X, pillY + STAMP_HEIGHT / 2);
+  ctx.restore();
+}
+
 /**
- * 离屏渲染卡片至高分辨率 Canvas。
+ * 离屏渲染分享卡至高分辨率 Canvas：白边相纸 + 16:9 内卡 + 品牌角标。
+ * 全部坐标与字号走标称单位，靠 ctx.scale 放大——预览与成图共用同一份版式。
  */
 async function renderQuoteCardToCanvas(
   options: QuoteCardExportOptions
 ): Promise<HTMLCanvasElement> {
-  const scale =
-    options.scale ??
-    Math.max(2, Math.round((typeof window !== "undefined" && window.devicePixelRatio) || 2));
-  const width = options.width ?? 400;
-  const height = options.height ?? 300;
-
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
+  canvas.width = Math.round(CANONICAL_SHEET_WIDTH * EXPORT_SCALE);
+  canvas.height = Math.round(CANONICAL_SHEET_HEIGHT * EXPORT_SCALE);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return canvas;
   }
 
-  ctx.scale(scale, scale);
+  ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
 
-  // 1. 20px 连续圆角（superellipse）裁切路径
+  // 0. 纯白相纸（顺带盖住取整后的画布余量，成品不留透明边）
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width / EXPORT_SCALE, canvas.height / EXPORT_SCALE);
+
+  const cardX = CANONICAL_SHEET_SIDE;
+  const cardY = CANONICAL_SHEET_SIDE;
+  const cardW = QUOTE_CARD_CANONICAL_WIDTH;
+  const cardH = QUOTE_CARD_CANONICAL_HEIGHT;
+
+  // 1. 16:9 内卡裁切路径（20px 连续圆角）
   ctx.save();
   ctx.beginPath();
-  traceContinuousCornerRectPath(ctx, 0, 0, width, height, 20);
+  traceContinuousCornerRectPath(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS);
   ctx.clip();
 
   // 2. 底层线性渐变（165deg）
@@ -532,35 +736,33 @@ async function renderQuoteCardToCanvas(
     (options.preset ? PRESET_BY_ID.get(options.preset) : undefined) ?? QUOTE_CARD_PRESETS[0];
 
   const angleRad = (presetDef.base.angleDeg * Math.PI) / 180;
-  const len = Math.abs(width * Math.sin(angleRad)) + Math.abs(height * Math.cos(angleRad));
+  const len = Math.abs(cardW * Math.sin(angleRad)) + Math.abs(cardH * Math.cos(angleRad));
   const dx = (len / 2) * Math.sin(angleRad);
   const dy = -(len / 2) * Math.cos(angleRad);
-  const x0 = width / 2 - dx;
-  const y0 = height / 2 - dy;
-  const x1 = width / 2 + dx;
-  const y1 = height / 2 + dy;
+  const centerX = cardX + cardW / 2;
+  const centerY = cardY + cardH / 2;
 
-  const linearGrad = ctx.createLinearGradient(x0, y0, x1, y1);
+  const linearGrad = ctx.createLinearGradient(centerX - dx, centerY - dy, centerX + dx, centerY + dy);
   presetDef.base.stops.forEach((stop) => {
     linearGrad.addColorStop(stop.offset, stop.color);
   });
   ctx.fillStyle = linearGrad;
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(cardX, cardY, cardW, cardH);
 
   // 3. 叠加 4 个大径向色团
   for (const blob of presetDef.blobs) {
-    const cx = blob.cxRatio * width;
-    const cy = blob.cyRatio * height;
-    const r = blob.rRatio * Math.max(width, height);
-    const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    const blobX = cardX + blob.cxRatio * cardW;
+    const blobY = cardY + blob.cyRatio * cardH;
+    const r = blob.rRatio * Math.max(cardW, cardH);
+    const radGrad = ctx.createRadialGradient(blobX, blobY, 0, blobX, blobY, r);
     radGrad.addColorStop(0, blob.color);
     radGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = radGrad;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(cardX, cardY, cardW, cardH);
   }
 
   // 4. 几何细线纹样层与径向中心遮罩
-  const patternId = options.pattern ?? "rays";
+  const patternId = options.pattern ?? "none";
   if (patternId !== "none") {
     const svgContent = getQuoteSharePatternSvg(patternId);
     if (svgContent) {
@@ -568,41 +770,41 @@ async function renderQuoteCardToCanvas(
       const patternImg = await loadImageFromDataUrl(svgDataUrl);
       if (patternImg) {
         const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = Math.round(width * scale);
-        tempCanvas.height = Math.round(height * scale);
+        tempCanvas.width = Math.round(cardW * EXPORT_SCALE);
+        tempCanvas.height = Math.round(cardH * EXPORT_SCALE);
         const tempCtx = tempCanvas.getContext("2d");
 
         if (tempCtx) {
-          tempCtx.scale(scale, scale);
-          tempCtx.drawImage(patternImg, 0, 0, width, height);
+          tempCtx.scale(EXPORT_SCALE, EXPORT_SCALE);
+          tempCtx.drawImage(patternImg, 0, 0, cardW, cardH);
 
           tempCtx.globalCompositeOperation = "destination-out";
           const maskGrad = tempCtx.createRadialGradient(
-            width / 2,
-            height / 2,
+            cardW / 2,
+            cardH / 2,
             0,
-            width / 2,
-            height / 2,
-            Math.max(width, height) * 0.52
+            cardW / 2,
+            cardH / 2,
+            Math.max(cardW, cardH) * 0.52
           );
           maskGrad.addColorStop(0, "rgba(0, 0, 0, 1)");
           maskGrad.addColorStop(0.45, "rgba(0, 0, 0, 1)");
           maskGrad.addColorStop(0.75, "rgba(0, 0, 0, 0.6)");
           maskGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
           tempCtx.fillStyle = maskGrad;
-          tempCtx.fillRect(0, 0, width, height);
+          tempCtx.fillRect(0, 0, cardW, cardH);
 
           ctx.save();
           ctx.globalAlpha = 0.38;
-          ctx.drawImage(tempCanvas, 0, 0, width, height);
+          ctx.drawImage(tempCanvas, cardX, cardY, cardW, cardH);
           ctx.restore();
         }
       }
     }
   }
 
-  // 5. 灰度物理噪点平铺层
-  const noiseUrl = getQuoteShareNoiseDataUrl(scale);
+  // 5. 灰度物理噪点平铺层（图案按设备像素平铺，避免被放大变换拉糊）
+  const noiseUrl = getQuoteShareNoiseDataUrl(EXPORT_SCALE);
   const noiseImg = await loadImageFromDataUrl(noiseUrl);
   if (noiseImg) {
     try {
@@ -611,8 +813,9 @@ async function renderQuoteCardToCanvas(
         ctx.save();
         ctx.globalCompositeOperation = "overlay";
         ctx.globalAlpha = 0.06;
+        ctx.scale(1 / EXPORT_SCALE, 1 / EXPORT_SCALE);
         ctx.fillStyle = noisePattern;
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(cardX * EXPORT_SCALE, cardY * EXPORT_SCALE, cardW * EXPORT_SCALE, cardH * EXPORT_SCALE);
         ctx.restore();
       }
     } catch {
@@ -620,69 +823,84 @@ async function renderQuoteCardToCanvas(
     }
   }
 
-  // 6. 正文与文字排版层
-  // 6.1 引号装饰“
+  // 6. 中性暗罩：与预览同参数，压住浅段渐变保证白字可读
+  ctx.fillStyle = "rgba(0, 0, 0, 0.16)";
+  ctx.fillRect(cardX, cardY, cardW, cardH);
+
+  // 7. 引号装饰
   ctx.save();
-  ctx.font = '34px Georgia, "Times New Roman", serif';
+  ctx.font = `${QUOTE_MARK_SIZE}px Georgia, "Times New Roman", serif`;
   ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("“", 36, 42);
+  ctx.fillText("“", cardX + QUOTE_MARK_LEFT, cardY + QUOTE_MARK_CENTER_Y);
   ctx.restore();
 
-  // 6.2 金句正文（支持根据容器宽度自适应折行与居中排版）
-  const fontSize = Math.min(21, Math.max(16, Math.round(width * 0.055)));
-  const lineHeight = fontSize * 1.85;
-  const maxTextWidth = width - 72;
-
+  // 8. 金句正文：折行与字号档位来自共享布局，预览与成图逐行一致
+  const layout = layoutQuoteCardText(options.content, createQuoteCardTextMeasurer(ctx));
   ctx.save();
+  ctx.font = `400 ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
   const textCtx = ctx as CanvasRenderingContext2D & { fontVariantNumeric: string };
   textCtx.fontVariantNumeric = "lining-nums";
-  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif`;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
   ctx.shadowBlur = 3;
   ctx.shadowOffsetY = 1;
-
-  const lines = wrapCanvasText(ctx, options.content, maxTextWidth);
-  const totalTextHeight = lines.length * lineHeight;
-  const startY = (height - totalTextHeight) / 2 + lineHeight / 2;
-
-  lines.forEach((line, index) => {
-    ctx.fillText(line, 36, startY + index * lineHeight);
+  layout.lines.forEach((line, index) => {
+    ctx.fillText(
+      line,
+      cardX + layout.textLeft,
+      cardY + layout.textTop + layout.lineHeight / 2 + index * layout.lineHeight
+    );
   });
   ctx.restore();
 
-  // 6.3 底部视频来源
-  const sourceText = options.videoTitle || "BiliScript";
-
-  ctx.save();
-  ctx.font = '11px "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
-  ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-  ctx.textBaseline = "alphabetic";
-
-  if (sourceText) {
-    ctx.textAlign = "right";
-    let truncatedSource = sourceText;
-    while (truncatedSource.length > 3 && ctx.measureText(truncatedSource).width > width * 0.45) {
-      truncatedSource = truncatedSource.slice(0, -2) + "…";
-    }
-    ctx.fillText(truncatedSource, width - 36, height - 23);
+  // 9. 时间戳 pill（from 有效才画）
+  const from = Number(options.from);
+  if (options.from !== undefined && options.from !== null && Number.isFinite(from)) {
+    drawQuoteCardTimestamp(ctx, cardX, cardY, from);
   }
-  ctx.restore();
 
-  // 恢复圆角裁切
-  ctx.restore();
-
-  // 7. 内侧 0.5px 精细微描边（与 20px 连续圆角同心对齐）
+  // 10. 卡片内侧 0.5px 精细描边（与圆角同心）
   ctx.save();
   ctx.beginPath();
-  traceContinuousCornerRectPath(ctx, 0.25, 0.25, width - 0.5, height - 0.5, 20 - 0.25);
+  traceContinuousCornerRectPath(ctx, cardX + 0.25, cardY + 0.25, cardW - 0.5, cardH - 0.5, CARD_RADIUS - 0.25);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
   ctx.lineWidth = 0.5;
   ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+
+  // 11. 相纸底栏品牌角标
+  ctx.save();
+  ctx.font = `600 ${BRAND_FONT_SIZE}px ${QUOTE_CARD_FONT_SANS}`;
+  try {
+    if ("letterSpacing" in ctx) {
+      (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(
+        -BRAND_FONT_SIZE * 0.01
+      ).toFixed(2)}px`;
+    }
+  } catch {
+    // 引擎不支持字距时按默认间距绘制
+  }
+  ctx.fillStyle = "#17181a";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(
+    "BiliScript",
+    CANONICAL_SHEET_WIDTH - CANONICAL_SHEET_SIDE,
+    CANONICAL_SHEET_HEIGHT - CANONICAL_SHEET_BAND / 2
+  );
+  ctx.restore();
+
+  // 12. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
+  ctx.save();
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, CANONICAL_SHEET_WIDTH - 1, CANONICAL_SHEET_HEIGHT - 1);
   ctx.restore();
 
   return canvas;

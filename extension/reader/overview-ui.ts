@@ -344,8 +344,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
       const seconds = Number(target.dataset.seconds) || 0;
       openQuoteShareModal({
         content: quote,
-        from: seconds,
-        videoTitle: state.clip.title || ""
+        from: seconds
       });
       return;
     }
