@@ -431,7 +431,12 @@ const TEXT_AREA_HEIGHT = QUOTE_CARD_CANONICAL_HEIGHT - TEXT_INSET_TOP - TEXT_INS
 const BASE_FONT_SIZE = 21;
 const MIN_FONT_SIZE = 14;
 const FONT_STEP = 1;
-const LINE_HEIGHT_RATIO = 1.85;
+const LINE_HEIGHT_RATIO = 1.5;
+/** 正文最多 4 行：超过的用省略号收尾，宁可少字也不把卡面塞满。 */
+const MAX_LINES = 4;
+
+/** 正文字重：轻薄宋体，与相纸版式的留白气质一致。 */
+export const QUOTE_CARD_TEXT_WEIGHT = 300;
 
 export interface QuoteCardTextMeasurer {
   measure(text: string, fontSize: number): number;
@@ -460,7 +465,7 @@ export function createQuoteCardTextMeasurer(
   }
   const measurer: QuoteCardTextMeasurer = {
     measure(text, fontSize) {
-      ctx.font = `400 ${fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
+      ctx.font = `${QUOTE_CARD_TEXT_WEIGHT} ${fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
       return ctx.measureText(text).width;
     }
   };
@@ -554,7 +559,7 @@ export function layoutQuoteCardText(
 
   fontSize = Math.max(MIN_FONT_SIZE, fontSize);
   const lineHeight = fontSize * lineHeightRatio;
-  const maxLines = Math.max(1, Math.floor((TEXT_AREA_HEIGHT + 0.01) / lineHeight));
+  const maxLines = Math.max(1, Math.min(MAX_LINES, Math.floor((TEXT_AREA_HEIGHT + 0.01) / lineHeight)));
   let truncated = false;
 
   if (lines.length > maxLines) {
@@ -808,7 +813,7 @@ async function renderQuoteCardToCanvas(
   // 8. 金句正文：折行与字号档位来自共享布局，预览与成图逐行一致
   const layout = layoutQuoteCardText(options.content, createQuoteCardTextMeasurer(ctx));
   ctx.save();
-  ctx.font = `400 ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
+  ctx.font = `${QUOTE_CARD_TEXT_WEIGHT} ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`;
   const textCtx = ctx as CanvasRenderingContext2D & { fontVariantNumeric: string };
   textCtx.fontVariantNumeric = "lining-nums";
   ctx.fillStyle = "#ffffff";

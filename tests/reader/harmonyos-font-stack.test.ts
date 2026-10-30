@@ -141,6 +141,8 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     expect(quoteExport).toContain('textCtx.fontVariantNumeric = "lining-nums";');
     const exportSerif = quoteExport.match(/QUOTE_CARD_FONT_SERIF\s*=\s*\n?\s*'([^']+)'/)?.[1];
     expect(exportSerif).toBe(systemSerif);
-    expect(quoteExport).toContain("ctx.font = `400 ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`");
+    expect(quoteExport).toContain(
+      "ctx.font = `${QUOTE_CARD_TEXT_WEIGHT} ${layout.fontSize}px ${QUOTE_CARD_FONT_SERIF}`"
+    );
   });
 });

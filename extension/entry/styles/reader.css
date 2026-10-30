@@ -2433,8 +2433,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   font-family: var(--biliscript-reader-font-serif);
   font-variant-numeric: lining-nums;
   font-size: var(--quote-fit-size, 5.147cqi);
-  font-weight: 400;
-  line-height: 1.85;
+  font-weight: 300;
+  line-height: 1.5;
   text-align: left;
   text-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
 }

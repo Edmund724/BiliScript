@@ -686,7 +686,7 @@ describe("金句卡片正文布局（预览与导出共用同一份）", () => {
   });
 
   it("长句逐级降字号直到装进正文区", () => {
-    const layout = layoutQuoteCardText(cjk(60));
+    const layout = layoutQuoteCardText(cjk(70));
     expect(layout.fontSize).toBeGreaterThanOrEqual(14);
     expect(layout.fontSize).toBeLessThan(21);
     expect(layout.lines.length * layout.lineHeight).toBeLessThanOrEqual(129.14);
