@@ -602,7 +602,7 @@ export const VideoReferenceCard = ({
 };
 
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
-export const microPerspective = (tilt = 6) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)`;
+export const microPerspective = (tilt = 6, scale = 1) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)${Math.abs(scale - 1) > 0.0001 ? ` scale(${Number(scale.toFixed(4))})` : ""}`;
 
 const ENTRANCE_FRAMES = 8;
 const ENTRANCE_OPACITY = 0.35;

@@ -167,7 +167,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
         width: PANEL_STAGE.width,
         opacity: enter * quoteDimOpacity,
         translate: `0px ${(enterY + quoteRetreatY).toFixed(1)}px`,
-        scale: quoteBackScale,
+        scale: undefined,
         filter: quoteDefocus > 0.05 ? `blur(${quoteDefocus.toFixed(2)}px)` : undefined,
         transformOrigin: "50% 50%",
         zIndex: 8
@@ -184,7 +184,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
           boxShadow: MIST_GLASS.shellShadow,
           padding: "26px 34px 30px",
           fontFamily: FONT_FAMILY,
-          transform: microPerspective(-7),
+          transform: microPerspective(-7, quoteBackScale),
           transformOrigin: "50% 50%"
         }}
       >

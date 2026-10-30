@@ -281,7 +281,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
         top: 300,
         width: 880,
         transformOrigin: "0 0",
-        scale: panelScale * focusScale,
+        scale: Math.abs(panelScale * focusScale - 1) > 0.001 ? panelScale * focusScale : undefined,
         filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
       }}
     >
@@ -601,7 +601,7 @@ export const SubtoolsScene = () => {
           top: 132,
           width: 908,
           transformOrigin: "0 0",
-          scale: focusScale,
+          scale: undefined,
           filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
         }}
       >
@@ -615,7 +615,7 @@ export const SubtoolsScene = () => {
             backdropFilter: "blur(24px) saturate(1.2)",
             boxShadow: MIST_GLASS.shellShadow,
             padding: "22px 26px 26px",
-            transform: microPerspective(-5),
+            transform: microPerspective(-5, focusScale),
             color: MIST_GLASS.text
           }}
         >
@@ -1016,7 +1016,7 @@ export const WebSearchScene = () => {
           top: 156,
           width: 908,
           transformOrigin: "0 0",
-          scale: focusScale,
+          scale: undefined,
           filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
         }}
       >
@@ -1029,7 +1029,7 @@ export const WebSearchScene = () => {
             backdropFilter: "blur(24px) saturate(1.2)",
             boxShadow: MIST_GLASS.shellShadow,
             padding: "28px 36px 36px",
-            transform: microPerspective(-5),
+            transform: microPerspective(-5, focusScale),
             color: MIST_GLASS.text
           }}
         >
@@ -1333,7 +1333,7 @@ export const AppearanceScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(APPEARANCE_TIMELINE.duration, APPEARANCE_HANDOFF);
   const themeIndex = appearanceThemeIndexAtFrame(frame);
-  const theme = THEME_CONFIGS[themeIndex];
+  const theme = THEME_CONFIGS[themeIndex]; const switchStart = [APPEARANCE_TIMELINE.flymeDarkFrom, APPEARANCE_TIMELINE.editorialLightFrom, APPEARANCE_TIMELINE.editorialDarkFrom].filter((f) => frame >= f).pop(); const switchElapsed = switchStart !== undefined ? frame - switchStart : 99; const switchScale = switchElapsed <= 6 ? interpolate(switchElapsed, [0, 2, 6], [0.988, 1.012, 1], {...CLAMP, easing: SMOOTH}) : 1; const switchFlash = switchElapsed <= 7 ? interpolate(switchElapsed, [0, 2, 7], [0, 0.22, 0], CLAMP) : 0;
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
@@ -1401,7 +1401,7 @@ export const AppearanceScene = () => {
           top: 116,
           width: 908,
           transformOrigin: "0 0",
-          scale: focusScale,
+          scale: undefined,
           filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
         }}
       >
@@ -1417,9 +1417,9 @@ export const AppearanceScene = () => {
             overflow: "hidden",
             background: theme.panelBg,
             boxShadow: theme.shadow,
-            border: `1.5px solid ${theme.border}`,
+            border: `1.5px solid ${switchFlash > 0.02 ? theme.accent : theme.border}`,
             padding: "24px 30px 28px",
-            transform: microPerspective(-6),
+            transform: microPerspective(-6, focusScale * switchScale),
             color: theme.textPrimary,
             fontFamily: FONT_FAMILY
           }}

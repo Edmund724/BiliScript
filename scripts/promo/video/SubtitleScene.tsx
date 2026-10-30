@@ -61,6 +61,7 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
     [PLAYER_STAGE_TRANSFORM.scale * 1.055, PLAYER_STAGE_TRANSFORM.scale * 0.994, PLAYER_STAGE_TRANSFORM.scale, PLAYER_STAGE_TRANSFORM.scale],
     {...CLAMP, easing: SMOOTH}
   );
+  const activeScale = frame >= SUBTITLE_MATCH_FRAME ? seekScale : PLAYER_STAGE_TRANSFORM.scale;
   const snapFlashOpacity = interpolate(
     frame,
     [SUBTITLE_MATCH_FRAME - 1, SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 5],
@@ -71,20 +72,19 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
     muted: true,
     src: staticFile(`media/${SOURCE}`),
     playbackRate: SUBTITLE_PLAYBACK_RATE,
-    style: {width: 1920, height: 1080, maxWidth: "none"} as const
+    style: {
+      position: "absolute",
+      left: PLAYER_STAGE_TRANSFORM.x,
+      top: PLAYER_STAGE_TRANSFORM.y,
+      width: 1920 * activeScale,
+      height: 1080 * activeScale,
+      maxWidth: "none"
+    } as const
   };
 
   return (
     <div style={{position: "absolute", inset: 0, overflow: "hidden"}}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          transformOrigin: "0 0",
-          scale: frame >= SUBTITLE_MATCH_FRAME ? seekScale : PLAYER_STAGE_TRANSFORM.scale,
-          translate: `${PLAYER_STAGE_TRANSFORM.x}px ${PLAYER_STAGE_TRANSFORM.y}px`
-        }}
-      >
+      <div style={{position: "absolute", inset: 0}}>
         <Sequence durationInFrames={SUBTITLE_MATCH_FRAME}>
           <OffthreadVideo {...videoProps} />
         </Sequence>

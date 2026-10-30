@@ -145,7 +145,7 @@ const HeroCopy = () => {
   );
 };
 
-const PageSheet = () => {
+const PageSheet = ({cameraScale = 1}: {cameraScale?: number}) => {
   const frame = useCurrentFrame();
   if (frame < HERO_SOURCE.panelFrame || frame >= HERO_TIMELINE.answerAt) return null;
 
@@ -173,6 +173,7 @@ const PageSheet = () => {
         top: PANEL.y,
         width: PANEL.width,
         height: PANEL.height,
+        zoom: cameraScale,
         zIndex: 8,
         pointerEvents: "none"
       }}
@@ -360,7 +361,9 @@ const Cursor = () => {
   );
 };
 
-const HeroVideo = () => {
+const HeroVideo = ({cameraScale}: {cameraScale: number}) => {
+  const scaledWidth = 1920 * cameraScale;
+  const scaledHeight = 1080 * cameraScale;
   return (
     <>
       <Sequence from={0} durationInFrames={HERO_SOURCE.panelFrame}>
@@ -368,7 +371,7 @@ const HeroVideo = () => {
           muted
           src={staticFile(HERO_SOURCE.recording)}
           playbackRate={1}
-          style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
+          style={{position: "absolute", left: 0, top: 0, width: scaledWidth, height: scaledHeight, maxWidth: "none"}}
         />
       </Sequence>
       <Sequence from={HERO_SOURCE.panelFrame} durationInFrames={HERO_TIMELINE.answerAt - HERO_SOURCE.panelFrame} premountFor={12}>
@@ -377,7 +380,7 @@ const HeroVideo = () => {
           src={staticFile(HERO_SOURCE.recording)}
           trimBefore={HERO_SOURCE.promptFrame}
           playbackRate={1}
-          style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
+          style={{position: "absolute", left: 0, top: 0, width: scaledWidth, height: scaledHeight, maxWidth: "none"}}
         />
       </Sequence>
       <Sequence from={HERO_TIMELINE.answerAt} premountFor={24}>
@@ -386,10 +389,10 @@ const HeroVideo = () => {
           src={staticFile(HERO_SOURCE.recording)}
           trimBefore={HERO_SOURCE.answerFrame}
           playbackRate={HERO_SOURCE.answerPlaybackRate}
-          style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
+          style={{position: "absolute", left: 0, top: 0, width: scaledWidth, height: scaledHeight, maxWidth: "none"}}
         />
       </Sequence>
-      <PageSheet />
+      <PageSheet cameraScale={cameraScale} />
     </>
   );
 };
@@ -422,15 +425,13 @@ export const HeroScene = () => {
       <div
         style={{
           position: "absolute",
-          left: 0,
-          top: 0,
-          width: 1920,
-          height: 1080,
-          transformOrigin: "0 0",
-          transform: `translate(${cameraLeft.toFixed(2)}px, ${cameraTop.toFixed(2)}px) scale(${cameraScale.toFixed(4)})`
+          left: cameraLeft,
+          top: cameraTop,
+          width: 1920 * cameraScale,
+          height: 1080 * cameraScale
         }}
       >
-        <HeroVideo />
+        <HeroVideo cameraScale={cameraScale} />
       </div>
       <IconOrbit />
       <Cursor />

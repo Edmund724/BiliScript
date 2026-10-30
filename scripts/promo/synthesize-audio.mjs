@@ -2,7 +2,7 @@ import path from "node:path";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
-import {AUDIO, musicVolumeAtFrame} from "./audio.mjs";
+import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {
   APPEARANCE_TIMELINE,
@@ -313,13 +313,21 @@ function sweep(start, end, seconds, gain) {
 
 function makeWhoosh() {
   const track = buffer(0.5);
+  const peakTime = 0.10; // 3 frames at 30fps so cueMixStartFrame (-3f) lands the peak on cue.frame
   let low = 0;
   for (let index = 0; index < track[0].length; index += 1) {
     const time = index / SAMPLE_RATE;
     low = low * 0.86 + noise() * 0.14;
     const band = noise() * 0.25 + low * 1.7;
-    const sub = Math.sin(TAU * (68 + 20 * Math.exp(-time * 10)) * time) * Math.exp(-time * 12) * 0.45;
-    const envelope = Math.sin(Math.PI * Math.min(1, time / 0.5)) ** 1.5;
+    const subTime = Math.max(0, time - peakTime);
+    const sub =
+      time >= peakTime
+        ? Math.sin(TAU * (68 + 20 * Math.exp(-subTime * 10)) * subTime) * Math.exp(-subTime * 12) * 0.45
+        : 0;
+    const envelope =
+      time < peakTime
+        ? Math.sin((Math.PI / 2) * (time / peakTime)) ** 1.35
+        : Math.cos((Math.PI / 2) * Math.min(1, (time - peakTime) / (0.5 - peakTime))) ** 1.6;
     track[0][index] = (band * envelope * 0.38) + sub;
     track[1][index] = (band * envelope * 0.32) + sub;
   }
@@ -487,14 +495,14 @@ function makeMagneticSnap() {
     const w = noise();
     const hp = w - prev * 0.9;
     prev = w;
-    // 前 18ms 极速磁力牵引上扬（480Hz -> 2100Hz）
-    const preEnv = t < 0.018 ? Math.sin((t / 0.018) * (Math.PI / 2)) * 0.45 : Math.exp(-(t - 0.018) * 180) * 0.45;
-    const preFreq = 480 + 1620 * Math.min(1, t / 0.018) ** 2;
+    // 前 8ms 极速磁力牵引上扬（480Hz -> 2100Hz），使咬合瞬态落在 < 0.3 帧内
+    const preEnv = t < 0.008 ? Math.sin((t / 0.008) * (Math.PI / 2)) * 0.45 : Math.exp(-(t - 0.008) * 180) * 0.45;
+    const preFreq = 480 + 1620 * Math.min(1, t / 0.008) ** 2;
     sweepPhase += (TAU * preFreq) / SAMPLE_RATE;
     const suction = Math.sin(sweepPhase) * preEnv;
 
-    // 18ms 处磁极瞬时吸合（清脆金属玻璃质感咬合 + 紧实 82Hz 瞬移低频锚点）
-    const tl = Math.max(0, t - 0.016);
+    // 8ms 处磁极瞬时吸合（清脆金属玻璃质感咬合 + 紧实 82Hz 瞬移低频锚点）
+    const tl = Math.max(0, t - 0.007);
     const lockFreq = 2650 * Math.exp(-tl * 85) + 1110;
     lockPhase += (TAU * lockFreq) / SAMPLE_RATE;
     const snapClick =
@@ -573,7 +581,7 @@ function makeShutterDrop(noteMidi, stepIndex = 0) {
   return track;
 }
 
-// 29.13–30.23s 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
+// 29.13–30.00s 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
 function makeBubblePop(noteMidi, index = 0) {
   const seconds = 0.19;
   const track = buffer(seconds);
@@ -770,7 +778,8 @@ const sfxStem = buffer(DURATION);
 for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
   const sfxTrack = sfxBySrc.get(cue.src);
   if (!sfxTrack) continue;
-  const startSample = Math.round((cue.frame / PROMO_FPS) * SAMPLE_RATE);
+  const mixStartFrame = cueMixStartFrame(cue);
+  const startSample = Math.round((mixStartFrame / PROMO_FPS) * SAMPLE_RATE);
   for (let ch = 0; ch < 2; ch += 1) {
     for (let j = 0; j < sfxTrack[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
       sfxStem[ch][startSample + j] += sfxTrack[ch][j] * cue.gain;
@@ -778,10 +787,11 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
   }
   if (cue.id === "chapters-quote-cut") {
     const pageFlipShutter = sfxBySrc.get("media/sfx/shutter-1.wav");
+    const cutSample = Math.round((cue.frame / PROMO_FPS) * SAMPLE_RATE);
     if (pageFlipShutter) {
       for (let ch = 0; ch < 2; ch += 1) {
-        for (let j = 0; j < pageFlipShutter[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
-          sfxStem[ch][startSample + j] += pageFlipShutter[ch][j] * 0.52;
+        for (let j = 0; j < pageFlipShutter[ch].length && cutSample + j < sfxStem[ch].length; j += 1) {
+          sfxStem[ch][cutSample + j] += pageFlipShutter[ch][j] * 0.52;
         }
       }
     }

@@ -40,9 +40,9 @@ export const WEBSEARCH_TIMELINE = {
 
 export const APPEARANCE_TIMELINE = {
   duration: 60,
-  flymeDarkFrom: 15,
-  editorialLightFrom: 30,
-  editorialDarkFrom: 45
+  flymeDarkFrom: 14,
+  editorialLightFrom: 26,
+  editorialDarkFrom: 38
 };
 
 export const PROVIDER_TIMELINE = {
@@ -50,6 +50,8 @@ export const PROVIDER_TIMELINE = {
   plateAt: 2,
   orbitAt: 4,
   logoStagger: 2.5,
+  logoOffsets: [0, 3, 6, 8, 10, 12, 14, 16, 17, 18, 19, 20, 21, 22],
+  logoPopFrames: 4,
   exitAt: 46,
   exitDuration: 12
 };
@@ -84,10 +86,10 @@ export const CHAT_SHOTS = [
 ];
 
 export const APPEARANCE_SHOTS = [
-  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 15, fontScale: 1.0 },
-  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 15, duration: 15, fontScale: 1.06 },
-  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 30, duration: 15, fontScale: 1.12 },
-  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 45, duration: 15, fontScale: 1.18 }
+  { id: "flyme-light", label: "蓝雾玻璃 · 日间", palette: "flyme", mode: "light", from: 0, duration: 14, fontScale: 1.0 },
+  { id: "flyme-dark", label: "蓝雾玻璃 · 夜间", palette: "flyme", mode: "dark", from: 14, duration: 12, fontScale: 1.06 },
+  { id: "editorial-light", label: "数字刊物 · 日间", palette: "editorial", mode: "light", from: 26, duration: 12, fontScale: 1.12 },
+  { id: "editorial-dark", label: "数字刊物 · 夜间", palette: "editorial", mode: "dark", from: 38, duration: 22, fontScale: 1.18 }
 ];
 
 export const EVIDENCE_TIMES = [
@@ -97,8 +99,8 @@ export const EVIDENCE_TIMES = [
   14.6, 15.4, 17.1, 17.8, 18.1, 19.0,
   20.3, 21.0, 21.5, 22.2, 22.5, 22.9, 23.5,
   24.7, 25.2, 26.0, 26.6,
-  27.2, 27.5, 28.0, 28.5, 28.9,
-  29.2, 29.6, 30.0, 30.3, 30.8,
+  27.2, 27.5, 27.9, 28.3, 28.9,
+  29.2, 29.6, 29.9, 30.3, 30.8,
   31.3, 31.8, 32.5, 33.1, 34.0,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
@@ -134,7 +136,7 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},
-  {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + (PROVIDER_LOGOS.length - 1) * PROVIDER_TIMELINE.logoStagger)},
+  {id: "provider-lights", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + PROVIDER_TIMELINE.logoOffsets[PROVIDER_LOGOS.length - 1])},
   {id: "provider-exit", at: providerSeconds(PROVIDER_TIMELINE.exitAt)},
   {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
   {id: "brand-tagline", at: outroSeconds(OUTRO_TIMELINE.taglineAt)},

@@ -29,11 +29,25 @@ const SUBTOOLS_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch");
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance");
 
+export const PROVIDER_BUBBLE_GAINS = [
+  0.50, 0.46, 0.43, 0.40, 0.39, 0.36, 0.35,
+  0.33, 0.32, 0.30, 0.31, 0.29, 0.32, 0.52
+];
+
+export const SFX_PEAK_OFFSET_FRAMES = {
+  "media/sfx/whoosh.wav": 3,
+  "media/sfx/polaroid-shutter.wav": 1
+};
+
+export function cueMixStartFrame(cue) {
+  return Math.max(0, cue.frame - (SFX_PEAK_OFFSET_FRAMES[cue.src] ?? 0));
+}
+
 const PROVIDER_BUBBLE_CUES = PROVIDER_LOGOS.map((logo, index) => ({
   id: `provider-bubble-${logo.id}`,
-  frame: Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt + index * PROVIDER_TIMELINE.logoStagger),
+  frame: Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt + PROVIDER_TIMELINE.logoOffsets[index]),
   src: `media/sfx/bubble-${String(index + 1).padStart(2, "0")}.wav`,
-  gain: Number((0.44 + (index / 13) * 0.1).toFixed(2)),
+  gain: PROVIDER_BUBBLE_GAINS[index],
   duckDb: 2.2
 }));
 

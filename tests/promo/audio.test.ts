@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {AUDIO, musicVolumeAtFrame} from "../../scripts/promo/audio.mjs";
+import {AUDIO, PROVIDER_BUBBLE_GAINS, cueMixStartFrame, musicVolumeAtFrame} from "../../scripts/promo/audio.mjs";
 import {OUTRO_TIMELINE} from "../../scripts/promo/outro-timeline.mjs";
 import {PROVIDER_LOGOS} from "../../scripts/promo/provider-logos.mjs";
 import {SUBTITLE_MATCH_FRAME} from "../../scripts/promo/subtitle-timeline.mjs";
@@ -83,7 +83,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["provider-orbit", PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, "media/sfx/chord.wav"],
       ...PROVIDER_LOGOS.map((logo, index) => [
         `provider-bubble-${logo.id}`,
-        Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt + index * PROVIDER_TIMELINE.logoStagger),
+        Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt + PROVIDER_TIMELINE.logoOffsets[index]),
         `media/sfx/bubble-${String(index + 1).padStart(2, "0")}.wav`
       ]),
       ["provider-exit", PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, "media/sfx/snap.wav"],
@@ -99,6 +99,13 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
     expect(AUDIO.cues.every((cue) => cue.frame >= 0 && cue.frame < PROMO_DURATION)).toBe(true);
     expect(AUDIO.cues.every((cue) => cue.gain > 0 && cue.gain <= 0.66)).toBe(true);
+    expect(PROVIDER_BUBBLE_GAINS).toHaveLength(PROVIDER_LOGOS.length);
+    // 14 个平台点亮采用先慢后快加速（3f -> 2f -> 1f），满版静止停留 >= 0.5s (15f)
+    const lastLogoFinish = PROVIDER_TIMELINE.orbitAt + PROVIDER_TIMELINE.logoOffsets.at(-1)! + PROVIDER_TIMELINE.logoPopFrames;
+    expect(PROVIDER_TIMELINE.exitAt - lastLogoFinish).toBeGreaterThanOrEqual(15);
+    // 慢起音 whoosh 提前 3 帧混入以对齐能量峰值
+    const subtitleCutCue = AUDIO.cues.find((cue) => cue.id === "subtitle-cut")!;
+    expect(cueMixStartFrame(subtitleCutCue)).toBe(subtitleCutCue.frame - 3);
   });
 
   it("把转写与双语+导出拆成两拍，双语提示音落在第 666 帧、导出音效随第二拍副行出现", () => {

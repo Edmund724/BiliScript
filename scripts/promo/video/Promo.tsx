@@ -1,5 +1,5 @@
 import {Audio, AbsoluteFill, Sequence, staticFile} from "remotion";
-import {AUDIO, musicVolumeAtFrame} from "../audio.mjs";
+import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "../audio.mjs";
 import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
 import {AppearanceScene, ChatScene, SubtoolsScene, WebSearchScene} from "./scenes";
@@ -37,11 +37,14 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
 const Soundtrack = () => (
   <>
     <Audio src={staticFile(AUDIO.music.src)} volume={musicVolumeAtFrame} />
-    {[...AUDIO.cues, ...AUDIO.voices].map((cue) => (
-      <Sequence key={cue.id} from={cue.frame} durationInFrames={PROMO_DURATION - cue.frame}>
-        <Audio src={staticFile(cue.src)} volume={cue.gain} />
-      </Sequence>
-    ))}
+    {[...AUDIO.cues, ...AUDIO.voices].map((cue) => {
+      const fromFrame = cueMixStartFrame(cue);
+      return (
+        <Sequence key={cue.id} from={fromFrame} durationInFrames={PROMO_DURATION - fromFrame}>
+          <Audio src={staticFile(cue.src)} volume={cue.gain} />
+        </Sequence>
+      );
+    })}
   </>
 );
 

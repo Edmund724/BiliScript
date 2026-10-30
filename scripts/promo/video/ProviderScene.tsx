@@ -5,7 +5,7 @@ import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY} from ".
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
-const {plateAt, orbitAt, logoStagger, exitAt, exitDuration} = PROVIDER_TIMELINE;
+const {plateAt, orbitAt, logoOffsets, logoPopFrames, exitAt, exitDuration} = PROVIDER_TIMELINE;
 
 const ORBIT = {
   centerX: 960,
@@ -177,14 +177,15 @@ const OrbitLogo = ({
   const angle = orbitAngle(index, frame);
   const depth = Math.sin(angle);
   const depthRatio = (depth + 1) / 2;
-  const local = frame - (orbitAt + index * logoStagger);
+  const offset = logoOffsets[index] ?? index * 2;
+  const local = frame - (orbitAt + offset);
   const dormant = interpolate(frame, [orbitAt - 2 + index * 0.4, orbitAt + 8 + index * 0.4], [0, 0.22], {
     ...CLAMP,
     easing: ENTRANCE
   });
-  const lit = interpolate(local, [0, 5], [0, 1], {...CLAMP, easing: ENTRANCE});
-  const pop = interpolate(local, [0, 4, 9, 15], [1, 1.12, 0.985, 1], {...CLAMP, easing: ENTRANCE});
-  const flash = interpolate(local, [0, 2, 20], [0, 1, 0], CLAMP);
+  const lit = interpolate(local, [0, logoPopFrames], [0, 1], {...CLAMP, easing: ENTRANCE});
+  const pop = interpolate(local, [0, 3, 7, 11], [1, 1.12, 0.988, 1], {...CLAMP, easing: ENTRANCE});
+  const flash = interpolate(local, [0, 2, 14], [0, 1, 0], CLAMP);
   const opacity = dormant + (1 - dormant) * lit;
   const scale = interpolate(lit, [0, 1], [0.93, 1]) * pop * (0.92 + 0.14 * depthRatio) * (1 - 0.1 * exitProgress);
 
