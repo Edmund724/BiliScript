@@ -665,6 +665,10 @@ function buildModalHtml(): string {
             </div>
           </div>
           <div class="biliscript-quote-card-brand">BiliScript</div>
+          <span class="biliscript-quote-card-motif" aria-hidden="true">
+            <span class="biliscript-quote-card-motif-bar is-lead"></span>
+            <span class="biliscript-quote-card-motif-bar is-track"></span>
+          </span>
         </div>
       </div>
       <footer class="biliscript-quote-share-actions">

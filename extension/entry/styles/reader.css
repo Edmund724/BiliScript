@@ -2262,6 +2262,33 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   user-select: none;
 }
 
+/* 底栏双段标记：短玫红 + 长灰，与品牌角标同处底栏、垂直居中，左缘对齐内卡 */
+.biliscript-quote-card-motif {
+  position: absolute;
+  left: 2.4cqi;
+  bottom: 0;
+  height: 8cqi;
+  display: inline-flex;
+  align-items: center;
+  gap: 1.283cqi;
+  pointer-events: none;
+}
+
+.biliscript-quote-card-motif-bar {
+  height: 1.167cqi;
+  border-radius: var(--biliscript-radius-pill);
+}
+
+.biliscript-quote-card-motif-bar.is-lead {
+  width: 3.733cqi;
+  background: var(--biliscript-primitive-color-rose-500);
+}
+
+.biliscript-quote-card-motif-bar.is-track {
+  width: 8.4cqi;
+  background: var(--biliscript-primitive-color-gray-200);
+}
+
 /* 卡片背景与色团层 */
 .biliscript-quote-card-bg {
   position: absolute;

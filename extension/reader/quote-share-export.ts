@@ -639,6 +639,33 @@ const QUOTE_MARK_SIZE = 34;
 const QUOTE_MARK_LEFT = 36;
 const QUOTE_MARK_CENTER_Y = 42;
 const BRAND_FONT_SIZE = 11;
+const MOTIF_HEIGHT = 5;
+const MOTIF_LEAD_WIDTH = 16;
+const MOTIF_TRACK_WIDTH = 36;
+const MOTIF_GAP = 5.5;
+const MOTIF_LEAD_COLOR = "#e04a75";
+const MOTIF_TRACK_COLOR = "#e9ebef";
+
+/** 底栏左侧双段标记：短玫红 + 长灰，与品牌角标同处底栏中线上。 */
+function drawQuoteCardMotif(ctx: CanvasRenderingContext2D): void {
+  const centerY = CANONICAL_SHEET_SIDE + QUOTE_CARD_CANONICAL_HEIGHT + CANONICAL_SHEET_BAND / 2;
+  const bars: Array<[x: number, width: number, color: string]> = [
+    [CANONICAL_SHEET_SIDE, MOTIF_LEAD_WIDTH, MOTIF_LEAD_COLOR],
+    [CANONICAL_SHEET_SIDE + MOTIF_LEAD_WIDTH + MOTIF_GAP, MOTIF_TRACK_WIDTH, MOTIF_TRACK_COLOR]
+  ];
+  ctx.save();
+  for (const [x, width, color] of bars) {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, centerY - MOTIF_HEIGHT / 2, width, MOTIF_HEIGHT, MOTIF_HEIGHT / 2);
+    } else {
+      ctx.rect(x, centerY - MOTIF_HEIGHT / 2, width, MOTIF_HEIGHT);
+    }
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 /**
  * 离屏渲染分享卡至高分辨率 Canvas：白边相纸 + 16:9 内卡 + 品牌角标。
@@ -832,7 +859,10 @@ async function renderQuoteCardToCanvas(
   );
   ctx.restore();
 
-  // 11. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
+  // 11. 底栏左侧双段标记
+  drawQuoteCardMotif(ctx);
+
+  // 12. 相纸边缘 1px 发丝线（与预览的 inset 阴影同观感，白底信息流里也有边界）
   ctx.save();
   ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
   ctx.lineWidth = 1;

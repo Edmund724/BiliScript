@@ -97,6 +97,11 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     expect(host?.querySelector(".biliscript-quote-card-brand")?.textContent).toBe("BiliScript");
     expect(host?.querySelector(".biliscript-quote-card-sheet")).not.toBeNull();
     expect(host?.querySelector(".biliscript-quote-card-scrim")).not.toBeNull();
+    expect(
+      host?.querySelectorAll(".biliscript-quote-card-motif .biliscript-quote-card-motif-bar").length
+    ).toBe(2);
+    expect(host?.querySelector(".biliscript-quote-card-motif-bar.is-lead")).not.toBeNull();
+    expect(host?.querySelector(".biliscript-quote-card-motif-bar.is-track")).not.toBeNull();
 
     const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
     expect(card?.dataset.preset).toBe("mist-deep-sea");
@@ -406,6 +411,7 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
   it("点击「保存 PNG」把模态状态送入固定设计画布：白边相纸、超椭圆裁切、共享折行与 a[download] 下载", async () => {
     const points: Array<{ type: string; x: number; y: number }> = [];
     const filledTexts: string[] = [];
+    const filledStyles: string[] = [];
     let clipCalled = false;
     let strokeCalled = false;
     let createdCanvasWidth = 0;
@@ -426,7 +432,9 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
       stroke: vi.fn(() => {
         strokeCalled = true;
       }),
-      fill: vi.fn(),
+      fill: vi.fn(function (this: { fillStyle: string }) {
+        filledStyles.push(String(this.fillStyle));
+      }),
       rect: vi.fn(),
       roundRect: vi.fn(),
       strokeRect: vi.fn(),
@@ -520,9 +528,11 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     expect(strokeCalled).toBe(true);
     // 超椭圆右上角 45° 采样点比正圆弧更贴角外扩
     expect(points.some((p) => p.x > 405 && p.y < 15)).toBe(true);
-    // 折行与分段保留，品牌角标也进图
+    // 折行与分段保留，品牌角标与底栏双段标记也进图
     expect(filledTexts).toContain("第二段精简金句");
     expect(filledTexts).toContain("BiliScript");
+    expect(filledStyles).toContain("#e04a75");
+    expect(filledStyles).toContain("#e9ebef");
     expect(downloadAnchorClicked).toBe(true);
     expect(capturedBlobs[0]).toBeInstanceOf(Blob);
     expect(capturedBlobs[0]?.type).toBe("image/png");
@@ -740,6 +750,17 @@ describe("quote-share 样式与架构契约", () => {
     expect(rule(".biliscript-quote-card-brand")).toContain("height: 8cqi;");
     expect(rule(".biliscript-quote-card-brand")).toContain(
       "color: var(--biliscript-primitive-color-gray-950);"
+    );
+    expect(rule(".biliscript-quote-card-motif")).toContain("left: 2.4cqi;");
+    expect(rule(".biliscript-quote-card-motif")).toContain("height: 8cqi;");
+    expect(rule(".biliscript-quote-card-motif-bar")).toContain(
+      "border-radius: var(--biliscript-radius-pill);"
+    );
+    expect(rule(".biliscript-quote-card-motif-bar.is-lead")).toContain(
+      "background: var(--biliscript-primitive-color-rose-500);"
+    );
+    expect(rule(".biliscript-quote-card-motif-bar.is-track")).toContain(
+      "background: var(--biliscript-primitive-color-gray-200);"
     );
     expect(rule(".biliscript-quote-card-scrim")).toContain(
       "rgba(var(--biliscript-primitive-color-black-rgb), 0.16)"

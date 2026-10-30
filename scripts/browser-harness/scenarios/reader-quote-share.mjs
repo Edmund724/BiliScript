@@ -6,7 +6,7 @@
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
 // 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内只有引号与正文、
-// 相纸底栏品牌角标、卡面不再出现视频标题与时间戳，字号由共享布局按卡宽落值（非固定 clamp），
+// 相纸底栏品牌角标与左侧双段标记、卡面不再出现视频标题与时间戳，字号由共享布局按卡宽落值（非固定 clamp），
 // 导出画布固定 1261×806（不随窗口宽度变化）。四象限（flyme/editorial × light/dark）
 // 下这些值全部来自 --biliscript-reader-* token，computed style、真 hover/:active
 // 伪类、focus-visible、busy 禁用态、真实下载与剪贴板写入全都够不着 jsdom。
@@ -60,7 +60,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/品牌" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/品牌/双段标记" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -139,6 +139,7 @@ const JS = {
     const cardText = host.querySelector('.biliscript-quote-card-text');
     const sheet = host.querySelector('.biliscript-quote-card-sheet');
     const brand = host.querySelector('.biliscript-quote-card-brand');
+    const motifBars = Array.from(host.querySelectorAll('.biliscript-quote-card-motif-bar'));
     const scrim = host.querySelector('.biliscript-quote-card-scrim');
     const source = host.querySelector('.biliscript-quote-card-source');
     if (!dialog || !mask || !close || !copy || !save || !card || !cardText || !sheet || !brand) {
@@ -189,6 +190,14 @@ const JS = {
       sheet: { backgroundColor: csSheet.backgroundColor },
       brand: { text: brand.textContent.trim(), color: csBrand.color, fontWeight: csBrand.fontWeight, fontSize: csBrand.fontSize },
       scrim: scrim ? { backgroundColor: csScrim.backgroundColor } : null,
+      motif: motifBars.length ? {
+        count: motifBars.length,
+        bars: motifBars.map((el) => ({
+          ...rect(el),
+          color: getComputedStyle(el).backgroundColor,
+          radius: getComputedStyle(el).borderRadius
+        }))
+      } : null,
       hasSourceTitle: !!source,
       hasTimestamp: !!host.querySelector('.biliscript-quote-card-timestamp'),
       dialog: {
@@ -777,6 +786,20 @@ async function main() {
       checkEquals("Q1.brand-wordmark", q1.probe?.brand?.text, "BiliScript");
       check("Q1.brand-ink-and-weight", q1.probe?.brand?.color === "rgb(23, 24, 26)" && q1.probe?.brand?.fontWeight === "600", { color: q1.probe?.brand?.color, weight: q1.probe?.brand?.fontWeight });
       check("Q1.brand-in-bottom-band", !!brandRect && !!cardRect && !!sheetRect && brandRect.top >= cardRect.bottom - 0.5 && brandRect.bottom <= sheetRect.bottom + 0.5, { brandRect, cardRect, sheetRect });
+      const bars = q1.probe?.motif?.bars ?? [];
+      const [lead, track] = bars;
+      checkEquals("Q1.motif-two-bars", q1.probe?.motif?.count, 2);
+      checkEquals("Q1.motif-lead-rose", lead?.color, "rgb(224, 74, 117)");
+      checkEquals("Q1.motif-track-gray", track?.color, "rgb(233, 235, 239)");
+      check("Q1.motif-pill-radius", !!lead && !!track && lead.radius === track.radius && parseFloat(lead.radius) >= lead.h / 2 - 0.01, { lead: lead?.radius, track: track?.radius });
+      check("Q1.motif-aligns-card-left", !!lead && !!cardRect && Math.abs(lead.left - cardRect.left) <= 1, { leadLeft: lead?.left, cardLeft: cardRect?.left });
+      check("Q1.motif-bar-proportions", !!lead && !!track && !!cardRect &&
+        Math.abs(lead.h / cardRect.w - 5 / 408) < 0.002 &&
+        Math.abs(lead.w / cardRect.w - 16 / 408) < 0.003 &&
+        Math.abs(track.w / cardRect.w - 36 / 408) < 0.003, { lead, track, cardW: cardRect?.w });
+      check("Q1.motif-on-band-centerline", !!lead && !!track && !!cardRect && !!sheetRect &&
+        Math.abs((lead.top + lead.h / 2) - (cardRect.bottom + (sheetRect.bottom - cardRect.bottom) / 2)) <= 1 &&
+        Math.abs(track.top - lead.top) <= 0.5, { lead, track, cardRect, sheetRect });
       checkEquals("Q1.scrim-16", q1.probe?.scrim?.backgroundColor, "rgba(0, 0, 0, 0.16)");
       await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/superellipse(1.25)/面板阴影/mask）");
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
