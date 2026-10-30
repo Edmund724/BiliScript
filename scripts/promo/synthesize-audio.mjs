@@ -326,7 +326,7 @@ function makeWhoosh() {
   return track;
 }
 
-// 0.20s 开场痛点气泡弹出音（Pop-Pop）：双段式弹性气泡连弹（预膨胀 Pop + 清脆高八度释压 Pop）
+// 气泡弹出音（Pop-Pop）：双段式弹性气泡连弹（预膨胀 Pop + 清脆高八度释压 Pop）
 function makePopPop() {
   const seconds = 0.2;
   const track = buffer(seconds);
@@ -356,48 +356,6 @@ function makePopPop() {
     const sample = Math.tanh((pop1 + pop2) * 1.35);
     track[0][i] = sample * 0.96 + pop2 * 0.08;
     track[1][i] = sample * 0.94 + pop1 * 0.08;
-  }
-  return track;
-}
-
-// 3.63s 开场切场响指声（Finger Snap）：指腹摩擦预振 + 掌心空腔清脆脆响 + 瞬态切场聚焦余韵
-function makeFingerSnap() {
-  const seconds = 0.22;
-  const track = buffer(seconds);
-  let cavityPhase = 0;
-  let prev = 0;
-  for (let i = 0; i < track[0].length; i += 1) {
-    const t = i / SAMPLE_RATE;
-    const w = noise();
-    const hp = w - prev * 0.88;
-    prev = w;
-    // 1. 0–9ms 指腹高速滑脱摩擦预振
-    const slideEnv = t < 0.009 ? Math.sin((t / 0.009) * Math.PI) * 0.32 : 0;
-    const slide = hp * slideEnv;
-
-    // 2. 9ms 处指尖击打掌根空腔（1.9kHz + 3.1kHz 双峰掌腔共鸣 + 瞬态脆裂）
-    const ts = Math.max(0, t - 0.0085);
-    const cavityFreq = 2180 * Math.exp(-ts * 42) + 860;
-    cavityPhase += (TAU * cavityFreq) / SAMPLE_RATE;
-    const snapCrack =
-      ts > 0
-        ? (Math.sin(cavityPhase) * 0.78 +
-            Math.sin(TAU * 3280 * ts) * 0.52 * Math.exp(-ts * 145) +
-            Math.sin(TAU * 1420 * ts) * 0.44 * Math.exp(-ts * 75) +
-            hp * 0.68 * Math.exp(-ts * 190)) *
-          Math.exp(-ts * 54) *
-          Math.min(1, ts / 0.00035)
-        : 0;
-    const bodyPop =
-      ts > 0
-        ? Math.sin(TAU * (165 + 140 * Math.exp(-ts * 70)) * ts) *
-          Math.exp(-ts * 38) *
-          Math.min(1, ts / 0.0008) *
-          0.52
-        : 0;
-    const sample = Math.tanh((slide + snapCrack + bodyPop) * 1.48);
-    track[0][i] = sample * 0.98;
-    track[1][i] = sample * 1.02;
   }
   return track;
 }
@@ -738,7 +696,6 @@ sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License
 
 const customSfxEntries = [
   {name: "pop", track: makePopPop(), peak: 0.78},
-  {name: "finger-snap", track: makeFingerSnap(), peak: 0.84},
   {name: "voice-fade", track: makeVoiceFadeTransition(), peak: 0.68},
   {name: "polaroid-shutter", track: makePolaroidShutter(), peak: 0.86},
   {name: "mech-key-1", track: makeMechKey({pitchScale: 0.98, isEnter: false}), peak: 0.78},

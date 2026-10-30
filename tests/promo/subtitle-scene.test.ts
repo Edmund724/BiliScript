@@ -8,7 +8,7 @@ const subtitleModulePath = "../../scripts/promo/video/SubtitleScene";
 // jsdom 环境里 new URL(相对, import.meta.url) 会按文档地址解析，这里用 dirname 定位源文件
 const subtitleSourcePath = join(dirname(fileURLToPath(import.meta.url)), "../../scripts/promo/video/SubtitleScene.tsx");
 
-describe("字幕镜头「搜词秒跳那一秒」场景大标题与底部原声字幕 (Ticket 02)", () => {
+describe("字幕镜头「搜词秒跳那一秒」场景大标题与底部原声字幕", () => {
   it("顶部大标题直接点明用户场景与功能，不再使用课程内容提问", async () => {
     const {SUBTITLE_HEADLINE, subtitleHeadlineOpacityAtFrame} = await import(subtitleModulePath);
     expect(SUBTITLE_HEADLINE).toBe("记得 UP 主提过那句话？搜词秒跳那一秒。");

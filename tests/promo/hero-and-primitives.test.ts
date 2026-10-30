@@ -4,7 +4,7 @@ const designModulePath = "../../scripts/promo/video/design";
 const heroModulePath = "../../scripts/promo/video/HeroScene";
 const timelineModulePath = "../../scripts/promo/timeline.mjs";
 
-describe("宣传片公共原语与开场一键总结 (Ticket 03)", () => {
+describe("宣传片公共原语与开场一键总结", () => {
   it("导出当前 B 站视频参照窗/标题条与原片底部大号讲课字幕原语", async () => {
     const {VideoReferenceCard, BottomLectureCaption} = await import(designModulePath);
     expect(typeof VideoReferenceCard).toBe("function");

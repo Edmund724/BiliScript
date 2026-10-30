@@ -15,7 +15,8 @@ export const HERO_SOURCE = {
 };
 
 export const HERO_FIRST_LINE = "点一下播放器，";
-export const HERO_SECOND_LINE = "整期视频自动读完。";
+export const HERO_SECOND_LINE_PARTS = ["整期视频", "自动读完"] as const;
+export const HERO_SECOND_LINE = `${HERO_SECOND_LINE_PARTS[0]}${HERO_SECOND_LINE_PARTS[1]}。`;
 export const HERO_FEATURE_LINE = "TL;DR · 分节要点 · 时间戳";
 
 const HeroCopy = () => {
@@ -93,9 +94,9 @@ const HeroCopy = () => {
             translate: `0px ${((1 - line2) * 22).toFixed(1)}px`
           }}
         >
-          整期视频
+          {HERO_SECOND_LINE_PARTS[0]}
           <span style={{position: "relative", display: "inline-block"}}>
-            自动读完
+            {HERO_SECOND_LINE_PARTS[1]}
             <span
               style={{
                 position: "absolute",

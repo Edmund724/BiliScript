@@ -11,7 +11,7 @@ const PROMPT_HEAD = "整理这期视频的内容";
 const STREAM_START_TIMEOUT_MS = 60000;
 const ANSWER_FLOW_MS = 4200;
 // 源素材固定 18s（540 帧）：点击/展开/提示词 + 约 10s 模型思考段 + 4s 左右答案正文流出。
-// 思考段由 03 在镜头内压缩或跳切；render.mjs 的素材时长契约按源素材标注。
+// 思考段由镜头内跳切压缩；render.mjs 的素材时长契约按源素材标注。
 const HERO_HOOK_FRAMES = 540;
 const DURATION_MENTION_PATTERN = /\d+(?:\.\d+)?\s*(?:minutes?|mins?|分钟|分)\b|\b\d{1,2}:\d{2}\b/;
 
@@ -283,7 +283,7 @@ export async function record() {
           thinkingLabel: answerStart.thinkingLabel
         });
         // 答案正文到达后，消息区由产品自动跟随滚动。记录首次滚动与 TL;DR 顶到
-        // 消息区顶部的时刻（03 推近取景用）；不额外写 scrollTop，避免反向跳动。
+        // 消息区顶部的时刻（镜头推近取景用）；不额外写 scrollTop，避免反向跳动。
         // 录制至少覆盖固定 18s；若答案起得晚，则延长到答案流出满 4.2s。
         const flowEndsAt = Math.max(HERO_HOOK_FRAMES / 30 * 1000, answerStartEvent.at * 1000 + ANSWER_FLOW_MS);
         let scrollEvent = null;
