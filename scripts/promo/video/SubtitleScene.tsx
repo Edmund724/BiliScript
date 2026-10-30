@@ -51,7 +51,7 @@ const PLAYER_STAGE_TRANSFORM = {
 
 const LectureVideoBackdrop = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
-  const dimOpacity = interpolate(frame, [4, 14, SUBTITLE_MATCH_FRAME - 1, SUBTITLE_MATCH_FRAME + 7], [0, 1, 1, 0], {
+  const dimOpacity = interpolate(frame, [SUBTITLE_MATCH_FRAME - 1, SUBTITLE_MATCH_FRAME + 7], [1, 0], {
     ...CLAMP,
     easing: SMOOTH
   });
@@ -118,17 +118,113 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
   );
 };
 
+const KEYWORD_SLICES = [
+  {clip: "inset(0% 0% 64% 0%)", offset: -6},
+  {clip: "inset(33% 0% 33% 0%)", offset: 7},
+  {clip: "inset(64% 0% 0% 0%)", offset: -4}
+] as const;
+
+const SubtitleKeywordSlice = () => {
+  const frame = useCurrentFrame();
+  if (frame >= 12) return null;
+
+  const sliceSpread = interpolate(frame, [0, 8], [1, 0], {...CLAMP, easing: SMOOTH});
+  const dockProgress = interpolate(frame, [6, 11], [0, 1], {...CLAMP, easing: SMOOTH});
+  const opacity = interpolate(frame, [0, 2, 9.5, 11.8], [0.9, 1, 1, 0], CLAMP);
+  const pillChromeOpacity = interpolate(frame, [6, 10.5], [1, 0], CLAMP);
+  const x = interpolate(dockProgress, [0, 1], [960, 824]);
+  const y = interpolate(dockProgress, [0, 1], [222, 363]);
+  const scale = interpolate(dockProgress, [0, 1], [1, 0.62]);
+  const resolveFlash = interpolate(frame, [6, 8, 11], [0, 1, 0], CLAMP);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        transform: `translate(-50%, -50%) scale(${scale.toFixed(3)})`,
+        opacity,
+        pointerEvents: "none",
+        zIndex: 9
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: 212,
+          height: 88,
+          borderRadius: 22,
+          background: `rgba(255, 255, 255, ${(0.94 * pillChromeOpacity).toFixed(2)})`,
+          boxShadow:
+            pillChromeOpacity > 0.05
+              ? `0 20px 44px -12px rgba(0, 140, 255, ${((0.24 + resolveFlash * 0.22) * pillChromeOpacity).toFixed(2)}), 0 0 0 2px rgba(0, 140, 255, ${((0.32 + resolveFlash * 0.4) * pillChromeOpacity).toFixed(2)})`
+              : "none"
+        }}
+      >
+        {KEYWORD_SLICES.map((slice, index) => (
+          <div
+            key={index}
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              clipPath: slice.clip,
+              transform: `translateX(${(slice.offset * sliceSpread).toFixed(1)}px)`,
+              fontFamily: FONT_FAMILY,
+              fontSize: 58,
+              fontWeight: 860,
+              letterSpacing: 4,
+              color: MIST_GLASS.accent
+            }}
+          >
+            {SUBTITLE_SEARCH_QUERY}
+          </div>
+        ))}
+        {sliceSpread > 0.02 && (
+          <>
+            <div
+              style={{
+                position: "absolute",
+                left: 16,
+                right: 16,
+                top: "35%",
+                height: 2,
+                background: "linear-gradient(90deg, transparent, rgba(0, 140, 255, 0.72), transparent)",
+                opacity: sliceSpread
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: 16,
+                right: 16,
+                top: "65%",
+                height: 2,
+                background: "linear-gradient(90deg, transparent, rgba(232, 93, 135, 0.68), transparent)",
+                opacity: sliceSpread
+              }}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SubtitleHeroSpotlight = () => {
   const frame = useCurrentFrame();
-  if (frame < 4 || frame > 68) return null;
+  if (frame > 68) return null;
 
-  const enter = interpolate(frame, [4, 14], [0, 1], {...CLAMP, easing: SMOOTH});
+  const enter = interpolate(frame, [0, 8], [0.76, 1], {...CLAMP, easing: SMOOTH});
   const exit = interpolate(frame, [SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 6], [1, 0], {...CLAMP, easing: SMOOTH});
   const opacity = enter * exit;
   const cardScale =
-    interpolate(frame, [4, 14], [0.94, 1], {...CLAMP, easing: SMOOTH}) *
+    interpolate(frame, [0, 8], [0.97, 1], {...CLAMP, easing: SMOOTH}) *
     interpolate(frame, [SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 6], [1, 1.04], {...CLAMP, easing: SMOOTH});
-  const cardY = interpolate(frame, [4, 14], [28, 0], {...CLAMP, easing: SMOOTH});
+  const cardY = interpolate(frame, [0, 8], [16, 0], {...CLAMP, easing: SMOOTH});
 
   const typedQuery = subtitleTypedQueryAtFrame(frame);
   const resultsProgress = interpolate(frame, [16, 25], [0, 1], {...CLAMP, easing: SMOOTH});
@@ -230,6 +326,7 @@ const SubtitleHeroSpotlight = () => {
             <span
               style={{
                 color: typedQuery ? MIST_GLASS.text : MIST_GLASS.faint,
+                opacity: typedQuery ? 1 : interpolate(frame, [6, 10], [0.85, 0], CLAMP),
                 fontSize: 38,
                 fontWeight: 760,
                 letterSpacing: -0.8
@@ -396,7 +493,7 @@ const Title = ({duration}: {duration: number}) => {
         </>
       }
       titleSize={60}
-      delay={0}
+      delay={-12}
       opacity={opacity}
     />
   );
@@ -406,6 +503,7 @@ export const SubtitleScene = ({duration}: {duration: number}) => (
   <div style={{position: "absolute", inset: 0, overflow: "hidden", background: COLORS.background}}>
     <LectureVideoBackdrop duration={duration} />
     <SubtitleHeroSpotlight />
+    <SubtitleKeywordSlice />
     <SubtitleVoiceOverlay duration={duration} />
     <Title duration={duration} />
   </div>

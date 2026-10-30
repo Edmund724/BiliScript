@@ -289,32 +289,47 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
         style={{
           position: "relative",
           width: 880,
-          borderRadius: 28,
-          background: "#FBF6EC",
-          boxShadow: ELEVATION.heroFloat,
+          borderRadius: 30,
+          overflow: "hidden",
+          background: MIST_GLASS.surface,
+          backdropFilter: "blur(24px) saturate(1.2)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.2)",
+          boxShadow: MIST_GLASS.shellShadow,
           padding: "28px 36px 36px",
           transform: microPerspective(-6),
           transformOrigin: "50% 50%",
-          color: "#221C16"
+          color: MIST_GLASS.text
         }}
       >
-        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
-          <span style={{color: "#6B5E51", fontSize: 22, fontWeight: 620}}>UP主: 复旦赵斌</span>
-          <div style={{display: "flex", alignItems: "center", gap: 22, color: "#574B40", fontSize: 22}}>
-            <span>☀</span>
-            <span>⚙</span>
-            <span>✕</span>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: MIST_GLASS.blobs,
+            filter: "blur(28px)",
+            pointerEvents: "none"
+          }}
+        />
+
+        <div style={{position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
+          <span style={{color: MIST_GLASS.muted, fontSize: 22, fontWeight: 620}}>UP主: 复旦赵斌</span>
+          <div style={{display: "flex", alignItems: "center", gap: 18, color: MIST_GLASS.text}}>
+            <AppearanceIcon name="theme" size={22} />
+            <AppearanceIcon name="settings" size={22} />
+            <AppearanceIcon name="close" size={22} />
           </div>
         </div>
 
         <div
           style={{
+            position: "relative",
+            zIndex: 1,
             display: "grid",
             gridTemplateColumns: "1fr 1fr 1fr auto",
             alignItems: "center",
             gap: 10,
             paddingBottom: 18,
-            borderBottom: "1px solid rgba(140, 123, 107, 0.18)",
+            borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
             marginBottom: 20
           }}
         >
@@ -325,9 +340,9 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                 padding: "11px 0",
                 textAlign: "center",
                 borderRadius: 12,
-                background: idx === 2 ? "#F2E9D8" : "transparent",
-                boxShadow: idx === 2 ? "0 2px 8px rgba(34, 28, 22, 0.06), 0 0 0 1px rgba(181, 71, 42, 0.18)" : "none",
-                color: idx === 2 ? "#B5472A" : "#574B40",
+                background: idx === 2 ? MIST_GLASS.cardElevated : "transparent",
+                boxShadow: idx === 2 ? MIST_GLASS.tabActiveShadow : "none",
+                color: idx === 2 ? MIST_GLASS.accent : MIST_GLASS.muted,
                 fontSize: 21,
                 fontWeight: idx === 2 ? 740 : 620
               }}
@@ -335,18 +350,19 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
               {tab}
             </div>
           ))}
-          <div style={{padding: "0 10px", color: "#6B5E51", fontSize: 22, fontWeight: 700}}>⋮</div>
+          <div style={{padding: "0 10px", color: MIST_GLASS.muted, fontSize: 22, fontWeight: 700}}>⋮</div>
         </div>
 
-        <div style={{opacity: answerReveal}}>
+        <div style={{position: "relative", zIndex: 1, opacity: answerReveal}}>
           <div style={{display: "flex", justifyContent: "flex-end", marginBottom: 30}}>
             <div
               style={{
                 maxWidth: 720,
                 padding: "16px 26px",
                 borderRadius: "22px 22px 8px 22px",
-                background: "rgba(232, 93, 135, 0.12)",
-                color: "#3C2A31",
+                background: "rgba(0, 140, 255, 0.12)",
+                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.72)",
+                color: MIST_GLASS.text,
                 fontSize: 25,
                 fontWeight: 660,
                 lineHeight: 1.45,
@@ -372,8 +388,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                   width: 26,
                   height: 26,
                   borderRadius: "50%",
-                  background: "rgba(181, 71, 42, 0.12)",
-                  color: "#B5472A",
+                  background: MIST_GLASS.accentSoft,
+                  color: MIST_GLASS.accent,
                   fontSize: 16,
                   fontWeight: 800,
                   display: "flex",
@@ -384,7 +400,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
               >
                 ✓
               </span>
-              <span style={{fontSize: 28, fontWeight: 700, color: "#1E1914", letterSpacing: -0.6, whiteSpace: "nowrap"}}>
+              <span style={{fontSize: 28, fontWeight: 700, color: MIST_GLASS.text, letterSpacing: -0.6, whiteSpace: "nowrap"}}>
                 {conclusion}
               </span>
               {index > 0 ? null : (
@@ -396,15 +412,15 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                     marginLeft: 6,
                     padding: "10px 22px",
                     borderRadius: 999,
-                    background: isClicked ? "rgba(232, 93, 135, 0.22)" : "rgba(181, 71, 42, 0.12)",
+                    background: isClicked ? "rgba(232, 93, 135, 0.18)" : MIST_GLASS.timeBg,
                     boxShadow:
                       highlightOpacity > 0.05
                         ? `0 14px 32px -8px rgba(232, 93, 135, ${(0.52 * highlightOpacity).toFixed(2)}), 0 0 0 2.5px rgba(232, 93, 135, ${(0.6 * highlightOpacity).toFixed(2)})`
-                        : "0 0 0 1px rgba(181, 71, 42, 0.26)",
+                        : "0 0 0 1px rgba(0, 140, 255, 0.24)",
                     fontFamily: BRAND_FONT_FAMILY,
                     fontSize: 28,
                     fontWeight: 750,
-                    color: isClicked ? COLORS.pink : "#B5472A",
+                    color: isClicked ? COLORS.pink : MIST_GLASS.timeColor,
                     fontVariantNumeric: "tabular-nums",
                     whiteSpace: "nowrap"
                   }}
