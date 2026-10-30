@@ -14,7 +14,7 @@
 //      钳到半高，首尾行左缘文字会被裁进弧线里），白卡同时包住时间戳与文字；底色消费
 //      --biliscript-reader-card 白卡令牌（色板/深色档自动跟随），软投影与
 //      tab.is-active 同款（深色档投影换黑）。左侧时刻文本列锁定网格槽位
-//     （继承基础网格 var(--biliscript-reader-time-col)，窄档 64px 同样对齐），
+//     （继承基础网格 var(--biliscript-reader-time-col)，随字号缩放且宽窄档同样对齐），
 //      卡内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
 //      padding 1px 7px 随内容收紧、圆角 999px 全胶囊形、列内左对齐；正文深色加粗 600，
 //      确保正文起始 X 坐标与未激活行垂直对齐。is-active 规则书写在 :hover 之后。
@@ -90,7 +90,10 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
     const activeBlock = ruleBody(css, "#biliscript-reading-view \\.biliscript-reading-item\\.is-active");
     const timeBlock = ruleBody(css, "\\.biliscript-reading-time");
 
-    // 基础条目声明固定时间戳列变量与网格列规
+    // 时间戳列与字号使用同一缩放系数，避免胶囊在调大字号后侵入正文列
+    expect(declaration(baseBlock, "--biliscript-reader-time-col")).toBe(
+      "calc(76px * var(--biliscript-reader-font-scale, 1))"
+    );
     expect(declaration(baseBlock, "grid-template-columns")).toBe(
       "var(--biliscript-reader-time-col) minmax(0, 1fr)"
     );
@@ -101,12 +104,12 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
     // 时间戳徽标在列内左对齐包裹自身宽度
     expect(declaration(timeBlock, "justify-self")).toBe("start");
 
-    // 窄面板容器查询档位同样下发 64px time-col 覆写
+    // 窄面板只收紧间距与内边距，不再覆写时间列
     const containerBlock = ruleBody(
       css,
       "#biliscript-reading-view \\.biliscript-reading-item"
     );
-    expect(declaration(containerBlock, "--biliscript-reader-time-col")).toBe("64px");
+    expect(declaration(containerBlock, "--biliscript-reader-time-col")).toBeUndefined();
   });
 
   it("活动行文字在白卡内：深色加粗、可收进 max-width 折行，不自带底色", () => {

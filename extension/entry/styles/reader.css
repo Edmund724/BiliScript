@@ -636,7 +636,7 @@
   height: 0;
 }
 .biliscript-reading-item {
-  --biliscript-reader-time-col: 76px;
+  --biliscript-reader-time-col: calc(76px * var(--biliscript-reader-font-scale, 1));
   width: 100%;
   display: grid;
   grid-template-columns: var(--biliscript-reader-time-col) minmax(0, 1fr);
@@ -792,7 +792,7 @@
 }
 
 /* 活动行 = 整颗白卡：行容器切 inline-grid、宽度随内容自适应包裹（max-width 100% 兜底长句折行），
- * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，窄档 64px 同样对齐）；
+ * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，随字号缩放且宽窄档同样对齐）；
  * 白卡同时包住时间戳与文字，右缘随文字结束，确保正文左边缘与未激活行严格垂直对齐；
  * 内边距沿用基础行（10px 12px），激活切换不改行高。
  * 圆角 12px，与分段控件槽/项、tab 内容卡、章节/金句卡同一半径语言
@@ -847,7 +847,6 @@
  * 属安全降级。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-item {
-    --biliscript-reader-time-col: 64px;
     gap: 10px;
     padding: 10px 8px;
   }
