@@ -13,8 +13,8 @@ export const HERO_TIMELINE = {
   clickAt: 41,
   pageTurnAt: 48,
   answerAt: 66,
-  pushInFrom: 78,
-  pushInTo: 108,
+  pushInFrom: 80,
+  pushInTo: 116,
   holdAt: 132
 };
 

@@ -239,7 +239,7 @@ const IconOrbit = () => {
   const frame = useCurrentFrame();
   if (frame < HERO_TIMELINE.iconAt || frame >= HERO_TIMELINE.pageTurnAt) return null;
 
-  const appear = interpolate(frame, [HERO_TIMELINE.iconAt, HERO_TIMELINE.iconAt + 7], [0, 1], {
+  const appear = interpolate(frame, [HERO_TIMELINE.iconAt, HERO_TIMELINE.iconAt + 7], [0.35, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic)
@@ -395,20 +395,26 @@ const HeroVideo = () => {
 
 export const HeroScene = () => {
   const frame = useCurrentFrame();
-  const push = interpolate(frame, [HERO_TIMELINE.pushInFrom, HERO_TIMELINE.pushInTo], [0, 1], {
+  const pan = interpolate(frame, [HERO_TIMELINE.pushInFrom, HERO_TIMELINE.pushInFrom + 14], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: Easing.bezier(0.22, 1, 0.36, 1)
+    easing: Easing.out(Easing.cubic)
+  });
+  const zoom = interpolate(frame, [HERO_TIMELINE.pushInFrom, HERO_TIMELINE.pushInTo], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.inOut(Easing.cubic)
   });
   const settle = interpolate(frame, [HERO_TIMELINE.pushInTo, HERO_TIMELINE.holdAt], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic)
   });
-  const cameraScale = 1 + push * (CAMERA.zoom - 1) + settle * CAMERA.drift;
-  const zoomProgress = Math.min(1, (cameraScale - 1) / (CAMERA.zoom - 1));
-  const cameraLeft = (960 - CAMERA.originX * 1920 * cameraScale) * zoomProgress;
-  const cameraTop = (540 - CAMERA.originY * 1080 * cameraScale) * zoomProgress;
+  const cameraScale = 1 + zoom * (CAMERA.zoom - 1) + settle * CAMERA.drift;
+  const focusX = 960 + (CAMERA.originX * 1920 - 960) * pan;
+  const focusY = 540 + (CAMERA.originY * 1080 - 540) * pan;
+  const cameraLeft = 960 - focusX * cameraScale;
+  const cameraTop = 540 - focusY * cameraScale;
 
   return (
     <AbsoluteFill style={{background: COLORS.background, fontFamily: FONT_FAMILY, overflow: "hidden"}}>
