@@ -5,6 +5,7 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 export const PANEL_CROPS_FILE = path.join(REPO_ROOT, "scripts", "promo", "generated", "panel-crops.json");
 
 const PANEL_RECORDINGS = {
+  hero: "00-hero-hook",
   overview: "04-overview-chapters",
   chat: "04-chat"
 };
