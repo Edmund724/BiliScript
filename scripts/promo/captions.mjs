@@ -13,8 +13,8 @@ const voiceMilliseconds = (id) => {
 // @ts-check
 /** @type {(import("@remotion/captions").Caption & {sceneId: string})[]} */
 export const CAPTIONS = [
-  {sceneId: "hero", text: "1 小时干货长视频，还在收藏夹吃灰？", startMs: 0, endMs: 1600, timestampMs: null, confidence: null},
-  {sceneId: "hero", text: "BiliScript · 在 B 站直接「读」视频", startMs: 1900, endMs: 4800, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "点一下播放器，整期视频自动读完。", startMs: 100, endMs: 2100, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "TL;DR · 分节要点 · 时间戳", startMs: 2100, endMs: 5000, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "记得 UP 主提过那句话？搜词秒跳那一秒。", startMs: 5100, endMs: 6800, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "04:07 赵老师原声回应：“……也很难避免幻觉。”", ...voiceMilliseconds("voice-0407"), timestampMs: null, confidence: null},
   {sceneId: "overview", text: "48 分钟长视频，3 秒提炼章节脉络与金句。", startMs: 9100, endMs: 11700, timestampMs: null, confidence: null},

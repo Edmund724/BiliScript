@@ -246,7 +246,7 @@ function makeScore() {
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调：开场两个英雄节拍 + 除片头片尾外的每个镜头切点 + 品牌落定
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
   const sceneCutHits = SCENES.filter((scene) => scene.id !== "hero" && scene.id !== "outro").map((scene) => scene.from / PROMO_FPS);
-  const cutHits = [HERO_TIMELINE.hookHoldUntil / PROMO_FPS, HERO_TIMELINE.snapEmphasisAt / PROMO_FPS, ...sceneCutHits, resolveAt];
+  const cutHits = [HERO_TIMELINE.clickAt / PROMO_FPS, HERO_TIMELINE.answerAt / PROMO_FPS, ...sceneCutHits, resolveAt];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= SUBTOOLS_FROM ? 0.62 : 0.52), cutAt);
   }
