@@ -21,5 +21,6 @@ export const OUTRO_TIMELINE = {
   installClickAt: 58,
   pointerExitAt: 62,
   pointerGoneAt: 66,
+  recapAt: 69,
   finalHoldAt: 75
 };

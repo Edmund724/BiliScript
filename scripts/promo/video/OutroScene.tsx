@@ -11,18 +11,31 @@ const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
 const BRAND_ICON_OUTSET = (BRAND_GROUP_WIDTH - BRAND_ICON.size) / 2;
 const TAGLINE_TOP = 520;
 const CTA_TOP = 616;
+// 三连星火以安装按钮为中心向下最远扩到 765px，兼容行与回收行都排在星火之下。
+const COMPAT_TOP = 776;
+const RECAP_TOP = 844;
 const INSTALL_POINTER = {x: 880, y: CTA_TOP + 42};
+const RECAP_ITEMS = ["搜原话", "读章节", "问依据"];
 
-const EdgeIcon = () => (
-  <svg width={32} height={32} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+const ChromeIcon = ({size = 26}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <circle cx="16" cy="16" r="15" fill="#EA4335" />
+    <path d="M16 16 28.99 8.5A15 15 0 0 1 16 31Z" fill="#FBBC05" />
+    <path d="M16 16 16 31A15 15 0 0 1 3.01 8.5Z" fill="#34A853" />
+    <circle cx="16" cy="16" r="6.8" fill="#4285F4" />
+  </svg>
+);
+
+const EdgeIcon = ({size = 32, gradientId = "edge-wave"}: {size?: number; gradientId?: string}) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
     <defs>
-      <linearGradient id="edge-wave" x1="5" y1="5" x2="27" y2="27" gradientUnits="userSpaceOnUse">
+      <linearGradient id={gradientId} x1="5" y1="5" x2="27" y2="27" gradientUnits="userSpaceOnUse">
         <stop stopColor="#B9F4F1" />
         <stop offset="0.48" stopColor="#56D6E8" />
         <stop offset="1" stopColor="#8CE5C1" />
       </linearGradient>
     </defs>
-    <path d="M28.4 18.1c.5-7.8-4.6-13.8-12.5-13.8C8.8 4.3 3.2 10 3.1 17.9c4.2-5.8 9.1-8.7 14.8-8.7 4.4 0 7.2 2.1 7.2 5.2 0 2.5-1.8 4.1-5.2 4.1h-6.1c-3.5 0-5.8 1.6-5.8 4.1 0 3.1 3.3 5.2 8.2 5.2 6.5 0 11.1-3.8 12.2-9.7Z" fill="url(#edge-wave)" />
+    <path d="M28.4 18.1c.5-7.8-4.6-13.8-12.5-13.8C8.8 4.3 3.2 10 3.1 17.9c4.2-5.8 9.1-8.7 14.8-8.7 4.4 0 7.2 2.1 7.2 5.2 0 2.5-1.8 4.1-5.2 4.1h-6.1c-3.5 0-5.8 1.6-5.8 4.1 0 3.1 3.3 5.2 8.2 5.2 6.5 0 11.1-3.8 12.2-9.7Z" fill={`url(#${gradientId})`} />
     <path d="M3.2 17.8C5.4 10.4 11 6.2 17.8 6.2c5.1 0 8.5 2.2 10.3 6.2-.4-5.4-5.3-9.5-12.2-9.5C8.7 2.9 2.8 9.1 3.2 17.8Z" fill="#D7FAF4" fillOpacity={0.85} />
   </svg>
 );
@@ -291,20 +304,24 @@ const CallToAction = () => {
           position: "absolute",
           left: 0,
           right: 0,
-          top: CTA_TOP + 96,
+          top: COMPAT_TOP,
           textAlign: "center",
-          color: COLORS.muted,
-          fontSize: 16,
+          color: "#475467",
+          fontSize: 22,
           fontWeight: 500,
-          letterSpacing: 0.4,
-          opacity: interpolate(frame, [OUTRO_TIMELINE.ctaAt + 4, OUTRO_TIMELINE.ctaAt + 16], [0, 0.86], CLAMP),
-          translate: interpolate(frame, [OUTRO_TIMELINE.ctaAt + 4, OUTRO_TIMELINE.ctaAt + 16], ["0px 10px", "0px 0px"], {
+          letterSpacing: 0.2,
+          opacity: interpolate(frame, [OUTRO_TIMELINE.taglineAt - 4, OUTRO_TIMELINE.taglineAt + 4], [0, 1], CLAMP),
+          translate: interpolate(frame, [OUTRO_TIMELINE.taglineAt - 4, OUTRO_TIMELINE.taglineAt + 8], ["0px 10px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           })
         }}
       >
-        支持 Chrome / Edge 等 Chromium 内核浏览器 · 免费开源
+        <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: 10}}>
+          <ChromeIcon size={28} />
+          <EdgeIcon size={28} gradientId="edge-wave-compat" />
+          <span>Chrome / Edge 等 Chromium 浏览器 · 免费开源</span>
+        </div>
       </div>
       <div
         style={{
@@ -348,6 +365,60 @@ const CallToAction = () => {
   );
 };
 
+const CapabilityRecap = () => {
+  const frame = useCurrentFrame();
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: RECAP_TOP,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 30
+      }}
+    >
+      {RECAP_ITEMS.map((label, index) => {
+        const start = OUTRO_TIMELINE.recapAt + index * 3;
+        const opacity = interpolate(frame, [start, start + 10], [0, 1], CLAMP);
+        const lift = interpolate(frame, [start, start + 10], [14, 0], {...CLAMP, easing: ENTRANCE_EASING});
+        return (
+          <div key={label} style={{display: "flex", alignItems: "center", gap: 30}}>
+            {index > 0 ? (
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  backgroundColor: COLORS.pink,
+                  opacity: opacity * 0.7,
+                  translate: `0px ${lift}px`
+                }}
+              />
+            ) : null}
+            <span
+              style={{
+                color: COLORS.inkSoft,
+                fontSize: 36,
+                fontWeight: 600,
+                letterSpacing: 1.6,
+                lineHeight: 1.2,
+                whiteSpace: "nowrap",
+                opacity,
+                translate: `0px ${lift}px`
+              }}
+            >
+              {label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const BrandStage = () => {
   const frame = useCurrentFrame();
   const push = interpolate(frame, [OUTRO_TIMELINE.brandPushAt, OUTRO_TIMELINE.duration - 1], [1, OUTRO_TIMELINE.brandPushScale], CLAMP);
@@ -355,6 +426,7 @@ const BrandStage = () => {
     <div style={{position: "absolute", inset: 0, scale: push, transformOrigin: "50% 50%"}}>
       <FinalBrand />
       <CallToAction />
+      <CapabilityRecap />
     </div>
   );
 };
