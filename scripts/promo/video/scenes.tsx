@@ -55,9 +55,9 @@ const PUSH_EASING = Easing.bezier(0.45, 0, 0.15, 1);
 type HeadlinePart = {text: string; accent?: boolean};
 
 const CHAT_HEADLINE: HeadlinePart[][] = [
-  [{text: "带着问题"}, {text: "追问视频", accent: true}, {text: "，"}],
-  [{text: "点按"}, {text: "时间戳", accent: true}, {text: "让 UP 主亲自举证。"}]
+  [{text: "有疑问，直接"}, {text: "问视频", accent: true}, {text: "。"}]
 ];
+const CHAT_SUBHEADLINE = "回答带时间戳，点开就是原片";
 
 export const CHAT_QUESTION = "为什么作者说 AI 并非越强越好，适配才是关键？";
 export const CHAT_CONCLUSIONS = ["人与 AI 是「协作」，不是「替代」", "象棋实验：会配合的组合胜过最强单兵"];
@@ -474,7 +474,7 @@ export const ChatScene = () => {
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <BrandWhisper />
-      <SectionHeadline lines={CHAT_HEADLINE} opacity={1 - Math.min(1, verifyBlend * 3)} />
+      <SectionHeadline lines={CHAT_HEADLINE} subtext={CHAT_SUBHEADLINE} opacity={1 - Math.min(1, verifyBlend * 3)} />
       <ChatVerifyWindow progress={verifyBlend} />
       <ChatReferenceBar opacity={1 - Math.min(1, verifyBlend * 4)} />
       <ChatHeroPanel panelLeft={panelLeft} panelScale={panelScale} />
@@ -975,14 +975,14 @@ export const SubtoolsScene = () => {
    副标/追问气泡：超纲概念背景补充
    ========================================================================== */
 
-export const WEBSEARCH_HEADLINE = "UP 主说得对不对？\nAI 联网检索辅助核对。";
-export const WEBSEARCH_SUBHEADLINE = "超纲概念听不懂？检索公开网页和论文摘要，附来源链接，方便进一步核实。";
+export const WEBSEARCH_HEADLINE = "这说法靠谱吗？\n查原文，附来源。";
+export const WEBSEARCH_SUBHEADLINE = "联网检索 · 论文摘要";
 export const WEBSEARCH_QUESTION = "UP 主说 MLA 能省 93% KV Cache，有依据吗？这个超纲概念怎么理解？";
 export const WEBSEARCH_CONCLUSION = "论文摘要：DeepSeek-V2 相比 DeepSeek 67B，KV Cache 减少 93.3%";
 
 const WEBSEARCH_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "UP 主说得"}, {text: "对不对", accent: true}, {text: "？"}],
-  [{text: "AI 联网检索辅助核对", accent: true}, {text: "。"}]
+  [{text: "这说法"}, {text: "靠谱吗", accent: true}, {text: "？"}],
+  [{text: "查原文，"}, {text: "附来源", accent: true}, {text: "。"}]
 ];
 
 export const WebSearchScene = () => {
@@ -1161,8 +1161,8 @@ export const WebSearchScene = () => {
 export const APPEARANCE_THEMES = APPEARANCE_SHOTS;
 
 const APPEARANCE_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "蓝雾玻璃或"}, {text: "纸质刊物", accent: true}, {text: "，"}],
-  [{text: "四款主题"}, {text: "日夜皆宜", accent: true}, {text: "。"}]
+  [{text: "四种主题", accent: true}, {text: "，"}],
+  [{text: "挑一个读着"}, {text: "舒服", accent: true}, {text: "的。"}]
 ];
 
 type ThemeStyleConfig = {
@@ -1341,7 +1341,7 @@ export const AppearanceScene = () => {
       <BrandWhisper />
       <SectionHeadline
         lines={APPEARANCE_HEADLINE_LINES}
-        subtext="同一阅读面板连续切换四套日夜主题，字号放大与杂志级衬线排版一目了然。"
+        subtext="蓝雾玻璃 / 数字刊物 · 日夜双模"
       />
 
       {/* Left 4-Theme Live Switcher Pills */}

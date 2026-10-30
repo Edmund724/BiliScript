@@ -57,11 +57,12 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
     expect(allCaptionTexts).not.toContain("预设");
     expect(allCaptionTexts).not.toContain("自定义端点");
 
-    expect(providerMod.PROVIDER_HEADLINE).toBe("接入你顺手的 AI 大脑");
-    expect(providerMod.PROVIDER_SUBHEADLINE).toBe("支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型");
-    expect(`${providerMod.PROVIDER_BENEFIT_TAG} ${providerMod.PROVIDER_HEADLINE} ${providerMod.PROVIDER_SUBHEADLINE}`).not.toContain("内置");
-    expect(`${providerMod.PROVIDER_BENEFIT_TAG} ${providerMod.PROVIDER_HEADLINE} ${providerMod.PROVIDER_SUBHEADLINE}`).not.toContain("预设");
-    expect(`${providerMod.PROVIDER_BENEFIT_TAG} ${providerMod.PROVIDER_HEADLINE} ${providerMod.PROVIDER_SUBHEADLINE}`).not.toContain("自定义端点");
+    expect(providerMod.PROVIDER_HEADLINE).toBe("用你已有的 AI。");
+    expect(providerMod.PROVIDER_SUBHEADLINE).toBe("DeepSeek · Kimi · Qwen 等 14+ 平台，支持本地模型");
+    const providerCopy = `${providerMod.PROVIDER_HEADLINE} ${providerMod.PROVIDER_SUBHEADLINE}`;
+    expect(providerCopy).not.toContain("内置");
+    expect(providerCopy).not.toContain("预设");
+    expect(providerCopy).not.toContain("自定义端点");
 
     const scenesSource = readFileSync(scenesFilePath, "utf8");
     expect(scenesSource).not.toContain("appearance.mp4");

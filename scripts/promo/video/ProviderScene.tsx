@@ -55,9 +55,8 @@ const OrbitTrack = ({opacity}: {opacity: number}) => (
   </svg>
 );
 
-export const PROVIDER_HEADLINE = "接入你顺手的 AI 大脑";
-export const PROVIDER_SUBHEADLINE = "支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型";
-export const PROVIDER_BENEFIT_TAG = "不被单一 AI 绑定 · 自由接入外部 API";
+export const PROVIDER_HEADLINE = "用你已有的 AI。";
+export const PROVIDER_SUBHEADLINE = "DeepSeek · Kimi · Qwen 等 14+ 平台，支持本地模型";
 
 const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
   const frame = useCurrentFrame();
@@ -119,22 +118,6 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
         <div>
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "5px 14px",
-              borderRadius: 999,
-              background: "rgba(232, 93, 135, 0.10)",
-              color: "#C81E5B",
-              fontSize: 18,
-              fontWeight: 700,
-              letterSpacing: 0.2,
-              marginBottom: 10
-            }}
-          >
-            {PROVIDER_BENEFIT_TAG}
-          </div>
-          <div
-            style={{
               color: COLORS.foreground,
               fontSize: 46,
               fontWeight: 700,
@@ -149,7 +132,7 @@ const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
             style={{
               marginTop: 10,
               color: COLORS.muted,
-              fontSize: 23,
+              fontSize: 25,
               fontWeight: 560,
               lineHeight: 1.25,
               letterSpacing: -0.2,

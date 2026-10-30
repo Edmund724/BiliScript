@@ -11,7 +11,7 @@ const subtitleSourcePath = join(dirname(fileURLToPath(import.meta.url)), "../../
 describe("字幕镜头「搜词秒跳那一秒」场景大标题与底部原声字幕 (Ticket 02)", () => {
   it("顶部大标题直接点明用户场景与功能，不再使用课程内容提问", async () => {
     const {SUBTITLE_HEADLINE, subtitleHeadlineOpacityAtFrame} = await import(subtitleModulePath);
-    expect(SUBTITLE_HEADLINE).toBe("记得 UP 主提过那句话？搜词秒跳那一秒。");
+    expect(SUBTITLE_HEADLINE).toBe("只记得半句话，\n搜一下回到那一秒。");
     expect(SUBTITLE_HEADLINE).not.toContain("记得老师提过");
     expect(subtitleHeadlineOpacityAtFrame(6)).toBe(1);
     expect(subtitleHeadlineOpacityAtFrame(45)).toBe(1);

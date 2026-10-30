@@ -20,7 +20,8 @@ const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.from === "overview")!;
 
-export const OVERVIEW_HEADLINE = "48 分钟长视频，\n3 秒提炼章节脉络与金句。";
+export const OVERVIEW_HEADLINE = "48 分钟，\n3 秒读完结构和金句。";
+export const OVERVIEW_SUBHEADLINE = "AI 章节脉络 · 金句提炼";
 
 export const OVERVIEW_VIDEO_REFERENCE = {
   headerText: "正在阅读：复旦赵斌《大模型公开课》48:16",
@@ -609,8 +610,9 @@ export const OverviewScene = ({duration}: {duration: number}) => {
       <BrandWhisper />
       <SceneTitle
         title={OVERVIEW_HEADLINE}
-        size={66}
-        style={{left: 96, top: 186, width: 848}}
+        subtitle={OVERVIEW_SUBHEADLINE}
+        size={64}
+        style={{left: 96, top: 156, width: 848}}
       />
       <VideoReference duration={duration} />
       <div

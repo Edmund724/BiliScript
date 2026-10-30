@@ -617,9 +617,10 @@ export const entranceOpacity = (frame: number, start = 0, from = ENTRANCE_OPACIT
         easing: ENTRANCE_EASING
       });
 
-export const SceneTitle = ({title, titleNode, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
+export const SceneTitle = ({title, titleNode, titleNodes, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
   title: string;
   titleNode?: ReactNode;
+  titleNodes?: (ReactNode | undefined)[];
   subtitle?: string;
   style?: CSSProperties;
   align?: "left" | "center";
@@ -644,6 +645,7 @@ export const SceneTitle = ({title, titleNode, subtitle, style = {}, align = "lef
     >
       {lines.map((line, index) => {
         const start = delay + index * 3;
+        const lineNode = titleNodes?.[index] ?? (index === 0 ? titleNode : undefined);
         return (
           <div key={`${index}-${line}`} style={{overflow: "hidden", paddingBottom: 4}}>
             <div
@@ -657,7 +659,7 @@ export const SceneTitle = ({title, titleNode, subtitle, style = {}, align = "lef
                 whiteSpace: "nowrap"
               }}
             >
-              {index === 0 && titleNode ? titleNode : line}
+              {lineNode ?? line}
             </div>
           </div>
         );
@@ -706,6 +708,8 @@ export const SceneShell = ({children, duration, final = false, fadeOut = true}: 
 export const EditorialHeaderBand = ({
   title,
   titleNode,
+  titleNodes,
+  subtitle,
   titleSize = 64,
   delay = 0,
   showBrand = false,
@@ -713,6 +717,8 @@ export const EditorialHeaderBand = ({
 }: {
   title: string;
   titleNode?: ReactNode;
+  titleNodes?: (ReactNode | undefined)[];
+  subtitle?: string;
   titleSize?: number;
   delay?: number;
   kicker?: string;
@@ -725,7 +731,7 @@ export const EditorialHeaderBand = ({
       left: 72,
       top: 40,
       padding: "22px 42px",
-      borderRadius: 999,
+      borderRadius: subtitle ? 42 : 999,
       background: "rgba(251, 251, 253, 0.86)",
       backdropFilter: "blur(24px)",
       boxShadow: "0 28px 68px -24px rgba(17, 24, 39, 0.14), 0 0 0 1px rgba(17, 24, 39, 0.04)",
@@ -741,6 +747,8 @@ export const EditorialHeaderBand = ({
     <SceneTitle
       title={title}
       titleNode={titleNode}
+      titleNodes={titleNodes}
+      subtitle={subtitle}
       size={titleSize}
       delay={delay}
       style={{

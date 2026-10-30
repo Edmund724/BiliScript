@@ -11,7 +11,7 @@ const SOURCE = "subtitle-seek-03.mp4";
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
-export const SUBTITLE_HEADLINE = "记得 UP 主提过那句话？搜词秒跳那一秒。";
+export const SUBTITLE_HEADLINE = "只记得半句话，\n搜一下回到那一秒。";
 export const SUBTITLE_SEARCH_QUERY = "幻觉";
 
 export const SUBTITLE_MATCHED_ROWS = [
@@ -390,11 +390,13 @@ const Title = ({duration}: {duration: number}) => {
   return (
     <EditorialHeaderBand
       title={SUBTITLE_HEADLINE}
-      titleNode={
+      titleNodes={[
+        undefined,
         <>
-          记得 UP 主提过那句话？<span style={{color: COLORS.pink}}>搜词秒跳那一秒。</span>
+          搜一下<span style={{color: COLORS.pink}}>回到那一秒</span>。
         </>
-      }
+      ]}
+      subtitle="全文检索字幕"
       titleSize={60}
       delay={0}
       opacity={opacity}

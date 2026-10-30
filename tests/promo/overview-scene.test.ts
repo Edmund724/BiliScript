@@ -7,7 +7,8 @@ const overviewFilePath = "scripts/promo/video/OverviewScene.tsx";
 describe("概览镜头局部放大双章节脉络与金句拍立得印证", () => {
   it("导出用户场景主标题、2 个局部放大章节卡片与视频参照元数据，移除密集 4 章节原片录屏墙", async () => {
     const mod = await import(overviewModulePath);
-    expect(mod.OVERVIEW_HEADLINE).toBe("48 分钟长视频，\n3 秒提炼章节脉络与金句。");
+    expect(mod.OVERVIEW_HEADLINE).toBe("48 分钟，\n3 秒读完结构和金句。");
+    expect(mod.OVERVIEW_SUBHEADLINE).toBe("AI 章节脉络 · 金句提炼");
     expect(mod.OVERVIEW_VIDEO_REFERENCE).toEqual({
       headerText: "正在阅读：复旦赵斌《大模型公开课》48:16",
       badgeText: "复旦赵斌 · 48:16 公开课",
