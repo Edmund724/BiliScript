@@ -31,8 +31,8 @@ export const CAPTIONS = [
   {sceneId: "websearch", text: "UP 主说得对不对？", startMs: 24500, endMs: 25500, timestampMs: null, confidence: null},
   {sceneId: "websearch", text: "AI 联网检索辅助核对。", startMs: 25500, endMs: 27000, timestampMs: null, confidence: null},
   {sceneId: "appearance", text: "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。", startMs: 27000, endMs: 29000, timestampMs: null, confidence: null},
-  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 29000, endMs: 31000, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "BiliScript", startMs: 31000, endMs: 31600, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频。", startMs: 31600, endMs: 33300, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "搜原话 · 读章节 · 问依据", startMs: 33300, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
+  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 29000, endMs: 31500, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "BiliScript", startMs: 31500, endMs: 32050, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "在 B 站，读下一条视频。", startMs: 32050, endMs: 33500, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "搜原话 · 读章节 · 问依据", startMs: 33500, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
 ];

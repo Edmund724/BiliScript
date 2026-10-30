@@ -143,7 +143,7 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(musicVolumeAtFrame(OVERVIEW_FROM + OVERVIEW_CHAPTER_FRAMES + 20)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     expect(musicVolumeAtFrame(CHAT_FROM + CHAT_PLAYER_VERIFY_FROM + 15)).toBeCloseTo(base * 10 ** (-11.5 / 20));
     // 片尾品牌落定音效收尾后、安装入口点击之前回到基准音量
-    expect(musicVolumeAtFrame(960)).toBe(base);
+    expect(musicVolumeAtFrame(975)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / AUDIO.music.fadeOutFrames);

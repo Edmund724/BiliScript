@@ -418,15 +418,15 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                     marginLeft: 6,
                     padding: "10px 22px",
                     borderRadius: 999,
-                    background: isClicked ? "rgba(232, 93, 135, 0.18)" : MIST_GLASS.timeBg,
+                    background: isClicked ? "rgba(0, 140, 255, 0.18)" : MIST_GLASS.timeBg,
                     boxShadow:
                       highlightOpacity > 0.05
-                        ? `0 14px 32px -8px rgba(232, 93, 135, ${(0.52 * highlightOpacity).toFixed(2)}), 0 0 0 2.5px rgba(232, 93, 135, ${(0.6 * highlightOpacity).toFixed(2)})`
+                        ? `0 14px 32px -8px rgba(0, 140, 255, ${(0.48 * highlightOpacity).toFixed(2)}), 0 0 0 2.5px rgba(0, 140, 255, ${(0.58 * highlightOpacity).toFixed(2)})`
                         : "0 0 0 1px rgba(0, 140, 255, 0.24)",
                     fontFamily: BRAND_FONT_FAMILY,
                     fontSize: 28,
                     fontWeight: 750,
-                    color: isClicked ? COLORS.pink : MIST_GLASS.timeColor,
+                    color: MIST_GLASS.timeColor,
                     fontVariantNumeric: "tabular-nums",
                     whiteSpace: "nowrap"
                   }}
@@ -442,8 +442,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                       marginLeft: -28,
                       marginTop: -28,
                       borderRadius: "50%",
-                      background: "rgba(232, 93, 135, 0.26)",
-                      boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
+                      background: "rgba(0, 140, 255, 0.26)",
+                      boxShadow: "0 0 32px rgba(0, 140, 255, 0.55)",
                       opacity: rippleOpacity,
                       scale: rippleScale,
                       pointerEvents: "none"

@@ -154,9 +154,9 @@ function sectionDynamicsAt(seconds) {
   if (seconds < SUBTOOLS_FROM) return 0.90;
   if (seconds < WEBSEARCH_FROM) return 1.12;
   if (seconds < APPEARANCE_FROM) return 1.16;
-  if (seconds < 30.48) return 1.14;
-  if (seconds < 30.9) return 0.05;
-  if (seconds < 33.1) return 1.06;
+  if (seconds < 30.98) return 1.14;
+  if (seconds < 31.4) return 0.05;
+  if (seconds < 33.4) return 1.06;
   return 0.74;
 }
 
@@ -185,17 +185,16 @@ function makeScore() {
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
-    if (at >= 30.0 && at < 30.9) continue;
     const dyn = sectionDynamicsAt(at + 0.1);
     const chord = chords[bar % chords.length];
-    const padDuration = at < 30.0 && at + 2.15 > 30.5 ? Math.max(0.4, 30.5 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
+    const padDuration = at <= 30.0 && at + 2.15 > 31.0 ? Math.max(0.4, 31.0 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
     for (let note = 0; note < chord.length; note += 1) {
       add(track, tone(chord[note], padDuration, {type: "pad", gain: 0.038 * dyn}), at, (note - 1.5) * 0.25);
     }
     const arp = [0, 2, 1, 3, 2, 1, 3, 1];
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
-      if (stepAt >= 30.45 && stepAt < 31.08) continue;
+      if (stepAt >= 30.95 && stepAt < 31.58) continue;
       const inVoice = inVoiceWindow(stepAt);
       // 金句单卡定格期间与原片人声段留出清透空间
       if ((stepAt >= QUOTE_FREEZE_FROM && stepAt < QUOTE_FREEZE_TO || inVoice) && step % 2 === 1) continue;
@@ -219,7 +218,7 @@ function makeScore() {
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
-    if (at >= 30.45 && at < 30.9) continue;
+    if (at >= 30.95 && at < 31.4) continue;
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
@@ -287,12 +286,12 @@ function makeScore() {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < track[ch].length; i += 1) {
       const time = i / SAMPLE_RATE;
-      const boost = time >= SUBTOOLS_FROM && time < 30.48 ? 1.12 : 0.96;
-      if (time >= 30.52 && time < 30.88) {
-        const edge = Math.min(1, Math.max(0, (30.57 - time) / 0.05));
+      const boost = time >= SUBTOOLS_FROM && time < 30.98 ? 1.12 : 0.96;
+      if (time >= 31.02 && time < 31.38) {
+        const edge = Math.min(1, Math.max(0, (31.07 - time) / 0.05));
         track[ch][i] *= edge;
       }
-      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= SUBTOOLS_FROM && time < 30.48 ? 1.04 : 0.94);
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= SUBTOOLS_FROM && time < 30.98 ? 1.04 : 0.94);
     }
   }
   return track;

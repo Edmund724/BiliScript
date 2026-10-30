@@ -49,13 +49,13 @@ export const APPEARANCE_TIMELINE = {
 };
 
 export const PROVIDER_TIMELINE = {
-  duration: 60,
+  duration: beatF(5),
   plateAt: 2,
   orbitAt: 4,
   logoStagger: 2.5,
   logoOffsets: [0, 3, 6, 8, 10, 12, 14, 16, 17, 18, 19, 20, 21, 22],
   logoPopFrames: 4,
-  exitAt: 46,
+  exitAt: 61,
   exitDuration: 12
 };
 
@@ -103,8 +103,8 @@ export const EVIDENCE_TIMES = [
   20.3, 21.0, 21.5, 22.2, 22.5, 22.9, 23.5,
   24.7, 25.2, 26.0, 26.6,
   27.2, 27.5, 27.9, 28.3, 28.9,
-  29.2, 29.6, 29.9, 30.3, 30.8,
-  31.3, 31.8, 32.5, 33.1, 34.0,
+  29.2, 29.6, 29.9, 30.4, 30.9, 31.3,
+  31.8, 32.3, 32.9, 33.5, 34.2,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 

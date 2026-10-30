@@ -8,8 +8,8 @@ export const OUTRO_CTA_ITEMS = [
 
 export const OUTRO_TIMELINE = {
   fps: 30,
-  from: 930,
-  duration: 120,
+  from: 945,
+  duration: 105,
   features: [],
   brandResolveAt: OUTRO_BRAND_RESOLVE_START_FRAME,
   brandNameAt: 9,
@@ -17,10 +17,10 @@ export const OUTRO_TIMELINE = {
   ctaAt: 22,
   brandPushAt: 24,
   brandPushScale: 1.015,
-  pointerAppearAt: 34,
-  installClickAt: 58,
-  pointerExitAt: 62,
-  pointerGoneAt: 66,
-  recapAt: 69,
-  finalHoldAt: 75
+  pointerAppearAt: 22,
+  installClickAt: 44,
+  pointerExitAt: 48,
+  pointerGoneAt: 52,
+  recapAt: 55,
+  finalHoldAt: 62
 };
