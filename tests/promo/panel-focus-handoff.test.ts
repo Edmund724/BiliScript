@@ -11,10 +11,10 @@ const scenesFilePath = "scripts/promo/video/scenes.tsx";
 describe("面板失焦接续与后半程真实痛点镜头", () => {
   it("在金句→对话→无字幕与导出→联网搜索→四主题阅读之间保留六帧退场、干净切点和七帧合焦", () => {
     expect(PANEL_FOCUS_HANDOFFS).toEqual([
-      {from: "overview", to: "chat", at: 390, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "chat", to: "subtools", at: 570, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "subtools", to: "websearch", at: 675, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "websearch", to: "appearance", at: 750, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+      {from: "overview", to: "chat", at: 435, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+      {from: "chat", to: "subtools", at: 600, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+      {from: "subtools", to: "websearch", at: 735, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+      {from: "websearch", to: "appearance", at: 810, exitFrames: 6, enterFrames: 7, maxBlur: 12}
     ]);
     for (const handoff of PANEL_FOCUS_HANDOFFS) {
       const outgoing = SCENES.find((scene) => scene.id === handoff.from)!;
@@ -30,10 +30,10 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       expect(cues).toContainEqual([`${handoff.from}-defocus`, handoff.at - handoff.exitFrames, "media/sfx/click.wav"]);
       expect(cues).toContainEqual([`${handoff.to}-focus`, handoff.at + handoff.enterFrames, "media/sfx/whoosh.wav"]);
     }
-    expect(cues).not.toContainEqual(["chat-cut", 390, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["subtools-cut", 570, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["websearch-cut", 675, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["appearance-cut", 750, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["chat-cut", 435, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["subtools-cut", 600, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["websearch-cut", 735, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["appearance-cut", 810, "media/sfx/whoosh.wav"]);
   });
 
   it("把真痛点功能配真实画面提至 19s 后，移除设置面板与片尾纯文字闪卡，且文案严格遵循功能边界", async () => {
