@@ -2420,13 +2420,13 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   user-select: none;
 }
 
-/* 正文区：上下等距 8.3cqi，文字块在卡面内几何居中；字号由 JS 按共享布局落值 */
+/* 正文区：上下等距 8.3cqi；文字块按最宽行左右居中，行内左对齐 */
 .biliscript-quote-card-text {
   position: absolute;
   top: 8.3cqi;
   bottom: 8.3cqi;
-  left: 8.8cqi;
-  right: 8.8cqi;
+  left: var(--quote-text-left, 8.8cqi);
+  right: auto;
   margin: 0;
   display: flex;
   align-items: center;

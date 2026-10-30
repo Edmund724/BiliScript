@@ -370,9 +370,10 @@ function fitQuoteCardText(host: HTMLElement): void {
 
   const cardWidth = card.getBoundingClientRect().width || QUOTE_CARD_CANONICAL_WIDTH;
   const layout = layoutQuoteCardText(state.content, getQuoteTextMeasurer());
-  const domFontSize = (layout.fontSize * cardWidth) / QUOTE_CARD_CANONICAL_WIDTH;
+  const domScale = cardWidth / QUOTE_CARD_CANONICAL_WIDTH;
 
-  card.style.setProperty("--quote-fit-size", `${domFontSize.toFixed(2)}px`);
+  card.style.setProperty("--quote-fit-size", `${(layout.fontSize * domScale).toFixed(2)}px`);
+  card.style.setProperty("--quote-text-left", `${(layout.textLeft * domScale).toFixed(2)}px`);
   textInner.innerHTML = layout.lines.map((line) => escapeHtml(line)).join("<br>");
   state.lastCardWidth = cardWidth;
 }

@@ -785,6 +785,9 @@ async function main() {
       check("Q1.card-text-block-centered", !!textInnerRect && !!cardRect &&
         Math.abs((textInnerRect.top + textInnerRect.bottom) / 2 - (cardRect.top + cardRect.bottom) / 2) <= 1,
         { textInner: textInnerRect, card: cardRect });
+      check("Q1.card-text-block-centered-h", !!textInnerRect && !!cardRect &&
+        Math.abs((textInnerRect.left - cardRect.left) - (cardRect.right - textInnerRect.right)) <= 1,
+        { textInner: textInnerRect, card: cardRect });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
       check("Q1.card-has-no-video-title", q1.probe?.hasSourceTitle === false, { hasSourceTitle: q1.probe?.hasSourceTitle });
       check("Q1.card-has-no-timestamp", q1.probe?.hasTimestamp === false, { hasTimestamp: q1.probe?.hasTimestamp });

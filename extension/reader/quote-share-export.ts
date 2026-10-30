@@ -447,8 +447,10 @@ export interface QuoteCardTextLayout {
   fontSize: number;
   lineHeight: number;
   lines: string[];
+  /** 文字块左缘（最宽行居中后），各行共享这个左缘。 */
   textLeft: number;
   textTop: number;
+  /** 文字块宽度 = 最宽一行；块在卡面内左右居中。 */
   textWidth: number;
   truncated: boolean;
 }
@@ -570,13 +572,18 @@ export function layoutQuoteCardText(
     truncated = true;
   }
 
+  const blockWidth = Math.min(
+    TEXT_MAX_WIDTH,
+    lines.reduce((widest, line) => Math.max(widest, measure.measure(line, fontSize)), 0)
+  );
+
   return {
     fontSize,
     lineHeight,
     lines,
-    textLeft: TEXT_INSET_X,
+    textLeft: TEXT_INSET_X + (TEXT_MAX_WIDTH - blockWidth) / 2,
     textTop: TEXT_INSET_Y + (TEXT_AREA_HEIGHT - lines.length * lineHeight) / 2,
-    textWidth: TEXT_MAX_WIDTH,
+    textWidth: blockWidth,
     truncated
   };
 }

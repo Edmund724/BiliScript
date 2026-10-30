@@ -707,6 +707,17 @@ describe("金句卡片正文布局（预览与导出共用同一份）", () => {
     const layout = layoutQuoteCardText("第一段\n第二段");
     expect(layout.lines).toEqual(["第一段", "第二段"]);
   });
+
+  it("文字块按最宽行左右居中，各行共用同一左缘", () => {
+    const single = layoutQuoteCardText("金句");
+    expect(single.textWidth).toBeLessThan(336.19);
+    expect(single.textLeft + single.textWidth / 2).toBeCloseTo(408 / 2, 6);
+
+    const multi = layoutQuoteCardText(cjk(70));
+    expect(multi.lines.length).toBeGreaterThan(1);
+    expect(multi.textWidth).toBeLessThanOrEqual(336.19);
+    expect(multi.textLeft + multi.textWidth / 2).toBeCloseTo(408 / 2, 6);
+  });
 });
 
 describe("quote-share 样式与架构契约", () => {
