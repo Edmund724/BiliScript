@@ -406,7 +406,7 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
   });
 
-  it("收回过渡未结束时保留阅读表，transitionend 后再收尾摘表", async () => {
+  it("收回过渡等待缩放结束后再收尾摘表", async () => {
     mountShell();
     ensureReaderStyles();
     const reader = makeReaderStub();
@@ -420,6 +420,10 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
 
     const readingView = document.getElementById("biliscript-reading-view") as HTMLElement;
     readingView.dispatchEvent(new TransitionEvent("transitionend", { propertyName: "translate" }));
+    expect(reader.closeReadingView).not.toHaveBeenCalled();
+    expectReaderStylesMounted(true);
+
+    readingView.dispatchEvent(new TransitionEvent("transitionend", { propertyName: "scale" }));
     await exitPromise;
 
     expect(reader.closeReadingView).toHaveBeenCalledTimes(1);

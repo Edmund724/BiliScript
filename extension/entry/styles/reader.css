@@ -27,23 +27,23 @@
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
    * 都不依赖内容横向尺寸（height: auto 的窄窗浮层只涉纵向，不受容纳约束）。 */
   container-type: inline-size;
-  /* 贴栏态以右缘为锚：translate 只负责无过冲滑入，scale 独立承担左缘回弹。
+  /* 贴栏态以右缘为锚：translate 与 scale 同节奏开合，均不过冲。
    * display 参与离散过渡，退出期间由 .closing 保持渲染。 */
   transform-origin: right center;
   translate: 100% 0;
-  scale: 0.92 0.98;
+  scale: 0.98;
   opacity: 0;
   transition:
-    translate 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
-    scale 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
-    opacity 240ms cubic-bezier(0.4, 0, 1, 1),
-    display 240ms allow-discrete;
+    translate 280ms cubic-bezier(0.4, 0, 1, 1),
+    scale 280ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 160ms cubic-bezier(0.4, 0, 1, 1),
+    display 280ms allow-discrete;
 }
 
 @starting-style {
   #biliscript-reading-view.open {
     translate: 100% 0;
-    scale: 0.92 0.98;
+    scale: 0.98;
     opacity: 0;
   }
 }
@@ -55,18 +55,18 @@
 
 #biliscript-reading-view.open {
   translate: 0 0;
-  scale: 1 1;
+  scale: 1;
   opacity: 1;
   transition:
-    translate 220ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    scale 420ms var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1)),
-    opacity 160ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    display 240ms allow-discrete;
+    translate 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    scale 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity 180ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    display 320ms allow-discrete;
 }
 
 #biliscript-reading-view.closing {
   translate: 100% 0;
-  scale: 0.94 0.98;
+  scale: 0.98;
   opacity: 0;
   pointer-events: none;
 }

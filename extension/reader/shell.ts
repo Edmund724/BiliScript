@@ -182,7 +182,7 @@ function waitForReaderExitTransition(readingView: HTMLElement): Promise<void> {
       resolve();
     };
     const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target === readingView && ["translate", "scale", "opacity"].includes(event.propertyName)) {
+      if (event.target === readingView && event.propertyName === "scale") {
         finish();
       }
     };
