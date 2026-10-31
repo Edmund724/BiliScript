@@ -556,7 +556,7 @@
  * 展开态保留 200px 内滚；折叠态收成一行「思考过程」。 */
 .biliscript-reading-chat .chat-thinking {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: max-content 1fr;
   transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   margin-bottom: 10px;
   padding: 0;
@@ -571,7 +571,7 @@
 }
 
 .biliscript-reading-chat .chat-thinking.chat-thinking-collapsed {
-  grid-template-rows: auto 0fr;
+  grid-template-rows: max-content 0fr;
 }
 
 .biliscript-reading-chat .chat-thinking-label {
