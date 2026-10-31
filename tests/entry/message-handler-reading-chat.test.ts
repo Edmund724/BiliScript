@@ -28,7 +28,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../extension/reader/lazy-reader.js", () => ({
   ensureReaderDomain: mocks.ensureReaderDomain
 }));
-vi.mock("../../extension/reader/state.js", () => ({
+vi.mock("../../extension/reader/state.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../extension/reader/state.js")>(),
   isReaderViewOpen: mocks.isReaderViewOpen,
   enforceNormalPageStateIfNeeded: vi.fn(),
   // 标签激活属主（reader/script-tab-activation）经它写唯一状态位

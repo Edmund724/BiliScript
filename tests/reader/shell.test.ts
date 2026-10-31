@@ -196,6 +196,26 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     expect(replaceOrder).toBeLessThan(enterOrder);
   });
 
+  it("阅读样式表全部加载完成后才进入 reader 域", async () => {
+    const reader = makeReaderStub();
+    ensureReaderDomain.mockResolvedValue(reader);
+
+    const entry = enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
+    await vi.waitFor(() => expectReaderStylesMounted(true));
+    expect(reader.enterReaderMode).not.toHaveBeenCalled();
+
+    const links = READER_STYLE_PATHS.map((path) => document.head.querySelector(`link[href$="${path}"]`));
+    for (const link of links.slice(0, 2)) {
+      link?.dispatchEvent(new Event("load"));
+    }
+    await Promise.resolve();
+    expect(reader.enterReaderMode).not.toHaveBeenCalled();
+
+    links[2]?.dispatchEvent(new Event("load"));
+    await entry;
+    expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
+  });
+
   it("空 readerUrl 且视图未开 → 兜底构造阅读 URL（与 script-button 拼法一致）", async () => {
     setLocationUrl("https://www.bilibili.com/video/BV1test000000/?p=2&spm_id_from=x");
 

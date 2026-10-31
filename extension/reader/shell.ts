@@ -89,11 +89,11 @@ export function isReaderShellIntact(): boolean {
 // ===== 唯一进入链（八步时序的后六步；前两步按入口前奏补齐） =====
 //
 // ensureUiReady（壳就绪）→ beforeEntry（restore 档的失同步自查在此插，见下）→
-// resolveReaderEntryUrl → replaceReaderModeUrl → ensureReaderStyles → 翻
-// body/html 门控属性 → enterReaderMode（视图未开才进）。
+// resolveReaderEntryUrl → replaceReaderModeUrl → 挂阅读表并等加载 → 翻
+// body/html 门控属性 → 刷新关闭态计算样式 → enterReaderMode（视图未开才进）。
 //
-// 无闪变不变式：先挂阅读表再翻属性——门控属性是样式生效开关，表提前挂（哪怕
-// link 尚未加载完）不会误伤普通页面；属性翻转瞬间阅读样式已注入，无闪变窗口。
+// 无闪变不变式：先挂阅读表再翻属性——门控属性是样式生效开关，表提前挂不会
+// 误伤普通页面；进入前等 link 加载并刷新关闭态，缓存重开也执行 @starting-style。
 //
 // beforeEntry 供 restore 档插入「壳完好性自查 + 失整先收敛」：closeReadingView
 // 要取壳节点，必须排在 ensureUiReady 之后（收敛前先把壳补回来），故不能放在
@@ -153,9 +153,13 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
   if (readerUrl) {
     replaceReaderModeUrl(readerUrl);
     // S3：先挂阅读表再翻属性（无闪变时序，见上方不变式注）
-    ensureReaderStyles();
+    await ensureReaderStyles();
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reader-mode", "1");
+    const readingView = document.getElementById(ids.readingView);
+    if (readingView) {
+      void window.getComputedStyle(readingView).display;
+    }
   }
   if (!isReaderViewOpen()) {
     // 候选02：enterReaderMode 属 reader 重域，经 ensureReaderDomain 装载后

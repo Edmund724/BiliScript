@@ -17,8 +17,8 @@
 // 并复刻级联位置，收益为零。
 //
 // 幂等/防泄漏：挂载记录存 Map，重复挂同路径直接跳过；移除按引用摘 link 并
-// 从 Map 删除。移除不是「卸载语义」——数据留在浏览器样式缓存，重挂几乎零
-// 成本（这正是「关→开」二进宫无闪变的关键：样式数据已在内存，重挂即生效）。
+// 从 Map 删除。移除不是「卸载语义」——数据留在浏览器样式缓存；阅读壳重开时
+// 仍等待三张 link 加载完成，避免 .open 先于样式生效而跳过 @starting-style。
 //
 // 挂载态即 DOM：不导出只读探针，某张表挂没挂就是
 // link[data-biliscript-style="1"]（href 尾段 = entry/styles/<name>.css）在不在
@@ -59,8 +59,8 @@ function getReaderStylePaths(): string[] {
   ];
 }
 
-export function ensureReaderStyles(): void {
-  getReaderStylePaths().forEach((path) => mountStyleLink(path));
+export async function ensureReaderStyles(): Promise<void> {
+  await Promise.all(getReaderStylePaths().map((path) => waitForStyleLinkLoad(mountStyleLink(path))));
 }
 
 export function removeReaderStyles(): void {
