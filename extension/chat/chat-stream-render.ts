@@ -42,6 +42,7 @@ function createChevronSpan(className: string): HTMLSpanElement {
 }
 // mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
+import { enhanceMarkdownTables } from "../ui/markdown-table.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
@@ -679,6 +680,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           hrAdjacentAfter: tailText
         });
         const { newNodes } = state.commitCursor.commit(deltaHtml, state.stableEl!);
+        enhanceMarkdownTables(state.stableEl!);
         for (const newNode of newNodes) {
           hydrateMermaid(newNode);
           hydrateMath(newNode);
@@ -708,6 +710,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       ...CHAT_MARKDOWN_OPTIONS,
       hrAdjacentBefore: stableText
     });
+    enhanceMarkdownTables(state.tailEl!);
     if (cursor) {
       state.tailEl!.appendChild(cursor);
     }
@@ -1148,6 +1151,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
+    enhanceMarkdownTables(content);
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
     // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
     hydrateMermaid(content);

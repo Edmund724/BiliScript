@@ -827,11 +827,17 @@ export function createMarkdownCommitCursor(): MarkdownCommitCursor {
       for (const child of children) {
         const tag = child.tagName.toUpperCase();
 
+        const currentTable = (): HTMLTableElement | null => {
+          if (activeTable && container.contains(activeTable)) {
+            return activeTable;
+          }
+          return container.lastElementChild?.tagName === "TABLE"
+            ? (container.lastElementChild as HTMLTableElement)
+            : null;
+        };
+
         if (tag === "TABLE") {
-          const existingTable =
-            activeTable && activeTable.parentElement === container
-              ? activeTable
-              : (container.lastElementChild?.tagName === "TABLE" ? (container.lastElementChild as HTMLTableElement) : null);
+          const existingTable = currentTable();
 
           if (existingTable) {
             const tbody = existingTable.querySelector("tbody") || existingTable;
@@ -856,34 +862,36 @@ export function createMarkdownCommitCursor(): MarkdownCommitCursor {
         }
 
         // 处理段落形态的续表行（当 deltaText 单独到达缺乏表头时 renderMarkdown 会转为 p）
-        if (child.tagName === "P" && (activeTable || container.lastElementChild?.tagName === "TABLE")) {
-          const tableEl = (activeTable && activeTable.parentElement === container ? activeTable : container.lastElementChild) as HTMLTableElement;
-          const tbody = tableEl.querySelector("tbody") || tableEl;
-          const text = child.textContent?.trim() || "";
-          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-          const isAllRows = lines.length > 0 && lines.every((l) => /^\|.+\|$/.test(l));
-          if (isAllRows) {
-            const addedRows: HTMLElement[] = [];
-            for (const line of lines) {
-              const tr = doc.createElement("tr");
-              const cells = line
-                .replace(/^\|/, "")
-                .replace(/\|$/, "")
-                .split("|")
-                .map((c) => c.trim());
-              for (const cell of cells) {
-                const td = doc.createElement("td");
-                td.innerHTML = renderInline(cell);
-                tr.appendChild(td);
+        if (child.tagName === "P") {
+          const tableEl = currentTable();
+          if (tableEl) {
+            const tbody = tableEl.querySelector("tbody") || tableEl;
+            const text = child.textContent?.trim() || "";
+            const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+            const isAllRows = lines.length > 0 && lines.every((l) => /^\|.+\|$/.test(l));
+            if (isAllRows) {
+              const addedRows: HTMLElement[] = [];
+              for (const line of lines) {
+                const tr = doc.createElement("tr");
+                const cells = line
+                  .replace(/^\|/, "")
+                  .replace(/\|$/, "")
+                  .split("|")
+                  .map((c) => c.trim());
+                for (const cell of cells) {
+                  const td = doc.createElement("td");
+                  td.innerHTML = renderInline(cell);
+                  tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+                addedRows.push(tr);
               }
-              tbody.appendChild(tr);
-              addedRows.push(tr);
+              activeTable = tableEl;
+              activeList = null;
+              activeListType = "";
+              newNodes.push(...addedRows);
+              continue;
             }
-            activeTable = tableEl;
-            activeList = null;
-            activeListType = "";
-            newNodes.push(...addedRows);
-            continue;
           }
         }
 
