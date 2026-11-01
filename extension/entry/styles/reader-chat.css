@@ -1005,6 +1005,7 @@
 
 #biliscript-reading-view .biliscript-md-table-dialog {
   box-sizing: border-box;
+  pointer-events: auto;
   width: min(1200px, calc(100vw - 48px));
   max-width: none;
   max-height: calc(100dvh - 48px);
