@@ -289,7 +289,7 @@
 .markdown-body table tr {
   background-color: transparent;
   border: 0;
-  border-bottom: 1px solid var(--borderColor-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--fgColor-default) 12%, transparent);
 }
 
 .markdown-body code {
