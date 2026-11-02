@@ -342,10 +342,10 @@ const OverviewSpotlightCard = () => {
           </div>
         </div>
 
-        {/* .biliscript-reading-ov-section: TL;DR */}
+        {/* .biliscript-reading-ov-section: 简介 */}
         <div style={{position: "relative", zIndex: 1, marginBottom: 14}}>
           <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 8}}>
-            <span style={{fontSize: 20, fontWeight: 740, letterSpacing: "0.04em", color: MIST_GLASS.text}}>TL;DR</span>
+            <span style={{fontSize: 20, fontWeight: 740, letterSpacing: "0.04em", color: MIST_GLASS.text}}>简介</span>
           </div>
           <div style={{fontSize: 20, lineHeight: 1.6, color: MIST_GLASS.text, letterSpacing: -0.1, minHeight: 96}}>
             <span>{tldrLead}</span>
