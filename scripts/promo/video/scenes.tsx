@@ -55,8 +55,8 @@ const PUSH_EASING = Easing.bezier(0.45, 0, 0.15, 1);
 type HeadlinePart = {text: string; accent?: boolean};
 
 const CHAT_HEADLINE: HeadlinePart[][] = [
-  [{text: "带着问题"}, {text: "追问视频", accent: true}, {text: "，"}],
-  [{text: "点按"}, {text: "时间戳", accent: true}, {text: "让 UP 主亲自举证。"}]
+  [{text: "有疑问"}, {text: "直接问视频", accent: true}, {text: "，"}],
+  [{text: "点"}, {text: "时间戳", accent: true}, {text: "直达原话。"}]
 ];
 
 export const CHAT_QUESTION = "为什么作者说 AI 并非越强越好，适配才是关键？";
@@ -500,7 +500,7 @@ export const ChatScene = () => {
       <ChatHeroPanel panelLeft={panelLeft} panelScale={panelScale} />
       <BottomLectureCaption
         timestamp="04:44"
-        speaker="赵老师原声举证"
+        speaker="赵老师原声"
         quote={CHAT_VERIFY_QUOTE}
         from={CHAT_PLAYER_VERIFY_FROM}
         duration={CHAT_PLAYER_VERIFY_TO - CHAT_PLAYER_VERIFY_FROM + 6}
