@@ -24,6 +24,9 @@ const SERIF_FONT_FAMILY =
 const GEMINI_BADGE_BG =
   "linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.14) 40%, rgba(217, 101, 112, 0.14) 75%, rgba(242, 166, 64, 0.14) 100%)";
 
+const CHAT_INPUT_GLOW =
+  "0 6px 22px -4px rgba(155, 114, 203, 0.24), 0 2px 8px -2px rgba(66, 133, 244, 0.18), 0 8px 30px -2px rgba(155, 114, 203, 0.32)";
+
 export const OVERVIEW_HEADLINE = "收藏夹里蒙尘的 48 分钟公开课，\n当成一页文章，3 秒读透脉络";
 
 export const OVERVIEW_TLDR = {
@@ -734,7 +737,7 @@ const OverviewSpotlightCard = () => {
                     borderRadius: 24,
                     position: "relative",
                     background: MIST_GLASS.cardElevated,
-                    boxShadow: isChapterClicked ? `0 0 0 2px ${MIST_GLASS.accent}, ${MIST_GLASS.cardShadow}` : MIST_GLASS.cardShadow,
+                    boxShadow: isChapterClicked ? `${MIST_GLASS.cardShadow}, ${CHAT_INPUT_GLOW}` : MIST_GLASS.cardShadow,
                     opacity: cardEnter,
                     translate: `0px ${cardLift.toFixed(1)}px`
                   }}
