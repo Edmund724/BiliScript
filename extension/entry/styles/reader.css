@@ -1534,7 +1534,7 @@
 .biliscript-reading-ov-chapter.is-active,
 .biliscript-reading-ov-chapter.is-active:hover {
   border-color: var(--chat-input-focus-border, var(--biliscript-reader-accent));
-  background: var(--biliscript-reader-accent-soft);
+  background: var(--biliscript-reader-surface-2);
   box-shadow: var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 

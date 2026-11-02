@@ -736,19 +736,30 @@ async function main() {
         const body = document.getElementById('biliscript-reading-overview-body');
         body.scrollTop = Math.min(40, body.scrollHeight);
         const scrollBefore = body.scrollTop;
+        const view = document.getElementById('biliscript-reading-view');
+        const inputProbe = document.createElement('div');
+        inputProbe.className = 'biliscript-reading-chat';
+        inputProbe.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+        inputProbe.innerHTML = '<div class="chat-input-card"><textarea></textarea></div>';
+        const inputCard = inputProbe.querySelector('.chat-input-card');
+        inputCard.style.transition = 'none';
+        view.appendChild(inputProbe);
+        const input = inputProbe.querySelector('textarea');
+        input.focus();
+        const inputComputed = getComputedStyle(inputCard);
+        const inputStyle = {
+          borderColor: inputComputed.borderTopColor,
+          backgroundColor: inputComputed.backgroundColor,
+          backgroundImage: inputComputed.backgroundImage,
+          boxShadow: inputComputed.boxShadow
+        };
+        input.blur();
+        inputProbe.remove();
         mod.stopReadingViewSync();
         mod.syncReadingViewPlayback(false, 125);
+        mod.stopReadingViewSync();
         await new Promise(resolve => setTimeout(resolve, 400));
         const active = body.querySelector('.biliscript-reading-ov-chapter.is-active');
-        const view = document.getElementById('biliscript-reading-view');
-        const tokenProbe = document.createElement('div');
-        tokenProbe.style.display = 'none';
-        tokenProbe.style.color = 'var(--chat-input-focus-border, var(--biliscript-reader-accent))';
-        tokenProbe.style.backgroundColor = 'var(--biliscript-reader-accent-soft)';
-        tokenProbe.style.borderColor = 'var(--chat-input-focus-border, var(--biliscript-reader-accent))';
-        tokenProbe.style.boxShadow = 'var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft))';
-        view.appendChild(tokenProbe);
-        const tokenStyle = getComputedStyle(tokenProbe);
         const activeStyle = active ? getComputedStyle(active) : null;
         const matchedRules = [];
         if (active) {
@@ -774,17 +785,13 @@ async function main() {
           activeStyle: activeStyle ? {
             borderColor: activeStyle.borderTopColor,
             backgroundColor: activeStyle.backgroundColor,
+            backgroundImage: activeStyle.backgroundImage,
             boxShadow: activeStyle.boxShadow
           } : null,
-          tokenStyle: {
-            borderColor: tokenStyle.borderTopColor,
-            backgroundColor: tokenStyle.backgroundColor,
-            boxShadow: tokenStyle.boxShadow
-          },
+          inputStyle,
           scrollBefore,
           scrollAfter: body.scrollTop
         };
-        tokenProbe.remove();
         mod.startReadingViewSync();
         return result;
       })()`);
@@ -795,9 +802,9 @@ async function main() {
       checkEquals("Q12.playback-active-chapter", probe?.activeSeconds, "120");
       checkEquals("Q12.single-active-chapter", probe?.activeCount, 1);
       checkEquals("Q12.active-aria-current", probe?.ariaCurrent, "true");
-      check("Q12.active-border-token", probe?.activeStyle?.borderColor === probe?.tokenStyle?.borderColor, { active: probe?.activeStyle, token: probe?.tokenStyle });
-      check("Q12.active-background-token", probe?.activeStyle?.backgroundColor === probe?.tokenStyle?.backgroundColor, { active: probe?.activeStyle, token: probe?.tokenStyle });
-      check("Q12.active-ring-token", probe?.activeStyle?.boxShadow === probe?.tokenStyle?.boxShadow, { active: probe?.activeStyle, token: probe?.tokenStyle });
+      check("Q12.active-border-matches-input", probe?.activeStyle?.borderColor === probe?.inputStyle?.borderColor, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-background-matches-input", probe?.activeStyle?.backgroundColor === probe?.inputStyle?.backgroundColor && probe?.activeStyle?.backgroundImage === probe?.inputStyle?.backgroundImage, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-ring-matches-input", probe?.activeStyle?.boxShadow === probe?.inputStyle?.boxShadow, { active: probe?.activeStyle, input: probe?.inputStyle });
       check("Q12.no-auto-scroll", probe?.scrollAfter === probe?.scrollBefore, { before: probe?.scrollBefore, after: probe?.scrollAfter });
       await shot("12-overview-playback", "概览：简介、完整章节标题与播放高亮");
       record("Q12", { title: SCENARIOS[11].title, rendered, probe });
