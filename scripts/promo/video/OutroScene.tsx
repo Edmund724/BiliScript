@@ -10,7 +10,7 @@ const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
 const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
 const BRAND_ICON_OUTSET = (BRAND_GROUP_WIDTH - BRAND_ICON.size) / 2;
 const TAGLINE_TOP = 466;
-const RECAP_TOP = 538;
+const RECAP_TOP = 552;
 const CTA_TOP = 632;
 // 三连星火以安装按钮为中心向下最远扩到 747px，兼容行排在星火之下。
 const COMPAT_TOP = 780;
