@@ -177,38 +177,6 @@ export const PaperGrainOverlay = ({
   />
 );
 
-export const ReadingLampBeam = ({
-  intensity = 1,
-  warm = true,
-  borderRadius = 24
-}: {
-  intensity?: number;
-  warm?: boolean;
-  borderRadius?: number;
-}) => {
-  if (intensity <= 0.01) return null;
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        borderRadius,
-        overflow: "hidden",
-        pointerEvents: "none",
-        opacity: intensity,
-        background: [
-          warm
-            ? "radial-gradient(ellipse 82% 66% at 88% 6%, rgba(255, 214, 148, 0.34) 0%, rgba(238, 168, 88, 0.15) 44%, rgba(238, 168, 88, 0) 78%)"
-            : "radial-gradient(ellipse 82% 66% at 88% 6%, rgba(191, 219, 254, 0.30) 0%, rgba(96, 165, 250, 0.12) 44%, rgba(96, 165, 250, 0) 78%)",
-          warm
-            ? "linear-gradient(126deg, rgba(255, 230, 182, 0) 14%, rgba(255, 220, 158, 0.16) 46%, rgba(255, 230, 182, 0) 76%)"
-            : "linear-gradient(126deg, rgba(219, 234, 254, 0) 14%, rgba(147, 197, 253, 0.14) 46%, rgba(219, 234, 254, 0) 76%)"
-        ].join(", "),
-        boxShadow: warm ? "inset -1px 1px 0 rgba(255, 224, 168, 0.34)" : "inset -1px 1px 0 rgba(191, 219, 254, 0.30)"
-      }}
-    />
-  );
-};
 
 export type BottomLectureCaptionProps = {
   timestamp: string;
