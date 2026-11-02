@@ -56,7 +56,7 @@ const OrbitTrack = ({opacity}: {opacity: number}) => (
 );
 
 export const PROVIDER_HEADLINE = "接入你顺手的 AI 大脑";
-export const PROVIDER_SUBHEADLINE = "支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持本地模型";
+export const PROVIDER_SUBHEADLINE = "支持切换 DeepSeek、Kimi、Qwen 等 14+ 平台，亦支持自定义URL";
 export const PROVIDER_BENEFIT_TAG = "不被单一 AI 绑定 · 自由接入外部 API";
 
 const CenterPlate = ({exitProgress}: {exitProgress: number}) => {
