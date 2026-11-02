@@ -29,7 +29,6 @@ const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 const SERIF_FONT_FAMILY = '"Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "SimSun", Georgia, serif';
 
-const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat")!;
 const SUBTOOLS_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "subtools")!;
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch")!;
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
@@ -232,14 +231,13 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
 
 const usePanelHandoffFocus = (
   totalDuration: number,
-  enterHandoff: {enterFrames: number; maxBlur: number},
+  enterHandoff: {enterFrames: number; maxBlur: number} | undefined,
   exitHandoff?: {exitFrames: number; maxBlur: number}
 ) => {
   const frame = useCurrentFrame();
-  const enterBlur = interpolate(frame, [0, enterHandoff.enterFrames], [enterHandoff.maxBlur, 0], {
-    ...CLAMP,
-    easing: SMOOTH
-  });
+  const enterBlur = enterHandoff
+    ? interpolate(frame, [0, enterHandoff.enterFrames], [enterHandoff.maxBlur, 0], {...CLAMP, easing: SMOOTH})
+    : 0;
   const exitBlur = exitHandoff
     ? interpolate(frame, [totalDuration - exitHandoff.exitFrames, totalDuration], [0, exitHandoff.maxBlur], {
         ...CLAMP,
@@ -248,7 +246,7 @@ const usePanelHandoffFocus = (
     : 0;
   const blur = Math.max(enterBlur, exitBlur);
   const focusScale =
-    interpolate(frame, [0, enterHandoff.enterFrames], [0.97, 1], {...CLAMP, easing: SMOOTH}) *
+    (enterHandoff ? interpolate(frame, [0, enterHandoff.enterFrames], [0.97, 1], {...CLAMP, easing: SMOOTH}) : 1) *
     (exitHandoff
       ? interpolate(frame, [totalDuration - exitHandoff.exitFrames, totalDuration], [1, 0.97], {
           ...CLAMP,
@@ -260,7 +258,7 @@ const usePanelHandoffFocus = (
 
 const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: number}) => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION, CHAT_HANDOFF, SUBTOOLS_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION, undefined, SUBTOOLS_HANDOFF);
 
   const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
   const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;

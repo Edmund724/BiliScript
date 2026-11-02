@@ -3,7 +3,6 @@ import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "../audio.mjs";
 import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
 import {AppearanceScene, ChatScene, SubtoolsScene, WebSearchScene} from "./scenes";
-import {HeroScene} from "./HeroScene";
 import {OutroScene} from "./OutroScene";
 import {OverviewScene} from "./OverviewScene";
 import {ProviderScene} from "./ProviderScene";
@@ -11,8 +10,6 @@ import {SubtitleScene} from "./SubtitleScene";
 
 const Scene = ({id, duration}: {id: string; duration: number}) => {
   switch (id) {
-    case "hero":
-      return <HeroScene />;
     case "subtitle":
       return <SubtitleScene duration={duration} />;
     case "overview":

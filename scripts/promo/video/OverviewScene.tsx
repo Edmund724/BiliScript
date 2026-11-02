@@ -1,5 +1,5 @@
 import {Easing, Sequence, interpolate, useCurrentFrame} from "remotion";
-import {OVERVIEW_TIMELINE, PANEL_FOCUS_HANDOFFS} from "../timeline.mjs";
+import {OVERVIEW_TIMELINE} from "../timeline.mjs";
 import {
   BRAND_FONT_FAMILY,
   BottomLectureCaption,
@@ -24,9 +24,13 @@ const SERIF_FONT_FAMILY =
 const GEMINI_BADGE_BG =
   "linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.14) 40%, rgba(217, 101, 112, 0.14) 75%, rgba(242, 166, 64, 0.14) 100%)";
 
-const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.from === "overview")!;
+export const OVERVIEW_HEADLINE = "48 分钟公开课，\n3 秒提炼脉络与结论";
 
-export const OVERVIEW_HEADLINE = "48 分钟长视频，\n3 秒提炼章节脉络与金句。";
+export const OVERVIEW_TLDR = {
+  lead: "UP 主认为大模型被训练成“必须作答”，只模仿语言规律、不辨事实，幻觉因此无法根除。核心结论：",
+  bold: "选 AI 不是越强越好，能和你“接得上、对得齐”的才最好",
+  tail: "。"
+} as const;
 
 export const OVERVIEW_VIDEO_REFERENCE = {
   headerText: "正在阅读：复旦赵斌《大模型公开课》48:16",
@@ -61,52 +65,89 @@ const RAYS_LINES = Array.from({length: RAYS_COUNT}, (_, i) => {
   };
 });
 
-const CHAPTER_RATIO = OVERVIEW_TIMELINE.chapterRatio;
-const SCENE_REFERENCE_DURATION = OVERVIEW_TIMELINE.duration;
-const QUOTE_CLICK_FRAME = OVERVIEW_TIMELINE.quoteClickFrame;
+const T = OVERVIEW_TIMELINE;
+const SEEK_TARGET_SECONDS = 152;
+const VIDEO_TOTAL_SECONDS = 2896;
+const PLAYBACK_START_SECONDS = 0;
 
-export const OVERVIEW_CHAPTER_DURATION = Math.round(SCENE_REFERENCE_DURATION * CHAPTER_RATIO);
-export const OVERVIEW_QUOTE_START_FRAME = OVERVIEW_CHAPTER_DURATION;
-export const OVERVIEW_QUOTE_DURATION = SCENE_REFERENCE_DURATION - OVERVIEW_CHAPTER_DURATION;
-
-const QUOTE_LIFT_FRAMES = OVERVIEW_TIMELINE.quoteLiftFrames;
-
-export function overviewChapterDuration(duration: number): number {
-  return Math.round(duration * CHAPTER_RATIO);
-}
-
-export function overviewQuoteDuration(duration: number): number {
-  return duration - overviewChapterDuration(duration);
-}
-
-export function overviewPhaseAtFrame(frame: number, duration: number): "chapters" | "quote" {
-  return frame < overviewChapterDuration(duration) ? "chapters" : "quote";
-}
+export const OVERVIEW_QUOTE_START_FRAME = T.quoteStartAt;
+export const OVERVIEW_QUOTE_DURATION = T.duration - T.quoteStartAt;
 
 export function overviewQuoteLiftProgress(frame: number): number {
-  return interpolate(frame, [OVERVIEW_QUOTE_START_FRAME, OVERVIEW_QUOTE_START_FRAME + QUOTE_LIFT_FRAMES], [0, 1], {
+  return interpolate(frame, [T.quoteStartAt, T.quoteStartAt + T.quoteLiftFrames], [0, 1], {
     ...CLAMP,
     easing: SMOOTH
   });
 }
 
-export function overviewVoiceCaptionOpacityAtFrame(frame: number, duration = SCENE_REFERENCE_DURATION): number {
-  const quoteStart = overviewChapterDuration(duration);
-  if (frame < quoteStart) return 0;
-  return interpolate(frame, [quoteStart, quoteStart + 6, duration - 6, duration], [0, 1, 1, 0], CLAMP);
+export function overviewVoiceCaptionOpacityAtFrame(frame: number, duration = T.duration): number {
+  if (frame < T.quoteStartAt) return 0;
+  return interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 6, duration - 6, duration], [0, 1, 1, 0], CLAMP);
 }
 
 const REFERENCE_CROP: Crop = {x: 56, y: 236, width: 1344, height: 664};
 const REFERENCE_WIDTH = 780;
 
-const PANEL_STAGE = {left: 964, top: 204, width: 860};
+const PANEL_STAGE = {left: 964, top: 150, width: 860};
 const POLAROID_STAGE = {left: 1048, top: 396, width: 748, height: 486};
 const POLAROID_LIFT = {x: -32, y: 76, scale: 0.76};
+
+const formatClock = (seconds: number) =>
+  `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+
+const PlayerSeekOverlay = () => {
+  const frame = useCurrentFrame();
+  const seek = interpolate(frame, [T.chapterClickAt, T.chapterClickAt + T.chapterSeekFrames], [0, 1], {
+    ...CLAMP,
+    easing: SMOOTH
+  });
+  const flash = interpolate(
+    frame,
+    [T.chapterClickAt, T.chapterClickAt + 2, T.chapterClickAt + T.chapterSeekFrames],
+    [0, 0.5, 0],
+    CLAMP
+  );
+  const clickClock = PLAYBACK_START_SECONDS + T.chapterClickAt / 30;
+  const seconds =
+    frame < T.chapterClickAt
+      ? PLAYBACK_START_SECONDS + frame / 30
+      : clickClock + (SEEK_TARGET_SECONDS - clickClock) * seek + Math.max(0, frame - T.chapterClickAt - T.chapterSeekFrames) / 30;
+  const ratio = seconds / VIDEO_TOTAL_SECONDS;
+  const pillPop = interpolate(frame, [T.chapterClickAt, T.chapterClickAt + 4, T.chapterClickAt + 12], [1, 1.14, 1], CLAMP);
+
+  return (
+    <>
+      <div style={{position: "absolute", inset: 0, background: "#FFFFFF", opacity: flash, pointerEvents: "none"}} />
+      <div
+        style={{
+          position: "absolute",
+          right: 18,
+          top: 18,
+          padding: "7px 16px",
+          borderRadius: 999,
+          background: "rgba(15, 23, 42, 0.76)",
+          color: "#FFFFFF",
+          fontFamily: BRAND_FONT_FAMILY,
+          fontSize: 20,
+          fontWeight: 700,
+          fontVariantNumeric: "tabular-nums",
+          scale: pillPop,
+          transformOrigin: "100% 0%"
+        }}
+      >
+        {formatClock(seconds)} / 48:16
+      </div>
+      <div style={{position: "absolute", left: 0, right: 0, bottom: 0, height: 6, background: "rgba(255, 255, 255, 0.28)"}}>
+        <div style={{width: `${(ratio * 100).toFixed(2)}%`, height: "100%", background: "#FF709A"}} />
+      </div>
+    </>
+  );
+};
 
 const VideoReference = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const captionOpacity = overviewVoiceCaptionOpacityAtFrame(frame, duration);
-  const quoteStart = overviewChapterDuration(duration);
+  const quoteStart = T.quoteStartAt;
 
   return (
     <VideoReferenceCard
@@ -122,6 +163,7 @@ const VideoReference = ({duration}: {duration: number}) => {
       delay={2}
       style={{position: "absolute", left: 96, top: 388}}
     >
+      <PlayerSeekOverlay />
       {captionOpacity > 0.01 && (
         <BottomLectureCaption
           timestamp={OVERVIEW_VIDEO_REFERENCE.captionTimestamp}
@@ -142,42 +184,58 @@ const VideoReference = ({duration}: {duration: number}) => {
   );
 };
 
-const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => {
+const OverviewSpotlightCard = () => {
   const frame = useCurrentFrame();
   const enter = interpolate(frame, [0, 12], [0, 1], {...CLAMP, easing: SMOOTH});
   const enterY = interpolate(frame, [0, 12], [22, 0], {...CLAMP, easing: SMOOTH});
-  const quoteDefocus = interpolate(frame, [chapterDuration, chapterDuration + 16], [0, 2.6], {...CLAMP, easing: SMOOTH});
-  const quoteDimOpacity = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.68], {...CLAMP, easing: SMOOTH});
-  const quoteBackScale = interpolate(frame, [chapterDuration, chapterDuration + 16], [1, 0.965], {...CLAMP, easing: SMOOTH});
-  const quoteRetreatY = interpolate(frame, [chapterDuration, chapterDuration + 16], [0, -76], {...CLAMP, easing: SMOOTH});
+  const quoteDefocus = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [0, 2.6], {...CLAMP, easing: SMOOTH});
+  const quoteDimOpacity = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [1, 0.68], {...CLAMP, easing: SMOOTH});
+  const quoteBackScale = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [1, 0.965], {...CLAMP, easing: SMOOTH});
+  const quoteRetreatY = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [0, -76], {...CLAMP, easing: SMOOTH});
 
-  const cursorMoveStart = QUOTE_CLICK_FRAME - 18;
+  const cursorMoveStart = T.quoteClickAt - 18;
   const cursorOpacity =
     interpolate(frame, [cursorMoveStart, cursorMoveStart + 5], [0, 1], CLAMP) *
-    interpolate(frame, [chapterDuration + 1, chapterDuration + 6], [1, 0], CLAMP);
-  const cursorX = interpolate(frame, [cursorMoveStart, QUOTE_CLICK_FRAME], [76, 16], {...CLAMP, easing: SMOOTH});
-  const cursorY = interpolate(frame, [cursorMoveStart, QUOTE_CLICK_FRAME], [48, 18], {...CLAMP, easing: SMOOTH});
+    interpolate(frame, [T.quoteStartAt + 1, T.quoteStartAt + 6], [1, 0], CLAMP);
+  const cursorX = interpolate(frame, [cursorMoveStart, T.quoteClickAt], [76, 16], {...CLAMP, easing: SMOOTH});
+  const cursorY = interpolate(frame, [cursorMoveStart, T.quoteClickAt], [48, 18], {...CLAMP, easing: SMOOTH});
   const isShareHovered = frame >= cursorMoveStart + 8;
-  const isQuoteClicked = frame >= QUOTE_CLICK_FRAME;
+  const isQuoteClicked = frame >= T.quoteClickAt;
   const buttonPress = interpolate(
     frame,
-    [QUOTE_CLICK_FRAME - 1, QUOTE_CLICK_FRAME + 1, QUOTE_CLICK_FRAME + 5],
+    [T.quoteClickAt - 1, T.quoteClickAt + 1, T.quoteClickAt + 5],
     [1, 0.91, 1],
     CLAMP
   );
   const rippleOpacity = interpolate(
     frame,
-    [QUOTE_CLICK_FRAME - 1, QUOTE_CLICK_FRAME + 1, chapterDuration + 4],
+    [T.quoteClickAt - 1, T.quoteClickAt + 1, T.quoteStartAt + 4],
     [0, 0.78, 0],
     CLAMP
   );
-  const rippleScale = interpolate(frame, [QUOTE_CLICK_FRAME - 1, chapterDuration + 4], [0.5, 1.9], {
+  const rippleScale = interpolate(frame, [T.quoteClickAt - 1, T.quoteStartAt + 4], [0.5, 1.9], {
     ...CLAMP,
     easing: SMOOTH
   });
 
-  const quoteCardEnter = interpolate(frame, [14, 26], [0, 1], {...CLAMP, easing: SMOOTH});
-  const quoteCardLift = interpolate(frame, [14, 26], [14, 0], {...CLAMP, easing: SMOOTH});
+  const tldrTotal = OVERVIEW_TLDR.lead.length + OVERVIEW_TLDR.bold.length + OVERVIEW_TLDR.tail.length;
+  const tldrRevealed = Math.round(interpolate(frame, [T.tldrAt, T.tldrAt + 34], [0, tldrTotal], CLAMP));
+  const tldrLead = OVERVIEW_TLDR.lead.slice(0, tldrRevealed);
+  const tldrBold = OVERVIEW_TLDR.bold.slice(0, Math.max(0, tldrRevealed - OVERVIEW_TLDR.lead.length));
+  const tldrTail = OVERVIEW_TLDR.tail.slice(0, Math.max(0, tldrRevealed - OVERVIEW_TLDR.lead.length - OVERVIEW_TLDR.bold.length));
+
+  const quoteCardEnter = interpolate(frame, [T.quoteCardAt, T.quoteCardAt + 12], [0, 1], {...CLAMP, easing: SMOOTH});
+  const quoteCardLift = interpolate(frame, [T.quoteCardAt, T.quoteCardAt + 12], [14, 0], {...CLAMP, easing: SMOOTH});
+
+  const chapterCursorStart = T.chapterClickAt - 18;
+  const chapterCursorOpacity =
+    interpolate(frame, [chapterCursorStart, chapterCursorStart + 5], [0, 1], CLAMP) *
+    interpolate(frame, [T.chapterClickAt + 8, T.chapterClickAt + 13], [1, 0], CLAMP);
+  const chapterCursorX = interpolate(frame, [chapterCursorStart, T.chapterClickAt], [150, 40], {...CLAMP, easing: SMOOTH});
+  const chapterCursorY = interpolate(frame, [chapterCursorStart, T.chapterClickAt], [96, 20], {...CLAMP, easing: SMOOTH});
+  const chapterPress = interpolate(frame, [T.chapterClickAt - 1, T.chapterClickAt + 1, T.chapterClickAt + 5], [1, 0.91, 1], CLAMP);
+  const chapterRippleOpacity = interpolate(frame, [T.chapterClickAt - 1, T.chapterClickAt + 1, T.chapterClickAt + 12], [0, 0.78, 0], CLAMP);
+  const chapterRippleScale = interpolate(frame, [T.chapterClickAt - 1, T.chapterClickAt + 12], [0.5, 1.9], {...CLAMP, easing: SMOOTH});
 
   return (
     <div
@@ -284,6 +342,18 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
           </div>
         </div>
 
+        {/* .biliscript-reading-ov-section: TL;DR */}
+        <div style={{position: "relative", zIndex: 1, marginBottom: 14}}>
+          <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 8}}>
+            <span style={{fontSize: 20, fontWeight: 740, letterSpacing: "0.04em", color: MIST_GLASS.text}}>TL;DR</span>
+          </div>
+          <div style={{fontSize: 20, lineHeight: 1.6, color: MIST_GLASS.text, letterSpacing: -0.1, minHeight: 96}}>
+            <span>{tldrLead}</span>
+            {tldrBold ? <strong style={{fontWeight: 740}}>{tldrBold}</strong> : null}
+            <span>{tldrTail}</span>
+          </div>
+        </div>
+
         {/* .biliscript-reading-ov-section: 章节 */}
         <div style={{position: "relative", zIndex: 1, marginBottom: 14}}>
           <div
@@ -312,7 +382,9 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
 
           <div style={{display: "flex", flexDirection: "column", gap: 12}}>
             {OVERVIEW_CHAPTERS.map((chapter, index) => {
-              const cardStart = 3 + index * 5;
+              const cardStart = T.chaptersAt + index * 5;
+              const isSeekTarget = index === OVERVIEW_CHAPTERS.length - 1;
+              const isChapterClicked = isSeekTarget && frame >= T.chapterClickAt;
               const cardEnter = interpolate(frame, [cardStart, cardStart + 12], [0, 1], {...CLAMP, easing: SMOOTH});
               const cardLift = interpolate(frame, [cardStart, cardStart + 12], [14, 0], {...CLAMP, easing: SMOOTH});
 
@@ -326,18 +398,21 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
                     alignItems: "start",
                     padding: "14px 18px",
                     borderRadius: 24,
+                    position: "relative",
                     background: MIST_GLASS.cardElevated,
-                    boxShadow: MIST_GLASS.cardShadow,
+                    boxShadow: isChapterClicked ? `0 0 0 2px ${MIST_GLASS.accent}, ${MIST_GLASS.cardShadow}` : MIST_GLASS.cardShadow,
                     opacity: cardEnter,
                     translate: `0px ${cardLift.toFixed(1)}px`
                   }}
                 >
                   <span
                     style={{
+                      position: "relative",
                       padding: "3px 11px",
                       borderRadius: 999,
-                      background: MIST_GLASS.timeBg,
-                      color: MIST_GLASS.timeColor,
+                      background: isChapterClicked ? MIST_GLASS.accent : MIST_GLASS.timeBg,
+                      color: isChapterClicked ? "#FFFFFF" : MIST_GLASS.timeColor,
+                      scale: isSeekTarget ? chapterPress : 1,
                       fontFamily: BRAND_FONT_FAMILY,
                       fontSize: 17,
                       fontWeight: 700,
@@ -346,7 +421,46 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
                       flexShrink: 0
                     }}
                   >
+                    {isSeekTarget ? (
+                      <span
+                        style={{
+                          position: "absolute",
+                          inset: -8,
+                          borderRadius: 999,
+                          background: "rgba(0, 140, 255, 0.24)",
+                          opacity: chapterRippleOpacity,
+                          scale: chapterRippleScale,
+                          pointerEvents: "none"
+                        }}
+                      />
+                    ) : null}
                     {chapter.timestamp}
+                    {isSeekTarget && chapterCursorOpacity > 0.01 ? (
+                      <svg
+                        viewBox="0 0 30 38"
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          top: 0,
+                          width: 32,
+                          height: 40,
+                          filter: "drop-shadow(0 6px 12px rgba(17, 24, 39, 0.32))",
+                          opacity: chapterCursorOpacity,
+                          translate: `${chapterCursorX.toFixed(1)}px ${chapterCursorY.toFixed(1)}px`,
+                          scale: chapterPress,
+                          pointerEvents: "none",
+                          zIndex: 10
+                        }}
+                      >
+                        <path
+                          d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
+                          fill="white"
+                          stroke={MIST_GLASS.text}
+                          strokeWidth="2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
                   </span>
                   <div style={{display: "grid", gap: 4, minWidth: 0}}>
                     <span
@@ -610,9 +724,9 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
   );
 };
 
-const QuotePolaroid = ({chapterDuration}: {chapterDuration: number}) => {
+const QuotePolaroid = () => {
   const frame = useCurrentFrame();
-  const lift = interpolate(frame, [0, QUOTE_LIFT_FRAMES], [0, 1], {
+  const lift = interpolate(frame, [0, T.quoteLiftFrames], [0, 1], {
     ...CLAMP,
     easing: SMOOTH
   });
@@ -631,7 +745,7 @@ const QuotePolaroid = ({chapterDuration}: {chapterDuration: number}) => {
 
   return (
     <div
-      data-quote-start={chapterDuration}
+      data-quote-start={T.quoteStartAt}
       data-preset="mist-deep-sea"
       data-pattern="rays"
       style={{
@@ -799,46 +913,16 @@ const QuotePolaroid = ({chapterDuration}: {chapterDuration: number}) => {
   );
 };
 
-export const OverviewScene = ({duration}: {duration: number}) => {
-  const frame = useCurrentFrame();
-  const chapterDuration = overviewChapterDuration(duration);
-  const quoteDuration = overviewQuoteDuration(duration);
-  const handoffBlur = interpolate(
-    frame,
-    [duration - CHAT_HANDOFF.exitFrames, duration],
-    [0, CHAT_HANDOFF.maxBlur],
-    {...CLAMP, easing: SMOOTH}
-  );
-  const handoffScale = interpolate(
-    frame,
-    [duration - CHAT_HANDOFF.exitFrames, duration],
-    [1, 0.97],
-    {...CLAMP, easing: SMOOTH}
-  );
-
-  return (
-    <>
-      <BrandWhisper />
-      <SceneTitle
-        title={OVERVIEW_HEADLINE}
-        size={66}
-        style={{left: 96, top: 186, width: 848}}
-      />
-      <VideoReference duration={duration} />
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          scale: handoffScale,
-          filter: handoffBlur > 0.05 ? `blur(${handoffBlur.toFixed(2)}px)` : undefined,
-          transformOrigin: "72% 48%"
-        }}
-      >
-        <OverviewSpotlightCard chapterDuration={chapterDuration} />
-        <Sequence from={chapterDuration} durationInFrames={quoteDuration}>
-          <QuotePolaroid chapterDuration={chapterDuration} />
-        </Sequence>
-      </div>
-    </>
-  );
-};
+export const OverviewScene = ({duration}: {duration: number}) => (
+  <>
+    <BrandWhisper />
+    <SceneTitle title={OVERVIEW_HEADLINE} size={66} style={{left: 96, top: 186, width: 848}} />
+    <VideoReference duration={duration} />
+    <div style={{position: "absolute", inset: 0}}>
+      <OverviewSpotlightCard />
+      <Sequence from={T.quoteStartAt} durationInFrames={duration - T.quoteStartAt}>
+        <QuotePolaroid />
+      </Sequence>
+    </div>
+  </>
+);

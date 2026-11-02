@@ -10,21 +10,15 @@ export const BEAT_FRAMES = (PROMO_FPS * 60) / PROMO_BPM;
 export const beatF = (beats) => Math.round(beats * BEAT_FRAMES);
 export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
-export const HERO_TIMELINE = {
-  firstLineAt: 2,
-  iconAt: beatF(1.5),
-  clickAt: beatF(2.5),
-  pageTurnAt: beatF(3),
-  answerAt: beatF(3) + 2,
-  pushInFrom: beatF(5.5),
-  pushInTo: beatF(7.5),
-  holdAt: beatF(9)
-};
-
 export const OVERVIEW_TIMELINE = {
-  duration: beatF(11),
-  chapterRatio: 84 / 165,
-  quoteClickFrame: beatF(5),
+  duration: beatF(18),
+  tldrAt: 8,
+  chaptersAt: beatF(3),
+  quoteCardAt: beatF(4.5),
+  chapterClickAt: beatF(7),
+  chapterSeekFrames: 10,
+  quoteClickAt: beatF(11),
+  quoteStartAt: beatF(11) + 9,
   quoteLiftFrames: 18
 };
 
@@ -60,22 +54,20 @@ export const PROVIDER_TIMELINE = {
 };
 
 export const SCENES = [
-  { id: "hero", from: 0, duration: 150 },
-  { id: "subtitle", from: 150, duration: 120 },
-  { id: "overview", from: 270, duration: OVERVIEW_TIMELINE.duration },
-  { id: "chat", from: 435, duration: 165 },
-  { id: "subtools", from: 600, duration: SUBTOOLS_TIMELINE.duration },
-  { id: "websearch", from: 735, duration: WEBSEARCH_TIMELINE.duration },
-  { id: "appearance", from: 810, duration: APPEARANCE_TIMELINE.duration },
-  { id: "providers", from: 870, duration: PROVIDER_TIMELINE.duration },
+  { id: "overview", from: 0, duration: OVERVIEW_TIMELINE.duration },
+  { id: "subtitle", from: 270, duration: 120 },
+  { id: "chat", from: 390, duration: 165 },
+  { id: "subtools", from: 555, duration: SUBTOOLS_TIMELINE.duration },
+  { id: "websearch", from: 690, duration: WEBSEARCH_TIMELINE.duration },
+  { id: "appearance", from: 765, duration: APPEARANCE_TIMELINE.duration },
+  { id: "providers", from: 825, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
-  {from: "overview", to: "chat", at: 435, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "chat", to: "subtools", at: 600, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "subtools", to: "websearch", at: 735, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "websearch", to: "appearance", at: 810, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "chat", to: "subtools", at: 555, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "subtools", to: "websearch", at: 690, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "websearch", to: "appearance", at: 765, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = beatF(5);
@@ -96,15 +88,14 @@ export const APPEARANCE_SHOTS = [
 ];
 
 export const EVIDENCE_TIMES = [
-  0, 0.4, 0.8, 1.2, 1.4, 1.6, 2.0, 2.2, 3.2, 4.4,
-  5.0, 5.4, 5.9, 7.1, 8.0,
-  9.2, 10.0, 10.9, 11.8, 12.3, 13.2, 14.0,
-  14.6, 15.4, 17.1, 17.8, 18.1, 19.0,
-  20.3, 21.0, 21.5, 22.2, 22.5, 22.9, 23.5,
-  24.7, 25.2, 26.0, 26.6,
-  27.2, 27.5, 27.9, 28.3, 28.9,
-  29.2, 29.6, 29.9, 30.4, 30.9, 31.3,
-  31.8, 32.3, 32.9, 33.5, 34.2,
+  0, 0.4, 1.0, 1.6, 2.4, 3.2, 3.6, 4.4, 5.2, 5.6, 6.0, 6.5, 7.5, 8.9,
+  9.0, 9.4, 9.9, 11.1, 12.0,
+  13.1, 13.9, 15.6, 16.3, 16.6, 17.5,
+  18.8, 19.5, 20.0, 20.7, 21.0, 21.4, 22.0,
+  23.2, 23.7, 24.5, 25.1,
+  25.7, 26.0, 26.4, 26.8, 27.4,
+  27.7, 28.1, 28.4, 28.9, 29.4, 29.8,
+  30.3, 30.8, 31.4, 32.0, 32.7,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
@@ -112,20 +103,15 @@ const sceneFrom = (id) => SCENES.find((scene) => scene.id === id).from;
 const sceneSeconds = (id, frame = 0) => (sceneFrom(id) + frame) / PROMO_FPS;
 const providerSeconds = (frame) => sceneSeconds("providers", frame);
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
-const OVERVIEW_CHAPTER_FRAMES = Math.round(OVERVIEW_TIMELINE.duration * OVERVIEW_TIMELINE.chapterRatio);
 
 export const EVIDENCE_TRANSITIONS = [
-  {id: "hero-icon", at: sceneSeconds("hero", HERO_TIMELINE.iconAt)},
-  {id: "hero-click", at: sceneSeconds("hero", HERO_TIMELINE.clickAt)},
-  {id: "hero-panel-open", at: sceneSeconds("hero", HERO_TIMELINE.pageTurnAt)},
-  {id: "hero-answer", at: sceneSeconds("hero", HERO_TIMELINE.answerAt)},
-  {id: "hero-tldr-push", at: sceneSeconds("hero", HERO_TIMELINE.pushInFrom)},
+  {id: "overview-tldr", at: sceneSeconds("overview", OVERVIEW_TIMELINE.chaptersAt - 4)},
+  {id: "overview-chapters", at: sceneSeconds("overview", OVERVIEW_TIMELINE.chaptersAt + 14)},
+  {id: "chapter-seek", at: sceneSeconds("overview", OVERVIEW_TIMELINE.chapterClickAt + OVERVIEW_TIMELINE.chapterSeekFrames)},
+  {id: "quote-lift", at: sceneSeconds("overview", OVERVIEW_TIMELINE.quoteStartAt)},
+  {id: "quote-freeze", at: sceneSeconds("overview", OVERVIEW_TIMELINE.quoteStartAt + OVERVIEW_TIMELINE.quoteLiftFrames - 4)},
   {id: "keyword-slice", at: sceneSeconds("subtitle", 12)},
   {id: "timestamp-match", at: sceneSeconds("subtitle", SUBTITLE_MATCH_FRAME)},
-  {id: "chapters", at: sceneSeconds("overview")},
-  {id: "quote-lift", at: sceneSeconds("overview", OVERVIEW_CHAPTER_FRAMES)},
-  {id: "quote-freeze", at: sceneSeconds("overview", OVERVIEW_CHAPTER_FRAMES + OVERVIEW_TIMELINE.quoteLiftFrames - 4)},
-  {id: "overview-chat-defocus", at: sceneSeconds("chat")},
   {id: "chat-timestamp-click", at: sceneSeconds("chat", CHAT_TIMESTAMP_CLICK_FRAME)},
   {id: "chat-player-verify", at: sceneSeconds("chat", CHAT_PLAYER_VERIFY_FROM - 6)},
   {id: "chat-subtools-defocus", at: sceneSeconds("subtools")},
