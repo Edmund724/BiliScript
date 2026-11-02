@@ -13,9 +13,10 @@ const voiceMilliseconds = (id) => {
 // @ts-check
 /** @type {(import("@remotion/captions").Caption & {sceneId: string})[]} */
 export const CAPTIONS = [
-  {sceneId: "hero", text: "点一下播放器，", startMs: 0, endMs: 1000, timestampMs: null, confidence: null},
-  {sceneId: "hero", text: "整期视频自动读完。", startMs: 1000, endMs: 2100, timestampMs: null, confidence: null},
-  {sceneId: "hero", text: "TL;DR · 分节要点 · 时间戳", startMs: 2100, endMs: 5000, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "48 分钟硬核长视频，", startMs: 0, endMs: 700, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "没时间从头看？", startMs: 700, endMs: 1400, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "点一下，3 秒变成结构化文章。", startMs: 1400, endMs: 3400, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "TL;DR · 分节要点 · 时间戳", startMs: 3400, endMs: 5000, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "记得 UP 主提过那句话？搜词秒跳那一秒。", startMs: 5000, endMs: 7100, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "……也很难避免幻觉。", ...voiceMilliseconds("voice-0407"), timestampMs: null, confidence: null},
   {sceneId: "overview", text: "48 分钟长视频，", startMs: 9000, endMs: 10200, timestampMs: null, confidence: null},

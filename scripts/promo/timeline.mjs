@@ -15,7 +15,7 @@ export const HERO_TIMELINE = {
   iconAt: beatF(1.5),
   clickAt: beatF(2.5),
   pageTurnAt: beatF(3),
-  answerAt: beatF(4.5),
+  answerAt: beatF(3) + 2,
   pushInFrom: beatF(5.5),
   pushInTo: beatF(7.5),
   holdAt: beatF(9)

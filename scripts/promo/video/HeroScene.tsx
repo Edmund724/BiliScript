@@ -17,20 +17,9 @@ export const HERO_SOURCE = {
   answerPlaybackRate: 0.7
 };
 
-export const HERO_FIRST_LINE = "点一下播放器，";
-export const HERO_SECOND_LINE_PARTS = ["整期视频", "自动读完"] as const;
-export const HERO_SECOND_LINE = `${HERO_SECOND_LINE_PARTS[0]}${HERO_SECOND_LINE_PARTS[1]}。`;
+export const HERO_PAIN_LINES = ["48 分钟硬核长视频，", "没时间从头看？"] as const;
+export const HERO_SOLUTION_LINES = ["点一下，", "3 秒变成结构化文章。"] as const;
 export const HERO_FEATURE_LINE = "TL;DR · 分节要点 · 时间戳";
-
-const USER_PROMPT_LINES = [
-  "整理这期视频的内容，输出结构化总结：",
-  "1. TL;DR：两三句话说清这期视频讲了什么、核心结论是什么",
-  "2. 主题与核心观点",
-  "3. 内容梳理：按视频脉络分节展开，关键节点附时间戳；重要数据、事实、金句和论证过程不要省略",
-  "4. 结论与可执行启发：看完能带走什么、可以怎么做",
-  "5. （若附带评论）观众反响：提炼高赞评论的主要观点与争议点"
-] as const;
-
 const TLDR_PREFIX =
   "这期视频从“机器幻觉为什么无法根除”讲起：UP 主认为大模型天生被训练成“必须作答”，而对话模型只模仿语言规律、不区分“语句通顺”与“事实正确”，因此幻觉不可避免。由此引出核心结论：";
 const TLDR_BOLD = "选 AI 不是越强越好，能和你“接得上、对得齐”的才最好";
@@ -38,52 +27,64 @@ const TLDR_SUFFIX = "——人和 AI 是协作而非替代，AI 是放大器而�
 
 const THEME_BULLETS = [
   {
-    startFrame: 110,
-    endFrame: 120,
+    startFrame: 90,
+    endFrame: 100,
     lead: "机器幻觉的根源是“训练目标”，并非技术缺陷：",
     body: "模型被激励去“蒙一个答案”，因为不答必然是零分。"
   },
   {
-    startFrame: 120,
-    endFrame: 130,
+    startFrame: 100,
+    endFrame: 110,
     lead: "对话式模型模仿的只有语言规律：",
     body: "只要话说得像人说的，它就“成了”，它并不知道什么是事实。"
   },
   {
-    startFrame: 134,
-    endFrame: 142,
+    startFrame: 114,
+    endFrame: 122,
     lead: "幻觉无法避免：",
     body: "哪怕喂精确数据也一样（例子：知道全班 49 人生日，也推不出第 50 人）。"
   },
   {
-    startFrame: 142,
-    endFrame: 149,
+    startFrame: 122,
+    endFrame: 129,
     lead: "AI 与人是协作关系：",
     body: "在协作场景下，最强 AI 不一定带来最大优势，“会配合”的 AI 表现更优。"
   }
 ] as const;
 
+const fadeIn = (frame: number, from: number, length = 12) =>
+  interpolate(frame, [from, from + length], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic)
+  });
+
+const COPY_LINE_STYLE = {
+  fontSize: 64,
+  lineHeight: 1.16,
+  fontWeight: 700,
+  letterSpacing: -2.2,
+  whiteSpace: "nowrap"
+} as const;
+
 const HeroCopy = () => {
   const frame = useCurrentFrame();
-  const line1 = interpolate(frame, [HERO_TIMELINE.firstLineAt, HERO_TIMELINE.firstLineAt + 14], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic)
-  });
-  const line2 = interpolate(frame, [HERO_TIMELINE.iconAt + 2, HERO_TIMELINE.iconAt + 14], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic)
-  });
-  const feature = interpolate(frame, [HERO_TIMELINE.pageTurnAt + 2, HERO_TIMELINE.pageTurnAt + 14], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic)
-  });
-  const underline = interpolate(frame, [HERO_TIMELINE.iconAt + 6, HERO_TIMELINE.iconAt + 16], [0, 1], {
+  const painOut = HERO_TIMELINE.clickAt - 2;
+  const solutionAt = HERO_TIMELINE.clickAt + 6;
+  const painLine1 = fadeIn(frame, HERO_TIMELINE.firstLineAt) * (1 - fadeIn(frame, painOut, 8));
+  const painLine2 = fadeIn(frame, HERO_TIMELINE.firstLineAt + 10) * (1 - fadeIn(frame, painOut, 8));
+  const solution1 = fadeIn(frame, solutionAt);
+  const solution2 = fadeIn(frame, solutionAt + 6);
+  const feature = fadeIn(frame, HERO_TIMELINE.pageTurnAt + 8);
+  const underline = interpolate(frame, [solutionAt + 14, solutionAt + 24], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+  const lineStyle = (opacity: number) => ({
+    ...COPY_LINE_STYLE,
+    opacity,
+    translate: `0px ${((1 - opacity) * 22).toFixed(1)}px`
   });
 
   return (
@@ -97,7 +98,7 @@ const HeroCopy = () => {
           height: 370,
           background:
             "radial-gradient(ellipse 68% 62% at 28% 46%, rgba(8, 16, 30, 0.38) 0%, rgba(8, 16, 30, 0.16) 52%, rgba(8, 16, 30, 0) 74%)",
-          opacity: line1,
+          opacity: Math.max(painLine1, solution1),
           pointerEvents: "none",
           zIndex: 24
         }}
@@ -114,49 +115,33 @@ const HeroCopy = () => {
           textShadow: "0 2px 26px rgba(6, 12, 24, 0.62), 0 1px 3px rgba(6, 12, 24, 0.72)"
         }}
       >
-        <div
-          style={{
-            fontSize: 64,
-            lineHeight: 1.16,
-            fontWeight: 700,
-            letterSpacing: -2.2,
-            whiteSpace: "nowrap",
-            opacity: line1,
-            translate: `0px ${((1 - line1) * 22).toFixed(1)}px`
-          }}
-        >
-          {HERO_FIRST_LINE}
-        </div>
-        <div
-          style={{
-            fontSize: 64,
-            lineHeight: 1.16,
-            fontWeight: 700,
-            letterSpacing: -2.2,
-            whiteSpace: "nowrap",
-            opacity: line2,
-            translate: `0px ${((1 - line2) * 22).toFixed(1)}px`
-          }}
-        >
-          {HERO_SECOND_LINE_PARTS[0]}
-          <span style={{position: "relative", display: "inline-block"}}>
-            {HERO_SECOND_LINE_PARTS[1]}
-            <span
-              style={{
-                position: "absolute",
-                left: -2,
-                right: -2,
-                bottom: -1,
-                height: 4,
-                borderRadius: 2,
-                background: "linear-gradient(96deg, rgba(255, 212, 59, 0.95) 0%, rgba(251, 114, 153, 0.95) 100%)",
-                boxShadow: "0 0 14px rgba(232, 93, 135, 0.55)",
-                transformOrigin: "0% 50%",
-                transform: `scaleX(${underline.toFixed(3)})`
-              }}
-            />
-          </span>
-          。
+        <div style={{position: "relative", height: 150}}>
+          <div style={{position: "absolute", left: 0, top: 0}}>
+            <div style={lineStyle(painLine1)}>{HERO_PAIN_LINES[0]}</div>
+            <div style={lineStyle(painLine2)}>{HERO_PAIN_LINES[1]}</div>
+          </div>
+          <div style={{position: "absolute", left: 0, top: 0}}>
+            <div style={lineStyle(solution1)}>{HERO_SOLUTION_LINES[0]}</div>
+            <div style={lineStyle(solution2)}>
+              <span style={{position: "relative", display: "inline-block"}}>
+                {HERO_SOLUTION_LINES[1]}
+                <span
+                  style={{
+                    position: "absolute",
+                    left: -2,
+                    right: -2,
+                    bottom: -1,
+                    height: 4,
+                    borderRadius: 2,
+                    background: "linear-gradient(96deg, rgba(255, 212, 59, 0.95) 0%, rgba(251, 114, 153, 0.95) 100%)",
+                    boxShadow: "0 0 14px rgba(232, 93, 135, 0.55)",
+                    transformOrigin: "0% 50%",
+                    transform: `scaleX(${underline.toFixed(3)})`
+                  }}
+                />
+              </span>
+            </div>
+          </div>
         </div>
         <div
           style={{
@@ -189,6 +174,36 @@ const HeroCopy = () => {
   );
 };
 
+const DurationBadge = () => {
+  const frame = useCurrentFrame();
+  const appear = fadeIn(frame, 0, 8) * (1 - fadeIn(frame, HERO_TIMELINE.clickAt - 2, 8));
+  if (appear <= 0.01) return null;
+  const pulse = 0.5 + 0.5 * Math.sin(frame / 3);
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 1228,
+        top: 886,
+        padding: "8px 18px",
+        borderRadius: 12,
+        background: "rgba(12, 18, 32, 0.82)",
+        border: "2px solid rgba(255, 212, 59, 0.95)",
+        boxShadow: `0 0 ${18 + pulse * 14}px rgba(255, 212, 59, ${0.45 + pulse * 0.2})`,
+        color: "#FFFFFF",
+        fontFamily: FONT_FAMILY,
+        fontSize: 34,
+        fontWeight: 700,
+        fontVariantNumeric: "tabular-nums",
+        opacity: appear,
+        scale: 0.9 + appear * 0.1,
+        zIndex: 20
+      }}
+    >
+      48:16
+    </div>
+  );
+};
 const MoreIcon = ({size}: {size: number}) => (
   <svg
     width={size}
@@ -202,37 +217,6 @@ const MoreIcon = ({size}: {size: number}) => (
     <circle cx="12" cy="19" r="1.4" fill="currentColor" />
   </svg>
 );
-
-const SparkleIcon = ({size, color}: {size: number; color: string}) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{display: "block", flexShrink: 0}}>
-    <path
-      d="M12 3.5c.55 4.2 3.3 6.95 7.5 7.5-4.2.55-6.95 3.3-7.5 7.5-.55-4.2-3.3-6.95-7.5-7.5 4.2-.55 6.95-3.3 7.5-7.5Z"
-      stroke={color}
-      strokeWidth="1.9"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-const StreamDots = ({scale}: {scale: number}) => {
-  const px = (value: number) => value * scale;
-  const colors = ["#5b8def", "#9b72f2", "#e85d87"];
-  return (
-    <span style={{display: "inline-flex", alignItems: "center", gap: px(3.5), marginTop: px(6)}}>
-      {colors.map((color, idx) => (
-        <span
-          key={idx}
-          style={{
-            width: px(3.5),
-            height: px(3.5),
-            borderRadius: "50%",
-            background: color
-          }}
-        />
-      ))}
-    </span>
-  );
-};
 
 const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; sceneFrame: number}) => {
   const localFrame = useCurrentFrame();
@@ -259,18 +243,10 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
     easing: Easing.bezier(0, 0, 0.2, 1)
   });
 
-  const isAnswerPhase = sceneFrame >= HERO_TIMELINE.answerAt;
   const totalTldrLen = TLDR_PREFIX.length + TLDR_BOLD.length + TLDR_SUFFIX.length;
-  const tldrRevealed = isAnswerPhase
-    ? Math.round(
-        interpolate(
-          sceneFrame,
-          [HERO_TIMELINE.answerAt, HERO_TIMELINE.answerAt + 28, HERO_TIMELINE.answerAt + 38],
-          [8, TLDR_PREFIX.length + 4, totalTldrLen],
-          {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
-        )
-      )
-    : 0;
+  const tldrRevealed = Math.round(
+    interpolate(sceneFrame, [HERO_TIMELINE.answerAt, HERO_TIMELINE.answerAt + 24, HERO_TIMELINE.answerAt + 34], [8, TLDR_PREFIX.length + 4, totalTldrLen], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+  );
 
   const prefixText = TLDR_PREFIX.slice(0, Math.min(TLDR_PREFIX.length, tldrRevealed));
   const boldRevealed = Math.max(0, Math.min(TLDR_BOLD.length, tldrRevealed - TLDR_PREFIX.length));
@@ -396,23 +372,6 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
           <ReadingHeaderActions iconSize={px(18)} />
         </div>
 
-        {/* Row 2: .biliscript-reading-status（仅在思考过渡段显示） */}
-        {!isAnswerPhase && (
-          <div
-            style={{
-              position: "relative",
-              zIndex: 1,
-              padding: `0 ${px(18)}px ${px(8)}px`,
-              fontSize: px(15.5),
-              lineHeight: 1.4,
-              color: MIST_GLASS.muted,
-              flexShrink: 0
-            }}
-          >
-            已定位 AI 对话并发送快捷提示词。
-          </div>
-        )}
-
         {/* Row 3: .biliscript-reading-tabs-row */}
         <div
           style={{
@@ -489,87 +448,7 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
         >
           {/* .chat-messages */}
           <div style={{display: "flex", flexDirection: "column", gap: px(12), minHeight: 0, overflow: "hidden"}}>
-            {/* .chat-msg-user */}
-            <div
-              style={{
-                alignSelf: "flex-end",
-                width: "96%",
-                boxSizing: "border-box",
-                padding: `${px(11)}px ${px(15)}px`,
-                borderRadius: px(20),
-                background: MIST_GLASS.cardElevated,
-                boxShadow: `inset 0 ${px(1)}px 0 0 rgba(255, 255, 255, 0.95), 0 ${px(6)}px ${px(20)}px -${px(4)}px rgba(15, 23, 42, 0.05), 0 0 0 ${px(0.5)}px rgba(15, 23, 42, 0.06)`,
-                color: MIST_GLASS.text,
-                fontSize: px(15),
-                lineHeight: 1.62,
-                letterSpacing: -0.1
-              }}
-            >
-              {USER_PROMPT_LINES.map((line, index) => (
-                <div key={index}>{line}</div>
-              ))}
-            </div>
-
-            {/* .chat-msg-assistant */}
-            {!isAnswerPhase ? (
-              <div style={{display: "flex", flexDirection: "column", gap: px(6), paddingLeft: px(2)}}>
-                {sceneFrame >= 52 ? (
-                  <>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: px(6),
-                        fontSize: px(13.8),
-                        fontWeight: 550,
-                        color: MIST_GLASS.muted
-                      }}
-                    >
-                      <SparkleIcon size={px(13)} color={MIST_GLASS.faint} />
-                      <span>思考中...</span>
-                    </div>
-                    <div
-                      style={{
-                        paddingLeft: px(19),
-                        fontSize: px(13.5),
-                        lineHeight: 1.56,
-                        color: MIST_GLASS.muted
-                      }}
-                    >
-                      <div>
-                        {sceneFrame < 62
-                          ? "Let me analyze"
-                          : "Let me analyze the video content and produce a structured summary."}
-                      </div>
-                      {sceneFrame >= 62 && (
-                        <div style={{marginTop: px(12)}}>
-                          The video is about 7:35 long — under 30 minutes, but it&apos;s ~7.5 minutes, so 5-30 min range
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : null}
-                <StreamDots scale={cameraScale} />
-              </div>
-            ) : (
-              <div style={{display: "flex", flexDirection: "column", paddingLeft: px(2)}}>
-                {/* 已折叠思考块 */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: px(6),
-                    fontSize: px(13.8),
-                    fontWeight: 520,
-                    color: MIST_GLASS.muted,
-                    marginBottom: px(10)
-                  }}
-                >
-                  <SparkleIcon size={px(13)} color={MIST_GLASS.faint} />
-                  <span>已思考（用时 7 秒）</span>
-                  <span style={{color: MIST_GLASS.faint, marginLeft: px(2)}}>›</span>
-                </div>
-
+            <div style={{display: "flex", flexDirection: "column", paddingLeft: px(2)}}>
                 {/* 1. TL;DR */}
                 <div
                   style={{
@@ -603,7 +482,7 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
                 </div>
 
                 {/* 2. 主题与核心观点 */}
-                {sceneFrame >= 108 && (
+                {sceneFrame >= 88 && (
                   <>
                     <div
                       style={{
@@ -652,7 +531,6 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
                   </>
                 )}
               </div>
-            )}
           </div>
 
           {/* .chat-footer (.chat-input-card) */}
@@ -934,6 +812,7 @@ export const HeroScene = () => {
       </div>
       <IconOrbit />
       <Cursor />
+      <DurationBadge />
       <HeroCopy />
     </AbsoluteFill>
   );
