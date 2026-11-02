@@ -315,8 +315,8 @@ export async function record() {
         if (!/TL;DR/i.test(final.answerText)) throw new Error("答案开头没有 TL;DR，无法作为推近落点");
         mark("answer-flowing", {answerLen: final.answerLen, scrollTop: final.scrollTop});
         return {events};
-      }, {captureScale: 1, quality: 95, prepareCapture: prepareHeroCapture});
-      const output = await encodeRecording(recording, "hero-hook.mp4", {frameCount: HERO_HOOK_FRAMES, preset: "medium", crf: 17});
+      }, {captureScale: 2, quality: 98, prepareCapture: prepareHeroCapture});
+      const output = await encodeRecording(recording, "hero-hook.mp4", {frameCount: HERO_HOOK_FRAMES, filters: ["scale=3840:2160"], preset: "medium", crf: 17});
       const answerStartEvent = events.find((event) => event.type === "answer-start");
       const panelFrameAt = Math.max(0, (answerStartEvent?.at ?? recording.duration - 2) + 1.8);
       const panel = await exportRecordingFrame(recording, "hero-panel.png", {at: panelFrameAt});
