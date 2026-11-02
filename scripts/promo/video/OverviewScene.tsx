@@ -1,4 +1,4 @@
-import {Easing, Sequence, interpolate, useCurrentFrame} from "remotion";
+import {AbsoluteFill, Easing, Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {OVERVIEW_TIMELINE} from "../timeline.mjs";
 import {
   BRAND_FONT_FAMILY,
@@ -24,7 +24,7 @@ const SERIF_FONT_FAMILY =
 const GEMINI_BADGE_BG =
   "linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.14) 40%, rgba(217, 101, 112, 0.14) 75%, rgba(242, 166, 64, 0.14) 100%)";
 
-export const OVERVIEW_HEADLINE = "48 分钟公开课，\n3 秒提炼脉络与结论";
+export const OVERVIEW_HEADLINE = "收藏夹里蒙尘的 48 分钟公开课，\n当成一页文章，3 秒读透脉络";
 
 export const OVERVIEW_TLDR = {
   lead: "UP 主认为大模型被训练成“必须作答”，只模仿语言规律、不辨事实，幻觉因此无法根除。核心结论：",
@@ -144,6 +144,329 @@ const PlayerSeekOverlay = () => {
   );
 };
 
+const BILI_TRIGGER_ICON = {x: 1359, y: 563, size: 36};
+
+const BILI_RECOMMEND_ITEMS = [
+  {title: "大模型为什么会产生幻觉？从预训练与对齐讲起", up: "复旦赵斌", views: "12.4万播放 · 48:16", duration: "48:16", tint: "linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)"},
+  {title: "Agent 工作流实战：如何让 AI 真正接上业务系统", up: "复旦赵斌", views: "8.7万播放 · 36:40", duration: "36:40", tint: "linear-gradient(135deg, #312e81 0%, #6366f1 100%)"},
+  {title: "RAG 检索增强生成：原理、局限与工程落地指南", up: "AI 研习社", views: "19.2万播放 · 42:05", duration: "42:05", tint: "linear-gradient(135deg, #134e4a 0%, #14b8a6 100%)"},
+  {title: "Transformer 注意力机制直观图解（中英字幕）", up: "深度学习公开课", views: "31.5万播放 · 29:18", duration: "29:18", tint: "linear-gradient(135deg, #3b0764 0%, #a855f7 100%)"},
+  {title: "提示词工程进阶：结构化输出与思维链推理", up: "复旦赵斌", views: "6.3万播放 · 25:50", duration: "25:50", tint: "linear-gradient(135deg, #0f172a 0%, #475569 100%)"}
+] as const;
+
+const BiliPageRightColumnFiller = () => (
+  <div
+    style={{
+      position: "absolute",
+      left: 1396,
+      top: 84,
+      width: 468,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14,
+      fontFamily: FONT_FAMILY,
+      pointerEvents: "none"
+    }}
+  >
+    {/* UP 主信息卡 */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px 16px",
+        borderRadius: 12,
+        background: "#FFFFFF",
+        boxShadow: "0 1px 4px rgba(15, 23, 42, 0.05)"
+      }}
+    >
+      <div style={{display: "flex", alignItems: "center", gap: 12}}>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+            color: "#FFFFFF",
+            fontSize: 18,
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          赵
+        </div>
+        <div>
+          <div style={{fontSize: 16, fontWeight: 700, color: "#18191C"}}>复旦赵斌</div>
+          <div style={{fontSize: 12, color: "#9499A0", marginTop: 2}}>复旦大学教授 · 人工智能公开课</div>
+        </div>
+      </div>
+      <div
+        style={{
+          padding: "7px 22px",
+          borderRadius: 8,
+          background: "#00AEEC",
+          color: "#FFFFFF",
+          fontSize: 14,
+          fontWeight: 600
+        }}
+      >
+        + 关注 14.2万
+      </div>
+    </div>
+
+    {/* 弹幕列表折叠条 */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px 16px",
+        borderRadius: 10,
+        background: "#F1F2F3",
+        color: "#18191C",
+        fontSize: 15,
+        fontWeight: 600
+      }}
+    >
+      <span>弹幕列表</span>
+      <span style={{fontSize: 13, color: "#9499A0", fontWeight: 500}}>展开 ▾</span>
+    </div>
+
+    {/* 接下来播放推荐列表 */}
+    <div
+      style={{
+        padding: "14px 16px",
+        borderRadius: 12,
+        background: "#FFFFFF",
+        boxShadow: "0 1px 4px rgba(15, 23, 42, 0.05)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 14
+      }}
+    >
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+        <span style={{fontSize: 16, fontWeight: 700, color: "#18191C"}}>接下来播放</span>
+        <span style={{fontSize: 13, color: "#9499A0"}}>自动连播</span>
+      </div>
+      {BILI_RECOMMEND_ITEMS.map((item) => (
+        <div key={item.title} style={{display: "flex", gap: 12, alignItems: "center"}}>
+          <div
+            style={{
+              position: "relative",
+              width: 140,
+              height: 80,
+              borderRadius: 8,
+              background: item.tint,
+              flexShrink: 0,
+              overflow: "hidden"
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                right: 6,
+                bottom: 5,
+                padding: "1px 6px",
+                borderRadius: 4,
+                background: "rgba(0, 0, 0, 0.65)",
+                color: "#FFFFFF",
+                fontSize: 11,
+                fontFamily: BRAND_FONT_FAMILY
+              }}
+            >
+              {item.duration}
+            </div>
+          </div>
+          <div style={{display: "flex", flexDirection: "column", justifyContent: "space-between", height: 76, minWidth: 0}}>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#18191C",
+                lineHeight: 1.38,
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden"
+              }}
+            >
+              {item.title}
+            </div>
+            <div style={{fontSize: 12, color: "#9499A0"}}>
+              {item.up} · {item.views}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const BiliPageTriggerStage = () => {
+  const frame = useCurrentFrame();
+  const fadeOutEnd = T.spatialEnterAt + 7;
+  if (frame >= fadeOutEnd) return null;
+
+  const stageOpacity = interpolate(frame, [T.spatialEnterAt - 2, fadeOutEnd], [1, 0], {...CLAMP, easing: SMOOTH});
+  const stageScale = interpolate(frame, [T.spatialEnterAt - 2, fadeOutEnd], [1, 0.968], {...CLAMP, easing: SMOOTH});
+  const stageBlur = interpolate(frame, [T.spatialEnterAt - 1, fadeOutEnd], [0, 8], {...CLAMP, easing: SMOOTH});
+
+  const cx = BILI_TRIGGER_ICON.x + BILI_TRIGGER_ICON.size / 2;
+  const cy = BILI_TRIGGER_ICON.y + BILI_TRIGGER_ICON.size / 2;
+
+  const cursorX = interpolate(frame, [0, T.triggerClickAt], [cx - 112, cx + 2], {...CLAMP, easing: SMOOTH});
+  const cursorY = interpolate(frame, [0, T.triggerClickAt], [cy + 76, cy + 4], {...CLAMP, easing: SMOOTH});
+  const cursorScale = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 4], [1, 0.86, 1], CLAMP);
+  const cursorOpacity = interpolate(frame, [T.triggerClickAt + 7, T.spatialEnterAt], [1, 0], CLAMP);
+
+  const iconPress = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 5], [1, 0.88, 1.04], CLAMP);
+  const haloOpacity = interpolate(frame, [0, 3, T.spatialEnterAt - 2, T.spatialEnterAt + 3], [0.7, 1, 1, 0], CLAMP);
+  const rippleOpacity = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 9], [0, 0.95, 0], CLAMP);
+  const rippleScale = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 9], [0.55, 2.35], {...CLAMP, easing: SMOOTH});
+  const calloutY = interpolate(frame, [0, 5], [6, 0], {...CLAMP, easing: SMOOTH});
+
+  return (
+    <AbsoluteFill
+      style={{
+        opacity: stageOpacity,
+        scale: stageScale,
+        filter: stageBlur > 0.1 ? `blur(${stageBlur.toFixed(1)}px)` : undefined,
+        transformOrigin: "50% 50%",
+        zIndex: 6,
+        pointerEvents: "none"
+      }}
+    >
+      <OffthreadVideo
+        muted
+        src={staticFile("media/hero-hook.mp4")}
+        startFrom={10}
+        playbackRate={1.2}
+        style={{width: 1920, height: 1080, objectFit: "cover"}}
+      />
+      <BiliPageRightColumnFiller />
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(circle 320px at 1377px 581px, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.14) 100%)"
+        }}
+      />
+
+      {/* BiliScript 播放页侧边触发图标高光环与点击波纹 */}
+      <div style={{position: "absolute", inset: 0, opacity: haloOpacity}}>
+        <div
+          style={{
+            position: "absolute",
+            left: cx - 54,
+            top: cy - 54,
+            width: 108,
+            height: 108,
+            borderRadius: 999,
+            background: "radial-gradient(circle, rgba(232, 93, 135, 0.28) 0%, rgba(38, 121, 184, 0.18) 54%, rgba(38, 121, 184, 0) 74%)",
+            border: "1.5px solid rgba(232, 93, 135, 0.52)"
+          }}
+        />
+        {rippleOpacity > 0.01 && (
+          <div
+            style={{
+              position: "absolute",
+              left: cx - 28,
+              top: cy - 28,
+              width: 56,
+              height: 56,
+              borderRadius: 999,
+              border: "2.5px solid rgba(232, 93, 135, 0.92)",
+              boxShadow: "0 0 28px rgba(232, 93, 135, 0.55)",
+              opacity: rippleOpacity,
+              scale: rippleScale
+            }}
+          />
+        )}
+        <div
+          style={{
+            position: "absolute",
+            left: cx - 23,
+            top: cy - 23,
+            width: 46,
+            height: 46,
+            borderRadius: 14,
+            background: "rgba(255, 255, 255, 0.96)",
+            boxShadow:
+              "0 12px 28px -6px rgba(15, 23, 42, 0.34), 0 0 0 2px rgba(232, 93, 135, 0.72), 0 0 24px rgba(232, 93, 135, 0.42)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            scale: iconPress
+          }}
+        >
+          <Img src={staticFile("media/logo.svg")} style={{width: 30, height: 30, borderRadius: 8}} />
+        </div>
+
+        {/* 触发场景锚点提示胶囊（置于图标下方暗部墙面区，不遮挡课件文字） */}
+        <div
+          style={{
+            position: "absolute",
+            left: cx - 304,
+            top: cy + 36,
+            translate: `0px ${calloutY.toFixed(1)}px`,
+            padding: "8px 18px",
+            borderRadius: 999,
+            background: "rgba(15, 23, 42, 0.88)",
+            backdropFilter: "blur(16px)",
+            boxShadow: "0 16px 36px -10px rgba(15, 23, 42, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.22)",
+            color: "#FFFFFF",
+            fontFamily: FONT_FAMILY,
+            fontSize: 19,
+            fontWeight: 680,
+            letterSpacing: -0.2,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            whiteSpace: "nowrap"
+          }}
+        >
+          <span
+            style={{
+              width: 9,
+              height: 9,
+              borderRadius: "50%",
+              background: "#FF709A",
+              boxShadow: "0 0 10px #FF709A"
+            }}
+          />
+          <span>B 站播放页点一下 · 展开 AI 文摘</span>
+        </div>
+      </div>
+
+      {/* 鼠标指针点击播放器右侧 BiliScript 图标 */}
+      {cursorOpacity > 0.01 && (
+        <div
+          style={{
+            position: "absolute",
+            left: cursorX,
+            top: cursorY,
+            opacity: cursorOpacity,
+            transform: `scale(${cursorScale.toFixed(3)})`,
+            transformOrigin: "18% 12%",
+            filter: "drop-shadow(0 8px 16px rgba(15, 23, 42, 0.38))"
+          }}
+        >
+          <svg width={34} height={34} viewBox="0 0 28 28" fill="none">
+            <path
+              d="M5.5 3.2L22.4 13.1C23.4 13.7 23.1 15.2 22.0 15.4L14.6 16.9L11.2 23.6C10.7 24.6 9.2 24.3 9.0 23.2L5.5 3.2Z"
+              fill="#111827"
+              stroke="#FFFFFF"
+              strokeWidth="2.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      )}
+    </AbsoluteFill>
+  );
+};
+
 const VideoReference = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const captionOpacity = overviewVoiceCaptionOpacityAtFrame(frame, duration);
@@ -160,7 +483,7 @@ const VideoReference = ({duration}: {duration: number}) => {
       headerText={OVERVIEW_VIDEO_REFERENCE.headerText}
       badgeText={OVERVIEW_VIDEO_REFERENCE.badgeText}
       tilt={-6}
-      delay={2}
+      delay={T.spatialEnterAt - 4}
       style={{position: "absolute", left: 96, top: 388}}
     >
       <PlayerSeekOverlay />
@@ -186,8 +509,15 @@ const VideoReference = ({duration}: {duration: number}) => {
 
 const OverviewSpotlightCard = () => {
   const frame = useCurrentFrame();
-  const enter = interpolate(frame, [0, 12], [0, 1], {...CLAMP, easing: SMOOTH});
-  const enterY = interpolate(frame, [0, 12], [22, 0], {...CLAMP, easing: SMOOTH});
+  // 第一阶段（triggerClickAt..triggerClickAt+4）：点击图标后在 B 站页面右侧栏位置（x≈1393..1892）瞬间展开面板
+  // 第二阶段（spatialEnterAt-2..spatialEnterAt+7）：从 B 站右侧栏平滑舒展至 3D 空间主舞台
+  const drawerOpen = interpolate(frame, [T.triggerClickAt, T.triggerClickAt + 4], [0, 1], {...CLAMP, easing: SMOOTH});
+  const spatialMorph = interpolate(frame, [T.spatialEnterAt - 2, T.spatialEnterAt + 7], [0, 1], {...CLAMP, easing: SMOOTH});
+  const enter = drawerOpen;
+  const enterX = interpolate(drawerOpen, [0, 1], [380, 68]) * (1 - spatialMorph);
+  const enterY = -52 * (1 - spatialMorph);
+  const enterScale = interpolate(spatialMorph, [0, 1], [0.58, 1]);
+  const panelTilt = interpolate(spatialMorph, [0, 1], [0, -7]);
   const quoteDefocus = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [0, 2.6], {...CLAMP, easing: SMOOTH});
   const quoteDimOpacity = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [1, 0.68], {...CLAMP, easing: SMOOTH});
   const quoteBackScale = interpolate(frame, [T.quoteStartAt, T.quoteStartAt + 16], [1, 0.965], {...CLAMP, easing: SMOOTH});
@@ -245,10 +575,10 @@ const OverviewSpotlightCard = () => {
         top: PANEL_STAGE.top,
         width: PANEL_STAGE.width,
         opacity: enter * quoteDimOpacity,
-        translate: `0px ${(enterY + quoteRetreatY).toFixed(1)}px`,
-        scale: undefined,
+        translate: `${enterX.toFixed(1)}px ${(enterY + quoteRetreatY).toFixed(1)}px`,
+        scale: enterScale,
         filter: quoteDefocus > 0.05 ? `blur(${quoteDefocus.toFixed(2)}px)` : undefined,
-        transformOrigin: "50% 50%",
+        transformOrigin: "100% 18%",
         zIndex: 8
       }}
     >
@@ -262,7 +592,7 @@ const OverviewSpotlightCard = () => {
           boxShadow: MIST_GLASS.shellShadow,
           padding: "20px 28px 24px",
           fontFamily: FONT_FAMILY,
-          transform: microPerspective(-7, quoteBackScale),
+          transform: microPerspective(panelTilt, quoteBackScale),
           transformOrigin: "50% 50%",
           color: MIST_GLASS.text
         }}
@@ -913,16 +1243,21 @@ const QuotePolaroid = () => {
   );
 };
 
-export const OverviewScene = ({duration}: {duration: number}) => (
-  <>
-    <BrandWhisper />
-    <SceneTitle title={OVERVIEW_HEADLINE} size={66} style={{left: 96, top: 186, width: 848}} />
-    <VideoReference duration={duration} />
-    <div style={{position: "absolute", inset: 0}}>
-      <OverviewSpotlightCard />
-      <Sequence from={T.quoteStartAt} durationInFrames={duration - T.quoteStartAt}>
-        <QuotePolaroid />
-      </Sequence>
-    </div>
-  </>
-);
+export const OverviewScene = ({duration}: {duration: number}) => {
+  const frame = useCurrentFrame();
+  const brandOpacity = interpolate(frame, [T.spatialEnterAt - 2, T.spatialEnterAt + 6], [0, 1], CLAMP);
+  return (
+    <>
+      <BiliPageTriggerStage />
+      <BrandWhisper opacity={brandOpacity} />
+      <SceneTitle title={OVERVIEW_HEADLINE} size={58} delay={T.spatialEnterAt - 4} style={{left: 96, top: 186, width: 868}} />
+      <VideoReference duration={duration} />
+      <div style={{position: "absolute", inset: 0}}>
+        <OverviewSpotlightCard />
+        <Sequence from={T.quoteStartAt} durationInFrames={duration - T.quoteStartAt}>
+          <QuotePolaroid />
+        </Sequence>
+      </div>
+    </>
+  );
+};

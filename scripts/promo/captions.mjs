@@ -13,8 +13,8 @@ const voiceMilliseconds = (id) => {
 // @ts-check
 /** @type {(import("@remotion/captions").Caption & {sceneId: string})[]} */
 export const CAPTIONS = [
-  {sceneId: "overview", text: "48 分钟公开课，", startMs: 0, endMs: 1500, timestampMs: null, confidence: null},
-  {sceneId: "overview", text: "3 秒提炼脉络与结论。", startMs: 1500, endMs: 3400, timestampMs: null, confidence: null},
+  {sceneId: "overview", text: "收藏夹里蒙尘的 48 分钟公开课，", startMs: 0, endMs: 1800, timestampMs: null, confidence: null},
+  {sceneId: "overview", text: "当成一页文章，3 秒读透脉络。", startMs: 1800, endMs: 3450, timestampMs: null, confidence: null},
   {sceneId: "overview", text: "点章节，直接跳播。", startMs: 3500, endMs: 4700, timestampMs: null, confidence: null},
   {sceneId: "overview", text: "点金句，生成分享卡。", startMs: 4700, endMs: 5850, timestampMs: null, confidence: null},
   {sceneId: "overview", text: "如果他不答，一定是零分！", ...voiceMilliseconds("voice-0232"), timestampMs: null, confidence: null},

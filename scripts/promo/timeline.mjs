@@ -12,7 +12,9 @@ export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
 export const OVERVIEW_TIMELINE = {
   duration: beatF(18),
-  tldrAt: 8,
+  triggerClickAt: 8,
+  tldrAt: 10,
+  spatialEnterAt: 20,
   chaptersAt: beatF(3),
   quoteCardAt: beatF(4.5),
   chapterClickAt: beatF(7),

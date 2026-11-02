@@ -27,8 +27,8 @@ describe("宣传片公共原语与字幕轨", () => {
       visibleChars(caption.text) / ((caption.endMs - caption.startMs) / 1000);
 
     expect(CAPTIONS.map((caption: {text: string}) => caption.text)).toEqual([
-      "48 分钟公开课，",
-      "3 秒提炼脉络与结论。",
+      "收藏夹里蒙尘的 48 分钟公开课，",
+      "当成一页文章，3 秒读透脉络。",
       "点章节，直接跳播。",
       "点金句，生成分享卡。",
       "如果他不答，一定是零分！",
