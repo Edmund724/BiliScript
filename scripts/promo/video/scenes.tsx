@@ -510,38 +510,29 @@ export const ChatScene = () => {
 };
 
 /* ==========================================================================
-   Scene 5: SubtoolsScene (20.0s–24.5s, 135 frames)
-   两拍：0–66 无字幕的视频整段转写；66–135 视频自带双轨时的中英对照与复制导出
-   （双语对照只在视频本身有两条字幕轨时成立，复制导出并入第二拍的副行）
+   Scene 5: SubtoolsScene (18.5s–22.0s, 105 frames)
+   一气呵成：左侧保留无原生字幕 B 站视频小窗（傅里叶变换），右侧展示免费语音转写 -> 一键复制导出字幕
    ========================================================================== */
 
 const SUBTOOLS_ASR_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "没字幕的视频，"}],
-  [{text: "整段转成文字", accent: true}, {text: "。"}]
-];
-
-const SUBTOOLS_BILINGUAL_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "中英双轨，"}],
-  [{text: "逐句对照着看", accent: true}, {text: "。"}]
+  [{text: "视频没开字幕？"}],
+  [{text: "免费转写", accent: true}, {text: "，一键复制导出。"}]
 ];
 
 export const SUBTOOLS_ROWS = [
   {
-    timestamp: "01:14",
-    source: "Attention mechanisms allow the model to focus on relevant tokens.",
-    translation: "注意力机制让模型能够聚焦于上下文中最相关的词元。",
-    active: true
-  },
-  {
-    timestamp: "01:28",
-    source: "We project queries, keys, and values into latent subspaces.",
-    translation: "我们将查询、键与值向量投影至低维潜在子空间。",
+    timestamp: "02:53",
+    source: "任何一个周期信号，都可以拆解成正弦波的叠加。",
     active: false
   },
   {
-    timestamp: "01:42",
-    source: "Softmax normalizes attention weights across the sequence.",
-    translation: "Softmax 在序列维度上对注意力权重进行归一化。",
+    timestamp: "03:00",
+    source: "严格来说要满足狄利克雷条件，工程信号基本都满足。",
+    active: true
+  },
+  {
+    timestamp: "03:06",
+    source: "抓出基频与奇次谐波，方波在频域里就一目了然。",
     active: false
   }
 ] as const;
@@ -551,17 +542,14 @@ const SUBTOOLS_EXPORT_BUTTONS = ["复制字幕", "导出字幕"] as const;
 export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
   const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, SUBTOOLS_HANDOFF, WEBSEARCH_HANDOFF);
-  const bilingualAt = SUBTOOLS_TIMELINE.bilingualAt;
+  const settledAt = SUBTOOLS_TIMELINE.settledAt;
   const sublineAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;
   const isExported = frame >= clickAt;
   const showCheck = frame >= clickAt + 2;
-  const dualActive = frame >= bilingualAt;
-  const dualReveal = dualActive ? 1 : 0;
 
-  const asrFadeOut = interpolate(frame, [bilingualAt - 2, bilingualAt], [0, 1], CLAMP);
-  const sublineReveal = interpolate(frame, [sublineAt, sublineAt + 6], [0, 1], {...CLAMP, easing: SMOOTH});
-  const asrStatusIn = interpolate(frame, [6, 12], [0, 1], CLAMP) * (1 - asrFadeOut);
+  const sublineReveal = interpolate(frame, [sublineAt, sublineAt + 8], [0, 1], {...CLAMP, easing: SMOOTH});
+  const asrStatusIn = interpolate(frame, [6, settledAt], [0, 1], CLAMP);
 
   const copyHoverOpacity = interpolate(frame, [clickAt - 10, clickAt - 4, clickAt + 2, clickAt + 8], [0, 1, 1, 0], CLAMP);
   const copyPopScale = showCheck
@@ -581,34 +569,23 @@ export const SubtoolsScene = () => {
       <BrandWhisper />
       <SectionHeadline
         lines={SUBTOOLS_ASR_HEADLINE_LINES}
-        subtext="免费语音识别 · 412 条字幕"
-        opacity={1 - asrFadeOut}
-      />
-      <SectionHeadline
-        lines={SUBTOOLS_BILINGUAL_HEADLINE_LINES}
-        subtext="选中复制 · SRT / Markdown / TXT"
-        opacity={dualReveal}
-        subtextOpacity={sublineReveal}
+        subtext={frame >= sublineAt ? "一键复制 · 导出 SRT / Markdown / TXT" : "免费语音识别 · 已转写 286 条中文字幕"}
+        subtextOpacity={frame >= sublineAt ? sublineReveal : 1}
       />
 
-      <div style={{position: "absolute", left: 96, top: 430, opacity: 1 - dualReveal}}>
-        <VideoReferenceCard
-          variant="bar"
-          width={760}
-          headerText="正在阅读：MIT 6.S191 · 英文生肉"
-          badgeText="无原生字幕"
-          delay={4}
-        />
-      </div>
-      <div style={{position: "absolute", left: 96, top: 430, opacity: dualReveal}}>
-        <VideoReferenceCard
-          variant="bar"
-          width={760}
-          headerText="正在阅读：MIT 6.S191 · 中英双轨"
-          badgeText="2 条字幕轨"
-          delay={4}
-        />
-      </div>
+      {/* Left Bilibili Video Mini-Window */}
+      <VideoReferenceCard
+        variant="window"
+        source="subtools-fourier.mp4"
+        width={760}
+        height={428}
+        headerText="正在播放：《一听就懂的傅里叶变换》03:00"
+        badgeText="无原生 CC 字幕"
+        playbackRate={1}
+        delay={4}
+        crop={{x: 0, y: -71, width: 1920, height: 1080}}
+        style={{position: "absolute", left: 96, top: 388}}
+      />
 
       {/* Right Subtitle Panel */}
       <div
@@ -658,7 +635,7 @@ export const SubtoolsScene = () => {
               marginBottom: 8
             }}
           >
-            <span style={{fontSize: 22, fontWeight: 620, color: MIST_GLASS.muted}}>UP主：MIT 6.S191</span>
+            <span style={{fontSize: 22, fontWeight: 620, color: MIST_GLASS.muted}}>UP主：隔壁的程序员老王</span>
             <ReadingHeaderActions iconSize={22} />
           </div>
 
@@ -678,11 +655,11 @@ export const SubtoolsScene = () => {
             }}
           >
             {isExported ? (
-              <span style={{opacity: statusSlideProgress, translate: `0px ${(1 - statusSlideProgress) * 4}px`}}>
-                字幕已复制到剪贴板。
+              <span style={{opacity: statusSlideProgress, translate: `0px ${(1 - statusSlideProgress) * 4}px`, color: MIST_GLASS.accent}}>
+                ✓ 字幕已复制到剪贴板（支持导出 SRT / Markdown / TXT）。
               </span>
             ) : (
-              <span style={{opacity: asrStatusIn}}>语音识别完成，已生成 412 条字幕。</span>
+              <span style={{opacity: asrStatusIn}}>语音识别完成，已生成 286 条中文字幕。</span>
             )}
           </div>
 
@@ -763,7 +740,7 @@ export const SubtoolsScene = () => {
                 </div>
               </div>
 
-              {/* .biliscript-reading-track-picker（.custom-select-trigger + .biliscript-bilingual-badge） */}
+              {/* .biliscript-reading-track-picker */}
               <div
                 style={{
                   flex: "0 0 auto",
@@ -780,28 +757,13 @@ export const SubtoolsScene = () => {
                   fontWeight: 600
                 }}
               >
-                <span>{dualActive ? "英文" : "自配平台转写（英文）"}</span>
-                {dualActive && (
-                  <span
-                    style={{
-                      padding: "2px 9px",
-                      borderRadius: 6,
-                      background: MIST_GLASS.accentSoft,
-                      color: MIST_GLASS.accent,
-                      fontSize: 20,
-                      fontWeight: 720,
-                      lineHeight: "24px"
-                    }}
-                  >
-                    双语
-                  </span>
-                )}
+                <span>语音识别（中文）</span>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={MIST_GLASS.faint} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </div>
 
-              {/* #biliscript-reading-copy-subtitle-btn (.biliscript-reading-icon-btn) */}
+              {/* #biliscript-reading-copy-subtitle-btn */}
               <div
                 aria-label={showCheck ? "已复制" : SUBTOOLS_EXPORT_BUTTONS[0]}
                 style={{
@@ -856,7 +818,7 @@ export const SubtoolsScene = () => {
                 )}
               </div>
 
-              {/* #biliscript-reading-export-subtitle-btn (.biliscript-reading-icon-btn) */}
+              {/* #biliscript-reading-export-subtitle-btn */}
               <div
                 aria-label={SUBTOOLS_EXPORT_BUTTONS[1]}
                 style={{
@@ -879,100 +841,50 @@ export const SubtoolsScene = () => {
             </div>
 
             {/* .biliscript-reading-subtitle */}
-            <div style={{display: "flex", flexDirection: "column", gap: 6, padding: "4px 4px 2px"}}>
-              {SUBTOOLS_ROWS.map((row) => (
-                <div
-                  key={row.timestamp}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "82px minmax(0, 1fr)",
-                    gap: 14,
-                    alignItems: "start",
-                    padding: "14px 16px",
-                    borderRadius: 22,
-                    background: row.active ? MIST_GLASS.cardElevated : "transparent",
-                    boxShadow: row.active ? MIST_GLASS.tabActiveShadow : "none"
-                  }}
-                >
-                  {/* .biliscript-reading-time */}
-                  <span
+            <div style={{display: "flex", flexDirection: "column", gap: 10, padding: "6px 4px 4px"}}>
+              {SUBTOOLS_ROWS.map((row, idx) => {
+                const rowAppear = interpolate(frame, [4 + idx * 5, 14 + idx * 5], [0, 1], {...CLAMP, easing: SMOOTH});
+                return (
+                  <div
+                    key={row.timestamp}
                     style={{
-                      justifySelf: "start",
-                      alignSelf: "start",
-                      padding: row.active ? "2px 10px" : 0,
-                      borderRadius: 999,
-                      background: row.active ? MIST_GLASS.timeBg : "transparent",
-                      color: row.active ? MIST_GLASS.timeColor : MIST_GLASS.muted,
-                      fontFamily: BRAND_FONT_FAMILY,
-                      fontVariantNumeric: "tabular-nums",
-                      fontSize: 22,
-                      fontWeight: 680,
-                      lineHeight: 1.5
+                      display: "grid",
+                      gridTemplateColumns: "82px minmax(0, 1fr)",
+                      gap: 14,
+                      alignItems: "center",
+                      padding: "16px 18px",
+                      borderRadius: 22,
+                      background: row.active ? MIST_GLASS.cardElevated : "transparent",
+                      boxShadow: row.active ? MIST_GLASS.tabActiveShadow : "none",
+                      opacity: rowAppear,
+                      translate: `0px ${(1 - rowAppear) * 10}px`
                     }}
                   >
-                    {row.timestamp}
-                  </span>
-
-                  {/* .biliscript-reading-text + .biliscript-reading-subtext（副行只在双语态出现） */}
-                  <div style={{minWidth: 0, lineHeight: 1.48}}>
-                    <div style={{fontSize: 22, fontWeight: row.active ? 680 : 540, color: MIST_GLASS.text}}>
-                      {row.source}
-                    </div>
-                    <div
+                    <span
                       style={{
-                        marginTop: 4 * dualReveal,
-                        maxHeight: 40 * dualReveal,
-                        opacity: dualReveal,
-                        overflow: "hidden",
-                        fontSize: 21,
-                        fontWeight: 520,
-                        lineHeight: 1.42,
-                        color: MIST_GLASS.faint
+                        justifySelf: "start",
+                        padding: row.active ? "2px 10px" : 0,
+                        borderRadius: 999,
+                        background: row.active ? MIST_GLASS.timeBg : "transparent",
+                        color: row.active ? MIST_GLASS.timeColor : MIST_GLASS.muted,
+                        fontFamily: BRAND_FONT_FAMILY,
+                        fontVariantNumeric: "tabular-nums",
+                        fontSize: 22,
+                        fontWeight: 680,
+                        lineHeight: 1.5
                       }}
                     >
-                      {row.translation}
+                      {row.timestamp}
+                    </span>
+
+                    <div style={{minWidth: 0, lineHeight: 1.48}}>
+                      <div style={{fontSize: 23, fontWeight: row.active ? 700 : 560, color: MIST_GLASS.text}}>
+                        {row.source}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {/* .biliscript-bilingual-footer：双语开关 + 单轨说明 */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-end",
-                gap: 12,
-                marginTop: 14,
-                padding: "0 4px"
-              }}
-            >
-              <span style={{fontSize: 21, fontWeight: 640, color: MIST_GLASS.muted}}>双语字幕</span>
-              {dualActive ? null : (
-                <span style={{fontSize: 21, color: MIST_GLASS.muted}}>本视频只有一条字幕轨</span>
-              )}
-              <span
-                style={{
-                  width: 46,
-                  height: 26,
-                  borderRadius: 999,
-                  background: dualActive ? MIST_GLASS.accent : "#d5d8dd",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  padding: 3
-                }}
-              >
-                <span
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    background: "#ffffff",
-                    translate: `${dualActive ? 20 : 0}px 0px`
-                  }}
-                />
-              </span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -982,19 +894,19 @@ export const SubtoolsScene = () => {
 };
 
 /* ==========================================================================
-   Scene 6: WebSearchScene (24.5s–27.0s, 75 frames)
-   主标题：UP 主说得对不对？AI 联网检索辅助核对
-   副标/追问气泡：超纲概念背景补充
+   Scene 6: WebSearchScene (22.0s–25.5s, 105 frames)
+   主标题：视频里提的新概念？AI 联网搜背景，附来源链接
+   左侧保留 B 站原视频小窗（03:00 提到狄利克雷条件），右侧精简文字 + 放大来源标签
    ========================================================================== */
 
-export const WEBSEARCH_HEADLINE = "UP 主说得对不对？\nAI 联网检索辅助核对。";
-export const WEBSEARCH_SUBHEADLINE = "超纲概念听不懂？检索公开网页和论文摘要，附来源链接，方便进一步核实。";
-export const WEBSEARCH_QUESTION = "UP 主说 MLA 能省 93% KV Cache，有依据吗？这个超纲概念怎么理解？";
-export const WEBSEARCH_CONCLUSION = "论文摘要：DeepSeek-V2 相比 DeepSeek 67B，KV Cache 减少 93.3%";
+export const WEBSEARCH_HEADLINE = "视频里提的新概念？\nAI 联网搜背景，附来源链接。";
+export const WEBSEARCH_SUBHEADLINE = "遇到陌生术语不用切出 B 站，检索公开网页补充背景。";
+export const WEBSEARCH_QUESTION = "03:00 提到的「狄利克雷条件」是什么？工程信号为什么满足？";
+export const WEBSEARCH_CONCLUSION = "已附 3 条来源链接：Wikipedia · MathWorld · 信号与系统";
 
 const WEBSEARCH_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "UP 主说得"}, {text: "对不对", accent: true}, {text: "？"}],
-  [{text: "AI 联网检索辅助核对", accent: true}, {text: "。"}]
+  [{text: "视频里提的"}, {text: "新概念", accent: true}, {text: "？"}],
+  [{text: "AI 联网搜背景", accent: true}, {text: "，附来源链接。"}]
 ];
 
 export const WebSearchScene = () => {
@@ -1012,13 +924,19 @@ export const WebSearchScene = () => {
       <BrandWhisper />
       <SectionHeadline lines={WEBSEARCH_HEADLINE_LINES} subtext={WEBSEARCH_SUBHEADLINE} />
 
+      {/* Left Bilibili Video Mini-Window */}
       <VideoReferenceCard
-        variant="bar"
+        variant="window"
+        source="subtools-fourier.mp4"
         width={760}
-        headerText="正在阅读：复旦赵斌《大模型公开课》48:16"
-        badgeText="联网检索 · 背景补充"
-        delay={4}
-        style={{position: "absolute", left: 96, top: 690}}
+        height={428}
+        headerText="正在播放：《一听就懂的傅里叶变换》03:00"
+        badgeText="联网检索 · 概念背景"
+        startFrom={75}
+        playbackRate={1}
+        delay={0}
+        crop={{x: 0, y: -71, width: 1920, height: 1080}}
+        style={{position: "absolute", left: 96, top: 388}}
       />
 
       {/* Right AI Web Search Panel */}
@@ -1101,36 +1019,10 @@ export const WebSearchScene = () => {
             </div>
           </div>
 
-          {/* Live Web Sources Pill */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 18,
-              fontSize: 21,
-              fontWeight: 680,
-              color: MIST_GLASS.muted
-            }}
-          >
-            <span
-              style={{
-                padding: "6px 14px",
-                borderRadius: 999,
-                background: "rgba(16, 185, 129, 0.14)",
-                color: "#047857",
-                fontWeight: 740
-              }}
-            >
-              ✓ 检索到 3 个外部来源
-            </span>
-            <span>arXiv:2405.04434 · DeepSeek-V2 论文</span>
-          </div>
-
           {/* Search Summary + Concept Explanation Card */}
           <div
             style={{
-              padding: "24px 28px",
+              padding: "26px 30px",
               borderRadius: 24,
               background: MIST_GLASS.cardElevated,
               boxShadow: MIST_GLASS.cardShadow,
@@ -1143,19 +1035,19 @@ export const WebSearchScene = () => {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 10,
-                padding: "8px 18px",
+                padding: "10px 22px",
                 borderRadius: 999,
-                background: "rgba(232, 93, 135, 0.14)",
-                color: "#C81E5B",
-                fontSize: 22,
+                background: "rgba(16, 185, 129, 0.14)",
+                color: "#047857",
+                fontSize: 25,
                 fontWeight: 780,
-                marginBottom: 16
+                marginBottom: 18
               }}
             >
               ✓ {WEBSEARCH_CONCLUSION}
             </div>
-            <div style={{fontSize: 24, fontWeight: 660, lineHeight: 1.5, color: "#1E293B"}}>
-              <strong>超纲概念补充：</strong>MLA（多头潜在注意力）将键值矩阵联合低秩压缩为潜在向量，从而减少推理时的 KV Cache 占用。
+            <div style={{fontSize: 26, fontWeight: 680, lineHeight: 1.52, color: "#1E293B"}}>
+              <strong>狄利克雷条件：</strong>单周期内绝对可积、极值与间断点有限。真实物理信号能量有限且无无穷震荡，天然满足展开条件。
             </div>
           </div>
         </div>

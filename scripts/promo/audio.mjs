@@ -80,7 +80,7 @@ export const AUDIO = {
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
     {id: `${SUBTOOLS_HANDOFF.from}-defocus`, frame: SUBTOOLS_HANDOFF.at - SUBTOOLS_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${SUBTOOLS_HANDOFF.to}-focus`, frame: SUBTOOLS_HANDOFF.at + SUBTOOLS_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
-    {id: "subtools-bilingual", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, src: "media/sfx/pop.wav", gain: 0.46, duckDb: 3.8},
+    {id: "subtools-settled", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.settledAt, src: "media/sfx/pop.wav", gain: 0.44, duckDb: 3.6},
     {id: "subtools-export", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, src: "media/sfx/snap.wav", gain: 0.56, duckDb: 4.5},
     {id: `${WEBSEARCH_HANDOFF.from}-defocus`, frame: WEBSEARCH_HANDOFF.at - WEBSEARCH_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${WEBSEARCH_HANDOFF.to}-focus`, frame: WEBSEARCH_HANDOFF.at + WEBSEARCH_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},

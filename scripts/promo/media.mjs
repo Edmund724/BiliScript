@@ -9,6 +9,7 @@ export const RECORDED_MEDIA_FILES = [
   "overview-poster.jpg",
   "subtitle-seek-03.mp4",
   "chat.mp4",
+  "subtools-fourier.mp4",
   "ai-providers.mp4"
 ];
 

@@ -62,7 +62,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
       ["chat-defocus", SUBTOOLS_FROM - 6, "media/sfx/click.wav"],
       ["subtools-focus", SUBTOOLS_FROM + 7, "media/sfx/whoosh.wav"],
-      ["subtools-bilingual", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.bilingualAt, "media/sfx/pop.wav"],
+      ["subtools-settled", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.settledAt, "media/sfx/pop.wav"],
       ["subtools-export", SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, "media/sfx/snap.wav"],
       ["subtools-defocus", WEBSEARCH_FROM - 6, "media/sfx/click.wav"],
       ["websearch-focus", WEBSEARCH_FROM + 7, "media/sfx/whoosh.wav"],
@@ -101,17 +101,16 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(cueMixStartFrame(subtitleCutCue)).toBe(subtitleCutCue.frame - 3);
   });
 
-  it("把转写与双语+导出拆成两拍，双语提示音落在第 668 帧、导出音效对齐点击复制帧", () => {
-    const scene = SCENES.find((item) => item.id === "subtools")!;
-    const beat = SUBTOOLS_TIMELINE.bilingualAt;
-    expect(beat / PROMO_FPS).toBeGreaterThanOrEqual(1.8);
-    expect((scene.duration - beat) / PROMO_FPS).toBeGreaterThanOrEqual(1.8);
-    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-bilingual", scene.from + beat]);
-    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-export", scene.from + SUBTOOLS_TIMELINE.exportClickAt]);
-    expect(SUBTOOLS_TIMELINE.exportAt).toBeGreaterThan(beat);
-    expect(SUBTOOLS_TIMELINE.exportAt).toBeLessThan(scene.duration);
+  it("将语音转写与复制导出合并为一气呵成单幕（3.5s），并将联网检索延长至 3.5s", () => {
+    const subtools = SCENES.find((item) => item.id === "subtools")!;
+    const websearch = SCENES.find((item) => item.id === "websearch")!;
+    expect(subtools.duration / PROMO_FPS).toBe(3.5);
+    expect(websearch.duration / PROMO_FPS).toBe(3.5);
+    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-settled", subtools.from + SUBTOOLS_TIMELINE.settledAt]);
+    expect(AUDIO.cues.map((cue) => [cue.id, cue.frame])).toContainEqual(["subtools-export", subtools.from + SUBTOOLS_TIMELINE.exportClickAt]);
+    expect(SUBTOOLS_TIMELINE.exportAt).toBeGreaterThan(SUBTOOLS_TIMELINE.settledAt);
     expect(SUBTOOLS_TIMELINE.exportClickAt).toBeGreaterThan(SUBTOOLS_TIMELINE.exportAt);
-    expect(SUBTOOLS_TIMELINE.exportClickAt).toBeLessThan(scene.duration);
+    expect(SUBTOOLS_TIMELINE.exportClickAt).toBeLessThan(subtools.duration);
   });
 
   it("让配乐在音效前预先让位，章节阅读段不触发人声深压低，重叠时只取最深压低并自然淡入淡出", () => {

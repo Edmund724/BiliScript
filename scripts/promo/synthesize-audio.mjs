@@ -247,10 +247,10 @@ function makeScore() {
     add(track, subHit(cutAt >= SUBTOOLS_FROM ? 0.62 : 0.52), cutAt);
   }
 
-  // 四拍能力落点递进强调（峰值严格非递减）：转写、双语、联网核对、四主题
+  // 四拍能力落点递进强调（峰值严格非递减）：转写、导出字幕、联网补充、四主题
   const featureBuild = [
     {at: SUBTOOLS_FROM + 0.33, notes: [62, 69], gain: 0.14, sub: 0.36},
-    {at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.bilingualAt), notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.exportAt), notes: [64, 71], gain: 0.17, sub: 0.42},
     {at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt), notes: [66, 74], gain: 0.20, sub: 0.48},
     {at: sceneSeconds("appearance", APPEARANCE_TIMELINE.flymeDarkFrom), notes: [69, 76, 81], gain: 0.23, sub: 0.55}
   ];

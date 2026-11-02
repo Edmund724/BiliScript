@@ -12,7 +12,7 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
   it("在对话→无字幕与导出→联网搜索→四主题阅读之间保留六帧退场、干净切点和七帧合焦", () => {
     expect(PANEL_FOCUS_HANDOFFS).toEqual([
       {from: "chat", to: "subtools", at: 555, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "subtools", to: "websearch", at: 690, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+      {from: "subtools", to: "websearch", at: 660, exitFrames: 6, enterFrames: 7, maxBlur: 12},
       {from: "websearch", to: "appearance", at: 765, exitFrames: 6, enterFrames: 7, maxBlur: 12}
     ]);
     for (const handoff of PANEL_FOCUS_HANDOFFS) {
@@ -30,7 +30,7 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       expect(cues).toContainEqual([`${handoff.to}-focus`, handoff.at + handoff.enterFrames, "media/sfx/whoosh.wav"]);
     }
     expect(cues).not.toContainEqual(["subtools-cut", 555, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["websearch-cut", 690, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["websearch-cut", 660, "media/sfx/whoosh.wav"]);
     expect(cues).not.toContainEqual(["appearance-cut", 765, "media/sfx/whoosh.wav"]);
   });
 
@@ -44,16 +44,14 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
       "editorial-dark"
     ]);
     const captionTexts = CAPTIONS.map((item) => item.text);
-    expect(captionTexts).toContain("没字幕的视频，");
-    expect(captionTexts).toContain("整段转成文字。");
-    expect(captionTexts).not.toContain("免费语音识别 · 412 条字幕");
-    expect(captionTexts).toContain("中英双轨，");
-    expect(captionTexts).toContain("逐句对照着看。");
-    expect(captionTexts).not.toContain("选中复制 · SRT / Markdown / TXT");
+    expect(captionTexts).toContain("视频没开字幕？");
+    expect(captionTexts).toContain("免费转写，一键复制导出。");
+    expect(captionTexts.join(" ")).not.toContain("双语");
+    expect(captionTexts.join(" ")).not.toContain("中英双轨");
     expect(captionTexts.join(" ")).not.toContain("笔记");
-    expect(captionTexts).toContain("UP 主说得对不对？");
-    expect(captionTexts).toContain("AI 联网检索辅助核对。");
-    expect(captionTexts.join(" ")).not.toContain("超纲概念背景补充");
+    expect(captionTexts).toContain("视频里提的新概念？");
+    expect(captionTexts).toContain("AI 联网搜背景，附来源链接。");
+    expect(captionTexts.join(" ")).not.toContain("查证属实");
     expect(captionTexts.join(" ")).not.toContain("内置");
     expect(captionTexts.join(" ")).not.toContain("预设");
     expect(captionTexts.join(" ")).not.toContain("自定义端点");

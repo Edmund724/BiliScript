@@ -23,14 +23,14 @@ export const OVERVIEW_TIMELINE = {
 };
 
 export const SUBTOOLS_TIMELINE = {
-  duration: beatF(9),
-  bilingualAt: beatF(4.5),
-  exportAt: beatF(5),
-  exportClickAt: beatF(6.5)
+  duration: beatF(7),
+  settledAt: 18,
+  exportAt: beatF(3.5),
+  exportClickAt: beatF(4.5)
 };
 
 export const WEBSEARCH_TIMELINE = {
-  duration: beatF(5),
+  duration: beatF(7),
   searchBadgeAt: beatF(0.5),
   verifyCardAt: beatF(1.5)
 };
@@ -58,7 +58,7 @@ export const SCENES = [
   { id: "subtitle", from: 270, duration: 120 },
   { id: "chat", from: 390, duration: 165 },
   { id: "subtools", from: 555, duration: SUBTOOLS_TIMELINE.duration },
-  { id: "websearch", from: 690, duration: WEBSEARCH_TIMELINE.duration },
+  { id: "websearch", from: 660, duration: WEBSEARCH_TIMELINE.duration },
   { id: "appearance", from: 765, duration: APPEARANCE_TIMELINE.duration },
   { id: "providers", from: 825, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
@@ -66,7 +66,7 @@ export const SCENES = [
 
 export const PANEL_FOCUS_HANDOFFS = [
   {from: "chat", to: "subtools", at: 555, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "subtools", to: "websearch", at: 690, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "subtools", to: "websearch", at: 660, exitFrames: 6, enterFrames: 7, maxBlur: 12},
   {from: "websearch", to: "appearance", at: 765, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
@@ -91,8 +91,8 @@ export const EVIDENCE_TIMES = [
   0, 0.4, 1.0, 1.6, 2.4, 3.2, 3.6, 4.4, 5.2, 5.6, 6.0, 6.5, 7.5, 8.9,
   9.0, 9.4, 9.9, 11.1, 12.0,
   13.1, 13.9, 15.6, 16.3, 16.6, 17.5,
-  18.8, 19.5, 20.0, 20.7, 21.0, 21.4, 22.0,
-  23.2, 23.7, 24.5, 25.1,
+  18.8, 19.5, 20.3, 21.2,
+  22.3, 23.0, 24.0, 25.0,
   25.7, 26.0, 26.4, 26.8, 27.4,
   27.7, 28.1, 28.4, 28.9, 29.4, 29.8,
   30.3, 30.8, 31.4, 32.0, 32.7,
