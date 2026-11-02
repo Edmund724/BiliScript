@@ -106,7 +106,7 @@ const FinalBrand = () => {
           top: TAGLINE_TOP,
           textAlign: "center",
           color: COLORS.foreground,
-          fontSize: 40,
+          fontSize: 46,
           fontWeight: 600,
           letterSpacing: -0.6,
           lineHeight: 1.3,
@@ -117,7 +117,7 @@ const FinalBrand = () => {
           })
         }}
       >
-        在 B 站，读下一条视频。
+        在 B 站，读下一条视频
       </div>
     </>
   );
@@ -322,7 +322,7 @@ const CallToAction = () => {
         <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: 10}}>
           <ChromeIcon size={28} />
           <EdgeIcon size={28} gradientId="edge-wave-compat" />
-          <span>Chrome / Edge 等 Chromium 浏览器 · 免费开源</span>
+          <span>支持 Chrome / Edge 等浏览器 · 免费开源插件</span>
         </div>
       </div>
       <div

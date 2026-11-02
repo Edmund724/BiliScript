@@ -29,6 +29,6 @@ export const CAPTIONS = [
   {sceneId: "chat", text: "这里有一个研究……", ...voiceMilliseconds("voice-0444"), timestampMs: null, confidence: null},
   {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 27500, endMs: 30000, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "BiliScript", startMs: 30000, endMs: 30550, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频。", startMs: 30550, endMs: 31800, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "在 B 站，读下一条视频", startMs: 30550, endMs: 31800, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问", startMs: 31800, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
 ];
