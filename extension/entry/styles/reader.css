@@ -1451,7 +1451,8 @@
 .biliscript-reading-overview {
   flex: 1;
   min-height: 0;
-  padding: 6px 8px 12px 2px;
+  margin-inline: -12px;
+  padding: 6px 20px 12px 14px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;

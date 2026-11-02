@@ -779,9 +779,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 #biliscript-reading-view .biliscript-reading-overview {
-  /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉；
-   * 顶 6px / 底 12px 留白确保最顶与最底静止时首尾卡片与标题落在渐隐遮罩安全区（08 号票） */
-  padding: 6px 8px 12px 2px;
+  /* 向两侧各借 12px 板面留白并等量补偿 padding，卡片位置与宽度不变，
+   * 让播放高亮的外阴影远离 overflow 裁切边界；顶底留白维持渐隐遮罩安全区。 */
+  margin-inline: -12px;
+  padding: 6px 20px 12px 14px;
 }
 
 /* 示意图对齐四条（实机截图逐项比对决议）：

@@ -788,6 +788,10 @@ async function main() {
             backgroundImage: activeStyle.backgroundImage,
             boxShadow: activeStyle.boxShadow
           } : null,
+          glowGutter: active ? {
+            left: active.getBoundingClientRect().left - body.getBoundingClientRect().left,
+            right: body.getBoundingClientRect().right - active.getBoundingClientRect().right
+          } : null,
           inputStyle,
           scrollBefore,
           scrollAfter: body.scrollTop
@@ -805,6 +809,7 @@ async function main() {
       check("Q12.active-border-matches-input", probe?.activeStyle?.borderColor === probe?.inputStyle?.borderColor, { active: probe?.activeStyle, input: probe?.inputStyle });
       check("Q12.active-background-matches-input", probe?.activeStyle?.backgroundColor === probe?.inputStyle?.backgroundColor && probe?.activeStyle?.backgroundImage === probe?.inputStyle?.backgroundImage, { active: probe?.activeStyle, input: probe?.inputStyle });
       check("Q12.active-ring-matches-input", probe?.activeStyle?.boxShadow === probe?.inputStyle?.boxShadow, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-glow-not-clipped", probe?.glowGutter?.left >= 12 && probe?.glowGutter?.right >= 12, probe?.glowGutter);
       check("Q12.no-auto-scroll", probe?.scrollAfter === probe?.scrollBefore, { before: probe?.scrollBefore, after: probe?.scrollAfter });
       await shot("12-overview-playback", "概览：简介、完整章节标题与播放高亮");
       record("Q12", { title: SCENARIOS[11].title, rendered, probe });
