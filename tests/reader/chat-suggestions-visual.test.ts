@@ -57,6 +57,14 @@ describe("建议问题与空态欢迎区观感", () => {
     expect(block).toMatch(/font-size:\s*var\(--(?:chip-font-size|biliscript-font-size-base)/);
   });
 
+  it("建议 chip 字号走作用域覆写提升到 md 字阶（不硬编码 px）", () => {
+    // 全局 --chip-font-size 是 sm（12px，服务设置行等小 chip）；建议问题是一屏
+    // 主角，在 .chat-suggestions 作用域覆写到 md（16px，与消息正文同档），仍随
+    // --biliscript-reader-font-scale 联动。
+    const block = ruleBody("\\.biliscript-reading-chat \\.chat-suggestions");
+    expect(block).toMatch(/--chip-font-size:\s*var\(--biliscript-font-size-md\);/);
+  });
+
   it("chip 贴内容宽（不撑满整行），悬停走 accent-soft + accent 字母题", () => {
     // 内容宽来自居中容器（align-items: center 取代列方向默认 stretch），chip 不再
     // 写 align-self；盒内文字保持左对齐。

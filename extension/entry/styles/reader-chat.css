@@ -425,6 +425,10 @@
   flex-direction: column;
   margin: auto;
   padding: 8px 0 48px;
+  /* 建议问题是一屏主角：字号从全局 chip 档（sm）提两档到 md（16px，与消息正文
+     同档）。仍走 --chip-font-size 令牌链路（作用域覆写，不动设置行等其它 chip），
+     随 --biliscript-reader-font-scale 联动缩放。 */
+  --chip-font-size: var(--biliscript-font-size-md);
 }
 
 /* 欢迎区主角：✦ 图标（accent-soft 圆底 + accent 图标，与联网搜索开启态同一
