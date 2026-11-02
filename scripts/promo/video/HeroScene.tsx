@@ -1,6 +1,6 @@
 import {AbsoluteFill, Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {HERO_TIMELINE} from "../timeline.mjs";
-import {COLORS, FONT_FAMILY, MIST_GLASS} from "./design";
+import {COLORS, FONT_FAMILY, MIST_GLASS, ReadingHeaderActions} from "./design";
 
 const PANEL = {x: 1365, y: 64, width: 540, height: 1016};
 const PANEL_SLIDE_FRAMES = 13;
@@ -189,38 +189,17 @@ const HeroCopy = () => {
   );
 };
 
-const HeaderIcon = ({name, size}: {name: "sun" | "settings" | "close" | "more"; size: number}) => (
+const MoreIcon = ({size}: {size: number}) => (
   <svg
     width={size}
     height={size}
     viewBox="0 0 24 24"
     fill="none"
-    stroke="currentColor"
-    strokeWidth="1.9"
-    strokeLinecap="round"
-    strokeLinejoin="round"
     style={{display: "block", flexShrink: 0}}
   >
-    {name === "sun" ? (
-      <>
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-      </>
-    ) : null}
-    {name === "settings" ? (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-      </>
-    ) : null}
-    {name === "close" ? <path d="M18 6 6 18M6 6l12 12" /> : null}
-    {name === "more" ? (
-      <>
-        <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
-      </>
-    ) : null}
+    <circle cx="12" cy="5" r="1.4" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+    <circle cx="12" cy="19" r="1.4" fill="currentColor" />
   </svg>
 );
 
@@ -407,18 +386,14 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: `${px(14)}px ${px(18)}px ${px(8)}px`,
+            padding: `${px(14)}px ${px(16)}px ${px(10)}px`,
             flexShrink: 0
           }}
         >
           <span style={{fontSize: px(15.5), lineHeight: 1.45, color: MIST_GLASS.muted, fontWeight: 450}}>
             UP主：复旦赵斌
           </span>
-          <div style={{display: "flex", alignItems: "center", gap: px(18), color: MIST_GLASS.text}}>
-            <HeaderIcon name="sun" size={px(17.5)} />
-            <HeaderIcon name="settings" size={px(17.5)} />
-            <HeaderIcon name="close" size={px(17.5)} />
-          </div>
+          <ReadingHeaderActions iconSize={px(18)} />
         </div>
 
         {/* Row 2: .biliscript-reading-status（仅在思考过渡段显示） */}
@@ -495,7 +470,7 @@ const HeroReadingPanel = ({cameraScale = 1, sceneFrame}: {cameraScale?: number; 
               justifyContent: "center"
             }}
           >
-            <HeaderIcon name="more" size={px(18)} />
+            <MoreIcon size={px(18)} />
           </div>
         </div>
 

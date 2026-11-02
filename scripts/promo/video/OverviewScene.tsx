@@ -9,6 +9,7 @@ import {
   FONT_FAMILY,
   MIST_GLASS,
   PaperGrainOverlay,
+  ReadingHeaderActions,
   SceneTitle,
   VideoReferenceCard,
   microPerspective
@@ -141,35 +142,6 @@ const VideoReference = ({duration}: {duration: number}) => {
   );
 };
 
-const OverviewHeaderIcon = ({name, size = 20}: {name: "theme" | "settings" | "close"; size?: number}) => (
-  <svg
-    viewBox="0 0 24 24"
-    width={size}
-    height={size}
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    {name === "theme" ? (
-      <>
-        <circle cx="12" cy="12" r="8" />
-        <path d="M12 4v16" />
-        <path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none" />
-      </>
-    ) : null}
-    {name === "settings" ? (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
-      </>
-    ) : null}
-    {name === "close" ? <path d="M18 6 6 18M6 6l12 12" /> : null}
-  </svg>
-);
-
 const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => {
   const frame = useCurrentFrame();
   const enter = interpolate(frame, [0, 12], [0, 1], {...CLAMP, easing: SMOOTH});
@@ -268,11 +240,7 @@ const OverviewSpotlightCard = ({chapterDuration}: {chapterDuration: number}) => 
           }}
         >
           <span style={{fontSize: 18, fontWeight: 620, color: MIST_GLASS.muted}}>UP主：复旦赵斌</span>
-          <div style={{display: "flex", alignItems: "center", gap: 16, color: MIST_GLASS.text}}>
-            <OverviewHeaderIcon name="theme" size={19} />
-            <OverviewHeaderIcon name="settings" size={19} />
-            <OverviewHeaderIcon name="close" size={19} />
-          </div>
+          <ReadingHeaderActions iconSize={19} />
         </div>
 
         {/* .biliscript-reading-tabs-row */}

@@ -19,6 +19,7 @@ import {
   ELEVATION,
   FONT_FAMILY,
   MIST_GLASS,
+  ReadingHeaderActions,
   VideoReferenceCard,
   entranceOpacity,
   microPerspective
@@ -319,11 +320,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
 
         <div style={{position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
           <span style={{color: MIST_GLASS.muted, fontSize: 22, fontWeight: 620}}>UP主: 复旦赵斌</span>
-          <div style={{display: "flex", alignItems: "center", gap: 18, color: MIST_GLASS.text}}>
-            <AppearanceIcon name="theme" size={22} />
-            <AppearanceIcon name="settings" size={22} />
-            <AppearanceIcon name="close" size={22} />
-          </div>
+          <ReadingHeaderActions iconSize={22} />
         </div>
 
         <div
@@ -664,11 +661,7 @@ export const SubtoolsScene = () => {
             }}
           >
             <span style={{fontSize: 22, fontWeight: 620, color: MIST_GLASS.muted}}>UP主：MIT 6.S191</span>
-            <div style={{display: "flex", alignItems: "center", gap: 18, color: MIST_GLASS.text}}>
-              <AppearanceIcon name="theme" size={22} />
-              <AppearanceIcon name="settings" size={22} />
-              <AppearanceIcon name="close" size={22} />
-            </div>
+            <ReadingHeaderActions iconSize={22} />
           </div>
 
           {/* Row 2: #biliscript-reading-status */}
@@ -1306,7 +1299,7 @@ const APPEARANCE_QUOTES = [
   }
 ] as const;
 
-const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy" | "theme" | "settings" | "close"; size?: number}) => (
+const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy"; size?: number}) => (
   <svg
     viewBox="0 0 24 24"
     width={size}
@@ -1334,20 +1327,6 @@ const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy" | "t
         <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
       </>
     ) : null}
-    {name === "theme" ? (
-      <>
-        <circle cx="12" cy="12" r="8" />
-        <path d="M12 4v16" />
-        <path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none" />
-      </>
-    ) : null}
-    {name === "settings" ? (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
-      </>
-    ) : null}
-    {name === "close" ? <path d="M18 6 6 18M6 6l12 12" /> : null}
   </svg>
 );
 
@@ -1448,11 +1427,7 @@ export const AppearanceScene = () => {
         >
           <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexShrink: 0}}>
             <span style={{fontSize: 17, fontWeight: 650, color: theme.textSecondary}}>UP主：复旦赵斌</span>
-            <div style={{display: "flex", alignItems: "center", gap: 18, color: theme.textSecondary}}>
-              <AppearanceIcon name="theme" size={19} />
-              <AppearanceIcon name="settings" size={19} />
-              <AppearanceIcon name="close" size={19} />
-            </div>
+            <ReadingHeaderActions iconSize={19} color={theme.textPrimary} />
           </div>
 
           <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 24, flexShrink: 0}}>
