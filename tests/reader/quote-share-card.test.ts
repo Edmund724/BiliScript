@@ -22,7 +22,6 @@ function makeSnapshot(analysis: OverviewAnalysis | null): ReaderOverviewSnapshot
     phase: "ready",
     analysis,
     aiChapters: false,
-    chapterSourceKind: "auto",
     progressText: "",
     errorText: "",
     stripText: "",
@@ -623,6 +622,7 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
   it("金句卡片底行渲染分享图标按钮，点击打开分享弹窗且关闭阅读视图时自动收起", () => {
     renderReadingOverview(
       makeSnapshot({
+        summary: "",
         chapters: [],
         quotes: [{ from: 60, content: "不经一番寒彻骨，怎得梅花扑鼻香。" }]
       })

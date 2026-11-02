@@ -161,12 +161,12 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：章节列表（逐章带简介）+ 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界，模型只补每章简介。
+文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：全片简介 + 章节列表 + 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界；时间轴有效章节不超过 9 个时由模型补一句话说明，达到 10 个时只保留标题。
 代码名：`ai/analysis.js`（`runOverviewAnalysis`）/ `shared/chapter-outline.js`（`resolveChapterSource`）
 _Avoid_: 总览
 
 **分章计划**:
-概览分章政策的唯一解释点：把 `resolveChapterSource` 的裁定（时间轴目录 / 官方章节 / AI 自由分章）一次翻译成管线要用的全部事实——系统提示词三选一、越界过滤后的给定章节、用户提示词变量、预算切段输入与产物 graft。末章界（视频时长与字幕末条时间戳取大）只推导一次、由 `graft` 闭包捕获，单发与分段路径统一调 `plan.graft(modelChapters)`（两套推导就此合一）。graft 语义：有给定章节时标题与边界照抄清单、模型只贡献 summary（时间轴来源 summary 一律空串）；无给定章节时原样返回模型章节。`budgetChapters` 是官方章节专用的切段输入，刻意用**未过滤**的 signatureChapters（与给定章节的越界过滤口径不同，行为冻结）。
+概览分章政策的唯一解释点：把 `resolveChapterSource` 的裁定（时间轴目录 / 官方章节 / AI 自由分章）一次翻译成管线要用的全部事实——系统提示词三选一、越界过滤后的给定章节、用户提示词变量、预算切段输入与产物 graft。末章界（视频时长与字幕末条时间戳取大）只推导一次、由 `graft` 闭包捕获，单发与分段路径统一调 `plan.graft(modelChapters)`（两套推导就此合一）。graft 语义：有给定章节时标题与边界照抄清单、模型只贡献 summary（达到 10 章的时间轴 summary 一律空串，稀疏时间轴与官方章节补一句话说明）；无给定章节时原样返回模型章节。`budgetChapters` 是官方章节专用的切段输入，刻意用**未过滤**的 signatureChapters（与给定章节的越界过滤口径不同，行为冻结）。
 代码名：`resolveChapterPlan` / `ChapterPlan`（`titlesOnly` / `hasGivenChapters` / `givenChapters` / `promptVars` / `budgetChapters` / `graft`，`ai/chapter-plan.js`）/ `applyGivenChapters`（同模块私有）
 _Avoid_: 在编排层再判一次 `chapterSource.kind`、单发与分段各推一次末章界
 

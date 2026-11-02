@@ -48,6 +48,7 @@ const continuation = [
 zh.forEach((item, index) => { if (index >= subtitleCopy.length) item.content = continuation[(index - subtitleCopy.length) % continuation.length]; });
 const quote = { from: 96, content: "好的工具应当帮我们找到重点，而不是制造更多噪声。" };
 const overview = {
+  summary: "长上下文的价值不只在容量，更在于模型能否筛出关键信息。真正有效的长文本能力，需要同时提升信息压缩、结构组织与推理质量。",
   chapters: [
     { from: 0, to: 180, title: "长上下文：更大的空间，不等于更好的理解", summary: "从上下文窗口的增长谈起，区分信息容量与真正有效的推理能力。" },
     { from: 180, to: 360, title: "压缩率与智能：模型需要学会取舍", summary: "为什么关键信息的组织、筛选与压缩，决定了长文本场景下的回答质量。" },
@@ -193,7 +194,7 @@ try {
   await capture("demo-subtitle.png");
 
   await click(`document.getElementById('biliscript-reading-tab-overview')`);
-  const render = `import(${JSON.stringify(readerUrl)}).then(m => m.renderReadingOverview({ phase: 'ready', analysis: ${JSON.stringify(overview)}, aiChapters: true, chapterSourceKind: 'auto', progressText: '', errorText: '', stripText: '', generatedFor: '' }))`;
+  const render = `import(${JSON.stringify(readerUrl)}).then(m => m.renderReadingOverview({ phase: 'ready', analysis: ${JSON.stringify(overview)}, aiChapters: true, progressText: '', errorText: '', stripText: '', generatedFor: '' }))`;
   await evalReader(render);
   await sleep(300);
   await evalReader(render);

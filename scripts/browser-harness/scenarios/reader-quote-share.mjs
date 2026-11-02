@@ -70,7 +70,8 @@ const SCENARIOS = [
   { id: "Q8", slug: "08-editorial-light", title: "editorial 浅色档（设置抽屉真实保存链路）：同契约" },
   { id: "Q9", slug: "09-editorial-dark", title: "editorial 深色档：同契约" },
   { id: "Q10", slug: "10-narrow-viewport", title: "窄视口：不横向溢出、全部操作可到达，恢复后几何还原" },
-  { id: "Q11", slug: "11-reduced-motion", title: "prefers-reduced-motion：host/close transition none、close active transform none" }
+  { id: "Q11", slug: "11-reduced-motion", title: "prefers-reduced-motion：host/close transition none、close active transform none" },
+  { id: "Q12", slug: "12-overview-playback", title: "概览：简介 → 章节 → 金句、完整标题、播放高亮与主题 token 一致且不自动滚动" }
 ];
 
 // ===== 可提交 fixture（只读）=====
@@ -299,9 +300,17 @@ function renderOverviewExpression(quote) {
     const apply = (mod) => {
       mod.renderReadingOverview({
         phase: 'ready',
-        analysis: { chapters: [], quotes: [${JSON.stringify(quote)}] },
-        aiChapters: false,
-        chapterSourceKind: 'auto',
+        analysis: {
+          summary: '视频从模型幻觉的成因谈起，说明评分机制、语言本质与数据局限，并给出选择 AI 工具的判断标准。',
+          chapters: [
+            { from: 0, to: 60, title: '机器幻觉的成因：评分机制与语言本质', summary: '训练机制鼓励作答，模型因此倾向于补全而不是承认未知。' },
+            { from: 60, to: 120, title: '幻觉无法彻底避免：商业价值与数据局限', summary: '仅靠已有数据无法推演所有事实，回答策略还受产品价值影响。' },
+            { from: 120, to: 180, title: '如何选择 AI：接得上与对得齐', summary: '能力匹配实际需求，比单纯追求更强模型更重要。' },
+            { from: 180, to: 240, title: '总结：理解边界再使用工具', summary: '把模型放在适合的位置，同时保留人的判断。' }
+          ],
+          quotes: [${JSON.stringify(quote)}]
+        },
+        aiChapters: true,
         progressText: '',
         errorText: '',
         stripText: '',
@@ -717,6 +726,83 @@ async function main() {
   check("reader-module-importable", importProbe?.ok === true, importProbe);
 
   try {
+    // ---------- Q12 概览真实渲染与播放高亮 ----------
+    {
+      const rendered = await evaluateInContentScript(renderOverviewExpression(QUOTE));
+      check("Q12.overview-rendered", rendered?.ok === true, rendered);
+      const probe = await evaluateInContentScript(`(async () => {
+        const mod = globalThis.__biliscriptReaderMod || await import(${JSON.stringify(READER_URL)});
+        globalThis.__biliscriptReaderMod = mod;
+        const body = document.getElementById('biliscript-reading-overview-body');
+        body.scrollTop = Math.min(40, body.scrollHeight);
+        const scrollBefore = body.scrollTop;
+        mod.stopReadingViewSync();
+        mod.syncReadingViewPlayback(false, 125);
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const active = body.querySelector('.biliscript-reading-ov-chapter.is-active');
+        const view = document.getElementById('biliscript-reading-view');
+        const tokenProbe = document.createElement('div');
+        tokenProbe.style.display = 'none';
+        tokenProbe.style.color = 'var(--chat-input-focus-border, var(--biliscript-reader-accent))';
+        tokenProbe.style.backgroundColor = 'var(--biliscript-reader-accent-soft)';
+        tokenProbe.style.borderColor = 'var(--chat-input-focus-border, var(--biliscript-reader-accent))';
+        tokenProbe.style.boxShadow = 'var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft))';
+        view.appendChild(tokenProbe);
+        const tokenStyle = getComputedStyle(tokenProbe);
+        const activeStyle = active ? getComputedStyle(active) : null;
+        const matchedRules = [];
+        if (active) {
+          for (const sheet of Array.from(document.styleSheets)) {
+            let rules;
+            try { rules = Array.from(sheet.cssRules || []); } catch { continue; }
+            for (const rule of rules) {
+              if (!rule.selectorText || !active.matches(rule.selectorText)) continue;
+              const cssText = rule.style?.cssText || '';
+              if (/border|background/.test(cssText)) matchedRules.push({ selector: rule.selectorText, cssText });
+            }
+          }
+        }
+        const result = {
+          matchedRules,
+          headings: Array.from(body.querySelectorAll('.biliscript-reading-ov-h')).map(node => (node.textContent || '').trim()),
+          summary: body.querySelector('.biliscript-reading-ov-summary')?.textContent || '',
+          firstTitle: body.querySelector('.biliscript-reading-ov-chapter-title')?.textContent || '',
+          splitTitleCount: body.querySelectorAll('.biliscript-reading-ov-chapter-subtitle').length,
+          activeSeconds: active?.dataset.seconds || null,
+          activeCount: body.querySelectorAll('.biliscript-reading-ov-chapter.is-active').length,
+          ariaCurrent: active?.getAttribute('aria-current') || null,
+          activeStyle: activeStyle ? {
+            borderColor: activeStyle.borderTopColor,
+            backgroundColor: activeStyle.backgroundColor,
+            boxShadow: activeStyle.boxShadow
+          } : null,
+          tokenStyle: {
+            borderColor: tokenStyle.borderTopColor,
+            backgroundColor: tokenStyle.backgroundColor,
+            boxShadow: tokenStyle.boxShadow
+          },
+          scrollBefore,
+          scrollAfter: body.scrollTop
+        };
+        tokenProbe.remove();
+        mod.startReadingViewSync();
+        return result;
+      })()`);
+      check("Q12.section-order", JSON.stringify(probe?.headings) === JSON.stringify(["简介", "章节AI 生成", "金句AI 精选"]), probe?.headings);
+      check("Q12.summary-present", (probe?.summary || "").includes("模型幻觉"), { summary: probe?.summary });
+      checkEquals("Q12.full-chapter-title", probe?.firstTitle, "机器幻觉的成因：评分机制与语言本质");
+      checkEquals("Q12.no-split-subtitle", probe?.splitTitleCount, 0);
+      checkEquals("Q12.playback-active-chapter", probe?.activeSeconds, "120");
+      checkEquals("Q12.single-active-chapter", probe?.activeCount, 1);
+      checkEquals("Q12.active-aria-current", probe?.ariaCurrent, "true");
+      check("Q12.active-border-token", probe?.activeStyle?.borderColor === probe?.tokenStyle?.borderColor, { active: probe?.activeStyle, token: probe?.tokenStyle });
+      check("Q12.active-background-token", probe?.activeStyle?.backgroundColor === probe?.tokenStyle?.backgroundColor, { active: probe?.activeStyle, token: probe?.tokenStyle });
+      check("Q12.active-ring-token", probe?.activeStyle?.boxShadow === probe?.tokenStyle?.boxShadow, { active: probe?.activeStyle, token: probe?.tokenStyle });
+      check("Q12.no-auto-scroll", probe?.scrollAfter === probe?.scrollBefore, { before: probe?.scrollBefore, after: probe?.scrollAfter });
+      await shot("12-overview-playback", "概览：简介、完整章节标题与播放高亮");
+      record("Q12", { title: SCENARIOS[11].title, rendered, probe });
+    }
+
     // ---------- Q1 flyme 浅色基线 ----------
     {
       const q1 = {};

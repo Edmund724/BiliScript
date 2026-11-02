@@ -7,8 +7,7 @@ import {
   hotCommentsText,
   manuscriptChapterOutline,
   parseChapterOutline,
-  resolveChapterSource,
-  splitOutlineChapterTitle
+  resolveChapterSource
 } from "../../extension/shared/chapter-outline.js";
 
 const MANUSCRIPT = [
@@ -113,35 +112,6 @@ describe("parseChapterOutline HTML 实体解码", () => {
     const source = resolveChapterSource('00:00 &quot;引号&quot;开场\n03:00 &amp;符号', [], []);
     expect(source.kind).toBe("outline");
     expect(source.chapters.map((item) => item.title)).toEqual(['"引号"开场', "&符号"]);
-  });
-});
-
-describe("splitOutlineChapterTitle 主副标题拆分", () => {
-  it("全角/半角冒号与成对破折号都触发拆分", () => {
-    expect(splitOutlineChapterTitle("环境准备：安装与配置")).toEqual({ primary: "环境准备", secondary: "安装与配置" });
-    expect(splitOutlineChapterTitle("Part 1: Setup")).toEqual({ primary: "Part 1", secondary: "Setup" });
-    expect(splitOutlineChapterTitle("常见问题——答疑")).toEqual({ primary: "常见问题", secondary: "答疑" });
-  });
-
-  it("多种分隔符同时出现：按出现位置取最早者", () => {
-    expect(splitOutlineChapterTitle("A: B——C")).toEqual({ primary: "A", secondary: "B——C" });
-    expect(splitOutlineChapterTitle("A——B: C")).toEqual({ primary: "A", secondary: "B: C" });
-  });
-
-  it("单个未成对的 — 不算分隔符", () => {
-    expect(splitOutlineChapterTitle("序章 — 引子")).toBeNull();
-    expect(splitOutlineChapterTitle("A—B：C")).toEqual({ primary: "A—B", secondary: "C" });
-  });
-
-  it("不含分隔符、空标题或分隔符任一侧为空：不拆分（返回 null）", () => {
-    expect(splitOutlineChapterTitle("评论区正题")).toBeNull();
-    expect(splitOutlineChapterTitle("")).toBeNull();
-    expect(splitOutlineChapterTitle("：只有副标题")).toBeNull();
-    expect(splitOutlineChapterTitle("只有主标题：")).toBeNull();
-  });
-
-  it("分隔符两侧空白被 trim", () => {
-    expect(splitOutlineChapterTitle("主标题 ： 次级说明")).toEqual({ primary: "主标题", secondary: "次级说明" });
   });
 });
 

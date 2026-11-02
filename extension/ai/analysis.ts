@@ -1,5 +1,5 @@
 // 「概览数据管线」模块（概览票 07 + 选型报告 research/analysis-pipeline.md）：
-// 章节金句概览的纯数据层——提示词装配、模型输出校验/修复/合并、双路径编排
+// 简介、章节与金句概览的纯数据层——提示词装配、模型输出校验/修复/合并、双路径编排
 // （预算内单次 / 超预算分段）、整份与分段两级缓存、生成中 promise 复用。
 
 // arch-slim-3 #11 起按纯度切三片，本文件只是再导出壳（对外导出面与导入路径不变，
@@ -33,9 +33,11 @@ export {
 } from "./analysis-validate.js";
 export {
   ANALYSIS_SYSTEM_PROMPT,
+  ANALYSIS_SUMMARY_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
   OUTLINE_QUOTES_SYSTEM_PROMPT,
   buildAnalysisPrompt,
+  buildAnalysisSummaryPrompt,
 } from "./analysis-prompts.js";
 // 目录解析工具住在 shared 叶子（reader 概览 tab 也要用）：这里再导出保持既有导入路径。
 export { parseChapterOutline, resolveChapterSource } from "../shared/chapter-outline.js";

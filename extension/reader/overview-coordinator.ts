@@ -10,7 +10,7 @@
 //  5. 生成进度纪律：generating 期间进度通知与每秒 wait ticker 均就地刷新状态条文案，不整块重渲以保留选区、焦点与滚动位置。
 
 import { buildSubtitleSignature } from "../subtitle/cache.js";
-import { resolveChapterSource, type ChapterSource, type ChapterSourceKind } from "../shared/chapter-outline.js";
+import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiProvider } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
@@ -35,8 +35,6 @@ export interface ReaderOverviewSnapshot {
   readonly phase: ReaderOverviewPhase;
   readonly analysis: OverviewAnalysis | null;
   readonly aiChapters: boolean;
-  /** 分章来源（shared/chapter-outline 的裁定）：呈现层据此决定章节标题是否做主副拆分。 */
-  readonly chapterSourceKind: ChapterSourceKind;
   readonly progressText: string;
   readonly errorText: string;
   readonly stripText: string;
@@ -98,7 +96,6 @@ interface ReaderOverviewInternalState {
   phase: ReaderOverviewPhase;
   analysis: OverviewAnalysis | null;
   aiChapters: boolean;
-  chapterSourceKind: ChapterSourceKind;
   progressText: string;
   errorText: string;
   generatedFor: string;
@@ -121,7 +118,6 @@ export function createOverviewCoordinator(
     phase: "idle",
     analysis: null,
     aiChapters: false,
-    chapterSourceKind: "auto",
     progressText: "",
     errorText: "",
     generatedFor: "",
@@ -334,9 +330,7 @@ export function createOverviewCoordinator(
     }
     cancelRequested = false;
     overview.generatedFor = clipKey;
-    const chapterKind = currentChapterSource().kind;
-    overview.aiChapters = chapterKind === "auto";
-    overview.chapterSourceKind = chapterKind;
+    overview.aiChapters = currentChapterSource().kind === "auto";
     overview.phase = "generating";
     overview.progressText = "";
     overview.errorText = "";
@@ -395,7 +389,10 @@ export function createOverviewCoordinator(
         return;
       }
       overview.analysis = analysis;
-      overview.phase = Array.isArray(analysis.failedRanges) && analysis.failedRanges.length > 0 ? "partial" : "ready";
+      overview.phase =
+        (Array.isArray(analysis.failedRanges) && analysis.failedRanges.length > 0) || analysis.summaryFailed
+          ? "partial"
+          : "ready";
       overview.progressText = "";
       overview.errorText = "";
       renderIfOpen();
@@ -426,7 +423,6 @@ export function createOverviewCoordinator(
     overview.phase = "idle";
     overview.analysis = null;
     overview.aiChapters = false;
-    overview.chapterSourceKind = "auto";
     overview.progressText = "";
     overview.errorText = "";
     overview.generatedFor = "";
@@ -444,7 +440,6 @@ export function createOverviewCoordinator(
       phase: overview.phase,
       analysis: overview.analysis,
       aiChapters: overview.aiChapters,
-      chapterSourceKind: overview.chapterSourceKind,
       progressText: overview.progressText,
       errorText: overview.errorText,
       stripText: stripText(),

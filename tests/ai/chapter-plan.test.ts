@@ -64,7 +64,7 @@ describe("resolveChapterPlan 来源 × 路径矩阵", () => {
     expect(plan.graft(modelChapters)).toBe(modelChapters);
   });
 
-  it("outline 时间轴：只挑金句提示词、titlesOnly、目录进 promptVars、时间轴不参与预算切段", () => {
+  it("稀疏 outline 时间轴：补总体简介与逐章说明，时间轴不参与预算切段", () => {
     const chapterSource = resolveChapterSource(COMMENT_TIMELINE, undefined, MANUSCRIPT_CHAPTERS);
     const plan = resolveChapterPlan({
       chapterSource,
@@ -74,25 +74,27 @@ describe("resolveChapterPlan 来源 × 路径矩阵", () => {
 
     expect(plan.kind).toBe("outline");
     expect(plan.hasGivenChapters).toBe(true);
-    expect(plan.titlesOnly).toBe(true);
+    expect(plan.titlesOnly).toBe(false);
     expect(plan.givenChapters.map((chapter) => chapter.seconds)).toEqual([0, 100, 260]);
-    expect(plan.systemPrompt).toBe(OUTLINE_QUOTES_SYSTEM_PROMPT);
+    expect(plan.systemPrompt).toBe(GIVEN_CHAPTERS_SYSTEM_PROMPT);
     expect(plan.promptVars).toEqual({
       title: "测试视频",
       ownerName: "UP 主甲",
       videoDescription: "简介原文",
       chapterOutline: plan.givenChapters,
-      titlesOnly: true
+      titlesOnly: false
     });
-    // 时间轴可能每几十秒一条，进切段会把调用数按目录条数放大——只决定章节与提示词。
     expect(plan.budgetChapters).toEqual([]);
 
-    // graft：标题与边界照抄目录，简介一律空串（即使模型硬写简介也丢弃）。
-    const grafted = plan.graft([modelChapter(0, "不该出现的简介")]);
+    const grafted = plan.graft([
+      modelChapter(0, "开场说明"),
+      modelChapter(100, "正题说明"),
+      modelChapter(260, "收尾说明")
+    ]);
     expect(grafted).toEqual([
-      { from: 0, to: 100, title: "评论区开场", summary: "" },
-      { from: 100, to: 260, title: "评论区正题", summary: "" },
-      { from: 260, to: 300, title: "评论区收尾", summary: "" }
+      { from: 0, to: 100, title: "评论区开场", summary: "开场说明" },
+      { from: 100, to: 260, title: "评论区正题", summary: "正题说明" },
+      { from: 260, to: 300, title: "评论区收尾", summary: "收尾说明" }
     ]);
   });
 
@@ -257,22 +259,31 @@ describe("missingSummary 缺章打标", () => {
     expect(grafted.map((chapter) => chapter.missingSummary ?? false)).toEqual([false, true, true]);
   });
 
-  it("outline：titlesOnly 的空串是设计内行为，一律不打标", () => {
-    const chapterSource = resolveChapterSource(COMMENT_TIMELINE, undefined, undefined);
+  it("outline 达到 10 章：titlesOnly 的空串是设计内行为，一律不打标", () => {
+    const denseTimeline = Array.from({ length: 10 }, (_, index) => {
+      const seconds = index * 30;
+      const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const remainder = String(seconds % 60).padStart(2, "0");
+      return `${minutes}:${remainder} 第 ${index + 1} 章`;
+    }).join("\n");
+    const chapterSource = resolveChapterSource(denseTimeline, undefined, undefined);
     const plan = resolveChapterPlan({
       chapterSource,
       context: makeContext(),
       body: makeSubtitleBody(50000)
     });
 
+    expect(plan.titlesOnly).toBe(true);
+    expect(plan.systemPrompt).toBe(OUTLINE_QUOTES_SYSTEM_PROMPT);
     const grafted = plan.graft([]);
-    expect(grafted.length).toBeGreaterThan(0);
+    expect(grafted).toHaveLength(10);
     expect(grafted.every((chapter) => chapter.summary === "" && chapter.missingSummary === undefined)).toBe(true);
   });
 
   it("flagMissingChapterSummaries：给旧缓存产物补标——空串打标、有概括的章原样保留", () => {
     const withSummary = { from: 0, to: 100, title: "甲", summary: "已有概括" };
     const flagged = flagMissingChapterSummaries({
+      summary: "全片简介。",
       chapters: [withSummary, { from: 100, to: 200, title: "乙", summary: "" }],
       quotes: []
     });

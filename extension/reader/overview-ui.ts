@@ -9,7 +9,7 @@
 import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { splitOutlineChapterTitle, type ChapterSourceKind } from "../shared/chapter-outline.js";
+import { syncReadingOverviewActiveChapter } from "./overview-playback.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -87,6 +87,7 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
     return;
   }
   body.innerHTML = buildOverviewBodyHtml(snapshot);
+  syncReadingOverviewActiveChapter(state.reader.readingVideoEl?.currentTime || 0);
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
@@ -180,14 +181,20 @@ function buildCancelledStrip(): string {
   `;
 }
 
-// 部分失败标记条：失败区间数 + 重试按钮（forceRefresh 重跑——整份缓存跳过、
-// 段缓存让已成功段免重付费，见 analysis.ts 失败语义）。
 function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
   const failedCount = snapshot.analysis?.failedRanges?.length || 0;
+  const summaryFailed = snapshot.analysis?.summaryFailed === true;
+  const messages: string[] = [];
+  if (failedCount) {
+    messages.push(`有 ${failedCount} 个分段生成失败，对应区间的章节与金句未生成。`);
+  }
+  if (summaryFailed) {
+    messages.push("全片简介未生成。");
+  }
   return `
     <div class="biliscript-reading-ov-strip is-partial">
-      <span class="biliscript-reading-ov-strip-text">有 ${failedCount} 个分段生成失败，对应区间的章节与金句未生成。</span>
-      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">重试失败区间</button>
+      <span class="biliscript-reading-ov-strip-text">${messages.join(" ")}</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
     </div>
   `;
 }
@@ -201,15 +208,14 @@ function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
   `;
 }
 
-// 结果区：章节列表 → 金句卡。生成中已有旧产物（重试场景）时同样渲染，
-// 新结果落定后整体重建。
+// 结果区固定为简介 → 章节 → 金句；重试期间继续展示旧产物。
 function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   const analysis = snapshot.analysis;
   if (!analysis) {
     if (snapshot.phase === "generating") {
       return `
         <div class="biliscript-reading-placeholder is-generating">
-          <p class="biliscript-reading-placeholder-copy">章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
+          <p class="biliscript-reading-placeholder-copy">简介、章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
         </div>
       `;
     }
@@ -223,25 +229,34 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   const quotes = (Array.isArray(analysis.quotes) ? analysis.quotes : []).filter(
     (item) => item && String(item?.content || "").trim()
   );
+  const summary = String(analysis.summary || "").trim();
+  const summarySection = `
+    <section class="biliscript-reading-ov-section">
+      <div class="biliscript-reading-ov-h">简介</div>
+      <p class="biliscript-reading-ov-summary${summary ? "" : " is-empty"}">${escapeHtml(summary || "简介暂未生成")}</p>
+    </section>
+  `;
   const chapterBadge = snapshot.aiChapters ? '<span class="biliscript-reading-ov-badge">AI 生成</span>' : "";
   const quotesEmptyNote = quotes.length === 0 ? '<div class="biliscript-reading-ov-empty">没有可用的金句。</div>' : "";
+  const quotesSection = `
+    <section class="biliscript-reading-ov-section">
+      <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
+      ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
+    </section>
+  `;
 
   if (chapters.length === 0) {
     return `
+      ${summarySection}
       <section class="biliscript-reading-ov-section">
         <div class="biliscript-reading-ov-h">章节</div>
         <div class="biliscript-reading-ov-empty">没有可用的章节。</div>
       </section>
-      <section class="biliscript-reading-ov-section">
-        <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
-        ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
-      </section>
+      ${quotesSection}
     `;
   }
 
-  const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours, snapshot.chapterSourceKind)).join("");
-  // 官方章节缺概括（missingSummary，ai/chapter-plan.ts 打标）：给出整份重跑入口。
-  // 重试走 forceRefresh——整份缓存不读、段缓存照常复用，与 partial/error 重试同一语义。
+  const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
   const missingCount = chapters.filter((item) => item.missingSummary).length;
   const missingStrip = missingCount
     ? `
@@ -251,41 +266,29 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     </div>`
     : "";
   return `
-    ${missingStrip}
+    ${summarySection}
     <section class="biliscript-reading-ov-section">
       <div class="biliscript-reading-ov-h">章节${chapterBadge}</div>
-      ${chapterBlocks}
+      ${missingStrip}${chapterBlocks}
     </section>
-    <section class="biliscript-reading-ov-section">
-      <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
-      ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
-    </section>
+    ${quotesSection}
   `;
 }
 
-// 章节卡（时间戳 pill + 标题 + 小结，点击跳播）。缺概括（missingSummary）时渲染
-// 占位行而不是静默留白——空串的正常来源是简介/评论时间轴（titlesOnly，不打标）。
-function chapterCardHtml(item: AnalysisChapter, withHours: boolean, chapterSourceKind: ChapterSourceKind): string {
+function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
   const from = Number(item.from) || 0;
+  const to = Number(item.to) || 0;
   const desc = String(item.summary || "").trim();
   const descHtml = desc
     ? `<span class="biliscript-reading-ov-chapter-desc">${escapeHtml(desc)}</span>`
     : item.missingSummary
       ? `<span class="biliscript-reading-ov-chapter-desc is-missing">本章概括缺失</span>`
       : "";
-  // 简介/评论时间轴（outline）且章节无独立 summary：标题按首个主分隔符拆成
-  // 粗体主标题 + 常规体次级说明两层（消除全粗体堆叠的文字砖墙感）；官方章节
-  // （manuscript）与 AI 自由分章（auto）保持原有单层结构。两段都经 escapeHtml。
-  const split = chapterSourceKind === "outline" && !desc ? splitOutlineChapterTitle(item.title) : null;
-  const titleHtml = split
-    ? `<span class="biliscript-reading-ov-chapter-title">${escapeHtml(split.primary)}</span>` +
-      `<span class="biliscript-reading-ov-chapter-subtitle">${escapeHtml(split.secondary)}</span>`
-    : `<span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>`;
   return `
-    <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}">
+    <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}" data-to="${to}">
       <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
       <span class="biliscript-reading-ov-chapter-copy">
-        ${titleHtml}
+        <span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
         ${descHtml}
       </span>
     </button>

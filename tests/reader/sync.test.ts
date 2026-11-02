@@ -132,6 +132,44 @@ describe("播放同步与高亮", () => {
     expect(state.reader.readingActiveChapterIndex).toBe(0);
   });
 
+  it("概览 tab：按概览章节边界切换高亮，暂停定位保留且不自动滚动", () => {
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    shell.renderReadingOverview({
+      phase: "ready",
+      analysis: {
+        summary: "全片简介。",
+        chapters: [
+          { from: 0, to: 20, title: "概览第一章", summary: "" },
+          { from: 20, to: 60, title: "概览第二章", summary: "" }
+        ],
+        quotes: []
+      },
+      aiChapters: true,
+      progressText: "",
+      errorText: "",
+      stripText: "",
+      generatedFor: ""
+    });
+    switchReaderScriptTab("overview");
+    playerHost.bindReadingViewVideo(video);
+    const overview = document.getElementById(ids.readingOverviewBody) as HTMLElement;
+    overview.scrollTop = 120;
+
+    video.currentTime = 35;
+    sync.syncReadingViewPlayback();
+    let active = overview.querySelector<HTMLElement>(".biliscript-reading-ov-chapter.is-active");
+    expect(active?.dataset.seconds).toBe("20");
+    expect(active?.getAttribute("aria-current")).toBe("true");
+
+    video.currentTime = 5;
+    sync.syncReadingViewPlayback();
+    active = overview.querySelector<HTMLElement>(".biliscript-reading-ov-chapter.is-active");
+    expect(active?.dataset.seconds).toBe("0");
+    expect(overview.querySelectorAll(".biliscript-reading-ov-chapter.is-active")).toHaveLength(1);
+    expect(overview.scrollTop).toBe(120);
+  });
+
   it("video seeked 事件驱动即时同步并切换字幕高亮（暂停态 seek 兜底）", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();

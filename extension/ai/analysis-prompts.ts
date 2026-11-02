@@ -1,8 +1,5 @@
-// 「概览数据管线」三片之提示词装配（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数；
-// 对外经 analysis.ts 壳再导出，只依赖 subtitle/cache 与 shared/chapter-outline 叶子）。
-// 提示词整搬参考仓库 .scratch/bilibili-script/prompts/analysis.md（系统提示词
-// 全静态、逐字节一致；script-only-ui 起顶层 "summary" 概述字段已随概览 UI 的
-// 总结区块一并移除）。
+// 概览提示词装配：系统提示词全静态，变量全部放在用户提示词侧。
+// 单次路径直接产出全片简介；分段路径先产出段简介，再归并成全片简介。
 
 import { normalizeSubtitleItems } from "../subtitle/cache.js";
 import { formatClock } from "../shared/clock-text.js";
@@ -56,8 +53,15 @@ const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 - timestamp: "2:30"
 - timestampSeconds: 150`;
 
-// 两份系统提示词逐字共享的「现成章节目录」块（概览分章票 03 决议起统一到这里）：
-// 分章来源由用户消息注入（简介/评论时间轴或 B 站官方章节），模型只许照抄、只补 summary。
+const OVERVIEW_INTRO_BLOCK = `⚠️ 关于顶层 summary ⚠️
+概括本次给到的全部字幕，而不是只概括开头。用自然、易懂的简体中文写 2～3 句、约 80～150 字：
+先说明视频讨论的问题和主要内容，再给出核心结论或观看价值；没有明确结论时客观概括即可。
+不要写成小标题列表，不要添加「核心结论：」等固定标签，不要提及字幕分段或生成过程。`;
+
+const CHAPTER_SUMMARY_BLOCK = `每章的 summary 用一句话说明本章具体讲了什么，尽量不超过 60 字。
+补充标题没有说清的内容，不要只是换一种说法重复标题。`;
+
+// 现成章节目录由用户消息注入，模型只许照抄边界与标题、补写 summary。
 const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
 用户消息里如果给出「视频章节/简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
 **章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
@@ -66,14 +70,17 @@ const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
 目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
 前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。`;
 
-// 整搬自 .scratch/bilibili-script/prompts/analysis.md「系统提示词」代码块；
-// script-only-ui 起 JSON 输出 schema 顶层的 "summary" 概述字段已移除。
-// 导出仅测试面：冻结断言（tests/ai/analysis-prompt-freeze.test.ts）逐字节比对合成串。
-export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：章节 + 金句。
+// 导出仅测试面：冻结断言逐字节比对合成串。
+export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：简介 + 章节 + 金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 覆盖**本次给到的全部字幕**的章节。章节数量由你判断——在话题真正发生转折的地方分章，该多则多、该少则少。唯一的硬性要求是覆盖度：章节必须贯穿这段字幕的整条时间线，**最后一个章节的时间戳必须晚于用户消息中给出的「后段门槛」**（用户消息给出「现成章节目录」时除外：以目录为准）。不要只覆盖前半段，也不要把章节全挤在开头。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+
+${OVERVIEW_INTRO_BLOCK}
+
+${CHAPTER_SUMMARY_BLOCK}
 
 ${ASR_CORRECTION_BLOCK}
 
@@ -98,6 +105,7 @@ ${CHAPTER_OUTLINE_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "chapters": [
     {"title": "章节标题", "timestamp": "0:00", "timestampSeconds": 0, "summary": "这一段讲了什么"}
   ],
@@ -113,15 +121,17 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
-// 给定章节（简介/评论时间轴目录或 B 站官方章节）的系统提示词：章节不是模型的活儿，
-// 它只负责照抄目录、补写每章 summary、挑金句。概览分章票 03 决议：来源优先级
-// 时间轴 > 官方章节，两者都走这份提示词（差别只在用户消息里的目录内容）。
-// 导出仅测试面（冻结断言同上）。
+// 稀疏时间轴与官方章节共用：照抄目录，补写总体简介与逐章说明，并挑选金句。
 export const GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 严格按用户消息里给出的「现成章节目录」产出章节：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，不得增删章节、不得改动任何时间戳；你只为每章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+
+${OVERVIEW_INTRO_BLOCK}
+
+${CHAPTER_SUMMARY_BLOCK}
 
 ${ASR_CORRECTION_BLOCK}
 
@@ -145,6 +155,7 @@ ${CHAPTER_OUTLINE_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "chapters": [
     {"title": "章节标题", "timestamp": "0:00", "timestampSeconds": 0, "summary": "这一段讲了什么"}
   ],
@@ -160,15 +171,15 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
-// 简介/评论时间轴目录（outline 来源）的系统提示词（用户拍板 2026-09-30）：目录章节
-// 只留标题、不写 AI 简介——模型的唯一活儿是挑金句。与 GIVEN_CHAPTERS 的差别是
-// 「视频内官方章节」仍补逐章简介（manuscript 来源走那份提示词）。
-// 导出仅测试面（冻结断言同上）。
+// 密集时间轴保留原目录，只生成总体简介与金句，不补逐章说明。
 export const OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
-- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责金句。
+- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责总体简介与金句。
+
+${OVERVIEW_INTRO_BLOCK}
 
 ${ASR_CORRECTION_BLOCK}
 
@@ -188,6 +199,7 @@ ${TIMESTAMP_TEACHING_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "keyQuotes": [
     {"quote": "整理后的原话", "timestamp": "2:30", "timestampSeconds": 150}
   ]
@@ -199,6 +211,17 @@ ${TIMESTAMP_TEACHING_BLOCK}
 - 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
+
+export const ANALYSIS_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请根据各段内容概述，写出整支视频的总体简介。
+
+要求：
+- 用自然、易懂的简体中文写 2～3 句、约 80～150 字。
+- 先说明视频讨论的问题和主要内容，再给出核心结论或观看价值；没有明确结论时客观概括即可。
+- 综合全部材料，不要只复述第一段，不要写成小标题列表。
+- 不要提及分段、缺失材料或生成过程，不要添加「核心结论：」等固定标签。
+
+输出 JSON（不要加 markdown 代码围栏）：
+{"summary": "全片简介（2～3 句，约 80～150 字）"}`;
 
 
 // 用户提示词模板：整搬参考仓库 prompts/analysis.md「用户提示词」代码块。
@@ -315,8 +338,8 @@ export function estimateOutputTokens(
 /**
  * 现成章节目录 → 用户提示词注入块。有空目录返回空串（模板行变空行），
  * 有目录时给出「边界照抄、只补大意」的硬约束（措辞与系统提示词的
- * 「现成章节目录」节呼应）。titlesOnly（简介/评论时间轴来源）时指令换成
- * 「只保留标题、不写简介」，与 OUTLINE_QUOTES_SYSTEM_PROMPT 呼应。
+ * 「现成章节目录」节呼应）。titlesOnly（密集时间轴）时指令换成
+ * 「只保留标题、不写逐章说明」，与 OUTLINE_QUOTES_SYSTEM_PROMPT 呼应。
  */
 function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOnly?: boolean): string {
   if (!Array.isArray(outline) || outline.length === 0) {
@@ -329,7 +352,7 @@ function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOn
     `\n现成章节目录（来自视频章节/简介/评论，共 ${outline.length} 章）：\n` +
     `${lines.join("\n")}\n` +
     (titlesOnly
-      ? `按系统提示词的要求：这份目录就是最终章节，边界与标题原样保留；不要为章节写简介，只需挑选金句。`
+      ? `按系统提示词的要求：这份目录就是最终章节，边界与标题原样保留；不要为章节写逐章说明，总体简介与金句照常生成。`
       : `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。`) +
     `后段门槛不适用，最后一章以目录为准。\n`
   );
@@ -352,10 +375,7 @@ interface BuildAnalysisPromptInput {
   totalSegments?: unknown;
   /** 给定章节目录（简介/评论时间轴或 B 站官方章节）；非空时章节照抄目录、只补 summary。 */
   chapterOutline?: OutlineChapter[];
-  /**
-   * 目录章节只保留标题（简介/评论时间轴来源）：不补每章 summary，模型只挑金句。
-   * 与 OUTLINE_QUOTES_SYSTEM_PROMPT 同拍板；官方章节（manuscript）仍补简介。
-   */
+  /** 密集时间轴只保留标题，模型生成总体简介与金句，不补逐章说明。 */
   titlesOnly?: boolean;
 }
 
@@ -434,4 +454,33 @@ function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAna
  */
 export function buildAnalysisPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
   return buildAnalysisUserPrompt(input);
+}
+
+export function buildAnalysisSummaryPrompt(
+  parts: unknown,
+  { title, maxTimestampSeconds }: { title?: unknown; maxTimestampSeconds?: unknown } = {}
+): BuiltAnalysisPrompt {
+  const sections = (Array.isArray(parts) ? parts : []).map((rawPart, index) => {
+    const part = rawPart && typeof rawPart === "object" ? rawPart as {
+      summary?: unknown;
+      chapters?: Array<{ from?: unknown; title?: unknown; summary?: unknown }>;
+    } : {};
+    const summary = String(part.summary ?? "").trim();
+    const chapters = (Array.isArray(part.chapters) ? part.chapters : [])
+      .map((chapter) => {
+        const chapterTitle = String(chapter?.title ?? "").trim();
+        if (!chapterTitle) return "";
+        const chapterSummary = String(chapter?.summary ?? "").trim();
+        return `- ${formatClock(Number(chapter?.from) || 0)} ${chapterTitle}${chapterSummary ? `：${chapterSummary}` : ""}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+    return [`第 ${index + 1} 段`, summary, chapters].filter(Boolean).join("\n");
+  }).filter((section) => section.includes("\n"));
+  const prompt = `视频标题：${String(title ?? "").trim() || "未知"}\n\n各段内容概述与章节：\n${sections.join("\n\n")}`;
+  return {
+    prompt,
+    timing: analysisTimingVariables([], maxTimestampSeconds),
+    transcriptChars: prompt.length
+  };
 }

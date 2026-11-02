@@ -1445,12 +1445,9 @@
   word-break: break-word;
 }
 
-/* ===== PR4 概览 tab：章节 / 金句 =====
- * 视觉基准：章节列表（时间戳 pill + 标题 + 小结）→ 金句卡（surface-2 暖底淡卡 +
- * 右下角时间戳与复制图标钮）。
- * 色值全部走 --biliscript-reader-* token（gate 段两主题定义），暗色主题自动跟随；
- * 时间戳 pill 复用 .biliscript-reading-time 母题。
- *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
+/* ===== 概览 tab：简介 / 章节 / 金句 =====
+ * 色值全部走 --biliscript-reader-* token，暗色主题自动跟随；
+ * 时间戳 pill 复用 .biliscript-reading-time 母题。 */
 .biliscript-reading-overview {
   flex: 1;
   min-height: 0;
@@ -1492,21 +1489,28 @@
   padding: 1px 8px;
 }
 
+.biliscript-reading-ov-summary {
+  margin: 0;
+  font-size: var(--biliscript-font-size-md);
+  line-height: 1.75;
+  color: var(--biliscript-reader-text);
+  word-break: break-word;
+}
+
+.biliscript-reading-ov-summary.is-empty,
 .biliscript-reading-ov-empty {
   font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-faint);
 }
 
-/* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
- * 周边区分（script-only-ui 决策：参考 YouTube Digest Overview 卡片式）。 */
 .biliscript-reading-ov-chapter {
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 0;
+  border: 1px solid transparent;
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1516,7 +1520,7 @@
   font-family: inherit;
   color: inherit;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, box-shadow 0.15s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-ov-chapter:active {
@@ -1525,6 +1529,13 @@
 
 .biliscript-reading-ov-chapter:hover {
   background: var(--biliscript-reader-surface-3);
+}
+
+.biliscript-reading-ov-chapter.is-active,
+.biliscript-reading-ov-chapter.is-active:hover {
+  border-color: var(--chat-input-focus-border, var(--biliscript-reader-accent));
+  background: var(--biliscript-reader-accent-soft);
+  box-shadow: var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 
 .biliscript-reading-ov-chapter-copy {
@@ -1541,18 +1552,6 @@
   line-height: 1.5;
   color: var(--biliscript-reader-text);
   text-wrap: balance;
-  word-break: break-word;
-}
-
-/* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
- * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方主标题。 */
-.biliscript-reading-ov-chapter-subtitle {
-  font-family: var(--biliscript-reader-font-sans);
-  font-size: var(--biliscript-font-size-sm);
-  font-size-adjust: from-font;
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--biliscript-reader-muted);
   word-break: break-word;
 }
 

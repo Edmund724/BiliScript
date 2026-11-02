@@ -32,6 +32,7 @@ const BODY: SubtitleBodyItem[] = [
 ];
 
 const SAMPLE_ANALYSIS: OverviewAnalysis = {
+  summary: "全片简介。",
   chapters: [
     { from: 0, to: 120, title: "开场", summary: "为什么测试难写" },
     { from: 120, to: 300, title: "误区一", summary: " mocking 一切" }
@@ -205,6 +206,16 @@ describe("相位迁移", () => {
     expect(h.coordinator.getSnapshot().analysis?.chapters.length).toBe(2);
   });
 
+  it("简介归并失败 → partial：章节与金句产物保留", async () => {
+    const h = makeHarness();
+    h.runOverviewAnalysis.mockResolvedValue({ ...SAMPLE_ANALYSIS, summary: "", summaryFailed: true });
+
+    await h.coordinator.trigger();
+
+    expect(h.coordinator.getPhase()).toBe("partial");
+    expect(h.coordinator.getSnapshot().analysis?.chapters).toHaveLength(2);
+  });
+
   it("管线拒绝 → error：错误文本带默认前缀与原因", async () => {
     const h = makeHarness();
     h.runOverviewAnalysis.mockRejectedValue(new Error("模型请求失败"));
@@ -269,6 +280,7 @@ describe("去重与纪元校验", () => {
 
     // 旧编排落定：inflightAbort 已换代 + generatedFor 已换 key → 旧产物按过期丢弃
     oldRun.resolve({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "旧视频章节", summary: "" }],
       quotes: []
     });
@@ -278,6 +290,7 @@ describe("去重与纪元校验", () => {
 
     // 新编排落定：正常入槽
     newRun.resolve({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "新视频章节", summary: "" }],
       quotes: []
     });

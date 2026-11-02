@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANALYSIS_SYSTEM_PROMPT,
+  ANALYSIS_SUMMARY_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
   OUTLINE_QUOTES_SYSTEM_PROMPT
 } from "../../extension/ai/analysis.js";
@@ -50,6 +51,14 @@ const FROZEN_TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠�
 - timestamp: "2:30"
 - timestampSeconds: 150`;
 
+const FROZEN_OVERVIEW_INTRO_BLOCK = `⚠️ 关于顶层 summary ⚠️
+概括本次给到的全部字幕，而不是只概括开头。用自然、易懂的简体中文写 2～3 句、约 80～150 字：
+先说明视频讨论的问题和主要内容，再给出核心结论或观看价值；没有明确结论时客观概括即可。
+不要写成小标题列表，不要添加「核心结论：」等固定标签，不要提及字幕分段或生成过程。`;
+
+const FROZEN_CHAPTER_SUMMARY_BLOCK = `每章的 summary 用一句话说明本章具体讲了什么，尽量不超过 60 字。
+补充标题没有说清的内容，不要只是换一种说法重复标题。`;
+
 const FROZEN_CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
 用户消息里如果给出「视频章节/简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
 **章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
@@ -58,11 +67,16 @@ const FROZEN_CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠�
 目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
 前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。`;
 
-const FROZEN_ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：章节 + 金句。
+const FROZEN_ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：简介 + 章节 + 金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 覆盖**本次给到的全部字幕**的章节。章节数量由你判断——在话题真正发生转折的地方分章，该多则多、该少则少。唯一的硬性要求是覆盖度：章节必须贯穿这段字幕的整条时间线，**最后一个章节的时间戳必须晚于用户消息中给出的「后段门槛」**（用户消息给出「现成章节目录」时除外：以目录为准）。不要只覆盖前半段，也不要把章节全挤在开头。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+
+${FROZEN_OVERVIEW_INTRO_BLOCK}
+
+${FROZEN_CHAPTER_SUMMARY_BLOCK}
 
 ${FROZEN_ASR_CORRECTION_BLOCK}
 
@@ -87,6 +101,7 @@ ${FROZEN_CHAPTER_OUTLINE_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "chapters": [
     {"title": "章节标题", "timestamp": "0:00", "timestampSeconds": 0, "summary": "这一段讲了什么"}
   ],
@@ -105,8 +120,13 @@ ${FROZEN_CHAPTER_OUTLINE_BLOCK}
 const FROZEN_GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 严格按用户消息里给出的「现成章节目录」产出章节：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，不得增删章节、不得改动任何时间戳；你只为每章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+
+${FROZEN_OVERVIEW_INTRO_BLOCK}
+
+${FROZEN_CHAPTER_SUMMARY_BLOCK}
 
 ${FROZEN_ASR_CORRECTION_BLOCK}
 
@@ -130,6 +150,7 @@ ${FROZEN_CHAPTER_OUTLINE_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "chapters": [
     {"title": "章节标题", "timestamp": "0:00", "timestampSeconds": 0, "summary": "这一段讲了什么"}
   ],
@@ -148,8 +169,11 @@ ${FROZEN_CHAPTER_OUTLINE_BLOCK}
 const FROZEN_OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
 
 你需要给出：
+- 顶层 summary：本次字幕的总体简介。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
-- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责金句。
+- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责总体简介与金句。
+
+${FROZEN_OVERVIEW_INTRO_BLOCK}
 
 ${FROZEN_ASR_CORRECTION_BLOCK}
 
@@ -169,6 +193,7 @@ ${FROZEN_TIMESTAMP_TEACHING_BLOCK}
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "summary": "本次字幕的简介（2～3 句，约 80～150 字）",
   "keyQuotes": [
     {"quote": "整理后的原话", "timestamp": "2:30", "timestampSeconds": 150}
   ]
@@ -181,6 +206,17 @@ ${FROZEN_TIMESTAMP_TEACHING_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
+const FROZEN_ANALYSIS_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请根据各段内容概述，写出整支视频的总体简介。
+
+要求：
+- 用自然、易懂的简体中文写 2～3 句、约 80～150 字。
+- 先说明视频讨论的问题和主要内容，再给出核心结论或观看价值；没有明确结论时客观概括即可。
+- 综合全部材料，不要只复述第一段，不要写成小标题列表。
+- 不要提及分段、缺失材料或生成过程，不要添加「核心结论：」等固定标签。
+
+输出 JSON（不要加 markdown 代码围栏）：
+{"summary": "全片简介（2～3 句，约 80～150 字）"}`;
+
 describe("analysis 系统提示词冻结（合成前后逐字节一致）", () => {
   it("ANALYSIS_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
     expect(ANALYSIS_SYSTEM_PROMPT).toBe(FROZEN_ANALYSIS_SYSTEM_PROMPT);
@@ -192,5 +228,9 @@ describe("analysis 系统提示词冻结（合成前后逐字节一致）", () =
 
   it("OUTLINE_QUOTES_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
     expect(OUTLINE_QUOTES_SYSTEM_PROMPT).toBe(FROZEN_OUTLINE_QUOTES_SYSTEM_PROMPT);
+  });
+
+  it("ANALYSIS_SUMMARY_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
+    expect(ANALYSIS_SUMMARY_SYSTEM_PROMPT).toBe(FROZEN_ANALYSIS_SUMMARY_SYSTEM_PROMPT);
   });
 });

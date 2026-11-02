@@ -87,6 +87,14 @@ export function isReadingSubtitleBodyVisible(): boolean {
   );
 }
 
+export function isReadingOverviewBodyVisible(): boolean {
+  return (
+    state.reader.readingViewOpen &&
+    readingActiveScriptTab === "overview" &&
+    !state.reader.readingSettingsExpanded
+  );
+}
+
 // ===== scroll-state.js：阅读视图滚动状态共享叶子 =====
 //
 // 这是 SYNC（./sync.js）与 LAYOUT（./video-bind.js + ./script-host.js）的共享

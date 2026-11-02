@@ -37,7 +37,9 @@ import {
   type OverviewAnalysis,
 } from "./analysis-validate.js";
 import {
+  ANALYSIS_SUMMARY_SYSTEM_PROMPT,
   buildAnalysisPrompt,
+  buildAnalysisSummaryPrompt,
   estimateOutputTokens,
   tailItems,
   type BuiltAnalysisPrompt,
@@ -203,9 +205,9 @@ function makeOverviewCancelledError(): Error & { cancelled: true } {
   return error;
 }
 
-// 空产物错误：模型没给出任何有效章节与金句（对齐参考仓库 EMPTY_ANALYSIS 语义）。
+// 空产物错误：章节、金句与总体简介全部为空时，才没有可展示的概览。
 function makeEmptyAnalysisError(): Error {
-  return new Error("模型没有产出有效的章节或金句，请重试。");
+  return new Error("模型没有产出有效的简介、章节或金句，请重试。");
 }
 
 // 单次模型调用 → 宽容解析 → 校验。maxTokens 按正文长度估算（ratio 0.5，
@@ -461,27 +463,24 @@ async function executeOverviewRun({
   if (normalizeSubtitleItems(body).length === 0) {
     throw new Error("没有可用的字幕");
   }
-  // 整份缓存命中直接复用：签名已含分章来源位与目录指纹（含官方章节标题/秒数），
-  // 章节晚到或改名都会换键，不再需要「返回前用稿件现值覆盖章节」的兜底。
+  const chapterPlan = resolveChapterPlan({ chapterSource, context: ctx, body });
+  const expectsChapterSummaries = chapterPlan.hasGivenChapters && !chapterPlan.titlesOnly;
+
+  // 整份缓存命中直接复用；签名已包含产物语义版本与分章目录指纹。
   if (!forceRefresh) {
     const cached = await analysisFinalFamily.load(finalKey);
     if (cached) {
-      // 官方章节产物「全员无概括」是坏缓存（graft 全体认领失败或被截断静默救回），
-      // 视为未命中重跑；局部缺章照常复用——缺章补标后由 UI 显示占位与重跑入口，
-      // 避免模型持续不出概括时每次打开都自动重付一次调用。
-      const manuscriptAllEmpty =
-        chapterSource.kind === "manuscript" &&
+      // 本应带说明的给定章节全员为空是坏缓存；局部缺失保留并给出重试入口。
+      const allSummariesEmpty =
+        expectsChapterSummaries &&
         cached.chapters.length > 0 &&
         cached.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
-      if (!manuscriptAllEmpty) {
-        return chapterSource.kind === "manuscript" ? flagMissingChapterSummaries(cached) : cached;
+      if (!allSummariesEmpty) {
+        return expectsChapterSummaries ? flagMissingChapterSummaries(cached) : cached;
       }
     }
   }
 
-  // 分章计划（唯一读点，见 ai/chapter-plan.ts）：提示词选择、越界过滤后的给定章节、
-  // 用户提示词变量、切段输入与产物 graft 的末章界都在这一次解析里定下。
-  const chapterPlan = resolveChapterPlan({ chapterSource, context: ctx, body });
   const systemPrompt = chapterPlan.systemPrompt;
   const promptVars = chapterPlan.promptVars;
   const plan = buildBudgetPlanImpl({ body, chapters: chapterPlan.budgetChapters });
@@ -495,7 +494,7 @@ async function executeOverviewRun({
   // 仍只看调用数。signal?.aborted 前置检查属本链的中止语义，留在本链。
   if (segmented && typeof askCostGuard === "function") {
     await runCostGuard({
-      estimatedCalls: segments.length,
+      estimatedCalls: segments.length + 1,
       estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
       buildNotice: buildCostGuardNoticeImpl,
       precheck: () => {
@@ -541,7 +540,8 @@ async function executeOverviewRun({
     // 给定章节时 graft 照抄清单（模型只贡献 summary）；末章界由计划闭包捕获，
     // 单发路径不再另取 built.timing.maxTimestampSeconds（两值同源，见 chapter-plan.ts）。
     const analysis: OverviewAnalysis = { ...part, chapters: chapterPlan.graft(part.chapters) };
-    if (!analysis.chapters.length && !analysis.quotes.length) {
+    analysis.summaryFailed = !analysis.summary;
+    if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
       throw makeEmptyAnalysisError();
     }
     await analysisFinalFamily.save(finalKey, analysis);
@@ -633,15 +633,39 @@ async function executeOverviewRun({
   }
 
   const merged = mergeAnalyses(parts);
-  // 给定章节：合并后的章节仍以给定清单为准（各段只贡献 summary），边界不随段漂移。
   const analysis: OverviewAnalysis = { ...merged, chapters: chapterPlan.graft(merged.chapters) };
-  if (!analysis.chapters.length && !analysis.quotes.length) {
-    throw makeEmptyAnalysisError();
-  }
   if (failedRanges.length) {
     analysis.failedRanges = failedRanges;
   }
-  // 部分结果照常落缓存（含 failedRanges）：重试走 forceRefresh，段缓存让已成功段免重付费。
+
+  onProgress?.("正在生成全片简介…");
+  try {
+    const summaryPart = await requestValidatedPart({
+      provider,
+      systemPrompt: ANALYSIS_SUMMARY_SYSTEM_PROMPT,
+      built: buildAnalysisSummaryPrompt(parts, {
+        title: ctx.title,
+        maxTimestampSeconds: ctx.videoDuration
+      }),
+      minSeconds: 0,
+      thinkingLevel,
+      signal,
+      retries: 2,
+      chatCompletionImpl
+    });
+    analysis.summary = summaryPart.summary;
+    analysis.summaryFailed = !summaryPart.summary;
+  } catch (error) {
+    if (isAbortedMarkerError(error) || signal?.aborted) {
+      throw error;
+    }
+    analysis.summaryFailed = true;
+  }
+
+  if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
+    throw makeEmptyAnalysisError();
+  }
+  // 重试会复用成功分段，只补失败分段与全片简介。
   await analysisFinalFamily.save(finalKey, analysis);
   return analysis;
 }

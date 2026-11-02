@@ -931,6 +931,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
+#biliscript-reading-view .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view .biliscript-reading-ov-chapter.is-active:hover {
+  border: 1px solid var(--chat-input-focus-border, var(--biliscript-reader-accent));
+  background: var(--biliscript-reader-accent-soft);
+  box-shadow: var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
+}
+
 /* 内容区（tab-body）透明直露雾底：灰内容卡与雾壳是两层料，实机上有可见
  * 色差（用户报「应该是融为一体」）；透明后全面板只有一层雾底，白玻璃凸起
  * 卡靠灰差浮出。字幕行、历史对话条目透明落雾底，状态靠整行 wash 表达。 */
@@ -1401,6 +1408,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search:focus-within {
   border: 1px solid var(--biliscript-reader-accent);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active:hover {
+  border: 1px solid var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 

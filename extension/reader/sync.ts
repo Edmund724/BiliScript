@@ -33,6 +33,7 @@ import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
   ids,
   isManualScrollPaused,
+  isReadingOverviewBodyVisible,
   isReadingSubtitleBodyVisible,
   resetManualScrollPause,
   setManualScrollPaused,
@@ -49,6 +50,7 @@ import { readerPorts } from "./reader-bus.js";
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
 import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
+import { syncReadingOverviewActiveChapter } from "./overview-playback.js";
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
 //
@@ -112,6 +114,9 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
 
     setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll);
   }
+  if (isReadingOverviewBodyVisible()) {
+    syncReadingOverviewActiveChapter(currentTime);
+  }
   updateReaderFollowState();
   // 播放进度不再写面板状态行（2026-09 用户决议）：原来每拍把「当前进度 0:12」
   // 覆写进 header，位置反馈由字幕列表的自动高亮承担。
@@ -153,8 +158,7 @@ function resolveActiveItem(cached: ActiveItemCache, index: number, list: HTMLEle
 
 function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shouldScroll = false) {
   const subtitleList = getReaderElement(ids.readingSubtitleList);
-  // rail 章节列表 DOM 已随整页接管退役，章节高亮写组整段删除；
-  // activeChapterIndex 状态照常维护（概览 tab 的高亮消费）。
+  // 官方章节索引只用于字幕跟随；概览高亮由 overview-playback 按自己的章界计算。
   const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
 
   if (!subtitleHit.unchanged) {
