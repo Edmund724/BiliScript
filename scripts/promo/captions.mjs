@@ -30,6 +30,6 @@ export const CAPTIONS = [
   {sceneId: "appearance", text: "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。", startMs: 25500, endMs: 27500, timestampMs: null, confidence: null},
   {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 27500, endMs: 30000, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "BiliScript", startMs: 30000, endMs: 30550, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频。", startMs: 30550, endMs: 32000, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "搜原话 · 读章节 · 问依据", startMs: 32000, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
+  {sceneId: "outro", text: "在 B 站，读下一条视频。", startMs: 30550, endMs: 31800, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问", startMs: 31800, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
 ];

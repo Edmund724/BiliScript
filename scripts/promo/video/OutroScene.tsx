@@ -5,17 +5,17 @@ import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY} from "./design";
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
-const BRAND_ICON = {size: 110, top: 350};
+const BRAND_ICON = {size: 110, top: 304};
 const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
 const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
 const BRAND_ICON_OUTSET = (BRAND_GROUP_WIDTH - BRAND_ICON.size) / 2;
-const TAGLINE_TOP = 520;
-const CTA_TOP = 616;
-// 三连星火以安装按钮为中心向下最远扩到 765px，兼容行与回收行都排在星火之下。
-const COMPAT_TOP = 776;
-const RECAP_TOP = 844;
+const TAGLINE_TOP = 466;
+const RECAP_TOP = 538;
+const CTA_TOP = 632;
+// 三连星火以安装按钮为中心向下最远扩到 747px，兼容行排在星火之下。
+const COMPAT_TOP = 780;
 const INSTALL_POINTER = {x: 880, y: CTA_TOP + 42};
-const RECAP_ITEMS = ["搜原话", "读章节", "问依据"];
+const RECAP_ITEMS = ["字幕转写", "章节速览", "溯源追问"];
 
 const ChromeIcon = ({size = 26}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -106,8 +106,10 @@ const FinalBrand = () => {
           top: TAGLINE_TOP,
           textAlign: "center",
           color: COLORS.foreground,
-          fontSize: 34,
-          lineHeight: 1.4,
+          fontSize: 40,
+          fontWeight: 600,
+          letterSpacing: -0.6,
+          lineHeight: 1.3,
           opacity: interpolate(frame, [OUTRO_TIMELINE.taglineAt, OUTRO_TIMELINE.taglineAt + 12], [0, 1], CLAMP),
           translate: interpolate(frame, [OUTRO_TIMELINE.taglineAt, OUTRO_TIMELINE.taglineAt + 12], ["0px 16px", "0px 0px"], {
             ...CLAMP,
@@ -367,6 +369,8 @@ const CallToAction = () => {
 
 const CapabilityRecap = () => {
   const frame = useCurrentFrame();
+  const opacity = interpolate(frame, [OUTRO_TIMELINE.recapAt, OUTRO_TIMELINE.recapAt + 12], [0, 1], CLAMP);
+  const lift = interpolate(frame, [OUTRO_TIMELINE.recapAt, OUTRO_TIMELINE.recapAt + 12], [14, 0], {...CLAMP, easing: ENTRANCE_EASING});
   return (
     <div
       style={{
@@ -377,44 +381,38 @@ const CapabilityRecap = () => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: 30
+        gap: 28,
+        opacity,
+        translate: `0px ${lift}px`
       }}
     >
-      {RECAP_ITEMS.map((label, index) => {
-        const start = OUTRO_TIMELINE.recapAt + index * 3;
-        const opacity = interpolate(frame, [start, start + 10], [0, 1], CLAMP);
-        const lift = interpolate(frame, [start, start + 10], [14, 0], {...CLAMP, easing: ENTRANCE_EASING});
-        return (
-          <div key={label} style={{display: "flex", alignItems: "center", gap: 30}}>
-            {index > 0 ? (
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  backgroundColor: COLORS.pink,
-                  opacity: opacity * 0.7,
-                  translate: `0px ${lift}px`
-                }}
-              />
-            ) : null}
+      {RECAP_ITEMS.map((label, index) => (
+        <div key={label} style={{display: "flex", alignItems: "center", gap: 28}}>
+          {index > 0 ? (
             <span
               style={{
-                color: COLORS.inkSoft,
-                fontSize: 36,
-                fontWeight: 600,
-                letterSpacing: 1.6,
-                lineHeight: 1.2,
-                whiteSpace: "nowrap",
-                opacity,
-                translate: `0px ${lift}px`
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                backgroundColor: COLORS.pink,
+                opacity: 0.75
               }}
-            >
-              {label}
-            </span>
-          </div>
-        );
-      })}
+            />
+          ) : null}
+          <span
+            style={{
+              color: COLORS.inkSoft,
+              fontSize: 34,
+              fontWeight: 600,
+              letterSpacing: 1.2,
+              lineHeight: 1.2,
+              whiteSpace: "nowrap"
+            }}
+          >
+            {label}
+          </span>
+        </div>
+      ))}
     </div>
   );
 };
@@ -436,8 +434,8 @@ const BrandStage = () => {
       }}
     >
       <FinalBrand />
-      <CallToAction />
       <CapabilityRecap />
+      <CallToAction />
     </div>
   );
 };

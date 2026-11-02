@@ -14,6 +14,7 @@ export const OUTRO_TIMELINE = {
   brandResolveAt: OUTRO_BRAND_RESOLVE_START_FRAME,
   brandNameAt: 9,
   taglineAt: 18,
+  recapAt: 18,
   ctaAt: 22,
   brandPushAt: 24,
   brandPushScale: 1.015,
@@ -21,6 +22,5 @@ export const OUTRO_TIMELINE = {
   installClickAt: 44,
   pointerExitAt: 48,
   pointerGoneAt: 52,
-  recapAt: 55,
   finalHoldAt: 62
 };
