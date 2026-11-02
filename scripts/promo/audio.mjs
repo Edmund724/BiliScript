@@ -115,6 +115,11 @@ export function voiceDuckAtFrame(frame) {
   return duck;
 }
 
+export function voiceDuckEmphasisAtFrame(frame) {
+  const deepestDuck = Math.min(...AUDIO.voices.map((voice) => 10 ** (-voice.duckDb / 20)));
+  return Math.min(1, Math.max(0, (1 - voiceDuckAtFrame(frame)) / (1 - deepestDuck)));
+}
+
 export function musicVolumeAtFrame(frame) {
   const {fadeInFrames, fadeOutFrames, fadeOutEndFrame, gain} = AUDIO.music;
   const fadeIn = Math.min(1, Math.max(0, frame / fadeInFrames));

@@ -267,6 +267,7 @@ export type BottomLectureCaptionProps = {
   text?: string;
   speaker?: string;
   active?: boolean;
+  emphasis?: number;
   from?: number;
   duration?: number;
   style?: CSSProperties;
@@ -278,6 +279,7 @@ export const BottomLectureCaption = ({
   text,
   speaker,
   active = true,
+  emphasis = 0,
   from,
   duration,
   style = {}
@@ -302,6 +304,8 @@ export const BottomLectureCaption = ({
   const liftY = from !== undefined ? interpolate(enterProgress, [0, 1], [18, 0]) : 0;
   const baseHeights = [10, 19, 13, 21, 15, 11];
   const contentText = quote ?? text ?? "";
+  const breath = 0.5 + 0.5 * Math.sin(local * 0.55);
+  const glow = emphasis * (0.55 + 0.45 * breath);
 
   return (
     <div
@@ -314,8 +318,7 @@ export const BottomLectureCaption = ({
         borderRadius: 999,
         background: "rgba(15, 23, 42, 0.90)",
         backdropFilter: "blur(22px)",
-        boxShadow:
-          "0 28px 64px -18px rgba(15, 23, 42, 0.62), 0 0 0 1.5px rgba(255, 255, 255, 0.18), 0 0 36px rgba(232, 93, 135, 0.24)",
+        boxShadow: `0 28px 64px -18px rgba(15, 23, 42, 0.62), 0 0 0 ${(1.5 + 2.5 * emphasis).toFixed(2)}px rgba(255, 112, 154, ${(0.18 + 0.78 * glow).toFixed(3)}), 0 0 ${(36 + 32 * glow).toFixed(1)}px rgba(232, 93, 135, ${(0.24 + 0.50 * glow).toFixed(3)})`,
         color: "#FFFFFF",
         display: "flex",
         alignItems: "center",

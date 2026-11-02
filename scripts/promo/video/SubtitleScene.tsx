@@ -1,4 +1,6 @@
 import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {voiceDuckEmphasisAtFrame} from "../audio.mjs";
+import {SCENES} from "../timeline.mjs";
 import {
   SUBTITLE_DURATION,
   SUBTITLE_MATCH_FRAME,
@@ -8,6 +10,7 @@ import {
 import {BottomLectureCaption, BRAND_FONT_FAMILY, COLORS, EditorialHeaderBand, FONT_FAMILY, MIST_GLASS} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
+const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle")!.from;
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
@@ -62,7 +65,8 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
     [PLAYER_STAGE_TRANSFORM.scale * 1.055, PLAYER_STAGE_TRANSFORM.scale * 0.994, PLAYER_STAGE_TRANSFORM.scale, PLAYER_STAGE_TRANSFORM.scale],
     {...CLAMP, easing: SMOOTH}
   );
-  const activeScale = frame >= SUBTITLE_MATCH_FRAME ? seekScale : PLAYER_STAGE_TRANSFORM.scale;
+  const voiceEmphasis = voiceDuckEmphasisAtFrame(SUBTITLE_FROM + frame);
+  const activeScale = (frame >= SUBTITLE_MATCH_FRAME ? seekScale : PLAYER_STAGE_TRANSFORM.scale) * (1 + 0.025 * voiceEmphasis);
   const snapFlashOpacity = interpolate(
     frame,
     [SUBTITLE_MATCH_FRAME - 1, SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 5],
@@ -224,7 +228,12 @@ const SubtitleHeroSpotlight = () => {
   const opacity = enter * exit;
   const cardScale =
     interpolate(frame, [0, 8], [0.97, 1], {...CLAMP, easing: SMOOTH}) *
-    interpolate(frame, [SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 6], [1, 1.04], {...CLAMP, easing: SMOOTH});
+    interpolate(
+      frame,
+      [SUBTITLE_MATCH_FRAME - 10, SUBTITLE_MATCH_FRAME + 2, SUBTITLE_MATCH_FRAME + 6],
+      [1, 1.24, 1.24],
+      {...CLAMP, easing: SMOOTH}
+    );
   const cardY = interpolate(frame, [0, 8], [16, 0], {...CLAMP, easing: SMOOTH});
 
   const typedQuery = subtitleTypedQueryAtFrame(frame);
@@ -379,7 +388,9 @@ const SubtitleHeroSpotlight = () => {
                 position: "absolute",
                 inset: -12,
                 borderRadius: 999,
-                background: "rgba(0, 140, 255, 0.26)",
+                border: "3px solid rgba(0, 140, 255, 0.88)",
+                background: "rgba(0, 140, 255, 0.14)",
+                boxShadow: "0 0 30px rgba(0, 140, 255, 0.52)",
                 opacity: rippleOpacity,
                 scale: rippleScale,
                 pointerEvents: "none"
@@ -468,13 +479,15 @@ const SubtitleHeroSpotlight = () => {
 const SubtitleVoiceOverlay = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const opacity = subtitleBottomCaptionOpacityAtFrame(frame, duration);
+  const voiceEmphasis = voiceDuckEmphasisAtFrame(SUBTITLE_FROM + frame);
   if (opacity <= 0.01) return null;
   return (
     <BottomLectureCaption
       timestamp={SUBTITLE_BOTTOM_CAPTION.timestamp}
       speaker={SUBTITLE_BOTTOM_CAPTION.speaker}
       quote={SUBTITLE_BOTTOM_CAPTION.quote}
-      active={frame >= 62 && frame <= 114}
+      active={voiceEmphasis > 0.01}
+      emphasis={voiceEmphasis}
       from={SUBTITLE_MATCH_FRAME + 1}
       style={{opacity}}
     />

@@ -1,4 +1,5 @@
 import {AbsoluteFill, Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {voiceDuckEmphasisAtFrame} from "../audio.mjs";
 import {
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_PLAYER_VERIFY_TO,
@@ -29,6 +30,7 @@ const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch")!;
+const CHAT_FROM = SCENES.find((scene) => scene.id === "chat")!.from;
 const CHAT_DURATION = SCENES.find((scene) => scene.id === "chat")!.duration;
 
 const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
@@ -166,6 +168,7 @@ const ChatReferenceBar = ({opacity}: {opacity: number}) => {
 
 const ChatVerifyWindow = ({progress}: {progress: number}) => {
   const frame = useCurrentFrame();
+  const voiceEmphasis = voiceDuckEmphasisAtFrame(CHAT_FROM + frame);
   const width = interpolate(progress, [0, 1], [CHAT_REFERENCE.width, CHAT_PLAYER.width], CLAMP);
   const height = interpolate(
     progress,
@@ -188,6 +191,8 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
         width,
         height,
         opacity: entranceOpacity(frame, 2, 0),
+        scale: 1 + 0.035 * voiceEmphasis,
+        transformOrigin: "42% 55%",
         zIndex: 6
       }}
     >
@@ -268,6 +273,12 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
   const cursorOffsetY = interpolate(frame, [moveStart, clickAt - 2], [206, 30], {...CLAMP, easing: SMOOTH});
 
   const answerReveal = interpolate(frame, [6, 22], [0.92, 1], {...CLAMP, easing: SMOOTH});
+  const interactionZoom = interpolate(
+    frame,
+    [clickAt - 10, clickAt + 3, clickAt + 10, CHAT_PUSH_IN_FROM - 3],
+    [1, 1.25, 1.25, 1],
+    {...CLAMP, easing: SMOOTH}
+  );
 
   const panelZoom = panelScale * focusScale;
 
@@ -278,6 +289,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
         left: panelLeft,
         top: 300,
         width: 880,
+        zIndex: 8,
         filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
       }}
     >
@@ -293,8 +305,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
           boxShadow: MIST_GLASS.shellShadow,
           padding: "28px 36px 36px",
           zoom: Math.abs(panelZoom - 1) > 0.001 ? panelZoom : undefined,
-          transform: microPerspective(-6),
-          transformOrigin: "50% 50%",
+          transform: microPerspective(-6, interactionZoom),
+          transformOrigin: "55% 42%",
           color: MIST_GLASS.text
         }}
       >
@@ -429,7 +441,8 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
                       marginLeft: -28,
                       marginTop: -28,
                       borderRadius: "50%",
-                      background: "rgba(0, 140, 255, 0.26)",
+                      border: "3px solid rgba(0, 140, 255, 0.88)",
+                      background: "rgba(0, 140, 255, 0.14)",
                       boxShadow: "0 0 32px rgba(0, 140, 255, 0.55)",
                       opacity: rippleOpacity,
                       scale: rippleScale,
@@ -474,6 +487,7 @@ const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: 
 
 export const ChatScene = () => {
   const frame = useCurrentFrame();
+  const voiceEmphasis = voiceDuckEmphasisAtFrame(CHAT_FROM + frame);
   const verifyBlend = interpolate(
     frame,
     [CHAT_PUSH_IN_FROM, CHAT_PUSH_IN_TO, CHAT_PUSH_OUT_FROM, CHAT_PUSH_OUT_TO],
@@ -504,6 +518,8 @@ export const ChatScene = () => {
         timestamp="04:44"
         speaker="赵老师原声"
         quote={CHAT_VERIFY_QUOTE}
+        active={voiceEmphasis > 0.01}
+        emphasis={voiceEmphasis}
         from={CHAT_PLAYER_VERIFY_FROM}
         duration={CHAT_PLAYER_VERIFY_TO - CHAT_PLAYER_VERIFY_FROM + 6}
       />
@@ -565,6 +581,14 @@ export const SubtoolsScene = () => {
     interpolate(frame, [clickAt + 2, clickAt + 8], [1, 0], CLAMP);
   const pointerX = interpolate(frame, [clickAt - 16, clickAt - 2], [96, 22], {...CLAMP, easing: SMOOTH});
   const pointerY = interpolate(frame, [clickAt - 16, clickAt - 2], [84, 24], {...CLAMP, easing: SMOOTH});
+  const interactionZoom = interpolate(
+    frame,
+    [clickAt - 10, clickAt + 3, clickAt + 11, clickAt + 24],
+    [1, 1.22, 1.22, 1],
+    {...CLAMP, easing: SMOOTH}
+  );
+  const rippleOpacity = interpolate(frame, [clickAt - 1, clickAt + 1, clickAt + 13], [0, 0.9, 0], CLAMP);
+  const rippleScale = interpolate(frame, [clickAt - 1, clickAt + 13], [0.5, 1.9], {...CLAMP, easing: SMOOTH});
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
@@ -611,7 +635,8 @@ export const SubtoolsScene = () => {
             backdropFilter: "blur(24px) saturate(1.2)",
             boxShadow: MIST_GLASS.shellShadow,
             padding: "22px 26px 26px",
-            transform: microPerspective(-5, focusScale),
+            transform: microPerspective(-5, focusScale * interactionZoom),
+            transformOrigin: "82% 32%",
             color: MIST_GLASS.text
           }}
         >
@@ -781,6 +806,19 @@ export const SubtoolsScene = () => {
                   scale: copyPressScale
                 }}
               >
+                <span
+                  style={{
+                    position: "absolute",
+                    inset: -8,
+                    borderRadius: 999,
+                    border: "2.5px solid rgba(0, 140, 255, 0.88)",
+                    background: "rgba(0, 140, 255, 0.12)",
+                    boxShadow: "0 0 26px rgba(0, 140, 255, 0.48)",
+                    opacity: rippleOpacity,
+                    scale: rippleScale,
+                    pointerEvents: "none"
+                  }}
+                />
                 <div style={{display: "inline-flex", scale: copyPopScale, opacity: copyPopOpacity}}>
                   {showCheck ? (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
@@ -824,6 +862,7 @@ export const SubtoolsScene = () => {
               <div
                 aria-label={SUBTOOLS_EXPORT_BUTTONS[1]}
                 style={{
+                  position: "relative",
                   width: 46,
                   height: 46,
                   display: "inline-flex",
@@ -834,6 +873,18 @@ export const SubtoolsScene = () => {
                   color: MIST_GLASS.text
                 }}
               >
+                <span
+                  style={{
+                    position: "absolute",
+                    inset: -8,
+                    borderRadius: 999,
+                    border: "2.5px solid rgba(0, 140, 255, 0.72)",
+                    boxShadow: "0 0 24px rgba(0, 140, 255, 0.42)",
+                    opacity: rippleOpacity * 0.82,
+                    scale: rippleScale,
+                    pointerEvents: "none"
+                  }}
+                />
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
                   <path d="M12 3v12" />

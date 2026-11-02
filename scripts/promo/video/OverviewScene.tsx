@@ -1,4 +1,5 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {voiceDuckEmphasisAtFrame} from "../audio.mjs";
 import {OVERVIEW_TIMELINE} from "../timeline.mjs";
 import {
   BRAND_FONT_FAMILY,
@@ -478,6 +479,7 @@ const VideoReference = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const captionOpacity = overviewVoiceCaptionOpacityAtFrame(frame, duration);
   const quoteStart = T.quoteStartAt;
+  const voiceEmphasis = voiceDuckEmphasisAtFrame(frame);
 
   return (
     <VideoReferenceCard
@@ -491,7 +493,13 @@ const VideoReference = ({duration}: {duration: number}) => {
       badgeText={OVERVIEW_VIDEO_REFERENCE.badgeText}
       tilt={-6}
       delay={T.spatialEnterAt - 4}
-      style={{position: "absolute", left: 96, top: 388}}
+      style={{
+        position: "absolute",
+        left: 96,
+        top: 388,
+        scale: 1 + 0.035 * voiceEmphasis,
+        transformOrigin: "50% 55%"
+      }}
     >
       <PlayerSeekOverlay />
       {captionOpacity > 0.01 && (
@@ -499,7 +507,8 @@ const VideoReference = ({duration}: {duration: number}) => {
           timestamp={OVERVIEW_VIDEO_REFERENCE.captionTimestamp}
           speaker="赵老师原声"
           quote={OVERVIEW_VIDEO_REFERENCE.captionQuote}
-          active={frame >= quoteStart + 2 && frame <= quoteStart + 47}
+          active={voiceEmphasis > 0.01}
+          emphasis={voiceEmphasis}
           from={quoteStart}
           style={{
             bottom: 16,
