@@ -1,7 +1,5 @@
 import {AbsoluteFill, Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {
-  APPEARANCE_SHOTS,
-  APPEARANCE_TIMELINE,
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_PLAYER_VERIFY_TO,
   CHAT_TIMESTAMP_CLICK_FRAME,
@@ -17,6 +15,7 @@ import {
   COLORS,
   Crop,
   ELEVATION,
+  EditorialHeaderBand,
   FONT_FAMILY,
   MIST_GLASS,
   ReadingHeaderActions,
@@ -24,14 +23,12 @@ import {
   entranceOpacity,
   microPerspective
 } from "./design";
+import {REVIEW_STORYLINE_TITLE} from "./SubtitleScene";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
-const SERIF_FONT_FAMILY = '"Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "SimSun", Georgia, serif';
 
-const SUBTOOLS_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "subtools")!;
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch")!;
-const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
 const CHAT_DURATION = SCENES.find((scene) => scene.id === "chat")!.duration;
 
 const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
@@ -53,11 +50,6 @@ const CHAT_PUSH_OUT_TO = CHAT_PLAYER_VERIFY_TO + 6;
 const PUSH_EASING = Easing.bezier(0.45, 0, 0.15, 1);
 
 type HeadlinePart = {text: string; accent?: boolean};
-
-const CHAT_HEADLINE: HeadlinePart[][] = [
-  [{text: "有疑问"}, {text: "直接问视频", accent: true}, {text: "，"}],
-  [{text: "点"}, {text: "时间戳", accent: true}, {text: "直达原话。"}]
-];
 
 export const CHAT_QUESTION = "为什么作者说 AI 并非越强越好，适配才是关键？";
 export const CHAT_CONCLUSIONS = ["人与 AI 是「协作」，不是「替代」", "象棋实验：会配合的组合胜过最强单兵"];
@@ -231,7 +223,7 @@ const ChatVerifyWindow = ({progress}: {progress: number}) => {
 
 const usePanelHandoffFocus = (
   totalDuration: number,
-  enterHandoff: {enterFrames: number; maxBlur: number} | undefined,
+  enterHandoff?: {enterFrames: number; maxBlur: number},
   exitHandoff?: {exitFrames: number; maxBlur: number}
 ) => {
   const frame = useCurrentFrame();
@@ -258,7 +250,7 @@ const usePanelHandoffFocus = (
 
 const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: number}) => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION, undefined, SUBTOOLS_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION);
 
   const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
   const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
@@ -493,8 +485,18 @@ export const ChatScene = () => {
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
-      <BrandWhisper />
-      <SectionHeadline lines={CHAT_HEADLINE} opacity={1 - Math.min(1, verifyBlend * 3)} />
+      <EditorialHeaderBand
+        kicker={REVIEW_STORYLINE_TITLE}
+        title="有疑问直接问视频，点时间戳直达原话。"
+        titleNode={
+          <>
+            有疑问<span style={{color: COLORS.pink}}>直接问视频</span>，点<span style={{color: COLORS.pink}}>时间戳</span>直达原话。
+          </>
+        }
+        titleSize={52}
+        delay={-12}
+        opacity={1 - Math.min(1, verifyBlend * 3)}
+      />
       <ChatVerifyWindow progress={verifyBlend} />
       <ChatReferenceBar opacity={1 - Math.min(1, verifyBlend * 4)} />
       <ChatHeroPanel panelLeft={panelLeft} panelScale={panelScale} />
@@ -510,7 +512,7 @@ export const ChatScene = () => {
 };
 
 /* ==========================================================================
-   Scene 5: SubtoolsScene (18.5s–22.0s, 105 frames)
+   Scene 2: SubtoolsScene (11.0s–14.5s, 105 frames)
    一气呵成：左侧保留无原生字幕 B 站视频小窗（傅里叶变换），右侧展示免费语音转写 -> 一键复制导出字幕
    ========================================================================== */
 
@@ -541,7 +543,7 @@ const SUBTOOLS_EXPORT_BUTTONS = ["复制字幕", "导出字幕"] as const;
 
 export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, SUBTOOLS_HANDOFF, WEBSEARCH_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, undefined, WEBSEARCH_HANDOFF);
   const settledAt = SUBTOOLS_TIMELINE.settledAt;
   const sublineAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;
@@ -894,7 +896,7 @@ export const SubtoolsScene = () => {
 };
 
 /* ==========================================================================
-   Scene 6: WebSearchScene (22.0s–25.5s, 105 frames)
+   Scene 3: WebSearchScene (14.5s–18.0s, 105 frames)
    主标题：视频里提的新概念？AI 联网搜背景，附来源链接
    左侧保留 B 站原视频小窗（03:00 提到狄利克雷条件），右侧精简文字 + 放大来源标签
    ========================================================================== */
@@ -911,7 +913,7 @@ const WEBSEARCH_HEADLINE_LINES: HeadlinePart[][] = [
 
 export const WebSearchScene = () => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(WEBSEARCH_TIMELINE.duration, WEBSEARCH_HANDOFF, APPEARANCE_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(WEBSEARCH_TIMELINE.duration, WEBSEARCH_HANDOFF);
   const verifyReveal = interpolate(
     frame,
     [WEBSEARCH_TIMELINE.verifyCardAt - 6, WEBSEARCH_TIMELINE.verifyCardAt + 8],
@@ -1048,411 +1050,6 @@ export const WebSearchScene = () => {
             </div>
             <div style={{fontSize: 26, fontWeight: 680, lineHeight: 1.52, color: "#1E293B"}}>
               <strong>狄利克雷条件：</strong>单周期内绝对可积、极值与间断点有限。真实物理信号能量有限且无无穷震荡，天然满足展开条件。
-            </div>
-          </div>
-        </div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-/* ==========================================================================
-   Scene 7: AppearanceScene (27.0s–29.0s, 60 frames)
-   同一阅读面板连续切换 4 种主题实际阅读效果（蓝雾玻璃日/夜 + 数字刊物日/夜）
-   搭配字号变大、刊物衬线排版动态变化，彻底移除后台设置菜单
-   ========================================================================== */
-
-export const APPEARANCE_THEMES = APPEARANCE_SHOTS;
-
-const APPEARANCE_HEADLINE_LINES: HeadlinePart[][] = [
-  [{text: "蓝雾玻璃或"}, {text: "纸质刊物", accent: true}, {text: "，"}],
-  [{text: "四款主题"}, {text: "日夜皆宜", accent: true}, {text: "。"}]
-];
-
-type ThemeStyleConfig = {
-  id: string;
-  label: string;
-  paletteLabel: string;
-  modeLabel: string;
-  fontScale: number;
-  isSerif: boolean;
-  panelBg: string;
-  cardBg: string;
-  textPrimary: string;
-  textSecondary: string;
-  accent: string;
-  accentSoft: string;
-  border: string;
-  shadow: string;
-};
-
-const THEME_CONFIGS: readonly ThemeStyleConfig[] = [
-  {
-    id: "flyme-light",
-    label: "蓝雾玻璃 · 日间",
-    paletteLabel: "蓝雾玻璃",
-    modeLabel: "日间模式",
-    fontScale: 1.0,
-    isSerif: false,
-    panelBg: "linear-gradient(155deg, rgba(242, 247, 253, 0.96) 0%, rgba(232, 241, 250, 0.94) 100%)",
-    cardBg: "rgba(255, 255, 255, 0.92)",
-    textPrimary: "#0F172A",
-    textSecondary: "#475569",
-    accent: "#008CFF",
-    accentSoft: "rgba(0, 140, 255, 0.14)",
-    border: "rgba(0, 140, 255, 0.22)",
-    shadow: "-28px 44px 100px -24px rgba(15, 23, 42, 0.22), 0 0 0 1.5px rgba(255, 255, 255, 0.9)"
-  },
-  {
-    id: "flyme-dark",
-    label: "蓝雾玻璃 · 夜间",
-    paletteLabel: "蓝雾玻璃",
-    modeLabel: "夜间模式",
-    fontScale: 1.06,
-    isSerif: false,
-    panelBg: "linear-gradient(155deg, rgba(16, 17, 20, 0.97) 0%, rgba(27, 31, 38, 0.96) 100%)",
-    cardBg: "rgba(35, 38, 43, 0.92)",
-    textPrimary: "#F4F5F7",
-    textSecondary: "#A3A8B3",
-    accent: "#3D9BFF",
-    accentSoft: "rgba(61, 155, 255, 0.18)",
-    border: "rgba(255, 255, 255, 0.12)",
-    shadow: "-28px 44px 104px -22px rgba(2, 6, 23, 0.55), 0 0 56px -14px rgba(61, 155, 255, 0.24)"
-  },
-  {
-    id: "editorial-light",
-    label: "数字刊物 · 日间",
-    paletteLabel: "数字刊物",
-    modeLabel: "日间模式",
-    fontScale: 1.12,
-    isSerif: true,
-    panelBg: "linear-gradient(155deg, #FAF7F2 0%, #F5F0E8 100%)",
-    cardBg: "#F3EDE2",
-    textPrimary: "#2A2521",
-    textSecondary: "#6F665C",
-    accent: "#B85435",
-    accentSoft: "rgba(184, 84, 53, 0.12)",
-    border: "#E4DCCB",
-    shadow: "-28px 44px 100px -24px rgba(68, 46, 24, 0.26), 0 0 52px -14px rgba(184, 84, 53, 0.20)"
-  },
-  {
-    id: "editorial-dark",
-    label: "数字刊物 · 夜间",
-    paletteLabel: "数字刊物",
-    modeLabel: "夜间模式",
-    fontScale: 1.18,
-    isSerif: true,
-    panelBg: "linear-gradient(155deg, #171513 0%, #211E1B 100%)",
-    cardBg: "#211E1B",
-    textPrimary: "#ECE6DF",
-    textSecondary: "#9E9489",
-    accent: "#E07A5F",
-    accentSoft: "rgba(224, 122, 95, 0.16)",
-    border: "#3A322C",
-    shadow: "-28px 44px 104px -22px rgba(12, 10, 9, 0.62), 0 0 64px -12px rgba(224, 122, 95, 0.24)"
-  }
-] as const;
-
-export function appearanceThemeIndexAtFrame(frame: number): number {
-  if (frame < APPEARANCE_TIMELINE.flymeDarkFrom) return 0;
-  if (frame < APPEARANCE_TIMELINE.editorialLightFrom) return 1;
-  if (frame < APPEARANCE_TIMELINE.editorialDarkFrom) return 2;
-  return 3;
-}
-
-const APPEARANCE_CHAPTERS = [
-  {
-    timestamp: "0:00",
-    title: "机器幻觉的成因：大模型的评分机制与语言本质",
-    summary: "通过考试猜题的类比，解释大模型训练机制中“答错不扣分、答对得非零分、不答得零分”的逻辑，说明模型宁可“蒙”也不空着；同时指出对话模型只模仿语言规律，追求“说得像人”而非“事实正确”。"
-  },
-  {
-    timestamp: "2:32",
-    title: "幻觉无法彻底避免：商业价值与数据局限",
-    summary: "分析若模型过度谨慎只会回答“不知道”则失去商业价值。即使给出大量精确数据，也无法推测无关联的事实，因此幻觉无法彻底杜绝，只能通过横向比对和多重查证来降低。"
-  },
-  {
-    timestamp: "4:27",
-    title: "人机协作国际象棋实验：适配重于强弱",
-    summary: "介绍一项“强AI与弱搭档”协作的下象棋实验。结果显示懂得为同伴留后路、注重协作的组合击败了单纯追求最强算力的组合，证明协作中强弱并非决定因素。"
-  }
-] as const;
-
-const APPEARANCE_QUOTES = [
-  {
-    timestamp: "2:10",
-    content: "他只要去答这个题目，得的就不是零分，但是他如果不答一定是零分。我们训练大模型的时候就是这样训练的，那么在这种情况下，他一定会去蒙。"
-  },
-  {
-    timestamp: "2:59",
-    content: "它模仿的只是语言规律。对于它来说，只要这句话说得像个人说的自然语言就成了，而不在乎它是不是事实，它并不知道什么是事实。"
-  }
-] as const;
-
-const AppearanceIcon = ({name, size = 20}: {name: "play" | "share" | "copy"; size?: number}) => (
-  <svg
-    viewBox="0 0 24 24"
-    width={size}
-    height={size}
-    fill={name === "play" ? "currentColor" : "none"}
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    {name === "play" ? <path d="M8.8 5.5v13l11-6.5z" /> : null}
-    {name === "share" ? (
-      <>
-        <circle cx="18" cy="5" r="3" />
-        <circle cx="6" cy="12" r="3" />
-        <circle cx="18" cy="19" r="3" />
-        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-      </>
-    ) : null}
-    {name === "copy" ? (
-      <>
-        <rect x="9" y="9" width="10" height="10" rx="2" />
-        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
-      </>
-    ) : null}
-  </svg>
-);
-
-export const AppearanceScene = () => {
-  const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(APPEARANCE_TIMELINE.duration, APPEARANCE_HANDOFF);
-  const themeIndex = appearanceThemeIndexAtFrame(frame);
-  const theme = THEME_CONFIGS[themeIndex]; const switchStart = [APPEARANCE_TIMELINE.flymeDarkFrom, APPEARANCE_TIMELINE.editorialLightFrom, APPEARANCE_TIMELINE.editorialDarkFrom].filter((f) => frame >= f).pop(); const switchElapsed = switchStart !== undefined ? frame - switchStart : 99; const switchScale = switchElapsed <= 6 ? interpolate(switchElapsed, [0, 2, 6], [0.988, 1.012, 1], {...CLAMP, easing: SMOOTH}) : 1; const switchFlash = switchElapsed <= 7 ? interpolate(switchElapsed, [0, 2, 7], [0, 0.22, 0], CLAMP) : 0;
-
-  return (
-    <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
-      <BrandWhisper />
-      <SectionHeadline
-        lines={APPEARANCE_HEADLINE_LINES}
-        subtext="同一阅读面板连续切换四套日夜主题，字号放大与杂志级衬线排版一目了然。"
-      />
-
-      {/* Left 4-Theme Live Switcher Pills */}
-      <div
-        style={{
-          position: "absolute",
-          left: 96,
-          top: 500,
-          width: 740,
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 18,
-          opacity: entranceOpacity(frame, 4, 0)
-        }}
-      >
-        {THEME_CONFIGS.map((item, idx) => {
-          const active = idx === themeIndex;
-          return (
-            <div
-              key={item.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "20px 26px",
-                borderRadius: 22,
-                background: active ? "#111827" : "rgba(255, 255, 255, 0.86)",
-                color: active ? "#FFFFFF" : COLORS.foreground,
-                boxShadow: active
-                  ? "0 20px 42px -14px rgba(17, 24, 39, 0.32), 0 0 0 2px rgba(232, 93, 135, 0.55)"
-                  : ELEVATION.cardSoft,
-                scale: active ? 1.02 : 1
-              }}
-            >
-              <span style={{fontSize: 24, fontWeight: 740}}>{item.label}</span>
-              <span
-                style={{
-                  padding: "4px 12px",
-                  borderRadius: 999,
-                  background: active ? "rgba(251, 114, 153, 0.24)" : "rgba(15, 23, 42, 0.06)",
-                  color: active ? "#FB7299" : COLORS.muted,
-                  fontFamily: BRAND_FONT_FAMILY,
-                  fontSize: 18,
-                  fontWeight: 760
-                }}
-              >
-                {Math.round(item.fontScale * 100)}%
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          left: 916,
-          top: 116,
-          width: 908,
-          transformOrigin: "0 0",
-          scale: undefined,
-          filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
-        }}
-      >
-        <div
-          style={{
-            position: "relative",
-            display: "flex",
-            flexDirection: "column",
-            boxSizing: "border-box",
-            width: 908,
-            height: 820,
-            borderRadius: 30,
-            overflow: "hidden",
-            background: theme.panelBg,
-            boxShadow: theme.shadow,
-            border: `1.5px solid ${switchFlash > 0.02 ? theme.accent : theme.border}`,
-            padding: "24px 30px 28px",
-            transform: microPerspective(-6, focusScale * switchScale),
-            color: theme.textPrimary,
-            fontFamily: FONT_FAMILY
-          }}
-        >
-          <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexShrink: 0}}>
-            <span style={{fontSize: 17, fontWeight: 650, color: theme.textSecondary}}>UP主：复旦赵斌</span>
-            <ReadingHeaderActions iconSize={19} color={theme.textPrimary} />
-          </div>
-
-          <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 24, flexShrink: 0}}>
-            {["字幕", "概览", "AI 对话"].map((tab) => {
-              const active = tab === "概览";
-              return (
-                <span
-                  key={tab}
-                  style={{
-                    minWidth: 108,
-                    padding: "10px 24px",
-                    borderRadius: 12,
-                    background: active ? theme.cardBg : "transparent",
-                    boxShadow: active ? "0 2px 8px rgba(15, 23, 42, 0.10)" : "none",
-                    color: active ? theme.accent : theme.textSecondary,
-                    fontSize: 18,
-                    fontWeight: active ? 740 : 580,
-                    textAlign: "center"
-                  }}
-                >
-                  {tab}
-                </span>
-              );
-            })}
-          </div>
-
-          <div style={{minHeight: 0, overflow: "hidden"}}>
-            <div style={{display: "flex", alignItems: "center", gap: 10, marginBottom: 12}}>
-              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>章节</span>
-              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
-                AI 生成
-              </span>
-            </div>
-
-            <div style={{display: "grid", gap: 12}}>
-              {APPEARANCE_CHAPTERS.map((chapter) => (
-                <div
-                  key={chapter.timestamp}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "auto 1fr",
-                    gap: 14,
-                    padding: "15px 17px",
-                    borderRadius: 16,
-                    background: theme.cardBg,
-                    border: `1px solid ${theme.border}`
-                  }}
-                >
-                  <span
-                    style={{
-                      alignSelf: "start",
-                      padding: "3px 9px",
-                      borderRadius: 999,
-                      background: theme.accentSoft,
-                      color: theme.accent,
-                      fontFamily: BRAND_FONT_FAMILY,
-                      fontSize: 15,
-                      fontWeight: 760,
-                      fontVariantNumeric: "tabular-nums"
-                    }}
-                  >
-                    {chapter.timestamp}
-                  </span>
-                  <div>
-                    <div
-                      style={{
-                        fontSize: Math.round(18 * theme.fontScale),
-                        fontWeight: theme.isSerif ? 600 : 730,
-                        lineHeight: 1.32,
-                        fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
-                      }}
-                    >
-                      {chapter.title}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 7,
-                        color: theme.textSecondary,
-                        fontSize: Math.round(14 * theme.fontScale),
-                        lineHeight: 1.48
-                      }}
-                    >
-                      {chapter.summary}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{display: "flex", alignItems: "center", gap: 10, marginTop: 18, marginBottom: 12}}>
-              <span style={{fontSize: 20, fontWeight: 760, fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY}}>金句</span>
-              <span style={{padding: "2px 7px", borderRadius: 5, background: theme.accentSoft, color: theme.accent, fontSize: 13, fontWeight: 700}}>
-                AI 精选
-              </span>
-            </div>
-
-            <div style={{display: "grid", gap: 12}}>
-              {APPEARANCE_QUOTES.map((quote) => (
-                <div
-                  key={quote.timestamp}
-                  style={{padding: "14px 18px 11px", borderRadius: 16, background: theme.cardBg, border: `1px solid ${theme.border}`}}
-                >
-                  <div
-                    style={{
-                      fontSize: Math.round(17 * theme.fontScale),
-                      lineHeight: 1.5,
-                      fontFamily: theme.isSerif ? SERIF_FONT_FAMILY : FONT_FAMILY
-                    }}
-                  >
-                    「{quote.content}」
-                  </div>
-                  <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, color: theme.textSecondary}}>
-                    <div style={{display: "flex", alignItems: "center", gap: 8}}>
-                      <AppearanceIcon name="play" size={16} />
-                      <span
-                        style={{
-                          padding: "3px 9px",
-                          borderRadius: 999,
-                          background: theme.accentSoft,
-                          color: theme.accent,
-                          fontFamily: BRAND_FONT_FAMILY,
-                          fontSize: 15,
-                          fontWeight: 760
-                        }}
-                      >
-                        {quote.timestamp}
-                      </span>
-                    </div>
-                    <div style={{display: "flex", alignItems: "center", gap: 15}}>
-                      <AppearanceIcon name="share" size={17} />
-                      <AppearanceIcon name="copy" size={17} />
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </div>

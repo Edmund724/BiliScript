@@ -3,17 +3,25 @@ import {describe, expect, it} from "vitest";
 import {AUDIO} from "../../scripts/promo/audio.mjs";
 import {CAPTIONS} from "../../scripts/promo/captions.mjs";
 import {OUTRO_TIMELINE} from "../../scripts/promo/outro-timeline.mjs";
-import {APPEARANCE_SHOTS, PANEL_FOCUS_HANDOFFS, SCENES} from "../../scripts/promo/timeline.mjs";
+import {PANEL_FOCUS_HANDOFFS, SCENES} from "../../scripts/promo/timeline.mjs";
 
 const providerModulePath = "../../scripts/promo/video/ProviderScene";
+const subtitleModulePath = "../../scripts/promo/video/SubtitleScene";
 const scenesFilePath = "scripts/promo/video/scenes.tsx";
 
-describe("面板失焦接续与后半程真实痛点镜头", () => {
-  it("在对话→无字幕与导出→联网搜索→四主题阅读之间保留六帧退场、干净切点和七帧合焦", () => {
+describe("面板失焦接续与叙事动线重排", () => {
+  it("按 overview → subtools → websearch → subtitle+chat → providers → outro 排布，subtools→websearch 保留失焦合焦接续", () => {
+    expect(SCENES.map((scene) => [scene.id, scene.from, scene.duration])).toEqual([
+      ["overview", 0, 330],
+      ["subtools", 330, 105],
+      ["websearch", 435, 105],
+      ["subtitle", 540, 120],
+      ["chat", 660, 165],
+      ["providers", 825, 75],
+      ["outro", 900, 105]
+    ]);
     expect(PANEL_FOCUS_HANDOFFS).toEqual([
-      {from: "chat", to: "subtools", at: 555, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "subtools", to: "websearch", at: 660, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "websearch", to: "appearance", at: 765, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+      {from: "subtools", to: "websearch", at: 435, exitFrames: 6, enterFrames: 7, maxBlur: 12}
     ]);
     for (const handoff of PANEL_FOCUS_HANDOFFS) {
       const outgoing = SCENES.find((scene) => scene.id === handoff.from)!;
@@ -23,29 +31,27 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
     }
   });
 
-  it("让退场声与合焦声分别落在转场两端", () => {
+  it("让退场声与合焦声分别落在 subtools→websearch 转场两端", () => {
     const cues = AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src]);
     for (const handoff of PANEL_FOCUS_HANDOFFS) {
       expect(cues).toContainEqual([`${handoff.from}-defocus`, handoff.at - handoff.exitFrames, "media/sfx/click.wav"]);
       expect(cues).toContainEqual([`${handoff.to}-focus`, handoff.at + handoff.enterFrames, "media/sfx/whoosh.wav"]);
     }
-    expect(cues).not.toContainEqual(["subtools-cut", 555, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["websearch-cut", 660, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["appearance-cut", 765, "media/sfx/whoosh.wav"]);
+    expect(cues).toContainEqual(["subtools-cut", 330, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["websearch-cut", 435, "media/sfx/whoosh.wav"]);
   });
 
-  it("把真痛点功能配真实画面提至 19s 后，移除设置面板与片尾纯文字闪卡，且文案严格遵循功能边界", async () => {
+  it("移除四款主题场景与设置面板，subtitle 与 chat 共用“复习与回溯原话”故事线标题，且文案严格遵循功能边界", async () => {
     const providerMod = await import(providerModulePath);
+    const subtitleMod = await import(subtitleModulePath);
     expect(OUTRO_TIMELINE.features).toEqual([]);
-    expect(APPEARANCE_SHOTS.map((shot) => shot.id)).toEqual([
-      "flyme-light",
-      "flyme-dark",
-      "editorial-light",
-      "editorial-dark"
-    ]);
+    expect(SCENES.some((scene) => scene.id === "appearance")).toBe(false);
+    expect(subtitleMod.REVIEW_STORYLINE_TITLE).toBe("复习与回溯原话");
+
     const captionTexts = CAPTIONS.map((item) => item.text);
     expect(captionTexts).toContain("视频没开字幕？");
     expect(captionTexts).toContain("免费转写，一键复制导出。");
+    expect(captionTexts.join(" ")).not.toContain("四款主题");
     expect(captionTexts.join(" ")).not.toContain("双语");
     expect(captionTexts.join(" ")).not.toContain("中英双轨");
     expect(captionTexts.join(" ")).not.toContain("笔记");
@@ -63,6 +69,8 @@ describe("面板失焦接续与后半程真实痛点镜头", () => {
     expect(`${providerMod.PROVIDER_BENEFIT_TAG} ${providerMod.PROVIDER_HEADLINE} ${providerMod.PROVIDER_SUBHEADLINE}`).not.toContain("自定义端点");
 
     const scenesSource = readFileSync(scenesFilePath, "utf8");
+    expect(scenesSource).toContain("REVIEW_STORYLINE_TITLE");
+    expect(scenesSource).not.toContain("AppearanceScene");
     expect(scenesSource).not.toContain("appearance.mp4");
     expect(scenesSource).not.toContain("笔记");
     expect(scenesSource).not.toContain("权威");

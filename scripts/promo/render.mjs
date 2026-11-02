@@ -3,7 +3,7 @@ import {execFile} from "node:child_process";
 import {mkdir, readFile, readdir, unlink, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {bundle} from "@remotion/bundler";
-import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remotion/renderer";
+import {getCompositions, getVideoMetadata, renderStill, renderMedia} from "@remotion/renderer";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {resolveSharedBrowserExecutable} from "./browser-executable.mjs";
 import {PROMO_DIR} from "./lib.mjs";
@@ -11,7 +11,7 @@ import {preparePromoAssets} from "./prepare.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 import {AUDIO} from "./audio.mjs";
 import {CAPTIONS} from "./captions.mjs";
-import {APPEARANCE_SHOTS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
+import {CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
@@ -42,17 +42,14 @@ function validateTimeline() {
   if (CHAT_SHOTS.reduce((total, shot) => total + shot.duration, 0) !== SCENES.find((scene) => scene.id === "chat")?.duration) {
     throw new Error("AI 分镜时长不符");
   }
-  if (APPEARANCE_SHOTS.reduce((total, shot) => total + shot.duration, 0) !== SCENES.find((scene) => scene.id === "appearance")?.duration) {
-    throw new Error("外观分镜时长不符");
-  }
   let previousEnd = 0;
   for (const caption of CAPTIONS) {
     if (!caption.text.trim() || !Number.isSafeInteger(caption.startMs) || !Number.isSafeInteger(caption.endMs)) {
       throw new Error(`字幕内容或时间无效：${JSON.stringify(caption)}`);
     }
     const scene = SCENES.find((candidate) => candidate.id === caption.sceneId);
-    const sceneStart = scene.from / PROMO_FPS * 1000;
-    const sceneEnd = (scene.from + scene.duration) / PROMO_FPS * 1000;
+    const sceneStart = (scene.from / PROMO_FPS) * 1000;
+    const sceneEnd = ((scene.from + scene.duration) / PROMO_FPS) * 1000;
     if (caption.startMs < previousEnd || caption.startMs < sceneStart || caption.endMs <= caption.startMs || caption.endMs > sceneEnd) {
       throw new Error(`字幕时间范围无效：${JSON.stringify(caption)}`);
     }

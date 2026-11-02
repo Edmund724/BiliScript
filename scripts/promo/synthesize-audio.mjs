@@ -5,7 +5,6 @@ import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {
-  APPEARANCE_TIMELINE,
   OVERVIEW_TIMELINE,
   PROMO_DURATION,
   PROMO_FPS,
@@ -22,12 +21,12 @@ const QUOTE_FREEZE_FROM = (OVERVIEW_SCENE.from + OVERVIEW_TIMELINE.quoteStartAt)
 const QUOTE_FREEZE_TO = (OVERVIEW_SCENE.from + OVERVIEW_SCENE.duration) / PROMO_FPS;
 const sceneFrame = (id) => SCENES.find((scene) => scene.id === id).from;
 const sceneSeconds = (id, frame = 0) => (sceneFrame(id) + frame) / PROMO_FPS;
-const SUBTITLE_FROM = sceneSeconds("subtitle");
-const CHAT_FROM = sceneSeconds("chat");
 const SUBTOOLS_FROM = sceneSeconds("subtools");
 const WEBSEARCH_FROM = sceneSeconds("websearch");
-const APPEARANCE_FROM = sceneSeconds("appearance");
+const SUBTITLE_FROM = sceneSeconds("subtitle");
+const CHAT_FROM = sceneSeconds("chat");
 const PROVIDERS_SCENE = SCENES.find((scene) => scene.id === "providers");
+const PROVIDERS_FROM = PROVIDERS_SCENE.from / PROMO_FPS;
 const PROVIDER_PULSE_FROM = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.orbitAt) / PROMO_FPS;
 const PROVIDER_PULSE_TO = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.exitAt) / PROMO_FPS;
 const OUTRO_AT = OUTRO_TIMELINE.from / PROMO_FPS;
@@ -146,11 +145,11 @@ function snare(gainScale = 1) {
 
 function sectionDynamicsAt(seconds) {
   if (seconds < QUOTE_FREEZE_FROM) return 0.66;
-  if (seconds < SUBTITLE_FROM) return 0.72;
-  if (seconds < CHAT_FROM) return 0.76;
-  if (seconds < SUBTOOLS_FROM) return 0.86;
-  if (seconds < WEBSEARCH_FROM) return 0.90;
-  if (seconds < APPEARANCE_FROM) return 1.12;
+  if (seconds < SUBTOOLS_FROM) return 0.72;
+  if (seconds < WEBSEARCH_FROM) return 0.84;
+  if (seconds < SUBTITLE_FROM) return 0.90;
+  if (seconds < CHAT_FROM) return 0.80;
+  if (seconds < PROVIDERS_FROM) return 0.86;
   if (seconds < OUTRO_AT - 0.52) return 1.14;
   if (seconds < OUTRO_AT - 0.1) return 0.05;
   if (seconds < OUTRO_AT + 1.9) return 1.06;
@@ -199,7 +198,7 @@ function makeScore() {
       const stepInProviderWave = inProviderWave(stepAt);
       const note = chord[arp[step]] + (stepInProviderWave ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
-      add(track, tone(note, stepInProviderWave ? 0.19 : 0.28, {type: stepAt < SUBTITLE_FROM ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+      add(track, tone(note, stepInProviderWave ? 0.19 : 0.28, {type: stepAt < SUBTOOLS_FROM ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
     }
     // 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
     if (at >= PROVIDER_PULSE_FROM - 1 && at < PROVIDER_PULSE_TO) {
@@ -247,12 +246,11 @@ function makeScore() {
     add(track, subHit(cutAt >= SUBTOOLS_FROM ? 0.62 : 0.52), cutAt);
   }
 
-  // 四拍能力落点递进强调（峰值严格非递减）：转写、导出字幕、联网补充、四主题
+  // 能力落点递进强调（峰值严格非递减）：转写、导出字幕、联网补充
   const featureBuild = [
     {at: SUBTOOLS_FROM + 0.33, notes: [62, 69], gain: 0.14, sub: 0.36},
     {at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.exportAt), notes: [64, 71], gain: 0.17, sub: 0.42},
-    {at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt), notes: [66, 74], gain: 0.20, sub: 0.48},
-    {at: sceneSeconds("appearance", APPEARANCE_TIMELINE.flymeDarkFrom), notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+    {at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt), notes: [66, 74], gain: 0.20, sub: 0.48}
   ];
   for (const step of featureBuild) {
     add(track, subHit(step.sub), step.at);
@@ -530,53 +528,6 @@ function makeMagneticSnap() {
   return track;
 }
 
-// 金句翻页与数字刊物主题切换：成音阶递进的清脆水滴声 + 胶片快门声（咔嚓）
-function makeShutterDrop(noteMidi, stepIndex = 0) {
-  const seconds = 0.28;
-  const track = buffer(seconds);
-  const baseFreq = midi(noteMidi);
-  const fifthFreq = midi(noteMidi + 7);
-  let dropPhase = 0;
-  let prev = 0;
-  for (let i = 0; i < track[0].length; i += 1) {
-    const t = i / SAMPLE_RATE;
-    const w = noise();
-    const hp = w - prev * 0.89;
-    prev = w;
-    // 1. 胶片相机双帘机械快门“咔-嚓”（0ms 前帘释放 + 15ms 后帘咬合）
-    const blade1 =
-      (hp * 0.65 + Math.sin(TAU * 2950 * t) * 0.42 + Math.sin(TAU * 920 * t) * 0.35) *
-      Math.exp(-t * 175) *
-      Math.min(1, t / 0.0004);
-    const t2 = Math.max(0, t - 0.015);
-    const blade2 =
-      t2 > 0
-        ? (hp * 0.52 + Math.sin(TAU * 3480 * t2) * 0.48 + Math.sin(TAU * 1380 * t2) * 0.32) *
-          Math.exp(-t2 * 150) *
-          Math.min(1, t2 / 0.0004)
-        : 0;
-    // 2. 成音阶递进的清脆水滴声（流体空化特征：基频从 0.58x 指数上扬至 1.32x，叠清透泛音）
-    const td = Math.max(0, t - 0.006);
-    const dropInstFreq = baseFreq * (0.58 + 0.74 * (1 - Math.exp(-td * 58)));
-    dropPhase += (TAU * dropInstFreq) / SAMPLE_RATE;
-    const waterDrop =
-      td > 0
-        ? (Math.sin(dropPhase) * 0.76 +
-            Math.sin(TAU * baseFreq * 2.0 * td) * 0.28 * Math.exp(-td * 28) +
-            Math.sin(TAU * fifthFreq * td) * (0.18 + stepIndex * 0.06) * Math.exp(-td * 18)) *
-          Math.exp(-td * 16.5) *
-          Math.min(1, td / 0.0015)
-        : 0;
-    const pan = (stepIndex - 1) * 0.16;
-    const leftGain = Math.cos((pan + 1) * Math.PI / 4);
-    const rightGain = Math.sin((pan + 1) * Math.PI / 4);
-    const sample = Math.tanh((blade1 * 0.68 + blade2 * 0.72 + waterDrop * 0.92) * 1.32);
-    track[0][i] = sample * leftGain;
-    track[1][i] = sample * rightGain;
-  }
-  return track;
-}
-
 // 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
 function makeBubblePop(noteMidi, index = 0) {
   const seconds = 0.19;
@@ -675,7 +626,6 @@ await mkdir(path.join(OUTPUT_DIR, "sfx"), {recursive: true});
 
 const effects = {
   key: [sweep(2100, 1150, 0.09, 0.65)],
-  toggle: [sweep(1450, 820, 0.12, 0.68), sweep(880, 540, 0.1, 0.4)],
   click: [sweep(1050, 460, 0.12, 0.68)],
   chord: [tone(74, 0.85, {type: "bell", gain: 0.42}), tone(78, 0.85, {type: "bell", gain: 0.36}), tone(81, 0.85, {type: "bell", gain: 0.32})],
   resolve: [tone(74, 0.85, {type: "bell", gain: 0.65}), tone(81, 0.85, {type: "bell", gain: 0.5})]
@@ -684,7 +634,7 @@ const sfxEvidence = [];
 const sfxBySrc = new Map();
 for (const [name, layers] of Object.entries(effects)) {
   const track = buffer(name === "resolve" || name === "chord" ? 0.9 : 0.2);
-  layers.forEach((layer, index) => add(track, layer, name === "toggle" ? index * 0.055 : 0, index ? 0.15 : -0.1));
+  layers.forEach((layer, index) => add(track, layer, 0, index ? 0.15 : -0.1));
   const level = normalize(track, 0.74);
   const file = path.join(OUTPUT_DIR, "sfx", `${name}.wav`);
   await writeFile(file, wav(track));
@@ -706,9 +656,6 @@ const customSfxEntries = [
   {name: "mech-key-2", track: makeMechKey({pitchScale: 1.04, isEnter: false}), peak: 0.8},
   {name: "mech-enter", track: makeMechKey({pitchScale: 0.92, isEnter: true}), peak: 0.84},
   {name: "snap", track: makeMagneticSnap(), peak: 0.86},
-  {name: "shutter-1", track: makeShutterDrop(74, 0), peak: 0.8},
-  {name: "shutter-2", track: makeShutterDrop(78, 1), peak: 0.82},
-  {name: "shutter-3", track: makeShutterDrop(81, 2), peak: 0.84},
   ...[62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86, 88, 90, 93].map((noteMidi, idx) => ({
     name: `bubble-${String(idx + 1).padStart(2, "0")}`,
     track: makeBubblePop(noteMidi, idx),
@@ -779,17 +726,6 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let j = 0; j < sfxTrack[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
       sfxStem[ch][startSample + j] += sfxTrack[ch][j] * cue.gain;
-    }
-  }
-  if (cue.id === "chapters-quote-cut") {
-    const pageFlipShutter = sfxBySrc.get("media/sfx/shutter-1.wav");
-    const cutSample = Math.round((cue.frame / PROMO_FPS) * SAMPLE_RATE);
-    if (pageFlipShutter) {
-      for (let ch = 0; ch < 2; ch += 1) {
-        for (let j = 0; j < pageFlipShutter[ch].length && cutSample + j < sfxStem[ch].length; j += 1) {
-          sfxStem[ch][cutSample + j] += pageFlipShutter[ch][j] * 0.52;
-        }
-      }
     }
   }
 }

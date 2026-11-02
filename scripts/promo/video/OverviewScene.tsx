@@ -154,20 +154,22 @@ const BILI_RECOMMEND_ITEMS = [
   {title: "提示词工程进阶：结构化输出与思维链推理", up: "复旦赵斌", views: "6.3万播放 · 25:50", duration: "25:50", tint: "linear-gradient(135deg, #0f172a 0%, #475569 100%)"}
 ] as const;
 
-const BiliPageRightColumnFiller = () => (
+const BiliPageRightColumnFiller = ({cardsOpacity = 1}: {cardsOpacity?: number}) => (
   <div
     style={{
       position: "absolute",
-      left: 1396,
-      top: 84,
-      width: 468,
-      display: "flex",
-      flexDirection: "column",
-      gap: 14,
+      left: 1378,
+      top: 64,
+      width: 542,
+      height: 1016,
+      padding: "20px 56px 0 18px",
+      boxSizing: "border-box",
+      background: "#F1F2F3",
       fontFamily: FONT_FAMILY,
       pointerEvents: "none"
     }}
   >
+    <div style={{display: "flex", flexDirection: "column", gap: 14, opacity: cardsOpacity}}>
     {/* UP 主信息卡 */}
     <div
       style={{
@@ -301,31 +303,33 @@ const BiliPageRightColumnFiller = () => (
         </div>
       ))}
     </div>
+    </div>
   </div>
 );
 
 const BiliPageTriggerStage = () => {
   const frame = useCurrentFrame();
-  const fadeOutEnd = T.spatialEnterAt + 7;
+  const fadeOutEnd = T.spatialEnterAt + 8;
   if (frame >= fadeOutEnd) return null;
 
   const stageOpacity = interpolate(frame, [T.spatialEnterAt - 2, fadeOutEnd], [1, 0], {...CLAMP, easing: SMOOTH});
   const stageScale = interpolate(frame, [T.spatialEnterAt - 2, fadeOutEnd], [1, 0.968], {...CLAMP, easing: SMOOTH});
   const stageBlur = interpolate(frame, [T.spatialEnterAt - 1, fadeOutEnd], [0, 8], {...CLAMP, easing: SMOOTH});
+  const rightColumnOpacity = interpolate(frame, [T.triggerClickAt, T.triggerClickAt + 8], [1, 0], {...CLAMP, easing: SMOOTH});
 
   const cx = BILI_TRIGGER_ICON.x + BILI_TRIGGER_ICON.size / 2;
   const cy = BILI_TRIGGER_ICON.y + BILI_TRIGGER_ICON.size / 2;
 
-  const cursorX = interpolate(frame, [0, T.triggerClickAt], [cx - 112, cx + 2], {...CLAMP, easing: SMOOTH});
-  const cursorY = interpolate(frame, [0, T.triggerClickAt], [cy + 76, cy + 4], {...CLAMP, easing: SMOOTH});
+  const cursorX = interpolate(frame, [4, T.triggerClickAt], [cx - 148, cx + 2], {...CLAMP, easing: SMOOTH});
+  const cursorY = interpolate(frame, [4, T.triggerClickAt], [cy + 96, cy + 4], {...CLAMP, easing: SMOOTH});
   const cursorScale = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 4], [1, 0.86, 1], CLAMP);
-  const cursorOpacity = interpolate(frame, [T.triggerClickAt + 7, T.spatialEnterAt], [1, 0], CLAMP);
+  const cursorOpacity = interpolate(frame, [0, 3, T.triggerClickAt + 8, T.triggerClickAt + 16], [0, 1, 1, 0], CLAMP);
 
   const iconPress = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 5], [1, 0.88, 1.04], CLAMP);
-  const haloOpacity = interpolate(frame, [0, 3, T.spatialEnterAt - 2, T.spatialEnterAt + 3], [0.7, 1, 1, 0], CLAMP);
+  const haloOpacity = interpolate(frame, [0, 4, T.triggerClickAt + 6, T.triggerClickAt + 14], [0.7, 1, 1, 0], CLAMP);
   const rippleOpacity = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 1, T.triggerClickAt + 9], [0, 0.95, 0], CLAMP);
   const rippleScale = interpolate(frame, [T.triggerClickAt - 1, T.triggerClickAt + 9], [0.55, 2.35], {...CLAMP, easing: SMOOTH});
-  const calloutY = interpolate(frame, [0, 5], [6, 0], {...CLAMP, easing: SMOOTH});
+  const calloutY = interpolate(frame, [0, 6], [6, 0], {...CLAMP, easing: SMOOTH});
 
   return (
     <AbsoluteFill
@@ -345,7 +349,7 @@ const BiliPageTriggerStage = () => {
         playbackRate={1.2}
         style={{width: 1920, height: 1080, objectFit: "cover"}}
       />
-      <BiliPageRightColumnFiller />
+      <BiliPageRightColumnFiller cardsOpacity={rightColumnOpacity} />
       <AbsoluteFill
         style={{
           background:
@@ -509,10 +513,10 @@ const VideoReference = ({duration}: {duration: number}) => {
 
 const OverviewSpotlightCard = () => {
   const frame = useCurrentFrame();
-  // 第一阶段（triggerClickAt..triggerClickAt+4）：点击图标后在 B 站页面右侧栏位置（x≈1393..1892）瞬间展开面板
-  // 第二阶段（spatialEnterAt-2..spatialEnterAt+7）：从 B 站右侧栏平滑舒展至 3D 空间主舞台
-  const drawerOpen = interpolate(frame, [T.triggerClickAt, T.triggerClickAt + 4], [0, 1], {...CLAMP, easing: SMOOTH});
-  const spatialMorph = interpolate(frame, [T.spatialEnterAt - 2, T.spatialEnterAt + 7], [0, 1], {...CLAMP, easing: SMOOTH});
+  // 第一阶段（triggerClickAt..triggerClickAt+8）：点击图标后在 B 站页面右侧栏位置（36..62）先展开文摘抽屉
+  // 第二阶段（spatialEnterAt-2..spatialEnterAt+10）：从 B 站右侧栏平滑舒展至 3D 晨读空间主舞台
+  const drawerOpen = interpolate(frame, [T.triggerClickAt, T.triggerClickAt + 8], [0, 1], {...CLAMP, easing: SMOOTH});
+  const spatialMorph = interpolate(frame, [T.spatialEnterAt - 2, T.spatialEnterAt + 10], [0, 1], {...CLAMP, easing: SMOOTH});
   const enter = drawerOpen;
   const enterX = interpolate(drawerOpen, [0, 1], [380, 68]) * (1 - spatialMorph);
   const enterY = -52 * (1 - spatialMorph);

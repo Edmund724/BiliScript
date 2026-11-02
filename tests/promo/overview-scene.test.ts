@@ -22,7 +22,7 @@ describe("首幕：TL;DR 与章节时间戳、点章节跳播、点金句生成�
 
   it("首幕从 0 帧开始，按 B 站播放页触发 → TL;DR → 章节 → 点章节跳播 → 点金句分享卡排布，且在镜头内收束", () => {
     expect(SCENES[0]).toMatchObject({id: "overview", from: 0, duration: OVERVIEW_TIMELINE.duration});
-    expect(SCENES[1]).toMatchObject({id: "subtitle", from: OVERVIEW_TIMELINE.duration});
+    expect(SCENES[1]).toMatchObject({id: "subtools", from: OVERVIEW_TIMELINE.duration});
     const {
       triggerClickAt,
       spatialEnterAt,
@@ -35,6 +35,8 @@ describe("首幕：TL;DR 与章节时间戳、点章节跳播、点金句生成�
       quoteLiftFrames,
       duration
     } = OVERVIEW_TIMELINE;
+    expect(triggerClickAt).toBe(36);
+    expect(spatialEnterAt).toBe(64);
     expect(triggerClickAt).toBeLessThan(tldrAt);
     expect(tldrAt).toBeLessThan(spatialEnterAt);
     expect(spatialEnterAt).toBeLessThan(chaptersAt);

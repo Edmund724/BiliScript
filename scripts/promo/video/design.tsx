@@ -758,7 +758,7 @@ export const EditorialHeaderBand = ({
   title,
   titleNode,
   titleSize = 64,
-  delay = 0,
+  delay = 0, kicker,
   showBrand = false,
   opacity = 1
 }: {
@@ -788,7 +788,7 @@ export const EditorialHeaderBand = ({
       zIndex: 10
     }}
   >
-    {showBrand ? <Brand size={30} iconSize={40} /> : null}
+    {showBrand ? <Brand size={30} iconSize={40} /> : null}{kicker ? <span style={{padding: "7px 18px", borderRadius: 999, background: "rgba(232, 93, 135, 0.14)", color: COLORS.pink, fontSize: 22, fontWeight: 760, letterSpacing: -0.2, whiteSpace: "nowrap"}}>{kicker}</span> : null}
     <SceneTitle
       title={title}
       titleNode={titleNode}

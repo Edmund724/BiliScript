@@ -2,11 +2,14 @@ import {Audio, AbsoluteFill, Sequence, staticFile} from "remotion";
 import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "../audio.mjs";
 import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
-import {AppearanceScene, ChatScene, SubtoolsScene, WebSearchScene} from "./scenes";
+import {ChatScene, SubtoolsScene, WebSearchScene} from "./scenes";
 import {OutroScene} from "./OutroScene";
 import {OverviewScene} from "./OverviewScene";
 import {ProviderScene} from "./ProviderScene";
 import {SubtitleScene} from "./SubtitleScene";
+
+const isSeamlessOutgoing = (id: string) =>
+  PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === id) || id === "subtitle";
 
 const Scene = ({id, duration}: {id: string; duration: number}) => {
   switch (id) {
@@ -20,8 +23,6 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
       return <SubtoolsScene />;
     case "websearch":
       return <WebSearchScene />;
-    case "appearance":
-      return <AppearanceScene />;
     case "providers":
       return <ProviderScene />;
     case "outro":
@@ -57,7 +58,7 @@ export const PromoScene = ({id, duration, final = false}: PromoSceneProps) => (
     <SceneShell
       duration={duration}
       final={final}
-      fadeOut={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === id)}
+      fadeOut={!isSeamlessOutgoing(id)}
     >
       <Scene id={id} duration={duration} />
     </SceneShell>
@@ -75,7 +76,7 @@ export const Promo = () => {
             <SceneShell
               duration={duration}
               final={index === SCENES.length - 1}
-              fadeOut={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === scene.id)}
+              fadeOut={!isSeamlessOutgoing(scene.id)}
             >
               <Scene id={scene.id} duration={duration} />
             </SceneShell>

@@ -9,7 +9,7 @@ describe("宣传片公共原语与字幕轨", () => {
     expect(typeof BottomLectureCaption).toBe("function");
   });
 
-  it("整条字幕轨与八镜画面文案逐条一致，镜内不重叠、镜界首条对齐、非原声条目不超过 10 字/秒（品牌专名除外）", async () => {
+  it("整条字幕轨与七镜画面文案逐条一致，镜内不重叠、镜界首条对齐、非原声条目不超过 10 字/秒（品牌专名除外）", async () => {
     const {CAPTIONS} = await import("../../scripts/promo/captions.mjs");
     const {AUDIO} = await import("../../scripts/promo/audio.mjs");
     const {PROMO_FPS, SCENES} = await import("../../scripts/promo/timeline.mjs");
@@ -32,16 +32,15 @@ describe("宣传片公共原语与字幕轨", () => {
       "点章节，直接跳播。",
       "点金句，生成分享卡。",
       "如果他不答，一定是零分！",
+      "视频没开字幕？",
+      "免费转写，一键复制导出。",
+      "视频里提的新概念？",
+      "AI 联网搜背景，附来源链接。",
       "记得 UP 主提过那句话？搜词秒跳那一秒。",
       "……也很难避免幻觉。",
       "有疑问直接问视频，",
       "点时间戳直达原话。",
       "这里有一个研究……",
-      "视频没开字幕？",
-      "免费转写，一键复制导出。",
-      "视频里提的新概念？",
-      "AI 联网搜背景，附来源链接。",
-      "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。",
       "接入你顺手的 AI 大脑",
       "BiliScript",
       "在 B 站，读下一条视频。",
@@ -79,8 +78,7 @@ describe("宣传片公共原语与字幕轨", () => {
     expect(voiceTailScenes.map((scene) => scene.id)).toEqual(["overview", "subtitle", "chat"]);
 
     expect(CAPTIONS.filter((caption) => !isVoice(caption) && !isBrandName(caption) && charsPerSecond(caption) > 8).map((caption) => caption.text)).toEqual([
-      "记得 UP 主提过那句话？搜词秒跳那一秒。",
-      "蓝雾玻璃或纸质刊物，四款主题日夜皆宜。"
+      "记得 UP 主提过那句话？搜词秒跳那一秒。"
     ]);
   });
 });

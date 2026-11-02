@@ -11,6 +11,7 @@ const SOURCE = "subtitle-seek-03.mp4";
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
+export const REVIEW_STORYLINE_TITLE = "复习与回溯原话";
 export const SUBTITLE_HEADLINE = "记得 UP 主提过那句话？搜词秒跳那一秒。";
 export const SUBTITLE_SEARCH_QUERY = "幻觉";
 
@@ -34,8 +35,8 @@ export function subtitleTypedQueryAtFrame(frame: number): string {
   return SUBTITLE_SEARCH_QUERY;
 }
 
-export function subtitleHeadlineOpacityAtFrame(frame: number, duration = SUBTITLE_DURATION): number {
-  return interpolate(frame, [0, 4, duration - 5, duration], [0.85, 1, 1, 0], CLAMP);
+export function subtitleHeadlineOpacityAtFrame(frame: number, _duration = SUBTITLE_DURATION): number {
+  return interpolate(frame, [0, 4], [0.85, 1], CLAMP);
 }
 
 export function subtitleBottomCaptionOpacityAtFrame(frame: number, duration = SUBTITLE_DURATION): number {
@@ -486,13 +487,14 @@ const Title = ({duration}: {duration: number}) => {
   if (opacity <= 0.01) return null;
   return (
     <EditorialHeaderBand
+      kicker={REVIEW_STORYLINE_TITLE}
       title={SUBTITLE_HEADLINE}
       titleNode={
         <>
           记得 UP 主提过那句话？<span style={{color: COLORS.pink}}>搜词秒跳那一秒。</span>
         </>
       }
-      titleSize={60}
+      titleSize={52}
       delay={-12}
       opacity={opacity}
     />
