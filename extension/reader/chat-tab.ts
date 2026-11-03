@@ -143,6 +143,7 @@ import { logWarn } from "../shared/logging.js";
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
+import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { liveProviderStore, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
@@ -188,7 +189,8 @@ const els = {
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
-  liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null
+  liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
+  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -905,13 +907,29 @@ function bindEvents(): void {
   if (els.liveBtn) {
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
+      muteButton: els.liveMuteBtn,
       getTargetOrigin: () => cachedLiveTargetOrigin,
       showNotice: (message, autoHideMs) => {
         showConversationContextNotice(message, autoHideMs || 4000);
-      }
+      },
+      createTranscriptMerger: () =>
+        createLiveTranscriptMerger({
+          messagesContainer: els.messages,
+          messageArea: chatRuntime.messageArea,
+          store: conversationStore,
+          scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
+          onActivity: () => {
+            popovers.hideHistoryPopover();
+            removeCenteredState();
+            removeSuggestions();
+          }
+        })
     });
     els.liveBtn.addEventListener("click", () => {
       void liveController?.toggle();
+    });
+    els.liveMuteBtn?.addEventListener("click", () => {
+      liveController?.toggleMute();
     });
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);

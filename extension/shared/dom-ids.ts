@@ -66,6 +66,7 @@ export const ids = {
   // 联网搜索开关 pill（spec §4，chat header 工具条，历史按钮同排）
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
   readingChatLiveBtn: "biliscript-reading-chat-live-btn",
+  readingChatLiveMuteBtn: "biliscript-reading-chat-live-mute-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
   readingChatLineHeight: "biliscript-reading-chat-line-height",

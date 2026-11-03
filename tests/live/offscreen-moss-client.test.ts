@@ -1,13 +1,20 @@
 // tests/live/offscreen-moss-client.test.ts
-// Offscreen MOSS-LIVE 客户端生命周期、握手超时、代际隔离与断连处理测试
+// Offscreen MOSS-LIVE 客户端生命周期、握手超时、音频上行/下行播放回执与字幕转发测试
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
-  OffscreenMossLiveClient
+  OffscreenMossLiveClient,
+  type AudioBufferLike,
+  type AudioBufferSourceNodeLike,
+  type AudioContextLike
 } from "../../extension/live/offscreen-moss-client.js";
 import {
-  buildMinimalSessionUpdatePayload
+  MOSS_DOWNSTREAM_SAMPLE_RATE,
+  MossBinaryTag,
+  buildMinimalSessionUpdatePayload,
+  encodeFloat32ToPcmS16LE,
+  type MossLiveTranscriptEvent
 } from "../../extension/live/moss-live-protocol.js";
 
 class FakeWebSocket {
@@ -47,6 +54,78 @@ class FakeWebSocket {
 
   simulateError(err: any = new Error("Socket error")) {
     this.onerror?.(err);
+  }
+}
+
+class FakeAudioBuffer implements AudioBufferLike {
+  readonly duration: number;
+  readonly length: number;
+  readonly sampleRate: number;
+  private readonly channel0: Float32Array;
+
+  constructor(length: number, sampleRate: number) {
+    this.length = length;
+    this.sampleRate = sampleRate;
+    this.duration = length / sampleRate;
+    this.channel0 = new Float32Array(length);
+  }
+
+  getChannelData(_channel: number): Float32Array {
+    return this.channel0;
+  }
+}
+
+class FakeAudioBufferSourceNode implements AudioBufferSourceNodeLike {
+  buffer: AudioBufferLike | null = null;
+  onended: (() => void) | null = null;
+  connected = false;
+  startedAt: number | null = null;
+  stopped = false;
+
+  connect(_destination: unknown): void {
+    this.connected = true;
+  }
+
+  disconnect(): void {
+    this.connected = false;
+  }
+
+  start(when = 0): void {
+    this.startedAt = when;
+  }
+
+  stop(): void {
+    this.stopped = true;
+  }
+
+  finishPlayback(): void {
+    this.onended?.();
+  }
+}
+
+class FakeAudioContext implements AudioContextLike {
+  currentTime = 0;
+  state = "running";
+  destination = {};
+  sources: FakeAudioBufferSourceNode[] = [];
+  closed = false;
+
+  async resume(): Promise<void> {
+    this.state = "running";
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+  }
+
+  createBuffer(_channels: number, length: number, sampleRate: number): AudioBufferLike {
+    return new FakeAudioBuffer(length, sampleRate);
+  }
+
+  createBufferSource(): AudioBufferSourceNodeLike {
+    const source = new FakeAudioBufferSourceNode();
+    this.sources.push(source);
+    return source;
   }
 }
 
@@ -91,7 +170,7 @@ describe("OffscreenMossLiveClient", () => {
     expect(onConnected).not.toHaveBeenCalled();
   });
 
-  it("transitions to connected, sends tagged-v1 media.mode and session.update upon receiving session_attached", () => {
+  it("transitions to connected, sends tagged-v1 media.mode and session.update upon receiving session_attached, and mic_state on session.updated", () => {
     const onConnected = vi.fn();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
@@ -114,9 +193,17 @@ describe("OffscreenMossLiveClient", () => {
       binary_protocol: "tagged-v1"
     });
     expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload());
+
+    // Server confirms session.updated -> client enables mic_state
+    ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+    expect(ws.sentData).toHaveLength(4);
+    expect(JSON.parse(ws.sentData[3])).toEqual({
+      action: "mic_state",
+      enabled: true
+    });
   });
 
-  it("fails when server sends error action", () => {
+  it("fails when server sends error action (top-level or nested data.error)", () => {
     const onError = vi.fn();
     const client = new OffscreenMossLiveClient({
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
@@ -375,6 +462,308 @@ describe("OffscreenMossLiveClient", () => {
 
       expect(client.getState()).toBe("connected");
       expect(onConnected).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("upstream audio, mic_state & transcript forwarding", () => {
+    it("sends 0x00 tagged audio frames when mic is enabled and suppresses frames when muted", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+
+      ws.sentData.length = 0;
+
+      const pcm640 = new Uint8Array(640).fill(0x11);
+      expect(client.sendAudioPcm(pcm640.buffer)).toBe(true);
+      expect(ws.sentData).toHaveLength(1);
+      const sentFrame = ws.sentData[0] as Uint8Array;
+      expect(sentFrame.byteLength).toBe(641);
+      expect(sentFrame[0]).toBe(MossBinaryTag.AudioPcm);
+
+      // Mute microphone
+      client.setMicEnabled(false);
+      expect(ws.sentData).toHaveLength(2);
+      expect(JSON.parse(ws.sentData[1])).toEqual({
+        action: "mic_state",
+        enabled: false
+      });
+
+      // Audio frames while muted must be suppressed
+      expect(client.sendAudioPcm(pcm640.buffer)).toBe(false);
+      expect(ws.sentData).toHaveLength(2);
+
+      // Unmute microphone
+      client.setMicEnabled(true);
+      expect(ws.sentData).toHaveLength(3);
+      expect(JSON.parse(ws.sentData[2])).toEqual({
+        action: "mic_state",
+        enabled: true
+      });
+      expect(client.sendAudioPcm(pcm640.buffer)).toBe(true);
+      expect(ws.sentData).toHaveLength(4);
+    });
+
+    it("forwards input/output transcript and response.ended events to onTranscript", () => {
+      const transcripts: MossLiveTranscriptEvent[] = [];
+      const client = new OffscreenMossLiveClient({
+        onTranscript: (ev) => transcripts.push(ev)
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+      ws.simulateMessage(
+        JSON.stringify({ action: "input.transcript.updated", data: { text: "你好" } })
+      );
+      ws.simulateMessage(
+        JSON.stringify({ action: "input.transcript.done", data: { text: "你好助手" } })
+      );
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "output.transcript.updated",
+          data: { text: "我在", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "output.transcript.done",
+          data: { text: "我在听，请讲。", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.ended",
+          data: { status: "completed", run_id: "r1", turn_id: "t1" }
+        })
+      );
+
+      expect(transcripts).toEqual([
+        { kind: "input.updated", text: "你好" },
+        { kind: "input.done", text: "你好助手" },
+        { kind: "output.updated", text: "我在", runId: "r1", turnId: "t1" },
+        { kind: "output.done", text: "我在听，请讲。", runId: "r1", turnId: "t1" },
+        { kind: "response.ended", status: "completed", runId: "r1", turnId: "t1" }
+      ]);
+    });
+  });
+
+  describe("downstream 48kHz PCM gapless playback & receipts", () => {
+    it("schedules consecutive 48kHz audio chunks gaplessly and sends playback.chunk.completed and playback.completed in strict order", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      fakeAudioCtx.currentTime = 1.0;
+
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      // Chunk 1: 4800 samples @ 48kHz = 0.1s
+      const pcmChunk1 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.25));
+      // Chunk 2: 9600 samples @ 48kHz = 0.2s
+      const pcmChunk2 = encodeFloat32ToPcmS16LE(new Float32Array(9600).fill(-0.25));
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(pcmChunk1.buffer);
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c2", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(pcmChunk2.buffer);
+
+      // Server announces audio stream finished for turn t1 while both chunks are still playing
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.done",
+          data: { run_id: "r1", turn_id: "t1" }
+        })
+      );
+
+      // Verify gapless scheduling on FakeAudioContext
+      expect(fakeAudioCtx.sources).toHaveLength(2);
+      expect(fakeAudioCtx.sources[0].buffer?.sampleRate).toBe(MOSS_DOWNSTREAM_SAMPLE_RATE);
+      expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.0, 5);
+      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.1, 5); // 1.0 + 0.1s duration
+
+      // No receipts sent before playback finishes
+      expect(ws.sentData).toHaveLength(0);
+
+      // Chunk 1 finishes playing -> only playback.chunk.completed for c1 (turn not done yet)
+      fakeAudioCtx.sources[0].finishPlayback();
+      expect(ws.sentData).toHaveLength(1);
+      expect(JSON.parse(ws.sentData[0])).toEqual({
+        action: "playback.chunk.completed",
+        chunk_id: "c1",
+        run_id: "r1",
+        turn_id: "t1"
+      });
+
+      // Chunk 2 finishes playing -> sends playback.chunk.completed for c2 AND playback.completed for turn
+      fakeAudioCtx.sources[1].finishPlayback();
+      expect(ws.sentData).toHaveLength(3);
+      expect(JSON.parse(ws.sentData[1])).toEqual({
+        action: "playback.chunk.completed",
+        chunk_id: "c2",
+        run_id: "r1",
+        turn_id: "t1"
+      });
+      expect(JSON.parse(ws.sentData[2])).toEqual({
+        action: "playback.completed",
+        run_id: "r1",
+        turn_id: "t1"
+      });
+    });
+
+    it("sends playback.completed when response.audio.done arrives AFTER all chunks already finished playing", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.1));
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c1", run_id: "r2", turn_id: "t2" }
+        })
+      );
+      ws.simulateMessage(pcmChunk.buffer);
+
+      // Chunk finishes playing BEFORE response.audio.done arrives
+      fakeAudioCtx.sources[0].finishPlayback();
+      expect(ws.sentData).toHaveLength(1);
+      expect(JSON.parse(ws.sentData[0])).toEqual({
+        action: "playback.chunk.completed",
+        chunk_id: "c1",
+        run_id: "r2",
+        turn_id: "t2"
+      });
+
+      // Now response.audio.done arrives -> immediately triggers playback.completed
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.done",
+          data: { run_id: "r2", turn_id: "t2" }
+        })
+      );
+      expect(ws.sentData).toHaveLength(2);
+      expect(JSON.parse(ws.sentData[1])).toEqual({
+        action: "playback.completed",
+        run_id: "r2",
+        turn_id: "t2"
+      });
+    });
+
+    it("stops active audio sources and sends playback.stopped with played_audio_ms on response.audio.stop", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      fakeAudioCtx.currentTime = 0;
+
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      // Chunk 1: 4800 samples = 100ms
+      const pcmChunk1 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      // Chunk 2: 9600 samples = 200ms
+      const pcmChunk2 = encodeFloat32ToPcmS16LE(new Float32Array(9600).fill(0.2));
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(pcmChunk1.buffer);
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c2", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(pcmChunk2.buffer);
+
+      // Chunk 1 finishes at t = 0.1s; chunk 2 plays halfway to t = 0.15s (50ms into chunk 2)
+      fakeAudioCtx.currentTime = 0.1;
+      fakeAudioCtx.sources[0].finishPlayback();
+      fakeAudioCtx.currentTime = 0.15;
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.stop",
+          data: { run_id: "r1", turn_id: "t1" }
+        })
+      );
+
+      expect(fakeAudioCtx.sources[1].stopped).toBe(true);
+      expect(ws.sentData).toHaveLength(2);
+      expect(JSON.parse(ws.sentData[1])).toEqual({
+        action: "playback.stopped",
+        run_id: "r1",
+        turn_id: "t1",
+        played_audio_ms: 150
+      });
+    });
+
+    it("stops all playing sources on close() and suppresses late onended callbacks", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+        })
+      );
+      ws.simulateMessage(pcmChunk.buffer);
+
+      expect(fakeAudioCtx.sources).toHaveLength(1);
+
+      client.close();
+      expect(fakeAudioCtx.sources[0].stopped).toBe(true);
+      expect(fakeAudioCtx.closed).toBe(true);
+
+      // Even if browser fires late onended, no receipts are sent
+      fakeAudioCtx.sources[0].finishPlayback();
+      expect(ws.sentData).toHaveLength(0);
     });
   });
 });

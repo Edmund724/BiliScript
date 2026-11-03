@@ -1,5 +1,5 @@
 // tests/live/offscreen-moss-port.test.ts
-// Offscreen MOSS-LIVE 端口管理行为与异步加载竞态回归测试
+// Offscreen MOSS-LIVE 端口管理行为、音频/静音转发与异步加载竞态回归测试
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -8,6 +8,7 @@ import {
   type MossLiveClientFactory,
   type MossLiveClientInstance
 } from "../../extension/live/offscreen-moss-port.js";
+import { encodeBase64Bytes } from "../../extension/live/moss-live-protocol.js";
 
 class FakePort {
   disconnected = false;
@@ -53,6 +54,8 @@ class FakeMossClient implements MossLiveClientInstance {
   connected = false;
   closed = false;
   options: any;
+  receivedAudioFrames: Uint8Array[] = [];
+  micStates: boolean[] = [];
 
   constructor(options: any) {
     this.options = options;
@@ -66,6 +69,15 @@ class FakeMossClient implements MossLiveClientInstance {
     this.closed = true;
     this.connected = false;
   }
+
+  sendAudioPcm(pcmBuffer: ArrayBufferLike): boolean {
+    this.receivedAudioFrames.push(new Uint8Array(pcmBuffer));
+    return true;
+  }
+
+  setMicEnabled(enabled: boolean): void {
+    this.micStates.push(enabled);
+  }
 }
 
 beforeEach(() => {
@@ -74,7 +86,7 @@ beforeEach(() => {
 });
 
 describe("attachMossLivePort", () => {
-  it("normal lifecycle: start creates client, calls connect, and relays client events to port", async () => {
+  it("normal lifecycle: start creates client, calls connect, and relays client events + audio/mic/transcript to/from port", async () => {
     const port = new FakePort();
     let createdClient: FakeMossClient | null = null;
     const clientFactory: MossLiveClientFactory = vi.fn((opts) => {
@@ -100,10 +112,36 @@ describe("attachMossLivePort", () => {
     createdClient!.options.onConnected();
     expect(port.postedMessages).toContainEqual({ type: "connected" });
 
+    // Relays transcript events to port
+    createdClient!.options.onTranscript?.({ kind: "input.updated", text: "正在提问" });
+    expect(port.postedMessages).toContainEqual({
+      type: "transcript",
+      event: { kind: "input.updated", text: "正在提问" }
+    });
+
+    // Relays base64 audio from port to client.sendAudioPcm
+    const samplePcm = new Uint8Array([1, 2, 3, 4]);
+    port.simulateMessage({
+      action: "audio",
+      pcmBase64: encodeBase64Bytes(samplePcm)
+    });
+    expect(createdClient!.receivedAudioFrames).toHaveLength(1);
+    expect(Array.from(createdClient!.receivedAudioFrames[0])).toEqual([1, 2, 3, 4]);
+
+    // Relays mic_state from port to client.setMicEnabled
+    port.simulateMessage({ action: "mic_state", enabled: false });
+    expect(createdClient!.micStates).toEqual([false]);
+
     // Stop cleans up client and notifies port
+    const staleOptions = createdClient!.options;
     port.simulateMessage({ action: "stop" });
     expect(createdClient!.closed).toBe(true);
     expect(port.postedMessages).toContainEqual({ type: "closed" });
+
+    // Late transcript after stop is ignored
+    const countBefore = port.postedMessages.length;
+    staleOptions.onTranscript?.({ kind: "output.done", text: "迟到消息", runId: "r1", turnId: "t1" });
+    expect(port.postedMessages).toHaveLength(countBefore);
   });
 
   it("regression: when stop() occurs while loadClient() is pending, continuation creates no socket", async () => {

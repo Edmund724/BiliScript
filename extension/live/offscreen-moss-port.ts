@@ -1,18 +1,26 @@
 // extension/live/offscreen-moss-port.ts
 // Offscreen 文档专属 MOSS-LIVE 端口管理状态机。
-// 提供代际隔离与释放保护，防止在异步加载客户端模块期间发生 stop/disconnect 导致的套接字泄漏。
+// 提供代际隔离与释放保护，防止在异步加载客户端模块期间发生 stop/disconnect 导致的套接字泄漏，
+// 并负责跨 Port 转发上行 Base64 音频帧、麦克风静音状态与下行双端字幕事件。
 
-import type { MossLiveClientAction } from "./moss-live-protocol.js";
+import {
+  decodeBase64Bytes,
+  type MossLiveClientAction,
+  type MossLiveTranscriptEvent
+} from "./moss-live-protocol.js";
 
 export interface MossLiveClientInstance {
   connect(): void;
   close(): void;
+  sendAudioPcm?(pcmBuffer: ArrayBufferLike): boolean;
+  setMicEnabled?(enabled: boolean): void;
 }
 
 export type MossLiveClientFactory = (options: {
   wsUrl?: string;
   onConnecting?: () => void;
   onConnected?: () => void;
+  onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }) => MossLiveClientInstance;
@@ -87,6 +95,11 @@ export function attachMossLivePort(
               postMessage(port, { type: "connected" });
             }
           },
+          onTranscript: (event) => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "transcript", event });
+            }
+          },
           onError: (err) => {
             if (!disposed && generation === currentGeneration) {
               postMessage(port, { type: "error", error: err.message });
@@ -112,6 +125,14 @@ export function attachMossLivePort(
           postMessage(port, { type: "error", error: (error as Error)?.message || String(error) });
         }
       }
+    } else if (msg.action === "audio") {
+      if (!liveClient?.sendAudioPcm || !msg.pcmBase64) return;
+      const bytes = decodeBase64Bytes(msg.pcmBase64);
+      if (bytes.byteLength > 0) {
+        liveClient.sendAudioPcm(bytes.buffer);
+      }
+    } else if (msg.action === "mic_state") {
+      liveClient?.setMicEnabled?.(Boolean(msg.enabled));
     } else if (msg.action === "stop") {
       currentGeneration += 1;
       if (liveClient) {

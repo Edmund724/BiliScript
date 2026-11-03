@@ -531,6 +531,11 @@
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
+.biliscript-reading-chat .chat-msg-user.chat-msg-live-pending {
+  opacity: 0.78;
+  border-style: dashed;
+}
+
 /* 助手消息：无气泡全宽纯文本流（透明底、无边框、无圆角、零内边距），内容左对齐占满列宽 */
 .biliscript-reading-chat .chat-msg-assistant {
   align-self: stretch;
@@ -1492,6 +1497,51 @@
   border-color: var(--biliscript-reader-danger);
   color: var(--biliscript-reader-danger);
   background: var(--biliscript-reader-danger-soft);
+}
+
+.biliscript-reading-chat .chat-live-mute-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-live-mute-btn[hidden] {
+  display: none !important;
+}
+
+.biliscript-reading-chat .chat-live-mute-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-live-mute-btn:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-live-mute-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-live-mute-btn.is-muted {
+  border-color: var(--biliscript-reader-danger);
+  background: var(--biliscript-reader-danger-soft);
+  color: var(--biliscript-reader-danger);
 }
 
 @keyframes biliscript-live-pulse {

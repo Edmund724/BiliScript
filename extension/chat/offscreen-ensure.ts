@@ -42,10 +42,10 @@ export async function ensureChatOffscreenDocument(): Promise<boolean> {
   try {
     await chrome.offscreen.createDocument({
       url,
-      // reason 统一取 BLOBS 与 WEBSOCKET（shared/offscreen-constants.js）：同一文档由本处
-      // 与 background asr-decode-prepare 共同创建/复用，先到者定 reason；同时声明
-      // BLOBS（承载 ASR 解码与聊天流）与 WEBSOCKET（承载 MOSS-LIVE 伴看）；
-      // 不能用 AUDIO_PLAYBACK（无真实播放 30s 强制关闭，会打断长视频解码）。
+      // reason 统一取 ["BLOBS"]（shared/offscreen-constants.js）：同一文档由本处
+      // 与 background asr-decode-prepare 共同创建/复用，先到者定 reason；承载
+      // ASR 解码、聊天流与 MOSS-LIVE 伴看（不能用 AUDIO_PLAYBACK 防 30s 强关，
+      // 也不能传 Chromium 枚举外的 "WEBSOCKET"）。
       reasons: [...OFFSCREEN_CREATE_REASONS],
       justification: "Run AI stream fetch in background to avoid Side Panel freeze when tab is hidden."
     });

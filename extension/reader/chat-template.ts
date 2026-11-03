@@ -97,11 +97,19 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M2.714 12h18.572"></path>
                 </svg>
               </button>
-              <!-- 实时伴看开关（ticket 01）：MOSS-LIVE 全双工语音伴看 -->
+              <!-- 实时伴看开关（ticket 01/02）：MOSS-LIVE 全双工语音伴看与静音控制 -->
               <button id="${ids.readingChatLiveBtn}" type="button" class="chat-live-btn" title="开启实时伴看 (MOSS-LIVE)" aria-label="开启实时伴看 (MOSS-LIVE)" data-state="idle">
                 <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </button>
+              <button id="${ids.readingChatLiveMuteBtn}" type="button" class="chat-live-mute-btn" title="静音麦克风" aria-label="静音麦克风" aria-pressed="false" hidden>
+                <svg class="chat-live-mute-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
+                  <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
                   <line x1="12" y1="19" x2="12" y2="22"></line>
                 </svg>
               </button>

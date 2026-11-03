@@ -1,12 +1,20 @@
 // extension/live/live-chat-controller.ts
 // AI 对话面板中 MOSS-LIVE 实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、与 Background/Offscreen 握手、更新 UI 状态并处理断连/清理。
+// 负责校验密钥与权限、采集麦克风音频、管理静音/挂断、转发双端字幕事件并处理断连/清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
+  encodeBase64Bytes,
   resolveMossLiveWsUrl,
-  type MossLiveServerEvent
+  type MossLiveServerEvent,
+  type MossLiveTranscriptEvent
 } from "./moss-live-protocol.js";
+import {
+  createPageAudioCapture,
+  type PageAudioCaptureOptions,
+  type PageAudioCaptureSession
+} from "./page-media-capture.js";
+import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
 
@@ -14,15 +22,22 @@ export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 
 export interface LiveChatControllerDeps {
   liveButton: HTMLElement;
+  muteButton?: HTMLElement | null;
   getTargetOrigin?: () => string;
   showNotice?: (message: string, autoHideMs?: number) => void;
   connectPort?: () => chrome.runtime.Port;
   sendRuntimeMessage?: typeof defaultSendRuntimeMessage;
   requestOrigins?: typeof requestProviderOriginsViaBackground;
+  startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
+  createTranscriptMerger?: () => LiveTranscriptMerger;
+  onTranscript?: (event: MossLiveTranscriptEvent) => void;
 }
 
 export interface LiveChatController {
   getState(): LiveChatState;
+  isMuted(): boolean;
+  setMuted(muted: boolean): void;
+  toggleMute(): void;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
@@ -32,21 +47,42 @@ export interface LiveChatController {
 export function createLiveChatController(deps: LiveChatControllerDeps): LiveChatController {
   const {
     liveButton,
+    muteButton = null,
     getTargetOrigin,
     showNotice = () => {},
     connectPort = () => chrome.runtime.connect({ name: MOSS_LIVE_PORT_NAME }),
     sendRuntimeMessage = defaultSendRuntimeMessage,
-    requestOrigins = requestProviderOriginsViaBackground
+    requestOrigins = requestProviderOriginsViaBackground,
+    startAudioCapture = createPageAudioCapture,
+    createTranscriptMerger,
+    onTranscript
   } = deps;
 
   let state: LiveChatState = "idle";
+  let muted = false;
   let currentGeneration = 0;
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
+  let activeAudioCapture: PageAudioCaptureSession | null = null;
+  let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
+
+  function updateMuteUi(): void {
+    if (!muteButton) return;
+    const isConnected = state === "connected";
+    muteButton.hidden = !isConnected;
+    muteButton.classList.toggle("is-muted", muted);
+    muteButton.setAttribute("aria-pressed", muted ? "true" : "false");
+    const label = muted ? "取消静音麦克风" : "静音麦克风";
+    muteButton.title = label;
+    muteButton.setAttribute("aria-label", label);
+  }
 
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {
     state = nextState;
+    if (nextState !== "connected") {
+      muted = false;
+    }
     liveButton.dataset.state = nextState;
     liveButton.classList.toggle("is-connecting", nextState === "connecting");
     liveButton.classList.toggle("is-connected", nextState === "connected");
@@ -65,10 +101,26 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     liveButton.title = tooltip;
     liveButton.setAttribute("aria-label", tooltip);
+    updateMuteUi();
   }
 
   // 初始化 UI 呈现
   updateUi("idle");
+
+  function stopActiveMediaAndMerger(): void {
+    if (activeAudioCapture) {
+      try {
+        activeAudioCapture.stop();
+      } catch {}
+      activeAudioCapture = null;
+    }
+    if (activeMerger) {
+      try {
+        activeMerger.dispose();
+      } catch {}
+      activeMerger = null;
+    }
+  }
 
   async function cleanupSessionRule(targetSessionId?: string): Promise<void> {
     try {
@@ -87,10 +139,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const generation = currentGeneration;
     const sessionId = `live-${generation}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
+    muted = false;
+    stopActiveMediaAndMerger();
     updateUi("connecting");
 
     // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
-    // 优先取宿主提供的目标源（自定义平台），未配置或缺省时回落至默认官方域名（https://api.mosi.cn）。
     const targetOrigin = (getTargetOrigin?.() || activeTargetOrigin || "https://api.mosi.cn").trim();
     const permPromise = requestOrigins([targetOrigin]);
 
@@ -152,12 +205,52 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activeTargetOrigin = prepResp.provider.baseUrl;
     }
 
-    // 3. 连接 Offscreen 文档专属端口并触发 WebSocket 连接
+    // 3. 请求麦克风授权并启动 16kHz 单声道 20ms PCM 采集
+    let captureSession: PageAudioCaptureSession;
+    try {
+      captureSession = await startAudioCapture({
+        initialMuted: false,
+        onPcmFrame: (pcmBytes) => {
+          if (generation !== currentGeneration || state !== "connected" || muted || !activePort) {
+            return;
+          }
+          try {
+            activePort.postMessage({
+              action: "audio",
+              pcmBase64: encodeBase64Bytes(pcmBytes)
+            });
+          } catch {
+            // 忽略断连瞬间的发送异常
+          }
+        }
+      });
+    } catch (error) {
+      void cleanupSessionRule(sessionId);
+      if (generation !== currentGeneration) {
+        return false;
+      }
+      const errorMsg = (error as Error)?.message || String(error || "麦克风授权或启动失败");
+      updateUi("failure", errorMsg);
+      showNotice(errorMsg);
+      return false;
+    }
+
+    if (generation !== currentGeneration) {
+      captureSession.stop();
+      void cleanupSessionRule(sessionId);
+      return false;
+    }
+    activeAudioCapture = captureSession;
+
+    // 4. 创建本轮会话专属双端字幕归并器并连接 Offscreen 端口
+    activeMerger = createTranscriptMerger ? createTranscriptMerger() : null;
+
     let port: chrome.runtime.Port;
     try {
       port = connectPort();
       activePort = port;
     } catch (error) {
+      stopActiveMediaAndMerger();
       const errorMsg = `连接后台通信端口失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg);
       showNotice(errorMsg);
@@ -166,7 +259,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
 
     port.onMessage.addListener((rawMsg: unknown) => {
-      // 代际检查：拒绝或忽略迟到的历史会话事件
+      // 代际检查：严格拦截挂断或旧会话的迟到事件
       if (generation !== currentGeneration) return;
 
       const msg = rawMsg as MossLiveServerEvent;
@@ -176,8 +269,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connecting");
       } else if (msg.type === "connected") {
         updateUi("connected");
+      } else if (msg.type === "transcript") {
+        if (state === "connected" || state === "connecting") {
+          activeMerger?.handleEvent(msg.event);
+          onTranscript?.(msg.event);
+        }
       } else if (msg.type === "error") {
         const errorMsg = msg.error || "MOSS-LIVE 连接异常中断";
+        stopActiveMediaAndMerger();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
         disconnectPort();
@@ -185,6 +284,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } else if (msg.type === "closed") {
         if (state === "connecting" || state === "connected") {
           const errorMsg = "MOSS-LIVE 连接已关闭";
+          stopActiveMediaAndMerger();
           updateUi("failure", errorMsg);
           showNotice(errorMsg);
           disconnectPort();
@@ -197,6 +297,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (generation !== currentGeneration) return;
       if (state === "connecting" || state === "connected") {
         const errorMsg = "后台伴看通道已断开";
+        stopActiveMediaAndMerger();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
         disconnectPort();
@@ -208,6 +309,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       port.postMessage({ action: "start", wsUrl });
     } catch (error) {
+      stopActiveMediaAndMerger();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg);
       showNotice(errorMsg);
@@ -228,10 +330,27 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  function setMuted(nextMuted: boolean): void {
+    if (state !== "connected") return;
+    muted = Boolean(nextMuted);
+    activeAudioCapture?.setMuted(muted);
+    updateMuteUi();
+    if (activePort) {
+      try {
+        activePort.postMessage({ action: "mic_state", enabled: !muted });
+      } catch {}
+    }
+  }
+
+  function toggleMute(): void {
+    setMuted(!muted);
+  }
+
   async function stop(): Promise<void> {
     currentGeneration += 1;
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
+    stopActiveMediaAndMerger();
     if (activePort) {
       try {
         activePort.postMessage({ action: "stop" });
@@ -256,6 +375,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   return {
     getState: () => state,
+    isMuted: () => muted,
+    setMuted,
+    toggleMute,
     start,
     stop,
     toggle,
