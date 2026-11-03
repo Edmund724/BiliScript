@@ -36,7 +36,7 @@ import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
-import { speechTextFromElement } from "./chat-speech.js";
+
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -51,7 +51,7 @@ export interface ChatStreamRendererDeps {
   smoothStream?: boolean;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
-  onSpeak?: (button: HTMLButtonElement, text: string) => Promise<void> | void;
+  onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
 }
@@ -1147,7 +1147,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
-    const speechText = speechTextFromElement(content);
+    const hasSpeakableContent = Boolean(content.textContent?.trim() || content.querySelector("pre, img[alt]"));
     enhanceMarkdownTables(content);
     hydrateMermaid(content);
     hydrateMath(content);
@@ -1187,10 +1187,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     actions.appendChild(copyBtn);
 
     const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
-    speakBtn.disabled = !speechText || !deps.onSpeak;
+    speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
     speakBtn.setAttribute("aria-pressed", "false");
     speakBtn.addEventListener("click", () => {
-      void deps.onSpeak?.(speakBtn, speechText);
+      void deps.onSpeak?.(speakBtn, content);
     });
     actions.appendChild(speakBtn);
 

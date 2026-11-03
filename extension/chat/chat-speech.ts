@@ -35,7 +35,7 @@ export interface CreateChatSpeechControllerDeps {
 }
 
 export interface ChatSpeechController {
-  toggle(button: HTMLButtonElement, text: string, options?: { maxChunkChars?: number }): Promise<void>;
+  toggle(button: HTMLButtonElement, source: HTMLElement | string, options?: { maxChunkChars?: number }): Promise<void>;
   stop(): void;
 }
 
@@ -131,7 +131,7 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
   };
 }
 
-const chromeSpeechEngine = createChromeSpeechEngine();
+let chromeSpeechEngine: ChatSpeechEngine | null = null;
 
 export function speechTextFromElement(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
@@ -141,7 +141,7 @@ export function speechTextFromElement(root: HTMLElement): string {
   clone.querySelectorAll("img").forEach((image) => {
     image.replaceWith(document.createTextNode(image.getAttribute("alt") || ""));
   });
-  clone.querySelectorAll("script, style, svg, .katex-mathml").forEach((element) => element.remove());
+  clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
 
   function readNode(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -243,7 +243,7 @@ function setButtonSpeaking(button: HTMLButtonElement, speaking: boolean): void {
 }
 
 export function createChatSpeechController(deps: CreateChatSpeechControllerDeps = {}): ChatSpeechController {
-  const engine = deps.engine || chromeSpeechEngine;
+  const engine = deps.engine || (chromeSpeechEngine ??= createChromeSpeechEngine());
   const getBrowserLanguage = deps.getBrowserLanguage || (() => navigator.language || "zh-CN");
   const onError = deps.onError || (() => {});
   let generation = 0;
@@ -335,13 +335,13 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     }
   }
 
-  async function toggle(button: HTMLButtonElement, text: string, options: { maxChunkChars?: number } = {}): Promise<void> {
+  async function toggle(button: HTMLButtonElement, source: HTMLElement | string, options: { maxChunkChars?: number } = {}): Promise<void> {
     if (active?.button === button) {
       stop();
       return;
     }
     stop();
-    const cleanText = text.trim();
+    const cleanText = (typeof source === "string" ? source : speechTextFromElement(source)).trim();
     if (!cleanText) {
       return;
     }

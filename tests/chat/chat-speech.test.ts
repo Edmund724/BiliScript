@@ -62,6 +62,20 @@ describe("朗读正文", () => {
 
     expect(speechTextFromElement(root)).toContain("名称 数值");
   });
+
+  it("toggle 支持直接传入 HTMLElement 按需提取，并剔除表格卡片标签与图表降级横幅", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    const { controller } = makeController(engine);
+    const root = document.createElement("div");
+    root.innerHTML = `<p>正文内容</p><table><tbody><tr><td>甲</td><td><span class="biliscript-md-table-cell-label">列头</span>乙</td></tr></tbody></table><div class="biliscript-md-mermaid-fallback">图表渲染失败</div>`;
+    const button = document.createElement("button");
+
+    await controller.toggle(button, root);
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+
+    expect(engine.spoken[0].text).toBe("正文内容\n\n甲 乙");
+  });
 });
 
 describe("语音选择与长文", () => {
