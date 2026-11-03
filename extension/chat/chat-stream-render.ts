@@ -1141,7 +1141,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     node.innerHTML = "";
     state.allThinking.forEach((thinking) => node.appendChild(thinking));
     const cleanedRaw = stripThinkBlocks(raw);
-    const pasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
+    let cachedPasteReadyRaw: string | null = null;
+    function getPasteReadyRaw(): string {
+      if (cachedPasteReadyRaw === null) {
+        cachedPasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
+      }
+      return cachedPasteReadyRaw;
+    }
 
     const content = document.createElement("div");
     content.className = "chat-msg-assistant-body markdown-body";
@@ -1171,7 +1177,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
     copyBtn.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(pasteReadyRaw);
+        await navigator.clipboard.writeText(getPasteReadyRaw());
         setMessage("回复已复制到剪贴板。");
         flashCopySuccess(copyBtn, {
           originalSvg: READING_COPY_ICON,
@@ -1204,13 +1210,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     actions.appendChild(regenerateBtn);
 
     const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
-    exportBtn.disabled = historyIndex === undefined || !pasteReadyRaw.trim();
+    exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
     exportBtn.addEventListener("click", () => {
       if (historyIndex === undefined) {
         return;
       }
       try {
-        deps.onExport?.(historyIndex, pasteReadyRaw);
+        deps.onExport?.(historyIndex, getPasteReadyRaw());
       } catch (error) {
         setMessage(`导出失败：${getErrorMessage(error)}`);
       }
@@ -1423,8 +1429,39 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     state.cursor = createStreamCursor();
     node.appendChild(state.cursor);
     node.classList.add("chat-msg-streaming");
-    const turn = createTurnHandle(node);
+    const baseTurn = createTurnHandle(node);
     let settled = false;
+    function restore(): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      baseTurn.discard();
+      clearSearchCard(node);
+      node.innerHTML = "";
+      node.appendChild(originalContent);
+      if (originalSearchCard) {
+        deps.messages.insertBefore(originalSearchCard, node);
+      }
+      following.forEach((element) => {
+        element.hidden = false;
+      });
+      node.classList.toggle("chat-msg-streaming", originalStreaming);
+    }
+    const turn: ChatAssistantTurn = {
+      ...baseTurn,
+      discard: restore,
+      fail() {
+        restore();
+      },
+      stop(reason, options) {
+        const result = baseTurn.stop(reason, options);
+        if (!result.body) {
+          restore();
+        }
+        return result;
+      }
+    };
 
     return {
       turn,
@@ -1435,23 +1472,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         settled = true;
         following.forEach((element) => element.remove());
       },
-      restore() {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        turn.discard();
-        clearSearchCard(node);
-        node.innerHTML = "";
-        node.appendChild(originalContent);
-        if (originalSearchCard) {
-          deps.messages.insertBefore(originalSearchCard, node);
-        }
-        following.forEach((element) => {
-          element.hidden = false;
-        });
-        node.classList.toggle("chat-msg-streaming", originalStreaming);
-      }
+      restore
     };
   }
 

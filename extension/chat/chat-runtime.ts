@@ -74,7 +74,7 @@ import {
   ensureConversationId,
   type ChatSessionMessage
 } from "./chat-state.js";
-import { downloadChatAnswerMarkdown } from "./chat-export.js";
+import { sanitizeFileName } from "../shared/string-utils.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
@@ -488,7 +488,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       message.role === "assistant" && !(Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())
     )).length || 1;
     const videoTitle = String(chatSessionState.currentConversationMeta?.contextTitle || chatSessionState.contextData?.title || "");
-    downloadChatAnswerMarkdown(raw, videoTitle, answerNumber);
+    const safeTitle = sanitizeFileName(videoTitle) || "BiliScript";
+    const filename = `${safeTitle}-回答-${answerNumber}.md`;
+    const blob = new Blob([raw], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   // 受理体（turn.runAcceptance 的实现）：闸已由 turn 放行（受理窗口已开）才进入。
@@ -745,11 +755,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     endStream(streamTurn, (turn) => {
       const message = `${error}${imageUnsupportedErrorHint(error, activeUserImages)}`;
+      turn.fail(`错误：${message}`);
       if (activeRegeneration) {
-        activeRegeneration.session.restore();
         deps.ui.showConversationContextNotice(`重新生成失败：${message}`, 4000);
-      } else {
-        turn.fail(`错误：${message}`);
       }
     });
   }
@@ -763,10 +771,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         userPrompt: activeUserPrompt,
         historyIndex: getActiveAssistantHistoryIndex()
       });
-      if (activeRegeneration && !body) {
-        activeRegeneration.session.restore();
-        return;
-      }
       if (body) {
         const committed = commitAssistantTurn(raw);
         if (activeRegeneration) {
@@ -895,12 +899,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。
-    if (activeRegeneration) {
-      activeRegeneration.session.restore();
-      activeRegeneration = null;
-      pendingToolMessages = [];
-    }
     activeTurn?.discard();
+    activeRegeneration?.session.restore();
+    activeRegeneration = null;
+    pendingToolMessages = [];
     clearStreamRuntimeState();
     if (activePort) {
       try { activePort.disconnect(); } catch {}
