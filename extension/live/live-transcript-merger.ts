@@ -43,6 +43,7 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
   let pendingUserText = "";
   let pendingUserHistoryIndex: number | null = null;
   const assistantTurns = new Map<string, AssistantTurnRecord>();
+  const interruptedTurnKeys = new Set<string>();
 
   function ensureActiveConversationId(): void {
     if (!chatSessionState.currentConversationId) {
@@ -135,7 +136,7 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     const nextText = String(text || "");
     const turnKey = getTurnKey(runId, turnId);
     let record = assistantTurns.get(turnKey);
-    if (record?.finalized) {
+    if (interruptedTurnKeys.has(turnKey) || record?.finalized) {
       return;
     }
     if (!nextText && !record) {
@@ -176,12 +177,16 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     deps.scrollToBottom?.(false, { instant: true });
   }
 
-  function finalizeAssistantTurn(record: AssistantTurnRecord, explicitText?: string): void {
+  function finalizeAssistantTurn(
+    record: AssistantTurnRecord,
+    explicitText?: string,
+    interrupted = false
+  ): void {
     if (record.finalized) return;
     record.finalized = true;
 
     const finalText = String(explicitText ?? record.renderedText ?? "").trim();
-    if (!finalText) {
+    if (!finalText && !interrupted) {
       record.turn.discard();
       return;
     }
@@ -195,10 +200,10 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     }
 
     ensureActiveConversationId();
-    const raw = record.turn.finish({
-      raw: finalText,
-      historyIndex: chatSessionState.chatHistory.length
-    });
+    const historyIndex = chatSessionState.chatHistory.length;
+    const raw = interrupted
+      ? record.turn.stop("已打断", { historyIndex }).raw
+      : record.turn.finish({ raw: finalText, historyIndex });
     const content = (raw || finalText).trim();
     if (content) {
       appendChatHistory({ role: "assistant", content });
@@ -210,7 +215,7 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
   function handleOutputDone(text: string, runId: string, turnId: string): void {
     const turnKey = getTurnKey(runId, turnId);
     let record = assistantTurns.get(turnKey);
-    if (record?.finalized) {
+    if (interruptedTurnKeys.has(turnKey) || record?.finalized) {
       return;
     }
 
@@ -236,7 +241,20 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     finalizeAssistantTurn(record, finalText);
   }
 
-  function handleResponseEnded(runId: string, turnId: string): void {
+  function handleResponseInterrupted(runId: string, turnId: string): void {
+    const turnKey = getTurnKey(runId, turnId);
+    interruptedTurnKeys.add(turnKey);
+    const record = assistantTurns.get(turnKey);
+    if (!record || record.finalized) return;
+    deps.onActivity?.();
+    finalizeAssistantTurn(record, record.renderedText, true);
+  }
+
+  function handleResponseEnded(status: string, runId: string, turnId: string): void {
+    if (status === "interrupted") {
+      handleResponseInterrupted(runId, turnId);
+      return;
+    }
     const turnKey = getTurnKey(runId, turnId);
     const record = assistantTurns.get(turnKey);
     if (!record || record.finalized) {
@@ -261,8 +279,11 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
       case "output.done":
         handleOutputDone(event.text, event.runId, event.turnId);
         break;
+      case "response.interrupted":
+        handleResponseInterrupted(event.runId, event.turnId);
+        break;
       case "response.ended":
-        handleResponseEnded(event.runId, event.turnId);
+        handleResponseEnded(event.status, event.runId, event.turnId);
         break;
     }
   }
@@ -289,6 +310,7 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
       }
     }
     assistantTurns.clear();
+    interruptedTurnKeys.clear();
   }
 
   return {

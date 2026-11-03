@@ -17,6 +17,7 @@ function createFakeMessageArea(messagesContainer: HTMLElement): {
     tokens: string[];
     resets: number;
     finishedRaw: string | null;
+    stoppedReason: string | null;
     discarded: boolean;
   }>;
 } {
@@ -25,6 +26,7 @@ function createFakeMessageArea(messagesContainer: HTMLElement): {
     tokens: string[];
     resets: number;
     finishedRaw: string | null;
+    stoppedReason: string | null;
     discarded: boolean;
   }> = [];
 
@@ -39,6 +41,7 @@ function createFakeMessageArea(messagesContainer: HTMLElement): {
         tokens: [] as string[],
         resets: 0,
         finishedRaw: null as string | null,
+        stoppedReason: null as string | null,
         discarded: false
       };
       turns.push(record);
@@ -67,7 +70,12 @@ function createFakeMessageArea(messagesContainer: HTMLElement): {
           return raw;
         },
         fail: () => {},
-        stop: () => ({ raw: record.tokens.join(""), body: true }),
+        stop: (reason) => {
+          record.stoppedReason = reason;
+          record.node.classList.remove("chat-msg-streaming");
+          const raw = record.tokens.join("");
+          return { raw, body: Boolean(raw) };
+        },
         markTruncated: () => {},
         applySearchStatus: () => {},
         attachSearchTimelineCard: () => {}
@@ -299,6 +307,65 @@ describe("createLiveTranscriptMerger", () => {
       { role: "user", content: "测试" },
       { role: "assistant", content: "正在回答中" }
     ]);
+  });
+
+  it("marks an interrupted answer, suppresses late events, and keeps the next turn isolated", () => {
+    const messagesContainer = document.getElementById("messages")!;
+    const { messageArea, turns } = createFakeMessageArea(messagesContainer);
+    const persistCurrent = vi.fn().mockResolvedValue(undefined);
+    const merger = createLiveTranscriptMerger({
+      messagesContainer,
+      messageArea,
+      store: { persistCurrent }
+    });
+
+    merger.handleEvent({ kind: "input.done", text: "第一轮" });
+    merger.handleEvent({ kind: "output.updated", text: "说到一半", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "response.interrupted", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "response.interrupted", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "output.updated", text: "迟到字幕", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "output.done", text: "迟到终稿", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "response.ended", status: "completed", runId: "r1", turnId: "t1" });
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0].stoppedReason).toBe("已打断");
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一轮" },
+      { role: "assistant", content: "说到一半" }
+    ]);
+    expect(persistCurrent).toHaveBeenCalledTimes(2);
+
+    merger.handleEvent({ kind: "input.done", text: "第二轮" });
+    merger.handleEvent({ kind: "output.updated", text: "新回答", runId: "r2", turnId: "t2" });
+    merger.handleEvent({ kind: "output.done", text: "新回答。", runId: "r2", turnId: "t2" });
+
+    expect(turns).toHaveLength(2);
+    expect(turns[1].stoppedReason).toBeNull();
+    expect(turns[1].finishedRaw).toBe("新回答。");
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一轮" },
+      { role: "assistant", content: "说到一半" },
+      { role: "user", content: "第二轮" },
+      { role: "assistant", content: "新回答。" }
+    ]);
+  });
+
+  it("does not create an assistant message for audio or transcripts arriving after an early interruption", () => {
+    const messagesContainer = document.getElementById("messages")!;
+    const { messageArea, turns } = createFakeMessageArea(messagesContainer);
+    const merger = createLiveTranscriptMerger({
+      messagesContainer,
+      messageArea,
+      store: { persistCurrent: vi.fn().mockResolvedValue(undefined) }
+    });
+
+    merger.handleEvent({ kind: "response.interrupted", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "output.updated", text: "迟到字幕", runId: "r1", turnId: "t1" });
+    merger.handleEvent({ kind: "output.done", text: "迟到终稿", runId: "r1", turnId: "t1" });
+
+    expect(turns).toHaveLength(0);
+    expect(messagesContainer.children).toHaveLength(0);
+    expect(chatSessionState.chatHistory).toHaveLength(0);
   });
 
   it("dispose() cleans up uncommitted nodes and rejects any late events after hangup", () => {

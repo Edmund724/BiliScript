@@ -234,6 +234,7 @@ export type MossLiveTranscriptEvent =
   | { kind: "input.done"; text: string }
   | { kind: "output.updated"; text: string; runId: string; turnId: string }
   | { kind: "output.done"; text: string; runId: string; turnId: string }
+  | { kind: "response.interrupted"; runId: string; turnId: string }
   | { kind: "response.ended"; status: string; runId: string; turnId: string };
 
 /** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
@@ -294,6 +295,11 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       const runId = readStr(data, obj, "run_id");
       const turnId = readStr(data, obj, "turn_id");
       return { kind: "transcript", event: { kind: "output.done", text, runId, turnId } };
+    }
+    case "response.interrupted": {
+      const runId = readStr(data, obj, "run_id");
+      const turnId = readStr(data, obj, "turn_id");
+      return { kind: "transcript", event: { kind: "response.interrupted", runId, turnId } };
     }
     case "response.ended": {
       const status = readStr(data, obj, "status") || "completed";
