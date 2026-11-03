@@ -62,4 +62,17 @@ describe("AI 对话消息操作键的样式契约", () => {
     expect(declaration(svgBlock, "height")).toBe("18px");
     expect(declaration(svgBlock, "stroke-width")).toBe("2");
   });
+
+  it("各操作图标进行光学对齐补偿（消除圆环过大与方块留白过多偏差）", () => {
+    const css = readCss();
+    const copyBlock = ruleBody(css, "\\.biliscript-reading-chat \\.chat-msg-copy-btn svg");
+    const speakBlock = ruleBody(css, "\\.biliscript-reading-chat \\.chat-msg-speak-btn svg");
+    const regenBlock = ruleBody(css, "\\.biliscript-reading-chat \\.chat-msg-regenerate-btn svg");
+    const exportBlock = ruleBody(css, "\\.biliscript-reading-chat \\.chat-msg-export-btn svg");
+
+    expect(declaration(copyBlock, "width")).toBe("20px");
+    expect(declaration(speakBlock, "width")).toBe("17px");
+    expect(declaration(regenBlock, "width")).toBe("15px");
+    expect(declaration(exportBlock, "width")).toBe("19px");
+  });
 });
