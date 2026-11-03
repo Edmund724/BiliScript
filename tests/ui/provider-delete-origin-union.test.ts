@@ -65,18 +65,33 @@ const AI_ITEM = {
   hasSavedKey: true
 };
 
+const LIVE_ITEM = {
+  id: "live1",
+  presetId: "moss-live",
+  name: "MOSS-LIVE",
+  type: "moss-live",
+  baseUrl: "https://api.mosi.cn",
+  model: "moss-live-1.0",
+  requiresKey: true,
+  enabled: true,
+  hasSavedKey: true
+};
+
 function countOf(sent: SentMessage[], type: string): number {
   return sent.filter((message) => message.type === type).length;
 }
 
-async function mountPanel() {
+async function mountPanel({ live = false }: { live?: boolean } = {}) {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
       <section id="biliscript-reading-settings-panel">
         <div id="biliscript-reading-settings-host"></div>
       </section>
     </div>`;
-  const sent = installMessageBus();
+  const sent = installMessageBus(live ? {
+    "live-providers-list": () => ({ ok: true, providers: [LIVE_ITEM] }),
+    "live-providers-delete": () => ({ ok: true, providers: [] })
+  } : {});
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
@@ -128,11 +143,12 @@ describe("loadOriginSharingProviders：并集由 optionalHostPermission 推导",
 });
 
 describe("行删除路径：回收并集只含 optional 族", () => {
-  it("确认删除 AI 行：现查 ai+asr 存活并集，静态 host 权限的搜索族不参与回收", async () => {
+  it("确认删除 AI 行：现查 ai+asr+live 存活并集，静态 host 权限的搜索族不参与回收", async () => {
     const { sent, host } = await mountPanel();
     const searchBefore = countOf(sent, "search-providers-list");
     const aiBefore = countOf(sent, "ai-providers-list");
     const asrBefore = countOf(sent, "asr-providers-list");
+    const liveBefore = countOf(sent, "live-providers-list");
 
     const row = host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!;
     row.querySelector(".provider-row-remove")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -147,7 +163,31 @@ describe("行删除路径：回收并集只含 optional 族", () => {
     await vi.waitFor(() => {
       expect(countOf(sent, "ai-providers-list")).toBeGreaterThan(aiBefore);
       expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
+      expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);
     });
     expect(countOf(sent, "search-providers-list"), "搜索族是静态 host 权限，不得被拉进回收并集").toBe(searchBefore);
+  });
+
+  it("确认删除 live 行：同样现查 optional 族存活并集并回收孤立 origin", async () => {
+    const { sent, host } = await mountPanel({ live: true });
+    const aiBefore = countOf(sent, "ai-providers-list");
+    const asrBefore = countOf(sent, "asr-providers-list");
+    const liveBefore = countOf(sent, "live-providers-list");
+
+    const row = host.querySelector<HTMLElement>("#liveProvidersList .live-provider-row")!;
+    row.querySelector(".provider-row-remove")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => {
+      expect(document.querySelector(".confirm-dialog-confirm")).toBeTruthy();
+    });
+    document.querySelector(".confirm-dialog-confirm")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(countOf(sent, "live-providers-delete")).toBe(1);
+    });
+    await vi.waitFor(() => {
+      expect(countOf(sent, "ai-providers-list")).toBeGreaterThan(aiBefore);
+      expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
+      expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);
+    });
   });
 });

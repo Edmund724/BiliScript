@@ -7,7 +7,7 @@
 // 叶纪律：只 import core/presets（零运行时依赖的预设数据）；不碰 chrome.storage /
 // DOM / 消息。调用方（SW handler / 设置面板 / 编辑 Modal）各自负责拿数据。
 //
-// 方向单向：搜索读 AI，绝不回写（三族存储隔离的唯一例外，见
+// 方向单向：搜索读 AI，绝不回写（四族存储隔离的唯一例外，见
 // search/search-provider-store.ts 头注）。
 
 import { PRESETS, effectivePresetBaseUrl, type AiProviderPreset } from "../core/presets.js";

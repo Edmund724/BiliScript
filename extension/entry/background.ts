@@ -433,8 +433,8 @@ const handleSegmentCache = createSegmentCacheHandler();
 // MOSS-LIVE 伴看平台 CRUD 与会话准备处理器
 const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
   loadProviders: liveProviderStore.loadProviders,
-  saveProviders: liveProviderStore.saveProviders,
-  deleteProvider: liveProviderStore.deleteProvider,
+  saveProviders: invalidatingWrite(liveProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.live),
+  deleteProvider: invalidatingWrite(liveProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.live),
   loadKeys: liveProviderStore.loadKeys
 });
 

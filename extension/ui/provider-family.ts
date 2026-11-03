@@ -13,7 +13,7 @@
 //（原 provider-editor-state 的行侧副本删除，消费方一律走本声明）。
 //
 // 行「编辑」回调不再走模块级 setter 单例：createProviderFamilyRows(deps) 在
-// 组合点（settings-panel）创建三族控制器，deps 只含 onRowEdit(kind, id)。
+// 组合点（settings-panel）创建四族控制器，deps 只含 onRowEdit(kind, id)。
 // 删除/回收回调走 controller 既有方法（闭包态、可后设）。本模块零 DOM 全局
 // 访问、零模块态；预设列表由调用方按族传入（AI 可走后端动态预设）。
 
@@ -86,12 +86,12 @@ interface FamilyRowDeclaration {
   removeClass: string;
   idPrefix: string;
   resolvePreset: (presets: readonly ProviderRowPreset[], presetId: string) => ProviderRowPreset | null;
-  // 显示名（AI：自定义名回落预设名，拍板 Q7；三族同规则）
+  // 显示名（AI：自定义名回落预设名，拍板 Q7；四族同规则）
   displayName: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
   // 副行模型名：AI=models 多值「首项 等 N 个」（拍板 Q15）/历史单模型；
-  // ASR=model 回落预设；搜索=预设 note（如豆包「每月 500 次免费」），空不渲染
+  // ASR / MOSS-LIVE=model 回落预设；搜索=预设 note（如豆包「每月 500 次免费」），空不渲染
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 选用 radio 尾（ASR / 搜索；AI 无）：类名前缀 / 提示文案 / 即时持久化设置键
+  // 选用 radio 尾（ASR / 搜索 / MOSS-LIVE；AI 无）：类名前缀 / 提示文案 / 即时持久化设置键
   activeRadio?: ActiveRadioTailConfig;
   // 拖拽把手类名（spec §6.10 / §12.5 第 13 行）：仅搜索族给；AI / ASR 不渲染
   dragHandleClass?: string;

@@ -1,4 +1,4 @@
-// C4「设置快照键面单源」测试：六个 provider 存储键（ai/asr/search × list/keys）
+// C4「设置快照键面单源」测试：八个 provider 存储键（ai/asr/search/live × list/keys）
 // 的字面量真源上提到各 store 模块并导出，settings-snapshot 的族键面从单表派生。
 // 断言两层：
 //   1. 导出常量的值 = 既有存储键字面量（真源上提后字面量的唯一落点）；
@@ -143,7 +143,8 @@ describe("settings-snapshot 族键面从键对表派生", () => {
     expect(snapshot.PROVIDER_FAMILY_STORAGE_KEYS).toEqual({
       ai: ["aiProviders", "aiProviderKeys"],
       asr: ["asrProviders", "asrProviderKeys"],
-      search: ["searchProviders", "searchProviderKeys"]
+      search: ["searchProviders", "searchProviderKeys"],
+      live: ["liveProviders", "liveProviderKeys"]
     });
   });
 
@@ -153,11 +154,13 @@ describe("settings-snapshot 族键面从键对表派生", () => {
     const ai = await keyConstants("../../extension/core/ai-provider-store.js");
     const asr = await keyConstants("../../extension/asr/asr-provider-store.js");
     const search = await keyConstants("../../extension/search/search-provider-store.js");
+    const live = await keyConstants("../../extension/live/live-provider-store.js");
 
     expect(snapshot.PROVIDER_FAMILY_STORAGE_KEYS).toEqual({
       ai: [ai.AI_PROVIDERS_STORAGE, ai.AI_PROVIDER_KEYS_STORAGE],
       asr: [asr.ASR_PROVIDERS_STORAGE, asr.ASR_PROVIDER_KEYS_STORAGE],
-      search: [search.SEARCH_PROVIDERS_STORAGE, search.SEARCH_PROVIDER_KEYS_STORAGE]
+      search: [search.SEARCH_PROVIDERS_STORAGE, search.SEARCH_PROVIDER_KEYS_STORAGE],
+      live: [live.LIVE_PROVIDERS_STORAGE, live.LIVE_PROVIDER_KEYS_STORAGE]
     });
   });
 });

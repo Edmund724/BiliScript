@@ -384,7 +384,6 @@ export type LiveProvidersDeleteResponse = {
 };
 export type LiveSessionPrepareMessage = {
   type: "live-session-prepare";
-  providerId?: string;
   sessionId?: string;
 };
 export type LiveSessionPrepareResponse = {

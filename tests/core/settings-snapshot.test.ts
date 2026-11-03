@@ -22,6 +22,7 @@ import {
   SEARCH_PROVIDER_ORDER_STORAGE
 } from "../../extension/search/search-provider-store.js";
 import { SEARCH_HEALTH_KEY } from "../../extension/search/search-health.js";
+import { LIVE_PROVIDER_KEYS_STORAGE, LIVE_PROVIDERS_STORAGE } from "../../extension/live/live-provider-store.js";
 
 const AI_PROVIDER = {
   id: "openai",
@@ -49,6 +50,17 @@ const SEARCH_PROVIDER = {
   name: "Tavily",
   type: "tavily",
   baseUrl: "https://api.tavily.com",
+  enabled: true
+};
+
+const LIVE_PROVIDER = {
+  id: "moss-live",
+  presetId: "moss-live",
+  name: "MOSS-LIVE",
+  type: "moss-live",
+  baseUrl: "https://api.mosi.cn",
+  model: "moss-live-1.0",
+  requiresKey: true,
   enabled: true
 };
 
@@ -285,7 +297,7 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     expect(reloaded.providers[0].name).toBe("OpenAI 2");
   });
 
-  it("三族 × 两区：list 键 fire 在 sync、keys 键 fire 在 local → 对应族失效（分区约定）", async () => {
+  it("四族 × 两区：list 键 fire 在 sync、keys 键 fire 在 local → 对应族失效（分区约定）", async () => {
     // 键面分区不是自由选择：watch-storage-keys 按区过滤，声明进错区的键在该区
     // 事件里被静默丢弃（shared/watch-storage-keys.ts:39-43）。逐族逐区各 fire 一次，
     // 谁把 list 键挪进 local（或反之）这里立刻红。
@@ -310,6 +322,13 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
         localFixture: { searchProviderKeys: { tavily: "tvly-key" } },
         listKey: "searchProviders",
         keysKey: "searchProviderKeys"
+      },
+      {
+        family: "live",
+        syncFixture: { liveProviders: [LIVE_PROVIDER] },
+        localFixture: { liveProviderKeys: { "moss-live": "sk-live" } },
+        listKey: "liveProviders",
+        keysKey: "liveProviderKeys"
       }
     ] as const;
 
@@ -444,18 +463,19 @@ describe("order 快照位：searchProviderOrder（spec §12.3 / §12.5 第 9 行
 //      + tests/entry 的源码防线；
 //   ④ onChanged 与 inline 失效两套判据分叉：订阅面与 invalidate 判据都由同一张
 //      表派生，逐键 onChanged 用例与逐键失效用例吃同一份期望。
-// 六个缓存域的探针口径（命中 = 该域特有的 storage.get 形态被打到）：
-//   settings → 默认值对象形态；ai/asr/search → list 键数组 / keys 键数组；
+// 七个缓存域的探针口径（命中 = 该域特有的 storage.get 形态被打到）：
+//   settings → 默认值对象形态；ai/asr/search/live → list 键数组 / keys 键数组；
 //   searchOrder → order 键数组；searchHealth → local 单键字符串形态。
 // 只看形态不看次数：order 读取会连带读 search 族，签名判别不受连带影响。
 type SnapshotModule = typeof import("../../extension/core/settings-snapshot.js");
-type SnapshotDomainName = "settings" | "ai" | "asr" | "search" | "searchOrder" | "searchHealth";
+type SnapshotDomainName = "settings" | "ai" | "asr" | "search" | "live" | "searchOrder" | "searchHealth";
 
 const DOMAIN_PROBE_ORDER: readonly SnapshotDomainName[] = [
   "settings",
   "ai",
   "asr",
   "search",
+  "live",
   "searchHealth",
   "searchOrder"
 ];
@@ -463,15 +483,17 @@ const DOMAIN_PROBE_ORDER: readonly SnapshotDomainName[] = [
 const FAMILY_LIST_STORAGE: Record<string, string> = {
   ai: AI_PROVIDERS_STORAGE,
   asr: ASR_PROVIDERS_STORAGE,
-  search: SEARCH_PROVIDERS_STORAGE
+  search: SEARCH_PROVIDERS_STORAGE,
+  live: LIVE_PROVIDERS_STORAGE
 };
 const FAMILY_KEYS_STORAGE: Record<string, string> = {
   ai: AI_PROVIDER_KEYS_STORAGE,
   asr: ASR_PROVIDER_KEYS_STORAGE,
-  search: SEARCH_PROVIDER_KEYS_STORAGE
+  search: SEARCH_PROVIDER_KEYS_STORAGE,
+  live: LIVE_PROVIDER_KEYS_STORAGE
 };
 
-// 六域同时可缓存的夹具（每域都有可读内容）。
+// 七域同时可缓存的夹具（每域都有可读内容）。
 function allDomainFixtures() {
   return {
     syncFixture: {
@@ -479,12 +501,14 @@ function allDomainFixtures() {
       [AI_PROVIDERS_STORAGE]: [AI_PROVIDER],
       [ASR_PROVIDERS_STORAGE]: [ASR_PROVIDER],
       [SEARCH_PROVIDERS_STORAGE]: [SEARCH_PROVIDER],
+      [LIVE_PROVIDERS_STORAGE]: [LIVE_PROVIDER],
       [SEARCH_PROVIDER_ORDER_STORAGE]: []
     },
     localFixture: {
       [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-ai" },
       [ASR_PROVIDER_KEYS_STORAGE]: { whisper: "sk-asr" },
       [SEARCH_PROVIDER_KEYS_STORAGE]: { tavily: "sk-search" },
+      [LIVE_PROVIDER_KEYS_STORAGE]: { "moss-live": "sk-live" },
       [SEARCH_HEALTH_KEY]: {}
     }
   };
@@ -495,6 +519,7 @@ async function warmAllDomains(snapshot: SnapshotModule): Promise<void> {
   await snapshot.getProviderStore("ai");
   await snapshot.getProviderStore("asr");
   await snapshot.getProviderStore("search");
+  await snapshot.getProviderStore("live");
   await snapshot.getSearchProviderOrder();
   await snapshot.getSearchHealth();
 }
@@ -708,7 +733,7 @@ describe("裸落盘入口：writeSnapshotKeys（区由键面表决定，写后�
 });
 
 describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onChanged 订阅面共用）", () => {
-  it("表 = 键面全集（settings 键面 ∪ 六族键 ∪ 搜索顺序 ∪ 健康度），键互异、区标注正确", async () => {
+  it("表 = 键面全集（settings 键面 ∪ 四族平台键 ∪ 搜索顺序 ∪ 健康度），键互异、区标注正确", async () => {
     const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
     const expected = [
       ...Object.keys(DEFAULT_SETTINGS).map((key) => ({ key, area: "sync", domain: "settings" })),
@@ -718,6 +743,8 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
       { key: ASR_PROVIDER_KEYS_STORAGE, area: "local", domain: "asr" },
       { key: SEARCH_PROVIDERS_STORAGE, area: "sync", domain: "search" },
       { key: SEARCH_PROVIDER_KEYS_STORAGE, area: "local", domain: "search" },
+      { key: LIVE_PROVIDERS_STORAGE, area: "sync", domain: "live" },
+      { key: LIVE_PROVIDER_KEYS_STORAGE, area: "local", domain: "live" },
       { key: SEARCH_PROVIDER_ORDER_STORAGE, area: "sync", domain: "searchOrder" },
       { key: SEARCH_HEALTH_KEY, area: "local", domain: "searchHealth" }
     ];

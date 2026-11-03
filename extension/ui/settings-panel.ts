@@ -2,7 +2,7 @@
 //
 // 设置项挂载在文摘面板的设置抽屉（ui-renderer 模板内的 #biliscript-reading-settings-host
 // 容器，分节、随抽屉滚动）：
-//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索平台）与标量设置项；
+//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索 / MOSS-LIVE）与标量设置项；
 //   - 标量设置项按 SCALAR_FIELD_BINDINGS 声明式驱动水合、即时保存与跨端同步；
 //   - 平台经 provider-editor Modal 的单平台事务 provider-transaction 保存，
 //     平台行构建与验证复用 ../ui/provider-family.ts、../core/validators.ts；
@@ -1125,7 +1125,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-    familyRows.live.controller.setDeleteHandler(async () => {
+  familyRows.live.controller.setDeleteHandler(async () => {
     const remainingRows = Array.from(
       elements.liveProvidersList.querySelectorAll<HTMLElement>(".live-provider-row")
     );
@@ -1195,7 +1195,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     }
   });
   // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里
-  // optionalHostPermission 的并集，当前 ai+asr）的存活平台使用才 remove」。
+  // optionalHostPermission 的并集，当前 ai+asr+live）的存活平台使用才 remove」。
   const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
     const providers = await loadOriginSharingProviders(PROVIDER_FAMILY_UI);
     const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
@@ -1205,6 +1205,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   };
   familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
   familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
+  familyRows.live.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
 

@@ -55,7 +55,7 @@ export interface ProviderTransactions {
 }
 
 // orphan origin 回收的存活并集：问分派表里所有 optionalHostPermission 的族
-// （当前 ai+asr；搜索是 manifest 静态 host 权限不参与）。两条删除路径
+// （当前 ai+asr+live；搜索是 manifest 静态 host 权限不参与）。两条删除路径
 //（deleteProvider / 设置面板行删除）共用，新增一族只改表。
 export async function loadOriginSharingProviders(families: ProviderFamilyTable): Promise<ProviderRowItem[]> {
   const eligible = Object.values(families).filter((family) => family.optionalHostPermission);
