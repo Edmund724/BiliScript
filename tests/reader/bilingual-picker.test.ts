@@ -283,6 +283,7 @@ beforeEach(async () => {
   lazy.secondaryCalls = [];
   lazy.secondaryMode = "ok";
   lazy.secondaryBody = EN_BODY;
+  storageListenerBase = storageListenerCount();
 
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
@@ -292,7 +293,6 @@ beforeEach(async () => {
   // 通知链才会驱动 renderReadingView（本文件同样把 withReader mock 掉，故显式装载）。
   await import("../../extension/reader/lifecycle.js");
   readerBus = await import("../../extension/reader/reader-bus.js");
-  storageListenerBase = storageListenerCount();
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
 });
