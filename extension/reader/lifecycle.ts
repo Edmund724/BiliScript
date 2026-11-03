@@ -325,6 +325,7 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
 // 在 fetch 落定后按当前 state 走单一收口进行纯幂等重投影 + 条件触发。
 function reconcileReaderAfterSubtitleFetch() {
   onReaderSubtitleReady({
+    ensureSecondarySubtitle: true,
     triggerMode: "if-subtitles-present"
   });
 }
@@ -439,6 +440,7 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   // subtitle-ready 到达后再触发；重复触发由缓存与在飞 promise 去重）。字幕在面板
   // 打开前就已落定（页面预抓取，不再有 subtitle-ready）时，这是唯一的起跑点。
   warmUpReaderQuickPrompts();
+  ensureSecondarySubtitleLoaded();
 }
 
 function openReaderViewShell(

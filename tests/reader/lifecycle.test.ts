@@ -310,5 +310,22 @@ describe("reader 生命周期", () => {
         secSpy.mockRestore();
       }
     });
+
+    it("进入阅读模式：若字幕已在手（如预抓取落定），按偏好确保副轨发起装载", async () => {
+      const secSubtitle = await import("../../extension/reader/secondary-subtitle.js");
+      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleLoaded").mockReturnValue({
+        kind: "skipped",
+        reason: "bilingual-off"
+      });
+      try {
+        state.clip.bvid = "BV1test000000";
+        state.clip.subtitleBody = [{ from: 0, to: 5, content: "在手字幕" }];
+        await shell.enterReaderMode();
+        expect(secSpy).toHaveBeenCalledTimes(1);
+        shell.closeReadingView();
+      } finally {
+        secSpy.mockRestore();
+      }
+    });
   });
 });

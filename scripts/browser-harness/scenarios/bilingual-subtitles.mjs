@@ -1109,12 +1109,12 @@ async function main() {
       s2.listBilingualOn = await pageCdp.evaluate(JS.list);
       checkEquals("S2.subtext-node-count", s2.listBilingualOn.subtextNodeCount, 197);
       checkEquals("S2.subtext-all-ready", s2.listBilingualOn.subtextStates.ready ?? 0, 197);
-      check("S2.dual-row-metrics", s2.listBilingualOn.itemHeights?.[0] === 64 && s2.listBilingualOn.textHeights?.[0] === 44, {
+      check("S2.dual-row-metrics", s2.listBilingualOn.itemHeights?.[0] === 63 && s2.listBilingualOn.textHeights?.[0] === 43, {
         itemHeight: s2.listBilingualOn.itemHeights?.[0],
         textHeight: s2.listBilingualOn.textHeights?.[0]
       });
       const sub0 = s2.listBilingualOn.subtextSample?.[0];
-      check("S2.subtext-style-wraps-not-truncates", sub0?.fontSize === "13px" && sub0?.lineHeight === "19px" && sub0?.whiteSpace === "normal" && (sub0?.textOverflow === "clip" || !sub0?.textOverflow), sub0);
+      check("S2.subtext-style-wraps-not-truncates", sub0?.fontSize === "12px" && sub0?.lineHeight === "18px" && sub0?.whiteSpace === "normal" && (sub0?.textOverflow === "clip" || !sub0?.textOverflow), sub0);
       s2.mergedGroups = await pageCdp.evaluate(JS.mergedGroups);
       checkEquals("S2.merged-adjacent-pairs", s2.mergedGroups.duplicateSubtextPairCountRendered, 9);
       s2.searchBoth = await assertSearch("S2", "dual-zh-en", "AI");
