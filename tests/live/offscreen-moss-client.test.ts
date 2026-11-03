@@ -506,6 +506,25 @@ describe("OffscreenMossLiveClient", () => {
       expect(ws.sentData).toHaveLength(4);
     });
 
+    it("sends video JPEG frames on tagged-v1 screen channel 0x02 while connected", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const jpeg = new Uint8Array([0xff, 0xd8, 0x11, 0xff, 0xd9]);
+      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(true);
+      expect(ws.sentData).toHaveLength(1);
+      const sentFrame = ws.sentData[0] as Uint8Array;
+      expect(sentFrame[0]).toBe(MossBinaryTag.ScreenJpeg);
+      expect(Array.from(sentFrame.subarray(1))).toEqual(Array.from(jpeg));
+
+      client.close();
+      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(false);
+    });
+
     it("forwards input/output transcript and response.ended events to onTranscript", () => {
       const transcripts: MossLiveTranscriptEvent[] = [];
       const client = new OffscreenMossLiveClient({
