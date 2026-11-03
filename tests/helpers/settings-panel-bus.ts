@@ -25,6 +25,7 @@ export const SETTINGS_PANEL_BUS_REPLIES: RuntimeReplies = {
   "ai-providers-list": () => ({ ok: true, providers: [] }),
   "asr-providers-list": () => ({ ok: true, providers: [] }),
   "search-providers-list": () => ({ ok: true, providers: [] }),
+  "live-providers-list": () => ({ ok: true, providers: [] }),
   "save-settings": () => ({ ok: true })
 };
 

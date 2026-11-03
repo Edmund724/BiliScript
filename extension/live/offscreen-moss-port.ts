@@ -1,0 +1,130 @@
+// extension/live/offscreen-moss-port.ts
+// Offscreen 文档专属 MOSS-LIVE 端口管理状态机。
+// 提供代际隔离与释放保护，防止在异步加载客户端模块期间发生 stop/disconnect 导致的套接字泄漏。
+
+import type { MossLiveClientAction } from "./moss-live-protocol.js";
+
+export interface MossLiveClientInstance {
+  connect(): void;
+  close(): void;
+}
+
+export type MossLiveClientFactory = (options: {
+  wsUrl?: string;
+  onConnecting?: () => void;
+  onConnected?: () => void;
+  onError?: (error: Error) => void;
+  onClosed?: (event?: { code?: number; reason?: string }) => void;
+}) => MossLiveClientInstance;
+
+export interface AttachMossLivePortOptions {
+  loadClient: () => Promise<MossLiveClientFactory>;
+  postMessage?: (port: chrome.runtime.Port, message: unknown) => void;
+}
+
+export function attachMossLivePort(
+  port: chrome.runtime.Port,
+  options: AttachMossLivePortOptions
+): { dispose: () => void } {
+  const {
+    loadClient,
+    postMessage = (p, m) => {
+      try {
+        p.postMessage(m);
+      } catch {
+        // 忽略端口断开时的发送失败
+      }
+    }
+  } = options;
+
+  let disposed = false;
+  let currentGeneration = 0;
+  let liveClient: MossLiveClientInstance | null = null;
+
+  function cleanup(): void {
+    disposed = true;
+    currentGeneration += 1;
+    if (liveClient) {
+      try {
+        liveClient.close();
+      } catch {
+        // 忽略关闭异常
+      }
+      liveClient = null;
+    }
+  }
+
+  port.onMessage.addListener(async (rawMsg: unknown) => {
+    if (disposed) return;
+    const msg = rawMsg as MossLiveClientAction;
+    if (!msg) return;
+
+    if (msg.action === "start") {
+      currentGeneration += 1;
+      const generation = currentGeneration;
+
+      if (liveClient) {
+        liveClient.close();
+        liveClient = null;
+      }
+
+      try {
+        const createClient = await loadClient();
+        // 守卫 1：await 模块加载后校验代际与注销状态
+        if (disposed || generation !== currentGeneration) {
+          return;
+        }
+
+        const client = createClient({
+          wsUrl: msg.wsUrl,
+          onConnecting: () => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "connecting" });
+            }
+          },
+          onConnected: () => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "connected" });
+            }
+          },
+          onError: (err) => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "error", error: err.message });
+            }
+          },
+          onClosed: (ev) => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "closed", reason: ev?.reason });
+            }
+          }
+        });
+
+        // 守卫 2：在正式发起 connect 前再次核验代际与注销状态
+        if (disposed || generation !== currentGeneration) {
+          client.close();
+          return;
+        }
+
+        liveClient = client;
+        client.connect();
+      } catch (error) {
+        if (!disposed && generation === currentGeneration) {
+          postMessage(port, { type: "error", error: (error as Error)?.message || String(error) });
+        }
+      }
+    } else if (msg.action === "stop") {
+      currentGeneration += 1;
+      if (liveClient) {
+        liveClient.close();
+        liveClient = null;
+      }
+      postMessage(port, { type: "closed" });
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    cleanup();
+  });
+
+  return { dispose: cleanup };
+}

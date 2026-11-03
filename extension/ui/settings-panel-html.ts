@@ -25,6 +25,9 @@ export const SETTINGS_PANEL_DOM_IDS = {
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
+  liveProvidersList: "liveProvidersList",
+  liveProvidersEmpty: "liveProvidersEmpty",
+  addLiveProviderBtn: "addLiveProviderBtn",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -83,6 +86,10 @@ export function buildSettingsHtml(): string {
       <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      <div class="biliscript-set-h" style="margin-top: 20px;">实时伴看平台 (MOSS-LIVE)</div>
+      <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
+      <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="asr">

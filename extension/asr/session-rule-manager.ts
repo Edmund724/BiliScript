@@ -149,3 +149,56 @@ export function createAsrSessionRuleManager(): AsrSessionRuleManager {
     getOwner
   };
 }
+
+// ===== MOSS-LIVE 会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间） =====
+
+export const MOSS_LIVE_WS_RULE_ID = 9002;
+
+export function extractDomainFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname || "api.mosi.cn";
+  } catch {
+    return "api.mosi.cn";
+  }
+}
+
+/**
+ * 动态注入针对 WebSocket 握手的 Authorization 会话规则。
+ * 规避浏览器原生 WebSocket 无法自定义请求头与 MV3 SW 绕过 DNR 的限制。
+ */
+export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): Promise<void> {
+  const trimmedKey = String(apiKey || "").trim();
+  const domain = extractDomainFromUrl(baseUrl || "https://api.mosi.cn");
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [MOSS_LIVE_WS_RULE_ID],
+    addRules: [
+      {
+        id: MOSS_LIVE_WS_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            {
+              header: "Authorization",
+              operation: "set",
+              value: `Bearer ${trimmedKey}`
+            }
+          ]
+        },
+        condition: {
+          requestDomains: [domain],
+          resourceTypes: ["websocket"]
+        }
+      }
+    ]
+  });
+}
+
+/**
+ * 清除 MOSS-LIVE 专属会话规则（仅移除 9002，不触碰其他规则）。
+ */
+export async function clearMossLiveWsAuthRule(): Promise<void> {
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [MOSS_LIVE_WS_RULE_ID]
+  });
+}

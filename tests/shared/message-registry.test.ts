@@ -50,6 +50,11 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "segment-cache": "async",
   "offscreen-request-close": "async",
   "get-debug-log-gate": "async",
+  "live-providers-list": "async",
+  "live-providers-save": "async",
+  "live-providers-delete": "async",
+  "live-session-prepare": "async",
+  "live-session-cleanup": "async",
   // sync：处理器返回前已同步回包，通道不持有
   "ai-presets-list": "sync",
   "asr-presets-list": "sync",
@@ -61,11 +66,12 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "offload-task": "branch"
 };
 
-// payload 最小 schema 的登记面（协议约定：save-settings 的对象形状、三家
+// payload 最小 schema 的登记面（协议约定：save-settings 的对象形状、各家
 // providers-save 的数组形状、player-ai-quick-action 的 tabId 有限数）。
 const SHAPE_REGISTERED_TYPES = [
   "ai-providers-save",
   "asr-providers-save",
+  "live-providers-save",
   "player-ai-quick-action",
   "save-settings",
   "search-providers-save"
@@ -138,8 +144,8 @@ describe("SW 消息注册表：payload 最小 schema 判据", () => {
     expect(shape({ type: "save-settings", settings: [1, 2] })).toBe(false);
   });
 
-  it("三家 providers-save：providers 缺省 / 数组合法，字符串与 null 非法", () => {
-    for (const type of ["ai-providers-save", "asr-providers-save", "search-providers-save"] as const) {
+  it("各家 providers-save：providers 缺省 / 数组合法，字符串与 null 非法", () => {
+    for (const type of ["ai-providers-save", "asr-providers-save", "search-providers-save", "live-providers-save"] as const) {
       const shape = shapeOf(type);
       expect(shape({ type, providers: [{ id: "p" }] }), type).toBe(true);
       expect(shape({ type }), type).toBe(true);

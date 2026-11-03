@@ -97,6 +97,14 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M2.714 12h18.572"></path>
                 </svg>
               </button>
+              <!-- 实时伴看开关（ticket 01）：MOSS-LIVE 全双工语音伴看 -->
+              <button id="${ids.readingChatLiveBtn}" type="button" class="chat-live-btn" title="开启实时伴看 (MOSS-LIVE)" aria-label="开启实时伴看 (MOSS-LIVE)" data-state="idle">
+                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </button>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->

@@ -1,5 +1,5 @@
 // extension/ui/provider-family.ts
-// 平台三族（AI / ASR / 搜索）的行渲染声明 + 编辑器声明与组合点工厂。
+// 平台各族（AI / ASR / 搜索 / MOSS-LIVE）的行渲染声明 + 编辑器声明与组合点工厂。
 //
 // 架构评审候选 3 片 1：原 options-rows / options-asr-rows / options-search-rows
 // 三文件按族平铺同构配置（行类名 / id 前缀 / 预设回落 / 显示名 / 模型名 /
@@ -272,10 +272,50 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
   }
 };
 
+// MOSS-LIVE 实时伴看平台
+const LIVE_FAMILY: FamilyRowDeclaration = {
+  rowClass: "live-provider-row",
+  editClass: "provider-row-edit",
+  removeClass: "provider-row-remove",
+  idPrefix: "live_",
+  resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[0] || null,
+  displayName: (item, preset) => String(item.name || preset?.name || "MOSS-LIVE"),
+  displayModel: (item, preset) => String(item.model ?? preset?.model ?? "moss-live-1.0"),
+  activeRadio: {
+    classPrefix: "live",
+    title: "选用该平台进行实时伴看",
+    settingsKey: "activeLiveProviderId"
+  },
+  buildDeleteMessage: (providerId) => ({ type: "live-providers-delete", providerId }),
+  editor: {
+    title: "实时伴看平台",
+    defaultPresetId: (presets) => presets.find((p) => p.id === "moss-live")?.id || "moss-live",
+    apiKeyPlaceholder: (_preset, hasSavedKey) => (hasSavedKey ? "已保存" : "API Key"),
+    isKeyRequired: presetKeyRequired,
+    accessBadge: () => "",
+    modelSource: "input",
+    usesProtocol: false,
+    supportsPlatformTest: false,
+    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
+      upsert: {
+        id,
+        presetId: preset?.id || "moss-live",
+        name: name || preset?.name || "MOSS-LIVE",
+        type: preset?.type || "moss-live",
+        baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
+        model: model || preset?.model || "moss-live-1.0",
+        apiKey,
+        hasSavedKey
+      }
+    })
+  }
+};
+
 export const PROVIDER_FAMILY_ROWS: Record<ProviderEditorKind, FamilyRowDeclaration> = {
   ai: AI_FAMILY,
   asr: ASR_FAMILY,
-  search: SEARCH_FAMILY
+  search: SEARCH_FAMILY,
+  live: LIVE_FAMILY
 };
 
 // ===== 组合点工厂 =====

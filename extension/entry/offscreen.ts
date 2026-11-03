@@ -50,6 +50,8 @@ import {
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
+import { MOSS_LIVE_PORT_NAME, type MossLiveClientAction } from "../live/moss-live-protocol.js";
+import { attachMossLivePort } from "../live/offscreen-moss-port.js";
 // 概览链的平台请求代发（overview-offscreen-transport）：端口名常量与两端同址
 // 在 core/provider-http-offscreen.ts；本文档只认领端口并按活跃端口集簿记生命周期。
 import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
@@ -125,6 +127,13 @@ const asrHandlerLoader = createLazyLoader(async () => {
 });
 
 // AI 族懒加载：首条 "chat" 消息到达时拉 ../ai/ladder.js 的 runLadderChat。
+
+// MOSS-LIVE 客户端懒加载器
+const mossLiveLoader = createLazyLoader(async () => {
+  const { OffscreenMossLiveClient } = await import("../live/offscreen-moss-client.js");
+  return OffscreenMossLiveClient;
+});
+
 const ladderLoader = createLazyLoader(async () => {
   const { runLadderChat } = await import("../ai/ladder.js");
   return runLadderChat;
@@ -188,6 +197,18 @@ chrome.runtime.onConnect.addListener((port) => {
     attachProviderHttpPort(port);
     return;
   }
+  if (port && port.name === MOSS_LIVE_PORT_NAME) {
+    lifetime.trackLivePort(port);
+    attachMossLivePort(port, {
+      loadClient: async () => {
+        const MossClientClass = await mossLiveLoader.load();
+        return (opts) => new MossClientClass(opts);
+      },
+      postMessage: safePostMessage
+    });
+    return;
+  }
+
   if (!port || port.name !== OFFSCREEN_CHAT_PORT_NAME) {
     return;
   }

@@ -44,6 +44,7 @@ import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slid
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
@@ -120,6 +121,9 @@ function collectElements(host: HTMLElement) {
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
     addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
+    liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
+    liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
+    addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -431,6 +435,19 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
+  // MOSS-LIVE 伴看平台配置
+  const liveProviders = await loadLiveProviders();
+  const rawLiveActiveId = String(settings.activeLiveProviderId || "").trim();
+  const activeLiveId = resolveActiveLiveProviderId(liveProviders, rawLiveActiveId);
+  familyRows.live.render(elements.liveProvidersList, elements.liveProvidersEmpty, liveProviders, {
+    presets: LIVE_PROVIDER_PRESETS,
+    activeId: activeLiveId
+  });
+  if (activeLiveId !== rawLiveActiveId) {
+    state.patchSettings({ activeLiveProviderId: activeLiveId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: activeLiveId } });
+  }
+
   // ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const asrProviders = await loadAsrProviders();
   const rawAsrActiveId = String(settings.activeAsrProviderId || "").trim();
@@ -576,7 +593,11 @@ function loadSearchProviders(): Promise<ProviderRowItem[]> {
   return loadProviderRows(() => sendRuntimeMessage({ type: "search-providers-list" }));
 }
 
-// ===== provider 三族分派表 =====
+function loadLiveProviders(): Promise<ProviderRowItem[]> {
+  return loadProviderRows(() => sendRuntimeMessage({ type: "live-providers-list" }));
+}
+
+// ===== provider 各族分派表 =====
 
 type ProviderListResponse = {
   ok: boolean;
@@ -584,7 +605,7 @@ type ProviderListResponse = {
   error?: string;
 };
 
-// 族 → 设置面板分派表。AI/ASR/搜索三族在本面板的分派点（整列表消息、新平台 id
+// 族 → 设置面板分派表。各族在本面板的分派点（整列表消息、新平台 id
 // 生成、现查列表、预设装载、列表重渲、optional host 权限策略）同构，Record 全键覆盖。
 // 各族的消息 type 写在本族箭头函数体内、保持单字面量以保留 ResponseOf 推断。
 interface ProviderFamilyUi {
@@ -598,7 +619,35 @@ interface ProviderFamilyUi {
   optionalHostPermission: boolean;
 }
 
+function getActiveLiveProviderId(listNode: HTMLElement): string {
+  return familyRows.live.getActiveId?.(listNode) || "";
+}
+
+function rerenderLiveProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
+  const prevActiveId = getActiveLiveProviderId(elements.liveProvidersList);
+  const nextActiveId = resolveActiveLiveProviderId(providers, prevActiveId);
+  familyRows.live.render(elements.liveProvidersList, elements.liveProvidersEmpty, providers, {
+    presets: LIVE_PROVIDER_PRESETS,
+    activeId: nextActiveId
+  });
+  if (nextActiveId !== prevActiveId) {
+    state.patchSettings({ activeLiveProviderId: nextActiveId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: nextActiveId } });
+  }
+}
+
 const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
+  live: {
+    list: () => sendRuntimeMessage({ type: "live-providers-list" }),
+    loadProviders: loadLiveProviders,
+    save: (providers) => sendRuntimeMessage({ type: "live-providers-save", providers }),
+    remove: (providerId) => sendRuntimeMessage({ type: "live-providers-delete", providerId }),
+    generateId: () => familyRows.live.controller.generateId(),
+    presets: () => LIVE_PROVIDER_PRESETS,
+    rerender: (elements, providers) => rerenderLiveProviders(elements, providers),
+    optionalHostPermission: true
+  },
+
   ai: {
     list: () => sendRuntimeMessage({ type: "ai-providers-list" }),
     loadProviders: loadAiProviders,
@@ -1076,6 +1125,26 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
+    familyRows.live.controller.setDeleteHandler(async () => {
+    const remainingRows = Array.from(
+      elements.liveProvidersList.querySelectorAll<HTMLElement>(".live-provider-row")
+    );
+    const currentCheckedId = getActiveLiveProviderId(elements.liveProvidersList);
+    const nextActiveId = resolveActiveLiveProviderId(
+      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
+      currentCheckedId
+    );
+    if (nextActiveId && nextActiveId !== currentCheckedId) {
+      const targetRadio = remainingRows
+        .find((row) => row.dataset.providerId === nextActiveId)
+        ?.querySelector<HTMLInputElement>(".live-provider-active-radio");
+      if (targetRadio) targetRadio.checked = true;
+    }
+    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
+      state.patchSettings({ activeLiveProviderId: nextActiveId });
+      await sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: nextActiveId } });
+    }
+  });
   familyRows.asr.controller.setDeleteHandler(async () => {
     const remainingRows = Array.from(
       elements.asrProvidersList.querySelectorAll<HTMLElement>(".asr-provider-row")
@@ -1142,6 +1211,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 添加平台：直接进空白编辑 Modal
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
   elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
+  elements.addLiveProviderBtn.addEventListener("click", () => void openProviderEditorById("live", ""));
   elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
 
   // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。

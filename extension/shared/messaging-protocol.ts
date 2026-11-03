@@ -348,6 +348,60 @@ export type SearchProvidersDeleteResponse = {
   error?: string;
 };
 
+
+// ===== MOSS-LIVE 平台消息族 =====
+export type LiveProviderListEntry = {
+  id: string;
+  presetId: string;
+  name: string;
+  type: string;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  hasSavedKey: boolean;
+};
+
+export type LiveProvidersListMessage = { type: "live-providers-list" };
+export type LiveProvidersListResponse = {
+  ok: boolean;
+  providers?: LiveProviderListEntry[];
+  error?: string;
+};
+export type LiveProvidersSaveMessage = { type: "live-providers-save"; providers?: unknown };
+export type LiveProvidersSaveResponse = {
+  ok: boolean;
+  providers?: LiveProviderListEntry[];
+  error?: string;
+};
+export type LiveProvidersDeleteMessage = {
+  type: "live-providers-delete";
+  providerId?: string;
+};
+export type LiveProvidersDeleteResponse = {
+  ok: boolean;
+  providers?: LiveProviderListEntry[];
+  error?: string;
+};
+export type LiveSessionPrepareMessage = {
+  type: "live-session-prepare";
+  providerId?: string;
+  sessionId?: string;
+};
+export type LiveSessionPrepareResponse = {
+  ok: boolean;
+  provider?: LiveProviderListEntry;
+  sessionId?: string;
+  error?: string;
+};
+export type LiveSessionCleanupMessage = {
+  type: "live-session-cleanup";
+  sessionId?: string;
+};
+export type LiveSessionCleanupResponse = {
+  ok: boolean;
+  error?: string;
+};
+
 // ===== 联网搜索运行时解析（spec §1 S4/S6 / §12.1–§12.3）=====
 // offscreen 文档无 chrome.storage，工具循环的搜索配置（**回退链**：有序候选 +
 // 各自 Key + 单轮上限）经本消息单趟往返解析（仿 resolve-ai-provider）。链语义两模式
@@ -488,6 +542,11 @@ export type BackgroundMessage =
   | SearchProvidersListMessage
   | SearchProvidersSaveMessage
   | SearchProvidersDeleteMessage
+  | LiveProvidersListMessage
+  | LiveProvidersSaveMessage
+  | LiveProvidersDeleteMessage
+  | LiveSessionPrepareMessage
+  | LiveSessionCleanupMessage
   | ResolveSearchProviderMessage
   | SearchCacheMessage
   | SearchHealthMessage
@@ -729,7 +788,7 @@ function registerBackgroundMessage<M extends BackgroundMessage, R>(
   return registration as BackgroundMessageRegistration<M, R>;
 }
 
-// 三家 providers-save 共用的 payload 最小 schema 判据：providers 缺省放行，
+// 各家 providers-save 共用的 payload 最小 schema 判据：providers 缺省放行，
 // 出现时必须数组（null 也拒——与收敛前的 `!== undefined && !Array.isArray` 逐字同义）。
 function isProvidersArrayOrAbsent(message: {
   providers?: unknown;
@@ -851,6 +910,38 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   >({
     reply: "async"
   }),
+  "live-providers-list": registerBackgroundMessage<
+    LiveProvidersListMessage,
+    LiveProvidersListResponse
+  >({
+    reply: "async"
+  }),
+  "live-providers-save": registerBackgroundMessage<
+    LiveProvidersSaveMessage,
+    LiveProvidersSaveResponse
+  >({
+    reply: "async",
+    shape: isProvidersArrayOrAbsent
+  }),
+  "live-providers-delete": registerBackgroundMessage<
+    LiveProvidersDeleteMessage,
+    LiveProvidersDeleteResponse
+  >({
+    reply: "async"
+  }),
+  "live-session-prepare": registerBackgroundMessage<
+    LiveSessionPrepareMessage,
+    LiveSessionPrepareResponse
+  >({
+    reply: "async"
+  }),
+  "live-session-cleanup": registerBackgroundMessage<
+    LiveSessionCleanupMessage,
+    LiveSessionCleanupResponse
+  >({
+    reply: "async"
+  }),
+
   "resolve-search-provider": registerBackgroundMessage<
     ResolveSearchProviderMessage,
     ResolveSearchProviderResponse

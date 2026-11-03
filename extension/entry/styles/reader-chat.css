@@ -1435,6 +1435,70 @@
   color: var(--biliscript-reader-accent);
 }
 
+
+.biliscript-reading-chat .chat-live-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-live-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-live-btn:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-live-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-live-btn.is-connecting {
+  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent);
+  animation: biliscript-live-pulse 1.5s infinite ease-in-out;
+}
+
+.biliscript-reading-chat .chat-live-btn.is-connected {
+  border-color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-live-btn.is-connected:hover {
+  border-color: var(--biliscript-reader-danger);
+  color: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-chat .chat-live-btn.is-failure {
+  border-color: var(--biliscript-reader-danger);
+  color: var(--biliscript-reader-danger);
+  background: var(--biliscript-reader-danger-soft);
+}
+
+@keyframes biliscript-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.92); }
+}
+
 /* 地球转向（spec §4）：经线不整体平移/旋转，而是三条半弧各自在原位改曲率——这是
  * DeepSeek 智能搜索键那条地球的做法：任何一帧都有一条经线立着，不会出现「只剩赤道」
  * 的空帧。三条半弧共用同一模板（下极点 → 上极点，鼓出量 b 右正左负，K = 0.5523）：

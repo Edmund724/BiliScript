@@ -28,7 +28,7 @@ import type { AiProtocol } from "../ai/protocol-vocab.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import type { SettingsPanelObserverHost } from "./settings-panel-hidden.js";
 
-export type ProviderEditorKind = "ai" | "asr" | "search";
+export type ProviderEditorKind = "ai" | "asr" | "search" | "live";
 
 // 编辑草稿（候选 4 片 3）：Modal 的唯一真源。DOM 是它的投影——输入/change
 // 事件写 draft，模板与联动读 draft 后重投影；保存 / 测试连接 / 拉取弹窗 /

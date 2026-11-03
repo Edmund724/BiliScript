@@ -43,6 +43,10 @@ import {
   aiProviderStore
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
+import { liveProviderStore } from "../live/live-provider-store.js";
+import { resolveActiveLiveProviderId } from "../live/live-provider-normalize.js";
+import { liveSessionTracker } from "../live/live-session-tracker.js";
+import { setMossLiveWsAuthRule, clearMossLiveWsAuthRule } from "../asr/session-rule-manager.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
@@ -96,7 +100,8 @@ import {
   type MessageReplyDecision,
   type MessageSender,
   type ProviderListEntry,
-  type SearchProviderListEntry
+  type SearchProviderListEntry,
+  type LiveProviderListEntry
 } from "../shared/messaging-protocol.js";
 
 // ===== 写入口（落盘 + 失效一次做完）=====
@@ -424,6 +429,42 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
 // chrome.storage.local（arch-review-2026-09/05，替下 storage-local-bridge 垫片）。
 const handleSegmentCache = createSegmentCacheHandler();
 
+
+// MOSS-LIVE 伴看平台 CRUD 与会话准备处理器
+const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
+  loadProviders: liveProviderStore.loadProviders,
+  saveProviders: liveProviderStore.saveProviders,
+  deleteProvider: liveProviderStore.deleteProvider,
+  loadKeys: liveProviderStore.loadKeys
+});
+
+async function handleLiveSessionPrepare(
+  message: Msg<"live-session-prepare">,
+  _sender: MessageSender,
+  sendResponse: Reply<"live-session-prepare">
+): Promise<void> {
+  const result = await liveSessionTracker.prepare(message?.sessionId || "", {
+    getSettings: getSettingsSnapshot,
+    loadProviders: liveProviderStore.loadProviders,
+    loadKeys: liveProviderStore.loadKeys,
+    hasPermission: hasHostPermission,
+    setAuthRule: setMossLiveWsAuthRule,
+    clearAuthRule: clearMossLiveWsAuthRule,
+    ensureOffscreen: ensureChatOffscreenDocument,
+    resolveActiveId: resolveActiveLiveProviderId
+  });
+  sendResponse(result);
+}
+
+async function handleLiveSessionCleanup(
+  message: Msg<"live-session-cleanup">,
+  _sender: MessageSender,
+  sendResponse: Reply<"live-session-cleanup">
+): Promise<void> {
+  const result = await liveSessionTracker.cleanup(message?.sessionId, clearMossLiveWsAuthRule);
+  sendResponse(result);
+}
+
 // ===== 通用 offscreen 任务通道 =====
 
 // 把任务转发给"临时创建的 offscreen 文档"执行：asr-decode-prepare 建文档 +
@@ -497,6 +538,12 @@ const messageHandlerTable = {
   "search-providers-list": searchProviderHandlers.list,
   "search-providers-save": searchProviderHandlers.save,
   "search-providers-delete": searchProviderHandlers.remove,
+  "live-providers-list": liveProviderHandlers.list,
+  "live-providers-save": liveProviderHandlers.save,
+  "live-providers-delete": liveProviderHandlers.remove,
+  "live-session-prepare": handleLiveSessionPrepare,
+  "live-session-cleanup": handleLiveSessionCleanup,
+
   "resolve-search-provider": handleResolveSearchProvider,
   "search-cache": handleSearchCache,
   "search-health": handleSearchHealth,
@@ -515,6 +562,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   // 跨浏览器重启由平台自动清空，本清理是对扩展 reload/update 行为差异的兜底）。
   try {
     await reapAllSessionRules();
+    await clearMossLiveWsAuthRule();
   } catch (error) {
     // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
     logWarn("[BILISCRIPT] asr session rule reap on install/update failed", error);

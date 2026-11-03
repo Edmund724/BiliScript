@@ -142,6 +142,8 @@ import { logWarn } from "../shared/logging.js";
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
+import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
+import { liveProviderStore, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 
@@ -185,7 +187,8 @@ const els = {
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
-  intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null
+  intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
+  liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -217,6 +220,24 @@ function requireShell(): void {
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
+let liveController: LiveChatController | null = null;
+let cachedLiveTargetOrigin = "";
+
+async function refreshLiveTargetOrigin(): Promise<void> {
+  try {
+    const [providers, localSettings] = await Promise.all([
+      liveProviderStore.loadProviders(),
+      chrome.storage.sync.get(["activeLiveProviderId"])
+    ]);
+    const activeId = resolveActiveLiveProviderId(providers, (localSettings as any)?.activeLiveProviderId);
+    const active = providers.find((p) => p.id === activeId);
+    if (active?.baseUrl) {
+      cachedLiveTargetOrigin = active.baseUrl;
+    }
+  } catch {
+    // 忽略加载错误
+  }
+}
 
 // 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
 // false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
@@ -641,13 +662,16 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // aiProviderKeys，摘除即 unsubscribe。
   storageWatcher: () => watchStorageKeys(() => {
     void refreshProvidersAndPrefsAfterExternalChange();
+    void refreshLiveTargetOrigin();
   }, {
     sync: [
       "aiProviders",
       "aiSystemPrompt",
       "aiInitialQuickPrompts",
       "defaultModel",
-      "aiThinkingLevel"
+      "aiThinkingLevel",
+      "liveProviders",
+      "activeLiveProviderId"
     ],
     local: ["aiProviderKeys"]
   }),
@@ -695,7 +719,8 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
       refreshThinkingUi();
     }),
     conversationStore.loadAll(),
-    loadContextState()
+    loadContextState(),
+    refreshLiveTargetOrigin()
   ]);
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
@@ -717,6 +742,7 @@ async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
   // 都由这一次重判画出来，不再另调 renderChip）。
   await loadProvidersAndPrefs().catch(() => null);
+  void refreshLiveTargetOrigin();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -762,6 +788,7 @@ export function closeChatSession(): void {
     return;
   }
   sessionClosed = true;
+  liveController?.dispose();
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();
@@ -875,6 +902,18 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
   // 模型 chip：点开模型 + 思考档位面板。
+  if (els.liveBtn) {
+    liveController = createLiveChatController({
+      liveButton: els.liveBtn,
+      getTargetOrigin: () => cachedLiveTargetOrigin,
+      showNotice: (message, autoHideMs) => {
+        showConversationContextNotice(message, autoHideMs || 4000);
+      }
+    });
+    els.liveBtn.addEventListener("click", () => {
+      void liveController?.toggle();
+    });
+  }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的

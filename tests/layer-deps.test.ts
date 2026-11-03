@@ -29,7 +29,7 @@ const EXTENSION_ROOT = join(process.cwd(), "extension");
 // 否则第 4 条用例会红——这是有意的：结构变化要显式复核依赖方向。
 // search（联网搜索域，spec ai-chat-web-search）仿 asr：域类型/归一化/store
 // 在本层，预设数据与通用类型留在 core（search → core，无其它层指入）。
-const LAYERS = ["shared", "core", "ai", "asr", "bilibili", "chat", "notes", "reader", "search", "subtitle", "ui", "entry"];
+const LAYERS = ["shared", "core", "ai", "asr", "bilibili", "chat", "live", "notes", "reader", "search", "subtitle", "ui", "entry"];
 
 // 构建产物（两轮 esbuild 输出），不参与源码依赖图。
 const GENERATED_DIRS = new Set(["chunks", "icons"]);

@@ -1,6 +1,6 @@
 // extension/core/host-permissions.ts
 // 按需申请 host 权限的纯逻辑层（S2 收紧 host_permissions：通配符从常驻权限移入
-// optional_host_permissions，AI/ASR 平台域名在保存时按 origin 申请）。与 DOM
+// optional_host_permissions，各平台域名在保存时按 origin 申请）。与 DOM
 // 解耦，chrome.permissions 一律经参数注入（默认值在调用时取全局实现），供
 // options 页调用与单测驱动。
 //
@@ -17,7 +17,7 @@
 //   只会以 CORS 失败（原样抛出是「Failed to fetch」这种看不出原因的文案），故直接
 //   短路回可操作提示、不再发注定失败的请求；已授权时探针错误一律原样透传，权限
 //   判定不得覆盖 HTTP 层错误（拿到 HTTP 状态说明请求已到达服务端）；
-// - 删除 provider 时 origin 仍被任一存活 provider（AI 与 ASR 两组都要查）使用
+// - 删除 provider 时 origin 仍被任一存活 provider（各平台家族都要查）使用
 //   则不回收；被删项自身按 id 剔除——钩子早于 DOM row.remove() 执行，不剔除就
 //   永远判定「仍被占用」。
 
@@ -194,7 +194,7 @@ interface ProviderLike {
 }
 
 // 删除平台时该 origin 是否已无主：origin 提取失败按无主处理（不回收），存活
-// 列表（AI + ASR 两组拼接）中任何一项仍用同一 origin 就不回收。
+// 列表（各平台家族拼接）中任何一项仍用同一 origin 就不回收。
 // remainingProviders 必须是「不含被删项」的存活列表。
 export function collectOrphanOrigins(deletedBaseUrl: unknown, remainingProviders: unknown): string[] {
   const origin = extractOriginFromBaseUrl(deletedBaseUrl);
