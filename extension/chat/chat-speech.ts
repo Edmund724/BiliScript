@@ -1,4 +1,13 @@
 import { READING_SPEAKER_ICON, READING_STOP_ICON } from "../ui/reading-icons.js";
+import {
+  CHAT_SPEECH_PORT_NAME,
+  type ChatSpeechEvent,
+  type ChatSpeechPortMessage,
+  type ChatSpeechRequest,
+  type ChatSpeechVoice
+} from "./chat-speech-port.js";
+
+export type { ChatSpeechEvent, ChatSpeechVoice };
 
 const DEFAULT_MAX_CHUNK_CHARS = 16000;
 const BLOCK_TAGS = new Set([
@@ -6,16 +15,6 @@ const BLOCK_TAGS = new Set([
   "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6",
   "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "TR", "UL"
 ]);
-
-export interface ChatSpeechVoice {
-  voiceName?: string;
-  lang?: string;
-  remote?: boolean;
-}
-
-export interface ChatSpeechEvent {
-  type: string;
-}
 
 export interface ChatSpeechSpeakOptions {
   voiceName?: string;
@@ -40,11 +39,99 @@ export interface ChatSpeechController {
   stop(): void;
 }
 
-const chromeSpeechEngine: ChatSpeechEngine = {
-  getVoices: () => chrome.tts.getVoices(),
-  speak: (text, options) => chrome.tts.speak(text, options),
-  stop: () => chrome.tts.stop()
-};
+function createChromeSpeechEngine(): ChatSpeechEngine {
+  let port: chrome.runtime.Port | null = null;
+  let nextRequestId = 1;
+  const voiceRequests = new Map<number, {
+    resolve: (voices: ChatSpeechVoice[]) => void;
+    reject: (error: Error) => void;
+  }>();
+  const eventListeners = new Map<number, ((event: ChatSpeechEvent) => void) | undefined>();
+
+  function ensurePort(): chrome.runtime.Port {
+    if (port) {
+      return port;
+    }
+    const connected = chrome.runtime.connect({ name: CHAT_SPEECH_PORT_NAME });
+    port = connected;
+    connected.onMessage.addListener((value: unknown) => {
+      const message = value as ChatSpeechPortMessage;
+      if (message.type === "voices") {
+        const pending = voiceRequests.get(message.requestId);
+        voiceRequests.delete(message.requestId);
+        pending?.resolve(message.voices);
+        return;
+      }
+      if (message.type === "error") {
+        const pending = voiceRequests.get(message.requestId);
+        if (pending) {
+          voiceRequests.delete(message.requestId);
+          pending.reject(new Error(message.message));
+          return;
+        }
+        const listener = eventListeners.get(message.requestId);
+        eventListeners.delete(message.requestId);
+        listener?.({ type: "error", errorMessage: message.message });
+        return;
+      }
+      const listener = eventListeners.get(message.requestId);
+      if (["end", "error", "interrupted", "cancelled"].includes(message.event.type)) {
+        eventListeners.delete(message.requestId);
+      }
+      listener?.(message.event);
+    });
+    connected.onDisconnect.addListener(() => {
+      if (port === connected) {
+        port = null;
+      }
+      const error = new Error(chrome.runtime.lastError?.message || "Speech port disconnected");
+      voiceRequests.forEach((pending) => pending.reject(error));
+      voiceRequests.clear();
+      const listeners = Array.from(eventListeners.values());
+      eventListeners.clear();
+      listeners.forEach((listener) => listener?.({ type: "error", errorMessage: error.message }));
+    });
+    return connected;
+  }
+
+  function send(request: ChatSpeechRequest): void {
+    ensurePort().postMessage(request);
+  }
+
+  return {
+    getVoices: () => new Promise<ChatSpeechVoice[]>((resolve, reject) => {
+      const requestId = nextRequestId++;
+      voiceRequests.set(requestId, { resolve, reject });
+      try {
+        send({ type: "get-voices", requestId });
+      } catch (error) {
+        voiceRequests.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }),
+    speak: (text, options) => {
+      const requestId = nextRequestId++;
+      eventListeners.set(requestId, options.onEvent);
+      try {
+        send({ type: "speak", requestId, text, voiceName: options.voiceName, lang: options.lang });
+      } catch (error) {
+        eventListeners.delete(requestId);
+        throw error;
+      }
+    },
+    stop: () => {
+      eventListeners.clear();
+      if (!port) {
+        return;
+      }
+      try {
+        port.postMessage({ type: "stop" } satisfies ChatSpeechRequest);
+      } catch {}
+    }
+  };
+}
+
+const chromeSpeechEngine = createChromeSpeechEngine();
 
 export function speechTextFromElement(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;

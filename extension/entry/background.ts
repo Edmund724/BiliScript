@@ -80,6 +80,7 @@ import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
 import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 // PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import { attachChatSpeechPort } from "../chat/chat-speech-bg.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE, ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
 // 消息入口策略（路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径）：组合根只注入
@@ -579,14 +580,16 @@ chrome.action?.onClicked?.addListener(
 
 // ===== 入口监听 =====
 
-// 08 票 SW 保活：接受 offscreen 运行期间的长连端口（MV3：SW 生命周期与活动
-// 端口绑定，接受持有即钉住，无消息往来）；可选链与 chrome.action 先例一致，
+// 内容脚本没有 chrome.tts：朗读请求与事件经专用端口在 SW 转发。
+// offscreen 保活端口接受持有即生效；可选链与 chrome.action 先例一致，
 // 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
 chrome.runtime.onConnect?.addListener?.((port) => {
+  if (attachChatSpeechPort(port)) {
+    return;
+  }
   if (!isSwKeepalivePort(port)) {
     return;
   }
-  // 保活端口无消息往来：接受持有即生效。
 });
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
