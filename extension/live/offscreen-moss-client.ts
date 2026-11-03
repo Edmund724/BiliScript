@@ -2,7 +2,7 @@
 // 运行在 Offscreen Document 中的 MOSS-LIVE WebSocket 客户端。
 // 持有与 wss://api.mosi.cn/v1/realtime 的真实 WebSocket 连接，负责：
 // 1. 会话握手（attach_session -> session_attached -> media.mode + session.update -> session.updated -> mic_state）
-// 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00 前缀）与静音控制
+// 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00）与视频 JPEG（0x02）、静音控制
 // 3. 下行 48kHz 单声道 PCM S16LE 无缝队列播放与 playback.chunk.completed / playback.completed / playback.stopped 回执
 // 4. 双端增量/终态字幕事件转发
 
@@ -487,6 +487,13 @@ export class OffscreenMossLiveClient {
       return false;
     }
     return this.sendBinary(MossBinaryTag.AudioPcm, pcmBuffer);
+  }
+
+  sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
+    if (this.state !== "connected") {
+      return false;
+    }
+    return this.sendBinary(MossBinaryTag.ScreenJpeg, jpegBuffer);
   }
 
   sendJson(payload: unknown): boolean {

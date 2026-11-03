@@ -347,6 +347,7 @@ export type MossLiveClientAction =
   | { action: "start"; wsUrl?: string }
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }
+  | { action: "video"; jpegBase64: string }
   | { action: "mic_state"; enabled: boolean };
 
 /** Offscreen 端口下行（Offscreen -> Client）消息 */

@@ -1,7 +1,7 @@
 // extension/live/offscreen-moss-port.ts
 // Offscreen 文档专属 MOSS-LIVE 端口管理状态机。
 // 提供代际隔离与释放保护，防止在异步加载客户端模块期间发生 stop/disconnect 导致的套接字泄漏，
-// 并负责跨 Port 转发上行 Base64 音频帧、麦克风静音状态与下行双端字幕事件。
+// 并负责跨 Port 转发上行 Base64 音频/视频帧、麦克风静音状态与下行双端字幕事件。
 
 import {
   decodeBase64Bytes,
@@ -13,6 +13,7 @@ export interface MossLiveClientInstance {
   connect(): void;
   close(): void;
   sendAudioPcm?(pcmBuffer: ArrayBufferLike): boolean;
+  sendVideoJpeg?(jpegBuffer: ArrayBufferLike): boolean;
   setMicEnabled?(enabled: boolean): void;
 }
 
@@ -130,6 +131,12 @@ export function attachMossLivePort(
       const bytes = decodeBase64Bytes(msg.pcmBase64);
       if (bytes.byteLength > 0) {
         liveClient.sendAudioPcm(bytes.buffer);
+      }
+    } else if (msg.action === "video") {
+      if (!liveClient?.sendVideoJpeg || !msg.jpegBase64) return;
+      const bytes = decodeBase64Bytes(msg.jpegBase64);
+      if (bytes.byteLength > 0) {
+        liveClient.sendVideoJpeg(bytes.buffer);
       }
     } else if (msg.action === "mic_state") {
       liveClient?.setMicEnabled?.(Boolean(msg.enabled));

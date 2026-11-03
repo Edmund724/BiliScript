@@ -1,6 +1,6 @@
 // extension/live/live-chat-controller.ts
 // AI 对话面板中 MOSS-LIVE 实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、采集麦克风音频、管理静音/挂断、转发双端字幕事件并处理断连/清理。
+// 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕事件并处理断连/清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
@@ -14,6 +14,11 @@ import {
   type PageAudioCaptureOptions,
   type PageAudioCaptureSession
 } from "./page-media-capture.js";
+import {
+  createPageVideoFrameCapture,
+  type PageVideoFrameCaptureOptions,
+  type PageVideoFrameCaptureSession
+} from "./page-video-frame-capture.js";
 import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
@@ -29,6 +34,7 @@ export interface LiveChatControllerDeps {
   sendRuntimeMessage?: typeof defaultSendRuntimeMessage;
   requestOrigins?: typeof requestProviderOriginsViaBackground;
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
+  startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
   createTranscriptMerger?: () => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
 }
@@ -54,6 +60,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     sendRuntimeMessage = defaultSendRuntimeMessage,
     requestOrigins = requestProviderOriginsViaBackground,
     startAudioCapture = createPageAudioCapture,
+    startVideoCapture = createPageVideoFrameCapture,
     createTranscriptMerger,
     onTranscript
   } = deps;
@@ -64,6 +71,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
+  let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
 
@@ -114,11 +122,38 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } catch {}
       activeAudioCapture = null;
     }
+    if (activeVideoCapture) {
+      try {
+        activeVideoCapture.stop();
+      } catch {}
+      activeVideoCapture = null;
+    }
     if (activeMerger) {
       try {
         activeMerger.dispose();
       } catch {}
       activeMerger = null;
+    }
+  }
+
+  function startActiveVideoCapture(generation: number): void {
+    if (activeVideoCapture || generation !== currentGeneration || state !== "connected") return;
+    try {
+      activeVideoCapture = startVideoCapture({
+        onJpegFrame: (jpegBytes) => {
+          if (generation !== currentGeneration || state !== "connected" || !activePort) return;
+          try {
+            activePort.postMessage({
+              action: "video",
+              jpegBase64: encodeBase64Bytes(jpegBytes)
+            });
+          } catch {
+            // 忽略断连瞬间的发送异常
+          }
+        }
+      });
+    } catch {
+      activeVideoCapture = null;
     }
   }
 
@@ -269,6 +304,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connecting");
       } else if (msg.type === "connected") {
         updateUi("connected");
+        startActiveVideoCapture(generation);
       } else if (msg.type === "transcript") {
         if (state === "connected" || state === "connecting") {
           activeMerger?.handleEvent(msg.event);
