@@ -138,6 +138,7 @@ bindReadingTranscribeBanner();
 export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
   onNotice: (text) => notifyReaderPresenter({ kind: "status", text })
 });
+subtitleToolbar.bindEvents();
 
 // 句内搜索生产实例（工厂与依赖注入见 ./subtitle-search.ts）：DOM 访问绑 reader
 // 的常驻 id，补渲染/手动交互绑端口与 SYNC。对外具名入口（refresh / move / clear）

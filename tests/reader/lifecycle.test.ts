@@ -230,6 +230,21 @@ describe("reader 生命周期", () => {
     shell.closeReadingView();
   });
 
+  it("工具条相位订阅随 reader 装配绑定，无需壳侧再次触发", async () => {
+    state.reader.readingViewOpen = true;
+    const select = document.createElement("select");
+    select.id = ids.readingSubtitleSelect;
+    document.body.appendChild(select);
+    shell.renderReadingView();
+
+    const customSelect = await import("../../extension/ui/custom-select.js");
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+    const rebuild = vi.spyOn(customSelect, "rebuildCustomSelectOptions");
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+
+    expect(rebuild).toHaveBeenCalled();
+  });
+
   describe("字幕就绪副作用单一收口（arch-review-batch3/01）", () => {
     it("subtitle-ready 通知：驱动全量副作用（重投影 + 状态行 + 播放同步 + 双语装载）", async () => {
       state.clip.bvid = "BV1test000000";
