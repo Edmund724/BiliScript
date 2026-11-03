@@ -17,7 +17,7 @@
 //（runIfCurrent / captureSession），不再手抄代际比对。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
+
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
@@ -28,10 +28,10 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 // 列表（ai-providers-list）+ 官方端点判定，再按记录 id 取 Key（get-ai-provider-key）。
 import {
   DEEPSEEK_ROW_STATUS_TEXT,
-  resolveDeepseekCredential,
-  type DeepseekCredentialStatus
+  queryDeepseekCredentialKey
+
 } from "../search/deepseek-credential.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
+
 import { wireModelPicker } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
@@ -283,44 +283,36 @@ export async function runTest(): Promise<void> {
   // tests/ui/provider-editor.test.ts 的点击当拍核验）。已授权时 Chrome 直接放行
   // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
   const session = captureSession();
-  await session.run(
-    () => requestProviderOriginsViaBackground([baseUrl]),
+  await session.runWithOriginPreflight(
+    [baseUrl],
+    () => {
+      const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
+      const apiKey = draft.apiKey.trim();
+      const name = draft.name.trim() || preset?.name || "自定义";
+      return testAsrConnection({
+        id: state.editingId,
+        name,
+        type: preset?.type || "openai-transcriptions",
+        baseUrl,
+        model,
+        ...(apiKey ? { apiKey } : {})
+      });
+    },
     {
-      ok: (permission) => {
-        if (!permission.ok) {
-          showStatus(permission.error || "未取得该平台域名权限，无法测试连接", true);
-          return;
-        }
+      beforeWork: () => {
         setBusy(true);
         showStatus("正在测试...");
-        const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
-        const apiKey = draft.apiKey.trim();
-        const name = draft.name.trim() || preset?.name || "自定义";
-        // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
-        void session.run(
-          () =>
-            testAsrConnection({
-              id: state.editingId,
-              name,
-              type: preset?.type || "openai-transcriptions",
-              baseUrl,
-              model,
-              ...(apiKey ? { apiKey } : {})
-            }),
-          {
-            ok: (resp) => {
-              if (!resp?.ok) {
-                setBusy(false);
-                showStatus(`失败：${resp?.error || "未知错误"}`, true);
-                return;
-              }
-              // 测试成功：只回报连通性，不写设置——用户显式点「保存」才落盘
-              setBusy(false);
-              showStatus("连接成功");
-            }
-            // fail 缺省：探针异常原样上抛（与既有 void 调用语义一致）
-          }
-        );
+      },
+      denied: (error) => {
+        showStatus(error || "未取得该平台域名权限，无法测试连接", true);
+      },
+      ok: (resp) => {
+        setBusy(false);
+        if (!resp?.ok) {
+          showStatus(`失败：${resp?.error || "未知错误"}`, true);
+          return;
+        }
+        showStatus("连接成功");
       }
     }
   );
@@ -333,26 +325,6 @@ export async function runTest(): Promise<void> {
 // 前置（baseUrl 空 / Key 必填但空）是本地校验，不是测试态：不发起请求。
 export const SEARCH_TEST_QUERY = "联网搜索测试";
 
-// DeepSeek 搜索测试的 Key 解析（凭据引用，与链装配同源判定）：读 AI 族列表找
-// 第一条「启用 + presetId deepseek + 官方端点」记录，再按记录 id 取 Key。
-// 任一步失败返回空 Key + 对应状态（状态文案单源在 DEEPSEEK_ROW_STATUS_TEXT）。
-async function resolveDeepseekKeyForSearchTest(): Promise<{ key: string; status: DeepseekCredentialStatus }> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
-    if (!resp?.ok || !Array.isArray(resp.providers)) {
-      return { key: "", status: "no-record" };
-    }
-    const { status, record } = resolveDeepseekCredential(resp.providers);
-    if (status !== "ok" || !record || !record.id) {
-      return { key: "", status };
-    }
-    const keyResp = await sendRuntimeMessage({ type: "get-ai-provider-key", providerId: record.id });
-    const key = keyResp?.ok ? String(keyResp.apiKey || "").trim() : "";
-    return { key, status: key ? "ok" : "no-key" };
-  } catch {
-    return { key: "", status: "no-record" };
-  }
-}
 
 // 五态：HTTP 200 有结果 →「连接成功 · N 条结果」；200 且 0 条 →「未返回结果」
 // （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
@@ -379,7 +351,7 @@ export async function runSearchTest(): Promise<void> {
   // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
   // 同源判定）；取不到按状态给三态文案之一，不发起请求。
   if (preset?.id === "deepseek") {
-    const resolved = await resolveDeepseekKeyForSearchTest();
+    const resolved = await queryDeepseekCredentialKey();
     if (!resolved.key) {
       showStatus(DEEPSEEK_ROW_STATUS_TEXT[resolved.status], true);
       return;

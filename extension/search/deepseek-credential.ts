@@ -11,6 +11,7 @@
 // search/search-provider-store.ts 头注）。
 
 import { PRESETS, effectivePresetBaseUrl, type AiProviderPreset } from "../core/presets.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 
 // DeepSeek 官方 API host（凭据引用唯一信任的端点；中转 / 反代 / 克隆站一律不通过）。
 export const DEEPSEEK_OFFICIAL_HOST = "api.deepseek.com";
@@ -105,3 +106,30 @@ export const DEEPSEEK_ROW_STATUS_TEXT: Record<DeepseekCredentialStatus, string> 
   unofficial: "AI 平台配置的并非 DeepSeek 官方接口地址",
   "no-record": "请先在 AI 平台添加官方 DeepSeek 记录"
 };
+
+export type DeepseekMessageSender = (message: { type: "ai-providers-list" } | { type: "get-ai-provider-key"; providerId: string }) => Promise<any>;
+
+// 凭据引用运行时 Key 查询（编辑 Modal 搜索测试与测试链路单点）：
+// 经背景消息读取 AI 平台列表（ai-providers-list），选出第一条官方端点合格记录，
+// 再向凭据库查询其 Key（get-ai-provider-key）。
+// 任一步失败或无合格记录时返回空 Key 与对应状态枚举。
+export async function queryDeepseekCredentialKey(
+  sender: DeepseekMessageSender = sendRuntimeMessage,
+  presets: readonly AiProviderPreset[] = PRESETS
+): Promise<{ key: string; status: DeepseekCredentialStatus }> {
+  try {
+    const resp = await sender({ type: "ai-providers-list" });
+    if (!resp?.ok || !Array.isArray(resp.providers)) {
+      return { key: "", status: "no-record" };
+    }
+    const { status, record } = resolveDeepseekCredential(resp.providers, presets);
+    if (status !== "ok" || !record || !record.id) {
+      return { key: "", status };
+    }
+    const keyResp = await sender({ type: "get-ai-provider-key", providerId: record.id });
+    const key = keyResp?.ok ? String(keyResp.apiKey || "").trim() : "";
+    return { key, status: key ? "ok" : "no-key" };
+  } catch {
+    return { key: "", status: "no-record" };
+  }
+}

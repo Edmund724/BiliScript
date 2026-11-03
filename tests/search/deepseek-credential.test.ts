@@ -11,6 +11,7 @@ import {
   DEEPSEEK_OFFICIAL_HOST,
   DEEPSEEK_ROW_STATUS_TEXT,
   isOfficialDeepseekEndpoint,
+  queryDeepseekCredentialKey,
   resolveDeepseekCredential,
   resolveDeepseekSearchKey
 } from "../../extension/search/deepseek-credential.js";
@@ -127,5 +128,48 @@ describe("行状态三态文案", () => {
     expect(DEEPSEEK_ROW_STATUS_TEXT["no-record"]).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
     expect(DEEPSEEK_ROW_STATUS_TEXT["no-key"]).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
     expect(DEEPSEEK_ROW_STATUS_TEXT.unofficial).toBe("AI 平台配置的并非 DeepSeek 官方接口地址");
+  });
+});
+
+describe("凭据引用运行时 Key 查询（queryDeepseekCredentialKey）", () => {
+  it("合格记录且 Key 查询成功 → { key, status: 'ok' }", async () => {
+    const sender = async (msg: any) => {
+      if (msg.type === "ai-providers-list") {
+        return { ok: true, providers: [OFFICIAL_AI] };
+      }
+      if (msg.type === "get-ai-provider-key") {
+        return { ok: true, apiKey: "  sk-live-deepseek  " };
+      }
+      return { ok: false };
+    };
+    const res = await queryDeepseekCredentialKey(sender);
+    expect(res).toEqual({ key: "sk-live-deepseek", status: "ok" });
+  });
+
+  it("无合格记录时返回空 Key 与对应状态", async () => {
+    const senderNoRecord = async () => ({ ok: true, providers: [] });
+    expect(await queryDeepseekCredentialKey(senderNoRecord)).toEqual({ key: "", status: "no-record" });
+
+    const senderUnofficial = async () => ({
+      ok: true,
+      providers: [{ ...OFFICIAL_AI, baseUrl: "https://proxy.example.com/v1" }]
+    });
+    expect(await queryDeepseekCredentialKey(senderUnofficial)).toEqual({ key: "", status: "unofficial" });
+
+    const senderNoKey = async () => ({
+      ok: true,
+      providers: [{ ...OFFICIAL_AI, hasSavedKey: false }]
+    });
+    expect(await queryDeepseekCredentialKey(senderNoKey)).toEqual({ key: "", status: "no-key" });
+  });
+
+  it("消息异常或未成功时安全兜底为 no-record", async () => {
+    const failingSender = async () => {
+      throw new Error("transport error");
+    };
+    expect(await queryDeepseekCredentialKey(failingSender)).toEqual({ key: "", status: "no-record" });
+
+    const notOkSender = async () => ({ ok: false });
+    expect(await queryDeepseekCredentialKey(notOkSender)).toEqual({ key: "", status: "no-record" });
   });
 });

@@ -8,7 +8,9 @@
 //   S3 探针在飞时关旧开新：ASR 探针回执同样不得写新会话状态行；
 //   S4 行级测试在飞时删行：行已脱离文档 → 回执不得写已删行（存活判据）；
 //   S5 「获取可用模型」权限在飞时关 Modal：权限回执不得触发模型请求
-//      （弹窗存活判据）。
+//      （弹窗存活判据）；
+//   S6 runWithOriginPreflight 权限在飞时关 Modal：丢弃回执与后续工作；
+//   S7 runWithOriginPreflight 权限被拒且会话当前：触发 denied 分支。
 //
 // 驱动方式：直接 openProviderEditor + 受控 Promise，不经设置面板。
 
@@ -241,5 +243,61 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
     expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+  });
+
+  it("S6 runWithOriginPreflight 同步触发权限申请，并在会话关闭时丢弃权限成功回执与后续工作", async () => {
+    const editor = await import("../../extension/ui/provider-editor.js");
+    const { captureSession } = await import("../../extension/ui/provider-editor-state.js");
+    let resolvePermission: ((res: { ok: boolean }) => void) | undefined;
+    const requestOriginsMock = vi.fn(
+      () => new Promise<{ ok: boolean }>((resolve) => { resolvePermission = resolve; })
+    );
+    const work = vi.fn(async () => "done");
+    const ok = vi.fn();
+    const denied = vi.fn();
+
+    editor.openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
+    const session = captureSession();
+
+    const p = session.runWithOriginPreflight(
+      ["https://test.example.com"],
+      work,
+      { ok, denied },
+      requestOriginsMock
+    );
+
+    expect(requestOriginsMock, "权限代申请必须同步触发").toHaveBeenCalledWith(["https://test.example.com"]);
+    expect(work).not.toHaveBeenCalled();
+
+    editor.closeProviderEditor(true);
+    resolvePermission!({ ok: true });
+    await p;
+
+    expect(work, "会话关闭后不得触发 work").not.toHaveBeenCalled();
+    expect(ok).not.toHaveBeenCalled();
+    expect(denied).not.toHaveBeenCalled();
+  });
+
+  it("S7 runWithOriginPreflight 权限被拒且会话当前时触发 denied 分支", async () => {
+    const editor = await import("../../extension/ui/provider-editor.js");
+    const { captureSession } = await import("../../extension/ui/provider-editor-state.js");
+    const requestOriginsMock = vi.fn(async () => ({ ok: false, error: "用户取消授权" }));
+    const work = vi.fn(async () => "done");
+    const ok = vi.fn();
+    const denied = vi.fn();
+
+    editor.openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
+    const session = captureSession();
+
+    await session.runWithOriginPreflight(
+      ["https://test.example.com"],
+      work,
+      { ok, denied },
+      requestOriginsMock
+    );
+
+    expect(denied).toHaveBeenCalledWith("用户取消授权");
+    expect(work).not.toHaveBeenCalled();
+    expect(ok).not.toHaveBeenCalled();
   });
 });

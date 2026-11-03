@@ -233,7 +233,7 @@ _Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付�
 
 **凭据引用**:
 跨族读 Key 的唯一例外：搜索侧 DeepSeek 记录不设 Key 输入框，发请求时实时读 AI 族「第一条启用、`presetId` 为 `deepseek` 且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 搜索立即跟随，删掉该记录搜索侧自动降级为链中跳过；不提供搜索侧覆盖 Key（「只想用 DeepSeek 搜索」的用户在 AI 平台加一条记录即可）。方向单向（搜索读 AI，绝不回写）；三族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys`）隔离不变式的其余部分照旧。
-代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 search/resolve-search-provider-handler.ts 工厂消费，行状态文案由 settings-panel 经 `statusNote` 注入）
+代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `queryDeepseekCredentialKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 search/resolve-search-provider-handler.ts 工厂消费，行状态文案由 settings-panel 经 `statusNote` 注入，Modal 搜索测试经 `queryDeepseekCredentialKey` 查询）
 _Avoid_: 把 Key 复制进 `searchProviderKeys`（双写腐化：AI 侧改/删后搜索侧那份静默过期）、搜索侧覆盖 Key 输入框
 
 **官方端点判定**:
