@@ -27,6 +27,7 @@
 | [0019](0019-settings-toggle-custom-drawn-boundary.md) | 设置抽屉布尔开关自绘 toggle-switch，操作型复选框保持原生 | 有效 | 自绘控件边界（持久设置布尔开关可自绘）；推翻 reader-settings-shell.css「不引入自定义替代控件」旧约定 |
 | [0020](0020-dropdown-popover-spring-motion.md) | 下拉与弹层控件统一 @starting-style 离散过渡展开与淡出 | 有效 | 统一四类下拉/弹层控件开合手感；纯 CSS allow-discrete 单源驱动 |
 | [0021](0021-continuous-corner-squircle.md) | 全量矩形圆角容器与控件统一采用 corner-shape: superellipse(1.25) 连续圆角 | 有效 | 覆盖 ABCD 四类非胶囊/非正圆圆角规则与 Canvas 金句卡导出；曲线统一走 --biliscript-corner-shape 语义令牌，胶囊与正圆显式声明 round；取 1.25 而非 squircle(2)，后者观感上圆角变小；保持既有 border-radius 半径令牌不变 |
+| [0022](0022-reader-domain-wide-type-and-dual-access.md) | reader 域入口保留宽类型面与双访问通道 | 有效 | gate 供常驻/壳侧动态访问，域内同步直 import；不收窄 ReaderDomain，不改字符串分发 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 
@@ -46,6 +47,8 @@
   「后果」原文：「架构评审（含 AI 代理）不得再提议「为消除转写而按协议拆分档位事实」，除非重开条件成立。」
 - **ADR-0015：不得提议把 `default` 并入强度阶梯**（它会污染 clamp 序），**也不得以「条目 ≤1」为由隐藏零档行的一级行**（用户裁定零档行也要能主动选）。
   「后果」原文：「词表从一张变两张，新增档位值时必须同时问『它进不进 clamp 序』——这是本 ADR 的唯一新增纪律。」显示理由见决定 2。
+- **ADR-0022：不得提议收窄 ReaderDomain 或统一 reader 域双访问通道**。
+  「后果」原文：「架构评审不得再提议收窄 `ReaderDomain`、统一这两条访问通道或改用字符串分发。」
 
 红线只覆盖「已被否决过的方向」，不是「本文没写就不许做」；没裁过的事按常规评审走。
 
