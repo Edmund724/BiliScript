@@ -11,7 +11,7 @@
 // chrome.declarativeNetRequest / chrome.offscreen.createDocument 的最小表面
 // 声明见本目录 chrome-asr-types.d.ts（共享 chrome-types.d.ts 未覆盖）。
 
-import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../shared/offscreen-constants.js";
+import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASONS } from "../shared/offscreen-constants.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "./protocol.js";
 import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
 
@@ -176,10 +176,10 @@ async function ensureAsrOffscreenDocument(): Promise<void> {
       url: chrome.runtime.getURL(OFFSCREEN_URL),
       // 不用 AUDIO_PLAYBACK：Chrome 对无真实播放的 AUDIO_PLAYBACK 文档
       // 30 秒强制关闭（长视频解码 >30s 会「音频解码中断」）；本文档实际
-      // 是解码 + 转写（WAV Blob 仅在本 context 内经 FormData 上传），
-      // BLOBS 不受该限制。取值统一收拢在 shared/offscreen-constants.js
-      //（与 sidepanel 聊天自愈的创建方共用同一 reason）。
-      reasons: [OFFSCREEN_CREATE_REASON],
+      // 是解码 + 转写（WAV Blob 仅在本 context 内经 FormData 上传）以及
+      // MOSS-LIVE WebSocket 伴看连接。取值统一收拢在 shared/offscreen-constants.js
+      //（与聊天通道的创建方共用同一 reasons 列表）。
+      reasons: [...OFFSCREEN_CREATE_REASONS],
       justification: "Download, decode, slice and transcribe video audio for ASR subtitles."
     });
   } catch (error) {

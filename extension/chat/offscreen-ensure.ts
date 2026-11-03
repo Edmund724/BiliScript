@@ -18,7 +18,7 @@
 
 import { logWarn } from "../shared/logging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
-import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../shared/offscreen-constants.js";
+import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASONS } from "../shared/offscreen-constants.js";
 
 // Chrome createDocument 的「offscreen 文档已存在」错误判定（与 asr/
 // offscreen-bridge.bg.ts 同口径，r1 审查核实）：真实文案是 "Only a single
@@ -42,10 +42,11 @@ export async function ensureChatOffscreenDocument(): Promise<boolean> {
   try {
     await chrome.offscreen.createDocument({
       url,
-      // reason 统一取 BLOBS（shared/offscreen-constants.js）：同一文档由本处
-      // 与 background asr-decode-prepare 共同创建/复用，先到者定 reason；
+      // reason 统一取 BLOBS 与 WEBSOCKET（shared/offscreen-constants.js）：同一文档由本处
+      // 与 background asr-decode-prepare 共同创建/复用，先到者定 reason；同时声明
+      // BLOBS（承载 ASR 解码与聊天流）与 WEBSOCKET（承载 MOSS-LIVE 伴看）；
       // 不能用 AUDIO_PLAYBACK（无真实播放 30s 强制关闭，会打断长视频解码）。
-      reasons: [OFFSCREEN_CREATE_REASON],
+      reasons: [...OFFSCREEN_CREATE_REASONS],
       justification: "Run AI stream fetch in background to avoid Side Panel freeze when tab is hidden."
     });
     return true;
