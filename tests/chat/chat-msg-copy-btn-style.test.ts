@@ -71,7 +71,7 @@ describe("AI 对话消息操作键的样式契约", () => {
     const exportBlock = ruleBody(css, "\\.biliscript-reading-chat \\.chat-msg-export-btn svg");
 
     expect(declaration(copyBlock, "width")).toBe("20px");
-    expect(declaration(speakBlock, "width")).toBe("17px");
+    expect(declaration(speakBlock, "width")).toBe("19px");
     expect(declaration(regenBlock, "width")).toBe("15px");
     expect(declaration(exportBlock, "width")).toBe("19px");
   });
