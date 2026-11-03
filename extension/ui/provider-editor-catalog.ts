@@ -14,7 +14,6 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
-import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
 import { captureSession, editDraft, getDialog, readField, runIfCurrent, state } from "./provider-editor-state.js";
 import { renderProjection } from "./provider-editor-projection.js";
@@ -121,59 +120,46 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   // 再加 token（后点者的结果落定，前一个被忽略）。会话句柄在权限 await 之前
   // 捕获，两处判据共用同一代际。
   const session = captureSession(() => row.isConnected);
-  const resultSession = captureSession(() => row.isConnected && Number(row.dataset.testToken) === token);
   // 权限代申请排在 loading/禁用之后：权限弹窗挂着时行内已是在飞态、按钮不可重复
-  // 点（同页 model-picker 下拉箭头先铺「正在拉取…」再申请的既有形态）；拒绝再按
-  // 会话判据回滚成可再点的错误态。
-  await session.run(
-    () => requestProviderOriginsViaBackground([baseUrl]),
+  // 点；代申请与探针执行收拢至 runWithOriginPreflight 统一守卫。
+  await session.runWithOriginPreflight(
+    [baseUrl],
+    () =>
+      testAiProviderConnection({
+        providerId: state.editingId,
+        baseUrl,
+        apiKey,
+        model,
+        protocol,
+        presetId
+      }),
     {
-      ok: (permission) => {
-        if (!permission.ok) {
-          if (Number(row.dataset.testToken) !== token) {
-            return; // 同一行重复点击：拒绝回执已被后点者取代
-          }
-          if (button) {
-            button.disabled = false;
-          }
-          fail(permission.error || "未取得该平台域名权限，无法测试连接");
+      workAlive: () => Number(row.dataset.testToken) === token,
+      denied: (error) => {
+        if (button) {
+          button.disabled = false;
+        }
+        fail(error || "未取得该平台域名权限，无法测试连接");
+      },
+      ok: (resp) => {
+        if (button) {
+          button.disabled = false;
+        }
+        if (!result) {
           return;
         }
-        // 探针照发（与既有语义一致：后点者只取代结果，不取消先前已发起的探测）
-        void resultSession.run(
-          () =>
-            testAiProviderConnection({
-              providerId: state.editingId,
-              baseUrl,
-              apiKey,
-              model,
-              protocol,
-              presetId
-            }),
-          {
-            ok: (resp) => {
-              if (button) {
-                button.disabled = false;
-              }
-              if (!result) {
-                return;
-              }
-              if (resp?.ok) {
-                result.dataset.state = "ok";
-                if (dirtyDraft) {
-                  result.dataset.unsaved = "true";
-                  result.title = "连接成功（当前表单未保存）";
-                } else {
-                  result.title = "连接成功";
-                }
-              } else {
-                result.dataset.state = "error";
-                result.title = `失败：${resp?.error || "未知错误"}`;
-              }
-            }
-            // fail 缺省：探针异常原样上抛（与 void runModelTest 的既有语义一致）
+        if (resp?.ok) {
+          result.dataset.state = "ok";
+          if (dirtyDraft) {
+            result.dataset.unsaved = "true";
+            result.title = "连接成功（当前表单未保存）";
+          } else {
+            result.title = "连接成功";
           }
-        );
+        } else {
+          result.dataset.state = "error";
+          result.title = `失败：${resp?.error || "未知错误"}`;
+        }
       }
     }
   );
