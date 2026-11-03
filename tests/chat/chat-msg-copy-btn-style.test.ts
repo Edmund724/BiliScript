@@ -53,4 +53,13 @@ describe("AI 对话消息操作键的样式契约", () => {
     expect(declaration(base, "width")).toBe("32px");
     expect(declaration(base, "height")).toBe("32px");
   });
+
+  it("图标尺寸 18×18、描边 2：与全站阅读图标一致，不回退为过小的 14px", () => {
+    const css = readCss();
+    const svgBlock = ruleBody(css, `${BASE} svg`);
+
+    expect(declaration(svgBlock, "width")).toBe("18px");
+    expect(declaration(svgBlock, "height")).toBe("18px");
+    expect(declaration(svgBlock, "stroke-width")).toBe("2");
+  });
 });
