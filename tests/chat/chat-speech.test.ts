@@ -1,9 +1,9 @@
 // 朗读控制器的孤立失败方式：
 // 1. Markdown 的 URL、代码与标记进入朗读正文，或段落粘连；
-// 2. 远程音色被选用，语言匹配与浏览器语言回退失效；
+// 2. 本地音色未优先匹配，或在线音色与浏览器语言回退失效；
 // 3. 长回答超过单次 speak 上限，或分块结束后不续读；
 // 4. 停止/切换后，迟到的 getVoices 与旧 utterance 事件污染新状态；
-// 5. 自然结束、无本地语音和 speak 失败后按钮未恢复或错误不可见。
+// 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见。
 import { describe, expect, it, vi } from "vitest";
 import {
   createChatSpeechController,
@@ -65,7 +65,7 @@ describe("朗读正文", () => {
 });
 
 describe("语音选择与长文", () => {
-  it("只使用本地语音，按回答语言精确匹配", async () => {
+  it("本地语音优先于在线语音，按回答语言精确匹配", async () => {
     const engine = new FakeSpeechEngine();
     engine.voices = [
       { voiceName: "remote-zh", lang: "zh-CN", remote: true },
@@ -175,17 +175,18 @@ describe("停止、切换与失败", () => {
     expect(second.getAttribute("aria-label")).toBe("停止朗读");
   });
 
-  it("没有本地匹配语音时提示失败且不发声", async () => {
+  it("没有本地匹配语音时回退在线语音", async () => {
     const engine = new FakeSpeechEngine();
     engine.voices = [{ voiceName: "remote-zh", lang: "zh-CN", remote: true }];
     const { controller, onError } = makeController(engine);
     const button = document.createElement("button");
 
     await controller.toggle(button, "中文回答");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
 
-    expect(engine.speak).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith("当前设备无法朗读");
-    expect(button.getAttribute("aria-label")).toBe("朗读回答");
+    expect(engine.spoken[0].options.voiceName).toBe("remote-zh");
+    expect(onError).not.toHaveBeenCalled();
+    expect(button.getAttribute("aria-label")).toBe("停止朗读");
   });
 
   it("utterance 错误恢复按钮并提示，重试可以重新发起", async () => {

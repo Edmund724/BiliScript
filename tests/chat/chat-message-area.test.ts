@@ -323,7 +323,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-export-btn")?.disabled).toBe(true);
   });
 
-  it("朗读按钮把清洗正文交给本地引擎，消息区清场停止朗读", async () => {
+  it("朗读按钮把清洗正文交给语音引擎，消息区清场停止朗读", async () => {
     const deps = makeDeps();
     const speak = vi.fn();
     const stop = vi.fn();

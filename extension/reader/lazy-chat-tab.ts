@@ -24,7 +24,7 @@ export interface ReaderChatTabDomain {
   // 消费可能新写入的待解释意图。runQuickActionPrompt 传 consumeIntent:false
   // 跳过意图消费（避免与快捷动作发送互相踩踏）。
   ensureChatTabActivated(opts?: { consumeIntent?: boolean }): Promise<void>;
-  // 离开对话 tab 即停止本地朗读，不触发会话重建或后台播放。
+  // 离开对话 tab 即停止朗读，不触发会话重建或后台播放。
   stopChatSpeech(): void;
   // 会话收尾（closeReadingView 清理清单调用）：断流收口（工单 08 决议：关闭
   // 即断流，重开从会话历史恢复；不做后台续跑）+ 摘全局触发源 + 关 popover。

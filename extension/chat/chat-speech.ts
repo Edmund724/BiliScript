@@ -226,14 +226,18 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     active = { generation: token, button };
     setButtonSpeaking(button, true);
     try {
-      const voices = (await engine.getVoices()).filter((voice) => voice.remote === false);
+      const voices = await engine.getVoices();
       if (!isActive(token)) {
         return;
       }
       const browserLanguage = getBrowserLanguage();
       const detectedLanguage = detectLanguage(cleanText);
       const requestedLanguage = detectedLanguage || browserLanguage;
-      const voice = matchVoice(voices, requestedLanguage) || matchVoice(voices, browserLanguage);
+      const localVoices = voices.filter((voice) => voice.remote === false);
+      const voice = matchVoice(localVoices, requestedLanguage)
+        || matchVoice(localVoices, browserLanguage)
+        || matchVoice(voices, requestedLanguage)
+        || matchVoice(voices, browserLanguage);
       if (!voice) {
         fail(token);
         return;

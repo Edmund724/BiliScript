@@ -224,7 +224,7 @@ export interface CreateChatRuntimeDeps {
  *   {
  *     sendTurn,                    // (text) => Promise<SendVerdict>（accepted / blocked / ignored）
  *     stopActiveStream,            // () => void
- *     stopSpeech,                  // () => void  (离开对话 tab 时停止本地朗读)
+ *     stopSpeech,                  // () => void  (离开对话 tab 时停止朗读)
  *     // ---- auto-scroll (flag owned by the ./chat-stream-render.js piece;
  *     // sidepanel writes via these narrow entries, flush/finalize read it
  *     // internally) ----
