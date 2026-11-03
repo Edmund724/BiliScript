@@ -205,13 +205,32 @@ function detectLanguage(text: string): "zh-CN" | "en-US" | "" {
   return hanCount > latinCount ? "zh-CN" : "en-US";
 }
 
-function matchVoice(voices: ChatSpeechVoice[], lang: string): ChatSpeechVoice | undefined {
+function isNaturalVoice(voice: ChatSpeechVoice): boolean {
+  return /natural/i.test(voice.voiceName || "");
+}
+
+function matchLanguageVoices(voices: ChatSpeechVoice[], lang: string): ChatSpeechVoice[] {
   const target = normalizeLanguage(lang);
   if (!target) {
+    return [];
+  }
+  const exact = voices.filter((voice) => normalizeLanguage(voice.lang) === target);
+  if (exact.length) {
+    return exact;
+  }
+  const prefix = target.split("-")[0];
+  return voices.filter((voice) => normalizeLanguage(voice.lang).split("-")[0] === prefix);
+}
+
+function matchVoice(voices: ChatSpeechVoice[], lang: string): ChatSpeechVoice | undefined {
+  const matched = matchLanguageVoices(voices, lang);
+  if (!matched.length) {
     return undefined;
   }
-  return voices.find((voice) => normalizeLanguage(voice.lang) === target)
-    || voices.find((voice) => normalizeLanguage(voice.lang).split("-")[0] === target.split("-")[0]);
+  return matched.find(isNaturalVoice)
+    || matched.find((voice) => voice.remote === true)
+    || matched.find((voice) => voice.remote === false)
+    || matched[0];
 }
 
 function setButtonSpeaking(button: HTMLButtonElement, speaking: boolean): void {
@@ -266,10 +285,27 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     onError("当前设备无法朗读");
   }
 
-  function speakChunk(token: number, chunks: string[], index: number, voice: ChatSpeechVoice, lang: string): void {
+  function speakChunk(
+    token: number,
+    chunks: string[],
+    index: number,
+    voice: ChatSpeechVoice,
+    lang: string,
+    fallbackVoice?: ChatSpeechVoice
+  ): void {
     if (!isActive(token)) {
       return;
     }
+    const handleChunkError = () => {
+      if (!isActive(token)) {
+        return;
+      }
+      if (fallbackVoice && fallbackVoice !== voice) {
+        speakChunk(token, chunks, index, fallbackVoice, lang);
+        return;
+      }
+      fail(token);
+    };
     try {
       const result = engine.speak(chunks[index], {
         voiceName: voice.voiceName,
@@ -279,12 +315,12 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
             return;
           }
           if (event.type === "error") {
-            fail(token);
+            handleChunkError();
           } else if (event.type === "interrupted" || event.type === "cancelled") {
             stop();
           } else if (event.type === "end") {
             if (index + 1 < chunks.length) {
-              speakChunk(token, chunks, index + 1, voice, lang);
+              speakChunk(token, chunks, index + 1, voice, lang, fallbackVoice);
             } else {
               finish(token);
             }
@@ -292,10 +328,10 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
         }
       });
       if (result && typeof result.then === "function") {
-        void result.catch(() => fail(token));
+        void result.catch(handleChunkError);
       }
     } catch {
-      fail(token);
+      handleChunkError();
     }
   }
 
@@ -320,21 +356,22 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
       const browserLanguage = getBrowserLanguage();
       const detectedLanguage = detectLanguage(cleanText);
       const requestedLanguage = detectedLanguage || browserLanguage;
-      const localVoices = voices.filter((voice) => voice.remote === false);
-      const voice = matchVoice(localVoices, requestedLanguage)
-        || matchVoice(localVoices, browserLanguage)
-        || matchVoice(voices, requestedLanguage)
+      const localVoices = voices.filter((item) => item.remote === false);
+      const voice = matchVoice(voices, requestedLanguage)
         || matchVoice(voices, browserLanguage);
       if (!voice) {
         fail(token);
         return;
       }
+      const fallbackVoice = voice.remote === true
+        ? (matchVoice(localVoices, requestedLanguage) || matchVoice(localVoices, browserLanguage))
+        : undefined;
       const chunks = splitSpeechText(cleanText, options.maxChunkChars);
       if (!chunks.length) {
         finish(token);
         return;
       }
-      speakChunk(token, chunks, 0, voice, requestedLanguage);
+      speakChunk(token, chunks, 0, voice, requestedLanguage, fallbackVoice);
     } catch {
       fail(token);
     }

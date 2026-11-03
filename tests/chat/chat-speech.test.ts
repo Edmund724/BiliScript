@@ -1,6 +1,6 @@
 // 朗读控制器的孤立失败方式：
 // 1. Markdown 的 URL、代码与标记进入朗读正文，或段落粘连；
-// 2. 本地音色未优先匹配，或在线音色与浏览器语言回退失效；
+// 2. 自然/在线音色未优先于机械本地音色，或在线音色失败时未回退本地音色与浏览器语言；
 // 3. 长回答超过单次 speak 上限，或分块结束后不续读；
 // 4. 停止/切换后，迟到的 getVoices 与旧 utterance 事件污染新状态；
 // 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见。
@@ -65,12 +65,13 @@ describe("朗读正文", () => {
 });
 
 describe("语音选择与长文", () => {
-  it("本地语音优先于在线语音，按回答语言精确匹配", async () => {
+  it("自然音色与在线语音优先于本地机械音色，按回答语言精确匹配", async () => {
     const engine = new FakeSpeechEngine();
     engine.voices = [
-      { voiceName: "remote-zh", lang: "zh-CN", remote: true },
-      localVoice("local-en", "en-US"),
-      localVoice("local-zh", "zh-CN")
+      localVoice("Microsoft Huihui Desktop", "zh-CN"),
+      { voiceName: "Google 普通话（中国大陆）", lang: "zh-CN", remote: true },
+      { voiceName: "Microsoft 晓晓 Online (Natural) - Chinese (Mandarin, Simplified)", lang: "zh-CN", remote: true },
+      localVoice("local-en", "en-US")
     ];
     const { controller } = makeController(engine);
     const button = document.createElement("button");
@@ -78,7 +79,24 @@ describe("语音选择与长文", () => {
     await controller.toggle(button, "中文回答");
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalled());
 
-    expect(engine.spoken[0].options.voiceName).toBe("local-zh");
+    expect(engine.spoken[0].options.voiceName).toBe("Microsoft 晓晓 Online (Natural) - Chinese (Mandarin, Simplified)");
+    expect(engine.spoken[0].options.lang).toBe("zh-CN");
+  });
+
+  it("无 Natural 标记时在线语音优先于普通本地语音", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [
+      localVoice("local-zh", "zh-CN"),
+      { voiceName: "remote-zh", lang: "zh-CN", remote: true },
+      localVoice("local-en", "en-US")
+    ];
+    const { controller } = makeController(engine);
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "中文回答");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalled());
+
+    expect(engine.spoken[0].options.voiceName).toBe("remote-zh");
     expect(engine.spoken[0].options.lang).toBe("zh-CN");
   });
 
@@ -175,16 +193,23 @@ describe("停止、切换与失败", () => {
     expect(second.getAttribute("aria-label")).toBe("停止朗读");
   });
 
-  it("没有本地匹配语音时回退在线语音", async () => {
+  it("在线语音合成报错时自动回退到本地匹配语音", async () => {
     const engine = new FakeSpeechEngine();
-    engine.voices = [{ voiceName: "remote-zh", lang: "zh-CN", remote: true }];
+    engine.voices = [
+      localVoice("local-zh", "zh-CN"),
+      { voiceName: "remote-zh", lang: "zh-CN", remote: true }
+    ];
     const { controller, onError } = makeController(engine);
     const button = document.createElement("button");
 
     await controller.toggle(button, "中文回答");
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
-
     expect(engine.spoken[0].options.voiceName).toBe("remote-zh");
+
+    engine.emit(0, "error");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(2));
+
+    expect(engine.spoken[1].options.voiceName).toBe("local-zh");
     expect(onError).not.toHaveBeenCalled();
     expect(button.getAttribute("aria-label")).toBe("停止朗读");
   });

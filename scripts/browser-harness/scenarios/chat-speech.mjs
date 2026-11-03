@@ -52,6 +52,11 @@ try {
     await worker.evaluate(`chrome.storage.sync.set({ asrAutoFallback: false, aiProviders: [{ id: "speech-stub", presetId: "custom", name: "speech-stub", baseUrl: "https://speech.invalid", models: ["speech-model"], requiresKey: false, enabled: true, protocol: "openai" }] })`);
     await worker.evaluate(`(() => {
       const events = globalThis.__chatSpeechEvidence = [];
+      const originalGetVoices = chrome.tts.getVoices.bind(chrome.tts);
+      chrome.tts.getVoices = async () => [
+        { voiceName: "Microsoft Huihui Desktop", lang: "zh-CN", remote: false },
+        ...(await originalGetVoices())
+      ];
       const original = chrome.tts.speak.bind(chrome.tts);
       chrome.tts.speak = (text, options) => original(text, {
         ...options,
@@ -95,6 +100,7 @@ try {
     check("页面朗读无设备错误", !last?.notices?.some((text) => text.includes("无法朗读")), last);
     check("朗读结束后按钮恢复", last?.label === "朗读回答" && last?.pressed === "false", last);
     check("SW 收到真实朗读事件", evidence.speech.some((item) => item.event.type === "start") && evidence.speech.some((item) => item.event.type === "end"), evidence.speech);
+    check("优先选中 Natural 音色而非本地 SAPI 机械音", evidence.speech.some((item) => /Natural/i.test(item.voiceName || "")), evidence.speech);
   });
 } catch (error) {
   check("场景无致命错误", false, { message: error.message });
