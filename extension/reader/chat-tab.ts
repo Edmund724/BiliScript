@@ -40,7 +40,7 @@
 //     → renderInitialState）；
 //     对话 tab 的流式中关闭不做后台续跑（connectPort 的 closed 闸兜底）。
 //   - 会话单例 initialized / initInFlight / sessionClosed：init 四路互不依赖的
-//     初始化并行起跑；激活/恢复/关闭三入口经 reader/lazy-chat-tab 暴露。会话级
+//     初始化并行起跑；激活/停止朗读/关闭入口经 reader/lazy-chat-tab 暴露。会话级
 //     触发源（字幕相位总线 / URL 变化 / clip 落定 / 存储变更 / 预热落定 / 外点
 //     关闭槽 / Esc）收在 createReaderChatSessionTriggers 的会话对象里，随激活
 //     挂载、随收尾摘除；元素级 bindEvents 与窗口 resize 是常驻监听，只在 init
@@ -739,6 +739,10 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   if (consumeIntent) {
     await explainIntentConsumption.consumeIfPending();
   }
+}
+
+export function stopChatSpeech(): void {
+  chatRuntime.stopSpeech();
 }
 
 export function closeChatSession(): void {

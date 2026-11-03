@@ -10,6 +10,7 @@
     "unlimitedStorage",
     "scripting",
     "offscreen",
+    "tts",
     "declarativeNetRequest"
   ],
   "host_permissions": [

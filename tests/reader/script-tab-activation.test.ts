@@ -51,6 +51,7 @@ beforeEach(async () => {
   const activation = await import("../../extension/reader/script-tab-activation.js");
   const readerBus = await import("../../extension/reader/reader-bus.js");
   const lazyChatTab = await import("../../extension/reader/lazy-chat-tab.js");
+  vi.mocked(lazyChatTab.isReaderChatTabLoaded).mockReturnValue(false);
   const lazyReader = await import("../../extension/reader/lazy-reader.js");
   const readerState = await import("../../extension/reader/state.js");
   const coreState = await import("../../extension/core/state.js");
@@ -120,6 +121,17 @@ describe("单次激活顺序（状态位 → 持久化 → 投影 → 二级激�
     expect(commandSpy).toHaveBeenCalledWith("project-tab", { tab: "subtitle" });
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
     expect(m.ensureReaderDomain).not.toHaveBeenCalled();
+  });
+
+  it("离开已装载的 chat：停止朗读；未装载时不为停止而加载对话域", async () => {
+    const stopChatSpeech = vi.fn();
+    const lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
+    vi.mocked(lazyChat.isReaderChatTabLoaded).mockReturnValue(true);
+    (m.ensureReaderChatTab as ReturnType<typeof vi.fn>).mockResolvedValue({ stopChatSpeech });
+
+    await m.activateScriptTab("subtitle");
+
+    expect(stopChatSpeech).toHaveBeenCalledTimes(1);
   });
 
   it("chat：走 chat seam 的 ensureChatTabActivated，consumeIntent 默认 true / 显式 false 透传", async () => {

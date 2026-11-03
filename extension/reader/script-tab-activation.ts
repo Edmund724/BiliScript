@@ -42,7 +42,7 @@ import { setReaderActiveScriptTab, type ReaderScriptTab } from "./state.js";
 // 二级激活对象都在 reader 域内：对话组合根走既有二级惰性缝（本模块不静态依赖
 // chat-tab 重域）；reader 域走既有 ensureReaderDomain 懒缝（与收口前 ui 侧
 // withReader 的等价路径，不再需要 ui 域中转）。
-import { ensureReaderChatTab } from "./lazy-chat-tab.js";
+import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
 
 export interface ActivateScriptTabOptions {
@@ -93,6 +93,14 @@ async function runActivation(
       logWarn("[BILISCRIPT] chat tab activate failed", error);
     }
     return;
+  }
+  if (isReaderChatTabLoaded()) {
+    try {
+      const chat = await ensureReaderChatTab();
+      chat.stopChatSpeech();
+    } catch (error) {
+      logWarn("[BILISCRIPT] chat speech stop failed", error);
+    }
   }
   if (tab === "overview") {
     try {

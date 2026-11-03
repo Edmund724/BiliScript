@@ -1,6 +1,6 @@
 // extension/chrome-types.d.ts
 // 最小 Chrome 扩展 API 类型声明：本仓库未安装 @types/chrome，声明覆盖迁移模块
-// 实际使用的 runtime / tabs / storage / permissions / scripting / offscreen /
+// 实际使用的 runtime / tabs / storage / permissions / scripting / offscreen / tts /
 // declarativeNetRequest 表面。保持最窄契约，不扩展未使用的方法/事件。
 // 域目录的局部 ambient 补充（asr/chrome-asr-types.d.ts、entry/entry-globals.d.ts）
 // 已归并于此，不再维护分散声明。
@@ -175,6 +175,28 @@ declare namespace chrome {
 
     function createDocument(options: CreateDocumentOptions): Promise<void>;
     function closeDocument(): Promise<void>;
+  }
+
+  namespace tts {
+    interface TtsEvent {
+      type: string;
+    }
+
+    interface TtsVoice {
+      voiceName?: string;
+      lang?: string;
+      remote?: boolean;
+    }
+
+    interface SpeakOptions {
+      voiceName?: string;
+      lang?: string;
+      onEvent?: (event: TtsEvent) => void;
+    }
+
+    function getVoices(): Promise<TtsVoice[]>;
+    function speak(text: string, options?: SpeakOptions): Promise<void>;
+    function stop(): void;
   }
 
   namespace declarativeNetRequest {

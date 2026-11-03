@@ -792,7 +792,8 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-msg-action-btn.is-copied {
+.biliscript-reading-chat .chat-msg-action-btn.is-copied,
+.biliscript-reading-chat .chat-msg-action-btn.is-speaking {
   color: var(--biliscript-reader-accent);
 }
 

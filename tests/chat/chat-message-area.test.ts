@@ -299,6 +299,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     ]);
     expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
       "复制回复",
+      "朗读回答",
       "重新生成",
       "导出 Markdown"
     ]);
@@ -310,7 +311,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);
   });
 
-  it("空回答：允许重新生成，禁用导出", () => {
+  it("空回答：允许重新生成，禁用朗读和导出", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const turn = areaOf(runtime).appendAssistantMessage({ source: "live" });
@@ -318,7 +319,31 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     turn.finish({ raw: "", historyIndex: 0 });
 
     expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-regenerate-btn")?.disabled).toBe(false);
+    expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-speak-btn")?.disabled).toBe(true);
     expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-export-btn")?.disabled).toBe(true);
+  });
+
+  it("朗读按钮把清洗正文交给本地引擎，消息区清场停止朗读", async () => {
+    const deps = makeDeps();
+    const speak = vi.fn();
+    const stop = vi.fn();
+    deps.speechEngine = {
+      getVoices: async () => [{ voiceName: "本地中文", lang: "zh-CN", remote: false }],
+      speak,
+      stop
+    };
+    const runtime = createChatRuntime(deps);
+    const area = areaOf(runtime);
+    area.appendAssistantMessage({ source: "live" }).finish({ raw: "[可见文字](https://example.com)" });
+
+    const button = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-speak-btn")!;
+    button.click();
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
+    expect(speak.mock.calls[0][0]).toBe("可见文字");
+    expect(button.getAttribute("aria-label")).toBe("停止朗读");
+
+    area.clear();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it("fail：清空节点内容，只留错误占位（文案原样，不渲染正文）", () => {

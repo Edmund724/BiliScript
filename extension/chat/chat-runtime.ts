@@ -85,6 +85,7 @@ import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
 import { imageUnsupportedErrorHint } from "./image-support.js";
+import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 
@@ -162,6 +163,7 @@ export interface CreateChatRuntimeDeps {
   // 面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也合法（注入桩/
   // 旧组合根），回执统一走 Promise 归一。
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
+  speechEngine?: ChatSpeechEngine;
   smoothStream?: boolean;
 }
 
@@ -213,7 +215,7 @@ export interface CreateChatRuntimeDeps {
  * @returns {object} method set (all closures; stream state only via the
  *   runtime's own closure variables — sidepanel queries it with isStreaming() /
  *   isTurnActive(), never by reading runtime internals)。
- *   候选07：接口面刻意收窄为 9 + 1 + 1——只暴露 sidepanel 实际消费的 9 个方法 +
+ *   接口面收窄为 10 + 1 + 1——只暴露 sidepanel 实际消费的 10 个方法 +
  *   1 个协议测试入口 + 1 个消息区句柄（联网搜索回放重建经它表达顺序，spec §4：
  *   历史回放的时间线卡从 chatHistory 重建）；内部渲染/收尾步骤（首 token、
  *   计时器、占位、token 追加、三类终态收口、thinking 节点、全部 DOM 选择器与
@@ -222,6 +224,7 @@ export interface CreateChatRuntimeDeps {
  *   {
  *     sendTurn,                    // (text) => Promise<SendVerdict>（accepted / blocked / ignored）
  *     stopActiveStream,            // () => void
+ *     stopSpeech,                  // () => void  (离开对话 tab 时停止本地朗读)
  *     // ---- auto-scroll (flag owned by the ./chat-stream-render.js piece;
  *     // sidepanel writes via these narrow entries, flush/finalize read it
  *     // internally) ----
@@ -331,10 +334,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 渲染片对外只给两个句柄：消息区句柄（messageArea：追加用户/助手消息 + 清场）
   // 与滚动/自动滚动窄入口。回合节点句柄（ChatAssistantTurn）由消息区句柄产出、
   // 经 activeTurn 槽位持有——本文件不再解构/调用任何 DOM 步骤函数。
+  const speech = createChatSpeechController({
+    engine: deps.speechEngine,
+    onError: (message) => deps.ui.showConversationContextNotice(message, 4000)
+  });
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
     onRegenerate: regenerateAssistant,
     onExport: exportAssistant,
+    onSpeak: (button, text) => speech.toggle(button, text),
+    onClear: () => speech.stop(),
     isRegenerationDisabled: () => turn.isActive()
   });
   // =========================================================================
@@ -454,6 +463,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!prompt) {
       return;
     }
+    speech.stop();
     const regeneration = {
       originalHistory,
       userIndex,
@@ -874,7 +884,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return activeUserPrompt !== "";
   }
 
+  function stopSpeech(): void {
+    speech.stop();
+  }
+
   function resetStreamState(): void {
+    speech.stop();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。
@@ -909,7 +924,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     dispatchChatPortMessage(msg, activePort);
   }
 
-  // 返回面 11 键（候选07：sidepanel 消费的 10 个方法 + 1 个协议测试入口；联网
+  // 返回面 12 键（sidepanel 消费的 11 个方法 + 1 个协议测试入口；联网
   // 搜索回放重建与消息区/回合句柄不再单列出口——回放经 messageArea 句柄表达顺序，
   // 节点装配形状只有渲染片一个主人）。内部步骤（handleFirstStreamToken /
   // clearStreamRuntimeState / startStreamSlowNoticeTimer / finalizeAssistant /
@@ -918,6 +933,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   return {
     sendTurn,
     stopActiveStream,
+    stopSpeech,
     setAutoScroll,
     scrollToBottom,
     isStreaming,
