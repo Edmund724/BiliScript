@@ -9,7 +9,7 @@
 import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { syncReadingOverviewActiveChapter } from "./overview-playback.js";
+
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -19,7 +19,7 @@ import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
-import { jumpReadingTarget } from "./sync.js";
+import { jumpReadingTarget, syncReadingOverviewActiveChapter } from "./sync.js";
 import { withReader } from "../ui/reader-gate.js";
 import { openQuoteShareModal } from "./quote-share-modal.js";
 import type { AnalysisChapter, AnalysisQuote } from "../ai/analysis.js";
@@ -87,7 +87,7 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
     return;
   }
   body.innerHTML = buildOverviewBodyHtml(snapshot);
-  syncReadingOverviewActiveChapter(state.reader.readingVideoEl?.currentTime || 0);
+  syncReadingOverviewActiveChapter();
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {

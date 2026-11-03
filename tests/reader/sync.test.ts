@@ -162,6 +162,13 @@ describe("播放同步与高亮", () => {
     expect(active?.dataset.seconds).toBe("20");
     expect(active?.getAttribute("aria-current")).toBe("true");
 
+    // 稳态拍：currentTime 仍在 [20, 60) 章界窗口内且节点在树，直接命中缓存短路，零 DOM 查询
+    const qsaSpy = vi.spyOn(overview, "querySelectorAll");
+    video.currentTime = 42;
+    sync.syncReadingViewPlayback();
+    expect(qsaSpy).not.toHaveBeenCalled();
+    qsaSpy.mockRestore();
+
     video.currentTime = 5;
     sync.syncReadingViewPlayback();
     active = overview.querySelector<HTMLElement>(".biliscript-reading-ov-chapter.is-active");
