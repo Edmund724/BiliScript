@@ -296,6 +296,10 @@ _Avoid_: 聚焦彩条、输入框发光内衬、局部硬编码渐变
 
 ### AI 对话
 
+**待解释意图**:
+用户从字幕或选区解释卡发起、等待 AI 对话受理的一次解释请求；发送被受理前仍可取消，受理后不再保留。
+_Avoid_: 解释任务、待发送消息
+
 **图片输入**:
 用户在 AI 对话里经剪贴板粘贴发给模型的图片。消息形状为路线 B：`content` 保持 string，图片并列挂在 `ChatMessage.images`（`{mime, data}`，base64 不带前缀）；发送前在 content script 统一压成 WebP q0.9、长边 ≤1568px，单条 ≤4 张、单张 ≤1MB。历史重发只保留最近一条用户消息的图（更早的替换为文本占位），落盘每会话最多留最近一张。门控乐观放行：目录明确不收图只提示不阻断，查不到静默交给平台 400。清场边界：附件只由发送受理时的 `takeInputImages`（读+清一次）消费，被闸拦下不消费；发送闸调用链上的上下文重启（apply-live → restartChat）是上下文跟随，带 `preserveInput` 不清输入框与附件区（否则闸后才消费的图片被静默吞掉、正文照发），用户主动「新会话」与其它上下文切换路径照旧清场。
 代码名：`ImagePart` / `ChatMessage.images`（ai/types.js）/ `chat/image-compress.js` / `chat/chat-input-images.js` / `chat/image-support.js` / `retainLatestImage` / `normalizeImageParts` / `preserveInput`（LoadContextStateOptions / HydratePinnedOptions → restartChat）

@@ -66,7 +66,6 @@ import { extractBvid } from "../bilibili/video-id-shared.js";
 import { thinkingViewOf } from "../chat/thinking-picker.js";
 // 档位入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
-import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing } from "../core/validators.js";
@@ -102,12 +101,8 @@ import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 // 转写中判定（与字幕 tab 横幅同源：相位 transcribing 且字幕体为空）。
 import { isReaderTranscribing } from "./transcribe-banner.js";
-// PR3 契约：待解释意图 peek/consume/clear（消费落在本组合根）。
-import {
-  peekPendingExplainIntent,
-  consumePendingExplainIntent,
-  clearPendingExplainIntent
-} from "./explain-intent.js";
+// 待解释意图的对话侧消费：引用卡、提示词与受理后 consume 事务收在独立 module。
+import { createExplainIntentConsumption } from "./explain-intent-consumption.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
@@ -311,6 +306,11 @@ const composer = createReaderChatComposer({
     stopActiveStream: () => chatRuntime.stopActiveStream()
   },
   onPasteImage: (e) => inputImages.handlePaste(e)
+});
+
+const explainIntentConsumption = createExplainIntentConsumption({
+  card: els.intentCard,
+  autoSendPrompt: composer.autoSendPrompt
 });
 
 // 发图门控（image-input 05 号票）：带图消息被发送受理时查一次模型目录，目录明确
@@ -697,7 +697,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   // PR3 契约消费：有待解释意图 → 渲染引用卡 + 自动发送（发送成功即 consume）。
   // 快捷动作路径传 consumeIntent:false 跳过（与快捷发送互不踩踏）。
   if (consumeIntent) {
-    await consumeExplainIntentIfPending();
+    await explainIntentConsumption.consumeIfPending();
   }
 }
 
@@ -737,7 +737,7 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   // 已初始化的普通激活（tab 切回）：消费可能新写入的待解释意图（解释卡片
   // 「去对话追问」在对话 tab 已装载时点击 / 上次挂起的意图重试）。无意图时为无害 no-op。
   if (consumeIntent) {
-    await consumeExplainIntentIfPending();
+    await explainIntentConsumption.consumeIfPending();
   }
 }
 
@@ -768,7 +768,7 @@ export function closeChatSession(): void {
   sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
   // 隐藏，下次激活按无意图渲染。
-  hideExplainIntentCard();
+  explainIntentConsumption.hide();
   sessionTriggers.deactivate();
 }
 
@@ -793,61 +793,6 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
   }
   await startNewConversation();
   return composer.sendViaInputBox(text);
-}
-
-// ============================================================
-// PR3 契约消费：待解释意图 → 引用卡（时间戳 pill 母题）+ 自动发送
-// ============================================================
-
-// 解释提示词模板：引用句 + 时间戳 pill 文案，发送出去的消息自带引用上下文。
-// 两种口径：卡片「去对话追问」带选中片段 → 解释这个词句；整句意图（无
-// selection）→ 解释这句字幕。
-function buildExplainPrompt(intent: { from: number; content: string; selection?: string }): string {
-  const stamp = formatClock(intent.from, { hours: "auto" });
-  if (intent.selection) {
-    return `请结合视频上下文解释我选中的词句：「${intent.selection}」。它出自字幕句「${intent.content}」（${stamp}）。说明它的含义、背景，以及在这句话里指什么。`;
-  }
-  return `请结合视频上下文解释这句字幕：「${intent.content}」（${stamp}）。说明它的含义、背景，以及与前后文的关系。`;
-}
-
-function renderExplainIntentCard(intent: { from: number; content: string; selection?: string }): void {
-  if (!els.intentCard) {
-    return;
-  }
-  const quote = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-quote");
-  if (quote) {
-    quote.textContent = intent.selection ? `「${intent.selection}」｜${intent.content}` : `「${intent.content}」`;
-  }
-  const stamp = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-time");
-  if (stamp) {
-    stamp.textContent = formatClock(intent.from, { hours: "auto" });
-  }
-  els.intentCard.hidden = false;
-}
-
-function hideExplainIntentCard(): void {
-  if (els.intentCard) {
-    els.intentCard.hidden = true;
-  }
-}
-
-// peek 意图 → 渲染引用卡 → 自动发送解释提示词；发送成功（受理结论 accepted）才
-// consumePendingExplainIntent——一次意图只发一次。发送被 subtitle-wait 挂起时
-// sendTurn 的 promise 不提前兑现（等待在其内部 await），意图保持 pending；回合
-// 已在途（受理窗口 / 流段）时 autoSendPrompt 直接返回 false（不消费，留在 pending，
-// 下一次激活补发）——直到真正发出或用户取消（引用卡上的取消按钮）。
-async function consumeExplainIntentIfPending(): Promise<void> {
-  const intent = peekPendingExplainIntent();
-  if (!intent || !intent.content) {
-    hideExplainIntentCard();
-    return;
-  }
-  renderExplainIntentCard(intent);
-  const sent = await composer.autoSendPrompt(buildExplainPrompt(intent));
-  if (sent) {
-    consumePendingExplainIntent();
-    hideExplainIntentCard();
-  }
 }
 
 // ============================================================
@@ -967,8 +912,7 @@ function bindEvents(): void {
     const target = event.target as HTMLElement | null;
     const intentBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
     if (intentBtn && intentBtn.dataset.chatIntentAction === "cancel") {
-      clearPendingExplainIntent();
-      hideExplainIntentCard();
+      explainIntentConsumption.cancel();
       return;
     }
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
