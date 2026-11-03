@@ -10,15 +10,12 @@
 // 每个 createChatRuntime 实例调用一次，实例间互不共享。
 
 import {
-  createMarkdownCommitCursor,
-  createMarkdownTailCursor,
-  createThinkStripCursor,
+  createMarkdownStreamSession,
+  hydrateMarkdownContent,
   renderMarkdownStripped,
   stripThinkBlocks,
-  type MarkdownCommitCursor,
   type MarkdownRenderOptions,
-  type MarkdownTailCursor,
-  type ThinkStripCursor
+  type MarkdownStreamSession
 } from "../ui/markdown.js";
 
 const CHAT_MARKDOWN_OPTIONS: MarkdownRenderOptions = { dropHeadingAdjacentHr: true };
@@ -29,11 +26,6 @@ function createChevronSpan(className: string): HTMLSpanElement {
   chevron.innerHTML = READING_CHEVRON_DOWN_ICON.trim();
   return chevron;
 }
-// mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
-//（懒 chunk，见 ui/lazy-mermaid 头注）。
-import { enhanceMarkdownTables } from "../ui/markdown-table.js";
-import { hydrateMermaid } from "../ui/lazy-mermaid.js";
-import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
 
@@ -108,26 +100,17 @@ export interface ChatStreamRenderer {
   messageArea: ChatMessageArea;
 }
 
-// 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量原文，
-// pending = 未 flush 的增量帧，stableText/stableCut/stableEl/tailEl 为双容器渲染
-// 状态，stripCursor/tailCursor 为剥除/切分的增量游标（ui/markdown 头注有逐字节
-// 论证；cursor 状态随 resetTokenStreamState 一并重置）。
+// 流式 token 累加器（按节点存放在 WeakMap）：pending = 未 flush 的增量帧，
+// stableEl/tailEl 为双容器，session 为双容器 Markdown 渲染会话。
 interface TokenStreamState {
-  base: string;
   pending: string[];
   charQueue: string;
-  stableText: string;
-  // 上次渲染时的切点行号（与 tailCursor.cut 比较；初值 -2 保证首帧必物化）
-  stableCut: number;
-  committedCut: number;
   stableEl: HTMLDivElement | null;
   tailEl: HTMLDivElement | null;
   cursor: HTMLSpanElement | null;
   uncollapsedThinking: HTMLDivElement[];
   allThinking: HTMLDivElement[];
-  stripCursor: ThinkStripCursor;
-  tailCursor: MarkdownTailCursor;
-  commitCursor: MarkdownCommitCursor;
+  session: MarkdownStreamSession | null;
 }
 
 // 思考文本的显示状态（全量文本缓冲 + 按节点隔离的滚动合帧 + 钉底标志）
@@ -493,20 +476,14 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
   function freshTokenStreamState(): TokenStreamState {
     return {
-      base: "",
       pending: [],
       charQueue: "",
-      stableText: "",
-      stableCut: -2,
-      committedCut: 0,
       stableEl: null,
       tailEl: null,
       cursor: null,
       uncollapsedThinking: [],
       allThinking: [],
-      stripCursor: createThinkStripCursor(),
-      tailCursor: createMarkdownTailCursor(),
-      commitCursor: createMarkdownCommitCursor()
+      session: null
     };
   }
 
@@ -522,10 +499,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     return state;
   }
-  // 流式双容器懒创建（首帧 flush 时挂上；finalize / stopped 的整体重渲染会
+  // 流式双容器与 Markdown 会话懒创建（首帧 flush 时挂上；finalize / stopped 的整体重渲染会
   // 自然清掉它们）
   function ensureStreamContainers(node: HTMLDivElement, state: TokenStreamState): void {
-    if (state.stableEl && state.tailEl) {
+    if (state.stableEl && state.tailEl && state.session) {
       return;
     }
     const stableEl = document.createElement("div");
@@ -536,15 +513,20 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     node.appendChild(tailEl);
     state.stableEl = stableEl;
     state.tailEl = tailEl;
+    state.session = createMarkdownStreamSession(stableEl, tailEl, {
+      ...CHAT_MARKDOWN_OPTIONS,
+      renderMarkdown: renderMarkdownStripped
+    });
   }
 
-  // 全量流式文本 = base + 未 flush 的 pending（不做清空，供 finalize/stopped 只读）
+  // 全量流式文本 = session.rawText + 未 flush 的 pending（不做清空，供 finalize/stopped 只读）
   function getStreamRaw(node: HTMLElement): string {
     const state = tokenStreamStates.get(node);
     if (!state) {
       return "";
     }
-    return state.base + state.pending.join("") + state.charQueue;
+    const sessionRaw = state.session ? state.session.rawText : "";
+    return sessionRaw + state.pending.join("") + state.charQueue;
   }
 
   function cancelTokenFlush(): void {
@@ -607,43 +589,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     } else {
       delta = state.pending.join("");
     }
-    // 50ms 长任务预算：deadline 取样在剥除/切分之前，让增量游标的耗时也计入
-    // 本帧预算，与「剥除/切分、稳定块与末块的 renderMarkdown + innerHTML 重建
-    // 都计入本帧同步工作」的注释一致。预算耗尽先让出主线程（yieldToMain）再
-    // 继续；恢复后校验代际（流被取消/收口，或有更新的一帧已启动），不等即作
-    // 废本帧——不渲染（文本与游标状态已在下方同步段原子提交，下一帧从游标
-    // 状态续渲，不会丢也不会重复）。预算检查保持同步：未触发让出时 flush 在
-    // 帧回调内同步完成（与旧的同步渲染时序一致）。
+    // 50ms 长任务预算：长 tail 或图表解析可能超出单帧预算，超出即让出主线程。
     let deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-    const stale = () => epoch !== tokenFlushEpoch;
-    // think 块先剥除再切分（增量游标内部保持同一顺序），保证未闭合的  ```
-    // 或 <think> 不会横跨 stable/tail 切点。游标输出与 stripThinkBlocks /
-    // splitMarkdownTail 全量逐字节一致（ui/markdown 头注论证），每帧正则只跑
-    // 未定居尾 + 本帧新增，不再随已渲染前缀增长。
-    state.stripCursor.push(delta);
-    const lines = state.stripCursor.lines;
-    state.tailCursor.update(lines);
-    const cut = state.tailCursor.cut;
-    // stable 物化：切点不变即 stable 不变（切点只增不减），增长点才拼接。
-    // stableCut/stableText 是渲染簿记，随渲染提交——让出点作废的帧不得留下
-    // 「已渲染」记录（否则下一帧会跳过 stable 重渲染）。
-    const stableChanged = !(cut >= 0 && cut === state.stableCut);
-    let stableText: string;
-    if (!stableChanged) {
-      stableText = state.stableText;
-    } else {
-      stableText = cut < 0 ? "" : lines.slice(0, cut).join("\n");
-    }
-    // tail 每帧物化（拼接 + trimEnd 还原全量版的尾部 trim，逐字节等价）
-    const tailText = (cut < 0 ? lines.join("\n") : lines.slice(cut).join("\n")).trimEnd();
-    // 文本与游标状态原子提交：游标位置与 base 必须同步前进——否则帧在让出
-    // 点作废或渲染抛错后，下一帧会把同一段 pending 重复喂给游标。
-    state.base += delta;
-    if (deps.smoothStream) {
-      state.charQueue = state.charQueue.slice(smoothStep);
-    } else {
-      state.pending.length = 0;
-    }
     ensureStreamContainers(node, state);
     // 正文首帧渲染 = 思考流结束：所有未折叠的思考盒（正常情况下一个；
     // 收尾 reasoning 在 token 后到达时可能有第二个）收成「思考过程」行，
@@ -654,65 +601,32 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       state.uncollapsedThinking = [];
     }
-    // 稳定前缀增量提交：由 commitCursor 维护块级上下文并增量追加到现有 DOM，
-    // 旧节点保持引用不变，表格按行追加，列表按项追加，Mermaid/Math 仅水合新节点。
-    if (stableChanged && (stableText !== "" || state.stableEl!.innerHTML !== "")) {
-      if (performance.now() >= deadline) {
+    // 文本与游标状态原子提交：在让出前先喂入 session 并消耗队列
+    if (deps.smoothStream) {
+      state.charQueue = state.charQueue.slice(smoothStep);
+    } else {
+      state.pending.length = 0;
+    }
+    const sessionRes = state.session!.flush(delta, {
+      cursor: state.cursor,
+      shouldYield: () => performance.now() >= deadline,
+      yieldToMain: async () => {
         await yieldToMain();
         deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-        if (stale()) {
-          return;
-        }
-      }
-      const toCut = cut < 0 ? 0 : cut;
-      const fromCut = state.committedCut < 0 ? 0 : state.committedCut;
-      if (toCut > fromCut) {
-        const deltaText = lines.slice(fromCut, toCut).join("\n");
-        const deltaHtml = renderMarkdownStripped(deltaText, {
-          ...CHAT_MARKDOWN_OPTIONS,
-          hrAdjacentBefore: state.stableText,
-          hrAdjacentAfter: tailText
-        });
-        const { newNodes } = state.commitCursor.commit(deltaHtml, state.stableEl!);
-        enhanceMarkdownTables(state.stableEl!);
-        for (const newNode of newNodes) {
-          hydrateMermaid(newNode);
-          hydrateMath(newNode);
-        }
-        state.committedCut = toCut;
-      } else if (toCut === 0 && state.stableEl!.innerHTML !== "") {
-        state.stableEl!.innerHTML = "";
-        state.commitCursor.reset();
-        state.committedCut = 0;
-      }
-      state.stableCut = cut;
-      state.stableText = stableText;
-    }
-    if (performance.now() >= deadline) {
-      await yieldToMain();
-      deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-      if (stale()) {
-        return;
-      }
-    }
-    // 直接取光标引用再重写 tail（innerHTML 赋值会清掉 tail 内的旧光标）
-    const cursor = state.cursor;
-    // tail 每帧整体重建，且未闭合的围栏本就整段留在 tail——不对它水合
-    //（每帧重渲染一遍图表既慢又闪）；围栏闭合进入 stable 后自然渲染，流收口
-    // 的整渲染再兜一次。
-    state.tailEl!.innerHTML = renderMarkdownStripped(tailText, {
-      ...CHAT_MARKDOWN_OPTIONS,
-      hrAdjacentBefore: stableText
+      },
+      isStale: () => epoch !== tokenFlushEpoch
     });
-    enhanceMarkdownTables(state.tailEl!);
-    if (cursor) {
-      state.tailEl!.appendChild(cursor);
+    if (sessionRes && typeof sessionRes.then === "function") {
+      await sessionRes;
+    }
+    if (epoch !== tokenFlushEpoch) {
+      return;
     }
     // 流式帧滚动瞬时化（见 scrollToBottom instant 分支：不逐帧重启 CSS
     // 平滑滚动动画）
     scrollToBottom(false, { instant: true });
     // 插值队列续帧：若 charQueue 中仍有残余字符且当前流代际未作废，继续调度下一帧平滑释放
-    if (deps.smoothStream && state.charQueue.length > 0 && !stale()) {
+    if (deps.smoothStream && state.charQueue.length > 0 && epoch === tokenFlushEpoch) {
       scheduleTokenFlush(node);
     }
   };
@@ -1154,9 +1068,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     const hasSpeakableContent = Boolean(content.textContent?.trim() || content.querySelector("pre, img[alt]"));
-    enhanceMarkdownTables(content);
-    hydrateMermaid(content);
-    hydrateMath(content);
+    hydrateMarkdownContent(content);
     if (sources.length) {
       renderSearchCitations(content, sources);
     }

@@ -10,6 +10,9 @@
 //     (/\b\d{1,3}:\d{2}(?::\d{2})?\b/g); timestamp-nav.js imports it from here.
 //   - TIMESTAMP_INLINE_CODE_REST_PATTERN: used only by isTimestampOnlyInlineCode.
 import { decodeHtmlEntities, escapeHtml } from "../shared/string-utils.js";
+import { enhanceMarkdownTables, TABLE_SHELL_CLASS } from "./markdown-table.js";
+import { hydrateMermaid } from "./lazy-mermaid.js";
+import { hydrateMath } from "./lazy-math.js";
 
 export const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
 const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
@@ -831,9 +834,17 @@ export function createMarkdownCommitCursor(): MarkdownCommitCursor {
           if (activeTable && container.contains(activeTable)) {
             return activeTable;
           }
-          return container.lastElementChild?.tagName === "TABLE"
-            ? (container.lastElementChild as HTMLTableElement)
-            : null;
+          const last = container.lastElementChild;
+          if (!last) {
+            return null;
+          }
+          if (last.tagName === "TABLE") {
+            return last as HTMLTableElement;
+          }
+          if (last.classList.contains(TABLE_SHELL_CLASS)) {
+            return last.querySelector("table");
+          }
+          return null;
         };
 
         if (tag === "TABLE") {
@@ -947,5 +958,230 @@ export function createMarkdownCommitCursor(): MarkdownCommitCursor {
       activeListType = "";
       activeListTaskFlavor = false;
     }
+  };
+}
+
+export interface MarkdownStreamFlushOptions {
+  cursor?: HTMLElement | null;
+  shouldYield?: () => boolean;
+  yieldToMain?: () => Promise<void>;
+  isStale?: () => boolean;
+}
+
+export interface MarkdownStreamSessionOptions extends MarkdownRenderOptions {
+  renderMarkdown?: (text: string, options?: MarkdownRenderOptions) => string;
+}
+
+export interface MarkdownStreamSession {
+  readonly rawText: string;
+  readonly strippedText: string;
+  readonly stableText: string;
+  readonly tailText: string;
+  readonly stableCut: number;
+  readonly committedCut: number;
+  readonly stableEl: HTMLElement;
+  readonly tailEl: HTMLElement;
+  push(delta: string): void;
+  flush(deltaOrOptions?: string | MarkdownStreamFlushOptions, maybeOptions?: MarkdownStreamFlushOptions): void | Promise<void>;
+  reset(): void;
+}
+
+/**
+ * 统一水合 markdown 渲染后的 DOM 内容（表格横滑/卡片交互 + Mermaid 占位图表 + KaTeX 数学公式）。
+ */
+export function hydrateMarkdownContent(root: ParentNode): void {
+  enhanceMarkdownTables(root);
+  hydrateMermaid(root);
+  hydrateMath(root);
+}
+
+/**
+ * createMarkdownStreamSession(stableEl, tailEl, options) — 流式双容器 Markdown 会话。
+ *
+ * 将 ThinkStripCursor（增量思考标签剥除）、MarkdownTailCursor（安全空行切分）、
+ * MarkdownCommitCursor（增量 DOM 提交与续表/续列表）及 hydrateMarkdownContent（统一水合）
+ * 完整收拢在会话闭包内，消除调用方手写的 6 项状态簿记与光标胶水代码。
+ */
+export function createMarkdownStreamSession(
+  stableEl: HTMLElement,
+  tailEl: HTMLElement,
+  options: MarkdownStreamSessionOptions = {}
+): MarkdownStreamSession {
+  const render = options.renderMarkdown || renderMarkdownStripped;
+  let stripCursor = createThinkStripCursor();
+  let tailCursor = createMarkdownTailCursor();
+  const commitCursor = createMarkdownCommitCursor();
+
+  let rawText = "";
+  let stableText = "";
+  let tailText = "";
+  let stableCut = -2;
+  let committedCut = 0;
+
+  function push(delta: string): void {
+    if (!delta) {
+      return;
+    }
+    rawText += delta;
+    stripCursor.push(delta);
+  }
+
+  function commitStable(toCut: number, fromCut: number, lines: readonly string[], currentTailText: string): void {
+    if (toCut > fromCut) {
+      const deltaText = lines.slice(fromCut, toCut).join("\n");
+      const deltaHtml = render(deltaText, {
+        ...options,
+        hrAdjacentBefore: stableText,
+        hrAdjacentAfter: currentTailText
+      });
+      const { newNodes } = commitCursor.commit(deltaHtml, stableEl);
+      enhanceMarkdownTables(stableEl);
+      for (const newNode of newNodes) {
+        hydrateMermaid(newNode);
+        hydrateMath(newNode);
+      }
+      committedCut = toCut;
+    } else if (toCut < fromCut) {
+      stableEl.innerHTML = "";
+      commitCursor.reset();
+      if (toCut > 0) {
+        const rollbackText = lines.slice(0, toCut).join("\n");
+        const deltaHtml = render(rollbackText, {
+          ...options,
+          hrAdjacentBefore: "",
+          hrAdjacentAfter: currentTailText
+        });
+        const { newNodes } = commitCursor.commit(deltaHtml, stableEl);
+        enhanceMarkdownTables(stableEl);
+        for (const newNode of newNodes) {
+          hydrateMermaid(newNode);
+          hydrateMath(newNode);
+        }
+      }
+      committedCut = toCut;
+    } else if (toCut === 0 && stableEl.innerHTML !== "") {
+      stableEl.innerHTML = "";
+      commitCursor.reset();
+      committedCut = 0;
+    }
+  }
+
+  function renderTail(currentTailText: string, cursor?: HTMLElement | null): void {
+    tailEl.innerHTML = render(currentTailText, {
+      ...options,
+      hrAdjacentBefore: stableText
+    });
+    enhanceMarkdownTables(tailEl);
+    if (cursor) {
+      tailEl.appendChild(cursor);
+    }
+  }
+
+  function flush(
+    deltaOrOptions?: string | MarkdownStreamFlushOptions,
+    maybeOptions?: MarkdownStreamFlushOptions
+  ): void | Promise<void> {
+    let delta = "";
+    let opts: MarkdownStreamFlushOptions | undefined;
+    if (typeof deltaOrOptions === "string") {
+      delta = deltaOrOptions;
+      opts = maybeOptions;
+    } else if (deltaOrOptions) {
+      opts = deltaOrOptions;
+    }
+
+    if (delta) {
+      push(delta);
+    }
+
+    const lines = stripCursor.lines;
+    tailCursor.update(lines);
+    const cut = tailCursor.cut;
+    const stableChanged = !(cut >= 0 && cut === stableCut);
+    if (stableChanged) {
+      stableText = cut < 0 ? "" : lines.slice(0, cut).join("\n");
+    }
+    tailText = (cut < 0 ? lines.join("\n") : lines.slice(cut).join("\n")).trimEnd();
+
+    const needStableCommit = stableChanged && (stableText !== "" || stableEl.innerHTML !== "");
+    const toCut = cut < 0 ? 0 : cut;
+    const fromCut = committedCut < 0 ? 0 : committedCut;
+
+    if (needStableCommit) {
+      if (opts?.shouldYield?.()) {
+        return (async () => {
+          await opts.yieldToMain?.();
+          if (opts?.isStale?.()) {
+            return;
+          }
+          commitStable(toCut, fromCut, lines, tailText);
+          stableCut = cut;
+          if (opts?.shouldYield?.()) {
+            await opts.yieldToMain?.();
+            if (opts?.isStale?.()) {
+              return;
+            }
+          }
+          renderTail(tailText, opts?.cursor);
+        })();
+      }
+      commitStable(toCut, fromCut, lines, tailText);
+      stableCut = cut;
+    }
+
+    if (opts?.shouldYield?.()) {
+      return (async () => {
+        await opts.yieldToMain?.();
+        if (opts?.isStale?.()) {
+          return;
+        }
+        renderTail(tailText, opts?.cursor);
+      })();
+    }
+
+    renderTail(tailText, opts?.cursor);
+  }
+
+  function reset(): void {
+    rawText = "";
+    stableText = "";
+    tailText = "";
+    stableCut = -2;
+    committedCut = 0;
+    stableEl.innerHTML = "";
+    tailEl.innerHTML = "";
+    stripCursor = createThinkStripCursor();
+    tailCursor = createMarkdownTailCursor();
+    commitCursor.reset();
+  }
+
+  return {
+    get rawText() {
+      return rawText;
+    },
+    get strippedText() {
+      return stripCursor.lines.join("\n").trimEnd();
+    },
+    get stableText() {
+      return stableText;
+    },
+    get tailText() {
+      return tailText;
+    },
+    get stableCut() {
+      return stableCut;
+    },
+    get committedCut() {
+      return committedCut;
+    },
+    get stableEl() {
+      return stableEl;
+    },
+    get tailEl() {
+      return tailEl;
+    },
+    push,
+    flush,
+    reset
   };
 }

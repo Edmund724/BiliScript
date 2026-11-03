@@ -1,4 +1,4 @@
-const TABLE_SHELL_CLASS = "biliscript-md-table";
+export const TABLE_SHELL_CLASS = "biliscript-md-table";
 const TABLE_SCROLL_CLASS = "biliscript-md-table-scroll";
 const TABLE_CARDS_CLASS = "biliscript-md-table-cards";
 const TABLE_CELL_LABEL_CLASS = "biliscript-md-table-cell-label";

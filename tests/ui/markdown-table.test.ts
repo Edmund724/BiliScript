@@ -34,6 +34,23 @@ describe("Markdown 表格横滑容器", () => {
     expect(root.querySelectorAll("tbody tr")).toHaveLength(2);
     expect(root.querySelector("tbody")?.textContent).toContain("C");
   });
+
+  it("流式游标重置后仍可从 .biliscript-md-table 包装层找回原表并续接新行", () => {
+    const root = document.createElement("div");
+    const cursor = createMarkdownCommitCursor();
+    cursor.commit(renderMarkdown(tableMarkdown(["| A | B |"])), root);
+    enhanceMarkdownTables(root);
+    const originalTable = root.querySelector("table");
+
+    // 重置 activeTable，强制走 container.lastElementChild 的 .biliscript-md-table 匹配分支
+    cursor.reset();
+    cursor.commit(renderMarkdown(tableMarkdown(["| C | D |"])), root);
+
+    expect(root.querySelectorAll("table")).toHaveLength(1);
+    expect(root.querySelector("table")).toBe(originalTable);
+    expect(root.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(root.querySelector("tbody")?.textContent).toContain("C");
+  });
 });
 
 describe("Markdown 长文本表格卡片布局", () => {
