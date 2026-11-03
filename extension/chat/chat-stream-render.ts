@@ -1,24 +1,13 @@
 // extension/chat/chat-stream-render.ts — chat 消息 DOM 渲染/滚动/水合片
-// 12 票浅拆（自 extension/chat/chat-runtime.ts 迁入，函数体逐字节未变）：
-// 流式双容器增量渲染（token 累加器 / flush 帧调度 / 长任务预算切片）、思考节点
-// 生命周期与滚动合帧、用户/助手消息 DOM 装配（占位 / 终态重渲染 / mermaid 水合 /
-// 时间戳链接 / 复制按钮）、自动滚动标志与 scrollToBottom。
+// 负责流式双容器增量渲染、思考节点、用户/助手消息装配、消息操作栏、
+// 原位重新生成的可恢复 DOM 事务，以及自动滚动。
 //
-// 句柄化（渲染片 seam 收口）：本片对外只给两个句柄 + 滚动/自动滚动窄入口——
-//   - 消息区句柄（ChatMessageArea）：追加用户/助手消息（带来源 live/replay）与
-//     清场。「助手消息节点长什么样」只有本片一个主人：live = 流式占位（流式豁免
-//     类 + 光标），replay = 终态直出；回放只表达顺序。
-//   - 回合节点句柄（ChatAssistantTurn）：一个助手消息节点的操作面（token /
-//     思考 / 重置流式 / 收尾成形态 / 三终态徽标 / 时间线卡）。
-// 节点装配、选择器、token flush 与思考节点状态全部退回本片 implementation：
-// chat-runtime 不再出现选择器与 createElement，replay 不再自拼节点；15 键返回面
-// 随之缩为 3 键。
+// ChatMessageArea 是消息区操作面：追加消息、清场、重新生成事务与按钮禁用。
+// ChatAssistantTurn 是单条助手消息的操作面：token / 思考 / 流式重置 /
+// 终态收尾 / 徽标 / 时间线卡。节点装配与选择器只留在本模块。
 //
-// 拆分手法：本片是工厂 createChatStreamRenderer(deps)，闭包自持流式渲染状态
-//（shouldAutoScrollMessages / tokenFlushFrame / tokenFlushEpoch / 三个按节点隔离
-// 的 WeakMap）——每个 createChatRuntime 实例调用一次，实例间隔离语义与拆分前
-// 一致。deps 只需 messages 与两个渲染回调（ChatStreamRendererDeps 结构子集，
-// createChatRuntime 直接传入完整 deps）。
+// 工厂闭包自持自动滚动、flush 帧调度与按节点隔离的 WeakMap 状态；
+// 每个 createChatRuntime 实例调用一次，实例间互不共享。
 
 import {
   createMarkdownCommitCursor,
@@ -46,35 +35,37 @@ import { enhanceMarkdownTables } from "../ui/markdown-table.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
-import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON } from "../ui/reading-icons.js";
+import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_RESET_ICON } from "../ui/reading-icons.js";
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
-// chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染的两个
-// 回调（结构子集——createChatRuntime 直接传入完整 CreateChatRuntimeDeps）。
+// chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染与消息操作回调。
 export interface ChatStreamRendererDeps {
   messages: HTMLElement;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   smoothStream?: boolean;
+  onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
+  onExport?: (historyIndex: number, raw: string) => void;
+  isRegenerationDisabled?: () => boolean;
 }
 
-// 消息来源（渲染片装配形状的唯一开关）：
-//   live   —— 发送/流式路径：接管自动滚动并强制滚底；助手节点是流式占位
-//             （chat-msg-streaming + 光标 + 独立 token 累加器）；
-//   replay —— 历史回放：静默追加（不滚底、不动自动滚动标志）；助手节点是
-//             终态直出形态（无流式类、无光标），等回合句柄 finish 填正文。
 export type ChatMessageSource = "live" | "replay";
 
-// 消息区句柄：追加用户/助手消息与清场——回放侧只表达顺序，节点装配形状不出台。
+export interface ChatRegenerationSession {
+  turn: ChatAssistantTurn;
+  commit: () => void;
+  restore: () => void;
+}
+
 export interface ChatMessageArea {
-  /** 追加用户消息（source 决定滚底与自动滚动接管）。 */
   appendUserMessage: (text: string, opts?: { source?: ChatMessageSource }) => void;
-  /** 追加助手消息节点并返回其回合操作面（source 决定装配形态）。 */
   appendAssistantMessage: (opts?: { source?: ChatMessageSource }) => ChatAssistantTurn;
-  /** 清场：整段重建消息区（回放启动）。 */
+  beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
+  setRegenerationDisabled: (disabled: boolean) => void;
   clear: () => void;
 }
 
@@ -90,11 +81,11 @@ export interface ChatAssistantTurn {
   /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
   discard: () => void;
   /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
-  finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] }) => string;
+  finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
   /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案）。 */
   fail: (text: string) => void;
   /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
-  stop: (reason: string, opts?: { userPrompt?: string }) => { raw: string; body: boolean };
+  stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
   /** 联网搜索 tool-status → 时间线卡（插在本节点之前）。 */
@@ -1126,7 +1117,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // renderAssistantMessage
   // =========================================================================
-  function renderAssistantMessage(node: HTMLDivElement | null, raw: unknown, { userPrompt = "", sources = [] }: { userPrompt?: string; sources?: ChatSearchSource[] } = {}): void {
+  function renderAssistantMessage(
+    node: HTMLDivElement | null,
+    raw: unknown,
+    { sources = [], historyIndex }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}
+  ): void {
     if (!node) {
       return;
     }
@@ -1146,31 +1141,30 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const pasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
 
     const content = document.createElement("div");
-    // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
-    // 变量由 github-markdown-theme.css 桥接到 --biliscript-reader-*）。
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     enhanceMarkdownTables(content);
-    // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
-    // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
     hydrateMermaid(content);
     hydrateMath(content);
-    // 联网搜索（spec §4）：[n] → 上标内联引用（流结束后统一转换；流式期间
-    // 原文呈现）。编号与时间线卡 chip 行同序（跨搜索累计）。
     if (sources.length) {
       renderSearchCitations(content, sources);
     }
     node.appendChild(content);
 
+    function createActionButton(className: string, label: string, icon: string): HTMLButtonElement {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `chat-msg-action-btn ${className}`;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+      button.innerHTML = icon;
+      return button;
+    }
+
     const actions = document.createElement("div");
     actions.className = "chat-msg-actions";
-    const copyBtn = document.createElement("button");
-    copyBtn.type = "button";
-    copyBtn.className = "chat-msg-copy-btn";
-    copyBtn.setAttribute("aria-label", "复制回复");
-    copyBtn.setAttribute("title", "复制回复");
-    copyBtn.innerHTML = READING_COPY_ICON;
+    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
     copyBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(pasteReadyRaw);
@@ -1187,6 +1181,29 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
     });
     actions.appendChild(copyBtn);
+
+    const regenerateBtn = createActionButton("chat-msg-regenerate-btn", "重新生成", READING_RESET_ICON);
+    regenerateBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+    regenerateBtn.addEventListener("click", () => {
+      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+        deps.onRegenerate?.(historyIndex, node);
+      }
+    });
+    actions.appendChild(regenerateBtn);
+
+    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
+    exportBtn.disabled = historyIndex === undefined || !pasteReadyRaw.trim();
+    exportBtn.addEventListener("click", () => {
+      if (historyIndex === undefined) {
+        return;
+      }
+      try {
+        deps.onExport?.(historyIndex, pasteReadyRaw);
+      } catch (error) {
+        setMessage(`导出失败：${getErrorMessage(error)}`);
+      }
+    });
+    actions.appendChild(exportBtn);
 
     node.appendChild(actions);
   }
@@ -1286,11 +1303,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 确保终态 DOM 物化前旧帧彻底作废）；raw 缺省 = 本回合累计原文（live 路径），
     // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
     // 回放显式传来源（含空数组），不触发这条消费副作用。
-    function finish({ raw, userPrompt = "", sources }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] } = {}): string {
+    function finish({ raw, userPrompt = "", sources, historyIndex }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
       flushPendingThinking();
       cancelTokenFlush();
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
-      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node) });
+      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node), historyIndex });
       return text;
     }
 
@@ -1308,13 +1325,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
     // 挂停止态：自动取消挂起的流式渲染帧；
     // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
-    function stop(reason: string, { userPrompt = "" }: { userPrompt?: string } = {}): { raw: string; body: boolean } {
+    function stop(reason: string, { userPrompt = "", historyIndex }: { userPrompt?: string; historyIndex?: number } = {}): { raw: string; body: boolean } {
       flushPendingThinking();
       cancelTokenFlush();
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
-        renderAssistantMessage(node, text, { userPrompt, sources: takeTurnSearchSources(node) });
+        renderAssistantMessage(node, text, { userPrompt, sources: takeTurnSearchSources(node), historyIndex });
         appendBadge(node, "chat-msg-stopped", label);
         return { raw: text, body: true };
       }
@@ -1365,14 +1382,79 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     };
   }
 
-  // 消息区句柄：追加用户/助手消息（带来源）与清场——「助手消息节点长什么样」
-  // 只有本片一个主人，回放只表达顺序。
+  function beginRegeneration(node: HTMLDivElement): ChatRegenerationSession {
+    const originalStreaming = node.classList.contains("chat-msg-streaming");
+    const originalContent = document.createDocumentFragment();
+    while (node.firstChild) {
+      originalContent.appendChild(node.firstChild);
+    }
+    const previous = node.previousElementSibling;
+    const originalSearchCard = previous?.classList.contains("chat-search-card") ? previous : null;
+    originalSearchCard?.remove();
+    const following: HTMLElement[] = [];
+    let next = node.nextElementSibling;
+    while (next) {
+      if (next instanceof HTMLElement) {
+        next.hidden = true;
+        following.push(next);
+      }
+      next = next.nextElementSibling;
+    }
+
+    cancelTokenFlush();
+    const oldState = getTokenStreamState(node);
+    for (const thinking of oldState.allThinking) {
+      cancelThinkingFrame(thinking);
+    }
+    resetTokenStreamState(node);
+    const state = getTokenStreamState(node);
+    state.cursor = createStreamCursor();
+    node.appendChild(state.cursor);
+    node.classList.add("chat-msg-streaming");
+    const turn = createTurnHandle(node);
+    let settled = false;
+
+    return {
+      turn,
+      commit() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        following.forEach((element) => element.remove());
+      },
+      restore() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        turn.discard();
+        clearSearchCard(node);
+        node.innerHTML = "";
+        node.appendChild(originalContent);
+        if (originalSearchCard) {
+          deps.messages.insertBefore(originalSearchCard, node);
+        }
+        following.forEach((element) => {
+          element.hidden = false;
+        });
+        node.classList.toggle("chat-msg-streaming", originalStreaming);
+      }
+    };
+  }
+
   const messageArea: ChatMessageArea = {
     appendUserMessage(text, { source = "live" } = {}) {
       appendUserMessageNode(text, source);
     },
     appendAssistantMessage({ source = "live" } = {}) {
       return createTurnHandle(appendAssistantMessageNode(source));
+    },
+    beginRegeneration,
+    setRegenerationDisabled(disabled) {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn").forEach((button) => {
+        button.disabled = disabled;
+      });
     },
     clear() {
       deps.messages.innerHTML = "";

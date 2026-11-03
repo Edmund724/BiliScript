@@ -1803,3 +1803,135 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("未挂载");
   });
 });
+
+describe("消息操作：重新生成与导出", () => {
+  async function makeTwoTurnConversation() {
+    const { deps, runtime } = await makeRuntime("第一问");
+    feed(runtime, { type: "token", data: "第一答" });
+    feed(runtime, { type: "done" });
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+    return { deps, runtime };
+  }
+
+  async function regenerateAt(deps: TestDeps, index: number): Promise<void> {
+    deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn")[index].click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+  }
+
+  it("重新生成较早回答：沿用原问题和之前历史，保留草稿，成功后原位替换并删除后续", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    deps.input.value = "尚未发送的草稿";
+
+    await regenerateAt(deps, 0);
+
+    const request = deps.ports[2].port.postMessage.mock.calls[0][0];
+    expect(request.prompt).toBe("第一问");
+    expect(request.history).toEqual([]);
+    expect(deps.input.value).toBe("尚未发送的草稿");
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(true);
+    expect([...deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn")].every((button) => button.disabled)).toBe(true);
+
+    feed(runtime, { type: "token", data: "新的第一答" });
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "新的第一答" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+    expect(deps.messages.querySelector(".chat-msg-assistant-body")?.textContent).toBe("新的第一答");
+  });
+
+  it("重新生成失败：恢复原回答、后续消息和历史，不保留半截新内容", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 0);
+
+    feed(runtime, { type: "tool-status", status: "searching", query: "新搜索" });
+    feed(runtime, { type: "token", data: "失败的新回答" });
+    feed(runtime, { type: "error", error: "网络中断" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答" },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: "第二答" }
+    ]);
+    const assistants = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant");
+    expect(assistants[0].textContent).toContain("第一答");
+    expect(assistants[0].textContent).not.toContain("失败的新回答");
+    expect(assistants[1].textContent).toContain("第二答");
+    expect(assistants[1].hidden).toBe(false);
+    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("重新生成失败：网络中断", 4000);
+  });
+
+  it("重新生成后手动停止：已有部分内容则替换旧回答并标记停止", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 1);
+
+    expect(deps.ports[2].port.postMessage.mock.calls[0][0].history).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答" }
+    ]);
+    feed(runtime, { type: "token", data: "部分新回答" });
+    feed(runtime, { type: "stopped", reason: "用户手动停止" });
+
+    expect(chatSessionState.chatHistory[3]).toEqual({ role: "assistant", content: "部分新回答" });
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")[1].textContent).toContain("部分新回答");
+    expect(deps.messages.querySelector(".chat-msg-stopped")?.textContent).toBe("用户手动停止");
+  });
+
+  it("重新生成后手动停止：尚无内容则恢复完整原对话", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 0);
+
+    feed(runtime, { type: "stopped", reason: "用户手动停止" });
+
+    expect(chatSessionState.chatHistory).toHaveLength(4);
+    const assistants = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant");
+    expect(assistants[0].textContent).toContain("第一答");
+    expect(assistants[1].textContent).toContain("第二答");
+    expect(assistants[1].hidden).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-stopped")).toBeNull();
+  });
+
+  it("导出：下载与复制口径一致的 Markdown，文件名包含视频标题和回答序号", async () => {
+    const { deps } = await makeTwoTurnConversation();
+    chatSessionStateForTests.currentConversationMeta = { contextTitle: "视频: 标题" };
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    let exportedBlob: Blob | undefined;
+    let clickedAnchor: HTMLAnchorElement | null = null;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn((blob: Blob) => {
+        exportedBlob = blob;
+        return "blob:chat-answer";
+      })
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchor = this;
+    });
+
+    try {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[0].click();
+
+      expect(clickedAnchor!.download).toBe("视频_ 标题-回答-1.md");
+      expect(exportedBlob?.type).toBe("text/markdown;charset=utf-8");
+      expect(await exportedBlob?.text()).toBe("第一答");
+
+      chatSessionStateForTests.currentConversationMeta = null;
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[1].click();
+      expect(clickedAnchor!.download).toBe("BiliScript-回答-2.md");
+      expect(await exportedBlob?.text()).toBe("第二答");
+    } finally {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+    }
+  });
+});

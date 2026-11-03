@@ -297,13 +297,28 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
       "chat-msg-assistant-body markdown-body",
       "chat-msg-actions"
     ]);
-    expect(node.querySelector(".chat-msg-copy-btn")).toBeTruthy();
+    expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制回复",
+      "重新生成",
+      "导出 Markdown"
+    ]);
 
     turn.markTruncated("回答被截断（达到模型输出上限）");
     expect(deps.messages.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
     // 位置：操作行之后（与既有 done 收尾时序一致）
     expect(deps.messages.querySelector(".chat-msg-truncated")?.previousElementSibling?.className).toBe("chat-msg-actions");
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);
+  });
+
+  it("空回答：允许重新生成，禁用导出", () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+    const turn = areaOf(runtime).appendAssistantMessage({ source: "live" });
+
+    turn.finish({ raw: "", historyIndex: 0 });
+
+    expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-regenerate-btn")?.disabled).toBe(false);
+    expect(deps.messages.querySelector<HTMLButtonElement>(".chat-msg-export-btn")?.disabled).toBe(true);
   });
 
   it("fail：清空节点内容，只留错误占位（文案原样，不渲染正文）", () => {

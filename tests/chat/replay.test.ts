@@ -81,7 +81,9 @@ function makeDeps(): {
       turns.push(fake);
       log.push(`assistant:${opts?.source}`);
       return fake.turn;
-    })
+    }),
+    beginRegeneration: vi.fn(),
+    setRegenerationDisabled: vi.fn()
   };
   const setAutoScroll = vi.fn();
   const scrollToBottom = vi.fn();
@@ -137,8 +139,8 @@ describe("createConversationReplay（历史回放事务）", () => {
     expect(messageArea.appendUserMessage).toHaveBeenNthCalledWith(1, "问一", { source: "replay" });
     expect(messageArea.appendUserMessage).toHaveBeenNthCalledWith(2, "问二", { source: "replay" });
     expect(messageArea.appendAssistantMessage).toHaveBeenNthCalledWith(1, { source: "replay" });
-    expect(turns[0].finish).toHaveBeenCalledWith({ raw: "答一", userPrompt: "问一", sources: [] });
-    expect(turns[1].finish).toHaveBeenCalledWith({ raw: "答二", userPrompt: "问二", sources: [] });
+    expect(turns[0].finish).toHaveBeenCalledWith({ raw: "答一", userPrompt: "问一", sources: [], historyIndex: 1 });
+    expect(turns[1].finish).toHaveBeenCalledWith({ raw: "答二", userPrompt: "问二", sources: [], historyIndex: 3 });
     expect(turns[0].attachSearchTimelineCard).not.toHaveBeenCalled();
     expect(setAutoScroll).toHaveBeenCalledTimes(1);
     expect(setAutoScroll).toHaveBeenCalledWith(true);
@@ -170,7 +172,7 @@ describe("createConversationReplay（历史回放事务）", () => {
 
     // 仅回答消息走回合句柄，且带本回合来源（tool 轮 assistant 无正文被跳过）。
     expect(turns).toHaveLength(1);
-    expect(turns[0].finish).toHaveBeenCalledWith({ raw: "答 [1]。", userPrompt: "搜一下", sources });
+    expect(turns[0].finish).toHaveBeenCalledWith({ raw: "答 [1]。", userPrompt: "搜一下", sources, historyIndex: 3 });
     expect(turns[0].attachSearchTimelineCard).toHaveBeenCalledTimes(1);
     expect(turns[0].attachSearchTimelineCard).toHaveBeenCalledWith({
       assistantIndex: 3,

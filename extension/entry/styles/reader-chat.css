@@ -747,7 +747,7 @@
   margin-top: 8px;
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn {
+.biliscript-reading-chat .chat-msg-action-btn {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -762,27 +762,27 @@
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn:active {
+.biliscript-reading-chat .chat-msg-action-btn:active {
   transform: scale(0.91);
   transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn:hover {
+.biliscript-reading-chat .chat-msg-action-btn:hover {
   background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-text);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn:focus-visible {
+.biliscript-reading-chat .chat-msg-action-btn:focus-visible {
   background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-text);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn:disabled {
+.biliscript-reading-chat .chat-msg-action-btn:disabled {
   cursor: default;
   color: var(--biliscript-reader-muted);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn svg {
+.biliscript-reading-chat .chat-msg-action-btn svg {
   width: 14px;
   height: 14px;
   fill: none;
@@ -792,11 +792,11 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn.is-copied {
+.biliscript-reading-chat .chat-msg-action-btn.is-copied {
   color: var(--biliscript-reader-accent);
 }
 
-.biliscript-reading-chat .chat-msg-copy-btn.is-copied svg {
+.biliscript-reading-chat .chat-msg-action-btn.is-copied svg {
   animation: biliscript-copy-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -812,10 +812,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .biliscript-reading-chat .chat-msg-copy-btn:active {
+  .biliscript-reading-chat .chat-msg-action-btn:active {
     transform: none;
   }
-  .biliscript-reading-chat .chat-msg-copy-btn.is-copied svg {
+  .biliscript-reading-chat .chat-msg-action-btn.is-copied svg {
     animation: none;
   }
 }

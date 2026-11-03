@@ -1,9 +1,9 @@
 // tests/chat/chat-msg-copy-btn-style.test.ts
-// AI 对话消息区复制键（.chat-msg-copy-btn）的 CSS 契约：与图标键母题同一视觉
+// AI 对话消息操作键（.chat-msg-action-btn）的 CSS 契约：与图标键母题同一视觉
 // 语言（无框、8px 圆角、悬停/焦点 fill-hover 底），样式只留 reader-chat.css
 // （分区回流由 tests/entry/reader-chat-css-split.test.ts 守）。防「改一半」：
 //   1. 边框摘了 hover/focus 里的 border-color 留着（无边框时的孤儿声明）；
-//   2. 悬停底被摘（复制键的存在感只剩图标本身）；
+//   2. 悬停底被摘（操作键的存在感只剩图标本身）；
 //   3. focus-visible 缺失（键盘焦点无反馈，与母题不一致）；
 //   4. 尺寸被顺手改（消息操作行版面回归）。
 import { readFileSync } from "node:fs";
@@ -27,9 +27,9 @@ function declaration(block: string, prop: string): string | undefined {
   return block.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`))?.[1].trim();
 }
 
-const BASE = "\\.biliscript-reading-chat \\.chat-msg-copy-btn";
+const BASE = "\\.biliscript-reading-chat \\.chat-msg-action-btn";
 
-describe("AI 对话复制键的样式契约", () => {
+describe("AI 对话消息操作键的样式契约", () => {
   it("无框：border 摘净且 hover/focus 不留孤儿 border-color", () => {
     const base = ruleBody(readCss(), BASE);
 
