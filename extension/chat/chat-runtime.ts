@@ -164,6 +164,7 @@ export interface CreateChatRuntimeDeps {
   // 旧组合根），回执统一走 Promise 归一。
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
   speechEngine?: ChatSpeechEngine;
+  getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
 }
 
@@ -336,6 +337,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 经 activeTurn 槽位持有——本文件不再解构/调用任何 DOM 步骤函数。
   const speech = createChatSpeechController({
     engine: deps.speechEngine,
+    getVolume: deps.getSpeechVolume,
     onError: (message) => deps.ui.showConversationContextNotice(message, 4000)
   });
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({

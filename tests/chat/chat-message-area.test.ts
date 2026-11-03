@@ -327,6 +327,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     const deps = makeDeps();
     const speak = vi.fn();
     const stop = vi.fn();
+    deps.getSpeechVolume = () => 0.35;
     deps.speechEngine = {
       getVoices: async () => [{ voiceName: "本地中文", lang: "zh-CN", remote: false }],
       speak,
@@ -340,6 +341,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
     button.click();
     await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
     expect(speak.mock.calls[0][0]).toBe("可见文字");
+    expect(speak.mock.calls[0][1].volume).toBe(0.35);
     expect(button.getAttribute("aria-label")).toBe("停止朗读");
 
     area.clear();

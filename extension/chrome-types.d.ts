@@ -191,6 +191,7 @@ declare namespace chrome {
     interface SpeakOptions {
       voiceName?: string;
       lang?: string;
+      volume?: number;
       onEvent?: (event: TtsEvent) => void;
     }
 

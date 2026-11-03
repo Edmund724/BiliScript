@@ -137,6 +137,7 @@ export interface CreateChatTabDomainDeps {
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
+  getSpeechVolume?: () => number | undefined;
 }
 
 export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
@@ -227,6 +228,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,
+    getSpeechVolume: deps.getSpeechVolume,
     smoothStream: true
   });
   // 历史回放事务（GLOSSARY.md 词条「历史回放」）：消费 runtime 的消息区句柄与两个

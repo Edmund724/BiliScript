@@ -36,6 +36,9 @@ function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { 
     const result = chrome.tts.speak(request.text, {
       voiceName: request.voiceName,
       lang: request.lang,
+      volume: typeof request.volume === "number" && Number.isFinite(request.volume)
+        ? Math.max(0, Math.min(1, request.volume))
+        : undefined,
       onEvent: (event) => {
         if (activePort !== port || activeRequestId !== request.requestId) {
           return;

@@ -3,7 +3,8 @@
 // 2. 自然/在线音色未优先于机械本地音色，或在线音色失败时未回退本地音色与浏览器语言；
 // 3. 长回答超过单次 speak 上限，或分块结束后不续读；
 // 4. 停止/切换后，迟到的 getVoices 与旧 utterance 事件污染新状态；
-// 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见。
+// 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见；
+// 6. 音量未对齐外部播放器音量或越界未归一。
 import { describe, expect, it, vi } from "vitest";
 import {
   createChatSpeechController,
@@ -243,5 +244,88 @@ describe("停止、切换与失败", () => {
 
     await controller.toggle(button, "回答");
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("音量对齐", () => {
+  it("getVolume 提供时透传当前音量到 speak options", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    const controller = createChatSpeechController({
+      engine,
+      getBrowserLanguage: () => "zh-CN",
+      getVolume: () => 0.25
+    });
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "测试音量对齐");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+
+    expect(engine.spoken[0].options.volume).toBe(0.25);
+  });
+
+  it("分块续读期间动态读取最新音量", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    let currentVolume = 0.6;
+    const controller = createChatSpeechController({
+      engine,
+      getBrowserLanguage: () => "zh-CN",
+      getVolume: () => currentVolume
+    });
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "第一句。\n\n第二句。", { maxChunkChars: 6 });
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+    expect(engine.spoken[0].options.volume).toBe(0.6);
+
+    currentVolume = 0.2;
+    engine.emit(0, "end");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(2));
+    expect(engine.spoken[1].options.volume).toBe(0.2);
+  });
+
+  it("音量越界时归一化至 [0, 1]，非法数值回落 undefined", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    let currentVolume: number | undefined = -0.5;
+    const controller = createChatSpeechController({
+      engine,
+      getBrowserLanguage: () => "zh-CN",
+      getVolume: () => currentVolume
+    });
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "负数音量");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+    expect(engine.spoken[0].options.volume).toBe(0);
+
+    controller.stop();
+    currentVolume = 1.8;
+    await controller.toggle(button, "超上限音量");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(2));
+    expect(engine.spoken[1].options.volume).toBe(1);
+
+    controller.stop();
+    currentVolume = Number.NaN;
+    await controller.toggle(button, "NaN 音量");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(3));
+    expect(engine.spoken[2].options.volume).toBeUndefined();
+  });
+
+  it("toggle options.volume 显式传入时优先于 getVolume", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    const controller = createChatSpeechController({
+      engine,
+      getBrowserLanguage: () => "zh-CN",
+      getVolume: () => 0.1
+    });
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "手动指定音量", { volume: 0.8 });
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+
+    expect(engine.spoken[0].options.volume).toBe(0.8);
   });
 });

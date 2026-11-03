@@ -13,7 +13,7 @@ export interface ChatSpeechEvent {
 
 export type ChatSpeechRequest =
   | { type: "get-voices"; requestId: number }
-  | { type: "speak"; requestId: number; text: string; voiceName?: string; lang?: string }
+  | { type: "speak"; requestId: number; text: string; voiceName?: string; lang?: string; volume?: number }
   | { type: "stop" };
 
 export type ChatSpeechPortMessage =

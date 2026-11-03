@@ -19,6 +19,7 @@ const BLOCK_TAGS = new Set([
 export interface ChatSpeechSpeakOptions {
   voiceName?: string;
   lang?: string;
+  volume?: number;
   onEvent?: (event: ChatSpeechEvent) => void;
 }
 
@@ -31,11 +32,12 @@ export interface ChatSpeechEngine {
 export interface CreateChatSpeechControllerDeps {
   engine?: ChatSpeechEngine;
   getBrowserLanguage?: () => string;
+  getVolume?: () => number | undefined;
   onError?: (message: string) => void;
 }
 
 export interface ChatSpeechController {
-  toggle(button: HTMLButtonElement, source: HTMLElement | string, options?: { maxChunkChars?: number }): Promise<void>;
+  toggle(button: HTMLButtonElement, source: HTMLElement | string, options?: { maxChunkChars?: number; volume?: number }): Promise<void>;
   stop(): void;
 }
 
@@ -113,7 +115,7 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
       const requestId = nextRequestId++;
       eventListeners.set(requestId, options.onEvent);
       try {
-        send({ type: "speak", requestId, text, voiceName: options.voiceName, lang: options.lang });
+        send({ type: "speak", requestId, text, voiceName: options.voiceName, lang: options.lang, volume: options.volume });
       } catch (error) {
         eventListeners.delete(requestId);
         throw error;
@@ -291,7 +293,8 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     index: number,
     voice: ChatSpeechVoice,
     lang: string,
-    fallbackVoice?: ChatSpeechVoice
+    fallbackVoice?: ChatSpeechVoice,
+    options: { maxChunkChars?: number; volume?: number } = {}
   ): void {
     if (!isActive(token)) {
       return;
@@ -301,15 +304,22 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
         return;
       }
       if (fallbackVoice && fallbackVoice !== voice) {
-        speakChunk(token, chunks, index, fallbackVoice, lang);
+        speakChunk(token, chunks, index, fallbackVoice, lang, undefined, options);
         return;
       }
       fail(token);
     };
     try {
+      const rawVolume = typeof options.volume === "number" && Number.isFinite(options.volume)
+        ? options.volume
+        : deps.getVolume?.();
+      const volume = typeof rawVolume === "number" && Number.isFinite(rawVolume)
+        ? Math.max(0, Math.min(1, rawVolume))
+        : undefined;
       const result = engine.speak(chunks[index], {
         voiceName: voice.voiceName,
         lang: voice.lang || lang,
+        volume,
         onEvent: (event) => {
           if (!isActive(token)) {
             return;
@@ -320,7 +330,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
             stop();
           } else if (event.type === "end") {
             if (index + 1 < chunks.length) {
-              speakChunk(token, chunks, index + 1, voice, lang, fallbackVoice);
+              speakChunk(token, chunks, index + 1, voice, lang, fallbackVoice, options);
             } else {
               finish(token);
             }
@@ -335,7 +345,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     }
   }
 
-  async function toggle(button: HTMLButtonElement, source: HTMLElement | string, options: { maxChunkChars?: number } = {}): Promise<void> {
+  async function toggle(button: HTMLButtonElement, source: HTMLElement | string, options: { maxChunkChars?: number; volume?: number } = {}): Promise<void> {
     if (active?.button === button) {
       stop();
       return;
@@ -371,7 +381,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
         finish(token);
         return;
       }
-      speakChunk(token, chunks, 0, voice, requestedLanguage, fallbackVoice);
+      speakChunk(token, chunks, 0, voice, requestedLanguage, fallbackVoice, options);
     } catch {
       fail(token);
     }
