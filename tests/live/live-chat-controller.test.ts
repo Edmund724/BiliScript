@@ -579,7 +579,7 @@ describe("LiveChatController", () => {
 });
 
 
-describe("LiveChatController subtitle context and tools", () => {
+describe("LiveChatController video context and page tools", () => {
   function setupContextTest(overrides: {
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -668,11 +668,32 @@ describe("LiveChatController subtitle context and tools", () => {
       expect(fakePort.postedMessages).toContainEqual({
         action: "tool_result",
         callId: "call-1",
-        result: { ok: false, error: "字幕工具执行失败：subtitle unavailable" }
+        result: { ok: false, error: "页面工具执行失败：subtitle unavailable" }
       });
     });
     expect(executeTool).toHaveBeenCalledWith(call);
     expect(controller.getState()).toBe("connected");
     expect(fakePort.disconnected).toBe(false);
+  });
+
+  it("does not execute late player controls after hangup", async () => {
+    const executeTool = vi.fn();
+    const { controller, fakePort } = setupContextTest({ executeTool });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    await controller.stop();
+    fakePort.postedMessages.length = 0;
+
+    fakePort.simulateMessage({
+      type: "tool_call",
+      call: {
+        callId: "late-player",
+        name: "control_bilibili_player",
+        arguments: { command: "seek", time: 40 }
+      }
+    });
+    await Promise.resolve();
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(fakePort.postedMessages).toHaveLength(0);
   });
 });

@@ -208,10 +208,17 @@ export interface MossLiveVideoContext {
   chapters: Array<{ title: string; from: number; to?: number }>;
 }
 
+export interface MossLiveVideoIdentity {
+  bvid: string;
+  cid: string;
+  pageIndex: number;
+}
+
 export interface MossLiveToolCall {
   callId: string;
   name: string;
   arguments: unknown;
+  video?: MossLiveVideoIdentity | null;
 }
 
 const MOSS_LIVE_SUBTITLE_TOOLS = [
@@ -243,6 +250,21 @@ const MOSS_LIVE_SUBTITLE_TOOLS = [
   }
 ] as const;
 
+const MOSS_LIVE_PLAYER_TOOL = {
+  type: "function",
+  name: "control_bilibili_player",
+  description: "控制当前B站播放器。暂停或继续播放、调整倍速、跳转到指定秒数；跳到字幕检索结果时使用该结果的 from 作为 time。",
+  parameters: {
+    type: "object",
+    properties: {
+      command: { type: "string", enum: ["seek", "pause", "play", "rate"], description: "控制命令" },
+      time: { type: "number", description: "seek 的目标播放位置（秒），必须为非负数且不超出视频时长" },
+      rate: { type: "number", enum: [0.5, 0.75, 1, 1.25, 1.5, 2], description: "rate 的目标倍速" }
+    },
+    required: ["command"]
+  }
+} as const;
+
 export interface MossLiveToolDefinition {
   type: "function";
   name: "web_search";
@@ -271,13 +293,13 @@ export interface MinimalSessionUpdatePayload {
     instructions: string;
     voice: string;
     modalities: string[];
-    tools: [...typeof MOSS_LIVE_SUBTITLE_TOOLS, MossLiveToolDefinition];
+    tools: [...typeof MOSS_LIVE_SUBTITLE_TOOLS, typeof MOSS_LIVE_PLAYER_TOOL, MossLiveToolDefinition];
     tool_choice: "auto";
   };
 }
 
 function buildVideoInstructions(context: MossLiveVideoContext | null | undefined): string {
-  const base = "当前正在观看B站视频伴看会话。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。工具返回无结果、失败或超时时必须明确告知用户，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 0:05 或 1:02:05）。";
+  const base = "当前正在观看B站视频伴看会话。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 0:05 或 1:02:05）。";
   if (!context) {
     return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;
   }
@@ -304,6 +326,7 @@ export function buildMinimalSessionUpdatePayload(
       modalities: ["audio", "text"],
       tools: [
         ...MOSS_LIVE_SUBTITLE_TOOLS,
+        MOSS_LIVE_PLAYER_TOOL,
         {
           type: "function",
           name: "web_search",

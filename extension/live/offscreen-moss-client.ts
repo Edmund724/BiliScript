@@ -5,7 +5,7 @@
 // 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00）与视频 JPEG（0x02）、静音控制
 // 3. 下行 48kHz 单声道 PCM S16LE 无缝队列播放与 playback.chunk.completed / playback.completed / playback.stopped 回执
 // 4. 双端增量/终态字幕事件转发
-// 5. web_search 工具调用、超时/打断取消、function_call_output 回填与查询状态转发
+// 5. 页面工具与 web_search 调用、超时/打断取消、结果回填与查询状态转发
 
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
@@ -387,6 +387,19 @@ export class OffscreenMossLiveClient {
     this.sendJson({ action: "response.create" });
   }
 
+  private withVideoIdentity(call: MossLiveToolCall): MossLiveToolCall {
+    return {
+      ...call,
+      video: this.videoContext
+        ? {
+            bvid: this.videoContext.bvid,
+            cid: this.videoContext.cid,
+            pageIndex: this.videoContext.pageIndex
+          }
+        : null
+    };
+  }
+
   private handleFunctionCall(
     callId: string,
     name: string,
@@ -399,7 +412,12 @@ export class OffscreenMossLiveClient {
     this.handledToolCallIds.add(callId);
 
     if (name !== "web_search") {
-      this.sendFunctionCallOutput(callId, `不支持工具 ${name || "未知"}，请向用户说明无法完成该工具调用。`);
+      const call = this.withVideoIdentity({ callId, name, arguments: argumentsText });
+      if (this.options.onToolCall) {
+        this.options.onToolCall(call);
+      } else {
+        this.sendToolResult(callId, { ok: false, error: "当前客户端未接入页面工具执行器" });
+      }
       return;
     }
 
@@ -552,9 +570,9 @@ export class OffscreenMossLiveClient {
       }
 
       case "tool.call":
-        this.options.onToolCall?.(parsed.call);
+        this.options.onToolCall?.(this.withVideoIdentity(parsed.call));
         if (!this.options.onToolCall) {
-          this.sendToolResult(parsed.call.callId, { ok: false, error: "当前客户端未接入字幕工具执行器" });
+          this.sendToolResult(parsed.call.callId, { ok: false, error: "当前客户端未接入页面工具执行器" });
         }
         break;
 

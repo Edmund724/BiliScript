@@ -30,6 +30,7 @@ function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
 
 beforeEach(() => {
   resetModuleState();
+  document.body.replaceChildren();
 });
 
 describe("createLiveToolsBridge", () => {
@@ -140,5 +141,133 @@ describe("createLiveToolsBridge", () => {
     })).resolves.toMatchObject({ ok: false, error: expect.stringContaining("字幕工具执行失败") });
     await expect(bridge.executeTool({ callId: "c7", name: "unknown", arguments: {} }))
       .resolves.toMatchObject({ ok: false, error: expect.stringContaining("不支持") });
+  });
+});
+
+describe("control_bilibili_player", () => {
+  function setupPlayer(readyState = 1) {
+    const wrap = document.createElement("div");
+    wrap.className = "bpx-player-video-wrap";
+    const video = document.createElement("video");
+    wrap.append(video);
+    document.body.append(wrap);
+    Object.defineProperty(video, "readyState", { configurable: true, value: readyState });
+    Object.defineProperty(video, "duration", { configurable: true, value: 4000 });
+    const play = vi.spyOn(video, "play").mockResolvedValue();
+    const pause = vi.spyOn(video, "pause").mockImplementation(() => {});
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getPlayer: () => video
+    });
+    return { bridge, video, play, pause };
+  }
+
+  it("seeks, pauses, plays and changes playback rate on the current Bilibili video", async () => {
+    const { bridge, video, play, pause } = setupPlayer();
+    await expect(bridge.executeTool({
+      callId: "seek-1",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: 3725 }
+    })).resolves.toMatchObject({ ok: true, command: "seek", currentTime: 3725, message: "已跳转到 1:02:05" });
+    await expect(bridge.executeTool({
+      callId: "rate-1",
+      name: "control_bilibili_player",
+      arguments: JSON.stringify({ command: "rate", rate: 1.5 })
+    })).resolves.toMatchObject({ ok: true, playbackRate: 1.5 });
+    await expect(bridge.executeTool({
+      callId: "pause-1",
+      name: "control_bilibili_player",
+      arguments: { command: "pause" }
+    })).resolves.toMatchObject({ ok: true, command: "pause" });
+    await expect(bridge.executeTool({
+      callId: "play-1",
+      name: "control_bilibili_player",
+      arguments: { command: "play" }
+    })).resolves.toMatchObject({ ok: true, command: "play" });
+    expect(video.currentTime).toBe(3725);
+    expect(video.playbackRate).toBe(1.5);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a subtitle search result timestamp for semantic navigation", async () => {
+    const { bridge, video } = setupPlayer();
+    const found = await bridge.executeTool({
+      callId: "search-summary",
+      name: "search_video_subtitles",
+      arguments: { query: "总结" }
+    });
+    const item = (found.items as Array<{ from: number }>)[0];
+    const result = await bridge.executeTool({
+      callId: "seek-summary",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: item.from }
+    });
+    expect(found).toMatchObject({ ok: true, total: 1 });
+    expect(result).toMatchObject({ ok: true, currentTime: 3725 });
+    expect(video.currentTime).toBe(3725);
+  });
+
+  it.each([
+    {},
+    { command: "seek" },
+    { command: "seek", time: -1 },
+    { command: "seek", time: Number.NaN },
+    { command: "seek", time: Number.POSITIVE_INFINITY },
+    { command: "seek", time: 4001 },
+    { command: "seek", time: "12" },
+    { command: "rate" },
+    { command: "rate", rate: 1.2 },
+    { command: "rate", rate: 3 },
+    { command: "rate", rate: "2" },
+    { command: "volume" }
+  ])("rejects invalid or missing arguments without changing the player: %j", async (args) => {
+    const { bridge, video, play, pause } = setupPlayer();
+    video.currentTime = 12;
+    const result = await bridge.executeTool({ callId: "invalid", name: "control_bilibili_player", arguments: args });
+    expect(result).toMatchObject({ ok: false, error: expect.any(String) });
+    expect(video.currentTime).toBe(12);
+    expect(video.playbackRate).toBe(1);
+    expect(play).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or unready player and reports play rejection as failure", async () => {
+    const missing = createLiveToolsBridge({ getClip: () => makeClip(), getUrl: () => URL, getPlayer: () => null });
+    await expect(missing.executeTool({
+      callId: "missing",
+      name: "control_bilibili_player",
+      arguments: { command: "pause" }
+    })).resolves.toMatchObject({ ok: false, error: expect.stringContaining("尚未就绪") });
+
+    const { bridge, play } = setupPlayer(0);
+    await expect(bridge.executeTool({
+      callId: "unready",
+      name: "control_bilibili_player",
+      arguments: { command: "play" }
+    })).resolves.toMatchObject({ ok: false, error: expect.stringContaining("尚未就绪") });
+    expect(play).not.toHaveBeenCalled();
+
+    const ready = setupPlayer();
+    ready.play.mockRejectedValue(new Error("NotAllowedError"));
+    await expect(ready.bridge.executeTool({
+      callId: "denied",
+      name: "control_bilibili_player",
+      arguments: { command: "play" }
+    })).resolves.toMatchObject({ ok: false, error: expect.stringContaining("NotAllowedError") });
+  });
+
+  it("rejects a call stamped with the previous SPA video identity", async () => {
+    const { bridge, video } = setupPlayer();
+    video.currentTime = 12;
+    const result = await bridge.executeTool({
+      callId: "stale",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: 40 },
+      video: { bvid: "BV1old0000000", cid: "123", pageIndex: 2 }
+    });
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("视频已切换") });
+    expect(video.currentTime).toBe(12);
   });
 });

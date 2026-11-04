@@ -369,10 +369,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         void Promise.resolve()
           .then(() => executeTool
             ? executeTool(msg.call)
-            : { ok: false, error: "当前页面未接入字幕工具" })
+            : { ok: false, error: "当前页面未接入页面工具执行器" })
           .then(postToolResult)
           .catch((error) => {
-            postToolResult({ ok: false, error: `字幕工具执行失败：${(error as Error)?.message || String(error)}` });
+            postToolResult({ ok: false, error: `页面工具执行失败：${(error as Error)?.message || String(error)}` });
           });
       } else if (msg.type === "tool_error") {
         showNotice(msg.error, 4000);

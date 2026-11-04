@@ -984,7 +984,7 @@ describe("OffscreenMossLiveClient", () => {
 });
 
 
-describe("OffscreenMossLiveClient subtitle tools and context refresh", () => {
+describe("OffscreenMossLiveClient page tools and context refresh", () => {
   const context = {
     url: "https://www.bilibili.com/video/BV1test000000/",
     bvid: "BV1test000000",
@@ -1020,7 +1020,8 @@ describe("OffscreenMossLiveClient subtitle tools and context refresh", () => {
     expect(onToolCall).toHaveBeenCalledWith({
       callId: "call-1",
       name: "search_video_subtitles",
-      arguments: { query: "语音" }
+      arguments: { query: "语音" },
+      video: { bvid: "BV1test000000", cid: "456", pageIndex: 2 }
     });
     expect(client.sendToolResult("call-1", { ok: true, items: [] })).toBe(true);
     expect(JSON.parse(ws.sentData[4])).toEqual({
@@ -1045,9 +1046,34 @@ describe("OffscreenMossLiveClient subtitle tools and context refresh", () => {
     expect(JSON.parse(ws.sentData[0])).toEqual({
       action: "tool.result",
       call_id: "call-2",
-      result: { ok: false, error: "当前客户端未接入字幕工具执行器" }
+      result: { ok: false, error: "当前客户端未接入页面工具执行器" }
     });
     expect(client.getState()).toBe("connected");
+  });
+
+  it("routes completed player function calls through the page executor with video identity", () => {
+    const onToolCall = vi.fn();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.function_call_arguments.done",
+      data: {
+        call_id: "player-1",
+        name: "control_bilibili_player",
+        arguments: "{\"command\":\"seek\",\"time\":40}",
+        run_id: "r1",
+        turn_id: "t1"
+      }
+    }));
+    expect(onToolCall).toHaveBeenCalledWith({
+      callId: "player-1",
+      name: "control_bilibili_player",
+      arguments: "{\"command\":\"seek\",\"time\":40}",
+      video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
+    });
   });
 });
 
