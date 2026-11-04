@@ -275,7 +275,7 @@ function assertManifestReferences() {
   // （常驻权限只剩 B 站三条；AI/ASR 平台域名按需申请，见
   // core/host-permissions.js）。用 http://*/* 或 https://*/* 兜底会导致
   // Chrome Web Store 审核挑战项复现，在此 fail fast。
-  const wildcardHostPatterns = ["http://*/*", "https://*/*"];
+  const wildcardHostPatterns = ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"];
   const residentWildcards = (manifest.host_permissions || []).filter((p) => wildcardHostPatterns.includes(p));
   if (residentWildcards.length > 0) {
     console.error(

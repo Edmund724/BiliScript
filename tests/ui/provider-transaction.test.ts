@@ -103,6 +103,17 @@ describe("upsertProvider：单点保存事务", () => {
     expect(deps.requestOrigins).toHaveBeenCalledWith(["https://api.example.com/v1"]);
   });
 
+  it("T2b live 族保存时单次同步申请 http(s) 与 ws(s) 双 origin", async () => {
+    const { tx, deps, families } = await makeTransactions();
+    (families as Record<string, unknown>).live = familyStub({ generateId: vi.fn(() => "live_new") });
+    void tx.upsertProvider("live", { id: "", baseUrl: "https://api.mosi.cn" });
+    expect(deps.requestOrigins).toHaveBeenCalledTimes(1);
+    expect(deps.requestOrigins).toHaveBeenCalledWith([
+      "https://api.mosi.cn",
+      "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0"
+    ]);
+  });
+
   it("T3 权限被拒：不现查不落盘不重渲，错误原样回给 Modal", async () => {
     const { tx, deps, families } = await makeTransactions({
       requestOrigins: vi.fn(async () => ({ ok: false, error: "未授权 https://api.example.com/*，保存已中止" }))

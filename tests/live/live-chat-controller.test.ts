@@ -242,7 +242,10 @@ describe("LiveChatController", () => {
 
     // Must be invoked synchronously in the same call frame (preserves user gesture)
     expect(permCalled).toBe(true);
-    expect(requestOrigins).toHaveBeenCalledWith(["https://api.mosi.cn"]);
+    expect(requestOrigins).toHaveBeenCalledWith([
+      "https://api.mosi.cn",
+      "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0"
+    ]);
 
     return startPromise;
   });
@@ -256,7 +259,10 @@ describe("LiveChatController", () => {
 
     await controller.start();
 
-    expect(requestOrigins).toHaveBeenCalledWith(["https://custom.live.mosi.cn:8080"]);
+    expect(requestOrigins).toHaveBeenCalledWith([
+      "https://custom.live.mosi.cn:8080",
+      "wss://custom.live.mosi.cn:8080/v1/realtime?model=moss-live-1.0"
+    ]);
     expect(requestOrigins).not.toHaveBeenCalledWith(["https://api.mosi.cn"]);
   });
 

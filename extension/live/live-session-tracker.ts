@@ -2,6 +2,7 @@
 // MOSS-LIVE 会话所有权追踪器：防止乱序 prepare 与过期 cleanup 踩踏 DNR 鉴权规则。
 
 import type { LiveProvider } from "./live-provider-normalize.js";
+import { resolveMossLiveWsUrl } from "./moss-live-protocol.js";
 
 export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 
@@ -67,7 +68,11 @@ export class LiveSessionTracker {
         return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
       }
       const baseUrl = activeProvider.baseUrl || "https://api.mosi.cn";
-      const hasPerm = await deps.hasPermission(baseUrl);
+      const [hasHttpPerm, hasWsPerm] = await Promise.all([
+        deps.hasPermission(baseUrl),
+        deps.hasPermission(resolveMossLiveWsUrl(baseUrl, activeProvider.model))
+      ]);
+      const hasPerm = hasHttpPerm && hasWsPerm;
       if (!hasPerm) {
         return { ok: false, error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限` };
       }

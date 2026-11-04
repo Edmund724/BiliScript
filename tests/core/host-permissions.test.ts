@@ -40,6 +40,8 @@ describe("extractOriginFromBaseUrl", () => {
     expect(extractOriginFromBaseUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/*");
     expect(extractOriginFromBaseUrl(" https://api.siliconflow.cn/v1 ")).toBe("https://api.siliconflow.cn/*");
     expect(extractOriginFromBaseUrl("https://api.example.com/v1?x=1")).toBe("https://api.example.com/*");
+    expect(extractOriginFromBaseUrl("wss://api.mosi.cn/v1/realtime?model=moss-live-1.0")).toBe("wss://api.mosi.cn/*");
+    expect(extractOriginFromBaseUrl("ws://localhost:8080/v1/realtime")).toBe("ws://localhost:8080/*");
   });
 
   it("非法/边界输入返回 null", () => {

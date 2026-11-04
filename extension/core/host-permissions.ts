@@ -34,7 +34,7 @@ export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
   if (!text) return null;
   try {
     const url = new URL(text);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
+    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "ws:" && url.protocol !== "wss:") {
       return null;
     }
     return `${url.origin}/*`;

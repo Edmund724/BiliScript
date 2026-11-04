@@ -243,4 +243,19 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(clearAuthRule).not.toHaveBeenCalled();
     expect(tracker.getActiveRuleOwner()).toBe("session-2");
   });
+
+  it("rejects prepare when WebSocket (wss://) host permission is missing even if https:// is granted", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const res = await tracker.prepare(
+      "session-ws-perm",
+      createFakeDeps({
+        hasPermission: async (url) => url.startsWith("https://"),
+        setAuthRule
+      })
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("未授予平台域名权限");
+    expect(setAuthRule).not.toHaveBeenCalled();
+  });
 });

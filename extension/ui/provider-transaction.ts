@@ -14,6 +14,7 @@
 // 设置面板的行删除路径复用同一函数（loadOriginSharingProviders），新增一族只改表。
 
 import { permissionRevokeErrorMessage, revokeOrphanOrigin } from "../core/host-permissions.js";
+import { resolveMossLiveWsUrl } from "../live/moss-live-protocol.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowItem } from "./provider-row.js";
 
@@ -76,7 +77,10 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
     // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
     // optional 权限代申请。手势不变式：本调用之前零先行 await。
     if (family.optionalHostPermission && upsert.baseUrl) {
-      const permission = await deps.requestOrigins([String(upsert.baseUrl)]);
+      const rawUrl = String(upsert.baseUrl);
+      const permission = await deps.requestOrigins(
+        kind === "live" ? [rawUrl, resolveMossLiveWsUrl(rawUrl)] : [rawUrl]
+      );
       if (!permission.ok) {
         return { ok: false, error: permission.error };
       }

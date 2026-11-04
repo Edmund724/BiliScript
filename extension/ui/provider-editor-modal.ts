@@ -21,6 +21,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
+import { resolveMossLiveWsUrl } from "../live/moss-live-protocol.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -285,7 +286,7 @@ export async function runTest(): Promise<void> {
   // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
   const session = captureSession();
   await session.runWithOriginPreflight(
-    [baseUrl],
+    state.kind === "live" ? [baseUrl, resolveMossLiveWsUrl(baseUrl, model)] : [baseUrl],
     () => {
       const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
       const apiKey = draft.apiKey.trim();
