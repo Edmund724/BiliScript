@@ -201,7 +201,8 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -380,7 +381,8 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-active,
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active,
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-active {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -393,7 +395,8 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-active input[type="radio"],
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active input[type="radio"] {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active input[type="radio"],
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-active input[type="radio"] {
   margin: 0;
 }
 

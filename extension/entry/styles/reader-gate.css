@@ -971,7 +971,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 /* 平台行（AI/ASR/搜索）：凸起卡，与概览章节/金句同配方 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1373,6 +1374,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .live-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea,
@@ -1438,7 +1440,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .live-provider-row {
   border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
