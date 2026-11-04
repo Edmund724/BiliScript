@@ -162,13 +162,35 @@ export function extractDomainFromUrl(url: string): string {
   }
 }
 
+export function extractOriginHeaderFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.host) {
+      return "https://api.mosi.cn";
+    }
+    const protocol =
+      parsed.protocol === "ws:"
+        ? "http:"
+        : parsed.protocol === "wss:"
+          ? "https:"
+          : parsed.protocol === "http:" || parsed.protocol === "https:"
+            ? parsed.protocol
+            : "https:";
+    return `${protocol}//${parsed.host}`;
+  } catch {
+    return "https://api.mosi.cn";
+  }
+}
+
 /**
- * 动态注入针对 WebSocket 握手的 Authorization 会话规则。
- * 规避浏览器原生 WebSocket 无法自定义请求头与 MV3 SW 绕过 DNR 的限制。
+ * 动态注入针对 WebSocket 握手的 Authorization 与 Origin 会话规则。
+ * 规避浏览器原生 WebSocket 无法自定义请求头、MV3 SW 绕过 DNR，以及扩展页面 Origin (chrome-extension://) 被服务端同源校验拒绝的限制。
  */
 export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): Promise<void> {
   const trimmedKey = String(apiKey || "").trim();
-  const domain = extractDomainFromUrl(baseUrl || "https://api.mosi.cn");
+  const targetUrl = baseUrl || "https://api.mosi.cn";
+  const domain = extractDomainFromUrl(targetUrl);
+  const origin = extractOriginHeaderFromUrl(targetUrl);
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [MOSS_LIVE_WS_RULE_ID],
     addRules: [
@@ -182,6 +204,11 @@ export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): P
               header: "Authorization",
               operation: "set",
               value: `Bearer ${trimmedKey}`
+            },
+            {
+              header: "Origin",
+              operation: "set",
+              value: origin
             }
           ]
         },

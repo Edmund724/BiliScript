@@ -8,6 +8,7 @@ import {
   setMossLiveWsAuthRule,
   clearMossLiveWsAuthRule,
   extractDomainFromUrl,
+  extractOriginHeaderFromUrl,
   ASR_AUDIO_SESSION_RULE_ID_BASE,
   ASR_AUDIO_SESSION_RULE_ID_MAX
 } from "../../extension/asr/session-rule-manager.js";
@@ -59,7 +60,14 @@ describe("MOSS-LIVE DNR session rules", () => {
     expect(extractDomainFromUrl("")).toBe("api.mosi.cn");
   });
 
-  it("setMossLiveWsAuthRule sets session rule with Bearer header and urlFilter", async () => {
+  it("extractOriginHeaderFromUrl normalizes HTTP(S)/WS(S) URLs to HTTP(S) origin", () => {
+    expect(extractOriginHeaderFromUrl("https://api.mosi.cn/v1")).toBe("https://api.mosi.cn");
+    expect(extractOriginHeaderFromUrl("wss://api.mosi.cn/v1/realtime")).toBe("https://api.mosi.cn");
+    expect(extractOriginHeaderFromUrl("ws://custom.live.mosi.cn:8080/v1")).toBe("http://custom.live.mosi.cn:8080");
+    expect(extractOriginHeaderFromUrl("")).toBe("https://api.mosi.cn");
+  });
+
+  it("setMossLiveWsAuthRule sets session rule with Bearer Authorization and Origin headers", async () => {
     const { rules, updateSessionRules } = installDnrStub();
 
     await setMossLiveWsAuthRule("test-api-key-123");
@@ -71,17 +79,22 @@ describe("MOSS-LIVE DNR session rules", () => {
     expect((added?.condition as any)?.requestDomains).toEqual(["api.mosi.cn"]);
     expect((added?.condition as any)?.resourceTypes).toEqual(["websocket"]);
     expect((added?.action as any)?.requestHeaders).toEqual([
-      { header: "Authorization", operation: "set", value: "Bearer test-api-key-123" }
+      { header: "Authorization", operation: "set", value: "Bearer test-api-key-123" },
+      { header: "Origin", operation: "set", value: "https://api.mosi.cn" }
     ]);
   });
 
-  it("setMossLiveWsAuthRule with custom baseUrl extracts domain correctly", async () => {
+  it("setMossLiveWsAuthRule with custom baseUrl extracts domain and origin correctly", async () => {
     const { rules } = installDnrStub();
 
     await setMossLiveWsAuthRule("test-api-key-123", "https://custom.live.mosi.cn:8080/v1");
 
     const added = rules.get(MOSS_LIVE_WS_RULE_ID);
     expect((added?.condition as any)?.requestDomains).toEqual(["custom.live.mosi.cn"]);
+    expect((added?.action as any)?.requestHeaders).toEqual([
+      { header: "Authorization", operation: "set", value: "Bearer test-api-key-123" },
+      { header: "Origin", operation: "set", value: "https://custom.live.mosi.cn:8080" }
+    ]);
   });
 
   it("clearMossLiveWsAuthRule removes only rule 9002 and leaves other rules untouched", async () => {
