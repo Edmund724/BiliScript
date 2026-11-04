@@ -28,7 +28,6 @@ import {
 export type MossLiveClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
 export const DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS = 10000;
-export const DEFAULT_MOSS_TOOL_TIMEOUT_MS = 30000;
 
 export interface AudioBufferLike {
   readonly duration: number;
@@ -60,7 +59,6 @@ export interface OffscreenMossClientOptions {
   wsUrl?: string;
   videoContext?: MossLiveVideoContext | null;
   handshakeTimeoutMs?: number;
-  toolTimeoutMs?: number;
   executeWebSearch?: LiveWebSearchExecutor;
   createAudioContext?: () => AudioContextLike | null;
   onConnecting?: () => void;
@@ -91,6 +89,7 @@ interface TurnPlaybackTracker {
   turnId: string;
   inFlightChunks: number;
   audioDoneReceived: boolean;
+  responseEnded: boolean;
   completedSent: boolean;
   stopped: boolean;
   stoppedSent: boolean;
@@ -104,9 +103,8 @@ interface ActiveToolCall {
   query: string;
   runId: string;
   turnId: string;
+  toolCallIndex: number;
   controller: AbortController;
-  timer: ReturnType<typeof setTimeout>;
-  timedOut: boolean;
 }
 
 function createBrowserAudioContext(): AudioContextLike | null {
@@ -141,21 +139,22 @@ export class OffscreenMossLiveClient {
   private readonly turnPlaybacks = new Map<string, TurnPlaybackTracker>();
   private readonly activeToolCalls = new Map<string, ActiveToolCall>();
   private readonly handledToolCallIds = new Set<string>();
+  private readonly webSearchCallCounts = new Map<string, number>();
   private readonly wsUrl: string;
   private readonly handshakeTimeoutMs: number;
-  private readonly toolTimeoutMs: number;
   private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: OffscreenMossClientOptions;
   private videoContext: MossLiveVideoContext | null;
   private lastSentContextKey = "";
   private videoDucked = false;
+  private inputDucked = false;
+  private activeTurnKey: string | null = null;
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
     this.wsUrl = options.wsUrl || DEFAULT_MOSS_LIVE_WS_URL;
     this.videoContext = options.videoContext || null;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS;
-    this.toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_MOSS_TOOL_TIMEOUT_MS;
     this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
   }
 
@@ -201,6 +200,7 @@ export class OffscreenMossLiveClient {
         turnId,
         inFlightChunks: 0,
         audioDoneReceived: false,
+        responseEnded: false,
         completedSent: false,
         stopped: false,
         stoppedSent: false,
@@ -211,6 +211,24 @@ export class OffscreenMossLiveClient {
       this.turnPlaybacks.set(key, tracker);
     }
     return tracker;
+  }
+
+  private syncVideoDuck(): void {
+    this.setVideoDucked(this.inputDucked || this.activeTurnKey !== null);
+  }
+
+  private activateTurn(runId: string, turnId: string): void {
+    const tracker = this.getOrCreateTurnTracker(runId, turnId);
+    if (tracker.stopped || tracker.audioDoneReceived || tracker.responseEnded) return;
+    this.inputDucked = false;
+    this.activeTurnKey = this.getTurnKey(runId, turnId);
+    this.syncVideoDuck();
+  }
+
+  private finishActiveTurn(runId: string, turnId: string): void {
+    if (this.activeTurnKey !== this.getTurnKey(runId, turnId)) return;
+    this.activeTurnKey = null;
+    this.syncVideoDuck();
   }
 
   private sendTurnCompletedIfReady(tracker: TurnPlaybackTracker): void {
@@ -242,39 +260,62 @@ export class OffscreenMossLiveClient {
     this.sendTurnCompletedIfReady(tracker);
   }
 
+  private stopTurnPlayback(runId: string, turnId: string): void {
+    const tracker = this.getOrCreateTurnTracker(runId, turnId);
+    for (const context of this.pendingAudioContexts) {
+      if (context.runId === runId && context.turnId === turnId) context.discard = true;
+    }
+
+    const now = this.audioCtx ? this.audioCtx.currentTime : 0;
+    for (const entry of tracker.activeSources) {
+      entry.source.onended = null;
+      if (now > entry.startAt) {
+        const elapsedSec = Math.max(0, now - entry.startAt);
+        tracker.playedSamples += Math.min(
+          entry.sampleCount,
+          Math.round(elapsedSec * MOSS_DOWNSTREAM_SAMPLE_RATE)
+        );
+      }
+      try {
+        entry.source.stop();
+      } catch {}
+      try {
+        entry.source.disconnect();
+      } catch {}
+    }
+    tracker.activeSources.clear();
+    tracker.inFlightChunks = 0;
+    tracker.completedSent = true;
+    tracker.stopped = true;
+
+    this.nextPlayTime = now;
+    for (const other of this.turnPlaybacks.values()) {
+      for (const entry of other.activeSources) {
+        this.nextPlayTime = Math.max(
+          this.nextPlayTime,
+          entry.startAt + entry.sampleCount / MOSS_DOWNSTREAM_SAMPLE_RATE
+        );
+      }
+    }
+    this.finishActiveTurn(runId, turnId);
+  }
+
   private stopAllPlayback(): void {
     this.pendingAudioContexts.length = 0;
     this.pendingAudioFrames.length = 0;
-    const now = this.audioCtx ? this.audioCtx.currentTime : 0;
-    for (const tracker of this.turnPlaybacks.values()) {
-      for (const entry of tracker.activeSources) {
-        entry.source.onended = null;
-        if (now > entry.startAt) {
-          const elapsedSec = Math.max(0, now - entry.startAt);
-          tracker.playedSamples += Math.min(
-            entry.sampleCount,
-            Math.round(elapsedSec * MOSS_DOWNSTREAM_SAMPLE_RATE)
-          );
-        }
-        try {
-          entry.source.stop();
-        } catch {}
-        try {
-          entry.source.disconnect();
-        } catch {}
-      }
-      tracker.activeSources.clear();
-      tracker.inFlightChunks = 0;
-      tracker.completedSent = true;
-      tracker.stopped = true;
+    for (const tracker of [...this.turnPlaybacks.values()]) {
+      this.stopTurnPlayback(tracker.runId, tracker.turnId);
     }
-    this.nextPlayTime = now;
+    this.activeTurnKey = null;
+    this.inputDucked = false;
+    this.nextPlayTime = this.audioCtx ? this.audioCtx.currentTime : 0;
     this.setVideoDucked(false);
   }
 
   private stopAndResetAllPlayback(): void {
     this.stopAllPlayback();
     this.turnPlaybacks.clear();
+    this.webSearchCallCounts.clear();
     this.nextPlayTime = 0;
     if (this.audioCtx) {
       const ctx = this.audioCtx;
@@ -366,7 +407,6 @@ export class OffscreenMossLiveClient {
   private cancelToolCall(call: ActiveToolCall): void {
     if (this.activeToolCalls.get(call.callId) !== call) return;
     this.activeToolCalls.delete(call.callId);
-    clearTimeout(call.timer);
     call.controller.abort();
   }
 
@@ -442,18 +482,17 @@ export class OffscreenMossLiveClient {
       return;
     }
 
+    const turnKey = this.getTurnKey(runId, turnId);
+    const toolCallIndex = this.webSearchCallCounts.get(turnKey) ?? 0;
+    this.webSearchCallCounts.set(turnKey, toolCallIndex + 1);
     const controller = new AbortController();
     const call: ActiveToolCall = {
       callId,
       query,
       runId,
       turnId,
-      controller,
-      timedOut: false,
-      timer: setTimeout(() => {
-        call.timedOut = true;
-        controller.abort();
-      }, this.toolTimeoutMs)
+      toolCallIndex,
+      controller
     };
     this.activeToolCalls.set(callId, call);
     this.options.onToolStatus?.({ tool: "web_search", status: "searching", query });
@@ -467,11 +506,8 @@ export class OffscreenMossLiveClient {
       this.activeToolCalls.get(call.callId) === call;
 
     try {
-      const outcome = await this.executeWebSearch(call.query, call.controller.signal);
+      const outcome = await this.executeWebSearch(call.query, call.controller.signal, call.toolCallIndex);
       if (!isCurrent()) return;
-      if (call.timedOut) {
-        throw new Error("联网搜索超时");
-      }
       this.sendFunctionCallOutput(call.callId, outcome.output);
       this.options.onToolStatus?.({
         tool: "web_search",
@@ -482,9 +518,7 @@ export class OffscreenMossLiveClient {
       });
     } catch (error) {
       if (!isCurrent()) return;
-      const reason = call.timedOut
-        ? "联网搜索超时"
-        : String((error as { message?: unknown } | null)?.message || error || "未知错误");
+      const reason = String((error as { message?: unknown } | null)?.message || error || "未知错误");
       this.sendFunctionCallOutput(
         call.callId,
         `联网搜索失败：${reason}。请明确告诉用户本次查证失败，不要编造外部事实。`
@@ -498,7 +532,6 @@ export class OffscreenMossLiveClient {
     } finally {
       if (this.activeToolCalls.get(call.callId) === call) {
         this.activeToolCalls.delete(call.callId);
-        clearTimeout(call.timer);
       }
     }
   }
@@ -527,28 +560,34 @@ export class OffscreenMossLiveClient {
         this.sendJson({ action: "mic_state", enabled: this.micEnabled });
         break;
 
-      case "transcript":
-        if (parsed.event.kind === "input.done") {
-          this.setVideoDucked(true);
-        } else if (parsed.event.kind === "response.ended") {
-          this.setVideoDucked(false);
-        } else if (parsed.event.kind === "response.interrupted") {
-          this.stopAllPlayback();
-          this.cancelInterruptedToolCalls(parsed.event.runId, parsed.event.turnId);
+      case "transcript": {
+        const event = parsed.event;
+        if (event.kind === "input.updated" || event.kind === "input.done") {
+          this.inputDucked = true;
+          this.syncVideoDuck();
+        } else if (event.kind === "output.updated" || event.kind === "output.done") {
+          this.activateTurn(event.runId, event.turnId);
+        } else if (event.kind === "response.ended") {
+          this.getOrCreateTurnTracker(event.runId, event.turnId).responseEnded = true;
+          this.finishActiveTurn(event.runId, event.turnId);
+        } else if (event.kind === "response.interrupted") {
+          this.stopTurnPlayback(event.runId, event.turnId);
+          this.cancelInterruptedToolCalls(event.runId, event.turnId);
         }
-        this.options.onTranscript?.(parsed.event);
+        this.options.onTranscript?.(event);
         break;
+      }
 
       case "audio.context": {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
         const duplicate = Boolean(parsed.chunkId && tracker.claimedChunkIds.has(parsed.chunkId));
-        const discard = tracker.stopped || duplicate;
+        const discard = tracker.stopped || tracker.audioDoneReceived || tracker.responseEnded || duplicate;
         if (parsed.chunkId && !duplicate) {
           tracker.claimedChunkIds.add(parsed.chunkId);
         }
         if (!discard) {
           tracker.inFlightChunks += 1;
-          this.setVideoDucked(true);
+          this.activateTurn(parsed.runId, parsed.turnId);
         }
         this.pendingAudioContexts.push({
           chunkId: parsed.chunkId,
@@ -564,7 +603,7 @@ export class OffscreenMossLiveClient {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
         if (tracker.stopped) break;
         tracker.audioDoneReceived = true;
-        this.setVideoDucked(false);
+        this.finishActiveTurn(parsed.runId, parsed.turnId);
         this.sendTurnCompletedIfReady(tracker);
         break;
       }
@@ -572,7 +611,7 @@ export class OffscreenMossLiveClient {
       case "audio.stop": {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
         if (tracker.stoppedSent) break;
-        this.stopAllPlayback();
+        this.stopTurnPlayback(parsed.runId, parsed.turnId);
         tracker.stoppedSent = true;
         const playedAudioMs = Math.round((tracker.playedSamples / MOSS_DOWNSTREAM_SAMPLE_RATE) * 1000);
         this.sendJson({

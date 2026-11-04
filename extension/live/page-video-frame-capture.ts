@@ -20,6 +20,18 @@ function getVideoSource(video: HTMLVideoElement): string {
   return video.currentSrc || video.src || "";
 }
 
+export function getVideoFrameSize(
+  videoWidth: number,
+  videoHeight: number,
+  maxEdge = MOSS_VIDEO_FRAME_MAX_EDGE
+): { width: number; height: number } {
+  const scale = Math.min(1, maxEdge / Math.max(videoWidth, videoHeight));
+  return {
+    width: Math.max(1, Math.round(videoWidth * scale)),
+    height: Math.max(1, Math.round(videoHeight * scale))
+  };
+}
+
 export function createPageVideoFrameCapture(
   options: PageVideoFrameCaptureOptions
 ): PageVideoFrameCaptureSession {
@@ -87,9 +99,7 @@ export function createPageVideoFrameCapture(
     if (!canvas) canvas = createCanvas();
     if (!canvas) return;
 
-    const scale = Math.min(1, MOSS_VIDEO_FRAME_MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
-    const width = Math.max(1, Math.round(video.videoWidth * scale));
-    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    const { width, height } = getVideoFrameSize(video.videoWidth, video.videoHeight);
     const context = canvas.getContext("2d");
     if (!context) return;
 

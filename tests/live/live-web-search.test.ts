@@ -48,6 +48,37 @@ describe("live web search executor", () => {
     expect(outcome.output).toContain("来自 Exa");
   });
 
+  it("includes paid provenance and the shared paid fallback notice in tool output", async () => {
+    const executeSearch = vi.fn()
+      .mockResolvedValueOnce({
+        results: [{ title: "付费结果", url: "https://example.com/paid", snippet: "摘要" }],
+        platform: "DeepSeek",
+        paid: true
+      })
+      .mockResolvedValueOnce({
+        results: [{ title: "回退结果", url: "https://example.com/free", snippet: "摘要" }],
+        platform: "Exa",
+        paidFallback: { platform: "DeepSeek", reason: "balance", fallbackTo: "Exa" }
+      });
+    resolveRuntime.mockResolvedValue({ runtime: { maxToolCalls: 5, executeSearch } });
+
+    const paid = await executeLiveWebSearch("付费查询", new AbortController().signal);
+    const fallback = await executeLiveWebSearch("回退查询", new AbortController().signal);
+
+    expect(paid.output).toContain("来自 DeepSeek（付费）");
+    expect(fallback.output).toContain("DeepSeek 搜索不可用（余额不足），已回退至 Exa");
+  });
+
+  it("enforces the runtime per-turn tool call quota without executing another search", async () => {
+    const executeSearch = vi.fn();
+    resolveRuntime.mockResolvedValue({ runtime: { maxToolCalls: 2, executeSearch } });
+
+    await expect(executeLiveWebSearch("第三次查询", new AbortController().signal, 2)).rejects.toThrow(
+      "本轮的搜索次数已达上限（2 次）"
+    );
+    expect(executeSearch).not.toHaveBeenCalled();
+  });
+
   it("returns an explicit no-result instruction", async () => {
     resolveRuntime.mockResolvedValue({
       runtime: {

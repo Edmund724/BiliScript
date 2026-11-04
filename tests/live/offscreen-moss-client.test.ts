@@ -571,6 +571,36 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 
+  it("ducks while the user is speaking and keeps that duck through the previous turn's end", () => {
+    const duckStates: boolean[] = [];
+    const client = new OffscreenMossLiveClient({ onDuckVideo: (active) => duckStates.push(active) });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "output.transcript.updated",
+      data: { text: "旧回答", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(JSON.stringify({ action: "input.transcript.updated", data: { text: "新问题" } }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.ended",
+      data: { run_id: "r1", turn_id: "t1", status: "completed" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "output.transcript.updated",
+      data: { text: "新回答", run_id: "r2", turn_id: "t2" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.ended",
+      data: { run_id: "r2", turn_id: "t2", status: "completed" }
+    }));
+
+    expect(duckStates).toEqual([true, false]);
+    client.close();
+  });
+
   it("ducks for questions and audio, then releases on done, interruption, response end, and hangup", () => {
     const duckStates: boolean[] = [];
     const client = new OffscreenMossLiveClient({
@@ -1018,6 +1048,62 @@ describe("OffscreenMossLiveClient", () => {
       ]);
     });
 
+    it("keeps a newer playing and ducked turn untouched by late terminal events for an old turn", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const duckStates: boolean[] = [];
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx,
+        onDuckVideo: (active) => duckStates.push(active)
+      });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcm100ms = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      for (const [chunkId, runId, turnId] of [["c1", "r1", "t1"], ["c2", "r2", "t2"]]) {
+        ws.simulateMessage(JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: chunkId, run_id: runId, turn_id: turnId }
+        }));
+        ws.simulateMessage(pcm100ms.buffer);
+      }
+      fakeAudioCtx.currentTime = 0.02;
+
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.ended",
+        data: { run_id: "r1", turn_id: "t1", status: "completed" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.stop",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+
+      expect(fakeAudioCtx.sources[0].stopped).toBe(true);
+      expect(fakeAudioCtx.sources[1].stopped).toBe(false);
+      expect(duckStates).toEqual([true]);
+
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r2", turn_id: "t2" }
+      }));
+      expect(duckStates).toEqual([true, false]);
+      expect(fakeAudioCtx.sources[1].stopped).toBe(false);
+      expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 20 }
+      ]);
+      client.close();
+    });
+
     it("stops all playing sources on close() and suppresses late onended callbacks", () => {
       const fakeAudioCtx = new FakeAudioContext();
       const client = new OffscreenMossLiveClient({
@@ -1158,15 +1244,15 @@ describe("OffscreenMossLiveClient web search tools", () => {
     return { client, ws };
   }
 
-  function emitToolCall(ws: FakeWebSocket, callId = "call-1") {
+  function emitToolCall(ws: FakeWebSocket, callId = "call-1", runId = "r1", turnId = "t1") {
     ws.simulateMessage(JSON.stringify({
       action: "response.function_call_arguments.done",
       data: {
         call_id: callId,
         name: "web_search",
         arguments: JSON.stringify({ query: "B 站最新财报" }),
-        run_id: "r1",
-        turn_id: "t1"
+        run_id: runId,
+        turn_id: turnId
       }
     }));
   }
@@ -1190,7 +1276,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
     await Promise.resolve();
 
     expect(executeWebSearch).toHaveBeenCalledTimes(1);
-    expect(executeWebSearch).toHaveBeenCalledWith("B 站最新财报", expect.any(AbortSignal));
+    expect(executeWebSearch).toHaveBeenCalledWith("B 站最新财报", expect.any(AbortSignal), 0);
     const frames = sentJson(ws);
     expect(frames.filter((frame) => frame.action === "conversation.item.create")).toEqual([
       {
@@ -1307,26 +1393,17 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
   });
 
-  it("aborts timed out searches and returns an explicit timeout", async () => {
-    vi.useFakeTimers();
-    const onToolStatus = vi.fn();
-    const { client, ws } = connectClient({
-      toolTimeoutMs: 25,
-      executeWebSearch: vi.fn((_query, signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-      })),
-      onToolStatus
-    });
+  it("passes a per-turn search call index and resets it for the next turn", async () => {
+    const executeWebSearch = vi.fn().mockResolvedValue({ output: "查证结果", resultCount: 1 });
+    const { client, ws } = connectClient({ executeWebSearch });
 
-    emitToolCall(ws);
-    await vi.advanceTimersByTimeAsync(25);
+    emitToolCall(ws, "call-1", "r1", "t1");
+    emitToolCall(ws, "call-2", "r1", "t1");
+    emitToolCall(ws, "call-3", "r2", "t2");
+    await Promise.resolve();
+    await Promise.resolve();
 
-    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
-    expect(output.item.output).toContain("联网搜索失败：联网搜索超时");
-    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-      status: "failed",
-      error: "联网搜索超时"
-    }));
+    expect(executeWebSearch.mock.calls.map((call) => call[2])).toEqual([0, 1, 0]);
     client.close();
   });
 });

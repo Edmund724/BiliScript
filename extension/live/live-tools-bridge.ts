@@ -3,7 +3,7 @@ import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
-import type { MossLiveToolCall, MossLiveVideoContext } from "./moss-live-protocol.js";
+import type { MossLiveToolCall, MossLiveVideoContext, MossLiveVideoIdentity } from "./moss-live-protocol.js";
 
 export interface LiveToolsBridgeDeps {
   getClip?: () => Partial<ClipState>;
@@ -70,6 +70,10 @@ function projectVideoContext(clip: Partial<ClipState>, url: string): MossLiveVid
   };
 }
 
+function projectVideoIdentity(context: MossLiveVideoContext): MossLiveVideoIdentity {
+  return { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex };
+}
+
 function projectSubtitle(item: ReadingSubtitleItem): Record<string, unknown> {
   return {
     from: item.from,
@@ -105,7 +109,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       ok: true,
       command,
       message,
-      video: { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex },
+      video: projectVideoIdentity(context),
       currentTime: video.currentTime,
       paused: video.paused,
       playbackRate: video.playbackRate
@@ -215,7 +219,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
         const matchedItems = items.filter((item) => item.content.toLocaleLowerCase().includes(needle));
         return {
           ok: true,
-          video: { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex },
+          video: projectVideoIdentity(context),
           query,
           total: matchedItems.length,
           items: matchedItems.slice(0, limit).map(projectSubtitle)
@@ -236,7 +240,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
         .map(projectSubtitle);
       return {
         ok: true,
-        video: { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex },
+        video: projectVideoIdentity(context),
         currentTime,
         window: { from, to },
         total: matches.length,
