@@ -9,6 +9,7 @@ export interface LiveToolsBridgeDeps {
   getClip?: () => Partial<ClipState>;
   getUrl?: () => string;
   getCurrentTime?: () => number;
+  getPlayer?: () => HTMLVideoElement | null;
   showNotice?: (message: string, autoHideMs?: number) => void;
 }
 
@@ -78,30 +79,119 @@ function projectSubtitle(item: ReadingSubtitleItem): Record<string, unknown> {
   };
 }
 
+const PLAYER_RATES: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
 export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveToolsBridge {
   const getClip = deps.getClip || (() => state.clip);
   const getUrl = deps.getUrl || (() => location.href);
-  const getCurrentTime = deps.getCurrentTime || (() => state.reader.readingVideoEl?.currentTime || 0);
+  const getPlayer = deps.getPlayer || (() => document.querySelector<HTMLVideoElement>(".bpx-player-video-wrap video"));
+  const getCurrentTime = deps.getCurrentTime || (() => getPlayer()?.currentTime || 0);
   const showNotice = deps.showNotice || (() => {});
 
   function getVideoContext(): MossLiveVideoContext | null {
     return projectVideoContext(getClip(), getUrl());
   }
 
+  function contextMatchesCall(call: MossLiveToolCall, context: MossLiveVideoContext): boolean {
+    if (call.video === undefined) return true;
+    return Boolean(call.video &&
+      call.video.bvid === context.bvid &&
+      call.video.cid === context.cid &&
+      call.video.pageIndex === context.pageIndex);
+  }
+
+  function playerSnapshot(command: string, video: HTMLVideoElement, context: MossLiveVideoContext, message: string) {
+    return {
+      ok: true,
+      command,
+      message,
+      video: { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex },
+      currentTime: video.currentTime,
+      paused: video.paused,
+      playbackRate: video.playbackRate
+    };
+  }
+
+  async function controlPlayer(
+    args: Record<string, unknown>,
+    call: MossLiveToolCall,
+    context: MossLiveVideoContext
+  ): Promise<Record<string, unknown>> {
+    const command = String(args.command || "").trim();
+    if (!command) throw new Error("control_bilibili_player 缺少 command");
+    if (command !== "seek" && command !== "pause" && command !== "play" && command !== "rate") {
+      throw new Error(`不支持的播放器命令：${command}`);
+    }
+
+    let targetTime = 0;
+    let targetRate = 0;
+    if (command === "seek") {
+      if (typeof args.time !== "number" || !Number.isFinite(args.time) || args.time < 0) {
+        throw new Error("seek 需要有限且非负的 time（秒）");
+      }
+      targetTime = args.time;
+    } else if (command === "rate") {
+      if (typeof args.rate !== "number" || !PLAYER_RATES.includes(args.rate)) {
+        throw new Error(`rate 需要有效倍速：${PLAYER_RATES.join("、")}`);
+      }
+      targetRate = args.rate;
+    }
+
+    const video = getPlayer();
+    if (!video || !video.isConnected || video.readyState < 1) {
+      const error = "播放器尚未就绪，请等待当前视频加载后再试。";
+      showNotice(error, 4000);
+      return { ok: false, error };
+    }
+    if (command === "seek" && Number.isFinite(video.duration) && targetTime > video.duration) {
+      throw new Error(`跳转时间不能超出视频时长（${video.duration} 秒）`);
+    }
+
+    let message = "";
+    if (command === "pause") {
+      video.pause();
+      message = "已暂停播放";
+    } else if (command === "play") {
+      await video.play();
+      const currentContext = getVideoContext();
+      if (getPlayer() !== video || !currentContext || !contextMatchesCall(call, currentContext)) {
+        const error = "播放期间视频已切换，本次控制结果已失效。";
+        showNotice(error, 4000);
+        return { ok: false, error };
+      }
+      message = "已继续播放";
+    } else if (command === "rate") {
+      video.playbackRate = targetRate;
+      message = `已切换到 ${targetRate} 倍速`;
+    } else {
+      video.currentTime = targetTime;
+      message = `已跳转到 ${formatClock(targetTime, { hours: "auto" })}`;
+    }
+
+    const result = playerSnapshot(command, video, context, message);
+    showNotice(message, 1800);
+    return result;
+  }
+
   async function executeTool(call: MossLiveToolCall): Promise<Record<string, unknown>> {
     const toolName = String(call?.name || "").trim();
-    showNotice("正在查阅当前视频字幕...", 1800);
+    const isPlayerControl = toolName === "control_bilibili_player";
+    showNotice(isPlayerControl ? "正在控制当前视频播放器..." : "正在查阅当前视频字幕...", 1800);
     try {
-      if (toolName !== "get_subtitles_around_time" && toolName !== "search_video_subtitles") {
-        throw new Error(`不支持的字幕工具：${toolName || "未命名"}`);
+      if (!isPlayerControl && toolName !== "get_subtitles_around_time" && toolName !== "search_video_subtitles") {
+        throw new Error(`不支持的页面工具：${toolName || "未命名"}`);
       }
       const args = parseArguments(call.arguments);
       const clip = getClip();
       const context = projectVideoContext(clip, getUrl());
-      if (!context) {
+      if (!context || !contextMatchesCall(call, context)) {
         const result = { ok: false, error: "视频已切换或视频上下文尚未就绪，请稍后再试；不要沿用上一个视频的内容。" };
         showNotice(result.error, 4000);
         return result;
+      }
+
+      if (isPlayerControl) {
+        return await controlPlayer(args, call, context);
       }
 
       const items = getReadingSubtitleItems(clip.subtitleBody || []);
@@ -153,7 +243,8 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
         items: matches
       };
     } catch (error) {
-      const message = `字幕工具执行失败：${(error as Error)?.message || String(error)}`;
+      const prefix = isPlayerControl ? "播放器控制失败" : "字幕工具执行失败";
+      const message = `${prefix}：${(error as Error)?.message || String(error)}`;
       showNotice(message, 4000);
       return { ok: false, error: message };
     }

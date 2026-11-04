@@ -290,7 +290,7 @@ describe("attachMossLivePort subtitle tool bridge", () => {
       vi.advanceTimersByTime(10000);
       expect(client.toolResults).toEqual([{
         callId: "call-timeout",
-        result: { ok: false, error: "字幕工具执行超时，请稍后重试" }
+        result: { ok: false, error: "页面工具执行超时，请稍后重试" }
       }]);
       expect(client.closed).toBe(false);
     } finally {

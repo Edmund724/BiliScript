@@ -405,6 +405,11 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
       expect.objectContaining({ name: "search_video_subtitles" }),
       expect.objectContaining({
         type: "function",
+        name: "control_bilibili_player",
+        parameters: expect.objectContaining({ required: ["command"] })
+      }),
+      expect.objectContaining({
+        type: "function",
         name: "web_search",
         parameters: expect.objectContaining({ required: ["query"] })
       })
@@ -429,12 +434,15 @@ describe("subtitle-aware session and tool calls", () => {
     expect(payload.session.tools.map((tool) => tool.name)).toEqual([
       "get_subtitles_around_time",
       "search_video_subtitles",
+      "control_bilibili_player",
       "web_search"
     ]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
     expect(payload.session.instructions).toContain("0s 开场");
     expect(payload.session.instructions).toContain("time 时刻文本");
+    expect(payload.session.instructions).toContain("将其 from 作为 seek 的 time");
+    expect(payload.session.instructions).toContain("不得声称操作已成功");
   });
 
   it("parses tool.call arguments in object or JSON string form", () => {

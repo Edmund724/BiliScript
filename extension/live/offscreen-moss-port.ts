@@ -128,7 +128,7 @@ export function attachMossLivePort(
             const timer = setTimeout(() => {
               pendingToolTimers.delete(call.callId);
               if (!disposed && generation === currentGeneration) {
-                const error = "字幕工具执行超时，请稍后重试";
+                const error = "页面工具执行超时，请稍后重试";
                 liveClient?.sendToolResult?.(call.callId, { ok: false, error });
                 postMessage(port, { type: "tool_error", error });
               }
