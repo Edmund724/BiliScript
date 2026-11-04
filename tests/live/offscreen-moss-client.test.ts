@@ -1511,3 +1511,179 @@ describe("OffscreenMossLiveClient web search tools", () => {
     client.close();
   });
 });
+
+
+describe("OffscreenMossLiveClient unified page tool lifecycle & interruption", () => {
+  it("keeps isSpeaking() true during in-flight page tool calls and cancels timeout on response.interrupted or manual interrupt", () => {
+    vi.useFakeTimers();
+    const speakingStates: boolean[] = [];
+    const events: any[] = [];
+    const client = new OffscreenMossLiveClient({
+      onSpeakingState: (speaking) => speakingStates.push(speaking),
+      onEvent: (ev) => events.push(ev)
+    });
+
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    // 1. Untagged legacy tool.call enters activeToolCalls -> speaking becomes true
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "tool.call",
+        data: { call_id: "page-call-1", name: "search_video_subtitles", arguments: { query: "测试" } }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+    expect(speakingStates).toEqual([true]);
+
+    // 2. Server sends response.interrupted -> cancels untagged page tool and clears its 10s timer
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      })
+    );
+    expect(client.isSpeaking()).toBe(false);
+    expect(speakingStates).toEqual([true, false]);
+
+    // Late tool_result from content script is silently dropped
+    expect(client.sendToolResult("page-call-1", { ok: true, items: [] })).toBe(false);
+    vi.advanceTimersByTime(10000);
+    expect(ws.sentData).toHaveLength(0);
+    expect(events.some((e) => e.type === "tool_error")).toBe(false);
+
+    // 3. Turn-scoped function_call.done page tool cancelled by manual interrupt()
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "response.function_call_arguments.done",
+        data: {
+          call_id: "page-call-2",
+          name: "control_bilibili_player",
+          arguments: "{\"command\":\"pause\"}",
+          run_id: "r2",
+          turn_id: "t2"
+        }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+    client.interrupt();
+    expect(client.isSpeaking()).toBe(false);
+    expect(client.sendToolResult("page-call-2", { ok: true })).toBe(false);
+    ws.sentData.length = 0;
+    vi.advanceTimersByTime(10000);
+    expect(ws.sentData).toHaveLength(0);
+
+    client.close();
+  });
+});
+
+import { executeLiveWebSearch } from "../../extension/live/offscreen-moss-client.js";
+import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
+
+vi.mock("../../extension/search/search-runtime.js", () => ({
+  resolveWebSearchRuntime: vi.fn()
+}));
+
+const resolveRuntime = vi.mocked(resolveWebSearchRuntime);
+
+describe("executeLiveWebSearch", () => {
+  beforeEach(() => {
+    resolveRuntime.mockReset();
+  });
+
+  it("uses the existing search runtime and serializes verified sources", async () => {
+    const executeSearch = vi.fn().mockResolvedValue({
+      results: [{ title: "官方财报", url: "https://example.com/report", snippet: "营收数据" }],
+      platform: "Tavily"
+    });
+    resolveRuntime.mockResolvedValue({ runtime: { maxToolCalls: 5, executeSearch } });
+    const controller = new AbortController();
+
+    const outcome = await executeLiveWebSearch("B 站最新财报", controller.signal);
+
+    expect(resolveRuntime).toHaveBeenCalledWith(controller.signal);
+    expect(executeSearch).toHaveBeenCalledWith("B 站最新财报");
+    expect(outcome.resultCount).toBe(1);
+    expect(outcome.platform).toBe("Tavily");
+    expect(outcome.output).toContain("官方财报");
+    expect(outcome.output).toContain("https://example.com/report");
+  });
+
+  it("preserves fallback provenance from the existing search chain", async () => {
+    resolveRuntime.mockResolvedValue({
+      runtime: {
+        maxToolCalls: 5,
+        executeSearch: vi.fn().mockResolvedValue({
+          results: [{ title: "结果", url: "https://example.com", snippet: "摘要" }],
+          platform: "Exa",
+          downgradedFrom: "Tavily"
+        })
+      }
+    });
+
+    const outcome = await executeLiveWebSearch("查询", new AbortController().signal);
+    expect(outcome.output).toContain("首选 Tavily 未成功");
+    expect(outcome.output).toContain("来自 Exa");
+  });
+
+  it("includes paid provenance and the shared paid fallback notice in tool output", async () => {
+    const executeSearch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        results: [{ title: "付费结果", url: "https://example.com/paid", snippet: "摘要" }],
+        platform: "DeepSeek",
+        paid: true
+      })
+      .mockResolvedValueOnce({
+        results: [{ title: "回退结果", url: "https://example.com/free", snippet: "摘要" }],
+        platform: "Exa",
+        paidFallback: { platform: "DeepSeek", reason: "balance", fallbackTo: "Exa" }
+      });
+    resolveRuntime.mockResolvedValue({ runtime: { maxToolCalls: 5, executeSearch } });
+
+    const paid = await executeLiveWebSearch("付费查询", new AbortController().signal);
+    const fallback = await executeLiveWebSearch("回退查询", new AbortController().signal);
+
+    expect(paid.output).toContain("来自 DeepSeek（付费）");
+    expect(fallback.output).toContain("DeepSeek 搜索不可用（余额不足），已回退至 Exa");
+  });
+
+  it("enforces the runtime per-turn tool call quota without executing another search", async () => {
+    const executeSearch = vi.fn();
+    resolveRuntime.mockResolvedValue({ runtime: { maxToolCalls: 2, executeSearch } });
+
+    await expect(
+      executeLiveWebSearch("第三次查询", new AbortController().signal, 2)
+    ).rejects.toThrow("本轮的搜索次数已达上限（2 次）");
+    expect(executeSearch).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit no-result instruction", async () => {
+    resolveRuntime.mockResolvedValue({
+      runtime: {
+        maxToolCalls: 5,
+        executeSearch: vi.fn().mockResolvedValue({ results: [], platform: "Tavily" })
+      }
+    });
+
+    const outcome = await executeLiveWebSearch("没有结果的问题", new AbortController().signal);
+    expect(outcome.resultCount).toBe(0);
+    expect(outcome.output).toContain("没有找到");
+    expect(outcome.output).toContain("不要编造");
+  });
+
+  it("surfaces missing configuration and aborts instead of fabricating an answer", async () => {
+    resolveRuntime.mockResolvedValue({ notice: "未配置搜索平台，本轮未联网" });
+    await expect(executeLiveWebSearch("查询", new AbortController().signal)).rejects.toThrow(
+      "未配置搜索平台，本轮未联网"
+    );
+
+    const controller = new AbortController();
+    controller.abort();
+    resolveRuntime.mockResolvedValue({});
+    await expect(executeLiveWebSearch("查询", controller.signal)).rejects.toThrow("搜索已中止");
+  });
+});

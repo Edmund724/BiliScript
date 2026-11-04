@@ -1,66 +1,107 @@
 // extension/live/offscreen-moss-client.ts
-// 运行在 Offscreen Document 中的 MOSS-LIVE WebSocket 客户端。
+// 运行在 Offscreen Document 中的 MOSS-LIVE WebSocket 会话客户端。
 // 持有与 wss://api.mosi.cn/v1/realtime 的真实 WebSocket 连接，负责：
 // 1. 会话握手（attach_session -> session_attached -> media.mode + session.update -> session.updated -> mic_state）
 // 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00）与视频 JPEG（0x02）、静音控制
-// 3. 下行 48kHz 单声道 PCM S16LE 无缝队列播放与 playback.chunk.completed / playback.completed / playback.stopped 回执
-// 4. 双端增量/终态字幕事件转发
-// 5. 页面工具与 web_search 调用、超时/打断取消、结果回填与查询状态转发
+// 3. 委托 MossAudioPlayer 驱动下行 48kHz 单声道 PCM S16LE 无缝队列播放与回执
+// 4. 双端增量/终态字幕事件与视频音量压低（duck_video）状态机
+// 5. 页面工具与内置 web_search 统一生命周期（共用 activeToolCalls、超时/打断取消与 speaking_state）
 
+import { serializeSearchResults } from "../ai/tool-loop.js";
+import { formatPaidFallbackNotice } from "../search/search-chain.js";
+import { resolveWebSearchRuntime } from "../search/search-runtime.js";
+import {
+  MossAudioPlayer,
+  type AudioBufferLike,
+  type AudioBufferSourceNodeLike,
+  type AudioContextLike
+} from "./moss-audio-player.js";
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
-  MOSS_DOWNSTREAM_SAMPLE_RATE,
   MossBinaryTag,
   buildMinimalSessionUpdatePayload,
-  decodePcmS16LEToFloat32,
+  decodeBase64Bytes,
   packTaggedBinary,
   parseMossServerJsonEvent,
+  type MossLiveClientAction,
+  type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
   type MossLiveVideoContext
 } from "./moss-live-protocol.js";
-import {
-  executeLiveWebSearch,
-  type LiveWebSearchExecutor
-} from "./live-web-search.js";
+
+export type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike };
 
 export type MossLiveClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
 export const DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS = 10000;
+export const DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS = 10000;
 
-export interface AudioBufferLike {
-  readonly duration: number;
-  readonly length: number;
-  readonly sampleRate: number;
-  getChannelData(channel: number): Float32Array;
+export interface LiveWebSearchOutcome {
+  output: string;
+  resultCount: number;
+  platform?: string;
 }
 
-export interface AudioBufferSourceNodeLike {
-  buffer: AudioBufferLike | null;
-  onended: (() => void) | null;
-  connect(destination: unknown): void;
-  disconnect(): void;
-  start(when?: number): void;
-  stop(): void;
-}
+export type LiveWebSearchExecutor = (
+  query: string,
+  signal: AbortSignal,
+  toolCallIndex?: number
+) => Promise<LiveWebSearchOutcome>;
 
-export interface AudioContextLike {
-  readonly currentTime: number;
-  readonly state?: string;
-  readonly destination: unknown;
-  resume?(): Promise<void>;
-  close?(): Promise<void>;
-  createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBufferLike;
-  createBufferSource(): AudioBufferSourceNodeLike;
+export async function executeLiveWebSearch(
+  query: string,
+  signal: AbortSignal,
+  toolCallIndex = 0
+): Promise<LiveWebSearchOutcome> {
+  const resolution = await resolveWebSearchRuntime(signal);
+  if (signal.aborted) {
+    throw new Error("搜索已中止");
+  }
+  if (!resolution.runtime) {
+    throw new Error(resolution.notice || "联网搜索不可用");
+  }
+  if (toolCallIndex >= resolution.runtime.maxToolCalls) {
+    throw new Error(
+      `本轮的搜索次数已达上限（${resolution.runtime.maxToolCalls} 次），请基于已有搜索结果作答。`
+    );
+  }
+
+  const outcome = await resolution.runtime.executeSearch(query);
+  if (signal.aborted) {
+    throw new Error("搜索已中止");
+  }
+  const paidBadge = outcome.paid ? "（付费）" : "";
+  const sourceNote = outcome.downgradedFrom
+    ? `首选 ${outcome.downgradedFrom} 未成功，以下结果来自 ${outcome.platform}${paidBadge}。\n`
+    : `以下结果来自 ${outcome.platform}${paidBadge}。\n`;
+  const paidFallbackNote = outcome.paidFallback
+    ? `${formatPaidFallbackNotice(outcome.paidFallback)}\n`
+    : "";
+  if (outcome.results.length === 0) {
+    return {
+      output: `${paidFallbackNote}${sourceNote}联网搜索完成，但没有找到与“${query}”相关的结果。请明确告诉用户没有查到相关事实，不要编造。`,
+      resultCount: 0,
+      platform: outcome.platform
+    };
+  }
+
+  return {
+    output: `${paidFallbackNote}${sourceNote}请根据以下来源回答用户，并保留可核验的标题与链接：\n${serializeSearchResults(outcome.results)}`,
+    resultCount: outcome.results.length,
+    platform: outcome.platform
+  };
 }
 
 export interface OffscreenMossClientOptions {
   wsUrl?: string;
   videoContext?: MossLiveVideoContext | null;
   handshakeTimeoutMs?: number;
+  pageToolTimeoutMs?: number;
   executeWebSearch?: LiveWebSearchExecutor;
   createAudioContext?: () => AudioContextLike | null;
+  onEvent?: (event: MossLiveServerEvent) => void;
   onConnecting?: () => void;
   onConnected?: () => void;
   onDuckVideo?: (active: boolean) => void;
@@ -72,59 +113,23 @@ export interface OffscreenMossClientOptions {
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }
 
-interface PendingAudioContextItem {
-  chunkId: string;
-  runId: string;
-  turnId: string;
-  discard: boolean;
-}
-
-interface ActiveSourceEntry {
-  source: AudioBufferSourceNodeLike;
-  startAt: number;
-  sampleCount: number;
-}
-
-interface TurnPlaybackTracker {
-  runId: string;
-  turnId: string;
-  inFlightChunks: number;
-  audioDoneReceived: boolean;
-  responseEnded: boolean;
-  completedSent: boolean;
-  stopped: boolean;
-  stoppedSent: boolean;
-  playedSamples: number;
-  claimedChunkIds: Set<string>;
-  activeSources: Set<ActiveSourceEntry>;
-}
-
-interface ActiveToolCall {
-  callId: string;
-  query: string;
-  runId: string;
-  turnId: string;
-  toolCallIndex: number;
-  controller: AbortController;
-}
-
-function createBrowserAudioContext(): AudioContextLike | null {
-  const Ctor =
-    (globalThis as unknown as { AudioContext?: new (opts?: AudioContextOptions) => AudioContextLike })
-      .AudioContext ||
-    (globalThis as unknown as { webkitAudioContext?: new (opts?: AudioContextOptions) => AudioContextLike })
-      .webkitAudioContext;
-  if (!Ctor) return null;
-  try {
-    return new Ctor({ sampleRate: MOSS_DOWNSTREAM_SAMPLE_RATE });
-  } catch {
-    try {
-      return new Ctor();
-    } catch {
-      return null;
+type ActiveToolCall =
+  | {
+      kind: "web_search";
+      callId: string;
+      query: string;
+      runId: string;
+      turnId: string;
+      toolCallIndex: number;
+      controller: AbortController;
     }
-  }
-}
+  | {
+      kind: "page_tool";
+      callId: string;
+      runId: string;
+      turnId: string;
+      timer: ReturnType<typeof setTimeout>;
+    };
 
 export class OffscreenMossLiveClient {
   private ws: WebSocket | null = null;
@@ -133,16 +138,13 @@ export class OffscreenMossLiveClient {
   private socketGeneration = 0;
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private micEnabled = true;
-  private audioCtx: AudioContextLike | null = null;
-  private nextPlayTime = 0;
-  private readonly pendingAudioContexts: PendingAudioContextItem[] = [];
-  private readonly pendingAudioFrames: ArrayBufferLike[] = [];
-  private readonly turnPlaybacks = new Map<string, TurnPlaybackTracker>();
+  private readonly audioPlayer: MossAudioPlayer;
   private readonly activeToolCalls = new Map<string, ActiveToolCall>();
   private readonly handledToolCallIds = new Set<string>();
   private readonly webSearchCallCounts = new Map<string, number>();
-  private readonly wsUrl: string;
+  private wsUrl: string;
   private readonly handshakeTimeoutMs: number;
+  private readonly pageToolTimeoutMs: number;
   private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: OffscreenMossClientOptions;
   private videoContext: MossLiveVideoContext | null;
@@ -151,23 +153,75 @@ export class OffscreenMossLiveClient {
   private inputDucked = false;
   private activeTurnKey: string | null = null;
   private speaking = false;
+  private mediaStreamsInitialized = false;
+  private latestVideoJpeg: ArrayBufferLike | null = null;
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
     this.wsUrl = options.wsUrl || DEFAULT_MOSS_LIVE_WS_URL;
     this.videoContext = options.videoContext || null;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS;
+    this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS;
     this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
+    this.audioPlayer = new MossAudioPlayer({
+      createAudioContext: options.createAudioContext,
+      onSendJson: (payload) => {
+        this.sendJson(payload);
+      },
+      onTurnFinished: (runId, turnId) => {
+        this.finishActiveTurn(runId, turnId);
+      },
+      onStateChange: () => {
+        this.syncSpeakingState();
+      }
+    });
   }
 
   getState(): MossLiveClientState {
     return this.state;
   }
 
+  private emit(event: MossLiveServerEvent, closeCode?: number): void {
+    this.options.onEvent?.(event);
+    switch (event.type) {
+      case "connecting":
+        this.options.onConnecting?.();
+        break;
+      case "connected":
+        this.options.onConnected?.();
+        break;
+      case "duck_video":
+        this.options.onDuckVideo?.(event.active);
+        break;
+      case "speaking_state":
+        this.options.onSpeakingState?.(event.speaking);
+        break;
+      case "transcript":
+        this.options.onTranscript?.(event.event);
+        break;
+      case "tool_call":
+        this.options.onToolCall?.(event.call);
+        break;
+      case "tool_status":
+        this.options.onToolStatus?.(event.event);
+        break;
+      case "error":
+        this.options.onError?.(new Error(event.error));
+        break;
+      case "closed":
+        this.options.onClosed?.({ code: closeCode, reason: event.reason });
+        break;
+    }
+  }
+
+  private hasPageToolHandler(): boolean {
+    return Boolean(this.options.onEvent || this.options.onToolCall);
+  }
+
   private setVideoDucked(active: boolean): void {
     if (this.videoDucked === active) return;
     this.videoDucked = active;
-    this.options.onDuckVideo?.(active);
+    this.emit({ type: "duck_video", active });
   }
 
   private clearHandshakeTimer(): void {
@@ -177,65 +231,24 @@ export class OffscreenMossLiveClient {
     }
   }
 
-  private ensureAudioContext(): AudioContextLike | null {
-    if (!this.audioCtx) {
-      this.audioCtx = this.options.createAudioContext
-        ? this.options.createAudioContext()
-        : createBrowserAudioContext();
-    }
-    if (this.audioCtx && this.audioCtx.state === "suspended") {
-      void this.audioCtx.resume?.().catch(() => {});
-    }
-    return this.audioCtx;
-  }
-
   private getTurnKey(runId: string, turnId: string): string {
     return `${runId}:${turnId}`;
   }
 
-  private getOrCreateTurnTracker(runId: string, turnId: string): TurnPlaybackTracker {
-    const key = this.getTurnKey(runId, turnId);
-    let tracker = this.turnPlaybacks.get(key);
-    if (!tracker) {
-      tracker = {
-        runId,
-        turnId,
-        inFlightChunks: 0,
-        audioDoneReceived: false,
-        responseEnded: false,
-        completedSent: false,
-        stopped: false,
-        stoppedSent: false,
-        playedSamples: 0,
-        claimedChunkIds: new Set(),
-        activeSources: new Set()
-      };
-      this.turnPlaybacks.set(key, tracker);
-    }
-    return tracker;
-  }
-
-  private isAudioPlaying(): boolean {
-    if (this.pendingAudioContexts.length > 0 || this.pendingAudioFrames.length > 0) return true;
-    for (const tracker of this.turnPlaybacks.values()) {
-      if (tracker.stopped || tracker.completedSent) continue;
-      if (tracker.activeSources.size > 0 || tracker.inFlightChunks > 0) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   isSpeaking(): boolean {
     if (this.state !== "connected") return false;
-    return this.activeTurnKey !== null || this.activeToolCalls.size > 0 || this.isAudioPlaying();
+    return (
+      this.activeTurnKey !== null ||
+      this.activeToolCalls.size > 0 ||
+      this.audioPlayer.isPlaying()
+    );
   }
 
   private syncSpeakingState(): void {
     const nextSpeaking = this.isSpeaking();
     if (this.speaking === nextSpeaking) return;
     this.speaking = nextSpeaking;
-    this.options.onSpeakingState?.(nextSpeaking);
+    this.emit({ type: "speaking_state", speaking: nextSpeaking });
   }
 
   private syncVideoDuck(): void {
@@ -244,8 +257,7 @@ export class OffscreenMossLiveClient {
   }
 
   private activateTurn(runId: string, turnId: string): void {
-    const tracker = this.getOrCreateTurnTracker(runId, turnId);
-    if (tracker.stopped || tracker.audioDoneReceived || tracker.responseEnded) return;
+    if (!this.audioPlayer.canActivateTurn(runId, turnId)) return;
     this.inputDucked = false;
     this.activeTurnKey = this.getTurnKey(runId, turnId);
     this.syncVideoDuck();
@@ -257,104 +269,75 @@ export class OffscreenMossLiveClient {
     this.syncVideoDuck();
   }
 
-  private sendTurnCompletedIfReady(tracker: TurnPlaybackTracker): void {
-    if (
-      tracker.stopped ||
-      !tracker.audioDoneReceived ||
-      tracker.inFlightChunks !== 0 ||
-      tracker.completedSent
-    ) {
-      return;
-    }
-    tracker.completedSent = true;
-    this.syncSpeakingState();
-    this.sendJson({
-      action: "playback.completed",
-      run_id: tracker.runId,
-      turn_id: tracker.turnId
-    });
-  }
-
-  private sendChunkCompleted(context: PendingAudioContextItem, tracker: TurnPlaybackTracker): void {
-    if (context.chunkId) {
-      this.sendJson({
-        action: "playback.chunk.completed",
-        chunk_id: context.chunkId,
-        run_id: context.runId,
-        turn_id: context.turnId
-      });
-    }
-    this.sendTurnCompletedIfReady(tracker);
-  }
-
-  private stopTurnPlayback(runId: string, turnId: string): void {
-    const tracker = this.getOrCreateTurnTracker(runId, turnId);
-    for (const context of this.pendingAudioContexts) {
-      if (context.runId === runId && context.turnId === turnId) context.discard = true;
-    }
-
-    const now = this.audioCtx ? this.audioCtx.currentTime : 0;
-    for (const entry of tracker.activeSources) {
-      entry.source.onended = null;
-      if (now > entry.startAt) {
-        const elapsedSec = Math.max(0, now - entry.startAt);
-        tracker.playedSamples += Math.min(
-          entry.sampleCount,
-          Math.round(elapsedSec * MOSS_DOWNSTREAM_SAMPLE_RATE)
-        );
-      }
-      try {
-        entry.source.stop();
-      } catch {}
-      try {
-        entry.source.disconnect();
-      } catch {}
-    }
-    tracker.activeSources.clear();
-    tracker.inFlightChunks = 0;
-    tracker.completedSent = true;
-    this.syncSpeakingState();
-    tracker.stopped = true;
-
-    this.nextPlayTime = now;
-    for (const other of this.turnPlaybacks.values()) {
-      for (const entry of other.activeSources) {
-        this.nextPlayTime = Math.max(
-          this.nextPlayTime,
-          entry.startAt + entry.sampleCount / MOSS_DOWNSTREAM_SAMPLE_RATE
-        );
-      }
-    }
-    this.finishActiveTurn(runId, turnId);
-  }
-
   private stopAllPlayback(): void {
-    this.pendingAudioContexts.length = 0;
-    this.pendingAudioFrames.length = 0;
-    for (const tracker of [...this.turnPlaybacks.values()]) {
-      this.stopTurnPlayback(tracker.runId, tracker.turnId);
-    }
+    this.audioPlayer.stopAll();
     this.activeTurnKey = null;
     this.inputDucked = false;
-    this.nextPlayTime = this.audioCtx ? this.audioCtx.currentTime : 0;
     this.setVideoDucked(false);
     this.syncSpeakingState();
   }
 
   private stopAndResetAllPlayback(): void {
-    this.stopAllPlayback();
-    this.turnPlaybacks.clear();
+    this.audioPlayer.reset();
+    this.activeTurnKey = null;
+    this.inputDucked = false;
     this.webSearchCallCounts.clear();
-    this.nextPlayTime = 0;
-    if (this.audioCtx) {
-      const ctx = this.audioCtx;
-      this.audioCtx = null;
-      void ctx.close?.().catch(() => {});
-    }
+    this.setVideoDucked(false);
+    this.syncSpeakingState();
   }
 
-  private mediaStreamsInitialized = false;
-  private latestVideoJpeg: ArrayBufferLike | null = null;
+  handleAction(msg: MossLiveClientAction): void {
+    switch (msg.action) {
+      case "start":
+        if (msg.wsUrl !== undefined) {
+          this.wsUrl = msg.wsUrl || DEFAULT_MOSS_LIVE_WS_URL;
+        }
+        if (msg.videoContext !== undefined) {
+          this.videoContext = msg.videoContext || null;
+        }
+        this.connect();
+        break;
+
+      case "context_update":
+        this.updateVideoContext(msg.videoContext);
+        break;
+
+      case "tool_result":
+        this.sendToolResult(msg.callId, msg.result);
+        break;
+
+      case "audio": {
+        if (!msg.pcmBase64) break;
+        const bytes = decodeBase64Bytes(msg.pcmBase64);
+        if (bytes.byteLength > 0) {
+          this.sendAudioPcm(bytes.buffer);
+        }
+        break;
+      }
+
+      case "video": {
+        if (!msg.jpegBase64) break;
+        const bytes = decodeBase64Bytes(msg.jpegBase64);
+        if (bytes.byteLength > 0) {
+          this.sendVideoJpeg(bytes.buffer);
+        }
+        break;
+      }
+
+      case "mic_state":
+        this.setMicEnabled(Boolean(msg.enabled));
+        break;
+
+      case "interrupt":
+        this.interrupt();
+        break;
+
+      case "stop":
+        this.close();
+        this.emit({ type: "closed" });
+        break;
+    }
+  }
 
   connect(): void {
     if (this.state === "connecting" || this.state === "connected") {
@@ -369,7 +352,7 @@ export class OffscreenMossLiveClient {
     const currentGeneration = this.socketGeneration;
     this.clearHandshakeTimer();
 
-    this.options.onConnecting?.();
+    this.emit({ type: "connecting" });
 
     if (this.handshakeTimeoutMs > 0) {
       this.handshakeTimer = setTimeout(() => {
@@ -377,7 +360,9 @@ export class OffscreenMossLiveClient {
           return;
         }
         if (this.state === "connecting") {
-          this.fail(new Error("MOSS-LIVE 会话附着握手超时：未在规定时间内收到 session_attached"));
+          this.fail(
+            new Error("MOSS-LIVE 会话附着握手超时：未在规定时间内收到 session_attached")
+          );
         }
       }, this.handshakeTimeoutMs);
     }
@@ -421,15 +406,19 @@ export class OffscreenMossLiveClient {
       };
 
       this.ws.onclose = (event) => {
-        if (this.disposed || this.socketGeneration !== currentGeneration || this.state === "failed") return;
+        if (this.disposed || this.socketGeneration !== currentGeneration || this.state === "failed") {
+          return;
+        }
         this.clearHandshakeTimer();
         if (this.state === "connecting") {
-          this.fail(new Error(`WebSocket 连接关闭 (${event.code}: ${event.reason || "握手未完成"})`));
+          this.fail(
+            new Error(`WebSocket 连接关闭 (${event.code}: ${event.reason || "握手未完成"})`)
+          );
         } else {
           this.state = "closed";
           this.cancelAllToolCalls();
           this.stopAndResetAllPlayback();
-          this.options.onClosed?.({ code: event.code, reason: event.reason });
+          this.emit({ type: "closed", reason: event.reason }, event.code);
         }
       };
     } catch (error) {
@@ -441,7 +430,11 @@ export class OffscreenMossLiveClient {
   private cancelToolCall(call: ActiveToolCall): void {
     if (this.activeToolCalls.get(call.callId) !== call) return;
     this.activeToolCalls.delete(call.callId);
-    call.controller.abort();
+    if (call.kind === "web_search") {
+      call.controller.abort();
+    } else {
+      clearTimeout(call.timer);
+    }
     this.syncSpeakingState();
   }
 
@@ -453,7 +446,10 @@ export class OffscreenMossLiveClient {
 
   private cancelInterruptedToolCalls(runId: string, turnId: string): void {
     for (const call of [...this.activeToolCalls.values()]) {
-      if ((!runId || call.runId === runId) && (!turnId || call.turnId === turnId)) {
+      const hasNoTurnIdentity = call.kind === "page_tool" && !call.runId && !call.turnId;
+      const matchesTurn =
+        (!runId || call.runId === runId) && (!turnId || call.turnId === turnId);
+      if (hasNoTurnIdentity || matchesTurn) {
         this.cancelToolCall(call);
       }
     }
@@ -471,6 +467,10 @@ export class OffscreenMossLiveClient {
     this.sendJson({ action: "response.create" });
   }
 
+  private dispatchToolResultJson(callId: string, result: unknown): boolean {
+    return this.sendJson({ action: "tool.result", call_id: callId, result });
+  }
+
   private withVideoIdentity(call: MossLiveToolCall): MossLiveToolCall {
     return {
       ...call,
@@ -482,6 +482,47 @@ export class OffscreenMossLiveClient {
           }
         : null
     };
+  }
+
+  private startPageToolCall(
+    rawCall: MossLiveToolCall,
+    runId: string,
+    turnId: string,
+    generation: number
+  ): void {
+    const call = this.withVideoIdentity(rawCall);
+    if (!this.hasPageToolHandler()) {
+      this.dispatchToolResultJson(call.callId, {
+        ok: false,
+        error: "当前客户端未接入页面工具执行器"
+      });
+      return;
+    }
+
+    const existing = this.activeToolCalls.get(call.callId);
+    if (existing) {
+      this.cancelToolCall(existing);
+    }
+
+    const entry: ActiveToolCall = {
+      kind: "page_tool",
+      callId: call.callId,
+      runId,
+      turnId,
+      timer: setTimeout(() => {
+        if (this.disposed || this.socketGeneration !== generation) return;
+        if (this.activeToolCalls.get(call.callId) !== entry) return;
+        this.activeToolCalls.delete(call.callId);
+        this.syncSpeakingState();
+        const error = "页面工具执行超时，请稍后重试";
+        this.dispatchToolResultJson(call.callId, { ok: false, error });
+        this.emit({ type: "tool_error", error });
+      }, this.pageToolTimeoutMs)
+    };
+
+    this.activeToolCalls.set(call.callId, entry);
+    this.syncSpeakingState();
+    this.emit({ type: "tool_call", call });
   }
 
   private handleFunctionCall(
@@ -496,12 +537,12 @@ export class OffscreenMossLiveClient {
     this.handledToolCallIds.add(callId);
 
     if (name !== "web_search") {
-      const call = this.withVideoIdentity({ callId, name, arguments: argumentsText });
-      if (this.options.onToolCall) {
-        this.options.onToolCall(call);
-      } else {
-        this.sendToolResult(callId, { ok: false, error: "当前客户端未接入页面工具执行器" });
-      }
+      this.startPageToolCall(
+        { callId, name, arguments: argumentsText },
+        runId,
+        turnId,
+        generation
+      );
       return;
     }
 
@@ -512,8 +553,14 @@ export class OffscreenMossLiveClient {
     } catch {}
     if (!query) {
       const error = "搜索关键词为空或工具参数无效";
-      this.options.onToolStatus?.({ tool: "web_search", status: "failed", query, error });
-      this.sendFunctionCallOutput(callId, `联网搜索失败：${error}。请明确告诉用户本次查证失败，不要编造。`);
+      this.emit({
+        type: "tool_status",
+        event: { tool: "web_search", status: "failed", query, error }
+      });
+      this.sendFunctionCallOutput(
+        callId,
+        `联网搜索失败：${error}。请明确告诉用户本次查证失败，不要编造。`
+      );
       return;
     }
 
@@ -522,6 +569,7 @@ export class OffscreenMossLiveClient {
     this.webSearchCallCounts.set(turnKey, toolCallIndex + 1);
     const controller = new AbortController();
     const call: ActiveToolCall = {
+      kind: "web_search",
       callId,
       query,
       runId,
@@ -531,26 +579,39 @@ export class OffscreenMossLiveClient {
     };
     this.activeToolCalls.set(callId, call);
     this.syncSpeakingState();
-    this.options.onToolStatus?.({ tool: "web_search", status: "searching", query });
+    this.emit({
+      type: "tool_status",
+      event: { tool: "web_search", status: "searching", query }
+    });
     void this.runWebSearch(call, generation);
   }
 
-  private async runWebSearch(call: ActiveToolCall, generation: number): Promise<void> {
+  private async runWebSearch(
+    call: Extract<ActiveToolCall, { kind: "web_search" }>,
+    generation: number
+  ): Promise<void> {
     const isCurrent = () =>
       !this.disposed &&
       this.socketGeneration === generation &&
       this.activeToolCalls.get(call.callId) === call;
 
     try {
-      const outcome = await this.executeWebSearch(call.query, call.controller.signal, call.toolCallIndex);
+      const outcome = await this.executeWebSearch(
+        call.query,
+        call.controller.signal,
+        call.toolCallIndex
+      );
       if (!isCurrent()) return;
       this.sendFunctionCallOutput(call.callId, outcome.output);
-      this.options.onToolStatus?.({
-        tool: "web_search",
-        status: outcome.resultCount > 0 ? "done" : "no_results",
-        query: call.query,
-        resultCount: outcome.resultCount,
-        ...(outcome.platform ? { platform: outcome.platform } : {})
+      this.emit({
+        type: "tool_status",
+        event: {
+          tool: "web_search",
+          status: outcome.resultCount > 0 ? "done" : "no_results",
+          query: call.query,
+          resultCount: outcome.resultCount,
+          ...(outcome.platform ? { platform: outcome.platform } : {})
+        }
       });
     } catch (error) {
       if (!isCurrent()) return;
@@ -559,11 +620,14 @@ export class OffscreenMossLiveClient {
         call.callId,
         `联网搜索失败：${reason}。请明确告诉用户本次查证失败，不要编造外部事实。`
       );
-      this.options.onToolStatus?.({
-        tool: "web_search",
-        status: "failed",
-        query: call.query,
-        error: reason
+      this.emit({
+        type: "tool_status",
+        event: {
+          tool: "web_search",
+          status: "failed",
+          query: call.query,
+          error: reason
+        }
       });
     } finally {
       if (this.activeToolCalls.get(call.callId) === call) {
@@ -577,6 +641,7 @@ export class OffscreenMossLiveClient {
     if (this.disposed || this.socketGeneration !== generation) return;
     const parsed = parseMossServerJsonEvent(rawMessage);
     if (!parsed) return;
+    const isCurrent = () => !this.disposed && this.socketGeneration === generation;
 
     switch (parsed.kind) {
       case "session_attached":
@@ -585,7 +650,7 @@ export class OffscreenMossLiveClient {
         this.sendJson({ action: "media.mode", binary_protocol: "tagged-v1" });
         this.lastSentContextKey = JSON.stringify(this.videoContext);
         this.sendJson(buildMinimalSessionUpdatePayload(this.videoContext));
-        this.options.onConnected?.();
+        this.emit({ type: "connected" });
         break;
 
       case "session.updated":
@@ -613,66 +678,41 @@ export class OffscreenMossLiveClient {
         } else if (event.kind === "output.updated" || event.kind === "output.done") {
           this.activateTurn(event.runId, event.turnId);
         } else if (event.kind === "response.ended") {
-          this.getOrCreateTurnTracker(event.runId, event.turnId).responseEnded = true;
+          this.audioPlayer.markResponseEnded(event.runId, event.turnId);
           this.finishActiveTurn(event.runId, event.turnId);
         } else if (event.kind === "response.interrupted") {
-          this.stopTurnPlayback(event.runId, event.turnId);
+          this.audioPlayer.stopTurn(event.runId, event.turnId);
           this.cancelInterruptedToolCalls(event.runId, event.turnId);
         }
-        this.options.onTranscript?.(event);
+        this.emit({ type: "transcript", event });
         break;
       }
 
       case "audio.context": {
-        const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
-        const duplicate = Boolean(parsed.chunkId && tracker.claimedChunkIds.has(parsed.chunkId));
-        const discard = tracker.stopped || tracker.audioDoneReceived || tracker.responseEnded || duplicate;
-        if (parsed.chunkId && !duplicate) {
-          tracker.claimedChunkIds.add(parsed.chunkId);
-        }
-        if (!discard) {
-          tracker.inFlightChunks += 1;
+        const accepted = this.audioPlayer.enqueueAudioContext(
+          parsed.chunkId,
+          parsed.runId,
+          parsed.turnId,
+          isCurrent
+        );
+        if (accepted) {
           this.activateTurn(parsed.runId, parsed.turnId);
         }
-        this.pendingAudioContexts.push({
-          chunkId: parsed.chunkId,
-          runId: parsed.runId,
-          turnId: parsed.turnId,
-          discard
-        });
-        this.drainPendingAudio(generation);
         break;
       }
 
       case "audio.done": {
-        const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
-        if (tracker.stopped) break;
-        tracker.audioDoneReceived = true;
-        this.finishActiveTurn(parsed.runId, parsed.turnId);
-        this.sendTurnCompletedIfReady(tracker);
+        this.audioPlayer.handleAudioDone(parsed.runId, parsed.turnId);
         break;
       }
 
       case "audio.stop": {
-        const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
-        if (tracker.stoppedSent) break;
-        this.stopTurnPlayback(parsed.runId, parsed.turnId);
-        tracker.stoppedSent = true;
-        const playedAudioMs = Math.round((tracker.playedSamples / MOSS_DOWNSTREAM_SAMPLE_RATE) * 1000);
-        this.sendJson({
-          action: "playback.stopped",
-          run_id: parsed.runId,
-          turn_id: parsed.turnId,
-          played_audio_ms: playedAudioMs
-        });
+        this.audioPlayer.handleAudioStop(parsed.runId, parsed.turnId);
         break;
       }
 
       case "tool.call":
-        this.options.onToolCall?.(this.withVideoIdentity(parsed.call));
-        if (!this.options.onToolCall) {
-          this.sendToolResult(parsed.call.callId, { ok: false, error: "当前客户端未接入页面工具执行器" });
-        }
+        this.startPageToolCall(parsed.call, "", "", generation);
         break;
 
       case "function_call.done":
@@ -695,68 +735,8 @@ export class OffscreenMossLiveClient {
 
   private handleServerBinaryAudio(pcmBuffer: ArrayBufferLike, generation: number): void {
     if (this.disposed || this.socketGeneration !== generation) return;
-    this.pendingAudioFrames.push(pcmBuffer);
-    this.drainPendingAudio(generation);
-  }
-
-  private drainPendingAudio(generation: number): void {
-    while (this.pendingAudioContexts.length > 0 && this.pendingAudioFrames.length > 0) {
-      const context = this.pendingAudioContexts.shift()!;
-      const pcmBuffer = this.pendingAudioFrames.shift()!;
-      this.playAudioChunk(context, pcmBuffer, generation);
-    }
-  }
-
-  private playAudioChunk(
-    context: PendingAudioContextItem,
-    pcmBuffer: ArrayBufferLike,
-    generation: number
-  ): void {
-    const tracker = this.getOrCreateTurnTracker(context.runId, context.turnId);
-    if (context.discard || tracker.stopped) return;
-
-    const samples = decodePcmS16LEToFloat32(pcmBuffer);
-    const audioCtx = samples.length > 0 ? this.ensureAudioContext() : null;
-    if (samples.length === 0 || !audioCtx) {
-      tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
-      this.sendChunkCompleted(context, tracker);
-      this.syncSpeakingState();
-      return;
-    }
-
-    const audioBuffer = audioCtx.createBuffer(1, samples.length, MOSS_DOWNSTREAM_SAMPLE_RATE);
-    audioBuffer.getChannelData(0).set(samples);
-
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-
-    const startAt = Math.max(audioCtx.currentTime, this.nextPlayTime);
-    const durationSec = samples.length / MOSS_DOWNSTREAM_SAMPLE_RATE;
-    this.nextPlayTime = startAt + durationSec;
-
-    const entry: ActiveSourceEntry = {
-      source,
-      startAt,
-      sampleCount: samples.length
-    };
-    tracker.activeSources.add(entry);
-    this.syncSpeakingState();
-
-    source.onended = () => {
-      if (this.disposed || this.socketGeneration !== generation) return;
-      if (!tracker.activeSources.has(entry)) return;
-      tracker.activeSources.delete(entry);
-      tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
-      tracker.playedSamples += entry.sampleCount;
-      try {
-        source.disconnect();
-      } catch {}
-      this.sendChunkCompleted(context, tracker);
-      this.syncSpeakingState();
-    };
-
-    source.start(startAt);
+    const isCurrent = () => !this.disposed && this.socketGeneration === generation;
+    this.audioPlayer.enqueueAudioFrame(pcmBuffer, isCurrent);
   }
 
   private fail(error: Error): void {
@@ -777,7 +757,7 @@ export class OffscreenMossLiveClient {
         socket.close();
       } catch {}
     }
-    this.options.onError?.(error);
+    this.emit({ type: "error", error: error.message });
   }
 
   close(): void {
@@ -828,7 +808,14 @@ export class OffscreenMossLiveClient {
   }
 
   sendToolResult(callId: string, result: unknown): boolean {
-    return this.sendJson({ action: "tool.result", call_id: callId, result });
+    const active = this.activeToolCalls.get(callId);
+    if (!active || active.kind !== "page_tool") {
+      return false;
+    }
+    clearTimeout(active.timer);
+    this.activeToolCalls.delete(callId);
+    this.syncSpeakingState();
+    return this.dispatchToolResultJson(callId, result);
   }
 
   sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
@@ -845,32 +832,28 @@ export class OffscreenMossLiveClient {
 
     this.sendJson({ action: "response.cancel" });
 
-    for (const tracker of [...this.turnPlaybacks.values()]) {
-      if (!tracker.stopped && !tracker.completedSent) {
-        this.stopTurnPlayback(tracker.runId, tracker.turnId);
-        tracker.stoppedSent = true;
-        const playedAudioMs = Math.round((tracker.playedSamples / MOSS_DOWNSTREAM_SAMPLE_RATE) * 1000);
-        this.sendJson({
-          action: "playback.stopped",
-          run_id: tracker.runId,
-          turn_id: tracker.turnId,
-          played_audio_ms: playedAudioMs
-        });
-        this.options.onTranscript?.({
+    const interruptedTurns = this.audioPlayer.interruptActiveTurns();
+    for (const turn of interruptedTurns) {
+      this.emit({
+        type: "transcript",
+        event: {
           kind: "response.interrupted",
-          runId: tracker.runId,
-          turnId: tracker.turnId
-        });
-      }
+          runId: turn.runId,
+          turnId: turn.turnId
+        }
+      });
     }
 
     if (this.activeTurnKey) {
       const [runId, turnId] = this.activeTurnKey.split(":");
       if (runId && turnId) {
-        this.options.onTranscript?.({
-          kind: "response.interrupted",
-          runId,
-          turnId
+        this.emit({
+          type: "transcript",
+          event: {
+            kind: "response.interrupted",
+            runId,
+            turnId
+          }
         });
       }
     }

@@ -1,5 +1,5 @@
 // tests/live/offscreen-moss-port.test.ts
-// Offscreen MOSS-LIVE 端口管理行为、音频/静音转发与异步加载竞态回归测试
+// Offscreen MOSS-LIVE 端口懒加载薄壳、代际竞态保护与客户端动作/事件端到端转发测试
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -8,7 +8,13 @@ import {
   type MossLiveClientFactory,
   type MossLiveClientInstance
 } from "../../extension/live/offscreen-moss-port.js";
-import { encodeBase64Bytes } from "../../extension/live/moss-live-protocol.js";
+import { OffscreenMossLiveClient } from "../../extension/live/offscreen-moss-client.js";
+import {
+  MossBinaryTag,
+  encodeBase64Bytes,
+  type MossLiveClientAction,
+  type MossLiveServerEvent
+} from "../../extension/live/moss-live-protocol.js";
 
 class FakePort {
   disconnected = false;
@@ -50,156 +56,156 @@ class FakePort {
   }
 }
 
-class FakeMossClient implements MossLiveClientInstance {
-  connected = false;
+class FakeWebSocket {
+  static OPEN = 1;
+  static CLOSED = 3;
+  static instances: FakeWebSocket[] = [];
+
+  url: string;
+  readyState = 0;
+  binaryType = "blob";
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: any }) => void) | null = null;
+  onerror: ((error: any) => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
+  sentData: any[] = [];
+
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: any) {
+    this.sentData.push(data);
+  }
+
+  close(code = 1000, reason = "") {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.({ code, reason });
+  }
+
+  simulateOpen() {
+    this.readyState = FakeWebSocket.OPEN;
+    this.onopen?.();
+  }
+
+  simulateMessage(data: any) {
+    this.onmessage?.({ data });
+  }
+}
+
+class FakeMossSession implements MossLiveClientInstance {
   closed = false;
-  options: any;
-  receivedAudioFrames: Uint8Array[] = [];
-  receivedVideoFrames: Uint8Array[] = [];
-  micStates: boolean[] = [];
-  videoContexts: unknown[] = [];
-  toolResults: unknown[] = [];
-  interrupted = false;
+  actions: MossLiveClientAction[] = [];
+  readonly onEvent: (event: MossLiveServerEvent) => void;
 
-  interrupt() {
-    this.interrupted = true;
+  constructor(options: { onEvent: (event: MossLiveServerEvent) => void }) {
+    this.onEvent = options.onEvent;
   }
 
-  constructor(options: any) {
-    this.options = options;
+  handleAction(action: MossLiveClientAction): void {
+    this.actions.push(action);
+    if (action.action === "stop") {
+      this.close();
+      this.onEvent({ type: "closed" });
+    }
   }
 
-  connect() {
-    this.connected = true;
-  }
-
-  close() {
+  close(): void {
     this.closed = true;
-    this.connected = false;
-  }
-
-  sendAudioPcm(pcmBuffer: ArrayBufferLike): boolean {
-    this.receivedAudioFrames.push(new Uint8Array(pcmBuffer));
-    return true;
-  }
-
-  sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
-    this.receivedVideoFrames.push(new Uint8Array(jpegBuffer));
-    return true;
-  }
-
-  setMicEnabled(enabled: boolean): void {
-    this.micStates.push(enabled);
-  }
-
-  updateVideoContext(context: unknown): void {
-    this.videoContexts.push(context);
-  }
-
-  sendToolResult(callId: string, result: unknown): boolean {
-    this.toolResults.push({ callId, result });
-    return true;
   }
 }
 
 beforeEach(() => {
   resetModuleState();
   vi.unstubAllGlobals();
+  FakeWebSocket.instances = [];
+  vi.stubGlobal("WebSocket", FakeWebSocket);
 });
 
 describe("attachMossLivePort", () => {
-  it("normal lifecycle: start creates client, calls connect, and relays client events + audio/mic/transcript to/from port", async () => {
+  it("normal lifecycle: start loads client, forwards actions, and relays server events to port", async () => {
     const port = new FakePort();
-    let createdClient: FakeMossClient | null = null;
-    const clientFactory: MossLiveClientFactory = vi.fn((opts) => {
-      createdClient = new FakeMossClient(opts);
-      return createdClient;
-    });
+    let createdClient: OffscreenMossLiveClient | null = null;
 
     attachMossLivePort(port as any, {
-      loadClient: async () => clientFactory
+      loadClient: async () => (opts) => {
+        createdClient = new OffscreenMossLiveClient(opts);
+        return createdClient;
+      }
     });
 
     port.simulateMessage({ action: "start", wsUrl: "wss://api.mosi.cn/v1/realtime" });
 
-    // Allow promise microtasks to run
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(clientFactory).toHaveBeenCalledTimes(1);
     expect(createdClient).not.toBeNull();
-    expect(createdClient!.connected).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
 
-    // Relays client events to port
-    createdClient!.options.onConnected();
+    expect(port.postedMessages).toContainEqual({ type: "connecting" });
     expect(port.postedMessages).toContainEqual({ type: "connected" });
 
-    // Relays transcript events to port
-    createdClient!.options.onTranscript?.({ kind: "input.updated", text: "正在提问" });
+    ws.simulateMessage(
+      JSON.stringify({ action: "input.transcript.updated", data: { text: "正在提问" } })
+    );
     expect(port.postedMessages).toContainEqual({
       type: "transcript",
       event: { kind: "input.updated", text: "正在提问" }
     });
 
-    createdClient!.options.onToolStatus?.({
-      tool: "web_search",
-      status: "searching",
-      query: "最新财报"
-    });
-    expect(port.postedMessages).toContainEqual({
-      type: "tool_status",
-      event: { tool: "web_search", status: "searching", query: "最新财报" }
-    });
-
-    // Relays base64 audio from port to client.sendAudioPcm
+    ws.sentData.length = 0;
     const samplePcm = new Uint8Array([1, 2, 3, 4]);
     port.simulateMessage({
       action: "audio",
       pcmBase64: encodeBase64Bytes(samplePcm)
     });
-    expect(createdClient!.receivedAudioFrames).toHaveLength(1);
-    expect(Array.from(createdClient!.receivedAudioFrames[0])).toEqual([1, 2, 3, 4]);
+    expect(ws.sentData).toHaveLength(1);
+    expect(Array.from(ws.sentData[0] as Uint8Array)).toEqual([MossBinaryTag.AudioPcm, 1, 2, 3, 4]);
 
     const sampleJpeg = new Uint8Array([0xff, 0xd8, 5, 6, 0xff, 0xd9]);
     port.simulateMessage({
       action: "video",
       jpegBase64: encodeBase64Bytes(sampleJpeg)
     });
-    expect(createdClient!.receivedVideoFrames).toHaveLength(1);
-    expect(Array.from(createdClient!.receivedVideoFrames[0])).toEqual(Array.from(sampleJpeg));
+    expect(ws.sentData).toHaveLength(2);
+    expect(Array.from(ws.sentData[1] as Uint8Array)).toEqual([
+      MossBinaryTag.ScreenJpeg,
+      0xff,
+      0xd8,
+      5,
+      6,
+      0xff,
+      0xd9
+    ]);
 
-    // Relays mic_state from port to client.setMicEnabled
     port.simulateMessage({ action: "mic_state", enabled: false });
-    expect(createdClient!.micStates).toEqual([false]);
+    expect(JSON.parse(ws.sentData[2])).toEqual({ action: "mic_state", enabled: false });
 
-    // Stop cleans up client and notifies port
-    const staleOptions = createdClient!.options;
     port.simulateMessage({ action: "stop" });
-    expect(createdClient!.closed).toBe(true);
+    expect(createdClient!.getState()).toBe("idle");
     expect(port.postedMessages).toContainEqual({ type: "closed" });
-
-    // Late transcript and tool status after stop are ignored
-    const countBefore = port.postedMessages.length;
-    staleOptions.onTranscript?.({ kind: "output.done", text: "迟到消息", runId: "r1", turnId: "t1" });
-    staleOptions.onToolStatus?.({ tool: "web_search", status: "done", query: "迟到查询" });
-    expect(port.postedMessages).toHaveLength(countBefore);
   });
 
-  it("relays duck transitions and releases once on stop", async () => {
+  it("relays duck transitions from client and releases once on stop", async () => {
     const port = new FakePort();
-    let client: FakeMossClient | null = null;
     attachMossLivePort(port as any, {
-      loadClient: async () => (options) => {
-        client = new FakeMossClient(options);
-        return client;
-      }
+      loadClient: async () => (options) => new OffscreenMossLiveClient(options)
     });
     port.simulateMessage({ action: "start" });
     await Promise.resolve();
     await Promise.resolve();
 
-    client!.options.onDuckVideo(true);
-    client!.options.onDuckVideo(true);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({ action: "input.transcript.updated", data: { text: "你好" } }));
+    ws.simulateMessage(JSON.stringify({ action: "input.transcript.done", data: { text: "你好" } }));
     expect(port.postedMessages.filter((message) => message.type === "duck_video")).toEqual([
       { type: "duck_video", active: true }
     ]);
@@ -221,26 +227,21 @@ describe("attachMossLivePort", () => {
     let clientCreated = false;
     const clientFactory: MossLiveClientFactory = vi.fn((opts) => {
       clientCreated = true;
-      return new FakeMossClient(opts);
+      return new FakeMossSession(opts);
     });
 
     attachMossLivePort(port as any, {
       loadClient: () => loadPromise
     });
 
-    // 1. Port receives start, but loader is pending
     port.simulateMessage({ action: "start", wsUrl: "wss://api.mosi.cn/v1/realtime" });
-
-    // 2. Before loader finishes, user triggers stop
     port.simulateMessage({ action: "stop" });
     expect(port.postedMessages).toContainEqual({ type: "closed" });
 
-    // 3. Now loader completes
     resolveLoader(clientFactory);
     await Promise.resolve();
     await Promise.resolve();
 
-    // 关键断言：因为代际已失效且已处于 stop 态，绝不得创建客户端或调用 connect
     expect(clientFactory).not.toHaveBeenCalled();
     expect(clientCreated).toBe(false);
   });
@@ -255,89 +256,127 @@ describe("attachMossLivePort", () => {
     let clientCreated = false;
     const clientFactory: MossLiveClientFactory = vi.fn((opts) => {
       clientCreated = true;
-      return new FakeMossClient(opts);
+      return new FakeMossSession(opts);
     });
 
     attachMossLivePort(port as any, {
       loadClient: () => loadPromise
     });
 
-    // 1. Port receives start, but loader is pending
     port.simulateMessage({ action: "start", wsUrl: "wss://api.mosi.cn/v1/realtime" });
-
-    // 2. Before loader finishes, port disconnects
     port.disconnect();
 
-    // 3. Now loader completes
     resolveLoader(clientFactory);
     await Promise.resolve();
     await Promise.resolve();
 
-    // 关键断言：端口已断开，disposed 守卫必须拦截，不得连接任何 socket
     expect(clientFactory).not.toHaveBeenCalled();
     expect(clientCreated).toBe(false);
   });
 });
 
-
 describe("attachMossLivePort subtitle tool bridge", () => {
   async function setup() {
     const port = new FakePort();
-    let client: FakeMossClient | null = null;
+    let client: OffscreenMossLiveClient | null = null;
     attachMossLivePort(port as any, {
       loadClient: async () => (options) => {
-        client = new FakeMossClient(options);
+        client = new OffscreenMossLiveClient(options);
         return client;
       }
     });
-    port.simulateMessage({ action: "start", videoContext: { bvid: "BV1", cid: "1" } });
+    port.simulateMessage({
+      action: "start",
+      videoContext: {
+        url: "https://www.bilibili.com/video/BV1/",
+        bvid: "BV1",
+        cid: "1",
+        title: "测试视频",
+        pageIndex: 1,
+        pageCount: 1,
+        pageTitle: "",
+        chapters: []
+      }
+    });
     await Promise.resolve();
     await Promise.resolve();
-    return { port, client: client! };
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    return { port, client: client!, ws };
   }
 
-  it("relays context updates and tool call/result in both directions", async () => {
-    const { port, client } = await setup();
-    expect(client.options.videoContext).toEqual({ bvid: "BV1", cid: "1" });
+  it("relays context updates and tool call/result in both directions while tracking speaking_state", async () => {
+    const { port, client, ws } = await setup();
 
-    const nextContext = { bvid: "BV2", cid: "2" };
+    const nextContext = {
+      url: "https://www.bilibili.com/video/BV2/",
+      bvid: "BV2",
+      cid: "2",
+      title: "第二集",
+      pageIndex: 2,
+      pageCount: 2,
+      pageTitle: "P2",
+      chapters: []
+    };
     port.simulateMessage({ action: "context_update", videoContext: nextContext });
-    expect(client.videoContexts).toEqual([nextContext]);
 
-    const call = { callId: "call-1", name: "search_video_subtitles", arguments: { query: "字幕" } };
-    client.options.onToolCall(call);
-    expect(port.postedMessages).toContainEqual({ type: "tool_call", call });
+    ws.sentData.length = 0;
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "tool.call",
+        data: { call_id: "call-1", name: "search_video_subtitles", arguments: { query: "字幕" } }
+      })
+    );
+
+    expect(client.isSpeaking()).toBe(true);
+    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: true });
+    expect(port.postedMessages).toContainEqual({
+      type: "tool_call",
+      call: {
+        callId: "call-1",
+        name: "search_video_subtitles",
+        arguments: { query: "字幕" },
+        video: { bvid: "BV2", cid: "2", pageIndex: 2 }
+      }
+    });
 
     port.simulateMessage({ action: "tool_result", callId: "call-1", result: { ok: true, items: [] } });
-    expect(client.toolResults).toEqual([{ callId: "call-1", result: { ok: true, items: [] } }]);
-    expect(client.closed).toBe(false);
+    expect(client.isSpeaking()).toBe(false);
+    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: false });
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "tool.result",
+      call_id: "call-1",
+      result: { ok: true, items: [] }
+    });
   });
 
   it("returns a timeout error without closing the session when content never answers", async () => {
     vi.useFakeTimers();
     try {
-      const { client } = await setup();
-      client.options.onToolCall({ callId: "call-timeout", name: "search_video_subtitles", arguments: {} });
+      const { port, client, ws } = await setup();
+      ws.sentData.length = 0;
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "tool.call",
+          data: { call_id: "call-timeout", name: "search_video_subtitles", arguments: {} }
+        })
+      );
+      expect(client.isSpeaking()).toBe(true);
       vi.advanceTimersByTime(10000);
-      expect(client.toolResults).toEqual([{
-        callId: "call-timeout",
+      expect(client.isSpeaking()).toBe(false);
+      expect(JSON.parse(ws.sentData[0])).toEqual({
+        action: "tool.result",
+        call_id: "call-timeout",
         result: { ok: false, error: "页面工具执行超时，请稍后重试" }
-      }]);
-      expect(client.closed).toBe(false);
+      });
+      expect(port.postedMessages).toContainEqual({
+        type: "tool_error",
+        error: "页面工具执行超时，请稍后重试"
+      });
+      expect(client.getState()).toBe("connected");
     } finally {
       vi.useRealTimers();
     }
-  });
-  it("relays interrupt action to client and broadcasts speaking_state to port", async () => {
-    const { port, client } = await setup();
-
-    client.options.onSpeakingState(true);
-    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: true });
-
-    port.simulateMessage({ action: "interrupt" });
-    expect(client.interrupted).toBe(true);
-
-    client.options.onSpeakingState(false);
-    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: false });
   });
 });
