@@ -17,6 +17,7 @@ import {
   packTaggedBinary,
   parseMossServerJsonEvent,
   resampleMonoFloat32,
+  resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
   unpackTaggedBinary
 } from "../../extension/live/moss-live-protocol.js";
@@ -392,6 +393,17 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
   it("handles existing /v1/realtime endpoint directly", () => {
     const url = resolveMossLiveWsUrl("wss://api.mosi.cn/v1/realtime", "moss-live-1.0");
     expect(url).toBe("wss://api.mosi.cn/v1/realtime?model=moss-live-1.0");
+  });
+
+  it("derives paired HTTP(S) and WS(S) permission origins via resolveMossLivePermissionOrigins", () => {
+    expect(resolveMossLivePermissionOrigins("https://api.mosi.cn")).toEqual([
+      "https://api.mosi.cn",
+      "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0"
+    ]);
+    expect(resolveMossLivePermissionOrigins("http://localhost:8000", "moss-beta")).toEqual([
+      "http://localhost:8000",
+      "ws://localhost:8000/v1/realtime?model=moss-beta"
+    ]);
   });
 
   it("builds official session.update payload with persona and instructions only", () => {

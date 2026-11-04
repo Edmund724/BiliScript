@@ -1,8 +1,92 @@
 // extension/live/live-session-tracker.ts
-// MOSS-LIVE 会话所有权追踪器：防止乱序 prepare 与过期 cleanup 踩踏 DNR 鉴权规则。
+// MOSS-LIVE 会话所有权追踪与 DNR 鉴权规则（ruleId: 9002）单点管理模块：
+// 防止乱序 prepare、过期 cleanup 与残留标签页锁踩踏在途 WebSocket 鉴权规则。
 
-import type { LiveProvider } from "./live-provider-normalize.js";
-import { resolveMossLiveWsUrl } from "./moss-live-protocol.js";
+import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import { hasHostPermission } from "../core/host-permissions.js";
+import { getProviderStore, getSettingsSnapshot } from "../core/settings-snapshot.js";
+import { resolveActiveLiveProviderId, type LiveProvider } from "./live-provider-normalize.js";
+import { resolveMossLivePermissionOrigins } from "./moss-live-protocol.js";
+
+// ===== MOSS-LIVE 会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
+
+export const MOSS_LIVE_WS_RULE_ID = 9002;
+
+export function extractDomainFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname || "api.mosi.cn";
+  } catch {
+    return "api.mosi.cn";
+  }
+}
+
+export function extractOriginHeaderFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.host) {
+      return "https://api.mosi.cn";
+    }
+    const protocol =
+      parsed.protocol === "ws:"
+        ? "http:"
+        : parsed.protocol === "wss:"
+          ? "https:"
+          : parsed.protocol === "http:" || parsed.protocol === "https:"
+            ? parsed.protocol
+            : "https:";
+    return `${protocol}//${parsed.host}`;
+  } catch {
+    return "https://api.mosi.cn";
+  }
+}
+
+/**
+ * 动态注入针对 WebSocket 握手的 Authorization 与 Origin 会话规则。
+ * 规避浏览器原生 WebSocket 无法自定义请求头、MV3 SW 绕过 DNR，以及扩展页面 Origin (chrome-extension://) 被服务端同源校验拒绝的限制。
+ */
+export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): Promise<void> {
+  const trimmedKey = String(apiKey || "").trim();
+  const targetUrl = baseUrl || "https://api.mosi.cn";
+  const domain = extractDomainFromUrl(targetUrl);
+  const origin = extractOriginHeaderFromUrl(targetUrl);
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [MOSS_LIVE_WS_RULE_ID],
+    addRules: [
+      {
+        id: MOSS_LIVE_WS_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            {
+              header: "Authorization",
+              operation: "set",
+              value: `Bearer ${trimmedKey}`
+            },
+            {
+              header: "Origin",
+              operation: "set",
+              value: origin
+            }
+          ]
+        },
+        condition: {
+          requestDomains: [domain],
+          resourceTypes: ["websocket"]
+        }
+      }
+    ]
+  });
+}
+
+/**
+ * 清除 MOSS-LIVE 专属会话规则（仅移除 9002，不触碰其他规则）。
+ */
+export async function clearMossLiveWsAuthRule(): Promise<void> {
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [MOSS_LIVE_WS_RULE_ID]
+  });
+}
 
 export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 
@@ -15,6 +99,7 @@ export interface LiveSessionPrepareDeps {
   clearAuthRule: () => Promise<void>;
   ensureOffscreen: () => Promise<unknown>;
   resolveActiveId: (providers: LiveProvider[], activeId?: string) => string;
+  isTabAlive?: (tabId: number) => Promise<boolean>;
 }
 
 export interface LiveSessionPrepareResult {
@@ -29,9 +114,36 @@ export interface LiveSessionCleanupResult {
   error?: string;
 }
 
+async function isTabAliveByChromeTabs(tabId: number): Promise<boolean> {
+  if (typeof chrome === "undefined" || typeof chrome.tabs?.get !== "function") {
+    return true;
+  }
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return Boolean(tab);
+  } catch {
+    return false;
+  }
+}
+
+function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Required<LiveSessionPrepareDeps> {
+  return {
+    getSettings: overrides?.getSettings ?? getSettingsSnapshot,
+    loadProviders: overrides?.loadProviders ?? (async () => (await getProviderStore("live")).providers),
+    loadKeys: overrides?.loadKeys ?? (async () => (await getProviderStore("live")).keys),
+    hasPermission: overrides?.hasPermission ?? hasHostPermission,
+    setAuthRule: overrides?.setAuthRule ?? setMossLiveWsAuthRule,
+    clearAuthRule: overrides?.clearAuthRule ?? clearMossLiveWsAuthRule,
+    ensureOffscreen: overrides?.ensureOffscreen ?? ensureChatOffscreenDocument,
+    resolveActiveId: overrides?.resolveActiveId ?? resolveActiveLiveProviderId,
+    isTabAlive: overrides?.isTabAlive ?? isTabAliveByChromeTabs
+  };
+}
+
 export class LiveSessionTracker {
   private latestRequestedOwner: string | null = null;
   private activeRuleOwner: string | null = null;
+  private ownerTabId: number | null = null;
 
   getLatestOwner(): string | null {
     return this.latestRequestedOwner;
@@ -41,17 +153,55 @@ export class LiveSessionTracker {
     return this.activeRuleOwner;
   }
 
+  getOwnerTabId(): number | null {
+    return this.ownerTabId;
+  }
+
   reset(): void {
     this.latestRequestedOwner = null;
     this.activeRuleOwner = null;
+    this.ownerTabId = null;
   }
 
   async prepare(
     sessionId: string,
-    deps: LiveSessionPrepareDeps
+    depsOrTabId?: Partial<LiveSessionPrepareDeps> | number,
+    maybeTabId?: number
   ): Promise<LiveSessionPrepareResult> {
+    const overrides = typeof depsOrTabId === "object" && depsOrTabId !== null ? depsOrTabId : undefined;
+    const tabId = typeof depsOrTabId === "number" ? depsOrTabId : maybeTabId;
+    const deps = resolvePrepareDeps(overrides);
+
+    if (this.ownerTabId !== null && typeof tabId === "number" && this.ownerTabId !== tabId) {
+      const conflictingTabId = this.ownerTabId;
+      const alive = await deps.isTabAlive(conflictingTabId);
+      if (alive) {
+        return {
+          ok: false,
+          error: "已有另一个标签页正在进行实时伴看，请先结束该会话。"
+        };
+      }
+      if (this.ownerTabId === conflictingTabId) {
+        await this.cleanupByTab(conflictingTabId, deps.clearAuthRule);
+      } else if (this.ownerTabId !== null && this.ownerTabId !== tabId) {
+        return {
+          ok: false,
+          error: "已有另一个标签页正在进行实时伴看，请先结束该会话。"
+        };
+      }
+    }
+
     const targetSessionId = sessionId.trim() || `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.latestRequestedOwner = targetSessionId;
+    if (typeof tabId === "number") {
+      this.ownerTabId = tabId;
+    }
+
+    const clearCurrentTabOwnershipIfUnchanged = () => {
+      if (this.latestRequestedOwner === targetSessionId) {
+        this.ownerTabId = null;
+      }
+    };
 
     let ruleInstalledForSession = false;
     try {
@@ -60,20 +210,26 @@ export class LiveSessionTracker {
       const activeId = deps.resolveActiveId(providers, settings.activeLiveProviderId);
       const activeProvider = providers.find((p) => p.id === activeId);
       if (!activeProvider) {
+        clearCurrentTabOwnershipIfUnchanged();
         return { ok: false, error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key" };
       }
       const keys = await deps.loadKeys();
       const apiKey = String(keys[activeId] || "").trim();
       if (!apiKey) {
+        clearCurrentTabOwnershipIfUnchanged();
         return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
       }
-      const baseUrl = activeProvider.baseUrl || "https://api.mosi.cn";
+      const [baseUrl, wsUrl] = resolveMossLivePermissionOrigins(
+        activeProvider.baseUrl,
+        activeProvider.model
+      );
       const [hasHttpPerm, hasWsPerm] = await Promise.all([
         deps.hasPermission(baseUrl),
-        deps.hasPermission(resolveMossLiveWsUrl(baseUrl, activeProvider.model))
+        deps.hasPermission(wsUrl)
       ]);
       const hasPerm = hasHttpPerm && hasWsPerm;
       if (!hasPerm) {
+        clearCurrentTabOwnershipIfUnchanged();
         return { ok: false, error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限` };
       }
 
@@ -105,6 +261,7 @@ export class LiveSessionTracker {
         sessionId: targetSessionId
       };
     } catch (error) {
+      clearCurrentTabOwnershipIfUnchanged();
       if (ruleInstalledForSession && this.activeRuleOwner === targetSessionId) {
         this.activeRuleOwner = null;
         try {
@@ -118,8 +275,8 @@ export class LiveSessionTracker {
   }
 
   async cleanup(
-    sessionId: string | undefined,
-    clearAuthRule: () => Promise<void>
+    sessionId?: string,
+    clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
   ): Promise<LiveSessionCleanupResult> {
     const targetSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
     try {
@@ -135,6 +292,25 @@ export class LiveSessionTracker {
       }
       this.latestRequestedOwner = null;
       this.activeRuleOwner = null;
+      this.ownerTabId = null;
+      await clearAuthRule();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: (error as Error)?.message || String(error) };
+    }
+  }
+
+  async cleanupByTab(
+    tabId: number,
+    clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
+  ): Promise<LiveSessionCleanupResult> {
+    if (this.ownerTabId !== tabId) {
+      return { ok: true };
+    }
+    this.latestRequestedOwner = null;
+    this.activeRuleOwner = null;
+    this.ownerTabId = null;
+    try {
       await clearAuthRule();
       return { ok: true };
     } catch (error) {

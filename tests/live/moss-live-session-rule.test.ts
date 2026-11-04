@@ -4,15 +4,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
+  ASR_AUDIO_SESSION_RULE_ID_BASE,
+  ASR_AUDIO_SESSION_RULE_ID_MAX
+} from "../../extension/asr/session-rule-manager.js";
+import {
   MOSS_LIVE_WS_RULE_ID,
   setMossLiveWsAuthRule,
   clearMossLiveWsAuthRule,
   extractDomainFromUrl,
   extractOriginHeaderFromUrl,
-  ASR_AUDIO_SESSION_RULE_ID_BASE,
-  ASR_AUDIO_SESSION_RULE_ID_MAX
-} from "../../extension/asr/session-rule-manager.js";
-import {
   LiveSessionTracker,
   type LiveSessionPrepareDeps
 } from "../../extension/live/live-session-tracker.js";
@@ -270,5 +270,77 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toContain("未授予平台域名权限");
     expect(setAuthRule).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepare from another tab when existing ownerTabId is still alive", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const clearAuthRule = vi.fn(async () => {});
+    const isTabAlive = vi.fn(async (id: number) => id === 101);
+
+    const res1 = await tracker.prepare(
+      "session-tab-101",
+      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive }),
+      101
+    );
+    expect(res1.ok).toBe(true);
+    expect(tracker.getOwnerTabId()).toBe(101);
+    expect(tracker.getActiveRuleOwner()).toBe("session-tab-101");
+
+    const res2 = await tracker.prepare(
+      "session-tab-202",
+      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive }),
+      202
+    );
+    expect(res2.ok).toBe(false);
+    expect(res2.error).toContain("已有另一个标签页正在进行实时伴看");
+    expect(isTabAlive).toHaveBeenCalledWith(101);
+    expect(tracker.getOwnerTabId()).toBe(101);
+    expect(tracker.getActiveRuleOwner()).toBe("session-tab-101");
+    expect(clearAuthRule).not.toHaveBeenCalled();
+    expect(setAuthRule).toHaveBeenCalledTimes(1);
+  });
+
+  it("reaps dead ownerTabId via chrome.tabs.get and allows a new tab to take over", async () => {
+    const { rules } = installDnrStub();
+    // Simulate chrome.tabs.get rejecting for dead tab 101
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async (id: number) => {
+        if (id === 101) {
+          throw new Error("No tab with id: 101.");
+        }
+        return { id };
+      })
+    };
+
+    const tracker = new LiveSessionTracker();
+    const clearSpy = vi.fn(async () => {
+      await clearMossLiveWsAuthRule();
+    });
+    const setSpy = vi.fn(async (key: string, url: string) => {
+      await setMossLiveWsAuthRule(key, url);
+    });
+
+    const res1 = await tracker.prepare(
+      "session-dead-tab",
+      createFakeDeps({ setAuthRule: setSpy, clearAuthRule: clearSpy }),
+      101
+    );
+    expect(res1.ok).toBe(true);
+    expect(tracker.getOwnerTabId()).toBe(101);
+    expect(rules.has(MOSS_LIVE_WS_RULE_ID)).toBe(true);
+
+    // Tab 101 died without cleanup; Tab 202 now prepares
+    const res2 = await tracker.prepare(
+      "session-new-tab",
+      createFakeDeps({ setAuthRule: setSpy, clearAuthRule: clearSpy }),
+      202
+    );
+    expect(res2.ok).toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledTimes(2);
+    expect(tracker.getOwnerTabId()).toBe(202);
+    expect(tracker.getActiveRuleOwner()).toBe("session-new-tab");
+    expect(rules.has(MOSS_LIVE_WS_RULE_ID)).toBe(true);
   });
 });

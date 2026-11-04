@@ -4,7 +4,7 @@
 
 MOSS-LIVE 实时语音伴看通过 `wss://` 全双工连接收发控制事件与 16kHz/48kHz PCM 音频流，服务端在 WebSocket Upgrade 握手阶段要求校验 `Authorization: Bearer <key>` 请求头与合法的 HTTP(S) `Origin` 请求头，而浏览器原生 `WebSocket` API 不支持自定义请求头，且下行音频流依赖 `AudioContext` 无缝排队播放。
 
-**决策**：实时伴看的 WebSocket 连接固定在 **offscreen 文档**（`extension/live/offscreen-moss-client.ts`，由 `entry/offscreen.ts` 经 `moss-live` 端口承载，`OFFSCREEN_CREATE_REASONS` 声明 `["BLOBS", "WEBSOCKET"]`，见 `commit caa70aeb`）中发起并持有；建连前由 Service Worker 经 `LiveSessionTracker.prepare` 注入 `declarativeNetRequest`（DNR）会话规则（`asr/session-rule-manager.ts` 的 `setMossLiveWsAuthRule`，固定 `ruleId: 9002`，`resourceTypes: ["websocket"]`），对目标域名同时覆写 `Authorization` 与 `Origin` 请求头（`commit 3ef14b18`）；平台主机权限申请与预检必须同时覆盖 `http(s)://` 与 `ws(s)://` 两种协议（`commit 3f3e033f`）。
+**决策**：实时伴看的 WebSocket 连接固定在 **offscreen 文档**（`extension/live/offscreen-moss-client.ts`，由 `entry/offscreen.ts` 经 `moss-live` 端口承载，`OFFSCREEN_CREATE_REASONS` 声明 `["BLOBS", "WEBSOCKET"]`，见 `commit caa70aeb`）中发起并持有；建连前由 Service Worker 经 `LiveSessionTracker.prepare` 注入 `declarativeNetRequest`（DNR）会话规则（`live/live-session-tracker.ts` 的 `setMossLiveWsAuthRule`，固定 `ruleId: 9002`，`resourceTypes: ["websocket"]`），对目标域名同时覆写 `Authorization` 与 `Origin` 请求头（`commit 3ef14b18`）；平台主机权限申请与预检必须同时覆盖 `http(s)://` 与 `ws(s)://` 两种协议（`commit 3f3e033f`）。
 
 ## 考虑过的方案
 

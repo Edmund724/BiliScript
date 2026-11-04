@@ -5,6 +5,7 @@
 import {
   MOSS_LIVE_PORT_NAME,
   encodeBase64Bytes,
+  resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
   type MossLiveServerEvent,
   type MossLiveToolCall,
@@ -112,7 +113,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const shouldShow = state === "connected" && speaking;
     interruptButton.hidden = !shouldShow;
     interruptButton.classList.toggle("is-speaking", shouldShow);
-    interruptButton.disabled = !shouldShow;
+    (interruptButton as HTMLButtonElement).disabled = !shouldShow;
     const label = "打断当前回答";
     interruptButton.title = label;
     interruptButton.setAttribute("aria-label", label);
@@ -259,7 +260,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
     const targetOrigin = (getTargetOrigin?.() || activeTargetOrigin || "https://api.mosi.cn").trim();
-    const permPromise = requestOrigins([targetOrigin, resolveMossLiveWsUrl(targetOrigin)]);
+    const permPromise = requestOrigins(resolveMossLivePermissionOrigins(targetOrigin));
 
     let permResult: { ok: boolean; error?: string };
     try {

@@ -199,6 +199,15 @@ export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
   }
 }
 
+/**
+ * 推导 MOSS-LIVE 平台所需的双协议（HTTP(S) + WS(S)）权限源地址对。
+ * Chromium DNR modifyHeaders 拦截 WebSocket 握手要求扩展同时持有 http(s):// 与 ws(s):// 源权限。
+ */
+export function resolveMossLivePermissionOrigins(baseUrl?: string, model?: string): [string, string] {
+  const rawUrl = String(baseUrl || "").trim() || "https://api.mosi.cn";
+  return [rawUrl, resolveMossLiveWsUrl(rawUrl, model)];
+}
+
 export interface MossLiveVideoContext {
   url: string;
   bvid: string;

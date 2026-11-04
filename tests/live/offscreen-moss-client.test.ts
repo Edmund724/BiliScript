@@ -1446,7 +1446,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
       onSpeakingState: (sp) => speakingStates.push(sp),
       executeWebSearch: vi.fn((_q, signal) => {
         searchSignal = signal;
-        return new Promise(() => {});
+        return new Promise<never>(() => {});
       })
     });
 

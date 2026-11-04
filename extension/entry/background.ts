@@ -44,9 +44,7 @@ import {
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { liveProviderStore } from "../live/live-provider-store.js";
-import { resolveActiveLiveProviderId } from "../live/live-provider-normalize.js";
-import { liveSessionTracker } from "../live/live-session-tracker.js";
-import { setMossLiveWsAuthRule, clearMossLiveWsAuthRule } from "../asr/session-rule-manager.js";
+import { liveSessionTracker, clearMossLiveWsAuthRule } from "../live/live-session-tracker.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
@@ -440,20 +438,11 @@ const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry
 
 function handleLiveSessionPrepare(
   message: Msg<"live-session-prepare">,
-  _sender: MessageSender,
+  sender: MessageSender,
   sendResponse: Reply<"live-session-prepare">
 ): void {
   withOkResponse(
-    liveSessionTracker.prepare(message?.sessionId || "", {
-      getSettings: getSettingsSnapshot,
-      loadProviders: liveProviderStore.loadProviders,
-      loadKeys: liveProviderStore.loadKeys,
-      hasPermission: hasHostPermission,
-      setAuthRule: setMossLiveWsAuthRule,
-      clearAuthRule: clearMossLiveWsAuthRule,
-      ensureOffscreen: ensureChatOffscreenDocument,
-      resolveActiveId: resolveActiveLiveProviderId
-    }),
+    liveSessionTracker.prepare(message?.sessionId || "", sender.tab?.id),
     sendResponse
   );
 }
@@ -464,7 +453,7 @@ function handleLiveSessionCleanup(
   sendResponse: Reply<"live-session-cleanup">
 ): void {
   withOkResponse(
-    liveSessionTracker.cleanup(message?.sessionId, clearMossLiveWsAuthRule),
+    liveSessionTracker.cleanup(message?.sessionId),
     sendResponse
   );
 }
