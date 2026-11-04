@@ -243,6 +243,22 @@ const MOSS_LIVE_SUBTITLE_TOOLS = [
   }
 ] as const;
 
+export interface MossLiveToolDefinition {
+  type: "function";
+  name: "web_search";
+  description: string;
+  parameters: {
+    type: "object";
+    properties: {
+      query: {
+        type: "string";
+        description: string;
+      };
+    };
+    required: ["query"];
+  };
+}
+
 /** 建立或刷新伴看会话的 session.update 载荷。 */
 export interface MinimalSessionUpdatePayload {
   action: "session.update";
@@ -255,12 +271,13 @@ export interface MinimalSessionUpdatePayload {
     instructions: string;
     voice: string;
     modalities: string[];
-    tools: typeof MOSS_LIVE_SUBTITLE_TOOLS;
+    tools: [...typeof MOSS_LIVE_SUBTITLE_TOOLS, MossLiveToolDefinition];
+    tool_choice: "auto";
   };
 }
 
 function buildVideoInstructions(context: MossLiveVideoContext | null | undefined): string {
-  const base = "当前正在观看B站视频伴看会话。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 0:05 或 1:02:05）。";
+  const base = "当前正在观看B站视频伴看会话。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。工具返回无结果、失败或超时时必须明确告知用户，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 0:05 或 1:02:05）。";
   if (!context) {
     return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;
   }
@@ -285,7 +302,20 @@ export function buildMinimalSessionUpdatePayload(
       instructions: buildVideoInstructions(context),
       voice: "moss-voice-default",
       modalities: ["audio", "text"],
-      tools: MOSS_LIVE_SUBTITLE_TOOLS
+      tools: [
+        ...MOSS_LIVE_SUBTITLE_TOOLS,
+        {
+          type: "function",
+          name: "web_search",
+          description: "搜索互联网获取视频内容之外的信息。需要时效性信息、外部事实或用户要求联网查证时调用。",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", description: "搜索关键词" } },
+            required: ["query"]
+          }
+        }
+      ],
+      tool_choice: "auto"
     }
   };
 }
@@ -299,6 +329,15 @@ export type MossLiveTranscriptEvent =
   | { kind: "response.interrupted"; runId: string; turnId: string }
   | { kind: "response.ended"; status: string; runId: string; turnId: string };
 
+export interface MossLiveToolStatusEvent {
+  tool: "web_search";
+  status: "searching" | "done" | "no_results" | "failed";
+  query: string;
+  resultCount?: number;
+  platform?: string;
+  error?: string;
+}
+
 /** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
@@ -308,6 +347,14 @@ export type MossParsedServerEvent =
   | { kind: "audio.done"; runId: string; turnId: string }
   | { kind: "audio.stop"; runId: string; turnId: string }
   | { kind: "tool.call"; call: MossLiveToolCall }
+  | {
+      kind: "function_call.done";
+      callId: string;
+      name: string;
+      argumentsText: string;
+      runId: string;
+      turnId: string;
+    }
   | { kind: "error"; message: string; code: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -392,6 +439,16 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       const args = data?.arguments ?? obj.arguments ?? data?.args ?? obj.args ?? {};
       return { kind: "tool.call", call: { callId, name, arguments: args } };
     }
+    case "response.function_call_arguments.done": {
+      return {
+        kind: "function_call.done",
+        callId: readStr(data, obj, "call_id"),
+        name: readStr(data, obj, "name"),
+        argumentsText: readStr(data, obj, "arguments"),
+        runId: readStr(data, obj, "run_id"),
+        turnId: readStr(data, obj, "turn_id")
+      };
+    }
     case "error": {
       const nestedErr = asRecord(data?.error);
       const code =
@@ -435,4 +492,5 @@ export type MossLiveServerEvent =
   | { type: "closed"; reason?: string }
   | { type: "transcript"; event: MossLiveTranscriptEvent }
   | { type: "tool_call"; call: MossLiveToolCall }
-  | { type: "tool_error"; error: string };
+  | { type: "tool_error"; error: string }
+  | { type: "tool_status"; event: MossLiveToolStatusEvent };

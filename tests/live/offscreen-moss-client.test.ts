@@ -1050,3 +1050,188 @@ describe("OffscreenMossLiveClient subtitle tools and context refresh", () => {
     expect(client.getState()).toBe("connected");
   });
 });
+
+describe("OffscreenMossLiveClient web search tools", () => {
+  function connectClient(
+    options: NonNullable<ConstructorParameters<typeof OffscreenMossLiveClient>[0]> = {}
+  ) {
+    const client = new OffscreenMossLiveClient(options);
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    return { client, ws };
+  }
+
+  function emitToolCall(ws: FakeWebSocket, callId = "call-1") {
+    ws.simulateMessage(JSON.stringify({
+      action: "response.function_call_arguments.done",
+      data: {
+        call_id: callId,
+        name: "web_search",
+        arguments: JSON.stringify({ query: "B 站最新财报" }),
+        run_id: "r1",
+        turn_id: "t1"
+      }
+    }));
+  }
+
+  function sentJson(ws: FakeWebSocket) {
+    return ws.sentData.map((frame) => JSON.parse(frame));
+  }
+
+  it("returns search output to the same call and resumes the response", async () => {
+    const onToolStatus = vi.fn();
+    const executeWebSearch = vi.fn().mockResolvedValue({
+      output: "查证结果与来源",
+      resultCount: 2,
+      platform: "Tavily"
+    });
+    const { client, ws } = connectClient({ executeWebSearch, onToolStatus });
+
+    emitToolCall(ws);
+    emitToolCall(ws);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(executeWebSearch).toHaveBeenCalledTimes(1);
+    expect(executeWebSearch).toHaveBeenCalledWith("B 站最新财报", expect.any(AbortSignal));
+    const frames = sentJson(ws);
+    expect(frames.filter((frame) => frame.action === "conversation.item.create")).toEqual([
+      {
+        action: "conversation.item.create",
+        item: { type: "function_call_output", call_id: "call-1", output: "查证结果与来源" }
+      }
+    ]);
+    expect(frames.filter((frame) => frame.action === "response.create")).toHaveLength(1);
+    expect(onToolStatus).toHaveBeenNthCalledWith(1, {
+      tool: "web_search",
+      status: "searching",
+      query: "B 站最新财报"
+    });
+    expect(onToolStatus).toHaveBeenLastCalledWith({
+      tool: "web_search",
+      status: "done",
+      query: "B 站最新财报",
+      resultCount: 2,
+      platform: "Tavily"
+    });
+    client.close();
+  });
+
+  it("reports an empty result set without treating it as a successful factual answer", async () => {
+    const onToolStatus = vi.fn();
+    const { client, ws } = connectClient({
+      executeWebSearch: vi.fn().mockResolvedValue({ output: "没有找到相关结果，不要编造", resultCount: 0 }),
+      onToolStatus
+    });
+
+    emitToolCall(ws);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
+    expect(output.item.output).toContain("不要编造");
+    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "no_results",
+      resultCount: 0
+    }));
+    client.close();
+  });
+
+  it("returns explicit search failures while keeping the live session connected", async () => {
+    const onToolStatus = vi.fn();
+    const { client, ws } = connectClient({
+      executeWebSearch: vi.fn().mockRejectedValue(new Error("所有搜索平台不可用")),
+      onToolStatus
+    });
+
+    emitToolCall(ws);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
+    expect(output.item.output).toContain("联网搜索失败：所有搜索平台不可用");
+    expect(output.item.output).toContain("不要编造外部事实");
+    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "failed",
+      error: "所有搜索平台不可用"
+    }));
+    expect(client.getState()).toBe("connected");
+    client.close();
+  });
+
+  it("keeps mute responsive and cancels interrupted searches without late output", async () => {
+    let resolveSearch!: (value: { output: string; resultCount: number }) => void;
+    let searchSignal: AbortSignal | undefined;
+    const { client, ws } = connectClient({
+      executeWebSearch: vi.fn((_query, signal) => {
+        searchSignal = signal;
+        return new Promise<{ output: string; resultCount: number }>((resolve) => {
+          resolveSearch = resolve;
+        });
+      })
+    });
+
+    emitToolCall(ws);
+    client.setMicEnabled(false);
+    expect(sentJson(ws)).toContainEqual({ action: "mic_state", enabled: false });
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.interrupted",
+      data: { run_id: "r1", turn_id: "t1" }
+    }));
+    expect(searchSignal?.aborted).toBe(true);
+    resolveSearch({ output: "迟到结果", resultCount: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
+    client.close();
+  });
+
+  it("aborts searches on hangup and suppresses late output", async () => {
+    let resolveSearch!: (value: { output: string; resultCount: number }) => void;
+    let searchSignal: AbortSignal | undefined;
+    const { client, ws } = connectClient({
+      executeWebSearch: vi.fn((_query, signal) => {
+        searchSignal = signal;
+        return new Promise<{ output: string; resultCount: number }>((resolve) => {
+          resolveSearch = resolve;
+        });
+      })
+    });
+
+    emitToolCall(ws);
+    client.close();
+    expect(searchSignal?.aborted).toBe(true);
+    resolveSearch({ output: "挂断后的结果", resultCount: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
+  });
+
+  it("aborts timed out searches and returns an explicit timeout", async () => {
+    vi.useFakeTimers();
+    const onToolStatus = vi.fn();
+    const { client, ws } = connectClient({
+      toolTimeoutMs: 25,
+      executeWebSearch: vi.fn((_query, signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      })),
+      onToolStatus
+    });
+
+    emitToolCall(ws);
+    await vi.advanceTimersByTimeAsync(25);
+
+    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
+    expect(output.item.output).toContain("联网搜索失败：联网搜索超时");
+    expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "failed",
+      error: "联网搜索超时"
+    }));
+    client.close();
+  });
+});

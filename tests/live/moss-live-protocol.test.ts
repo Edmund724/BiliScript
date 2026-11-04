@@ -306,6 +306,38 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses completed web search calls and interruption markers", () => {
+    expect(
+      parseMossServerJsonEvent({
+        action: "response.function_call_arguments.done",
+        data: {
+          call_id: "call-1",
+          name: "web_search",
+          arguments: JSON.stringify({ query: "B 站 2026 财报" }),
+          run_id: "r1",
+          turn_id: "t1"
+        }
+      })
+    ).toEqual({
+      kind: "function_call.done",
+      callId: "call-1",
+      name: "web_search",
+      argumentsText: JSON.stringify({ query: "B 站 2026 财报" }),
+      runId: "r1",
+      turnId: "t1"
+    });
+
+    expect(
+      parseMossServerJsonEvent({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      })
+    ).toEqual({
+      kind: "transcript",
+      event: { kind: "response.interrupted", runId: "r1", turnId: "t1" }
+    });
+  });
+
   it("parses nested error.data.error.message as well as top-level message", () => {
     expect(
       parseMossServerJsonEvent({
@@ -362,12 +394,22 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(url).toBe("wss://api.mosi.cn/v1/realtime?model=moss-live-1.0");
   });
 
-  it("builds minimal session update without premature tools or media", () => {
+  it("registers web search alongside subtitle tools", () => {
     const payload = buildMinimalSessionUpdatePayload();
     expect(payload.action).toBe("session.update");
-    expect(payload.session).toBeDefined();
     expect(payload.session.modalities).toEqual(["audio", "text"]);
     expect(payload.session.persona.name).toBe("Bili伴看助手");
+    expect(payload.session.tool_choice).toBe("auto");
+    expect(payload.session.tools).toEqual([
+      expect.objectContaining({ name: "get_subtitles_around_time" }),
+      expect.objectContaining({ name: "search_video_subtitles" }),
+      expect.objectContaining({
+        type: "function",
+        name: "web_search",
+        parameters: expect.objectContaining({ required: ["query"] })
+      })
+    ]);
+    expect(payload.session.instructions).toContain("不得编造外部事实");
   });
 });
 
@@ -386,7 +428,8 @@ describe("subtitle-aware session and tool calls", () => {
     });
     expect(payload.session.tools.map((tool) => tool.name)).toEqual([
       "get_subtitles_around_time",
-      "search_video_subtitles"
+      "search_video_subtitles",
+      "web_search"
     ]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");

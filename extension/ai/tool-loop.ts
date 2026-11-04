@@ -120,7 +120,7 @@ export interface RunToolLoopInput {
 
 // 结果数组 JSON 序列化（spec §5）：先截 MAX_SEARCH_RESULTS_PER_TOOL 条，总量
 // 超 TOOL_CONTENT_MAX_CHARS 再裁条数，单条仍超限才硬截字符串。
-function serializeSearchResults(results: NormalizedSearchResult[]): string {
+export function serializeSearchResults(results: NormalizedSearchResult[]): string {
   const capped = results.slice(0, MAX_SEARCH_RESULTS_PER_TOOL);
   let payload = JSON.stringify(capped);
   while (payload.length > TOOL_CONTENT_MAX_CHARS && capped.length > 1) {

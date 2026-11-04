@@ -5,6 +5,7 @@
 // 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00）与视频 JPEG（0x02）、静音控制
 // 3. 下行 48kHz 单声道 PCM S16LE 无缝队列播放与 playback.chunk.completed / playback.completed / playback.stopped 回执
 // 4. 双端增量/终态字幕事件转发
+// 5. web_search 工具调用、超时/打断取消、function_call_output 回填与查询状态转发
 
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
@@ -15,13 +16,19 @@ import {
   packTaggedBinary,
   parseMossServerJsonEvent,
   type MossLiveToolCall,
+  type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
   type MossLiveVideoContext
 } from "./moss-live-protocol.js";
+import {
+  executeLiveWebSearch,
+  type LiveWebSearchExecutor
+} from "./live-web-search.js";
 
 export type MossLiveClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
 export const DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS = 10000;
+export const DEFAULT_MOSS_TOOL_TIMEOUT_MS = 30000;
 
 export interface AudioBufferLike {
   readonly duration: number;
@@ -53,11 +60,14 @@ export interface OffscreenMossClientOptions {
   wsUrl?: string;
   videoContext?: MossLiveVideoContext | null;
   handshakeTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  executeWebSearch?: LiveWebSearchExecutor;
   createAudioContext?: () => AudioContextLike | null;
   onConnecting?: () => void;
   onConnected?: () => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
+  onToolStatus?: (event: MossLiveToolStatusEvent) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }
@@ -86,6 +96,16 @@ interface TurnPlaybackTracker {
   playedSamples: number;
   claimedChunkIds: Set<string>;
   activeSources: Set<ActiveSourceEntry>;
+}
+
+interface ActiveToolCall {
+  callId: string;
+  query: string;
+  runId: string;
+  turnId: string;
+  controller: AbortController;
+  timer: ReturnType<typeof setTimeout>;
+  timedOut: boolean;
 }
 
 function createBrowserAudioContext(): AudioContextLike | null {
@@ -118,8 +138,12 @@ export class OffscreenMossLiveClient {
   private readonly pendingAudioContexts: PendingAudioContextItem[] = [];
   private readonly pendingAudioFrames: ArrayBufferLike[] = [];
   private readonly turnPlaybacks = new Map<string, TurnPlaybackTracker>();
+  private readonly activeToolCalls = new Map<string, ActiveToolCall>();
+  private readonly handledToolCallIds = new Set<string>();
   private readonly wsUrl: string;
   private readonly handshakeTimeoutMs: number;
+  private readonly toolTimeoutMs: number;
+  private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: OffscreenMossClientOptions;
   private videoContext: MossLiveVideoContext | null;
   private lastSentContextKey = "";
@@ -129,6 +153,8 @@ export class OffscreenMossLiveClient {
     this.wsUrl = options.wsUrl || DEFAULT_MOSS_LIVE_WS_URL;
     this.videoContext = options.videoContext || null;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS;
+    this.toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_MOSS_TOOL_TIMEOUT_MS;
+    this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
   }
 
   getState(): MossLiveClientState {
@@ -254,6 +280,7 @@ export class OffscreenMossLiveClient {
     }
     this.disposed = false;
     this.state = "connecting";
+    this.handledToolCallIds.clear();
     this.socketGeneration += 1;
     const currentGeneration = this.socketGeneration;
     this.clearHandshakeTimer();
@@ -316,6 +343,7 @@ export class OffscreenMossLiveClient {
           this.fail(new Error(`WebSocket 连接关闭 (${event.code}: ${event.reason || "握手未完成"})`));
         } else {
           this.state = "closed";
+          this.cancelAllToolCalls();
           this.stopAndResetAllPlayback();
           this.options.onClosed?.({ code: event.code, reason: event.reason });
         }
@@ -323,6 +351,128 @@ export class OffscreenMossLiveClient {
     } catch (error) {
       this.clearHandshakeTimer();
       this.fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private cancelToolCall(call: ActiveToolCall): void {
+    if (this.activeToolCalls.get(call.callId) !== call) return;
+    this.activeToolCalls.delete(call.callId);
+    clearTimeout(call.timer);
+    call.controller.abort();
+  }
+
+  private cancelAllToolCalls(): void {
+    for (const call of [...this.activeToolCalls.values()]) {
+      this.cancelToolCall(call);
+    }
+  }
+
+  private cancelInterruptedToolCalls(runId: string, turnId: string): void {
+    for (const call of [...this.activeToolCalls.values()]) {
+      if ((!runId || call.runId === runId) && (!turnId || call.turnId === turnId)) {
+        this.cancelToolCall(call);
+      }
+    }
+  }
+
+  private sendFunctionCallOutput(callId: string, output: string): void {
+    this.sendJson({
+      action: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: callId,
+        output
+      }
+    });
+    this.sendJson({ action: "response.create" });
+  }
+
+  private handleFunctionCall(
+    callId: string,
+    name: string,
+    argumentsText: string,
+    runId: string,
+    turnId: string,
+    generation: number
+  ): void {
+    if (!callId || this.handledToolCallIds.has(callId)) return;
+    this.handledToolCallIds.add(callId);
+
+    if (name !== "web_search") {
+      this.sendFunctionCallOutput(callId, `不支持工具 ${name || "未知"}，请向用户说明无法完成该工具调用。`);
+      return;
+    }
+
+    let query = "";
+    try {
+      const args = JSON.parse(argumentsText) as { query?: unknown };
+      query = typeof args.query === "string" ? args.query.trim() : "";
+    } catch {}
+    if (!query) {
+      const error = "搜索关键词为空或工具参数无效";
+      this.options.onToolStatus?.({ tool: "web_search", status: "failed", query, error });
+      this.sendFunctionCallOutput(callId, `联网搜索失败：${error}。请明确告诉用户本次查证失败，不要编造。`);
+      return;
+    }
+
+    const controller = new AbortController();
+    const call: ActiveToolCall = {
+      callId,
+      query,
+      runId,
+      turnId,
+      controller,
+      timedOut: false,
+      timer: setTimeout(() => {
+        call.timedOut = true;
+        controller.abort();
+      }, this.toolTimeoutMs)
+    };
+    this.activeToolCalls.set(callId, call);
+    this.options.onToolStatus?.({ tool: "web_search", status: "searching", query });
+    void this.runWebSearch(call, generation);
+  }
+
+  private async runWebSearch(call: ActiveToolCall, generation: number): Promise<void> {
+    const isCurrent = () =>
+      !this.disposed &&
+      this.socketGeneration === generation &&
+      this.activeToolCalls.get(call.callId) === call;
+
+    try {
+      const outcome = await this.executeWebSearch(call.query, call.controller.signal);
+      if (!isCurrent()) return;
+      if (call.timedOut) {
+        throw new Error("联网搜索超时");
+      }
+      this.sendFunctionCallOutput(call.callId, outcome.output);
+      this.options.onToolStatus?.({
+        tool: "web_search",
+        status: outcome.resultCount > 0 ? "done" : "no_results",
+        query: call.query,
+        resultCount: outcome.resultCount,
+        ...(outcome.platform ? { platform: outcome.platform } : {})
+      });
+    } catch (error) {
+      if (!isCurrent()) return;
+      const reason = call.timedOut
+        ? "联网搜索超时"
+        : String((error as { message?: unknown } | null)?.message || error || "未知错误");
+      this.sendFunctionCallOutput(
+        call.callId,
+        `联网搜索失败：${reason}。请明确告诉用户本次查证失败，不要编造外部事实。`
+      );
+      this.options.onToolStatus?.({
+        tool: "web_search",
+        status: "failed",
+        query: call.query,
+        error: reason
+      });
+    } finally {
+      if (this.activeToolCalls.get(call.callId) === call) {
+        this.activeToolCalls.delete(call.callId);
+        clearTimeout(call.timer);
+      }
     }
   }
 
@@ -353,6 +503,7 @@ export class OffscreenMossLiveClient {
       case "transcript":
         if (parsed.event.kind === "response.interrupted") {
           this.stopAllPlayback();
+          this.cancelInterruptedToolCalls(parsed.event.runId, parsed.event.turnId);
         }
         this.options.onTranscript?.(parsed.event);
         break;
@@ -405,6 +556,17 @@ export class OffscreenMossLiveClient {
         if (!this.options.onToolCall) {
           this.sendToolResult(parsed.call.callId, { ok: false, error: "当前客户端未接入字幕工具执行器" });
         }
+        break;
+
+      case "function_call.done":
+        this.handleFunctionCall(
+          parsed.callId,
+          parsed.name,
+          parsed.argumentsText,
+          parsed.runId,
+          parsed.turnId,
+          generation
+        );
         break;
 
       case "error":
@@ -481,6 +643,7 @@ export class OffscreenMossLiveClient {
     this.clearHandshakeTimer();
     this.state = "failed";
     this.socketGeneration += 1;
+    this.cancelAllToolCalls();
     this.stopAndResetAllPlayback();
     const socket = this.ws;
     this.ws = null;
@@ -501,6 +664,7 @@ export class OffscreenMossLiveClient {
     this.socketGeneration += 1;
     this.clearHandshakeTimer();
     this.state = "idle";
+    this.cancelAllToolCalls();
     this.stopAndResetAllPlayback();
     const socket = this.ws;
     this.ws = null;

@@ -1,6 +1,6 @@
 // extension/live/live-chat-controller.ts
 // AI 对话面板中 MOSS-LIVE 实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕事件并处理断连/清理。
+// 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕与联网查证状态并处理断连/清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
@@ -376,6 +376,18 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           });
       } else if (msg.type === "tool_error") {
         showNotice(msg.error, 4000);
+      } else if (msg.type === "tool_status") {
+        const event = msg.event;
+        const querySuffix = event.query ? `：${event.query}` : "";
+        if (event.status === "searching") {
+          showNotice(`正在联网查证${querySuffix}`, 35000);
+        } else if (event.status === "done") {
+          showNotice(`联网查证完成${querySuffix}（${event.resultCount || 0} 条结果）`);
+        } else if (event.status === "no_results") {
+          showNotice(`联网查证无结果${querySuffix}`, 6000);
+        } else {
+          showNotice(`联网查证失败${querySuffix}${event.error ? `：${event.error}` : ""}`, 6000);
+        }
       } else if (msg.type === "error") {
         const errorMsg = msg.error || "MOSS-LIVE 连接异常中断";
         stopActiveMediaAndMerger();

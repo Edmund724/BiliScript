@@ -429,6 +429,36 @@ describe("LiveChatController", () => {
     ]);
   });
 
+  it("shows web search progress and terminal states without ending the live session", async () => {
+    const { controller, fakePort, showNotice } = setupTest();
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+
+    fakePort.simulateMessage({
+      type: "tool_status",
+      event: { tool: "web_search", status: "searching", query: "最新财报" }
+    });
+    fakePort.simulateMessage({
+      type: "tool_status",
+      event: { tool: "web_search", status: "done", query: "最新财报", resultCount: 3 }
+    });
+    fakePort.simulateMessage({
+      type: "tool_status",
+      event: { tool: "web_search", status: "no_results", query: "不存在的事实" }
+    });
+    fakePort.simulateMessage({
+      type: "tool_status",
+      event: { tool: "web_search", status: "failed", query: "超时查询", error: "联网搜索超时" }
+    });
+
+    expect(showNotice).toHaveBeenNthCalledWith(1, "正在联网查证：最新财报", 35000);
+    expect(showNotice).toHaveBeenNthCalledWith(2, "联网查证完成：最新财报（3 条结果）");
+    expect(showNotice).toHaveBeenNthCalledWith(3, "联网查证无结果：不存在的事实", 6000);
+    expect(showNotice).toHaveBeenNthCalledWith(4, "联网查证失败：超时查询：联网搜索超时", 6000);
+    expect(controller.getState()).toBe("connected");
+    await controller.stop();
+  });
+
   it("forwards transcript events to merger while active and blocks late transcript events after hangup", async () => {
     const { controller, fakePort, receivedTranscripts, isMergerDisposed, getAudioCapture } = setupTest();
 

@@ -1,12 +1,13 @@
 // extension/live/offscreen-moss-port.ts
 // Offscreen 文档专属 MOSS-LIVE 端口管理状态机。
 // 提供代际隔离与释放保护，防止在异步加载客户端模块期间发生 stop/disconnect 导致的套接字泄漏，
-// 并负责跨 Port 转发上行 Base64 音频/视频帧、麦克风静音状态与下行双端字幕事件。
+// 并负责跨 Port 转发上行 Base64 音频/视频帧、麦克风静音状态、下行双端字幕与工具调用/查询状态。
 
 import {
   decodeBase64Bytes,
   type MossLiveClientAction,
   type MossLiveToolCall,
+  type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
   type MossLiveVideoContext
 } from "./moss-live-protocol.js";
@@ -28,6 +29,7 @@ export type MossLiveClientFactory = (options: {
   onConnected?: () => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
+  onToolStatus?: (event: MossLiveToolStatusEvent) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }) => MossLiveClientInstance;
@@ -132,6 +134,11 @@ export function attachMossLivePort(
               }
             }, 10000);
             pendingToolTimers.set(call.callId, timer);
+          },
+          onToolStatus: (event) => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "tool_status", event });
+            }
           },
           onError: (err) => {
             if (!disposed && generation === currentGeneration) {
