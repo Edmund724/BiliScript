@@ -295,7 +295,7 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     accessBadge: () => "",
     modelSource: "input",
     usesProtocol: false,
-    supportsPlatformTest: false,
+    supportsPlatformTest: true,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
       upsert: {
         id,

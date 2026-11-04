@@ -20,6 +20,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
+import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -289,6 +290,16 @@ export async function runTest(): Promise<void> {
       const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
       const apiKey = draft.apiKey.trim();
       const name = draft.name.trim() || preset?.name || "自定义";
+      if (state.kind === "live") {
+        return testLiveConnection({
+          id: state.editingId,
+          name,
+          type: preset?.type || "moss-live",
+          baseUrl,
+          model,
+          ...(apiKey ? { apiKey } : {})
+        });
+      }
       return testAsrConnection({
         id: state.editingId,
         name,
@@ -750,9 +761,11 @@ export function wireDialog(): void {
   dialog.addEventListener("blur", syncAriaInvalid, true);
   dialog.addEventListener("input", syncAriaInvalid);
 
-  // ASR 侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）；
+  // ASR / Live 侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）；
   // 直调 provider-models（与平铺行一致）
-  if (state.kind === "asr") {
+  if (state.kind === "asr" || state.kind === "live") {
+    const kind = state.kind;
+    const family = PROVIDER_FAMILY_ROWS[kind];
     wireModelPicker(dialog as unknown as ProviderRowElement, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
@@ -760,10 +773,12 @@ export function wireDialog(): void {
       statusClass: "provider-editor-status",
       showStatus: (_node, text, isError) => showStatus(text, isError),
       fetchModels: ({ baseUrl, apiKey, providerId }) =>
-        listAsrModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
+        kind === "live"
+          ? listLiveModels({ baseUrl, apiKey, providerId: providerId || state.editingId })
+          : listAsrModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
       isKeyRequired: () => {
         const draft = state.draft;
-        const preset = PROVIDER_FAMILY_ROWS.asr.resolvePreset(state.presets, draft?.presetId || "");
+        const preset = family.resolvePreset(state.presets, draft?.presetId || "");
         if (preset?.requiresKey === false) return false;
         try {
           const url = new URL(draft?.baseUrl || "");
@@ -771,7 +786,7 @@ export function wireDialog(): void {
         } catch {
           // 非合法绝对 URL，沿用预设规则
         }
-        return PROVIDER_FAMILY_ROWS.asr.editor.isKeyRequired(preset);
+        return family.editor.isKeyRequired(preset);
       },
       hasSavedKey: () => Boolean(state.hasSavedKey)
     });

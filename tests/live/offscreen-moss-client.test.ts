@@ -194,10 +194,19 @@ describe("OffscreenMossLiveClient", () => {
     });
     expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload());
 
-    // Server confirms session.updated -> client enables mic_state
+    // Server confirms session.updated -> client enables screen video stream focus and mic_state once
     ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
-    expect(ws.sentData).toHaveLength(4);
+    expect(ws.sentData).toHaveLength(6);
     expect(JSON.parse(ws.sentData[3])).toEqual({
+      action: "video.state",
+      source: "screen",
+      enabled: true
+    });
+    expect(JSON.parse(ws.sentData[4])).toEqual({
+      action: "video.stream_focus",
+      source: "screen"
+    });
+    expect(JSON.parse(ws.sentData[5])).toEqual({
       action: "mic_state",
       enabled: true
     });

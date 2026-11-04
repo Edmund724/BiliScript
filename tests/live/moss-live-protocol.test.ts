@@ -394,33 +394,18 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(url).toBe("wss://api.mosi.cn/v1/realtime?model=moss-live-1.0");
   });
 
-  it("registers web search alongside subtitle tools", () => {
+  it("builds official session.update payload with persona and instructions only", () => {
     const payload = buildMinimalSessionUpdatePayload();
     expect(payload.action).toBe("session.update");
-    expect(payload.session.modalities).toEqual(["audio", "text"]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
     expect(payload.session.persona.name).toBe("Bili伴看助手");
-    expect(payload.session.tool_choice).toBe("auto");
-    expect(payload.session.tools).toEqual([
-      expect.objectContaining({ name: "get_subtitles_around_time" }),
-      expect.objectContaining({ name: "search_video_subtitles" }),
-      expect.objectContaining({
-        type: "function",
-        name: "control_bilibili_player",
-        parameters: expect.objectContaining({ required: ["command"] })
-      }),
-      expect.objectContaining({
-        type: "function",
-        name: "web_search",
-        parameters: expect.objectContaining({ required: ["query"] })
-      })
-    ]);
     expect(payload.session.instructions).toContain("不得编造外部事实");
   });
 });
 
 
 describe("subtitle-aware session and tool calls", () => {
-  it("registers both subtitle tools and injects video, part and chapter context", () => {
+  it("injects video, part and chapter context into session.update instructions", () => {
     const payload = buildMinimalSessionUpdatePayload({
       url: "https://www.bilibili.com/video/BV1test000000/?p=2",
       bvid: "BV1test000000",
@@ -431,12 +416,7 @@ describe("subtitle-aware session and tool calls", () => {
       pageTitle: "工具调用",
       chapters: [{ title: "开场", from: 0, to: 10 }]
     });
-    expect(payload.session.tools.map((tool) => tool.name)).toEqual([
-      "get_subtitles_around_time",
-      "search_video_subtitles",
-      "control_bilibili_player",
-      "web_search"
-    ]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
     expect(payload.session.instructions).toContain("0s 开场");

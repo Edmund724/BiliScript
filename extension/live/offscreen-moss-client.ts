@@ -324,12 +324,15 @@ export class OffscreenMossLiveClient {
     }
   }
 
+  private mediaStreamsInitialized = false;
+
   connect(): void {
     if (this.state === "connecting" || this.state === "connected") {
       this.close();
     }
     this.disposed = false;
     this.state = "connecting";
+    this.mediaStreamsInitialized = false;
     this.handledToolCallIds.clear();
     this.socketGeneration += 1;
     const currentGeneration = this.socketGeneration;
@@ -557,7 +560,12 @@ export class OffscreenMossLiveClient {
           this.fail(new Error(`MOSS-LIVE 会话配置失败：${parsed.error}`));
           return;
         }
-        this.sendJson({ action: "mic_state", enabled: this.micEnabled });
+        if (!this.mediaStreamsInitialized) {
+          this.mediaStreamsInitialized = true;
+          this.sendJson({ action: "video.state", source: "screen", enabled: true });
+          this.sendJson({ action: "video.stream_focus", source: "screen" });
+          this.sendJson({ action: "mic_state", enabled: this.micEnabled });
+        }
         break;
 
       case "transcript": {

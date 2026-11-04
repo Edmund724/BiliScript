@@ -10,7 +10,10 @@ import {
 import {
   liveProviderStore,
   LIVE_PROVIDERS_STORAGE,
-  LIVE_PROVIDER_KEYS_STORAGE
+  LIVE_PROVIDER_KEYS_STORAGE,
+  resolveLiveModelsUrl,
+  listLiveModels,
+  testLiveConnection
 } from "../../extension/live/live-provider-store.js";
 
 function installStorageStub() {
@@ -160,5 +163,42 @@ describe("liveProviderStore CRUD and storage isolation", () => {
     const keys = local[LIVE_PROVIDER_KEYS_STORAGE] as Record<string, string>;
     expect(keys["moss-1"]).toBeUndefined();
     expect(keys["moss-2"]).toBe("sk-2");
+  });
+});
+
+describe("resolveLiveModelsUrl, listLiveModels & testLiveConnection", () => {
+  it("normalizes baseUrl into /v1/models HTTP endpoint", () => {
+    expect(resolveLiveModelsUrl("https://api.mosi.cn")).toBe("https://api.mosi.cn/v1/models");
+    expect(resolveLiveModelsUrl("https://api.mosi.cn/v1")).toBe("https://api.mosi.cn/v1/models");
+    expect(resolveLiveModelsUrl("https://api.mosi.cn/v1/realtime")).toBe("https://api.mosi.cn/v1/models");
+  });
+
+  it("fetches /v1/models via background proxy and guarantees moss-live-1.0 in list", async () => {
+    installStorageStub();
+    (globalThis as any).chrome.runtime.sendMessage = vi.fn((msg: any, cb: (r: any) => void) => {
+      if (msg?.type === "provider-http") {
+        cb({
+          ok: true,
+          status: 200,
+          body: JSON.stringify({ data: [{ id: "moss-tts-2.0" }] })
+        });
+      }
+    });
+
+    const listRes = await listLiveModels({
+      baseUrl: "https://api.mosi.cn",
+      apiKey: "sk-moss-test"
+    });
+    expect(listRes).toEqual({
+      ok: true,
+      models: ["moss-live-1.0", "moss-tts-2.0"]
+    });
+
+    const testRes = await testLiveConnection({
+      baseUrl: "https://api.mosi.cn",
+      model: "moss-live-1.0",
+      apiKey: "sk-moss-test"
+    });
+    expect(testRes).toEqual({ ok: true });
   });
 });

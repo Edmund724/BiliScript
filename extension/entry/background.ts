@@ -438,31 +438,35 @@ const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry
   loadKeys: liveProviderStore.loadKeys
 });
 
-async function handleLiveSessionPrepare(
+function handleLiveSessionPrepare(
   message: Msg<"live-session-prepare">,
   _sender: MessageSender,
   sendResponse: Reply<"live-session-prepare">
-): Promise<void> {
-  const result = await liveSessionTracker.prepare(message?.sessionId || "", {
-    getSettings: getSettingsSnapshot,
-    loadProviders: liveProviderStore.loadProviders,
-    loadKeys: liveProviderStore.loadKeys,
-    hasPermission: hasHostPermission,
-    setAuthRule: setMossLiveWsAuthRule,
-    clearAuthRule: clearMossLiveWsAuthRule,
-    ensureOffscreen: ensureChatOffscreenDocument,
-    resolveActiveId: resolveActiveLiveProviderId
-  });
-  sendResponse(result);
+): void {
+  withOkResponse(
+    liveSessionTracker.prepare(message?.sessionId || "", {
+      getSettings: getSettingsSnapshot,
+      loadProviders: liveProviderStore.loadProviders,
+      loadKeys: liveProviderStore.loadKeys,
+      hasPermission: hasHostPermission,
+      setAuthRule: setMossLiveWsAuthRule,
+      clearAuthRule: clearMossLiveWsAuthRule,
+      ensureOffscreen: ensureChatOffscreenDocument,
+      resolveActiveId: resolveActiveLiveProviderId
+    }),
+    sendResponse
+  );
 }
 
-async function handleLiveSessionCleanup(
+function handleLiveSessionCleanup(
   message: Msg<"live-session-cleanup">,
   _sender: MessageSender,
   sendResponse: Reply<"live-session-cleanup">
-): Promise<void> {
-  const result = await liveSessionTracker.cleanup(message?.sessionId, clearMossLiveWsAuthRule);
-  sendResponse(result);
+): void {
+  withOkResponse(
+    liveSessionTracker.cleanup(message?.sessionId, clearMossLiveWsAuthRule),
+    sendResponse
+  );
 }
 
 // ===== 通用 offscreen 任务通道 =====

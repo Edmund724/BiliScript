@@ -223,66 +223,6 @@ export interface MossLiveToolCall {
   video?: MossLiveVideoIdentity | null;
 }
 
-const MOSS_LIVE_SUBTITLE_TOOLS = [
-  {
-    type: "function",
-    name: "get_subtitles_around_time",
-    description: "查询当前视频指定播放位置前后的字幕。未传 current_time 时使用当前播放位置。",
-    parameters: {
-      type: "object",
-      properties: {
-        current_time: { type: "number", description: "播放位置（秒），缺省为当前播放位置" },
-        before_seconds: { type: "number", description: "向前查询秒数，默认 30，最大 300" },
-        after_seconds: { type: "number", description: "向后查询秒数，默认 30，最大 300" }
-      }
-    }
-  },
-  {
-    type: "function",
-    name: "search_video_subtitles",
-    description: "在当前视频当前分P的完整字幕中做大小写不敏感的关键词检索。",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "要检索的字幕关键词" },
-        max_results: { type: "number", description: "最多返回条数，默认 20，最大 50" }
-      },
-      required: ["query"]
-    }
-  }
-] as const;
-
-const MOSS_LIVE_PLAYER_TOOL = {
-  type: "function",
-  name: "control_bilibili_player",
-  description: "控制当前B站播放器。暂停或继续播放、调整倍速、跳转到指定秒数；跳到字幕检索结果时使用该结果的 from 作为 time。",
-  parameters: {
-    type: "object",
-    properties: {
-      command: { type: "string", enum: ["seek", "pause", "play", "rate"], description: "控制命令" },
-      time: { type: "number", description: "seek 的目标播放位置（秒），必须为非负数且不超出视频时长" },
-      rate: { type: "number", enum: [0.5, 0.75, 1, 1.25, 1.5, 2], description: "rate 的目标倍速" }
-    },
-    required: ["command"]
-  }
-} as const;
-
-export interface MossLiveToolDefinition {
-  type: "function";
-  name: "web_search";
-  description: string;
-  parameters: {
-    type: "object";
-    properties: {
-      query: {
-        type: "string";
-        description: string;
-      };
-    };
-    required: ["query"];
-  };
-}
-
 /** 建立或刷新伴看会话的 session.update 载荷。 */
 export interface MinimalSessionUpdatePayload {
   action: "session.update";
@@ -293,10 +233,6 @@ export interface MinimalSessionUpdatePayload {
       prompt: string;
     };
     instructions: string;
-    voice: string;
-    modalities: string[];
-    tools: [...typeof MOSS_LIVE_SUBTITLE_TOOLS, typeof MOSS_LIVE_PLAYER_TOOL, MossLiveToolDefinition];
-    tool_choice: "auto";
   };
 }
 
@@ -325,24 +261,7 @@ export function buildMinimalSessionUpdatePayload(
         aliases: ["伴看助手", "小助手"],
         prompt: "你是BiliScript内置的B站视频伴看AI助手，正在和用户一起观看视频。回答应当自然口语化、简明扼要，像朋友一起看视频聊天。"
       },
-      instructions: buildVideoInstructions(context),
-      voice: "moss-voice-default",
-      modalities: ["audio", "text"],
-      tools: [
-        ...MOSS_LIVE_SUBTITLE_TOOLS,
-        MOSS_LIVE_PLAYER_TOOL,
-        {
-          type: "function",
-          name: "web_search",
-          description: "搜索互联网获取视频内容之外的信息。需要时效性信息、外部事实或用户要求联网查证时调用。",
-          parameters: {
-            type: "object",
-            properties: { query: { type: "string", description: "搜索关键词" } },
-            required: ["query"]
-          }
-        }
-      ],
-      tool_choice: "auto"
+      instructions: buildVideoInstructions(context)
     }
   };
 }
