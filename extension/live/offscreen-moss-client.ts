@@ -14,7 +14,9 @@ import {
   decodePcmS16LEToFloat32,
   packTaggedBinary,
   parseMossServerJsonEvent,
-  type MossLiveTranscriptEvent
+  type MossLiveToolCall,
+  type MossLiveTranscriptEvent,
+  type MossLiveVideoContext
 } from "./moss-live-protocol.js";
 
 export type MossLiveClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
@@ -49,11 +51,13 @@ export interface AudioContextLike {
 
 export interface OffscreenMossClientOptions {
   wsUrl?: string;
+  videoContext?: MossLiveVideoContext | null;
   handshakeTimeoutMs?: number;
   createAudioContext?: () => AudioContextLike | null;
   onConnecting?: () => void;
   onConnected?: () => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onToolCall?: (call: MossLiveToolCall) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }
@@ -117,10 +121,13 @@ export class OffscreenMossLiveClient {
   private readonly wsUrl: string;
   private readonly handshakeTimeoutMs: number;
   private readonly options: OffscreenMossClientOptions;
+  private videoContext: MossLiveVideoContext | null;
+  private lastSentContextKey = "";
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
     this.wsUrl = options.wsUrl || DEFAULT_MOSS_LIVE_WS_URL;
+    this.videoContext = options.videoContext || null;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS;
   }
 
@@ -329,7 +336,8 @@ export class OffscreenMossLiveClient {
         this.clearHandshakeTimer();
         this.state = "connected";
         this.sendJson({ action: "media.mode", binary_protocol: "tagged-v1" });
-        this.sendJson(buildMinimalSessionUpdatePayload());
+        this.lastSentContextKey = JSON.stringify(this.videoContext);
+        this.sendJson(buildMinimalSessionUpdatePayload(this.videoContext));
         this.options.onConnected?.();
         break;
 
@@ -391,6 +399,13 @@ export class OffscreenMossLiveClient {
         });
         break;
       }
+
+      case "tool.call":
+        this.options.onToolCall?.(parsed.call);
+        if (!this.options.onToolCall) {
+          this.sendToolResult(parsed.call.callId, { ok: false, error: "当前客户端未接入字幕工具执行器" });
+        }
+        break;
 
       case "error":
         this.clearHandshakeTimer();
@@ -512,6 +527,19 @@ export class OffscreenMossLiveClient {
       return false;
     }
     return this.sendBinary(MossBinaryTag.AudioPcm, pcmBuffer);
+  }
+
+  updateVideoContext(context: MossLiveVideoContext | null): void {
+    this.videoContext = context;
+    if (this.state !== "connected") return;
+    const contextKey = JSON.stringify(context);
+    if (contextKey === this.lastSentContextKey) return;
+    this.lastSentContextKey = contextKey;
+    this.sendJson(buildMinimalSessionUpdatePayload(context));
+  }
+
+  sendToolResult(callId: string, result: unknown): boolean {
+    return this.sendJson({ action: "tool.result", call_id: callId, result });
   }
 
   sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
