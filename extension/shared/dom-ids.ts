@@ -67,6 +67,7 @@ export const ids = {
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
   readingChatLiveBtn: "biliscript-reading-chat-live-btn",
   readingChatLiveMuteBtn: "biliscript-reading-chat-live-mute-btn",
+  readingChatLiveInterruptBtn: "biliscript-reading-chat-live-interrupt-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
   readingChatLineHeight: "biliscript-reading-chat-line-height",

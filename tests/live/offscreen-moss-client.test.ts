@@ -1434,4 +1434,80 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(executeWebSearch.mock.calls.map((call) => call[2])).toEqual([0, 1, 0]);
     client.close();
   });
+  it("supports manual interrupt: sends response.cancel, stops playback and tool calls, fires interrupted transcript", async () => {
+    const transcripts: MossLiveTranscriptEvent[] = [];
+    const speakingStates: boolean[] = [];
+    let searchSignal: AbortSignal | undefined;
+    const fakeCtx = new FakeAudioContext();
+
+    const client = new OffscreenMossLiveClient({
+      createAudioContext: () => fakeCtx,
+      onTranscript: (ev) => transcripts.push(ev),
+      onSpeakingState: (sp) => speakingStates.push(sp),
+      executeWebSearch: vi.fn((_q, signal) => {
+        searchSignal = signal;
+        return new Promise(() => {});
+      })
+    });
+
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+
+    // AI begins outputting text tokens
+    ws.simulateMessage(JSON.stringify({
+      action: "output.transcript.updated",
+      data: { text: "你好呀", run_id: "r1", turn_id: "t1" }
+    }));
+    expect(client.isSpeaking()).toBe(true);
+    expect(speakingStates).toContain(true);
+
+    // Audio chunk arrives and plays
+    const pcm = encodeFloat32ToPcmS16LE(new Float32Array(960)); // 20ms at 48kHz
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(pcm.buffer);
+    expect(fakeCtx.sources).toHaveLength(1);
+    const sourceNode = fakeCtx.sources[0];
+
+    // Trigger tool search in same turn
+    emitToolCall(ws, "call-1", "r1", "t1");
+    expect(searchSignal?.aborted).toBe(false);
+
+    ws.sentData.length = 0;
+    transcripts.length = 0;
+
+    // Manual interrupt invoked
+    client.interrupt();
+
+    expect(client.isSpeaking()).toBe(false);
+    expect(speakingStates[speakingStates.length - 1]).toBe(false);
+    expect(sourceNode.stopped).toBe(true);
+    expect(searchSignal?.aborted).toBe(true);
+
+    // Should send response.cancel and playback.stopped
+    const jsonFrames = ws.sentData.filter((d) => typeof d === "string").map((d) => JSON.parse(d));
+    expect(jsonFrames.some((f) => f.action === "response.cancel")).toBe(true);
+    const stoppedFrame = jsonFrames.find((f) => f.action === "playback.stopped");
+    expect(stoppedFrame).toBeDefined();
+    expect(stoppedFrame.run_id).toBe("r1");
+    expect(stoppedFrame.turn_id).toBe("t1");
+
+    // Transcript merger receives response.interrupted
+    expect(transcripts.some((t) => t.kind === "response.interrupted" && t.runId === "r1")).toBe(true);
+
+    // Late arriving audio chunks for this turn must be discarded
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c2", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(pcm.buffer);
+    expect(fakeCtx.sources).toHaveLength(1);
+
+    client.close();
+  });
 });

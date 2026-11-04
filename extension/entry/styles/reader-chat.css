@@ -1544,6 +1544,43 @@
   color: var(--biliscript-reader-danger);
 }
 
+.biliscript-reading-chat .chat-live-interrupt-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-danger);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-live-interrupt-btn[hidden] {
+  display: none !important;
+}
+
+.biliscript-reading-chat .chat-live-interrupt-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.biliscript-reading-chat .chat-live-interrupt-btn:hover {
+  border-color: var(--biliscript-reader-danger);
+  background: var(--biliscript-reader-danger-soft);
+  color: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-chat .chat-live-interrupt-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
 @keyframes biliscript-live-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.92); }

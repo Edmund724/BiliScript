@@ -59,6 +59,11 @@ class FakeMossClient implements MossLiveClientInstance {
   micStates: boolean[] = [];
   videoContexts: unknown[] = [];
   toolResults: unknown[] = [];
+  interrupted = false;
+
+  interrupt() {
+    this.interrupted = true;
+  }
 
   constructor(options: any) {
     this.options = options;
@@ -322,5 +327,17 @@ describe("attachMossLivePort subtitle tool bridge", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("relays interrupt action to client and broadcasts speaking_state to port", async () => {
+    const { port, client } = await setup();
+
+    client.options.onSpeakingState(true);
+    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: true });
+
+    port.simulateMessage({ action: "interrupt" });
+    expect(client.interrupted).toBe(true);
+
+    client.options.onSpeakingState(false);
+    expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: false });
   });
 });

@@ -191,7 +191,8 @@ const els = {
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
-  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null
+  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
+  liveInterruptBtn: document.getElementById(ids.readingChatLiveInterruptBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -917,6 +918,7 @@ function bindEvents(): void {
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
+      interruptButton: els.liveInterruptBtn,
       getTargetOrigin: () => cachedLiveTargetOrigin,
       showNotice: showLiveNotice,
       getVideoContext: liveTools.getVideoContext,
@@ -944,6 +946,9 @@ function bindEvents(): void {
     });
     els.liveMuteBtn?.addEventListener("click", () => {
       liveController?.toggleMute();
+    });
+    els.liveInterruptBtn?.addEventListener("click", () => {
+      liveController?.interrupt();
     });
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);

@@ -35,6 +35,7 @@ export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export interface LiveChatControllerDeps {
   liveButton: HTMLElement;
   muteButton?: HTMLElement | null;
+  interruptButton?: HTMLElement | null;
   getTargetOrigin?: () => string;
   showNotice?: (message: string, autoHideMs?: number) => void;
   connectPort?: () => chrome.runtime.Port;
@@ -53,8 +54,10 @@ export interface LiveChatControllerDeps {
 export interface LiveChatController {
   getState(): LiveChatState;
   isMuted(): boolean;
+  isSpeaking(): boolean;
   setMuted(muted: boolean): void;
   toggleMute(): void;
+  interrupt(): void;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
@@ -65,6 +68,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   const {
     liveButton,
     muteButton = null,
+    interruptButton = null,
     getTargetOrigin,
     showNotice = () => {},
     connectPort = () => chrome.runtime.connect({ name: MOSS_LIVE_PORT_NAME }),
@@ -82,6 +86,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   let state: LiveChatState = "idle";
   let muted = false;
+  let speaking = false;
   let currentGeneration = 0;
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
@@ -102,10 +107,22 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     muteButton.setAttribute("aria-label", label);
   }
 
+  function updateInterruptUi(): void {
+    if (!interruptButton) return;
+    const shouldShow = state === "connected" && speaking;
+    interruptButton.hidden = !shouldShow;
+    interruptButton.classList.toggle("is-speaking", shouldShow);
+    interruptButton.disabled = !shouldShow;
+    const label = "打断当前回答";
+    interruptButton.title = label;
+    interruptButton.setAttribute("aria-label", label);
+  }
+
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {
     state = nextState;
     if (nextState !== "connected") {
       muted = false;
+      speaking = false;
     }
     liveButton.dataset.state = nextState;
     liveButton.classList.toggle("is-connecting", nextState === "connecting");
@@ -126,6 +143,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     liveButton.title = tooltip;
     liveButton.setAttribute("aria-label", tooltip);
     updateMuteUi();
+    updateInterruptUi();
   }
 
   // 初始化 UI 呈现
@@ -367,6 +385,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connected");
         if (getVideoContext) syncVideoContext();
         startActiveVideoCapture(generation);
+      } else if (msg.type === "speaking_state") {
+        if (state === "connected" || state === "connecting") {
+          speaking = Boolean(msg.speaking);
+          updateInterruptUi();
+        }
       } else if (msg.type === "transcript") {
         if (state === "connected" || state === "connecting") {
           activeMerger?.handleEvent(msg.event);
@@ -479,6 +502,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     muted = Boolean(nextMuted);
     activeAudioCapture?.setMuted(muted);
     updateMuteUi();
+    updateInterruptUi();
     if (activePort) {
       try {
         activePort.postMessage({ action: "mic_state", enabled: !muted });
@@ -488,6 +512,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function toggleMute(): void {
     setMuted(!muted);
+  }
+
+  function interrupt(): void {
+    if (state !== "connected" || !activePort) return;
+    try {
+      activePort.postMessage({ action: "interrupt" });
+    } catch {}
+    speaking = false;
+    updateInterruptUi();
   }
 
   async function stop(): Promise<void> {
@@ -520,8 +553,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   return {
     getState: () => state,
     isMuted: () => muted,
+    isSpeaking: () => speaking,
     setMuted,
     toggleMute,
+    interrupt,
     start,
     stop,
     toggle,

@@ -65,6 +65,7 @@ export interface OffscreenMossClientOptions {
   onConnected?: () => void;
   onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onSpeakingState?: (speaking: boolean) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
   onError?: (error: Error) => void;
@@ -149,6 +150,7 @@ export class OffscreenMossLiveClient {
   private videoDucked = false;
   private inputDucked = false;
   private activeTurnKey: string | null = null;
+  private speaking = false;
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
@@ -213,8 +215,32 @@ export class OffscreenMossLiveClient {
     return tracker;
   }
 
+  private isAudioPlaying(): boolean {
+    if (this.pendingAudioContexts.length > 0 || this.pendingAudioFrames.length > 0) return true;
+    for (const tracker of this.turnPlaybacks.values()) {
+      if (tracker.stopped || tracker.completedSent) continue;
+      if (tracker.activeSources.size > 0 || tracker.inFlightChunks > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  isSpeaking(): boolean {
+    if (this.state !== "connected") return false;
+    return this.activeTurnKey !== null || this.activeToolCalls.size > 0 || this.isAudioPlaying();
+  }
+
+  private syncSpeakingState(): void {
+    const nextSpeaking = this.isSpeaking();
+    if (this.speaking === nextSpeaking) return;
+    this.speaking = nextSpeaking;
+    this.options.onSpeakingState?.(nextSpeaking);
+  }
+
   private syncVideoDuck(): void {
     this.setVideoDucked(this.inputDucked || this.activeTurnKey !== null);
+    this.syncSpeakingState();
   }
 
   private activateTurn(runId: string, turnId: string): void {
@@ -241,6 +267,7 @@ export class OffscreenMossLiveClient {
       return;
     }
     tracker.completedSent = true;
+    this.syncSpeakingState();
     this.sendJson({
       action: "playback.completed",
       run_id: tracker.runId,
@@ -286,6 +313,7 @@ export class OffscreenMossLiveClient {
     tracker.activeSources.clear();
     tracker.inFlightChunks = 0;
     tracker.completedSent = true;
+    this.syncSpeakingState();
     tracker.stopped = true;
 
     this.nextPlayTime = now;
@@ -310,6 +338,7 @@ export class OffscreenMossLiveClient {
     this.inputDucked = false;
     this.nextPlayTime = this.audioCtx ? this.audioCtx.currentTime : 0;
     this.setVideoDucked(false);
+    this.syncSpeakingState();
   }
 
   private stopAndResetAllPlayback(): void {
@@ -413,6 +442,7 @@ export class OffscreenMossLiveClient {
     if (this.activeToolCalls.get(call.callId) !== call) return;
     this.activeToolCalls.delete(call.callId);
     call.controller.abort();
+    this.syncSpeakingState();
   }
 
   private cancelAllToolCalls(): void {
@@ -500,6 +530,7 @@ export class OffscreenMossLiveClient {
       controller
     };
     this.activeToolCalls.set(callId, call);
+    this.syncSpeakingState();
     this.options.onToolStatus?.({ tool: "web_search", status: "searching", query });
     void this.runWebSearch(call, generation);
   }
@@ -537,6 +568,7 @@ export class OffscreenMossLiveClient {
     } finally {
       if (this.activeToolCalls.get(call.callId) === call) {
         this.activeToolCalls.delete(call.callId);
+        this.syncSpeakingState();
       }
     }
   }
@@ -688,6 +720,7 @@ export class OffscreenMossLiveClient {
     if (samples.length === 0 || !audioCtx) {
       tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
       this.sendChunkCompleted(context, tracker);
+      this.syncSpeakingState();
       return;
     }
 
@@ -708,6 +741,7 @@ export class OffscreenMossLiveClient {
       sampleCount: samples.length
     };
     tracker.activeSources.add(entry);
+    this.syncSpeakingState();
 
     source.onended = () => {
       if (this.disposed || this.socketGeneration !== generation) return;
@@ -719,6 +753,7 @@ export class OffscreenMossLiveClient {
         source.disconnect();
       } catch {}
       this.sendChunkCompleted(context, tracker);
+      this.syncSpeakingState();
     };
 
     source.start(startAt);
@@ -802,6 +837,46 @@ export class OffscreenMossLiveClient {
     }
     this.latestVideoJpeg = jpegBuffer;
     return this.sendBinary(MossBinaryTag.ScreenJpeg, jpegBuffer);
+  }
+
+  interrupt(): void {
+    if (this.disposed || this.state !== "connected") return;
+    this.cancelAllToolCalls();
+
+    this.sendJson({ action: "response.cancel" });
+
+    for (const tracker of [...this.turnPlaybacks.values()]) {
+      if (!tracker.stopped && !tracker.completedSent) {
+        this.stopTurnPlayback(tracker.runId, tracker.turnId);
+        tracker.stoppedSent = true;
+        const playedAudioMs = Math.round((tracker.playedSamples / MOSS_DOWNSTREAM_SAMPLE_RATE) * 1000);
+        this.sendJson({
+          action: "playback.stopped",
+          run_id: tracker.runId,
+          turn_id: tracker.turnId,
+          played_audio_ms: playedAudioMs
+        });
+        this.options.onTranscript?.({
+          kind: "response.interrupted",
+          runId: tracker.runId,
+          turnId: tracker.turnId
+        });
+      }
+    }
+
+    if (this.activeTurnKey) {
+      const [runId, turnId] = this.activeTurnKey.split(":");
+      if (runId && turnId) {
+        this.options.onTranscript?.({
+          kind: "response.interrupted",
+          runId,
+          turnId
+        });
+      }
+    }
+
+    this.stopAllPlayback();
+    this.syncSpeakingState();
   }
 
   sendJson(payload: unknown): boolean {

@@ -425,6 +425,7 @@ export type MossLiveClientAction =
   | { action: "start"; wsUrl?: string; videoContext?: MossLiveVideoContext | null }
   | { action: "context_update"; videoContext: MossLiveVideoContext | null }
   | { action: "tool_result"; callId: string; result: unknown }
+  | { action: "interrupt" }
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }
   | { action: "video"; jpegBase64: string }
@@ -434,6 +435,7 @@ export type MossLiveClientAction =
 export type MossLiveServerEvent =
   | { type: "connecting" }
   | { type: "connected" }
+  | { type: "speaking_state"; speaking: boolean }
   | { type: "error"; error: string }
   | { type: "closed"; reason?: string }
   | { type: "duck_video"; active: boolean }

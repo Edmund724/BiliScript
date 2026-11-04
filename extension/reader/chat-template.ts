@@ -113,6 +113,11 @@ export function buildChatTabBodyHtml(): string {
                   <line x1="12" y1="19" x2="12" y2="22"></line>
                 </svg>
               </button>
+              <button id="${ids.readingChatLiveInterruptBtn}" type="button" class="chat-live-interrupt-btn" title="打断当前回答" aria-label="打断当前回答" hidden>
+                <svg class="chat-live-interrupt-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <rect x="7" y="7" width="10" height="10" rx="2" ry="2"></rect>
+                </svg>
+              </button>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->

@@ -129,6 +129,8 @@ describe("LiveChatController", () => {
     const liveButton = document.createElement("button");
     const muteButton = document.createElement("button");
     muteButton.hidden = true;
+    const interruptButton = document.createElement("button");
+    interruptButton.hidden = true;
     const showNotice = vi.fn();
     const fakePort = overrides.port || new FakePort();
     const connectPort = vi.fn(() => fakePort as any);
@@ -186,6 +188,7 @@ describe("LiveChatController", () => {
     const controller = createLiveChatController({
       liveButton,
       muteButton,
+      interruptButton,
       showNotice,
       connectPort,
       sendRuntimeMessage,
@@ -203,6 +206,7 @@ describe("LiveChatController", () => {
       controller,
       liveButton,
       muteButton,
+      interruptButton,
       showNotice,
       fakePort,
       connectPort,
@@ -320,6 +324,46 @@ describe("LiveChatController", () => {
     expect(showNotice).toHaveBeenCalledWith("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
     expect(connectPort).not.toHaveBeenCalled();
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
+  });
+
+  it("manages interruptButton visibility with speaking_state and posts interrupt action without disconnecting", async () => {
+    const { controller, fakePort, interruptButton } = setupTest();
+    expect(interruptButton.hidden).toBe(true);
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    expect(controller.getState()).toBe("connected");
+    expect(interruptButton.hidden).toBe(true);
+    expect(controller.isSpeaking()).toBe(false);
+
+    // AI starts speaking
+    fakePort.simulateMessage({ type: "speaking_state", speaking: true });
+    expect(interruptButton.hidden).toBe(false);
+    expect(interruptButton.disabled).toBe(false);
+    expect(interruptButton.title).toBe("打断当前回答");
+    expect(controller.isSpeaking()).toBe(true);
+
+    // User can interrupt while mic is muted
+    controller.setMuted(true);
+    expect(controller.isMuted()).toBe(true);
+    expect(interruptButton.hidden).toBe(false);
+
+    // Click interrupt
+    fakePort.postedMessages.length = 0;
+    controller.interrupt();
+    expect(fakePort.postedMessages).toContainEqual({ action: "interrupt" });
+    expect(controller.isSpeaking()).toBe(false);
+    expect(interruptButton.hidden).toBe(true);
+    expect(controller.getState()).toBe("connected"); // Still connected!
+
+    // When speaking resumes and then completes naturally
+    fakePort.simulateMessage({ type: "speaking_state", speaking: true });
+    expect(interruptButton.hidden).toBe(false);
+    fakePort.simulateMessage({ type: "speaking_state", speaking: false });
+    expect(interruptButton.hidden).toBe(true);
+
+    await controller.stop();
+    expect(interruptButton.hidden).toBe(true);
   });
 
   it("handles preparation failure (e.g. missing API key) without opening microphone", async () => {
@@ -702,4 +746,5 @@ describe("LiveChatController video context and page tools", () => {
     expect(executeTool).not.toHaveBeenCalled();
     expect(fakePort.postedMessages).toHaveLength(0);
   });
+
 });

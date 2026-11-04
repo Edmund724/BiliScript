@@ -20,6 +20,7 @@ export interface MossLiveClientInstance {
   setMicEnabled?(enabled: boolean): void;
   updateVideoContext?(context: MossLiveVideoContext | null): void;
   sendToolResult?(callId: string, result: unknown): boolean;
+  interrupt?(): void;
 }
 
 export type MossLiveClientFactory = (options: {
@@ -29,6 +30,7 @@ export type MossLiveClientFactory = (options: {
   onConnected?: () => void;
   onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onSpeakingState?: (speaking: boolean) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
   onError?: (error: Error) => void;
@@ -136,6 +138,11 @@ export function attachMossLivePort(
               postMessage(port, { type: "transcript", event });
             }
           },
+          onSpeakingState: (speaking) => {
+            if (!disposed && generation === currentGeneration) {
+              postMessage(port, { type: "speaking_state", speaking });
+            }
+          },
           onToolCall: (call) => {
             if (disposed || generation !== currentGeneration) return;
             postMessage(port, { type: "tool_call", call });
@@ -202,6 +209,9 @@ export function attachMossLivePort(
       }
     } else if (msg.action === "mic_state") {
       liveClient?.setMicEnabled?.(Boolean(msg.enabled));
+    } else if (msg.action === "interrupt") {
+      clearPendingToolCalls();
+      liveClient?.interrupt?.();
     } else if (msg.action === "stop") {
       currentGeneration += 1;
       clearPendingToolCalls();
