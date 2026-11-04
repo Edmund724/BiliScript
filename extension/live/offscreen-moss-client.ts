@@ -65,6 +65,7 @@ export interface OffscreenMossClientOptions {
   createAudioContext?: () => AudioContextLike | null;
   onConnecting?: () => void;
   onConnected?: () => void;
+  onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
@@ -147,6 +148,7 @@ export class OffscreenMossLiveClient {
   private readonly options: OffscreenMossClientOptions;
   private videoContext: MossLiveVideoContext | null;
   private lastSentContextKey = "";
+  private videoDucked = false;
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
@@ -159,6 +161,12 @@ export class OffscreenMossLiveClient {
 
   getState(): MossLiveClientState {
     return this.state;
+  }
+
+  private setVideoDucked(active: boolean): void {
+    if (this.videoDucked === active) return;
+    this.videoDucked = active;
+    this.options.onDuckVideo?.(active);
   }
 
   private clearHandshakeTimer(): void {
@@ -261,6 +269,7 @@ export class OffscreenMossLiveClient {
       tracker.stopped = true;
     }
     this.nextPlayTime = now;
+    this.setVideoDucked(false);
   }
 
   private stopAndResetAllPlayback(): void {
@@ -501,7 +510,11 @@ export class OffscreenMossLiveClient {
         break;
 
       case "transcript":
-        if (parsed.event.kind === "response.interrupted") {
+        if (parsed.event.kind === "input.done") {
+          this.setVideoDucked(true);
+        } else if (parsed.event.kind === "response.ended") {
+          this.setVideoDucked(false);
+        } else if (parsed.event.kind === "response.interrupted") {
           this.stopAllPlayback();
           this.cancelInterruptedToolCalls(parsed.event.runId, parsed.event.turnId);
         }
@@ -517,6 +530,7 @@ export class OffscreenMossLiveClient {
         }
         if (!discard) {
           tracker.inFlightChunks += 1;
+          this.setVideoDucked(true);
         }
         this.pendingAudioContexts.push({
           chunkId: parsed.chunkId,
@@ -532,6 +546,7 @@ export class OffscreenMossLiveClient {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
         if (tracker.stopped) break;
         tracker.audioDoneReceived = true;
+        this.setVideoDucked(false);
         this.sendTurnCompletedIfReady(tracker);
         break;
       }

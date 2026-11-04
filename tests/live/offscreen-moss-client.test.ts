@@ -571,6 +571,75 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 
+  it("ducks for questions and audio, then releases on done, interruption, response end, and hangup", () => {
+    const duckStates: boolean[] = [];
+    const client = new OffscreenMossLiveClient({
+      onDuckVideo: (active) => duckStates.push(active)
+    });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({ action: "input.transcript.done", data: { text: "问题" } }));
+    for (const chunkId of ["c1", "c2"]) {
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: chunkId, run_id: "r1", turn_id: "t1" }
+      }));
+    }
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.done",
+      data: { run_id: "r1", turn_id: "t1" }
+    }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c3", run_id: "r2", turn_id: "t2" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.interrupted",
+      data: { run_id: "r2", turn_id: "t2" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.stop",
+      data: { run_id: "r2", turn_id: "t2" }
+    }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c4", run_id: "r3", turn_id: "t3" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.ended",
+      data: { run_id: "r3", turn_id: "t3", status: "completed" }
+    }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c5", run_id: "r4", turn_id: "t4" }
+    }));
+    client.close();
+    client.close();
+
+    expect(duckStates).toEqual([true, false, true, false, true, false, true, false]);
+  });
+
+  it("releases an active duck when the connection fails", () => {
+    const duckStates: boolean[] = [];
+    const client = new OffscreenMossLiveClient({ onDuckVideo: (active) => duckStates.push(active) });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateError();
+    expect(duckStates).toEqual([true, false]);
+  });
+
   describe("downstream 48kHz PCM gapless playback & receipts", () => {
     it("schedules consecutive 48kHz audio chunks gaplessly and sends playback.chunk.completed and playback.completed in strict order", () => {
       const fakeAudioCtx = new FakeAudioContext();

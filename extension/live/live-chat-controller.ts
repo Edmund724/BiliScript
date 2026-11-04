@@ -21,6 +21,10 @@ import {
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
+import {
+  createPageVideoDuck,
+  type PageVideoDuckSession
+} from "./page-video-duck.js";
 import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
@@ -38,6 +42,7 @@ export interface LiveChatControllerDeps {
   requestOrigins?: typeof requestProviderOriginsViaBackground;
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
+  createVideoDuck?: () => PageVideoDuckSession;
   createTranscriptMerger?: () => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   getVideoContext?: () => MossLiveVideoContext | null;
@@ -67,6 +72,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     requestOrigins = requestProviderOriginsViaBackground,
     startAudioCapture = createPageAudioCapture,
     startVideoCapture = createPageVideoFrameCapture,
+    createVideoDuck = createPageVideoDuck,
     createTranscriptMerger,
     onTranscript,
     getVideoContext,
@@ -81,6 +87,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
+  let activeVideoDuck: PageVideoDuckSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
 
@@ -136,6 +143,12 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         activeVideoCapture.stop();
       } catch {}
       activeVideoCapture = null;
+    }
+    if (activeVideoDuck) {
+      try {
+        activeVideoDuck.stop();
+      } catch {}
+      activeVideoDuck = null;
     }
     if (activeMerger) {
       try {
@@ -358,6 +371,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (state === "connected" || state === "connecting") {
           activeMerger?.handleEvent(msg.event);
           onTranscript?.(msg.event);
+        }
+      } else if (msg.type === "duck_video") {
+        if (state === "connected" || state === "connecting") {
+          if (!activeVideoDuck && msg.active) {
+            try {
+              activeVideoDuck = createVideoDuck();
+            } catch {}
+          }
+          activeVideoDuck?.setDucked(msg.active);
         }
       } else if (msg.type === "tool_call") {
         const postToolResult = (result: unknown) => {

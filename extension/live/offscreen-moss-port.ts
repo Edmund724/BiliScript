@@ -27,6 +27,7 @@ export type MossLiveClientFactory = (options: {
   videoContext?: MossLiveVideoContext | null;
   onConnecting?: () => void;
   onConnected?: () => void;
+  onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
@@ -58,7 +59,14 @@ export function attachMossLivePort(
   let currentGeneration = 0;
   let liveClient: MossLiveClientInstance | null = null;
   let latestVideoContext: MossLiveVideoContext | null = null;
+  let videoDucked = false;
   const pendingToolTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function relayVideoDuck(active: boolean): void {
+    if (videoDucked === active) return;
+    videoDucked = active;
+    postMessage(port, { type: "duck_video", active });
+  }
 
   function clearPendingToolCalls(): void {
     for (const timer of pendingToolTimers.values()) {
@@ -96,6 +104,7 @@ export function attachMossLivePort(
         liveClient.close();
         liveClient = null;
       }
+      relayVideoDuck(false);
 
       try {
         const createClient = await loadClient();
@@ -115,6 +124,11 @@ export function attachMossLivePort(
           onConnected: () => {
             if (!disposed && generation === currentGeneration) {
               postMessage(port, { type: "connected" });
+            }
+          },
+          onDuckVideo: (active) => {
+            if (!disposed && generation === currentGeneration) {
+              relayVideoDuck(active);
             }
           },
           onTranscript: (event) => {
@@ -195,6 +209,7 @@ export function attachMossLivePort(
         liveClient.close();
         liveClient = null;
       }
+      relayVideoDuck(false);
       postMessage(port, { type: "closed" });
     }
   });
