@@ -2,7 +2,7 @@
 // 运行在 Offscreen Document 中的 MOSS-LIVE WebSocket 客户端。
 // 持有与 wss://api.mosi.cn/v1/realtime 的真实 WebSocket 连接，负责：
 // 1. 会话握手（attach_session -> session_attached -> media.mode + session.update -> session.updated -> mic_state）
-// 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00 前缀）与静音控制
+// 2. 上行 16kHz 单声道 PCM S16LE 音频（tagged-v1 0x00）与视频 JPEG（0x02）、静音控制
 // 3. 下行 48kHz 单声道 PCM S16LE 无缝队列播放与 playback.chunk.completed / playback.completed / playback.stopped 回执
 // 4. 双端增量/终态字幕事件转发
 
@@ -66,6 +66,7 @@ interface PendingAudioContextItem {
   chunkId: string;
   runId: string;
   turnId: string;
+  discard: boolean;
 }
 
 interface ActiveSourceEntry {
@@ -80,7 +81,10 @@ interface TurnPlaybackTracker {
   inFlightChunks: number;
   audioDoneReceived: boolean;
   completedSent: boolean;
+  stopped: boolean;
+  stoppedSent: boolean;
   playedSamples: number;
+  claimedChunkIds: Set<string>;
   activeSources: Set<ActiveSourceEntry>;
 }
 
@@ -112,6 +116,7 @@ export class OffscreenMossLiveClient {
   private audioCtx: AudioContextLike | null = null;
   private nextPlayTime = 0;
   private readonly pendingAudioContexts: PendingAudioContextItem[] = [];
+  private readonly pendingAudioFrames: ArrayBufferLike[] = [];
   private readonly turnPlaybacks = new Map<string, TurnPlaybackTracker>();
   private readonly wsUrl: string;
   private readonly handshakeTimeoutMs: number;
@@ -149,8 +154,12 @@ export class OffscreenMossLiveClient {
     return this.audioCtx;
   }
 
+  private getTurnKey(runId: string, turnId: string): string {
+    return `${runId}:${turnId}`;
+  }
+
   private getOrCreateTurnTracker(runId: string, turnId: string): TurnPlaybackTracker {
-    const key = `${runId}:${turnId}`;
+    const key = this.getTurnKey(runId, turnId);
     let tracker = this.turnPlaybacks.get(key);
     if (!tracker) {
       tracker = {
@@ -159,7 +168,10 @@ export class OffscreenMossLiveClient {
         inFlightChunks: 0,
         audioDoneReceived: false,
         completedSent: false,
+        stopped: false,
+        stoppedSent: false,
         playedSamples: 0,
+        claimedChunkIds: new Set(),
         activeSources: new Set()
       };
       this.turnPlaybacks.set(key, tracker);
@@ -167,11 +179,49 @@ export class OffscreenMossLiveClient {
     return tracker;
   }
 
-  private stopAndResetAllPlayback(): void {
+  private sendTurnCompletedIfReady(tracker: TurnPlaybackTracker): void {
+    if (
+      tracker.stopped ||
+      !tracker.audioDoneReceived ||
+      tracker.inFlightChunks !== 0 ||
+      tracker.completedSent
+    ) {
+      return;
+    }
+    tracker.completedSent = true;
+    this.sendJson({
+      action: "playback.completed",
+      run_id: tracker.runId,
+      turn_id: tracker.turnId
+    });
+  }
+
+  private sendChunkCompleted(context: PendingAudioContextItem, tracker: TurnPlaybackTracker): void {
+    if (context.chunkId) {
+      this.sendJson({
+        action: "playback.chunk.completed",
+        chunk_id: context.chunkId,
+        run_id: context.runId,
+        turn_id: context.turnId
+      });
+    }
+    this.sendTurnCompletedIfReady(tracker);
+  }
+
+  private stopAllPlayback(): void {
     this.pendingAudioContexts.length = 0;
+    this.pendingAudioFrames.length = 0;
+    const now = this.audioCtx ? this.audioCtx.currentTime : 0;
     for (const tracker of this.turnPlaybacks.values()) {
       for (const entry of tracker.activeSources) {
         entry.source.onended = null;
+        if (now > entry.startAt) {
+          const elapsedSec = Math.max(0, now - entry.startAt);
+          tracker.playedSamples += Math.min(
+            entry.sampleCount,
+            Math.round(elapsedSec * MOSS_DOWNSTREAM_SAMPLE_RATE)
+          );
+        }
         try {
           entry.source.stop();
         } catch {}
@@ -182,7 +232,13 @@ export class OffscreenMossLiveClient {
       tracker.activeSources.clear();
       tracker.inFlightChunks = 0;
       tracker.completedSent = true;
+      tracker.stopped = true;
     }
+    this.nextPlayTime = now;
+  }
+
+  private stopAndResetAllPlayback(): void {
+    this.stopAllPlayback();
     this.turnPlaybacks.clear();
     this.nextPlayTime = 0;
     if (this.audioCtx) {
@@ -295,56 +351,45 @@ export class OffscreenMossLiveClient {
         break;
 
       case "transcript":
+        if (parsed.event.kind === "response.interrupted") {
+          this.stopAllPlayback();
+        }
         this.options.onTranscript?.(parsed.event);
         break;
 
-      case "audio.context":
+      case "audio.context": {
+        const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
+        const duplicate = Boolean(parsed.chunkId && tracker.claimedChunkIds.has(parsed.chunkId));
+        const discard = tracker.stopped || duplicate;
+        if (parsed.chunkId && !duplicate) {
+          tracker.claimedChunkIds.add(parsed.chunkId);
+        }
+        if (!discard) {
+          tracker.inFlightChunks += 1;
+        }
         this.pendingAudioContexts.push({
           chunkId: parsed.chunkId,
           runId: parsed.runId,
-          turnId: parsed.turnId
+          turnId: parsed.turnId,
+          discard
         });
+        this.drainPendingAudio(generation);
         break;
+      }
 
       case "audio.done": {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
+        if (tracker.stopped) break;
         tracker.audioDoneReceived = true;
-        if (tracker.inFlightChunks === 0 && !tracker.completedSent) {
-          tracker.completedSent = true;
-          this.sendJson({
-            action: "playback.completed",
-            run_id: parsed.runId,
-            turn_id: parsed.turnId
-          });
-        }
+        this.sendTurnCompletedIfReady(tracker);
         break;
       }
 
       case "audio.stop": {
         const tracker = this.getOrCreateTurnTracker(parsed.runId, parsed.turnId);
-        const now = this.audioCtx ? this.audioCtx.currentTime : 0;
-        for (const entry of tracker.activeSources) {
-          entry.source.onended = null;
-          if (now > entry.startAt) {
-            const elapsedSec = Math.max(0, now - entry.startAt);
-            const partialSamples = Math.min(
-              entry.sampleCount,
-              Math.round(elapsedSec * MOSS_DOWNSTREAM_SAMPLE_RATE)
-            );
-            tracker.playedSamples += partialSamples;
-          }
-          try {
-            entry.source.stop();
-          } catch {}
-          try {
-            entry.source.disconnect();
-          } catch {}
-        }
-        tracker.activeSources.clear();
-        tracker.inFlightChunks = 0;
-        tracker.completedSent = true;
-        this.nextPlayTime = now;
-
+        if (tracker.stoppedSent) break;
+        this.stopAllPlayback();
+        tracker.stoppedSent = true;
         const playedAudioMs = Math.round((tracker.playedSamples / MOSS_DOWNSTREAM_SAMPLE_RATE) * 1000);
         this.sendJson({
           action: "playback.stopped",
@@ -371,33 +416,31 @@ export class OffscreenMossLiveClient {
 
   private handleServerBinaryAudio(pcmBuffer: ArrayBufferLike, generation: number): void {
     if (this.disposed || this.socketGeneration !== generation) return;
-    const context = this.pendingAudioContexts.shift() ?? {
-      chunkId: "",
-      runId: "",
-      turnId: ""
-    };
+    this.pendingAudioFrames.push(pcmBuffer);
+    this.drainPendingAudio(generation);
+  }
+
+  private drainPendingAudio(generation: number): void {
+    while (this.pendingAudioContexts.length > 0 && this.pendingAudioFrames.length > 0) {
+      const context = this.pendingAudioContexts.shift()!;
+      const pcmBuffer = this.pendingAudioFrames.shift()!;
+      this.playAudioChunk(context, pcmBuffer, generation);
+    }
+  }
+
+  private playAudioChunk(
+    context: PendingAudioContextItem,
+    pcmBuffer: ArrayBufferLike,
+    generation: number
+  ): void {
+    const tracker = this.getOrCreateTurnTracker(context.runId, context.turnId);
+    if (context.discard || tracker.stopped) return;
 
     const samples = decodePcmS16LEToFloat32(pcmBuffer);
-    const tracker = this.getOrCreateTurnTracker(context.runId, context.turnId);
-    const audioCtx = this.ensureAudioContext();
-
+    const audioCtx = samples.length > 0 ? this.ensureAudioContext() : null;
     if (samples.length === 0 || !audioCtx) {
-      if (context.chunkId) {
-        this.sendJson({
-          action: "playback.chunk.completed",
-          chunk_id: context.chunkId,
-          run_id: context.runId,
-          turn_id: context.turnId
-        });
-      }
-      if (tracker.audioDoneReceived && tracker.inFlightChunks === 0 && !tracker.completedSent) {
-        tracker.completedSent = true;
-        this.sendJson({
-          action: "playback.completed",
-          run_id: context.runId,
-          turn_id: context.turnId
-        });
-      }
+      tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
+      this.sendChunkCompleted(context, tracker);
       return;
     }
 
@@ -417,7 +460,6 @@ export class OffscreenMossLiveClient {
       startAt,
       sampleCount: samples.length
     };
-    tracker.inFlightChunks += 1;
     tracker.activeSources.add(entry);
 
     source.onended = () => {
@@ -429,24 +471,7 @@ export class OffscreenMossLiveClient {
       try {
         source.disconnect();
       } catch {}
-
-      if (context.chunkId) {
-        this.sendJson({
-          action: "playback.chunk.completed",
-          chunk_id: context.chunkId,
-          run_id: context.runId,
-          turn_id: context.turnId
-        });
-      }
-
-      if (tracker.audioDoneReceived && tracker.inFlightChunks === 0 && !tracker.completedSent) {
-        tracker.completedSent = true;
-        this.sendJson({
-          action: "playback.completed",
-          run_id: context.runId,
-          turn_id: context.turnId
-        });
-      }
+      this.sendChunkCompleted(context, tracker);
     };
 
     source.start(startAt);
@@ -515,6 +540,13 @@ export class OffscreenMossLiveClient {
 
   sendToolResult(callId: string, result: unknown): boolean {
     return this.sendJson({ action: "tool.result", call_id: callId, result });
+  }
+
+  sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
+    if (this.state !== "connected") {
+      return false;
+    }
+    return this.sendBinary(MossBinaryTag.ScreenJpeg, jpegBuffer);
   }
 
   sendJson(payload: unknown): boolean {

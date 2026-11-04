@@ -1021,6 +1021,11 @@ function onWindowResize(): void {
 // 输入框高度上限常量（实现与逻辑收归 chat-tab-composer.ts，本处保留供测试与类型锁定）
 export const INPUT_MAX_HEIGHT = 320;
 
+function isConversationViewActive(): boolean {
+  const liveState = liveController?.getState();
+  return chatRuntime.isTurnActive() || liveState === "connecting" || liveState === "connected";
+}
+
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部
 // 设置变更 → 刷新」编排（流式守卫 + 重渲染留在组合根）。
 async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
@@ -1032,10 +1037,10 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   refreshThinkingUi();
   // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
   //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
-  // 重建清场。守卫判据是 isTurnActive() 而非 isStreaming()——后者在 connectPort
-  // 之前的窗口为假，旧判据会在这个窗口把消息区重建掉（把已上屏的提问清走）。
+  // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
+  // 防止上下文对账把已上屏的实时问答重建掉。
   lists.renderHistoryList();
-  if (chatRuntime.isTurnActive()) {
+  if (isConversationViewActive()) {
     return;
   }
   renderInitialState();
@@ -1055,7 +1060,7 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
     return;
   }
   const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
+  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {

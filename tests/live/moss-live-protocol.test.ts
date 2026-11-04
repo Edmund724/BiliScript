@@ -258,6 +258,18 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses response.interrupted with turn identity", () => {
+    expect(
+      parseMossServerJsonEvent({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      })
+    ).toEqual({
+      kind: "transcript",
+      event: { kind: "response.interrupted", runId: "r1", turnId: "t1" }
+    });
+  });
+
   it("parses audio context, audio done, and audio stop events", () => {
     expect(
       parseMossServerJsonEvent({

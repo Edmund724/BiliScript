@@ -55,6 +55,7 @@ class FakeMossClient implements MossLiveClientInstance {
   closed = false;
   options: any;
   receivedAudioFrames: Uint8Array[] = [];
+  receivedVideoFrames: Uint8Array[] = [];
   micStates: boolean[] = [];
   videoContexts: unknown[] = [];
   toolResults: unknown[] = [];
@@ -74,6 +75,11 @@ class FakeMossClient implements MossLiveClientInstance {
 
   sendAudioPcm(pcmBuffer: ArrayBufferLike): boolean {
     this.receivedAudioFrames.push(new Uint8Array(pcmBuffer));
+    return true;
+  }
+
+  sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
+    this.receivedVideoFrames.push(new Uint8Array(jpegBuffer));
     return true;
   }
 
@@ -138,6 +144,14 @@ describe("attachMossLivePort", () => {
     });
     expect(createdClient!.receivedAudioFrames).toHaveLength(1);
     expect(Array.from(createdClient!.receivedAudioFrames[0])).toEqual([1, 2, 3, 4]);
+
+    const sampleJpeg = new Uint8Array([0xff, 0xd8, 5, 6, 0xff, 0xd9]);
+    port.simulateMessage({
+      action: "video",
+      jpegBase64: encodeBase64Bytes(sampleJpeg)
+    });
+    expect(createdClient!.receivedVideoFrames).toHaveLength(1);
+    expect(Array.from(createdClient!.receivedVideoFrames[0])).toEqual(Array.from(sampleJpeg));
 
     // Relays mic_state from port to client.setMicEnabled
     port.simulateMessage({ action: "mic_state", enabled: false });

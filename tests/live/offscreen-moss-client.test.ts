@@ -506,6 +506,25 @@ describe("OffscreenMossLiveClient", () => {
       expect(ws.sentData).toHaveLength(4);
     });
 
+    it("sends video JPEG frames on tagged-v1 screen channel 0x02 while connected", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const jpeg = new Uint8Array([0xff, 0xd8, 0x11, 0xff, 0xd9]);
+      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(true);
+      expect(ws.sentData).toHaveLength(1);
+      const sentFrame = ws.sentData[0] as Uint8Array;
+      expect(sentFrame[0]).toBe(MossBinaryTag.ScreenJpeg);
+      expect(Array.from(sentFrame.subarray(1))).toEqual(Array.from(jpeg));
+
+      client.close();
+      expect(client.sendVideoJpeg(jpeg.buffer)).toBe(false);
+    });
+
     it("forwards input/output transcript and response.ended events to onTranscript", () => {
       const transcripts: MossLiveTranscriptEvent[] = [];
       const client = new OffscreenMossLiveClient({
@@ -732,6 +751,202 @@ describe("OffscreenMossLiveClient", () => {
         turn_id: "t1",
         played_audio_ms: 150
       });
+    });
+
+    it("pairs audio frames that arrive before metadata and waits for actual playback before completion receipts", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcmChunk1 = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.1));
+      const pcmChunk2 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      ws.simulateMessage(pcmChunk1.buffer);
+      ws.simulateMessage(pcmChunk2.buffer);
+      expect(fakeAudioCtx.sources).toHaveLength(0);
+
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c2", run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+
+      expect(fakeAudioCtx.sources).toHaveLength(2);
+      expect(ws.sentData).toHaveLength(0);
+      fakeAudioCtx.sources[0].finishPlayback();
+      fakeAudioCtx.sources[1].finishPlayback();
+      expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+        { action: "playback.chunk.completed", chunk_id: "c1", run_id: "r1", turn_id: "t1" },
+        { action: "playback.chunk.completed", chunk_id: "c2", run_id: "r1", turn_id: "t1" },
+        { action: "playback.completed", run_id: "r1", turn_id: "t1" }
+      ]);
+    });
+
+    it("deduplicates repeated chunk metadata, audio frames, and audio.done", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const context = JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+      });
+      const done = JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r1", turn_id: "t1" }
+      });
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.1));
+      ws.simulateMessage(context);
+      ws.simulateMessage(context);
+      ws.simulateMessage(pcmChunk.buffer);
+      ws.simulateMessage(pcmChunk.buffer);
+      ws.simulateMessage(done);
+      ws.simulateMessage(done);
+
+      expect(fakeAudioCtx.sources).toHaveLength(1);
+      expect(ws.sentData).toHaveLength(0);
+      fakeAudioCtx.sources[0].finishPlayback();
+      fakeAudioCtx.sources[0].finishPlayback();
+      expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+        { action: "playback.chunk.completed", chunk_id: "c1", run_id: "r1", turn_id: "t1" },
+        { action: "playback.completed", run_id: "r1", turn_id: "t1" }
+      ]);
+    });
+
+    it("stops immediately on response.interrupted, reports accurate progress once, and drops late audio", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const transcripts: MossLiveTranscriptEvent[] = [];
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx,
+        onTranscript: (event) => transcripts.push(event)
+      });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(pcmChunk.buffer);
+      fakeAudioCtx.currentTime = 0.05;
+      ws.simulateMessage(JSON.stringify({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+
+      expect(fakeAudioCtx.sources[0].stopped).toBe(true);
+      expect(transcripts).toEqual([{ kind: "response.interrupted", runId: "r1", turnId: "t1" }]);
+      expect(ws.sentData).toHaveLength(0);
+
+      const stop = JSON.stringify({
+        action: "response.audio.stop",
+        data: { run_id: "r1", turn_id: "t1" }
+      });
+      ws.simulateMessage(stop);
+      ws.simulateMessage(stop);
+      fakeAudioCtx.sources[0].finishPlayback();
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "late", run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(pcmChunk.buffer);
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+
+      expect(fakeAudioCtx.sources).toHaveLength(1);
+      expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 50 }
+      ]);
+    });
+
+    it("keeps consecutive interruptions and a subsequent turn isolated from stale completion events", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      const pcm100ms = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.2));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(pcm100ms.buffer);
+      fakeAudioCtx.currentTime = 0.05;
+      ws.simulateMessage(JSON.stringify({
+        action: "response.interrupted",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.stop",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c2", run_id: "r2", turn_id: "t2" }
+      }));
+      ws.simulateMessage(pcm100ms.buffer);
+      fakeAudioCtx.currentTime = 0.08;
+      ws.simulateMessage(JSON.stringify({
+        action: "response.interrupted",
+        data: { run_id: "r2", turn_id: "t2" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.stop",
+        data: { run_id: "r2", turn_id: "t2" }
+      }));
+
+      const pcm50ms = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.3));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.context",
+        data: { chunk_id: "c3", run_id: "r3", turn_id: "t3" }
+      }));
+      ws.simulateMessage(pcm50ms.buffer);
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r3", turn_id: "t3" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r1", turn_id: "t1" }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "response.audio.done",
+        data: { run_id: "r2", turn_id: "t2" }
+      }));
+      fakeAudioCtx.sources[2].finishPlayback();
+
+      expect(fakeAudioCtx.sources[0].stopped).toBe(true);
+      expect(fakeAudioCtx.sources[1].stopped).toBe(true);
+      expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 50 },
+        { action: "playback.stopped", run_id: "r2", turn_id: "t2", played_audio_ms: 30 },
+        { action: "playback.chunk.completed", chunk_id: "c3", run_id: "r3", turn_id: "t3" },
+        { action: "playback.completed", run_id: "r3", turn_id: "t3" }
+      ]);
     });
 
     it("stops all playing sources on close() and suppresses late onended callbacks", () => {

@@ -7,6 +7,10 @@ import {
   createLiveChatController
 } from "../../extension/live/live-chat-controller.js";
 import type { PageAudioCaptureOptions, PageAudioCaptureSession } from "../../extension/live/page-media-capture.js";
+import type {
+  PageVideoFrameCaptureOptions,
+  PageVideoFrameCaptureSession
+} from "../../extension/live/page-video-frame-capture.js";
 import type { LiveTranscriptMerger } from "../../extension/live/live-transcript-merger.js";
 import type {
   MossLiveToolCall,
@@ -88,6 +92,23 @@ class FakeAudioCapture implements PageAudioCaptureSession {
   }
 }
 
+class FakeVideoCapture implements PageVideoFrameCaptureSession {
+  stopped = false;
+  onJpegFrame: (bytes: Uint8Array<ArrayBuffer>) => void;
+
+  constructor(options: PageVideoFrameCaptureOptions) {
+    this.onJpegFrame = options.onJpegFrame;
+  }
+
+  stop(): void {
+    this.stopped = true;
+  }
+
+  emitFrame(bytes: Uint8Array<ArrayBuffer>): void {
+    this.onJpegFrame(bytes);
+  }
+}
+
 beforeEach(() => {
   resetModuleState();
   vi.unstubAllGlobals();
@@ -99,6 +120,7 @@ describe("LiveChatController", () => {
     requestOrigins?: (origins: string[]) => Promise<{ ok: boolean; error?: string }>;
     sendRuntimeMessage?: (msg: any) => Promise<any>;
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
+    startVideoCapture?: (opts: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
     port?: FakePort;
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -117,6 +139,14 @@ describe("LiveChatController", () => {
       vi.fn(async (opts: PageAudioCaptureOptions) => {
         lastAudioCapture = new FakeAudioCapture(opts);
         return lastAudioCapture;
+      });
+
+    let lastVideoCapture: FakeVideoCapture | null = null;
+    const startVideoCapture =
+      overrides.startVideoCapture ||
+      vi.fn((opts: PageVideoFrameCaptureOptions) => {
+        lastVideoCapture = new FakeVideoCapture(opts);
+        return lastVideoCapture;
       });
 
     const receivedTranscripts: MossLiveTranscriptEvent[] = [];
@@ -161,6 +191,7 @@ describe("LiveChatController", () => {
       sendRuntimeMessage,
       requestOrigins,
       startAudioCapture,
+      startVideoCapture,
       createTranscriptMerger,
       getTargetOrigin: overrides.getTargetOrigin,
       getVideoContext: overrides.getVideoContext,
@@ -178,7 +209,9 @@ describe("LiveChatController", () => {
       sendRuntimeMessage,
       requestOrigins,
       startAudioCapture,
+      startVideoCapture,
       getAudioCapture: () => lastAudioCapture,
+      getVideoCapture: () => lastVideoCapture,
       receivedTranscripts,
       isMergerDisposed: () => mergerDisposed
     };
@@ -334,6 +367,33 @@ describe("LiveChatController", () => {
       action: "audio",
       pcmBase64: expect.any(String)
     });
+  });
+
+  it("starts video capture only after connection, forwards JPEG as base64, and blocks old-session frames", async () => {
+    const { controller, fakePort, startVideoCapture, getVideoCapture } = setupTest();
+
+    await controller.start();
+    expect(startVideoCapture).not.toHaveBeenCalled();
+    fakePort.simulateMessage({ type: "connected" });
+    const firstCapture = getVideoCapture()!;
+    expect(startVideoCapture).toHaveBeenCalledTimes(1);
+
+    fakePort.postedMessages.length = 0;
+    firstCapture.emitFrame(new Uint8Array([0xff, 0xd8, 7, 0xff, 0xd9]));
+    expect(fakePort.postedMessages).toEqual([{ action: "video", jpegBase64: expect.any(String) }]);
+
+    await controller.stop();
+    expect(firstCapture.stopped).toBe(true);
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+    firstCapture.emitFrame(new Uint8Array([1]));
+    expect(fakePort.postedMessages).toHaveLength(0);
+
+    getVideoCapture()!.emitFrame(new Uint8Array([2]));
+    expect(fakePort.postedMessages).toEqual([{ action: "video", jpegBase64: expect.any(String) }]);
+    await controller.stop();
   });
 
   it("toggles microphone mute, syncs mic_state over port, and suppresses upstream audio while muted", async () => {
