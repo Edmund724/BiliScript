@@ -686,7 +686,6 @@ describe("LiveChatController video context and page tools", () => {
     context = null;
     window.dispatchEvent(new Event("biliscript:urlchange"));
     expect(fakePort.postedMessages).toEqual([
-      { action: "context_update", videoContext: null },
       { action: "context_update", videoContext: null }
     ]);
 

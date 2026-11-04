@@ -144,8 +144,6 @@ import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
-import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
-import { liveProviderStore, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 
@@ -226,23 +224,7 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
-let cachedLiveTargetOrigin = "";
 
-async function refreshLiveTargetOrigin(): Promise<void> {
-  try {
-    const [providers, localSettings] = await Promise.all([
-      liveProviderStore.loadProviders(),
-      chrome.storage.sync.get(["activeLiveProviderId"])
-    ]);
-    const activeId = resolveActiveLiveProviderId(providers, (localSettings as any)?.activeLiveProviderId);
-    const active = providers.find((p) => p.id === activeId);
-    if (active?.baseUrl) {
-      cachedLiveTargetOrigin = active.baseUrl;
-    }
-  } catch {
-    // 忽略加载错误
-  }
-}
 
 // 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
 // false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
@@ -409,6 +391,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   onStreamInterrupted: () => {
+    liveController?.dispose();
     chatRuntime.resetStreamState();
     resetConversationView();
     composer.setStreamingUiState(false);
@@ -491,6 +474,9 @@ const { loadContextState } = contextLoad;
 async function openConversationById(id: string): Promise<void> {
   if (chatRuntime.isTurnActive()) {
     await chatRuntime.settleTurn();
+  }
+  if (isLiveSessionActive()) {
+    await liveController?.stop();
   }
   conversationStore.applyById(id);
 }
@@ -676,7 +662,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // aiProviderKeys，摘除即 unsubscribe。
   storageWatcher: () => watchStorageKeys(() => {
     void refreshProvidersAndPrefsAfterExternalChange();
-    void refreshLiveTargetOrigin();
+    void liveController?.refreshTarget();
   }, {
     sync: [
       "aiProviders",
@@ -734,7 +720,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     }),
     conversationStore.loadAll(),
     loadContextState(),
-    refreshLiveTargetOrigin()
+    liveController?.refreshTarget() ?? Promise.resolve()
   ]);
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
@@ -756,7 +742,7 @@ async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
   // 都由这一次重判画出来，不再另调 renderChip）。
   await loadProvidersAndPrefs().catch(() => null);
-  void refreshLiveTargetOrigin();
+  void liveController?.refreshTarget();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -917,22 +903,12 @@ function bindEvents(): void {
   });
   // 模型 chip：点开模型 + 思考档位面板。
   if (els.liveBtn) {
-    const showLiveNotice = (message: string, autoHideMs?: number) => {
-      showConversationContextNotice(message, autoHideMs || 4000);
-    };
-    const liveTools = createLiveToolsBridge({
-      getCurrentTime: () => getRuntimeVideoElement()?.currentTime || 0,
-      showNotice: showLiveNotice
-    });
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
-      getTargetOrigin: () => cachedLiveTargetOrigin,
-      showNotice: showLiveNotice,
-      getVideoContext: liveTools.getVideoContext,
-      executeTool: liveTools.executeTool,
+      showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       subscribeVideoContextChanges: (listener) => subscribeReaderPresenter((event) => {
         if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
           listener();
@@ -950,12 +926,6 @@ function bindEvents(): void {
             removeSuggestions();
           }
         })
-    });
-    els.liveBtn.addEventListener("click", () => {
-      void liveController?.toggle();
-    });
-    els.liveMuteBtn?.addEventListener("click", () => {
-      liveController?.toggleMute();
     });
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);

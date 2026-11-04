@@ -178,6 +178,27 @@ describe("resolveLoadContextAction — blocked-streaming", () => {
     const plan = resolveLoadContextAction(liveInput({ hasPendingUserPrompt: true }));
     expect(plan.action).toBe(LOAD_CONTEXT_ACTION.BLOCKED_STREAMING);
   });
+
+  it("流式中且实时伴看进行中 → BLOCKED_STREAMING 优先于 APPLY_LIVE_SESSION（冻结主上下文）", () => {
+    const plan = resolveLoadContextAction(liveInput({ isStreaming: true, isLiveActive: true }));
+    expect(plan.action).toBe(LOAD_CONTEXT_ACTION.BLOCKED_STREAMING);
+  });
+
+  it("实时伴看进行中（非 pinned、非流式）→ APPLY_LIVE_SESSION", () => {
+    expect(resolveLoadContextAction(liveInput({ isLiveActive: true }))).toEqual({
+      action: LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION,
+      returnValue: true
+    });
+  });
+
+  it("实时伴看进行中但失败且非静默 → 不重置视图（保护伴看字幕气泡）", () => {
+    const plan = resolveLoadContextAction(
+      liveInput({ response: { ok: false, error: "err" }, silent: false, isLiveActive: true })
+    );
+    expect(plan.action).toBe(LOAD_CONTEXT_ACTION.ERROR);
+    expect(plan.resetView).toBe(false);
+    expect(plan.clearContext).toBe(true);
+  });
 });
 
 describe("resolveLoadContextAction — apply-live", () => {
@@ -216,6 +237,14 @@ describe("resolveNoTabPlan — 消息往返之前的决策点", () => {
     const plan = resolveNoTabPlan({ hasPinnedConversation: false, silent: true });
     expect(plan.clearContext).toBe(true);
     expect(plan.resetView).toBe(false);
+  });
+
+  it("实时伴看进行中（非静默）→ 不重置视图，主上下文照清", () => {
+    const plan = resolveNoTabPlan({ hasPinnedConversation: false, silent: false, isLiveActive: true });
+    expect(plan.clearContext).toBe(true);
+    expect(plan.resetView).toBe(false);
+    expect(plan.action).toBe(LOAD_CONTEXT_ACTION.NO_TAB);
+    expect(plan.returnValue).toBe(false);
   });
 
   it("pinned + silent → 计划保留主上下文、不重置视图", () => {

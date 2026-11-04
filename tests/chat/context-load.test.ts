@@ -67,7 +67,8 @@ function makeHarness({
     restartChat: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
-    hasPendingUserPrompt: vi.fn(() => false)
+    hasPendingUserPrompt: vi.fn(() => false),
+    isLiveActive: vi.fn(() => false)
   };
   const contextLoad = createContextLoad({
     fetchContext: deps.fetchContext,
@@ -78,7 +79,8 @@ function makeHarness({
     restartChat: deps.restartChat,
     restoreLatest: deps.restoreLatest,
     isStreaming: deps.isStreaming,
-    hasPendingUserPrompt: deps.hasPendingUserPrompt
+    hasPendingUserPrompt: deps.hasPendingUserPrompt,
+    isLiveActive: deps.isLiveActive
   });
   return { deps, contextLoad };
 }
@@ -230,6 +232,30 @@ describe("loadContextState 动作分支", () => {
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
     expect(deps.renderSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it("apply-live-session：实时伴看中同步主上下文但不清场/不恢复；若同时在文本流式中则优先被流式守卫冻结", async () => {
+    chatSessionStateForTests.currentContextKey = "old-key";
+    chatSessionStateForTests.contextData = makePayload();
+    const nextPayload = makePayload({ signature: "sig-live", title: "伴看换片" });
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload: nextPayload })
+    });
+    deps.isLiveActive.mockReturnValue(true);
+
+    // 1. 伴看中 + 文本流式中：BLOCKED_STREAMING 优先，主上下文冻结
+    deps.isStreaming.mockReturnValue(true);
+    await contextLoad.loadContextState({ silent: true });
+    expect(chatSessionState.contextData).toEqual(makePayload());
+    expect(deps.restartChat).not.toHaveBeenCalled();
+
+    // 2. 伴看中 + 非流式：APPLY_LIVE_SESSION 同步主上下文，但不调 restartChat / restoreLatest / renderInitialState
+    deps.isStreaming.mockReturnValue(false);
+    await contextLoad.loadContextState({ silent: true });
+    expect(chatSessionState.contextData).toEqual(nextPayload);
+    expect(deps.restartChat).not.toHaveBeenCalled();
+    expect(deps.restoreLatest).not.toHaveBeenCalled();
+    expect(deps.renderInitialState).not.toHaveBeenCalled();
   });
 
   it("apply-live：上下文变化但流式中 → 动作被 policy 判为 blocked-streaming（只落地 live 快照）", async () => {

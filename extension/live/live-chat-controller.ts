@@ -13,6 +13,12 @@ import {
   type MossLiveVideoContext
 } from "./moss-live-protocol.js";
 import {
+  DEFAULT_LIVE_MODEL,
+  liveProviderStore,
+  resolveActiveLiveProviderId
+} from "./live-provider-store.js";
+import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import {
   createPageAudioCapture,
   type PageAudioCaptureOptions,
   type PageAudioCaptureSession
@@ -40,6 +46,7 @@ export interface LiveChatControllerDeps {
   // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
   getTargetOrigin?: () => string;
+  getTargetModel?: () => string;
   showNotice?: (message: string, autoHideMs?: number) => void;
   connectPort?: () => chrome.runtime.Port;
   sendRuntimeMessage?: typeof defaultSendRuntimeMessage;
@@ -61,6 +68,7 @@ export interface LiveChatController {
   setMuted(muted: boolean): void;
   toggleMute(): void;
   interrupt(): void;
+  refreshTarget(): Promise<void>;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
@@ -73,6 +81,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     muteButton = null,
     interruptButton = null,
     getTargetOrigin,
+    getTargetModel,
     showNotice = () => {},
     connectPort = () => chrome.runtime.connect({ name: MOSS_LIVE_PORT_NAME }),
     sendRuntimeMessage = defaultSendRuntimeMessage,
@@ -87,6 +96,12 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     subscribeVideoContextChanges
   } = deps;
 
+  const defaultToolsBridge = (!getVideoContext || !executeTool)
+    ? createLiveToolsBridge({ showNotice })
+    : null;
+  const resolveVideoContext = getVideoContext ?? defaultToolsBridge!.getVideoContext;
+  const resolveExecuteTool = executeTool ?? defaultToolsBridge!.executeTool;
+
   let state: LiveChatState = "idle";
   let muted = false;
   let speaking = false;
@@ -98,6 +113,25 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeVideoDuck: PageVideoDuckSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
+  let activeTargetModel = DEFAULT_LIVE_MODEL;
+
+  async function refreshTarget(): Promise<void> {
+    try {
+      const [providers, syncSettings] = await Promise.all([
+        liveProviderStore.loadProviders(),
+        chrome.storage.sync.get(["activeLiveProviderId"])
+      ]);
+      const activeId = resolveActiveLiveProviderId(
+        providers,
+        (syncSettings as Record<string, unknown> | undefined)?.activeLiveProviderId
+      );
+      const active = providers.find((p) => p.id === activeId);
+      activeTargetOrigin = active?.baseUrl || "https://api.mosi.cn";
+      activeTargetModel = active?.model || DEFAULT_LIVE_MODEL;
+    } catch {
+      // 忽略加载错误
+    }
+  }
 
   function updateMuteUi(): void {
     if (!muteButton) return;
@@ -218,10 +252,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   let stopVideoContextWatch: (() => void) | null = null;
+  let lastPostedContextJson: string | null = null;
 
   function readVideoContext(): MossLiveVideoContext | null {
     try {
-      return getVideoContext?.() || null;
+      return resolveVideoContext() || null;
     } catch {
       return null;
     }
@@ -229,6 +264,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function postVideoContext(context: MossLiveVideoContext | null): void {
     if (!activePort) return;
+    const nextJson = JSON.stringify(context);
+    if (nextJson === lastPostedContextJson) return;
+    lastPostedContextJson = nextJson;
     try {
       activePort.postMessage({ action: "context_update", videoContext: context });
     } catch {}
@@ -271,7 +309,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
     const targetOrigin = (getTargetOrigin?.() || activeTargetOrigin || "https://api.mosi.cn").trim();
-    const permPromise = requestOrigins(resolveMossLivePermissionOrigins(targetOrigin));
+    const targetModel = (getTargetModel?.() || activeTargetModel || DEFAULT_LIVE_MODEL).trim();
+    const permPromise = requestOrigins(resolveMossLivePermissionOrigins(targetOrigin, targetModel));
 
     let permResult: { ok: boolean; error?: string };
     try {
@@ -329,6 +368,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     if (prepResp.provider?.baseUrl) {
       activeTargetOrigin = prepResp.provider.baseUrl;
+    }
+    if (prepResp.provider?.model) {
+      activeTargetModel = prepResp.provider.model;
     }
 
     // 3. 请求麦克风授权并启动 16kHz 单声道 20ms PCM 采集
@@ -395,7 +437,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connecting");
       } else if (msg.type === "connected") {
         updateUi("connected");
-        if (getVideoContext) syncVideoContext();
+        syncVideoContext();
         startActiveVideoCapture(generation);
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
@@ -424,9 +466,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           } catch {}
         };
         void Promise.resolve()
-          .then(() => executeTool
-            ? executeTool(msg.call)
-            : { ok: false, error: "当前页面未接入页面工具执行器" })
+          .then(() => resolveExecuteTool(msg.call))
           .then(postToolResult)
           .catch((error) => {
             postToolResult({ ok: false, error: `页面工具执行失败：${(error as Error)?.message || String(error)}` });
@@ -477,14 +517,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     });
 
     const wsUrl = resolveMossLiveWsUrl(prepResp.provider?.baseUrl, prepResp.provider?.model);
-    if (getVideoContext) {
-      watchVideoContext(generation);
-    }
+    const initialVideoContext = readVideoContext();
+    lastPostedContextJson = JSON.stringify(initialVideoContext);
+    watchVideoContext(generation);
     try {
       port.postMessage({
         action: "start",
         wsUrl,
-        ...(getVideoContext ? { videoContext: readVideoContext() } : {})
+        ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
     } catch (error) {
       stopActiveMediaAndMerger();
@@ -501,6 +541,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function disconnectPort(): void {
     stopVideoContextWatch?.();
+    lastPostedContextJson = null;
     if (activePort) {
       try {
         activePort.disconnect();
@@ -562,6 +603,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     void stop();
   }
 
+  liveButton.addEventListener("click", () => {
+    void toggle();
+  });
+  muteButton?.addEventListener("click", () => {
+    toggleMute();
+  });
+
   return {
     getState: () => state,
     isMuted: () => muted,
@@ -569,6 +617,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     setMuted,
     toggleMute,
     interrupt,
+    refreshTarget,
     start,
     stop,
     toggle,

@@ -9,12 +9,13 @@
 // ensureCurrentContextForSend）负责拉数据、按动作执行，可观察行为逐字节不变。
 //
 // 动作与旧分支的对应（旧代码真实分支顺序，判定优先级自上而下）：
-//   no-tab            !tab?.id                    （消息往返之前，由 resolveNoTabPlan 给出）
-//   skip-unchanged    resp.ok && payload.unchanged === true
-//   error             !resp.ok || !resp.payload
-//   apply-pinned      有 pinned 对话（优先于流式守卫）
-//   blocked-streaming chatRuntime 流式中或有待发送 prompt
-//   apply-live        以上皆否：live 快照落地并应用到主上下文
+//   no-tab             !tab?.id                    （消息往返之前，由 resolveNoTabPlan 给出）
+//   skip-unchanged     resp.ok && payload.unchanged === true
+//   error              !resp.ok || !resp.payload
+//   apply-pinned       有 pinned 对话（优先于流式守卫与实时伴看）
+//   blocked-streaming  chatRuntime 流式中或有待发送 prompt
+//   apply-live-session MOSS-LIVE 实时伴看进行中（同步主上下文但不重置/恢复历史会话）
+//   apply-live         以上皆否：live 快照落地并应用到主上下文
 
 // ContextFetch 信封（直调结果经编排壳收窄；
 // payload 为 content 侧的上下文快照，本模块只读其 unchanged 信封字段）。
@@ -36,6 +37,7 @@ export const LOAD_CONTEXT_ACTION = Object.freeze({
   ERROR: "error",
   APPLY_PINNED: "apply-pinned",
   BLOCKED_STREAMING: "blocked-streaming",
+  APPLY_LIVE_SESSION: "apply-live-session",
   APPLY_LIVE: "apply-live"
 } as const);
 
@@ -68,13 +70,21 @@ export function isPinnedContextStrict(currentConversationMeta: CurrentConversati
 // resetLiveContext()（连 liveTabUrl 一起清），error 分支不调它——error 往返刚用
 // tab.url 刷新过 liveTabUrl，故保留（见 context-load.ts 两分支与
 // resolveLoadContextAction 的注释）。
-export function resolveNoTabPlan({ hasPinnedConversation = false, silent = false } = {}): LoadContextPlan {
+export function resolveNoTabPlan({
+  hasPinnedConversation = false,
+  silent = false,
+  isLiveActive = false
+}: {
+  hasPinnedConversation?: boolean;
+  silent?: boolean;
+  isLiveActive?: boolean;
+} = {}): LoadContextPlan {
   return {
     action: LOAD_CONTEXT_ACTION.NO_TAB,
     // pinned 对话的主上下文（contextData/currentContextKey）被对话锁定，不清
     clearContext: !hasPinnedConversation,
-    // 静默轮询（silent）不打扰消息区；pinned 对话同样不重置视图
-    resetView: !silent && !hasPinnedConversation,
+    // 静默轮询（silent）不打扰消息区；pinned 对话或实时伴看进行中同样不重置视图
+    resetView: !silent && !hasPinnedConversation && !isLiveActive,
     message: NO_TAB_MESSAGE,
     returnValue: false
   };
@@ -87,19 +97,21 @@ export function resolveNoTabPlan({ hasPinnedConversation = false, silent = false
 //   silent                loadContextState 的静默标志（轮询/补水路径为 true）
 //   isStreaming           chatRuntime.isStreaming()
 //   hasPendingUserPrompt  chatRuntime.hasPendingUserPrompt()
+//   isLiveActive          MOSS-LIVE 实时伴看处于 connecting/connected
 // 输出计划字段：
 //   clearContext        失败时是否连主上下文一起清（!pinned）
 //   resetView / message 失败时是否 resetConversationView 及所用文案
 //   returnValue         loadContextState 的返回值契约
 // 「成功时 live 快照是否进一步应用到主上下文」不设字段：由 action 决定——
-// apply-live 进主上下文，apply-pinned / blocked-streaming 只落地 live 快照
-//（编排壳 context-load.ts 按 action 分派）。
+// apply-live 进主上下文并做会话恢复，apply-live-session 仅同步主上下文而不清场/不恢复历史，
+// apply-pinned / blocked-streaming 只落地 live 快照（编排壳 context-load.ts 按 action 分派）。
 export interface ResolveLoadContextActionOptions {
   response?: LoadContextResponse | null;
   hasPinnedConversation?: boolean;
   silent?: boolean;
   isStreaming?: boolean;
   hasPendingUserPrompt?: boolean;
+  isLiveActive?: boolean;
 }
 
 export function resolveLoadContextAction({
@@ -107,7 +119,8 @@ export function resolveLoadContextAction({
   hasPinnedConversation = false,
   silent = false,
   isStreaming = false,
-  hasPendingUserPrompt = false
+  hasPendingUserPrompt = false,
+  isLiveActive = false
 }: ResolveLoadContextActionOptions = {}): LoadContextPlan {
   // 候选5：content 状态未变 → 保持现状不动（不 applyContextPayload、不重渲染、
   // 不刷新 live 快照、不转 spinner）。liveContextData 仍持有带 signature 的
@@ -119,14 +132,14 @@ export function resolveLoadContextAction({
     return { action: LOAD_CONTEXT_ACTION.SKIP_UNCHANGED, returnValue: true };
   }
 
-  // 往返失败 / 无 payload：清 live 快照（pinned 对话保留主上下文），非静默且
-  // 非 pinned 时重置消息区视图。message 透传响应里的 error（可为任意真值，
+  // 往返失败 / 无 payload：清 live 快照（pinned 对话保留主上下文），非静默、
+  // 非 pinned 且非实时伴看时重置消息区视图。message 透传响应里的 error（可为任意真值，
   // 与旧代码一致不做 String 化），缺失时落到通用文案。
   if (!response?.ok || !response.payload) {
     return {
       action: LOAD_CONTEXT_ACTION.ERROR,
       clearContext: !hasPinnedConversation,
-      resetView: !silent && !hasPinnedConversation,
+      resetView: !silent && !hasPinnedConversation && !isLiveActive,
       message: response?.error || CONTEXT_READ_FAILED_MESSAGE,
       returnValue: false
     };
@@ -142,6 +155,12 @@ export function resolveLoadContextAction({
   // 打断进行中的对话；live 快照照常落地供后续使用。
   if (isStreaming || hasPendingUserPrompt) {
     return { action: LOAD_CONTEXT_ACTION.BLOCKED_STREAMING, returnValue: true };
+  }
+
+  // 实时伴看进行中（非 pinned、非流式）：将最新快照同步到主上下文供伴看转写归并与后续回合消费，
+  // 但禁止触发 restartChat / restoreLatest / renderInitialState，防止清掉在场伴看字幕气泡。
+  if (isLiveActive) {
+    return { action: LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION, returnValue: true };
   }
 
   // 正常路径：live 快照落地并应用到主上下文；上下文变化时由编排壳恢复最近

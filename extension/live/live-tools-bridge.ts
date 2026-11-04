@@ -1,5 +1,6 @@
 import { state, type ClipState } from "../core/state.js";
 import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
+import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
@@ -88,7 +89,7 @@ const PLAYER_RATES: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveToolsBridge {
   const getClip = deps.getClip || (() => state.clip);
   const getUrl = deps.getUrl || (() => location.href);
-  const getPlayer = deps.getPlayer || (() => document.querySelector<HTMLVideoElement>(".bpx-player-video-wrap video"));
+  const getPlayer = deps.getPlayer || getRuntimeVideoElement;
   const getCurrentTime = deps.getCurrentTime || (() => getPlayer()?.currentTime || 0);
   const showNotice = deps.showNotice || (() => {});
 
