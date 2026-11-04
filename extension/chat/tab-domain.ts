@@ -138,6 +138,7 @@ export interface CreateChatTabDomainDeps {
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
   getSpeechVolume?: () => number | undefined;
+  isLiveActive?: () => boolean;
 }
 
 export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
@@ -186,7 +187,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     restartChat: deps.restartChat,
     restoreLatest: () => store.restoreLatest(),
     isStreaming: () => runtime.isStreaming(),
-    hasPendingUserPrompt: () => runtime.hasPendingUserPrompt()
+    hasPendingUserPrompt: () => runtime.hasPendingUserPrompt(),
+    isLiveActive: deps.isLiveActive
   });
   // 发送闸（GLOSSARY.md 词条「发送闸」）：发送前上下文就绪事务（G1-G7 + 字幕
   // 等待闸 + 转写相位订阅）。消费前两件的实例方法（loadContextState /

@@ -458,6 +458,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
   },
+  isLiveActive: () => isLiveSessionActive(),
   getSpeechVolume: () => {
     const video = getRuntimeVideoElement();
     if (video && typeof video.volume === "number" && Number.isFinite(video.volume)) {
@@ -1021,9 +1022,14 @@ function onWindowResize(): void {
 // 输入框高度上限常量（实现与逻辑收归 chat-tab-composer.ts，本处保留供测试与类型锁定）
 export const INPUT_MAX_HEIGHT = 320;
 
+function isLiveSessionActive(): boolean {
+  const s = liveController?.getState();
+  return s === "connecting" || s === "connected";
+}
+
 function isConversationViewActive(): boolean {
-  const liveState = liveController?.getState();
-  return chatRuntime.isTurnActive() || liveState === "connecting" || liveState === "connected";
+
+  return chatRuntime.isTurnActive() || isLiveSessionActive();
 }
 
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部

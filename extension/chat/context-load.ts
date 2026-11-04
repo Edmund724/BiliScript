@@ -26,6 +26,7 @@ import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, r
 import {
   applyContextSnapshot,
   applyLiveContextSnapshot,
+  applyLiveContextToMain,
   chatSessionState,
   clearMainContext,
   noteLiveTabUrl,
@@ -54,6 +55,7 @@ export interface CreateContextLoadDeps {
   // 惰性互引（组装点以箭头函数接线，回调执行时 chatRuntime 实例已存在）
   isStreaming: () => boolean;
   hasPendingUserPrompt: () => boolean;
+  isLiveActive?: () => boolean;
 }
 
 export interface ContextLoad {
@@ -126,6 +128,14 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     // 三个成功动作（pinned / 流式守卫 / live）的公共前缀：live 快照照常落地，
     // 保证轮询与补水的数据源不断供。
     applyLiveContextSnapshot(resp.payload as ChatSessionContextSnapshot);
+
+    if (deps.isLiveActive?.()) {
+      if (!hasPinnedConversation) {
+        applyLiveContextToMain();
+      }
+      deps.renderHistoryList();
+      return plan.returnValue;
+    }
 
     // pinned 与流式守卫的执行体逐字节相同：只落地 live 快照，不进主上下文。
     if (
