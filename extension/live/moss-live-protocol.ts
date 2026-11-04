@@ -513,6 +513,7 @@ export type MossLiveServerEvent =
   | { type: "connected" }
   | { type: "error"; error: string }
   | { type: "closed"; reason?: string }
+  | { type: "duck_video"; active: boolean }
   | { type: "transcript"; event: MossLiveTranscriptEvent }
   | { type: "tool_call"; call: MossLiveToolCall }
   | { type: "tool_error"; error: string }

@@ -180,6 +180,32 @@ describe("attachMossLivePort", () => {
     expect(port.postedMessages).toHaveLength(countBefore);
   });
 
+  it("relays duck transitions and releases once on stop", async () => {
+    const port = new FakePort();
+    let client: FakeMossClient | null = null;
+    attachMossLivePort(port as any, {
+      loadClient: async () => (options) => {
+        client = new FakeMossClient(options);
+        return client;
+      }
+    });
+    port.simulateMessage({ action: "start" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    client!.options.onDuckVideo(true);
+    client!.options.onDuckVideo(true);
+    expect(port.postedMessages.filter((message) => message.type === "duck_video")).toEqual([
+      { type: "duck_video", active: true }
+    ]);
+
+    port.simulateMessage({ action: "stop" });
+    expect(port.postedMessages.filter((message) => message.type === "duck_video")).toEqual([
+      { type: "duck_video", active: true },
+      { type: "duck_video", active: false }
+    ]);
+  });
+
   it("regression: when stop() occurs while loadClient() is pending, continuation creates no socket", async () => {
     const port = new FakePort();
     let resolveLoader!: (factory: MossLiveClientFactory) => void;
