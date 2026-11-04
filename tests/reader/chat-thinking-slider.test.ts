@@ -1,7 +1,7 @@
 // tests/reader/chat-thinking-slider.test.ts
 // 05 号票：思考强度滑轨内嵌比例精修契约测试。
-// 验证滑轨改为无内描边的 24px 高 surface-2 胶囊凹槽，滑块缩减为 20×20px（top: 2px，留 2px 间距），
-// range 两端留 12px 呼吸间距，fill 与 preview 几何采用 + 12px 匹配 left: -12px。
+// 验证滑轨为无内描边的 24px 高 surface-2 胶囊凹槽，滑块为 28×28px（高于轨条 4px，
+// 垂直居中 top: -2px），range 两端留 12px 呼吸间距，fill 与 preview 几何采用 + 12px 匹配 left: -12px。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,7 +35,7 @@ function getRuleBody(css: string, selector: string): string {
 }
 
 describe("05: 思考强度滑轨样式与几何契约", () => {
-  it("CSS 契约：滑轨 24px、surface-2 底轨、无内描边、20×20px 滑块与 12px 呼吸间距", () => {
+  it("CSS 契约：滑轨 24px、surface-2 底轨、无内描边、28×28px 滑块与 12px 呼吸间距", () => {
     const css = readCss(CHAT_CSS_PATH);
 
     // 1. .chat-thinking-track 高度设为 24px
@@ -76,13 +76,14 @@ describe("05: 思考强度滑轨样式与几何契约", () => {
     expect(tickBody).toMatch(/width:\s*24px/);
     expect(tickBody).toMatch(/margin-left:\s*-12px/);
 
-    // 6. .chat-thinking-thumb 尺寸缩减为 20×20px（border-box 含 1px 描边），top: 2px，margin-left: -10px，轻软阴影
+    // 6. .chat-thinking-thumb 尺寸为 28×28px（border-box 含 1px 描边），比 24px 轨条高 4px，
+    //    垂直居中（top: -2px），margin-left: -14px，轻软阴影
     const thumbBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-thumb");
     expect(thumbBody).toMatch(/box-sizing:\s*border-box/);
-    expect(thumbBody).toMatch(/width:\s*20px/);
-    expect(thumbBody).toMatch(/height:\s*20px/);
-    expect(thumbBody).toMatch(/top:\s*2px/);
-    expect(thumbBody).toMatch(/margin-left:\s*-10px/);
+    expect(thumbBody).toMatch(/width:\s*28px/);
+    expect(thumbBody).toMatch(/height:\s*28px/);
+    expect(thumbBody).toMatch(/top:\s*-2px/);
+    expect(thumbBody).toMatch(/margin-left:\s*-14px/);
     expect(thumbBody).toMatch(/box-shadow:\s*0 1px 3px rgba\((?:var\(--biliscript-primitive-color-black-rgb\)|0,\s*0,\s*0),\s*0\.15\)/);
   });
 });

@@ -171,7 +171,7 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 胶囊滑轨（真实档位数 ≥ 2）：24px 高 surface-2 胶囊底轨 + 20px 圆形白滑块。 */
+/* 胶囊滑轨（真实档位数 ≥ 2）：24px 高 surface-2 胶囊底轨 + 28px 圆形白滑块（高于轨条，垂直居中）。 */
 .biliscript-reading-chat .chat-thinking-track {
   position: relative;
   height: 24px;
@@ -309,15 +309,16 @@
   opacity: 0.7;
 }
 
-/* 白色圆形滑块（Default 态下 [hidden] 隐藏，只露刻度点）。 */
+/* 白色圆形滑块（Default 态下 [hidden] 隐藏，只露刻度点）。
+ * 28×28px，比 24px 轨条高 4px，垂直居中（top: -2px），水平以 margin-left 对中。 */
 .biliscript-reading-chat .chat-thinking-thumb {
   box-sizing: border-box;
   position: absolute;
   z-index: 2;
-  top: 2px;
-  width: 20px;
-  height: 20px;
-  margin-left: -10px;
+  top: -2px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-primitive-color-white);
   border: 1px solid rgba(var(--biliscript-primitive-color-black-rgb), 0.08);
