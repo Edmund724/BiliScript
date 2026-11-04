@@ -325,6 +325,7 @@ export class OffscreenMossLiveClient {
   }
 
   private mediaStreamsInitialized = false;
+  private latestVideoJpeg: ArrayBufferLike | null = null;
 
   connect(): void {
     if (this.state === "connecting" || this.state === "connected") {
@@ -333,6 +334,7 @@ export class OffscreenMossLiveClient {
     this.disposed = false;
     this.state = "connecting";
     this.mediaStreamsInitialized = false;
+    this.latestVideoJpeg = null;
     this.handledToolCallIds.clear();
     this.socketGeneration += 1;
     const currentGeneration = this.socketGeneration;
@@ -565,6 +567,9 @@ export class OffscreenMossLiveClient {
           this.sendJson({ action: "video.state", source: "screen", enabled: true });
           this.sendJson({ action: "video.stream_focus", source: "screen" });
           this.sendJson({ action: "mic_state", enabled: this.micEnabled });
+          if (this.latestVideoJpeg) {
+            this.sendBinary(MossBinaryTag.ScreenJpeg, this.latestVideoJpeg);
+          }
         }
         break;
 
@@ -722,6 +727,7 @@ export class OffscreenMossLiveClient {
   private fail(error: Error): void {
     this.clearHandshakeTimer();
     this.state = "failed";
+    this.latestVideoJpeg = null;
     this.socketGeneration += 1;
     this.cancelAllToolCalls();
     this.stopAndResetAllPlayback();
@@ -744,6 +750,7 @@ export class OffscreenMossLiveClient {
     this.socketGeneration += 1;
     this.clearHandshakeTimer();
     this.state = "idle";
+    this.latestVideoJpeg = null;
     this.cancelAllToolCalls();
     this.stopAndResetAllPlayback();
     const socket = this.ws;
@@ -775,6 +782,9 @@ export class OffscreenMossLiveClient {
 
   updateVideoContext(context: MossLiveVideoContext | null): void {
     this.videoContext = context;
+    if (!context) {
+      this.latestVideoJpeg = null;
+    }
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
     if (contextKey === this.lastSentContextKey) return;
@@ -790,6 +800,7 @@ export class OffscreenMossLiveClient {
     if (this.state !== "connected") {
       return false;
     }
+    this.latestVideoJpeg = jpegBuffer;
     return this.sendBinary(MossBinaryTag.ScreenJpeg, jpegBuffer);
   }
 

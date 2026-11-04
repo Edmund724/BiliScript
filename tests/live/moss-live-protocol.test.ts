@@ -399,6 +399,8 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.action).toBe("session.update");
     expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
     expect(payload.session.persona.name).toBe("Bili伴看助手");
+    expect(payload.session.instructions).toContain("screen通道");
+    expect(payload.session.instructions).toContain("切勿提示用户打开摄像头");
     expect(payload.session.instructions).toContain("不得编造外部事实");
   });
 });

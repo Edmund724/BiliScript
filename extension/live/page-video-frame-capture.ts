@@ -43,6 +43,7 @@ export function createPageVideoFrameCapture(
   let activeVideo: HTMLVideoElement | null = null;
   let activeSource = "";
   let lastFrameKey = "";
+  let lastJpegBytes: Uint8Array<ArrayBuffer> | null = null;
   let canvas: HTMLCanvasElement | null = null;
 
   function selectVideo(): HTMLVideoElement | null {
@@ -53,6 +54,7 @@ export function createPageVideoFrameCapture(
       activeSource = source;
       sourceGeneration += 1;
       lastFrameKey = "";
+      lastJpegBytes = null;
     }
     return video;
   }
@@ -79,6 +81,7 @@ export function createPageVideoFrameCapture(
       }
       options.onJpegFrame(bytes);
       lastFrameKey = frameKey;
+      lastJpegBytes = bytes;
     } catch {
       // 单帧读取或编码失败不影响后续抽帧。
     } finally {
@@ -94,7 +97,12 @@ export function createPageVideoFrameCapture(
     const source = getVideoSource(video);
     const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
     const frameKey = `${source}:${currentTime}:${video.videoWidth}x${video.videoHeight}`;
-    if (frameKey === lastFrameKey) return;
+    if (frameKey === lastFrameKey) {
+      if (lastJpegBytes) {
+        options.onJpegFrame(lastJpegBytes);
+      }
+      return;
+    }
 
     if (!canvas) canvas = createCanvas();
     if (!canvas) return;
@@ -129,6 +137,7 @@ export function createPageVideoFrameCapture(
       activeVideo = null;
       activeSource = "";
       lastFrameKey = "";
+      lastJpegBytes = null;
       if (canvas) {
         canvas.width = 0;
         canvas.height = 0;

@@ -530,6 +530,25 @@ describe("OffscreenMossLiveClient", () => {
       expect(sentFrame[0]).toBe(MossBinaryTag.ScreenJpeg);
       expect(Array.from(sentFrame.subarray(1))).toEqual(Array.from(jpeg));
 
+      ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+      expect(ws.sentData).toHaveLength(5);
+      expect(JSON.parse(ws.sentData[1])).toEqual({
+        action: "video.state",
+        source: "screen",
+        enabled: true
+      });
+      expect(JSON.parse(ws.sentData[2])).toEqual({
+        action: "video.stream_focus",
+        source: "screen"
+      });
+      expect(JSON.parse(ws.sentData[3])).toEqual({
+        action: "mic_state",
+        enabled: true
+      });
+      const replayedFrame = ws.sentData[4] as Uint8Array;
+      expect(replayedFrame[0]).toBe(MossBinaryTag.ScreenJpeg);
+      expect(Array.from(replayedFrame.subarray(1))).toEqual(Array.from(jpeg));
+
       client.close();
       expect(client.sendVideoJpeg(jpeg.buffer)).toBe(false);
     });
