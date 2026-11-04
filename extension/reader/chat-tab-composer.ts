@@ -79,6 +79,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       sendBtn.disabled = stopInFlight;
       return;
     }
+    if (sendBtn.classList.contains("is-live-interrupt")) {
+      // 伴看说话期间同键复用为中断键：与输入内容无关，恒可用。
+      sendBtn.disabled = false;
+      return;
+    }
     sendBtn.disabled = subtitleWaitActive || !input.value.trim();
   }
 
@@ -98,7 +103,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     sendBtn.setAttribute("aria-label", isStreaming ? "停止" : "发送");
     // 空闲分支同 updateSendBtnState：等待态下的 restartChat（新对话/上下文跟随）
     // 也会走到这里，不带等待态会把等待中的发送键放回可用。
-    sendBtn.disabled = isStreaming ? stopping : subtitleWaitActive || !input.value.trim();
+    sendBtn.disabled = isStreaming
+      ? stopping
+      : sendBtn.classList.contains("is-live-interrupt")
+        ? false
+        : subtitleWaitActive || !input.value.trim();
   }
 
   function autosizeInput(): void {
@@ -190,9 +199,14 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     input.addEventListener("focus", autosizeInput);
     input.addEventListener("blur", autosizeInput);
 
-    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）。
+    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）；
+    // 伴看说话期间同键复用为中断键（.is-live-interrupt，伴看控制器驱动）——
+    // 两类停止形态都走 stopActiveStream，由组合根路由到文本 abort 或伴看打断。
     sendBtn.addEventListener("click", () => {
-      if (sendBtn.classList.contains("is-stop")) {
+      if (
+        sendBtn.classList.contains("is-stop") ||
+        sendBtn.classList.contains("is-live-interrupt")
+      ) {
         chatRuntime.stopActiveStream();
         return;
       }

@@ -187,12 +187,13 @@ const els = {
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
   // 图片附件区（image-input 02 号票，模板默认 hidden）
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
+  // 伴看中断键复用输入栏最右侧的发送/停止同键（模板已无专用中断按钮），
+  // 说话期间由控制器挂 .is-live-interrupt 类切停止键形态。
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
-  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
-  liveInterruptBtn: document.getElementById(ids.readingChatLiveInterruptBtn) as HTMLButtonElement | null
+  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -329,7 +330,15 @@ const composer = createReaderChatComposer({
   chatRuntime: {
     sendTurn: (text) => chatRuntime.sendTurn(text),
     isTurnActive: () => chatRuntime.isTurnActive(),
-    stopActiveStream: () => chatRuntime.stopActiveStream()
+    // 伴看说话期间发送键复用停止键形态（控制器挂 .is-live-interrupt）：
+    // 点击优先打断伴看语音，其余回落文本流中止。
+    stopActiveStream: () => {
+      if (liveController?.isSpeaking()) {
+        liveController.interrupt();
+        return;
+      }
+      chatRuntime.stopActiveStream();
+    }
   },
   onPasteImage: (e) => inputImages.handlePaste(e)
 });
@@ -918,7 +927,8 @@ function bindEvents(): void {
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
-      interruptButton: els.liveInterruptBtn,
+      // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
+      interruptButton: els.sendBtn,
       getTargetOrigin: () => cachedLiveTargetOrigin,
       showNotice: showLiveNotice,
       getVideoContext: liveTools.getVideoContext,
@@ -946,9 +956,6 @@ function bindEvents(): void {
     });
     els.liveMuteBtn?.addEventListener("click", () => {
       liveController?.toggleMute();
-    });
-    els.liveInterruptBtn?.addEventListener("click", () => {
-      liveController?.interrupt();
     });
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);

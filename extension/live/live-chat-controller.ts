@@ -36,6 +36,8 @@ export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export interface LiveChatControllerDeps {
   liveButton: HTMLElement;
   muteButton?: HTMLElement | null;
+  // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
+  // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
   getTargetOrigin?: () => string;
   showNotice?: (message: string, autoHideMs?: number) => void;
@@ -110,13 +112,22 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function updateInterruptUi(): void {
     if (!interruptButton) return;
+    // 中断键复用输入栏最右侧的发送/停止同键（文本对话流式时的停止键形态），不新增
+    // 专用按钮：说话期间挂 .is-live-interrupt 切停止图标（与 .is-stop 同视觉，但两个
+    // 类各归各的驱动方、互不覆盖）。hidden/disabled 不触碰——发送键禁用态归 composer。
+    // label 回落按文本流式相位（.is-stop）还原，不复读旧值。
     const shouldShow = state === "connected" && speaking;
-    interruptButton.hidden = !shouldShow;
-    interruptButton.classList.toggle("is-speaking", shouldShow);
-    (interruptButton as HTMLButtonElement).disabled = !shouldShow;
-    const label = "打断当前回答";
-    interruptButton.title = label;
-    interruptButton.setAttribute("aria-label", label);
+    interruptButton.classList.toggle("is-live-interrupt", shouldShow);
+    if (shouldShow) {
+      interruptButton.setAttribute("aria-label", "打断当前回答");
+      interruptButton.setAttribute("title", "打断当前回答");
+    } else {
+      interruptButton.removeAttribute("title");
+      interruptButton.setAttribute(
+        "aria-label",
+        interruptButton.classList.contains("is-stop") ? "停止" : "发送"
+      );
+    }
   }
 
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {
