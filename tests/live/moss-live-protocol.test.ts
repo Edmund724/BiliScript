@@ -358,3 +358,46 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.session.persona.name).toBe("Bili伴看助手");
   });
 });
+
+
+describe("subtitle-aware session and tool calls", () => {
+  it("registers both subtitle tools and injects video, part and chapter context", () => {
+    const payload = buildMinimalSessionUpdatePayload({
+      url: "https://www.bilibili.com/video/BV1test000000/?p=2",
+      bvid: "BV1test000000",
+      cid: "123",
+      title: "实时语音原理",
+      pageIndex: 2,
+      pageCount: 3,
+      pageTitle: "工具调用",
+      chapters: [{ title: "开场", from: 0, to: 10 }]
+    });
+    expect(payload.session.tools.map((tool) => tool.name)).toEqual([
+      "get_subtitles_around_time",
+      "search_video_subtitles"
+    ]);
+    expect(payload.session.instructions).toContain("实时语音原理");
+    expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
+    expect(payload.session.instructions).toContain("0s 开场");
+    expect(payload.session.instructions).toContain("time 时刻文本");
+  });
+
+  it("parses tool.call arguments in object or JSON string form", () => {
+    expect(parseMossServerJsonEvent({
+      action: "tool.call",
+      data: { call_id: "call-1", name: "search_video_subtitles", arguments: "{\"query\":\"字幕\"}" }
+    })).toEqual({
+      kind: "tool.call",
+      call: { callId: "call-1", name: "search_video_subtitles", arguments: "{\"query\":\"字幕\"}" }
+    });
+    expect(parseMossServerJsonEvent({
+      action: "tool.call",
+      call_id: "call-2",
+      name: "get_subtitles_around_time",
+      arguments: { current_time: 12 }
+    })).toEqual({
+      kind: "tool.call",
+      call: { callId: "call-2", name: "get_subtitles_around_time", arguments: { current_time: 12 } }
+    });
+  });
+});

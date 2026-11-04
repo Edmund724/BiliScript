@@ -6,7 +6,9 @@
 import {
   decodeBase64Bytes,
   type MossLiveClientAction,
-  type MossLiveTranscriptEvent
+  type MossLiveToolCall,
+  type MossLiveTranscriptEvent,
+  type MossLiveVideoContext
 } from "./moss-live-protocol.js";
 
 export interface MossLiveClientInstance {
@@ -14,13 +16,17 @@ export interface MossLiveClientInstance {
   close(): void;
   sendAudioPcm?(pcmBuffer: ArrayBufferLike): boolean;
   setMicEnabled?(enabled: boolean): void;
+  updateVideoContext?(context: MossLiveVideoContext | null): void;
+  sendToolResult?(callId: string, result: unknown): boolean;
 }
 
 export type MossLiveClientFactory = (options: {
   wsUrl?: string;
+  videoContext?: MossLiveVideoContext | null;
   onConnecting?: () => void;
   onConnected?: () => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onToolCall?: (call: MossLiveToolCall) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }) => MossLiveClientInstance;
@@ -48,10 +54,20 @@ export function attachMossLivePort(
   let disposed = false;
   let currentGeneration = 0;
   let liveClient: MossLiveClientInstance | null = null;
+  let latestVideoContext: MossLiveVideoContext | null = null;
+  const pendingToolTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearPendingToolCalls(): void {
+    for (const timer of pendingToolTimers.values()) {
+      clearTimeout(timer);
+    }
+    pendingToolTimers.clear();
+  }
 
   function cleanup(): void {
     disposed = true;
     currentGeneration += 1;
+    clearPendingToolCalls();
     if (liveClient) {
       try {
         liveClient.close();
@@ -70,6 +86,8 @@ export function attachMossLivePort(
     if (msg.action === "start") {
       currentGeneration += 1;
       const generation = currentGeneration;
+      latestVideoContext = msg.videoContext || null;
+      clearPendingToolCalls();
 
       if (liveClient) {
         liveClient.close();
@@ -85,6 +103,7 @@ export function attachMossLivePort(
 
         const client = createClient({
           wsUrl: msg.wsUrl,
+          videoContext: latestVideoContext,
           onConnecting: () => {
             if (!disposed && generation === currentGeneration) {
               postMessage(port, { type: "connecting" });
@@ -99,6 +118,19 @@ export function attachMossLivePort(
             if (!disposed && generation === currentGeneration) {
               postMessage(port, { type: "transcript", event });
             }
+          },
+          onToolCall: (call) => {
+            if (disposed || generation !== currentGeneration) return;
+            postMessage(port, { type: "tool_call", call });
+            const timer = setTimeout(() => {
+              pendingToolTimers.delete(call.callId);
+              if (!disposed && generation === currentGeneration) {
+                const error = "字幕工具执行超时，请稍后重试";
+                liveClient?.sendToolResult?.(call.callId, { ok: false, error });
+                postMessage(port, { type: "tool_error", error });
+              }
+            }, 10000);
+            pendingToolTimers.set(call.callId, timer);
           },
           onError: (err) => {
             if (!disposed && generation === currentGeneration) {
@@ -125,6 +157,15 @@ export function attachMossLivePort(
           postMessage(port, { type: "error", error: (error as Error)?.message || String(error) });
         }
       }
+    } else if (msg.action === "context_update") {
+      latestVideoContext = msg.videoContext;
+      liveClient?.updateVideoContext?.(msg.videoContext);
+    } else if (msg.action === "tool_result") {
+      const timer = pendingToolTimers.get(msg.callId);
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      pendingToolTimers.delete(msg.callId);
+      liveClient?.sendToolResult?.(msg.callId, msg.result);
     } else if (msg.action === "audio") {
       if (!liveClient?.sendAudioPcm || !msg.pcmBase64) return;
       const bytes = decodeBase64Bytes(msg.pcmBase64);
@@ -135,6 +176,7 @@ export function attachMossLivePort(
       liveClient?.setMicEnabled?.(Boolean(msg.enabled));
     } else if (msg.action === "stop") {
       currentGeneration += 1;
+      clearPendingToolCalls();
       if (liveClient) {
         liveClient.close();
         liveClient = null;

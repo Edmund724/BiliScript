@@ -56,6 +56,8 @@ class FakeMossClient implements MossLiveClientInstance {
   options: any;
   receivedAudioFrames: Uint8Array[] = [];
   micStates: boolean[] = [];
+  videoContexts: unknown[] = [];
+  toolResults: unknown[] = [];
 
   constructor(options: any) {
     this.options = options;
@@ -77,6 +79,15 @@ class FakeMossClient implements MossLiveClientInstance {
 
   setMicEnabled(enabled: boolean): void {
     this.micStates.push(enabled);
+  }
+
+  updateVideoContext(context: unknown): void {
+    this.videoContexts.push(context);
+  }
+
+  sendToolResult(callId: string, result: unknown): boolean {
+    this.toolResults.push({ callId, result });
+    return true;
   }
 }
 
@@ -209,5 +220,56 @@ describe("attachMossLivePort", () => {
     // 关键断言：端口已断开，disposed 守卫必须拦截，不得连接任何 socket
     expect(clientFactory).not.toHaveBeenCalled();
     expect(clientCreated).toBe(false);
+  });
+});
+
+
+describe("attachMossLivePort subtitle tool bridge", () => {
+  async function setup() {
+    const port = new FakePort();
+    let client: FakeMossClient | null = null;
+    attachMossLivePort(port as any, {
+      loadClient: async () => (options) => {
+        client = new FakeMossClient(options);
+        return client;
+      }
+    });
+    port.simulateMessage({ action: "start", videoContext: { bvid: "BV1", cid: "1" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    return { port, client: client! };
+  }
+
+  it("relays context updates and tool call/result in both directions", async () => {
+    const { port, client } = await setup();
+    expect(client.options.videoContext).toEqual({ bvid: "BV1", cid: "1" });
+
+    const nextContext = { bvid: "BV2", cid: "2" };
+    port.simulateMessage({ action: "context_update", videoContext: nextContext });
+    expect(client.videoContexts).toEqual([nextContext]);
+
+    const call = { callId: "call-1", name: "search_video_subtitles", arguments: { query: "字幕" } };
+    client.options.onToolCall(call);
+    expect(port.postedMessages).toContainEqual({ type: "tool_call", call });
+
+    port.simulateMessage({ action: "tool_result", callId: "call-1", result: { ok: true, items: [] } });
+    expect(client.toolResults).toEqual([{ callId: "call-1", result: { ok: true, items: [] } }]);
+    expect(client.closed).toBe(false);
+  });
+
+  it("returns a timeout error without closing the session when content never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const { client } = await setup();
+      client.options.onToolCall({ callId: "call-timeout", name: "search_video_subtitles", arguments: {} });
+      vi.advanceTimersByTime(10000);
+      expect(client.toolResults).toEqual([{
+        callId: "call-timeout",
+        result: { ok: false, error: "字幕工具执行超时，请稍后重试" }
+      }]);
+      expect(client.closed).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

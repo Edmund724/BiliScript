@@ -197,7 +197,53 @@ export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
   }
 }
 
-/** 建立会话所需的最小 session.update 载荷 */
+export interface MossLiveVideoContext {
+  url: string;
+  bvid: string;
+  cid: string;
+  title: string;
+  pageIndex: number;
+  pageCount: number;
+  pageTitle: string;
+  chapters: Array<{ title: string; from: number; to?: number }>;
+}
+
+export interface MossLiveToolCall {
+  callId: string;
+  name: string;
+  arguments: unknown;
+}
+
+const MOSS_LIVE_SUBTITLE_TOOLS = [
+  {
+    type: "function",
+    name: "get_subtitles_around_time",
+    description: "查询当前视频指定播放位置前后的字幕。未传 current_time 时使用当前播放位置。",
+    parameters: {
+      type: "object",
+      properties: {
+        current_time: { type: "number", description: "播放位置（秒），缺省为当前播放位置" },
+        before_seconds: { type: "number", description: "向前查询秒数，默认 30，最大 300" },
+        after_seconds: { type: "number", description: "向后查询秒数，默认 30，最大 300" }
+      }
+    }
+  },
+  {
+    type: "function",
+    name: "search_video_subtitles",
+    description: "在当前视频当前分P的完整字幕中做大小写不敏感的关键词检索。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "要检索的字幕关键词" },
+        max_results: { type: "number", description: "最多返回条数，默认 20，最大 50" }
+      },
+      required: ["query"]
+    }
+  }
+] as const;
+
+/** 建立或刷新伴看会话的 session.update 载荷。 */
 export interface MinimalSessionUpdatePayload {
   action: "session.update";
   session: {
@@ -209,10 +255,25 @@ export interface MinimalSessionUpdatePayload {
     instructions: string;
     voice: string;
     modalities: string[];
+    tools: typeof MOSS_LIVE_SUBTITLE_TOOLS;
   };
 }
 
-export function buildMinimalSessionUpdatePayload(): MinimalSessionUpdatePayload {
+function buildVideoInstructions(context: MossLiveVideoContext | null | undefined): string {
+  const base = "当前正在观看B站视频伴看会话。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 0:05 或 1:02:05）。";
+  if (!context) {
+    return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;
+  }
+  const part = `P${context.pageIndex}${context.pageTitle ? ` ${context.pageTitle}` : ""}`;
+  const chapters = context.chapters.length
+    ? context.chapters.map((chapter) => `${chapter.from}s ${chapter.title}`).join("；")
+    : "无章节信息";
+  return `${base}\n当前视频：${context.title || context.bvid}\nBV：${context.bvid}\nCID：${context.cid}\n当前分P：${part}${context.pageCount ? ` / 共${context.pageCount}P` : ""}\n章节：${chapters}`;
+}
+
+export function buildMinimalSessionUpdatePayload(
+  context?: MossLiveVideoContext | null
+): MinimalSessionUpdatePayload {
   return {
     action: "session.update",
     session: {
@@ -221,9 +282,10 @@ export function buildMinimalSessionUpdatePayload(): MinimalSessionUpdatePayload 
         aliases: ["伴看助手", "小助手"],
         prompt: "你是BiliScript内置的B站视频伴看AI助手，正在和用户一起观看视频。回答应当自然口语化、简明扼要，像朋友一起看视频聊天。"
       },
-      instructions: "当前正在观看B站视频伴看会话。",
+      instructions: buildVideoInstructions(context),
       voice: "moss-voice-default",
-      modalities: ["audio", "text"]
+      modalities: ["audio", "text"],
+      tools: MOSS_LIVE_SUBTITLE_TOOLS
     }
   };
 }
@@ -244,6 +306,7 @@ export type MossParsedServerEvent =
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
   | { kind: "audio.stop"; runId: string; turnId: string }
+  | { kind: "tool.call"; call: MossLiveToolCall }
   | { kind: "error"; message: string; code: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -317,6 +380,12 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       const turnId = readStr(data, obj, "turn_id");
       return { kind: "audio.stop", runId, turnId };
     }
+    case "tool.call": {
+      const callId = readStr(data, obj, "call_id") || readStr(data, obj, "tool_call_id") || readStr(data, obj, "id");
+      const name = readStr(data, obj, "name");
+      const args = data?.arguments ?? obj.arguments ?? data?.args ?? obj.args ?? {};
+      return { kind: "tool.call", call: { callId, name, arguments: args } };
+    }
     case "error": {
       const nestedErr = asRecord(data?.error);
       const code =
@@ -344,7 +413,9 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
 
 /** Offscreen 端口上行（Client -> Offscreen）消息 */
 export type MossLiveClientAction =
-  | { action: "start"; wsUrl?: string }
+  | { action: "start"; wsUrl?: string; videoContext?: MossLiveVideoContext | null }
+  | { action: "context_update"; videoContext: MossLiveVideoContext | null }
+  | { action: "tool_result"; callId: string; result: unknown }
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }
   | { action: "mic_state"; enabled: boolean };
@@ -355,4 +426,6 @@ export type MossLiveServerEvent =
   | { type: "connected" }
   | { type: "error"; error: string }
   | { type: "closed"; reason?: string }
-  | { type: "transcript"; event: MossLiveTranscriptEvent };
+  | { type: "transcript"; event: MossLiveTranscriptEvent }
+  | { type: "tool_call"; call: MossLiveToolCall }
+  | { type: "tool_error"; error: string };

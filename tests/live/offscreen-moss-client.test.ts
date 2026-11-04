@@ -767,3 +767,71 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 });
+
+
+describe("OffscreenMossLiveClient subtitle tools and context refresh", () => {
+  const context = {
+    url: "https://www.bilibili.com/video/BV1test000000/",
+    bvid: "BV1test000000",
+    cid: "123",
+    title: "实时语音原理",
+    pageIndex: 1,
+    pageCount: 1,
+    pageTitle: "",
+    chapters: []
+  };
+
+  it("sends initial context, deduplicates unchanged refreshes, and relays tool calls/results", () => {
+    const onToolCall = vi.fn();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload(context));
+    client.updateVideoContext(context);
+    expect(ws.sentData).toHaveLength(3);
+
+    const nextContext = { ...context, cid: "456", pageIndex: 2, pageTitle: "第二部分" };
+    client.updateVideoContext(nextContext);
+    expect(ws.sentData).toHaveLength(4);
+    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "tool.call",
+      data: { call_id: "call-1", name: "search_video_subtitles", arguments: { query: "语音" } }
+    }));
+    expect(onToolCall).toHaveBeenCalledWith({
+      callId: "call-1",
+      name: "search_video_subtitles",
+      arguments: { query: "语音" }
+    });
+    expect(client.sendToolResult("call-1", { ok: true, items: [] })).toBe(true);
+    expect(JSON.parse(ws.sentData[4])).toEqual({
+      action: "tool.result",
+      call_id: "call-1",
+      result: { ok: true, items: [] }
+    });
+    expect(client.getState()).toBe("connected");
+  });
+
+  it("always answers tool.call with a structured error when no executor is attached", () => {
+    const client = new OffscreenMossLiveClient();
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+    ws.simulateMessage(JSON.stringify({
+      action: "tool.call",
+      data: { call_id: "call-2", name: "search_video_subtitles", arguments: {} }
+    }));
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "tool.result",
+      call_id: "call-2",
+      result: { ok: false, error: "当前客户端未接入字幕工具执行器" }
+    });
+    expect(client.getState()).toBe("connected");
+  });
+});

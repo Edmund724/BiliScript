@@ -7,7 +7,9 @@ import {
   encodeBase64Bytes,
   resolveMossLiveWsUrl,
   type MossLiveServerEvent,
-  type MossLiveTranscriptEvent
+  type MossLiveToolCall,
+  type MossLiveTranscriptEvent,
+  type MossLiveVideoContext
 } from "./moss-live-protocol.js";
 import {
   createPageAudioCapture,
@@ -16,6 +18,7 @@ import {
 } from "./page-media-capture.js";
 import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
+import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
 
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
@@ -31,6 +34,9 @@ export interface LiveChatControllerDeps {
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   createTranscriptMerger?: () => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  getVideoContext?: () => MossLiveVideoContext | null;
+  executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
+  subscribeVideoContextChanges?: (listener: () => void) => () => void;
 }
 
 export interface LiveChatController {
@@ -55,7 +61,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     requestOrigins = requestProviderOriginsViaBackground,
     startAudioCapture = createPageAudioCapture,
     createTranscriptMerger,
-    onTranscript
+    onTranscript,
+    getVideoContext,
+    executeTool,
+    subscribeVideoContextChanges
   } = deps;
 
   let state: LiveChatState = "idle";
@@ -128,6 +137,45 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch {
       // 忽略清理阶段的发送失败
     }
+  }
+
+  let stopVideoContextWatch: (() => void) | null = null;
+
+  function readVideoContext(): MossLiveVideoContext | null {
+    try {
+      return getVideoContext?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function postVideoContext(context: MossLiveVideoContext | null): void {
+    if (!activePort) return;
+    try {
+      activePort.postMessage({ action: "context_update", videoContext: context });
+    } catch {}
+  }
+
+  function syncVideoContext(): void {
+    postVideoContext(readVideoContext());
+  }
+
+  function watchVideoContext(generation: number): void {
+    const guardedSync = () => {
+      if (generation === currentGeneration) syncVideoContext();
+    };
+    const handleUrlChange = () => {
+      if (generation !== currentGeneration) return;
+      postVideoContext(null);
+      guardedSync();
+    };
+    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+    const unsubscribe = subscribeVideoContextChanges?.(guardedSync) || (() => {});
+    stopVideoContextWatch = () => {
+      window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+      unsubscribe();
+      stopVideoContextWatch = null;
+    };
   }
 
   async function start(): Promise<boolean> {
@@ -269,11 +317,29 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connecting");
       } else if (msg.type === "connected") {
         updateUi("connected");
+        if (getVideoContext) syncVideoContext();
       } else if (msg.type === "transcript") {
         if (state === "connected" || state === "connecting") {
           activeMerger?.handleEvent(msg.event);
           onTranscript?.(msg.event);
         }
+      } else if (msg.type === "tool_call") {
+        const postToolResult = (result: unknown) => {
+          if (generation !== currentGeneration || !activePort) return;
+          try {
+            activePort.postMessage({ action: "tool_result", callId: msg.call.callId, result });
+          } catch {}
+        };
+        void Promise.resolve()
+          .then(() => executeTool
+            ? executeTool(msg.call)
+            : { ok: false, error: "当前页面未接入字幕工具" })
+          .then(postToolResult)
+          .catch((error) => {
+            postToolResult({ ok: false, error: `字幕工具执行失败：${(error as Error)?.message || String(error)}` });
+          });
+      } else if (msg.type === "tool_error") {
+        showNotice(msg.error, 4000);
       } else if (msg.type === "error") {
         const errorMsg = msg.error || "MOSS-LIVE 连接异常中断";
         stopActiveMediaAndMerger();
@@ -306,8 +372,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     });
 
     const wsUrl = resolveMossLiveWsUrl(prepResp.provider?.baseUrl, prepResp.provider?.model);
+    if (getVideoContext) {
+      watchVideoContext(generation);
+    }
     try {
-      port.postMessage({ action: "start", wsUrl });
+      port.postMessage({
+        action: "start",
+        wsUrl,
+        ...(getVideoContext ? { videoContext: readVideoContext() } : {})
+      });
     } catch (error) {
       stopActiveMediaAndMerger();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
@@ -322,6 +395,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function disconnectPort(): void {
+    stopVideoContextWatch?.();
     if (activePort) {
       try {
         activePort.disconnect();

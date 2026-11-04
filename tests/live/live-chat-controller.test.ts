@@ -8,7 +8,11 @@ import {
 } from "../../extension/live/live-chat-controller.js";
 import type { PageAudioCaptureOptions, PageAudioCaptureSession } from "../../extension/live/page-media-capture.js";
 import type { LiveTranscriptMerger } from "../../extension/live/live-transcript-merger.js";
-import type { MossLiveTranscriptEvent } from "../../extension/live/moss-live-protocol.js";
+import type {
+  MossLiveToolCall,
+  MossLiveTranscriptEvent,
+  MossLiveVideoContext
+} from "../../extension/live/moss-live-protocol.js";
 
 class FakePort {
   name: string;
@@ -96,6 +100,9 @@ describe("LiveChatController", () => {
     sendRuntimeMessage?: (msg: any) => Promise<any>;
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
     port?: FakePort;
+    getVideoContext?: () => MossLiveVideoContext | null;
+    executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
+    subscribeVideoContextChanges?: (listener: () => void) => () => void;
   } = {}) {
     const liveButton = document.createElement("button");
     const muteButton = document.createElement("button");
@@ -155,7 +162,10 @@ describe("LiveChatController", () => {
       requestOrigins,
       startAudioCapture,
       createTranscriptMerger,
-      getTargetOrigin: overrides.getTargetOrigin
+      getTargetOrigin: overrides.getTargetOrigin,
+      getVideoContext: overrides.getVideoContext,
+      executeTool: overrides.executeTool,
+      subscribeVideoContextChanges: overrides.subscribeVideoContextChanges
     });
 
     return {
@@ -475,5 +485,104 @@ describe("LiveChatController", () => {
     expect(controller.getState()).toBe("idle");
     // Verify cleanup was invoked for the stale prepare completion so rule does not leak
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
+  });
+});
+
+
+describe("LiveChatController subtitle context and tools", () => {
+  function setupContextTest(overrides: {
+    getVideoContext?: () => MossLiveVideoContext | null;
+    executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
+    subscribeVideoContextChanges?: (listener: () => void) => () => void;
+  }) {
+    const liveButton = document.createElement("button");
+    const fakePort = new FakePort();
+    const controller = createLiveChatController({
+      liveButton,
+      connectPort: () => fakePort as any,
+      requestOrigins: async () => ({ ok: true }),
+      sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
+        ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+        : { ok: true }) as any,
+      startAudioCapture: async (options) => new FakeAudioCapture(options),
+      getVideoContext: overrides.getVideoContext,
+      executeTool: overrides.executeTool,
+      subscribeVideoContextChanges: overrides.subscribeVideoContextChanges
+    });
+    return { controller, fakePort };
+  }
+
+  const initialContext: MossLiveVideoContext = {
+    url: "https://www.bilibili.com/video/BV1test000000/",
+    bvid: "BV1test000000",
+    cid: "123",
+    title: "旧视频",
+    pageIndex: 1,
+    pageCount: 1,
+    pageTitle: "",
+    chapters: []
+  };
+
+  it("invalidates context on SPA navigation, restores the settled clip, and unsubscribes on stop", async () => {
+    let context: MossLiveVideoContext | null = initialContext;
+    let contextListener: (() => void) | null = null;
+    const unsubscribe = vi.fn();
+    const { controller, fakePort } = setupContextTest({
+      getVideoContext: () => context,
+      subscribeVideoContextChanges: (listener) => {
+        contextListener = listener;
+        return unsubscribe;
+      }
+    });
+
+    await controller.start();
+    expect(fakePort.postedMessages[0]).toEqual({
+      action: "start",
+      wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
+      videoContext: initialContext
+    });
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+
+    context = null;
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    expect(fakePort.postedMessages).toEqual([
+      { action: "context_update", videoContext: null },
+      { action: "context_update", videoContext: null }
+    ]);
+
+    const nextContext = { ...initialContext, bvid: "BV1next000000", cid: "456", title: "新视频" };
+    context = nextContext;
+    contextListener!();
+    expect(fakePort.postedMessages.at(-1)).toEqual({ action: "context_update", videoContext: nextContext });
+
+    await controller.stop();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns tool failures to offscreen without tearing down the connected session", async () => {
+    const executeTool = vi.fn(async () => {
+      throw new Error("subtitle unavailable");
+    });
+    const { controller, fakePort } = setupContextTest({ executeTool });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    const call: MossLiveToolCall = {
+      callId: "call-1",
+      name: "search_video_subtitles",
+      arguments: { query: "字幕" }
+    };
+    fakePort.simulateMessage({ type: "tool_call", call });
+
+    await vi.waitFor(() => {
+      expect(fakePort.postedMessages).toContainEqual({
+        action: "tool_result",
+        callId: "call-1",
+        result: { ok: false, error: "字幕工具执行失败：subtitle unavailable" }
+      });
+    });
+    expect(executeTool).toHaveBeenCalledWith(call);
+    expect(controller.getState()).toBe("connected");
+    expect(fakePort.disconnected).toBe(false);
   });
 });

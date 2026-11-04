@@ -144,6 +144,7 @@ import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
+import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { liveProviderStore, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
@@ -905,13 +906,25 @@ function bindEvents(): void {
   });
   // 模型 chip：点开模型 + 思考档位面板。
   if (els.liveBtn) {
+    const showLiveNotice = (message: string, autoHideMs?: number) => {
+      showConversationContextNotice(message, autoHideMs || 4000);
+    };
+    const liveTools = createLiveToolsBridge({
+      getCurrentTime: () => getRuntimeVideoElement()?.currentTime || 0,
+      showNotice: showLiveNotice
+    });
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
       getTargetOrigin: () => cachedLiveTargetOrigin,
-      showNotice: (message, autoHideMs) => {
-        showConversationContextNotice(message, autoHideMs || 4000);
-      },
+      showNotice: showLiveNotice,
+      getVideoContext: liveTools.getVideoContext,
+      executeTool: liveTools.executeTool,
+      subscribeVideoContextChanges: (listener) => subscribeReaderPresenter((event) => {
+        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
+          listener();
+        }
+      }),
       createTranscriptMerger: () =>
         createLiveTranscriptMerger({
           messagesContainer: els.messages,
