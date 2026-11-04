@@ -119,6 +119,16 @@ describe("attachMossLivePort", () => {
       event: { kind: "input.updated", text: "正在提问" }
     });
 
+    createdClient!.options.onToolStatus?.({
+      tool: "web_search",
+      status: "searching",
+      query: "最新财报"
+    });
+    expect(port.postedMessages).toContainEqual({
+      type: "tool_status",
+      event: { tool: "web_search", status: "searching", query: "最新财报" }
+    });
+
     // Relays base64 audio from port to client.sendAudioPcm
     const samplePcm = new Uint8Array([1, 2, 3, 4]);
     port.simulateMessage({
@@ -138,9 +148,10 @@ describe("attachMossLivePort", () => {
     expect(createdClient!.closed).toBe(true);
     expect(port.postedMessages).toContainEqual({ type: "closed" });
 
-    // Late transcript after stop is ignored
+    // Late transcript and tool status after stop are ignored
     const countBefore = port.postedMessages.length;
     staleOptions.onTranscript?.({ kind: "output.done", text: "迟到消息", runId: "r1", turnId: "t1" });
+    staleOptions.onToolStatus?.({ tool: "web_search", status: "done", query: "迟到查询" });
     expect(port.postedMessages).toHaveLength(countBefore);
   });
 

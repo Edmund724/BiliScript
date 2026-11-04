@@ -198,6 +198,22 @@ export function resolveMossLiveWsUrl(baseUrl?: string, model?: string): string {
 }
 
 /** 建立会话所需的最小 session.update 载荷 */
+export interface MossLiveToolDefinition {
+  type: "function";
+  name: "web_search";
+  description: string;
+  parameters: {
+    type: "object";
+    properties: {
+      query: {
+        type: "string";
+        description: string;
+      };
+    };
+    required: ["query"];
+  };
+}
+
 export interface MinimalSessionUpdatePayload {
   action: "session.update";
   session: {
@@ -209,6 +225,8 @@ export interface MinimalSessionUpdatePayload {
     instructions: string;
     voice: string;
     modalities: string[];
+    tools: [MossLiveToolDefinition];
+    tool_choice: "auto";
   };
 }
 
@@ -221,9 +239,23 @@ export function buildMinimalSessionUpdatePayload(): MinimalSessionUpdatePayload 
         aliases: ["伴看助手", "小助手"],
         prompt: "你是BiliScript内置的B站视频伴看AI助手，正在和用户一起观看视频。回答应当自然口语化、简明扼要，像朋友一起看视频聊天。"
       },
-      instructions: "当前正在观看B站视频伴看会话。",
+      instructions:
+        "当前正在观看B站视频伴看会话。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。工具返回无结果、失败或超时时必须明确告知用户，不得编造外部事实。",
       voice: "moss-voice-default",
-      modalities: ["audio", "text"]
+      modalities: ["audio", "text"],
+      tools: [
+        {
+          type: "function",
+          name: "web_search",
+          description: "搜索互联网获取视频内容之外的信息。需要时效性信息、外部事实或用户要求联网查证时调用。",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", description: "搜索关键词" } },
+            required: ["query"]
+          }
+        }
+      ],
+      tool_choice: "auto"
     }
   };
 }
@@ -236,6 +268,15 @@ export type MossLiveTranscriptEvent =
   | { kind: "output.done"; text: string; runId: string; turnId: string }
   | { kind: "response.ended"; status: string; runId: string; turnId: string };
 
+export interface MossLiveToolStatusEvent {
+  tool: "web_search";
+  status: "searching" | "done" | "no_results" | "failed";
+  query: string;
+  resultCount?: number;
+  platform?: string;
+  error?: string;
+}
+
 /** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
@@ -244,6 +285,15 @@ export type MossParsedServerEvent =
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
   | { kind: "audio.stop"; runId: string; turnId: string }
+  | {
+      kind: "function_call.done";
+      callId: string;
+      name: string;
+      argumentsText: string;
+      runId: string;
+      turnId: string;
+    }
+  | { kind: "response.interrupted"; runId: string; turnId: string }
   | { kind: "error"; message: string; code: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -317,6 +367,23 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       const turnId = readStr(data, obj, "turn_id");
       return { kind: "audio.stop", runId, turnId };
     }
+    case "response.function_call_arguments.done": {
+      return {
+        kind: "function_call.done",
+        callId: readStr(data, obj, "call_id"),
+        name: readStr(data, obj, "name"),
+        argumentsText: readStr(data, obj, "arguments"),
+        runId: readStr(data, obj, "run_id"),
+        turnId: readStr(data, obj, "turn_id")
+      };
+    }
+    case "response.interrupted": {
+      return {
+        kind: "response.interrupted",
+        runId: readStr(data, obj, "run_id"),
+        turnId: readStr(data, obj, "turn_id")
+      };
+    }
     case "error": {
       const nestedErr = asRecord(data?.error);
       const code =
@@ -355,4 +422,5 @@ export type MossLiveServerEvent =
   | { type: "connected" }
   | { type: "error"; error: string }
   | { type: "closed"; reason?: string }
-  | { type: "transcript"; event: MossLiveTranscriptEvent };
+  | { type: "transcript"; event: MossLiveTranscriptEvent }
+  | { type: "tool_status"; event: MossLiveToolStatusEvent };
