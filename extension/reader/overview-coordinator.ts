@@ -46,6 +46,8 @@ export interface ReaderOverviewCoordinator {
   trigger(options?: { forceRefresh?: boolean }): Promise<void>;
   /** 取消进行中的生成 */
   cancel(): void;
+  /** 概览相位或产物变化时通知（不含每秒进度）；返回退订函数 */
+  subscribe(listener: () => void): () => void;
   /** 会话收尾：状态与产物引用归位（不取消进行中生成） */
   reset(): void;
   /** 当前相位查询（含当前 clip 身份自愈对账） */
@@ -127,6 +129,41 @@ export function createOverviewCoordinator(
   let inflightAbort: ReaderOverviewInflightAbort | null = null;
   let waitTicker: ReturnType<typeof setInterval> | null = null;
   let cancelRequested = false;
+  // 伴看等外部消费方的变更订阅：只在相位/产物/错误变化时扇出，进度文案不进签名
+  // （每秒变化会把会话指令刷成噪声）。签名去重让 cancel/reset 的重复写点天然幂等。
+  const changeListeners = new Set<() => void>();
+  let lastNotifiedSignature = "";
+
+  function overviewChangeSignature(): string {
+    return JSON.stringify({
+      phase: overview.phase,
+      analysis: overview.analysis,
+      errorText: overview.errorText
+    });
+  }
+
+  function notifyOverviewChanged(): void {
+    const signature = overviewChangeSignature();
+    if (signature === lastNotifiedSignature) return;
+    lastNotifiedSignature = signature;
+    for (const listener of [...changeListeners]) {
+      try {
+        listener();
+      } catch {
+        // 订阅方异常不得打断协调器状态机
+      }
+    }
+  }
+
+  function subscribeOverviewChanges(listener: () => void): () => void {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    changeListeners.add(listener);
+    return () => {
+      changeListeners.delete(listener);
+    };
+  }
 
   function getClipBody(): { from: number; to: number; content: string }[] {
     const body = deps.getClip().subtitleBody;
@@ -295,6 +332,7 @@ export function createOverviewCoordinator(
     overview.inflight = null;
     clearOverviewToCancelled();
     renderIfOpen();
+    notifyOverviewChanged();
   }
 
   function triggerReaderOverviewGeneration(
@@ -306,6 +344,7 @@ export function createOverviewCoordinator(
     if (getClipBody().length === 0) {
       markEmptyPhase();
       renderIfOpen();
+      notifyOverviewChanged();
       return Promise.resolve();
     }
     const clipKey = currentOverviewKey();
@@ -336,6 +375,7 @@ export function createOverviewCoordinator(
     overview.errorText = "";
     startWaitTicker();
     renderIfOpen();
+    notifyOverviewChanged();
 
     const run = startOverviewRun(clipKey, forceRefresh, slot);
     overview.inflight = run;
@@ -396,6 +436,7 @@ export function createOverviewCoordinator(
       overview.progressText = "";
       overview.errorText = "";
       renderIfOpen();
+      notifyOverviewChanged();
     } catch (error) {
       if (inflightAbort !== slot || overview.generatedFor !== clipKey) {
         return;
@@ -404,16 +445,19 @@ export function createOverviewCoordinator(
         if (cancelRequested) {
           clearOverviewToCancelled();
           renderIfOpen();
+          notifyOverviewChanged();
           return;
         }
         dropOverviewProduct();
         renderIfOpen();
+        notifyOverviewChanged();
         return;
       }
       overview.phase = "error";
       overview.errorText = getErrorMessage(error, "概览生成失败");
       overview.progressText = "";
       renderIfOpen();
+      notifyOverviewChanged();
     }
   }
 
@@ -427,6 +471,7 @@ export function createOverviewCoordinator(
     overview.errorText = "";
     overview.generatedFor = "";
     overview.inflight = null;
+    notifyOverviewChanged();
   }
 
   function getReaderOverviewPhase(): ReaderOverviewPhase {
@@ -465,6 +510,7 @@ export function createOverviewCoordinator(
   return {
     trigger: triggerReaderOverviewGeneration,
     cancel: cancelReaderOverview,
+    subscribe: subscribeOverviewChanges,
     reset: resetReaderOverviewState,
     getPhase: getReaderOverviewPhase,
     getSnapshot: getReaderOverviewSnapshot,

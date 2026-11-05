@@ -5,6 +5,12 @@ import type { ClipState } from "../../extension/core/state.js";
 
 const URL = "https://www.bilibili.com/video/BV1test000000/?p=2";
 
+const READY_ANALYSIS = {
+  summary: "全片简介",
+  chapters: [{ from: 0, to: 40, title: "开场", summary: "介绍原理" }],
+  quotes: [{ from: 10, content: "连接建立后才有工具调用" }]
+};
+
 function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
   return {
     bvid: "BV1test000000",
@@ -47,7 +53,8 @@ describe("createLiveToolsBridge", () => {
       chapters: [
         { title: "开场", from: 0, to: 10 },
         { title: "后半部分", from: 40, to: 0 }
-      ]
+      ],
+      overview: null
     });
   });
 
@@ -270,4 +277,56 @@ describe("control_bilibili_player", () => {
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining("视频已切换") });
     expect(video.currentTime).toBe(12);
   });
+  it("carries the reader overview snapshot with coverage and stable status text", () => {
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getOverview: () => ({
+        phase: "ready",
+        analysis: {
+          summary: "全片简介",
+          chapters: [{ from: 0, to: 40, title: "开场", summary: "介绍原理" }],
+          quotes: [{ from: 10, content: "连接建立后才有工具调用" }]
+        },
+        errorText: ""
+      })
+    });
+
+    const context = bridge.getVideoContext();
+    expect(context?.overview).toMatchObject({
+      phase: "ready",
+      coverage: "complete",
+      summary: "全片简介",
+      chapters: [{ time: "0:00", title: "开场", summary: "介绍原理" }],
+      quotes: [{ time: "0:10", content: "连接建立后才有工具调用" }]
+    });
+  });
+
+  it("marks partial overviews incomplete and keeps the failed ranges in context", () => {
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getOverview: () => ({
+        phase: "partial",
+        analysis: { ...READY_ANALYSIS, failedRanges: [{ from: 120, to: 300 }] },
+        errorText: ""
+      })
+    });
+
+    const overview = bridge.getVideoContext()?.overview;
+    expect(overview?.coverage).toBe("partial");
+    expect(overview?.statusText).toContain("覆盖不完整");
+    expect(overview?.failedRanges).toEqual([{ from: 120, to: 300 }]);
+  });
+
+  it("never carries full subtitles alongside the overview", () => {
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getOverview: () => ({ phase: "ready", analysis: READY_ANALYSIS, errorText: "" })
+    });
+
+    expect(JSON.stringify(bridge.getVideoContext())).not.toContain("WebSocket 建立连接");
+  });
+
 });

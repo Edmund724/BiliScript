@@ -462,6 +462,99 @@ describe("subtitle-aware session and tool calls", () => {
     expect(payload.session.instructions).toContain("不得声称操作已成功");
   });
 
+  it("renders the full-video overview and forbids search/subtitle substitution", () => {
+    const payload = buildMinimalSessionUpdatePayload({
+      url: "https://www.bilibili.com/video/BV1test000000/",
+      bvid: "BV1test000000",
+      cid: "123",
+      title: "实时语音原理",
+      pageIndex: 1,
+      pageCount: 1,
+      pageTitle: "",
+      chapters: [],
+      overview: {
+        phase: "ready",
+        coverage: "complete",
+        summary: "全片介绍实时语音链路。",
+        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
+        quotes: [{ from: 125, time: "2:05", content: "延迟就是体验。" }],
+        statusText: ""
+      }
+    });
+    const instructions = payload.session.instructions;
+    expect(instructions).toContain("不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论");
+    expect(instructions).toContain("全片概览状态：ready（覆盖：complete）");
+    expect(instructions).toContain("全片简介：全片介绍实时语音链路。");
+    expect(instructions).toContain("0:00 开场：为什么需要实时");
+    expect(instructions).toContain("2:05 延迟就是体验。");
+  });
+
+  it("marks partial coverage as incomplete and lists uncovered ranges", () => {
+    const payload = buildMinimalSessionUpdatePayload({
+      url: "https://www.bilibili.com/video/BV1test000000/",
+      bvid: "BV1test000000",
+      cid: "123",
+      title: "实时语音原理",
+      pageIndex: 1,
+      pageCount: 1,
+      pageTitle: "",
+      chapters: [],
+      overview: {
+        phase: "partial",
+        coverage: "partial",
+        summary: "",
+        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "" }],
+        quotes: [],
+        failedRanges: [{ from: 120, to: 300 }],
+        statusText: "覆盖不完整：1 段字幕生成失败；不得当作完整全片总结。"
+      }
+    });
+    const instructions = payload.session.instructions;
+    expect(instructions).toContain("全片概览状态：partial（覆盖：partial）");
+    expect(instructions).toContain("不得当作完整全片总结");
+    expect(instructions).toContain("未覆盖区间：2:00");
+  });
+
+  it("states the not-ready status instead of inventing a full-video summary", () => {
+    const payload = buildMinimalSessionUpdatePayload({
+      url: "https://www.bilibili.com/video/BV1test000000/",
+      bvid: "BV1test000000",
+      cid: "123",
+      title: "实时语音原理",
+      pageIndex: 1,
+      pageCount: 1,
+      pageTitle: "",
+      chapters: [],
+      overview: {
+        phase: "generating",
+        coverage: "none",
+        summary: "",
+        chapters: [],
+        quotes: [],
+        statusText: "全片概览正在生成，尚未完成；完成后会自动更新，未完成前不得编造全片内容。"
+      }
+    });
+    const instructions = payload.session.instructions;
+    expect(instructions).toContain("全片概览状态：generating（覆盖：none）");
+    expect(instructions).toContain("正在生成");
+    expect(instructions).not.toContain("全片简介：");
+  });
+
+  it("tells the assistant to admit no overview is available when none is wired", () => {
+    const payload = buildMinimalSessionUpdatePayload({
+      url: "https://www.bilibili.com/video/BV1test000000/",
+      bvid: "BV1test000000",
+      cid: "123",
+      title: "实时语音原理",
+      pageIndex: 1,
+      pageCount: 1,
+      pageTitle: "",
+      chapters: []
+    });
+    expect(payload.session.instructions).toContain("没有可用的全片概览");
+    expect(payload.session.instructions).toContain("不得编造全片内容");
+  });
+
   it("parses tool.call arguments in object or JSON string form", () => {
     expect(parseMossServerJsonEvent({
       action: "tool.call",

@@ -555,6 +555,31 @@ describe("OffscreenGeminiLiveClient context update", () => {
     expect(client.getState()).toBe("idle");
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
+  it("pushes a completed overview into instructions mid-session and deduplicates it", () => {
+    const { client } = createClient();
+    const ws = connect(client);
+    ws.sentData.length = 0;
+    const withOverview = {
+      ...videoContext,
+      overview: {
+        phase: "ready" as const,
+        coverage: "complete" as const,
+        summary: "全片介绍实时语音链路。",
+        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
+        quotes: [],
+        statusText: ""
+      }
+    };
+
+    client.handleAction({ action: "context_update", videoContext: withOverview });
+    client.handleAction({ action: "context_update", videoContext: withOverview });
+
+    expect(ws.sentData).toHaveLength(1);
+    const text = ws.jsonFrames()[0].clientContent.turns[0].parts[0].text;
+    expect(text).toContain("全片概览状态：ready（覆盖：complete）");
+    expect(text).toContain("全片简介：全片介绍实时语音链路。");
+    expect(text).toContain("0:00 开场：为什么需要实时");
+  });
 });
 
 describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle", () => {

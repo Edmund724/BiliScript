@@ -249,6 +249,50 @@ export function resolveMossLivePermissionOrigins(
 
 export const resolveLivePermissionOrigins = resolveMossLivePermissionOrigins;
 
+export const MOSS_LIVE_OVERVIEW_PHASES = [
+  "idle",
+  "generating",
+  "ready",
+  "partial",
+  "error",
+  "empty",
+  "cancelled"
+] as const;
+
+export type MossLiveOverviewPhase = (typeof MOSS_LIVE_OVERVIEW_PHASES)[number];
+
+export interface MossLiveOverviewChapter {
+  from: number;
+  to: number;
+  /** 真实时刻文本（formatClock 单源），引用章节时原样保留。 */
+  time: string;
+  title: string;
+  summary: string;
+}
+
+export interface MossLiveOverviewQuote {
+  from: number;
+  time: string;
+  content: string;
+}
+
+/**
+ * 伴看上下文的概览事实面：只承载回答全片问题所需的简介、章节脉络、金句与
+ * 覆盖完整性，不携带完整字幕或每秒变化的生成进度。
+ */
+export interface MossLiveOverviewContext {
+  phase: MossLiveOverviewPhase;
+  /** complete 仅当整份概览完整；partial = 分段或简介失败；none = 无可用产物。 */
+  coverage: "complete" | "partial" | "none";
+  summary: string;
+  chapters: MossLiveOverviewChapter[];
+  quotes: MossLiveOverviewQuote[];
+  failedRanges?: Array<{ from: number; to: number }>;
+  summaryFailed?: boolean;
+  /** 未就绪/不完整时的如实说明与等待、重试方式；ready 完整覆盖时为空串。 */
+  statusText: string;
+}
+
 export interface MossLiveVideoContext {
   url: string;
   bvid: string;
@@ -258,6 +302,7 @@ export interface MossLiveVideoContext {
   pageCount: number;
   pageTitle: string;
   chapters: Array<{ title: string; from: number; to?: number }>;
+  overview?: MossLiveOverviewContext | null;
 }
 
 export interface MossLiveVideoIdentity {
@@ -289,7 +334,7 @@ export interface MinimalSessionUpdatePayload {
 export function buildVideoInstructions(context: MossLiveVideoContext | null | undefined): string {
   const shortClock = formatClock(5, { hours: "auto" });
   const longClock = formatClock(3725, { hours: "auto" });
-  const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。`;
+  const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。全片总结、这期讲了什么、内容脉络或核心观点类问题必须依据「全片概览」作答，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；概览未就绪时按状态如实说明并给出等待或重试方式，不得编造全片内容。`;
   if (!context) {
     return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;
   }
@@ -297,7 +342,40 @@ export function buildVideoInstructions(context: MossLiveVideoContext | null | un
   const chapters = context.chapters.length
     ? context.chapters.map((chapter) => `${chapter.from}s ${chapter.title}`).join("；")
     : "无章节信息";
-  return `${base}\n当前视频：${context.title || context.bvid}\nBV：${context.bvid}\nCID：${context.cid}\n当前分P：${part}${context.pageCount ? ` / 共${context.pageCount}P` : ""}\n章节：${chapters}`;
+  return `${base}\n当前视频：${context.title || context.bvid}\nBV：${context.bvid}\nCID：${context.cid}\n当前分P：${part}${context.pageCount ? ` / 共${context.pageCount}P` : ""}\n章节：${chapters}\n${buildOverviewInstructions(context.overview)}`;
+}
+
+function buildOverviewInstructions(overview: MossLiveOverviewContext | null | undefined): string {
+  if (!overview) {
+    return "全片概览：当前没有可用的全片概览；遇到全片总结类问题时如实说明无法总结，不得编造全片内容。";
+  }
+  const lines = [`全片概览状态：${overview.phase}（覆盖：${overview.coverage}）`];
+  if (overview.statusText) {
+    lines.push(overview.statusText);
+  }
+  if (overview.summary) {
+    lines.push(`全片简介：${overview.summary}`);
+  }
+  if (overview.chapters.length > 0) {
+    lines.push("章节脉络（引用时保留以下时刻文本）：");
+    for (const chapter of overview.chapters) {
+      lines.push(`- ${chapter.time} ${chapter.title}${chapter.summary ? `：${chapter.summary}` : ""}`);
+    }
+  }
+  if (overview.quotes.length > 0) {
+    lines.push("金句（引用时保留以下时刻文本）：");
+    for (const quote of overview.quotes) {
+      lines.push(`- ${quote.time} ${quote.content}`);
+    }
+  }
+  if (overview.failedRanges?.length) {
+    const ranges = overview.failedRanges.map(
+      (range) =>
+        `${formatClock(range.from, { hours: "auto" })}–${formatClock(range.to, { hours: "auto" })}`
+    );
+    lines.push(`未覆盖区间：${ranges.join("、")}`);
+  }
+  return lines.join("\n");
 }
 
 export function buildMinimalSessionUpdatePayload(

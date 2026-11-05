@@ -89,6 +89,7 @@ import {
   registerOverviewUiActions,
   renderReadingOverview as renderReadingOverviewUi
 } from "./overview-ui.js";
+import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
@@ -184,6 +185,13 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   clearInterval: (...args) => clearInterval(...args)
 });
 export { overviewCoordinator };
+
+// 伴看上下文取用同一份快照：登记后 chat-tab 组合根经 live-overview-source 直读，
+// 不反向静态依赖本装配根（见该叶子头注）。
+registerReaderOverviewSource({
+  getSnapshot: () => overviewCoordinator.getSnapshot(),
+  subscribe: (listener) => overviewCoordinator.subscribe(listener)
+});
 
 export const triggerReaderOverviewGeneration = (
   options?: { forceRefresh?: boolean }

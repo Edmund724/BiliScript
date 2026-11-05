@@ -5,12 +5,14 @@ import { formatClock } from "../shared/clock-text.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
 import type { MossLiveToolCall, MossLiveVideoContext, MossLiveVideoIdentity } from "./moss-live-protocol.js";
+import { projectLiveOverview, type LiveOverviewSource } from "./live-overview-context.js";
 
 export interface LiveToolsBridgeDeps {
   getClip?: () => Partial<ClipState>;
   getUrl?: () => string;
   getCurrentTime?: () => number;
   getPlayer?: () => HTMLVideoElement | null;
+  getOverview?: () => LiveOverviewSource | null;
   showNotice?: (message: string, autoHideMs?: number) => void;
 }
 
@@ -53,7 +55,11 @@ function clipMatchesPage(clip: Partial<ClipState>, url: string): boolean {
   return clipPage === extractPageIndex(url);
 }
 
-function projectVideoContext(clip: Partial<ClipState>, url: string): MossLiveVideoContext | null {
+function projectVideoContext(
+  clip: Partial<ClipState>,
+  url: string,
+  overviewSource: LiveOverviewSource | null
+): MossLiveVideoContext | null {
   if (!clipMatchesPage(clip, url)) return null;
   return {
     url,
@@ -67,7 +73,8 @@ function projectVideoContext(clip: Partial<ClipState>, url: string): MossLiveVid
       title: chapter.title,
       from: chapter.from,
       to: chapter.to
-    }))
+    })),
+    overview: projectLiveOverview(overviewSource, { fetchState: clip.subtitleFetchState })
   };
 }
 
@@ -92,9 +99,10 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   const getPlayer = deps.getPlayer || getRuntimeVideoElement;
   const getCurrentTime = deps.getCurrentTime || (() => getPlayer()?.currentTime || 0);
   const showNotice = deps.showNotice || (() => {});
+  const getOverview = deps.getOverview || (() => null);
 
   function getVideoContext(): MossLiveVideoContext | null {
-    return projectVideoContext(getClip(), getUrl());
+    return projectVideoContext(getClip(), getUrl(), getOverview());
   }
 
   function contextMatchesCall(call: MossLiveToolCall, context: MossLiveVideoContext): boolean {
@@ -188,7 +196,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       }
       const args = parseArguments(call.arguments);
       const clip = getClip();
-      const context = projectVideoContext(clip, getUrl());
+      const context = projectVideoContext(clip, getUrl(), getOverview());
       if (!context || !contextMatchesCall(call, context)) {
         const result = { ok: false, error: "视频已切换或视频上下文尚未就绪，请稍后再试；不要沿用上一个视频的内容。" };
         showNotice(result.error, 4000);
