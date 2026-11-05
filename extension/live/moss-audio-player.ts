@@ -1,7 +1,7 @@
 // extension/live/moss-audio-player.ts
 // Offscreen MOSS-LIVE 下行 48kHz 单声道 PCM S16LE 无缝队列播放器与回合进度追踪器。
-// 封装 AudioContext 创建/恢复/销毁、元数据与二进制音频帧配对排程、局部打断停播，
-// 以及 playback.chunk.completed / playback.completed / playback.stopped 回执发射。
+// 封装 AudioContext 创建/恢复/销毁、共享输出增益、元数据与二进制音频帧配对排程、
+// 局部打断停播，以及 playback.chunk.completed / playback.completed / playback.stopped 回执发射。
 
 import {
   MOSS_DOWNSTREAM_SAMPLE_RATE,
@@ -24,6 +24,12 @@ export interface AudioBufferSourceNodeLike {
   stop(): void;
 }
 
+export interface AudioGainNodeLike {
+  readonly gain: { value: number };
+  connect(destination: unknown): void;
+  disconnect(): void;
+}
+
 export interface AudioContextLike {
   readonly currentTime: number;
   readonly state?: string;
@@ -32,6 +38,7 @@ export interface AudioContextLike {
   close?(): Promise<void>;
   createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBufferLike;
   createBufferSource(): AudioBufferSourceNodeLike;
+  createGain(): AudioGainNodeLike;
 }
 
 interface PendingAudioContextItem {
@@ -63,11 +70,16 @@ interface TurnPlaybackTracker {
 
 export interface MossAudioPlayerOptions {
   sampleRate?: number;
+  volume?: number;
   enablePlaybackReceipts?: boolean;
   createAudioContext?: () => AudioContextLike | null;
   onSendJson?: (payload: unknown) => void;
   onTurnFinished: (runId: string, turnId: string) => void;
   onStateChange: () => void;
+}
+
+function clampVolume(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
 }
 
 function createBrowserAudioContext(sampleRate: number = MOSS_DOWNSTREAM_SAMPLE_RATE): AudioContextLike | null {
@@ -90,6 +102,8 @@ function createBrowserAudioContext(sampleRate: number = MOSS_DOWNSTREAM_SAMPLE_R
 
 export class MossAudioPlayer {
   private audioCtx: AudioContextLike | null = null;
+  private outputGain: AudioGainNodeLike | null = null;
+  private volume: number;
   private nextPlayTime = 0;
   private readonly pendingAudioContexts: PendingAudioContextItem[] = [];
   private readonly pendingAudioFrames: ArrayBufferLike[] = [];
@@ -105,7 +119,13 @@ export class MossAudioPlayer {
       typeof rawRate === "number" && Number.isFinite(rawRate) && rawRate > 0
         ? rawRate
         : MOSS_DOWNSTREAM_SAMPLE_RATE;
+    this.volume = clampVolume(options.volume ?? 1);
     this.enablePlaybackReceipts = options.enablePlaybackReceipts !== false;
+  }
+
+  setVolume(volume: number): void {
+    this.volume = clampVolume(volume);
+    if (this.outputGain) this.outputGain.gain.value = this.volume;
   }
 
   private ensureAudioContext(): AudioContextLike | null {
@@ -113,6 +133,11 @@ export class MossAudioPlayer {
       this.audioCtx = this.options.createAudioContext
         ? this.options.createAudioContext()
         : createBrowserAudioContext(this.sampleRate);
+      if (this.audioCtx) {
+        this.outputGain = this.audioCtx.createGain();
+        this.outputGain.gain.value = this.volume;
+        this.outputGain.connect(this.audioCtx.destination);
+      }
     }
     if (this.audioCtx && this.audioCtx.state === "suspended") {
       void this.audioCtx.resume?.().catch(() => {});
@@ -300,6 +325,8 @@ export class MossAudioPlayer {
     if (this.audioCtx) {
       const ctx = this.audioCtx;
       this.audioCtx = null;
+      this.outputGain?.disconnect();
+      this.outputGain = null;
       void ctx.close?.().catch(() => {});
     }
   }
@@ -366,7 +393,7 @@ export class MossAudioPlayer {
 
     const source = audioCtx.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
+    source.connect(this.outputGain!);
 
     const startAt = Math.max(audioCtx.currentTime, this.nextPlayTime);
     const durationSec = samples.length / this.sampleRate;

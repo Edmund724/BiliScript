@@ -380,7 +380,11 @@ export class OffscreenGeminiLiveClient {
         if (msg.liveGeminiNativeSearch !== undefined) {
           this.liveGeminiNativeSearch = Boolean(msg.liveGeminiNativeSearch);
         }
+        this.audioPlayer.setVolume(msg.volume ?? 1);
         this.connect();
+        break;
+      case "set_volume":
+        this.audioPlayer.setVolume(msg.volume);
         break;
       case "context_update":
         this.updateVideoContext(msg.videoContext);

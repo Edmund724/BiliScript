@@ -30,10 +30,6 @@ import {
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
-import {
-  createPageVideoDuck,
-  type PageVideoDuckSession
-} from "./page-video-duck.js";
 import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
@@ -44,6 +40,8 @@ export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export interface LiveChatControllerDeps {
   liveButton: HTMLElement;
   muteButton?: HTMLElement | null;
+  volumeControl?: HTMLDetailsElement | null;
+  initialVolume?: number;
   // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
   // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
@@ -56,7 +54,6 @@ export interface LiveChatControllerDeps {
   requestOrigins?: typeof requestProviderOriginsViaBackground;
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
-  createVideoDuck?: () => PageVideoDuckSession;
   createTranscriptMerger?: () => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   getVideoContext?: () => MossLiveVideoContext | null;
@@ -69,6 +66,7 @@ export interface LiveChatController {
   isMuted(): boolean;
   isSpeaking(): boolean;
   setMuted(muted: boolean): void;
+  setVolume(volume: number): void;
   toggleMute(): void;
   interrupt(): void;
   refreshTarget(): Promise<void>;
@@ -82,6 +80,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   const {
     liveButton,
     muteButton = null,
+    volumeControl = null,
+    initialVolume = 1,
     interruptButton = null,
     getTargetOrigin,
     getTargetModel,
@@ -92,7 +92,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     requestOrigins = requestProviderOriginsViaBackground,
     startAudioCapture = createPageAudioCapture,
     startVideoCapture = createPageVideoFrameCapture,
-    createVideoDuck = createPageVideoDuck,
     createTranscriptMerger,
     onTranscript,
     getVideoContext,
@@ -109,12 +108,12 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let state: LiveChatState = "idle";
   let muted = false;
   let speaking = false;
+  let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(1, initialVolume)) : 1;
   let currentGeneration = 0;
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
-  let activeVideoDuck: PageVideoDuckSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
@@ -202,6 +201,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     liveButton.title = tooltip;
     liveButton.setAttribute("aria-label", tooltip);
+    if (volumeControl) {
+      volumeControl.hidden = nextState !== "connected";
+      if (nextState !== "connected") volumeControl.open = false;
+    }
     updateMuteUi();
     updateInterruptUi();
   }
@@ -221,12 +224,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         activeVideoCapture.stop();
       } catch {}
       activeVideoCapture = null;
-    }
-    if (activeVideoDuck) {
-      try {
-        activeVideoDuck.stop();
-      } catch {}
-      activeVideoDuck = null;
     }
     if (activeMerger) {
       try {
@@ -482,15 +479,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           activeMerger?.handleEvent(msg.event);
           onTranscript?.(msg.event);
         }
-      } else if (msg.type === "duck_video") {
-        if (state === "connected" || state === "connecting") {
-          if (!activeVideoDuck && msg.active) {
-            try {
-              activeVideoDuck = createVideoDuck();
-            } catch {}
-          }
-          activeVideoDuck?.setDucked(msg.active);
-        }
       } else if (msg.type === "tool_call") {
         const postToolResult = (result: unknown) => {
           if (generation !== currentGeneration || !activePort) return;
@@ -563,6 +551,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         wsUrl,
         providerType: resolvedProviderType,
         model: resolvedModel,
+        volume,
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
           : {}),
@@ -603,6 +592,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         activePort.postMessage({ action: "mic_state", enabled: !muted });
       } catch {}
     }
+  }
+
+  function setVolume(nextVolume: number): void {
+    volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(1, nextVolume)) : 1;
+    if (!activePort) return;
+    try {
+      activePort.postMessage({ action: "set_volume", volume });
+    } catch {}
   }
 
   function toggleMute(): void {
@@ -657,6 +654,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     isMuted: () => muted,
     isSpeaking: () => speaking,
     setMuted,
+    setVolume,
     toggleMute,
     interrupt,
     refreshTarget,

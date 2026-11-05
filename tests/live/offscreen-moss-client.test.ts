@@ -107,6 +107,11 @@ class FakeAudioContext implements AudioContextLike {
   currentTime = 0;
   state = "running";
   destination = {};
+  readonly outputGain = {
+    gain: { value: 1 },
+    connect: (_destination: unknown) => {},
+    disconnect: () => {}
+  };
   sources: FakeAudioBufferSourceNode[] = [];
   closed = false;
 
@@ -120,6 +125,10 @@ class FakeAudioContext implements AudioContextLike {
 
   createBuffer(_channels: number, length: number, sampleRate: number): AudioBufferLike {
     return new FakeAudioBuffer(length, sampleRate);
+  }
+
+  createGain() {
+    return this.outputGain;
   }
 
   createBufferSource(): AudioBufferSourceNodeLike {
@@ -1257,6 +1266,34 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
       arguments: "{\"command\":\"seek\",\"time\":40}",
       video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
     });
+  });
+  it("pushes a completed overview into session instructions and deduplicates it", () => {
+    const client = new OffscreenMossLiveClient({ videoContext: context });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+    const withOverview = {
+      ...context,
+      overview: {
+        phase: "ready" as const,
+        coverage: "complete" as const,
+        summary: "全片介绍实时语音链路。",
+        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
+        quotes: [],
+        statusText: ""
+      }
+    };
+
+    client.updateVideoContext(withOverview);
+    client.updateVideoContext(withOverview);
+
+    expect(ws.sentData).toHaveLength(1);
+    const instructions = JSON.parse(ws.sentData[0]).session.instructions;
+    expect(instructions).toContain("全片概览状态：ready（覆盖：complete）");
+    expect(instructions).toContain("全片简介：全片介绍实时语音链路。");
+    expect(instructions).toContain("0:00 开场：为什么需要实时");
   });
 });
 

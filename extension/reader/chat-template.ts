@@ -113,6 +113,22 @@ export function buildChatTabBodyHtml(): string {
                   <line x1="12" y1="19" x2="12" y2="22"></line>
                 </svg>
               </button>
+              <details id="${ids.readingChatLiveVolume}" class="chat-live-volume" hidden>
+                <summary class="chat-live-volume-btn" title="AI 音量" aria-label="AI 音量">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    <path d="M11 5 6 9H2v6h4l5 4V5Z"></path>
+                    <path d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+                    <path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
+                  </svg>
+                </summary>
+                <div class="chat-live-volume-panel">
+                  <div class="chat-live-volume-head">
+                    <label for="${ids.readingChatLiveVolumeInput}">AI 音量</label>
+                    <span id="${ids.readingChatLiveVolumeValue}">100%</span>
+                  </div>
+                  <input id="${ids.readingChatLiveVolumeInput}" class="biliscript-range-input" type="range" min="0" max="100" step="1" value="100" />
+                </div>
+              </details>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->

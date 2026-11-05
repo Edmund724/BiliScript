@@ -478,8 +478,10 @@ export type MossLiveClientAction =
       providerType?: LiveProviderType;
       model?: string;
       liveGeminiNativeSearch?: boolean;
+      volume?: number;
       videoContext?: MossLiveVideoContext | null;
     }
+  | { action: "set_volume"; volume: number }
   | { action: "context_update"; videoContext: MossLiveVideoContext | null }
   | { action: "tool_result"; callId: string; result: unknown }
   | { action: "interrupt" }

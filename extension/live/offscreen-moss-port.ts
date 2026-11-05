@@ -108,6 +108,7 @@ export function attachMossLivePort(
           ...(msg.liveGeminiNativeSearch !== undefined
             ? { liveGeminiNativeSearch: msg.liveGeminiNativeSearch }
             : {}),
+          ...(msg.volume !== undefined ? { volume: msg.volume } : {}),
           videoContext: latestVideoContext
         });
       } catch (error) {

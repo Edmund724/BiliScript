@@ -124,6 +124,11 @@ export function normalizeDefaultModel(value: unknown): string {
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
 // ===== 联网搜索 normalizers =====
+export const normalizeLiveVoiceVolume = clampedIntField(
+  0,
+  100,
+  DEFAULT_SETTINGS.liveVoiceVolume
+);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeWebSearchEnabled = booleanField(false);
 

@@ -309,7 +309,8 @@ describe("LiveChatController", () => {
         wsUrl:
           "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
         providerType: "gemini-live",
-        model: "gemini-3.1-flash-live-preview"
+        model: "gemini-3.1-flash-live-preview",
+        volume: 1
       }
     ]);
   });
@@ -445,7 +446,8 @@ describe("LiveChatController", () => {
         action: "start",
         wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
         providerType: "moss-live",
-        model: "moss-live-1.0"
+        model: "moss-live-1.0",
+        volume: 1
       }
     ]);
 
@@ -729,6 +731,7 @@ describe("LiveChatController video context and page tools", () => {
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
       providerType: "moss-live",
       model: "moss-live-1.0",
+      volume: 1,
       videoContext: initialContext
     });
     fakePort.simulateMessage({ type: "connected" });
@@ -747,6 +750,51 @@ describe("LiveChatController video context and page tools", () => {
 
     await controller.stop();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers the overview completed mid-session and ignores duplicate or late updates", async () => {
+    const generatingOverview = {
+      phase: "generating" as const,
+      coverage: "none" as const,
+      summary: "",
+      chapters: [],
+      quotes: [],
+      statusText: "全片概览正在生成，尚未完成。"
+    };
+    const readyOverview = {
+      phase: "ready" as const,
+      coverage: "complete" as const,
+      summary: "全片介绍实时语音链路。",
+      chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
+      quotes: [],
+      statusText: ""
+    };
+    let context: MossLiveVideoContext | null = { ...initialContext, overview: generatingOverview };
+    let contextListener: (() => void) | null = null;
+    const { controller, fakePort } = setupContextTest({
+      getVideoContext: () => context,
+      subscribeVideoContextChanges: (listener) => {
+        contextListener = listener;
+        return () => {};
+      }
+    });
+
+    await controller.start();
+    expect((fakePort.postedMessages[0] as any).videoContext.overview).toEqual(generatingOverview);
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+
+    context = { ...initialContext, overview: readyOverview };
+    contextListener!();
+    contextListener!();
+    expect(fakePort.postedMessages).toEqual([
+      { action: "context_update", videoContext: context }
+    ]);
+
+    await controller.stop();
+    fakePort.postedMessages.length = 0;
+    contextListener!();
+    expect(fakePort.postedMessages).toHaveLength(0);
   });
 
   it("returns tool failures to offscreen without tearing down the connected session", async () => {

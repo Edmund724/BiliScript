@@ -69,8 +69,8 @@ import { thinkingViewOf } from "../chat/thinking-picker.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeChatLineHeight, normalizeChatParagraphSpacing } from "../core/validators.js";
-import { bindResettableRangeSlider } from "../ui/range-slider.js";
+import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeLiveVoiceVolume } from "../core/validators.js";
+import { bindResettableRangeSlider, initRangeSlider, syncRangeProgress } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -144,6 +144,9 @@ import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
+import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
+// 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
+import { getReaderOverviewSource, subscribeReaderOverviewSource } from "./live-overview-source.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 
@@ -191,7 +194,10 @@ const els = {
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
-  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null
+  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
+  liveVolume: document.getElementById(ids.readingChatLiveVolume) as HTMLDetailsElement | null,
+  liveVolumeInput: document.getElementById(ids.readingChatLiveVolumeInput) as HTMLInputElement | null,
+  liveVolumeValue: document.getElementById(ids.readingChatLiveVolumeValue) as HTMLElement | null
 };
 
 function requireShell(): void {
@@ -902,18 +908,56 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
   // 模型 chip：点开模型 + 思考档位面板。
+  const syncLiveVolume = (raw: unknown): number => {
+    const value = normalizeLiveVoiceVolume(raw);
+    if (els.liveVolumeInput) {
+      els.liveVolumeInput.value = String(value);
+      els.liveVolumeInput.setAttribute("aria-valuetext", `${value}%`);
+      syncRangeProgress(els.liveVolumeInput);
+    }
+    if (els.liveVolumeValue) els.liveVolumeValue.textContent = `${value}%`;
+    return value;
+  };
+  initRangeSlider(els.liveVolumeInput);
+  syncLiveVolume(state.settings?.liveVoiceVolume ?? DEFAULT_SETTINGS.liveVoiceVolume);
+  els.liveVolumeInput?.addEventListener("input", () => {
+    const value = syncLiveVolume(els.liveVolumeInput!.value);
+    liveController?.setVolume(value / 100);
+    state.patchSettings({ liveVoiceVolume: value });
+  });
+  els.liveVolumeInput?.addEventListener("change", () => {
+    const value = syncLiveVolume(els.liveVolumeInput!.value);
+    void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: value } }).catch(() => null);
+  });
   if (els.liveBtn) {
+    // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
+    // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
+    const liveToolsBridge = createLiveToolsBridge({
+      showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+      getOverview: () => getReaderOverviewSource()
+    });
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
+      volumeControl: els.liveVolume,
+      initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-      subscribeVideoContextChanges: (listener) => subscribeReaderPresenter((event) => {
-        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-          listener();
-        }
-      }),
+      getVideoContext: liveToolsBridge.getVideoContext,
+      executeTool: liveToolsBridge.executeTool,
+      subscribeVideoContextChanges: (listener) => {
+        const unsubscribePresenter = subscribeReaderPresenter((event) => {
+          if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
+            listener();
+          }
+        });
+        const unsubscribeOverview = subscribeReaderOverviewSource(listener);
+        return () => {
+          unsubscribePresenter();
+          unsubscribeOverview();
+        };
+      },
       createTranscriptMerger: () =>
         createLiveTranscriptMerger({
           messagesContainer: els.messages,
