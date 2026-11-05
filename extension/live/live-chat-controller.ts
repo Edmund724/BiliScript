@@ -45,6 +45,7 @@ export interface LiveChatControllerDeps {
   // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
   // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
+  onInterruptStateChange?: (active: boolean) => void;
   getTargetOrigin?: () => string;
   getTargetModel?: () => string;
   getTargetProviderType?: () => LiveProviderType;
@@ -83,6 +84,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     volumeControl = null,
     initialVolume = 1,
     interruptButton = null,
+    onInterruptStateChange,
     getTargetOrigin,
     getTargetModel,
     getTargetProviderType,
@@ -161,7 +163,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (!interruptButton) return;
     // 中断键复用输入栏最右侧的发送/停止同键（文本对话流式时的停止键形态），不新增
     // 专用按钮：说话期间挂 .is-live-interrupt 切停止图标（与 .is-stop 同视觉，但两个
-    // 类各归各的驱动方、互不覆盖）。hidden/disabled 不触碰——发送键禁用态归 composer。
+    // 类各归各的驱动方、互不覆盖）。禁用态经 onInterruptStateChange 通知 composer
+    // 统一同步，未传回调时回退为直接切换 disabled。
     // label 回落按文本流式相位（.is-stop）还原，不复读旧值。
     const shouldShow = state === "connected" && speaking;
     interruptButton.classList.toggle("is-live-interrupt", shouldShow);
@@ -175,6 +178,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         interruptButton.classList.contains("is-stop") ? "停止" : "发送"
       );
     }
+    if (interruptButton instanceof HTMLButtonElement) {
+      interruptButton.disabled = !shouldShow;
+    }
+    onInterruptStateChange?.(shouldShow);
   }
 
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {

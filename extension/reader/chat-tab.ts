@@ -325,8 +325,8 @@ const composer = createReaderChatComposer({
     // 伴看说话期间发送键复用停止键形态（控制器挂 .is-live-interrupt）：
     // 点击优先打断伴看语音，其余回落文本流中止。
     stopActiveStream: () => {
-      if (liveController?.isSpeaking()) {
-        liveController.interrupt();
+      if (liveController?.isSpeaking() || els.sendBtn.classList.contains("is-live-interrupt")) {
+        liveController?.interrupt();
         return;
       }
       chatRuntime.stopActiveStream();
@@ -937,6 +937,7 @@ function bindEvents(): void {
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
+      onInterruptStateChange: () => composer.syncSendState(),
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,
