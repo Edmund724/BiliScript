@@ -512,6 +512,7 @@ const popovers = createReaderChatPopovers({
   modelPanel: els.modelPanel,
   historyBtn: els.historyBtn,
   modelChipBtn: els.modelChip,
+  liveVolume: els.liveVolume,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
   renderHistoryList: () => lists.renderHistoryList(),
@@ -911,7 +912,7 @@ function bindEvents(): void {
   els.historyBackBtn?.addEventListener("click", () => {
     popovers.hideHistoryPopover();
   });
-  // 模型 chip：点开模型 + 思考档位面板。
+  els.liveVolume?.querySelector("summary")?.addEventListener("click", popovers.toggleLiveVolume);
   const syncLiveVolume = (raw: unknown): number => {
     const value = normalizeLiveVoiceVolume(raw);
     if (els.liveVolumeInput) {
