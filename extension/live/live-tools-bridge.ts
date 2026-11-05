@@ -1,5 +1,5 @@
 import { state, type ClipState } from "../core/state.js";
-import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
+import { extractBvid, extractPageIndex, isWatchlaterPage } from "../bilibili/video-id-shared.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
@@ -51,6 +51,20 @@ function clipMatchesPage(clip: Partial<ClipState>, url: string): boolean {
   const clipBvid = String(clip.bvid || "").trim();
   if (!pageBvid || !clipBvid || pageBvid !== clipBvid || !String(clip.cid || "").trim()) {
     return false;
+  }
+  if (isWatchlaterPage(url)) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.searchParams.has("p")) {
+        const clipPage = Number(clip.pageIndex) > 0 ? Number(clip.pageIndex) : 1;
+        return clipPage === extractPageIndex(url);
+      }
+      const oid = String(parsed.searchParams.get("oid") || "").trim();
+      if (oid && clip.cid && oid !== clip.cid && oid !== String(clip.aid || "").trim()) {
+        return false;
+      }
+    } catch {}
+    return true;
   }
   const clipPage = Number(clip.pageIndex) > 0 ? Number(clip.pageIndex) : 1;
   return clipPage === extractPageIndex(url);

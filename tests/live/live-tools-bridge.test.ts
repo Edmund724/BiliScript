@@ -118,6 +118,26 @@ describe("createLiveToolsBridge", () => {
     expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("视频已切换"), 4000);
   });
 
+  it("matches multi-part videos in watchlater playlist without explicit p query param", async () => {
+    const watchlaterUrl = "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=123";
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip({ pageIndex: 2, cid: "123" }),
+      getUrl: () => watchlaterUrl
+    });
+    const context = bridge.getVideoContext();
+    expect(context).not.toBeNull();
+    expect(context?.pageIndex).toBe(2);
+    expect(context?.bvid).toBe("BV1test000000");
+
+    const result = await bridge.executeTool({
+      callId: "c-wl",
+      name: "search_video_subtitles",
+      arguments: { query: "开场" },
+      video: { bvid: "BV1test000000", cid: "123", pageIndex: 2 }
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it.each<Partial<ClipState>>([
     { subtitleFetchState: "loading", subtitleBody: [] },
     { subtitleFetchState: "empty", subtitleBody: [] },
@@ -357,6 +377,36 @@ describe("control_bilibili_player", () => {
         chapters: [{ from: 0, to: 40, time: "0:00", title: "开场", summary: "介绍原理" }],
         quotes: [{ from: 10, time: "0:10", content: "连接建立后才有工具调用" }]
       });
+    });
+
+    it("summarizes multi-part video in watchlater playlist without explicit p param", async () => {
+      const watchlaterUrl = "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=123";
+      const wlIdentity = { bvid: "BV1test000000", cid: "123", pageIndex: 2 };
+      let overviewSource: any = { phase: "idle", analysis: null, errorText: "" };
+      const ensureOverview = vi.fn(async () => {
+        overviewSource = { phase: "ready", analysis: READY_ANALYSIS, errorText: "" };
+        return overviewSource;
+      });
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip({ pageIndex: 2, cid: "123" }),
+        getUrl: () => watchlaterUrl,
+        getOverview: () => overviewSource,
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-wl-summary",
+        name: "summarize_video",
+        arguments: {},
+        video: wlIdentity
+      });
+
+      expect(ensureOverview).toHaveBeenCalledTimes(1);
+      expect(res.ok).toBe(true);
+      expect(res.video).toEqual(wlIdentity);
+      expect(res.coverage).toBe("complete");
+      expect(res.summary).toBe("全片简介");
     });
 
     it("returns cached partial overview with explicit failed ranges and partial coverage", async () => {
