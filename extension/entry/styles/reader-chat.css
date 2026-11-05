@@ -1592,7 +1592,7 @@
   left: 50%;
   box-sizing: border-box;
   width: 48px;
-  padding: 10px 6px;
+  padding: 8px 6px;
   transform: translateX(-50%);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-lg);
@@ -1602,7 +1602,7 @@
 }
 
 .biliscript-reading-chat .chat-live-volume-head {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: var(--biliscript-reader-text);
   font-size: var(--biliscript-font-size-sm);
   text-align: center;
@@ -1615,13 +1615,13 @@
 
 .biliscript-reading-chat .chat-live-volume-panel .biliscript-range-input {
   --slider-track-size: 4px;
-  --slider-thumb-size: 14px;
+  --slider-thumb-size: 18px;
   display: block;
   appearance: none;
   writing-mode: vertical-lr;
   direction: rtl;
   width: 28px;
-  height: 104px;
+  height: 72px;
   margin: 0 auto;
   border: 0;
   background: transparent;
@@ -1642,6 +1642,7 @@
   border: 2px solid var(--biliscript-reader-surface);
   border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-accent);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
 }
 
 .biliscript-reading-chat .chat-live-volume-panel .biliscript-range-input::-moz-range-track {
@@ -1662,6 +1663,7 @@
   border: 2px solid var(--biliscript-reader-surface);
   border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-accent);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
 }
 
 .biliscript-reading-chat .chat-live-volume-panel .biliscript-range-input:focus-visible {
