@@ -40,8 +40,8 @@ export interface OverviewAnalysis {
 
 export const MAX_ANALYSIS_CHAPTERS = 100;
 const MAX_ANALYSIS_QUOTES = 50;
-const MAX_OVERVIEW_SUMMARY_CHARS = 150;
-const MAX_CHAPTER_SUMMARY_CHARS = 120;
+const MAX_OVERVIEW_SUMMARY_CHARS = 2000;
+const MAX_CHAPTER_SUMMARY_CHARS = 600;
 
 // ============================================================
 // 适配纯函数（整搬自参考仓库 lib/ai.js，产出字段名归一化为本仓库形状）。
