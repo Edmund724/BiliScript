@@ -990,7 +990,6 @@
 }
 
 #biliscript-reading-view .markdown-body .biliscript-md-table-scroll > table :is(th, td) {
-  min-width: 7em;
   max-width: 22em;
   vertical-align: top;
   word-break: normal;
