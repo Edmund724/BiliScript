@@ -6,7 +6,7 @@ import { resetModuleState } from "../setup.js";
 import {
   normalizeLiveProvider,
   resolveActiveLiveProviderId
-} from "../../extension/live/live-provider-normalize.js";
+} from "../../extension/live/live-provider-store.js";
 import {
   liveProviderStore,
   LIVE_PROVIDERS_STORAGE,

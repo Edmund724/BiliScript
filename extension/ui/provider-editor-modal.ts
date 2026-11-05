@@ -21,7 +21,6 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
-import { resolveMossLivePermissionOrigins } from "../live/moss-live-protocol.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -31,7 +30,6 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 import {
   DEEPSEEK_ROW_STATUS_TEXT,
   queryDeepseekCredentialKey
-
 } from "../search/deepseek-credential.js";
 
 import { wireModelPicker } from "./model-picker.js";
@@ -79,6 +77,38 @@ import {
   openFetchDialog,
   syncFetchSelectionState
 } from "./provider-editor-fetch-dialog.js";
+
+// 单模型输入族（modelSource === "input"：asr / live）的运行时 I/O 动作表：
+// 纯声明留在 provider-family.ts，带网络/port 副作用的探针与模型枚举留在本懒加载片。
+interface InputModelFamilyIo {
+  readonly defaultType: string;
+  readonly fetchModels: (params: {
+    baseUrl: string;
+    apiKey?: string;
+    providerId?: string;
+  }) => Promise<string[]>;
+  readonly probePlatform: (params: {
+    id: string;
+    name: string;
+    type: string;
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+  }) => Promise<{ ok?: boolean; error?: string }>;
+}
+
+const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamilyIo>> = {
+  asr: {
+    defaultType: "openai-transcriptions",
+    fetchModels: listAsrModels,
+    probePlatform: testAsrConnection
+  },
+  live: {
+    defaultType: "moss-live",
+    fetchModels: listLiveModels,
+    probePlatform: testLiveConnection
+  }
+};
 
 // 状态行写入口（ASR 平台级测试 / 测试模型下拉与保存共用；错误态着色走
 // data-error，与平铺行 .ai-provider-status 的 CSS 契约同款）
@@ -256,21 +286,21 @@ export async function deleteActive(): Promise<void> {
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 //
 // AI：行级测试（拍板 Q4/Q12，runModelTest），平台级按钮已退役；本函数只剩
-// ASR 平台级测试与搜索测试动作（spec §6.6）。ASR 的探针经 port 走 offscreen，
-// 与实际转写同一条链路（dc6c4c1：探针与真跑曾分叉，才会「未授权却测出连接成功」）；
-// 探针的 host 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
+// 单模型输入族（ASR / Live）平台级探针与搜索测试动作（spec §6.6）。探针的 host
+// 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
 
 export async function runTest(): Promise<void> {
-  // 平台级测试能力按族声明（ASR 探针 / 搜索测试动作）；函数体仍按族直写
-  if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  if (!family.editor.supportsPlatformTest) return;
   if (state.kind === "search") {
     // 不同步 await：搜索域名是 manifest 静态 host 权限（settings-panel 保存链同款
     // 判据），不代申请；这里让出控制权也不影响手势（该分支直接返回，从不到申请处）
     void runSearchTest();
     return;
   }
+  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
   const draft = state.draft;
-  if (!draft) return;
+  if (!draft || !inputIo) return;
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
   if (!baseUrl) {
@@ -286,25 +316,15 @@ export async function runTest(): Promise<void> {
   // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
   const session = captureSession();
   await session.runWithOriginPreflight(
-    state.kind === "live" ? resolveMossLivePermissionOrigins(baseUrl, model) : [baseUrl],
+    family.editor.resolvePermissionOrigins(baseUrl, model),
     () => {
-      const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
+      const preset = family.resolvePreset(state.presets, draft.presetId);
       const apiKey = draft.apiKey.trim();
       const name = draft.name.trim() || preset?.name || "自定义";
-      if (state.kind === "live") {
-        return testLiveConnection({
-          id: state.editingId,
-          name,
-          type: preset?.type || "moss-live",
-          baseUrl,
-          model,
-          ...(apiKey ? { apiKey } : {})
-        });
-      }
-      return testAsrConnection({
+      return inputIo.probePlatform({
         id: state.editingId,
         name,
-        type: preset?.type || "openai-transcriptions",
+        type: preset?.type || inputIo.defaultType,
         baseUrl,
         model,
         ...(apiKey ? { apiKey } : {})
@@ -620,9 +640,9 @@ export function wireDialog(): void {
 
   // 预设切换（候选 4 片 3：改 draft 后重投影）：baseUrl 未改过（空或仍是上一
   // 预设默认值）才跟随（平铺行同款规则）。AI 名称留过实值（≠当前预设名）视为
-  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。ASR 名称/
-  // 模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——Modal 的 host 权限
-  // 在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
+  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。单模型输入族
+  //（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——
+  // Modal 的 host 权限在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
   presetSelect?.addEventListener("change", () => {
     const next = family.resolvePreset(state.presets, presetSelect.value);
     const draft = state.draft;
@@ -651,9 +671,9 @@ export function wireDialog(): void {
         if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
           current.baseUrl = next.baseUrl || "";
         }
-        // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
-        // 只是无模型字段可跟
-        if (state.kind === "asr") {
+        // 单模型输入族（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）；
+        // 搜索平台同款语义，只是无模型字段可跟
+        if (family.editor.modelSource === "input") {
           current.model = next.model || "";
         }
         current.name = next.name || "";
@@ -762,11 +782,9 @@ export function wireDialog(): void {
   dialog.addEventListener("blur", syncAriaInvalid, true);
   dialog.addEventListener("input", syncAriaInvalid);
 
-  // ASR / Live 侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）；
-  // 直调 provider-models（与平铺行一致）
-  if (state.kind === "asr" || state.kind === "live") {
-    const kind = state.kind;
-    const family = PROVIDER_FAMILY_ROWS[kind];
+  // 单模型输入族（ASR / Live）侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）
+  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
+  if (family.editor.modelSource === "input" && inputIo) {
     wireModelPicker(dialog as unknown as ProviderRowElement, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
@@ -774,9 +792,7 @@ export function wireDialog(): void {
       statusClass: "provider-editor-status",
       showStatus: (_node, text, isError) => showStatus(text, isError),
       fetchModels: ({ baseUrl, apiKey, providerId }) =>
-        kind === "live"
-          ? listLiveModels({ baseUrl, apiKey, providerId: providerId || state.editingId })
-          : listAsrModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
+        inputIo.fetchModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
       isKeyRequired: () => {
         const draft = state.draft;
         const preset = family.resolvePreset(state.presets, draft?.presetId || "");

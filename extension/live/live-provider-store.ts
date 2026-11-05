@@ -1,19 +1,59 @@
 // extension/live/live-provider-store.ts
-// MOSS-LIVE 伴看平台的 Provider/Key 存储。
+// MOSS-LIVE 伴看平台的 Provider/Key 存储与归一化。
 // 复用 extension/core/provider-store.ts 工厂：
 // 平台列表存储在 chrome.storage.sync，API Key 存储在 chrome.storage.local。
 
 import { normalizeBaseUrl } from "../core/presets.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { createProviderStore, formatProbeHttpError } from "../core/provider-store.js";
-import { normalizeLiveProvider, resolveActiveLiveProviderId, type LiveProvider } from "./live-provider-normalize.js";
-
-export { resolveActiveLiveProviderId };
-export type { LiveProvider } from "./live-provider-normalize.js";
 
 export const LIVE_PROVIDERS_STORAGE = "liveProviders";
 export const LIVE_PROVIDER_KEYS_STORAGE = "liveProviderKeys";
 export const DEFAULT_LIVE_MODEL = "moss-live-1.0";
+
+const LIVE_PROVIDER_TYPES = new Set(["moss-live"]);
+
+export interface LiveProvider {
+  id: string;
+  presetId: string;
+  name: string;
+  type: string;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  // apiKey 单独存放在 chrome.storage.local，不进同步列表
+  apiKey?: string;
+}
+
+export function normalizeLiveProvider(item: unknown): LiveProvider | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Partial<LiveProvider>;
+  const id = String(raw.id || "").trim();
+  if (!id) return null;
+  const type = String(raw.type || "").trim() || "moss-live";
+  if (!LIVE_PROVIDER_TYPES.has(type)) return null;
+  return {
+    id,
+    presetId: String(raw.presetId || "moss-live").trim() || "moss-live",
+    name: String(raw.name || "MOSS-LIVE").trim() || "MOSS-LIVE",
+    type,
+    baseUrl: normalizeBaseUrl(raw.baseUrl) || "https://api.mosi.cn",
+    model: String(raw.model || "").trim() || DEFAULT_LIVE_MODEL,
+    enabled: raw.enabled !== false
+  };
+}
+
+export function resolveActiveLiveProviderId(
+  providers: ReadonlyArray<{ id?: string | null }> | null | undefined,
+  activeId?: string | null
+): string {
+  const list = Array.isArray(providers) ? providers : [];
+  const trimmed = String(activeId || "").trim();
+  if (trimmed && list.some((p) => String(p?.id || "").trim() === trimmed)) {
+    return trimmed;
+  }
+  return String(list[0]?.id || "").trim();
+}
 
 export interface LiveProviderPreset {
   id: string;

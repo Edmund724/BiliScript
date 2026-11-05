@@ -21,6 +21,7 @@ import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../co
 import { SMART_SEARCH_ACTIVE_ID } from "../core/search-mode.js";
 import { validateAiProviders } from "../core/validators.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
+import { resolveMossLivePermissionOrigins } from "../live/moss-live-protocol.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
 import {
   buildActiveRadioTail,
@@ -46,7 +47,7 @@ export interface EditorUpsertFields {
   hasSavedKey: boolean;
   // 模型目录收集（AI catalog 族；他族对话框无该节点，调用方传 []）
   models: string[];
-  // 单模型输入（ASR input 族；他族调用方传 ""）
+  // 单模型输入（ASR / MOSS-LIVE input 族；他族调用方传 ""）
   model: string;
   // 协议下拉收敛值（usesProtocol 族；他族忽略）
   protocol: AiProtocol;
@@ -69,13 +70,20 @@ export interface FamilyEditorDeclaration {
   modelSource: "catalog" | "input" | "none";
   usesProtocol: boolean;
   supportsPlatformTest: boolean;
+  // 保存与连通测试前需代申请的 optional host 权限域名列表（搜索族走静态权限不代申请；
+  // live 族同时返回 http(s) 与 ws(s) 双 origin）
+  resolvePermissionOrigins: (baseUrl: string, model?: string) => string[];
   // 收集后序列化（原 Modal collectUpsert 的每族分支）
   serializeUpsert: (fields: EditorUpsertFields) => { upsert: ProviderRowItem; validationError?: string };
 }
 
-// AI / ASR 的 Key 必填判据：预设的 requiresKey，缺省视为必填（既有口径）。
+// AI / ASR / MOSS-LIVE 的 Key 必填判据：预设的 requiresKey，缺省视为必填（既有口径）。
 function presetKeyRequired(preset: ProviderRowPreset | null): boolean {
   return preset?.requiresKey !== false;
+}
+
+function defaultPermissionOrigins(baseUrl: string): string[] {
+  return [baseUrl];
 }
 
 // ===== 每族行声明（createProviderRow 配置中除 onRowEdit 外的全部每族差异） =====
@@ -135,6 +143,7 @@ const AI_FAMILY: FamilyRowDeclaration = {
     usesProtocol: true,
     // 平台级测试按钮已退役（拍板 Q4：行级测试替代），目录行级测试在 catalog 片
     supportsPlatformTest: false,
+    resolvePermissionOrigins: defaultPermissionOrigins,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, models, protocol }) => {
       const upsert: ProviderRowItem = {
         id,
@@ -181,8 +190,9 @@ const ASR_FAMILY: FamilyRowDeclaration = {
     accessBadge: () => "",
     modelSource: "input",
     usesProtocol: false,
-    // 平台级连通测试仅 ASR 保留（AI 由目录行级测试替代，搜索走 §6.6 搜索测试）
+    // 平台级连通测试仅 ASR / MOSS-LIVE 保留（AI 由目录行级测试替代，搜索走 §6.6 搜索测试）
     supportsPlatformTest: true,
+    resolvePermissionOrigins: defaultPermissionOrigins,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
       upsert: {
         id,
@@ -258,6 +268,7 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
     usesProtocol: false,
     // 平台级测试：搜索族走 §6.6 的搜索测试动作（真实发起一次搜索，不落盘）
     supportsPlatformTest: true,
+    resolvePermissionOrigins: defaultPermissionOrigins,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey }) => ({
       upsert: {
         id,
@@ -296,6 +307,7 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     modelSource: "input",
     usesProtocol: false,
     supportsPlatformTest: true,
+    resolvePermissionOrigins: resolveMossLivePermissionOrigins,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
       upsert: {
         id,

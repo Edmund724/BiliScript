@@ -106,11 +106,11 @@ describe("upsertProvider：单点保存事务", () => {
   it("T2b live 族保存时单次同步申请 http(s) 与 ws(s) 双 origin", async () => {
     const { tx, deps, families } = await makeTransactions();
     (families as Record<string, unknown>).live = familyStub({ generateId: vi.fn(() => "live_new") });
-    void tx.upsertProvider("live", { id: "", baseUrl: "https://api.mosi.cn" });
+    void tx.upsertProvider("live", { id: "", baseUrl: "https://api.mosi.cn", model: "moss-live-custom" });
     expect(deps.requestOrigins).toHaveBeenCalledTimes(1);
     expect(deps.requestOrigins).toHaveBeenCalledWith([
       "https://api.mosi.cn",
-      "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0"
+      "wss://api.mosi.cn/v1/realtime?model=moss-live-custom"
     ]);
   });
 

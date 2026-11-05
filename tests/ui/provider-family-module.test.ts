@@ -81,6 +81,7 @@ describe("编辑器消费族声明（候选 3 片 2）", () => {
     expect(source).toContain("modelSource");
     expect(source).toContain("usesProtocol");
     expect(source).toContain("supportsPlatformTest");
+    expect(source).toContain("resolvePermissionOrigins");
   });
 
   it("resolvePreset / apiKeyPlaceholder 从 state 片迁出：state 不再定义，消费方不再从 state 导入", () => {

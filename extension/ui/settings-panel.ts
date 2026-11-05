@@ -41,7 +41,7 @@ import { confirmDialog } from "./confirm-dialog.js";
 import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
-import { createProviderFamilyRows } from "./provider-family.js";
+import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
@@ -435,31 +435,12 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
-  // MOSS-LIVE 伴看平台配置
+  // MOSS-LIVE 伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const liveProviders = await loadLiveProviders();
-  const rawLiveActiveId = String(settings.activeLiveProviderId || "").trim();
-  const activeLiveId = resolveActiveLiveProviderId(liveProviders, rawLiveActiveId);
-  familyRows.live.render(elements.liveProvidersList, elements.liveProvidersEmpty, liveProviders, {
-    presets: LIVE_PROVIDER_PRESETS,
-    activeId: activeLiveId
-  });
-  if (activeLiveId !== rawLiveActiveId) {
-    state.patchSettings({ activeLiveProviderId: activeLiveId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: activeLiveId } });
-  }
+  renderActiveRadioFamily("live", elements, liveProviders, settings.activeLiveProviderId);
 
-  // ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const asrProviders = await loadAsrProviders();
-  const rawAsrActiveId = String(settings.activeAsrProviderId || "").trim();
-  const activeAsrId = resolveActiveAsrProviderId(asrProviders, rawAsrActiveId);
-  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
-    presets: asrPresets,
-    activeId: activeAsrId
-  });
-  if (activeAsrId !== rawAsrActiveId) {
-    state.patchSettings({ activeAsrProviderId: activeAsrId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: activeAsrId } });
-  }
+  renderActiveRadioFamily("asr", elements, asrProviders, settings.activeAsrProviderId);
 
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   const searchProviders = await loadSearchProviders();
@@ -619,21 +600,84 @@ interface ProviderFamilyUi {
   optionalHostPermission: boolean;
 }
 
-function getActiveLiveProviderId(listNode: HTMLElement): string {
-  return familyRows.live.getActiveId?.(listNode) || "";
+// 单选激活族（activeRadio 非空且无智能哨兵：live / asr）的共享重渲与删除回退：
+// 保持「列表非空即有激活平台」不变量，原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
+type ActiveRadioFamilyKind = "live" | "asr";
+
+interface ActiveRadioFamilySpec {
+  readonly settingsKey: "activeLiveProviderId" | "activeAsrProviderId";
+  readonly getListNode: (elements: SettingsElements) => HTMLElement;
+  readonly getEmptyNode: (elements: SettingsElements) => HTMLElement;
+  readonly getPresets: () => readonly ProviderRowPreset[];
+  readonly resolveActiveId: (
+    providers: ReadonlyArray<{ id?: unknown }>,
+    activeId: unknown
+  ) => string;
 }
 
-function rerenderLiveProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
-  const prevActiveId = getActiveLiveProviderId(elements.liveProvidersList);
-  const nextActiveId = resolveActiveLiveProviderId(providers, prevActiveId);
-  familyRows.live.render(elements.liveProvidersList, elements.liveProvidersEmpty, providers, {
-    presets: LIVE_PROVIDER_PRESETS,
+const ACTIVE_RADIO_FAMILY_SPEC: Record<ActiveRadioFamilyKind, ActiveRadioFamilySpec> = {
+  live: {
+    settingsKey: "activeLiveProviderId",
+    getListNode: (el) => el.liveProvidersList,
+    getEmptyNode: (el) => el.liveProvidersEmpty,
+    getPresets: () => LIVE_PROVIDER_PRESETS,
+    resolveActiveId: resolveActiveLiveProviderId
+  },
+  asr: {
+    settingsKey: "activeAsrProviderId",
+    getListNode: (el) => el.asrProvidersList,
+    getEmptyNode: (el) => el.asrProvidersEmpty,
+    getPresets: () => asrPresets,
+    resolveActiveId: resolveActiveAsrProviderId
+  }
+};
+
+function renderActiveRadioFamily(
+  kind: ActiveRadioFamilyKind,
+  elements: SettingsElements,
+  providers: ProviderRowItem[],
+  rawActiveId?: string
+): void {
+  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
+  const listNode = spec.getListNode(elements);
+  const prevActiveId =
+    rawActiveId !== undefined
+      ? String(rawActiveId || "").trim()
+      : familyRows[kind].getActiveId?.(listNode) || "";
+  const nextActiveId = spec.resolveActiveId(providers, prevActiveId);
+  familyRows[kind].render(listNode, spec.getEmptyNode(elements), providers, {
+    presets: spec.getPresets(),
     activeId: nextActiveId
   });
   if (nextActiveId !== prevActiveId) {
-    state.patchSettings({ activeLiveProviderId: nextActiveId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: nextActiveId } });
+    state.patchSettings({ [spec.settingsKey]: nextActiveId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } });
   }
+}
+
+function bindActiveRadioDeleteHandler(kind: ActiveRadioFamilyKind, elements: SettingsElements): void {
+  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
+  const decl = PROVIDER_FAMILY_ROWS[kind];
+  const radioClass = `${decl.activeRadio!.classPrefix}-provider-active-radio`;
+  familyRows[kind].controller.setDeleteHandler(async () => {
+    const listNode = spec.getListNode(elements);
+    const remainingRows = Array.from(listNode.querySelectorAll<HTMLElement>(`.${decl.rowClass}`));
+    const currentCheckedId = familyRows[kind].getActiveId?.(listNode) || "";
+    const nextActiveId = spec.resolveActiveId(
+      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
+      currentCheckedId
+    );
+    if (nextActiveId && nextActiveId !== currentCheckedId) {
+      const targetRadio = remainingRows
+        .find((row) => row.dataset.providerId === nextActiveId)
+        ?.querySelector<HTMLInputElement>(`.${radioClass}`);
+      if (targetRadio) targetRadio.checked = true;
+    }
+    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
+      state.patchSettings({ [spec.settingsKey]: nextActiveId });
+      await sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } });
+    }
+  });
 }
 
 const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
@@ -644,7 +688,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "live-providers-delete", providerId }),
     generateId: () => familyRows.live.controller.generateId(),
     presets: () => LIVE_PROVIDER_PRESETS,
-    rerender: (elements, providers) => rerenderLiveProviders(elements, providers),
+    rerender: (elements, providers) => renderActiveRadioFamily("live", elements, providers),
     optionalHostPermission: true
   },
 
@@ -665,7 +709,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
     generateId: () => familyRows.asr.controller.generateId(),
     presets: () => asrPresets,
-    rerender: (elements, providers) => rerenderAsrProviders(elements, providers),
+    rerender: (elements, providers) => renderActiveRadioFamily("asr", elements, providers),
     optionalHostPermission: true
   },
   search: {
@@ -684,26 +728,8 @@ const familyRows = createProviderFamilyRows({
   onRowEdit: (kind, providerId) => void openProviderEditorById(kind, providerId)
 });
 
-function getActiveAsrProviderId(listNode: HTMLElement): string {
-  return familyRows.asr.getActiveId?.(listNode) || "";
-}
 function getActiveSearchProviderId(listNode: HTMLElement): string {
   return familyRows.search.getActiveId?.(listNode) || "";
-}
-
-// ASR 列表重渲（Modal 保存 / 删除后）：保持「列表非空即有激活平台」不变量，
-// 原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
-function rerenderAsrProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
-  const prevActiveId = getActiveAsrProviderId(elements.asrProvidersList);
-  const nextActiveId = resolveActiveAsrProviderId(providers, prevActiveId);
-  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
-    presets: asrPresets,
-    activeId: nextActiveId
-  });
-  if (nextActiveId !== prevActiveId) {
-    state.patchSettings({ activeAsrProviderId: nextActiveId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
-  }
 }
 
 // ===== 单平台保存与删除 =====
@@ -1125,46 +1151,8 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-  familyRows.live.controller.setDeleteHandler(async () => {
-    const remainingRows = Array.from(
-      elements.liveProvidersList.querySelectorAll<HTMLElement>(".live-provider-row")
-    );
-    const currentCheckedId = getActiveLiveProviderId(elements.liveProvidersList);
-    const nextActiveId = resolveActiveLiveProviderId(
-      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
-      currentCheckedId
-    );
-    if (nextActiveId && nextActiveId !== currentCheckedId) {
-      const targetRadio = remainingRows
-        .find((row) => row.dataset.providerId === nextActiveId)
-        ?.querySelector<HTMLInputElement>(".live-provider-active-radio");
-      if (targetRadio) targetRadio.checked = true;
-    }
-    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
-      state.patchSettings({ activeLiveProviderId: nextActiveId });
-      await sendRuntimeMessage({ type: "save-settings", settings: { activeLiveProviderId: nextActiveId } });
-    }
-  });
-  familyRows.asr.controller.setDeleteHandler(async () => {
-    const remainingRows = Array.from(
-      elements.asrProvidersList.querySelectorAll<HTMLElement>(".asr-provider-row")
-    );
-    const currentCheckedId = getActiveAsrProviderId(elements.asrProvidersList);
-    const nextActiveId = resolveActiveAsrProviderId(
-      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
-      currentCheckedId
-    );
-    if (nextActiveId && nextActiveId !== currentCheckedId) {
-      const targetRadio = remainingRows
-        .find((row) => row.dataset.providerId === nextActiveId)
-        ?.querySelector<HTMLInputElement>(".asr-provider-active-radio");
-      if (targetRadio) targetRadio.checked = true;
-    }
-    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
-      state.patchSettings({ activeAsrProviderId: nextActiveId });
-      await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
-    }
-  });
+  bindActiveRadioDeleteHandler("live", elements);
+  bindActiveRadioDeleteHandler("asr", elements);
   familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });

@@ -5,7 +5,7 @@
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { hasHostPermission } from "../core/host-permissions.js";
 import { getProviderStore, getSettingsSnapshot } from "../core/settings-snapshot.js";
-import { resolveActiveLiveProviderId, type LiveProvider } from "./live-provider-normalize.js";
+import { resolveActiveLiveProviderId, type LiveProvider } from "./live-provider-store.js";
 import { resolveMossLivePermissionOrigins } from "./moss-live-protocol.js";
 
 // ===== MOSS-LIVE 会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
