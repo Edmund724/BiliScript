@@ -123,10 +123,9 @@ export function buildChatTabBodyHtml(): string {
                 </summary>
                 <div class="chat-live-volume-panel">
                   <div class="chat-live-volume-head">
-                    <label for="${ids.readingChatLiveVolumeInput}">AI 音量</label>
                     <span id="${ids.readingChatLiveVolumeValue}">100%</span>
                   </div>
-                  <input id="${ids.readingChatLiveVolumeInput}" class="biliscript-range-input" type="range" min="0" max="100" step="1" value="100" aria-orientation="vertical" />
+                  <input id="${ids.readingChatLiveVolumeInput}" class="biliscript-range-input" type="range" min="0" max="100" step="1" value="100" aria-label="AI 音量" aria-orientation="vertical" />
                 </div>
               </details>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
