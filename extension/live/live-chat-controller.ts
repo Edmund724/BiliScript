@@ -1,12 +1,14 @@
 // extension/live/live-chat-controller.ts
-// AI 对话面板中 MOSS-LIVE 实时伴看的控制状态机与生命周期管理。
+// AI 对话面板中实时伴看的控制状态机与生命周期管理。
 // 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕与联网查证状态并处理断连/清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
   encodeBase64Bytes,
+  resolveGeminiLiveWsUrl,
   resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
+  type LiveProviderType,
   type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveTranscriptEvent,
@@ -47,6 +49,7 @@ export interface LiveChatControllerDeps {
   interruptButton?: HTMLElement | null;
   getTargetOrigin?: () => string;
   getTargetModel?: () => string;
+  getTargetProviderType?: () => LiveProviderType;
   showNotice?: (message: string, autoHideMs?: number) => void;
   connectPort?: () => chrome.runtime.Port;
   sendRuntimeMessage?: typeof defaultSendRuntimeMessage;
@@ -82,6 +85,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     interruptButton = null,
     getTargetOrigin,
     getTargetModel,
+    getTargetProviderType,
     showNotice = () => {},
     connectPort = () => chrome.runtime.connect({ name: MOSS_LIVE_PORT_NAME }),
     sendRuntimeMessage = defaultSendRuntimeMessage,
@@ -114,6 +118,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
+  let activeTargetProviderType: LiveProviderType = "moss-live";
 
   async function refreshTarget(): Promise<void> {
     try {
@@ -121,12 +126,21 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         liveProviderStore.loadProviders(),
         chrome.storage.sync.get(["activeLiveProviderId"])
       ]);
+      const rawActiveId = (syncSettings as Record<string, unknown> | undefined)?.activeLiveProviderId;
       const activeId = resolveActiveLiveProviderId(
         providers,
-        (syncSettings as Record<string, unknown> | undefined)?.activeLiveProviderId
+        typeof rawActiveId === "string" ? rawActiveId : undefined
       );
       const active = providers.find((p) => p.id === activeId);
-      activeTargetOrigin = active?.baseUrl || "https://api.mosi.cn";
+      activeTargetProviderType =
+        active?.type === "gemini-live" || active?.presetId === "gemini-live"
+          ? "gemini-live"
+          : "moss-live";
+      activeTargetOrigin =
+        active?.baseUrl ||
+        (activeTargetProviderType === "gemini-live"
+          ? "https://generativelanguage.googleapis.com"
+          : "https://api.mosi.cn");
       activeTargetModel = active?.model || DEFAULT_LIVE_MODEL;
     } catch {
       // 忽略加载错误
@@ -308,9 +322,21 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     updateUi("connecting");
 
     // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
-    const targetOrigin = (getTargetOrigin?.() || activeTargetOrigin || "https://api.mosi.cn").trim();
+    const targetProviderType: LiveProviderType =
+      (getTargetProviderType?.() || activeTargetProviderType) === "gemini-live"
+        ? "gemini-live"
+        : "moss-live";
+    const targetOrigin = (
+      getTargetOrigin?.() ||
+      activeTargetOrigin ||
+      (targetProviderType === "gemini-live"
+        ? "https://generativelanguage.googleapis.com"
+        : "https://api.mosi.cn")
+    ).trim();
     const targetModel = (getTargetModel?.() || activeTargetModel || DEFAULT_LIVE_MODEL).trim();
-    const permPromise = requestOrigins(resolveMossLivePermissionOrigins(targetOrigin, targetModel));
+    const permPromise = requestOrigins(
+      resolveMossLivePermissionOrigins(targetOrigin, targetModel, targetProviderType)
+    );
 
     let permResult: { ok: boolean; error?: string };
     try {
@@ -366,6 +392,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       return false;
     }
 
+    const resolvedProviderType: LiveProviderType =
+      prepResp.provider?.type === "gemini-live"
+        ? "gemini-live"
+        : prepResp.provider?.type === "moss-live"
+          ? "moss-live"
+          : targetProviderType;
+    activeTargetProviderType = resolvedProviderType;
     if (prepResp.provider?.baseUrl) {
       activeTargetOrigin = prepResp.provider.baseUrl;
     }
@@ -516,7 +549,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       }
     });
 
-    const wsUrl = resolveMossLiveWsUrl(prepResp.provider?.baseUrl, prepResp.provider?.model);
+    const resolvedModel = prepResp.provider?.model || targetModel;
+    const wsUrl =
+      resolvedProviderType === "gemini-live"
+        ? resolveGeminiLiveWsUrl(prepResp.provider?.baseUrl || targetOrigin)
+        : resolveMossLiveWsUrl(prepResp.provider?.baseUrl || targetOrigin, resolvedModel);
     const initialVideoContext = readVideoContext();
     lastPostedContextJson = JSON.stringify(initialVideoContext);
     watchVideoContext(generation);
@@ -524,6 +561,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       port.postMessage({
         action: "start",
         wsUrl,
+        providerType: resolvedProviderType,
+        model: resolvedModel,
         ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
     } catch (error) {

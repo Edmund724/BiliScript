@@ -13,6 +13,7 @@ import type {
 } from "../../extension/live/page-video-frame-capture.js";
 import type { LiveTranscriptMerger } from "../../extension/live/live-transcript-merger.js";
 import type {
+  LiveProviderType,
   MossLiveToolCall,
   MossLiveTranscriptEvent,
   MossLiveVideoContext
@@ -117,6 +118,8 @@ beforeEach(() => {
 describe("LiveChatController", () => {
   function setupTest(overrides: {
     getTargetOrigin?: () => string;
+    getTargetModel?: () => string;
+    getTargetProviderType?: () => LiveProviderType;
     requestOrigins?: (origins: string[]) => Promise<{ ok: boolean; error?: string }>;
     sendRuntimeMessage?: (msg: any) => Promise<any>;
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
@@ -196,6 +199,8 @@ describe("LiveChatController", () => {
       startVideoCapture,
       createTranscriptMerger,
       getTargetOrigin: overrides.getTargetOrigin,
+      getTargetModel: overrides.getTargetModel,
+      getTargetProviderType: overrides.getTargetProviderType,
       getVideoContext: overrides.getVideoContext,
       executeTool: overrides.executeTool,
       subscribeVideoContextChanges: overrides.subscribeVideoContextChanges
@@ -267,6 +272,46 @@ describe("LiveChatController", () => {
       "wss://custom.live.mosi.cn:8080/v1/realtime?model=moss-live-1.0"
     ]);
     expect(requestOrigins).not.toHaveBeenCalledWith(["https://api.mosi.cn"]);
+  });
+
+  it("requests generativelanguage.googleapis.com origins and posts gemini-live start action when target is gemini-live", async () => {
+    const requestOrigins = vi.fn(async () => ({ ok: true }));
+    const { controller, fakePort } = setupTest({
+      getTargetProviderType: () => "gemini-live",
+      getTargetOrigin: () => "https://generativelanguage.googleapis.com",
+      getTargetModel: () => "gemini-3.1-flash-live-preview",
+      requestOrigins,
+      sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-session-prepare") {
+          return {
+            ok: true,
+            provider: {
+              id: "gemini-live-1",
+              type: "gemini-live",
+              baseUrl: "https://generativelanguage.googleapis.com",
+              model: "gemini-3.1-flash-live-preview"
+            }
+          };
+        }
+        return { ok: true };
+      }
+    });
+
+    const ok = await controller.start();
+    expect(ok).toBe(true);
+    expect(requestOrigins).toHaveBeenCalledWith([
+      "https://generativelanguage.googleapis.com",
+      "wss://generativelanguage.googleapis.com"
+    ]);
+    expect(fakePort.postedMessages).toEqual([
+      {
+        action: "start",
+        wsUrl:
+          "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+        providerType: "gemini-live",
+        model: "gemini-3.1-flash-live-preview"
+      }
+    ]);
   });
 
   it("surfaces actionable re-save-in-settings error when background check detects revoked permission", async () => {
@@ -396,7 +441,12 @@ describe("LiveChatController", () => {
 
     // Posted start message to port
     expect(fakePort.postedMessages).toEqual([
-      { action: "start", wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0" }
+      {
+        action: "start",
+        wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
+        providerType: "moss-live",
+        model: "moss-live-1.0"
+      }
     ]);
 
     // Simulate connected event
@@ -627,7 +677,6 @@ describe("LiveChatController", () => {
   });
 });
 
-
 describe("LiveChatController video context and page tools", () => {
   function setupContextTest(overrides: {
     getVideoContext?: () => MossLiveVideoContext | null;
@@ -678,6 +727,8 @@ describe("LiveChatController video context and page tools", () => {
     expect(fakePort.postedMessages[0]).toEqual({
       action: "start",
       wsUrl: "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0",
+      providerType: "moss-live",
+      model: "moss-live-1.0",
       videoContext: initialContext
     });
     fakePort.simulateMessage({ type: "connected" });
@@ -744,5 +795,4 @@ describe("LiveChatController video context and page tools", () => {
     expect(executeTool).not.toHaveBeenCalled();
     expect(fakePort.postedMessages).toHaveLength(0);
   });
-
 });

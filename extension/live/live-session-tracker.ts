@@ -1,14 +1,26 @@
 // extension/live/live-session-tracker.ts
-// MOSS-LIVE 会话所有权追踪与 DNR 鉴权规则（ruleId: 9002）单点管理模块：
+// MOSS-LIVE / Gemini Live 会话所有权追踪与 DNR 鉴权规则（ruleId: 9002）单点管理模块：
 // 防止乱序 prepare、过期 cleanup 与残留标签页锁踩踏在途 WebSocket 鉴权规则。
 
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { hasHostPermission } from "../core/host-permissions.js";
 import { getProviderStore, getSettingsSnapshot } from "../core/settings-snapshot.js";
-import { resolveActiveLiveProviderId, type LiveProvider } from "./live-provider-store.js";
-import { resolveMossLivePermissionOrigins } from "./moss-live-protocol.js";
+import {
+  GEMINI_LIVE_ROW_STATUS_TEXT,
+  isOfficialGeminiEndpoint,
+  resolveGeminiCredential,
+  type GeminiAiRecordLike
+} from "./gemini-live-credential.js";
+import {
+  resolveActiveLiveProviderId,
+  type LiveProvider
+} from "./live-provider-store.js";
+import {
+  resolveMossLivePermissionOrigins,
+  type LiveProviderType
+} from "./moss-live-protocol.js";
 
-// ===== MOSS-LIVE 会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
+// ===== 伴看会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
 
 export const MOSS_LIVE_WS_RULE_ID = 9002;
 
@@ -41,14 +53,31 @@ export function extractOriginHeaderFromUrl(url: string): string {
 }
 
 /**
- * 动态注入针对 WebSocket 握手的 Authorization 与 Origin 会话规则。
+ * 动态注入针对 WebSocket 握手的鉴权请求头（Authorization 或 x-goog-api-key）与 Origin 会话规则。
  * 规避浏览器原生 WebSocket 无法自定义请求头、MV3 SW 绕过 DNR，以及扩展页面 Origin (chrome-extension://) 被服务端同源校验拒绝的限制。
  */
-export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): Promise<void> {
+export async function setMossLiveWsAuthRule(
+  apiKey: string,
+  baseUrl?: string,
+  providerType?: LiveProviderType
+): Promise<void> {
   const trimmedKey = String(apiKey || "").trim();
-  const targetUrl = baseUrl || "https://api.mosi.cn";
+  const isGemini = providerType === "gemini-live";
+  const defaultUrl = isGemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn";
+  const targetUrl = baseUrl || defaultUrl;
   const domain = extractDomainFromUrl(targetUrl);
   const origin = extractOriginHeaderFromUrl(targetUrl);
+  const authHeader = isGemini
+    ? {
+        header: "x-goog-api-key",
+        operation: "set" as const,
+        value: trimmedKey
+      }
+    : {
+        header: "Authorization",
+        operation: "set" as const,
+        value: `Bearer ${trimmedKey}`
+      };
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [MOSS_LIVE_WS_RULE_ID],
     addRules: [
@@ -58,11 +87,7 @@ export async function setMossLiveWsAuthRule(apiKey: string, baseUrl?: string): P
         action: {
           type: "modifyHeaders",
           requestHeaders: [
-            {
-              header: "Authorization",
-              operation: "set",
-              value: `Bearer ${trimmedKey}`
-            },
+            authHeader,
             {
               header: "Origin",
               operation: "set",
@@ -90,12 +115,16 @@ export async function clearMossLiveWsAuthRule(): Promise<void> {
 
 export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 
+export type AiProviderCredentialCandidate = GeminiAiRecordLike;
+
 export interface LiveSessionPrepareDeps {
   getSettings: () => Promise<{ activeLiveProviderId?: string }>;
   loadProviders: () => Promise<LiveProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;
+  loadAiProviders?: () => Promise<readonly AiProviderCredentialCandidate[]>;
+  loadAiKeys?: () => Promise<Record<string, string>>;
   hasPermission: (baseUrl: string) => Promise<boolean>;
-  setAuthRule: (apiKey: string, baseUrl: string) => Promise<void>;
+  setAuthRule: (apiKey: string, baseUrl: string, providerType?: LiveProviderType) => Promise<void>;
   clearAuthRule: () => Promise<void>;
   ensureOffscreen: () => Promise<unknown>;
   resolveActiveId: (providers: LiveProvider[], activeId?: string) => string;
@@ -131,6 +160,8 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
     getSettings: overrides?.getSettings ?? getSettingsSnapshot,
     loadProviders: overrides?.loadProviders ?? (async () => (await getProviderStore("live")).providers),
     loadKeys: overrides?.loadKeys ?? (async () => (await getProviderStore("live")).keys),
+    loadAiProviders: overrides?.loadAiProviders ?? (async () => (await getProviderStore("ai")).providers),
+    loadAiKeys: overrides?.loadAiKeys ?? (async () => (await getProviderStore("ai")).keys),
     hasPermission: overrides?.hasPermission ?? hasHostPermission,
     setAuthRule: overrides?.setAuthRule ?? setMossLiveWsAuthRule,
     clearAuthRule: overrides?.clearAuthRule ?? clearMossLiveWsAuthRule,
@@ -213,15 +244,44 @@ export class LiveSessionTracker {
         clearCurrentTabOwnershipIfUnchanged();
         return { ok: false, error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key" };
       }
-      const keys = await deps.loadKeys();
-      const apiKey = String(keys[activeId] || "").trim();
-      if (!apiKey) {
-        clearCurrentTabOwnershipIfUnchanged();
-        return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
+
+      const isGeminiLive =
+        activeProvider.type === "gemini-live" || activeProvider.presetId === "gemini-live";
+      let apiKey = "";
+      if (isGeminiLive) {
+        if (!isOfficialGeminiEndpoint(activeProvider.baseUrl)) {
+          clearCurrentTabOwnershipIfUnchanged();
+          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT.unofficial };
+        }
+        const [aiProviders, aiKeys] = await Promise.all([
+          deps.loadAiProviders(),
+          deps.loadAiKeys()
+        ]);
+        const cred = resolveGeminiCredential(aiProviders);
+        if (cred.status !== "ok") {
+          clearCurrentTabOwnershipIfUnchanged();
+          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT[cred.status] };
+        }
+        const recordId = cred.record?.id ? String(cred.record.id).trim() : "";
+        apiKey = recordId ? String(aiKeys[recordId] || "").trim() : "";
+        if (!apiKey) {
+          clearCurrentTabOwnershipIfUnchanged();
+          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT["no-key"] };
+        }
+      } else {
+        const keys = await deps.loadKeys();
+        apiKey = String(keys[activeId] || "").trim();
+        if (!apiKey) {
+          clearCurrentTabOwnershipIfUnchanged();
+          return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
+        }
       }
+
+      const providerType: LiveProviderType = isGeminiLive ? "gemini-live" : "moss-live";
       const [baseUrl, wsUrl] = resolveMossLivePermissionOrigins(
         activeProvider.baseUrl,
-        activeProvider.model
+        activeProvider.model,
+        providerType
       );
       const [hasHttpPerm, hasWsPerm] = await Promise.all([
         deps.hasPermission(baseUrl),
@@ -238,7 +298,7 @@ export class LiveSessionTracker {
         return { ok: false, error: "会话准备已过期" };
       }
 
-      await deps.setAuthRule(apiKey, baseUrl);
+      await deps.setAuthRule(apiKey, baseUrl, providerType);
       ruleInstalledForSession = true;
       this.activeRuleOwner = targetSessionId;
 

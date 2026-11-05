@@ -97,6 +97,24 @@ describe("MOSS-LIVE DNR session rules", () => {
     ]);
   });
 
+  it("setMossLiveWsAuthRule with providerType 'gemini-live' injects x-goog-api-key and generativelanguage.googleapis.com Origin", async () => {
+    const { rules } = installDnrStub();
+
+    await setMossLiveWsAuthRule(
+      "AIza-gemini-key",
+      "https://generativelanguage.googleapis.com",
+      "gemini-live"
+    );
+
+    const added = rules.get(MOSS_LIVE_WS_RULE_ID);
+    expect((added?.condition as any)?.requestDomains).toEqual(["generativelanguage.googleapis.com"]);
+    expect((added?.condition as any)?.resourceTypes).toEqual(["websocket"]);
+    expect((added?.action as any)?.requestHeaders).toEqual([
+      { header: "x-goog-api-key", operation: "set", value: "AIza-gemini-key" },
+      { header: "Origin", operation: "set", value: "https://generativelanguage.googleapis.com" }
+    ]);
+  });
+
   it("clearMossLiveWsAuthRule removes only rule 9002 and leaves other rules untouched", async () => {
     const { rules, updateSessionRules } = installDnrStub();
 
@@ -151,6 +169,8 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
         }
       ],
       loadKeys: async () => ({ "moss-1": "test-key" }),
+      loadAiProviders: async () => [],
+      loadAiKeys: async () => ({}),
       hasPermission: async () => true,
       setAuthRule: vi.fn(async () => {}),
       clearAuthRule: vi.fn(async () => {}),
@@ -317,8 +337,8 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     const clearSpy = vi.fn(async () => {
       await clearMossLiveWsAuthRule();
     });
-    const setSpy = vi.fn(async (key: string, url: string) => {
-      await setMossLiveWsAuthRule(key, url);
+    const setSpy = vi.fn(async (key: string, url?: string, providerType?: any) => {
+      await setMossLiveWsAuthRule(key, url, providerType);
     });
 
     const res1 = await tracker.prepare(
@@ -342,5 +362,162 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-new-tab");
     expect(rules.has(MOSS_LIVE_WS_RULE_ID)).toBe(true);
+  });
+
+  it("prepares gemini-live session using AI Gemini key and configures gemini-live DNR auth rule", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const checkedOrigins: string[] = [];
+
+    const res = await tracker.prepare(
+      "session-gemini-ok",
+      createFakeDeps({
+        getSettings: async () => ({ activeLiveProviderId: "gemini-live-1" }),
+        loadProviders: async () => [
+          {
+            id: "gemini-live-1",
+            presetId: "gemini-live",
+            name: "Gemini Live",
+            type: "gemini-live",
+            baseUrl: "https://generativelanguage.googleapis.com",
+            model: "gemini-3.1-flash-live-preview",
+            enabled: true,
+            hasSavedKey: false,
+            credentialRef: { kind: "ai-provider-preset", presetId: "gemini" }
+          }
+        ],
+        loadAiProviders: async () => [
+          {
+            id: "ai-gemini-1",
+            presetId: "gemini",
+            name: "Google Gemini",
+            type: "gemini-native",
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            model: "gemini-3-flash-preview",
+            enabled: true,
+            hasSavedKey: true
+          }
+        ],
+        loadAiKeys: async () => ({ "ai-gemini-1": "AIza-shared-key" }),
+        hasPermission: async (origin) => {
+          checkedOrigins.push(origin);
+          return true;
+        },
+        setAuthRule
+      })
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.provider).toMatchObject({
+      id: "gemini-live-1",
+      name: "Gemini Live",
+      type: "gemini-live",
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.1-flash-live-preview"
+    });
+    expect(checkedOrigins).toEqual([
+      "https://generativelanguage.googleapis.com",
+      "wss://generativelanguage.googleapis.com"
+    ]);
+    expect(setAuthRule).toHaveBeenCalledWith(
+      "AIza-shared-key",
+      "https://generativelanguage.googleapis.com",
+      "gemini-live"
+    );
+  });
+
+  it("returns explicit Chinese errors when gemini-live lacks AI Gemini record, key, or uses unofficial endpoint", async () => {
+    const tracker = new LiveSessionTracker();
+    const geminiLiveProvider = {
+      id: "gemini-live-1",
+      presetId: "gemini-live",
+      name: "Gemini Live",
+      type: "gemini-live" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.1-flash-live-preview",
+      enabled: true,
+      hasSavedKey: false
+    };
+
+    const missingProviderRes = await tracker.prepare(
+      "session-gemini-no-provider",
+      createFakeDeps({
+        loadProviders: async () => [geminiLiveProvider],
+        loadAiProviders: async () => []
+      })
+    );
+    expect(missingProviderRes.ok).toBe(false);
+    expect(missingProviderRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+
+    const missingKeyRes = await tracker.prepare(
+      "session-gemini-no-key",
+      createFakeDeps({
+        loadProviders: async () => [geminiLiveProvider],
+        loadAiProviders: async () => [
+          {
+            id: "ai-gemini-1",
+            presetId: "gemini",
+            name: "Google Gemini",
+            type: "gemini-native",
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            model: "gemini-3-flash-preview",
+            enabled: true,
+            hasSavedKey: false
+          }
+        ],
+        loadAiKeys: async () => ({})
+      })
+    );
+    expect(missingKeyRes.ok).toBe(false);
+    expect(missingKeyRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+
+    const unofficialAiRes = await tracker.prepare(
+      "session-gemini-unofficial-ai",
+      createFakeDeps({
+        loadProviders: async () => [geminiLiveProvider],
+        loadAiProviders: async () => [
+          {
+            id: "ai-gemini-1",
+            presetId: "gemini",
+            name: "Google Gemini",
+            type: "gemini-native",
+            baseUrl: "https://my-gemini-proxy.example.com/v1beta",
+            model: "gemini-3-flash-preview",
+            enabled: true,
+            hasSavedKey: true
+          }
+        ],
+        loadAiKeys: async () => ({ "ai-gemini-1": "proxy-key" })
+      })
+    );
+    expect(unofficialAiRes.ok).toBe(false);
+    expect(unofficialAiRes.error).toBe("AI 平台配置的并非 Gemini 官方接口地址");
+
+    const unofficialLiveRes = await tracker.prepare(
+      "session-gemini-unofficial-live",
+      createFakeDeps({
+        loadProviders: async () => [
+          {
+            ...geminiLiveProvider,
+            baseUrl: "https://custom-live-proxy.example.com"
+          }
+        ],
+        loadAiProviders: async () => [
+          {
+            id: "ai-gemini-1",
+            presetId: "gemini",
+            name: "Google Gemini",
+            type: "gemini-native",
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            model: "gemini-3-flash-preview",
+            enabled: true,
+            hasSavedKey: true
+          }
+        ],
+        loadAiKeys: async () => ({ "ai-gemini-1": "AIza-key" })
+      })
+    );
+    expect(unofficialLiveRes.ok).toBe(false);
+    expect(unofficialLiveRes.error).toBe("AI 平台配置的并非 Gemini 官方接口地址");
   });
 });

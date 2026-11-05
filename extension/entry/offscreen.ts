@@ -200,7 +200,10 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port && port.name === MOSS_LIVE_PORT_NAME) {
     lifetime.trackLivePort(port);
     attachMossLivePort(port, {
-      loadClient: async () => {
+      loadClient: async (providerType) => {
+        if (providerType === "gemini-live") {
+          throw new Error("Gemini Live 协议客户端尚未挂载");
+        }
         const MossClientClass = await mossLiveLoader.load();
         return (opts) => new MossClientClass(opts);
       },

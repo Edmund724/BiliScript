@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_GEMINI_LIVE_WS_URL,
   MOSS_DOWNSTREAM_SAMPLE_RATE,
   MOSS_UPSTREAM_FRAME_BYTES,
   MOSS_UPSTREAM_FRAME_SAMPLES,
@@ -17,6 +18,8 @@ import {
   packTaggedBinary,
   parseMossServerJsonEvent,
   resampleMonoFloat32,
+  resolveGeminiLiveWsUrl,
+  resolveLivePermissionOrigins,
   resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
   unpackTaggedBinary
@@ -395,7 +398,14 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(url).toBe("wss://api.mosi.cn/v1/realtime?model=moss-live-1.0");
   });
 
-  it("derives paired HTTP(S) and WS(S) permission origins via resolveMossLivePermissionOrigins", () => {
+  it("resolves Gemini Live BidiGenerateContent WS URL from official baseUrl", () => {
+    expect(resolveGeminiLiveWsUrl()).toBe(DEFAULT_GEMINI_LIVE_WS_URL);
+    expect(resolveGeminiLiveWsUrl("https://generativelanguage.googleapis.com/v1beta")).toBe(
+      DEFAULT_GEMINI_LIVE_WS_URL
+    );
+  });
+
+  it("derives paired HTTP(S) and WS(S) permission origins via resolveMossLivePermissionOrigins / resolveLivePermissionOrigins", () => {
     expect(resolveMossLivePermissionOrigins("https://api.mosi.cn")).toEqual([
       "https://api.mosi.cn",
       "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0"
@@ -403,6 +413,20 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(resolveMossLivePermissionOrigins("http://localhost:8000", "moss-beta")).toEqual([
       "http://localhost:8000",
       "ws://localhost:8000/v1/realtime?model=moss-beta"
+    ]);
+    expect(
+      resolveLivePermissionOrigins(
+        "https://generativelanguage.googleapis.com",
+        "gemini-3.1-flash-live-preview",
+        "gemini-live"
+      )
+    ).toEqual([
+      "https://generativelanguage.googleapis.com",
+      "wss://generativelanguage.googleapis.com"
+    ]);
+    expect(resolveMossLivePermissionOrigins("https://generativelanguage.googleapis.com")).toEqual([
+      "https://generativelanguage.googleapis.com",
+      "wss://generativelanguage.googleapis.com"
     ]);
   });
 
@@ -416,7 +440,6 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.session.instructions).toContain("不得编造外部事实");
   });
 });
-
 
 describe("subtitle-aware session and tool calls", () => {
   it("injects video, part and chapter context into session.update instructions", () => {

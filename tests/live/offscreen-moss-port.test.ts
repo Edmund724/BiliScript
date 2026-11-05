@@ -273,6 +273,66 @@ describe("attachMossLivePort", () => {
     expect(clientFactory).not.toHaveBeenCalled();
     expect(clientCreated).toBe(false);
   });
+
+  it("dispatches by providerType ('gemini-live' vs 'moss-live') and forwards providerType and model on start", async () => {
+    const port = new FakePort();
+    let createdSession: FakeMossSession | null = null;
+    const loadClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => {
+      createdSession = new FakeMossSession(opts);
+      return createdSession;
+    });
+
+    attachMossLivePort(port as any, { loadClient });
+
+    port.simulateMessage({
+      action: "start",
+      wsUrl: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+      providerType: "gemini-live",
+      model: "gemini-3.1-flash-live-preview"
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadClient).toHaveBeenCalledWith("gemini-live");
+    expect(createdSession).not.toBeNull();
+    expect(createdSession!.actions).toEqual([
+      {
+        action: "start",
+        wsUrl:
+          "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+        providerType: "gemini-live",
+        model: "gemini-3.1-flash-live-preview",
+        videoContext: null
+      }
+    ]);
+  });
+
+  it("uses loadGeminiClient when provided and providerType is 'gemini-live'", async () => {
+    const port = new FakePort();
+    let geminiSession: FakeMossSession | null = null;
+    const loadClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => new FakeMossSession(opts));
+    const loadGeminiClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => {
+      geminiSession = new FakeMossSession(opts);
+      return geminiSession;
+    });
+
+    attachMossLivePort(port as any, { loadClient, loadGeminiClient });
+
+    port.simulateMessage({
+      action: "start",
+      wsUrl: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+      providerType: "gemini-live",
+      model: "gemini-3.1-flash-live-preview"
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadGeminiClient).toHaveBeenCalledTimes(1);
+    expect(loadClient).not.toHaveBeenCalled();
+    expect(geminiSession).not.toBeNull();
+  });
 });
 
 describe("attachMossLivePort subtitle tool bridge", () => {

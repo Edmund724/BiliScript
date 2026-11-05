@@ -1687,3 +1687,67 @@ describe("executeLiveWebSearch", () => {
     await expect(executeLiveWebSearch("查询", controller.signal)).rejects.toThrow("搜索已中止");
   });
 });
+
+
+import { MossAudioPlayer } from "../../extension/live/moss-audio-player.js";
+
+describe("MossAudioPlayer parameterized sampleRate & enablePlaybackReceipts", () => {
+  it("supports sampleRate: 24000 and enablePlaybackReceipts: false while preserving local queue and turn notifications", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    fakeAudioCtx.currentTime = 1.0;
+    const onSendJson = vi.fn(() => true);
+    const onStateChange = vi.fn();
+    const onTurnFinished = vi.fn();
+
+    const player = new MossAudioPlayer({
+      sampleRate: 24000,
+      enablePlaybackReceipts: false,
+      createAudioContext: () => fakeAudioCtx,
+      onSendJson,
+      onStateChange,
+      onTurnFinished
+    });
+
+    // 2400 samples @ 24kHz = 0.1s; 4800 samples @ 24kHz = 0.2s
+    const chunk1 = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.25));
+    const chunk2 = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(-0.25));
+
+    player.enqueueAudioContext("c1", "r1", "t1", () => true);
+    player.enqueueAudioFrame(chunk1.buffer, () => true);
+    player.enqueueAudioContext("c2", "r1", "t1", () => true);
+    player.enqueueAudioFrame(chunk2.buffer, () => true);
+    player.handleAudioDone("r1", "t1");
+
+    expect(player.isPlaying()).toBe(true);
+    expect(onTurnFinished).toHaveBeenCalledTimes(1);
+    expect(onTurnFinished).toHaveBeenCalledWith("r1", "t1");
+    expect(fakeAudioCtx.sources).toHaveLength(2);
+    expect(fakeAudioCtx.sources[0].buffer?.sampleRate).toBe(24000);
+    expect(fakeAudioCtx.sources[0].buffer?.duration).toBeCloseTo(0.1, 5);
+    expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.0, 5);
+    expect(fakeAudioCtx.sources[1].buffer?.sampleRate).toBe(24000);
+    expect(fakeAudioCtx.sources[1].buffer?.duration).toBeCloseTo(0.2, 5);
+    expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.1, 5);
+
+    fakeAudioCtx.sources[0].finishPlayback();
+    expect(onSendJson).not.toHaveBeenCalled();
+    expect(player.isPlaying()).toBe(true);
+
+    fakeAudioCtx.sources[1].finishPlayback();
+    expect(onSendJson).not.toHaveBeenCalled();
+    expect(player.isPlaying()).toBe(false);
+
+    // Interrupt / handleAudioStop during turn 2 must also suppress playback.stopped receipt
+    const chunk3 = encodeFloat32ToPcmS16LE(new Float32Array(2400).fill(0.5));
+    player.enqueueAudioContext("c3", "r2", "t2", () => true);
+    player.enqueueAudioFrame(chunk3.buffer, () => true);
+    expect(player.isPlaying()).toBe(true);
+
+    fakeAudioCtx.currentTime = 2.05;
+    player.handleAudioStop("r2", "t2");
+    expect(fakeAudioCtx.sources[2].stopped).toBe(true);
+    expect(player.isPlaying()).toBe(false);
+    expect(onSendJson).not.toHaveBeenCalled();
+    expect(onStateChange).toHaveBeenCalled();
+  });
+});

@@ -4,6 +4,7 @@
 // 拦截 stop / disconnect 竞态以防套接字泄漏；具体协议动作与会话状态机全由 OffscreenMossLiveClient 处理。
 
 import type {
+  LiveProviderType,
   MossLiveClientAction,
   MossLiveServerEvent,
   MossLiveVideoContext
@@ -18,8 +19,11 @@ export type MossLiveClientFactory = (options: {
   onEvent: (event: MossLiveServerEvent) => void;
 }) => MossLiveClientInstance;
 
+export type LiveClientProviderType = LiveProviderType;
+
 export interface AttachMossLivePortOptions {
-  loadClient: () => Promise<MossLiveClientFactory>;
+  loadClient: (providerType?: LiveClientProviderType) => Promise<MossLiveClientFactory>;
+  loadGeminiClient?: () => Promise<MossLiveClientFactory>;
   postMessage?: (port: chrome.runtime.Port, message: unknown) => void;
 }
 
@@ -70,9 +74,14 @@ export function attachMossLivePort(
       currentGeneration += 1;
       const generation = currentGeneration;
       latestVideoContext = msg.videoContext || null;
+      const providerType: LiveClientProviderType =
+        msg.providerType === "gemini-live" ? "gemini-live" : "moss-live";
 
       try {
-        const createClient = await loadClient();
+        const createClient =
+          providerType === "gemini-live" && options.loadGeminiClient
+            ? await options.loadGeminiClient()
+            : await loadClient(providerType);
         if (disposed || generation !== currentGeneration) {
           return;
         }
@@ -94,6 +103,8 @@ export function attachMossLivePort(
         client.handleAction({
           action: "start",
           wsUrl: msg.wsUrl,
+          ...(msg.providerType !== undefined ? { providerType: msg.providerType } : {}),
+          ...(msg.model !== undefined ? { model: msg.model } : {}),
           videoContext: latestVideoContext
         });
       } catch (error) {
