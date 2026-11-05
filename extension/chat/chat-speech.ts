@@ -135,6 +135,32 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
 
 let chromeSpeechEngine: ChatSpeechEngine | null = null;
 
+const TIMESTAMP_TOKEN = "\\b\\d{1,3}[:：]\\d{2}(?:[:：]\\d{2})?\\b";
+const RANGE_CONNECTOR = "\\s*(?:[-–—~～至到]|\\.{2,3}|…)\\s*";
+const TIME_ITEM = `(?:${TIMESTAMP_TOKEN}(?:${RANGE_CONNECTOR}${TIMESTAMP_TOKEN})?)`;
+const PREFIX = "(?:(?:详见|参见|参考|见|时间戳[:：]?|at|see)\\s*)?";
+
+const BRACKETED_TIMESTAMP_PATTERN = new RegExp(
+  `(?:[\\[【(（])\\s*${PREFIX}${TIME_ITEM}\\s*(?:[\\]】)）])(?:\\s*[:：\\-–—~～]\\s*|\\s+)?`,
+  "giu"
+);
+
+const BARE_TIMESTAMP_PATTERN = new RegExp(
+  `(?:^|(?<=[\\s\\p{P}\\p{S}]))${TIME_ITEM}(?:\\s*[:：\\-–—~～]\\s*|\\s+)?`,
+  "gu"
+);
+
+export function stripSpeechTimestamps(text: string): string {
+  return String(text || "")
+    .replace(BRACKETED_TIMESTAMP_PATTERN, "")
+    .replace(BARE_TIMESTAMP_PATTERN, "")
+    .replace(/ +([，。！？；：,.!?;:])/g, "$1")
+    .replace(/[\u00a0\t ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function speechTextFromElement(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("pre").forEach((block) => {
@@ -160,11 +186,7 @@ export function speechTextFromElement(root: HTMLElement): string {
     return BLOCK_TAGS.has(node.tagName) ? `\n${body}\n` : `${body}${suffix}`;
   }
 
-  return readNode(clone)
-    .replace(/[\u00a0\t ]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return stripSpeechTimestamps(readNode(clone));
 }
 
 export function splitSpeechText(text: string, maxChunkChars = DEFAULT_MAX_CHUNK_CHARS): string[] {
@@ -351,7 +373,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
       return;
     }
     stop();
-    const cleanText = (typeof source === "string" ? source : speechTextFromElement(source)).trim();
+    const cleanText = (typeof source === "string" ? stripSpeechTimestamps(source) : speechTextFromElement(source)).trim();
     if (!cleanText) {
       return;
     }
