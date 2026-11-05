@@ -134,6 +134,11 @@ const mossLiveLoader = createLazyLoader(async () => {
   return OffscreenMossLiveClient;
 });
 
+const geminiLiveLoader = createLazyLoader(async () => {
+  const { OffscreenGeminiLiveClient } = await import("../live/offscreen-gemini-live-client.js");
+  return OffscreenGeminiLiveClient;
+});
+
 const ladderLoader = createLazyLoader(async () => {
   const { runLadderChat } = await import("../ai/ladder.js");
   return runLadderChat;
@@ -200,12 +205,13 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port && port.name === MOSS_LIVE_PORT_NAME) {
     lifetime.trackLivePort(port);
     attachMossLivePort(port, {
-      loadClient: async (providerType) => {
-        if (providerType === "gemini-live") {
-          throw new Error("Gemini Live 协议客户端尚未挂载");
-        }
+      loadClient: async () => {
         const MossClientClass = await mossLiveLoader.load();
         return (opts) => new MossClientClass(opts);
+      },
+      loadGeminiClient: async () => {
+        const GeminiClientClass = await geminiLiveLoader.load();
+        return (opts) => new GeminiClientClass(opts);
       },
       postMessage: safePostMessage
     });
