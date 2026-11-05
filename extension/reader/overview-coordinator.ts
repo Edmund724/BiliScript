@@ -442,8 +442,11 @@ export function createOverviewCoordinator(
         return;
       }
       if (isCancelledError(error) || isAbortedMarkerError(error)) {
-        if (cancelRequested) {
+        if (cancelRequested || isCancelledError(error)) {
           clearOverviewToCancelled();
+          if (isCancelledError(error) && !cancelRequested) {
+            overview.errorText = "费用确认已取消，未生成全片概览";
+          }
           renderIfOpen();
           notifyOverviewChanged();
           return;

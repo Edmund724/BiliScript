@@ -190,7 +190,11 @@ export { overviewCoordinator };
 // 不反向静态依赖本装配根（见该叶子头注）。
 registerReaderOverviewSource({
   getSnapshot: () => overviewCoordinator.getSnapshot(),
-  subscribe: (listener) => overviewCoordinator.subscribe(listener)
+  subscribe: (listener) => overviewCoordinator.subscribe(listener),
+  ensureOverview: async (options) => {
+    await overviewCoordinator.trigger(options);
+    return overviewCoordinator.getSnapshot();
+  }
 });
 
 export const triggerReaderOverviewGeneration = (

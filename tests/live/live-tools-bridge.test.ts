@@ -329,4 +329,264 @@ describe("control_bilibili_player", () => {
     expect(JSON.stringify(bridge.getVideoContext())).not.toContain("WebSocket 建立连接");
   });
 
+  describe("summarize_video", () => {
+    const videoIdentity = { bvid: "BV1test000000", cid: "123", pageIndex: 2 };
+
+    it("returns cached overview immediately when already ready without calling ensureOverview", async () => {
+      const ensureOverview = vi.fn();
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        getOverview: () => ({ phase: "ready", analysis: READY_ANALYSIS, errorText: "" }),
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-cached",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(ensureOverview).not.toHaveBeenCalled();
+      expect(res).toEqual({
+        ok: true,
+        video: videoIdentity,
+        coverage: "complete",
+        summary: "全片简介",
+        chapters: [{ from: 0, to: 40, time: "0:00", title: "开场", summary: "介绍原理" }],
+        quotes: [{ from: 10, time: "0:10", content: "连接建立后才有工具调用" }]
+      });
+    });
+
+    it("returns cached partial overview with explicit failed ranges and partial coverage", async () => {
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        getOverview: () => ({
+          phase: "partial",
+          analysis: {
+            ...READY_ANALYSIS,
+            failedRanges: [{ from: 100, to: 200 }],
+            summaryFailed: true
+          },
+          errorText: ""
+        })
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-partial",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(res).toEqual({
+        ok: true,
+        video: videoIdentity,
+        coverage: "partial",
+        summary: "全片简介",
+        chapters: [{ from: 0, to: 40, time: "0:00", title: "开场", summary: "介绍原理" }],
+        quotes: [{ from: 10, time: "0:10", content: "连接建立后才有工具调用" }],
+        failedRanges: [{ from: 100, to: 200 }],
+        summaryFailed: true
+      });
+    });
+
+    it("triggers and awaits ensureOverview when overview is not yet generated", async () => {
+      let overviewSource: any = { phase: "idle", analysis: null, errorText: "" };
+      const ensureOverview = vi.fn(async () => {
+        overviewSource = { phase: "ready", analysis: READY_ANALYSIS, errorText: "" };
+        return overviewSource;
+      });
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        getOverview: () => overviewSource,
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-gen",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(ensureOverview).toHaveBeenCalledTimes(1);
+      expect(res.ok).toBe(true);
+      expect(res.coverage).toBe("complete");
+      expect(res.summary).toBe("全片简介");
+    });
+
+    it("returns cached overview immediately even if subtitle is currently loading", async () => {
+      const ensureOverview = vi.fn();
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip({ subtitleFetchState: "loading" }),
+        getUrl: () => URL,
+        getOverview: () => ({ phase: "ready", analysis: READY_ANALYSIS, errorText: "" }),
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-cached-loading",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(ensureOverview).not.toHaveBeenCalled();
+      expect(res.ok).toBe(true);
+      expect(res.coverage).toBe("complete");
+      expect(res.summary).toBe("全片简介");
+    });
+
+    it("reuses concurrent in-flight generation without starting second task", async () => {
+      let resolvePromise: any;
+      const pending = new Promise<any>((resolve) => {
+        resolvePromise = resolve;
+      });
+      const ensureOverview = vi.fn(() => pending);
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        getOverview: () => ({ phase: "idle", analysis: null, errorText: "" }),
+        ensureOverview
+      });
+
+      const p1 = bridge.executeTool({
+        callId: "call-1",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+      const p2 = bridge.executeTool({
+        callId: "call-2",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      resolvePromise({ phase: "ready", analysis: READY_ANALYSIS, errorText: "" });
+      const [res1, res2] = await Promise.all([p1, p2]);
+
+      expect(res1.ok).toBe(true);
+      expect(res2.ok).toBe(true);
+      expect(res1.summary).toBe("全片简介");
+      expect(res2.summary).toBe("全片简介");
+      expect(ensureOverview).toHaveBeenCalledTimes(2); // bridge passes to ensureOverview, coordinator deduplicates
+    });
+
+    it("passes forceRefresh: true when retrying from previous error or cancelled phase", async () => {
+      const ensureOverview = vi.fn(async (_opts?: { forceRefresh?: boolean }) => ({
+        phase: "ready",
+        analysis: READY_ANALYSIS,
+        errorText: ""
+      }));
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        getOverview: () => ({ phase: "cancelled", analysis: null, errorText: "已取消" }),
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-retry",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(ensureOverview).toHaveBeenCalledWith({ forceRefresh: true });
+      expect(res.ok).toBe(true);
+      expect(res.coverage).toBe("complete");
+    });
+
+    it("returns error without triggering when subtitle is loading, error, or empty", async () => {
+      const ensureOverview = vi.fn();
+      const loadingBridge = createLiveToolsBridge({
+        getClip: () => makeClip({ subtitleFetchState: "loading" }),
+        getUrl: () => URL,
+        ensureOverview
+      });
+      const loadingRes = await loadingBridge.executeTool({
+        callId: "c1",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+      expect(loadingRes.ok).toBe(false);
+      expect(loadingRes.error).toContain("字幕仍在加载");
+
+      const emptyBridge = createLiveToolsBridge({
+        getClip: () => makeClip({ subtitleBody: [] }),
+        getUrl: () => URL,
+        ensureOverview
+      });
+      const emptyRes = await emptyBridge.executeTool({
+        callId: "c2",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+      expect(emptyRes.ok).toBe(false);
+      expect(emptyRes.error).toContain("没有可用字幕");
+      expect(ensureOverview).not.toHaveBeenCalled();
+    });
+
+    it("returns clear failure when cost guard is declined / cancelled", async () => {
+      const ensureOverview = vi.fn(async () => ({
+        phase: "cancelled",
+        analysis: null,
+        errorText: "费用确认已取消，未生成全片概览"
+      }));
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => makeClip(),
+        getUrl: () => URL,
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "c3",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("取消");
+    });
+
+    it("drops late overview and returns error when video switched during generation", async () => {
+      let currentUrl = URL;
+      let clip = makeClip();
+      const ensureOverview = vi.fn(async () => {
+        // 模拟生成期间发生换片
+        currentUrl = "https://www.bilibili.com/video/BV1other000000/?p=1";
+        clip = makeClip({ bvid: "BV1other000000", cid: "999", pageIndex: 1 });
+        return { phase: "ready", analysis: READY_ANALYSIS, errorText: "" };
+      });
+
+      const bridge = createLiveToolsBridge({
+        getClip: () => clip,
+        getUrl: () => currentUrl,
+        ensureOverview
+      });
+
+      const res = await bridge.executeTool({
+        callId: "c4",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("视频已切换");
+    });
+  });
+
 });

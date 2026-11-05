@@ -20,6 +20,7 @@ export type GeminiLiveClientState = "idle" | "connecting" | "connected" | "close
 
 export const DEFAULT_GEMINI_LIVE_MODEL = "gemini-3.8-live";
 export const DEFAULT_GEMINI_HANDSHAKE_TIMEOUT_MS = 10000;
+export const DEFAULT_GEMINI_OVERVIEW_TOOL_TIMEOUT_MS = 120000;
 
 export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
@@ -84,6 +85,15 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
       },
       required: ["query"]
     }
+  },
+  {
+    name: "summarize_video",
+    description:
+      "生成或获取当前视频的全片概览（包含全片简介、章节脉络与金句）。当用户要求总结全片、询问这期视频讲了什么、或者当前没有概览时调用。概览生成可能需要一定时间。",
+    parameters: {
+      type: "OBJECT",
+      properties: {}
+    }
   }
 ] as const;
 
@@ -127,6 +137,7 @@ export interface GeminiLiveClientOptions {
   liveGeminiNativeSearch?: boolean;
   handshakeTimeoutMs?: number;
   pageToolTimeoutMs?: number;
+  overviewToolTimeoutMs?: number;
   createAudioContext?: () => AudioContextLike | null;
   executeWebSearch?: LiveWebSearchExecutor;
   onEvent?: (event: MossLiveServerEvent) => void;
@@ -224,6 +235,7 @@ export class OffscreenGeminiLiveClient {
   private lastSentContextKey = "";
   private readonly handshakeTimeoutMs: number;
   private readonly pageToolTimeoutMs: number;
+  private readonly overviewToolTimeoutMs: number;
   private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: GeminiLiveClientOptions;
   private readonly audioPlayer: MossAudioPlayer;
@@ -249,6 +261,8 @@ export class OffscreenGeminiLiveClient {
     this.liveGeminiNativeSearch = Boolean(options.liveGeminiNativeSearch ?? false);
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_GEMINI_HANDSHAKE_TIMEOUT_MS;
     this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS;
+    this.overviewToolTimeoutMs =
+      options.overviewToolTimeoutMs ?? DEFAULT_GEMINI_OVERVIEW_TOOL_TIMEOUT_MS;
     this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
     this.audioPlayer = new MossAudioPlayer({
       sampleRate: 24000,
@@ -581,6 +595,9 @@ export class OffscreenGeminiLiveClient {
       this.cancelToolCall(existing);
     }
 
+    const timeoutMs =
+      call.name === "summarize_video" ? this.overviewToolTimeoutMs : this.pageToolTimeoutMs;
+
     const entry: ActiveGeminiToolCall = {
       kind: "page_tool",
       callId: call.callId,
@@ -593,7 +610,7 @@ export class OffscreenGeminiLiveClient {
         const error = "页面工具执行超时，请稍后重试";
         this.sendToolResponse(call.callId, call.name, { ok: false, error });
         this.emit({ type: "tool_error", error });
-      }, this.pageToolTimeoutMs)
+      }, timeoutMs)
     };
 
     this.activeToolCalls.set(call.callId, entry);

@@ -146,7 +146,11 @@ import { createLiveChatController, type LiveChatController } from "../live/live-
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
-import { getReaderOverviewSource, subscribeReaderOverviewSource } from "./live-overview-source.js";
+import {
+  ensureReaderOverviewSource,
+  getReaderOverviewSource,
+  subscribeReaderOverviewSource
+} from "./live-overview-source.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 
@@ -934,7 +938,8 @@ function bindEvents(): void {
     // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
     const liveToolsBridge = createLiveToolsBridge({
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-      getOverview: () => getReaderOverviewSource()
+      getOverview: () => getReaderOverviewSource(),
+      ensureOverview: (options) => ensureReaderOverviewSource(options)
     });
     liveController = createLiveChatController({
       liveButton: els.liveBtn,

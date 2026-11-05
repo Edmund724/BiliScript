@@ -13,6 +13,7 @@ export interface LiveToolsBridgeDeps {
   getCurrentTime?: () => number;
   getPlayer?: () => HTMLVideoElement | null;
   getOverview?: () => LiveOverviewSource | null;
+  ensureOverview?: (options?: { forceRefresh?: boolean }) => Promise<LiveOverviewSource | null>;
   showNotice?: (message: string, autoHideMs?: number) => void;
 }
 
@@ -82,6 +83,22 @@ function projectVideoIdentity(context: MossLiveVideoContext): MossLiveVideoIdent
   return { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex };
 }
 
+function projectOverviewResponse(
+  context: MossLiveVideoContext,
+  overview: NonNullable<ReturnType<typeof projectLiveOverview>>
+): Record<string, unknown> {
+  return {
+    ok: true,
+    video: projectVideoIdentity(context),
+    coverage: overview.coverage,
+    summary: overview.summary,
+    chapters: overview.chapters,
+    quotes: overview.quotes,
+    ...(overview.failedRanges ? { failedRanges: overview.failedRanges } : {}),
+    ...(overview.summaryFailed ? { summaryFailed: overview.summaryFailed } : {})
+  };
+}
+
 function projectSubtitle(item: ReadingSubtitleItem): Record<string, unknown> {
   return {
     from: item.from,
@@ -100,6 +117,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   const getCurrentTime = deps.getCurrentTime || (() => getPlayer()?.currentTime || 0);
   const showNotice = deps.showNotice || (() => {});
   const getOverview = deps.getOverview || (() => null);
+  const ensureOverview = deps.ensureOverview;
 
   function getVideoContext(): MossLiveVideoContext | null {
     return projectVideoContext(getClip(), getUrl(), getOverview());
@@ -189,9 +207,20 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   async function executeTool(call: MossLiveToolCall): Promise<Record<string, unknown>> {
     const toolName = String(call?.name || "").trim();
     const isPlayerControl = toolName === "control_bilibili_player";
-    showNotice(isPlayerControl ? "正在控制当前视频播放器..." : "正在查阅当前视频字幕...", 1800);
+    const isSummarizeVideo = toolName === "summarize_video";
+    const statusNotice = isPlayerControl
+      ? "正在控制当前视频播放器..."
+      : isSummarizeVideo
+        ? "正在生成全片概览..."
+        : "正在查阅当前视频字幕...";
+    showNotice(statusNotice, 1800);
     try {
-      if (!isPlayerControl && toolName !== "get_subtitles_around_time" && toolName !== "search_video_subtitles") {
+      if (
+        !isPlayerControl &&
+        !isSummarizeVideo &&
+        toolName !== "get_subtitles_around_time" &&
+        toolName !== "search_video_subtitles"
+      ) {
         throw new Error(`不支持的页面工具：${toolName || "未命名"}`);
       }
       const args = parseArguments(call.arguments);
@@ -205,6 +234,68 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
 
       if (isPlayerControl) {
         return await controlPlayer(args, call, context);
+      }
+
+      if (isSummarizeVideo) {
+        // 1. 缓存优先：已有完整或部分概览时直接返回，不受字幕当前加载状态阻碍
+        const cachedSnapshot = getOverview();
+        const cachedOverview = projectLiveOverview(cachedSnapshot, { fetchState: clip.subtitleFetchState });
+        if (cachedOverview && (cachedOverview.coverage === "complete" || cachedOverview.coverage === "partial")) {
+          const message = cachedOverview.coverage === "partial" ? "全片概览覆盖不完整" : "全片概览已就绪";
+          showNotice(message, 1800);
+          return projectOverviewResponse(context, cachedOverview);
+        }
+
+        // 2. 字幕守卫：尚未生成时必须依赖有效字幕
+        if (clip.subtitleFetchState === "loading") {
+          const message = "当前视频字幕仍在加载，请稍后重试。";
+          showNotice(message, 4000);
+          return { ok: false, error: message };
+        }
+        if (clip.subtitleFetchState === "error") {
+          const message = "当前视频字幕加载失败，无法生成全片概览。";
+          showNotice(message, 4000);
+          return { ok: false, error: message };
+        }
+        const items = getReadingSubtitleItems(clip.subtitleBody || []);
+        if (items.length === 0) {
+          const message = "当前视频没有可用字幕，无法生成全片概览。";
+          showNotice(message, 4000);
+          return { ok: false, error: message };
+        }
+
+        if (!ensureOverview) {
+          const message = "未接入概览生成管线，无法生成全片概览。";
+          showNotice(message, 4000);
+          return { ok: false, error: message };
+        }
+
+        showNotice("正在生成全片概览...", 35000);
+        const shouldForceRefresh =
+          cachedSnapshot?.phase === "error" || cachedSnapshot?.phase === "cancelled";
+        const source = await ensureOverview({ forceRefresh: shouldForceRefresh });
+        const currentContext = getVideoContext();
+        if (!currentContext || !contextMatchesCall(call, currentContext)) {
+          const error = "视频已切换，本次全片概览结果已失效。";
+          showNotice(error, 4000);
+          return { ok: false, error };
+        }
+
+        const overview = projectLiveOverview(source, { fetchState: getClip().subtitleFetchState });
+        if (overview && (overview.coverage === "complete" || overview.coverage === "partial")) {
+          const message = overview.coverage === "partial" ? "全片概览覆盖不完整" : "全片概览生成完成";
+          showNotice(message, 1800);
+          return projectOverviewResponse(currentContext, overview);
+        }
+
+        let error = overview?.statusText || source?.errorText || "全片概览生成失败";
+        if (source?.phase === "cancelled") {
+          error = source.errorText || "全片概览生成已取消，未生成全片概览。";
+        } else if (source?.phase === "error") {
+          error = source.errorText || "全片概览生成失败，请稍后重试。";
+        }
+        showNotice(error, 4000);
+        return { ok: false, error };
       }
 
       const items = getReadingSubtitleItems(clip.subtitleBody || []);
@@ -256,7 +347,11 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
         items: matches
       };
     } catch (error) {
-      const prefix = isPlayerControl ? "播放器控制失败" : "字幕工具执行失败";
+      const prefix = isPlayerControl
+        ? "播放器控制失败"
+        : isSummarizeVideo
+          ? "全片概览生成失败"
+          : "字幕工具执行失败";
       const message = `${prefix}：${(error as Error)?.message || String(error)}`;
       showNotice(message, 4000);
       return { ok: false, error: message };

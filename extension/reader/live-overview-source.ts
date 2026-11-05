@@ -12,6 +12,7 @@ import type { LiveOverviewSource } from "../live/live-overview-context.js";
 export interface ReaderOverviewSource {
   getSnapshot(): LiveOverviewSource | null;
   subscribe(listener: () => void): () => void;
+  ensureOverview?(options?: { forceRefresh?: boolean }): Promise<LiveOverviewSource | null>;
 }
 
 let currentSource: ReaderOverviewSource | null = null;
@@ -24,6 +25,17 @@ export function registerReaderOverviewSource(source: ReaderOverviewSource): void
 /** 当前概览快照；未登记（对话早于 reader 装配）时返回 null。 */
 export function getReaderOverviewSource(): LiveOverviewSource | null {
   return currentSource ? currentSource.getSnapshot() : null;
+}
+
+/** 按需确保/触发当前视频概览生成；未登记时返回 null。 */
+export async function ensureReaderOverviewSource(
+  options?: { forceRefresh?: boolean }
+): Promise<LiveOverviewSource | null> {
+  if (!currentSource) return null;
+  if (typeof currentSource.ensureOverview === "function") {
+    return await currentSource.ensureOverview(options);
+  }
+  return currentSource.getSnapshot();
 }
 
 /** 概览相位/产物变化订阅；未登记时返回 no-op 退订。 */

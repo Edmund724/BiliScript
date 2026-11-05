@@ -583,7 +583,7 @@ describe("OffscreenGeminiLiveClient context update", () => {
 });
 
 describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle", () => {
-  it("declares 3 Bilibili page tools + web_search when liveGeminiNativeSearch is false (default)", () => {
+  it("declares 4 Bilibili page tools + web_search when liveGeminiNativeSearch is false (default)", () => {
     const { client } = createClient();
     const ws = connect(client);
     const setup = ws.jsonFrames()[0].setup;
@@ -595,11 +595,12 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       "control_bilibili_player",
       "get_subtitles_around_time",
       "search_video_subtitles",
+      "summarize_video",
       "web_search"
     ]);
   });
 
-  it("declares googleSearch and 3 Bilibili page tools (without web_search) when liveGeminiNativeSearch is true", () => {
+  it("declares googleSearch and 4 Bilibili page tools (without web_search) when liveGeminiNativeSearch is true", () => {
     const { client } = createClient();
     client.handleAction({
       action: "start",
@@ -617,7 +618,8 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     expect(names).toEqual([
       "control_bilibili_player",
       "get_subtitles_around_time",
-      "search_video_subtitles"
+      "search_video_subtitles",
+      "summarize_video"
     ]);
     expect(names).not.toContain("web_search");
   });
@@ -851,6 +853,59 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       result: { ok: true }
     });
     expect(ws.jsonFrames()).toHaveLength(1);
+  });
+
+  it("applies longer independent timeout to summarize_video without affecting other page tools", () => {
+    vi.useFakeTimers();
+    const toolErrors: string[] = [];
+    const { client } = createClient({
+      pageToolTimeoutMs: 500,
+      overviewToolTimeoutMs: 2500,
+      onToolError: (err) => toolErrors.push(err)
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-summary",
+              name: "summarize_video",
+              args: {}
+            }
+          ]
+        }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+
+    // 500ms 时普通页面工具超时，但 summarize_video 尚未超时
+    vi.advanceTimersByTime(501);
+    expect(toolErrors).toHaveLength(0);
+    expect(client.isSpeaking()).toBe(true);
+    expect(ws.jsonFrames()).toHaveLength(0);
+
+    // 超过 2500ms 后 summarize_video 超时
+    vi.advanceTimersByTime(2000);
+    expect(client.isSpeaking()).toBe(false);
+    expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
+    expect(ws.jsonFrames()).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "call-summary",
+              name: "summarize_video",
+              response: {
+                result: { ok: false, error: "页面工具执行超时，请稍后重试" }
+              }
+            }
+          ]
+        }
+      }
+    ]);
   });
 
   it("cancels specific in-flight web_search and page tool calls on toolCallCancellation.ids", async () => {

@@ -655,8 +655,8 @@ interface ActiveRadioFamilySpec {
   readonly getEmptyNode: (elements: SettingsElements) => HTMLElement;
   readonly getPresets: () => readonly ProviderRowPreset[];
   readonly resolveActiveId: (
-    providers: ReadonlyArray<{ id?: unknown }>,
-    activeId: unknown
+    providers: ReadonlyArray<{ id?: string | null }>,
+    activeId?: string | null
   ) => string;
 }
 
