@@ -60,7 +60,6 @@
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { extractBvid } from "../bilibili/video-id-shared.js";
-import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 // 思考档位的显示视图（一级行 · chip 条目 · 提示文案）：一次解析（偏好 + 上下文）的产出，
 // 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
 // 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
@@ -463,14 +462,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
   },
-  isLiveActive: () => isLiveSessionActive(),
-  getSpeechVolume: () => {
-    const video = getRuntimeVideoElement();
-    if (video && typeof video.volume === "number" && Number.isFinite(video.volume)) {
-      return video.volume;
-    }
-    return undefined;
-  }
+  isLiveActive: () => isLiveSessionActive()
 });
 
 const { loadContextState } = contextLoad;
