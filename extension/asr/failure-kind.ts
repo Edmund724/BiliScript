@@ -154,8 +154,8 @@ function classifyWithoutStatus(haystack: string, source: AsrFailureSource): AsrF
   if (includesAny(haystack, MEDIA_KEYWORDS)) {
     return "asr-media";
   }
-  // 无命中：媒体来源默认落媒体类（音轨取不到 / 解不了），平台来源无从判断
-  return source === "media" ? "asr-media" : "asr-unknown";
+  // 无命中：媒体来源已在上方拦截，此处平台来源无从判断
+  return "asr-unknown";
 }
 
 // 429 双义分流：报文特征优先（最具体）→ host 默认 → 额度兜底。
