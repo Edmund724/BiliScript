@@ -3,7 +3,7 @@
 import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
-import type { AiContext, ChatMessage, HotComment, ImagePart } from "./types.js";
+import type { AiContext, ChatMessage, ImagePart } from "./types.js";
 
 interface BuildMessagesInput {
   context?: AiContext | null;
@@ -54,7 +54,7 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
   const sections: string[] = [];
 
   // 用户自定义系统提示词是主人格，排第一位（清空时回落内置默认——那条本身就是
-  // 完整人设）；标题/字幕/评论等数据段随后，不再有独立的内置 mini 人设。
+  // 完整人设）；标题/字幕等数据段随后，不再有独立的内置 mini 人设。
   const customSystemPrompt = String(systemPrompt || "").trim();
   sections.push(customSystemPrompt || DEFAULT_AI_SYSTEM_PROMPT);
 
@@ -84,17 +84,6 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     );
   } else {
     sections.push("（暂无字幕）");
-  }
-
-  if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
-    // 展示侧每条截断到 500 字符（历史行为）：热评数据通道现保存全文供目录解析，
-    // 截断移到展示点；楼中楼续篇（subMessages）不进聊天展示，只进目录解析。
-    const commentBlock = ctx.hotComments
-      .map(function (c: HotComment, i: number) {
-        return `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${(c.message || "").slice(0, 500)}`;
-      })
-      .join("\n");
-    sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${commentBlock}`);
   }
 
   let historyMessages: ChatMessage[] = [];

@@ -205,10 +205,8 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
       userPrompt: "这个视频讲了什么？"
     });
     const systemText = String(messages[0].content);
-    const commentBlock = systemText.split("以下是按热度排序的前")[1]?.split("\n\n").slice(1).join("\n\n") || "";
-    expect(systemText).toContain(PINNED_MESSAGE.slice(0, 500));
-    expect(systemText).not.toContain("TDD 该不该用");
-    expect(systemText).not.toContain("核心原则：确定性归脚本");
+    expect(systemText).not.toContain("以下是按热度排序的前");
+    expect(systemText).not.toContain(PINNED_MESSAGE.slice(0, 100));
 
     // ⑦ 工件：可复现走查记录（同一测试重跑逐字节一致）
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "outline-titles-only", "artifacts");
@@ -240,15 +238,13 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
         ...result.chapters.map((item) => `- [${item.from}..${item.to}] ${item.title} | summary=${JSON.stringify(item.summary)}`),
         ...result.quotes.map((item) => `- 金句 @${item.from}s：${item.content}`),
         "",
-        "## ⑤ 聊天展示（buildMessages 评论块，逐字截取）",
-        "```text",
-        commentBlock,
-        "```",
+        "## ⑤ 聊天展示（buildMessages）",
+        "- 评论数据已从聊天展示解耦，buildMessages 不再向提示词注入热门评论",
         "",
         "## ⑥ 走查结论",
         "- 旧 500 字符截断点落在 09:33 行内，正是用户报的「语言轴：一个词 ag」；真数据下由 slice(0, 500) 复现",
-        "- 500 字符截断只发生在聊天展示；目录解析拿全文，09:33 整行与楼中楼续篇（25:00 起）都不丢",
-        "- 楼中楼续篇只进目录解析，不进聊天展示",
+        "- 目录解析拿全文，09:33 整行与楼中楼续篇（25:00 起）都不丢",
+        "- 楼中楼续篇与热评正文均不进聊天提示词，热评仅供目录解析",
         "- 27 章的密集 outline 只留章节标题（summary 恒空），总体简介与金句照常生成",
         ""
       ].join("\n")

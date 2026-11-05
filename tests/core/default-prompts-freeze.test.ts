@@ -14,8 +14,10 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
   MAX_INITIAL_QUICK_PROMPTS
 } from "../../extension/core/default-prompts.js";
 import {
@@ -31,13 +33,20 @@ const FROZEN_LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT =
 const FROZEN_LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 =
   "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。总结的详略按视频长度掌握，长视频不要压缩成短摘要。";
 
-const FROZEN_DEFAULT_PLAYER_AI_QUICK_PROMPT = [
+const FROZEN_LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3 = [
   "整理这期视频的内容，输出结构化总结：",
   "1. TL;DR：两三句话说清这期视频讲了什么、核心结论是什么",
   "2. 主题与核心观点",
   "3. 内容梳理：按视频脉络分节展开，关键节点附时间戳；重要数据、事实、金句和论证过程不要省略",
   "4. 结论与可执行启发：看完能带走什么、可以怎么做",
   "5. （若附带评论）观众反响：提炼高赞评论的主要观点与争议点"
+].join("\n");
+
+const FROZEN_DEFAULT_PLAYER_AI_QUICK_PROMPT = [
+  "整理这期视频的内容，输出结构化总结：",
+  "1. 一句话结论：用 1-2 句话直接点明核心要点或主旨",
+  "2. 核心脉络：按视频推进顺序分节梳理，关键节点标注时间戳；保留重要事实、关键数据与论证过程，避免车轱辘话和跨章节同义重复",
+  "3. 核心启发或行动建议（仅在视频明确提供时给出，无则省略）"
 ].join("\n");
 
 const FROZEN_MAX_INITIAL_QUICK_PROMPTS = 3;
@@ -89,7 +98,7 @@ const FROZEN_LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 = [
   "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
 ].join("\n");
 
-const FROZEN_DEFAULT_AI_SYSTEM_PROMPT = [
+const FROZEN_LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 = [
   "# 角色",
   "你是一名视频内容分析助手，服务于一个 B 站视频总结浏览器扩展。输入是视频字幕（多为 ASR 产物）与评论，输出是让用户「不看视频也能掌握全部重点」的结构化总结。",
   "",
@@ -115,6 +124,31 @@ const FROZEN_DEFAULT_AI_SYSTEM_PROMPT = [
   "- 直接输出总结：不寒暄、不解释自己在做什么、不复述指令。"
 ].join("\n");
 
+const FROZEN_DEFAULT_AI_SYSTEM_PROMPT = [
+  "# 角色",
+  "你是一名视频内容分析助手，服务于一个 B 站视频总结浏览器扩展。输入是视频字幕（多为 ASR 产物），输出是让用户「不看视频也能掌握全部重点」的结构化总结。",
+  "",
+  "# 输入处理规则",
+  "- 字幕是语音识别产物，同音错别字多：引用和整理时按上下文修正明显错字，人名、品牌名、专业术语尤须注意；无法确定时保留原文。",
+  "- 广告植入、口播带货、片头片尾客套、重复表达一律过滤，不占用篇幅。",
+  "",
+  "# 输出要求",
+  "- 结构化、信息密度高：多用小标题和列表；有对比或并列数据时用表格。",
+  "- 关键节点附时间戳，用普通正文格式（如 09:15、01:09:15），不要用反引号或代码块包裹。",
+  "- 忠实于视频本身：不补充视频之外的知识，不评价对错；内容存疑或可能过时时，简短标注「（视频中的说法，建议核实）」。",
+  "- 区分事实、数据、作者观点与推测：转述观点时用「UP 主认为/提到」等归属措辞。",
+  "- 严禁车轱辘话：同一结论或要点仅在一处说明，严禁在概括、正文和结尾不同段落中换句式反复陈述。",
+  "",
+  "# 篇幅校准",
+  "篇幅与视频信息量动态匹配：",
+  "- 短视频（约 5 分钟以内或单一论点）：严格控制在 300 字以内，直奔主题，切忌为了凑格式把简明内容拉长。",
+  "- 30 分钟以上或大体量字幕：按内容自然分节详尽总结，重要事实、数据与论证细节充分保留。",
+  "",
+  "# 边界",
+  "- 信息不足（字幕缺失、音频听不清、内容与请求无关）时，明确指出哪部分无法总结，禁止猜测、编造、脑补。",
+  "- 直接输出总结：不寒暄、不解释自己在做什么、不复述指令。"
+].join("\n");
+
 describe("default-prompts 冻结断言（逐字一致）", () => {
   it("导出的键面完整且未增减", () => {
     const expectedKeys = [
@@ -125,8 +159,10 @@ describe("default-prompts 冻结断言（逐字一致）", () => {
       "LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2",
       "LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3",
       "LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4",
+      "LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT",
       "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2",
+      "LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3",
       "MAX_INITIAL_QUICK_PROMPTS"
     ].sort();
     const actualKeys = Object.keys(defaultPrompts).sort();
@@ -139,6 +175,10 @@ describe("default-prompts 冻结断言（逐字一致）", () => {
 
   it("LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 逐字一致", () => {
     expect(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2).toBe(FROZEN_LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2);
+  });
+
+  it("LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3 逐字一致", () => {
+    expect(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3).toBe(FROZEN_LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3);
   });
 
   it("DEFAULT_PLAYER_AI_QUICK_PROMPT 逐字一致", () => {
@@ -169,6 +209,10 @@ describe("default-prompts 冻结断言（逐字一致）", () => {
     expect(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4).toBe(FROZEN_LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4);
   });
 
+  it("LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 逐字一致", () => {
+    expect(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5).toBe(FROZEN_LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5);
+  });
+
   it("DEFAULT_AI_SYSTEM_PROMPT 逐字一致", () => {
     expect(DEFAULT_AI_SYSTEM_PROMPT).toBe(FROZEN_DEFAULT_AI_SYSTEM_PROMPT);
   });
@@ -178,6 +222,7 @@ describe("提示词迁移映射与归一化断言", () => {
   it("normalizePlayerAiQuickPrompt 迁移与回落", () => {
     expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(normalizePlayerAiQuickPrompt(LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt("")).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt("   ")).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(normalizePlayerAiQuickPrompt(null)).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
@@ -190,6 +235,7 @@ describe("提示词迁移映射与归一化断言", () => {
     expect(normalizeAiSystemPrompt(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(normalizeAiSystemPrompt(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(normalizeAiSystemPrompt(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(normalizeAiSystemPrompt(LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(normalizeAiSystemPrompt("")).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(normalizeAiSystemPrompt("   ")).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(normalizeAiSystemPrompt(null)).toBe(DEFAULT_AI_SYSTEM_PROMPT);
