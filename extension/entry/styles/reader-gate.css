@@ -45,6 +45,23 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1001;
 }
 
+/* 评论区展开笔记与记笔记浮窗让位：B 站原生右侧笔记抽屉（.video-note-sidebar-panel）
+ * 激活时由内部 .video-note-sidebar-content 展开呈现，外层 z-index 原生设为 99；
+ * 记笔记浮窗（.note-pc）原生 z-index 为 1000。
+ * 激活展开期间将其层级固定提升至 1001（低于顶栏 1002），同时文摘面板让位压至 1000
+ * （高于用户名片 999、右栏推荐 1~20 与播放器 1），使展开的笔记始终完整叠在文摘面板上层。 */
+body[data-biliscript-reader-mode="1"] .video-note-sidebar-panel:has(.video-note-sidebar-content:not([style*="display: none"]):not([style*="display:none"])),
+body[data-biliscript-reader-mode="1"] .note-pc:not([style*="display: none"]):not([style*="display:none"]) {
+  z-index: 1001 !important;
+}
+
+body[data-biliscript-reader-mode="1"]:has(
+  .video-note-sidebar-panel .video-note-sidebar-content:not([style*="display: none"]):not([style*="display:none"]),
+  .note-pc:not([style*="display: none"]):not([style*="display:none"])
+) #biliscript-reading-view {
+  z-index: 1000;
+}
+
 /* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位轻微缩放。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] {
   left: 50%;
