@@ -39,6 +39,8 @@ describe("manifest：ASR 音频 CDN 的最窄 host 权限（工单 04）", () =>
       "https://api.bilibili.com/*",
       "https://*.hdslb.com/*",
       "https://*.bilivideo.com/*",
+      "https://*.bilivideo.cn/*",
+      "https://*.akamaized.net/*",
       "https://api.tavily.com/*",
       "https://api.exa.ai/*",
       "https://api.firecrawl.dev/*",

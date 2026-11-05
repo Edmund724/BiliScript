@@ -280,7 +280,7 @@ const EXPECTED_RULE_SHAPE = {
       { header: "Origin", operation: "set", value: "https://www.bilibili.com" }
     ]
   },
-  condition: { requestDomains: ["bilivideo.com"], resourceTypes: ["xmlhttprequest"] }
+  condition: { requestDomains: ["bilivideo.com", "bilivideo.cn", "akamaized.net"], resourceTypes: ["xmlhttprequest"] }
 };
 
 async function prepareOnce() {

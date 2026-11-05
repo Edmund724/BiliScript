@@ -18,6 +18,8 @@
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
     "https://*.bilivideo.com/*",
+    "https://*.bilivideo.cn/*",
+    "https://*.akamaized.net/*",
     "https://api.tavily.com/*",
     "https://api.exa.ai/*",
     "https://api.firecrawl.dev/*",

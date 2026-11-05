@@ -551,7 +551,12 @@ export async function* streamAudioSegments(
       headDone = true;
     }
     if (isAborted()) return;
-    const response = await fetch(url, { method: "GET" });
+    let response: Response;
+    try {
+      response = await fetch(url, { method: "GET" });
+    } catch {
+      continue;
+    }
     if (!response.ok) {
       continue;
     }

@@ -28,7 +28,8 @@ import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse 
 // - 海外镜像域（如 upos-hz-mirrorakam.akamaized.net）在仓库代码链与夹具中
 //   零证据，不声明权限、不写规则（最窄原则）；若未来 playurl 返回该域导致
 //   403，属真实浏览器验收（工单 06）的观察项。
-export const ASR_AUDIO_CDN_DOMAIN = "bilivideo.com" as const;
+export const ASR_AUDIO_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
+export const ASR_AUDIO_CDN_DOMAIN = ASR_AUDIO_CDN_DOMAINS[0];
 export const ASR_AUDIO_ORIGIN_PAGE = "https://www.bilibili.com" as const;
 
 import {
@@ -223,7 +224,7 @@ export async function addDownloadRules(ruleId: number): Promise<void> {
           ]
         },
         condition: {
-          requestDomains: [ASR_AUDIO_CDN_DOMAIN],
+          requestDomains: [...ASR_AUDIO_CDN_DOMAINS],
           resourceTypes: ["xmlhttprequest"]
         }
       }
