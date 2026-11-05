@@ -249,6 +249,65 @@ export function resolveMossLivePermissionOrigins(
 
 export const resolveLivePermissionOrigins = resolveMossLivePermissionOrigins;
 
+/**
+ * MOSS-LIVE 服务端声明的页面工具定义清单（MOSS-LIVE 服务端版本 ≥ 2026-11）。
+ * MOSS-LIVE 官方接口由服务端在 Assistant / Model 层声明可调用的工具与参数 Schema，
+ * 客户端按此 Schema 接收 tool.call / response.function_call_arguments.done，
+ * 并以 tool.result 回传结构化结果。
+ */
+export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
+  {
+    type: "function",
+    name: "control_bilibili_player",
+    description: "控制当前B站播放器。暂停或继续播放、调整倍速、跳转到指定秒数；跳到字幕检索结果时使用该结果的 from 作为 time。",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", enum: ["seek", "pause", "play", "rate"], description: "控制命令" },
+        time: { type: "number", description: "seek 的目标播放位置（秒），必须为非负数且不超出视频时长" },
+        rate: { type: "number", enum: [0.5, 0.75, 1, 1.25, 1.5, 2], description: "rate 的目标倍速" }
+      },
+      required: ["command"]
+    }
+  },
+  {
+    type: "function",
+    name: "get_subtitles_around_time",
+    description: "查询当前视频指定播放位置前后的字幕。未传 current_time 时使用当前播放位置。",
+    parameters: {
+      type: "object",
+      properties: {
+        current_time: { type: "number", description: "播放位置（秒），缺省为当前播放位置" },
+        before_seconds: { type: "number", description: "向前查询秒数，默认 30，最大 300" },
+        after_seconds: { type: "number", description: "向后查询秒数，默认 30，最大 300" }
+      }
+    }
+  },
+  {
+    type: "function",
+    name: "search_video_subtitles",
+    description: "在当前视频当前分P的完整字幕中做大小写不敏感的关键词检索。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "要检索的字幕关键词" },
+        max_results: { type: "number", description: "最多返回条数，默认 20，最大 50" }
+      },
+      required: ["query"]
+    }
+  },
+  {
+    type: "function",
+    name: "summarize_video",
+    description:
+      "生成或获取当前视频的全片概览（包含全片简介、章节脉络与金句）。当用户要求总结全片、询问这期视频讲了什么、或者当前没有概览时调用。概览生成可能需要一定时间。",
+    parameters: {
+      type: "object",
+      properties: {}
+    }
+  }
+] as const;
+
 export const MOSS_LIVE_OVERVIEW_PHASES = [
   "idle",
   "generating",

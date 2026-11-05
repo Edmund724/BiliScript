@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GEMINI_LIVE_WS_URL,
   MOSS_DOWNSTREAM_SAMPLE_RATE,
+  MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS,
   MOSS_UPSTREAM_FRAME_BYTES,
   MOSS_UPSTREAM_FRAME_SAMPLES,
   MOSS_UPSTREAM_SAMPLE_RATE,
@@ -571,6 +572,27 @@ describe("subtitle-aware session and tool calls", () => {
     })).toEqual({
       kind: "tool.call",
       call: { callId: "call-2", name: "get_subtitles_around_time", arguments: { current_time: 12 } }
+    });
+  });
+
+  it("declares four page function tools including summarize_video for MOSS-LIVE server-side registration", () => {
+    const names = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.map((tool) => tool.name);
+    expect(names).toEqual([
+      "control_bilibili_player",
+      "get_subtitles_around_time",
+      "search_video_subtitles",
+      "summarize_video"
+    ]);
+
+    const summarizeTool = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.find(
+      (tool) => tool.name === "summarize_video"
+    );
+    expect(summarizeTool).toBeDefined();
+    expect(summarizeTool?.type).toBe("function");
+    expect(summarizeTool?.description).toContain("全片概览");
+    expect(summarizeTool?.parameters).toEqual({
+      type: "object",
+      properties: {}
     });
   });
 });

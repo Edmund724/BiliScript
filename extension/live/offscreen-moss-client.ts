@@ -37,6 +37,7 @@ export type MossLiveClientState = "idle" | "connecting" | "connected" | "closed"
 
 export const DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS = 10000;
 export const DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS = 10000;
+export const DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS = 120000;
 
 export interface LiveWebSearchOutcome {
   output: string;
@@ -99,6 +100,7 @@ export interface OffscreenMossClientOptions {
   videoContext?: MossLiveVideoContext | null;
   handshakeTimeoutMs?: number;
   pageToolTimeoutMs?: number;
+  overviewToolTimeoutMs?: number;
   executeWebSearch?: LiveWebSearchExecutor;
   createAudioContext?: () => AudioContextLike | null;
   onEvent?: (event: MossLiveServerEvent) => void;
@@ -145,6 +147,7 @@ export class OffscreenMossLiveClient {
   private wsUrl: string;
   private readonly handshakeTimeoutMs: number;
   private readonly pageToolTimeoutMs: number;
+  private readonly overviewToolTimeoutMs: number;
   private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: OffscreenMossClientOptions;
   private videoContext: MossLiveVideoContext | null;
@@ -162,6 +165,8 @@ export class OffscreenMossLiveClient {
     this.videoContext = options.videoContext || null;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_MOSS_HANDSHAKE_TIMEOUT_MS;
     this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS;
+    this.overviewToolTimeoutMs =
+      options.overviewToolTimeoutMs ?? DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS;
     this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
     this.audioPlayer = new MossAudioPlayer({
       createAudioContext: options.createAudioContext,
@@ -509,6 +514,9 @@ export class OffscreenMossLiveClient {
       this.cancelToolCall(existing);
     }
 
+    const timeoutMs =
+      call.name === "summarize_video" ? this.overviewToolTimeoutMs : this.pageToolTimeoutMs;
+
     const entry: ActiveToolCall = {
       kind: "page_tool",
       callId: call.callId,
@@ -522,7 +530,7 @@ export class OffscreenMossLiveClient {
         const error = "页面工具执行超时，请稍后重试";
         this.dispatchToolResultJson(call.callId, { ok: false, error });
         this.emit({ type: "tool_error", error });
-      }, this.pageToolTimeoutMs)
+      }, timeoutMs)
     };
 
     this.activeToolCalls.set(call.callId, entry);

@@ -413,6 +413,46 @@ describe("attachMossLivePort subtitle tool bridge", () => {
     });
   });
 
+  it("relays summarize_video tool call and result between offscreen port and content", async () => {
+    const { port, client, ws } = await setup();
+    ws.sentData.length = 0;
+    port.postedMessages.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "tool.call",
+        data: { call_id: "sum-call-1", name: "summarize_video", arguments: {} }
+      })
+    );
+
+    expect(client.isSpeaking()).toBe(true);
+    expect(port.postedMessages).toContainEqual({
+      type: "tool_call",
+      call: {
+        callId: "sum-call-1",
+        name: "summarize_video",
+        arguments: {},
+        video: { bvid: "BV1", cid: "1", pageIndex: 1 }
+      }
+    });
+
+    const overviewResponse = {
+      ok: true,
+      coverage: "complete",
+      summary: "总结完成",
+      chapters: [],
+      quotes: []
+    };
+    port.simulateMessage({ action: "tool_result", callId: "sum-call-1", result: overviewResponse });
+
+    expect(client.isSpeaking()).toBe(false);
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "tool.result",
+      call_id: "sum-call-1",
+      result: overviewResponse
+    });
+  });
+
   it("returns a timeout error without closing the session when content never answers", async () => {
     vi.useFakeTimers();
     try {

@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
+  DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS,
   OffscreenMossLiveClient,
   type AudioBufferLike,
   type AudioBufferSourceNodeLike,
@@ -1191,6 +1192,7 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
   it("sends initial context, deduplicates unchanged refreshes, and relays tool calls/results", () => {
     const onToolCall = vi.fn();
     const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    expect((client as any).overviewToolTimeoutMs).toBe(DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS);
     client.connect();
     const ws = (client as any).ws as FakeWebSocket;
     ws.simulateOpen();
@@ -1294,6 +1296,174 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
     expect(instructions).toContain("全片概览状态：ready（覆盖：complete）");
     expect(instructions).toContain("全片简介：全片介绍实时语音链路。");
     expect(instructions).toContain("0:00 开场：为什么需要实时");
+  });
+});
+
+
+
+describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
+  const context = {
+    url: "https://www.bilibili.com/video/BV1test000000/",
+    bvid: "BV1test000000",
+    cid: "123",
+    title: "实时语音原理",
+    pageIndex: 1,
+    pageCount: 1,
+    pageTitle: "",
+    chapters: []
+  };
+
+  it("relays summarize_video tool.call with video identity and sends tool.result back to server", () => {
+    const onToolCall = vi.fn();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "tool.call",
+        data: { call_id: "call-sum-1", name: "summarize_video", arguments: {} }
+      })
+    );
+
+    expect(client.isSpeaking()).toBe(true);
+    expect(onToolCall).toHaveBeenCalledWith({
+      callId: "call-sum-1",
+      name: "summarize_video",
+      arguments: {},
+      video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
+    });
+
+    const overviewResult = {
+      ok: true,
+      coverage: "complete",
+      summary: "全片总结内容",
+      chapters: [{ from: 0, to: 60, time: "0:00", title: "开篇", summary: "介绍" }],
+      quotes: []
+    };
+    expect(client.sendToolResult("call-sum-1", overviewResult)).toBe(true);
+    expect(client.isSpeaking()).toBe(false);
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "tool.result",
+      call_id: "call-sum-1",
+      result: overviewResult
+    });
+  });
+
+  it("routes summarize_video function_call.done with video identity and sends tool.result", () => {
+    const onToolCall = vi.fn();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "response.function_call_arguments.done",
+        data: {
+          call_id: "call-sum-2",
+          name: "summarize_video",
+          arguments: "{}",
+          run_id: "r1",
+          turn_id: "t1"
+        }
+      })
+    );
+
+    expect(client.isSpeaking()).toBe(true);
+    expect(onToolCall).toHaveBeenCalledWith({
+      callId: "call-sum-2",
+      name: "summarize_video",
+      arguments: "{}",
+      video: { bvid: "BV1test000000", cid: "123", pageIndex: 1 }
+    });
+
+    expect(client.sendToolResult("call-sum-2", { ok: false, error: "当前视频没有可用字幕" })).toBe(true);
+    expect(client.isSpeaking()).toBe(false);
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "tool.result",
+      call_id: "call-sum-2",
+      result: { ok: false, error: "当前视频没有可用字幕" }
+    });
+  });
+
+  it("applies longer independent timeout to summarize_video without affecting other page tools", () => {
+    vi.useFakeTimers();
+    try {
+      const toolErrors: string[] = [];
+      const client = new OffscreenMossLiveClient({
+        pageToolTimeoutMs: 500,
+        overviewToolTimeoutMs: 2500,
+        onEvent: (ev) => {
+          if (ev.type === "tool_error") toolErrors.push(ev.error);
+        }
+      });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.sentData.length = 0;
+
+      ws.simulateMessage(
+        JSON.stringify({
+          action: "tool.call",
+          data: {
+            call_id: "call-sum-timeout",
+            name: "summarize_video",
+            arguments: {}
+          }
+        })
+      );
+      expect(client.isSpeaking()).toBe(true);
+
+      // 500ms 时普通页面工具超时，但 summarize_video 尚未超时
+      vi.advanceTimersByTime(501);
+      expect(toolErrors).toHaveLength(0);
+      expect(client.isSpeaking()).toBe(true);
+      expect(ws.sentData).toHaveLength(0);
+
+      // 超过 2500ms 后 summarize_video 超时
+      vi.advanceTimersByTime(2000);
+      expect(client.isSpeaking()).toBe(false);
+      expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
+      expect(JSON.parse(ws.sentData[0])).toEqual({
+        action: "tool.result",
+        call_id: "call-sum-timeout",
+        result: { ok: false, error: "页面工具执行超时，请稍后重试" }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels in-flight summarize_video on interrupt() and drops late tool results", () => {
+    const onToolCall = vi.fn();
+    const client = new OffscreenMossLiveClient({ videoContext: context, onToolCall });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        action: "tool.call",
+        data: { call_id: "call-sum-cancel", name: "summarize_video", arguments: {} }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+
+    client.interrupt();
+    expect(client.isSpeaking()).toBe(false);
+
+    // 迟到的结果被丢弃
+    expect(client.sendToolResult("call-sum-cancel", { ok: true })).toBe(false);
+    expect(ws.sentData.some((d: any) => typeof d === "string" && d.includes("call-sum-cancel"))).toBe(false);
   });
 });
 
