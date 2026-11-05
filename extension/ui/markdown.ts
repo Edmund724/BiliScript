@@ -1067,14 +1067,34 @@ export function createMarkdownStreamSession(
   }
 
   function renderTail(currentTailText: string, cursor?: HTMLElement | null): void {
-    tailEl.innerHTML = render(currentTailText, {
+    const html = render(currentTailText, {
       ...options,
       hrAdjacentBefore: stableText
     });
-    enhanceMarkdownTables(tailEl);
-    if (cursor) {
-      tailEl.appendChild(cursor);
+    if (cursor && cursor.parentNode === tailEl) {
+      while (tailEl.firstChild && tailEl.firstChild !== cursor) {
+        tailEl.removeChild(tailEl.firstChild);
+      }
+      while (cursor.nextSibling) {
+        tailEl.removeChild(cursor.nextSibling);
+      }
+      if (html) {
+        const doc = tailEl.ownerDocument || (typeof document !== "undefined" ? document : null);
+        if (doc) {
+          const temp = doc.createElement("div");
+          temp.innerHTML = html;
+          while (temp.firstChild) {
+            tailEl.insertBefore(temp.firstChild, cursor);
+          }
+        }
+      }
+    } else {
+      tailEl.innerHTML = html;
+      if (cursor) {
+        tailEl.appendChild(cursor);
+      }
     }
+    enhanceMarkdownTables(tailEl);
   }
 
   function flush(

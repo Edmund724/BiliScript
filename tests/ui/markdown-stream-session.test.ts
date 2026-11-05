@@ -32,10 +32,21 @@ describe("MarkdownStreamSession 双容器流式会话", () => {
 
     const firstParagraph = stableEl.querySelector("p");
 
-    // 帧 3：第二段继续增长，第一段 DOM 节点保持 === 引用
+    const removedFromTail: Node[] = [];
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.removedNodes.forEach((node) => removedFromTail.push(node));
+      }
+    });
+    observer.observe(tailEl, { childList: true });
+
+    // 帧 3：第二段继续增长，第一段 DOM 节点保持 === 引用，光标不脱离 DOM 树（保持 CSS 动画不重置）
     session.flush("，继续增长", { cursor });
     expect(stableEl.querySelector("p")).toBe(firstParagraph);
     expect(tailEl.textContent).toContain("第二段开头，继续增长");
+    expect(tailEl.lastElementChild).toBe(cursor);
+    expect(removedFromTail.includes(cursor)).toBe(false);
+    observer.disconnect();
 
     // 帧 4：再次出现空行，第二段落定
     session.flush("\n\n第三段", { cursor });
