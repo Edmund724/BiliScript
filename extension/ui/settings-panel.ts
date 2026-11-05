@@ -51,6 +51,7 @@ import { isSmartSearchActive } from "../core/search-mode.js";
 // DeepSeek 凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：行副行状态文案
 // 与链装配消费同一判定叶，面板不自行判端点。
 import { DEEPSEEK_ROW_STATUS_TEXT, resolveDeepseekCredential } from "../search/deepseek-credential.js";
+import { GEMINI_LIVE_ROW_STATUS_TEXT, resolveGeminiCredential } from "../live/gemini-live-credential.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
 import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
@@ -435,9 +436,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
-  // MOSS-LIVE 伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
+  // 实时伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const liveProviders = await loadLiveProviders();
-  renderActiveRadioFamily("live", elements, liveProviders, settings.activeLiveProviderId);
+  renderActiveRadioFamily(
+    "live",
+    elements,
+    annotateGeminiLiveRows(liveProviders, providers),
+    settings.activeLiveProviderId
+  );
 
   const asrProviders = await loadAsrProviders();
   renderActiveRadioFamily("asr", elements, asrProviders, settings.activeAsrProviderId);
@@ -502,20 +508,50 @@ function syncResetSearchOrderButton(elements: SettingsElements): void {
   elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
 }
 
-// DeepSeek 行凭据引用三态文案（GLOSSARY「凭据引用」）：搜索侧 DeepSeek 记录没有
-// 自有 Key，副行状态由 AI 族记录 + 官方端点判定得出；无 DeepSeek 行时零开销原样返回。
+function annotateCredentialRows(
+  items: ProviderRowItem[],
+  presetId: string,
+  resolveText: () => string
+): ProviderRowItem[] {
+  if (!items.some((item) => String(item.presetId || "") === presetId)) return items;
+  const text = resolveText();
+  return items.map((item) =>
+    String(item.presetId || "") === presetId ? { ...item, statusNote: text } : item
+  );
+}
+
 function annotateDeepseekRows(
   items: ProviderRowItem[],
   aiProviders: readonly ProviderRowItem[]
 ): ProviderRowItem[] {
-  if (!items.some((item) => String(item.presetId || "") === "deepseek")) {
-    return items;
+  return annotateCredentialRows(items, "deepseek", () => {
+    const { status } = resolveDeepseekCredential(aiProviders as Parameters<typeof resolveDeepseekCredential>[0]);
+    return DEEPSEEK_ROW_STATUS_TEXT[status];
+  });
+}
+
+function annotateGeminiLiveRows(
+  items: ProviderRowItem[],
+  aiProviders: readonly ProviderRowItem[]
+): ProviderRowItem[] {
+  return annotateCredentialRows(items, "gemini-live", () => {
+    const { status } = resolveGeminiCredential(aiProviders);
+    return GEMINI_LIVE_ROW_STATUS_TEXT[status];
+  });
+}
+
+function rerenderLiveProviders(
+  elements: SettingsElements,
+  providers: ProviderRowItem[],
+  knownAiProviders?: readonly ProviderRowItem[]
+): void {
+  if (knownAiProviders) {
+    renderActiveRadioFamily("live", elements, annotateGeminiLiveRows(providers, knownAiProviders));
+    return;
   }
-  const { status } = resolveDeepseekCredential(aiProviders as Parameters<typeof resolveDeepseekCredential>[0]);
-  const text = DEEPSEEK_ROW_STATUS_TEXT[status];
-  return items.map((item) =>
-    String(item.presetId || "") === "deepseek" ? { ...item, statusNote: text } : item
-  );
+  void loadAiProviders().then((aiProviders) => {
+    renderActiveRadioFamily("live", elements, annotateGeminiLiveRows(providers, aiProviders));
+  });
 }
 
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
@@ -688,7 +724,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "live-providers-delete", providerId }),
     generateId: () => familyRows.live.controller.generateId(),
     presets: () => LIVE_PROVIDER_PRESETS,
-    rerender: (elements, providers) => renderActiveRadioFamily("live", elements, providers),
+    rerender: rerenderLiveProviders,
     optionalHostPermission: true
   },
 
@@ -753,6 +789,9 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   }
   const elements = collectElements(host);
   PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
+  if (kind === "ai") {
+    void loadLiveProviders().then((liveProviders) => rerenderLiveProviders(elements, liveProviders, providers));
+  }
 }
 
 async function openProviderEditorById(kind: ProviderEditorKind, providerId: string): Promise<void> {
@@ -1153,6 +1192,9 @@ function bindSettingsEvents(host: HTMLElement): void {
 
   bindActiveRadioDeleteHandler("live", elements);
   bindActiveRadioDeleteHandler("asr", elements);
+  familyRows.ai.controller.setDeleteHandler(async () => {
+    rerenderLiveProviders(elements, await loadLiveProviders());
+  });
   familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });

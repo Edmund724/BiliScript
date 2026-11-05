@@ -32,7 +32,7 @@ import {
   queryDeepseekCredentialKey
 } from "../search/deepseek-credential.js";
 
-import { wireModelPicker } from "./model-picker.js";
+import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
@@ -86,7 +86,8 @@ interface InputModelFamilyIo {
     baseUrl: string;
     apiKey?: string;
     providerId?: string;
-  }) => Promise<string[]>;
+    type?: string;
+  }) => Promise<ModelPickerFetchResult | null>;
   readonly probePlatform: (params: {
     id: string;
     name: string;
@@ -791,8 +792,15 @@ export function wireDialog(): void {
       apiKeyClass: "provider-editor-apikey",
       statusClass: "provider-editor-status",
       showStatus: (_node, text, isError) => showStatus(text, isError),
-      fetchModels: ({ baseUrl, apiKey, providerId }) =>
-        inputIo.fetchModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
+      fetchModels: ({ baseUrl, apiKey, providerId }) => {
+        const preset = family.resolvePreset(state.presets, state.draft?.presetId || "");
+        return inputIo.fetchModels({
+          baseUrl,
+          apiKey,
+          providerId: providerId || state.editingId,
+          type: preset?.type
+        });
+      },
       isKeyRequired: () => {
         const draft = state.draft;
         const preset = family.resolvePreset(state.presets, draft?.presetId || "");

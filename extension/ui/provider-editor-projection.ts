@@ -210,39 +210,39 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   apiKey: {
     input: { draftKey: "apiKey", selector: ".provider-editor-apikey", clearStatus: true },
     project: (scope, draft) => {
-      // DeepSeek 搜索记录无自有 Key（凭据引用，GLOSSARY「凭据引用」）：字段整体隐藏，
-      // 模板与重投影同源（projection.hidden），保存 / 测试都不读它。
-      if (scope.ctx.kind === "search" && scope.preset?.id === "deepseek") {
-        return { hidden: true };
-      }
+      const usesCredentialReference =
+        (scope.ctx.kind === "search" && scope.preset?.id === "deepseek") ||
+        (scope.ctx.kind === "live" && scope.preset?.id === "gemini-live");
+      if (usesCredentialReference) return { hidden: true, required: false };
       const projection: FieldProjection = {
-        // 占位符与 required 同源（族声明的 isKeyRequired）：防「占位符说可选、
-        // required 仍卡住」
         placeholder: scope.family.apiKeyPlaceholder(scope.preset, scope.ctx.hasSavedKey),
         required: scope.family.isKeyRequired(scope.preset) && !scope.ctx.hasSavedKey
       };
-      // AI 的 Key 输入是只写通道（模板也不回填 value）：除切预设清空（ASR/搜索）
-      // 外不把 draft.apiKey 投影回 DOM
       if (scope.ctx.kind !== "ai") projection.value = draft.apiKey;
       return projection;
     },
-    html: (projection) => {
-      if (projection.hidden) return "";
-      return fieldBlock(
-        "API Key",
-        `<input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />`
-      );
-    },
+    html: (projection) =>
+      `<div class="provider-editor-field" ${projection.hidden ? "hidden" : ""}>
+          <label class="provider-editor-label">API Key</label>
+          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />
+        </div>`,
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
       if (!input) return;
+      const field = input.closest<HTMLElement>(".provider-editor-field");
+      if (field) field.hidden = projection.hidden === true;
       input.placeholder = projection.placeholder ?? "";
       input.required = projection.required === true;
       if (projection.value !== undefined) input.value = projection.value;
     },
     read: (dialog) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
-      return { value: input?.value ?? "", placeholder: input?.placeholder ?? "", required: input?.required ?? false };
+      return {
+        value: input?.value ?? "",
+        placeholder: input?.placeholder ?? "",
+        required: input?.required ?? false,
+        hidden: input?.closest<HTMLElement>(".provider-editor-field")?.hidden === true
+      };
     }
   },
 

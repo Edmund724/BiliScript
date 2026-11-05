@@ -291,7 +291,10 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
   idPrefix: "live_",
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[0] || null,
   displayName: (item, preset) => String(item.name || preset?.name || "MOSS-LIVE"),
-  displayModel: (item, preset) => String(item.model ?? preset?.model ?? "moss-live-1.0"),
+  displayModel: (item, preset) => {
+    const model = String(item.model ?? preset?.model ?? "moss-live-1.0");
+    return preset?.id === "gemini-live" && item.statusNote ? `${model} · ${item.statusNote}` : model;
+  },
   activeRadio: {
     classPrefix: "live",
     title: "选用该平台进行实时伴看",
