@@ -381,9 +381,9 @@ describe("判定次序 0d：来源与关键词的先后（媒体来源的兜底�
     expect(classifyAsrFailure(media("视频过长"))).toBe("asr-media");
   });
 
-  it("媒体来源的网络关键词优先于来源默认（CDN 连不上要说网络，不是音轨格式）", () => {
-    expect(classifyAsrFailure(media("Failed to fetch"))).toBe("asr-network");
-    expect(classifyAsrFailure(media("音频下载失败：网络错误"))).toBe("asr-network");
+  it("媒体来源的网络异常落 asr-media（音轨下载网络错误归入媒体类，绝不误报成语音平台网络故障）", () => {
+    expect(classifyAsrFailure(media("Failed to fetch"))).toBe("asr-media");
+    expect(classifyAsrFailure(media("音频下载失败：网络错误"))).toBe("asr-media");
   });
 
   it("媒体来源的配置类文案落 no-asr-config（域名未授权在管线侧抛出）", () => {

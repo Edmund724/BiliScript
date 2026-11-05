@@ -131,6 +131,14 @@ function classifyWithoutStatus(haystack: string, source: AsrFailureSource): AsrF
     // 无报文可看：媒体来源的抛出点全是音轨问题，平台来源无从判断
     return source === "media" ? "asr-media" : "asr-unknown";
   }
+  if (source === "media") {
+    // 媒体来源：域名未授权等配置类在管线抛出点仍落 no-asr-config；
+    // 其余（Failed to fetch/网络错误/解码/格式/兜底）全落 asr-media，避免把音轨下载失败误报为语音平台网络故障
+    if (includesAny(haystack, CONFIG_KEYWORDS)) {
+      return "no-asr-config";
+    }
+    return "asr-media";
+  }
   if (includesAny(haystack, NETWORK_KEYWORDS)) {
     return "asr-network";
   }
