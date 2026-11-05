@@ -167,7 +167,7 @@ export function buildUiHtml(): string {
                     </div>
                     <div id="${ids.readingChatLiveVolume}" class="biliscript-slider-row">
                       <div class="biliscript-slider-header">
-                        <label class="biliscript-set-label" for="${ids.readingChatLiveVolumeInput}">伴看音量</label>
+                        <label class="biliscript-set-label" for="${ids.readingChatLiveVolumeInput}">语音音量</label>
                         <div class="biliscript-slider-header-actions">
                           <span id="${ids.readingChatLiveVolumeValue}" class="biliscript-slider-badge">100%</span>
                           <button id="${ids.readingChatLiveVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认音量 (100%)" aria-label="恢复默认音量">${READING_RESET_ICON}</button>

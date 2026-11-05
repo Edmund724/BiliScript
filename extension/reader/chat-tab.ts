@@ -450,6 +450,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
+  getSpeechVolume: () => normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
   // 不阻断 connect，维持历史行为，由连接结果兜底）。chrome.offscreen 仅扩展
   // 上下文可用：content script 经 "ensure-offscreen-chat" 消息委托 background
