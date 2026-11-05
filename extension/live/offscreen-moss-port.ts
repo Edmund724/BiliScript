@@ -105,6 +105,9 @@ export function attachMossLivePort(
           wsUrl: msg.wsUrl,
           ...(msg.providerType !== undefined ? { providerType: msg.providerType } : {}),
           ...(msg.model !== undefined ? { model: msg.model } : {}),
+          ...(msg.liveGeminiNativeSearch !== undefined
+            ? { liveGeminiNativeSearch: msg.liveGeminiNativeSearch }
+            : {}),
           videoContext: latestVideoContext
         });
       } catch (error) {

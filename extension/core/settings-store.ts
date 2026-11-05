@@ -25,6 +25,7 @@ import {
   normalizeAiInitialQuickPrompts,
   normalizeDefaultModel,
   normalizeAiThinkingLevel,
+  normalizeLiveGeminiNativeSearch,
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
@@ -72,6 +73,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   aiThinkingLevel: normalizeAiThinkingLevel,
   activeAsrProviderId: (value) => String(value || "").trim(),
   activeLiveProviderId: (value) => String(value || "").trim(),
+  liveGeminiNativeSearch: normalizeLiveGeminiNativeSearch,
   asrAutoFallback: booleanField(true),
   asrLanguage: normalizeAsrLanguage,
   // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，

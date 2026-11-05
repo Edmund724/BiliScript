@@ -288,7 +288,8 @@ describe("attachMossLivePort", () => {
       action: "start",
       wsUrl: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
       providerType: "gemini-live",
-      model: "gemini-3.1-flash-live-preview"
+      model: "gemini-3.1-flash-live-preview",
+      liveGeminiNativeSearch: true
     });
 
     await Promise.resolve();
@@ -303,6 +304,7 @@ describe("attachMossLivePort", () => {
           "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
         providerType: "gemini-live",
         model: "gemini-3.1-flash-live-preview",
+        liveGeminiNativeSearch: true,
         videoContext: null
       }
     ]);

@@ -389,6 +389,7 @@ export type LiveSessionPrepareMessage = {
 export type LiveSessionPrepareResponse = {
   ok: boolean;
   provider?: LiveProviderListEntry;
+  liveGeminiNativeSearch?: boolean;
   sessionId?: string;
   error?: string;
 };

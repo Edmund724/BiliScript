@@ -372,7 +372,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     const res = await tracker.prepare(
       "session-gemini-ok",
       createFakeDeps({
-        getSettings: async () => ({ activeLiveProviderId: "gemini-live-1" }),
+        getSettings: async () => ({ activeLiveProviderId: "gemini-live-1", liveGeminiNativeSearch: true }),
         loadProviders: async () => [
           {
             id: "gemini-live-1",
@@ -408,6 +408,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     );
 
     expect(res.ok).toBe(true);
+    expect(res.liveGeminiNativeSearch).toBe(true);
     expect(res.provider).toMatchObject({
       id: "gemini-live-1",
       name: "Gemini Live",

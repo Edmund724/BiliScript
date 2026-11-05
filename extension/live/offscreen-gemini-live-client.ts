@@ -5,27 +5,139 @@ import {
   decodeBase64Bytes,
   type MossLiveClientAction,
   type MossLiveServerEvent,
+  type MossLiveToolCall,
+  type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
   type MossLiveVideoContext
 } from "./moss-live-protocol.js";
+import {
+  DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS,
+  executeLiveWebSearch,
+  type LiveWebSearchExecutor
+} from "./offscreen-moss-client.js";
 
 export type GeminiLiveClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
 export const DEFAULT_GEMINI_LIVE_MODEL = "gemini-3.8-live";
 export const DEFAULT_GEMINI_HANDSHAKE_TIMEOUT_MS = 10000;
 
+export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
+  {
+    name: "control_bilibili_player",
+    description:
+      "控制当前 B 站视频播放器（跳转时间点 seek、暂停 pause、播放 play、调整倍速 rate）。",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        command: {
+          type: "STRING",
+          enum: ["seek", "pause", "play", "rate"],
+          description: "播放器控制动作：seek（跳转）、pause（暂停）、play（播放）、rate（倍速）。"
+        },
+        time: {
+          type: "NUMBER",
+          description: "跳转目标秒数（仅 command 为 seek 时必填）。"
+        },
+        rate: {
+          type: "NUMBER",
+          description: "播放倍速（仅 command 为 rate 时必填，可选值 0.5/0.75/1/1.25/1.5/2）。"
+        }
+      },
+      required: ["command"]
+    }
+  },
+  {
+    name: "get_subtitles_around_time",
+    description: "读取当前视频指定秒数（不传则为当前播放位置）前后的字幕片段。",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        current_time: {
+          type: "NUMBER",
+          description: "中心时间点（秒），不传则取当前播放器进度。"
+        },
+        before_seconds: {
+          type: "NUMBER",
+          description: "向前读取的秒数窗口（默认 30，范围 1–300）。"
+        },
+        after_seconds: {
+          type: "NUMBER",
+          description: "向后读取的秒数窗口（默认 30，范围 1–300）。"
+        }
+      }
+    }
+  },
+  {
+    name: "search_video_subtitles",
+    description: "在当前视频/分P的全部字幕中按关键词检索。",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        query: {
+          type: "STRING",
+          description: "字幕检索关键词。"
+        },
+        max_results: {
+          type: "NUMBER",
+          description: "最大返回条数（默认 12，范围 1–30）。"
+        }
+      },
+      required: ["query"]
+    }
+  }
+] as const;
+
+export const GEMINI_LIVE_WEB_SEARCH_DECLARATION = {
+  name: "web_search",
+  description:
+    "当问题涉及视频字幕与画面之外的最新资讯、背景事实或外部信息时，调用联网搜索查证。",
+  parameters: {
+    type: "OBJECT",
+    properties: {
+      query: {
+        type: "STRING",
+        description: "联网搜索查询词。"
+      }
+    },
+    required: ["query"]
+  }
+} as const;
+
+export function buildGeminiSetupTools(liveGeminiNativeSearch: boolean): unknown[] {
+  if (liveGeminiNativeSearch) {
+    return [
+      { googleSearch: {} },
+      { functionDeclarations: [...GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS] }
+    ];
+  }
+  return [
+    {
+      functionDeclarations: [
+        ...GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS,
+        GEMINI_LIVE_WEB_SEARCH_DECLARATION
+      ]
+    }
+  ];
+}
+
 export interface GeminiLiveClientOptions {
   wsUrl?: string;
   model?: string;
   videoContext?: MossLiveVideoContext | null;
+  liveGeminiNativeSearch?: boolean;
   handshakeTimeoutMs?: number;
+  pageToolTimeoutMs?: number;
   createAudioContext?: () => AudioContextLike | null;
+  executeWebSearch?: LiveWebSearchExecutor;
   onEvent?: (event: MossLiveServerEvent) => void;
   onConnecting?: () => void;
   onConnected?: () => void;
   onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onSpeakingState?: (speaking: boolean) => void;
+  onToolStatus?: (event: MossLiveToolStatusEvent) => void;
+  onToolCall?: (call: MossLiveToolCall) => void;
+  onToolError?: (error: string) => void;
   onError?: (error: Error) => void;
   onClosed?: (event?: { code?: number; reason?: string }) => void;
 }
@@ -40,6 +152,22 @@ interface GeminiTurn {
   hasOutput: boolean;
 }
 
+type ActiveGeminiToolCall =
+  | {
+      kind: "page_tool";
+      callId: string;
+      name: string;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  | {
+      kind: "web_search";
+      callId: string;
+      name: string;
+      query: string;
+      toolCallIndex: number;
+      controller: AbortController;
+    };
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -53,6 +181,35 @@ function readErrorMessage(raw: Record<string, unknown>): string | null {
     : "Gemini Live 会话发生未知错误";
 }
 
+function extractGeminiSearchQuery(args: unknown): string {
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args) as { query?: unknown };
+      return typeof parsed?.query === "string" ? parsed.query.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+  const record = asRecord(args);
+  return typeof record?.query === "string" ? record.query.trim() : "";
+}
+
+function withVideoIdentity(
+  call: MossLiveToolCall,
+  videoContext: MossLiveVideoContext | null
+): MossLiveToolCall {
+  return {
+    ...call,
+    video: videoContext
+      ? {
+          bvid: videoContext.bvid,
+          cid: videoContext.cid,
+          pageIndex: videoContext.pageIndex
+        }
+      : null
+  };
+}
+
 export class OffscreenGeminiLiveClient {
   private ws: WebSocket | null = null;
   private state: GeminiLiveClientState = "idle";
@@ -63,12 +220,19 @@ export class OffscreenGeminiLiveClient {
   private wsUrl: string;
   private model: string;
   private videoContext: MossLiveVideoContext | null;
+  private liveGeminiNativeSearch: boolean;
   private lastSentContextKey = "";
   private readonly handshakeTimeoutMs: number;
+  private readonly pageToolTimeoutMs: number;
+  private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: GeminiLiveClientOptions;
   private readonly audioPlayer: MossAudioPlayer;
+  private readonly activeToolCalls = new Map<string, ActiveGeminiToolCall>();
+  private readonly handledToolCallIds = new Set<string>();
   private runId = "";
   private turnCounter = 0;
+  private toolCallCounter = 0;
+  private webSearchCallIndex = 0;
   private audioChunkCounter = 0;
   private currentTurn: GeminiTurn | null = null;
   private discardOutputUntilInput = false;
@@ -82,7 +246,10 @@ export class OffscreenGeminiLiveClient {
     this.wsUrl = options.wsUrl || DEFAULT_GEMINI_LIVE_WS_URL;
     this.model = options.model || DEFAULT_GEMINI_LIVE_MODEL;
     this.videoContext = options.videoContext || null;
+    this.liveGeminiNativeSearch = Boolean(options.liveGeminiNativeSearch ?? false);
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_GEMINI_HANDSHAKE_TIMEOUT_MS;
+    this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS;
+    this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
     this.audioPlayer = new MossAudioPlayer({
       sampleRate: 24000,
       enablePlaybackReceipts: false,
@@ -109,7 +276,16 @@ export class OffscreenGeminiLiveClient {
   }
 
   isSpeaking(): boolean {
-    return this.state === "connected" && (this.activeTurnKey !== null || this.audioPlayer.isPlaying());
+    return (
+      this.state === "connected" &&
+      (this.activeTurnKey !== null ||
+        this.activeToolCalls.size > 0 ||
+        this.audioPlayer.isPlaying())
+    );
+  }
+
+  private hasPageToolHandler(): boolean {
+    return Boolean(this.options.onEvent || this.options.onToolCall);
   }
 
   private emit(event: MossLiveServerEvent, closeCode?: number): void {
@@ -129,6 +305,15 @@ export class OffscreenGeminiLiveClient {
         break;
       case "transcript":
         this.options.onTranscript?.(event.event);
+        break;
+      case "tool_status":
+        this.options.onToolStatus?.(event.event);
+        break;
+      case "tool_call":
+        this.options.onToolCall?.(event.call);
+        break;
+      case "tool_error":
+        this.options.onToolError?.(event.error);
         break;
       case "error":
         this.options.onError?.(new Error(event.error));
@@ -192,6 +377,9 @@ export class OffscreenGeminiLiveClient {
         if (msg.wsUrl !== undefined) this.wsUrl = msg.wsUrl || DEFAULT_GEMINI_LIVE_WS_URL;
         if (msg.model !== undefined) this.model = msg.model || DEFAULT_GEMINI_LIVE_MODEL;
         if (msg.videoContext !== undefined) this.videoContext = msg.videoContext || null;
+        if (msg.liveGeminiNativeSearch !== undefined) {
+          this.liveGeminiNativeSearch = Boolean(msg.liveGeminiNativeSearch);
+        }
         this.connect();
         break;
       case "context_update":
@@ -214,6 +402,7 @@ export class OffscreenGeminiLiveClient {
         this.emit({ type: "closed" });
         break;
       case "tool_result":
+        this.sendToolResult(msg.callId, msg.result);
         break;
     }
   }
@@ -225,7 +414,10 @@ export class OffscreenGeminiLiveClient {
     this.currentTurn = null;
     this.discardOutputUntilInput = false;
     this.turnCounter = 0;
+    this.toolCallCounter = 0;
+    this.webSearchCallIndex = 0;
     this.audioChunkCounter = 0;
+    this.handledToolCallIds.clear();
     this.inputDucked = false;
     this.activeTurnKey = null;
     this.socketGeneration += 1;
@@ -254,6 +446,7 @@ export class OffscreenGeminiLiveClient {
             systemInstruction: {
               parts: [{ text: buildVideoInstructions(this.videoContext) }]
             },
+            tools: buildGeminiSetupTools(this.liveGeminiNativeSearch),
             inputAudioTranscription: {},
             outputAudioTranscription: {}
           }
@@ -323,10 +516,214 @@ export class OffscreenGeminiLiveClient {
       this.emit({ type: "connected" });
       return;
     }
+    if (this.state !== "connected") return;
     const content = asRecord(raw.serverContent);
-    if (content && this.state === "connected") {
+    if (content) {
       this.handleServerContent(content, generation);
     }
+    const toolCall = asRecord(raw.toolCall);
+    if (toolCall) {
+      this.handleToolCall(toolCall, generation);
+    }
+    const cancellation = asRecord(raw.toolCallCancellation);
+    if (cancellation) {
+      this.handleToolCallCancellation(cancellation);
+    }
+  }
+
+  private cancelToolCall(call: ActiveGeminiToolCall): void {
+    if (this.activeToolCalls.get(call.callId) !== call) return;
+    this.activeToolCalls.delete(call.callId);
+    if (call.kind === "web_search") {
+      call.controller.abort();
+    } else {
+      clearTimeout(call.timer);
+    }
+    this.syncSpeakingState();
+  }
+
+  private cancelAllToolCalls(): void {
+    for (const call of [...this.activeToolCalls.values()]) {
+      this.cancelToolCall(call);
+    }
+  }
+
+  private sendToolResponse(id: string, name: string, result: unknown): boolean {
+    return this.sendJson({
+      toolResponse: {
+        functionResponses: [
+          {
+            id,
+            name,
+            response: { result }
+          }
+        ]
+      }
+    });
+  }
+
+  private startPageToolCall(rawCall: MossLiveToolCall, generation: number): void {
+    const call = withVideoIdentity(rawCall, this.videoContext);
+    if (!this.hasPageToolHandler()) {
+      this.sendToolResponse(call.callId, call.name, {
+        ok: false,
+        error: "当前客户端未接入页面工具执行器"
+      });
+      return;
+    }
+
+    const existing = this.activeToolCalls.get(call.callId);
+    if (existing) {
+      this.cancelToolCall(existing);
+    }
+
+    const entry: ActiveGeminiToolCall = {
+      kind: "page_tool",
+      callId: call.callId,
+      name: call.name,
+      timer: setTimeout(() => {
+        if (this.disposed || this.socketGeneration !== generation) return;
+        if (this.activeToolCalls.get(call.callId) !== entry) return;
+        this.activeToolCalls.delete(call.callId);
+        this.syncSpeakingState();
+        const error = "页面工具执行超时，请稍后重试";
+        this.sendToolResponse(call.callId, call.name, { ok: false, error });
+        this.emit({ type: "tool_error", error });
+      }, this.pageToolTimeoutMs)
+    };
+
+    this.activeToolCalls.set(call.callId, entry);
+    this.syncSpeakingState();
+    this.emit({ type: "tool_call", call });
+  }
+
+  private handleToolCall(toolCall: Record<string, unknown>, generation: number): void {
+    const functionCalls = Array.isArray(toolCall.functionCalls) ? toolCall.functionCalls : [];
+    for (const rawItem of functionCalls) {
+      const item = asRecord(rawItem);
+      if (!item) continue;
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      if (!name) continue;
+      const callId =
+        typeof item.id === "string" && item.id.trim()
+          ? item.id.trim()
+          : `gemini-tool-${++this.toolCallCounter}`;
+      if (this.handledToolCallIds.has(callId)) continue;
+      this.handledToolCallIds.add(callId);
+
+      const args = item.args ?? {};
+      if (name !== "web_search") {
+        this.startPageToolCall({ callId, name, arguments: args }, generation);
+        continue;
+      }
+
+      const query = extractGeminiSearchQuery(args);
+      if (!query) {
+        const error = "搜索关键词为空或工具参数无效";
+        this.emit({
+          type: "tool_status",
+          event: { tool: "web_search", status: "failed", query, error }
+        });
+        this.sendToolResponse(
+          callId,
+          name,
+          `联网搜索失败：${error}。请明确告诉用户本次查证失败，不要编造。`
+        );
+        continue;
+      }
+
+      const toolCallIndex = this.webSearchCallIndex++;
+      const controller = new AbortController();
+      const entry: Extract<ActiveGeminiToolCall, { kind: "web_search" }> = {
+        kind: "web_search",
+        callId,
+        name,
+        query,
+        toolCallIndex,
+        controller
+      };
+      this.activeToolCalls.set(callId, entry);
+      this.syncSpeakingState();
+      this.emit({
+        type: "tool_status",
+        event: { tool: "web_search", status: "searching", query }
+      });
+      void this.runWebSearch(entry, generation);
+    }
+  }
+
+  private async runWebSearch(
+    call: Extract<ActiveGeminiToolCall, { kind: "web_search" }>,
+    generation: number
+  ): Promise<void> {
+    const isCurrent = () =>
+      !this.disposed &&
+      this.socketGeneration === generation &&
+      this.activeToolCalls.get(call.callId) === call;
+
+    try {
+      const outcome = await this.executeWebSearch(
+        call.query,
+        call.controller.signal,
+        call.toolCallIndex
+      );
+      if (!isCurrent()) return;
+      this.sendToolResponse(call.callId, call.name, outcome.output);
+      this.emit({
+        type: "tool_status",
+        event: {
+          tool: "web_search",
+          status: outcome.resultCount > 0 ? "done" : "no_results",
+          query: call.query,
+          resultCount: outcome.resultCount,
+          ...(outcome.platform ? { platform: outcome.platform } : {})
+        }
+      });
+    } catch (error) {
+      if (!isCurrent()) return;
+      const reason = String((error as { message?: unknown } | null)?.message || error || "未知错误");
+      this.sendToolResponse(
+        call.callId,
+        call.name,
+        `联网搜索失败：${reason}。请明确告诉用户本次查证失败，不要编造外部事实。`
+      );
+      this.emit({
+        type: "tool_status",
+        event: {
+          tool: "web_search",
+          status: "failed",
+          query: call.query,
+          error: reason
+        }
+      });
+    } finally {
+      if (this.activeToolCalls.get(call.callId) === call) {
+        this.activeToolCalls.delete(call.callId);
+        this.syncSpeakingState();
+      }
+    }
+  }
+
+  private handleToolCallCancellation(cancellation: Record<string, unknown>): void {
+    const ids = Array.isArray(cancellation.ids) ? cancellation.ids : [];
+    for (const rawId of ids) {
+      if (typeof rawId !== "string" || !rawId) continue;
+      const active = this.activeToolCalls.get(rawId);
+      if (active) {
+        this.cancelToolCall(active);
+      }
+    }
+  }
+
+  sendToolResult(callId: string, result: unknown): boolean {
+    const active = this.activeToolCalls.get(callId);
+    if (!active || active.kind !== "page_tool") {
+      return false;
+    }
+    clearTimeout(active.timer);
+    this.activeToolCalls.delete(callId);
+    this.syncSpeakingState();
+    return this.sendToolResponse(callId, active.name, result);
   }
 
   private getOrCreateTurn(kind: "input" | "output"): GeminiTurn | null {
@@ -335,7 +732,10 @@ export class OffscreenGeminiLiveClient {
       this.finishTurn("completed");
     }
     if (!this.currentTurn) {
-      if (kind === "input") this.discardOutputUntilInput = false;
+      if (kind === "input") {
+        this.discardOutputUntilInput = false;
+        this.webSearchCallIndex = 0;
+      }
       this.currentTurn = {
         runId: this.runId,
         turnId: `turn-${++this.turnCounter}`,
@@ -451,6 +851,9 @@ export class OffscreenGeminiLiveClient {
         turnId: turn.turnId
       });
     }
+    if (this.activeToolCalls.size === 0) {
+      this.webSearchCallIndex = 0;
+    }
     this.syncVideoDuck();
   }
 
@@ -485,6 +888,8 @@ export class OffscreenGeminiLiveClient {
   interrupt(): void {
     if (this.disposed || this.state !== "connected") return;
     this.discardOutputUntilInput = true;
+    this.cancelAllToolCalls();
+    this.webSearchCallIndex = 0;
     if (this.currentTurn) {
       this.finishTurn("interrupted");
       return;
@@ -497,6 +902,8 @@ export class OffscreenGeminiLiveClient {
   }
 
   private stopAndResetAllPlayback(): void {
+    this.cancelAllToolCalls();
+    this.webSearchCallIndex = 0;
     this.audioPlayer.reset();
     this.currentTurn = null;
     this.activeTurnKey = null;

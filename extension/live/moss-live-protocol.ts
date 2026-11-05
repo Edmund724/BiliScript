@@ -477,6 +477,7 @@ export type MossLiveClientAction =
       wsUrl?: string;
       providerType?: LiveProviderType;
       model?: string;
+      liveGeminiNativeSearch?: boolean;
       videoContext?: MossLiveVideoContext | null;
     }
   | { action: "context_update"; videoContext: MossLiveVideoContext | null }

@@ -563,6 +563,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         wsUrl,
         providerType: resolvedProviderType,
         model: resolvedModel,
+        ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
+          ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
+          : {}),
         ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
     } catch (error) {

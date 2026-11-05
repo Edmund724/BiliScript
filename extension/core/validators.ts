@@ -124,6 +124,7 @@ export function normalizeDefaultModel(value: unknown): string {
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
 // ===== 联网搜索 normalizers =====
+export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与

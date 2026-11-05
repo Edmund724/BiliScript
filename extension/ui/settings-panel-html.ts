@@ -28,6 +28,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
   addLiveProviderBtn: "addLiveProviderBtn",
+  liveGeminiNativeSearch: "liveGeminiNativeSearch",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -90,6 +91,13 @@ export function buildSettingsHtml(): string {
       <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
+        <span class="biliscript-toggle-text">Gemini 伴看使用原生 Google 搜索</span>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.liveGeminiNativeSearch}" type="checkbox" class="biliscript-toggle-input" aria-label="Gemini 伴看使用原生 Google 搜索" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="asr">

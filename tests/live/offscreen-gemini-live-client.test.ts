@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
 import {
   OffscreenGeminiLiveClient,
   type GeminiLiveClientOptions
 } from "../../extension/live/offscreen-gemini-live-client.js";
+
+vi.mock("../../extension/search/search-runtime.js", () => ({
+  resolveWebSearchRuntime: vi.fn()
+}));
+
+const resolveRuntime = vi.mocked(resolveWebSearchRuntime);
 import {
   encodeBase64Bytes,
   encodeFloat32ToPcmS16LE,
@@ -104,6 +111,11 @@ class FakeAudioContext implements AudioContextLike {
   currentTime = 1;
   state = "running";
   readonly destination = {};
+  readonly outputGain = {
+    gain: { value: 1 },
+    connect: (_destination: unknown) => {},
+    disconnect: () => {}
+  };
   readonly sources: FakeAudioSource[] = [];
   closed = false;
 
@@ -123,6 +135,10 @@ class FakeAudioContext implements AudioContextLike {
     const source = new FakeAudioSource();
     this.sources.push(source);
     return source;
+  }
+
+  createGain() {
+    return this.outputGain;
   }
 }
 
@@ -538,5 +554,387 @@ describe("OffscreenGeminiLiveClient context update", () => {
     client.handleAction({ action: "stop" });
     expect(client.getState()).toBe("idle");
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+});
+
+describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle", () => {
+  it("declares 3 Bilibili page tools + web_search when liveGeminiNativeSearch is false (default)", () => {
+    const { client } = createClient();
+    const ws = connect(client);
+    const setup = ws.jsonFrames()[0].setup;
+
+    expect(setup.tools).toHaveLength(1);
+    expect(setup.tools[0]).not.toHaveProperty("googleSearch");
+    const names = setup.tools[0].functionDeclarations.map((fn: { name: string }) => fn.name);
+    expect(names).toEqual([
+      "control_bilibili_player",
+      "get_subtitles_around_time",
+      "search_video_subtitles",
+      "web_search"
+    ]);
+  });
+
+  it("declares googleSearch and 3 Bilibili page tools (without web_search) when liveGeminiNativeSearch is true", () => {
+    const { client } = createClient();
+    client.handleAction({
+      action: "start",
+      model: "gemini-3.8-live",
+      videoContext,
+      liveGeminiNativeSearch: true
+    });
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+    const setup = ws.jsonFrames()[0].setup;
+
+    expect(setup.tools).toHaveLength(2);
+    expect(setup.tools[0]).toEqual({ googleSearch: {} });
+    const names = setup.tools[1].functionDeclarations.map((fn: { name: string }) => fn.name);
+    expect(names).toEqual([
+      "control_bilibili_player",
+      "get_subtitles_around_time",
+      "search_video_subtitles"
+    ]);
+    expect(names).not.toContain("web_search");
+  });
+
+  it("handles concurrent page tool and web_search calls in a single toolCall frame and wraps toolResponse.functionResponses", async () => {
+    const toolCalls: any[] = [];
+    const toolStatuses: any[] = [];
+    const executeWebSearch = vi.fn(async (query: string) => ({
+      output: `已检索：${query}`,
+      resultCount: 2,
+      platform: "Exa"
+    }));
+    const { client } = createClient({
+      executeWebSearch,
+      onToolCall: (call) => toolCalls.push(call),
+      onToolStatus: (status) => toolStatuses.push(status)
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-sub-1",
+              name: "search_video_subtitles",
+              args: { query: "握手", max_results: 5 }
+            },
+            {
+              id: "call-web-1",
+              name: "web_search",
+              args: { query: "Gemini Live BidiGenerateContent" }
+            }
+          ]
+        }
+      })
+    );
+
+    expect(client.isSpeaking()).toBe(true);
+    expect(toolCalls).toEqual([
+      {
+        callId: "call-sub-1",
+        name: "search_video_subtitles",
+        arguments: { query: "握手", max_results: 5 },
+        video: { bvid: "BV1gemini", cid: "100", pageIndex: 1 }
+      }
+    ]);
+    expect(toolStatuses[0]).toEqual({
+      tool: "web_search",
+      status: "searching",
+      query: "Gemini Live BidiGenerateContent"
+    });
+
+    await vi.waitFor(() => {
+      expect(toolStatuses).toHaveLength(2);
+    });
+    expect(toolStatuses[1]).toEqual({
+      tool: "web_search",
+      status: "done",
+      query: "Gemini Live BidiGenerateContent",
+      resultCount: 2,
+      platform: "Exa"
+    });
+    expect(executeWebSearch).toHaveBeenCalledWith(
+      "Gemini Live BidiGenerateContent",
+      expect.any(AbortSignal),
+      0
+    );
+    expect(client.isSpeaking()).toBe(true);
+
+    client.handleAction({
+      action: "tool_result",
+      callId: "call-sub-1",
+      result: { ok: true, matches: [{ from: 5, time: "00:05", content: "握手" }] }
+    });
+    expect(client.isSpeaking()).toBe(false);
+
+    expect(ws.jsonFrames()).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "call-web-1",
+              name: "web_search",
+              response: { result: "已检索：Gemini Live BidiGenerateContent" }
+            }
+          ]
+        }
+      },
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "call-sub-1",
+              name: "search_video_subtitles",
+              response: {
+                result: { ok: true, matches: [{ from: 5, time: "00:05", content: "握手" }] }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+  });
+
+  it("reuses the 7-platform web_search fallback chain and emits no_results / failed statuses", async () => {
+    const toolStatuses: any[] = [];
+    const executeSearch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        results: [
+          {
+            title: "B 站伴看文档",
+            url: "https://example.com/doc",
+            snippet: "Gemini Live 工具调用规范"
+          }
+        ],
+        platform: "DuckDuckGo",
+        downgradedFrom: "Exa"
+      })
+      .mockResolvedValueOnce({
+        results: [],
+        platform: "DuckDuckGo"
+      });
+    resolveRuntime.mockResolvedValue({
+      runtime: { maxToolCalls: 5, executeSearch }
+    });
+
+    const { client } = createClient({
+      onToolStatus: (status) => toolStatuses.push(status)
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "call-fallback", name: "web_search", args: { query: "B站伴看" } },
+            { id: "call-nores", name: "web_search", args: { query: "无结果词" } },
+            { id: "call-empty", name: "web_search", args: { query: "   " } }
+          ]
+        }
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(ws.jsonFrames()).toHaveLength(3);
+    });
+
+    expect(toolStatuses).toContainEqual({
+      tool: "web_search",
+      status: "failed",
+      query: "",
+      error: "搜索关键词为空或工具参数无效"
+    });
+    expect(toolStatuses).toContainEqual({
+      tool: "web_search",
+      status: "done",
+      query: "B站伴看",
+      resultCount: 1,
+      platform: "DuckDuckGo"
+    });
+    expect(toolStatuses).toContainEqual({
+      tool: "web_search",
+      status: "no_results",
+      query: "无结果词",
+      resultCount: 0,
+      platform: "DuckDuckGo"
+    });
+    const fallbackResp = ws
+      .jsonFrames()
+      .find((f) => f.toolResponse?.functionResponses?.[0]?.id === "call-fallback");
+    expect(fallbackResp?.toolResponse.functionResponses[0].response.result).toContain(
+      "首选 Exa 未成功"
+    );
+    expect(fallbackResp?.toolResponse.functionResponses[0].response.result).toContain(
+      "B 站伴看文档"
+    );
+  });
+
+  it("times out a stalled page tool call, sends an error toolResponse, and ignores late tool_result", () => {
+    vi.useFakeTimers();
+    const toolErrors: string[] = [];
+    const { client } = createClient({
+      pageToolTimeoutMs: 500,
+      onToolError: (err) => toolErrors.push(err)
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-timeout",
+              name: "control_bilibili_player",
+              args: { command: "pause" }
+            }
+          ]
+        }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+
+    vi.advanceTimersByTime(501);
+
+    expect(client.isSpeaking()).toBe(false);
+    expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
+    expect(ws.jsonFrames()).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "call-timeout",
+              name: "control_bilibili_player",
+              response: {
+                result: { ok: false, error: "页面工具执行超时，请稍后重试" }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+
+    client.handleAction({
+      action: "tool_result",
+      callId: "call-timeout",
+      result: { ok: true }
+    });
+    expect(ws.jsonFrames()).toHaveLength(1);
+  });
+
+  it("cancels specific in-flight web_search and page tool calls on toolCallCancellation.ids", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | null = null;
+    const executeWebSearch = vi.fn(
+      (_query: string, signal: AbortSignal) =>
+        new Promise<{ output: string; resultCount: number }>((resolve) => {
+          capturedSignal = signal;
+          signal.addEventListener("abort", () => {
+            resolve({ output: "aborted", resultCount: 0 });
+          });
+        })
+    );
+    const { client } = createClient({
+      pageToolTimeoutMs: 1000,
+      executeWebSearch
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "cancel-web", name: "web_search", args: { query: "取消搜索" } },
+            { id: "cancel-page", name: "get_subtitles_around_time", args: { current_time: 10 } },
+            { id: "keep-page", name: "control_bilibili_player", args: { command: "play" } }
+          ]
+        }
+      })
+    );
+
+    expect(capturedSignal).toBeTruthy();
+    expect(capturedSignal!.aborted).toBe(false);
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCallCancellation: {
+          ids: ["cancel-web", "cancel-page"]
+        }
+      })
+    );
+
+    expect(capturedSignal!.aborted).toBe(true);
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+
+    client.handleAction({
+      action: "tool_result",
+      callId: "cancel-page",
+      result: { ok: true }
+    });
+    expect(ws.jsonFrames()).toHaveLength(0);
+
+    client.handleAction({
+      action: "tool_result",
+      callId: "keep-page",
+      result: { ok: true, playing: true }
+    });
+    expect(ws.jsonFrames()).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "keep-page",
+              name: "control_bilibili_player",
+              response: { result: { ok: true, playing: true } }
+            }
+          ]
+        }
+      }
+    ]);
+    expect(client.isSpeaking()).toBe(false);
+  });
+
+  it("aborts in-flight tool calls and timers when interrupted or closed", () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | null = null;
+    const executeWebSearch = vi.fn(
+      (_query: string, signal: AbortSignal) =>
+        new Promise<{ output: string; resultCount: number }>(() => {
+          capturedSignal = signal;
+        })
+    );
+    const { client } = createClient({
+      pageToolTimeoutMs: 1000,
+      executeWebSearch
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "int-web", name: "web_search", args: { query: "被打断搜索" } },
+            { id: "int-page", name: "control_bilibili_player", args: { command: "pause" } }
+          ]
+        }
+      })
+    );
+    expect(client.isSpeaking()).toBe(true);
+
+    ws.simulateMessage(serverContent({ interrupted: true }));
+
+    expect(capturedSignal!.aborted).toBe(true);
+    expect(client.isSpeaking()).toBe(false);
+    vi.advanceTimersByTime(1500);
+    expect(ws.jsonFrames()).toHaveLength(0);
   });
 });

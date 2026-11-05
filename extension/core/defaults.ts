@@ -50,6 +50,7 @@ export interface KnownSettings {
   aiThinkingLevel: ThinkingLevelValue;
   activeAsrProviderId: string;
   activeLiveProviderId: string;
+  liveGeminiNativeSearch: boolean;
   asrAutoFallback: boolean;
   asrLanguage: string;
   // ===== 联网搜索（spec §3.2）=====
@@ -120,6 +121,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // （provider-store 收口，经 asr-providers-save 消息写回），settings 只存标量。
   activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
   activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
+  liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====

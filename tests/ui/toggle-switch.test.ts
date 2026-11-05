@@ -18,6 +18,7 @@ import { initToggleSwitch, syncToggleSwitch } from "../../extension/ui/toggle-sw
 // 6 个持久布尔开关的 id（与 SETTINGS_PANEL_DOM_IDS 中布尔键一致；
 // allowPaidSearchProviders = 付费平台准入，GLOSSARY「付费平台」）
 const TOGGLE_IDS = [
+  "liveGeminiNativeSearch",
   "asrAutoFallback",
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",

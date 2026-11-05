@@ -118,7 +118,7 @@ export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 export type AiProviderCredentialCandidate = GeminiAiRecordLike;
 
 export interface LiveSessionPrepareDeps {
-  getSettings: () => Promise<{ activeLiveProviderId?: string }>;
+  getSettings: () => Promise<{ activeLiveProviderId?: string; liveGeminiNativeSearch?: boolean }>;
   loadProviders: () => Promise<LiveProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;
   loadAiProviders?: () => Promise<readonly AiProviderCredentialCandidate[]>;
@@ -135,6 +135,7 @@ export interface LiveSessionPrepareResult {
   ok: boolean;
   provider?: LiveProviderListEntry;
   sessionId?: string;
+  liveGeminiNativeSearch?: boolean;
   error?: string;
 }
 
@@ -318,7 +319,10 @@ export class LiveSessionTracker {
       return {
         ok: true,
         provider: activeProvider,
-        sessionId: targetSessionId
+        sessionId: targetSessionId,
+        ...(typeof settings.liveGeminiNativeSearch === "boolean"
+          ? { liveGeminiNativeSearch: settings.liveGeminiNativeSearch }
+          : {})
       };
     } catch (error) {
       clearCurrentTabOwnershipIfUnchanged();
