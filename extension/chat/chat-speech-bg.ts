@@ -3,7 +3,7 @@ import {
   type ChatSpeechEvent,
   type ChatSpeechPortMessage,
   type ChatSpeechRequest
-} from "./chat-speech-port.js";
+} from "./protocol.js";
 
 const TERMINAL_EVENTS = new Set(["end", "error", "interrupted", "cancelled"]);
 
@@ -30,6 +30,13 @@ function emitError(port: chrome.runtime.Port, requestId: number, error: unknown)
 }
 
 function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { type: "speak" }>): void {
+  if (activePort !== null && activeRequestId !== null && (activePort !== port || activeRequestId !== request.requestId)) {
+    post(activePort, {
+      type: "event",
+      requestId: activeRequestId,
+      event: { type: "interrupted" }
+    });
+  }
   activePort = port;
   activeRequestId = request.requestId;
   try {

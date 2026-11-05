@@ -5,7 +5,7 @@ import {
   type ChatSpeechPortMessage,
   type ChatSpeechRequest,
   type ChatSpeechVoice
-} from "./chat-speech-port.js";
+} from "./protocol.js";
 
 export type { ChatSpeechEvent, ChatSpeechVoice };
 

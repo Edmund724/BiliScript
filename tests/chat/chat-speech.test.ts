@@ -4,8 +4,11 @@
 // 3. 长回答超过单次 speak 上限，或分块结束后不续读；
 // 4. 停止/切换后，迟到的 getVoices 与旧 utterance 事件污染新状态；
 // 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见；
-// 6. 音量未对齐外部播放器音量或越界未归一。
+// 6. 音量未对齐外部播放器音量或越界未归一；
+// 7. 跨标签页抢占朗读时，被抢占标签页未收到 interrupted 终态导致按钮卡在 is-speaking。
 import { describe, expect, it, vi } from "vitest";
+import { attachChatSpeechPort } from "../../extension/chat/chat-speech-bg.js";
+import { CHAT_SPEECH_PORT_NAME, type ChatSpeechPortMessage } from "../../extension/chat/protocol.js";
 import {
   createChatSpeechController,
   speechTextFromElement,
@@ -327,5 +330,58 @@ describe("音量对齐", () => {
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
 
     expect(engine.spoken[0].options.volume).toBe(0.8);
+  });
+});
+
+describe("SW 朗读端口跨标签页抢占", () => {
+  it("新端口发起 speak 时主动向旧活动端口补发 interrupted，避免被抢占标签页按钮卡死", () => {
+    const ttsCallbacks: Array<(event: { type: string }) => void> = [];
+    vi.stubGlobal("chrome", {
+      tts: {
+        speak: vi.fn((_text: string, options: { onEvent: (event: { type: string }) => void }) => {
+          const prev = ttsCallbacks.at(-1);
+          ttsCallbacks.push(options.onEvent);
+          // 模拟 chrome.tts.speak 中断上一条在飞朗读
+          prev?.({ type: "interrupted" });
+        }),
+        stop: vi.fn(),
+        getVoices: vi.fn(async () => [])
+      }
+    });
+
+    function makeMockPort() {
+      const messageListeners: Array<(msg: unknown) => void> = [];
+      const disconnectListeners: Array<() => void> = [];
+      const sent: ChatSpeechPortMessage[] = [];
+      const port = {
+        name: CHAT_SPEECH_PORT_NAME,
+        postMessage: vi.fn((msg: ChatSpeechPortMessage) => sent.push(msg)),
+        onMessage: { addListener: (fn: (msg: unknown) => void) => messageListeners.push(fn) },
+        onDisconnect: { addListener: (fn: () => void) => disconnectListeners.push(fn) }
+      } as unknown as chrome.runtime.Port;
+      attachChatSpeechPort(port);
+      return {
+        sent,
+        emitMessage: (msg: unknown) => messageListeners.forEach((fn) => fn(msg))
+      };
+    }
+
+    const tabA = makeMockPort();
+    const tabB = makeMockPort();
+
+    tabA.emitMessage({ type: "speak", requestId: 1, text: "标签页A朗读" });
+    expect(tabA.sent).toEqual([]);
+
+    // 标签页 B 抢占朗读：标签页 A 必须收到 requestId=1 的 interrupted 终态
+    tabB.emitMessage({ type: "speak", requestId: 1, text: "标签页B朗读" });
+    expect(tabA.sent).toEqual([
+      { type: "event", requestId: 1, event: { type: "interrupted" } }
+    ]);
+
+    // 标签页 B 正常结束
+    ttsCallbacks[1]?.({ type: "end" });
+    expect(tabB.sent).toEqual([
+      { type: "event", requestId: 1, event: { type: "end" } }
+    ]);
   });
 });
