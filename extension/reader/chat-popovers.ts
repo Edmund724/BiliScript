@@ -1,4 +1,4 @@
-// reader/chat-popovers.ts — 对话 tab 历史整页、模型面板、AI 音量与更多操作菜单的开合、
+// reader/chat-popovers.ts — 对话 tab 历史整页、模型面板与更多操作菜单的开合、
 // 互斥与文档级外点关闭（任一打开先关其余层，Esc 全关，外点全关）。
 import { ids } from "./state.js";
 
@@ -7,7 +7,6 @@ export interface CreateReaderChatPopoversDeps {
   modelPanel: HTMLElement;
   historyBtn: HTMLElement;
   modelChipBtn: HTMLElement;
-  liveVolume?: HTMLDetailsElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
   renderHistoryList: () => void;
@@ -19,8 +18,6 @@ export interface ReaderChatPopovers {
   hideHistoryPopover: () => void;
   toggleModelPanel: (event?: Event) => void;
   hideModelPanel: () => void;
-  toggleLiveVolume: (event?: Event) => void;
-  hideLiveVolume: () => void;
   toggleMoreMenu: (event?: Event) => void;
   hideMoreMenu: () => void;
   handleDocumentClick: (event: MouseEvent) => void;
@@ -28,18 +25,16 @@ export interface ReaderChatPopovers {
 }
 
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
-  const { historyPopover, modelPanel, liveVolume, moreBtn, moreMenu } = deps;
+  const { historyPopover, modelPanel, moreBtn, moreMenu } = deps;
 
   // 互斥基准：任一打开前先关其他层（同一时刻至多一层开着）。
   function hideOthers(except: HTMLElement): void {
-    for (const popover of [historyPopover, modelPanel, liveVolume, moreMenu]) {
+    for (const popover of [historyPopover, modelPanel, moreMenu]) {
       if (!popover || popover === except) {
         continue;
       }
       if (popover === modelPanel) {
         setModelPanelHidden(true);
-      } else if (popover === liveVolume) {
-        setLiveVolumeHidden(true);
       } else if (popover === moreMenu) {
         setMoreMenuHidden(true);
       } else {
@@ -53,12 +48,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
   function setModelPanelHidden(hidden: boolean): void {
     modelPanel.hidden = hidden;
     deps.modelChipBtn.classList.toggle("is-open", !hidden);
-  }
-
-  function setLiveVolumeHidden(hidden: boolean): void {
-    if (liveVolume) {
-      liveVolume.open = !hidden;
-    }
   }
 
   function setMoreMenuHidden(hidden: boolean): void {
@@ -99,20 +88,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     setModelPanelHidden(true);
   }
 
-  function toggleLiveVolume(event?: Event): void {
-    event?.preventDefault();
-    event?.stopPropagation();
-    if (!liveVolume) {
-      return;
-    }
-    hideOthers(liveVolume);
-    liveVolume.open = !liveVolume.open;
-  }
-
-  function hideLiveVolume(): void {
-    setLiveVolumeHidden(true);
-  }
-
   function toggleMoreMenu(event?: Event): void {
     event?.stopPropagation();
     if (!moreMenu) {
@@ -129,15 +104,13 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
 
   // 外点关闭
   function handleDocumentClick(event: MouseEvent): void {
-    const isLiveVolumeOpen = Boolean(liveVolume?.open);
     const isMoreOpen = Boolean(moreMenu && !moreMenu.hidden);
-    if (historyPopover.hidden && modelPanel.hidden && !isLiveVolumeOpen && !isMoreOpen) {
+    if (historyPopover.hidden && modelPanel.hidden && !isMoreOpen) {
       return;
     }
     if (!(event.target instanceof Element)) {
       hideHistoryPopover();
       hideModelPanel();
-      hideLiveVolume();
       hideMoreMenu();
       return;
     }
@@ -147,15 +120,11 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (event.target.closest(`#${ids.readingChatModelPanel}`) || event.target.closest(`#${ids.readingChatModelChip}`)) {
       return;
     }
-    if (event.target.closest(`#${ids.readingChatLiveVolume}`)) {
-      return;
-    }
     if (event.target.closest(`#${ids.readingChatMoreMenu}`) || event.target.closest(`#${ids.readingChatMoreBtn}`)) {
       return;
     }
     hideHistoryPopover();
     hideModelPanel();
-    hideLiveVolume();
     hideMoreMenu();
   }
 
@@ -166,7 +135,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     }
     hideHistoryPopover();
     hideModelPanel();
-    hideLiveVolume();
     hideMoreMenu();
   }
 
@@ -175,8 +143,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     hideHistoryPopover,
     toggleModelPanel,
     hideModelPanel,
-    toggleLiveVolume,
-    hideLiveVolume,
     toggleMoreMenu,
     hideMoreMenu,
     handleDocumentClick,

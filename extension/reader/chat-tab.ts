@@ -70,7 +70,7 @@ import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeLiveVoiceVolume } from "../core/validators.js";
-import { bindResettableRangeSlider, initRangeSlider, syncRangeProgress } from "../ui/range-slider.js";
+import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -199,9 +199,10 @@ const els = {
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
   liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
-  liveVolume: document.getElementById(ids.readingChatLiveVolume) as HTMLDetailsElement | null,
+  liveVolume: document.getElementById(ids.readingChatLiveVolume) as HTMLElement | null,
   liveVolumeInput: document.getElementById(ids.readingChatLiveVolumeInput) as HTMLInputElement | null,
-  liveVolumeValue: document.getElementById(ids.readingChatLiveVolumeValue) as HTMLElement | null
+  liveVolumeValue: document.getElementById(ids.readingChatLiveVolumeValue) as HTMLElement | null,
+  liveVolumeResetBtn: document.getElementById(ids.readingChatLiveVolumeResetBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -512,7 +513,6 @@ const popovers = createReaderChatPopovers({
   modelPanel: els.modelPanel,
   historyBtn: els.historyBtn,
   modelChipBtn: els.modelChip,
-  liveVolume: els.liveVolume,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
   renderHistoryList: () => lists.renderHistoryList(),
@@ -888,13 +888,31 @@ function bindEvents(): void {
     }
   });
 
-  const syncTypographySlidersFromState = () => {
+  const liveVolumeSlider = bindResettableRangeSlider({
+    input: els.liveVolumeInput,
+    badge: els.liveVolumeValue,
+    resetBtn: els.liveVolumeResetBtn,
+    defaultValue: DEFAULT_SETTINGS.liveVoiceVolume,
+    normalize: normalizeLiveVoiceVolume,
+    format: (val) => `${val}%`,
+    initialValue: state.settings?.liveVoiceVolume,
+    onPreview: (val) => {
+      liveController?.setVolume(val / 100);
+      state.patchSettings({ liveVoiceVolume: val });
+    },
+    onCommit: (val) => {
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: val } }).catch(() => null);
+    }
+  });
+
+  const syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
     paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
+    liveVolumeSlider.setValue(state.settings?.liveVoiceVolume);
   };
 
   els.moreBtn?.addEventListener("click", (event) => {
-    syncTypographySlidersFromState();
+    syncMoreMenuSlidersFromState();
     popovers.toggleMoreMenu(event);
   });
   els.newChatBtn?.addEventListener("click", () => {
@@ -912,28 +930,6 @@ function bindEvents(): void {
   els.historyBackBtn?.addEventListener("click", () => {
     popovers.hideHistoryPopover();
   });
-  els.liveVolume?.querySelector("summary")?.addEventListener("click", popovers.toggleLiveVolume);
-  const syncLiveVolume = (raw: unknown): number => {
-    const value = normalizeLiveVoiceVolume(raw);
-    if (els.liveVolumeInput) {
-      els.liveVolumeInput.value = String(value);
-      els.liveVolumeInput.setAttribute("aria-valuetext", `${value}%`);
-      syncRangeProgress(els.liveVolumeInput);
-    }
-    if (els.liveVolumeValue) els.liveVolumeValue.textContent = `${value}%`;
-    return value;
-  };
-  initRangeSlider(els.liveVolumeInput);
-  syncLiveVolume(state.settings?.liveVoiceVolume ?? DEFAULT_SETTINGS.liveVoiceVolume);
-  els.liveVolumeInput?.addEventListener("input", () => {
-    const value = syncLiveVolume(els.liveVolumeInput!.value);
-    liveController?.setVolume(value / 100);
-    state.patchSettings({ liveVoiceVolume: value });
-  });
-  els.liveVolumeInput?.addEventListener("change", () => {
-    const value = syncLiveVolume(els.liveVolumeInput!.value);
-    void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: value } }).catch(() => null);
-  });
   if (els.liveBtn) {
     // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
     // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
@@ -945,7 +941,6 @@ function bindEvents(): void {
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveMuteBtn,
-      volumeControl: els.liveVolume,
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,

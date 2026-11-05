@@ -70,6 +70,7 @@ export const ids = {
   readingChatLiveVolume: "biliscript-reading-chat-live-volume",
   readingChatLiveVolumeInput: "biliscript-reading-chat-live-volume-input",
   readingChatLiveVolumeValue: "biliscript-reading-chat-live-volume-value",
+  readingChatLiveVolumeResetBtn: "biliscript-reading-chat-live-volume-reset-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
   readingChatLineHeight: "biliscript-reading-chat-line-height",
