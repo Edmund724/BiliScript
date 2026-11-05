@@ -97,8 +97,8 @@ def main():
     print(f"Built release package for v{version}:")
     print(f"- zip: {zip_path} ({zip_size} bytes)")
 
-    # 发布 ZIP 体积守卫：release zip 体积上限（基线 659,118 B，预算上限 700,000 B，留有明确余量）。
-    max_release_zip_bytes = 700_000
+    # 发布 ZIP 体积守卫：release zip 体积上限（2.7.0 引入实时伴看与语音朗读后基线 717,982 B，预算上限 750,000 B，留有明确余量）。
+    max_release_zip_bytes = 750_000
     if zip_size > max_release_zip_bytes:
         raise SystemExit(
             f"Release ZIP size guard failed: {zip_size} bytes exceeds budget {max_release_zip_bytes} bytes"
