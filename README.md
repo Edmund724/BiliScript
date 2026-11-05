@@ -137,7 +137,7 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
 在设置抽屉「实时伴看平台」区域可添加伴看平台：
 - **MOSS-LIVE**：填入 MOSS-LIVE 官方 API Key（默认 Base URL 为 `https://api.mosi.cn`，模型 `moss-live-1.0`），内置 WebSocket 握手鉴权与会话生命周期管理。
-- **Gemini Live**：支持 Google Gemini 原生多模态实时协议（模型 `gemini-2.0-flash-exp` 等），若在「AI 模型平台」中已配置 Google Gemini，可直接一键复用凭据；支持开启原生 Google 搜索工具与页面查证。
+- **Gemini Live**：支持 Google Gemini 原生多模态实时协议（模型 `gemini-3.8-live` 等），若在「AI 模型平台」中已配置 Google Gemini，可直接一键复用凭据；支持开启原生 Google 搜索工具与页面查证。
 
 ## 隐私与权限
 
