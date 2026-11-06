@@ -1218,11 +1218,7 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
       video: { bvid: "BV1test000000", cid: "456", pageIndex: 2 }
     });
     expect(client.sendToolResult("call-1", { ok: true, items: [] })).toBe(true);
-    expect(JSON.parse(ws.sentData[4])).toEqual({
-      action: "tool.result",
-      call_id: "call-1",
-      result: { ok: true, items: [] }
-    });
+    expect(ws.sentData.filter((d) => typeof d === "string").some((d) => JSON.parse(d).action === "tool.result")).toBe(false);
     expect(client.getState()).toBe("connected");
   });
 
@@ -1237,11 +1233,7 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
       action: "tool.call",
       data: { call_id: "call-2", name: "search_video_subtitles", arguments: {} }
     }));
-    expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "tool.result",
-      call_id: "call-2",
-      result: { ok: false, error: "当前客户端未接入页面工具执行器" }
-    });
+    expect(ws.sentData).toHaveLength(0);
     expect(client.getState()).toBe("connected");
   });
 
@@ -1346,11 +1338,7 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
     };
     expect(client.sendToolResult("call-sum-1", overviewResult)).toBe(true);
     expect(client.isSpeaking()).toBe(false);
-    expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "tool.result",
-      call_id: "call-sum-1",
-      result: overviewResult
-    });
+    expect(ws.sentData).toHaveLength(0);
   });
 
   it("routes summarize_video function_call.done with video identity and sends tool.result", () => {
@@ -1385,11 +1373,7 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
 
     expect(client.sendToolResult("call-sum-2", { ok: false, error: "当前视频没有可用字幕" })).toBe(true);
     expect(client.isSpeaking()).toBe(false);
-    expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "tool.result",
-      call_id: "call-sum-2",
-      result: { ok: false, error: "当前视频没有可用字幕" }
-    });
+    expect(ws.sentData).toHaveLength(0);
   });
 
   it("applies longer independent timeout to summarize_video without affecting other page tools", () => {
@@ -1431,11 +1415,7 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
       vi.advanceTimersByTime(2000);
       expect(client.isSpeaking()).toBe(false);
       expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
-      expect(JSON.parse(ws.sentData[0])).toEqual({
-        action: "tool.result",
-        call_id: "call-sum-timeout",
-        result: { ok: false, error: "页面工具执行超时，请稍后重试" }
-      });
+      expect(ws.sentData).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -1513,13 +1493,8 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(executeWebSearch).toHaveBeenCalledTimes(1);
     expect(executeWebSearch).toHaveBeenCalledWith("B 站最新财报", expect.any(AbortSignal), 0);
     const frames = sentJson(ws);
-    expect(frames.filter((frame) => frame.action === "conversation.item.create")).toEqual([
-      {
-        action: "conversation.item.create",
-        item: { type: "function_call_output", call_id: "call-1", output: "查证结果与来源" }
-      }
-    ]);
-    expect(frames.filter((frame) => frame.action === "response.create")).toHaveLength(1);
+    expect(frames.some((frame) => frame.action === "conversation.item.create")).toBe(false);
+    expect(frames.some((frame) => frame.action === "response.create")).toBe(false);
     expect(onToolStatus).toHaveBeenNthCalledWith(1, {
       tool: "web_search",
       status: "searching",
@@ -1546,8 +1521,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
-    expect(output.item.output).toContain("不要编造");
+    expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
     expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
       status: "no_results",
       resultCount: 0
@@ -1566,9 +1540,7 @@ describe("OffscreenMossLiveClient web search tools", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    const output = sentJson(ws).find((frame) => frame.action === "conversation.item.create");
-    expect(output.item.output).toContain("联网搜索失败：所有搜索平台不可用");
-    expect(output.item.output).toContain("不要编造外部事实");
+    expect(sentJson(ws).some((frame) => frame.action === "conversation.item.create")).toBe(false);
     expect(onToolStatus).toHaveBeenLastCalledWith(expect.objectContaining({
       status: "failed",
       error: "所有搜索平台不可用"

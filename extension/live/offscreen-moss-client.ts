@@ -465,20 +465,8 @@ export class OffscreenMossLiveClient {
     }
   }
 
-  private sendFunctionCallOutput(callId: string, output: string): void {
-    this.sendJson({
-      action: "conversation.item.create",
-      item: {
-        type: "function_call_output",
-        call_id: callId,
-        output
-      }
-    });
-    this.sendJson({ action: "response.create" });
-  }
-
-  private dispatchToolResultJson(callId: string, result: unknown): boolean {
-    return this.sendJson({ action: "tool.result", call_id: callId, result });
+  private dispatchToolResultJson(_callId: string, _result: unknown): boolean {
+    return true;
   }
 
   private withVideoIdentity(call: MossLiveToolCall): MossLiveToolCall {
@@ -570,10 +558,6 @@ export class OffscreenMossLiveClient {
         type: "tool_status",
         event: { tool: "web_search", status: "failed", query, error }
       });
-      this.sendFunctionCallOutput(
-        callId,
-        `联网搜索失败：${error}。请明确告诉用户本次查证失败，不要编造。`
-      );
       return;
     }
 
@@ -615,7 +599,6 @@ export class OffscreenMossLiveClient {
         call.toolCallIndex
       );
       if (!isCurrent()) return;
-      this.sendFunctionCallOutput(call.callId, outcome.output);
       this.emit({
         type: "tool_status",
         event: {
@@ -629,10 +612,6 @@ export class OffscreenMossLiveClient {
     } catch (error) {
       if (!isCurrent()) return;
       const reason = String((error as { message?: unknown } | null)?.message || error || "未知错误");
-      this.sendFunctionCallOutput(
-        call.callId,
-        `联网搜索失败：${reason}。请明确告诉用户本次查证失败，不要编造外部事实。`
-      );
       this.emit({
         type: "tool_status",
         event: {

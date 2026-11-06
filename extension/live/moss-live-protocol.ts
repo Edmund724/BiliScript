@@ -252,8 +252,8 @@ export const resolveLivePermissionOrigins = resolveMossLivePermissionOrigins;
 /**
  * MOSS-LIVE 服务端声明的页面工具定义清单（MOSS-LIVE 服务端版本 ≥ 2026-11）。
  * MOSS-LIVE 官方接口由服务端在 Assistant / Model 层声明可调用的工具与参数 Schema，
- * 客户端按此 Schema 接收 tool.call / response.function_call_arguments.done，
- * 并以 tool.result 回传结构化结果。
+ * 客户端按此 Schema 接收 tool.call / response.function_call_arguments.done
+ * 并在本地执行页面控制与状态更新。
  */
 export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {

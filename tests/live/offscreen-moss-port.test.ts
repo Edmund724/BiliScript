@@ -406,11 +406,7 @@ describe("attachMossLivePort subtitle tool bridge", () => {
     port.simulateMessage({ action: "tool_result", callId: "call-1", result: { ok: true, items: [] } });
     expect(client.isSpeaking()).toBe(false);
     expect(port.postedMessages).toContainEqual({ type: "speaking_state", speaking: false });
-    expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "tool.result",
-      call_id: "call-1",
-      result: { ok: true, items: [] }
-    });
+    expect(ws.sentData).toHaveLength(0);
   });
 
   it("relays summarize_video tool call and result between offscreen port and content", async () => {
@@ -446,11 +442,7 @@ describe("attachMossLivePort subtitle tool bridge", () => {
     port.simulateMessage({ action: "tool_result", callId: "sum-call-1", result: overviewResponse });
 
     expect(client.isSpeaking()).toBe(false);
-    expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "tool.result",
-      call_id: "sum-call-1",
-      result: overviewResponse
-    });
+    expect(ws.sentData).toHaveLength(0);
   });
 
   it("returns a timeout error without closing the session when content never answers", async () => {
@@ -467,11 +459,7 @@ describe("attachMossLivePort subtitle tool bridge", () => {
       expect(client.isSpeaking()).toBe(true);
       vi.advanceTimersByTime(10000);
       expect(client.isSpeaking()).toBe(false);
-      expect(JSON.parse(ws.sentData[0])).toEqual({
-        action: "tool.result",
-        call_id: "call-timeout",
-        result: { ok: false, error: "页面工具执行超时，请稍后重试" }
-      });
+      expect(ws.sentData).toHaveLength(0);
       expect(port.postedMessages).toContainEqual({
         type: "tool_error",
         error: "页面工具执行超时，请稍后重试"
