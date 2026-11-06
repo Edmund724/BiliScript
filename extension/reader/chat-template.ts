@@ -94,10 +94,12 @@ export function buildChatTabBodyHtml(): string {
                   </svg>
                 </button>
                 <div id="${ids.readingChatLiveBarVolumePop}" class="chat-live-popover chat-live-volume-pop" hidden>
-                  <div class="chat-live-pop-title">伴看音量</div>
-                  <div class="chat-live-pop-row">
-                    <input id="${ids.readingChatLiveBarVolumeInput}" type="range" class="chat-live-slider" min="0" max="100" step="1" value="100" />
-                    <span id="${ids.readingChatLiveBarVolumeValue}" class="chat-live-pop-val">100%</span>
+                  <div class="chat-live-pop-head">
+                    <span class="chat-live-pop-title">伴看音量</span>
+                    <span id="${ids.readingChatLiveBarVolumeValue}" class="chat-live-pop-badge">100%</span>
+                  </div>
+                  <div class="chat-live-pop-slider-row">
+                    <input id="${ids.readingChatLiveBarVolumeInput}" type="range" class="chat-live-slider" min="0" max="100" step="1" value="100" style="--live-progress: 100%;" />
                   </div>
                 </div>
               </div>
@@ -110,11 +112,14 @@ export function buildChatTabBodyHtml(): string {
                   </svg>
                 </button>
                 <div id="${ids.readingChatLiveBarSpeedPop}" class="chat-live-popover chat-live-speed-pop" hidden>
-                  <div class="chat-live-pop-title">伴看语速</div>
-                  <div class="chat-live-pop-row">
+                  <div class="chat-live-pop-head">
+                    <span class="chat-live-pop-title">伴看语速</span>
+                    <span id="${ids.readingChatLiveBarSpeedValue}" class="chat-live-pop-badge">1x</span>
+                  </div>
+                  <div class="chat-live-pop-slider-row chat-live-speed-slider-row">
                     <div class="chat-live-speed-slider-wrap">
-                      <input id="${ids.readingChatLiveBarSpeedInput}" type="range" class="chat-live-slider chat-live-speed-slider" min="0" max="4" step="1" value="1" />
-                      <div class="chat-live-speed-ticks">
+                      <input id="${ids.readingChatLiveBarSpeedInput}" type="range" class="chat-live-slider chat-live-speed-slider" min="0" max="4" step="1" value="1" style="--live-progress: 25%;" />
+                      <div class="chat-live-speed-ticks" aria-hidden="true">
                         <span class="chat-live-speed-tick"></span>
                         <span class="chat-live-speed-tick"></span>
                         <span class="chat-live-speed-tick"></span>
@@ -122,7 +127,6 @@ export function buildChatTabBodyHtml(): string {
                         <span class="chat-live-speed-tick"></span>
                       </div>
                     </div>
-                    <span id="${ids.readingChatLiveBarSpeedValue}" class="chat-live-pop-val">1x</span>
                   </div>
                 </div>
               </div>

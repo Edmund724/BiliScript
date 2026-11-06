@@ -1030,16 +1030,18 @@ function bindEvents(): void {
     composer.syncSendState();
   };
 
-  // 伴看操作区：音量滑轨调节（只控制实时伴看音量）
+  // 伴看操作区：音量滑轨调节（只控制实时伴看音量，卡片风格对齐模型选择弹窗）
   if (els.liveBarVolumeInput) {
     const initVol = normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume);
     els.liveBarVolumeInput.value = String(initVol);
+    els.liveBarVolumeInput.style.setProperty("--live-progress", `${initVol}%`);
     if (els.liveBarVolumeValue) {
       els.liveBarVolumeValue.textContent = `${initVol}%`;
     }
     const onLiveVolumeChange = (e: Event) => {
       const target = e.target as HTMLInputElement;
       const val = normalizeLiveVoiceVolume(target.value);
+      target.style.setProperty("--live-progress", `${val}%`);
       if (els.liveBarVolumeValue) {
         els.liveBarVolumeValue.textContent = `${val}%`;
       }
@@ -1050,15 +1052,18 @@ function bindEvents(): void {
     els.liveBarVolumeInput.addEventListener("input", onLiveVolumeChange);
   }
 
-  // 伴看操作区：语速调节（本机播放倍率控制）
+  // 伴看操作区：语速调节（本机播放倍率控制，刻度点对齐）
   if (els.liveBarSpeedInput) {
     els.liveBarSpeedInput.value = "1";
+    els.liveBarSpeedInput.style.setProperty("--live-progress", "25%");
     if (els.liveBarSpeedValue) {
       els.liveBarSpeedValue.textContent = "1x";
     }
     els.liveBarSpeedInput.addEventListener("input", (e: Event) => {
       const target = e.target as HTMLInputElement;
       const stepIdx = Number(target.value);
+      const progressPct = Math.round((stepIdx / 4) * 100);
+      target.style.setProperty("--live-progress", `${progressPct}%`);
       const speed = LIVE_VOICE_SPEED_STEPS[stepIdx] ?? DEFAULT_LIVE_VOICE_SPEED;
       if (els.liveBarSpeedValue) {
         els.liveBarSpeedValue.textContent = `${speed}x`;

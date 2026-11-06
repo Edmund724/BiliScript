@@ -71,4 +71,29 @@ describe("chat-live-bar and multi-state composer template", () => {
     expect(speedInput.max).toBe("4");
     expect(speedInput.step).toBe("1");
   });
+
+  it("structures popovers with header badge and separate slider row to prevent number overflow", () => {
+    const html = buildChatTabBodyHtml();
+    const div = document.createElement("div");
+    div.innerHTML = html;
+
+    const volPop = div.querySelector(`#${ids.readingChatLiveBarVolumePop}`) as HTMLElement;
+    const volHead = volPop.querySelector(".chat-live-pop-head");
+    expect(volHead).not.toBeNull();
+    const volBadge = volPop.querySelector(`#${ids.readingChatLiveBarVolumeValue}`);
+    expect(volBadge?.classList.contains("chat-live-pop-badge")).toBe(true);
+    expect(volBadge?.textContent).toBe("100%");
+
+    const volSliderRow = volPop.querySelector(".chat-live-pop-slider-row");
+    expect(volSliderRow).not.toBeNull();
+    expect(volSliderRow?.querySelector(`#${ids.readingChatLiveBarVolumeInput}`)).not.toBeNull();
+
+    const speedPop = div.querySelector(`#${ids.readingChatLiveBarSpeedPop}`) as HTMLElement;
+    const speedBadge = speedPop.querySelector(`#${ids.readingChatLiveBarSpeedValue}`);
+    expect(speedBadge?.classList.contains("chat-live-pop-badge")).toBe(true);
+    expect(speedBadge?.textContent).toBe("1x");
+
+    const ticks = speedPop.querySelectorAll(".chat-live-speed-tick");
+    expect(ticks).toHaveLength(5);
+  });
 });

@@ -2071,7 +2071,7 @@
   stroke-linecap: round;
 }
 
-/* 气泡弹出层 */
+/* 气泡弹出层（对齐模型选择弹窗与全局卡片风格） */
 .biliscript-reading-chat .chat-live-pop-anchor {
   position: relative;
 }
@@ -2080,67 +2080,144 @@
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
-  width: 180px;
-  padding: 10px 14px;
-  border-radius: var(--biliscript-radius-md);
+  width: 210px;
+  padding: 12px 14px;
+  border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape);
-  background: var(--biliscript-reader-surface-1);
+  background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--biliscript-reader-border);
-  box-shadow: 0 4px 16px rgba(var(--biliscript-primitive-color-black-rgb), 0.15);
+  box-shadow: var(--biliscript-reader-shadow);
   z-index: 100;
   box-sizing: border-box;
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  transform-origin: bottom right;
+  transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              display 160ms allow-discrete;
+}
+
+.biliscript-reading-chat .chat-live-popover[hidden] {
+  display: none !important;
+  opacity: 0;
+  transform: scale(0.96) translateY(4px);
+  transition: opacity 120ms ease-out,
+              transform 120ms ease-out,
+              display 120ms allow-discrete;
+}
+
+.biliscript-reading-chat .chat-live-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
 
 .biliscript-reading-chat .chat-live-pop-title {
   font-family: var(--biliscript-reader-font-sans-medium);
   font-size: var(--biliscript-font-size-sm);
   font-weight: 500;
-  color: var(--biliscript-reader-muted);
-  margin-bottom: 8px;
+  color: var(--biliscript-reader-text);
+  margin: 0;
 }
 
-.biliscript-reading-chat .chat-live-pop-row {
+.biliscript-reading-chat .chat-live-pop-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  font-size: var(--biliscript-font-size-sm);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-surface-3);
+  color: var(--biliscript-reader-accent);
+  line-height: 1.4;
+}
+
+.biliscript-reading-chat .chat-live-pop-slider-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.biliscript-reading-chat .chat-live-pop-val {
-  font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: var(--biliscript-font-size-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--biliscript-reader-text);
-  font-weight: 500;
-  min-width: 30px;
-  text-align: right;
+  width: 100%;
 }
 
 .biliscript-reading-chat .chat-live-slider {
-  flex: 1 1 auto;
-  accent-color: var(--biliscript-reader-accent);
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: var(--biliscript-radius-pill);
+  background: linear-gradient(
+    to right,
+    var(--biliscript-reader-accent) 0%,
+    var(--biliscript-reader-accent) var(--live-progress, 100%),
+    var(--biliscript-reader-track, var(--biliscript-reader-surface-3)) var(--live-progress, 100%),
+    var(--biliscript-reader-track, var(--biliscript-reader-surface-3)) 100%
+  );
+  outline: none;
   cursor: pointer;
+  margin: 0;
+}
+
+.biliscript-reading-chat .chat-live-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-primitive-color-white);
+  border: 2px solid var(--biliscript-reader-accent);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+  position: relative;
+  z-index: 2;
+}
+
+.biliscript-reading-chat .chat-live-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.biliscript-reading-chat .chat-live-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-primitive-color-white);
+  border: 2px solid var(--biliscript-reader-accent);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
 }
 
 .biliscript-reading-chat .chat-live-speed-slider-wrap {
   position: relative;
-  flex: 1 1 auto;
+  width: 100%;
   display: flex;
-  flex-direction: column;
+  align-items: center;
 }
 
 .biliscript-reading-chat .chat-live-speed-ticks {
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  right: 7px;
+  height: 0;
   display: flex;
   justify-content: space-between;
-  padding: 0 4px;
-  margin-top: 4px;
+  pointer-events: none;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 
 .biliscript-reading-chat .chat-live-speed-tick {
   width: 4px;
   height: 4px;
   border-radius: var(--biliscript-radius-circle);
-  background: var(--biliscript-reader-muted);
-  opacity: 0.5;
+  background: var(--biliscript-reader-text);
+  opacity: 0.28;
 }
 
 /* ===== 模型面板弹层（发送框紧凑化）=====
@@ -3148,6 +3225,8 @@
 @media (prefers-reduced-motion: reduce) {
   .biliscript-reading-chat .chat-model-panel,
   .biliscript-reading-chat .chat-model-panel[hidden],
+  .biliscript-reading-chat .chat-live-popover,
+  .biliscript-reading-chat .chat-live-popover[hidden],
   #biliscript-reading-view .biliscript-reading-chat-more-menu,
   #biliscript-reading-view .biliscript-reading-chat-more-menu[hidden] {
     transition: none;
