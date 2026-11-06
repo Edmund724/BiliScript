@@ -36,7 +36,7 @@ API Key 需自行准备，但无需付费：下文推荐的硅基流动和 Model
 
 ### 实时伴看（多模态音画互动）
 
-- 支持 **MOSS-LIVE** 与 **Google Gemini Live** 双原生多模态协议，通过 WebSocket 与 Offscreen 技术实现低延迟双向语音互动与音画同步
+- 支持 **MOSS Live** 与 **Google Gemini Live** 双原生多模态协议，通过 WebSocket 与 Offscreen 技术实现低延迟双向语音互动与音画同步
 - **音画闭环与智能感知**：支持实时视频画面采样伴看与双端字幕显示；支持自然说话打断与断点续说，伴看发声时自动闪避/恢复视频背景音，换片自动守护
 - **全片上下文与工具调用**：伴看会话深度融合全片概览与字幕上下文（支持按需长超时生成全片概览），支持页面工具调用与实时联网查证（含原生 Google 搜索开关）
 - **独立音量管理**：对话顶部与操作菜单集成独立语音音量滑块，统管朗读与伴看发声音量，支持外点快速收起
@@ -136,7 +136,7 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 ### 4. 配置实时伴看平台（可选，多模态音画互动）
 
 在设置抽屉「实时伴看平台」区域可添加伴看平台：
-- **MOSS-LIVE**：填入 MOSS-LIVE 官方 API Key（默认 Base URL 为 `https://api.mosi.cn`，模型 `moss-live-1.0`），内置 WebSocket 握手鉴权与会话生命周期管理。
+- **MOSS Live**：填入 MOSS Live 官方 API Key（默认 Base URL 为 `https://api.mosi.cn`，模型 `moss-live-1.0`），内置 WebSocket 握手鉴权与会话生命周期管理。
 - **Gemini Live**：支持 Google Gemini 原生多模态实时协议（模型 `gemini-3.8-live` 等），若在「AI 模型平台」中已配置 Google Gemini，可直接一键复用凭据；支持开启原生 Google 搜索工具与页面查证。
 
 ## 隐私与权限
@@ -190,7 +190,7 @@ extension/
 ├── asr/                   # 语音识别（音频分片、转写、WAV 编码）
 ├── bilibili/              # B 站 API 网关与视频 ID 解析
 ├── chat/                  # 对话运行时与会话存储
-├── live/                  # 实时伴看（MOSS-LIVE 与 Gemini Live 会话、音画同步与双端字幕）
+├── live/                  # 实时伴看（MOSS Live 与 Gemini Live 会话、音画同步与双端字幕）
 ├── search/                # 联网搜索（多平台适配器、回退链与执行器）
 ├── core/                  # 核心状态、运行时、消息处理
 ├── notes/                 # 导出渲染（Markdown、SRT、TXT）

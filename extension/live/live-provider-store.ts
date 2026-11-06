@@ -45,7 +45,7 @@ export function normalizeLiveProvider(item: unknown): LiveProvider | null {
   return {
     id,
     presetId: presetId || (gemini ? "gemini-live" : "moss-live"),
-    name: String(raw.name || "").trim() || (gemini ? "Gemini Live" : "MOSS-LIVE"),
+    name: String(raw.name || "").trim() || (gemini ? "Gemini Live" : "MOSS Live"),
     type,
     baseUrl: normalizeBaseUrl(raw.baseUrl) || (gemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn"),
     model: String(raw.model || "").trim() || (gemini ? GEMINI_LIVE_DEFAULT_MODEL : DEFAULT_LIVE_MODEL),
@@ -78,12 +78,12 @@ export interface LiveProviderPreset {
 export const LIVE_PROVIDER_PRESETS: readonly LiveProviderPreset[] = [
   {
     id: "moss-live",
-    name: "MOSS-LIVE",
+    name: "MOSS Live",
     type: "moss-live",
     baseUrl: "https://api.mosi.cn",
     model: DEFAULT_LIVE_MODEL,
     requiresKey: true,
-    note: "MOSS-LIVE 1.0 全双工实时语音伴看"
+    note: "MOSS Live 1.0 全双工实时语音伴看"
   },
   {
     id: "gemini-live",

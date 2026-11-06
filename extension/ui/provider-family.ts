@@ -283,14 +283,14 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
   }
 };
 
-// MOSS-LIVE 实时伴看平台
+// MOSS Live 实时伴看平台
 const LIVE_FAMILY: FamilyRowDeclaration = {
   rowClass: "live-provider-row",
   editClass: "provider-row-edit",
   removeClass: "provider-row-remove",
   idPrefix: "live_",
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[0] || null,
-  displayName: (item, preset) => String(item.name || preset?.name || "MOSS-LIVE"),
+  displayName: (item, preset) => String(item.name || preset?.name || "MOSS Live"),
   displayModel: (item, preset) => {
     const model = String(item.model ?? preset?.model ?? "moss-live-1.0");
     return preset?.id === "gemini-live" && item.statusNote ? `${model} · ${item.statusNote}` : model;
@@ -315,7 +315,7 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
       upsert: {
         id,
         presetId: preset?.id || "moss-live",
-        name: name || preset?.name || "MOSS-LIVE",
+        name: name || preset?.name || "MOSS Live",
         type: preset?.type || "moss-live",
         baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
         model: model || preset?.model || "moss-live-1.0",

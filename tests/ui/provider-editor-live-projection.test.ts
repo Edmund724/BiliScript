@@ -7,7 +7,7 @@ import { projectEditorFields, projectionBlocks } from "../../extension/ui/provid
 const LIVE_PRESETS: ProviderRowPreset[] = [
   {
     id: "moss-live",
-    name: "MOSS-LIVE",
+    name: "MOSS Live",
     type: "moss-live",
     baseUrl: "https://api.mosi.cn",
     model: "moss-live-1.0",

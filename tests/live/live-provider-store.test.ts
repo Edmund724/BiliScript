@@ -66,7 +66,7 @@ describe("normalizeLiveProvider", () => {
     expect(normalized).toEqual({
       id: "moss-1",
       presetId: "moss-live",
-      name: "MOSS-LIVE",
+      name: "MOSS Live",
       type: "moss-live",
       baseUrl: "https://api.mosi.cn",
       model: "moss-live-1.0",
@@ -106,7 +106,7 @@ describe("liveProviderStore CRUD and storage isolation", () => {
       {
         id: "moss-live-1",
         presetId: "moss-live",
-        name: "MOSS-LIVE",
+        name: "MOSS Live",
         type: "moss-live",
         baseUrl: "https://api.mosi.cn",
         model: "moss-live-1.0",
