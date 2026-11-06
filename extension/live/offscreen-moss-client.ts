@@ -843,8 +843,6 @@ export class OffscreenMossLiveClient {
     if (this.disposed || this.state !== "connected") return;
     this.cancelAllToolCalls();
 
-    this.sendJson({ action: "response.cancel" });
-
     const interruptedTurns = this.audioPlayer.interruptActiveTurns();
     for (const turn of interruptedTurns) {
       this.emit({

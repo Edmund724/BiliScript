@@ -1696,9 +1696,9 @@ describe("OffscreenMossLiveClient web search tools", () => {
     expect(sourceNode.stopped).toBe(true);
     expect(searchSignal?.aborted).toBe(true);
 
-    // Should send response.cancel and playback.stopped
+    // Should send playback.stopped without response.cancel
     const jsonFrames = ws.sentData.filter((d) => typeof d === "string").map((d) => JSON.parse(d));
-    expect(jsonFrames.some((f) => f.action === "response.cancel")).toBe(true);
+    expect(jsonFrames.some((f) => f.action === "response.cancel")).toBe(false);
     const stoppedFrame = jsonFrames.find((f) => f.action === "playback.stopped");
     expect(stoppedFrame).toBeDefined();
     expect(stoppedFrame.run_id).toBe("r1");
