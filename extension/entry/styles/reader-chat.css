@@ -2141,6 +2141,7 @@
   display: flex;
   align-items: center;
   width: 100%;
+  height: 16px;
 }
 
 .biliscript-reading-chat .chat-live-slider {
@@ -2195,6 +2196,7 @@
 .biliscript-reading-chat .chat-live-speed-slider-wrap {
   position: relative;
   width: 100%;
+  height: 16px;
   display: flex;
   align-items: center;
 }
@@ -2202,10 +2204,11 @@
 .biliscript-reading-chat .chat-live-speed-ticks {
   position: absolute;
   top: 50%;
-  left: 7px;
-  right: 7px;
-  height: 0;
+  left: 6px;
+  right: 6px;
+  height: 4px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   pointer-events: none;
   transform: translateY(-50%);
@@ -2215,6 +2218,7 @@
 .biliscript-reading-chat .chat-live-speed-tick {
   width: 4px;
   height: 4px;
+  flex: 0 0 4px;
   border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-text);
   opacity: 0.28;
