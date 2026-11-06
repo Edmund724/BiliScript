@@ -157,6 +157,7 @@ interface GeminiTurn {
   runId: string;
   turnId: string;
   inputText: string;
+  interimInputText: string;
   outputText: string;
   inputDone: boolean;
   outputDone: boolean;
@@ -233,6 +234,8 @@ export class OffscreenGeminiLiveClient {
   private videoContext: MossLiveVideoContext | null;
   private liveGeminiNativeSearch: boolean;
   private lastSentContextKey = "";
+  private pendingVideoContext: MossLiveVideoContext | null = null;
+  private hasPendingContext = false;
   private readonly handshakeTimeoutMs: number;
   private readonly pageToolTimeoutMs: number;
   private readonly overviewToolTimeoutMs: number;
@@ -281,6 +284,7 @@ export class OffscreenGeminiLiveClient {
           this.activeTurnKey = null;
         }
         this.syncVideoDuck();
+        this.flushPendingVideoContextIfIdle();
       }
     });
   }
@@ -376,6 +380,22 @@ export class OffscreenGeminiLiveClient {
     if (this.audioPlayer.isPlaying()) return;
     this.activeTurnKey = null;
     this.syncVideoDuck();
+    this.flushPendingVideoContextIfIdle();
+  }
+
+  private flushPendingVideoContextIfIdle(): void {
+    if (
+      this.hasPendingContext &&
+      this.state === "connected" &&
+      !this.isSpeaking() &&
+      this.activeTurnKey === null &&
+      !this.audioPlayer.isPlaying()
+    ) {
+      const context = this.pendingVideoContext;
+      this.hasPendingContext = false;
+      this.pendingVideoContext = null;
+      this.flushVideoContext(context);
+    }
   }
 
   private clearHandshakeTimer(): void {
@@ -430,6 +450,8 @@ export class OffscreenGeminiLiveClient {
     this.disposed = false;
     this.state = "connecting";
     this.currentTurn = null;
+    this.hasPendingContext = false;
+    this.pendingVideoContext = null;
     this.discardOutputUntilInput = false;
     this.turnCounter = 0;
     this.toolCallCounter = 0;
@@ -535,6 +557,14 @@ export class OffscreenGeminiLiveClient {
       return;
     }
     if (this.state !== "connected") return;
+    const voiceActivity = asRecord(raw.voiceActivity);
+    if (voiceActivity) {
+      const type = typeof voiceActivity.type === "string" ? voiceActivity.type : "";
+      if (type === "ACTIVITY_START") {
+        this.inputDucked = true;
+        this.syncVideoDuck();
+      }
+    }
     const content = asRecord(raw.serverContent);
     if (content) {
       this.handleServerContent(content, generation);
@@ -761,6 +791,7 @@ export class OffscreenGeminiLiveClient {
         runId: this.runId,
         turnId: `turn-${++this.turnCounter}`,
         inputText: "",
+        interimInputText: "",
         outputText: "",
         inputDone: false,
         outputDone: false,
@@ -771,11 +802,26 @@ export class OffscreenGeminiLiveClient {
   }
 
   private handleServerContent(content: Record<string, unknown>, generation: number): void {
+    const interimInput = asRecord(content.interimInputTranscription);
+    if (interimInput && typeof interimInput.text === "string" && interimInput.text) {
+      const turn = this.getOrCreateTurn("input");
+      if (turn) {
+        turn.interimInputText = interimInput.text;
+        this.inputDucked = true;
+        this.syncVideoDuck();
+        this.emitTranscript({
+          kind: "input.updated",
+          text: turn.inputText + turn.interimInputText
+        });
+      }
+    }
+
     const input = asRecord(content.inputTranscription);
     if (input && typeof input.text === "string" && input.text) {
       const turn = this.getOrCreateTurn("input");
       if (turn) {
         turn.inputText += input.text;
+        turn.interimInputText = "";
         this.inputDucked = true;
         this.syncVideoDuck();
         this.emitTranscript({ kind: "input.updated", text: turn.inputText });
@@ -808,7 +854,11 @@ export class OffscreenGeminiLiveClient {
       return;
     }
     if (content.turnComplete === true && this.currentTurn) {
-      this.finishTurn("completed");
+      const interactionStatus =
+        typeof content.interactionStatus === "string" ? content.interactionStatus : "";
+      if (interactionStatus !== "IN_PROGRESS") {
+        this.finishTurn("completed");
+      }
     }
   }
 
@@ -839,9 +889,10 @@ export class OffscreenGeminiLiveClient {
     this.currentTurn = null;
     this.inputDucked = false;
 
-    if (!turn.inputDone && turn.inputText) {
+    const fullInputText = (turn.inputText + turn.interimInputText).trim();
+    if (!turn.inputDone && fullInputText) {
       turn.inputDone = true;
-      this.emitTranscript({ kind: "input.done", text: turn.inputText });
+      this.emitTranscript({ kind: "input.done", text: fullInputText });
     }
     if (!turn.outputDone && turn.outputText) {
       turn.outputDone = true;
@@ -876,6 +927,7 @@ export class OffscreenGeminiLiveClient {
       this.webSearchCallIndex = 0;
     }
     this.syncVideoDuck();
+    this.flushPendingVideoContextIfIdle();
   }
 
   setMicEnabled(enabled: boolean): void {
@@ -889,7 +941,10 @@ export class OffscreenGeminiLiveClient {
 
   private sendRealtimeMedia(mimeType: string, data: string, audio = false): boolean {
     if (this.state !== "connected" || (audio && !this.micEnabled)) return false;
-    return this.sendJson({ realtimeInput: { mediaChunks: [{ mimeType, data }] } });
+    if (audio) {
+      return this.sendJson({ realtimeInput: { audio: { mimeType, data } } });
+    }
+    return this.sendJson({ realtimeInput: { video: { mimeType, data } } });
   }
 
   updateVideoContext(context: MossLiveVideoContext | null): void {
@@ -897,7 +952,18 @@ export class OffscreenGeminiLiveClient {
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
     if (contextKey === this.lastSentContextKey) return;
-    this.lastSentContextKey = contextKey;
+    if (this.isSpeaking() || this.activeTurnKey !== null || this.audioPlayer.isPlaying()) {
+      this.pendingVideoContext = context;
+      this.hasPendingContext = true;
+      return;
+    }
+    this.flushVideoContext(context);
+  }
+
+  private flushVideoContext(context: MossLiveVideoContext | null): void {
+    this.hasPendingContext = false;
+    this.pendingVideoContext = null;
+    this.lastSentContextKey = JSON.stringify(context);
     this.sendJson({
       clientContent: {
         turns: [{ role: "user", parts: [{ text: buildVideoInstructions(context) }] }],
@@ -923,6 +989,8 @@ export class OffscreenGeminiLiveClient {
   }
 
   private stopAndResetAllPlayback(): void {
+    this.hasPendingContext = false;
+    this.pendingVideoContext = null;
     this.cancelAllToolCalls();
     this.webSearchCallIndex = 0;
     this.audioPlayer.reset();

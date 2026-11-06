@@ -312,12 +312,12 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
     expect(ws.jsonFrames()).toEqual([
       {
         realtimeInput: {
-          mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: "AQIDBA==" }]
+          audio: { mimeType: "audio/pcm;rate=16000", data: "AQIDBA==" }
         }
       },
       {
         realtimeInput: {
-          mediaChunks: [{ mimeType: "image/jpeg", data: "/9j/2Q==" }]
+          video: { mimeType: "image/jpeg", data: "/9j/2Q==" }
         }
       }
     ]);
@@ -333,7 +333,7 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
     client.handleAction({ action: "audio", pcmBase64: "BQYG" });
     expect(ws.jsonFrames().at(-1)).toEqual({
       realtimeInput: {
-        mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: "BQYG" }]
+        audio: { mimeType: "audio/pcm;rate=16000", data: "BQYG" }
       }
     });
   });
@@ -406,6 +406,51 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     ]);
     expect(output.runId).toBeTruthy();
     expect(output.turnId).toBeTruthy();
+  });
+
+  it("handles interimInputTranscription as low latency interim stream and finalizes on inputTranscription", () => {
+    const { client, transcripts } = createClient();
+    const ws = connect(client);
+
+    ws.simulateMessage(serverContent({ interimInputTranscription: { text: "我想" } }));
+    ws.simulateMessage(serverContent({ interimInputTranscription: { text: "我想问一下" } }));
+    ws.simulateMessage(serverContent({ inputTranscription: { text: "我想问一下" } }));
+    ws.simulateMessage(serverContent({ interimInputTranscription: { text: "这期" } }));
+    ws.simulateMessage(serverContent({ inputTranscription: { text: "这期视频" } }));
+
+    expect(transcripts).toEqual([
+      { kind: "input.updated", text: "我想" },
+      { kind: "input.updated", text: "我想问一下" },
+      { kind: "input.updated", text: "我想问一下" },
+      { kind: "input.updated", text: "我想问一下这期" },
+      { kind: "input.updated", text: "我想问一下这期视频" }
+    ]);
+  });
+
+  it("keeps turn alive when turnComplete has interactionStatus IN_PROGRESS", () => {
+    const { client, transcripts } = createClient();
+    const ws = connect(client);
+
+    ws.simulateMessage(serverContent({ outputTranscription: { text: "思考中..." } }));
+    ws.simulateMessage(serverContent({ turnComplete: true, interactionStatus: "IN_PROGRESS" }));
+
+    expect(transcripts.some((event) => event.kind === "response.ended")).toBe(false);
+
+    ws.simulateMessage(serverContent({ outputTranscription: { text: "结论是好" } }));
+    ws.simulateMessage(serverContent({ turnComplete: true, interactionStatus: "IDLE" }));
+
+    expect(transcripts.some((event) => event.kind === "response.ended")).toBe(true);
+  });
+
+  it("triggers ducking on voiceActivity ACTIVITY_START before transcription arrives", () => {
+    const duckStates: boolean[] = [];
+    const { client } = createClient({
+      onDuckVideo: (active) => duckStates.push(active)
+    });
+    const ws = connect(client);
+
+    ws.simulateMessage(JSON.stringify({ voiceActivity: { type: "ACTIVITY_START" } }));
+    expect(duckStates).toEqual([true]);
   });
 
   it("closes the previous round before switching to a new input round", () => {
@@ -579,6 +624,31 @@ describe("OffscreenGeminiLiveClient context update", () => {
     expect(text).toContain("全片概览状态：ready（覆盖：complete）");
     expect(text).toContain("全片简介：全片介绍实时语音链路。");
     expect(text).toContain("0:00 开场：为什么需要实时");
+  });
+
+  it("defers context_update while speaking/playing and flushes automatically when idle", () => {
+    const { client, audioContext } = createClient();
+    const ws = connect(client);
+
+    ws.simulateMessage(serverContent({
+      outputTranscription: { text: "回答中" },
+      modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(2400) } }] }
+    }));
+    expect(client.isSpeaking()).toBe(true);
+
+    ws.sentData.length = 0;
+    const nextContext = { ...videoContext, pageIndex: 3 };
+    client.handleAction({ action: "context_update", videoContext: nextContext });
+    // 当模型正在说话/播放时，不立即发送 clientContent，避免打断当前模型生成
+    expect(ws.sentData).toHaveLength(0);
+
+    // 回合结束且音频播放完毕
+    ws.simulateMessage(serverContent({ turnComplete: true, interactionStatus: "IDLE" }));
+    audioContext.sources[0].finishPlayback();
+
+    // 变为空闲后，自动下发暂存的最新 context
+    expect(ws.sentData).toHaveLength(1);
+    expect(ws.jsonFrames()[0].clientContent.turns[0].parts[0].text).toContain("P3");
   });
 });
 
