@@ -581,6 +581,7 @@ export type OffscreenChatMessage = {
   // 联网搜索管线（spec §2.1）：宿主「联网」toggle 全局记忆，offscreen 据此决定
   // 是否解析搜索配置并注入 tools；Map-Reduce 归约轮由 ladder 静默禁用 + notice。
   webSearchEnabled?: boolean;
+  videoFrameToolEnabled?: boolean;
   // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
   // 按 03 号票规格压缩后的 WebP base64，无图时不带字段）。
   images?: ImagePart[];
@@ -595,10 +596,19 @@ export type OffscreenCostGuardConfirmMessage = {
   ok?: boolean;
 };
 
+export type OffscreenVideoFrameResultMessage = {
+  action: "video-frame-result";
+  requestId: string;
+  image?: ImagePart;
+  currentTime?: number;
+  error?: string;
+};
+
 export type OffscreenChatPortMessage =
   | OffscreenChatMessage
   | OffscreenStopMessage
-  | OffscreenCostGuardConfirmMessage;
+  | OffscreenCostGuardConfirmMessage
+  | OffscreenVideoFrameResultMessage;
 
 // asr-decode 端口上的两类任务（协议常量与契约见 asr/protocol.js）：解码走音轨
 // 下载/解码/切片/转写；探针（asr-probe）只把草稿 provider 交给 offscreen 的真

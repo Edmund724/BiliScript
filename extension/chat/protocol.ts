@@ -87,6 +87,11 @@ export interface ChatToolStatusEvent {
   paidFallbackNotice?: string;
 }
 
+export interface ChatVideoFrameRequestEvent {
+  type: "video-frame-request";
+  requestId: string;
+}
+
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，
 // tool 内容已截断（完整结果只活在当轮请求里）。宿主 dispatch 缓存，
 // commitAssistantTurn 按 user → tool 消息 → assistant 顺序插入会话历史。
@@ -106,6 +111,7 @@ export type ChatPortMessage =
   | (StreamResetEvent & ChatReceipt)
   | (ChatToolTurnEvent & ChatReceipt)
   | (ChatToolStatusEvent & ChatReceipt)
+  | (ChatVideoFrameRequestEvent & ChatReceipt)
   | (StreamDoneEvent & ChatReceipt)
   | (StreamStoppedEvent & ChatReceipt)
   | (PortErrorEvent & ChatReceipt)

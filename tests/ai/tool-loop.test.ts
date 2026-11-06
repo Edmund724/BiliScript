@@ -1,11 +1,12 @@
-// ai/tool-loop.ts 联网搜索工具循环测试（spec §2.3）。
+// ai/tool-loop.ts 联网搜索与当前视频截帧工具循环测试（spec §2.3）。
 // 假 fetch 全覆盖（completion.test 同款 sseResponse），覆盖：
-// 1. 单轮 tool_calls → 搜索 → 二次调用续跑（tool 消息回填 / tool-status /
-//    tool-turn 副本）；
+// 1. 单轮 tool_calls → 搜索/截帧 → 二次调用续跑（tool 消息回填 / tool-status /
+//    tool-turn 副本 / 图片消息线格式）；
 // 2. 配额用尽：摘除 tools + system 额度提示注入 + 后续轮不再带 tools；
-// 3. 搜索失败降级：「搜索失败」tool 消息 + notice，回答不中断；
+// 3. 搜索/截帧失败降级：tool 错误消息 + notice，回答不中断；
 // 4. 平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次；
-// 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断。
+// 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断；
+// 6. 当前帧截图每轮最多一次，无联网搜索时也可独立使用。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   runToolLoop,
@@ -569,6 +570,110 @@ describe("回退链 × 工具链接缝", () => {
     expect(notes).toEqual(["注：首选 Firecrawl 未成功，以下结果来自 Tavily。"]);
     // 注记之外结果本体照常进内容
     expect(content).toContain(JSON.stringify([CHAIN_RESULT]));
+  });
+});
+
+describe("当前视频截帧工具", () => {
+  function captureRound(callId: string) {
+    return [
+      sseData({ tool_calls: [{ index: 0, id: callId, type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }] }),
+      sseData({}, "tool_calls")
+    ];
+  }
+
+  function useCaptureRounds(rounds: string[][]) {
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      const round = rounds[capture.calls.length - 1];
+      return sseResponse(round || FINAL_ROUND_CHUNKS);
+    });
+  }
+
+  it("无联网搜索也可调用：回填带播放时间的图片消息，OpenAI 线格式使用 image_url", async () => {
+    capture = makeCapture();
+    useCaptureRounds([captureRound("frame_1")]);
+    const captureCurrentVideoFrame = vi.fn(async () => ({
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(capture.calls).toHaveLength(2);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["capture_current_video_frame"]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "frame_1", content: "已截取视频在 2:31 的画面。" }),
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("2:31") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } }
+        ]
+      })
+    ]));
+    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(capture.toolTurns[0]).toHaveLength(2);
+    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("每轮最多截图一次：后续请求不再提供工具，重复调用只回填提示", async () => {
+    capture = makeCapture();
+    useCaptureRounds([captureRound("frame_1"), captureRound("frame_2")]);
+    const captureCurrentVideoFrame = vi.fn(async () => ({
+      image: { mime: "image/jpeg", data: "QUJD" },
+      currentTime: 12
+    }));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(capture.calls).toHaveLength(3);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(capture.calls[1].tools).toBeUndefined();
+    expect(capture.calls[2].tools).toBeUndefined();
+    expect(capture.calls[2].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "frame_2",
+        content: "本轮已调用过视频截图工具，请基于已有画面作答。"
+      })
+    ]));
+  });
+
+  it("截图失败降级为 tool 错误与 notice，不追加图片，回答继续", async () => {
+    capture = makeCapture();
+    useCaptureRounds([captureRound("frame_1")]);
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => { throw new Error("当前没有可截取的视频画面"); }
+    }));
+
+    expect(capture.calls).toHaveLength(2);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", content: "截取视频画面失败：当前没有可截取的视频画面" })
+    ]));
+    expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
+    expect(capture.notices).toEqual(["截取视频画面失败：当前没有可截取的视频画面"]);
+  });
+
+  it("联网搜索与截帧能力同时注入时，两个工具都随首请求提供", async () => {
+    capture = makeCapture();
+    const captureCurrentVideoFrame = vi.fn();
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl },
+      executeSearch: async () => ({ results: [], platform: "Tavily" }),
+      captureCurrentVideoFrame
+    }));
+
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["web_search", "capture_current_video_frame"]);
+    expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
   });
 });
 

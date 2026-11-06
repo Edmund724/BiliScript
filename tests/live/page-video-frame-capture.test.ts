@@ -2,9 +2,55 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MOSS_VIDEO_FRAME_INTERVAL_MS,
   MOSS_VIDEO_FRAME_MAX_EDGE,
+  capturePageVideoFrame,
   createPageVideoFrameCapture,
   getVideoFrameSize
 } from "../../extension/live/page-video-frame-capture.js";
+
+describe("capturePageVideoFrame", () => {
+  it("截取当前播放位置并返回 960px JPEG 字节与 currentTime", async () => {
+    const video = {
+      readyState: 4,
+      videoWidth: 1920,
+      videoHeight: 1080,
+      currentTime: 151
+    } as HTMLVideoElement;
+    const drawImage = vi.fn();
+    const toBlob = vi.fn((callback: BlobCallback, mime?: string, quality?: number) => {
+      callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: mime }));
+      expect(quality).toBe(0.72);
+    });
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toBlob
+    } as unknown as HTMLCanvasElement;
+
+    const result = await capturePageVideoFrame({ getVideo: () => video, createCanvas: () => canvas });
+
+    expect(canvas.width).toBe(960);
+    expect(canvas.height).toBe(540);
+    expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 960, 540);
+    expect(toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.72);
+    expect(result.currentTime).toBe(151);
+    expect(Array.from(result.jpegBytes)).toEqual([0xff, 0xd8, 0xff, 0xd9]);
+  });
+
+  it("没有可用视频画面时 reject", async () => {
+    await expect(capturePageVideoFrame({ getVideo: () => null })).rejects.toThrow("当前没有可截取的视频画面");
+  });
+
+  it("JPEG 编码返回 null 时 reject", async () => {
+    const video = { readyState: 4, videoWidth: 1920, videoHeight: 1080, currentTime: 1 } as HTMLVideoElement;
+    const canvas = {
+      getContext: () => ({ drawImage: vi.fn() }),
+      toBlob: (callback: BlobCallback) => callback(null)
+    } as unknown as HTMLCanvasElement;
+
+    await expect(capturePageVideoFrame({ getVideo: () => video, createCanvas: () => canvas })).rejects.toThrow("视频画面编码失败");
+  });
+});
 
 afterEach(() => {
   vi.useRealTimers();

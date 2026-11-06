@@ -177,6 +177,28 @@ describe("geminiAdapter: buildBody", () => {
     ]);
   });
 
+  it("user 消息图片翻译为 inlineData，保留 MIME 与 Base64 数据", () => {
+    const body = geminiBody({
+      model: "gemini-2.5-flash",
+      baseUrl: "https://generativelanguage.googleapis.com",
+      stream: true,
+      probe: false,
+      messages: [{
+        role: "user",
+        content: "看这一帧",
+        images: [{ mime: "image/jpeg", data: "/9j/" }]
+      }]
+    });
+
+    expect(body.contents).toEqual([{
+      role: "user",
+      parts: [
+        { text: "看这一帧" },
+        { inlineData: { mimeType: "image/jpeg", data: "/9j/" } }
+      ]
+    }]);
+  });
+
   it("maxTokens 落 generationConfig.maxOutputTokens，且 off 档无 thinkingConfig", () => {
     const body = geminiBody({
       model: "gemini-2.5-flash",

@@ -57,7 +57,7 @@
 // harness without a DOM shim.
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import type { ImagePart } from "../ai/types.js";
+import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 // 会话 id 生成（平台会话头 x-opencode-session 的身份来源，见 ai/preset-headers.ts）：
 // 发送时物化，缺失才生成——持久化路径 persistCurrent 见已有 id 直接沿用。
 import { generateConversationId } from "../ai/conversation.js";
@@ -156,6 +156,8 @@ export interface CreateChatRuntimeDeps {
   // 本条 chat 消息的 images 字段下发。未注入（旧组合根/测试）时不带该字段——
   // 无图消息的线格式逐字节不变。
   takeInputImages?: () => ImagePart[];
+  canUseVideoFrameTool?: () => Promise<boolean>;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -361,6 +363,32 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // 错误不带该字段，由下方 error 分支显式重置。
     if (typeof msg.cachedContextKey === "string" && msg.cachedContextKey) {
       lastAckedContextKey = msg.cachedContextKey;
+    }
+    if (msg.type === "video-frame-request") {
+      if (!port) return;
+      void (async () => {
+        try {
+          if (!deps.captureCurrentVideoFrame) {
+            throw new Error("当前页面不支持视频截图");
+          }
+          const frame = await deps.captureCurrentVideoFrame();
+          port.postMessage({
+            action: "video-frame-result",
+            requestId: msg.requestId,
+            image: frame.image,
+            currentTime: frame.currentTime
+          });
+        } catch (error) {
+          try {
+            port.postMessage({
+              action: "video-frame-result",
+              requestId: msg.requestId,
+              error: String((error as Error)?.message || error)
+            });
+          } catch {}
+        }
+      })();
+      return;
     }
     if (msg.type === "reasoning") {
       handleFirstStreamToken();
@@ -601,6 +629,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (contextKey && lastAckedContextKey === contextKey) {
         delete context.subtitleBody;
       }
+      const videoFrameToolEnabled = await deps.canUseVideoFrameTool?.() === true;
 
       port.postMessage({
         action: "chat",
@@ -615,6 +644,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：取消说明
         // 时本条传 false（本轮不搜索），其余情况等于全局记忆。
         webSearchEnabled,
+        ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         context,
         contextKey,
         prompt: text,

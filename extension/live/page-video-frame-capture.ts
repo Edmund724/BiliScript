@@ -16,6 +16,41 @@ export interface PageVideoFrameCaptureSession {
   stop(): void;
 }
 
+export interface PageVideoFrameSnapshot {
+  jpegBytes: Uint8Array<ArrayBuffer>;
+  currentTime: number;
+}
+
+export async function capturePageVideoFrame(
+  options: Pick<PageVideoFrameCaptureOptions, "getVideo" | "createCanvas"> = {}
+): Promise<PageVideoFrameSnapshot> {
+  const video = (options.getVideo || getRuntimeVideoElement)();
+  if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    throw new Error("当前没有可截取的视频画面");
+  }
+  const canvas = (options.createCanvas || (() => document.createElement("canvas")))();
+  const context = canvas?.getContext("2d");
+  if (!canvas || !context) {
+    throw new Error("无法创建截图画布");
+  }
+  const { width, height } = getVideoFrameSize(video.videoWidth, video.videoHeight);
+  const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(video, 0, 0, width, height);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", MOSS_VIDEO_JPEG_QUALITY);
+  });
+  if (!blob) {
+    throw new Error("视频画面编码失败");
+  }
+  const jpegBytes = new Uint8Array(await blob.arrayBuffer());
+  if (!jpegBytes.byteLength) {
+    throw new Error("视频画面编码为空");
+  }
+  return { jpegBytes, currentTime };
+}
+
 function getVideoSource(video: HTMLVideoElement): string {
   return video.currentSrc || video.src || "";
 }

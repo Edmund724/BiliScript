@@ -144,6 +144,8 @@ import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
+import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
+import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
 import {
   ensureReaderOverviewSource,
@@ -446,6 +448,14 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     const images = inputImages.takeImages();
     imageSupportGate.check(images);
     return images;
+  },
+  canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
+  captureCurrentVideoFrame: async () => {
+    const frame = await capturePageVideoFrame();
+    return {
+      image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
+      currentTime: frame.currentTime
+    };
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,

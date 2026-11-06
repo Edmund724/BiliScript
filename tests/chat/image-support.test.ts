@@ -175,6 +175,31 @@ describe("门控：乐观放行（目录明确登记不收图才提示）", () =
   });
 });
 
+describe("supportsImages：截帧工具能力查询", () => {
+  it("仅目录明确不含 image 时关闭；有图、未知与查询失败均放行", async () => {
+    seedProvider({ id: "p1", presetId: "custom" });
+    const value = buildModelOptionValue("p1", "m1");
+
+    const vision = makeGate({ value, lookup: async () => ({ input: ["text", "image"] }) });
+    await expect(vision.gate.supportsImages()).resolves.toBe(true);
+
+    const unknown = makeGate({ value, lookup: async () => null });
+    await expect(unknown.gate.supportsImages()).resolves.toBe(true);
+
+    const failed = makeGate({ value, lookup: async () => { throw new Error("catalog unavailable"); } });
+    await expect(failed.gate.supportsImages()).resolves.toBe(true);
+
+    const textOnly = makeGate({ value, lookup: async () => ({ input: ["text"] }) });
+    await expect(textOnly.gate.supportsImages()).resolves.toBe(false);
+  });
+
+  it("没有可识别的选中模型时不提供截帧工具", async () => {
+    const { gate, lookupMeta } = makeGate({ value: "" });
+    await expect(gate.supportsImages()).resolves.toBe(false);
+    expect(lookupMeta).not.toHaveBeenCalled();
+  });
+});
+
 describe("真实目录链路（默认懒加载接缝，不注入替身）", () => {
   it("deepseek-v4-pro（目录仅文本）→ 提示；gpt-4o（目录含图）→ 无提示；未知模型 → 无提示", async () => {
     const lazy = await import("../../extension/ui/lazy-model-catalog.js");

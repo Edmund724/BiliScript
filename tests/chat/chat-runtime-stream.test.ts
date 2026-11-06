@@ -179,6 +179,45 @@ describe("sendMessage 建流与协议入口", () => {
     expect(chatSessionState.chatHistory).toEqual([]);
   });
 
+  it("支持图片时下发截帧工具开关，video-frame-request 回传真实图片与播放时间", async () => {
+    const deps = makeDeps();
+    deps.canUseVideoFrameTool = vi.fn(async () => true);
+    deps.captureCurrentVideoFrame = vi.fn(async () => ({
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+    deps.input.value = "看看当前画面";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+
+    expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      action: "chat",
+      videoFrameToolEnabled: true
+    }));
+
+    session.listeners.message[0]({ type: "video-frame-request", requestId: "frame-1" });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith({
+      action: "video-frame-result",
+      requestId: "frame-1",
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("能力查询失败或缺省时不下发截帧工具开关", async () => {
+    const disabledDeps = makeDeps();
+    disabledDeps.canUseVideoFrameTool = vi.fn(async () => false);
+    disabledDeps.input.value = "纯文本问答";
+    const disabledRuntime = createChatRuntime(disabledDeps);
+    await disabledRuntime.sendTurn(disabledDeps.input.value);
+    expect(disabledDeps.ports[0].port.postMessage.mock.calls[0][0].videoFrameToolEnabled).toBeUndefined();
+
+    const { session } = await makeRuntime();
+    expect(session.port.postMessage.mock.calls[0][0].videoFrameToolEnabled).toBeUndefined();
+  });
+
   it("假 port 的 onMessage 监听器与 handleChatPortMessage 走同一协议分派（wiring）", async () => {
     const { deps, runtime, session } = await makeRuntime();
     const node = assistantNode(deps);

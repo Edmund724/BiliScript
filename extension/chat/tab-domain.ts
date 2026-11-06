@@ -43,7 +43,7 @@
 // B 档写方归并原语、offscreen 端口名、presets/providers 工厂）统一自本模块
 // 转出——chat-tab 的 chat 域 import 面收敛为本模块一处（工单 08 验收：10 → 1）。
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import type { ImagePart } from "../ai/types.js";
+import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
 import type { Settings } from "../core/defaults.js";
 import {
@@ -134,6 +134,8 @@ export interface CreateChatTabDomainDeps {
   // 图片附件（image-input 02 号票，可选）：发送受理时消费附件区，随 chat 消息的
   // images 字段下发（组合根接 reader/chat-tab.ts 的 inputImages.takeImages）。
   takeInputImages?: () => ImagePart[];
+  canUseVideoFrameTool?: () => Promise<boolean>;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -227,6 +229,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
     takeInputImages: deps.takeInputImages,
+    canUseVideoFrameTool: deps.canUseVideoFrameTool,
+    captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,

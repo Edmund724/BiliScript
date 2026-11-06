@@ -1,26 +1,38 @@
-// tool-loop.ts — 联网搜索的工具调用循环（spec §2.3，offscreen 侧包住
+// tool-loop.ts — 联网搜索与当前视频截帧的工具调用循环（spec §2.3，offscreen 侧包住
 // chatCompletion 的单次调用）。纯编排层：不知道 port / DOM / chrome API，
 // 搜索执行经 executeSearch 回调注入（offscreen 注入 search-executor 的闭包，
-// SW 经 provider-http 通道发起，密钥不出 SW），port 回吐留在调用方
-// （ai/client.ts 的 streamChat，port 适配单源）。
+// SW 经 provider-http 通道发起，密钥不出 SW），截帧执行经 captureCurrentVideoFrame
+// 回调注入，port 回吐留在调用方（ai/client.ts 的 streamChat，port 适配单源）。
 //
 // 语义（spec §2.3）：
 // - finish_reason=tool_calls 时不回 done：回填 assistant(tool_calls) 消息 →
-//   逐条搜索回填 tool 结果消息 → 二次调用继续流式回吐；
-// - 单条 tool call 计入配额；达 maxToolCalls 后摘除 tools 并注入「本轮次数已达
+//   逐条执行工具并回填 tool 结果消息 → 二次调用继续流式回吐；
+// - 单条搜索 tool call 计入配额；达 maxToolCalls 后摘除搜索工具并注入「本轮次数已达
 //   上限」system 提示（不进持久化历史，buildMessages 的历史过滤自动丢弃）；
 // - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
-// - 平台不支持 tools（4xx）：notice + 摘除 tools 无联网重发一次；
+// - 当前帧截图每轮最多一次，图片经后续 user 消息进入请求，不写进持久化副本；
+// - 平台不支持 tools（4xx）：notice + 摘除 tools 重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
-import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { CaptureCurrentVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
+import { formatClock } from "../shared/clock-text.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 import { formatPaidFallbackNotice, type PaidSearchFallback } from "../search/search-chain.js";
+
+export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME = "capture_current_video_frame";
+export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL: ChatToolDefinition = {
+  type: "function",
+  function: {
+    name: CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME,
+    description: "截取当前视频播放位置的一帧画面。只有当回答必须依赖当前可见画面、图表、代码或操作界面时调用；不要用于回顾其他时间点。每轮最多调用一次。",
+    parameters: { type: "object", properties: {} }
+  }
+};
 
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
 // 搜索结果时以 [n] 标记（n 为该条结果在全部搜索结果中的全局序号，从 1 起按
@@ -103,6 +115,7 @@ export interface ToolLoopRequestProfile
   // 工具定义变体：缺省 WEB_SEARCH_TOOL（对话链带 [n] 引用要求）；选区解释链
   // 传 webSearchTool({ requireCitations: false })（解释卡无引用渲染）。
   toolDefinition?: ChatToolDefinition;
+  includeWebSearchTool?: boolean;
 }
 
 export interface RunToolLoopInput {
@@ -111,10 +124,11 @@ export interface RunToolLoopInput {
   messages: ChatMessage[];
   maxToolCalls: number;
   executeSearch: ExecuteSearchFn;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   // notice：额度用尽 / 平台不支持 tools / 搜索失败等用户可见提示。
   onNotice?: (text: string) => void;
   onToolStatus?: (payload: ToolStatusPayload) => void;
-  // 每轮搜索完成后回吐持久化副本（tool 内容截 TOOL_MESSAGE_MAX_CHARS）。
+  // 每轮工具完成后回吐持久化副本（tool 内容截 TOOL_MESSAGE_MAX_CHARS）。
   onToolTurn?: (messages: ChatMessage[]) => void;
 }
 
@@ -132,9 +146,10 @@ export function serializeSearchResults(results: NormalizedSearchResult[]): strin
 
 /**
  * 工具调用流式循环：包住 chatCompletion 的多轮调用（spec §2.3）。
- * - 每轮配额未满带 WEB_SEARCH_TOOL；finish_reason=tool_calls 时回填消息续跑；
- * - 达 maxToolCalls 后摘除 tools + 注入「本轮次数已达上限」system 提示（一次性）；
- * - 搜索失败降级 + notice；平台 4xx（非溢出/中止）摘除 tools 单次重发 + notice；
+ * - 每轮配额未满带 WEB_SEARCH_TOOL；截帧工具每轮最多可用一次；
+ * - finish_reason=tool_calls 时回填消息续跑；
+ * - 达 maxToolCalls 后摘除搜索工具 + 注入「本轮次数已达上限」system 提示（一次性）；
+ * - 搜索/截帧失败降级 + notice；平台 4xx（非溢出/中止）摘除 tools 单次重发 + notice；
  * - 中止/溢出原语义上抛，由调用方（streamChat）既有 catch 收口。
  * 返回最终回答文本（非流式链消费；流式链文本走 onEvent，返回值被忽略）。
  */
@@ -144,22 +159,34 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     messages,
     maxToolCalls,
     executeSearch,
+    captureCurrentVideoFrame,
     onNotice,
     onToolStatus,
     onToolTurn
   } = input;
-  const { signal, toolDefinition = WEB_SEARCH_TOOL, stream = true } = requestProfile;
+  const {
+    signal,
+    toolDefinition = WEB_SEARCH_TOOL,
+    includeWebSearchTool = true,
+    stream = true
+  } = requestProfile;
 
   let toolCallCount = 0;
   let quotaNoticeInjected = false;
   let retriedWithoutTools = false;
+  let captureUsed = false;
   // 最终回答文本（非流式轮取 chatCompletion 字符串；工具轮取各轮 assistantContent，
   // 后续轮覆盖）。返回值：选区解释链消费（非流式无 onEvent 拼装），流式调用方忽略。
   let finalText = "";
 
   while (true) {
-    const withTools = !retriedWithoutTools && toolCallCount < maxToolCalls;
-    const tools = withTools ? [toolDefinition] : undefined;
+    const searchAvailable = includeWebSearchTool && !retriedWithoutTools && toolCallCount < maxToolCalls;
+    const captureAvailable = Boolean(captureCurrentVideoFrame) && !captureUsed && !retriedWithoutTools;
+    const tools = [
+      ...(searchAvailable ? [toolDefinition] : []),
+      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL] : [])
+    ];
+    const withTools = tools.length > 0;
 
     let result: string | { done: true } | Awaited<ReturnType<typeof chatCompletion>>;
     try {
@@ -167,7 +194,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         ...requestProfile,
         stream,
         messages,
-        tools
+        tools: withTools ? tools : undefined
       });
     } catch (e) {
       // 中止/溢出原语义上抛；4xx（非溢出/中止）= 平台不支持 tools → 摘除重发一次。
@@ -188,7 +215,13 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         status >= 400 &&
         status < 500
       ) {
-        onNotice?.("当前平台不支持工具调用，本轮未联网");
+        onNotice?.(
+          includeWebSearchTool
+            ? captureCurrentVideoFrame
+              ? "当前平台不支持工具调用，本轮未联网或截取画面"
+              : "当前平台不支持工具调用，本轮未联网"
+            : "当前平台不支持工具调用，本轮未截取画面"
+        );
         retriedWithoutTools = true;
         continue;
       }
@@ -213,14 +246,41 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     // 工具轮的 assistantContent（tool 调用前的前言）不是最终回答；后续轮覆盖。
     finalText = assistantContent;
 
-    // 回填 assistant(tool_calls) 消息，逐条执行搜索并回填 tool 结果。
+    // 回填 assistant(tool_calls) 消息，逐条执行工具并回填 tool 结果。
     const assistantMessage: ChatMessage = {
       role: "assistant",
       content: assistantContent || "",
       tool_calls: toolCalls
     };
     const toolMessages: ChatMessage[] = [];
+    const frameMessages: ChatMessage[] = [];
     for (const call of toolCalls) {
+      if (call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME) {
+        let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
+        if (captureCurrentVideoFrame && !captureUsed) {
+          captureUsed = true;
+          try {
+            const frame = await captureCurrentVideoFrame();
+            const time = formatClock(frame.currentTime, { hours: "auto" });
+            toolContent = `已截取视频在 ${time} 的画面。`;
+            frameMessages.push({
+              role: "user",
+              content: `以下是 ${CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
+              images: [frame.image]
+            });
+          } catch (e) {
+            if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
+              throw e;
+            }
+            const reason = String((e as { message?: unknown })?.message ?? e);
+            toolContent = `截取视频画面失败：${reason}`;
+            onNotice?.(toolContent);
+          }
+        }
+        toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
+        continue;
+      }
+
       const query = parseToolArgs(call.function.arguments).query;
       onToolStatus?.({ status: "searching", query });
       let toolContent: string;
@@ -264,23 +324,25 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       }
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     }
-    messages.push(assistantMessage, ...toolMessages);
-    toolCallCount += toolCalls.length;
+    messages.push(assistantMessage, ...toolMessages, ...frameMessages);
+    toolCallCount += toolCalls.filter((call) => call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME).length;
 
     // 持久化副本：tool 内容截 2,000 字符（完整结果只活在当轮请求里，spec §2.5）。
+    // 截图只存在于本轮请求；持久化副本不含图片字节。
     onToolTurn?.([
       assistantMessage,
       ...toolMessages.map((m) => ({ ...m, content: m.content.slice(0, TOOL_MESSAGE_MAX_CHARS) }))
     ]);
 
-    if (toolCallCount >= maxToolCalls) {
-      // 本轮次数达上限：摘除 tools（下轮 withTools=false），注入提示后继续作答。
+    if (includeWebSearchTool && toolCallCount >= maxToolCalls && !quotaNoticeInjected) {
+      // 本轮次数达上限：摘除搜索工具，注入提示后继续作答。
       // 同名收口（§6.4）：全局「额度」只指平台额度，「次数」只指本轮调用。
       messages.push({
         role: "system",
         content: `本轮的搜索次数已达上限（${maxToolCalls} 次），请基于已有搜索结果作答。`
       });
       onNotice?.("本轮的搜索次数已达上限，请基于已有结果作答");
+      quotaNoticeInjected = true;
     }
   }
 }

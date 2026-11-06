@@ -11,7 +11,7 @@
 import { buildMessages } from "./context.js";
 import { chatCompletion, validateProviderBasics } from "./completion.js";
 import { runToolLoop, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
-import type { AiContext, AiProvider, ImagePart, StreamChatEvent } from "./types.js";
+import type { AiContext, AiProvider, CaptureCurrentVideoFrame, ImagePart, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -42,6 +42,7 @@ interface StreamChatInput {
   // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
   // 压缩后的 WebP base64），透传给 buildMessages 挂在末条 user 消息上。
   userImages?: ImagePart[];
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   port: ChatPort;
   signal?: AbortSignal | null;
   onActivity?: () => void;
@@ -71,7 +72,7 @@ interface StreamChatInput {
  * - 仅 context-length 溢出以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
  */
-export async function streamChat({ provider, context, userPrompt, history, userImages, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, userImages, captureCurrentVideoFrame, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   // 基础校验单点下沉 completion（arch-slim-3/09）：port 适配层 catch 后转回吐，
@@ -166,12 +167,12 @@ export async function streamChat({ provider, context, userPrompt, history, userI
       }
     };
 
-    // 一轮对话：无 webSearch 单次调用；联网轮整条工具循环（maxTokens 透传给每轮）。
+    // 一轮对话：无搜索/截帧单次调用；任一可用时走整条工具循环（maxTokens 透传给每轮）。
     // 抽成函数只为截断重跑能整体重放，不改其余调用形状。
-    const runTurn = (maxTokens?: number) => webSearch
-      // 联网轮：ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
+    const runTurn = (maxTokens?: number) => webSearch || captureCurrentVideoFrame
+      // ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
       // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
-      //（spec §2.5，tool 内容已截断）。
+      //（spec §2.5，tool 内容已截断；截帧图片不进持久化副本）。
       ? runToolLoop({
           requestProfile: {
             provider,
@@ -179,11 +180,15 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             signal,
             thinkingLevel,
             maxTokens,
+            includeWebSearchTool: Boolean(webSearch),
             ...streamCallbacks
           },
           messages,
-          maxToolCalls: webSearch.maxToolCalls,
-          executeSearch: webSearch.executeSearch,
+          maxToolCalls: webSearch?.maxToolCalls ?? 1,
+          executeSearch: webSearch?.executeSearch ?? (async () => {
+            throw new Error("本轮未启用联网搜索");
+          }),
+          captureCurrentVideoFrame,
           onNotice: (text) => {
             onActivity?.();
             flushTokens();

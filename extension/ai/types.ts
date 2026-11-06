@@ -20,6 +20,13 @@ export interface ImagePart {
   data: string;
 }
 
+export interface CapturedVideoFrame {
+  image: ImagePart;
+  currentTime: number;
+}
+
+export type CaptureCurrentVideoFrame = () => Promise<CapturedVideoFrame>;
+
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;

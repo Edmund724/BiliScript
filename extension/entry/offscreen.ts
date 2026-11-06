@@ -38,6 +38,7 @@ import type {
   ResolveAiProviderResponse
 } from "../shared/messaging-protocol.js";
 import type { ChatMsg } from "../ai/ladder.js";
+import type { CapturedVideoFrame } from "../ai/types.js";
 // 联网搜索运行时解析器（spec §2.3/§2.4）：resolve-search-provider 往返 + executeSearch
 // 闭包组装收口单源（search/search-runtime.ts，选区解释链同走此解析）。
 import {
@@ -94,6 +95,12 @@ let currentChatGeneration = 0;
 let activeGeneration = 0;
 let activeAbortController: AbortController | null = null;
 let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } | null = null;
+let pendingVideoFrame: {
+  requestId: string;
+  generation: number;
+  resolve: (frame: CapturedVideoFrame) => void;
+  reject: (error: Error) => void;
+} | null = null;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let idleTimeoutGeneration = 0;
 var STREAM_IDLE_TIMEOUT_MS = 90000;
@@ -245,6 +252,22 @@ chrome.runtime.onConnect.addListener((port) => {
       }
       return;
     }
+    if (msg.action === "video-frame-result") {
+      if (pendingVideoFrame?.requestId === msg.requestId) {
+        const pending = pendingVideoFrame;
+        pendingVideoFrame = null;
+        if (pending.generation !== activeGeneration) {
+          pending.reject(new Error("截图请求已过期"));
+        } else if (msg.error) {
+          pending.reject(new Error(msg.error));
+        } else if (msg.image?.mime && msg.image.data && Number.isFinite(msg.currentTime)) {
+          pending.resolve({ image: msg.image, currentTime: msg.currentTime! });
+        } else {
+          pending.reject(new Error("截图回执缺少图片或播放时间"));
+        }
+      }
+      return;
+    }
     if (msg.action !== "chat") return;
 
     // 候选5：先结算字幕体。SP 侧 lastAckedContextKey 命中时消息不带
@@ -352,7 +375,10 @@ chrome.runtime.onConnect.addListener((port) => {
           port: ackedPort,
           signal: requestController.signal,
           // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
-          ...(searchRuntime ? { webSearch: searchRuntime } : {})
+          ...(searchRuntime ? { webSearch: searchRuntime } : {}),
+          ...(msg.videoFrameToolEnabled === true
+            ? { captureCurrentVideoFrame: () => requestVideoFrame(ackedPort, generation) }
+            : {})
         },
         {
           askCostGuard: (costPort, message) => askCostGuard(costPort, message, generation),
@@ -436,6 +462,11 @@ function abortActiveRequest() {
     pendingCostGuard = null;
     resolve(false);
   }
+  if (pendingVideoFrame) {
+    const { reject } = pendingVideoFrame;
+    pendingVideoFrame = null;
+    reject(new Error("截图请求已中止"));
+  }
   if (activeAbortController && !activeAbortController.signal.aborted) {
     activeAbortController.abort();
   }
@@ -475,6 +506,23 @@ function askCostGuard(port: PostMessagePort, message: string, generation: number
   return new Promise<boolean>((resolve) => {
     pendingCostGuard = { resolve, generation };
     port.postMessage({ type: "cost-guard", data: { message } });
+  });
+}
+
+function requestVideoFrame(port: PostMessagePort, generation: number): Promise<CapturedVideoFrame> {
+  return new Promise((resolve, reject) => {
+    if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
+      reject(new Error("当前无法发起截图请求"));
+      return;
+    }
+    const requestId = `video-frame-${generation}-${Date.now()}`;
+    pendingVideoFrame = { requestId, generation, resolve, reject };
+    try {
+      port.postMessage({ type: "video-frame-request", requestId });
+    } catch (error) {
+      pendingVideoFrame = null;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 
