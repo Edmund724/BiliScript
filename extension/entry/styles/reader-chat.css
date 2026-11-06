@@ -2079,7 +2079,8 @@
 .biliscript-reading-chat .chat-live-popover {
   position: absolute;
   bottom: calc(100% + 8px);
-  right: 0;
+  left: 50%;
+  translate: -50% 0;
   width: 210px;
   padding: 12px 14px;
   border-radius: var(--biliscript-radius-xl);
@@ -2093,7 +2094,7 @@
   box-sizing: border-box;
   opacity: 1;
   transform: scale(1) translateY(0);
-  transform-origin: bottom right;
+  transform-origin: bottom center;
   transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
               transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
               display 160ms allow-discrete;
