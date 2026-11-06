@@ -62,6 +62,30 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1000;
 }
 
+/* 左栏向右溢出弹层让位：工具栏右侧菜单（稍后再看/手机看/记笔记等）与播放器右下角控制浮层
+ * 均挂在 .left-container 内部（其原生 position: sticky; z-index: 1 创建层叠上下文，默认被贴栏文摘面板遮挡）。
+ * 当悬停、聚焦或其内部弹出浮层时，提升 .left-container 层叠层级至 1001，
+ * 同时使贴栏态文摘面板让位至 1000，使弹出的菜单与提示始终完整叠在文摘面板上层。 */
+body[data-biliscript-reader-mode="1"]:has(
+  .video-toolbar-right:hover,
+  .video-toolbar-right:focus-within,
+  .video-tool-more-popover[aria-hidden="false"],
+  .bpx-player-control-bottom-right:hover,
+  .bpx-player-control-bottom-right:focus-within
+) .left-container {
+  z-index: 1001 !important;
+}
+
+body[data-biliscript-reader-mode="1"]:has(
+  .video-toolbar-right:hover,
+  .video-toolbar-right:focus-within,
+  .video-tool-more-popover[aria-hidden="false"],
+  .bpx-player-control-bottom-right:hover,
+  .bpx-player-control-bottom-right:focus-within
+) #biliscript-reading-view:not([data-biliscript-script-float="1"]) {
+  z-index: 1000;
+}
+
 /* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位轻微缩放。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] {
   left: 50%;
