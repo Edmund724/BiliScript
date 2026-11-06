@@ -1920,7 +1920,7 @@
   width: 100%;
   padding: 6px 12px;
   margin-bottom: 8px;
-  border-radius: 14px;
+  border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-surface-1);
   border: 1px solid var(--biliscript-reader-border);
   box-sizing: border-box;
@@ -1949,8 +1949,8 @@
   position: relative;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: #10b981;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-primitive-color-green-500);
   flex: 0 0 8px;
 }
 
@@ -1959,7 +1959,7 @@
 }
 
 .biliscript-reading-chat .chat-live-status-dot.is-connecting {
-  background: #f59e0b;
+  background: var(--biliscript-primitive-color-amber-500);
   animation: biliscript-live-pulse 1s infinite ease-in-out;
 }
 
@@ -1969,7 +1969,7 @@
 
 .biliscript-reading-chat .chat-live-model-name {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: 13px;
+  font-size: var(--biliscript-font-size-base);
   font-weight: 500;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -1978,7 +1978,7 @@
 }
 
 .biliscript-reading-chat .chat-live-timer {
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   color: var(--biliscript-reader-muted);
@@ -2000,7 +2000,7 @@
   height: 28px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -2028,7 +2028,7 @@
 }
 .biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] {
   color: var(--biliscript-reader-danger);
-  background: var(--biliscript-reader-danger-soft, rgba(239, 68, 68, 0.1));
+  background: var(--biliscript-reader-danger-soft, rgba(var(--biliscript-primitive-color-red-500-rgb), 0.1));
 }
 .biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] .chat-live-bar-icon-mic {
   display: none;
@@ -2046,10 +2046,10 @@
   padding: 0 10px;
   border: 0;
   border-radius: var(--biliscript-radius-pill);
-  background: #dc2626;
-  color: #fff;
+  background: var(--biliscript-primitive-color-red-500);
+  color: var(--biliscript-primitive-color-white);
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.15s, transform 100ms;
@@ -2082,17 +2082,18 @@
   right: 0;
   width: 180px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--biliscript-radius-md);
+  corner-shape: var(--biliscript-corner-shape);
   background: var(--biliscript-reader-surface-1);
   border: 1px solid var(--biliscript-reader-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(var(--biliscript-primitive-color-black-rgb), 0.15);
   z-index: 100;
   box-sizing: border-box;
 }
 
 .biliscript-reading-chat .chat-live-pop-title {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   font-weight: 500;
   color: var(--biliscript-reader-muted);
   margin-bottom: 8px;
@@ -2106,7 +2107,7 @@
 
 .biliscript-reading-chat .chat-live-pop-val {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   font-variant-numeric: tabular-nums;
   color: var(--biliscript-reader-text);
   font-weight: 500;
@@ -2137,7 +2138,7 @@
 .biliscript-reading-chat .chat-live-speed-tick {
   width: 4px;
   height: 4px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-muted);
   opacity: 0.5;
 }

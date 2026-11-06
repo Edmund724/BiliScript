@@ -68,7 +68,7 @@ import { thinkingViewOf } from "../chat/thinking-picker.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeLiveVoiceVolume } from "../core/validators.js";
+import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeLiveVoiceVolume, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -197,10 +197,29 @@ const els = {
   // 伴看中断键复用输入栏最右侧的发送/停止同键（模板已无专用中断按钮），
   // 说话期间由控制器挂 .is-live-interrupt 类切停止键形态。
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
+  liveSwitchBtn: document.getElementById(ids.readingChatLiveSwitchBtn) as HTMLButtonElement | null,
+  liveBar: document.getElementById(ids.readingChatLiveBar) as HTMLElement | null,
+  liveStatusDot: document.getElementById(ids.readingChatLiveStatusDot) as HTMLElement | null,
+  liveModelName: document.getElementById(ids.readingChatLiveModelName) as HTMLElement | null,
+  liveTimer: document.getElementById(ids.readingChatLiveTimer) as HTMLElement | null,
+  liveBarMuteBtn: document.getElementById(ids.readingChatLiveBarMuteBtn) as HTMLButtonElement | null,
+  liveBarVolumeBtn: document.getElementById(ids.readingChatLiveBarVolumeBtn) as HTMLButtonElement | null,
+  liveBarVolumePop: document.getElementById(ids.readingChatLiveBarVolumePop) as HTMLElement | null,
+  liveBarVolumeInput: document.getElementById(ids.readingChatLiveBarVolumeInput) as HTMLInputElement | null,
+  liveBarVolumeValue: document.getElementById(ids.readingChatLiveBarVolumeValue) as HTMLElement | null,
+  liveBarSpeedBtn: document.getElementById(ids.readingChatLiveBarSpeedBtn) as HTMLButtonElement | null,
+  liveBarSpeedPop: document.getElementById(ids.readingChatLiveBarSpeedPop) as HTMLElement | null,
+  liveBarSpeedInput: document.getElementById(ids.readingChatLiveBarSpeedInput) as HTMLInputElement | null,
+  liveBarSpeedValue: document.getElementById(ids.readingChatLiveBarSpeedValue) as HTMLElement | null,
+  liveBarEndBtn: document.getElementById(ids.readingChatLiveBarEndBtn) as HTMLButtonElement | null,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
   liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
+  speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
+  speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
+  speechVolumeValue: document.getElementById(ids.readingChatSpeechVolumeValue) as HTMLElement | null,
+  speechVolumeResetBtn: document.getElementById(ids.readingChatSpeechVolumeResetBtn) as HTMLButtonElement | null,
   liveVolume: document.getElementById(ids.readingChatLiveVolume) as HTMLElement | null,
   liveVolumeInput: document.getElementById(ids.readingChatLiveVolumeInput) as HTMLInputElement | null,
   liveVolumeValue: document.getElementById(ids.readingChatLiveVolumeValue) as HTMLElement | null,
@@ -237,6 +256,11 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
+
+function closeLiveBarPopovers(): void {
+  if (els.liveBarVolumePop) els.liveBarVolumePop.hidden = true;
+  if (els.liveBarSpeedPop) els.liveBarSpeedPop.hidden = true;
+}
 
 
 // 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
@@ -320,7 +344,22 @@ const inputImages = createChatInputImages({
 const composer = createReaderChatComposer({
   els: {
     input: els.input,
-    sendBtn: els.sendBtn
+    sendBtn: els.sendBtn,
+    liveSwitchBtn: els.liveSwitchBtn
+  },
+  isLiveActive: () => isLiveSessionActive(),
+  isLiveConnecting: () => liveController?.getState() === "connecting",
+  onStartLive: () => {
+    void liveController?.start();
+  },
+  onSwitchToLive: () => {
+    if (chatRuntime.isTurnActive()) {
+      chatRuntime.stopActiveStream();
+    }
+    void liveController?.start();
+  },
+  onInterruptLive: () => {
+    liveController?.interrupt();
   },
   chatRuntime: {
     sendTurn: (text) => chatRuntime.sendTurn(text),
@@ -460,7 +499,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
-  getSpeechVolume: () => normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+  getSpeechVolume: () => normalizeSpeechVoiceVolume(state.settings?.speechVoiceVolume) / 100,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
   // 不阻断 connect，维持历史行为，由连接结果兜底）。chrome.offscreen 仅扩展
   // 上下文可用：content script 经 "ensure-offscreen-chat" 消息委托 background
@@ -702,10 +741,15 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（reader-bus 转发槽），
   // 同一时刻至多一个注册者，摘除即置回 null。
   outsideClick: () => {
-    setChatTabOutsideClickHandler(popovers.handleDocumentClick);
+    setChatTabOutsideClickHandler((event) => {
+      popovers.handleDocumentClick(event);
+      if (!event.target || !(event.target as HTMLElement).closest(".chat-live-pop-anchor")) {
+        closeLiveBarPopovers();
+      }
+    });
     return () => setChatTabOutsideClickHandler(null);
   },
-  // Esc 关闭三个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
+  // Esc 关闭三个弹层与伴看气泡（window 级监听，与文档级 click 委托不同事件，不互踩）。
   escapeKey: () => {
     window.addEventListener("keydown", onWindowEscapeKey);
     return () => window.removeEventListener("keydown", onWindowEscapeKey);
@@ -714,6 +758,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
+  closeLiveBarPopovers();
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
@@ -892,27 +937,26 @@ function bindEvents(): void {
     }
   });
 
-  const liveVolumeSlider = bindResettableRangeSlider({
-    input: els.liveVolumeInput,
-    badge: els.liveVolumeValue,
-    resetBtn: els.liveVolumeResetBtn,
-    defaultValue: DEFAULT_SETTINGS.liveVoiceVolume,
-    normalize: normalizeLiveVoiceVolume,
+  const speechVolumeSlider = bindResettableRangeSlider({
+    input: els.speechVolumeInput,
+    badge: els.speechVolumeValue,
+    resetBtn: els.speechVolumeResetBtn,
+    defaultValue: DEFAULT_SETTINGS.speechVoiceVolume,
+    normalize: normalizeSpeechVoiceVolume,
     format: (val) => `${val}%`,
-    initialValue: state.settings?.liveVoiceVolume,
+    initialValue: state.settings?.speechVoiceVolume,
     onPreview: (val) => {
-      liveController?.setVolume(val / 100);
-      state.patchSettings({ liveVoiceVolume: val });
+      state.patchSettings({ speechVoiceVolume: val });
     },
     onCommit: (val) => {
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: val } }).catch(() => null);
+      void sendRuntimeMessage({ type: "save-settings", settings: { speechVoiceVolume: val } }).catch(() => null);
     }
   });
 
   const syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
     paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
-    liveVolumeSlider.setValue(state.settings?.liveVoiceVolume);
+    speechVolumeSlider.setValue(state.settings?.speechVoiceVolume);
   };
 
   els.moreBtn?.addEventListener("click", (event) => {
@@ -934,7 +978,133 @@ function bindEvents(): void {
   els.historyBackBtn?.addEventListener("click", () => {
     popovers.hideHistoryPopover();
   });
-  if (els.liveBtn) {
+
+  // 实时伴看 Live Bar 与控制器联动
+  let liveTimerInterval: number | null = null;
+  let liveSessionStartTime = 0;
+
+  const stopLiveTimer = () => {
+    if (liveTimerInterval !== null) {
+      window.clearInterval(liveTimerInterval);
+      liveTimerInterval = null;
+    }
+    if (els.liveTimer) {
+      els.liveTimer.textContent = "00:00";
+    }
+  };
+
+  const startLiveTimer = () => {
+    stopLiveTimer();
+    liveSessionStartTime = Date.now();
+    liveTimerInterval = window.setInterval(() => {
+      if (!els.liveTimer) return;
+      const elapsedSec = Math.floor((Date.now() - liveSessionStartTime) / 1000);
+      const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+      const ss = String(elapsedSec % 60).padStart(2, "0");
+      els.liveTimer.textContent = `${mm}:${ss}`;
+    }, 1000);
+  };
+
+  const updateLiveBarUi = (liveState: LiveChatState) => {
+    if (!els.liveBar) return;
+    if (liveState === "connecting") {
+      els.liveBar.hidden = false;
+      if (els.liveStatusDot) {
+        els.liveStatusDot.className = "chat-live-status-dot is-connecting";
+      }
+      stopLiveTimer();
+    } else if (liveState === "connected") {
+      els.liveBar.hidden = false;
+      if (els.liveStatusDot) {
+        els.liveStatusDot.className = "chat-live-status-dot";
+      }
+      startLiveTimer();
+    } else {
+      els.liveBar.hidden = true;
+      if (els.liveStatusDot) {
+        els.liveStatusDot.className = "chat-live-status-dot";
+      }
+      stopLiveTimer();
+      closeLiveBarPopovers();
+    }
+    composer.syncSendState();
+  };
+
+  // 伴看操作区：音量滑轨调节（只控制实时伴看音量）
+  if (els.liveBarVolumeInput) {
+    const initVol = normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume);
+    els.liveBarVolumeInput.value = String(initVol);
+    if (els.liveBarVolumeValue) {
+      els.liveBarVolumeValue.textContent = `${initVol}%`;
+    }
+    const onLiveVolumeChange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const val = normalizeLiveVoiceVolume(target.value);
+      if (els.liveBarVolumeValue) {
+        els.liveBarVolumeValue.textContent = `${val}%`;
+      }
+      liveController?.setVolume(val / 100);
+      state.patchSettings({ liveVoiceVolume: val });
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: val } }).catch(() => null);
+    };
+    els.liveBarVolumeInput.addEventListener("input", onLiveVolumeChange);
+  }
+
+  // 伴看操作区：语速调节（本机播放倍率控制）
+  if (els.liveBarSpeedInput) {
+    els.liveBarSpeedInput.value = "1";
+    if (els.liveBarSpeedValue) {
+      els.liveBarSpeedValue.textContent = "1x";
+    }
+    els.liveBarSpeedInput.addEventListener("input", (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const stepIdx = Number(target.value);
+      const speed = LIVE_VOICE_SPEED_STEPS[stepIdx] ?? DEFAULT_LIVE_VOICE_SPEED;
+      if (els.liveBarSpeedValue) {
+        els.liveBarSpeedValue.textContent = `${speed}x`;
+      }
+      liveController?.setSpeed(speed);
+    });
+  }
+
+  // 伴看操作区：气泡弹层互斥与按钮开合
+  els.liveBarVolumeBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (els.liveBarVolumePop) {
+      const willOpen = els.liveBarVolumePop.hidden;
+      closeLiveBarPopovers();
+      els.liveBarVolumePop.hidden = !willOpen;
+    }
+  });
+
+  els.liveBarSpeedBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (els.liveBarSpeedPop) {
+      const willOpen = els.liveBarSpeedPop.hidden;
+      closeLiveBarPopovers();
+      els.liveBarSpeedPop.hidden = !willOpen;
+    }
+  });
+
+  els.liveBarVolumePop?.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+  els.liveBarSpeedPop?.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  els.liveBarEndBtn?.addEventListener("click", () => {
+    void liveController?.stop();
+  });
+
+  els.liveSwitchBtn?.addEventListener("click", () => {
+    if (chatRuntime.isTurnActive()) {
+      chatRuntime.stopActiveStream();
+    }
+    void liveController?.start();
+  });
+
+  if (els.liveBar || els.liveBtn) {
     // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
     // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
     const liveToolsBridge = createLiveToolsBridge({
@@ -944,11 +1114,24 @@ function bindEvents(): void {
     });
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
-      muteButton: els.liveMuteBtn,
+      muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
       onInterruptStateChange: () => composer.syncSendState(),
+      onSpeakingChange: (speaking) => {
+        if (els.liveStatusDot) {
+          if (speaking) {
+            els.liveStatusDot.classList.add("is-speaking");
+          } else {
+            els.liveStatusDot.classList.remove("is-speaking");
+          }
+        }
+        composer.syncSendState();
+      },
+      onStateChange: (liveState) => {
+        updateLiveBarUi(liveState);
+      },
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,

@@ -52,4 +52,23 @@ describe("chat-live-bar and multi-state composer template", () => {
     expect(switchBtn).not.toBeNull();
     expect(switchBtn.hidden).toBe(true);
   });
+
+  it("decouples live volume in action area from speech volume in more menu", () => {
+    const html = buildChatTabBodyHtml();
+    const div = document.createElement("div");
+    div.innerHTML = html;
+
+    // Live bar has its own volume input for real-time live accompaniment
+    const liveVolumeInput = div.querySelector(`#${ids.readingChatLiveBarVolumeInput}`) as HTMLInputElement;
+    expect(liveVolumeInput).not.toBeNull();
+    expect(liveVolumeInput.min).toBe("0");
+    expect(liveVolumeInput.max).toBe("100");
+
+    // Speed input in live bar has 5 discrete steps
+    const speedInput = div.querySelector(`#${ids.readingChatLiveBarSpeedInput}`) as HTMLInputElement;
+    expect(speedInput).not.toBeNull();
+    expect(speedInput.min).toBe("0");
+    expect(speedInput.max).toBe("4");
+    expect(speedInput.step).toBe("1");
+  });
 });

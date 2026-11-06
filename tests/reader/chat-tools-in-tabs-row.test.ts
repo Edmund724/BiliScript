@@ -46,7 +46,7 @@ describe("对话工具键并入壳标签行", () => {
     expect(tools![1]).toMatch(/id="\$\{ids\.readingChatHistoryBtn\}"/);
     expect(tools![1]).toMatch(/id="\$\{ids\.readingChatLineHeight\}"/);
     expect(tools![1]).toMatch(/id="\$\{ids\.readingChatParagraphSpacing\}"/);
-    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatLiveVolumeInput\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatSpeechVolumeInput\}"/);
 
     // 更多操作按钮复用面板 header 的无框幽灵键（壳常驻样式，不依赖按需装载的对话分区表）
     expect(tools![1]).toMatch(/<button id="\$\{ids\.readingChatMoreBtn\}"[^>]*class="biliscript-reading-icon-btn"/);
