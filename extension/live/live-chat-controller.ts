@@ -38,14 +38,17 @@ import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messa
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 
 export interface LiveChatControllerDeps {
-  liveButton: HTMLElement;
+  liveButton?: HTMLElement | null;
   muteButton?: HTMLElement | null;
   volumeControl?: HTMLDetailsElement | null;
   initialVolume?: number;
+  initialSpeed?: number;
   // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
   // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
   onInterruptStateChange?: (active: boolean) => void;
+  onStateChange?: (state: LiveChatState, error?: string) => void;
+  onSpeakingChange?: (speaking: boolean) => void;
   getTargetOrigin?: () => string;
   getTargetModel?: () => string;
   getTargetProviderType?: () => LiveProviderType;
@@ -68,6 +71,8 @@ export interface LiveChatController {
   isSpeaking(): boolean;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
+  setSpeed(speed: number): void;
+  getSpeed(): number;
   toggleMute(): void;
   interrupt(): void;
   refreshTarget(): Promise<void>;
@@ -79,12 +84,15 @@ export interface LiveChatController {
 
 export function createLiveChatController(deps: LiveChatControllerDeps): LiveChatController {
   const {
-    liveButton,
+    liveButton = null,
     muteButton = null,
     volumeControl = null,
     initialVolume = 1,
+    initialSpeed = 1,
     interruptButton = null,
     onInterruptStateChange,
+    onStateChange,
+    onSpeakingChange,
     getTargetOrigin,
     getTargetModel,
     getTargetProviderType,
@@ -111,6 +119,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let muted = false;
   let speaking = false;
   let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(1, initialVolume)) : 1;
+  let speed = Number.isFinite(initialSpeed) && initialSpeed > 0 ? initialSpeed : 1;
   let currentGeneration = 0;
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
@@ -182,6 +191,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       interruptButton.disabled = !shouldShow;
     }
     onInterruptStateChange?.(shouldShow);
+    onSpeakingChange?.(speaking);
   }
 
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {
@@ -190,30 +200,33 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       muted = false;
       speaking = false;
     }
-    liveButton.dataset.state = nextState;
-    liveButton.classList.toggle("is-connecting", nextState === "connecting");
-    liveButton.classList.toggle("is-connected", nextState === "connected");
-    liveButton.classList.toggle("is-failure", nextState === "failure");
+    if (liveButton) {
+      liveButton.dataset.state = nextState;
+      liveButton.classList.toggle("is-connecting", nextState === "connecting");
+      liveButton.classList.toggle("is-connected", nextState === "connected");
+      liveButton.classList.toggle("is-failure", nextState === "failure");
 
-    liveButton.setAttribute("aria-busy", nextState === "connecting" ? "true" : "false");
-    liveButton.setAttribute("aria-pressed", nextState === "connected" ? "true" : "false");
+      liveButton.setAttribute("aria-busy", nextState === "connecting" ? "true" : "false");
+      liveButton.setAttribute("aria-pressed", nextState === "connected" ? "true" : "false");
 
-    let tooltip = "开启实时伴看 (MOSS-LIVE)";
-    if (nextState === "connecting") {
-      tooltip = "正在连接 MOSS-LIVE 伴看...";
-    } else if (nextState === "connected") {
-      tooltip = "正在伴看中，点击结束伴看";
-    } else if (nextState === "failure") {
-      tooltip = errorMessage ? `伴看失败：${errorMessage}，点击重试` : "伴看失败，点击重试";
+      let tooltip = "开启实时伴看 (MOSS-LIVE)";
+      if (nextState === "connecting") {
+        tooltip = "正在连接 MOSS-LIVE 伴看...";
+      } else if (nextState === "connected") {
+        tooltip = "正在伴看中，点击结束伴看";
+      } else if (nextState === "failure") {
+        tooltip = errorMessage ? `伴看失败：${errorMessage}，点击重试` : "伴看失败，点击重试";
+      }
+      liveButton.title = tooltip;
+      liveButton.setAttribute("aria-label", tooltip);
     }
-    liveButton.title = tooltip;
-    liveButton.setAttribute("aria-label", tooltip);
     if (volumeControl) {
       volumeControl.hidden = nextState !== "connected";
       if (nextState !== "connected") volumeControl.open = false;
     }
     updateMuteUi();
     updateInterruptUi();
+    onStateChange?.(nextState, errorMessage);
   }
 
   // 初始化 UI 呈现
@@ -559,6 +572,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         providerType: resolvedProviderType,
         model: resolvedModel,
         volume,
+        ...(speed !== 1 ? { speed } : {}),
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
           : {}),
@@ -609,6 +623,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch {}
   }
 
+  function setSpeed(nextSpeed: number): void {
+    speed = Number.isFinite(nextSpeed) && nextSpeed > 0 ? nextSpeed : 1;
+    if (!activePort) return;
+    try {
+      activePort.postMessage({ action: "set_speed", speed });
+    } catch {}
+  }
+
   function toggleMute(): void {
     setMuted(!muted);
   }
@@ -649,7 +671,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     void stop();
   }
 
-  liveButton.addEventListener("click", () => {
+  liveButton?.addEventListener("click", () => {
     void toggle();
   });
   muteButton?.addEventListener("click", () => {
@@ -662,6 +684,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     isSpeaking: () => speaking,
     setMuted,
     setVolume,
+    setSpeed,
+    getSpeed: () => speed,
     toggleMute,
     interrupt,
     refreshTarget,

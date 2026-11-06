@@ -145,7 +145,8 @@ import { createLiveChatController, type LiveChatController } from "../live/live-
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
-import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
+import { encodeBase64Bytes, DEFAULT_LIVE_VOICE_SPEED, LIVE_VOICE_SPEED_STEPS } from "../live/moss-live-protocol.js";
+import type { LiveChatState } from "../live/live-chat-controller.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
 import {
   ensureReaderOverviewSource,

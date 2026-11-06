@@ -64,4 +64,56 @@ describe("MossAudioPlayer volume", () => {
     player.setVolume(2);
     expect(gain.value).toBe(1);
   });
+
+  it("applies playbackRate to created source nodes and updates next play timing", () => {
+    let capturedPlaybackRate = 1;
+    let scheduledStart = -1;
+    const source = {
+      buffer: null,
+      playbackRate: { value: 1 },
+      onended: null,
+      connect: () => {},
+      disconnect: () => {},
+      start: (when?: number) => {
+        scheduledStart = when ?? 0;
+        capturedPlaybackRate = source.playbackRate.value;
+      },
+      stop: () => {}
+    };
+    const audioContext = {
+      currentTime: 10,
+      state: "running",
+      destination: {},
+      createBuffer: (_channels: number, length: number, sampleRate: number) => ({
+        duration: length / sampleRate,
+        length,
+        sampleRate,
+        getChannelData: () => new Float32Array(length)
+      }),
+      createBufferSource: () => source,
+      createGain: () => ({ gain: { value: 1 }, connect: () => {}, disconnect: () => {} })
+    };
+    const player = new MossAudioPlayer({
+      speed: 1.5,
+      sampleRate: 48000,
+      createAudioContext: () => audioContext,
+      onTurnFinished: () => {},
+      onStateChange: () => {}
+    });
+
+    expect(player.getPlaybackRate()).toBe(1.5);
+    const isCurrent = () => true;
+    player.enqueueAudioContext("chunk-1", "run-1", "turn-1", isCurrent);
+    // 48000 samples at 48000 sampleRate and 1.5x speed is 1 / 1.5 = 0.6666... sec
+    player.enqueueAudioFrame(
+      encodeFloat32ToPcmS16LE(new Float32Array(48000).fill(0.1)).buffer,
+      isCurrent
+    );
+
+    expect(capturedPlaybackRate).toBe(1.5);
+    expect(scheduledStart).toBe(10);
+
+    player.setPlaybackRate(2.0);
+    expect(player.getPlaybackRate()).toBe(2.0);
+  });
 });

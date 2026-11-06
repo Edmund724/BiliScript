@@ -21,6 +21,10 @@ export type LiveProviderType = "moss-live" | "gemini-live";
 export const DEFAULT_MOSS_LIVE_WS_URL = "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0";
 export const MOSS_LIVE_PORT_NAME = "offscreen-moss-live";
 
+export const DEFAULT_LIVE_VOICE_SPEED = 1.0;
+export const LIVE_VOICE_SPEED_STEPS = [0.75, 1.0, 1.25, 1.5, 2.0] as const;
+export type LiveVoiceSpeed = (typeof LIVE_VOICE_SPEED_STEPS)[number];
+
 /** 上行麦克风音频采样率（16 kHz 单声道 S16LE） */
 export const MOSS_UPSTREAM_SAMPLE_RATE = 16000;
 /** 下行 AI 语音音频采样率（48 kHz 单声道 S16LE） */
@@ -616,9 +620,11 @@ export type MossLiveClientAction =
       model?: string;
       liveGeminiNativeSearch?: boolean;
       volume?: number;
+      speed?: number;
       videoContext?: MossLiveVideoContext | null;
     }
   | { action: "set_volume"; volume: number }
+  | { action: "set_speed"; speed: number }
   | { action: "context_update"; videoContext: MossLiveVideoContext | null }
   | { action: "tool_result"; callId: string; result: unknown }
   | { action: "interrupt" }

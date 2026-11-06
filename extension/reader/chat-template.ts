@@ -64,6 +64,77 @@ export function buildChatTabBodyHtml(): string {
           <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
             ${READING_CHEVRON_DOWN_ICON}
           </button>
+          <!-- 实时伴看状态条（处于连接中/已连接时浮现于输入框上方，结束时销毁） -->
+          <div id="${ids.readingChatLiveBar}" class="chat-live-bar" hidden>
+            <div class="chat-live-bar-left">
+              <span id="${ids.readingChatLiveStatusDot}" class="chat-live-status-dot" aria-hidden="true"></span>
+              <span id="${ids.readingChatLiveModelName}" class="chat-live-model-name">实时伴看</span>
+              <span id="${ids.readingChatLiveTimer}" class="chat-live-timer" aria-live="off">00:00</span>
+            </div>
+            <div class="chat-live-bar-right">
+              <button id="${ids.readingChatLiveBarMuteBtn}" type="button" class="chat-live-bar-btn chat-live-bar-mute-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
+                <svg class="chat-live-bar-icon-mic" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+                <svg class="chat-live-bar-icon-mic-off" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
+                  <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </button>
+              <div class="chat-live-pop-anchor">
+                <button id="${ids.readingChatLiveBarVolumeBtn}" type="button" class="chat-live-bar-btn chat-live-bar-vol-btn" title="伴看音量" aria-label="伴看音量">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                  </svg>
+                </button>
+                <div id="${ids.readingChatLiveBarVolumePop}" class="chat-live-popover chat-live-volume-pop" hidden>
+                  <div class="chat-live-pop-title">伴看音量</div>
+                  <div class="chat-live-pop-row">
+                    <input id="${ids.readingChatLiveBarVolumeInput}" type="range" class="chat-live-slider" min="0" max="100" step="1" value="100" />
+                    <span id="${ids.readingChatLiveBarVolumeValue}" class="chat-live-pop-val">100%</span>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-live-pop-anchor">
+                <button id="${ids.readingChatLiveBarSpeedBtn}" type="button" class="chat-live-bar-btn chat-live-bar-speed-btn" title="伴看语速" aria-label="伴看语速">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Z"></path>
+                    <path d="m14.5 9.5-3.5 3.5"></path>
+                    <circle cx="12" cy="12" r="1.5"></circle>
+                  </svg>
+                </button>
+                <div id="${ids.readingChatLiveBarSpeedPop}" class="chat-live-popover chat-live-speed-pop" hidden>
+                  <div class="chat-live-pop-title">伴看语速</div>
+                  <div class="chat-live-pop-row">
+                    <div class="chat-live-speed-slider-wrap">
+                      <input id="${ids.readingChatLiveBarSpeedInput}" type="range" class="chat-live-slider chat-live-speed-slider" min="0" max="4" step="1" value="1" />
+                      <div class="chat-live-speed-ticks">
+                        <span class="chat-live-speed-tick"></span>
+                        <span class="chat-live-speed-tick"></span>
+                        <span class="chat-live-speed-tick"></span>
+                        <span class="chat-live-speed-tick"></span>
+                        <span class="chat-live-speed-tick"></span>
+                      </div>
+                    </div>
+                    <span id="${ids.readingChatLiveBarSpeedValue}" class="chat-live-pop-val">1x</span>
+                  </div>
+                </div>
+              </div>
+              <button id="${ids.readingChatLiveBarEndBtn}" type="button" class="chat-live-bar-end-btn" title="结束伴看" aria-label="结束伴看">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                <span>End</span>
+              </button>
+            </div>
+          </div>
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
@@ -97,22 +168,6 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M2.714 12h18.572"></path>
                 </svg>
               </button>
-              <!-- 实时伴看开关（ticket 01/02）：MOSS-LIVE 全双工语音伴看与静音控制 -->
-              <button id="${ids.readingChatLiveBtn}" type="button" class="chat-live-btn" title="开启实时伴看 (MOSS-LIVE)" aria-label="开启实时伴看 (MOSS-LIVE)" data-state="idle">
-                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                  <line x1="12" y1="19" x2="12" y2="22"></line>
-                </svg>
-              </button>
-              <button id="${ids.readingChatLiveMuteBtn}" type="button" class="chat-live-mute-btn" title="静音麦克风" aria-label="静音麦克风" aria-pressed="false" hidden>
-                <svg class="chat-live-mute-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <line x1="1" y1="1" x2="23" y2="23"></line>
-                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
-                  <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
-                  <line x1="12" y1="19" x2="12" y2="22"></line>
-                </svg>
-              </button>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->
@@ -140,7 +195,16 @@ export function buildChatTabBodyHtml(): string {
                   </div>
                 </div>
               </div>
-              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" disabled aria-label="发送">
+              <!-- 流式生成中显示的实时伴看快捷切换键（点击中断文本流并切入伴看） -->
+              <button id="${ids.readingChatLiveSwitchBtn}" type="button" class="chat-live-switch-btn" title="切换到实时伴看" aria-label="切换到实时伴看" hidden>
+                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </button>
+              <!-- 多态主操作键：空闲且空输入时开启伴看；输入有文字时发送；流式中停止；伴看说话时打断 -->
+              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn is-live" aria-label="开启实时伴看" title="开启实时伴看">
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>
@@ -149,6 +213,16 @@ export function buildChatTabBodyHtml(): string {
                      直径的 ~35% 取（viewBox 17/24），圆角 rx=4，与设计稿同比例。 -->
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
+                </svg>
+                <!-- 伴看键图标 -->
+                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+                <!-- 转圈加载键 -->
+                <svg class="chat-spinner-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 16" stroke-linecap="round"></circle>
                 </svg>
               </button>
             </div>

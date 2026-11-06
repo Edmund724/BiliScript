@@ -300,12 +300,19 @@ export class OffscreenMossLiveClient {
         if (msg.videoContext !== undefined) {
           this.videoContext = msg.videoContext || null;
         }
+        if (msg.speed !== undefined) {
+          this.audioPlayer.setPlaybackRate(msg.speed);
+        }
         this.audioPlayer.setVolume(msg.volume ?? 1);
         this.connect();
         break;
 
       case "set_volume":
         this.audioPlayer.setVolume(msg.volume);
+        break;
+
+      case "set_speed":
+        this.audioPlayer.setPlaybackRate(msg.speed);
         break;
 
       case "context_update":

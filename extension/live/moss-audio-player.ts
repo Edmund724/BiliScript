@@ -17,6 +17,7 @@ export interface AudioBufferLike {
 
 export interface AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null;
+  readonly playbackRate?: { value: number };
   onended: (() => void) | null;
   connect(destination: unknown): void;
   disconnect(): void;
@@ -71,6 +72,7 @@ interface TurnPlaybackTracker {
 export interface MossAudioPlayerOptions {
   sampleRate?: number;
   volume?: number;
+  speed?: number;
   enablePlaybackReceipts?: boolean;
   createAudioContext?: () => AudioContextLike | null;
   onSendJson?: (payload: unknown) => void;
@@ -80,6 +82,10 @@ export interface MossAudioPlayerOptions {
 
 function clampVolume(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+}
+
+function clampPlaybackRate(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.max(0.25, Math.min(4, value)) : 1;
 }
 
 function createBrowserAudioContext(sampleRate: number = MOSS_DOWNSTREAM_SAMPLE_RATE): AudioContextLike | null {
@@ -111,6 +117,7 @@ export class MossAudioPlayer {
   private readonly options: MossAudioPlayerOptions;
   private readonly sampleRate: number;
   private readonly enablePlaybackReceipts: boolean;
+  private playbackRate: number = 1;
 
   constructor(options: MossAudioPlayerOptions) {
     this.options = options;
@@ -120,12 +127,21 @@ export class MossAudioPlayer {
         ? rawRate
         : MOSS_DOWNSTREAM_SAMPLE_RATE;
     this.volume = clampVolume(options.volume ?? 1);
+    this.playbackRate = clampPlaybackRate(options.speed ?? 1);
     this.enablePlaybackReceipts = options.enablePlaybackReceipts !== false;
   }
 
   setVolume(volume: number): void {
     this.volume = clampVolume(volume);
     if (this.outputGain) this.outputGain.gain.value = this.volume;
+  }
+
+  setPlaybackRate(speed: number): void {
+    this.playbackRate = clampPlaybackRate(speed);
+  }
+
+  getPlaybackRate(): number {
+    return this.playbackRate;
   }
 
   private ensureAudioContext(): AudioContextLike | null {
@@ -393,10 +409,13 @@ export class MossAudioPlayer {
 
     const source = audioCtx.createBufferSource();
     source.buffer = audioBuffer;
+    if (source.playbackRate) {
+      source.playbackRate.value = this.playbackRate;
+    }
     source.connect(this.outputGain!);
 
     const startAt = Math.max(audioCtx.currentTime, this.nextPlayTime);
-    const durationSec = samples.length / this.sampleRate;
+    const durationSec = samples.length / (this.sampleRate * this.playbackRate);
     this.nextPlayTime = startAt + durationSec;
 
     const entry: ActiveSourceEntry = {

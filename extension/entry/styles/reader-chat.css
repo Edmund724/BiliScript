@@ -1815,7 +1815,9 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-send-btn .chat-stop-icon {
+.biliscript-reading-chat .chat-send-btn .chat-stop-icon,
+.biliscript-reading-chat .chat-send-btn .chat-live-icon,
+.biliscript-reading-chat .chat-send-btn .chat-spinner-icon {
   display: none;
 }
 
@@ -1842,6 +1844,302 @@
 
 .biliscript-reading-chat .chat-send-btn.is-live-interrupt .chat-stop-icon {
   display: block;
+}
+
+/* 开启实时伴看形态（无文本空闲态） */
+.biliscript-reading-chat .chat-send-btn.is-live .chat-send-icon,
+.biliscript-reading-chat .chat-send-btn.is-live .chat-stop-icon,
+.biliscript-reading-chat .chat-send-btn.is-live .chat-spinner-icon {
+  display: none;
+}
+
+.biliscript-reading-chat .chat-send-btn.is-live .chat-live-icon {
+  display: block;
+}
+
+/* 伴看连接中转圈加载态 */
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-send-icon,
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-stop-icon,
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-live-icon {
+  display: none;
+}
+
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-spinner-icon {
+  display: block;
+  animation: biliscript-live-spin 1s linear infinite;
+}
+
+@keyframes biliscript-live-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 流式输出时右侧伴看快捷切换按钮 */
+.biliscript-reading-chat .chat-live-switch-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-surface-1);
+  color: var(--biliscript-reader-text);
+  cursor: pointer;
+  margin-right: 6px;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-live-switch-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-live-switch-btn:hover {
+  background: var(--biliscript-reader-surface-2);
+  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-live-switch-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+/* ===== 实时伴看顶部浮动控制条 ===== */
+.biliscript-reading-chat .chat-live-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  background: var(--biliscript-reader-surface-1);
+  border: 1px solid var(--biliscript-reader-border);
+  box-sizing: border-box;
+  animation: biliscript-live-bar-slide 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes biliscript-live-bar-slide {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.biliscript-reading-chat .chat-live-bar-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.biliscript-reading-chat .chat-live-status-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  flex: 0 0 8px;
+}
+
+.biliscript-reading-chat .chat-live-status-dot.is-speaking {
+  animation: biliscript-live-pulse 1.2s infinite ease-in-out;
+}
+
+.biliscript-reading-chat .chat-live-status-dot.is-connecting {
+  background: #f59e0b;
+  animation: biliscript-live-pulse 1s infinite ease-in-out;
+}
+
+.biliscript-reading-chat .chat-live-status-dot.is-failure {
+  background: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-chat .chat-live-model-name {
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--biliscript-reader-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.biliscript-reading-chat .chat-live-timer {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  color: var(--biliscript-reader-muted);
+  user-select: none;
+}
+
+.biliscript-reading-chat .chat-live-bar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.biliscript-reading-chat .chat-live-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.biliscript-reading-chat .chat-live-bar-btn:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-live-bar-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 静音按钮双态 */
+.biliscript-reading-chat .chat-live-bar-mute-btn .chat-live-bar-icon-mic-off {
+  display: none;
+}
+.biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] {
+  color: var(--biliscript-reader-danger);
+  background: var(--biliscript-reader-danger-soft, rgba(239, 68, 68, 0.1));
+}
+.biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] .chat-live-bar-icon-mic {
+  display: none;
+}
+.biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] .chat-live-bar-icon-mic-off {
+  display: block;
+}
+
+/* 红色 End 键 */
+.biliscript-reading-chat .chat-live-bar-end-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: #dc2626;
+  color: #fff;
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 100ms;
+}
+
+.biliscript-reading-chat .chat-live-bar-end-btn:hover {
+  opacity: 0.9;
+}
+
+.biliscript-reading-chat .chat-live-bar-end-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 0.96));
+}
+
+.biliscript-reading-chat .chat-live-bar-end-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+/* 气泡弹出层 */
+.biliscript-reading-chat .chat-live-pop-anchor {
+  position: relative;
+}
+
+.biliscript-reading-chat .chat-live-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 180px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--biliscript-reader-surface-1);
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  box-sizing: border-box;
+}
+
+.biliscript-reading-chat .chat-live-pop-title {
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--biliscript-reader-muted);
+  margin-bottom: 8px;
+}
+
+.biliscript-reading-chat .chat-live-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.biliscript-reading-chat .chat-live-pop-val {
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--biliscript-reader-text);
+  font-weight: 500;
+  min-width: 30px;
+  text-align: right;
+}
+
+.biliscript-reading-chat .chat-live-slider {
+  flex: 1 1 auto;
+  accent-color: var(--biliscript-reader-accent);
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-live-speed-slider-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.biliscript-reading-chat .chat-live-speed-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  margin-top: 4px;
+}
+
+.biliscript-reading-chat .chat-live-speed-tick {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--biliscript-reader-muted);
+  opacity: 0.5;
 }
 
 /* ===== 模型面板弹层（发送框紧凑化）=====
