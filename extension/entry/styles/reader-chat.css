@@ -813,6 +813,13 @@
   height: 15px;
 }
 
+.biliscript-reading-chat .chat-msg-continue-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  stroke: none;
+}
+
 .biliscript-reading-chat .chat-msg-export-btn svg {
   width: 19px;
   height: 19px;

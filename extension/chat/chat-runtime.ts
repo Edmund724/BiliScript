@@ -168,6 +168,7 @@ export interface CreateChatRuntimeDeps {
   speechEngine?: ChatSpeechEngine;
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
+  onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
 }
 
 /**
@@ -345,6 +346,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
     onRegenerate: regenerateAssistant,
+    onContinue: (historyIndex, node) => {
+      deps.onContinue?.(historyIndex, node);
+    },
     onExport: exportAssistant,
     onSpeak: (button, text) => speech.toggle(button, text),
     onClear: () => speech.stop(),

@@ -27,7 +27,7 @@ function createChevronSpan(className: string): HTMLSpanElement {
   return chevron;
 }
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
-import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
+import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
@@ -42,6 +42,7 @@ export interface ChatStreamRendererDeps {
   getTimestampNavDeps: () => TimestampNavDeps;
   smoothStream?: boolean;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
+  onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
   onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
@@ -1044,13 +1045,112 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
   }
 
+  function createActionButton(className: string, label: string, icon: string): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `chat-msg-action-btn ${className}`;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+    button.innerHTML = icon;
+    return button;
+  }
+
+  function createActionBar(
+    node: HTMLDivElement,
+    {
+      stopped = false,
+      historyIndex,
+      content,
+      getPasteReadyRaw,
+      hasSpeakableContent = false,
+      cleanedRaw = ""
+    }: {
+      stopped?: boolean;
+      historyIndex?: number;
+      content?: HTMLElement;
+      getPasteReadyRaw?: () => string;
+      hasSpeakableContent?: boolean;
+      cleanedRaw?: string;
+    } = {}
+  ): HTMLDivElement {
+    const actions = document.createElement("div");
+    actions.className = "chat-msg-actions";
+
+    const regenerateBtn = createActionButton("chat-msg-regenerate-btn", "重新生成", READING_RESET_ICON);
+    regenerateBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+    regenerateBtn.addEventListener("click", () => {
+      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+        deps.onRegenerate?.(historyIndex, node);
+      }
+    });
+
+    if (stopped) {
+      actions.appendChild(regenerateBtn);
+
+      const continueBtn = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
+      continueBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+      continueBtn.addEventListener("click", () => {
+        if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+          deps.onContinue?.(historyIndex, node);
+        }
+      });
+      actions.appendChild(continueBtn);
+      return actions;
+    }
+
+    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(getPasteReadyRaw ? getPasteReadyRaw() : "");
+        setMessage("回复已复制到剪贴板。");
+        flashCopySuccess(copyBtn, {
+          originalSvg: READING_COPY_ICON,
+          originalLabel: "复制回复"
+        });
+      } catch {
+        copyBtn.disabled = true;
+        window.setTimeout(() => {
+          copyBtn.disabled = false;
+        }, 500);
+      }
+    });
+    actions.appendChild(copyBtn);
+
+    const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
+    speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
+    speakBtn.setAttribute("aria-pressed", "false");
+    speakBtn.addEventListener("click", () => {
+      if (content) {
+        void deps.onSpeak?.(speakBtn, content);
+      }
+    });
+    actions.appendChild(speakBtn);
+
+    actions.appendChild(regenerateBtn);
+
+    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
+    exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
+    exportBtn.addEventListener("click", () => {
+      if (historyIndex === undefined) {
+        return;
+      }
+      try {
+        deps.onExport?.(historyIndex, getPasteReadyRaw ? getPasteReadyRaw() : "");
+      } catch (error) {
+        setMessage(`导出失败：${getErrorMessage(error)}`);
+      }
+    });
+    actions.appendChild(exportBtn);
+
+    return actions;
+  }
   // =========================================================================
   // renderAssistantMessage
   // =========================================================================
   function renderAssistantMessage(
     node: HTMLDivElement | null,
     raw: unknown,
-    { sources = [], historyIndex }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}
+    { sources = [], historyIndex, stopped = false }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number; stopped?: boolean } = {}
   ): void {
     if (!node) {
       return;
@@ -1087,67 +1187,14 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     node.appendChild(content);
 
-    function createActionButton(className: string, label: string, icon: string): HTMLButtonElement {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `chat-msg-action-btn ${className}`;
-      button.setAttribute("aria-label", label);
-      button.setAttribute("title", label);
-      button.innerHTML = icon;
-      return button;
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "chat-msg-actions";
-    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
-    copyBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(getPasteReadyRaw());
-        setMessage("回复已复制到剪贴板。");
-        flashCopySuccess(copyBtn, {
-          originalSvg: READING_COPY_ICON,
-          originalLabel: "复制回复"
-        });
-      } catch {
-        copyBtn.disabled = true;
-        window.setTimeout(() => {
-          copyBtn.disabled = false;
-        }, 500);
-      }
+    const actions = createActionBar(node, {
+      stopped,
+      historyIndex,
+      content,
+      getPasteReadyRaw,
+      hasSpeakableContent,
+      cleanedRaw
     });
-    actions.appendChild(copyBtn);
-
-    const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
-    speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
-    speakBtn.setAttribute("aria-pressed", "false");
-    speakBtn.addEventListener("click", () => {
-      void deps.onSpeak?.(speakBtn, content);
-    });
-    actions.appendChild(speakBtn);
-
-    const regenerateBtn = createActionButton("chat-msg-regenerate-btn", "重新生成", READING_RESET_ICON);
-    regenerateBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
-    regenerateBtn.addEventListener("click", () => {
-      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
-        deps.onRegenerate?.(historyIndex, node);
-      }
-    });
-    actions.appendChild(regenerateBtn);
-
-    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
-    exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
-    exportBtn.addEventListener("click", () => {
-      if (historyIndex === undefined) {
-        return;
-      }
-      try {
-        deps.onExport?.(historyIndex, getPasteReadyRaw());
-      } catch (error) {
-        setMessage(`导出失败：${getErrorMessage(error)}`);
-      }
-    });
-    actions.appendChild(exportBtn);
-
     node.appendChild(actions);
   }
   // =========================================================================
@@ -1274,11 +1321,51 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
-        renderAssistantMessage(node, text, { userPrompt, sources: takeTurnSearchSources(node), historyIndex });
+        renderAssistantMessage(node, text, {
+          userPrompt,
+          sources: takeTurnSearchSources(node),
+          historyIndex,
+          stopped: true
+        });
         appendBadge(node, "chat-msg-stopped", label);
         return { raw: text, body: true };
       }
       const state = getTokenStreamState(node);
+      if (state.allThinking.length > 0) {
+        for (const thinking of state.allThinking) {
+          cancelThinkingFrame(thinking);
+          const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
+          if (textNode) {
+            const st = thinkingDisplayStates.get(textNode);
+            if (st) {
+              flushThinkingText(textNode, st);
+            }
+          }
+          thinking.classList.add("chat-thinking-collapsible");
+          thinking.classList.remove("chat-thinking-collapsed");
+          const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
+          if (labelText) {
+            labelText.textContent = "已停止";
+          }
+        }
+        state.uncollapsedThinking = [];
+        if (state.cursor?.parentNode === node) {
+          state.cursor.remove();
+        }
+        if (state.stableEl?.parentNode === node) {
+          state.stableEl.remove();
+        }
+        if (state.tailEl?.parentNode === node) {
+          state.tailEl.remove();
+        }
+        const actions = createActionBar(node, {
+          stopped: true,
+          historyIndex
+        });
+        node.appendChild(actions);
+        appendBadge(node, "chat-msg-stopped", label);
+        return { raw: text, body: false };
+      }
       for (const thinking of state.allThinking) {
         cancelThinkingFrame(thinking);
       }
@@ -1411,7 +1498,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     },
     beginRegeneration,
     setRegenerationDisabled(disabled) {
-      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn").forEach((button) => {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn, .chat-msg-continue-btn").forEach((button) => {
         button.disabled = disabled;
       });
     },
