@@ -76,3 +76,22 @@ export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIcon
   };
   return variants[variant] || variants.orbit;
 }
+
+
+export function buildPlayerLiveQuickActionIconSvg(): string {
+  return `
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="live">
+        <defs>
+          <linearGradient id="biliscript-player-live-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#34d399"></stop>
+            <stop offset="50%" stop-color="#38bdf8"></stop>
+            <stop offset="100%" stop-color="#818cf8"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" stroke="url(#biliscript-player-live-grad)" stroke-width="2.2" fill="none"></path>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="url(#biliscript-player-live-grad)" stroke-width="2.2" fill="none"></path>
+        <line x1="12" y1="19" x2="12" y2="22" stroke="url(#biliscript-player-live-grad)" stroke-width="2.2" stroke-linecap="round"></line>
+        <circle cx="12" cy="7" r="1.2" fill="#ffffff" stroke="none"></circle>
+      </svg>
+  `;
+}

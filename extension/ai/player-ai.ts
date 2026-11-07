@@ -1,7 +1,11 @@
 // 候选03 常驻瘦身：setMessage 迁入 core/ui-status.js，player-ai 动态 chunk
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
 import { setMessage } from "../core/ui-status.js";
-import { buildPlayerAiQuickActionIconSvg } from "../ui/icons.js";
+import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
+import { isPlayerFullscreen } from "../bilibili/fullscreen.js";
+import { ensureReaderShell } from "../reader/lazy-shell.js";
+import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
+import { isReaderViewOpen } from "../reader/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -318,9 +322,11 @@ function schedulePlayerAiQuickActionRetry(): void {
 
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
+  const existingLive = document.getElementById("biliscript-player-live-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
 
   let button: HTMLButtonElement | null = existing instanceof HTMLButtonElement ? existing : null;
+  let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
   if (!wrap) {
     wrap = document.createElement("div");
@@ -337,9 +343,19 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
   }
+  if (!liveButton) {
+    liveButton = document.createElement("button");
+    liveButton.id = "biliscript-player-live-quick-action";
+    liveButton.type = "button";
+    liveButton.className = "biliscript-player-ai-quick-action biliscript-player-live-quick-action";
+    liveButton.title = "实时伴看";
+    liveButton.setAttribute("aria-label", "实时伴看");
+    liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
+    liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
+  }
 
-  if (button.parentElement !== wrap) {
-    wrap.replaceChildren(button);
+  if (button.parentElement !== wrap || liveButton.parentElement !== wrap) {
+    wrap.replaceChildren(button, liveButton);
   }
   if (wrap.parentElement !== playerHost) {
     playerHost.appendChild(wrap);
@@ -436,6 +452,7 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  document.getElementById("biliscript-player-live-quick-action")?.remove();
   document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
 }
 
@@ -575,12 +592,16 @@ function syncPlayerAiQuickActionVisuals(button: HTMLElement): void {
     return;
   }
   const wrap = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-  [wrap, button].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
+  const liveButton = wrap?.querySelector("#biliscript-player-live-quick-action");
+  [wrap, button, liveButton].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
     node.style.setProperty("--biliscript-player-ai-action-hit-size", `${PLAYER_AI_HIT_SIZE_PX}px`);
     node.style.setProperty("--biliscript-player-ai-action-color", PLAYER_AI_BASE_COLOR);
     node.style.setProperty("--biliscript-player-ai-action-hover-color", PLAYER_AI_BASE_COLOR);
   });
   button.style.setProperty("--biliscript-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
+  if (liveButton instanceof HTMLElement) {
+    liveButton.style.setProperty("--biliscript-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
+  }
 }
 
 async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> {
@@ -618,6 +639,48 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     playerAiState.setSubmitting(false);
     if (button) {
       button.disabled = false;
+    }
+  }
+}
+
+async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
+  event.preventDefault();
+  event.stopPropagation();
+  if (playerAiState.playerAiQuickActionSubmitting) {
+    return;
+  }
+
+  const liveButton = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  if (liveButton) {
+    liveButton.disabled = true;
+  }
+  playerAiState.setSubmitting(true);
+
+  try {
+    const host = findPlayerAiQuickActionHost();
+    const fullscreen = isPlayerFullscreen(host);
+
+    if (fullscreen) {
+      const chat = await ensureReaderChatTab();
+      const overlay = chat.getFullscreenLiveOverlay();
+      overlay?.show();
+      await chat.startLiveCompanion();
+      overlay?.show();
+    } else {
+      if (!isReaderViewOpen()) {
+        const shell = await ensureReaderShell();
+        await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
+      }
+      const chat = await ensureReaderChatTab();
+      await chat.ensureChatTabActivated({ consumeIntent: false });
+      await chat.startLiveCompanion();
+    }
+  } catch (error) {
+    setMessage(`实时伴看启动失败：${getErrorMessage(error)}`);
+  } finally {
+    playerAiState.setSubmitting(false);
+    if (liveButton) {
+      liveButton.disabled = false;
     }
   }
 }
