@@ -88,11 +88,31 @@ const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 // 结果变化，落回全量路径重挂到新宿主，按钮样式按现状跟着重同步。
 // 任一不成立都落回全量路径——按钮被 B 站重渲染摘掉、宿主被替换、wrap 被移走
 // 都是失同步，必须走原 rAF / 退避兜底补回。
+function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  const liveButton = document.getElementById("biliscript-player-live-quick-action");
+  if (!liveWrap || !liveButton || !liveWrap.isConnected || liveButton.parentElement !== liveWrap) {
+    return false;
+  }
+  const qualityNode = findQualityControlNode(playerHost);
+  if (qualityNode && qualityNode.parentElement) {
+    return liveWrap.parentElement === qualityNode.parentElement && liveWrap.nextElementSibling === qualityNode;
+  }
+  const bottomRight = findControlBottomRightNode(playerHost);
+  if (bottomRight) {
+    return liveWrap.parentElement === bottomRight;
+  }
+  return liveWrap.parentElement === playerHost;
+}
+
 function isPlayerAiQuickActionMountedStable(): boolean {
   const wrap = playerAiQuickActionMountedWrap;
   const host = playerAiQuickActionMountedHost;
   const button = wrap?.firstElementChild;
   if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
+    return false;
+  }
+  if (!isPlayerLiveQuickActionMountedStable(host)) {
     return false;
   }
   return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
@@ -320,13 +340,97 @@ function schedulePlayerAiQuickActionRetry(): void {
   schedulePlayerAiQuickActionSync(delay);
 }
 
+function findQualityControlNode(playerHost: HTMLElement): Element | null {
+  const controlRoots = [
+    playerHost.querySelector(".bpx-player-control-bottom-right"),
+    playerHost.querySelector(".bpx-player-control-wrap"),
+    document.querySelector(".bpx-player-control-bottom-right"),
+    document.querySelector(".bpx-player-control-wrap")
+  ].filter((n): n is Element => Boolean(n));
+
+  for (const root of controlRoots) {
+    const direct = root.querySelector(".bpx-player-ctrl-quality");
+    if (direct) {
+      return direct;
+    }
+    const candidates = Array.from(root.querySelectorAll(".bpx-player-ctrl-btn, button, [role='button']"));
+    for (const child of candidates) {
+      const text = [
+        child.getAttribute("aria-label"),
+        child.getAttribute("title"),
+        child.getAttribute("data-text"),
+        child.textContent,
+        typeof child.className === "string" ? child.className : ""
+      ].join(" ");
+      if (/清晰度|4K|1080P|720P|480P|360P|超清|高清|高码率/i.test(text)) {
+        return child;
+      }
+    }
+  }
+  return null;
+}
+
+function findControlBottomRightNode(playerHost: HTMLElement): Element | null {
+  return (
+    playerHost.querySelector(".bpx-player-control-bottom-right") ||
+    playerHost.querySelector(".bpx-player-control-wrap") ||
+    document.querySelector(".bpx-player-control-bottom-right") ||
+    document.querySelector(".bpx-player-control-wrap")
+  );
+}
+
+function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
+  const existingLive = document.getElementById("biliscript-player-live-quick-action");
+  let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
+  const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  let liveWrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+
+  if (!liveWrap) {
+    liveWrap = document.createElement("div");
+    liveWrap.id = "biliscript-player-live-quick-action-wrap";
+    liveWrap.className = "bpx-player-ctrl-btn biliscript-player-live-quick-action-wrap";
+    liveWrap.setAttribute("data-biliscript-extension-node", "live-quick-action");
+  }
+
+  if (!liveButton) {
+    liveButton = document.createElement("button");
+    liveButton.id = "biliscript-player-live-quick-action";
+    liveButton.type = "button";
+    liveButton.className = "biliscript-player-live-quick-action";
+    liveButton.title = "实时伴看";
+    liveButton.setAttribute("aria-label", "实时伴看");
+    liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
+    liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
+  }
+
+  if (liveButton.parentElement !== liveWrap) {
+    liveWrap.replaceChildren(liveButton);
+  }
+
+  const qualityNode = findQualityControlNode(playerHost);
+  if (qualityNode && qualityNode.parentElement) {
+    if (liveWrap.parentElement !== qualityNode.parentElement || liveWrap.nextElementSibling !== qualityNode) {
+      qualityNode.parentElement.insertBefore(liveWrap, qualityNode);
+    }
+  } else {
+    const bottomRight = findControlBottomRightNode(playerHost);
+    if (bottomRight) {
+      if (liveWrap.parentElement !== bottomRight || liveWrap !== bottomRight.firstElementChild) {
+        bottomRight.insertBefore(liveWrap, bottomRight.firstElementChild);
+      }
+    } else {
+      if (liveWrap.parentElement !== playerHost) {
+        playerHost.appendChild(liveWrap);
+      }
+    }
+  }
+}
+
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
-  const existingLive = document.getElementById("biliscript-player-live-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
 
   let button: HTMLButtonElement | null = existing instanceof HTMLButtonElement ? existing : null;
-  let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
   if (!wrap) {
     wrap = document.createElement("div");
@@ -343,25 +447,18 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
   }
-  if (!liveButton) {
-    liveButton = document.createElement("button");
-    liveButton.id = "biliscript-player-live-quick-action";
-    liveButton.type = "button";
-    liveButton.className = "biliscript-player-ai-quick-action biliscript-player-live-quick-action";
-    liveButton.title = "实时伴看";
-    liveButton.setAttribute("aria-label", "实时伴看");
-    liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
-    liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
-  }
 
-  if (button.parentElement !== wrap || liveButton.parentElement !== wrap) {
-    wrap.replaceChildren(button, liveButton);
+  if (button.parentElement !== wrap) {
+    wrap.replaceChildren(button);
   }
   if (wrap.parentElement !== playerHost) {
     playerHost.appendChild(wrap);
   }
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
+
+  mountPlayerLiveQuickAction(playerHost);
+
   // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
   playerAiQuickActionMountedWrap = wrap;
   playerAiQuickActionMountedHost = playerHost;
@@ -452,6 +549,7 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-live-quick-action")?.remove();
   document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
 }
@@ -592,16 +690,12 @@ function syncPlayerAiQuickActionVisuals(button: HTMLElement): void {
     return;
   }
   const wrap = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-  const liveButton = wrap?.querySelector("#biliscript-player-live-quick-action");
-  [wrap, button, liveButton].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
+  [wrap, button].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
     node.style.setProperty("--biliscript-player-ai-action-hit-size", `${PLAYER_AI_HIT_SIZE_PX}px`);
     node.style.setProperty("--biliscript-player-ai-action-color", PLAYER_AI_BASE_COLOR);
     node.style.setProperty("--biliscript-player-ai-action-hover-color", PLAYER_AI_BASE_COLOR);
   });
   button.style.setProperty("--biliscript-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
-  if (liveButton instanceof HTMLElement) {
-    liveButton.style.setProperty("--biliscript-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
-  }
 }
 
 async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> {

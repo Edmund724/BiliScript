@@ -76,7 +76,18 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     vi.restoreAllMocks();
   });
 
-  it("在播放器 wrap 内挂载实时伴看按钮，位于 AI 快捷按钮下方", async () => {
+  it("实时伴看按钮独立挂载于底部控制栏清晰度控件左侧，不与 AI 快捷按钮共用 wrap", async () => {
+    const controlWrap = document.createElement("div");
+    controlWrap.className = "bpx-player-control-wrap";
+    const controlBottomRight = document.createElement("div");
+    controlBottomRight.className = "bpx-player-control-bottom-right";
+    const qualityBtn = document.createElement("div");
+    qualityBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-quality";
+    qualityBtn.textContent = "1080P 高码率";
+    controlBottomRight.appendChild(qualityBtn);
+    controlWrap.appendChild(controlBottomRight);
+    playerContainer.appendChild(controlWrap);
+
     const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
 
     schedulePlayerAiQuickActionSync(0);
@@ -84,18 +95,24 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     const aiButton = document.getElementById("biliscript-player-ai-quick-action");
     const liveButton = document.getElementById("biliscript-player-live-quick-action");
-    const wrap = playerContainer.querySelector(".biliscript-player-ai-wrap");
+    const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+    const aiWrap = playerContainer.querySelector(".biliscript-player-ai-wrap");
 
     expect(aiButton).not.toBeNull();
     expect(liveButton).not.toBeNull();
-    expect(wrap).not.toBeNull();
+    expect(liveWrap).not.toBeNull();
+    expect(aiWrap).not.toBeNull();
 
-    expect(wrap?.children[0]).toBe(aiButton);
-    expect(wrap?.children[1]).toBe(liveButton);
+    expect(aiWrap?.children[0]).toBe(aiButton);
+    expect(aiWrap?.contains(liveButton)).toBe(false);
+
+    expect(liveWrap?.children[0]).toBe(liveButton);
+    expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");
 
     stopPlayerAiQuickAction();
     expect(document.getElementById("biliscript-player-live-quick-action")).toBeNull();
+    expect(document.getElementById("biliscript-player-live-quick-action-wrap")).toBeNull();
     expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
   });
 
