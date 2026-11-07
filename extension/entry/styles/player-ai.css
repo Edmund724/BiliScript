@@ -318,11 +318,12 @@
   backdrop-filter: var(--biliscript-live-glass-filter);
   -webkit-backdrop-filter: var(--biliscript-live-glass-filter);
   border: none;
-  border-radius: 14px;
+  border-radius: var(--biliscript-radius-14, var(--biliscript-primitive-radius-14, 14px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-live-glass-rim);
   color: var(--biliscript-live-glass-ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
+  font-size: var(--biliscript-font-size-sm-md, 13px);
   z-index: 99999;
   overflow: hidden;
   box-sizing: border-box;
@@ -382,13 +383,13 @@
   gap: 6px;
   background: rgb(255 255 255 / 0.1);
   border: none;
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill, 999px);
   box-shadow:
     inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.34),
     inset 0 0 0 0.5px rgb(255 255 255 / 0.16);
   padding: 3px 9px;
   color: var(--biliscript-live-glass-ink);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm, 12px);
   cursor: pointer;
   transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 }
@@ -398,34 +399,34 @@
 }
 
 .live-overlay-status-capsule:hover {
-  background: rgba(239, 68, 68, 0.28);
+  background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.28);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgba(254, 202, 202, 0.45),
-    inset 0 0 0 0.5px rgba(239, 68, 68, 0.45);
-  color: #fca5a5;
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90), 0.45),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.45);
+  color: rgb(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90));
 }
 
 .live-overlay-status-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
 
 .live-overlay-status-dot.is-connecting,
 .live-overlay-status-dot.is-reconnecting {
-  background: #f59e0b;
+  background: var(--biliscript-primitive-color-amber-500, rgb(var(--biliscript-primitive-color-amber-500-rgb, 255, 159, 10)));
   animation: live-overlay-pulse 1s infinite alternate;
 }
 
 .live-overlay-status-dot.is-failure {
-  background: #ef4444;
+  background: var(--biliscript-reader-danger, rgb(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37)));
 }
 
 .live-overlay-status-capsule.is-talking .live-overlay-status-dot {
-  background: #38bdf8;
-  box-shadow: 0 0 8px #38bdf8;
+  background: rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248));
+  box-shadow: 0 0 8px rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248));
   transform: scale(1.3);
 }
 
@@ -444,11 +445,12 @@
 .live-overlay-icon-btn {
   background: transparent;
   border: none;
-  color: #ffffff;
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   opacity: 0.72;
   mix-blend-mode: var(--biliscript-live-glass-ink-blend);
   padding: 4px;
-  border-radius: 6px;
+  border-radius: var(--biliscript-radius-6, var(--biliscript-primitive-radius-6, 6px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -477,7 +479,8 @@
   backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   -webkit-backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   border: none;
-  border-radius: 10px;
+  border-radius: var(--biliscript-radius-10, var(--biliscript-primitive-radius-10, 10px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 8px 10px;
   box-shadow:
     inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.36),
@@ -500,7 +503,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--biliscript-font-size-xs, 11px);
   color: var(--biliscript-live-glass-ink);
 }
 
@@ -511,7 +514,7 @@
 .live-overlay-switch {
   width: 32px;
   height: 18px;
-  border-radius: 9px;
+  border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill, 999px));
   background: rgb(255 255 255 / 0.22);
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.2);
   border: none;
@@ -528,14 +531,14 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
+  background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   transition: transform 0.2s ease;
 }
 
 .live-overlay-switch.is-active,
 .live-overlay-switch[aria-checked="true"] {
-  background: #10b981;
+  background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.28);
 }
 
@@ -565,8 +568,9 @@
 .live-overlay-bubble {
   max-width: 82%;
   padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 12.5px;
+  border-radius: var(--biliscript-radius-md, var(--biliscript-primitive-radius-12, 12px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  font-size: var(--biliscript-font-size-sm, 12.5px);
   line-height: 1.45;
   word-break: break-word;
   box-sizing: border-box;
@@ -574,8 +578,8 @@
 
 .live-overlay-bubble-user {
   align-self: flex-end;
-  background: #10b981;
-  color: #ffffff;
+  background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   border-bottom-right-radius: 2px;
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.28),
@@ -607,21 +611,22 @@
   border: none;
   color: var(--biliscript-live-glass-ink-secondary);
   mix-blend-mode: var(--biliscript-live-glass-ink-blend);
-  font-size: 11px;
+  font-size: var(--biliscript-font-size-xs, 11px);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   transition: color 0.15s ease, background 0.15s ease;
 }
 
 .live-overlay-clear-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.14);
+  color: var(--biliscript-reader-danger, rgb(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37)));
+  background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.14);
   mix-blend-mode: normal;
 }
 
 .biliscript-fullscreen-live-overlay :where(button):focus-visible {
-  outline: 2px solid #38bdf8;
+  outline: 2px solid rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248));
   outline-offset: 2px;
 }
 
