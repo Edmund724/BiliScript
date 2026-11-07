@@ -223,17 +223,19 @@
 }
 
 .biliscript-player-live-quick-action-wrap {
-  align-items: center;
-  box-sizing: content-box;
-  display: inline-flex;
-  height: 22px;
-  justify-content: center;
-  line-height: 22px;
-  margin: 0 4px;
-  min-width: 22px;
+  margin: 0;
+  padding: 0;
   position: relative;
-  vertical-align: top;
   z-index: 10;
+}
+
+.biliscript-player-live-quick-action-wrap .bpx-player-ctrl-btn-icon {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  min-width: 32px;
+  height: 100%;
 }
 
 #biliscript-player-live-quick-action {
@@ -246,18 +248,18 @@
   box-sizing: border-box;
   color: #ffffff;
   cursor: pointer;
-  display: inline-flex;
+  display: flex;
   flex: 0 0 auto;
-  height: 22px;
-  width: 22px;
+  height: 100%;
+  width: 100%;
   justify-content: center;
-  line-height: 22px;
+  line-height: 0;
   margin: 0;
   min-width: 0;
   overflow: visible;
-  padding: 0;
+  padding: 0 4px;
   position: relative;
-  opacity: 0.88;
+  opacity: 0.9;
   transition:
     transform 0.15s ease-out,
     color 0.15s ease-out,
@@ -265,8 +267,8 @@
 }
 
 #biliscript-player-live-quick-action svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   display: block;
   flex: 0 0 auto;
   overflow: visible;

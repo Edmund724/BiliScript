@@ -91,7 +91,7 @@ const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
   const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
   const liveButton = document.getElementById("biliscript-player-live-quick-action");
-  if (!liveWrap || !liveButton || !liveWrap.isConnected || liveButton.parentElement !== liveWrap) {
+  if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
     return false;
   }
   const qualityNode = findQualityControlNode(playerHost);
@@ -392,6 +392,13 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     liveWrap.setAttribute("data-biliscript-extension-node", "live-quick-action");
   }
 
+  let iconWrap = liveWrap.querySelector(".bpx-player-ctrl-btn-icon");
+  if (!iconWrap) {
+    iconWrap = document.createElement("div");
+    iconWrap.className = "bpx-player-ctrl-btn-icon";
+    liveWrap.appendChild(iconWrap);
+  }
+
   if (!liveButton) {
     liveButton = document.createElement("button");
     liveButton.id = "biliscript-player-live-quick-action";
@@ -403,8 +410,8 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
   }
 
-  if (liveButton.parentElement !== liveWrap) {
-    liveWrap.replaceChildren(liveButton);
+  if (liveButton.parentElement !== iconWrap) {
+    iconWrap.replaceChildren(liveButton);
   }
 
   const qualityNode = findQualityControlNode(playerHost);

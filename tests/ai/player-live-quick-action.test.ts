@@ -106,7 +106,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(aiWrap?.children[0]).toBe(aiButton);
     expect(aiWrap?.contains(liveButton)).toBe(false);
 
-    expect(liveWrap?.children[0]).toBe(liveButton);
+    expect(liveWrap?.contains(liveButton)).toBe(true);
     expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");
 

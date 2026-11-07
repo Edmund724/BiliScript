@@ -80,11 +80,11 @@ export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIcon
 
 export function buildPlayerLiveQuickActionIconSvg(): string {
   return `
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="live" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="9" y="3" width="6" height="11" rx="3"></rect>
-        <path d="M5 10a7 7 0 0 0 14 0"></path>
-        <line x1="12" y1="17" x2="12" y2="21"></line>
-        <line x1="8.5" y1="21" x2="15.5" y2="21"></line>
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="live" fill="currentColor">
+        <rect x="9" y="2.5" width="6" height="11" rx="3" fill="currentColor"></rect>
+        <path d="M5 10a7 7 0 0 0 14 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+        <path d="M12 17v4.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+        <path d="M8 21.5h8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
       </svg>
   `;
 }
