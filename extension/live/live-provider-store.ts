@@ -27,6 +27,7 @@ export interface LiveProvider {
   model: string;
   enabled: boolean;
   apiKey?: string;
+  liveGeminiNativeSearch?: boolean;
 }
 
 function isGeminiLive(value: { type?: unknown; presetId?: unknown }): boolean {
@@ -49,7 +50,8 @@ export function normalizeLiveProvider(item: unknown): LiveProvider | null {
     type,
     baseUrl: normalizeBaseUrl(raw.baseUrl) || (gemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn"),
     model: String(raw.model || "").trim() || (gemini ? GEMINI_LIVE_DEFAULT_MODEL : DEFAULT_LIVE_MODEL),
-    enabled: raw.enabled !== false
+    enabled: raw.enabled !== false,
+    ...(gemini && typeof raw.liveGeminiNativeSearch === "boolean" ? { liveGeminiNativeSearch: raw.liveGeminiNativeSearch } : {})
   };
 }
 

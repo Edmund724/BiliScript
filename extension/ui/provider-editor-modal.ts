@@ -34,6 +34,7 @@ import {
 
 import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
+import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
@@ -212,6 +213,7 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     hasSavedKey: state.hasSavedKey,
     models: normalizeDraftModels(draft.models),
     model: draft.model.trim(),
+    liveGeminiNativeSearch: draft.liveGeminiNativeSearch === true,
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
     protocol: normalizeProtocolValue(draft.protocol)
   });
@@ -468,7 +470,8 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
     protocol: isAi ? protocol : "",
     // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
     models: isAi && Array.isArray(item?.models) ? item.models.map(String) : [],
-    model: isAi ? "" : String(item?.model ?? preset?.model ?? "")
+    model: isAi ? "" : String(item?.model ?? preset?.model ?? ""),
+    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false
   };
 }
 
@@ -525,6 +528,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         </div>`
             : `
         ${blocks.model}
+        ${blocks.liveGeminiNativeSearch}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>
@@ -728,6 +732,16 @@ export function wireDialog(): void {
   // 的字段表声明（DRAFT_INPUTS），这里只做一次统一接线。
   // ASR 单模型输入只回写 draft（状态行由 model-picker 自持）；其下拉选值已在
   // model-picker 内补派 input 事件。
+  const geminiSearchInput = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
+  if (geminiSearchInput) {
+    initToggleSwitch(geminiSearchInput);
+    geminiSearchInput.addEventListener("change", () => {
+      editDraft((draft) => {
+        draft.liveGeminiNativeSearch = geminiSearchInput.checked;
+      });
+    });
+  }
+
   for (const field of DRAFT_INPUTS) {
     const input = dialog.querySelector<HTMLInputElement>(field.selector);
     input?.addEventListener("input", () => {

@@ -129,7 +129,6 @@ function collectElements(host: HTMLElement) {
     liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
     liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
-    liveGeminiNativeSearch: byIdIn<HTMLInputElement>(dom.liveGeminiNativeSearch),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -323,14 +322,6 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "aiSystemPrompt",
     getElement: (el) => el.aiSystemPrompt,
     normalize: (val) => String(val || "").trim()
-  },
-  {
-    kind: "toggle",
-    key: "liveGeminiNativeSearch",
-    getElement: (el) => el.liveGeminiNativeSearch,
-    normalize: (val) => val === true,
-    patchState: false,
-    watchSync: true
   },
   {
     kind: "toggle",

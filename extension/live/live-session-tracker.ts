@@ -326,9 +326,11 @@ export class LiveSessionTracker {
         ok: true,
         provider: activeProvider,
         sessionId: targetSessionId,
-        ...(typeof settings.liveGeminiNativeSearch === "boolean"
-          ? { liveGeminiNativeSearch: settings.liveGeminiNativeSearch }
-          : {})
+        ...(typeof activeProvider.liveGeminiNativeSearch === "boolean"
+          ? { liveGeminiNativeSearch: activeProvider.liveGeminiNativeSearch }
+          : typeof settings.liveGeminiNativeSearch === "boolean"
+            ? { liveGeminiNativeSearch: settings.liveGeminiNativeSearch }
+            : {})
       };
     } catch (error) {
       clearCurrentTabOwnershipIfUnchanged();

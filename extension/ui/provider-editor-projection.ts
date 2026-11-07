@@ -26,6 +26,7 @@ import { presetBaseUrlForProtocol } from "../core/presets.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField } from "./model-picker.js";
 import { setCustomSelectValue } from "./custom-select.js";
+import { syncToggleSwitch } from "./toggle-switch.js";
 import { PROVIDER_FAMILY_ROWS, type FamilyEditorDeclaration } from "./provider-family.js";
 import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowPreset } from "./provider-row.js";
@@ -71,6 +72,7 @@ export interface FieldProjection {
   required?: boolean;
   hidden?: boolean;
   text?: string;
+  checked?: boolean;
 }
 
 export type ProjectionFieldKey =
@@ -81,7 +83,8 @@ export type ProjectionFieldKey =
   | "apiKey"
   | "model"
   | "protocolNotes"
-  | "catalogEmpty";
+  | "catalogEmpty"
+  | "liveGeminiNativeSearch";
 
 export type DraftInputKey = "name" | "baseUrl" | "apiKey" | "model";
 
@@ -299,6 +302,42 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (node) node.hidden = projection.hidden === true;
     },
     read: (dialog) => ({ hidden: dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty")?.hidden === true })
+  },
+
+  liveGeminiNativeSearch: {
+    project: (scope, draft) => {
+      const isGeminiLive = scope.ctx.kind === "live" && scope.preset?.id === "gemini-live";
+      return {
+        hidden: !isGeminiLive,
+        checked: isGeminiLive && draft.liveGeminiNativeSearch === true
+      };
+    },
+    html: (projection) =>
+      `<div class="provider-editor-field provider-editor-field-gemini-search" ${projection.hidden ? "hidden" : ""}>
+        <div class="biliscript-toggle-row">
+          <span class="biliscript-toggle-text">Gemini 伴看使用原生 Google 搜索</span>
+          <label class="biliscript-toggle-switch">
+            <input class="provider-editor-gemini-search biliscript-toggle-input" type="checkbox" ${projection.checked ? "checked" : ""} aria-label="Gemini 伴看使用原生 Google 搜索" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>`,
+    apply: (dialog, projection) => {
+      const container = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search");
+      if (container) container.hidden = projection.hidden === true;
+      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
+      if (input && projection.checked !== undefined) {
+        input.checked = projection.checked;
+      }
+    },
+    read: (dialog) => {
+      const container = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search");
+      const input = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
+      return {
+        hidden: container ? container.hidden : true,
+        checked: input ? input.checked : false
+      };
+    }
   }
 };
 

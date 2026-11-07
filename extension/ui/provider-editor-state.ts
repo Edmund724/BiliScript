@@ -42,6 +42,7 @@ export interface EditorDraft {
   protocol: AiProtocol | "";
   models: string[];
   model: string;
+  liveGeminiNativeSearch?: boolean;
 }
 
 // 草稿只读视图（state.draft 对片外的类型）：顶层字段与 models 元素都不可写，
@@ -61,7 +62,8 @@ export function draftsEqual(a: EditorDraftView, b: EditorDraftView): boolean {
     a.protocol === b.protocol &&
     a.model === b.model &&
     a.models.length === b.models.length &&
-    a.models.every((model, index) => model === b.models[index])
+    a.models.every((model, index) => model === b.models[index]) &&
+    Boolean(a.liveGeminiNativeSearch) === Boolean(b.liveGeminiNativeSearch)
   );
 }
 

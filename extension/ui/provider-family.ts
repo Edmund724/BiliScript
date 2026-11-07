@@ -51,6 +51,7 @@ export interface EditorUpsertFields {
   model: string;
   // 协议下拉收敛值（usesProtocol 族；他族忽略）
   protocol: AiProtocol;
+  liveGeminiNativeSearch?: boolean;
 }
 
 export interface FamilyEditorDeclaration {
@@ -304,7 +305,7 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     usesProtocol: false,
     supportsPlatformTest: true,
     resolvePermissionOrigins: resolveMossLivePermissionOrigins,
-    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
+    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model, liveGeminiNativeSearch }) => ({
       upsert: {
         id,
         presetId: preset?.id || "moss-live",
@@ -313,7 +314,8 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
         baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
         model: model || preset?.model || "moss-live-1.0",
         apiKey,
-        hasSavedKey
+        hasSavedKey,
+        ...(preset?.id === "gemini-live" ? { liveGeminiNativeSearch: liveGeminiNativeSearch === true } : {})
       }
     })
   }

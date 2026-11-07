@@ -66,6 +66,7 @@ export interface ProviderRowItem {
   // 平台协议（multi-protocol-ai）：编辑 Modal 预填/回写；宽松 string，合法性
   // 由编辑 Modal 经注册表词表收敛。
   protocol?: string;
+  liveGeminiNativeSearch?: boolean;
 }
 
 // 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset

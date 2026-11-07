@@ -146,48 +146,31 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     expect(sent.some((message) => message.type === "live-providers-save")).toBe(false);
   });
 
-  it("在实时伴看平台分区底部渲染“Gemini 伴看使用原生 Google 搜索”开关、双向同步且不随恢复默认偏好重置", async () => {
-    const { DEFAULT_SETTINGS } = await import("../../extension/core/defaults.js");
-    expect(DEFAULT_SETTINGS.liveGeminiNativeSearch).toBe(false);
-
+  it("全局区不渲染原生搜索开关，仅在编辑 Gemini Live Modal 中显示并在保存时落盘", async () => {
     const { host, sent } = await mountPanel();
-    const toggle = host.querySelector<HTMLInputElement>("#liveGeminiNativeSearch")!;
-    expect(toggle).toBeTruthy();
+    expect(host.querySelector("#liveGeminiNativeSearch")).toBeNull();
+
+    click(host.querySelector("#liveProvidersList .provider-row-edit"));
+    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const searchField = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search")!;
+    expect(searchField).toBeTruthy();
+    expect(searchField.hidden).toBe(false);
+
+    const toggle = searchField.querySelector<HTMLInputElement>(".provider-editor-gemini-search")!;
     expect(toggle.checked).toBe(false);
-    expect(toggle.dataset.toggleSwitchInitialized).toBe("1");
-    const rowLabel = toggle.closest(".biliscript-toggle-row")?.querySelector(".biliscript-toggle-text");
-    expect(rowLabel?.textContent).toBe("Gemini 伴看使用原生 Google 搜索");
 
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(
-      sent.some(
-        (msg) =>
-          msg.type === "save-settings" &&
-          (msg.settings as Record<string, unknown>)?.liveGeminiNativeSearch === true
-      )
-    ).toBe(true);
 
-    click(host.querySelector("#biliscriptSettingsResetBtn"));
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-confirm")).toBeTruthy());
-    click(document.querySelector(".confirm-dialog-confirm"));
-
+    click(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
-      expect(sent.filter((msg) => msg.type === "save-settings").length).toBeGreaterThanOrEqual(2);
+      expect(sent.some((msg) => msg.type === "live-providers-save")).toBe(true);
     });
-    const resetMsg = sent
-      .filter((msg) => msg.type === "save-settings")
-      .at(-1) as { settings?: Record<string, unknown> } | undefined;
-    expect(resetMsg?.settings).toBeTruthy();
-    expect(resetMsg?.settings).not.toHaveProperty("liveGeminiNativeSearch");
-    expect(toggle.checked).toBe(true);
 
-    const listeners = (
-      (globalThis.chrome.storage.onChanged.addListener as unknown as { mock: { calls: Array<[(changes: Record<string, { newValue: unknown }>, areaName: string) => void]> } }).mock.calls
-    ).map((call) => call[0]);
-    for (const listener of listeners) {
-      listener({ liveGeminiNativeSearch: { newValue: false } }, "sync");
-    }
-    expect(toggle.checked).toBe(false);
+    const saveMsg = sent.find((msg) => msg.type === "live-providers-save") as {
+      providers?: Array<{ liveGeminiNativeSearch?: boolean }>;
+    };
+    expect(saveMsg?.providers?.[0]?.liveGeminiNativeSearch).toBe(true);
   });
 });
