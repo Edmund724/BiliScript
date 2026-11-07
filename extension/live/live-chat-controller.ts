@@ -39,6 +39,15 @@ import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messa
 
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 
+export interface LiveReconnectingInfo {
+  attempt: number;
+  maxAttempts: number;
+  code?: number;
+  reason?: string;
+  error?: string;
+  notice: string;
+}
+
 export interface LiveChatControllerDeps {
   liveButton?: HTMLElement | null;
   muteButton?: HTMLElement | null;
@@ -51,6 +60,7 @@ export interface LiveChatControllerDeps {
   onInterruptStateChange?: (active: boolean) => void;
   onStateChange?: (state: LiveChatState, error?: string) => void;
   onSpeakingChange?: (speaking: boolean) => void;
+  onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
   onVideoAudioStatusChange?: (status: VideoAudioTrackStatus) => void;
   getTargetOrigin?: () => string;
@@ -74,6 +84,7 @@ export interface LiveChatController {
   getSavedSessionId?(): string | null;
   isMuted(): boolean;
   isSpeaking(): boolean;
+  isReconnecting?(): boolean;
   getVideoAudioStatus(): VideoAudioTrackStatus;
   isMicVadActive(): boolean;
   setShareVideoAudio(enabled: boolean): void;
@@ -102,6 +113,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     onInterruptStateChange,
     onStateChange,
     onSpeakingChange,
+    onReconnecting,
     onVadStateChange,
     onVideoAudioStatusChange,
     getTargetOrigin,
@@ -136,6 +148,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeSessionId: string | null = null;
   let savedMossSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
+  let reconnecting = false;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
@@ -208,6 +221,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function updateUi(nextState: LiveChatState, errorMessage?: string): void {
     state = nextState;
+    if (nextState !== "connecting") {
+      reconnecting = false;
+    }
     if (nextState !== "connected") {
       muted = false;
       speaking = false;
@@ -558,6 +574,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           showNotice(`联网查证失败${querySuffix}${event.error ? `：${event.error}` : ""}`, 6000);
         }
       } else if (msg.type === "reconnecting") {
+        reconnecting = true;
         const notice = formatLiveCloseDiagnostics({
           isReconnect: true,
           attempt: msg.attempt,
@@ -568,6 +585,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         });
         updateUi("connecting", notice);
         showNotice(notice, 6000);
+        onReconnecting?.({
+          attempt: msg.attempt,
+          maxAttempts: msg.maxAttempts,
+          code: msg.code,
+          reason: msg.reason,
+          error: msg.error,
+          notice
+        });
       } else if (msg.type === "error") {
         const errorMsg = formatLiveCloseDiagnostics({
           code: msg.code,
@@ -739,6 +764,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     isMuted: () => muted,
     isSpeaking: () => speaking,
+    isReconnecting: () => reconnecting,
     getVideoAudioStatus: () => activeAudioCapture?.getVideoAudioStatus() ?? "未开启",
     isMicVadActive: () => activeAudioCapture?.isMicVadActive() ?? false,
     setShareVideoAudio: (enabled: boolean) => activeAudioCapture?.setShareVideoAudio(enabled),

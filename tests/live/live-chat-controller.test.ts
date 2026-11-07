@@ -942,6 +942,7 @@ describe("LiveChatController video context and page tools", () => {
     it("displays reconnecting Chinese notice with WebSocket code and reason", async () => {
       const fakePort = new FakePort();
       const showNotice = vi.fn();
+      const onReconnecting = vi.fn();
       const liveBtn = document.createElement("button");
       const controller = createLiveChatController({
         liveButton: liveBtn,
@@ -952,12 +953,14 @@ describe("LiveChatController video context and page tools", () => {
           : { ok: true }) as any,
         startAudioCapture: async (opts) => new FakeAudioCapture(opts),
         startVideoCapture: () => new FakeVideoCapture({ onJpegFrame: () => {} }),
-        showNotice
+        showNotice,
+        onReconnecting
       });
 
       await controller.start();
       fakePort.simulateMessage({ type: "connected" });
       expect(controller.getState()).toBe("connected");
+      expect(controller.isReconnecting?.()).toBe(false);
 
       // Port emits reconnecting event
       fakePort.simulateMessage({
@@ -970,6 +973,15 @@ describe("LiveChatController video context and page tools", () => {
       });
 
       expect(controller.getState()).toBe("connecting");
+      expect(controller.isReconnecting?.()).toBe(true);
+      expect(onReconnecting).toHaveBeenCalledWith({
+        attempt: 1,
+        maxAttempts: 3,
+        code: 1006,
+        reason: "Connection reset",
+        error: "Relay 连接中断",
+        notice: expect.stringContaining("第 1/3 次")
+      });
       expect(showNotice).toHaveBeenCalledWith(
         expect.stringContaining("关闭码: 1006"),
         6000
@@ -986,6 +998,11 @@ describe("LiveChatController video context and page tools", () => {
         expect.stringContaining("第 1/3 次"),
         6000
       );
+
+      // Reset upon connected
+      fakePort.simulateMessage({ type: "connected" });
+      expect(controller.getState()).toBe("connected");
+      expect(controller.isReconnecting?.()).toBe(false);
     });
 
     it("displays failure diagnostics with close code, reason, and relay error on closed message", async () => {

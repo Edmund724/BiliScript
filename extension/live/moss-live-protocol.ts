@@ -637,18 +637,20 @@ export type MossLiveClientAction =
   | { action: "mic_state"; enabled: boolean };
 
 /** Offscreen 端口下行（Offscreen -> Client）消息 */
+export interface LiveReconnectingEvent {
+  type: "reconnecting";
+  attempt: number;
+  maxAttempts: number;
+  code?: number;
+  reason?: string;
+  error?: string;
+}
+
 export type MossLiveServerEvent =
   | { type: "connecting" }
   | { type: "connected"; sessionId?: string }
   | { type: "session_attached"; sessionId: string }
-  | {
-      type: "reconnecting";
-      attempt: number;
-      maxAttempts: number;
-      code?: number;
-      reason?: string;
-      error?: string;
-    }
+  | LiveReconnectingEvent
   | { type: "speaking_state"; speaking: boolean }
   | { type: "error"; error: string; code?: number | string; reason?: string }
   | { type: "closed"; code?: number; reason?: string; error?: string }

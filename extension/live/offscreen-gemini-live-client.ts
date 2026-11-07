@@ -144,6 +144,7 @@ export interface GeminiLiveClientOptions {
   onConnecting?: () => void;
   onConnected?: () => void;
   onDuckVideo?: (active: boolean) => void;
+  onReconnecting?: (attempt: number, maxAttempts: number, info?: { code?: number; reason?: string; error?: string }) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onSpeakingState?: (speaking: boolean) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
@@ -314,6 +315,13 @@ export class OffscreenGeminiLiveClient {
         break;
       case "connected":
         this.options.onConnected?.();
+        break;
+      case "reconnecting":
+        this.options.onReconnecting?.(event.attempt, event.maxAttempts, {
+          code: event.code,
+          reason: event.reason,
+          error: event.error
+        });
         break;
       case "duck_video":
         this.options.onDuckVideo?.(event.active);

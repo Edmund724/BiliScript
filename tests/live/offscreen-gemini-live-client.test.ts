@@ -1087,4 +1087,32 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     vi.advanceTimersByTime(1500);
     expect(ws.jsonFrames()).toHaveLength(0);
   });
+
+  it("forwards reconnecting events to onReconnecting callback", () => {
+    const reconnectingEvents: any[] = [];
+    const { client } = createClient({
+      onReconnecting: (attempt, maxAttempts, info) => {
+        reconnectingEvents.push({ attempt, maxAttempts, ...info });
+      }
+    });
+
+    (client as any).emit({
+      type: "reconnecting",
+      attempt: 2,
+      maxAttempts: 3,
+      code: 1006,
+      reason: "Abnormal Closure",
+      error: "WebSocket error"
+    });
+
+    expect(reconnectingEvents).toEqual([
+      {
+        attempt: 2,
+        maxAttempts: 3,
+        code: 1006,
+        reason: "Abnormal Closure",
+        error: "WebSocket error"
+      }
+    ]);
+  });
 });
