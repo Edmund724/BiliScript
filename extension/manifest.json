@@ -50,12 +50,17 @@
         "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/watchlater",
         "https://www.bilibili.com/list/watchlater/",
-        "https://www.bilibili.com/list/watchlater/*",
-        "https://live.bilibili.com/*"
+        "https://www.bilibili.com/list/watchlater/*"
       ],
       "js": ["entry/content-bootstrap.iife.js"],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": ["https://live.bilibili.com/*"],
+      "js": ["entry/content-bootstrap.iife.js"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [
