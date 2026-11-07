@@ -102,11 +102,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.syncState("connected", true); // reconnecting
     expect(statusText?.textContent).toBe("重连中...");
 
-    const capsule = overlay.getElement()?.querySelector(".live-overlay-status-capsule") as HTMLButtonElement;
+    const capsule = overlay.getElement()?.querySelector(".live-overlay-status-capsule") as HTMLElement;
     capsule.click();
 
-    expect(onStopLive).toHaveBeenCalledTimes(1);
-    expect(overlay.isVisible()).toBe(false);
+    expect(onStopLive).not.toHaveBeenCalled();
+    expect(overlay.isVisible()).toBe(true);
   });
 
   it("麦克风语音活动（VAD）动效类切换", () => {

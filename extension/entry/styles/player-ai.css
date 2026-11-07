@@ -481,20 +481,10 @@
   padding: 3px 9px;
   color: var(--biliscript-live-glass-ink);
   font-size: var(--biliscript-font-size-sm, 12px);
-  cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 }
 
 .live-overlay-status-text {
   mix-blend-mode: var(--biliscript-live-glass-ink-blend);
-}
-
-.live-overlay-status-capsule:hover {
-  background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.28);
-  box-shadow:
-    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90), 0.45),
-    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.45);
-  color: rgb(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90));
 }
 
 .live-overlay-status-dot {

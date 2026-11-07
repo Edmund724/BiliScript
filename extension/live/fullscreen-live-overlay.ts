@@ -159,7 +159,7 @@ export interface FullscreenLiveOverlay {
 
 export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): FullscreenLiveOverlay {
   let rootEl: HTMLElement | null = null;
-  let statusCapsuleEl: HTMLButtonElement | null = null;
+  let statusCapsuleEl: HTMLElement | null = null;
   let statusDotEl: HTMLElement | null = null;
   let statusTextEl: HTMLElement | null = null;
   let micBtnEl: HTMLButtonElement | null = null;
@@ -209,11 +209,24 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let lastLensSizeKey = "";
   let lensUpdateSeq = 0;
 
+  function getMountHost(): HTMLElement {
+    const fullscreenElement =
+      document.fullscreenElement ||
+      (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+    if (fullscreenElement instanceof HTMLElement) {
+      return fullscreenElement;
+    }
+    return deps.getPlayerHost() || document.body;
+  }
+
   function ensureLensSvg(host: HTMLElement): SVGSVGElement | null {
     if (!supportsBackdropSvgLens()) {
       return null;
     }
     if (lensSvgEl && lensSvgEl.isConnected) {
+      if (lensSvgEl.parentElement !== host) {
+        host.appendChild(lensSvgEl);
+      }
       return lensSvgEl;
     }
     const existingSvg = host.querySelector(`svg[data-biliscript-lens-for="${lensFilterId}"]`) as SVGSVGElement | null;
@@ -269,7 +282,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       return;
     }
 
-    const host = deps.getPlayerHost() || document.body;
+    const host = getMountHost();
     const svg = ensureLensSvg(host);
     if (!svg) {
       return;
@@ -330,11 +343,17 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   }
 
   function ensureMounted(): HTMLElement {
+    const host = getMountHost();
     if (rootEl && rootEl.isConnected) {
+      if (rootEl.parentElement !== host) {
+        host.appendChild(rootEl);
+      }
+      if (miniCapsuleEl && miniCapsuleEl.parentElement !== host) {
+        host.appendChild(miniCapsuleEl);
+      }
       return rootEl;
     }
 
-    const host = deps.getPlayerHost() || document.body;
     let existing = host.querySelector("#biliscript-fullscreen-live-overlay") as HTMLElement | null;
     let existingCapsule = host.querySelector(".biliscript-fullscreen-live-mini-capsule") as HTMLElement | null;
     if (existing) {
@@ -353,10 +372,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     overlay.setAttribute("data-biliscript-extension-node", "fullscreen-live-overlay");
     overlay.innerHTML = `
       <div class="live-overlay-header">
-        <button type="button" class="live-overlay-status-capsule" title="点击结束伴看" aria-label="点击结束伴看">
+        <div class="live-overlay-status-capsule">
           <span class="live-overlay-status-dot"></span>
           <span class="live-overlay-status-text">正在陪看</span>
-        </button>
+        </div>
         <div class="live-overlay-header-actions">
           <button type="button" class="live-overlay-icon-btn live-overlay-mic-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
             <svg class="live-overlay-icon-mic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -522,17 +541,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (header) {
       header.addEventListener("pointerdown", onDragStart);
     }
-
-    // 头部胶囊点击：结束伴看
-    statusCapsuleEl?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (deps.onStopLive) {
-        deps.onStopLive();
-      } else {
-        void deps.getLiveController()?.stop();
-      }
-      hide();
-    });
 
     // 麦克风静音切换
     micBtnEl?.addEventListener("click", (e) => {
@@ -728,7 +736,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     capsuleDragStartY = e.clientY;
 
     const rect = miniCapsuleEl.getBoundingClientRect();
-    const host = deps.getPlayerHost() || document.body;
+    const host = getMountHost();
     const hostRect = host.getBoundingClientRect();
 
     capsuleInitialLeft = rect.left - hostRect.left;
@@ -751,7 +759,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       capsuleMoved = true;
     }
 
-    const host = deps.getPlayerHost() || document.body;
+    const host = getMountHost();
     const hostRect = host.getBoundingClientRect();
     const rect = miniCapsuleEl.getBoundingClientRect();
 
@@ -791,7 +799,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     dragStartY = e.clientY;
 
     const rect = rootEl.getBoundingClientRect();
-    const host = deps.getPlayerHost() || document.body;
+    const host = getMountHost();
     const hostRect = host.getBoundingClientRect();
 
     initialLeft = rect.left - hostRect.left;
@@ -811,7 +819,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     const deltaX = e.clientX - dragStartX;
     const deltaY = e.clientY - dragStartY;
 
-    const host = deps.getPlayerHost() || document.body;
+    const host = getMountHost();
     const hostRect = host.getBoundingClientRect();
     const rect = rootEl.getBoundingClientRect();
 
