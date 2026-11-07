@@ -1,36 +1,16 @@
-// 回归（content 双实例缺陷）：reader-bus 在 content 两轮构建（scripts/build-content.js）
-// 里有两份实例——常驻包 content-main.mjs 一份、懒加载区共享 chunk 一份。订阅原先
-// 注册在常驻微模块 init-essentials 的 bindReaderPresenter（content.ts 调），而发布方
-// （subtitle/fetcher、subtitle/commit）都在懒加载区——通知永远到不了 reader 域：
-// 字幕已落账、列表已渲染（对账重渲兜住），状态行却停在「正在获取可用字幕...」，
-// 永远等不到「抓取完成…」。修复：订阅随发布方搬进 reader/lifecycle.ts 的模块求值期
-// （域装载即注册）。
+// Presenter seam 在 reader 域自注册（双实例缺陷回归测试）。
 //
-// 本用例只装载 reader 域、不装载 content.ts 的常驻接线——正是生产里的实例分工
-//（常驻侧订阅收不到懒加载区的通知），修复前必失败。
+// 缺陷背景：lifecycle.js 曾将 notifyReaderPresenter 订阅放在「仅打开阅读视图才
+// 跑」的路径里，而 presenter 是模块级单例；若在阅读视图打开前有抓取完成通知，
+// 状态行和字幕列表都丢通知。修复后由 lifecycle 模块求值期顶层注册。
+//
+// 依赖：setup（READER_MODE_URL）、reader-skeleton、reader/reader-bus、
+// reader/index（触发域装载）。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
-
-// 概览触发电打替身：lifecycle 内部经局部绑定调用具名入口，mock 模块导出的手法
-// 拦不到——在协调器工厂层包 trigger spy（lifecycle 装配实例时拿到替身）。
-const { overviewTriggerSpy } = vi.hoisted(() => ({
-  overviewTriggerSpy: vi.fn(() => Promise.resolve())
-}));
-vi.mock("../../extension/reader/overview-coordinator.js", async (importActual) => {
-  const actual = await importActual<
-    typeof import("../../extension/reader/overview-coordinator.js")
-  >();
-  return {
-    ...actual,
-    createOverviewCoordinator: ((deps: Parameters<typeof actual.createOverviewCoordinator>[0]) =>
-      Object.assign(actual.createOverviewCoordinator(deps), {
-        trigger: overviewTriggerSpy
-      })) as typeof actual.createOverviewCoordinator
-  };
-});
 
 let state: TestState;
 let ids: typeof import("../../extension/reader/state.js").ids;
@@ -49,13 +29,22 @@ beforeEach(async () => {
   await import("../../extension/reader/index.js");
 });
 
+afterEach(() => {
+  document.body.innerHTML = "";
+  vi.restoreAllMocks();
+});
+
 describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () => {
-  it("status 通知直达状态行：「抓取完成…」不再丢失", () => {
-    presenter.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
+  it("status 通知直达状态行：操作通知正常到达，抓取提示被抑制", () => {
+    presenter.notifyReaderPresenter({ kind: "status", text: "已连接远程会话。" });
 
     expect(document.getElementById(ids.readingStatus)?.textContent).toBe(
-      "抓取完成，可以复制或下载字幕。"
+      "已连接远程会话。"
     );
+
+    presenter.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
+
+    expect(document.getElementById(ids.readingStatus)?.textContent).toBe("");
   });
 
   it("subtitle-ready 通知渲染字幕列表（域内处理体可达）", () => {
@@ -65,8 +54,5 @@ describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () =
     presenter.notifyReaderPresenter({ kind: "subtitle-ready" });
 
     expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
-    // 状态行文案由同一条通知先写「抓取完成，阅读视图已同步最新字幕。」（2026-09
-    // 决议后播放同步 tick 不再改写状态行，故此处只断言列表，状态行路径由上一
-    // 用例钉住）。
   });
 });
