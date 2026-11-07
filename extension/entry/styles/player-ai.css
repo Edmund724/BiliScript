@@ -672,26 +672,22 @@
 }
 
 
-/* 直播间实时伴看：播放器内的开关按钮与提示（复用伴看视觉体系） */
+/* 直播间实时伴看：下方控制栏开关与播放器提示 */
 .biliscript-live-room-toggle {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 2147483000;
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: var(--biliscript-radius-pill, 999px);
+  height: 100%;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
   color: hsla(0, 0%, 100%, 0.85);
-  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.65);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: transparent;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.9;
   box-sizing: border-box;
   outline: none;
   transition:
@@ -701,6 +697,22 @@
     color 0.15s ease-out,
     filter 0.2s ease-out,
     transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+}
+
+.biliscript-live-room-toggle.is-floating {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483000;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--biliscript-radius-pill, 999px);
+  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
 }
 
 .biliscript-live-room-toggle svg {

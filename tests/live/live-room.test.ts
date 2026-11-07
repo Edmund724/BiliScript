@@ -116,15 +116,25 @@ describe("直播间提示词与工具声明", () => {
 
 
 describe("直播间伴看开关按钮", () => {
-  it("复用伴看统一的麦克风图标与无障碍标签", async () => {
+  it("挂载到现行直播控制栏扩展位，复用伴看图标与无障碍标签", async () => {
     const host = document.createElement("div");
     host.id = "live-player";
+    const controller = document.createElement("div");
+    controller.className = "live-web-player-controller";
+    const rightArea = document.createElement("div");
+    rightArea.className = "right-area";
+    const controls = document.createElement("div");
+    controls.className = "ext-nodes";
+    rightArea.appendChild(controls);
+    controller.appendChild(rightArea);
+    host.appendChild(controller);
     document.body.appendChild(host);
 
     await startLiveRoomCompanion();
 
     const btn = host.querySelector<HTMLButtonElement>(".biliscript-live-room-toggle");
     expect(btn).not.toBeNull();
+    expect(btn?.parentElement).toBe(controls);
     expect(btn?.innerHTML).toBe(buildPlayerLiveQuickActionIconSvg());
     expect(btn?.getAttribute("aria-label")).toBe("实时伴看");
     expect(btn?.title).toBe("实时伴看");

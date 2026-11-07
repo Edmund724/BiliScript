@@ -61,20 +61,39 @@ function syncToggleButton(liveState: string): void {
 
 function mountToggleButton(): void {
   const host = findPlayerHost() || document.body;
-  if (toggleButton?.isConnected && toggleButton.parentElement === host) return;
-  toggleButton?.remove();
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = TOGGLE_BUTTON_CLASS;
-  button.setAttribute("data-biliscript-extension-node", "live-room-toggle");
-  button.setAttribute("aria-label", "实时伴看");
-  button.title = "实时伴看";
-  button.innerHTML = buildPlayerLiveQuickActionIconSvg();
-  button.addEventListener("click", () => {
-    void controller?.toggle();
-  });
-  host.appendChild(button);
-  toggleButton = button;
+  const modernControls = host.querySelector<HTMLElement>(".live-web-player-controller .right-area .ext-nodes");
+  const legacyControls =
+    host.querySelector<HTMLElement>(".bpx-player-control-bottom-right") ||
+    document.querySelector<HTMLElement>(".bpx-player-control-bottom-right");
+  const controls = modernControls || legacyControls;
+  const quality = !modernControls && controls?.querySelector(".bpx-player-ctrl-quality") || null;
+  const target = quality?.parentElement || controls || host;
+
+  if (!toggleButton) {
+    toggleButton = document.createElement("button");
+    toggleButton.type = "button";
+    toggleButton.className = `${TOGGLE_BUTTON_CLASS} bpx-player-ctrl-btn`;
+    toggleButton.setAttribute("data-biliscript-extension-node", "live-room-toggle");
+    toggleButton.setAttribute("aria-label", "实时伴看");
+    toggleButton.title = "实时伴看";
+    toggleButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
+    toggleButton.addEventListener("click", () => {
+      void controller?.toggle();
+    });
+  }
+
+  toggleButton.classList.toggle("is-floating", !controls);
+  if (quality) {
+    if (toggleButton.parentElement !== target || toggleButton.nextElementSibling !== quality) {
+      target.insertBefore(toggleButton, quality);
+    }
+  } else if (controls) {
+    if (toggleButton.parentElement !== controls || toggleButton !== controls.firstElementChild) {
+      controls.insertBefore(toggleButton, controls.firstElementChild);
+    }
+  } else if (toggleButton.parentElement !== host) {
+    host.appendChild(toggleButton);
+  }
   syncToggleButton(controller?.getState() ?? "idle");
 }
 
