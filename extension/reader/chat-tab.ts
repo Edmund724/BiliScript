@@ -525,13 +525,13 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   onStreamInterrupted: () => {
-    if (!preservingLiveSessionOnContextSwitch) {
+    if (!preservingLiveSessionOnContextSwitch && isLiveSessionActive()) {
       if (unobserveFullscreen) {
-    unobserveFullscreen();
-    unobserveFullscreen = null;
-  }
-  liveOverlayBinding.dispose();
-  liveController?.dispose();
+        unobserveFullscreen();
+        unobserveFullscreen = null;
+      }
+      liveOverlayBinding.dispose();
+      liveController?.dispose();
     }
     chatRuntime.resetStreamState();
     resetConversationView();

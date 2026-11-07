@@ -25,6 +25,7 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
   afterEach(async () => {
     const { closeChatSession } = await import("../../extension/reader/chat-tab.js");
     closeChatSession();
+    await new Promise((resolve) => setTimeout(resolve, 20));
     document.body.innerHTML = "";
     vi.restoreAllMocks();
   });
@@ -83,31 +84,59 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
     expect(messages?.querySelector(".live-overlay-bubble-assistant")?.textContent).toBe("这是主角");
   });
 
-  it("全屏与退出全屏无缝切换：进入全屏挂起面板并展示浮窗，退出全屏恢复面板并隐藏浮窗", async () => {
-    const { ensureChatTabActivated, ensureFullscreenOverlay } = await import("../../extension/reader/chat-tab.js");
-    await ensureChatTabActivated();
-    const overlay = ensureFullscreenOverlay();
+  describe("伴看进行中切换全屏", () => {
+    async function startConnectedCompanion() {
+      const chat = await import("../../extension/reader/chat-tab.js");
+      await chat.ensureChatTabActivated();
+      const liveCtrl = chat.getLiveController();
+      expect(liveCtrl).not.toBeNull();
+      vi.spyOn(liveCtrl!, "start").mockImplementation(async () => {
+        vi.spyOn(liveCtrl!, "getState").mockReturnValue("connected");
+        return true;
+      });
 
-    // 模拟开启伴看
-    const liveCtrl = (await import("../../extension/reader/chat-tab.js")).getLiveController();
-    if (liveCtrl) {
-      vi.spyOn(liveCtrl, "getState").mockReturnValue("connected");
+      expect(await chat.startLiveCompanion()).toBe(true);
+      expect(chat.getFullscreenLiveOverlay()).toBeNull();
+      return chat;
     }
 
-    // 1. 进入网页全屏
-    playerContainer.setAttribute("data-screen", "web");
-    window.dispatchEvent(new Event("resize"));
-    await new Promise((r) => setTimeout(r, 20));
+    async function expectPanelRestored() {
+      const { isReaderViewOpen } = await import("../../extension/reader/state.js");
+      await vi.waitFor(() => expect(isReaderViewOpen()).toBe(true));
+    }
 
-    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
-    expect(overlay.isVisible()).toBe(true);
+    afterEach(() => {
+      Object.defineProperty(document, "fullscreenElement", { value: null, configurable: true });
+    });
 
-    // 2. 退出全屏
-    playerContainer.removeAttribute("data-screen");
-    window.dispatchEvent(new Event("resize"));
-    await new Promise((r) => setTimeout(r, 20));
+    it("进入网页全屏时自动创建浮窗，退出后恢复面板", async () => {
+      const chat = await startConnectedCompanion();
 
-    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
-    expect(overlay.isVisible()).toBe(false);
+      playerContainer.setAttribute("data-screen", "web");
+      await vi.waitFor(() => expect(chat.getFullscreenLiveOverlay()?.isVisible()).toBe(true));
+      const overlay = chat.getFullscreenLiveOverlay();
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
+
+      playerContainer.removeAttribute("data-screen");
+      await vi.waitFor(() => expect(overlay?.isVisible()).toBe(false));
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
+      await expectPanelRestored();
+    });
+
+    it("进入浏览器全屏时自动创建浮窗，退出后恢复面板", async () => {
+      const chat = await startConnectedCompanion();
+
+      Object.defineProperty(document, "fullscreenElement", { value: playerContainer, configurable: true });
+      document.dispatchEvent(new Event("fullscreenchange"));
+      await vi.waitFor(() => expect(chat.getFullscreenLiveOverlay()?.isVisible()).toBe(true));
+      const overlay = chat.getFullscreenLiveOverlay();
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
+
+      Object.defineProperty(document, "fullscreenElement", { value: null, configurable: true });
+      document.dispatchEvent(new Event("fullscreenchange"));
+      await vi.waitFor(() => expect(overlay?.isVisible()).toBe(false));
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
+      await expectPanelRestored();
+    });
   });
 });
