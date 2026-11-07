@@ -392,10 +392,16 @@
 #biliscript-reading-view .biliscript-reading-settings-host .search-chain-actions-bar .add-property-btn {
   height: 28px;
   padding: 0 var(--biliscript-space-10);
-  border: 1px solid var(--biliscript-reader-border);
+  border: 1px solid transparent;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-card);
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-actions-bar .add-property-btn:hover:not(:disabled) {
+  border-color: var(--biliscript-reader-border);
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-row[aria-expanded="true"] .biliscript-entry-chevron {
