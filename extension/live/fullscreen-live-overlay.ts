@@ -135,6 +135,8 @@ export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
   getChatHistory?: () => Array<{ role: string; content: string }>;
+  getVolume?: () => number;
+  onVolumeChange?: (volume: number) => void;
   onStopLive?: () => void;
   onClearHistory?: () => Promise<void> | void;
 }
@@ -160,9 +162,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let statusCapsuleEl: HTMLButtonElement | null = null;
   let statusDotEl: HTMLElement | null = null;
   let statusTextEl: HTMLElement | null = null;
+  let micBtnEl: HTMLButtonElement | null = null;
   let audioBtnEl: HTMLButtonElement | null = null;
   let audioPopEl: HTMLElement | null = null;
-  let muteSwitchEl: HTMLButtonElement | null = null;
+  let volumeSliderEl: HTMLInputElement | null = null;
+  let volumeValueEl: HTMLElement | null = null;
   let shareAudioSwitchEl: HTMLButtonElement | null = null;
   let voicePrioritySwitchEl: HTMLButtonElement | null = null;
   let minBtnEl: HTMLButtonElement | null = null;
@@ -354,6 +358,19 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
           <span class="live-overlay-status-text">正在陪看</span>
         </button>
         <div class="live-overlay-header-actions">
+          <button type="button" class="live-overlay-icon-btn live-overlay-mic-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
+            <svg class="live-overlay-icon-mic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="22"></line>
+            </svg>
+            <svg class="live-overlay-icon-mic-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23"></line>
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+              <line x1="12" y1="19" x2="12" y2="22"></line>
+            </svg>
+          </button>
           <div class="live-overlay-audio-anchor">
             <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="音频设置" aria-label="音频设置">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -363,10 +380,16 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
               </svg>
             </button>
             <div class="live-overlay-audio-popover" hidden>
-              <div class="live-overlay-pop-item">
-                <span>麦克风</span>
-                <button type="button" role="switch" class="live-overlay-switch live-overlay-mute-switch" aria-label="切换麦克风静音"></button>
+              <div class="live-overlay-pop-item live-overlay-pop-volume-item">
+                <div class="live-overlay-pop-volume-head">
+                  <span>伴看音量</span>
+                  <span class="live-overlay-volume-value">100%</span>
+                </div>
+                <div class="live-overlay-volume-track-row">
+                  <input type="range" class="live-overlay-volume-slider" min="0" max="100" step="1" value="100" style="--live-progress: 100%;" aria-label="伴看音量" />
+                </div>
               </div>
+              <div class="live-overlay-pop-divider"></div>
               <div class="live-overlay-pop-item">
                 <span>把视频声音也分享给 Agent</span>
                 <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="把视频声音也分享给 Agent"></button>
@@ -437,9 +460,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     statusCapsuleEl = overlay.querySelector(".live-overlay-status-capsule");
     statusDotEl = overlay.querySelector(".live-overlay-status-dot");
     statusTextEl = overlay.querySelector(".live-overlay-status-text");
+    micBtnEl = overlay.querySelector(".live-overlay-mic-btn");
     audioBtnEl = overlay.querySelector(".live-overlay-audio-btn");
     audioPopEl = overlay.querySelector(".live-overlay-audio-popover");
-    muteSwitchEl = overlay.querySelector(".live-overlay-mute-switch");
+    volumeSliderEl = overlay.querySelector(".live-overlay-volume-slider");
+    volumeValueEl = overlay.querySelector(".live-overlay-volume-value");
     shareAudioSwitchEl = overlay.querySelector(".live-overlay-share-switch");
     voicePrioritySwitchEl = overlay.querySelector(".live-overlay-priority-switch");
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
@@ -509,6 +534,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       hide();
     });
 
+    // 麦克风静音切换
+    micBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const controller = deps.getLiveController();
+      controller?.toggleMute();
+      syncMicButton();
+    });
+
     // 音频设置菜单展示与切换
     audioBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -523,7 +556,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         }
       }
       if (willOpen) {
-        syncAudioSwitches();
+        syncAudioControls();
       }
     });
 
@@ -531,17 +564,22 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       e.stopPropagation();
     });
 
-    muteSwitchEl?.addEventListener("click", () => {
-      const controller = deps.getLiveController();
-      controller?.toggleMute();
-      syncAudioSwitches();
-    });
+    const onVolumeInput = (e: Event) => {
+      e.stopPropagation();
+      const target = e.target as HTMLInputElement;
+      const val = Math.max(0, Math.min(100, Math.round(Number(target.value) || 0)));
+      syncVolumeDisplay(val);
+      deps.getLiveController()?.setVolume(val / 100);
+      deps.onVolumeChange?.(val);
+    };
+    volumeSliderEl?.addEventListener("input", onVolumeInput);
+    volumeSliderEl?.addEventListener("change", onVolumeInput);
 
     shareAudioSwitchEl?.addEventListener("click", () => {
       const controller = deps.getLiveController();
       if (controller) {
         controller.setShareVideoAudio(!controller.isSharingVideoAudio());
-        syncAudioSwitches();
+        syncAudioControls();
       }
     });
 
@@ -549,7 +587,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       const controller = deps.getLiveController();
       if (controller) {
         controller.setVoicePriority(!controller.isVoicePriority());
-        syncAudioSwitches();
+        syncAudioControls();
       }
     });
 
@@ -606,15 +644,43 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     });
   }
 
-  function syncAudioSwitches(): void {
+  function resolveCurrentVolume(): number {
+    if (deps.getVolume) {
+      return Math.round(Math.max(0, Math.min(100, deps.getVolume())));
+    }
+    const c = deps.getLiveController();
+    if (c?.getVolume) {
+      return Math.round(Math.max(0, Math.min(1, c.getVolume())) * 100);
+    }
+    return 100;
+  }
+
+  function syncVolumeDisplay(val: number): void {
+    if (volumeSliderEl) {
+      volumeSliderEl.value = String(val);
+      volumeSliderEl.style.setProperty("--live-progress", `${val}%`);
+    }
+    if (volumeValueEl) {
+      volumeValueEl.textContent = `${val}%`;
+    }
+  }
+
+  function syncMicButton(): void {
+    const controller = deps.getLiveController();
+    if (!controller || !micBtnEl) return;
+    const isMuted = controller.isMuted();
+    micBtnEl.setAttribute("aria-pressed", String(isMuted));
+    micBtnEl.setAttribute("title", isMuted ? "取消静音麦克风" : "麦克风静音");
+    micBtnEl.setAttribute("aria-label", isMuted ? "取消静音麦克风" : "麦克风静音");
+  }
+
+  function syncAudioControls(): void {
     const controller = deps.getLiveController();
     if (!controller) return;
 
-    if (muteSwitchEl) {
-      const isMuted = controller.isMuted();
-      muteSwitchEl.setAttribute("aria-checked", String(!isMuted));
-      muteSwitchEl.classList.toggle("is-active", !isMuted);
-    }
+    syncMicButton();
+    syncVolumeDisplay(resolveCurrentVolume());
+
     if (shareAudioSwitchEl) {
       const share = controller.isSharingVideoAudio();
       shareAudioSwitchEl.setAttribute("aria-checked", String(share));
@@ -867,7 +933,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       statusTextEl.textContent = "已就绪";
     }
 
-    syncAudioSwitches();
+    syncAudioControls();
   }
 
   function updateVad(active: boolean): void {
@@ -882,6 +948,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
     if (miniCapsuleDotEl) {
       miniCapsuleDotEl.classList.toggle("is-talking", active);
+    }
+    if (micBtnEl) {
+      const isMuted = deps.getLiveController()?.isMuted() ?? false;
+      micBtnEl.classList.toggle("is-talking", active && !isMuted);
     }
   }
 

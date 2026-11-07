@@ -31,6 +31,8 @@ export interface LiveOverlayBindingOptions {
   onBeforeAutoShow?: () => void;
   onVoicePrioritySync?: (enabled: boolean) => void;
   onShareVideoAudioSync?: (enabled: boolean) => void;
+  getVolume?: () => number;
+  onVolumeSync?: (volumePercent: number) => void;
   createOverlay?: typeof createFullscreenLiveOverlay;
 }
 
@@ -52,12 +54,23 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   const createOverlayFn = options.createOverlay ?? createFullscreenLiveOverlay;
   let overlay: FullscreenLiveOverlay | null = null;
 
+  function handleVolumeChange(volumePercent: number): void {
+    options.onVolumeSync?.(volumePercent);
+    state.patchSettings({ liveVoiceVolume: volumePercent });
+    void sendRuntimeMessage({
+      type: "save-settings",
+      settings: { liveVoiceVolume: volumePercent }
+    }).catch(() => null);
+  }
+
   function ensureOverlay(): FullscreenLiveOverlay {
     if (!overlay) {
       overlay = createOverlayFn({
         getPlayerHost,
         getLiveController: options.getLiveController,
         getChatHistory: options.getChatHistory,
+        getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
+        onVolumeChange: handleVolumeChange,
         onStopLive: () => {
           void options.getLiveController()?.stop();
         },

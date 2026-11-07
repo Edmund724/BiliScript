@@ -291,6 +291,15 @@ const liveOverlayBinding = createLiveOverlayBinding({
       els.liveBarShareAudioSwitch.dataset.on = String(nextOn);
       els.liveBarShareAudioSwitch.setAttribute("aria-checked", String(nextOn));
     }
+  },
+  onVolumeSync: (val) => {
+    if (els.liveBarVolumeInput) {
+      els.liveBarVolumeInput.value = String(val);
+      els.liveBarVolumeInput.style.setProperty("--live-progress", `${val}%`);
+    }
+    if (els.liveBarVolumeValue) {
+      els.liveBarVolumeValue.textContent = `${val}%`;
+    }
   }
 });
 

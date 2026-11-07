@@ -103,6 +103,7 @@ export interface LiveChatController {
   isDucked(): boolean;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
+  getVolume(): number;
   setSpeed(speed: number): void;
   getSpeed(): number;
   toggleMute(): void;
@@ -865,6 +866,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     isDucked: () => isDucked,
     setMuted,
     setVolume,
+    getVolume: () => volume,
     setSpeed,
     getSpeed: () => speed,
     toggleMute,

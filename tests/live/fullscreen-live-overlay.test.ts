@@ -32,6 +32,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     let muted = false;
     let shareAudio = true;
     let voicePriority = true;
+    let volume = 0.8;
     let state = "connected" as const;
 
     mockController = {
@@ -39,6 +40,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       isMuted: () => muted,
       toggleMute: vi.fn(() => {
         muted = !muted;
+      }),
+      getVolume: () => volume,
+      setVolume: vi.fn((val: number) => {
+        volume = val;
       }),
       isSharingVideoAudio: () => shareAudio,
       setShareVideoAudio: vi.fn((val: boolean) => {
@@ -114,35 +119,60 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show();
 
     const capsule = overlay.getElement()?.querySelector(".live-overlay-status-capsule");
+    const micBtn = overlay.getElement()?.querySelector(".live-overlay-mic-btn");
     expect(capsule?.classList.contains("is-talking")).toBe(false);
+    expect(micBtn?.classList.contains("is-talking")).toBe(false);
 
     overlay.updateVad(true);
     expect(capsule?.classList.contains("is-talking")).toBe(true);
+    expect(micBtn?.classList.contains("is-talking")).toBe(true);
 
     overlay.updateVad(false);
     expect(capsule?.classList.contains("is-talking")).toBe(false);
+    expect(micBtn?.classList.contains("is-talking")).toBe(false);
   });
 
-  it("音频快捷设置入口弹出与切换（静音、原声分享、语音优先）", () => {
+  it("独立麦克风按钮与音频二级设置（音量滑轨、原声分享、语音优先）", () => {
+    const onVolumeChange = vi.fn();
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
+      onVolumeChange,
       onStopLive,
       onClearHistory
     });
     overlay.show();
 
+    // 1. 喇叭左侧独立的麦克风按钮切换静音
+    const micBtn = overlay.getElement()?.querySelector(".live-overlay-mic-btn") as HTMLButtonElement;
+    expect(micBtn).not.toBeNull();
+    expect(micBtn.getAttribute("aria-pressed")).toBe("false");
+
+    micBtn.click();
+    expect(mockController.toggleMute).toHaveBeenCalled();
+    expect(micBtn.getAttribute("aria-pressed")).toBe("true");
+
+    // 2. 喇叭按钮点击弹出二级菜单
     const audioBtn = overlay.getElement()?.querySelector(".live-overlay-audio-btn") as HTMLButtonElement;
     const popover = overlay.getElement()?.querySelector(".live-overlay-audio-popover") as HTMLElement;
-
     expect(popover.hidden).toBe(true);
     audioBtn.click();
     expect(popover.hidden).toBe(false);
 
-    const muteSwitch = popover.querySelector(".live-overlay-mute-switch") as HTMLButtonElement;
-    muteSwitch.click();
-    expect(mockController.toggleMute).toHaveBeenCalled();
+    // 3. 二级菜单内音量滑轨调节
+    const volumeSlider = popover.querySelector(".live-overlay-volume-slider") as HTMLInputElement;
+    const volumeValue = popover.querySelector(".live-overlay-volume-value") as HTMLElement;
+    expect(volumeSlider).not.toBeNull();
+    expect(volumeSlider.value).toBe("80");
+    expect(volumeValue.textContent).toBe("80%");
 
+    volumeSlider.value = "65";
+    volumeSlider.dispatchEvent(new Event("input"));
+    expect(mockController.setVolume).toHaveBeenCalledWith(0.65);
+    expect(onVolumeChange).toHaveBeenCalledWith(65);
+    expect(volumeValue.textContent).toBe("65%");
+
+    // 4. 原声分享与语音优先开关切换
     const shareSwitch = popover.querySelector(".live-overlay-share-switch") as HTMLButtonElement;
     shareSwitch.click();
     expect(mockController.setShareVideoAudio).toHaveBeenCalledWith(false);
