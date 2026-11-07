@@ -686,11 +686,14 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 36px;
-  height: 100%;
-  min-height: 36px;
-  padding: 0 4px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  margin: 0 2px;
+  padding: 3px;
   border: 0;
+  border-radius: var(--biliscript-radius-6, var(--biliscript-primitive-radius-6, 6px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   color: hsla(0, 0%, 100%, 0.85);
   background: transparent;
   cursor: pointer;
@@ -711,8 +714,10 @@
   top: 16px;
   right: 16px;
   z-index: 2147483000;
+  width: 36px;
   height: 36px;
   min-height: 0;
+  margin: 0;
   padding: 0;
   border: 1px solid rgba(var(--biliscript-primitive-color-white-rgb), 0.14);
   border-radius: var(--biliscript-radius-pill, 999px);
@@ -723,8 +728,8 @@
 }
 
 .biliscript-live-room-toggle svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: block;
   flex: 0 0 auto;
   overflow: visible;
@@ -742,7 +747,6 @@
 .biliscript-live-room-toggle:hover {
   color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   border-color: rgba(var(--biliscript-primitive-color-blue-500-rgb), 0.45);
-  transform: scale(1.06);
 }
 
 .biliscript-live-room-toggle:active {
@@ -752,14 +756,11 @@
 .biliscript-live-room-toggle.is-active {
   color: var(--biliscript-primitive-color-gemini-purple-dark);
   background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
-  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .biliscript-live-room-toggle.is-active:hover {
   color: var(--biliscript-primitive-color-gemini-purple-light);
   background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2);
-  transform: scale(1.06);
 }
 .biliscript-live-room-notice {
   position: absolute;
