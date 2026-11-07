@@ -1930,3 +1930,143 @@ describe("MossAudioPlayer parameterized sampleRate & enablePlaybackReceipts", ()
     expect(onStateChange).toHaveBeenCalled();
   });
 });
+
+describe("MOSS session_id persistence and auto-reconnect", () => {
+  it("saves session_id upon receiving session_attached and emits session_attached event", () => {
+    const onSessionAttached = vi.fn();
+    const onConnected = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      onSessionAttached,
+      onConnected
+    });
+
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "sess_moss_12345" }
+    }));
+
+    expect(client.getSessionId()).toBe("sess_moss_12345");
+    expect(onSessionAttached).toHaveBeenCalledWith("sess_moss_12345");
+    expect(onConnected).toHaveBeenCalledWith("sess_moss_12345");
+  });
+
+  it("clears session_id when stop action is received or client is closed", () => {
+    const client = new OffscreenMossLiveClient();
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "sess_moss_to_clear" }
+    }));
+    expect(client.getSessionId()).toBe("sess_moss_to_clear");
+
+    client.handleAction({ action: "stop" });
+    expect(client.getSessionId()).toBeNull();
+    expect(client.getState()).toBe("idle");
+  });
+
+  it("automatically reconnects with saved session_id on unexpected close (up to 3 times)", async () => {
+    const onReconnecting = vi.fn();
+    const onClosed = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      reconnectDelayMs: 0,
+      onReconnecting,
+      onClosed
+    });
+
+    client.connect();
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "sess_reconnect_test" }
+    }));
+    expect(client.getState()).toBe("connected");
+
+    // 1st unexpected close
+    ws.close(1006, "Abnormal network drop");
+    expect(onReconnecting).toHaveBeenCalledTimes(1);
+    expect(onReconnecting).toHaveBeenLastCalledWith(1, 3, expect.objectContaining({
+      code: 1006,
+      reason: "Abnormal network drop"
+    }));
+    expect(client.getReconnectAttempts()).toBe(1);
+
+    // Verify 1st reconnect socket sends saved session_id in attach_session
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    const firstAttach = JSON.parse(ws.sentData[0]);
+    expect(firstAttach).toEqual({
+      action: "attach_session",
+      memory_scope: "session",
+      session_id: "sess_reconnect_test"
+    });
+
+    // 2nd unexpected close
+    ws.close(1001, "Server restarting");
+    expect(onReconnecting).toHaveBeenCalledTimes(2);
+    expect(onReconnecting).toHaveBeenLastCalledWith(2, 3, expect.objectContaining({
+      code: 1001,
+      reason: "Server restarting"
+    }));
+    expect(client.getReconnectAttempts()).toBe(2);
+
+    // 3rd unexpected close
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.close(1006, "Relay timeout");
+    expect(onReconnecting).toHaveBeenCalledTimes(3);
+    expect(onReconnecting).toHaveBeenLastCalledWith(3, 3, expect.objectContaining({
+      code: 1006,
+      reason: "Relay timeout"
+    }));
+    expect(client.getReconnectAttempts()).toBe(3);
+
+    // 4th failure (after 3 reconnect attempts exhausted): must enter closed terminal state
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.close(1006, "Final failure");
+    expect(client.getState()).toBe("closed");
+    expect(onClosed).toHaveBeenCalledWith(expect.objectContaining({
+      code: 1006,
+      reason: "Final failure",
+      error: expect.stringContaining("已达最大重连次数 (3 次)")
+    }));
+  });
+
+  it("resets reconnect attempts upon successful session_attached after a reconnect", () => {
+    const onReconnecting = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      reconnectDelayMs: 0,
+      onReconnecting
+    });
+
+    client.connect();
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "sess_recovery" }
+    }));
+
+    // Trigger 1 drop and reconnect
+    ws.close(1006, "Drop 1");
+    expect(client.getReconnectAttempts()).toBe(1);
+
+    // On reconnect, attach succeeds
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "sess_recovery" }
+    }));
+
+    // Reconnect counter should reset to 0
+    expect(client.getReconnectAttempts()).toBe(0);
+    expect(client.getState()).toBe("connected");
+  });
+});

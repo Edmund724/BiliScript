@@ -20,6 +20,8 @@ export const enum MossBinaryTag {
 export type LiveProviderType = "moss-live" | "gemini-live";
 export const DEFAULT_MOSS_LIVE_WS_URL = "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0";
 export const MOSS_LIVE_PORT_NAME = "offscreen-moss-live";
+export const MAX_MOSS_RECONNECT_ATTEMPTS = 3;
+export const DEFAULT_MOSS_RECONNECT_DELAY_MS = 500;
 
 export const DEFAULT_LIVE_VOICE_SPEED = 1.0;
 export const LIVE_VOICE_SPEED_STEPS = [0.75, 1.0, 1.25, 1.5, 2.0] as const;
@@ -622,6 +624,7 @@ export type MossLiveClientAction =
       volume?: number;
       speed?: number;
       videoContext?: MossLiveVideoContext | null;
+      sessionId?: string | null;
     }
   | { action: "set_volume"; volume: number }
   | { action: "set_speed"; speed: number }
@@ -636,12 +639,65 @@ export type MossLiveClientAction =
 /** Offscreen 端口下行（Offscreen -> Client）消息 */
 export type MossLiveServerEvent =
   | { type: "connecting" }
-  | { type: "connected" }
+  | { type: "connected"; sessionId?: string }
+  | { type: "session_attached"; sessionId: string }
+  | {
+      type: "reconnecting";
+      attempt: number;
+      maxAttempts: number;
+      code?: number;
+      reason?: string;
+      error?: string;
+    }
   | { type: "speaking_state"; speaking: boolean }
-  | { type: "error"; error: string }
-  | { type: "closed"; reason?: string }
+  | { type: "error"; error: string; code?: number | string; reason?: string }
+  | { type: "closed"; code?: number; reason?: string; error?: string }
   | { type: "duck_video"; active: boolean }
   | { type: "transcript"; event: MossLiveTranscriptEvent }
   | { type: "tool_call"; call: MossLiveToolCall }
   | { type: "tool_error"; error: string }
   | { type: "tool_status"; event: MossLiveToolStatusEvent };
+
+export interface LiveCloseDiagnosticsOptions {
+  isReconnect?: boolean;
+  attempt?: number;
+  maxAttempts?: number;
+  code?: number | string;
+  reason?: string;
+  error?: string;
+}
+
+/**
+ * 格式化伴看连接断开、失败与自动重连的中文诊断提示，明确展示关闭码、服务端原因及错误详情。
+ */
+export function formatLiveCloseDiagnostics(options: LiveCloseDiagnosticsOptions): string {
+  const parts: string[] = [];
+  if (options.code !== undefined && options.code !== null && String(options.code).trim() !== "") {
+    parts.push(`关闭码: ${options.code}`);
+  }
+  if (options.reason && options.reason.trim()) {
+    parts.push(`原因: ${options.reason.trim()}`);
+  }
+  if (options.error && options.error.trim()) {
+    const trimmedErr = options.error.trim();
+    if (trimmedErr !== options.reason?.trim()) {
+      parts.push(`错误详情: ${trimmedErr}`);
+    }
+  }
+  const detailStr = parts.length > 0 ? `（${parts.join("，")}）` : "";
+
+  if (options.isReconnect) {
+    const attemptStr = options.attempt ? ` (第 ${options.attempt}/${options.maxAttempts ?? MAX_MOSS_RECONNECT_ATTEMPTS} 次)` : "";
+    return `伴看连接已断开${detailStr}，正在尝试自动重连${attemptStr}...`;
+  }
+
+  if (options.attempt && options.maxAttempts && options.attempt >= options.maxAttempts) {
+    return `伴看连接已断开，自动重连 ${options.maxAttempts} 次均失败${detailStr}。`;
+  }
+
+  if (options.code !== undefined || (options.reason && options.reason.trim())) {
+    return `伴看连接已断开${detailStr}。`;
+  }
+
+  return options.error?.trim() || "伴看连接已断开。";
+}

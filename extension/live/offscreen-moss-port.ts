@@ -109,6 +109,7 @@ export function attachMossLivePort(
             ? { liveGeminiNativeSearch: msg.liveGeminiNativeSearch }
             : {}),
           ...(msg.volume !== undefined ? { volume: msg.volume } : {}),
+          ...(msg.sessionId !== undefined ? { sessionId: msg.sessionId } : {}),
           videoContext: latestVideoContext
         });
       } catch (error) {

@@ -18,6 +18,8 @@ import {
 } from "./moss-audio-player.js";
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
+  DEFAULT_MOSS_RECONNECT_DELAY_MS,
+  MAX_MOSS_RECONNECT_ATTEMPTS,
   MossBinaryTag,
   buildMinimalSessionUpdatePayload,
   decodeBase64Bytes,
@@ -97,7 +99,10 @@ export async function executeLiveWebSearch(
 
 export interface OffscreenMossClientOptions {
   wsUrl?: string;
+  sessionId?: string | null;
   videoContext?: MossLiveVideoContext | null;
+  maxReconnectAttempts?: number;
+  reconnectDelayMs?: number;
   handshakeTimeoutMs?: number;
   pageToolTimeoutMs?: number;
   overviewToolTimeoutMs?: number;
@@ -105,14 +110,16 @@ export interface OffscreenMossClientOptions {
   createAudioContext?: () => AudioContextLike | null;
   onEvent?: (event: MossLiveServerEvent) => void;
   onConnecting?: () => void;
-  onConnected?: () => void;
+  onConnected?: (sessionId?: string) => void;
+  onSessionAttached?: (sessionId: string) => void;
+  onReconnecting?: (attempt: number, maxAttempts: number, info?: { code?: number; reason?: string; error?: string }) => void;
   onDuckVideo?: (active: boolean) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onSpeakingState?: (speaking: boolean) => void;
   onToolCall?: (call: MossLiveToolCall) => void;
   onToolStatus?: (event: MossLiveToolStatusEvent) => void;
-  onError?: (error: Error) => void;
-  onClosed?: (event?: { code?: number; reason?: string }) => void;
+  onError?: (error: Error, code?: number | string) => void;
+  onClosed?: (event?: { code?: number; reason?: string; error?: string }) => void;
 }
 
 type ActiveToolCall =
@@ -158,6 +165,12 @@ export class OffscreenMossLiveClient {
   private speaking = false;
   private mediaStreamsInitialized = false;
   private latestVideoJpeg: ArrayBufferLike | null = null;
+  private sessionId: string | null = null;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts: number;
+  private readonly reconnectDelayMs: number;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastSocketError = "";
 
   constructor(options: OffscreenMossClientOptions = {}) {
     this.options = options;
@@ -168,6 +181,9 @@ export class OffscreenMossLiveClient {
     this.overviewToolTimeoutMs =
       options.overviewToolTimeoutMs ?? DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS;
     this.executeWebSearch = options.executeWebSearch ?? executeLiveWebSearch;
+    this.sessionId = options.sessionId || null;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? MAX_MOSS_RECONNECT_ATTEMPTS;
+    this.reconnectDelayMs = options.reconnectDelayMs ?? DEFAULT_MOSS_RECONNECT_DELAY_MS;
     this.audioPlayer = new MossAudioPlayer({
       createAudioContext: options.createAudioContext,
       onSendJson: (payload) => {
@@ -182,18 +198,36 @@ export class OffscreenMossLiveClient {
     });
   }
 
+  getSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
   getState(): MossLiveClientState {
     return this.state;
   }
 
-  private emit(event: MossLiveServerEvent, closeCode?: number): void {
+  private emit(event: MossLiveServerEvent): void {
     this.options.onEvent?.(event);
     switch (event.type) {
       case "connecting":
         this.options.onConnecting?.();
         break;
       case "connected":
-        this.options.onConnected?.();
+        this.options.onConnected?.(event.sessionId);
+        break;
+      case "session_attached":
+        this.options.onSessionAttached?.(event.sessionId);
+        break;
+      case "reconnecting":
+        this.options.onReconnecting?.(event.attempt, event.maxAttempts, {
+          code: event.code,
+          reason: event.reason,
+          error: event.error
+        });
         break;
       case "duck_video":
         this.options.onDuckVideo?.(event.active);
@@ -211,10 +245,10 @@ export class OffscreenMossLiveClient {
         this.options.onToolStatus?.(event.event);
         break;
       case "error":
-        this.options.onError?.(new Error(event.error));
+        const err = new Error(event.error); if (event.code !== undefined) { (err as any).code = event.code; } this.options.onError?.(err);
         break;
       case "closed":
-        this.options.onClosed?.({ code: closeCode, reason: event.reason });
+        this.options.onClosed?.({ code: event.code, reason: event.reason, error: event.error });
         break;
     }
   }
@@ -227,6 +261,13 @@ export class OffscreenMossLiveClient {
     if (this.videoDucked === active) return;
     this.videoDucked = active;
     this.emit({ type: "duck_video", active });
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private clearHandshakeTimer(): void {
@@ -300,6 +341,9 @@ export class OffscreenMossLiveClient {
         if (msg.videoContext !== undefined) {
           this.videoContext = msg.videoContext || null;
         }
+        if (msg.sessionId !== undefined) {
+          this.sessionId = msg.sessionId || null;
+        }
         if (msg.speed !== undefined) {
           this.audioPlayer.setPlaybackRate(msg.speed);
         }
@@ -350,6 +394,9 @@ export class OffscreenMossLiveClient {
         break;
 
       case "stop":
+        this.sessionId = null;
+        this.reconnectAttempts = 0;
+        this.clearReconnectTimer();
         this.close();
         this.emit({ type: "closed" });
         break;
@@ -357,8 +404,9 @@ export class OffscreenMossLiveClient {
   }
 
   connect(): void {
+    this.clearReconnectTimer();
     if (this.state === "connecting" || this.state === "connected") {
-      this.close();
+      this.closeSocket();
     }
     this.disposed = false;
     this.state = "connecting";
@@ -390,7 +438,14 @@ export class OffscreenMossLiveClient {
 
       this.ws.onopen = () => {
         if (this.disposed || this.socketGeneration !== currentGeneration) return;
-        this.sendJson({ action: "attach_session", memory_scope: "session" });
+        const payload: Record<string, unknown> = {
+          action: "attach_session",
+          memory_scope: "session"
+        };
+        if (this.sessionId) {
+          payload.session_id = this.sessionId;
+        }
+        this.sendJson(payload);
       };
 
       this.ws.onmessage = (event) => {
@@ -419,28 +474,104 @@ export class OffscreenMossLiveClient {
       this.ws.onerror = () => {
         if (this.disposed || this.socketGeneration !== currentGeneration) return;
         this.clearHandshakeTimer();
-        this.fail(new Error("WebSocket 连接失败或握手鉴权被拒绝"));
+        this.lastSocketError = "WebSocket 连接失败或握手鉴权被拒绝";
+        if (!this.sessionId) {
+          this.fail(new Error("WebSocket 连接失败或握手鉴权被拒绝"));
+        }
       };
 
       this.ws.onclose = (event) => {
         if (this.disposed || this.socketGeneration !== currentGeneration || this.state === "failed") {
           return;
         }
-        this.clearHandshakeTimer();
-        if (this.state === "connecting") {
-          this.fail(
-            new Error(`WebSocket 连接关闭 (${event.code}: ${event.reason || "握手未完成"})`)
-          );
-        } else {
-          this.state = "closed";
-          this.cancelAllToolCalls();
-          this.stopAndResetAllPlayback();
-          this.emit({ type: "closed", reason: event.reason }, event.code);
-        }
+        this.handleConnectionDrop(event.code, event.reason, null, currentGeneration);
       };
     } catch (error) {
       this.clearHandshakeTimer();
       this.fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private handleConnectionDrop(
+    code: number,
+    reason: string,
+    error: Error | null,
+    generation: number
+  ): void {
+    if (this.disposed || this.socketGeneration !== generation) {
+      return;
+    }
+    this.clearHandshakeTimer();
+    const wasConnected = this.state === "connected";
+    const errorText = error?.message || this.lastSocketError || "";
+    this.lastSocketError = "";
+
+    if (code === 1000) {
+      this.state = "closed";
+      this.sessionId = null;
+      this.reconnectAttempts = 0;
+      this.cancelAllToolCalls();
+      this.stopAndResetAllPlayback();
+      this.closeSocket();
+      this.emit({ type: "closed", code, reason });
+      return;
+    }
+
+    if (this.sessionId && this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts += 1;
+      const attempt = this.reconnectAttempts;
+      const maxAttempts = this.maxReconnectAttempts;
+      this.cancelAllToolCalls();
+      this.stopAllPlayback();
+      this.closeSocket();
+      this.state = "connecting";
+      this.emit({
+        type: "reconnecting",
+        attempt,
+        maxAttempts,
+        code,
+        reason,
+        error: errorText || undefined
+      });
+      if (this.reconnectDelayMs > 0) {
+        this.reconnectTimer = setTimeout(() => {
+          if (this.disposed) return;
+          this.connect();
+        }, this.reconnectDelayMs);
+      } else {
+        this.connect();
+      }
+      return;
+    }
+
+    const exhausted = Boolean(this.sessionId && this.reconnectAttempts >= this.maxReconnectAttempts);
+    this.reconnectAttempts = 0;
+    this.cancelAllToolCalls();
+    this.stopAndResetAllPlayback();
+    this.closeSocket();
+
+    const exhaustedMsg = `已达最大重连次数 (${this.maxReconnectAttempts} 次)`;
+    const finalDetail = exhausted ? (errorText ? `${errorText}，${exhaustedMsg}` : exhaustedMsg) : errorText;
+
+    if (wasConnected || exhausted) {
+      this.state = "closed";
+      this.emit({
+        type: "closed",
+        code,
+        reason,
+        error: finalDetail || undefined
+      });
+    } else {
+      this.state = "failed";
+      const failureMsg = errorText
+        ? `WebSocket 连接失败：${errorText} (${code}: ${reason || "握手未完成"})`
+        : `WebSocket 连接关闭 (${code}: ${reason || "握手未完成"})`;
+      this.emit({
+        type: "error",
+        error: failureMsg,
+        code,
+        reason
+      });
     }
   }
 
@@ -645,11 +776,18 @@ export class OffscreenMossLiveClient {
     switch (parsed.kind) {
       case "session_attached":
         this.clearHandshakeTimer();
+        if (parsed.sessionId) {
+          this.sessionId = parsed.sessionId;
+        }
+        this.reconnectAttempts = 0;
         this.state = "connected";
         this.sendJson({ action: "media.mode", binary_protocol: "tagged-v1" });
         this.lastSentContextKey = JSON.stringify(this.videoContext);
         this.sendJson(buildMinimalSessionUpdatePayload(this.videoContext));
-        this.emit({ type: "connected" });
+        if (parsed.sessionId) {
+          this.emit({ type: "session_attached", sessionId: parsed.sessionId });
+        }
+        this.emit({ type: "connected", sessionId: this.sessionId || undefined });
         break;
 
       case "session.updated":
@@ -727,7 +865,12 @@ export class OffscreenMossLiveClient {
 
       case "error":
         this.clearHandshakeTimer();
-        this.fail(new Error(parsed.message));
+        this.lastSocketError = parsed.message;
+        if (this.sessionId && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.handleConnectionDrop(1006, parsed.message, new Error(parsed.message), generation);
+        } else {
+          this.fail(new Error(parsed.message), parsed.code);
+        }
         break;
     }
   }
@@ -738,13 +881,8 @@ export class OffscreenMossLiveClient {
     this.audioPlayer.enqueueAudioFrame(pcmBuffer, isCurrent);
   }
 
-  private fail(error: Error): void {
+  private closeSocket(): void {
     this.clearHandshakeTimer();
-    this.state = "failed";
-    this.latestVideoJpeg = null;
-    this.socketGeneration += 1;
-    this.cancelAllToolCalls();
-    this.stopAndResetAllPlayback();
     const socket = this.ws;
     this.ws = null;
     if (socket) {
@@ -756,28 +894,32 @@ export class OffscreenMossLiveClient {
         socket.close();
       } catch {}
     }
-    this.emit({ type: "error", error: error.message });
+  }
+
+  private fail(error: Error, code?: number | string): void {
+    this.clearHandshakeTimer();
+    this.clearReconnectTimer();
+    this.state = "failed";
+    this.latestVideoJpeg = null;
+    this.socketGeneration += 1;
+    this.cancelAllToolCalls();
+    this.stopAndResetAllPlayback();
+    this.closeSocket();
+    this.emit({ type: "error", error: error.message, code });
   }
 
   close(): void {
     this.disposed = true;
+    this.sessionId = null;
+    this.reconnectAttempts = 0;
+    this.clearReconnectTimer();
     this.socketGeneration += 1;
     this.clearHandshakeTimer();
     this.state = "idle";
     this.latestVideoJpeg = null;
     this.cancelAllToolCalls();
     this.stopAndResetAllPlayback();
-    const socket = this.ws;
-    this.ws = null;
-    if (socket) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      try {
-        socket.close();
-      } catch {}
-    }
+    this.closeSocket();
   }
 
   setMicEnabled(enabled: boolean): void {

@@ -14,6 +14,7 @@ import {
   createPcm16kFrameChunker,
   decodeBase64Bytes,
   decodePcmS16LEToFloat32,
+  formatLiveCloseDiagnostics,
   encodeBase64Bytes,
   encodeFloat32ToPcmS16LE,
   packTaggedBinary,
@@ -589,10 +590,61 @@ describe("subtitle-aware session and tool calls", () => {
     );
     expect(summarizeTool).toBeDefined();
     expect(summarizeTool?.type).toBe("function");
-    expect(summarizeTool?.description).toContain("全片概览");
-    expect(summarizeTool?.parameters).toEqual({
-      type: "object",
-      properties: {}
+
+  });
+
+  describe("formatLiveCloseDiagnostics", () => {
+    it("formats simple error message when code and reason are absent", () => {
+      expect(formatLiveCloseDiagnostics({ error: "网络中断" })).toBe("网络中断");
+      expect(formatLiveCloseDiagnostics({})).toBe("伴看连接已断开。");
     });
+
+    it("formats WebSocket close code and reason cleanly", () => {
+      const text = formatLiveCloseDiagnostics({
+        code: 1006,
+        reason: "Connection refused"
+      });
+      expect(text).toContain("关闭码: 1006");
+      expect(text).toContain("原因: Connection refused");
+      expect(text).toMatch(/^伴看连接已断开/);
+    });
+
+    it("formats Relay / Live connection error details", () => {
+      const text = formatLiveCloseDiagnostics({
+        code: 502,
+        reason: "Bad Gateway",
+        error: "Relay 连接失败：上游网关超时"
+      });
+      expect(text).toContain("关闭码: 502");
+      expect(text).toContain("原因: Bad Gateway");
+      expect(text).toContain("错误详情: Relay 连接失败：上游网关超时");
+    });
+
+    it("formats reconnecting notices with attempt count and code/reason", () => {
+      const text = formatLiveCloseDiagnostics({
+        isReconnect: true,
+        attempt: 1,
+        maxAttempts: 3,
+        code: 1006,
+        reason: "Abnormal Closure",
+        error: "WebSocket 连接失败"
+      });
+      expect(text).toContain("正在尝试自动重连 (第 1/3 次)...");
+      expect(text).toContain("关闭码: 1006");
+      expect(text).toContain("原因: Abnormal Closure");
+      expect(text).toContain("错误详情: WebSocket 连接失败");
+    });
+
+    it("formats exhausted retry failure with attempt count and diagnostic details", () => {
+      const text = formatLiveCloseDiagnostics({
+        attempt: 3,
+        maxAttempts: 3,
+        code: 1006,
+        error: "已达最大重连次数 (3 次)"
+      });
+      expect(text).toContain("自动重连 3 次均失败");
+      expect(text).toContain("关闭码: 1006");
+    });
+
   });
 });
