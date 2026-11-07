@@ -140,7 +140,7 @@ import { logWarn } from "../shared/logging.js";
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
-import { ids } from "./state.js";
+import { ids, isReaderViewOpen } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
@@ -273,6 +273,13 @@ const liveOverlayBinding = createLiveOverlayBinding({
     await conversationStore.clearAll();
   },
   shouldAutoShow: () => isPlayerFullscreen() && !overlayManuallyClosed,
+  onBeforeAutoShow: () => {
+    initFullscreenObserver();
+    if (typeof document !== "undefined") {
+      document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
+      document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
+    }
+  },
   onVoicePrioritySync: (nextOn) => {
     if (els.liveBarVoicePrioritySwitch) {
       els.liveBarVoicePrioritySwitch.dataset.on = String(nextOn);
@@ -287,11 +294,47 @@ const liveOverlayBinding = createLiveOverlayBinding({
   }
 });
 
+function initFullscreenObserver(): void {
+  if (unobserveFullscreen) return;
+  unobserveFullscreen = observeFullscreenChanges((isFullscreen) => {
+    const state = liveController?.getState();
+    const isLive = state === "connecting" || state === "connected";
+    if (isFullscreen) {
+      if (typeof document !== "undefined") {
+        document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
+        document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
+      }
+      if (isLive && !overlayManuallyClosed) {
+        ensureFullscreenOverlay().show();
+      }
+    } else {
+      if (typeof document !== "undefined") {
+        document.documentElement?.removeAttribute("data-biliscript-fullscreen-mode");
+        document.body?.removeAttribute("data-biliscript-fullscreen-mode");
+      }
+      overlayManuallyClosed = false;
+      liveOverlayBinding.getOverlay()?.hide();
+      if (isLive) {
+        void (async () => {
+          if (!isReaderViewOpen()) {
+            const { ensureReaderShell } = await import("./lazy-shell.js");
+            const shell = await ensureReaderShell();
+            await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
+          }
+          await ensureChatTabActivated({ consumeIntent: false });
+          chatRuntime.scrollToBottom();
+        })();
+      }
+    }
+  });
+}
+
 export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
   return liveOverlayBinding.getOverlay();
 }
 
 export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
+  initFullscreenObserver();
   return liveOverlayBinding.ensureOverlay();
 }
 let preservingLiveSessionOnContextSwitch = false;
@@ -897,6 +940,10 @@ export async function startLiveCompanion(): Promise<boolean> {
   overlayManuallyClosed = false;
   const started = await liveController.start();
   if (started && isPlayerFullscreen()) {
+    if (typeof document !== "undefined") {
+      document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
+      document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
+    }
     ensureFullscreenOverlay().show();
   }
   return started;
@@ -907,6 +954,14 @@ export function getLiveController(): LiveChatController | null {
 }
 
 export function closeChatSession(): void {
+  if (unobserveFullscreen) {
+    unobserveFullscreen();
+    unobserveFullscreen = null;
+  }
+  if (typeof document !== "undefined") {
+    document.documentElement?.removeAttribute("data-biliscript-fullscreen-mode");
+    document.body?.removeAttribute("data-biliscript-fullscreen-mode");
+  }
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
@@ -1295,20 +1350,7 @@ function bindEvents(): void {
           }
         })
     });
-    if (!unobserveFullscreen) {
-      unobserveFullscreen = observeFullscreenChanges((isFullscreen) => {
-        const state = liveController?.getState();
-        const isLive = state === "connecting" || state === "connected";
-        if (isFullscreen) {
-          if (isLive && !overlayManuallyClosed) {
-            ensureFullscreenOverlay().show();
-          }
-        } else {
-          overlayManuallyClosed = false;
-          liveOverlayBinding.getOverlay()?.hide();
-        }
-      });
-    }
+    initFullscreenObserver();
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {

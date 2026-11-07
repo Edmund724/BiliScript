@@ -392,6 +392,67 @@
   min-width: 220px;
 }
 
+.biliscript-fullscreen-live-mini-capsule {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background:
+    radial-gradient(125% 95% at 10% 0%, rgb(255 255 255 / 0.16) 0%, transparent 100%),
+    rgb(18 20 24 / 0.46);
+  backdrop-filter: blur(8px) saturate(168%) brightness(0.9);
+  -webkit-backdrop-filter: blur(8px) saturate(168%) brightness(0.9);
+  box-shadow:
+    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.38),
+    inset -1px -1px 0.5px -0.5px rgb(255 255 255 / 0.14),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
+    0 0 0 0.5px rgb(0 0 0 / 0.38),
+    0 6px 20px rgb(0 0 0 / 0.4);
+  color: rgb(255 255 255 / 0.94);
+  font-size: var(--biliscript-font-size-xs, 11px);
+  z-index: 99999;
+  cursor: grab;
+  user-select: none;
+  transition:
+    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.biliscript-fullscreen-live-mini-capsule:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+.biliscript-fullscreen-live-mini-capsule:hover {
+  background-color: rgb(18 20 24 / 0.6);
+  box-shadow:
+    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.48),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.26),
+    0 8px 24px rgb(0 0 0 / 0.5);
+}
+
+.biliscript-fullscreen-live-mini-capsule.is-hidden,
+.biliscript-fullscreen-live-mini-capsule[hidden] {
+  display: none !important;
+}
+
+.biliscript-fullscreen-live-mini-capsule.is-talking {
+  box-shadow:
+    0 0 12px rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248) / 0.6),
+    inset 0 0 0 1px rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248) / 0.5);
+}
+
+.biliscript-fullscreen-live-mini-capsule svg {
+  opacity: 0.85;
+}
+
 .live-overlay-header {
   display: flex;
   align-items: center;
@@ -494,6 +555,12 @@
   opacity: 1;
 }
 
+.live-overlay-close-btn:hover {
+  background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.28) !important;
+  color: rgb(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90)) !important;
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.45) !important;
+}
+
 .live-overlay-audio-anchor {
   position: relative;
 }
@@ -583,6 +650,50 @@
   flex: 1;
   min-height: 120px;
   max-height: 400px;
+  position: relative;
+}
+
+.live-overlay-scroll-bottom-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 42px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.2) 0%, transparent 65%),
+    rgb(18 20 26 / 0.72);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  box-shadow:
+    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.4),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.2),
+    0 4px 14px rgb(0 0 0 / 0.35);
+  color: rgb(255 255 255 / 0.92);
+  cursor: pointer;
+  z-index: 10;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    background 0.15s ease;
+}
+
+.live-overlay-scroll-bottom-btn:hover {
+  background-color: rgb(28 32 40 / 0.88);
+  transform: scale(1.08);
+  color: rgb(255 255 255);
+}
+
+.live-overlay-scroll-bottom-btn:active {
+  transform: scale(0.92);
+}
+
+.live-overlay-scroll-bottom-btn[hidden] {
+  display: none !important;
 }
 
 .live-overlay-messages {
@@ -593,6 +704,29 @@
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
+}
+
+.live-overlay-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.live-overlay-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.live-overlay-messages::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.24);
+  border-radius: var(--biliscript-radius-pill, 9999px);
+}
+
+.live-overlay-messages::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.42);
+}
+
+.live-overlay-messages::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .live-overlay-bubble {

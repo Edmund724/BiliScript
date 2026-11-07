@@ -763,10 +763,23 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
 
     if (fullscreen) {
       const chat = await ensureReaderChatTab();
-      const overlay = chat.getFullscreenLiveOverlay();
-      overlay?.show();
-      await chat.startLiveCompanion();
-      overlay?.show();
+      const overlay = (chat.ensureFullscreenOverlay ? chat.ensureFullscreenOverlay() : chat.getFullscreenLiveOverlay?.()) as ReturnType<typeof chat.ensureFullscreenOverlay>;
+      const liveCtrl = chat.getLiveController?.();
+      const isLive = liveCtrl?.getState?.() === "connected" || liveCtrl?.getState?.() === "connecting";
+      if (isLive) {
+        if (overlay?.restore) {
+          overlay.restore();
+        } else {
+          overlay?.show?.();
+        }
+      } else {
+        await chat.startLiveCompanion();
+        if (overlay?.restore) {
+          overlay.restore();
+        } else {
+          overlay?.show?.();
+        }
+      }
     } else {
       if (!isReaderViewOpen()) {
         const shell = await ensureReaderShell();

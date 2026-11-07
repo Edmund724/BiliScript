@@ -152,7 +152,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
   });
 
-  it("最小化按钮收起与展开对话流", () => {
+  it("最小化按钮使浮窗消失并展示微型状态胶囊，点击胶囊还原浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -162,21 +162,27 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show();
 
     const minBtn = overlay.getElement()?.querySelector(".live-overlay-min-btn") as HTMLButtonElement;
-    const body = overlay.getElement()?.querySelector(".live-overlay-body") as HTMLElement;
+    const capsule = overlay.getMiniCapsuleElement();
 
     expect(overlay.isMinimized()).toBe(false);
-    expect(body.hidden).toBe(false);
+    expect(overlay.isVisible()).toBe(true);
+    expect(capsule?.hidden).toBe(true);
 
     minBtn.click();
     expect(overlay.isMinimized()).toBe(true);
-    expect(body.hidden).toBe(true);
+    expect(overlay.isVisible()).toBe(false);
+    expect(capsule?.hidden).toBe(false);
 
-    minBtn.click();
+    // 点击胶囊还原浮窗
+    capsule?.dispatchEvent(new PointerEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 10 }));
+
     expect(overlay.isMinimized()).toBe(false);
-    expect(body.hidden).toBe(false);
+    expect(overlay.isVisible()).toBe(true);
+    expect(capsule?.hidden).toBe(true);
   });
 
-  it("关闭按钮仅隐藏浮窗，不调用 stopLive", () => {
+  it("关闭按钮彻底结束伴看并隐藏浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -190,8 +196,34 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     closeBtn.click();
 
     expect(overlay.isVisible()).toBe(false);
-    expect(onStopLive).not.toHaveBeenCalled();
-    expect(mockController.stop).not.toHaveBeenCalled();
+    expect(onStopLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("智能跟随滚动：离底大于阈值时暂停自动滚底并显示回底按键，点击平滑回底", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive,
+      onClearHistory
+    });
+    overlay.show();
+
+    const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
+    const scrollBtn = overlay.getElement()?.querySelector(".live-overlay-scroll-bottom-btn") as HTMLButtonElement;
+
+    expect(scrollBtn.hidden).toBe(true);
+
+    // 模拟向上滚动
+    Object.defineProperty(messages, "scrollHeight", { value: 500, configurable: true });
+    Object.defineProperty(messages, "clientHeight", { value: 200, configurable: true });
+    Object.defineProperty(messages, "scrollTop", { value: 100, writable: true, configurable: true }); // dist = 200 > 60
+
+    messages.dispatchEvent(new Event("scroll"));
+    expect(scrollBtn.hidden).toBe(false);
+
+    // 点击回底
+    scrollBtn.click();
+    expect(scrollBtn.hidden).toBe(true);
   });
 
   it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，以及清空按钮", () => {

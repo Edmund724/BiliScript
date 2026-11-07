@@ -16,21 +16,23 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   }
 
   // 2. B 站网页全屏判定（bpx-player / 容器 data-screen 或 class 属性）
-  const host =
-    targetHost ||
-    document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
+  const bpx = targetHost?.querySelector(".bpx-player-container") || document.querySelector(".bpx-player-container");
+  const host = targetHost || bpx || document.querySelector("#bilibili-player, .player-wrap, #playerWrap");
 
-  if (host instanceof Element) {
-    const dataScreen = host.getAttribute("data-screen");
+  const checkElem = (el: Element | null): boolean => {
+    if (!el) return false;
+    const dataScreen = el.getAttribute("data-screen");
     if (dataScreen === "web" || dataScreen === "full" || dataScreen === "fullscreen") {
       return true;
     }
-    if (
-      host.classList.contains("bpx-state-web-fullscreen") ||
-      host.classList.contains("bpx-state-fullscreen")
-    ) {
-      return true;
-    }
+    return (
+      el.classList.contains("bpx-state-web-fullscreen") ||
+      el.classList.contains("bpx-state-fullscreen")
+    );
+  };
+
+  if (checkElem(bpx) || checkElem(host)) {
+    return true;
   }
 
   // 3. body 级网页全屏标记
@@ -70,11 +72,16 @@ export function observeFullscreenChanges(
   let observer: MutationObserver | null = null;
   if (typeof MutationObserver !== "undefined") {
     observer = new MutationObserver(() => check());
-    const host =
-      targetHost ||
-      document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
+    const bpx = targetHost?.querySelector(".bpx-player-container") || document.querySelector(".bpx-player-container");
+    const host = targetHost || bpx || document.querySelector("#bilibili-player, .player-wrap, #playerWrap");
     if (host instanceof Element) {
       observer.observe(host, {
+        attributes: true,
+        attributeFilter: ["class", "data-screen"]
+      });
+    }
+    if (bpx instanceof Element && bpx !== host) {
+      observer.observe(bpx, {
         attributes: true,
         attributeFilter: ["class", "data-screen"]
       });

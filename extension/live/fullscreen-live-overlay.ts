@@ -140,9 +140,10 @@ export interface FullscreenLiveOverlayDeps {
 }
 
 export interface FullscreenLiveOverlay {
-  show(): void;
+  show(options?: { forceExpand?: boolean }): void;
   hide(): void;
   toggle(): void;
+  restore(): void;
   isVisible(): boolean;
   isMinimized(): boolean;
   syncState(state?: LiveChatState, reconnecting?: boolean): void;
@@ -150,6 +151,7 @@ export interface FullscreenLiveOverlay {
   updateTranscript(event: MossLiveTranscriptEvent): void;
   clearMessages(): void;
   getElement(): HTMLElement | null;
+  getMiniCapsuleElement(): HTMLElement | null;
   dispose(): void;
 }
 
@@ -168,6 +170,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let bodyEl: HTMLElement | null = null;
   let messagesEl: HTMLElement | null = null;
   let clearBtnEl: HTMLButtonElement | null = null;
+  let scrollBottomBtnEl: HTMLButtonElement | null = null;
+
+  let miniCapsuleEl: HTMLElement | null = null;
+  let miniCapsuleDotEl: HTMLElement | null = null;
 
   let isMin = false;
   let isDragging = false;
@@ -175,6 +181,16 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let dragStartY = 0;
   let initialLeft = 0;
   let initialTop = 0;
+
+  let isCapsuleDragging = false;
+  let capsuleDragStartX = 0;
+  let capsuleDragStartY = 0;
+  let capsuleInitialLeft = 0;
+  let capsuleInitialTop = 0;
+  let capsuleMoved = false;
+
+  const SCROLL_THRESHOLD = 60;
+  let isScrolledToBottom = true;
 
   // 活跃转写气泡记录
   let pendingUserBubble: HTMLElement | null = null;
@@ -316,8 +332,13 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
     const host = deps.getPlayerHost() || document.body;
     let existing = host.querySelector("#biliscript-fullscreen-live-overlay") as HTMLElement | null;
+    let existingCapsule = host.querySelector(".biliscript-fullscreen-live-mini-capsule") as HTMLElement | null;
     if (existing) {
       rootEl = existing;
+      miniCapsuleEl = existingCapsule;
+      if (miniCapsuleEl) {
+        miniCapsuleDotEl = miniCapsuleEl.querySelector(".live-overlay-status-dot");
+      }
       bindDomReferences(rootEl);
       return rootEl;
     }
@@ -361,7 +382,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
-          <button type="button" class="live-overlay-icon-btn live-overlay-close-btn" title="隐藏浮窗" aria-label="隐藏浮窗">
+          <button type="button" class="live-overlay-icon-btn live-overlay-close-btn" title="关闭伴看" aria-label="关闭伴看">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -371,16 +392,42 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       </div>
       <div class="live-overlay-body">
         <div class="live-overlay-messages"></div>
+        <button type="button" class="live-overlay-scroll-bottom-btn" title="回到底部" aria-label="回到底部" hidden>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
         <div class="live-overlay-footer">
           <button type="button" class="live-overlay-clear-btn" title="清空对话" aria-label="清空对话">清空</button>
         </div>
       </div>
     `;
 
+    const miniCapsule = document.createElement("div");
+    miniCapsule.className = "biliscript-fullscreen-live-mini-capsule is-hidden";
+    miniCapsule.setAttribute("role", "button");
+    miniCapsule.setAttribute("tabindex", "0");
+    miniCapsule.setAttribute("title", "点击还原伴看浮窗");
+    miniCapsule.setAttribute("aria-label", "点击还原伴看浮窗");
+    miniCapsule.hidden = true;
+    miniCapsule.innerHTML = `
+      <span class="live-overlay-status-dot"></span>
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" x2="12" y1="19" y2="22"/>
+      </svg>
+    `;
+
     host.appendChild(overlay);
+    host.appendChild(miniCapsule);
     rootEl = overlay;
+    miniCapsuleEl = miniCapsule;
+    miniCapsuleDotEl = miniCapsule.querySelector(".live-overlay-status-dot");
+
     bindDomReferences(overlay);
     bindEvents(overlay);
+    bindCapsuleEvents(miniCapsule);
     observeOverlayResize(overlay);
     loadInitialHistory();
     return overlay;
@@ -400,6 +447,28 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     bodyEl = overlay.querySelector(".live-overlay-body");
     messagesEl = overlay.querySelector(".live-overlay-messages");
     clearBtnEl = overlay.querySelector(".live-overlay-clear-btn");
+    scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
+  }
+
+  function updateScrollFollowState(): void {
+    if (!messagesEl) return;
+    const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+    const atBottom = distFromBottom <= SCROLL_THRESHOLD;
+    isScrolledToBottom = atBottom;
+    if (scrollBottomBtnEl) {
+      scrollBottomBtnEl.hidden = atBottom;
+    }
+  }
+
+  function scrollToBottom(force = false): void {
+    if (!messagesEl) return;
+    if (force || isScrolledToBottom) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      isScrolledToBottom = true;
+      if (scrollBottomBtnEl) {
+        scrollBottomBtnEl.hidden = true;
+      }
+    }
   }
 
   function loadInitialHistory(): void {
@@ -417,13 +486,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         bubble.textContent = item.content;
         messagesEl.appendChild(bubble);
       }
-      scrollToBottom();
-    }
-  }
-
-  function scrollToBottom(): void {
-    if (messagesEl) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollToBottom(true);
     }
   }
 
@@ -490,16 +553,36 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       }
     });
 
-    // 最小化按钮
+    // 最小化按钮：收为右上角半透明微型胶囊
     minBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
-      toggleMinimize();
+      minimize();
     });
 
-    // 关闭按钮（隐藏浮窗，伴看后台继续）
+    // 关闭按钮：彻底关闭伴看
     closeBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (deps.onStopLive) {
+        deps.onStopLive();
+      } else {
+        void deps.getLiveController()?.stop();
+      }
       hide();
+    });
+
+    // 滚动跟随监听与回底按键
+    messagesEl?.addEventListener("scroll", updateScrollFollowState, { passive: true });
+    scrollBottomBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (messagesEl && typeof messagesEl.scrollTo === "function") {
+        messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: "smooth" });
+      } else if (messagesEl) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+      isScrolledToBottom = true;
+      if (scrollBottomBtnEl) {
+        scrollBottomBtnEl.hidden = true;
+      }
     });
 
     // 清空按钮
@@ -509,6 +592,16 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       deps.getLiveController()?.resetMerger?.();
       if (deps.onClearHistory) {
         void deps.onClearHistory();
+      }
+    });
+  }
+
+  function bindCapsuleEvents(capsule: HTMLElement): void {
+    capsule.addEventListener("pointerdown", onCapsuleDragStart);
+    capsule.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        restore();
       }
     });
   }
@@ -534,18 +627,87 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
-  function toggleMinimize(): void {
-    isMin = !isMin;
+  function minimize(): void {
+    isMin = true;
     if (rootEl) {
-      rootEl.classList.toggle("is-minimized", isMin);
-      syncEdgeLens(rootEl);
+      rootEl.hidden = true;
+      rootEl.classList.add("is-hidden");
+      delete rootEl.dataset.popoverOpen;
     }
-    if (bodyEl) {
-      bodyEl.hidden = isMin;
+    if (audioPopEl) {
+      audioPopEl.hidden = true;
     }
-    if (minBtnEl) {
-      minBtnEl.title = isMin ? "展开" : "最小化";
-      minBtnEl.setAttribute("aria-label", isMin ? "展开" : "最小化");
+    if (miniCapsuleEl) {
+      miniCapsuleEl.hidden = false;
+      miniCapsuleEl.classList.remove("is-hidden");
+    }
+    syncState();
+  }
+
+  function restore(): void {
+    isMin = false;
+    if (miniCapsuleEl) {
+      miniCapsuleEl.hidden = true;
+      miniCapsuleEl.classList.add("is-hidden");
+    }
+    show({ forceExpand: true });
+  }
+
+  // 胶囊拖拽处理
+  function onCapsuleDragStart(e: PointerEvent): void {
+    if (!miniCapsuleEl) return;
+    isCapsuleDragging = true;
+    capsuleMoved = false;
+    capsuleDragStartX = e.clientX;
+    capsuleDragStartY = e.clientY;
+
+    const rect = miniCapsuleEl.getBoundingClientRect();
+    const host = deps.getPlayerHost() || document.body;
+    const hostRect = host.getBoundingClientRect();
+
+    capsuleInitialLeft = rect.left - hostRect.left;
+    capsuleInitialTop = rect.top - hostRect.top;
+
+    miniCapsuleEl.style.left = `${capsuleInitialLeft}px`;
+    miniCapsuleEl.style.top = `${capsuleInitialTop}px`;
+    miniCapsuleEl.style.right = "auto";
+    miniCapsuleEl.style.bottom = "auto";
+
+    window.addEventListener("pointermove", onCapsuleDragMove);
+    window.addEventListener("pointerup", onCapsuleDragEnd);
+  }
+
+  function onCapsuleDragMove(e: PointerEvent): void {
+    if (!isCapsuleDragging || !miniCapsuleEl) return;
+    const deltaX = e.clientX - capsuleDragStartX;
+    const deltaY = e.clientY - capsuleDragStartY;
+    if (Math.hypot(deltaX, deltaY) > 4) {
+      capsuleMoved = true;
+    }
+
+    const host = deps.getPlayerHost() || document.body;
+    const hostRect = host.getBoundingClientRect();
+    const rect = miniCapsuleEl.getBoundingClientRect();
+
+    let nextLeft = capsuleInitialLeft + deltaX;
+    let nextTop = capsuleInitialTop + deltaY;
+
+    const maxLeft = Math.max(0, hostRect.width - rect.width);
+    const maxTop = Math.max(0, hostRect.height - rect.height);
+
+    nextLeft = Math.max(0, Math.min(nextLeft, maxLeft));
+    nextTop = Math.max(0, Math.min(nextTop, maxTop));
+
+    miniCapsuleEl.style.left = `${nextLeft}px`;
+    miniCapsuleEl.style.top = `${nextTop}px`;
+  }
+
+  function onCapsuleDragEnd(): void {
+    isCapsuleDragging = false;
+    window.removeEventListener("pointermove", onCapsuleDragMove);
+    window.removeEventListener("pointerup", onCapsuleDragEnd);
+    if (!capsuleMoved) {
+      restore();
     }
   }
 
@@ -607,13 +769,29 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     window.removeEventListener("pointerup", onDragEnd);
   }
 
-  function show(): void {
+  function show(options?: { forceExpand?: boolean }): void {
     const el = ensureMounted();
-    el.hidden = false;
-    el.classList.remove("is-hidden");
+    if (options?.forceExpand) {
+      isMin = false;
+    }
+    if (isMin) {
+      el.hidden = true;
+      el.classList.add("is-hidden");
+      if (miniCapsuleEl) {
+        miniCapsuleEl.hidden = false;
+        miniCapsuleEl.classList.remove("is-hidden");
+      }
+    } else {
+      el.hidden = false;
+      el.classList.remove("is-hidden");
+      if (miniCapsuleEl) {
+        miniCapsuleEl.hidden = true;
+        miniCapsuleEl.classList.add("is-hidden");
+      }
+      loadInitialHistory();
+      syncEdgeLens(el);
+    }
     syncState();
-    loadInitialHistory();
-    syncEdgeLens(el);
   }
 
   function hide(): void {
@@ -622,8 +800,15 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       rootEl.classList.add("is-hidden");
       delete rootEl.dataset.popoverOpen;
     }
+    if (miniCapsuleEl) {
+      miniCapsuleEl.hidden = true;
+      miniCapsuleEl.classList.add("is-hidden");
+    }
     if (audioPopEl) {
       audioPopEl.hidden = true;
+    }
+    if (scrollBottomBtnEl) {
+      scrollBottomBtnEl.hidden = true;
     }
   }
 
@@ -648,6 +833,19 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     const controller = deps.getLiveController();
     const state = customState ?? controller?.getState() ?? "idle";
     const isReconnecting = reconnecting ?? Boolean(controller?.isReconnecting?.());
+
+    if (miniCapsuleDotEl) {
+      miniCapsuleDotEl.className = "live-overlay-status-dot";
+      if (isReconnecting) {
+        miniCapsuleDotEl.classList.add("is-reconnecting");
+      } else if (state === "connecting") {
+        miniCapsuleDotEl.classList.add("is-connecting");
+      } else if (state === "connected") {
+        miniCapsuleDotEl.classList.add("is-connected");
+      } else if (state === "failure") {
+        miniCapsuleDotEl.classList.add("is-failure");
+      }
+    }
 
     if (!statusTextEl || !statusDotEl) return;
 
@@ -678,6 +876,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
     if (statusDotEl) {
       statusDotEl.classList.toggle("is-talking", active);
+    }
+    if (miniCapsuleEl) {
+      miniCapsuleEl.classList.toggle("is-talking", active);
+    }
+    if (miniCapsuleDotEl) {
+      miniCapsuleDotEl.classList.toggle("is-talking", active);
     }
   }
 
@@ -786,6 +990,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
   function dispose(): void {
     onDragEnd();
+    isCapsuleDragging = false;
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pointermove", onCapsuleDragMove);
+      window.removeEventListener("pointerup", onCapsuleDragEnd);
+    }
     if (lensResizeObserver) {
       lensResizeObserver.disconnect();
       lensResizeObserver = null;
@@ -793,6 +1002,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (lensSvgEl) {
       lensSvgEl.remove();
       lensSvgEl = null;
+    }
+    if (miniCapsuleEl) {
+      miniCapsuleEl.remove();
+      miniCapsuleEl = null;
+      miniCapsuleDotEl = null;
     }
     if (rootEl) {
       rootEl.remove();
@@ -807,6 +1021,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     show,
     hide,
     toggle,
+    restore,
     isVisible,
     isMinimized,
     syncState,
@@ -814,6 +1029,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     updateTranscript,
     clearMessages,
     getElement,
+    getMiniCapsuleElement: () => miniCapsuleEl,
     dispose
   };
 }
