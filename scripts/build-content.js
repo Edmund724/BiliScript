@@ -585,6 +585,8 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "shared/watch-storage-keys.ts", mutable: true }, // 两侧各自注册真实 onChanged 监听
   { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
   { source: "reader/lazy-reader.ts", mutable: true }, // 同上
+  { source: "reader/lazy-chat-tab.ts", mutable: true }, // 同上
+  { source: "reader/lazy-shell.ts", mutable: true }, // 同上
   { source: "subtitle/lazy.ts", mutable: true }, // 同上
   { source: "ui/lazy-ui.ts", mutable: true }, // 同上
   // —— 纯模块（无模块级可变状态，mutable: false，无头注标记）——

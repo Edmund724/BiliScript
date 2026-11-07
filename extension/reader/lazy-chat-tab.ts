@@ -14,6 +14,8 @@
 //
 // 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对路径
 // 按扩展自身 URL 解析（与 reader/lazy-reader.ts 同款，见其头注）。
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
+// 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 import { createLazyLoader } from "../shared/lazy-import.js";
 import type { LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
