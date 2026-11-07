@@ -1134,6 +1134,12 @@ function bindEvents(): void {
         }
         composer.syncSendState();
       },
+      onVadStateChange: (active) => {
+        const muteBtn = els.liveBarMuteBtn ?? els.liveMuteBtn;
+        if (muteBtn) {
+          muteBtn.classList.toggle("is-talking", active);
+        }
+      },
       onStateChange: (liveState) => {
         updateLiveBarUi(liveState);
       },
@@ -1152,12 +1158,13 @@ function bindEvents(): void {
           unsubscribeOverview();
         };
       },
-      createTranscriptMerger: () =>
+      createTranscriptMerger: (opts) =>
         createLiveTranscriptMerger({
           messagesContainer: els.messages,
           messageArea: chatRuntime.messageArea,
           store: conversationStore,
           scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
+          isVoiceRecentlyActive: opts?.isVoiceRecentlyActive,
           onActivity: () => {
             popovers.hideHistoryPopover();
             removeCenteredState();

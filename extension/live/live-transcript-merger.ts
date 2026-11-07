@@ -1,9 +1,11 @@
 // extension/live/live-transcript-merger.ts
 // 实时全双工语音问答双端字幕归并器：
-// 1. 将用户侧 input.transcript.updated（全量替换语义）渲染为实时更新的待定用户气泡，input.transcript.done 时落盘进 chatHistory
-// 2. 将 AI 侧 output.transcript.updated（按 runId+turnId 路由，全量替换转增量或重置）交给 ChatAssistantTurn 流式渲染，output.transcript.done / response.ended 时落盘进 chatHistory
-// 3. 乱序保护：若 AI 字幕先于用户 input.transcript.done 到达，自动先行提交非空待定用户气泡，保证 user -> assistant 顺序与原位修正
-// 4. 挂断隔离：dispose() 后清理未落盘半截气泡，并拦截一切迟到事件写入对话
+// 1. 麦克风语音门控：只有在最近检测到用户麦克风语音活动（含尾音滑动窗口）或当前轮用户气泡已在活跃期内建立时，
+//    才将 input.transcript.updated / input.transcript.done 渲染为用户消息并写入对话历史；纯视频对白转写不显示在用户消息位置
+// 2. 独立消息 ID 与 runId 绑定：每次用户输入使用独立消息 ID（data-message-id），每轮 Agent 回复绑定对应的 run_id，持续向下追加，绝不覆盖此前内容
+// 3. 将 AI 侧 output.transcript.updated（按 runId+turnId 路由，全量替换转增量或重置）交给 ChatAssistantTurn 流式渲染，output.transcript.done / response.ended 时落盘进 chatHistory
+// 4. 乱序保护：若 AI 字幕先于用户 input.transcript.done 到达，自动先行提交非空待定用户气泡，保证 user -> assistant 顺序与原位修正
+// 5. 挂断隔离：dispose() 后清理未落盘半截气泡，并拦截一切迟到事件写入对话
 
 import { generateConversationId } from "../ai/conversation.js";
 import {
@@ -23,6 +25,7 @@ export interface LiveTranscriptMergerDeps {
   };
   scrollToBottom?: (force?: boolean, opts?: { instant?: boolean }) => void;
   onActivity?: () => void;
+  isVoiceRecentlyActive?: () => boolean;
 }
 
 export interface LiveTranscriptMerger {
@@ -32,6 +35,7 @@ export interface LiveTranscriptMerger {
 
 interface AssistantTurnRecord {
   turnKey: string;
+  runId: string;
   turn: ChatAssistantTurn;
   renderedText: string;
   finalized: boolean;
@@ -39,6 +43,7 @@ interface AssistantTurnRecord {
 
 export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): LiveTranscriptMerger {
   let disposed = false;
+  let userMessageSequence = 0;
   let pendingUserNode: HTMLDivElement | null = null;
   let pendingUserText = "";
   let pendingUserHistoryIndex: number | null = null;
@@ -51,10 +56,25 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     }
   }
 
+  function canAcceptUserInputTranscript(): boolean {
+    // 若当前轮用户气泡已在活跃期内建立，允许继续更新或完成本轮
+    if (pendingUserNode !== null) {
+      return true;
+    }
+    // 否则检查最近是否检测到麦克风语音活动（纯视频对白转写被拦截）
+    if (deps.isVoiceRecentlyActive) {
+      return deps.isVoiceRecentlyActive();
+    }
+    return true;
+  }
+
   function ensurePendingUserNode(): HTMLDivElement {
     if (!pendingUserNode) {
+      userMessageSequence += 1;
+      const messageId = `live-user-${Date.now()}-${userMessageSequence}-${Math.random().toString(36).slice(2, 6)}`;
       const node = document.createElement("div");
       node.className = "chat-msg chat-msg-user chat-msg-live-pending";
+      node.setAttribute("data-message-id", messageId);
       deps.messagesContainer.appendChild(node);
       pendingUserNode = node;
     }
@@ -78,12 +98,13 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
   }
 
   function handleInputUpdated(text: string): void {
+    if (!canAcceptUserInputTranscript()) {
+      return;
+    }
     const clean = String(text || "");
     if (!clean.trim() && !pendingUserNode) {
       return;
     }
-    // 如果上一条用户发言已被乱序守卫提前提交且已进入 AI 回答阶段，后续新的 input.updated 仍复用当前待定气泡，
-    // 直至 input.done 收口后开启下一条
     deps.onActivity?.();
     const node = ensurePendingUserNode();
     pendingUserText = clean;
@@ -92,6 +113,9 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
   }
 
   function handleInputDone(text: string): void {
+    if (!canAcceptUserInputTranscript()) {
+      return;
+    }
     const finalText = String(text || pendingUserText || "").trim();
     if (!finalText) {
       if (pendingUserNode && pendingUserHistoryIndex === null) {
@@ -147,9 +171,10 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     deps.onActivity?.();
 
     if (!record) {
-      const turn = deps.messageArea.appendAssistantMessage({ source: "live" });
+      const turn = deps.messageArea.appendAssistantMessage({ source: "live", runId });
       record = {
         turnKey,
+        runId,
         turn,
         renderedText: "",
         finalized: false
@@ -228,9 +253,10 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     deps.onActivity?.();
 
     if (!record) {
-      const turn = deps.messageArea.appendAssistantMessage({ source: "live" });
+      const turn = deps.messageArea.appendAssistantMessage({ source: "live", runId });
       record = {
         turnKey,
+        runId,
         turn,
         renderedText: finalText,
         finalized: false

@@ -53,7 +53,12 @@ describe("LiveChatController AI volume", () => {
       startAudioCapture: async () => ({
         setMuted: () => {},
         isMuted: () => false,
-        stop: () => {}
+        stop: () => {},
+        setShareVideoAudio: () => {},
+        isSharingVideoAudio: () => true,
+        getVideoAudioStatus: () => "已获取音轨",
+        isMicVadActive: () => false,
+        isVoiceRecentlyActive: () => true
       }),
       startVideoCapture: () => ({ stop: () => {} })
     });

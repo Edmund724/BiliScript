@@ -31,9 +31,15 @@ function createFakeMessageArea(messagesContainer: HTMLElement): {
   }> = [];
 
   const messageArea: Pick<ChatMessageArea, "appendAssistantMessage"> = {
-    appendAssistantMessage: () => {
+    appendAssistantMessage: (opts) => {
       const node = document.createElement("div");
       node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
+      if (opts?.runId) {
+        node.setAttribute("data-run-id", opts.runId);
+      }
+      if (opts?.messageId) {
+        node.setAttribute("data-message-id", opts.messageId);
+      }
       messagesContainer.appendChild(node);
 
       const record = {
@@ -419,5 +425,114 @@ describe("createLiveTranscriptMerger", () => {
     expect(chatSessionState.chatHistory).toHaveLength(2);
     expect(persistCurrent).toHaveBeenCalledTimes(persistCallsBefore);
     expect(messagesContainer.children).toHaveLength(2);
+  });
+
+  it("gates out pure video dialogue transcripts when mic voice activity is inactive", () => {
+    const messagesContainer = document.getElementById("messages")!;
+    const { messageArea } = createFakeMessageArea(messagesContainer);
+    let voiceActive = false;
+
+    const merger = createLiveTranscriptMerger({
+      messagesContainer,
+      messageArea,
+      store: { persistCurrent: vi.fn().mockResolvedValue(undefined) },
+      isVoiceRecentlyActive: () => voiceActive
+    });
+
+    // 1. Voice inactive -> pure video dialogue transcript arrives -> gated out!
+    merger.handleEvent({ kind: "input.updated", text: "视频中的人物正在对话" });
+    expect(messagesContainer.querySelectorAll(".chat-msg-user")).toHaveLength(0);
+
+    merger.handleEvent({ kind: "input.done", text: "视频中的人物正在对话。" });
+    expect(messagesContainer.querySelectorAll(".chat-msg-user")).toHaveLength(0);
+    expect(chatSessionState.chatHistory).toHaveLength(0);
+
+    // Agent can still respond to the video context
+    merger.handleEvent({
+      kind: "output.done",
+      text: "视频里提到了重要观点。",
+      runId: "run-video-context",
+      turnId: "turn-1"
+    });
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "assistant", content: "视频里提到了重要观点。" }
+    ]);
+    expect(messagesContainer.querySelectorAll(".chat-msg-user")).toHaveLength(0);
+    expect(messagesContainer.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+
+    // 2. User starts speaking -> voiceActive becomes true -> user bubble permitted
+    voiceActive = true;
+    merger.handleEvent({ kind: "input.updated", text: "请问刚刚说了什么" });
+    const userNodes = messagesContainer.querySelectorAll(".chat-msg-user");
+    expect(userNodes).toHaveLength(1);
+    expect(userNodes[0].getAttribute("data-message-id")).toBeTruthy();
+
+    // Even if voiceActive transitions back to false before input.done, current active turn completes
+    voiceActive = false;
+    merger.handleEvent({ kind: "input.done", text: "请问刚刚说了什么？" });
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "assistant", content: "视频里提到了重要观点。" },
+      { role: "user", content: "请问刚刚说了什么？" }
+    ]);
+  });
+
+  it("assigns distinct data-message-id per user input, binds run_id to agent reply, and appends without overwriting", () => {
+    const messagesContainer = document.getElementById("messages")!;
+    const { messageArea } = createFakeMessageArea(messagesContainer);
+
+    const merger = createLiveTranscriptMerger({
+      messagesContainer,
+      messageArea,
+      store: { persistCurrent: vi.fn().mockResolvedValue(undefined) }
+    });
+
+    // Turn 1
+    merger.handleEvent({ kind: "input.updated", text: "第一轮用户问题" });
+    merger.handleEvent({ kind: "input.done", text: "第一轮用户问题" });
+    merger.handleEvent({
+      kind: "output.done",
+      text: "第一轮助手回答",
+      runId: "run-101",
+      turnId: "turn-1"
+    });
+
+    const userMsg1 = messagesContainer.querySelectorAll(".chat-msg-user")[0];
+    const assistantMsg1 = messagesContainer.querySelectorAll(".chat-msg-assistant")[0];
+    const msgId1 = userMsg1.getAttribute("data-message-id");
+    expect(msgId1).toBeTruthy();
+    expect(assistantMsg1.getAttribute("data-run-id")).toBe("run-101");
+
+    // Turn 2
+    merger.handleEvent({ kind: "input.updated", text: "第二轮用户问题" });
+    merger.handleEvent({ kind: "input.done", text: "第二轮用户问题" });
+    merger.handleEvent({
+      kind: "output.done",
+      text: "第二轮助手回答",
+      runId: "run-102",
+      turnId: "turn-2"
+    });
+
+    const userNodes = messagesContainer.querySelectorAll(".chat-msg-user");
+    const assistantNodes = messagesContainer.querySelectorAll(".chat-msg-assistant");
+    expect(userNodes).toHaveLength(2);
+    expect(assistantNodes).toHaveLength(2);
+
+    const msgId2 = userNodes[1].getAttribute("data-message-id");
+    expect(msgId2).toBeTruthy();
+    expect(msgId2).not.toBe(msgId1);
+    expect(assistantNodes[1].getAttribute("data-run-id")).toBe("run-102");
+
+    // History and DOM are strictly appended, never overwriting Turn 1
+    expect(userNodes[0].textContent).toBe("第一轮用户问题");
+    expect(assistantNodes[0].textContent).toBe("第一轮助手回答");
+    expect(userNodes[1].textContent).toBe("第二轮用户问题");
+    expect(assistantNodes[1].textContent).toBe("第二轮助手回答");
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一轮用户问题" },
+      { role: "assistant", content: "第一轮助手回答" },
+      { role: "user", content: "第二轮用户问题" },
+      { role: "assistant", content: "第二轮助手回答" }
+    ]);
   });
 });

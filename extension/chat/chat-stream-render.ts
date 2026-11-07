@@ -57,8 +57,8 @@ export interface ChatRegenerationSession {
 }
 
 export interface ChatMessageArea {
-  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource }) => void;
-  appendAssistantMessage: (opts?: { source?: ChatMessageSource }) => ChatAssistantTurn;
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string }) => void;
+  appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
   beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
   setRegenerationDisabled: (disabled: boolean) => void;
   clear: () => void;
@@ -67,6 +67,8 @@ export interface ChatMessageArea {
 // 回合节点句柄：一个助手消息节点的操作面（状态机不再出现选择器与节点创建；
 // 一代际的 token 缓冲、思考节点状态都由本句柄闭包持有）。
 export interface ChatAssistantTurn {
+  /** 助手消息节点元素 */
+  node?: HTMLDivElement;
   /** 灌入 token 增量（帧合批；未 flush 的增量同样进终态原文）。 */
   appendToken: (token: unknown) => void;
   /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
@@ -172,9 +174,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessageNode(text: string, source: ChatMessageSource): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string): void {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
+    if (messageId) {
+      node.setAttribute("data-message-id", messageId);
+    }
     node.textContent = text;
     deps.messages.appendChild(node);
     // 只有发送路径（live）接管自动滚动并强制滚底；回放（replay）静默追加。
@@ -204,12 +209,18 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return cursor;
   }
 
-  function appendAssistantMessageNode(source: ChatMessageSource): HTMLDivElement {
+  function appendAssistantMessageNode(
+    source: ChatMessageSource,
+    runId?: string,
+    messageId?: string
+  ): HTMLDivElement {
     // 回放：终态直出形态（无流式豁免类、无光标）——与 live 收尾后的节点逐字
     // 同形（差流式类），正文等回合句柄 finish 填。回放不清场外的东西、不滚底。
     if (source === "replay") {
       const replayed = document.createElement("div");
       replayed.className = "chat-msg chat-msg-assistant";
+      if (runId) replayed.setAttribute("data-run-id", runId);
+      if (messageId) replayed.setAttribute("data-message-id", messageId);
       deps.messages.appendChild(replayed);
       return replayed;
     }
@@ -229,6 +240,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 见 reader-chat.css）——正在输出的消息需要准确的实时高度，滚动跟随
     // 才能落到真实底部。
     node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
+    if (runId) node.setAttribute("data-run-id", runId);
+    if (messageId) node.setAttribute("data-message-id", messageId);
     // 流式 token 累加器（原 dataset.raw）随占位节点初始化/重置，
     // 保证第二条消息不会串上上一条的流式文本。
     resetTokenStreamState(node);
@@ -1299,6 +1312,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     return {
+      node,
       appendToken,
       appendThinking,
       reset,
@@ -1389,11 +1403,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   const messageArea: ChatMessageArea = {
-    appendUserMessage(text, { source = "live" } = {}) {
-      appendUserMessageNode(text, source);
+    appendUserMessage(text, { source = "live", messageId } = {}) {
+      appendUserMessageNode(text, source, messageId);
     },
-    appendAssistantMessage({ source = "live" } = {}) {
-      return createTurnHandle(appendAssistantMessageNode(source));
+    appendAssistantMessage({ source = "live", runId, messageId } = {}) {
+      return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
     },
     beginRegeneration,
     setRegenerationDisabled(disabled) {

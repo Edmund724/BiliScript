@@ -78,6 +78,15 @@ class FakeAudioCapture implements PageAudioCaptureSession {
     this.muted = muted;
   }
 
+  videoAudioShared = true;
+  setShareVideoAudio(enabled: boolean): void {
+    this.videoAudioShared = enabled;
+  }
+  isSharingVideoAudio(): boolean { return this.videoAudioShared; }
+  getVideoAudioStatus() { return "已获取音轨" as const; }
+  isMicVadActive(): boolean { return false; }
+  isVoiceRecentlyActive(): boolean { return true; }
+
   isMuted(): boolean {
     return this.muted;
   }
@@ -856,4 +865,158 @@ describe("LiveChatController video context and page tools", () => {
     expect(executeTool).not.toHaveBeenCalled();
     expect(fakePort.postedMessages).toHaveLength(0);
   });
+
+  it("forwards mic VAD and video audio status callbacks and provides getters", async () => {
+    let capturedOptions: any = null;
+    let fakeCapture: any = null;
+    const vadStates: boolean[] = [];
+    const videoStatuses: string[] = [];
+    const fakePort = new FakePort();
+
+    const controller = createLiveChatController({
+      connectPort: () => fakePort as any,
+      requestOrigins: async () => ({ ok: true }),
+      sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
+        ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+        : { ok: true }) as any,
+      startAudioCapture: async (opts) => {
+        capturedOptions = opts;
+        fakeCapture = new FakeAudioCapture(opts);
+        return fakeCapture;
+      },
+      startVideoCapture: () => new FakeVideoCapture({ onJpegFrame: () => {} }),
+      onVadStateChange: (active) => vadStates.push(active),
+      onVideoAudioStatusChange: (status) => videoStatuses.push(status)
+    });
+
+    expect(controller.getVideoAudioStatus()).toBe("未开启");
+    expect(controller.isMicVadActive()).toBe(false);
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+
+    expect(controller.getVideoAudioStatus()).toBe("已获取音轨");
+
+    // Simulate VAD change from capture
+    capturedOptions?.onVadStateChange?.(true);
+    expect(vadStates).toEqual([true]);
+
+    // Simulate video audio status change from capture
+    capturedOptions?.onVideoAudioStatusChange?.("视频已静音");
+    expect(videoStatuses).toEqual(["视频已静音"]);
+
+    // Test video audio toggle
+    controller.setShareVideoAudio(false);
+    expect(fakeCapture.videoAudioShared).toBe(false);
+
+    await controller.stop();
+  });
+
+  describe("MOSS session_id persistence, auto-reconnect notice and close diagnostics", () => {
+    it("saves session_id on session_attached and carries it on subsequent start, clears on stop()", async () => {
+      const fakePort = new FakePort();
+      const showNotice = vi.fn();
+      const controller = createLiveChatController({
+        connectPort: () => fakePort as any,
+        requestOrigins: async () => ({ ok: true }),
+        sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
+          ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+          : { ok: true }) as any,
+        startAudioCapture: async (opts) => new FakeAudioCapture(opts),
+        startVideoCapture: () => new FakeVideoCapture({ onJpegFrame: () => {} }),
+        showNotice
+      });
+
+      await controller.start();
+      expect(controller.getSavedSessionId?.()).toBeNull();
+
+      // Receive session_attached from server
+      fakePort.simulateMessage({ type: "session_attached", sessionId: "sess-moss-persist-99" });
+      expect(controller.getSavedSessionId?.()).toBe("sess-moss-persist-99");
+
+      // Stop session (user actively ends companion)
+      await controller.stop();
+      expect(controller.getSavedSessionId?.()).toBeNull();
+    });
+
+    it("displays reconnecting Chinese notice with WebSocket code and reason", async () => {
+      const fakePort = new FakePort();
+      const showNotice = vi.fn();
+      const liveBtn = document.createElement("button");
+      const controller = createLiveChatController({
+        liveButton: liveBtn,
+        connectPort: () => fakePort as any,
+        requestOrigins: async () => ({ ok: true }),
+        sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
+          ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+          : { ok: true }) as any,
+        startAudioCapture: async (opts) => new FakeAudioCapture(opts),
+        startVideoCapture: () => new FakeVideoCapture({ onJpegFrame: () => {} }),
+        showNotice
+      });
+
+      await controller.start();
+      fakePort.simulateMessage({ type: "connected" });
+      expect(controller.getState()).toBe("connected");
+
+      // Port emits reconnecting event
+      fakePort.simulateMessage({
+        type: "reconnecting",
+        attempt: 1,
+        maxAttempts: 3,
+        code: 1006,
+        reason: "Connection reset",
+        error: "Relay 连接中断"
+      });
+
+      expect(controller.getState()).toBe("connecting");
+      expect(showNotice).toHaveBeenCalledWith(
+        expect.stringContaining("关闭码: 1006"),
+        6000
+      );
+      expect(showNotice).toHaveBeenCalledWith(
+        expect.stringContaining("原因: Connection reset"),
+        6000
+      );
+      expect(showNotice).toHaveBeenCalledWith(
+        expect.stringContaining("错误详情: Relay 连接中断"),
+        6000
+      );
+      expect(showNotice).toHaveBeenCalledWith(
+        expect.stringContaining("第 1/3 次"),
+        6000
+      );
+    });
+
+    it("displays failure diagnostics with close code, reason, and relay error on closed message", async () => {
+      const fakePort = new FakePort();
+      const showNotice = vi.fn();
+      const controller = createLiveChatController({
+        connectPort: () => fakePort as any,
+        requestOrigins: async () => ({ ok: true }),
+        sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
+          ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+          : { ok: true }) as any,
+        startAudioCapture: async (opts) => new FakeAudioCapture(opts),
+        startVideoCapture: () => new FakeVideoCapture({ onJpegFrame: () => {} }),
+        showNotice
+      });
+
+      await controller.start();
+      fakePort.simulateMessage({ type: "connected" });
+
+      fakePort.simulateMessage({
+        type: "closed",
+        code: 1006,
+        reason: "Relay timeout",
+        error: "已达最大重连次数 (3 次)"
+      });
+
+      expect(controller.getState()).toBe("failure");
+      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("关闭码: 1006"));
+      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("原因: Relay timeout"));
+      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("已达最大重连次数 (3 次)"));
+    });
+  });
+
 });

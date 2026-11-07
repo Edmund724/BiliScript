@@ -4,6 +4,7 @@
 
 import {
   MOSS_LIVE_PORT_NAME,
+  formatLiveCloseDiagnostics,
   encodeBase64Bytes,
   resolveGeminiLiveWsUrl,
   resolveMossLivePermissionOrigins,
@@ -23,7 +24,8 @@ import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import {
   createPageAudioCapture,
   type PageAudioCaptureOptions,
-  type PageAudioCaptureSession
+  type PageAudioCaptureSession,
+  type VideoAudioTrackStatus
 } from "./page-media-capture.js";
 import {
   createPageVideoFrameCapture,
@@ -49,6 +51,8 @@ export interface LiveChatControllerDeps {
   onInterruptStateChange?: (active: boolean) => void;
   onStateChange?: (state: LiveChatState, error?: string) => void;
   onSpeakingChange?: (speaking: boolean) => void;
+  onVadStateChange?: (active: boolean) => void;
+  onVideoAudioStatusChange?: (status: VideoAudioTrackStatus) => void;
   getTargetOrigin?: () => string;
   getTargetModel?: () => string;
   getTargetProviderType?: () => LiveProviderType;
@@ -58,7 +62,7 @@ export interface LiveChatControllerDeps {
   requestOrigins?: typeof requestProviderOriginsViaBackground;
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
-  createTranscriptMerger?: () => LiveTranscriptMerger;
+  createTranscriptMerger?: (opts?: { isVoiceRecentlyActive?: () => boolean }) => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   getVideoContext?: () => MossLiveVideoContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -67,8 +71,13 @@ export interface LiveChatControllerDeps {
 
 export interface LiveChatController {
   getState(): LiveChatState;
+  getSavedSessionId?(): string | null;
   isMuted(): boolean;
   isSpeaking(): boolean;
+  getVideoAudioStatus(): VideoAudioTrackStatus;
+  isMicVadActive(): boolean;
+  setShareVideoAudio(enabled: boolean): void;
+  isSharingVideoAudio(): boolean;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
   setSpeed(speed: number): void;
@@ -93,6 +102,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     onInterruptStateChange,
     onStateChange,
     onSpeakingChange,
+    onVadStateChange,
+    onVideoAudioStatusChange,
     getTargetOrigin,
     getTargetModel,
     getTargetProviderType,
@@ -123,6 +134,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let currentGeneration = 0;
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
+  let savedMossSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
   let activeMerger: LiveTranscriptMerger | null = null;
@@ -428,8 +440,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       captureSession = await startAudioCapture({
         initialMuted: false,
+        onVadStateChange: (active) => {
+          if (generation !== currentGeneration) return;
+          onVadStateChange?.(active);
+        },
+        onVideoAudioStatusChange: (status) => {
+          if (generation !== currentGeneration) return;
+          onVideoAudioStatusChange?.(status);
+        },
         onPcmFrame: (pcmBytes) => {
-          if (generation !== currentGeneration || state !== "connected" || muted || !activePort) {
+          if (generation !== currentGeneration || state !== "connected" || !activePort) {
             return;
           }
           try {
@@ -461,7 +481,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     activeAudioCapture = captureSession;
 
     // 4. 创建本轮会话专属双端字幕归并器并连接 Offscreen 端口
-    activeMerger = createTranscriptMerger ? createTranscriptMerger() : null;
+    activeMerger = createTranscriptMerger
+      ? createTranscriptMerger({
+          isVoiceRecentlyActive: () => activeAudioCapture?.isVoiceRecentlyActive() ?? true
+        })
+      : null;
 
     let port: chrome.runtime.Port;
     try {
@@ -483,9 +507,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       const msg = rawMsg as MossLiveServerEvent;
       if (!msg) return;
 
-      if (msg.type === "connecting") {
+      if (msg.type === "session_attached") {
+        if (msg.sessionId) {
+          savedMossSessionId = msg.sessionId;
+        }
+      } else if (msg.type === "connecting") {
         updateUi("connecting");
       } else if (msg.type === "connected") {
+        if (msg.sessionId) {
+          savedMossSessionId = msg.sessionId;
+        }
         updateUi("connected");
         syncVideoContext();
         startActiveVideoCapture(generation);
@@ -526,8 +557,23 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         } else {
           showNotice(`联网查证失败${querySuffix}${event.error ? `：${event.error}` : ""}`, 6000);
         }
+      } else if (msg.type === "reconnecting") {
+        const notice = formatLiveCloseDiagnostics({
+          isReconnect: true,
+          attempt: msg.attempt,
+          maxAttempts: msg.maxAttempts,
+          code: msg.code,
+          reason: msg.reason,
+          error: msg.error
+        });
+        updateUi("connecting", notice);
+        showNotice(notice, 6000);
       } else if (msg.type === "error") {
-        const errorMsg = msg.error || "MOSS-LIVE 连接异常中断";
+        const errorMsg = formatLiveCloseDiagnostics({
+          code: msg.code,
+          reason: msg.reason,
+          error: msg.error || "MOSS-LIVE 连接异常中断"
+        });
         stopActiveMediaAndMerger();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
@@ -535,7 +581,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         void cleanupSessionRule(sessionId);
       } else if (msg.type === "closed") {
         if (state === "connecting" || state === "connected") {
-          const errorMsg = "MOSS-LIVE 连接已关闭";
+          const errorMsg = formatLiveCloseDiagnostics({
+            code: msg.code,
+            reason: msg.reason,
+            error: msg.error || "MOSS-LIVE 连接已关闭"
+          });
           stopActiveMediaAndMerger();
           updateUi("failure", errorMsg);
           showNotice(errorMsg);
@@ -548,7 +598,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     port.onDisconnect.addListener(() => {
       if (generation !== currentGeneration) return;
       if (state === "connecting" || state === "connected") {
-        const errorMsg = "后台伴看通道已断开";
+        const errorMsg = formatLiveCloseDiagnostics({
+          error: "后台伴看通道已断开"
+        });
         stopActiveMediaAndMerger();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
@@ -572,6 +624,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         providerType: resolvedProviderType,
         model: resolvedModel,
         volume,
+        ...(savedMossSessionId ? { sessionId: savedMossSessionId } : {}),
         ...(speed !== 1 ? { speed } : {}),
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
@@ -648,6 +701,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     currentGeneration += 1;
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
+    savedMossSessionId = null; // 用户主动点击结束伴看时清除 session_id
     stopActiveMediaAndMerger();
     if (activePort) {
       try {
@@ -680,8 +734,15 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   return {
     getState: () => state,
+    getSavedSessionId: () => savedMossSessionId,
+
+
     isMuted: () => muted,
     isSpeaking: () => speaking,
+    getVideoAudioStatus: () => activeAudioCapture?.getVideoAudioStatus() ?? "未开启",
+    isMicVadActive: () => activeAudioCapture?.isMicVadActive() ?? false,
+    setShareVideoAudio: (enabled: boolean) => activeAudioCapture?.setShareVideoAudio(enabled),
+    isSharingVideoAudio: () => activeAudioCapture?.isSharingVideoAudio() ?? true,
     setMuted,
     setVolume,
     setSpeed,

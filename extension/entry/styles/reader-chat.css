@@ -2033,6 +2033,11 @@
 .biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] .chat-live-bar-icon-mic {
   display: none;
 }
+.biliscript-reading-chat .chat-live-bar-mute-btn.is-talking:not([aria-pressed='true']) {
+  color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
+  animation: biliscript-live-pulse 1s infinite ease-in-out;
+}
 .biliscript-reading-chat .chat-live-bar-mute-btn[aria-pressed='true'] .chat-live-bar-icon-mic-off {
   display: block;
 }
