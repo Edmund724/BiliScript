@@ -919,7 +919,7 @@
   margin: 0 2px;
   padding: 3px;
   border: 0;
-  border-radius: var(--biliscript-radius-6, var(--biliscript-primitive-radius-6, 6px));
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   color: hsla(0, 0%, 100%, 0.85);
   background: transparent;
@@ -952,7 +952,7 @@
 
 .biliscript-live-room-toggle:hover {
   color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
-  border-color: rgba(var(--biliscript-primitive-color-blue-500-rgb), 0.45);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
 }
 
 .biliscript-live-room-toggle:active {
@@ -961,12 +961,42 @@
 
 .biliscript-live-room-toggle.is-active {
   color: var(--biliscript-primitive-color-gemini-purple-dark);
-  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
+  background: transparent;
 }
 
 .biliscript-live-room-toggle.is-active:hover {
   color: var(--biliscript-primitive-color-gemini-purple-light);
-  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
+}
+
+.biliscript-live-room-toggle::after {
+  content: "实时伴看";
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 8px;
+  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.85);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  font-size: var(--biliscript-font-size-xs, 12px);
+  line-height: 1;
+  white-space: nowrap;
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 100;
+}
+
+.biliscript-live-room-toggle[data-tooltip]::after {
+  content: attr(data-tooltip);
+}
+
+.biliscript-live-room-toggle:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 .biliscript-live-room-notice {
   position: absolute;

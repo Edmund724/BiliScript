@@ -73,7 +73,14 @@ function mountToggleButton(): void {
     toggleButton.className = `${TOGGLE_BUTTON_CLASS} bpx-player-ctrl-btn`;
     toggleButton.setAttribute("data-biliscript-extension-node", "live-room-toggle");
     toggleButton.setAttribute("aria-label", "实时伴看");
+    toggleButton.setAttribute("data-tooltip", "实时伴看");
     toggleButton.title = "实时伴看";
+    toggleButton.addEventListener("mouseenter", () => {
+      toggleButton?.removeAttribute("title");
+    });
+    toggleButton.addEventListener("mouseleave", () => {
+      toggleButton?.setAttribute("title", "实时伴看");
+    });
     toggleButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
     toggleButton.addEventListener("click", () => {
       void controller?.toggle();

@@ -138,6 +138,12 @@ describe("直播间伴看开关按钮", () => {
     expect(btn?.parentElement).toBe(controls);
     expect(btn?.innerHTML).toBe(buildPlayerLiveQuickActionIconSvg());
     expect(btn?.getAttribute("aria-label")).toBe("实时伴看");
+    expect(btn?.getAttribute("data-tooltip")).toBe("实时伴看");
+    expect(btn?.title).toBe("实时伴看");
+
+    btn?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(btn?.hasAttribute("title")).toBe(false);
+    btn?.dispatchEvent(new MouseEvent("mouseleave"));
     expect(btn?.title).toBe("实时伴看");
 
     host.remove();
