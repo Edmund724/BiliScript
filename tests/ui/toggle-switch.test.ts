@@ -25,6 +25,7 @@ const TOGGLE_IDS = [
   "autoOpenReader",
   "includeDateInFilename",
   "includeTimestampInBody",
+  "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
   "chatInputGlow"
 ] as const;

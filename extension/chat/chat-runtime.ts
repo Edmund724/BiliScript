@@ -82,7 +82,7 @@ import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ViewResetIntent } from "./view-intent.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
-import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession } from "./chat-stream-render.js";
+import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession, type ChatContinuationSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
@@ -168,6 +168,7 @@ export interface CreateChatRuntimeDeps {
   speechEngine?: ChatSpeechEngine;
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
+  onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
 }
 
 /**
@@ -259,6 +260,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     userIndex: number;
     session: ChatRegenerationSession;
   } | null = null;
+  let activeContinuation: {
+    originalHistory: ChatSessionMessage[];
+    userIndex: number;
+    historyIndex: number;
+    initialRaw: string;
+    userPrompt: string;
+    branch: "A" | "B";
+    session: ChatContinuationSession;
+  } | null = null;
   let activeUserPrompt = "";
   // 本代际用户消息的图片（image-input 04 号票）：发送受理时随 activeUserPrompt
   // 一起捕获，done/stopped 写回时挂在那条 user 消息上——图片从此进历史，
@@ -329,7 +339,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // ---- internal helpers ----
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
-    messageArea.setRegenerationDisabled(isStreaming || turn.isActive());
+    messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeRegeneration !== null || activeContinuation !== null);
   }
   // =========================================================================
   // DOM 渲染/滚动/水合片（./chat-stream-render.ts）的跨片消费面
@@ -345,10 +355,14 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
     onRegenerate: regenerateAssistant,
+    onContinue: (historyIndex, node) => {
+      deps.onContinue?.(historyIndex, node);
+      continueAssistant(historyIndex, node);
+    },
     onExport: exportAssistant,
     onSpeak: (button, text) => speech.toggle(button, text),
     onClear: () => speech.stop(),
-    isRegenerationDisabled: () => turn.isActive()
+    isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
   });
   // =========================================================================
   // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
@@ -478,7 +492,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function regenerateAssistant(historyIndex: number, node: HTMLDivElement): void {
-    if (turn.isActive() || activeRegeneration) {
+    if (turn.isActive() || activeRegeneration || activeContinuation) {
       return;
     }
     const originalHistory = [...chatSessionState.chatHistory];
@@ -507,6 +521,56 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       regeneration.session.restore();
       activeRegeneration = null;
+      messageArea.setRegenerationDisabled(false);
+    });
+  }
+
+  function continueAssistant(historyIndex: number, node: HTMLDivElement): void {
+    if (turn.isActive() || activeRegeneration || activeContinuation) {
+      return;
+    }
+    const originalHistory = [...chatSessionState.chatHistory];
+    const targetMessage = originalHistory[historyIndex];
+    if (targetMessage?.role !== "assistant") {
+      return;
+    }
+    let userIndex = historyIndex - 1;
+    while (userIndex >= 0 && originalHistory[userIndex]?.role !== "user") {
+      userIndex -= 1;
+    }
+    if (userIndex < 0) {
+      return;
+    }
+    const userPrompt = originalHistory[userIndex]?.content?.trim() || "";
+    if (!userPrompt) {
+      return;
+    }
+    speech.stop();
+    const hasBody = Boolean(targetMessage.content?.trim());
+    const branch = hasBody ? "B" : "A";
+    const initialRaw = hasBody ? targetMessage.content! : "";
+    const initialThinking = targetMessage.thinking || "";
+    const continuation = {
+      originalHistory,
+      userIndex,
+      historyIndex,
+      initialRaw,
+      userPrompt,
+      branch,
+      session: messageArea.beginContinuation(node, {
+        initialRaw,
+        thinking: initialThinking
+      })
+    };
+    activeContinuation = continuation;
+    messageArea.setRegenerationDisabled(true);
+    const sendPrompt = branch === "B" ? "继续" : userPrompt;
+    void turn.send(sendPrompt).then((verdict) => {
+      if (verdict === "accepted" || activeContinuation !== continuation) {
+        return;
+      }
+      continuation.session.restore();
+      activeContinuation = null;
       messageArea.setRegenerationDisabled(false);
     });
   }
@@ -567,15 +631,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.removeSuggestions();
 
       const regeneration = activeRegeneration;
-      if (!regeneration) {
+      const continuation = activeContinuation;
+      if (!regeneration && !continuation) {
         messageArea.appendUserMessage(text, { source: "live" });
         deps.input.value = "";
         deps.ui.autosizeInput();
       }
 
       const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
-      const images = regeneration
-        ? regeneration.originalHistory[regeneration.userIndex].images ?? []
+      const images = (regeneration || continuation)
+        ? ((regeneration || continuation).originalHistory[(regeneration || continuation).userIndex].images ?? [])
         : deps.takeInputImages?.() ?? [];
 
       setStreamingUiState(true);
@@ -587,7 +652,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ensureConversationId(generateConversationId());
       }
       activeConversationId = chatSessionState.currentConversationId;
-      activeTurn = regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
+      activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
       startStreamSlowNoticeTimer();
       streamFirstTokenReceived = false;
 
@@ -606,6 +671,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         if (activeRegeneration) {
           activeRegeneration.session.restore();
           activeRegeneration = null;
+          pendingToolMessages = [];
+        }
+        if (activeContinuation) {
+          activeContinuation.session.restore();
+          activeContinuation = null;
           pendingToolMessages = [];
         }
         clearStreamRuntimeState();
@@ -654,7 +724,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...(images.length ? { images } : {}),
         // 历史只走顶层 history（offscreen/ai 侧统一读 msg.history）；
         // 不再向 context 里塞 chatHistory 副本（无任何读取方的死负载）。
-        history: regeneration ? regeneration.originalHistory.slice(0, regeneration.userIndex) : chatSessionState.chatHistory
+        history: continuation
+          ? (continuation.branch === "B"
+              ? [
+                  ...continuation.originalHistory.slice(0, continuation.userIndex),
+                  continuation.originalHistory[continuation.userIndex],
+                  { role: "assistant", content: continuation.initialRaw }
+                ]
+              : continuation.originalHistory.slice(0, continuation.userIndex))
+          : (regeneration
+              ? regeneration.originalHistory.slice(0, regeneration.userIndex)
+              : chatSessionState.chatHistory)
       });
 
       // 闸内登记的停流请求（settled 在端口就绪前收到，见 turn.stop）：端口已就绪、
@@ -704,6 +784,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       renderStep(streamTurn);
     }
     activeRegeneration = null;
+    activeContinuation = null;
     activeUserPrompt = "";
     activeUserImages = [];
     if (activePort) {
@@ -717,28 +798,70 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function getActiveAssistantHistoryIndex(): number {
+    if (activeContinuation) {
+      return activeContinuation.historyIndex;
+    }
     if (activeRegeneration) {
       return activeRegeneration.userIndex + 1 + pendingToolMessages.length;
     }
     return chatSessionState.chatHistory.length + 1 + pendingToolMessages.length;
   }
 
-  function commitAssistantTurn(raw: string): boolean {
+  function commitAssistantTurn(
+    raw: string,
+    opts: { thinking?: string; stopped?: boolean } = {}
+  ): boolean {
+    const thinkingText = typeof opts.thinking === "string" && opts.thinking.trim() ? opts.thinking : undefined;
+    const hasContent = Boolean(raw && raw.trim());
+    const hasThinking = Boolean(thinkingText);
+    const isStopped = Boolean(opts.stopped);
+
+    const assistantMsg: ChatSessionMessage = {
+      role: "assistant",
+      content: raw || ""
+    };
+    if (hasThinking) {
+      assistantMsg.thinking = thinkingText;
+    }
+    if (isStopped) {
+      assistantMsg.stopped = true;
+    }
+
     if (activeRegeneration) {
       if (!deps.store.isCurrent(activeConversationId)) {
         pendingToolMessages = [];
         return false;
       }
-      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
-      if (raw) {
-        history.push(...pendingToolMessages, { role: "assistant", content: raw });
+      if (isStopped && !hasContent && !hasThinking) {
+        pendingToolMessages = [];
+        return false;
       }
+      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
+      history.push(...pendingToolMessages, assistantMsg);
       applyConversationIdentity({ history });
       void deps.store.persistCurrent();
       pendingToolMessages = [];
       return true;
     }
-    if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
+
+    if (activeContinuation) {
+      if (!deps.store.isCurrent(activeConversationId)) {
+        pendingToolMessages = [];
+        return false;
+      }
+      if (isStopped && !hasContent && !hasThinking) {
+        pendingToolMessages = [];
+        return false;
+      }
+      const history = [...activeContinuation.originalHistory];
+      history[activeContinuation.historyIndex] = assistantMsg;
+      applyConversationIdentity({ history });
+      void deps.store.persistCurrent();
+      pendingToolMessages = [];
+      return true;
+    }
+
+    if (activeUserPrompt && deps.store.isCurrent(activeConversationId)) {
       appendChatHistory(
         {
           role: "user",
@@ -746,7 +869,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           ...(activeUserImages.length ? { images: activeUserImages } : {})
         },
         ...pendingToolMessages,
-        { role: "assistant", content: raw }
+        assistantMsg
       );
       void deps.store.persistCurrent();
     }
@@ -759,14 +882,25 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      const raw = turn.finish({ userPrompt: activeUserPrompt, historyIndex: getActiveAssistantHistoryIndex() });
+      const raw = turn.finish({
+        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
+        historyIndex: getActiveAssistantHistoryIndex()
+      });
+      const thinking = turn.getThinking?.();
       appendTruncatedBadge(turn);
-      const committed = commitAssistantTurn(raw);
+      const committed = commitAssistantTurn(raw, { thinking });
       if (activeRegeneration) {
         if (committed) {
           activeRegeneration.session.commit();
         } else {
           activeRegeneration.session.restore();
+        }
+      }
+      if (activeContinuation) {
+        if (committed) {
+          activeContinuation.session.commit();
+        } else {
+          activeContinuation.session.restore();
         }
       }
     });
@@ -789,6 +923,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (activeRegeneration) {
         deps.ui.showConversationContextNotice(`重新生成失败：${message}`, 4000);
       }
+      if (activeContinuation) {
+        deps.ui.showConversationContextNotice(`继续生成失败：${message}`, 4000);
+      }
     });
   }
 
@@ -797,18 +934,24 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      const { raw, body } = turn.stop(reason, {
-        userPrompt: activeUserPrompt,
+      const { raw } = turn.stop(reason, {
+        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
         historyIndex: getActiveAssistantHistoryIndex()
       });
-      if (body) {
-        const committed = commitAssistantTurn(raw);
-        if (activeRegeneration) {
-          if (committed) {
-            activeRegeneration.session.commit();
-          } else {
-            activeRegeneration.session.restore();
-          }
+      const thinking = turn.getThinking?.();
+      const committed = commitAssistantTurn(raw, { thinking, stopped: true });
+      if (activeRegeneration) {
+        if (committed) {
+          activeRegeneration.session.commit();
+        } else {
+          activeRegeneration.session.restore();
+        }
+      }
+      if (activeContinuation) {
+        if (committed) {
+          activeContinuation.session.commit();
+        } else {
+          activeContinuation.session.restore();
         }
       }
     });
@@ -932,6 +1075,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeTurn?.discard();
     activeRegeneration?.session.restore();
     activeRegeneration = null;
+    activeContinuation?.session.restore();
+    activeContinuation = null;
     pendingToolMessages = [];
     clearStreamRuntimeState();
     if (activePort) {

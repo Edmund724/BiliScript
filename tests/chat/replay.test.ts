@@ -259,4 +259,34 @@ describe("createConversationReplay（历史回放事务）", () => {
 
     expect(replay.inFlight).toBeNull();
   });
+
+  it("助手消息带有 thinking 与 stopped：回放时将思考过程与中断标志透传给 finish", async () => {
+    const { deps, turns } = makeDeps();
+    seedHistory(
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "", thinking: "深度思考过程1", stopped: true },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: "第二答", thinking: "深度思考过程2" }
+    );
+    const replay = createConversationReplay(deps);
+
+    replay.render();
+    await flushTurn();
+
+    expect(turns[0].finish).toHaveBeenCalledWith({
+      raw: "",
+      userPrompt: "第一问",
+      sources: [],
+      historyIndex: 1,
+      thinking: "深度思考过程1",
+      stopped: true
+    });
+    expect(turns[1].finish).toHaveBeenCalledWith({
+      raw: "第二答",
+      userPrompt: "第二问",
+      sources: [],
+      historyIndex: 3,
+      thinking: "深度思考过程2"
+    });
+  });
 });

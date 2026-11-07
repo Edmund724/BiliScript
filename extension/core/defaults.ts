@@ -87,6 +87,8 @@ export interface KnownSettings {
   customPanelWidthEnabled: boolean; // 是否启用自定义文摘面板宽度，默认关
   customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 540
   autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
+  // ===== 历史会话清理 =====
+  cleanConversationsOlderThan30Days: boolean; // 自动清理 30 天以前的历史会话记录，默认关
 }
 
 export interface Settings extends KnownSettings {
@@ -151,5 +153,6 @@ export const DEFAULT_SETTINGS: Settings = {
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: false,
   customPanelWidth: 540,
-  autoOpenReader: false
+  autoOpenReader: false,
+  cleanConversationsOlderThan30Days: false
 };

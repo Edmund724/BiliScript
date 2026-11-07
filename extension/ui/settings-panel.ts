@@ -38,6 +38,7 @@ import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
+import { cleanExpiredConversations } from "../chat/conversation-store.js";
 import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
@@ -119,6 +120,7 @@ function collectElements(host: HTMLElement) {
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
     includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
     enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    cleanConversationsOlderThan30Days: byIdIn<HTMLInputElement>(dom.cleanConversationsOlderThan30Days),
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
     addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
@@ -278,6 +280,17 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "enableDebugLogs",
     getElement: (el) => el.enableDebugLogs,
     normalize: (val) => Boolean(val)
+  },
+  {
+    kind: "toggle",
+    key: "cleanConversationsOlderThan30Days",
+    getElement: (el) => el.cleanConversationsOlderThan30Days,
+    normalize: (val) => val === true,
+    onApply: async (val) => {
+      if (val) {
+        await cleanExpiredConversations();
+      }
+    }
   },
   {
     kind: "toggle",
