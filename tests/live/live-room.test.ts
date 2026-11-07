@@ -73,6 +73,7 @@ describe("直播间提示词与工具声明", () => {
   it("提示词带房间标题与主播名，不含字幕/概览/跳转教学", () => {
     const text = buildVideoInstructions(room);
     expect(text).toContain("直播间");
+    expect(text).toContain("突然被压低");
     expect(text).toContain("当前直播间：深夜杂谈");
     expect(text).toContain("主播：某主播");
     expect(text).not.toContain("search_video_subtitles");

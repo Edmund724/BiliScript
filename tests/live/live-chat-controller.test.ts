@@ -895,6 +895,9 @@ describe("LiveChatController video context and page tools", () => {
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
 
+    expect(controller.isSharingVideoAudio()).toBe(false);
+    expect(controller.getVideoAudioStatus()).toBe("未开启");
+    controller.setShareVideoAudio(true);
     expect(controller.getVideoAudioStatus()).toBe("已获取音轨");
 
     // Simulate VAD change from capture

@@ -12,6 +12,7 @@ export type VideoAudioTrackStatus = "已获取音轨" | "未检测到音轨" | "
 export const DEFAULT_VAD_RMS_THRESHOLD = 0.015;
 export const DEFAULT_VAD_HANGOVER_MS = 2000;
 export const DEFAULT_VAD_RELEASE_MS = 300;
+export const DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN = 0.15;
 
 export interface PageAudioProcessorNodeLike {
   onaudioprocess: ((event: { inputBuffer: { getChannelData(channel: number): Float32Array; numberOfChannels?: number } }) => void) | null;
@@ -55,6 +56,7 @@ export interface PageAudioCaptureOptions {
   onPcmFrame: (pcmBytes: Uint8Array<ArrayBuffer>) => void;
   initialMuted?: boolean;
   shareVideoAudio?: boolean;
+  upstreamVideoDuckGain?: number;
   vadRmsThreshold?: number;
   vadHangoverMs?: number;
   vadReleaseMs?: number;
@@ -212,7 +214,7 @@ export async function createPageAudioCapture(
 
   let stopped = false;
   let muted = Boolean(options.initialMuted);
-  let shareVideoAudio = options.shareVideoAudio ?? true;
+  let shareVideoAudio = options.shareVideoAudio ?? false;
   let currentVideoAudioStatus: VideoAudioTrackStatus = shareVideoAudio ? "未检测到音轨" : "未开启";
 
   // VAD 状态机
@@ -222,6 +224,11 @@ export async function createPageAudioCapture(
   const vadThreshold = options.vadRmsThreshold ?? DEFAULT_VAD_RMS_THRESHOLD;
   const vadHangoverMs = options.vadHangoverMs ?? DEFAULT_VAD_HANGOVER_MS;
   const vadReleaseMs = options.vadReleaseMs ?? DEFAULT_VAD_RELEASE_MS;
+  const upstreamVideoDuckGain =
+    typeof options.upstreamVideoDuckGain === "number" &&
+    Number.isFinite(options.upstreamVideoDuckGain)
+      ? Math.max(0, Math.min(1, options.upstreamVideoDuckGain))
+      : DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN;
 
   function reportVadState(active: boolean): void {
     if (vadSpeaking === active) return;
@@ -421,9 +428,10 @@ export async function createPageAudioCapture(
 
     const len = micData.length;
     const mixed = new Float32Array(len);
+    const videoGain = !muted && vadSpeaking ? upstreamVideoDuckGain : 1;
     for (let i = 0; i < len; i++) {
       const micSample = muted ? 0 : micData[i];
-      const videoSample = hasVideo && videoData ? videoData[i] : 0;
+      const videoSample = hasVideo && videoData ? videoData[i] * videoGain : 0;
       // 混音限幅归一化
       const sum = micSample + videoSample;
       mixed[i] = sum > 1 ? 1 : sum < -1 ? -1 : sum;

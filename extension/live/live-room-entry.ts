@@ -122,7 +122,7 @@ export async function startLiveRoomCompanion(): Promise<void> {
   controller = createLiveChatController({
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
-    initialShareVideoAudio: state.settings?.liveShareVideoAudio !== false,
+    initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
     getVideoContext: bridge.getVideoContext,
     executeTool: bridge.executeTool,

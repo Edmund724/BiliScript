@@ -10,7 +10,7 @@ import {
   type VideoAudioTrackStatus,
   type PageAudioContextLike
 } from "../../extension/live/page-media-capture.js";
-import { MOSS_UPSTREAM_FRAME_BYTES, MOSS_UPSTREAM_SAMPLE_RATE } from "../../extension/live/moss-live-protocol.js";
+import { decodePcmS16LEToFloat32, MOSS_UPSTREAM_FRAME_BYTES, MOSS_UPSTREAM_SAMPLE_RATE } from "../../extension/live/moss-live-protocol.js";
 
 class FakeMediaStreamTrack {
   enabled = true;
@@ -336,13 +336,25 @@ describe("createPageAudioCapture", () => {
     // Successfully acquired video track
     expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
 
-    // Mix mic (0.1) and video (0.2)
+    // 1. Mic silent (0), video active (0.4): video passes at 100% gain (0.4)
     fakeAudioCtx.emitSamples(
-      new Float32Array(320).fill(0.1),
-      new Float32Array(320).fill(0.2)
+      new Float32Array(320).fill(0),
+      new Float32Array(320).fill(0.4)
     );
     expect(frames).toHaveLength(1);
+    expect(capture.isMicVadActive()).toBe(false);
+    const unduckedSamples = decodePcmS16LEToFloat32(frames[0].buffer);
+    expect(unduckedSamples[0]).toBeCloseTo(0.4, 2);
+
+    // 2. Mic speaking (0.2 >= 0.015) and video (0.4): video is ducked to 15% (0.2 + 0.4 * 0.15 = 0.26)
+    fakeAudioCtx.emitSamples(
+      new Float32Array(320).fill(0.2),
+      new Float32Array(320).fill(0.4)
+    );
+    expect(frames).toHaveLength(2);
     expect(capture.isMicVadActive()).toBe(true);
+    const duckedSamples = decodePcmS16LEToFloat32(frames[1].buffer);
+    expect(duckedSamples[0]).toBeCloseTo(0.26, 2);
 
     // Video is muted -> reports "视频已静音"
     fakeVideo.muted = true;

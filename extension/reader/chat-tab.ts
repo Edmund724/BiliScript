@@ -1116,7 +1116,7 @@ function bindEvents(): void {
   }
 
   // 伴看操作区：原声共享与语音优先开关
-  const initialShareVideoAudio = state.settings?.liveShareVideoAudio !== false;
+  const initialShareVideoAudio = state.settings?.liveShareVideoAudio === true;
   const initialVoicePriority = state.settings?.liveVoicePriority !== false;
 
   if (els.liveBarShareAudioSwitch) {

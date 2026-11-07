@@ -142,7 +142,7 @@ export const normalizeSpeechVoiceVolume = clampedIntField(
   DEFAULT_SETTINGS.speechVoiceVolume
 );
 export const normalizeLiveVoicePriority = booleanField(true);
-export const normalizeLiveShareVideoAudio = booleanField(true);
+export const normalizeLiveShareVideoAudio = booleanField(false);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeWebSearchEnabled = booleanField(false);
 

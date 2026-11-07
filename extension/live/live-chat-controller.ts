@@ -122,7 +122,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     initialVolume = 1,
     initialSpeed = 1,
     initialVoicePriority = true,
-    initialShareVideoAudio = true,
+    initialShareVideoAudio = false,
     duckRatio = DEFAULT_LIVE_DUCK_RATIO,
     getVideoElement = null,
     onVoicePriorityChange,
@@ -160,7 +160,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let muted = false;
   let speaking = false;
   let voicePriority = initialVoicePriority !== false;
-  let shareVideoAudio = initialShareVideoAudio !== false;
+  let shareVideoAudio = Boolean(initialShareVideoAudio);
   let micVadActive = false;
   let isDucked = false;
   let originalVideoVolume: number | null = null;
