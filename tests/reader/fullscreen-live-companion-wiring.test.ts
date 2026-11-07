@@ -138,5 +138,25 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
       expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
       await expectPanelRestored();
     });
+
+    it("已处于浏览器全屏时开启伴看，浮窗挂载进实际全屏元素", async () => {
+      const chat = await import("../../extension/reader/chat-tab.js");
+      await chat.ensureChatTabActivated();
+      const liveCtrl = chat.getLiveController();
+      expect(liveCtrl).not.toBeNull();
+      vi.spyOn(liveCtrl!, "start").mockImplementation(async () => {
+        vi.spyOn(liveCtrl!, "getState").mockReturnValue("connected");
+        return true;
+      });
+
+      const fullscreenElement = document.createElement("div");
+      playerContainer.appendChild(fullscreenElement);
+      Object.defineProperty(document, "fullscreenElement", { value: fullscreenElement, configurable: true });
+
+      expect(await chat.startLiveCompanion()).toBe(true);
+      const overlay = chat.getFullscreenLiveOverlay();
+      expect(overlay?.isVisible()).toBe(true);
+      expect(fullscreenElement.contains(overlay?.getElement() ?? null)).toBe(true);
+    });
   });
 });
