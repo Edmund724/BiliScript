@@ -170,6 +170,8 @@ export interface CreateConversationStoreDeps {
   onContextNotice: (notice: ConversationContextNotice) => void;
   // ---- 存储（可选；测试注入，缺省 chrome.storage.local） ----
   storage?: StorageArea;
+  syncStorage?: StorageArea;
+  isCleanEnabled?: () => Promise<boolean> | boolean;
   // 清空全部历史对话前的确认通道（惯用法同 chat-runtime 的 confirmCostGuard）。
   // 可选注入，缺省面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也
   // 合法（Node 测试注入桩函数），clearAll 统一 await 归一。
@@ -221,7 +223,90 @@ export function needsConversationPageHydration(conversation: Conversation | null
 
 // 存档存储键与容量上限（工单 05 收窄：原 deps 可选键收进模块常量——唯一生产
 // 宿主组合根传的正是这两个值，测试无一覆盖）。
-const CONVERSATIONS_STORAGE_KEY = "biliscript_ai_conversations_v1";
+export const CONVERSATIONS_STORAGE_KEY = "biliscript_ai_conversations_v1";
+export const CONVERSATION_RETENTION_MS = 30 * 86400 * 1000;
+
+export function getConversationTimestamp(conversation: {
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}): number {
+  const updatedAt =
+    typeof conversation?.updatedAt === "number" && !Number.isNaN(conversation.updatedAt)
+      ? conversation.updatedAt
+      : Number(conversation?.updatedAt);
+  if (!Number.isNaN(updatedAt) && updatedAt > 0) {
+    return updatedAt;
+  }
+  const createdAt =
+    typeof conversation?.createdAt === "number" && !Number.isNaN(conversation.createdAt)
+      ? conversation.createdAt
+      : Number(conversation?.createdAt);
+  if (!Number.isNaN(createdAt) && createdAt > 0) {
+    return createdAt;
+  }
+  return 0;
+}
+
+export function isConversationOlderThanRetention(
+  conversation: { updatedAt?: unknown; createdAt?: unknown },
+  now: number = Date.now(),
+  retentionMs: number = CONVERSATION_RETENTION_MS
+): boolean {
+  const ts = getConversationTimestamp(conversation);
+  return ts < now - retentionMs;
+}
+
+export function filterExpiredConversations<T extends { updatedAt?: unknown; createdAt?: unknown }>(
+  conversations: T[],
+  now: number = Date.now(),
+  retentionMs: number = CONVERSATION_RETENTION_MS
+): { kept: T[]; pruned: T[]; prunedCount: number } {
+  const cutoff = now - retentionMs;
+  const kept: T[] = [];
+  const pruned: T[] = [];
+  for (const item of conversations) {
+    const ts = getConversationTimestamp(item);
+    if (ts < cutoff) {
+      pruned.push(item);
+    } else {
+      kept.push(item);
+    }
+  }
+  return { kept, pruned, prunedCount: pruned.length };
+}
+
+export interface CleanExpiredConversationsResult {
+  prunedCount: number;
+  kept: Conversation[];
+}
+
+export async function cleanExpiredConversations(
+  storage?: StorageArea,
+  now: number = Date.now(),
+  retentionMs: number = CONVERSATION_RETENTION_MS
+): Promise<CleanExpiredConversationsResult> {
+  const targetStorage = storage || (typeof chrome !== "undefined" && (chrome?.storage?.local as StorageArea)) || undefined;
+  if (!targetStorage) {
+    return { prunedCount: 0, kept: [] };
+  }
+  const data = await targetStorage.get([CONVERSATIONS_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
+  const raw = data?.[CONVERSATIONS_STORAGE_KEY];
+  const list = normalizeConversations(raw) as Conversation[];
+  const { kept, pruned, prunedCount } = filterExpiredConversations(list, now, retentionMs);
+  if (prunedCount > 0) {
+    await targetStorage.set({ [CONVERSATIONS_STORAGE_KEY]: kept });
+    const prunedIds = new Set(pruned.map((c) => c.id));
+    if (Array.isArray(chatSessionState.savedConversations) && chatSessionState.savedConversations.length > 0) {
+      setSavedConversations(kept);
+    }
+    if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
+      detachConversationIdentity();
+      applyLiveContextToMain();
+    }
+  }
+  return { prunedCount, kept };
+}
+
 
 export function createConversationStore(deps: CreateConversationStoreDeps): ConversationStore {
   // 工厂期校验（缺 dep 早失败；原为调用期 requireDep 逐点检查，单宿主下等价）
@@ -281,11 +366,43 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     applyLiveContextToMain();
   }
 
+  async function checkCleanOlderThan30DaysEnabled(): Promise<boolean> {
+    if (typeof deps.isCleanEnabled === "function") {
+      return Boolean(await deps.isCleanEnabled());
+    }
+    const sync = deps.syncStorage || (typeof chrome !== "undefined" && (chrome?.storage?.sync as StorageArea)) || undefined;
+    if (!sync?.get) {
+      return false;
+    }
+    try {
+      const res = await sync.get(["cleanConversationsOlderThan30Days"]);
+      return Boolean(res?.cleanConversationsOlderThan30Days);
+    } catch {
+      return false;
+    }
+  }
+
   async function loadAll(): Promise<void> {
     const data = await storage
       ?.get([conversationsStorageKey])
       .catch(() => ({}) as Record<string, unknown>);
-    commitSaved(normalizeConversations(data?.[conversationsStorageKey]));
+    let normalized = normalizeConversations(data?.[conversationsStorageKey]) as Conversation[];
+    const isCleanEnabled = await checkCleanOlderThan30DaysEnabled();
+    if (isCleanEnabled) {
+      const { kept, pruned, prunedCount } = filterExpiredConversations(normalized);
+      if (prunedCount > 0) {
+        normalized = kept;
+        await storage?.set({
+          [conversationsStorageKey]: kept.slice(0, maxSavedConversations)
+        });
+        const prunedIds = new Set(pruned.map((c) => c.id));
+        if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
+          detachCurrent();
+          repopulateLive();
+        }
+      }
+    }
+    commitSaved(normalized);
     emitChange({});
     // opt-backlog-2026-09/05：分页补水不再随 loadAll 对全部候选（至多 12 条）各发
     // 一次串行视频元数据请求——首开等待从「12 次串行网络往返」降到 0；补水收敛

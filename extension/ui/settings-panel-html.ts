@@ -62,6 +62,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
+  cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
   status: "biliscriptSettingsStatus",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;
@@ -258,7 +259,7 @@ export function buildSettingsHtml(): string {
     </section>
 
     <section class="biliscript-set-group" data-settings-section="export">
-      <div class="biliscript-set-h">导出</div>
+      <div class="biliscript-set-h">导出与数据</div>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="${ids.downloadFormat}">下载格式</label>
         <select id="${ids.downloadFormat}" class="biliscript-set-select">
@@ -284,6 +285,13 @@ export function buildSettingsHtml(): string {
         <span class="biliscript-toggle-text">启用调试日志</span>
         <label class="biliscript-toggle-switch">
           <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">自动清理 30 天以前的历史会话记录</span>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.cleanConversationsOlderThan30Days}" type="checkbox" class="biliscript-toggle-input" aria-label="自动清理 30 天以前的历史会话记录" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>

@@ -102,7 +102,8 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   chatParagraphSpacing: normalizeChatParagraphSpacing,
   customPanelWidthEnabled: normalizeCustomPanelWidthEnabled,
   customPanelWidth: normalizeCustomPanelWidth,
-  autoOpenReader: normalizeAutoOpenReader
+  autoOpenReader: normalizeAutoOpenReader,
+  cleanConversationsOlderThan30Days: booleanField(false)
 });
 
 const SETTINGS_NORMALIZER_ENTRIES = Object.entries(SETTINGS_FIELD_NORMALIZERS) as Array<
