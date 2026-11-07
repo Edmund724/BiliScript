@@ -4,6 +4,7 @@
 
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import { normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
@@ -123,6 +124,14 @@ export async function startLiveRoomCompanion(): Promise<void> {
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
     initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
+    onVoicePriorityChange: (nextOn) => {
+      state.patchSettings({ liveVoicePriority: nextOn });
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
+    },
+    onShareVideoAudioChange: (nextOn) => {
+      state.patchSettings({ liveShareVideoAudio: nextOn });
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
+    },
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
     getVideoContext: bridge.getVideoContext,
     executeTool: bridge.executeTool,

@@ -1224,6 +1224,22 @@ function bindEvents(): void {
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       initialVoicePriority,
       initialShareVideoAudio,
+      onVoicePriorityChange: (nextOn) => {
+        if (els.liveBarVoicePrioritySwitch) {
+          els.liveBarVoicePrioritySwitch.dataset.on = String(nextOn);
+          els.liveBarVoicePrioritySwitch.setAttribute("aria-checked", String(nextOn));
+        }
+        state.patchSettings({ liveVoicePriority: nextOn });
+        void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
+      },
+      onShareVideoAudioChange: (nextOn) => {
+        if (els.liveBarShareAudioSwitch) {
+          els.liveBarShareAudioSwitch.dataset.on = String(nextOn);
+          els.liveBarShareAudioSwitch.setAttribute("aria-checked", String(nextOn));
+        }
+        state.patchSettings({ liveShareVideoAudio: nextOn });
+        void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
+      },
       onVideoAudioStatusChange: (status) => {
         if (els.liveBarShareAudioStatus) {
           els.liveBarShareAudioStatus.textContent = status;

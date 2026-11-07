@@ -256,4 +256,29 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(onClearHistory).toHaveBeenCalledTimes(1);
     expect(mockController.resetMerger).toHaveBeenCalledTimes(1);
   });
+
+  it("麦克风未激活（isVoiceRecentlyActive 为 false）时拦截纯背景原声的 input 转写", () => {
+    let voiceActive = false;
+    mockController.isVoiceRecentlyActive = () => voiceActive;
+
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive,
+      onClearHistory
+    });
+    overlay.show();
+
+    const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
+
+    // 1. 麦克风静默期间的背景主播人声转写被拦截，不生成绿色用户气泡
+    overlay.updateTranscript({ kind: "input.updated", text: "主播正在说话" });
+    overlay.updateTranscript({ kind: "input.done", text: "主播正在说话" });
+    expect(messages.querySelector(".live-overlay-bubble-user")).toBeNull();
+
+    // 2. 麦克风激活后正常上屏
+    voiceActive = true;
+    overlay.updateTranscript({ kind: "input.updated", text: "我在说话" });
+    expect(messages.querySelector(".live-overlay-bubble-user")?.textContent).toBe("我在说话");
+  });
 });

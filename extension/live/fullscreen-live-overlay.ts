@@ -681,27 +681,48 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
+  function canAcceptUserInputTranscript(): boolean {
+    if (pendingUserBubble !== null) {
+      return true;
+    }
+    const controller = deps.getLiveController();
+    if (controller?.isVoiceRecentlyActive) {
+      return controller.isVoiceRecentlyActive();
+    }
+    return true;
+  }
+
   function updateTranscript(event: MossLiveTranscriptEvent): void {
     if (!messagesEl || !event) return;
 
     switch (event.kind) {
       case "input.updated": {
+        if (!canAcceptUserInputTranscript()) return;
+        const clean = String(event.text || "");
+        if (!clean.trim() && !pendingUserBubble) return;
         if (!pendingUserBubble) {
           pendingUserBubble = document.createElement("div");
           pendingUserBubble.className = "live-overlay-bubble live-overlay-bubble-user is-pending";
           messagesEl.appendChild(pendingUserBubble);
         }
-        pendingUserBubble.textContent = event.text;
+        pendingUserBubble.textContent = clean;
         scrollToBottom();
         break;
       }
       case "input.done": {
+        if (!canAcceptUserInputTranscript()) return;
+        const finalText = String(event.text || pendingUserBubble?.textContent || "").trim();
+        if (!finalText) {
+          pendingUserBubble?.remove();
+          pendingUserBubble = null;
+          return;
+        }
         if (!pendingUserBubble) {
           pendingUserBubble = document.createElement("div");
           pendingUserBubble.className = "live-overlay-bubble live-overlay-bubble-user";
           messagesEl.appendChild(pendingUserBubble);
         }
-        pendingUserBubble.textContent = event.text;
+        pendingUserBubble.textContent = finalText;
         pendingUserBubble.classList.remove("is-pending");
         pendingUserBubble = null;
         scrollToBottom();

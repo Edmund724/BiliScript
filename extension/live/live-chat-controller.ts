@@ -95,6 +95,7 @@ export interface LiveChatController {
   isReconnecting?(): boolean;
   getVideoAudioStatus(): VideoAudioTrackStatus;
   isMicVadActive(): boolean;
+  isVoiceRecentlyActive?(): boolean;
   setShareVideoAudio(enabled: boolean): void;
   isSharingVideoAudio(): boolean;
   setVoicePriority(enabled: boolean): void;
@@ -348,6 +349,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (activeVideoCapture || generation !== currentGeneration || state !== "connected") return;
     try {
       activeVideoCapture = startVideoCapture({
+        getVideoElement: resolveVideoElement,
         onJpegFrame: (jpegBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) return;
           try {
@@ -520,6 +522,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       captureSession = await startAudioCapture({
         initialMuted: false,
         shareVideoAudio,
+        getVideoElement: resolveVideoElement,
         onVadStateChange: (active) => {
           if (generation !== currentGeneration) return;
           micVadActive = Boolean(active);
@@ -854,6 +857,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     isReconnecting: () => reconnecting,
     getVideoAudioStatus: () => (!shareVideoAudio ? "未开启" : (activeAudioCapture?.getVideoAudioStatus() ?? "未开启")),
     isMicVadActive: () => activeAudioCapture?.isMicVadActive() ?? false,
+    isVoiceRecentlyActive: () => activeAudioCapture?.isVoiceRecentlyActive() ?? true,
     setShareVideoAudio,
     isSharingVideoAudio: () => shareVideoAudio,
     setVoicePriority,
