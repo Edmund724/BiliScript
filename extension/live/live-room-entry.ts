@@ -48,8 +48,6 @@ function syncToggleButton(liveState: string): void {
   const active = liveState === "connecting" || liveState === "connected";
   toggleButton.classList.toggle("is-active", active);
   toggleButton.setAttribute("aria-pressed", String(active));
-  const isFloatingActive = active && toggleButton.classList.contains("is-floating");
-  toggleButton.setAttribute("aria-hidden", String(isFloatingActive));
 }
 
 function mountToggleButton(): void {
@@ -59,8 +57,15 @@ function mountToggleButton(): void {
     host.querySelector<HTMLElement>(".bpx-player-control-bottom-right") ||
     document.querySelector<HTMLElement>(".bpx-player-control-bottom-right");
   const controls = modernControls || legacyControls;
-  const quality = !modernControls && controls?.querySelector(".bpx-player-ctrl-quality") || null;
-  const target = quality?.parentElement || controls || host;
+  if (!controls) {
+    if (toggleButton?.parentElement) {
+      toggleButton.remove();
+    }
+    return;
+  }
+
+  const quality = (!modernControls && controls.querySelector(".bpx-player-ctrl-quality")) || null;
+  const target = quality?.parentElement || controls;
 
   if (!toggleButton) {
     toggleButton = document.createElement("button");
@@ -75,17 +80,12 @@ function mountToggleButton(): void {
     });
   }
 
-  toggleButton.classList.toggle("is-floating", !controls);
   if (quality) {
     if (toggleButton.parentElement !== target || toggleButton.nextElementSibling !== quality) {
       target.insertBefore(toggleButton, quality);
     }
-  } else if (controls) {
-    if (toggleButton.parentElement !== controls || toggleButton !== controls.firstElementChild) {
-      controls.insertBefore(toggleButton, controls.firstElementChild);
-    }
-  } else if (toggleButton.parentElement !== host) {
-    host.appendChild(toggleButton);
+  } else if (toggleButton.parentElement !== controls || toggleButton !== controls.firstElementChild) {
+    controls.insertBefore(toggleButton, controls.firstElementChild);
   }
   syncToggleButton(controller?.getState() ?? "idle");
 }
