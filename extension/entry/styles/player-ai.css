@@ -726,12 +726,6 @@
   cursor: pointer;
 }
 
-.live-overlay-pop-divider {
-  height: 1px;
-  background: rgb(255 255 255 / 0.12);
-  margin: 2px 0;
-}
-
 .live-overlay-body {
   display: flex;
   flex-direction: column;

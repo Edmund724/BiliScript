@@ -413,7 +413,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
                   <span class="live-overlay-volume-value">100%</span>
                 </div>
               </div>
-              <div class="live-overlay-pop-divider"></div>
               <div class="live-overlay-pop-item">
                 <span>分享视频声音</span>
                 <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="分享视频声音" title="分享视频声音"></button>
