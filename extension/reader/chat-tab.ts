@@ -142,7 +142,8 @@ import { logWarn } from "../shared/logging.js";
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
-import { createFullscreenLiveOverlay, type FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
+import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
+import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
 import { isPlayerFullscreen, observeFullscreenChanges } from "../bilibili/fullscreen.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
@@ -261,29 +262,37 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
-let fullscreenOverlay: FullscreenLiveOverlay | null = null;
 let overlayManuallyClosed = false;
 let unobserveFullscreen: (() => void) | null = null;
 
+const liveOverlayBinding = createLiveOverlayBinding({
+  getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
+  getLiveController: () => liveController,
+  getChatHistory: () => chatSessionState.chatHistory,
+  onClearHistory: async () => {
+    await conversationStore.clearAll();
+  },
+  shouldAutoShow: () => isPlayerFullscreen() && !overlayManuallyClosed,
+  onVoicePrioritySync: (nextOn) => {
+    if (els.liveBarVoicePrioritySwitch) {
+      els.liveBarVoicePrioritySwitch.dataset.on = String(nextOn);
+      els.liveBarVoicePrioritySwitch.setAttribute("aria-checked", String(nextOn));
+    }
+  },
+  onShareVideoAudioSync: (nextOn) => {
+    if (els.liveBarShareAudioSwitch) {
+      els.liveBarShareAudioSwitch.dataset.on = String(nextOn);
+      els.liveBarShareAudioSwitch.setAttribute("aria-checked", String(nextOn));
+    }
+  }
+});
+
 export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
-  return fullscreenOverlay;
+  return liveOverlayBinding.getOverlay();
 }
 
 export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
-  if (!fullscreenOverlay) {
-    fullscreenOverlay = createFullscreenLiveOverlay({
-      getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
-      getLiveController: () => liveController,
-      getChatHistory: () => chatSessionState.chatHistory,
-      onStopLive: () => {
-        void liveController?.stop();
-      },
-      onClearHistory: async () => {
-        await conversationStore.clearAll();
-      }
-    });
-  }
-  return fullscreenOverlay;
+  return liveOverlayBinding.ensureOverlay();
 }
 let preservingLiveSessionOnContextSwitch = false;
 
@@ -478,8 +487,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     unobserveFullscreen();
     unobserveFullscreen = null;
   }
-  fullscreenOverlay?.dispose();
-  fullscreenOverlay = null;
+  liveOverlayBinding.dispose();
   liveController?.dispose();
     }
     chatRuntime.resetStreamState();
@@ -1224,22 +1232,8 @@ function bindEvents(): void {
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
       initialVoicePriority,
       initialShareVideoAudio,
-      onVoicePriorityChange: (nextOn) => {
-        if (els.liveBarVoicePrioritySwitch) {
-          els.liveBarVoicePrioritySwitch.dataset.on = String(nextOn);
-          els.liveBarVoicePrioritySwitch.setAttribute("aria-checked", String(nextOn));
-        }
-        state.patchSettings({ liveVoicePriority: nextOn });
-        void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
-      },
-      onShareVideoAudioChange: (nextOn) => {
-        if (els.liveBarShareAudioSwitch) {
-          els.liveBarShareAudioSwitch.dataset.on = String(nextOn);
-          els.liveBarShareAudioSwitch.setAttribute("aria-checked", String(nextOn));
-        }
-        state.patchSettings({ liveShareVideoAudio: nextOn });
-        void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
-      },
+      onVoicePriorityChange: liveOverlayBinding.handleVoicePriorityChange,
+      onShareVideoAudioChange: liveOverlayBinding.handleShareVideoAudioChange,
       onVideoAudioStatusChange: (status) => {
         if (els.liveBarShareAudioStatus) {
           els.liveBarShareAudioStatus.textContent = status;
@@ -1264,25 +1258,14 @@ function bindEvents(): void {
         if (muteBtn) {
           muteBtn.classList.toggle("is-talking", active);
         }
-        fullscreenOverlay?.updateVad(active);
+        liveOverlayBinding.handleVadChange(active);
       },
       onStateChange: (liveState) => {
         updateLiveBarUi(liveState);
-        fullscreenOverlay?.syncState(liveState);
-        if (liveState === "connected" || liveState === "connecting") {
-          if (isPlayerFullscreen() && !overlayManuallyClosed) {
-            ensureFullscreenOverlay().show();
-          }
-        } else {
-          fullscreenOverlay?.hide();
-        }
+        liveOverlayBinding.handleStateChange(liveState);
       },
-      onTranscript: (event) => {
-        fullscreenOverlay?.updateTranscript(event);
-      },
-      onReconnecting: (info) => {
-        fullscreenOverlay?.syncState(liveController?.getState(), true);
-      },
+      onTranscript: liveOverlayBinding.handleTranscript,
+      onReconnecting: liveOverlayBinding.handleReconnecting,
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,
@@ -1322,7 +1305,7 @@ function bindEvents(): void {
           }
         } else {
           overlayManuallyClosed = false;
-          fullscreenOverlay?.hide();
+          liveOverlayBinding.getOverlay()?.hide();
         }
       });
     }

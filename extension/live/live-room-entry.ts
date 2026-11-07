@@ -4,12 +4,11 @@
 
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
 import { normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
-import { createFullscreenLiveOverlay, type FullscreenLiveOverlay } from "./fullscreen-live-overlay.js";
+import { createLiveOverlayBinding } from "./live-overlay-binding.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
@@ -21,13 +20,17 @@ const NOTICE_DEFAULT_MS = 4000;
 
 let started = false;
 let controller: LiveChatController | null = null;
-let overlay: FullscreenLiveOverlay | null = null;
 let toggleButton: HTMLButtonElement | null = null;
 let currentRoomId = "";
 
 function findPlayerHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
 }
+
+const overlayBinding = createLiveOverlayBinding({
+  getPlayerHost: findPlayerHost,
+  getLiveController: () => controller
+});
 
 function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): void {
   const host = findPlayerHost() || document.body;
@@ -38,19 +41,6 @@ function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): vo
   notice.textContent = message;
   host.appendChild(notice);
   window.setTimeout(() => notice.remove(), autoHideMs);
-}
-
-function ensureOverlay(): FullscreenLiveOverlay {
-  if (!overlay) {
-    overlay = createFullscreenLiveOverlay({
-      getPlayerHost: findPlayerHost,
-      getLiveController: () => controller,
-      onStopLive: () => {
-        void controller?.stop();
-      }
-    });
-  }
-  return overlay;
 }
 
 function syncToggleButton(liveState: string): void {
@@ -103,7 +93,7 @@ function handleRoomChange(): void {
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
   void controller?.stop();
-  overlay?.clearMessages();
+  overlayBinding.clearMessages();
   controller?.resetMerger?.();
 }
 
@@ -124,29 +114,18 @@ export async function startLiveRoomCompanion(): Promise<void> {
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
     initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-    onVoicePriorityChange: (nextOn) => {
-      state.patchSettings({ liveVoicePriority: nextOn });
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
-    },
-    onShareVideoAudioChange: (nextOn) => {
-      state.patchSettings({ liveShareVideoAudio: nextOn });
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
-    },
+    onVoicePriorityChange: overlayBinding.handleVoicePriorityChange,
+    onShareVideoAudioChange: overlayBinding.handleShareVideoAudioChange,
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
     getVideoContext: bridge.getVideoContext,
     executeTool: bridge.executeTool,
     showNotice,
-    onVadStateChange: (active) => overlay?.updateVad(active),
-    onTranscript: (event) => overlay?.updateTranscript(event),
-    onReconnecting: () => overlay?.syncState(controller?.getState(), true),
+    onVadStateChange: overlayBinding.handleVadChange,
+    onTranscript: overlayBinding.handleTranscript,
+    onReconnecting: overlayBinding.handleReconnecting,
     onStateChange: (liveState) => {
       syncToggleButton(liveState);
-      overlay?.syncState(liveState);
-      if (liveState === "connected" || liveState === "connecting") {
-        ensureOverlay().show();
-      } else {
-        overlay?.hide();
-      }
+      overlayBinding.handleStateChange(liveState);
     }
   });
 
