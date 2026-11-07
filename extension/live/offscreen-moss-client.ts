@@ -22,6 +22,7 @@ import {
   MAX_MOSS_RECONNECT_ATTEMPTS,
   MossBinaryTag,
   buildMinimalSessionUpdatePayload,
+  toolCallVideoIdentity,
   decodeBase64Bytes,
   packTaggedBinary,
   parseMossServerJsonEvent,
@@ -30,7 +31,7 @@ import {
   type MossLiveToolCall,
   type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
-  type MossLiveVideoContext
+  type MossLiveSessionContext
 } from "./moss-live-protocol.js";
 
 export type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike };
@@ -100,7 +101,7 @@ export async function executeLiveWebSearch(
 export interface OffscreenMossClientOptions {
   wsUrl?: string;
   sessionId?: string | null;
-  videoContext?: MossLiveVideoContext | null;
+  videoContext?: MossLiveSessionContext | null;
   maxReconnectAttempts?: number;
   reconnectDelayMs?: number;
   handshakeTimeoutMs?: number;
@@ -157,7 +158,7 @@ export class OffscreenMossLiveClient {
   private readonly overviewToolTimeoutMs: number;
   private readonly executeWebSearch: LiveWebSearchExecutor;
   private readonly options: OffscreenMossClientOptions;
-  private videoContext: MossLiveVideoContext | null;
+  private videoContext: MossLiveSessionContext | null;
   private lastSentContextKey = "";
   private videoDucked = false;
   private inputDucked = false;
@@ -610,13 +611,7 @@ export class OffscreenMossLiveClient {
   private withVideoIdentity(call: MossLiveToolCall): MossLiveToolCall {
     return {
       ...call,
-      video: this.videoContext
-        ? {
-            bvid: this.videoContext.bvid,
-            cid: this.videoContext.cid,
-            pageIndex: this.videoContext.pageIndex
-          }
-        : null
+      video: toolCallVideoIdentity(this.videoContext)
     };
   }
 
@@ -936,7 +931,7 @@ export class OffscreenMossLiveClient {
     return this.sendBinary(MossBinaryTag.AudioPcm, pcmBuffer);
   }
 
-  updateVideoContext(context: MossLiveVideoContext | null): void {
+  updateVideoContext(context: MossLiveSessionContext | null): void {
     this.videoContext = context;
     if (!context) {
       this.latestVideoJpeg = null;

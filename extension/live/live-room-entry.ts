@@ -1,0 +1,131 @@
+// extension/live/live-room-entry.ts
+// 直播间的实时伴看入口：只挂载全屏伴看浮窗与一个开关按钮，不加载文摘面板、字幕与概览。
+// 会话身份是房间号，每次进入都是新会话；换房间时先结束旧会话。
+
+import { state } from "../core/state.js";
+import { getSettings } from "../core/runtime.js";
+import { normalizeLiveVoiceVolume } from "../core/validators.js";
+import { ensurePlayerAiStyles } from "../shared/style-injector.js";
+import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
+import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
+import { createFullscreenLiveOverlay, type FullscreenLiveOverlay } from "./fullscreen-live-overlay.js";
+import { createLiveRoomBridge } from "./live-room-bridge.js";
+
+const PLAYER_HOST_SELECTOR = "#live-player, .live-player-mounter, #live-player-ctnr";
+const VIDEO_SELECTOR = "#live-player video, .live-player-mounter video, video";
+const TOGGLE_BUTTON_CLASS = "biliscript-live-room-toggle";
+const NOTICE_CLASS = "biliscript-live-room-notice";
+const NOTICE_DEFAULT_MS = 4000;
+const HEADSET_ICON =
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="2" y="14" width="5" height="7" rx="2"/><rect x="17" y="14" width="5" height="7" rx="2"/></svg>';
+
+let started = false;
+let controller: LiveChatController | null = null;
+let overlay: FullscreenLiveOverlay | null = null;
+let toggleButton: HTMLButtonElement | null = null;
+let currentRoomId = "";
+
+function findPlayerHost(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
+}
+
+function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): void {
+  const host = findPlayerHost() || document.body;
+  host.querySelector(`.${NOTICE_CLASS}`)?.remove();
+  const notice = document.createElement("div");
+  notice.className = NOTICE_CLASS;
+  notice.setAttribute("data-biliscript-extension-node", "live-room-notice");
+  notice.textContent = message;
+  host.appendChild(notice);
+  window.setTimeout(() => notice.remove(), autoHideMs);
+}
+
+function ensureOverlay(): FullscreenLiveOverlay {
+  if (!overlay) {
+    overlay = createFullscreenLiveOverlay({
+      getPlayerHost: findPlayerHost,
+      getLiveController: () => controller,
+      onStopLive: () => {
+        void controller?.stop();
+      }
+    });
+  }
+  return overlay;
+}
+
+function syncToggleButton(liveState: string): void {
+  if (!toggleButton) return;
+  const active = liveState === "connecting" || liveState === "connected";
+  toggleButton.classList.toggle("is-active", active);
+  toggleButton.setAttribute("aria-pressed", String(active));
+}
+
+function mountToggleButton(): void {
+  const host = findPlayerHost() || document.body;
+  if (toggleButton?.isConnected && toggleButton.parentElement === host) return;
+  toggleButton?.remove();
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = TOGGLE_BUTTON_CLASS;
+  button.setAttribute("data-biliscript-extension-node", "live-room-toggle");
+  button.setAttribute("aria-label", "实时伴看");
+  button.innerHTML = HEADSET_ICON;
+  button.addEventListener("click", () => {
+    void controller?.toggle();
+  });
+  host.appendChild(button);
+  toggleButton = button;
+  syncToggleButton(controller?.getState() ?? "idle");
+}
+
+function handleRoomChange(): void {
+  const nextRoomId = parseLiveRoomId();
+  if (nextRoomId === currentRoomId) return;
+  currentRoomId = nextRoomId;
+  void controller?.stop();
+  overlay?.clearMessages();
+  controller?.resetMerger?.();
+}
+
+export async function startLiveRoomCompanion(): Promise<void> {
+  if (started) return;
+  started = true;
+  currentRoomId = parseLiveRoomId();
+
+  try {
+    state.setSettings(await getSettings());
+  } catch {
+    // 设置水合失败时沿用默认值；伴看平台与密钥由 SW 在连接时解析。
+  }
+  ensurePlayerAiStyles();
+
+  const bridge = createLiveRoomBridge();
+  controller = createLiveChatController({
+    initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+    initialVoicePriority: state.settings?.liveVoicePriority !== false,
+    initialShareVideoAudio: state.settings?.liveShareVideoAudio !== false,
+    getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
+    getVideoContext: bridge.getVideoContext,
+    executeTool: bridge.executeTool,
+    showNotice,
+    onVadStateChange: (active) => overlay?.updateVad(active),
+    onTranscript: (event) => overlay?.updateTranscript(event),
+    onReconnecting: () => overlay?.syncState(controller?.getState(), true),
+    onStateChange: (liveState) => {
+      syncToggleButton(liveState);
+      overlay?.syncState(liveState);
+      if (liveState === "connected" || liveState === "connecting") {
+        ensureOverlay().show();
+      } else {
+        overlay?.hide();
+      }
+    }
+  });
+
+  mountToggleButton();
+  // 播放器节点由 B 站异步水合，挂载点可能被重建；定时自查补回按钮。
+  window.setInterval(mountToggleButton, 1000);
+  const nav = (window as unknown as { navigation?: EventTarget }).navigation;
+  nav?.addEventListener("navigatesuccess", handleRoomChange);
+  window.addEventListener("popstate", handleRoomChange);
+}

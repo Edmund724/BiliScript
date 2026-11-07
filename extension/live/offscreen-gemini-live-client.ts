@@ -2,13 +2,15 @@ import { MossAudioPlayer, type AudioContextLike } from "./moss-audio-player.js";
 import {
   DEFAULT_GEMINI_LIVE_WS_URL,
   buildVideoInstructions,
+  isLiveRoomContext,
+  toolCallVideoIdentity,
   decodeBase64Bytes,
   type MossLiveClientAction,
   type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveToolStatusEvent,
   type MossLiveTranscriptEvent,
-  type MossLiveVideoContext
+  type MossLiveSessionContext
 } from "./moss-live-protocol.js";
 import {
   DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS,
@@ -113,7 +115,15 @@ export const GEMINI_LIVE_WEB_SEARCH_DECLARATION = {
   }
 } as const;
 
-export function buildGeminiSetupTools(liveGeminiNativeSearch: boolean): unknown[] {
+export function buildGeminiSetupTools(
+  liveGeminiNativeSearch: boolean,
+  context?: MossLiveSessionContext | null
+): unknown[] {
+  if (isLiveRoomContext(context)) {
+    return liveGeminiNativeSearch
+      ? [{ googleSearch: {} }]
+      : [{ functionDeclarations: [GEMINI_LIVE_WEB_SEARCH_DECLARATION] }];
+  }
   if (liveGeminiNativeSearch) {
     return [
       { googleSearch: {} },
@@ -133,7 +143,7 @@ export function buildGeminiSetupTools(liveGeminiNativeSearch: boolean): unknown[
 export interface GeminiLiveClientOptions {
   wsUrl?: string;
   model?: string;
-  videoContext?: MossLiveVideoContext | null;
+  videoContext?: MossLiveSessionContext | null;
   liveGeminiNativeSearch?: boolean;
   handshakeTimeoutMs?: number;
   pageToolTimeoutMs?: number;
@@ -208,17 +218,11 @@ function extractGeminiSearchQuery(args: unknown): string {
 
 function withVideoIdentity(
   call: MossLiveToolCall,
-  videoContext: MossLiveVideoContext | null
+  videoContext: MossLiveSessionContext | null
 ): MossLiveToolCall {
   return {
     ...call,
-    video: videoContext
-      ? {
-          bvid: videoContext.bvid,
-          cid: videoContext.cid,
-          pageIndex: videoContext.pageIndex
-        }
-      : null
+    video: toolCallVideoIdentity(videoContext)
   };
 }
 
@@ -231,10 +235,10 @@ export class OffscreenGeminiLiveClient {
   private micEnabled = true;
   private wsUrl: string;
   private model: string;
-  private videoContext: MossLiveVideoContext | null;
+  private videoContext: MossLiveSessionContext | null;
   private liveGeminiNativeSearch: boolean;
   private lastSentContextKey = "";
-  private pendingVideoContext: MossLiveVideoContext | null = null;
+  private pendingVideoContext: MossLiveSessionContext | null = null;
   private hasPendingContext = false;
   private readonly handshakeTimeoutMs: number;
   private readonly pageToolTimeoutMs: number;
@@ -481,7 +485,7 @@ export class OffscreenGeminiLiveClient {
             systemInstruction: {
               parts: [{ text: buildVideoInstructions(this.videoContext) }]
             },
-            tools: buildGeminiSetupTools(this.liveGeminiNativeSearch),
+            tools: buildGeminiSetupTools(this.liveGeminiNativeSearch, this.videoContext),
             inputAudioTranscription: {},
             outputAudioTranscription: {}
           }
@@ -929,7 +933,7 @@ export class OffscreenGeminiLiveClient {
     return this.sendJson({ realtimeInput: { video: { mimeType, data } } });
   }
 
-  updateVideoContext(context: MossLiveVideoContext | null): void {
+  updateVideoContext(context: MossLiveSessionContext | null): void {
     this.videoContext = context;
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
@@ -942,7 +946,7 @@ export class OffscreenGeminiLiveClient {
     this.flushVideoContext(context);
   }
 
-  private flushVideoContext(context: MossLiveVideoContext | null): void {
+  private flushVideoContext(context: MossLiveSessionContext | null): void {
     this.hasPendingContext = false;
     this.pendingVideoContext = null;
     this.lastSentContextKey = JSON.stringify(context);

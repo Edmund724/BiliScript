@@ -50,7 +50,8 @@
         "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/watchlater",
         "https://www.bilibili.com/list/watchlater/",
-        "https://www.bilibili.com/list/watchlater/*"
+        "https://www.bilibili.com/list/watchlater/*",
+        "https://live.bilibili.com/*"
       ],
       "js": ["entry/content-bootstrap.iife.js"],
       "run_at": "document_idle",
@@ -64,7 +65,7 @@
         "entry/chunks/*",
         "entry/styles/*"
       ],
-      "matches": ["https://www.bilibili.com/*"]
+      "matches": ["https://www.bilibili.com/*", "https://live.bilibili.com/*"]
     }
   ],
   "action": {

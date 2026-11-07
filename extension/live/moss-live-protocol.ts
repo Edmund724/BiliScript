@@ -370,10 +370,35 @@ export interface MossLiveVideoContext {
   overview?: MossLiveOverviewContext | null;
 }
 
+/** 直播间伴看上下文：只有房间号与展示信息，没有视频身份、字幕与概览。 */
+export interface MossLiveRoomContext {
+  kind: "live-room";
+  url: string;
+  roomId: string;
+  title: string;
+  anchorName: string;
+}
+
+export type MossLiveSessionContext = MossLiveVideoContext | MossLiveRoomContext;
+
+export function isLiveRoomContext(
+  context: MossLiveSessionContext | null | undefined
+): context is MossLiveRoomContext {
+  return Boolean(context && "kind" in context && context.kind === "live-room");
+}
+
 export interface MossLiveVideoIdentity {
   bvid: string;
   cid: string;
   pageIndex: number;
+}
+
+/** 工具调用携带的视频身份；直播间与未就绪上下文都没有视频身份。 */
+export function toolCallVideoIdentity(
+  context: MossLiveSessionContext | null | undefined
+): MossLiveVideoIdentity | null {
+  if (!context || isLiveRoomContext(context)) return null;
+  return { bvid: context.bvid, cid: context.cid, pageIndex: context.pageIndex };
 }
 
 export interface MossLiveToolCall {
@@ -396,7 +421,19 @@ export interface MinimalSessionUpdatePayload {
   };
 }
 
-export function buildVideoInstructions(context: MossLiveVideoContext | null | undefined): string {
+function buildLiveRoomInstructions(context: MossLiveRoomContext): string {
+  const base = "当前正在观看B站直播间伴看会话。实时画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。直播没有字幕、概览与章节，也不可回看或跳转，不得调用字幕、概览与播放器控制工具，也不得编造直播中未出现的内容。需要直播之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。";
+  const lines = [base, `当前直播间：${context.title || context.roomId}`];
+  if (context.anchorName) {
+    lines.push(`主播：${context.anchorName}`);
+  }
+  return lines.join("\n");
+}
+
+export function buildVideoInstructions(context: MossLiveSessionContext | null | undefined): string {
+  if (isLiveRoomContext(context)) {
+    return buildLiveRoomInstructions(context);
+  }
   const shortClock = formatClock(5, { hours: "auto" });
   const longClock = formatClock(3725, { hours: "auto" });
   const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。遇到全片总结、这期讲了什么、内容脉络或核心观点类问题时：若全片概览尚未生成或未就绪，调用 summarize_video 生成概览并等待结果，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；无字幕、生成失败或取消时按工具返回如实说明并给出等待或重试方式，不得编造全片内容。`;
@@ -444,7 +481,7 @@ function buildOverviewInstructions(overview: MossLiveOverviewContext | null | un
 }
 
 export function buildMinimalSessionUpdatePayload(
-  context?: MossLiveVideoContext | null
+  context?: MossLiveSessionContext | null
 ): MinimalSessionUpdatePayload {
   return {
     action: "session.update",
@@ -623,12 +660,12 @@ export type MossLiveClientAction =
       liveGeminiNativeSearch?: boolean;
       volume?: number;
       speed?: number;
-      videoContext?: MossLiveVideoContext | null;
+      videoContext?: MossLiveSessionContext | null;
       sessionId?: string | null;
     }
   | { action: "set_volume"; volume: number }
   | { action: "set_speed"; speed: number }
-  | { action: "context_update"; videoContext: MossLiveVideoContext | null }
+  | { action: "context_update"; videoContext: MossLiveSessionContext | null }
   | { action: "tool_result"; callId: string; result: unknown }
   | { action: "interrupt" }
   | { action: "stop" }

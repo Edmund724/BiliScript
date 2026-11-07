@@ -7,7 +7,7 @@ import type {
   LiveProviderType,
   MossLiveClientAction,
   MossLiveServerEvent,
-  MossLiveVideoContext
+  MossLiveSessionContext
 } from "./moss-live-protocol.js";
 
 export interface MossLiveClientInstance {
@@ -57,7 +57,7 @@ export function attachMossLivePort(
   let disposed = false;
   let currentGeneration = 0;
   let liveClient: MossLiveClientInstance | null = null;
-  let latestVideoContext: MossLiveVideoContext | null = null;
+  let latestVideoContext: MossLiveSessionContext | null = null;
 
   function cleanup(): void {
     disposed = true;

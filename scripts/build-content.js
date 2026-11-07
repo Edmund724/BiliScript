@@ -67,6 +67,7 @@ const legacyOutfile = path.join(outDir, "content-classic.js");
 const lazyTargets = [
   { name: "player-ai", source: "ai/player-ai.ts" },
   { name: "script-button", source: "ui/script-button.ts" },
+  { name: "live-room", source: "live/live-room-entry.ts" },
   { name: "ui-renderer", source: "ui/ui-renderer.ts" },
   { name: "reader", source: "reader/index.ts" },
   { name: "chat-tab", source: "reader/chat-tab.ts" },

@@ -642,3 +642,52 @@
     mix-blend-mode: normal;
   }
 }
+
+
+/* 直播间实时伴看：播放器内的开关按钮与提示 */
+.biliscript-live-room-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.55);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease,
+    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+}
+#live-player:hover .biliscript-live-room-toggle,
+.live-player-mounter:hover .biliscript-live-room-toggle,
+.biliscript-live-room-toggle:focus-visible,
+.biliscript-live-room-toggle.is-active {
+  opacity: 1;
+}
+.biliscript-live-room-toggle:active {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
+}
+.biliscript-live-room-toggle.is-active {
+  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255), 0.85);
+}
+.biliscript-live-room-notice {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  z-index: 2147483000;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  font-size: var(--biliscript-font-size-base, 13px);
+  line-height: 1.5;
+  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.8);
+  pointer-events: none;
+}

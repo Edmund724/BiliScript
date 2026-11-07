@@ -83,6 +83,23 @@ export function isSupportedVideoPage(url: string = location.href): boolean {
   }
 }
 
+// 直播间页：live.bilibili.com/<数字房间号>（blanc 嵌入页、活动页等不算）。
+export function parseLiveRoomId(url: string = location.href): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "live.bilibili.com") {
+      return "";
+    }
+    return parsed.pathname.match(/^\/(\d+)\/?$/)?.[1] ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function isLiveRoomPage(url: string = location.href): boolean {
+  return parseLiveRoomId(url) !== "";
+}
+
 export function computeCurrentClipSignature(url: string = location.href): string {
   const bvid = extractBvid(url);
   const page = extractPageIndex(url);

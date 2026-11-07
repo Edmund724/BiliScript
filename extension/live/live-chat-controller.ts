@@ -13,7 +13,7 @@ import {
   type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveTranscriptEvent,
-  type MossLiveVideoContext
+  type MossLiveSessionContext
 } from "./moss-live-protocol.js";
 import {
   DEFAULT_LIVE_MODEL,
@@ -82,7 +82,7 @@ export interface LiveChatControllerDeps {
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
   createTranscriptMerger?: (opts?: { isVoiceRecentlyActive?: () => boolean }) => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
-  getVideoContext?: () => MossLiveVideoContext | null;
+  getVideoContext?: () => MossLiveSessionContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
   subscribeVideoContextChanges?: (listener: () => void) => () => void;
 }
@@ -376,7 +376,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let stopVideoContextWatch: (() => void) | null = null;
   let lastPostedContextJson: string | null = null;
 
-  function readVideoContext(): MossLiveVideoContext | null {
+  function readVideoContext(): MossLiveSessionContext | null {
     try {
       return resolveVideoContext() || null;
     } catch {
@@ -384,7 +384,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
-  function postVideoContext(context: MossLiveVideoContext | null): void {
+  function postVideoContext(context: MossLiveSessionContext | null): void {
     if (!activePort) return;
     const nextJson = JSON.stringify(context);
     if (nextJson === lastPostedContextJson) return;

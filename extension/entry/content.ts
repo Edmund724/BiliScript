@@ -1,7 +1,7 @@
 import { state } from "../core/state.js";
 import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 
-import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible } from "../bilibili/video-id-shared.js";
+import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible, isLiveRoomPage } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -19,6 +19,7 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 分支与阅读模式直达分支都装载——直达分支上按钮由自查守卫恒摘除（无意义），
 // 装载为的是视图失同步自愈与关闭视图后补回按钮（见 ui/script-button.ts 头注）。
 import { loadScriptButton } from "../ui/lazy-script-button.js";
+import { loadLiveRoom } from "../live/lazy-live-room.js";
 
 // 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
 //（hydrateReaderStateFromSettings / applyReadingViewPresentation / renderReadingStatus）
@@ -73,6 +74,15 @@ function init(): void {
   // 失败，onChanged 保活后续开关。
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
+  // 直播间只挂实时伴看浮窗，不走视频页的面板/字幕/概览装配。
+  if (isLiveRoomPage()) {
+    loadLiveRoom()
+      .then((domain) => domain.startLiveRoomCompanion())
+      .catch((error) => {
+        logWarn("[BILISCRIPT] live room companion load failed", error);
+      });
+    return;
+  }
   if (!isSupportedUrl()) {
     return;
   }
