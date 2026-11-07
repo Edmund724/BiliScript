@@ -132,7 +132,10 @@ export function buildSettingsHtml(): string {
     </section>
 
     <section class="biliscript-set-group" data-settings-section="search">
-      <div class="biliscript-set-h">搜索平台</div>
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">搜索平台</div>
+        <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      </div>
       <div class="biliscript-set-card">
         <div id="${ids.toggleSearchChainBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
           <span class="biliscript-set-label">搜索平台与回退链</span>
@@ -145,13 +148,12 @@ export function buildSettingsHtml(): string {
         </div>
 
         <div id="${ids.searchChainContainer}" class="search-chain-collapse-body" hidden>
-          <div class="search-chain-actions-bar">
-            <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
-            <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-          </div>
           <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
           <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+          <div class="search-chain-footer-bar">
+            <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
+          </div>
         </div>
 
         <div class="biliscript-set-check biliscript-toggle-row">

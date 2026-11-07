@@ -382,7 +382,7 @@
   display: none;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .search-chain-actions-bar {
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-footer-bar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
