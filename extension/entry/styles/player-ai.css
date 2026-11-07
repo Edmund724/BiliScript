@@ -751,14 +751,14 @@
 
 .biliscript-live-room-toggle.is-active {
   color: var(--biliscript-primitive-color-gemini-purple-dark);
-  background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.75);
-  border-color: rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.5);
-  filter: drop-shadow(0 0 8px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.65));
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .biliscript-live-room-toggle.is-active:hover {
   color: var(--biliscript-primitive-color-gemini-purple-light);
-  border-color: rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.7);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2);
   transform: scale(1.06);
 }
 .biliscript-live-room-notice {
