@@ -146,9 +146,8 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
-    openSearchChainModalBtn: byIdIn<HTMLElement>(dom.openSearchChainModalBtn),
-    closeSearchChainModalBtn: byIdIn<HTMLButtonElement>(dom.closeSearchChainModalBtn),
-    searchChainModalHost: byIdIn<HTMLElement>(dom.searchChainModalHost),
+    toggleSearchChainBtn: byIdIn<HTMLElement>(dom.toggleSearchChainBtn),
+    searchChainContainer: byIdIn<HTMLElement>(dom.searchChainContainer),
     searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
@@ -1270,26 +1269,21 @@ function bindSettingsEvents(host: HTMLElement): void {
     searchProviderOrder = [];
     rerenderSearchProviders(elements, await loadSearchProviders());
   });
-  // 搜索平台二级弹窗交互
-  elements.openSearchChainModalBtn?.addEventListener("click", () => {
-    elements.searchChainModalHost.hidden = false;
-  });
-  elements.openSearchChainModalBtn?.addEventListener("keydown", (e) => {
+  // 搜索平台卡片内原地折叠展开
+  const toggleSearchChain = () => {
+    const isHidden = elements.searchChainContainer.hidden;
+    elements.searchChainContainer.hidden = !isHidden;
+    elements.toggleSearchChainBtn.setAttribute("aria-expanded", String(isHidden));
+    elements.toggleSearchChainBtn.setAttribute(
+      "aria-label",
+      isHidden ? "收起搜索平台与回退链" : "展开搜索平台与回退链"
+    );
+  };
+  elements.toggleSearchChainBtn?.addEventListener("click", toggleSearchChain);
+  elements.toggleSearchChainBtn?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      elements.searchChainModalHost.hidden = false;
-    }
-  });
-  elements.closeSearchChainModalBtn?.addEventListener("click", () => {
-    elements.searchChainModalHost.hidden = true;
-  });
-  elements.searchChainModalHost?.querySelector(".search-chain-mask")?.addEventListener("click", () => {
-    elements.searchChainModalHost.hidden = true;
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !elements.searchChainModalHost.hidden) {
-      if (isConfirmDialogOpen() || isProviderEditorOpen()) return;
-      elements.searchChainModalHost.hidden = true;
+      toggleSearchChain();
     }
   });
 

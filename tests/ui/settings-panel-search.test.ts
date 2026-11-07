@@ -502,34 +502,30 @@ describe("设置页搜索节：「恢复默认顺序」（spec §6.10 / §12.3 /
   });
 });
 
-describe("搜索平台与回退链二级弹窗", () => {
-  it("默认隐藏，点击卡片行打开，点击关闭按钮或按 Escape 关闭，并同步选中摘要", async () => {
+describe("搜索平台与回退链手风琴展开", () => {
+  it("默认折叠，点击卡片行展开/收起，并同步选中摘要与 aria 状态", async () => {
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
     });
     await waitForSearchRows(host, 6);
 
-    const modalHost = host.querySelector<HTMLElement>("#searchChainModalHost")!;
-    const openBtn = host.querySelector<HTMLElement>("#openSearchChainModalBtn")!;
-    const closeBtn = host.querySelector<HTMLElement>("#closeSearchChainModalBtn")!;
+    const container = host.querySelector<HTMLElement>("#searchChainContainer")!;
+    const toggleBtn = host.querySelector<HTMLElement>("#toggleSearchChainBtn")!;
     const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
 
-    expect(modalHost.hidden).toBe(true);
+    expect(container.hidden).toBe(true);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
     expect(summary.textContent).toBe("智能模式");
 
-    // 点击打开
-    openBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(modalHost.hidden).toBe(false);
+    // 点击展开
+    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(container.hidden).toBe(false);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
 
-    // 点击关闭
-    closeBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(modalHost.hidden).toBe(true);
-
-    // 重新打开并按 Escape 关闭
-    openBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(modalHost.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(modalHost.hidden).toBe(true);
+    // 再次点击收起
+    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(container.hidden).toBe(true);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
 
     // 选中具体平台时摘要更新
     const tavilyRadio = searchList(host).querySelector<HTMLInputElement>(

@@ -65,9 +65,8 @@ export const SETTINGS_PANEL_DOM_IDS = {
   enableDebugLogs: "enableDebugLogs",
   cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
   status: "biliscriptSettingsStatus",
-  openSearchChainModalBtn: "openSearchChainModalBtn",
-  closeSearchChainModalBtn: "closeSearchChainModalBtn",
-  searchChainModalHost: "searchChainModalHost",
+  toggleSearchChainBtn: "toggleSearchChainBtn",
+  searchChainContainer: "searchChainContainer",
   searchChainActiveSummary: "searchChainActiveSummary",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;
@@ -135,15 +134,26 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group" data-settings-section="search">
       <div class="biliscript-set-h">搜索平台</div>
       <div class="biliscript-set-card">
-        <div id="${ids.openSearchChainModalBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-haspopup="dialog" aria-label="搜索平台与回退链">
+        <div id="${ids.toggleSearchChainBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
           <span class="biliscript-set-label">搜索平台与回退链</span>
           <span class="biliscript-entry-summary">
             <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能模式</span>
             <svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
+              <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
         </div>
+
+        <div id="${ids.searchChainContainer}" class="search-chain-collapse-body" hidden>
+          <div class="search-chain-actions-bar">
+            <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
+            <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+          </div>
+          <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
+          <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
+          <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+        </div>
+
         <div class="biliscript-set-check biliscript-toggle-row">
           <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
           <label class="biliscript-toggle-switch">
@@ -151,6 +161,7 @@ export function buildSettingsHtml(): string {
             <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
           </label>
         </div>
+
         <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
           <div class="biliscript-slider-header">
             <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
@@ -172,30 +183,6 @@ export function buildSettingsHtml(): string {
           <div class="biliscript-slider-labels">
             <span>1</span>
             <span>20</span>
-          </div>
-        </div>
-      </div>
-
-      <div id="${ids.searchChainModalHost}" class="search-chain-host" hidden>
-        <div class="search-chain-mask"></div>
-        <div class="search-chain-dialog" role="dialog" aria-modal="true" aria-label="搜索平台与回退链">
-          <div class="search-chain-head">
-            <div class="search-chain-title">搜索平台与回退链</div>
-            <div class="search-chain-header-actions">
-              <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
-              <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-              <button id="${ids.closeSearchChainModalBtn}" class="search-chain-close-btn" type="button" aria-label="关闭">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div class="search-chain-body">
-            <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
-            <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
-            <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
           </div>
         </div>
       </div>
