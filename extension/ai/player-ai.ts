@@ -5,6 +5,7 @@ import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } fr
 import { isPlayerFullscreen } from "../bilibili/fullscreen.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
+import { ensureUiReady } from "../ui/lazy-ui.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
@@ -762,24 +763,16 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
     const fullscreen = isPlayerFullscreen(host);
 
     if (fullscreen) {
+      await ensureUiReady();
       const chat = await ensureReaderChatTab();
-      const overlay = (chat.ensureFullscreenOverlay ? chat.ensureFullscreenOverlay() : chat.getFullscreenLiveOverlay?.()) as ReturnType<typeof chat.ensureFullscreenOverlay>;
-      const liveCtrl = chat.getLiveController?.();
-      const isLive = liveCtrl?.getState?.() === "connected" || liveCtrl?.getState?.() === "connecting";
-      if (isLive) {
-        if (overlay?.restore) {
-          overlay.restore();
-        } else {
-          overlay?.show?.();
-        }
-      } else {
+      await chat.ensureChatTabActivated({ consumeIntent: false });
+      const overlay = chat.ensureFullscreenOverlay();
+      const liveCtrl = chat.getLiveController();
+      const isLive = liveCtrl?.getState() === "connected" || liveCtrl?.getState() === "connecting";
+      if (!isLive) {
         await chat.startLiveCompanion();
-        if (overlay?.restore) {
-          overlay.restore();
-        } else {
-          overlay?.show?.();
-        }
       }
+      overlay.restore();
     } else {
       if (!isReaderViewOpen()) {
         const shell = await ensureReaderShell();

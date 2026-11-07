@@ -44,6 +44,7 @@ export interface ReaderChatTabDomain {
   startLiveCompanion(): Promise<boolean>;
   // 获取伴看控制器与浮窗实例
   getLiveController(): LiveChatController | null;
+  ensureFullscreenOverlay(): FullscreenLiveOverlay;
   getFullscreenLiveOverlay(): FullscreenLiveOverlay | null;
 }
 

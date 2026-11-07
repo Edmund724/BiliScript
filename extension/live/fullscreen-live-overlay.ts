@@ -216,7 +216,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (fullscreenElement instanceof HTMLElement) {
       return fullscreenElement;
     }
-    return deps.getPlayerHost() || document.body;
+    const playerHost = deps.getPlayerHost();
+    if (playerHost) {
+      const bpxContainer = playerHost.matches(".bpx-player-container")
+        ? playerHost
+        : playerHost.querySelector<HTMLElement>(".bpx-player-container");
+      return bpxContainer || playerHost;
+    }
+    return document.querySelector<HTMLElement>(".bpx-player-container") || document.body;
   }
 
   function ensureLensSvg(host: HTMLElement): SVGSVGElement | null {

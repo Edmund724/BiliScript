@@ -8,11 +8,14 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     ensureChatTabActivated: ReturnType<typeof vi.fn>;
     startLiveCompanion: ReturnType<typeof vi.fn>;
     stopLiveCompanion: ReturnType<typeof vi.fn>;
+    ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
     getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
+    getLiveController: ReturnType<typeof vi.fn>;
   };
   let mockOverlay: {
     show: ReturnType<typeof vi.fn>;
     hide: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
     isVisible: ReturnType<typeof vi.fn>;
   };
   let isReaderOpen = false;
@@ -31,6 +34,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     mockOverlay = {
       show: vi.fn(),
       hide: vi.fn(),
+      restore: vi.fn(),
       isVisible: vi.fn(() => false)
     };
 
@@ -44,7 +48,9 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       ensureChatTabActivated: vi.fn(async () => {}),
       startLiveCompanion: vi.fn(async () => true),
       stopLiveCompanion: vi.fn(() => {}),
-      getFullscreenLiveOverlay: vi.fn(() => mockOverlay)
+      ensureFullscreenOverlay: vi.fn(() => mockOverlay),
+      getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
+      getLiveController: vi.fn(() => null)
     };
 
     vi.doMock("../../extension/reader/lazy-shell.js", () => ({
@@ -58,6 +64,10 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     vi.doMock("../../extension/reader/state.js", () => ({
       isReaderViewOpen: () => isReaderOpen
+    }));
+
+    vi.doMock("../../extension/ui/lazy-ui.js", () => ({
+      ensureUiReady: vi.fn(async () => {})
     }));
 
     vi.doMock("../../extension/core/runtime.js", () => ({
@@ -153,7 +163,11 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     await vi.advanceTimersByTimeAsync(20);
 
     expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
+    expect(mockChatTab.ensureChatTabActivated).toHaveBeenCalledWith({ consumeIntent: false });
+    expect(mockChatTab.ensureChatTabActivated.mock.invocationCallOrder[0]).toBeLessThan(
+      mockChatTab.startLiveCompanion.mock.invocationCallOrder[0]
+    );
     expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
-    expect(mockOverlay.show).toHaveBeenCalled();
+    expect(mockOverlay.restore).toHaveBeenCalled();
   });
 });

@@ -343,4 +343,24 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.updateTranscript({ kind: "input.updated", text: "我在说话" });
     expect(messages.querySelector(".live-overlay-bubble-user")?.textContent).toBe("我在说话");
   });
+
+  it("网页全屏时优先挂载到实际 bpx 播放器容器，而非外层 player-wrap", () => {
+    const playerWrap = document.createElement("div");
+    playerWrap.id = "playerWrap";
+    playerWrap.className = "player-wrap";
+    document.body.appendChild(playerWrap);
+    playerWrap.appendChild(playerHost);
+    playerHost.setAttribute("data-screen", "web");
+
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerWrap,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive,
+      onClearHistory
+    });
+    overlay.show();
+
+    expect(playerHost.contains(overlay.getElement())).toBe(true);
+    expect(playerWrap.contains(overlay.getElement())).toBe(true);
+  });
 });
