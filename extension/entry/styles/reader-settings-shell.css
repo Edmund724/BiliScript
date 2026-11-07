@@ -344,6 +344,118 @@
   box-shadow: none;
   background: var(--biliscript-reader-surface-2);
 }
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--biliscript-space-sm);
+  cursor: pointer;
+  transition: background 0.15s ease-out;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row:hover {
+  background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--biliscript-space-xs);
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-base);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-chevron {
+  color: var(--biliscript-reader-faint);
+  flex-shrink: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-host {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-host[hidden] {
+  display: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--biliscript-reader-mask-bg);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface);
+  box-shadow: var(--biliscript-reader-shadow);
+  padding: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--biliscript-space-sm);
+  padding: var(--biliscript-space-14) var(--biliscript-space-lg) var(--biliscript-space-10);
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-title {
+  font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 700;
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--biliscript-space-xs);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-close-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-close-btn:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-body {
+  padding: var(--biliscript-space-14) var(--biliscript-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--biliscript-space-sm);
+  overflow-y: auto;
+}
+
 
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-h {

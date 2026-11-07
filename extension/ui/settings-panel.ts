@@ -37,7 +37,8 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { confirmDialog } from "./confirm-dialog.js";
+import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
+import { isProviderEditorOpen } from "./provider-editor.js";
 import { cleanExpiredConversations } from "../chat/conversation-store.js";
 import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
@@ -145,6 +146,10 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
+    openSearchChainModalBtn: byIdIn<HTMLElement>(dom.openSearchChainModalBtn),
+    closeSearchChainModalBtn: byIdIn<HTMLButtonElement>(dom.closeSearchChainModalBtn),
+    searchChainModalHost: byIdIn<HTMLElement>(dom.searchChainModalHost),
+    searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
   };
@@ -494,6 +499,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   syncResetSearchOrderButton(elements);
   // 悬空链首提示：链首指向已不存在的记录时露条件提示行；用户改选或链首指向在场记录即隐藏。
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
+  syncSearchChainActiveSummary(elements, settings.activeSearchProviderId);
   navSyncRef?.updateActiveIndicator(false);
 }
 
@@ -585,6 +591,21 @@ function rerenderLiveProviders(
 
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
 // 行内 radio 现读。DeepSeek 行副行 = 凭据引用三态文案（现查 AI 族列表）。
+
+function syncSearchChainActiveSummary(elements: SettingsElements, activeId?: string): void {
+  const summaryEl = elements.searchChainActiveSummary;
+  if (!summaryEl) return;
+  const currentActive = String(activeId !== undefined ? activeId : getActiveSearchProviderId(elements.searchProvidersList) || "").trim();
+  if (!currentActive || isSmartSearchActive(currentActive)) {
+    summaryEl.textContent = "智能模式";
+    return;
+  }
+  const checkedRadio = elements.searchProvidersList?.querySelector<HTMLInputElement>(".search-provider-active-radio:checked");
+  const row = checkedRadio?.closest(".search-provider-row") as HTMLElement | null;
+  const name = row?.querySelector(".provider-row-name")?.textContent?.trim();
+  summaryEl.textContent = name || "单个平台";
+}
+
 function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
   void loadAiProviders().then((aiProviders) => {
     familyRows.search.render(
@@ -597,6 +618,7 @@ function rerenderSearchProviders(elements: SettingsElements, providers: Provider
       }
     );
     syncResetSearchOrderButton(elements);
+    syncSearchChainActiveSummary(elements);
   });
 }
 
@@ -1248,11 +1270,35 @@ function bindSettingsEvents(host: HTMLElement): void {
     searchProviderOrder = [];
     rerenderSearchProviders(elements, await loadSearchProviders());
   });
-  // 悬空链首提示随用户改选消失：选中任一在场记录即不再悬空。
+  // 搜索平台二级弹窗交互
+  elements.openSearchChainModalBtn?.addEventListener("click", () => {
+    elements.searchChainModalHost.hidden = false;
+  });
+  elements.openSearchChainModalBtn?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      elements.searchChainModalHost.hidden = false;
+    }
+  });
+  elements.closeSearchChainModalBtn?.addEventListener("click", () => {
+    elements.searchChainModalHost.hidden = true;
+  });
+  elements.searchChainModalHost?.querySelector(".search-chain-mask")?.addEventListener("click", () => {
+    elements.searchChainModalHost.hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !elements.searchChainModalHost.hidden) {
+      if (isConfirmDialogOpen() || isProviderEditorOpen()) return;
+      elements.searchChainModalHost.hidden = true;
+    }
+  });
+
+  // 悬空链首提示与摘要随用户改选更新
   elements.searchProvidersList?.addEventListener("change", () => {
     if (getActiveSearchProviderId(elements.searchProvidersList)) {
       elements.searchProvidersDanglingHint.hidden = true;
     }
+    syncSearchChainActiveSummary(elements);
   });
   // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里
   // optionalHostPermission 的并集，当前 ai+asr+live）的存活平台使用才 remove」。
