@@ -433,9 +433,6 @@
   opacity: 0.6;
   cursor: default;
 }
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-slider-row {
-  margin-top: 0;
-}
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row .add-property-btn {
   height: 28px;
@@ -510,21 +507,11 @@
 }
 
 /* ===== 滑块行 ===== */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-row {
-  margin-top: var(--biliscript-space-xs);
-  gap: var(--biliscript-space-sm);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-header-actions {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-control {
   display: inline-flex;
   align-items: center;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-10);
+  flex-shrink: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn {
@@ -541,6 +528,7 @@
   color: var(--biliscript-reader-muted);
   opacity: 1;
   transition: opacity 0.15s ease-out, background 0.15s ease-out, color 0.15s ease-out;
+  flex-shrink: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn:hover:not(:disabled) {
@@ -567,12 +555,15 @@
   border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-accent);
+  text-align: center;
+  min-width: 44px;
+  box-sizing: border-box;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input {
   -webkit-appearance: none;
   appearance: none;
-  width: 100%;
+  width: 120px;
   height: 6px;
   border-radius: var(--biliscript-radius-pill);
   background: linear-gradient(
@@ -616,13 +607,6 @@
   border: 2px solid var(--biliscript-reader-surface);
   box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
   cursor: pointer;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--biliscript-font-size-sm);
-  color: var(--biliscript-reader-faint);
 }
 
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {

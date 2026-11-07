@@ -155,26 +155,20 @@ export function buildSettingsHtml(): string {
         </div>
 
         <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
-          <div class="biliscript-slider-header">
-            <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
-            <div class="biliscript-slider-header-actions">
-              <span id="${ids.webSearchMaxToolCallsValue}" class="biliscript-slider-badge">5</span>
-              <button id="${ids.webSearchMaxToolCallsResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认搜索次数 (5)" aria-label="恢复默认搜索次数">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-          <input
-            id="${ids.webSearchMaxToolCalls}"
-            type="range"
-            class="biliscript-range-input"
-            min="1"
-            max="20"
-            step="1"
-            value="5"
-            style="--range-progress: 21.05%;"
-          />
-          <div class="biliscript-slider-labels">
-            <span>1</span>
-            <span>20</span>
+          <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
+          <div class="biliscript-slider-control">
+            <input
+              id="${ids.webSearchMaxToolCalls}"
+              type="range"
+              class="biliscript-range-input"
+              min="1"
+              max="20"
+              step="1"
+              value="5"
+              style="--range-progress: 21.05%;"
+            />
+            <span id="${ids.webSearchMaxToolCallsValue}" class="biliscript-slider-badge">5</span>
+            <button id="${ids.webSearchMaxToolCallsResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认搜索次数 (5)" aria-label="恢复默认搜索次数">${READING_RESET_ICON}</button>
           </div>
         </div>
       </div>
@@ -236,50 +230,38 @@ export function buildSettingsHtml(): string {
         </div>
 
         <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
-          <div class="biliscript-slider-header">
-            <label class="biliscript-set-label" for="${ids.readerFontSizeScale}">文摘面板字体大小</label>
-            <div class="biliscript-slider-header-actions">
-              <span id="${ids.readerFontSizeScaleValue}" class="biliscript-slider-badge">100%</span>
-              <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-          <input
-            id="${ids.readerFontSizeScale}"
-            type="range"
-            class="biliscript-range-input"
-            min="70"
-            max="130"
-            step="5"
-            value="100"
-            style="--range-progress: 50%;"
-          />
-          <div class="biliscript-slider-labels">
-            <span>小</span>
-            <span>大</span>
+          <label class="biliscript-set-label" for="${ids.readerFontSizeScale}">文摘面板字体大小</label>
+          <div class="biliscript-slider-control">
+            <input
+              id="${ids.readerFontSizeScale}"
+              type="range"
+              class="biliscript-range-input"
+              min="70"
+              max="130"
+              step="5"
+              value="100"
+              style="--range-progress: 50%;"
+            />
+            <span id="${ids.readerFontSizeScaleValue}" class="biliscript-slider-badge">100%</span>
+            <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
           </div>
         </div>
 
         <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
-          <div class="biliscript-slider-header">
-            <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
-            <div class="biliscript-slider-header-actions">
-              <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
-              <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-          <input
-            id="${ids.customPanelWidth}"
-            type="range"
-            class="biliscript-range-input"
-            min="400"
-            max="650"
-            step="10"
-            value="540"
-            style="--range-progress: 56%;"
-          />
-          <div class="biliscript-slider-labels">
-            <span>窄</span>
-            <span>宽</span>
+          <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
+          <div class="biliscript-slider-control">
+            <input
+              id="${ids.customPanelWidth}"
+              type="range"
+              class="biliscript-range-input"
+              min="400"
+              max="650"
+              step="10"
+              value="540"
+              style="--range-progress: 56%;"
+            />
+            <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
+            <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
           </div>
         </div>
 
