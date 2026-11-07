@@ -711,7 +711,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ffffff;
+  background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
   cursor: pointer;
   transition: transform 0.12s ease;
@@ -726,7 +726,7 @@
   height: 12px;
   border: none;
   border-radius: 50%;
-  background: #ffffff;
+  background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
   cursor: pointer;
 }
@@ -982,7 +982,8 @@
   line-height: 1;
   white-space: nowrap;
   border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  box-shadow: 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.35);
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
