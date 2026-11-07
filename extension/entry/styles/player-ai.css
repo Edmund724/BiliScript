@@ -861,6 +861,11 @@
   opacity: 0;
 }
 
+.biliscript-live-room-toggle.is-floating.is-active,
+.biliscript-live-room-toggle.is-floating[hidden] {
+  display: none !important;
+}
+
 .biliscript-live-room-toggle svg {
   width: 24px;
   height: 24px;

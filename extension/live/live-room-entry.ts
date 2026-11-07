@@ -48,6 +48,8 @@ function syncToggleButton(liveState: string): void {
   const active = liveState === "connecting" || liveState === "connected";
   toggleButton.classList.toggle("is-active", active);
   toggleButton.setAttribute("aria-pressed", String(active));
+  const isFloatingActive = active && toggleButton.classList.contains("is-floating");
+  toggleButton.setAttribute("aria-hidden", String(isFloatingActive));
 }
 
 function mountToggleButton(): void {
