@@ -119,14 +119,7 @@ const AI_FAMILY: FamilyRowDeclaration = {
   idPrefix: "p_",
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[presets.length - 1],
   displayName: (item, preset) => String(item.name || preset?.name || "自定义"),
-  displayModel: (item) => {
-    const models = Array.isArray(item.models)
-      ? item.models.map((m) => String(m).trim()).filter(Boolean)
-      : [];
-    if (models.length > 1) return `${models[0]} 等 ${models.length} 个`;
-    if (models.length === 1) return models[0];
-    return String(item.model || "");
-  },
+  displayModel: () => "",
   buildDeleteMessage: (providerId) => ({ type: "ai-providers-delete", providerId }),
   editor: {
     title: "AI 平台",

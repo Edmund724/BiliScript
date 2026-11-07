@@ -165,7 +165,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host {
   display: grid;
-  gap: var(--biliscript-space-14);
+  gap: var(--biliscript-space-2xl);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host * {
@@ -260,6 +260,91 @@
   display: grid;
   gap: var(--biliscript-space-sm);
 }
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--biliscript-space-sm);
+  min-height: 32px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--biliscript-space-sm);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-card);
+  overflow: visible;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card:has(.custom-select-dropdown:not([hidden])) {
+  position: relative;
+  z-index: 2;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > :not(:last-child) {
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-toggle-row {
+  padding: var(--biliscript-space-10) var(--biliscript-space-14);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row:not(.biliscript-slider-row) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--biliscript-space-md);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row:not(.biliscript-slider-row) .biliscript-set-select,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row:not(.biliscript-slider-row) .custom-select {
+  width: auto;
+  min-width: 140px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-textarea {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--biliscript-space-10) var(--biliscript-space-14);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-textarea:focus {
+  box-shadow: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--biliscript-space-0);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  height: 36px;
+  padding: var(--biliscript-space-0) var(--biliscript-space-14);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input:not(:last-child) {
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input:focus {
+  box-shadow: none;
+  background: var(--biliscript-reader-surface-2);
+}
+
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-h {
   font-size: var(--biliscript-font-size-lg);

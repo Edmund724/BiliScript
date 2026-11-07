@@ -85,223 +85,257 @@ export function buildSettingsHtml(): string {
     </nav>
 
     <section class="biliscript-set-group" data-settings-section="llm">
-      <div class="biliscript-set-h">AI 模型平台</div>
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">AI 模型平台</div>
+        <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      </div>
       <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <div class="biliscript-set-h" style="margin-top: 20px;">实时伴看平台</div>
+
+      <div class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
+        <div class="biliscript-set-h">实时伴看平台</div>
+        <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      </div>
       <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
-        <span class="biliscript-toggle-text">Gemini 伴看使用原生 Google 搜索</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.liveGeminiNativeSearch}" type="checkbox" class="biliscript-toggle-input" aria-label="Gemini 伴看使用原生 Google 搜索" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
+          <span class="biliscript-toggle-text">Gemini 伴看使用原生 Google 搜索</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveGeminiNativeSearch}" type="checkbox" class="biliscript-toggle-input" aria-label="Gemini 伴看使用原生 Google 搜索" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
       </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="asr">
-      <div class="biliscript-set-h">语音转写平台</div>
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">语音转写平台</div>
+        <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      </div>
       <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
-        <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.asrAutoFallback}" type="checkbox" class="biliscript-toggle-input" aria-label="无字幕时自动生成字幕" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
+          <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.asrAutoFallback}" type="checkbox" class="biliscript-toggle-input" aria-label="无字幕时自动生成字幕" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
       </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="search">
-      <div class="biliscript-set-h">搜索平台</div>
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">搜索平台</div>
+        <div class="biliscript-set-header-actions">
+          <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
+          <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+        </div>
+      </div>
       <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" aria-label="允许智能搜索使用付费平台" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" aria-label="允许智能搜索使用付费平台" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
+          <div class="biliscript-slider-header">
+            <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
+            <div class="biliscript-slider-header-actions">
+              <span id="${ids.webSearchMaxToolCallsValue}" class="biliscript-slider-badge">5</span>
+              <button id="${ids.webSearchMaxToolCallsResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认搜索次数 (5)" aria-label="恢复默认搜索次数">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <input
+            id="${ids.webSearchMaxToolCalls}"
+            type="range"
+            class="biliscript-range-input"
+            min="1"
+            max="20"
+            step="1"
+            value="5"
+            style="--range-progress: 21.05%;"
+          />
+          <div class="biliscript-slider-labels">
+            <span>1</span>
+            <span>20</span>
+          </div>
+        </div>
       </div>
       <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
-      <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
-        <div class="biliscript-slider-header">
-          <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
-          <div class="biliscript-slider-header-actions">
-            <span id="${ids.webSearchMaxToolCallsValue}" class="biliscript-slider-badge">5</span>
-            <button id="${ids.webSearchMaxToolCallsResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认搜索次数 (5)" aria-label="恢复默认搜索次数">${READING_RESET_ICON}</button>
-          </div>
-        </div>
-        <input
-          id="${ids.webSearchMaxToolCalls}"
-          type="range"
-          class="biliscript-range-input"
-          min="1"
-          max="20"
-          step="1"
-          value="5"
-          style="--range-progress: 21.05%;"
-        />
-        <div class="biliscript-slider-labels">
-          <span>1</span>
-          <span>20</span>
-        </div>
-      </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 按钮</div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频播放器显示 AI 按钮" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频播放器显示 AI 按钮" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+        <textarea
+          id="${ids.playerAiQuickPrompt}"
+          class="biliscript-set-textarea"
+          placeholder="例如：整理这期视频的内容，输出结构化总结。"
+        ></textarea>
       </div>
-      <textarea
-        id="${ids.playerAiQuickPrompt}"
-        class="biliscript-set-textarea"
-        placeholder="例如：整理这期视频的内容，输出结构化总结。"
-      ></textarea>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 对话 - 系统提示词</div>
-      <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
+      <div class="biliscript-set-card">
+        <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
+      </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
-      <div class="biliscript-set-quick-prompts">
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-quick-prompts">
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
+        </div>
       </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="appearance">
       <div class="biliscript-set-h">外观与布局</div>
-      <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
-        <select id="${ids.readerPalette}" class="biliscript-set-select">
-          <option value="flyme">蓝雾玻璃</option>
-          <option value="editorial">数字刊物</option>
-        </select>
-      </div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
+          <select id="${ids.readerPalette}" class="biliscript-set-select">
+            <option value="flyme">蓝雾玻璃</option>
+            <option value="editorial">数字刊物</option>
+          </select>
+        </div>
 
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">AI 对话输入框光晕</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 对话输入框光晕" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">AI 对话输入框光晕</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 对话输入框光晕" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
 
-      <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
-        <div class="biliscript-slider-header">
-          <label class="biliscript-set-label" for="${ids.readerFontSizeScale}">文摘面板字体大小</label>
-          <div class="biliscript-slider-header-actions">
-            <span id="${ids.readerFontSizeScaleValue}" class="biliscript-slider-badge">100%</span>
-            <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
+        <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
+          <div class="biliscript-slider-header">
+            <label class="biliscript-set-label" for="${ids.readerFontSizeScale}">文摘面板字体大小</label>
+            <div class="biliscript-slider-header-actions">
+              <span id="${ids.readerFontSizeScaleValue}" class="biliscript-slider-badge">100%</span>
+              <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <input
+            id="${ids.readerFontSizeScale}"
+            type="range"
+            class="biliscript-range-input"
+            min="70"
+            max="130"
+            step="5"
+            value="100"
+            style="--range-progress: 50%;"
+          />
+          <div class="biliscript-slider-labels">
+            <span>小</span>
+            <span>大</span>
           </div>
         </div>
-        <input
-          id="${ids.readerFontSizeScale}"
-          type="range"
-          class="biliscript-range-input"
-          min="70"
-          max="130"
-          step="5"
-          value="100"
-          style="--range-progress: 50%;"
-        />
-        <div class="biliscript-slider-labels">
-          <span>小</span>
-          <span>大</span>
-        </div>
-      </div>
 
-      <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
-        <div class="biliscript-slider-header">
-          <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
-          <div class="biliscript-slider-header-actions">
-            <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
-            <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
+        <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
+          <div class="biliscript-slider-header">
+            <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
+            <div class="biliscript-slider-header-actions">
+              <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">540px</span>
+              <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (540px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <input
+            id="${ids.customPanelWidth}"
+            type="range"
+            class="biliscript-range-input"
+            min="400"
+            max="650"
+            step="10"
+            value="540"
+            style="--range-progress: 56%;"
+          />
+          <div class="biliscript-slider-labels">
+            <span>窄</span>
+            <span>宽</span>
           </div>
         </div>
-        <input
-          id="${ids.customPanelWidth}"
-          type="range"
-          class="biliscript-range-input"
-          min="400"
-          max="650"
-          step="10"
-          value="540"
-          style="--range-progress: 56%;"
-        />
-        <div class="biliscript-slider-labels">
-          <span>窄</span>
-          <span>宽</span>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">进入视频页自动展开文摘面板</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频页自动展开文摘面板" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
         </div>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">进入视频页自动展开文摘面板</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频页自动展开文摘面板" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">在视频控制栏显示 3x / 4x 倍速按钮</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.enableExtraPlaybackRates}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频控制栏显示 3x / 4x 倍速按钮" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">在视频控制栏显示 3x / 4x 倍速按钮</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.enableExtraPlaybackRates}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频控制栏显示 3x / 4x 倍速按钮" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
       </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="export">
       <div class="biliscript-set-h">导出与数据</div>
-      <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="${ids.downloadFormat}">下载格式</label>
-        <select id="${ids.downloadFormat}" class="biliscript-set-select">
-          <option value="srt">SRT</option>
-          <option value="txt">TXT</option>
-        </select>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">导出文件名包含日期</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" aria-label="导出文件名包含日期" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">在字幕正文中保留时间戳</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" aria-label="在字幕正文中保留时间戳" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">启用调试日志</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">自动清理 30 天以前的历史会话记录</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.cleanConversationsOlderThan30Days}" type="checkbox" class="biliscript-toggle-input" aria-label="自动清理 30 天以前的历史会话记录" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.downloadFormat}">下载格式</label>
+          <select id="${ids.downloadFormat}" class="biliscript-set-select">
+            <option value="srt">SRT</option>
+            <option value="txt">TXT</option>
+          </select>
+        </div>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">导出文件名包含日期</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" aria-label="导出文件名包含日期" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">在字幕正文中保留时间戳</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" aria-label="在字幕正文中保留时间戳" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">启用调试日志</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">自动清理 30 天以前的历史会话记录</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.cleanConversationsOlderThan30Days}" type="checkbox" class="biliscript-toggle-input" aria-label="自动清理 30 天以前的历史会话记录" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
       </div>
     </section>
 

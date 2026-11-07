@@ -147,8 +147,8 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     expect(line.querySelector("button.provider-row-edit")!.textContent).toBe("编辑");
     expect(line.querySelector("button.provider-row-remove")).not.toBeNull();
 
-    // 副行：模型名
-    expect(row.querySelector(".provider-row-model")!.textContent).toBe("gpt-4o-mini");
+    // 副行：AI 平台按需求不显示模型名
+    expect(row.querySelector(".provider-row-model")).toBeNull();
 
     // 紧凑行内零输入字段（编辑职责在 provider-editor Modal）
     expect(row.querySelectorAll("input")).toHaveLength(0);
@@ -190,10 +190,10 @@ describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明
     ], { presets: AI_PRESETS });
 
     const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
-    expect(allRows[0].querySelector(".provider-row-model")!.textContent).toBe("deepseek-v4-flash 等 3 个");
-    expect(allRows[1].querySelector(".provider-row-model")!.textContent).toBe("llama3");
+    expect(allRows[0].querySelector(".provider-row-model")).toBeNull();
+    expect(allRows[1].querySelector(".provider-row-model")).toBeNull();
     // 历史单模型记录（无 models）回落 model 字段
-    expect(allRows[2].querySelector(".provider-row-model")!.textContent).toBe("gpt-4o-mini");
+    expect(allRows[2].querySelector(".provider-row-model")).toBeNull();
   });
 
   it("渲染空列表时显示空态", async () => {

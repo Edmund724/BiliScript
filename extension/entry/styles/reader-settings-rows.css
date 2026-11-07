@@ -433,6 +433,19 @@
   opacity: 0.6;
   cursor: default;
 }
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-slider-row {
+  margin-top: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row .add-property-btn {
+  height: 28px;
+  padding: 0 var(--biliscript-space-10);
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
+  background: var(--biliscript-reader-surface-2);
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+}
+
 
 /* 面板外部的 global document click 委托会关闭模型下拉；
  * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。
