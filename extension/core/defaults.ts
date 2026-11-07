@@ -52,6 +52,8 @@ export interface KnownSettings {
   activeLiveProviderId: string;
   liveVoiceVolume: number;
   speechVoiceVolume: number;
+  liveVoicePriority: boolean;
+  liveShareVideoAudio: boolean;
   liveGeminiNativeSearch: boolean;
   asrAutoFallback: boolean;
   asrLanguage: string;
@@ -125,6 +127,8 @@ export const DEFAULT_SETTINGS: Settings = {
   activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
   liveVoiceVolume: 100,      // 实时伴看 AI 音量（百分比）
   speechVoiceVolume: 100,    // AI 回答朗读音量（百分比）
+  liveVoicePriority: true,   // 实时伴看语音优先（自动压低视频音量，默认开启）
+  liveShareVideoAudio: true, // 实时伴看是否分享视频原声（默认开启）
   liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台

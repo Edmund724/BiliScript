@@ -93,13 +93,27 @@ export function buildChatTabBodyHtml(): string {
                     <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
                   </svg>
                 </button>
-                <div id="${ids.readingChatLiveBarVolumePop}" class="chat-live-popover chat-live-volume-pop" hidden>
+                <div id="${ids.readingChatLiveBarVolumePop}" class="chat-live-popover chat-live-vol-pop" hidden>
                   <div class="chat-live-pop-head">
                     <span class="chat-live-pop-title">伴看音量</span>
                     <span id="${ids.readingChatLiveBarVolumeValue}" class="chat-live-pop-badge">100%</span>
                   </div>
                   <div class="chat-live-pop-slider-row">
                     <input id="${ids.readingChatLiveBarVolumeInput}" type="range" class="chat-live-slider" min="0" max="100" step="1" value="100" style="--live-progress: 100%;" />
+                  </div>
+                  <div class="chat-live-pop-divider"></div>
+                  <div class="chat-live-pop-item">
+                    <div class="chat-live-pop-item-head">
+                      <span class="chat-live-pop-label">把视频声音也分享给 Agent</span>
+                      <span id="${ids.readingChatLiveBarShareAudioStatus}" class="chat-live-pop-status">未开启</span>
+                    </div>
+                    <button id="${ids.readingChatLiveBarShareAudioSwitch}" type="button" role="switch" class="chat-live-switch" aria-checked="true" data-on="true" title="把视频声音也分享给 Agent" aria-label="把视频声音也分享给 Agent"></button>
+                  </div>
+                  <div class="chat-live-pop-item">
+                    <div class="chat-live-pop-item-head">
+                      <span class="chat-live-pop-label">语音优先</span>
+                    </div>
+                    <button id="${ids.readingChatLiveBarVoicePrioritySwitch}" type="button" role="switch" class="chat-live-switch" aria-checked="true" data-on="true" title="语音优先" aria-label="语音优先"></button>
                   </div>
                 </div>
               </div>

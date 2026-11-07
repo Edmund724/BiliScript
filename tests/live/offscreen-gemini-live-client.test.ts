@@ -340,11 +340,9 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
 });
 
 describe("OffscreenGeminiLiveClient playback and transcripts", () => {
-  it("queues 24kHz PCM gaplessly without playback receipts and synchronizes duck/speaking state", () => {
-    const duckStates: boolean[] = [];
+  it("queues 24kHz PCM gaplessly without playback receipts and synchronizes speaking state", () => {
     const speakingStates: boolean[] = [];
     const { client, transcripts, audioContext } = createClient({
-      onDuckVideo: (active) => duckStates.push(active),
       onSpeakingState: (speaking) => speakingStates.push(speaking)
     });
     const ws = connect(client);
@@ -365,7 +363,6 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     expect(audioContext.sources[0].buffer?.sampleRate).toBe(24000);
     expect(audioContext.sources[0].startedAt).toBeCloseTo(1, 5);
     expect(audioContext.sources[1].startedAt).toBeCloseTo(1.1, 5);
-    expect(duckStates).toEqual([true]);
     expect(speakingStates).toEqual([true]);
 
     ws.simulateMessage(serverContent({ turnComplete: true }));
@@ -373,12 +370,10 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
       { kind: "output.done", text: "我在", runId: output.runId, turnId: output.turnId },
       { kind: "response.ended", status: "completed", runId: output.runId, turnId: output.turnId }
     ]);
-    expect(duckStates).toEqual([true]);
     expect(client.isSpeaking()).toBe(true);
 
     audioContext.sources.forEach((source) => source.finishPlayback());
     expect(client.isSpeaking()).toBe(false);
-    expect(duckStates).toEqual([true, false]);
     expect(speakingStates).toEqual([true, false]);
     expect(ws.sentData).toHaveLength(0);
   });
@@ -442,17 +437,6 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     expect(transcripts.some((event) => event.kind === "response.ended")).toBe(true);
   });
 
-  it("triggers ducking on voiceActivity ACTIVITY_START before transcription arrives", () => {
-    const duckStates: boolean[] = [];
-    const { client } = createClient({
-      onDuckVideo: (active) => duckStates.push(active)
-    });
-    const ws = connect(client);
-
-    ws.simulateMessage(JSON.stringify({ voiceActivity: { type: "ACTIVITY_START" } }));
-    expect(duckStates).toEqual([true]);
-  });
-
   it("closes the previous round before switching to a new input round", () => {
     const { client, transcripts } = createClient();
     const ws = connect(client);
@@ -471,10 +455,8 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   });
 
   it("stops playback immediately on server interruption and drops late output until new input", () => {
-    const duckStates: boolean[] = [];
     const speakingStates: boolean[] = [];
     const { client, transcripts, audioContext } = createClient({
-      onDuckVideo: (active) => duckStates.push(active),
       onSpeakingState: (speaking) => speakingStates.push(speaking)
     });
     const ws = connect(client);
@@ -486,7 +468,6 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
     ws.simulateMessage(serverContent({ interrupted: true }));
 
     expect(audioContext.sources[0].stopped).toBe(true);
-    expect(duckStates).toEqual([true, false]);
     expect(speakingStates).toEqual([true, false]);
     expect(transcripts.map((event) => event.kind)).toEqual([
       "output.updated",
@@ -512,10 +493,8 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   });
 
   it("stops still-playing audio when interruption arrives after turnComplete", () => {
-    const duckStates: boolean[] = [];
     const speakingStates: boolean[] = [];
     const { client, audioContext } = createClient({
-      onDuckVideo: (active) => duckStates.push(active),
       onSpeakingState: (speaking) => speakingStates.push(speaking)
     });
     const ws = connect(client);
@@ -529,7 +508,6 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
 
     expect(audioContext.sources[0].stopped).toBe(true);
     expect(client.isSpeaking()).toBe(false);
-    expect(duckStates).toEqual([true, false]);
     expect(speakingStates).toEqual([true, false]);
   });
 
@@ -552,7 +530,6 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
       "output.done",
       "response.interrupted"
     ]);
-    expect(events).toContainEqual({ type: "duck_video", active: false });
     expect(events).toContainEqual({ type: "speaking_state", speaking: false });
   });
 });

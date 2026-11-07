@@ -143,7 +143,6 @@ export interface GeminiLiveClientOptions {
   onEvent?: (event: MossLiveServerEvent) => void;
   onConnecting?: () => void;
   onConnected?: () => void;
-  onDuckVideo?: (active: boolean) => void;
   onReconnecting?: (attempt: number, maxAttempts: number, info?: { code?: number; reason?: string; error?: string }) => void;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   onSpeakingState?: (speaking: boolean) => void;
@@ -252,8 +251,6 @@ export class OffscreenGeminiLiveClient {
   private audioChunkCounter = 0;
   private currentTurn: GeminiTurn | null = null;
   private discardOutputUntilInput = false;
-  private videoDucked = false;
-  private inputDucked = false;
   private activeTurnKey: string | null = null;
   private speaking = false;
 
@@ -284,7 +281,7 @@ export class OffscreenGeminiLiveClient {
         ) {
           this.activeTurnKey = null;
         }
-        this.syncVideoDuck();
+        this.syncSpeakingState();
         this.flushPendingVideoContextIfIdle();
       }
     });
@@ -323,9 +320,6 @@ export class OffscreenGeminiLiveClient {
           error: event.error
         });
         break;
-      case "duck_video":
-        this.options.onDuckVideo?.(event.active);
-        break;
       case "speaking_state":
         this.options.onSpeakingState?.(event.speaking);
         break;
@@ -354,22 +348,11 @@ export class OffscreenGeminiLiveClient {
     this.emit({ type: "transcript", event });
   }
 
-  private setVideoDucked(active: boolean): void {
-    if (this.videoDucked === active) return;
-    this.videoDucked = active;
-    this.emit({ type: "duck_video", active });
-  }
-
   private syncSpeakingState(): void {
     const nextSpeaking = this.isSpeaking();
     if (this.speaking === nextSpeaking) return;
     this.speaking = nextSpeaking;
     this.emit({ type: "speaking_state", speaking: nextSpeaking });
-  }
-
-  private syncVideoDuck(): void {
-    this.setVideoDucked(this.inputDucked || this.activeTurnKey !== null);
-    this.syncSpeakingState();
   }
 
   private getTurnKey(runId: string, turnId: string): string {
@@ -378,16 +361,15 @@ export class OffscreenGeminiLiveClient {
 
   private activateTurn(turn: GeminiTurn): void {
     if (!this.audioPlayer.canActivateTurn(turn.runId, turn.turnId)) return;
-    this.inputDucked = false;
     this.activeTurnKey = this.getTurnKey(turn.runId, turn.turnId);
-    this.syncVideoDuck();
+    this.syncSpeakingState();
   }
 
   private finishActiveTurn(runId: string, turnId: string): void {
     if (this.activeTurnKey !== this.getTurnKey(runId, turnId)) return;
     if (this.audioPlayer.isPlaying()) return;
     this.activeTurnKey = null;
-    this.syncVideoDuck();
+    this.syncSpeakingState();
     this.flushPendingVideoContextIfIdle();
   }
 
@@ -472,7 +454,6 @@ export class OffscreenGeminiLiveClient {
     this.webSearchCallIndex = 0;
     this.audioChunkCounter = 0;
     this.handledToolCallIds.clear();
-    this.inputDucked = false;
     this.activeTurnKey = null;
     this.socketGeneration += 1;
     const generation = this.socketGeneration;
@@ -571,14 +552,6 @@ export class OffscreenGeminiLiveClient {
       return;
     }
     if (this.state !== "connected") return;
-    const voiceActivity = asRecord(raw.voiceActivity);
-    if (voiceActivity) {
-      const type = typeof voiceActivity.type === "string" ? voiceActivity.type : "";
-      if (type === "ACTIVITY_START") {
-        this.inputDucked = true;
-        this.syncVideoDuck();
-      }
-    }
     const content = asRecord(raw.serverContent);
     if (content) {
       this.handleServerContent(content, generation);
@@ -821,8 +794,6 @@ export class OffscreenGeminiLiveClient {
       const turn = this.getOrCreateTurn("input");
       if (turn) {
         turn.interimInputText = interimInput.text;
-        this.inputDucked = true;
-        this.syncVideoDuck();
         this.emitTranscript({
           kind: "input.updated",
           text: turn.inputText + turn.interimInputText
@@ -836,8 +807,6 @@ export class OffscreenGeminiLiveClient {
       if (turn) {
         turn.inputText += input.text;
         turn.interimInputText = "";
-        this.inputDucked = true;
-        this.syncVideoDuck();
         this.emitTranscript({ kind: "input.updated", text: turn.inputText });
       }
     }
@@ -901,7 +870,6 @@ export class OffscreenGeminiLiveClient {
     const turn = this.currentTurn;
     if (!turn) return;
     this.currentTurn = null;
-    this.inputDucked = false;
 
     const fullInputText = (turn.inputText + turn.interimInputText).trim();
     if (!turn.inputDone && fullInputText) {
@@ -940,7 +908,7 @@ export class OffscreenGeminiLiveClient {
     if (this.activeToolCalls.size === 0) {
       this.webSearchCallIndex = 0;
     }
-    this.syncVideoDuck();
+    this.syncSpeakingState();
     this.flushPendingVideoContextIfIdle();
   }
 
@@ -996,9 +964,7 @@ export class OffscreenGeminiLiveClient {
       return;
     }
     this.audioPlayer.stopAll();
-    this.inputDucked = false;
     this.activeTurnKey = null;
-    this.setVideoDucked(false);
     this.syncSpeakingState();
   }
 
@@ -1010,8 +976,6 @@ export class OffscreenGeminiLiveClient {
     this.audioPlayer.reset();
     this.currentTurn = null;
     this.activeTurnKey = null;
-    this.inputDucked = false;
-    this.setVideoDucked(false);
     this.syncSpeakingState();
   }
 

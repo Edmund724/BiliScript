@@ -33,11 +33,13 @@ import {
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
 import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
+import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
 
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
+export const DEFAULT_LIVE_DUCK_RATIO = 0.2;
 
 export interface LiveReconnectingInfo {
   attempt: number;
@@ -54,6 +56,12 @@ export interface LiveChatControllerDeps {
   volumeControl?: HTMLDetailsElement | null;
   initialVolume?: number;
   initialSpeed?: number;
+  initialVoicePriority?: boolean;
+  initialShareVideoAudio?: boolean;
+  duckRatio?: number;
+  getVideoElement?: () => HTMLVideoElement | null;
+  onVoicePriorityChange?: (enabled: boolean) => void;
+  onShareVideoAudioChange?: (enabled: boolean) => void;
   // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
   // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
   interruptButton?: HTMLElement | null;
@@ -89,6 +97,9 @@ export interface LiveChatController {
   isMicVadActive(): boolean;
   setShareVideoAudio(enabled: boolean): void;
   isSharingVideoAudio(): boolean;
+  setVoicePriority(enabled: boolean): void;
+  isVoicePriority(): boolean;
+  isDucked(): boolean;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
   setSpeed(speed: number): void;
@@ -109,6 +120,12 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     volumeControl = null,
     initialVolume = 1,
     initialSpeed = 1,
+    initialVoicePriority = true,
+    initialShareVideoAudio = true,
+    duckRatio = DEFAULT_LIVE_DUCK_RATIO,
+    getVideoElement = null,
+    onVoicePriorityChange,
+    onShareVideoAudioChange,
     interruptButton = null,
     onInterruptStateChange,
     onStateChange,
@@ -141,9 +158,49 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let state: LiveChatState = "idle";
   let muted = false;
   let speaking = false;
+  let voicePriority = initialVoicePriority !== false;
+  let shareVideoAudio = initialShareVideoAudio !== false;
+  let micVadActive = false;
+  let isDucked = false;
+  let originalVideoVolume: number | null = null;
+  let currentVideoAudioStatus: VideoAudioTrackStatus = "未开启";
+  const effectiveDuckRatio = Number.isFinite(duckRatio) && duckRatio >= 0 && duckRatio <= 1 ? duckRatio : DEFAULT_LIVE_DUCK_RATIO;
+  const resolveVideoElement = getVideoElement ?? getRuntimeVideoElement;
   let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(1, initialVolume)) : 1;
   let speed = Number.isFinite(initialSpeed) && initialSpeed > 0 ? initialSpeed : 1;
   let currentGeneration = 0;
+  function shouldDuck(): boolean {
+    if (!voicePriority) return false;
+    if (state !== "connected") return false;
+    const userTalking = !muted && micVadActive;
+    return Boolean(userTalking || speaking);
+  }
+
+  function syncVideoDucking(): void {
+    const targetShouldDuck = shouldDuck();
+    if (targetShouldDuck === isDucked) return;
+
+    const video = resolveVideoElement();
+    if (targetShouldDuck) {
+      if (video) {
+        originalVideoVolume = video.volume;
+        const targetVol = Math.max(0, Math.min(1, originalVideoVolume * effectiveDuckRatio));
+        try {
+          video.volume = targetVol;
+        } catch {}
+      }
+      isDucked = true;
+    } else {
+      if (video && originalVideoVolume !== null) {
+        try {
+          video.volume = originalVideoVolume;
+        } catch {}
+      }
+      originalVideoVolume = null;
+      isDucked = false;
+    }
+  }
+
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
   let savedMossSessionId: string | null = null;
@@ -227,7 +284,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (nextState !== "connected") {
       muted = false;
       speaking = false;
+      micVadActive = false;
     }
+    syncVideoDucking();
     if (liveButton) {
       liveButton.dataset.state = nextState;
       liveButton.classList.toggle("is-connecting", nextState === "connecting");
@@ -261,6 +320,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   updateUi("idle");
 
   function stopActiveMediaAndMerger(): void {
+    micVadActive = false;
+    currentVideoAudioStatus = "未开启";
+    syncVideoDucking();
     if (activeAudioCapture) {
       try {
         activeAudioCapture.stop();
@@ -456,12 +518,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       captureSession = await startAudioCapture({
         initialMuted: false,
+        shareVideoAudio,
         onVadStateChange: (active) => {
           if (generation !== currentGeneration) return;
+          micVadActive = Boolean(active);
           onVadStateChange?.(active);
+          syncVideoDucking();
         },
         onVideoAudioStatusChange: (status) => {
           if (generation !== currentGeneration) return;
+          currentVideoAudioStatus = status;
           onVideoAudioStatusChange?.(status);
         },
         onPcmFrame: (pcmBytes) => {
@@ -540,6 +606,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (state === "connected" || state === "connecting") {
           speaking = Boolean(msg.speaking);
           updateInterruptUi();
+          syncVideoDucking();
         }
       } else if (msg.type === "transcript") {
         if (state === "connected" || state === "connecting") {
@@ -686,6 +753,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     activeAudioCapture?.setMuted(muted);
     updateMuteUi();
     updateInterruptUi();
+    syncVideoDucking();
     if (activePort) {
       try {
         activePort.postMessage({ action: "mic_state", enabled: !muted });
@@ -713,6 +781,22 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     setMuted(!muted);
   }
 
+
+  function setVoicePriority(enabled: boolean): void {
+    voicePriority = Boolean(enabled);
+    syncVideoDucking();
+    onVoicePriorityChange?.(voicePriority);
+  }
+
+  function setShareVideoAudio(enabled: boolean): void {
+    shareVideoAudio = Boolean(enabled);
+    activeAudioCapture?.setShareVideoAudio(shareVideoAudio);
+    if (!shareVideoAudio) {
+      currentVideoAudioStatus = "未开启";
+      onVideoAudioStatusChange?.("未开启");
+    }
+    onShareVideoAudioChange?.(shareVideoAudio);
+  }
   function interrupt(): void {
     if (state !== "connected" || !activePort) return;
     try {
@@ -720,6 +804,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch {}
     speaking = false;
     updateInterruptUi();
+    syncVideoDucking();
   }
 
   async function stop(): Promise<void> {
@@ -748,6 +833,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function dispose(): void {
     void stop();
+    syncVideoDucking();
   }
 
   liveButton?.addEventListener("click", () => {
@@ -765,10 +851,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     isMuted: () => muted,
     isSpeaking: () => speaking,
     isReconnecting: () => reconnecting,
-    getVideoAudioStatus: () => activeAudioCapture?.getVideoAudioStatus() ?? "未开启",
+    getVideoAudioStatus: () => (!shareVideoAudio ? "未开启" : (activeAudioCapture?.getVideoAudioStatus() ?? "未开启")),
     isMicVadActive: () => activeAudioCapture?.isMicVadActive() ?? false,
-    setShareVideoAudio: (enabled: boolean) => activeAudioCapture?.setShareVideoAudio(enabled),
-    isSharingVideoAudio: () => activeAudioCapture?.isSharingVideoAudio() ?? true,
+    setShareVideoAudio,
+    isSharingVideoAudio: () => shareVideoAudio,
+    setVoicePriority,
+    isVoicePriority: () => voicePriority,
+    isDucked: () => isDucked,
     setMuted,
     setVolume,
     setSpeed,

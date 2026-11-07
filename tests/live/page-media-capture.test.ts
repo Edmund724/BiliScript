@@ -42,7 +42,7 @@ class FakeCaptureAudioContext implements PageAudioContextLike {
   processorConnected = false;
   gainConnected = false;
   gainValue = 1;
-  onaudioprocess: ((ev: { inputBuffer: { getChannelData(ch: number): Float32Array } }) => void) | null = null;
+  onaudioprocess: ((ev: { inputBuffer: { numberOfChannels?: number; getChannelData(ch: number): Float32Array } }) => void) | null = null;
 
   constructor(sampleRate = MOSS_UPSTREAM_SAMPLE_RATE) {
     this.sampleRate = sampleRate;
@@ -328,7 +328,7 @@ describe("createPageAudioCapture", () => {
       onVideoAudioStatusChange: (st) => statuses.push(st),
       shareVideoAudio: true,
       getVideoElement: () => fakeVideo,
-      captureVideoStream: () => fakeVideoStream,
+      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
       getUserMedia: async () => fakeStream as unknown as MediaStream,
       createAudioContext: () => fakeAudioCtx
     });

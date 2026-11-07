@@ -207,6 +207,9 @@ const els = {
   liveBarVolumePop: document.getElementById(ids.readingChatLiveBarVolumePop) as HTMLElement | null,
   liveBarVolumeInput: document.getElementById(ids.readingChatLiveBarVolumeInput) as HTMLInputElement | null,
   liveBarVolumeValue: document.getElementById(ids.readingChatLiveBarVolumeValue) as HTMLElement | null,
+  liveBarShareAudioSwitch: document.getElementById(ids.readingChatLiveBarShareAudioSwitch) as HTMLButtonElement | null,
+  liveBarShareAudioStatus: document.getElementById(ids.readingChatLiveBarShareAudioStatus) as HTMLElement | null,
+  liveBarVoicePrioritySwitch: document.getElementById(ids.readingChatLiveBarVoicePrioritySwitch) as HTMLButtonElement | null,
   liveBarSpeedBtn: document.getElementById(ids.readingChatLiveBarSpeedBtn) as HTMLButtonElement | null,
   liveBarSpeedPop: document.getElementById(ids.readingChatLiveBarSpeedPop) as HTMLElement | null,
   liveBarSpeedInput: document.getElementById(ids.readingChatLiveBarSpeedInput) as HTMLInputElement | null,
@@ -1026,6 +1029,10 @@ function bindEvents(): void {
       }
       stopLiveTimer();
       closeLiveBarPopovers();
+      if (els.liveBarShareAudioStatus) {
+        els.liveBarShareAudioStatus.textContent = "未开启";
+        els.liveBarShareAudioStatus.dataset.status = "未开启";
+      }
     }
     composer.syncSendState();
   };
@@ -1050,6 +1057,44 @@ function bindEvents(): void {
       void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: val } }).catch(() => null);
     };
     els.liveBarVolumeInput.addEventListener("input", onLiveVolumeChange);
+  }
+
+  // 伴看操作区：原声共享与语音优先开关
+  const initialShareVideoAudio = state.settings?.liveShareVideoAudio !== false;
+  const initialVoicePriority = state.settings?.liveVoicePriority !== false;
+
+  if (els.liveBarShareAudioSwitch) {
+    const switchEl = els.liveBarShareAudioSwitch;
+    switchEl.dataset.on = String(initialShareVideoAudio);
+    switchEl.setAttribute("aria-checked", String(initialShareVideoAudio));
+    switchEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nextOn = switchEl.dataset.on !== "true";
+      switchEl.dataset.on = String(nextOn);
+      switchEl.setAttribute("aria-checked", String(nextOn));
+      liveController?.setShareVideoAudio(nextOn);
+      state.patchSettings({ liveShareVideoAudio: nextOn });
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
+      if (!nextOn && els.liveBarShareAudioStatus) {
+        els.liveBarShareAudioStatus.textContent = "未开启";
+        els.liveBarShareAudioStatus.dataset.status = "未开启";
+      }
+    });
+  }
+
+  if (els.liveBarVoicePrioritySwitch) {
+    const switchEl = els.liveBarVoicePrioritySwitch;
+    switchEl.dataset.on = String(initialVoicePriority);
+    switchEl.setAttribute("aria-checked", String(initialVoicePriority));
+    switchEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nextOn = switchEl.dataset.on !== "true";
+      switchEl.dataset.on = String(nextOn);
+      switchEl.setAttribute("aria-checked", String(nextOn));
+      liveController?.setVoicePriority(nextOn);
+      state.patchSettings({ liveVoicePriority: nextOn });
+      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
+    });
   }
 
   // 伴看操作区：语速调节（本机播放倍率控制，刻度点对齐）
@@ -1121,6 +1166,14 @@ function bindEvents(): void {
       liveButton: els.liveBtn,
       muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+      initialVoicePriority,
+      initialShareVideoAudio,
+      onVideoAudioStatusChange: (status) => {
+        if (els.liveBarShareAudioStatus) {
+          els.liveBarShareAudioStatus.textContent = status;
+          els.liveBarShareAudioStatus.dataset.status = status;
+        }
+      },
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
       onInterruptStateChange: () => composer.syncSendState(),
