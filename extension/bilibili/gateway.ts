@@ -175,6 +175,12 @@ export interface VideoMeta {
   defaultCid: string;
   defaultDuration: number;
   pages: VideoPage[];
+  // 充电专属且当前未开通充电（is_upower_exclusive && !is_upower_play）；普通视频缺省。
+  upowerBlocked?: boolean;
+}
+
+function isUpowerBlockedPayload(data: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(data?.is_upower_exclusive) && !Boolean(data?.is_upower_play);
 }
 
 // 日志下沉（arch-slim-2/03）：原 subtitle/fetcher.ts 的纯直通包装删除，其
@@ -192,6 +198,7 @@ export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Pr
   const pubdate = Number(data.pubdate || 0);
   const uploadDate = pubdate > 0 ? formatLocalDate(pubdate * 1000) : "";
   const pages = Array.isArray(data.pages) ? data.pages : [];
+  const upowerBlocked = isUpowerBlockedPayload(data);
 
   return {
     aid: String(data.aid || ""),
@@ -206,7 +213,8 @@ export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Pr
       page: Number((item as { page?: unknown })?.page || 0) || 0,
       part: String((item as { part?: unknown })?.part || "").trim(),
       duration: Number((item as { duration?: unknown })?.duration || 0) || 0
-    }))
+    })),
+    ...(upowerBlocked ? { upowerBlocked: true } : {})
   };
 }
 
@@ -228,7 +236,7 @@ export interface Chapter {
 export async function fetchSubtitleBundle(
   transport: JsonTransport,
   { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[] }> {
+): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
   // 日志下沉（arch-slim-2/03）：原 fetcher 包装层在整次调用失败时 logWarn 后
   // 原样重抛，这里在兜底 catch 收口，字段与文案逐字一致。
   try {
@@ -247,7 +255,7 @@ export async function fetchSubtitleBundle(
 async function fetchSubtitleBundleInner(
   transport: JsonTransport,
   { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[] }> {
+): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
   logInfo("[BILISCRIPT] fetch subtitles list", { bvid, cid, aid });
   const requests: SubtitleInfoRequest[] = buildSubtitleInfoRequests({ bvid, cid, aid });
 
@@ -257,13 +265,15 @@ async function fetchSubtitleBundleInner(
       throw buildBiliApiError(payload, "无法获取字幕列表");
     }
 
-    const chapters = mapChaptersFromPlayerData((payload as { data?: unknown }).data) as Chapter[];
+    const data = (payload as { data?: Record<string, unknown> }).data;
+    const chapters = mapChaptersFromPlayerData(data) as Chapter[];
     const subtitles = mapSubtitleTracks(
-      ((payload as { data?: { subtitle?: { subtitles?: unknown } } }).data?.subtitle?.subtitles || []) as unknown[],
+      ((data as { subtitle?: { subtitles?: unknown } } | undefined)?.subtitle?.subtitles || []) as unknown[],
       request.source
     ) as SubtitleTrack[];
     const withUrl = subtitles.filter((item) => item.subtitleUrl);
-    return { source: request.source, chapters, withUrl };
+    const upowerBlocked = isUpowerBlockedPayload(data);
+    return { source: request.source, chapters, withUrl, upowerBlocked };
   };
 
   if (requests.length === 0) {
@@ -273,21 +283,23 @@ async function fetchSubtitleBundleInner(
   const primaryRequest = requests[0];
   try {
     const primaryResult = await fetchByRequest(primaryRequest);
+    const extra = primaryResult.upowerBlocked ? { upowerBlocked: true } : {};
     if (primaryResult.withUrl.length > 0) {
-      return { tracks: primaryResult.withUrl, chapters: primaryResult.chapters };
+      return { tracks: primaryResult.withUrl, chapters: primaryResult.chapters, ...extra };
     }
     // 主来源成功但无字幕：直接判定无字幕，不再跨源兜底。
-    return { tracks: [], chapters: primaryResult.chapters };
+    return { tracks: [], chapters: primaryResult.chapters, ...extra };
   } catch (primaryError) {
     // 仅当主来源请求失败时才尝试次来源。
     if (requests.length > 1) {
       const secondaryRequest = requests[1];
       try {
         const secondaryResult = await fetchByRequest(secondaryRequest);
+        const extra = secondaryResult.upowerBlocked ? { upowerBlocked: true } : {};
         if (secondaryResult.withUrl.length > 0) {
-          return { tracks: secondaryResult.withUrl, chapters: secondaryResult.chapters };
+          return { tracks: secondaryResult.withUrl, chapters: secondaryResult.chapters, ...extra };
         }
-        return { tracks: [], chapters: secondaryResult.chapters };
+        return { tracks: [], chapters: secondaryResult.chapters, ...extra };
       } catch (secondaryError) {
         throw secondaryError;
       }

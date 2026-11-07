@@ -1,7 +1,7 @@
 // core/asr-failure-notice.ts 单测（asr-error-reporting/06 文案表 + 08 验收表 A2 档）。
 //
 // 锁三件事：
-// 1. 文案逐字：10 个 reason + null 各一段病因 / 补救 / remedy / 详情行。文案是产品
+// 1. 文案逐字：11 个 reason + null 各一段病因 / 补救 / remedy / 详情行。文案是产品
 //    契约，所以断言期望值一律写成字面量（独立真源），不从模块里回抄；
 // 2. 详情行口径：status 与报文怎么拼、换行怎么去、80 字符怎么截、无信息时整段
 //    不出现（不写「无」），以及只有四个 reason 允许带详情行；
@@ -34,6 +34,11 @@ import type { diffDualInstanceAllowlist } from "../../scripts/build-guards.js";
 // 文案表真源：票 06 的表格逐字誊写。cause / remedyText / remedy 三元组由用例逐条
 // 对账，避免「实现改一处、期望跟着改」的循环论证。
 const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: string }> = {
+  "upower-exclusive": {
+    cause: "该视频为充电专属视频，未开通充电无法获取完整音轨。",
+    remedyText: "开通充电后可重新抓取生成字幕",
+    remedy: "retry-later"
+  },
   "no-asr-config": {
     cause: "语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。",
     remedyText: "请到设置页检查语音转写平台",
@@ -91,8 +96,9 @@ const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: st
   }
 };
 
-// 票 04 的 10 个非 null 取值（顺序即联合声明顺序，仅用于遍历）。
+// 11 个非 null 取值（顺序即联合声明顺序，仅用于遍历）。
 const ALL_REASONS: readonly NoSubtitleReason[] = [
+  "upower-exclusive",
   "no-asr-config",
   "asr-disabled",
   "asr-auth",
@@ -301,10 +307,11 @@ describe("reasonFromFailureKind：kind → reason（8 个失败类）", () => {
   });
 
   it("非失败类的 reason 不是 kind：退回 asr-unknown", () => {
-    // 这两个由 asr-skip 路由产生，不经 failure-kind 判定；误当 kind 传进来时
-    // 说明判层错位，中性兜底比静默复用好。
+    // 这几个由充电专属前置守卫或 asr-skip 路由产生，不经 failure-kind 判定；
+    // 误当 kind 传进来时说明判层错位，中性兜底比静默复用好。
     // 注：no-asr-config 同时是**配置类失败**的合法 kind（404 / 模型不存在 / 无
     // baseUrl 都判它），故它按 kind 映射回自身，不在此列。
+    expect(reasonFromFailureKind("upower-exclusive")).toBe("asr-unknown");
     expect(reasonFromFailureKind("asr-disabled")).toBe("asr-unknown");
     expect(reasonFromFailureKind("asr-empty")).toBe("asr-unknown");
     expect(reasonFromFailureKind("no-asr-config")).toBe("no-asr-config");

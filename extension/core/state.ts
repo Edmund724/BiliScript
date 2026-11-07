@@ -18,14 +18,16 @@ import { logWarnAlways } from "../shared/logging.js";
 // chat/subtitle-wait pending 判定、chat/no-subtitle 拦截、context-payload 快照）。
 export type SubtitleFetchState = "idle" | "loading" | "ready" | "error" | "empty";
 
-// noSubtitleReason 的取值全集（写入点 asr/fallback.ts 各终态分支与 commit 事务；
-// KNOWN_ASR_SKIP_REASONS 白名单与 "asr-disabled"/"no-asr-config" 同源）。
-// 十个非 null 值分两类：两个路由类（"no-asr-config" / "asr-disabled"，由
-// asr-skip 的 reason 白名单产生）与八个失败类（其余，由 asr/failure-kind.ts 判出
-// 的 kind 经 core/asr-failure-notice.ts 映射而来）。历史字面量 "asr-failed" 已删除
-// （reason 从不落盘，没有兼容对象；判定口径见 .scratch/tickets/asr-error-reporting/04）。
+// noSubtitleReason 的取值全集（写入点 fetcher 充电专属拦截、asr/fallback.ts 各终态分支
+// 与 commit 事务；KNOWN_ASR_SKIP_REASONS 白名单与 "asr-disabled"/"no-asr-config" 同源）。
+// 十一个非 null 值分三类：视频准入限制类（"upower-exclusive"，未充电的充电专属视频）、
+// 两个路由类（"no-asr-config" / "asr-disabled"，由 asr-skip 的 reason 白名单产生）
+// 与八个失败类（其余，由 asr/failure-kind.ts 判出的 kind 经 core/asr-failure-notice.ts
+// 映射而来）。历史字面量 "asr-failed" 已删除（reason 从不落盘，没有兼容对象；
+// 判定口径见 .scratch/tickets/asr-error-reporting/04）。
 export type NoSubtitleReason =
   | null
+  | "upower-exclusive"
   | "no-asr-config"
   | "asr-disabled"
   | "asr-auth"
@@ -259,21 +261,22 @@ const localClipState: ClipStateWritable = {
   subtitleFetchState: "idle",
   // 无字幕原因（subtitleFetchState === "empty" 时的归类，供 sidepanel 拦截总结
   // 时按原因提示）：
-  //   null            未知/不适用
-  //   "no-asr-config" 语音识别平台 / 模型不可用（未配置、域名未授权、模型不存在）
-  //   "asr-disabled"  无字幕自动转写开关未开启
-  //   "asr-auth"      鉴权/授权不通过（401 / 403）
-  //   "asr-quota"     额度或余额不足（402；429 且额度语义）
-  //   "asr-ratelimit" 被限流（429）
-  //   "asr-network"   连不上 / 超时
-  //   "asr-media"     音轨取不到 / 解不了（含 415 与格式类 400）
-  //   "asr-server"    平台侧故障（5xx）
-  //   "asr-unknown"   无从判断（保留截断详情）
-  //   "asr-empty"     转写成功但未识别到语音内容
-  // 写入点在 asr/fallback.js 各终态分支（skip/empty 原因；失败原因随无字幕
-  // 出口逆事务 commitNoSubtitle 写入）；清除点为 resetClipState 与字幕接受
-  // 事务（subtitle/commit.js acceptSubtitle，subtitleFetchState → "ready"
-  // 的唯一写入点）。
+  //   null               未知/不适用
+  //   "upower-exclusive" 充电专属视频且未开通充电（无完整音轨，跳过 ASR）
+  //   "no-asr-config"    语音识别平台 / 模型不可用（未配置、域名未授权、模型不存在）
+  //   "asr-disabled"     无字幕自动转写开关未开启
+  //   "asr-auth"         鉴权/授权不通过（401 / 403）
+  //   "asr-quota"        额度或余额不足（402；429 且额度语义）
+  //   "asr-ratelimit"    被限流（429）
+  //   "asr-network"      连不上 / 超时
+  //   "asr-media"        音轨取不到 / 解不了（含 415 与格式类 400）
+  //   "asr-server"       平台侧故障（5xx）
+  //   "asr-unknown"      无从判断（保留截断详情）
+  //   "asr-empty"        转写成功但未识别到语音内容
+  // 写入点在 fetcher.ts（充电专属视频直接落位）与 asr/fallback.js 各终态分支
+  //（skip/empty 原因；失败原因随无字幕出口逆事务 commitNoSubtitle 写入）；清除点
+  // 为 resetClipState 与字幕接受事务（subtitle/commit.js acceptSubtitle，
+  // subtitleFetchState → "ready" 的唯一写入点）。
   noSubtitleReason: null,
   noSubtitleDetail: "",
   secondarySubtitle: emptySecondarySubtitle(),

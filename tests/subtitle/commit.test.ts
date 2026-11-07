@@ -61,9 +61,10 @@ const UNSORTED_BODY = [
   { from: 0, to: 0.5, content: "a2-同from稳定" }
 ];
 
-// 票 04 的十个非 null 值（文案表按 reason 逐个断言，不许用一个循环糊过去：
+// 十一个非 null 值（文案表按 reason 逐个断言，不许用一个循环糊过去：
 // 循环会在文案表本身写错时仍然通过——那正是本票要防的漂移）。
 const ALL_REASONS: NoSubtitleReason[] = [
+  "upower-exclusive",
   "no-asr-config",
   "asr-disabled",
   "asr-auth",
@@ -353,6 +354,10 @@ describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => 
 
   it("逐类文案 = 基础句 + 病因 + 补救（与文案表单源逐字一致）", () => {
     const cases: Array<[NoSubtitleReason, string]> = [
+      [
+        "upower-exclusive",
+        "当前视频无字幕。 该视频为充电专属视频，未开通充电无法获取完整音轨。 开通充电后可重新抓取生成字幕"
+      ],
       [
         "no-asr-config",
         "当前视频无字幕。 语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。 请到设置页检查语音转写平台"

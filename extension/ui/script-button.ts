@@ -53,7 +53,6 @@ import { READER_CLOSED_EVENT, SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.
 import { logInfoAlways } from "../shared/logging.js";
 
 const SCRIPT_BUTTON_ID = "biliscript-script-button";
-const SCRIPT_OVERLAY_ID = "biliscript-script-overlay";
 
 // 定时自查间隔：B 站重渲染 / SPA 换页把节点带走后靠它补回（注入幂等）。
 // 单源 shared/self-heal.js（script-host 的面板重锚节拍独立，不复用本常量）。
@@ -62,15 +61,6 @@ const REINJECT_INTERVAL_MS = SELF_HEAL_INTERVAL_MS;
 // 降频至此（不是全停——恢复事件丢失时按钮最迟一个兜底 tick 补回，风险上限
 // 2s，见文件头「自愈调度」注）。
 const PAUSED_INTERVAL_MS = 2000;
-
-// 浮动降级宿主候选（参考仓库 PLAYER_SELECTORS）。硬约束：不能挂进直接包着
-// <video> 的那层——那层归播放器管，插外来节点会让它推倒重建、视频加载两遍。
-const PLAYER_SELECTORS = [
-  "#bilibili-player .bpx-player-primary-area",
-  "#bilibili-player",
-  ".bpx-player-container",
-  "#playerWrap"
-];
 
 // 造型对齐站内投稿等圆润矩形按钮风格（90×34、border-radius 8px、14px/500 白字、内容居中）。
 const BUTTON_BASE_STYLE =
@@ -84,12 +74,7 @@ const BUTTON_BASE_STYLE =
 // 等 hydration 稳定是怕 SSR + Vue 水合期间向 Vue 管的容器插节点触发整树重渲染
 //（表现为视频加载两遍）；评审决议（工单 button-injection-stability/01）接受
 // 快路径与水合窗口的竞争——锚点未就绪时注入自然失败，偶发被水合推倒的按钮由
-// 800ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。（节拍后
-// 调快为 200ms——首载等待窗内用户等按钮落位，800ms 一拍体感偏慢。）
-//
-// 首载等待窗（用户实测反馈：加载中工具栏未渲染，按钮闪现在视频右上角）：init
-// 相位①未就绪时不再直达④浮动层，暂不注入并等 INIT_FALLBACK_DELAY_MS——
-// 工具栏渲染出来就落在①位；窗口耗尽（疑似改版①永久失配）才降④兜底。
+// 200ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。
 
 // 注入耗时观测（01 可观测，默认开启）：模块求值到首个按钮挂载的耗时。
 const MODULE_BOOT_AT = Date.now();
@@ -155,7 +140,6 @@ function syncScriptButton(): void {
     // 锚点阶段一并复位：非视频页无①可言，回视频页按首载口径重新寻锚。
     anchorPhase = "init";
     anchorGraceBeats = 0;
-    initWaitLogged = false;
     setTickInterval(REINJECT_INTERVAL_MS);
     removeScriptButton();
     return;
@@ -203,34 +187,25 @@ function syncScriptButton(): void {
 
 // ===== 注入 =====
 //
-// 锚点层级（工单 button-injection-stability/02 收拢）：只剩两级——
+// 锚点层级：
 //   ①「稿件举报」节点左侧（多信号判定，见 findComplaintNode）；
-//   ④播放器浮动层（位置自控、语义安全的兜底位；首载等待窗内不落，见
-//     INIT_FALLBACK_DELAY_MS 注）。
-// 旧②（.video-toolbar-right 尾部）与③（旧版 .video-toolbar-left-main）退役：
-// ②正是「漂到视频下方最右」的事故现场——①失配静默落到②尾部即用户看到的
-// 漂移，宁可落④也不收留。失配/宽限/降级全程 console 日志（工单决议：默认
-// 开启辅助定位，不做持久化/上报）。
+//   ② 工具栏右侧槽位（未充电的充电专属视频等场景下 B 站不渲染 .video-toolbar-right，
+//     工具栏宿主内仅有 .video-toolbar-left，此时挂在 .video-toolbar-left 之后，
+//     占原 .video-toolbar-right 的右侧 flex 槽位）。
+// 若①与②均不满足（例如工具栏尚未挂载，或 .video-toolbar-right 在场但举报节点未就绪），
+// 则不显示按钮，绝不浮动挂载到播放器内部。
 
 // 锚点①的锚定阶段：init=尚未命中过（首载/新开页）；anchor=①在位；grace=①
-// 短暂失配宽限中；fallback=已降级④。
+// 短暂失配宽限中；fallback=①未命中或已降级。
 type AnchorPhase = "init" | "anchor" | "grace" | "fallback";
 let anchorPhase: AnchorPhase = "init";
-// 宽限剩余拍数：失配当拍进入 grace 并置满，其后每拍递减，耗尽才降④。
+// 宽限剩余拍数：失配当拍进入 grace 并置满，其后每拍递减，耗尽才降级或移除。
 let anchorGraceBeats = 0;
 // 「宽限期内暂不注入」只说一遍的标志（每次进入宽限时复位）。
 let anchorGraceWaitLogged = false;
 // 宽限拍数 2：命中过①的页面，失配后至多再等 2 个自查拍（200ms 节拍，约
-// 0.4s）让重渲染恢复，连失配当拍约 0.6s——挡掉 B 站工具栏重渲染间隙的闪漂，
-// 又不至让降级久等。
+// 0.4s）让重渲染恢复，连失配当拍约 0.6s——挡掉 B 站工具栏重渲染间隙的闪动。
 const ANCHOR_GRACE_BEATS = 2;
-
-// 首载等待窗：init 相位（首载/新开页）①未就绪时暂不注入的时长（自模块装载
-// 起算）。窗内等工具栏渲染，按钮宁可晚出现也不闪在视频右上角；耗尽才降④——
-// 保证①永久失配（改版）时按钮仍兜底出现。
-const INIT_FALLBACK_DELAY_MS = 10000;
-// 「首载暂不注入」只说一遍的标志。
-let initWaitLogged = false;
 
 function logAnchor(message: string): void {
   logInfoAlways(`[BILISCRIPT] script-button: ${message}`);
@@ -247,8 +222,8 @@ function logMountTiming(target: string): void {
 
 // 就位席位（零扫描早退的唯一判据）：①档挂载时记下按钮紧邻左侧的举报节点。
 // 席位引用仍在、按钮仍是它的前一个兄弟 ⇒ 按钮就在①位（当前应处的锚点位置），
-// 本拍无需寻锚。降④（浮动层）时置 null——④是降级位，每拍仍要寻锚，为的是
-// 发现①回来时升回①位。
+// 本拍无需寻锚。降②（工具栏右侧槽位）或未挂载时置 null——每拍仍要寻锚，为的是
+// 发现①出现时升回①位。
 let anchorSeat: HTMLElement | null = null;
 
 export function injectScriptButton(): void {
@@ -280,7 +255,7 @@ export function injectScriptButton(): void {
     if (anchorPhase !== "anchor") {
       logAnchor(
         anchorPhase === "fallback"
-          ? "锚点①恢复，从浮动层升回「稿件举报」左侧"
+          ? "锚点①恢复，升回「稿件举报」左侧"
           : "锚点①命中"
       );
     }
@@ -293,35 +268,21 @@ export function injectScriptButton(): void {
       return;
     }
     const button = existing?.isConnected ? existing : createScriptButton();
-    styleScriptButton(button, { floating: false });
+    styleScriptButton(button, { position: "before-complaint" });
     complaint.parentElement.insertBefore(button, complaint);
     anchorSeat = complaint;
     logMountTiming("锚点①「稿件举报」左侧");
-    // 从④升回时把空了的浮动层一并收走（④只服务本按钮，不残留空壳）。
-    const overlay = document.getElementById(SCRIPT_OVERLAY_ID);
-    if (overlay && !overlay.firstElementChild) {
-      overlay.remove();
-    }
     return;
   }
 
-  // ①失配：命中过（anchor）先宽限等重渲染恢复；未命中过（init）在首载等待窗
-  // 内暂不注入（页面加载中工具栏未渲染，此时落④会让按钮闪现在视频右上角），
-  // 窗口耗尽与已降级（fallback）直达④。宽限期内已挂载的按钮不动——重渲染若
-  // 只换掉举报节点而按钮还在，原地保留；按钮也没了就暂不注入，等①回来原地
-  // 归位。
+  // ①失配：命中过（anchor）先宽限等重渲染恢复；宽限期内已挂载的按钮不动——
+  // 重渲染若只换掉举报节点而按钮还在，原地保留；按钮也没了就暂不注入，等①
+  // 回来原地归位。
   if (anchorPhase === "anchor") {
     anchorPhase = "grace";
     anchorGraceBeats = ANCHOR_GRACE_BEATS;
     anchorGraceWaitLogged = false;
     logAnchor("锚点①失配（「稿件举报」节点消失），进入宽限等待重渲染恢复");
-  }
-  if (anchorPhase === "init" && Date.now() - MODULE_BOOT_AT < INIT_FALLBACK_DELAY_MS) {
-    if (!initWaitLogged) {
-      initWaitLogged = true;
-      logAnchor("首载①未就绪，暂不注入（等工具栏渲染，超时才降浮动层）");
-    }
-    return;
   }
   if (anchorPhase === "grace") {
     if (anchorGraceBeats > 0) {
@@ -338,22 +299,26 @@ export function injectScriptButton(): void {
     }
     anchorPhase = "fallback";
     anchorGraceWaitLogged = false;
-    logAnchor("宽限耗尽，降级播放器浮动层");
+    logAnchor("宽限耗尽，锚点①未恢复");
   }
 
-  const overlay = ensureScriptOverlay();
-  if (!overlay) {
-    return;
-  }
-  // 降级位：席位作废，说明本拍结果不是①—下拍仍要寻锚升回。
   anchorSeat = null;
-  if (existing?.isConnected && existing.parentElement === overlay) {
+  const toolbarLeft = hostPresent ? findToolbarLeftWithoutRight() : null;
+  if (toolbarLeft && toolbarLeft.parentElement) {
+    anchorPhase = "fallback";
+    if (existing?.isConnected && existing.previousElementSibling === toolbarLeft) {
+      return;
+    }
+    const button = existing?.isConnected ? existing : createScriptButton();
+    styleScriptButton(button, { position: "toolbar-end" });
+    toolbarLeft.parentElement.insertBefore(button, toolbarLeft.nextSibling);
+    logMountTiming("工具栏右侧槽位（无「稿件举报」时）");
     return;
   }
-  const button = existing?.isConnected ? existing : createScriptButton();
-  styleScriptButton(button, { floating: true });
-  overlay.appendChild(button);
-  logMountTiming("④播放器浮动层");
+
+  if (existing?.isConnected) {
+    existing.remove();
+  }
 }
 
 function createScriptButton(): HTMLButtonElement {
@@ -371,7 +336,6 @@ function createScriptButton(): HTMLButtonElement {
 export function removeScriptButton(): void {
   unbindToolbarObserver();
   document.getElementById(SCRIPT_BUTTON_ID)?.remove();
-  document.getElementById(SCRIPT_OVERLAY_ID)?.remove();
 }
 
 // ===== 工具栏宿主即时注入观察器 =====
@@ -497,48 +461,31 @@ function findComplaintNode(): HTMLElement | null {
   return best;
 }
 
-function styleScriptButton(button: HTMLElement, { floating }: { floating: boolean }): void {
-  button.style.cssText = floating
-    ? `${BUTTON_BASE_STYLE}background:rgba(251,114,153,.92);box-shadow:0 2px 8px rgba(0,0,0,.2);`
-    : `${BUTTON_BASE_STYLE}background:#fb7299;margin-right:16px;`;
-}
-
-// ===== 浮动降级 =====
-
-function ensureScriptOverlay(): HTMLElement | null {
-  const player = findFloatHost();
-  if (!player) {
-    return null;
-  }
-  const existing = player.querySelector(`#${SCRIPT_OVERLAY_ID}`);
-  if (existing instanceof HTMLElement && existing.isConnected) {
-    return existing;
-  }
-  // 浮动定位需要定位上下文，播放器容器默认可能是 static。
-  if (window.getComputedStyle(player).position === "static") {
-    player.style.position = "relative";
-  }
-  const overlay = document.createElement("div");
-  overlay.id = SCRIPT_OVERLAY_ID;
-  overlay.style.cssText =
-    "position:absolute;top:12px;right:12px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;";
-  player.appendChild(overlay);
-  return overlay;
-}
-
-// 外层容器且不是 <video> 的直接父节点，才能安全挂东西。
-function holdsVideoDirectly(element: Element): boolean {
-  return Array.from(element.children).some((child) => child.tagName === "VIDEO");
-}
-
-function findFloatHost(): HTMLElement | null {
-  for (const selector of PLAYER_SELECTORS) {
-    const element = document.querySelector(selector);
-    if (element instanceof HTMLElement && !holdsVideoDirectly(element)) {
-      return element;
+// 工具栏右侧缺席时的次选锚点：未充电的充电专属视频下 B 站不渲染 .video-toolbar-right，
+// 工具栏宿主内只有 .video-toolbar-left（以及绝对定位的 .teleport 节点）。仅当宿主内
+// 不存在 .video-toolbar-right 时才以 .video-toolbar-left 为锚点插在其后，避免普通视频
+// 水合期间（.video-toolbar-right 已在场而举报节点尚未挂载）将按钮夹在左右两栏中间。
+function findToolbarLeftWithoutRight(): HTMLElement | null {
+  for (const host of document.querySelectorAll(TOOLBAR_HOST_SELECTOR)) {
+    if (host.querySelector(".video-toolbar-right")) {
+      continue;
+    }
+    const left = host.querySelector(".video-toolbar-left");
+    if (left instanceof HTMLElement && left.parentElement) {
+      return left;
     }
   }
   return null;
+}
+
+function styleScriptButton(
+  button: HTMLElement,
+  { position }: { position: "before-complaint" | "toolbar-end" }
+): void {
+  button.style.cssText =
+    position === "toolbar-end"
+      ? `${BUTTON_BASE_STYLE}background:#fb7299;margin-left:auto;`
+      : `${BUTTON_BASE_STYLE}background:#fb7299;margin-right:16px;`;
 }
 
 // ===== 点击 =====

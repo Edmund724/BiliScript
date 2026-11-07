@@ -1,12 +1,14 @@
 // fetcher.js 无字幕原因（noSubtitleReason）与状态栏文案测试。
 //
-// 覆盖三块契约：
+// 覆盖四块契约：
 //   - resetClipState：无字幕原因与详情清空（切视频/失败清上下文不留陈旧原因）；
 //     keepFetchState 参数保留当前 fetchState（586c61b 纪律：错误路径不得把
 //     状态洗回 idle，见 refreshClip catch 与 sidepanel-subtitle-wait.js）。
 //   - loadSubtitle 两条 ready 路径（缓存命中 / 网络成功）：ready 收尾清空原因与
 //     详情，且两条路径都经字幕接受事务（commit.acceptSubtitle，vi.fn 包装真实
 //     实现可观察调用）；缓存命中喂乱序 body，锁「接受事务单点稳定排序」。
+//   - 充电专属视频（upowerBlocked）：无字幕轨时跳过 ASR 转写，直接以
+//     noSubtitleReason="upower-exclusive" 经 commitNoSubtitle 落入 empty 态。
 //   - buildNoSubtitleStatusMessage 的文案契约已随事务迁入
 //     tests/subtitle/commit.test.ts（文案属无字幕出口事务的一部分）。
 // mock 结构与 fetcher-logging.test.js 相同：重依赖 mock，state/selection/
@@ -77,12 +79,13 @@ vi.mock("../../extension/subtitle/core.js", () => ({
 import * as fetcher from "../../extension/subtitle/fetcher.js";
 import {
   fetchSubtitleBody as fetchBodyMock,
+  fetchSubtitleBundle as fetchBundleMock,
   fetchVideoMeta as fetchMetaMock
 } from "../../extension/bilibili/gateway.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import { trackIdentity } from "../../extension/subtitle/source-key.js";
 import { setMessage } from "../../extension/core/ui-status.js";
-import { acceptSubtitle } from "../../extension/subtitle/commit.js";
+import { acceptSubtitle, commitNoSubtitle } from "../../extension/subtitle/commit.js";
 
 // 时长合规字幕体：videoDuration=300 时 minCoverageRatio=0.22，maxTo=290 ≥ 66
 const SUBTITLE_BODY = [
@@ -125,15 +128,18 @@ beforeEach(() => {
   // 缓存口每次装一台新的宿主（清掉上一条用例的键面）；盘上读走 readEntry / hasEntry。
   storageHost = installChromeHost();
   vi.mocked(fetchBodyMock).mockReset();
+  vi.mocked(fetchBundleMock).mockReset();
+  vi.mocked(fetchMetaMock).mockReset();
   vi.mocked(setMessage).mockClear();
   vi.mocked(acceptSubtitle).mockClear();
+  vi.mocked(commitNoSubtitle).mockClear();
 });
 
 // buildNoSubtitleStatusMessage 的文案契约已随无字幕出口事务迁至
 // tests/subtitle/commit.test.ts（fetcher 不再导出该函数）。
 
 describe("noSubtitleReason 清除点", () => {
-  it("resetClipState：陈旧原因与详情清空", () => {
+  it("resetClipState：无字幕原因与详情清空", () => {
     clipState.setSubtitleFetchState("empty");
     clipState.setNoSubtitleReason("asr-empty");
     clipState.setNoSubtitleDetail("（错误详情：HTTP 402）");
@@ -269,6 +275,39 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
 
     expect(storageHost.hasEntry(subtitleCacheKey())).toBe(false);
     expect(clipState.subtitleBody).toEqual([]);
+  });
+});
+
+describe("充电专属视频（upowerBlocked）：无字幕时跳过 ASR 直接给出专属原因", () => {
+  it("meta 标记 upowerBlocked=true 且无 CC 字幕时：直接以 upower-exclusive 提交无字幕，清空旧详情", async () => {
+    clipState.setNoSubtitleReason("asr-unknown");
+    clipState.setNoSubtitleDetail("（错误详情：旧错误）");
+    vi.mocked(fetchMetaMock).mockResolvedValue({
+      aid: "100",
+      title: "充电专属测试",
+      author: "UP主",
+      description: "",
+      uploadDate: "2026-01-01",
+      defaultCid: "101",
+      defaultDuration: 300,
+      pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }],
+      upowerBlocked: true
+    });
+    vi.mocked(fetchBundleMock).mockResolvedValue({
+      tracks: [],
+      chapters: []
+    });
+
+    await fetcher.refreshClip();
+
+    expect(commitNoSubtitle).toHaveBeenCalledTimes(1);
+    expect(commitNoSubtitle).toHaveBeenCalledWith({
+      noSubtitleReason: "upower-exclusive",
+      runId: 1
+    });
+    expect(clipState.subtitleFetchState).toBe("empty");
+    expect(clipState.noSubtitleReason).toBe("upower-exclusive");
+    expect(clipState.noSubtitleDetail).toBe("");
   });
 });
 

@@ -3,8 +3,8 @@
 // transport 参数已注入，全部用假 transport 直测，不发真实 fetch / runtime 消息。
 // 覆盖：
 // - fetchSubtitleBundle 主备源回退三形态（工单 acceptance）：主成有字幕 /
-//   主成无字幕（不跨源兜底）/ 主败落次来源；
-// - fetchVideoMeta 字段映射（pages / pubdate→uploadDate 归一 / code!=0 报错）；
+//   主成无字幕（不跨源兜底）/ 主败落次来源 + 充电专属受限标记 upowerBlocked；
+// - fetchVideoMeta 字段映射（pages / pubdate→uploadDate 归一 / upowerBlocked / code!=0 报错）；
 // - isBiliUrl 边界（非字符串 / 空 / 带端口 / 伪装域）。
 //
 // 被测函数虽经 logInfo/logWarn（shared/logging，debug 关闭时零输出），但无
@@ -165,6 +165,28 @@ describe("fetchSubtitleBundle：主备源回退三形态", () => {
     expect(transport).toHaveBeenCalledTimes(1);
     expect(result.tracks).toEqual([]);
   });
+
+  it("充电专属且未充电（is_upower_exclusive=true, is_upower_play=false）：返回 upowerBlocked=true", async () => {
+    const transport = fakeTransport([
+      [
+        wbiMatch,
+        {
+          code: 0,
+          data: {
+            is_upower_exclusive: true,
+            is_upower_play: false,
+            subtitle: { subtitles: [] },
+            view_points: []
+          }
+        }
+      ]
+    ]);
+
+    const result = await fetchSubtitleBundle(transport, withAid);
+
+    expect(result.tracks).toEqual([]);
+    expect(result.upowerBlocked).toBe(true);
+  });
 });
 
 describe("fetchVideoMeta：字段映射", () => {
@@ -218,6 +240,27 @@ describe("fetchVideoMeta：字段映射", () => {
     expect(meta.uploadDate).toBe("");
     expect(meta.defaultCid).toBe("");
     expect(meta.pages).toEqual([]);
+    expect(meta.upowerBlocked).toBeUndefined();
+  });
+
+  it("充电专属判定：is_upower_exclusive=true 且 is_upower_play=false 时 upowerBlocked=true；已充电则缺省", async () => {
+    const blockedTransport = fakeTransport([
+      [
+        "x/web-interface/view",
+        { code: 0, data: { aid: 1, is_upower_exclusive: true, is_upower_play: false } }
+      ]
+    ]);
+    const blockedMeta = await fetchVideoMeta(blockedTransport, "BV1x");
+    expect(blockedMeta.upowerBlocked).toBe(true);
+
+    const paidTransport = fakeTransport([
+      [
+        "x/web-interface/view",
+        { code: 0, data: { aid: 1, is_upower_exclusive: true, is_upower_play: true } }
+      ]
+    ]);
+    const paidMeta = await fetchVideoMeta(paidTransport, "BV1x");
+    expect(paidMeta.upowerBlocked).toBeUndefined();
   });
 
   it("code!=0：抛出接口 message，message 缺失时回落「无法获取视频信息」", async () => {
