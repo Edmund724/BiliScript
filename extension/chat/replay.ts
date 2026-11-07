@@ -136,7 +136,9 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
           raw: String(message.content || ""),
           userPrompt: findPreviousUserPrompt(index),
           sources: searchTurn ? searchTurn.sources : [],
-          historyIndex: index
+          historyIndex: index,
+          ...(message.thinking ? { thinking: message.thinking } : {}),
+          ...(message.stopped ? { stopped: true } : {})
         });
         if (searchTurn) {
           streamTurn.attachSearchTimelineCard(searchTurn);

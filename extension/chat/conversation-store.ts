@@ -87,6 +87,12 @@ function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   if (images) {
     base.images = images;
   }
+  if (typeof item.thinking === "string" && item.thinking.trim()) {
+    base.thinking = item.thinking;
+  }
+  if (item.stopped === true) {
+    base.stopped = true;
+  }
   if (Array.isArray(item.tool_calls) && item.tool_calls.length) {
     return { ...base, tool_calls: item.tool_calls };
   }

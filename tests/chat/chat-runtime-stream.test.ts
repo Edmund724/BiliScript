@@ -626,14 +626,14 @@ describe("终态分派：stopped / error", () => {
     expect(node.querySelector(".chat-stream-stable")).toBeNull();
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "总结一下" },
-      { role: "assistant", content: "部分回答" }
+      { role: "assistant", content: "部分回答", stopped: true }
     ]);
     expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
     expect(session.port.disconnect).toHaveBeenCalled();
     expect(runtime.isStreaming()).toBe(false);
   });
 
-  it("stopped 无正文：只放停止徽标（默认文案），不写回不持久化", async () => {
+  it("stopped 无正文：放停止徽标，写回持久化", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
 
@@ -642,8 +642,11 @@ describe("终态分派：stopped / error", () => {
 
     expect(node.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止生成");
     expect(node.querySelector(".chat-msg-assistant-body")).toBeNull();
-    expect(chatSessionState.chatHistory).toEqual([]);
-    expect(deps.store.persistCurrent).not.toHaveBeenCalled();
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "帮我写个标题" },
+      { role: "assistant", content: "", stopped: true }
+    ]);
+    expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
     expect(runtime.isStreaming()).toBe(false);
   });
 
@@ -1919,7 +1922,7 @@ describe("消息操作：重新生成与导出", () => {
     feed(runtime, { type: "token", data: "部分新回答" });
     feed(runtime, { type: "stopped", reason: "用户手动停止" });
 
-    expect(chatSessionState.chatHistory[3]).toEqual({ role: "assistant", content: "部分新回答" });
+    expect(chatSessionState.chatHistory[3]).toEqual({ role: "assistant", content: "部分新回答", stopped: true });
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")[1].textContent).toContain("部分新回答");
     expect(deps.messages.querySelector(".chat-msg-stopped")?.textContent).toBe("用户手动停止");
   });

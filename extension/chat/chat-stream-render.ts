@@ -74,12 +74,14 @@ export interface ChatAssistantTurn {
   appendToken: (token: unknown) => void;
   /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
   appendThinking: (text: unknown) => void;
+  /** 获取本回合累积的思考文本。 */
+  getThinking?: () => string;
   /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，内部自动取消挂起帧，光标归位。 */
   reset: () => void;
   /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
   discard: () => void;
   /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
-  finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
+  finish: (opts?: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
   /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案）。 */
   fail: (text: string) => void;
   /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
@@ -275,42 +277,55 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
-    if (!assistantNode) {
-      return null;
-    }
+  function buildThinkingElement(
+    thinkingContent: string,
+    opts: { collapsible?: boolean; collapsed?: boolean; labelText?: string } = {}
+  ): HTMLDivElement {
     const node = document.createElement("div");
-    node.className = "chat-thinking";
-    thinkingStartTimes.set(node, Date.now());
+    const classList = ["chat-thinking"];
+    if (opts.collapsible) {
+      classList.push("chat-thinking-collapsible");
+    }
+    if (opts.collapsed) {
+      classList.push("chat-thinking-collapsed");
+    }
+    node.className = classList.join(" ");
+
     const label = document.createElement("span");
     label.className = "chat-thinking-label";
-    // 图标、文案与折叠 chevron 各占一个子节点：折叠态只改文案（见
-    // collapseThinking），直接写 label.textContent 会连图标一起清掉。
     const icon = document.createElement("span");
     icon.className = "chat-thinking-icon";
     icon.innerHTML = THINKING_ICON_SVG;
     const labelText = document.createElement("span");
     labelText.className = "chat-thinking-label-text";
-    labelText.textContent = "思考中…";
+    labelText.textContent = opts.labelText || "思考过程";
     label.appendChild(icon);
     label.appendChild(labelText);
     label.appendChild(createChevronSpan("chat-thinking-chevron"));
     const text = document.createElement("div");
     text.className = "chat-thinking-text";
+    text.textContent = thinkingContent;
     node.appendChild(label);
     node.appendChild(text);
 
     thinkingTextNodes.set(node, text);
     thinkingLabelTexts.set(node, labelText);
 
-    // 折叠交互在思考流结束后生效（见 collapseThinking）：点击整行在
-    // 折叠/展开间切换；流式期间（不可折叠态）点击无事发生。
     node.addEventListener("click", () => {
       if (!node.classList.contains("chat-thinking-collapsible")) {
         return;
       }
       node.classList.toggle("chat-thinking-collapsed");
     });
+    return node;
+  }
+
+  function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
+    if (!assistantNode) {
+      return null;
+    }
+    const node = buildThinkingElement("", { collapsible: false, collapsed: false, labelText: "思考中…" });
+    thinkingStartTimes.set(node, Date.now());
     assistantNode.prepend(node);
 
     const state = getTokenStreamState(assistantNode);
@@ -1150,14 +1165,13 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   function renderAssistantMessage(
     node: HTMLDivElement | null,
     raw: unknown,
-    { sources = [], historyIndex, stopped = false }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number; stopped?: boolean } = {}
+    { sources = [], historyIndex, stopped = false, thinking }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number; stopped?: boolean; thinking?: string } = {}
   ): void {
     if (!node) {
       return;
     }
     // 思考行在终态重渲染中保留：仍流式打开的思考盒（如 token 后到达的收尾
-    // reasoning 未经正文帧）一并折叠，重挂载到正文之前。历史回放路径无思考
-    // 节点（思考不落盘），此处为无害空操作。
+    // reasoning 未经正文帧）一并折叠，重挂载到正文之前。
     const state = getTokenStreamState(node);
     if (state.uncollapsedThinking.length > 0) {
       for (const thinking of state.uncollapsedThinking) {
@@ -1167,6 +1181,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     node.innerHTML = "";
     state.allThinking.forEach((thinking) => node.appendChild(thinking));
+    if (state.allThinking.length === 0 && typeof thinking === "string" && thinking.trim()) {
+      const thinkingEl = buildThinkingElement(thinking, { collapsible: true, collapsed: true, labelText: "思考过程" });
+      node.appendChild(thinkingEl);
+    }
     const cleanedRaw = stripThinkBlocks(raw);
     let cachedPasteReadyRaw: string | null = null;
     function getPasteReadyRaw(): string {
@@ -1226,6 +1244,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   function createTurnHandle(node: HTMLDivElement): ChatAssistantTurn {
     let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
+    let accumulatedThinking = "";
 
     function flushPendingThinking(): void {
       const state = getTokenStreamState(node);
@@ -1250,6 +1269,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     function appendThinking(text: unknown): void {
+      accumulatedThinking += String(text ?? "");
       if (!thinkingNode && thinkingEnded) {
         thinkingEnded = false;
       }
@@ -1259,12 +1279,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       appendThinkingText(thinkingNode, text);
     }
 
+    function getThinking(): string {
+      return accumulatedThinking;
+    }
+
     // 重置流式（读流中断重试：整体重放 / 拆除级重置）：清空本条消息的流式缓冲与已渲染内容，
     // 从头接收重试流——取消挂起 flush、重置 token 累加器（base/pending 清零）、
     // 移除 stable/tail 容器与思考节点（光标先摘下来放回节点末尾，flush 时机随
     // 下一帧恢复）、清时间线卡（整体重放含重新搜索）；思考节点随下一个 reasoning
     // 事件重建。不走收口六步：流并未终止（port 不断开、流式 UI 不退出）。
     function reset(): void {
+      accumulatedThinking = "";
       cancelTokenFlush();
       const state = getTokenStreamState(node);
       const cursor = state.cursor;
@@ -1293,11 +1318,42 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 确保终态 DOM 物化前旧帧彻底作废）；raw 缺省 = 本回合累计原文（live 路径），
     // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
     // 回放显式传来源（含空数组），不触发这条消费副作用。
-    function finish({ raw, userPrompt = "", sources, historyIndex }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
+    function finish({ raw, thinking, stopped = false, userPrompt = "", sources, historyIndex }: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
       flushPendingThinking();
       cancelTokenFlush();
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
-      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node), historyIndex });
+      const finalThinking = typeof thinking === "string" && thinking.trim() ? thinking : accumulatedThinking;
+      if (stopped) {
+        const label = "已停止生成";
+        if (text.trim()) {
+          renderAssistantMessage(node, text, {
+            userPrompt,
+            sources: sources ?? takeTurnSearchSources(node),
+            historyIndex,
+            stopped: true,
+            thinking: finalThinking
+          });
+          appendBadge(node, "chat-msg-stopped", label);
+          return text;
+        }
+        node.innerHTML = "";
+        if (finalThinking && finalThinking.trim()) {
+          const thinkingEl = buildThinkingElement(finalThinking, {
+            collapsible: true,
+            collapsed: false,
+            labelText: "已停止"
+          });
+          node.appendChild(thinkingEl);
+        }
+        const actions = createActionBar(node, {
+          stopped: true,
+          historyIndex
+        });
+        node.appendChild(actions);
+        appendBadge(node, "chat-msg-stopped", label);
+        return text;
+      }
+      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node), historyIndex, thinking: finalThinking });
       return text;
     }
 
@@ -1402,6 +1458,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       node,
       appendToken,
       appendThinking,
+      getThinking,
       reset,
       discard,
       finish,
@@ -1469,7 +1526,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       },
       stop(reason, options) {
         const result = baseTurn.stop(reason, options);
-        if (!result.body) {
+        if (!result.body && !baseTurn.getThinking?.()) {
           restore();
         }
         return result;

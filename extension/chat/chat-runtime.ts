@@ -727,22 +727,44 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return chatSessionState.chatHistory.length + 1 + pendingToolMessages.length;
   }
 
-  function commitAssistantTurn(raw: string): boolean {
+  function commitAssistantTurn(
+    raw: string,
+    opts: { thinking?: string; stopped?: boolean } = {}
+  ): boolean {
+    const thinkingText = typeof opts.thinking === "string" && opts.thinking.trim() ? opts.thinking : undefined;
+    const hasContent = Boolean(raw && raw.trim());
+    const hasThinking = Boolean(thinkingText);
+    const isStopped = Boolean(opts.stopped);
+
+    const assistantMsg: ChatSessionMessage = {
+      role: "assistant",
+      content: raw || ""
+    };
+    if (hasThinking) {
+      assistantMsg.thinking = thinkingText;
+    }
+    if (isStopped) {
+      assistantMsg.stopped = true;
+    }
+
     if (activeRegeneration) {
       if (!deps.store.isCurrent(activeConversationId)) {
         pendingToolMessages = [];
         return false;
       }
-      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
-      if (raw) {
-        history.push(...pendingToolMessages, { role: "assistant", content: raw });
+      if (isStopped && !hasContent && !hasThinking) {
+        pendingToolMessages = [];
+        return false;
       }
+      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
+      history.push(...pendingToolMessages, assistantMsg);
       applyConversationIdentity({ history });
       void deps.store.persistCurrent();
       pendingToolMessages = [];
       return true;
     }
-    if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
+
+    if (activeUserPrompt && deps.store.isCurrent(activeConversationId)) {
       appendChatHistory(
         {
           role: "user",
@@ -750,7 +772,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           ...(activeUserImages.length ? { images: activeUserImages } : {})
         },
         ...pendingToolMessages,
-        { role: "assistant", content: raw }
+        assistantMsg
       );
       void deps.store.persistCurrent();
     }
@@ -764,8 +786,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     endStream(streamTurn, (turn) => {
       const raw = turn.finish({ userPrompt: activeUserPrompt, historyIndex: getActiveAssistantHistoryIndex() });
+      const thinking = turn.getThinking?.();
       appendTruncatedBadge(turn);
-      const committed = commitAssistantTurn(raw);
+      const committed = commitAssistantTurn(raw, { thinking });
       if (activeRegeneration) {
         if (committed) {
           activeRegeneration.session.commit();
@@ -801,18 +824,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      const { raw, body } = turn.stop(reason, {
+      const { raw } = turn.stop(reason, {
         userPrompt: activeUserPrompt,
         historyIndex: getActiveAssistantHistoryIndex()
       });
-      if (body) {
-        const committed = commitAssistantTurn(raw);
-        if (activeRegeneration) {
-          if (committed) {
-            activeRegeneration.session.commit();
-          } else {
-            activeRegeneration.session.restore();
-          }
+      const thinking = turn.getThinking?.();
+      const committed = commitAssistantTurn(raw, { thinking, stopped: true });
+      if (activeRegeneration) {
+        if (committed) {
+          activeRegeneration.session.commit();
+        } else {
+          activeRegeneration.session.restore();
         }
       }
     });
