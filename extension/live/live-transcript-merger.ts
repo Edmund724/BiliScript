@@ -30,6 +30,7 @@ export interface LiveTranscriptMergerDeps {
 
 export interface LiveTranscriptMerger {
   handleEvent(event: MossLiveTranscriptEvent): void;
+  resetActiveTurns?(): void;
   dispose(): void;
 }
 
@@ -339,8 +340,17 @@ export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): Live
     interruptedTurnKeys.clear();
   }
 
+  function resetActiveTurns(): void {
+    pendingUserNode = null;
+    pendingUserText = "";
+    pendingUserHistoryIndex = null;
+    assistantTurns.clear();
+    interruptedTurnKeys.clear();
+  }
+
   return {
     handleEvent,
+    resetActiveTurns,
     dispose
   };
 }

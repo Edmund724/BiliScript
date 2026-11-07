@@ -142,6 +142,8 @@ import { logWarn } from "../shared/logging.js";
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
+import { createFullscreenLiveOverlay, type FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
+import { isPlayerFullscreen, observeFullscreenChanges } from "../bilibili/fullscreen.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
@@ -259,6 +261,31 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
+let fullscreenOverlay: FullscreenLiveOverlay | null = null;
+let overlayManuallyClosed = false;
+let unobserveFullscreen: (() => void) | null = null;
+
+export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
+  return fullscreenOverlay;
+}
+
+export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
+  if (!fullscreenOverlay) {
+    fullscreenOverlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
+      getLiveController: () => liveController,
+      getChatHistory: () => chatSessionState.chatHistory,
+      onStopLive: () => {
+        void liveController?.stop();
+      },
+      onClearHistory: async () => {
+        await conversationStore.clearAll();
+      }
+    });
+  }
+  return fullscreenOverlay;
+}
+let preservingLiveSessionOnContextSwitch = false;
 
 function closeLiveBarPopovers(): void {
   if (els.liveBarVolumePop) els.liveBarVolumePop.hidden = true;
@@ -446,7 +473,15 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   onStreamInterrupted: () => {
-    liveController?.dispose();
+    if (!preservingLiveSessionOnContextSwitch) {
+      if (unobserveFullscreen) {
+    unobserveFullscreen();
+    unobserveFullscreen = null;
+  }
+  fullscreenOverlay?.dispose();
+  fullscreenOverlay = null;
+  liveController?.dispose();
+    }
     chatRuntime.resetStreamState();
     resetConversationView();
     composer.setStreamingUiState(false);
@@ -842,6 +877,27 @@ export function stopChatSpeech(): void {
   chatRuntime.stopSpeech();
 }
 
+export function stopLiveCompanion(): void {
+  void liveController?.stop();
+}
+
+export async function startLiveCompanion(): Promise<boolean> {
+  if (chatRuntime.isTurnActive()) {
+    chatRuntime.stopActiveStream();
+  }
+  if (!liveController) return false;
+  overlayManuallyClosed = false;
+  const started = await liveController.start();
+  if (started && isPlayerFullscreen()) {
+    ensureFullscreenOverlay().show();
+  }
+  return started;
+}
+
+export function getLiveController(): LiveChatController | null {
+  return liveController;
+}
+
 export function closeChatSession(): void {
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
@@ -1192,9 +1248,24 @@ function bindEvents(): void {
         if (muteBtn) {
           muteBtn.classList.toggle("is-talking", active);
         }
+        fullscreenOverlay?.updateVad(active);
       },
       onStateChange: (liveState) => {
         updateLiveBarUi(liveState);
+        fullscreenOverlay?.syncState(liveState);
+        if (liveState === "connected" || liveState === "connecting") {
+          if (isPlayerFullscreen() && !overlayManuallyClosed) {
+            ensureFullscreenOverlay().show();
+          }
+        } else {
+          fullscreenOverlay?.hide();
+        }
+      },
+      onTranscript: (event) => {
+        fullscreenOverlay?.updateTranscript(event);
+      },
+      onReconnecting: (info) => {
+        fullscreenOverlay?.syncState(liveController?.getState(), true);
       },
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       getVideoContext: liveToolsBridge.getVideoContext,
@@ -1225,6 +1296,20 @@ function bindEvents(): void {
           }
         })
     });
+    if (!unobserveFullscreen) {
+      unobserveFullscreen = observeFullscreenChanges((isFullscreen) => {
+        const state = liveController?.getState();
+        const isLive = state === "connecting" || state === "connected";
+        if (isFullscreen) {
+          if (isLive && !overlayManuallyClosed) {
+            ensureFullscreenOverlay().show();
+          }
+        } else {
+          overlayManuallyClosed = false;
+          fullscreenOverlay?.hide();
+        }
+      });
+    }
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
@@ -1345,7 +1430,13 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
   if (sessionClosed) {
     return;
   }
-  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
+  preservingLiveSessionOnContextSwitch = isLiveSessionActive();
+  let ok = false;
+  try {
+    ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
+  } finally {
+    preservingLiveSessionOnContextSwitch = false;
+  }
   if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
@@ -1389,6 +1480,7 @@ export function renderInitialState(): void {
 function resetConversationView(stateHtml = ""): void {
   // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
   conversationReplay.invalidate();
+  liveController?.resetMerger?.();
   updateChatLayoutState();
   els.messages.innerHTML = "";
   if (stateHtml) {

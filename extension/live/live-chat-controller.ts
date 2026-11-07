@@ -110,6 +110,7 @@ export interface LiveChatController {
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
+  resetMerger?(): void;
   dispose(): void;
 }
 
@@ -868,6 +869,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     start,
     stop,
     toggle,
+    resetMerger: () => {
+      activeMerger?.resetActiveTurns?.();
+    },
     dispose
   };
 }

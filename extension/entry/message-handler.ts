@@ -38,6 +38,7 @@ import { isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 常驻包，四个 reading-view 分支与 URL 跳转入口改经 reader/lazy-shell.js 动态
 // 装载（reader-enter 本来就要装载 reader 域，shell 随行净增≈0）。
 import { ensureReaderShell } from "../reader/lazy-shell.js";
+import { ensureReaderChatTab, isReaderChatTabLoaded } from "../reader/lazy-chat-tab.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
 // 预抓取与 URL 换片刷新共用 subtitle/kick-subtitle-fetch 的起跑序列
 //（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
@@ -131,6 +132,24 @@ function handleReaderShellEnter(
 
 // 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
 //（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
+function handleLiveSessionTakeover(
+  _message: Msg<"live-session-takeover">,
+  sendResponse: SendResponse
+): boolean {
+  (async () => {
+    try {
+      if (isReaderChatTabLoaded()) {
+        const chatDomain = await ensureReaderChatTab();
+        chatDomain.stopLiveCompanion();
+      }
+      sendResponse({ ok: true });
+    } catch {
+      sendResponse({ ok: false });
+    }
+  })();
+  return true;
+}
+
 function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResponse): boolean {
   (async () => {
     try {
@@ -153,7 +172,8 @@ function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResp
 const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
-  "reader-close": handleReaderClose
+  "reader-close": handleReaderClose,
+  "live-session-takeover": handleLiveSessionTakeover
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 
 const contentMessageHandlers = new Map<

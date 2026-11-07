@@ -63,10 +63,16 @@ export type ReaderRestoreMessage = {
 // 即答语义，恒 { ok: true }。
 export type ReaderRestoreResponse = { ok: boolean };
 
+export type LiveSessionTakeoverMessage = {
+  type: "live-session-takeover";
+};
+export type LiveSessionTakeoverResponse = { ok: boolean };
+
 export type ContentScriptMessage =
   | ReaderEnterMessage
   | ReaderCloseMessage
-  | ReaderRestoreMessage;
+  | ReaderRestoreMessage
+  | LiveSessionTakeoverMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
 

@@ -191,6 +191,13 @@ describe("resolveLoadContextAction — blocked-streaming", () => {
     });
   });
 
+  it("实时伴看进行中且存在 pinned 历史会话（非流式）→ 伴看优先跟随页面视频，判为 APPLY_LIVE_SESSION", () => {
+    expect(resolveLoadContextAction(liveInput({ isLiveActive: true, hasPinnedConversation: true }))).toEqual({
+      action: LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION,
+      returnValue: true
+    });
+  });
+
   it("实时伴看进行中但失败且非静默 → 不重置视图（保护伴看字幕气泡）", () => {
     const plan = resolveLoadContextAction(
       liveInput({ response: { ok: false, error: "err" }, silent: false, isLiveActive: true })

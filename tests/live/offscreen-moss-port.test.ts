@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   attachMossLivePort,
+  resetActiveLiveSessionForTests,
   type MossLiveClientFactory,
   type MossLiveClientInstance
 } from "../../extension/live/offscreen-moss-port.js";
@@ -118,6 +119,7 @@ class FakeMossSession implements MossLiveClientInstance {
 
 beforeEach(() => {
   resetModuleState();
+  resetActiveLiveSessionForTests();
   vi.unstubAllGlobals();
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -468,5 +470,36 @@ describe("attachMossLivePort subtitle tool bridge", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("terminates previous active live client across ports when a new port starts", async () => {
+    const { port: port1, client: client1, ws: ws1 } = await setup();
+    expect(client1.getState()).toBe("connected");
+
+    const port2 = new FakePort();
+    let client2: OffscreenMossLiveClient | null = null;
+    attachMossLivePort(port2 as any, {
+      loadClient: async () => (options) => {
+        client2 = new OffscreenMossLiveClient(options);
+        return client2;
+      }
+    });
+
+    port2.simulateMessage({
+      action: "start",
+      wsUrl: "wss://api.mosi.cn/v1/realtime",
+      model: "moss-live-1.0"
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(port1.postedMessages).toContainEqual({ type: "closed", reason: "takeover" });
+    expect(client1.disposed || client1.getState() === "closed" || ws1.readyState === FakeWebSocket.CLOSED).toBe(true);
+
+    const ws2 = FakeWebSocket.instances[1];
+    ws2.simulateOpen();
+    ws2.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    expect(client2!.getState()).toBe("connected");
   });
 });

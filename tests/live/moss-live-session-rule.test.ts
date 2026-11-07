@@ -292,15 +292,16 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     expect(setAuthRule).not.toHaveBeenCalled();
   });
 
-  it("rejects prepare from another tab when existing ownerTabId is still alive", async () => {
+  it("notifies old tab and takes over directly when prepare comes from another tab", async () => {
     const tracker = new LiveSessionTracker();
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
     const isTabAlive = vi.fn(async (id: number) => id === 101);
+    const notifyTabTakeover = vi.fn(async () => {});
 
     const res1 = await tracker.prepare(
       "session-tab-101",
-      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive }),
+      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive, notifyTabTakeover }),
       101
     );
     expect(res1.ok).toBe(true);
@@ -309,16 +310,14 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
 
     const res2 = await tracker.prepare(
       "session-tab-202",
-      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive }),
+      createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive, notifyTabTakeover }),
       202
     );
-    expect(res2.ok).toBe(false);
-    expect(res2.error).toContain("已有另一个标签页正在进行实时伴看");
-    expect(isTabAlive).toHaveBeenCalledWith(101);
-    expect(tracker.getOwnerTabId()).toBe(101);
-    expect(tracker.getActiveRuleOwner()).toBe("session-tab-101");
-    expect(clearAuthRule).not.toHaveBeenCalled();
-    expect(setAuthRule).toHaveBeenCalledTimes(1);
+    expect(res2.ok).toBe(true);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101);
+    expect(tracker.getOwnerTabId()).toBe(202);
+    expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
+    expect(setAuthRule).toHaveBeenCalledTimes(2);
   });
 
   it("reaps dead ownerTabId via chrome.tabs.get and allows a new tab to take over", async () => {

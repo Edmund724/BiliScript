@@ -27,6 +27,18 @@ export interface AttachMossLivePortOptions {
   postMessage?: (port: chrome.runtime.Port, message: unknown) => void;
 }
 
+interface ActiveLivePortSession {
+  port: chrome.runtime.Port;
+  client: MossLiveClientInstance;
+  postMessage: (port: chrome.runtime.Port, message: unknown) => void;
+}
+
+let activeGlobalLiveSession: ActiveLivePortSession | null = null;
+
+export function resetActiveLiveSessionForTests(): void {
+  activeGlobalLiveSession = null;
+}
+
 export function attachMossLivePort(
   port: chrome.runtime.Port,
   options: AttachMossLivePortOptions
@@ -50,6 +62,9 @@ export function attachMossLivePort(
   function cleanup(): void {
     disposed = true;
     currentGeneration += 1;
+    if (activeGlobalLiveSession?.port === port) {
+      activeGlobalLiveSession = null;
+    }
     if (liveClient) {
       try {
         liveClient.close();
@@ -66,6 +81,16 @@ export function attachMossLivePort(
     if (!msg) return;
 
     if (msg.action === "start") {
+      if (activeGlobalLiveSession && activeGlobalLiveSession.port !== port) {
+        const prev = activeGlobalLiveSession;
+        activeGlobalLiveSession = null;
+        try {
+          prev.postMessage(prev.port, { type: "closed", reason: "takeover" });
+        } catch {}
+        try {
+          prev.client.close();
+        } catch {}
+      }
       if (liveClient) {
         const previous = liveClient;
         liveClient = null;
@@ -100,6 +125,7 @@ export function attachMossLivePort(
         }
 
         liveClient = client;
+        activeGlobalLiveSession = { port, client, postMessage };
         client.handleAction({
           action: "start",
           wsUrl: msg.wsUrl,
@@ -128,6 +154,9 @@ export function attachMossLivePort(
     }
 
     if (msg.action === "stop") {
+      if (activeGlobalLiveSession?.port === port) {
+        activeGlobalLiveSession = null;
+      }
       if (liveClient) {
         const active = liveClient;
         liveClient = null;

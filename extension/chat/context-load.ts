@@ -23,6 +23,7 @@
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
 import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
+import { buildContextKey, type AiContext } from "../ai/conversation.js";
 import {
   applyContextSnapshot,
   applyLiveContextSnapshot,
@@ -132,8 +133,23 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     applyLiveContextSnapshot(resp.payload as ChatSessionContextSnapshot);
 
     // 实时伴看进行中（策略已排在 APPLY_PINNED 与 BLOCKED_STREAMING 之后）：
-    // 同步主上下文但不触发 restartChat / restoreLatest / renderInitialState。
+    // 若视频/分P发生切换，则保留连接并切换对话视图到新视频对应的本地对话历史；
+    // 若属于同一视频，则仅同步主上下文，不重新清场或恢复历史，以保留在场伴看字幕气泡。
     if (plan.action === LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION) {
+      const oldKey = chatSessionState.currentContextKey;
+      const nextKey = buildContextKey(resp.payload as AiContext);
+      const isVideoSwitch = Boolean(oldKey && nextKey && nextKey !== oldKey);
+
+      if (isVideoSwitch) {
+        const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null, preserveInput);
+        deps.renderHistoryList();
+        if (contextChanged) {
+          await deps.restoreLatest();
+          deps.renderInitialState();
+        }
+        return plan.returnValue;
+      }
+
       applyLiveContextToMain();
       deps.renderHistoryList();
       return plan.returnValue;

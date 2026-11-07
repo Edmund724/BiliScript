@@ -15,6 +15,8 @@
 // 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对路径
 // 按扩展自身 URL 解析（与 reader/lazy-reader.ts 同款，见其头注）。
 import { createLazyLoader } from "../shared/lazy-import.js";
+import type { LiveChatController } from "../live/live-chat-controller.js";
+import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 
 // 对话 tab 组合根对外的窄接口（懒加载消费方——ui-renderer / lifecycle /
 // overview——只依赖这四个入口，不触达组合根内部编排）。
@@ -34,6 +36,13 @@ export interface ReaderChatTabDomain {
   //（= chat-tab sendTurn 的 SendVerdict === "accepted"：仅 accepted → true，
   // ignored/blocked → false；不再按输入框是否清空反推）。
   runQuickActionPrompt(prompt: string): Promise<boolean>;
+  // 跨标签页接管：停止实时伴看（停止旧音画采集并收起伴看状态条）
+  stopLiveCompanion(): void;
+  // 启动实时伴看
+  startLiveCompanion(): Promise<boolean>;
+  // 获取伴看控制器与浮窗实例
+  getLiveController(): LiveChatController | null;
+  getFullscreenLiveOverlay(): FullscreenLiveOverlay | null;
 }
 
 const loader = createLazyLoader<ReaderChatTabDomain>(() => import("./chat-tab.js"));

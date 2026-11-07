@@ -147,7 +147,7 @@ export function resolveLoadContextAction({
 
   // pinned 对话：live 快照只做数据源（轮询判定 / 后续补水），不进主上下文、
   // 不触发对话恢复；旧代码此分支与流式守卫分支的执行体逐字节相同。
-  if (hasPinnedConversation) {
+  if (hasPinnedConversation && !isLiveActive) {
     return { action: LOAD_CONTEXT_ACTION.APPLY_PINNED, returnValue: true };
   }
 

@@ -129,6 +129,7 @@ export interface LiveSessionPrepareDeps {
   ensureOffscreen: () => Promise<unknown>;
   resolveActiveId: (providers: LiveProvider[], activeId?: string) => string;
   isTabAlive?: (tabId: number) => Promise<boolean>;
+  notifyTabTakeover?: (tabId: number) => Promise<void>;
 }
 
 export interface LiveSessionPrepareResult {
@@ -156,6 +157,17 @@ async function isTabAliveByChromeTabs(tabId: number): Promise<boolean> {
   }
 }
 
+async function notifyTabTakeoverByChromeTabs(tabId: number): Promise<void> {
+  if (typeof chrome === "undefined" || typeof chrome.tabs?.sendMessage !== "function") {
+    return;
+  }
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "live-session-takeover" });
+  } catch {
+    // 忽略旧标签页可能已关闭或未就绪的异常
+  }
+}
+
 function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Required<LiveSessionPrepareDeps> {
   return {
     getSettings: overrides?.getSettings ?? getSettingsSnapshot,
@@ -168,7 +180,8 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
     clearAuthRule: overrides?.clearAuthRule ?? clearMossLiveWsAuthRule,
     ensureOffscreen: overrides?.ensureOffscreen ?? ensureChatOffscreenDocument,
     resolveActiveId: overrides?.resolveActiveId ?? resolveActiveLiveProviderId,
-    isTabAlive: overrides?.isTabAlive ?? isTabAliveByChromeTabs
+    isTabAlive: overrides?.isTabAlive ?? isTabAliveByChromeTabs,
+    notifyTabTakeover: overrides?.notifyTabTakeover ?? notifyTabTakeoverByChromeTabs
   };
 }
 
@@ -208,18 +221,11 @@ export class LiveSessionTracker {
       const conflictingTabId = this.ownerTabId;
       const alive = await deps.isTabAlive(conflictingTabId);
       if (alive) {
-        return {
-          ok: false,
-          error: "已有另一个标签页正在进行实时伴看，请先结束该会话。"
-        };
+        // 用户切换到另一个视频标签页并开启实时伴看时，自动通知并关闭前一个视频标签页的伴看
+        void deps.notifyTabTakeover(conflictingTabId).catch(() => {});
       }
       if (this.ownerTabId === conflictingTabId) {
         await this.cleanupByTab(conflictingTabId, deps.clearAuthRule);
-      } else if (this.ownerTabId !== null && this.ownerTabId !== tabId) {
-        return {
-          ok: false,
-          error: "已有另一个标签页正在进行实时伴看，请先结束该会话。"
-        };
       }
     }
 
