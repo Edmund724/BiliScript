@@ -57,10 +57,17 @@ export interface ChatRegenerationSession {
   restore: () => void;
 }
 
+export interface ChatContinuationSession {
+  turn: ChatAssistantTurn;
+  commit: () => void;
+  restore: () => void;
+}
+
 export interface ChatMessageArea {
   appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string }) => void;
   appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
   beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
+  beginContinuation: (node: HTMLDivElement, opts?: { initialRaw?: string; thinking?: string }) => ChatContinuationSession;
   setRegenerationDisabled: (disabled: boolean) => void;
   clear: () => void;
 }
@@ -1241,10 +1248,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   //   - thinkingNode：本回合尚在累积的思考节点（null = 未创建或已收尾）；
   //   - thinkingEnded：本回合思考已收尾（token 到达即收尾）——其后到达的收尾
   //     reasoning 事件新建节点（附着本回合节点），不写进已折叠的旧节点。
-  function createTurnHandle(node: HTMLDivElement): ChatAssistantTurn {
+  function createTurnHandle(node: HTMLDivElement, opts?: { initialThinking?: string }): ChatAssistantTurn {
     let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
-    let accumulatedThinking = "";
+    let accumulatedThinking = opts?.initialThinking || "";
 
     function flushPendingThinking(): void {
       const state = getTokenStreamState(node);
@@ -1381,7 +1388,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           userPrompt,
           sources: takeTurnSearchSources(node),
           historyIndex,
-          stopped: true
+          stopped: true,
+          thinking: accumulatedThinking
         });
         appendBadge(node, "chat-msg-stopped", label);
         return { raw: text, body: true };
@@ -1546,6 +1554,90 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     };
   }
 
+  function beginContinuation(
+    node: HTMLDivElement,
+    opts: { initialRaw?: string; thinking?: string } = {}
+  ): ChatContinuationSession {
+    const originalStreaming = node.classList.contains("chat-msg-streaming");
+    const originalChildren = Array.from(node.childNodes);
+
+    cancelTokenFlush();
+    const oldState = getTokenStreamState(node);
+    for (const thinking of oldState.allThinking) {
+      cancelThinkingFrame(thinking);
+    }
+    resetTokenStreamState(node);
+
+    node.querySelectorAll(".chat-msg-stopped").forEach((el) => el.remove());
+    node.querySelectorAll(".chat-msg-actions").forEach((el) => el.remove());
+
+    const existingThinking = Array.from(node.querySelectorAll<HTMLDivElement>(".chat-thinking"));
+    const state = getTokenStreamState(node);
+    state.allThinking = [...existingThinking];
+    state.uncollapsedThinking = existingThinking.filter((el) => !el.classList.contains("chat-thinking-collapsed"));
+
+    const initialRaw = String(opts.initialRaw || "");
+    const hasBody = Boolean(initialRaw.trim());
+
+    if (hasBody) {
+      const existingBody = node.querySelector(".chat-msg-assistant-body");
+      if (existingBody) {
+        existingBody.remove();
+      }
+      state.cursor = createStreamCursor();
+      ensureStreamContainers(node, state);
+      state.session!.flush(initialRaw, { cursor: state.cursor });
+    } else {
+      const existingBody = node.querySelector(".chat-msg-assistant-body");
+      if (existingBody) {
+        existingBody.remove();
+      }
+      state.cursor = createStreamCursor();
+      node.appendChild(state.cursor);
+    }
+
+    deps.messages
+      .querySelectorAll(".chat-msg-assistant.chat-msg-streaming")
+      .forEach((el) => el.classList.remove("chat-msg-streaming"));
+    node.classList.add("chat-msg-streaming");
+    shouldAutoScrollMessages = true;
+    scrollToBottom(true, { instant: true });
+
+    const baseTurn = createTurnHandle(node, { initialThinking: opts.thinking });
+    let settled = false;
+
+    function restore(): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      baseTurn.discard();
+      clearSearchCard(node);
+      node.innerHTML = "";
+      originalChildren.forEach((child) => node.appendChild(child));
+      node.classList.toggle("chat-msg-streaming", originalStreaming);
+    }
+
+    const turn: ChatAssistantTurn = {
+      ...baseTurn,
+      discard: restore,
+      fail() {
+        restore();
+      },
+      stop(reason, options) {
+        return baseTurn.stop(reason, options);
+      }
+    };
+
+    return {
+      turn,
+      commit() {
+        settled = true;
+      },
+      restore
+    };
+  }
+
   const messageArea: ChatMessageArea = {
     appendUserMessage(text, { source = "live", messageId } = {}) {
       appendUserMessageNode(text, source, messageId);
@@ -1554,6 +1646,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
     },
     beginRegeneration,
+    beginContinuation,
     setRegenerationDisabled(disabled) {
       deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn, .chat-msg-continue-btn").forEach((button) => {
         button.disabled = disabled;
