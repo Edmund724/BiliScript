@@ -10,14 +10,13 @@ import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createFullscreenLiveOverlay, type FullscreenLiveOverlay } from "./fullscreen-live-overlay.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
+import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
 const PLAYER_HOST_SELECTOR = "#live-player, .live-player-mounter, #live-player-ctnr";
 const VIDEO_SELECTOR = "#live-player video, .live-player-mounter video, video";
 const TOGGLE_BUTTON_CLASS = "biliscript-live-room-toggle";
 const NOTICE_CLASS = "biliscript-live-room-notice";
 const NOTICE_DEFAULT_MS = 4000;
-const HEADSET_ICON =
-  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="2" y="14" width="5" height="7" rx="2"/><rect x="17" y="14" width="5" height="7" rx="2"/></svg>';
 
 let started = false;
 let controller: LiveChatController | null = null;
@@ -69,7 +68,8 @@ function mountToggleButton(): void {
   button.className = TOGGLE_BUTTON_CLASS;
   button.setAttribute("data-biliscript-extension-node", "live-room-toggle");
   button.setAttribute("aria-label", "实时伴看");
-  button.innerHTML = HEADSET_ICON;
+  button.title = "实时伴看";
+  button.innerHTML = buildPlayerLiveQuickActionIconSvg();
   button.addEventListener("click", () => {
     void controller?.toggle();
   });

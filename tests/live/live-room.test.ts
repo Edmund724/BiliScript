@@ -11,6 +11,8 @@ import {
   type MossLiveVideoContext
 } from "../../extension/live/moss-live-protocol.js";
 import { buildGeminiSetupTools } from "../../extension/live/offscreen-gemini-live-client.js";
+import { buildPlayerLiveQuickActionIconSvg } from "../../extension/ui/icons.js";
+import { startLiveRoomCompanion } from "../../extension/live/live-room-entry.js";
 
 const ROOM_URL = "https://live.bilibili.com/21452505?broadcast_type=0";
 
@@ -109,5 +111,24 @@ describe("直播间提示词与工具声明", () => {
     expect(roomTools).not.toContain("control_bilibili_player");
     expect(JSON.stringify(buildGeminiSetupTools(true, room))).toBe(JSON.stringify([{ googleSearch: {} }]));
     expect(JSON.stringify(buildGeminiSetupTools(false, null))).toContain("get_subtitles_around_time");
+  });
+});
+
+
+describe("直播间伴看开关按钮", () => {
+  it("复用伴看统一的麦克风图标与无障碍标签", async () => {
+    const host = document.createElement("div");
+    host.id = "live-player";
+    document.body.appendChild(host);
+
+    await startLiveRoomCompanion();
+
+    const btn = host.querySelector<HTMLButtonElement>(".biliscript-live-room-toggle");
+    expect(btn).not.toBeNull();
+    expect(btn?.innerHTML).toBe(buildPlayerLiveQuickActionIconSvg());
+    expect(btn?.getAttribute("aria-label")).toBe("实时伴看");
+    expect(btn?.title).toBe("实时伴看");
+
+    host.remove();
   });
 });
