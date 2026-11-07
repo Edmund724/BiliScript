@@ -1,7 +1,7 @@
 // extension/live/fullscreen-live-overlay.ts
 // 播放器全屏（浏览器全屏与网页全屏）右上角半透明实时伴看浮窗：
 // 1. 头部状态胶囊（状态文本、麦克风 VAD 动效、点击结束伴看）
-// 2. 音频快捷设置入口（静音、把视频声音也分享给 Agent、语音优先）
+// 2. 音频快捷设置入口（静音、分享视频声音、语音优先）
 // 3. 最小化（-）与关闭隐藏（×）
 // 4. 纯语音实时流式对话气泡（右侧绿色用户气泡、左侧 Agent 流式气泡）与「清空」按钮
 // 5. 播放器容器内拖拽移动
@@ -407,22 +407,20 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             </button>
             <div class="live-overlay-audio-popover" hidden>
               <div class="live-overlay-pop-item live-overlay-pop-volume-item">
-                <div class="live-overlay-pop-volume-head">
-                  <span>伴看音量</span>
-                  <span class="live-overlay-volume-value">100%</span>
-                </div>
-                <div class="live-overlay-volume-track-row">
+                <span>伴看音量</span>
+                <div class="live-overlay-volume-control">
                   <input type="range" class="live-overlay-volume-slider" min="0" max="100" step="1" value="100" style="--live-progress: 100%;" aria-label="伴看音量" />
+                  <span class="live-overlay-volume-value">100%</span>
                 </div>
               </div>
               <div class="live-overlay-pop-divider"></div>
               <div class="live-overlay-pop-item">
-                <span>把视频声音也分享给 Agent</span>
-                <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="把视频声音也分享给 Agent"></button>
+                <span>分享视频声音</span>
+                <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="分享视频声音" title="分享视频声音"></button>
               </div>
               <div class="live-overlay-pop-item">
                 <span>语音优先</span>
-                <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先"></button>
+                <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先" title="语音优先"></button>
               </div>
             </div>
           </div>

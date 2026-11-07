@@ -104,10 +104,10 @@ export function buildChatTabBodyHtml(): string {
                   <div class="chat-live-pop-divider"></div>
                   <div class="chat-live-pop-item">
                     <div class="chat-live-pop-item-head">
-                      <span class="chat-live-pop-label">把视频声音也分享给 Agent</span>
+                      <span class="chat-live-pop-label">分享视频声音</span>
                       <span id="${ids.readingChatLiveBarShareAudioStatus}" class="chat-live-pop-status">未开启</span>
                     </div>
-                    <button id="${ids.readingChatLiveBarShareAudioSwitch}" type="button" role="switch" class="chat-live-switch" aria-checked="true" data-on="true" title="把视频声音也分享给 Agent" aria-label="把视频声音也分享给 Agent"></button>
+                    <button id="${ids.readingChatLiveBarShareAudioSwitch}" type="button" role="switch" class="chat-live-switch" aria-checked="true" data-on="true" title="分享视频声音" aria-label="分享视频声音"></button>
                   </div>
                   <div class="chat-live-pop-item">
                     <div class="chat-live-pop-item-head">
