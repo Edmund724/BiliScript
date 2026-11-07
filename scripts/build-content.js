@@ -83,6 +83,7 @@ const lazyTargets = [
   { name: "provider-editor", source: "ui/provider-editor.ts" },
   { name: "explain", source: "ai/explain.ts" },
   { name: "pipeline", source: "asr/pipeline.ts" },
+  { name: "playback-rate", source: "bilibili/playback-rate.ts" },
   { name: "fallback", source: "asr/fallback.ts" },
   { name: "analysis", source: "ai/analysis.ts" },
   // 模型目录元数据（model-catalog/04，ui/lazy-model-catalog 的动态 import 落点）：

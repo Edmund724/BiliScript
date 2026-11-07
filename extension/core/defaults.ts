@@ -89,6 +89,7 @@ export interface KnownSettings {
   autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
   // ===== 历史会话清理 =====
   cleanConversationsOlderThan30Days: boolean; // 自动清理 30 天以前的历史会话记录，默认关
+  enableExtraPlaybackRates: boolean; // 在视频播放器控制栏显示 3x/4x 倍速按钮，默认关
 }
 
 export interface Settings extends KnownSettings {
@@ -154,5 +155,6 @@ export const DEFAULT_SETTINGS: Settings = {
   customPanelWidthEnabled: false,
   customPanelWidth: 540,
   autoOpenReader: false,
-  cleanConversationsOlderThan30Days: false
+  cleanConversationsOlderThan30Days: false,
+  enableExtraPlaybackRates: false
 };

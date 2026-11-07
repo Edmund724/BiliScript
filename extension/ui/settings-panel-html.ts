@@ -58,6 +58,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   customPanelWidthValue: "customPanelWidthValue",
   customPanelWidthResetBtn: "customPanelWidthResetBtn",
   autoOpenReader: "autoOpenReader",
+  enableExtraPlaybackRates: "enableExtraPlaybackRates",
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
@@ -253,6 +254,13 @@ export function buildSettingsHtml(): string {
         <span class="biliscript-toggle-text">进入视频页自动展开文摘面板</span>
         <label class="biliscript-toggle-switch">
           <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频页自动展开文摘面板" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">在视频控制栏显示 3x / 4x 倍速按钮</span>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.enableExtraPlaybackRates}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频控制栏显示 3x / 4x 倍速按钮" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>

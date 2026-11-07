@@ -115,6 +115,7 @@ function collectElements(host: HTMLElement) {
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
     customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
+    enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
@@ -297,6 +298,12 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "autoOpenReader",
     getElement: (el) => el.autoOpenReader,
     normalize: (val) => val === true
+  },
+  {
+    kind: "toggle",
+    key: "enableExtraPlaybackRates",
+    getElement: (el) => el.enableExtraPlaybackRates,
+    normalize: (val) => Boolean(val)
   },
   {
     kind: "toggle",
@@ -886,6 +893,7 @@ function buildDefaultPreferencePayload() {
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
+    enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow
   };
 }

@@ -20,6 +20,7 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 装载为的是视图失同步自愈与关闭视图后补回按钮（见 ui/script-button.ts 头注）。
 import { loadScriptButton } from "../ui/lazy-script-button.js";
 import { loadLiveRoom } from "../live/lazy-live-room.js";
+import { loadPlaybackRate, isPlaybackRateLoaded } from "../bilibili/lazy-playback-rate.js";
 
 // 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
 //（hydrateReaderStateFromSettings / applyReadingViewPresentation / renderReadingStatus）
@@ -56,6 +57,7 @@ globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 // 播放器 AI 开关监听只注册一次：init 在模块加载时同步执行，声明必须位于
 // 其之前（避免 TDZ），标志兜底防重复注入。
 let playerAiSettingsWatcherBound = false;
+let playbackRateSettingsWatcherBound = false;
 // 10-10：enablePlayerAiQuickAction 启动决策是否已由快路径（content 直连
 // storage.sync 单键读）决出。真 = 快路径读成功并完成启停，getSettings 水合
 // 路径跳过对同一键的重复读/决策；假 = 快路径读失败，由 getSettings 水合值
@@ -128,6 +130,7 @@ function init(): void {
   // 支持页；失败静默、不写状态栏。SPA 换片的起跑点在 URL 变化编排里。
   startSubtitlePrefetch();
   bindPlayerAiSettingsWatcher();
+  bindPlaybackRateSettingsWatcher();
   // Script 工具栏按钮快路径（工单 button-injection-stability/01）：不等
   // getSettings 水合（SW 往返是按钮首载慢的主因之一）。script 按钮无设置键、
   // 常驻，模块自管「寻锚注入/摘除 → 定时自查」生命周期——装载即寻锚，锚点未
@@ -162,6 +165,9 @@ function init(): void {
     try {
       const settings = await getSettings();
       state.setSettings(settings);
+      if (settings.enableExtraPlaybackRates) {
+        startPlaybackRateLazy();
+      }
       // 10-10 收口：快路径已按同一键直连读决策过（正常路径），这里不再对
       // enablePlayerAiQuickAction 做第二次读/启停——同键双读收口为一次。仅当
       // 快路径读失败（quickActionStartupDecided 仍为 false）时，才由本水合值
@@ -204,6 +210,48 @@ function init(): void {
 
 // 播放器 AI 开关存放在 chrome.storage.sync：监听该键变更动态启停，设置切换
 // 无需刷新页面即可生效。
+
+async function startPlaybackRateLazy(): Promise<void> {
+  try {
+    const domain = await loadPlaybackRate();
+    domain.startPlaybackRateButtons();
+  } catch (error) {
+    logWarn("[BILISCRIPT] playback-rate module load failed", error);
+  }
+}
+
+async function stopPlaybackRateLazy(): Promise<void> {
+  if (!isPlaybackRateLoaded()) {
+    return;
+  }
+  try {
+    const domain = await loadPlaybackRate();
+    domain.stopPlaybackRateButtons();
+  } catch (error) {
+    logWarn("[BILISCRIPT] playback-rate stop failed", error);
+  }
+}
+
+function bindPlaybackRateSettingsWatcher(): void {
+  if (playbackRateSettingsWatcherBound) {
+    return;
+  }
+  playbackRateSettingsWatcherBound = true;
+  watchStorageKeys((changes) => {
+    const change = changes["enableExtraPlaybackRates"];
+    if (!change) {
+      return;
+    }
+    const enabled = Boolean(change.newValue);
+    state.patchSettings({ enableExtraPlaybackRates: enabled });
+    if (enabled) {
+      startPlaybackRateLazy();
+    } else {
+      stopPlaybackRateLazy();
+    }
+  }, { sync: ["enableExtraPlaybackRates"] });
+}
+
 function bindPlayerAiSettingsWatcher(): void {
   if (playerAiSettingsWatcherBound) {
     return;

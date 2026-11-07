@@ -107,7 +107,8 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   customPanelWidthEnabled: normalizeCustomPanelWidthEnabled,
   customPanelWidth: normalizeCustomPanelWidth,
   autoOpenReader: normalizeAutoOpenReader,
-  cleanConversationsOlderThan30Days: booleanField(false)
+  cleanConversationsOlderThan30Days: booleanField(false),
+  enableExtraPlaybackRates: booleanField(false)
 });
 
 const SETTINGS_NORMALIZER_ENTRIES = Object.entries(SETTINGS_FIELD_NORMALIZERS) as Array<
