@@ -198,4 +198,26 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(liveButton.getAttribute("aria-pressed")).toBe("false");
     expect(liveButton.getAttribute("aria-label")).toBe("实时伴看");
   });
+
+  it("伴看已处于开启状态下再次点击伴看按钮：调用 stopLiveCompanion 关闭伴看", async () => {
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/live-overlay-binding.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    const liveButton = document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement;
+    expect(liveButton).not.toBeNull();
+
+    // 模拟伴看已开启
+    syncPlayerLiveQuickActionState(true);
+    expect(liveButton.classList.contains("is-active")).toBe(true);
+
+    // 再次点击
+    liveButton.click();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(mockChatTab.stopLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(mockChatTab.startLiveCompanion).not.toHaveBeenCalled();
+  });
 });

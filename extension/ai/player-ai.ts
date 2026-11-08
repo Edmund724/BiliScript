@@ -693,10 +693,21 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
   try {
     await ensureUiReady();
     const chat = await ensureReaderChatTab();
-    await chat.ensureChatTabActivated({ consumeIntent: false });
-    await chat.startLiveCompanion();
+    const isCurrentlyActive = Boolean(
+      liveButton?.classList.contains("is-active") ||
+        document.body.hasAttribute("data-biliscript-live-active") ||
+        chat.getLiveController()?.getState() === "connected" ||
+        chat.getLiveController()?.getState() === "connecting"
+    );
+
+    if (isCurrentlyActive) {
+      chat.stopLiveCompanion();
+    } else {
+      await chat.ensureChatTabActivated({ consumeIntent: false });
+      await chat.startLiveCompanion();
+    }
   } catch (error) {
-    setMessage(`实时伴看启动失败：${getErrorMessage(error)}`);
+    setMessage(`实时伴看操作失败：${getErrorMessage(error)}`);
   } finally {
     playerAiState.setSubmitting(false);
     if (liveButton) {
