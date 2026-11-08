@@ -278,9 +278,6 @@ const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
   getLiveController: () => liveController,
   getChatHistory: () => chatSessionState.chatHistory,
-  onClearHistory: async () => {
-    await conversationStore.clearAll();
-  },
   fullscreenMode: "player-fullscreen",
   onExitFullscreenWhileLive: async () => {
     if (!isReaderViewOpen()) {

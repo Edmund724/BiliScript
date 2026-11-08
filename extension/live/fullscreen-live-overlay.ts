@@ -3,7 +3,7 @@
 // 1. 头部状态胶囊（状态文本、麦克风 VAD 动效）
 // 2. 音频快捷设置入口（静音、分享视频声音、语音优先）
 // 3. 最小化（-）与关闭隐藏（×）
-// 4. 纯语音实时流式对话气泡（通过 live-transcript-merger 共享轮次状态机驱动）与「清空」按钮
+// 4. 纯语音实时流式对话气泡（通过 live-transcript-merger 共享轮次状态机驱动）
 // 5. 播放器容器内拖拽移动（通过 viewport-drag 原语驱动）
 // 6. 液体玻璃 12px 窄边缘 SVG 位移与三通道色散镜头（通过 liquid-glass-lens 驱动）
 
@@ -20,7 +20,6 @@ export interface FullscreenLiveOverlayDeps {
   getVolume?: () => number;
   onVolumeChange?: (volume: number) => void;
   onStopLive?: () => void;
-  onClearHistory?: () => Promise<void> | void;
 }
 
 export interface FullscreenLiveOverlay {
@@ -54,7 +53,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let minBtnEl: HTMLButtonElement | null = null;
   let closeBtnEl: HTMLButtonElement | null = null;
   let messagesEl: HTMLElement | null = null;
-  let clearBtnEl: HTMLButtonElement | null = null;
   let scrollBottomBtnEl: HTMLButtonElement | null = null;
 
   let miniCapsuleEl: HTMLElement | null = null;
@@ -219,9 +217,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
         </button>
-        <div class="live-overlay-footer">
-          <button type="button" class="live-overlay-clear-btn" title="清空对话" aria-label="清空对话">清空</button>
-        </div>
       </div>
     `;
 
@@ -269,7 +264,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
     closeBtnEl = overlay.querySelector(".live-overlay-close-btn");
     messagesEl = overlay.querySelector(".live-overlay-messages");
-    clearBtnEl = overlay.querySelector(".live-overlay-clear-btn");
     scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
   }
 
@@ -386,15 +380,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       isScrolledToBottom = true;
       if (scrollBottomBtnEl) {
         scrollBottomBtnEl.hidden = true;
-      }
-    });
-
-    clearBtnEl?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      clearMessages();
-      deps.getLiveController()?.resetMerger?.();
-      if (deps.onClearHistory) {
-        void deps.onClearHistory();
       }
     });
   }

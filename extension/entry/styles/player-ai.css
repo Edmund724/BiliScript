@@ -738,7 +738,7 @@
 .live-overlay-scroll-bottom-btn {
   position: absolute;
   right: 12px;
-  bottom: 42px;
+  bottom: 12px;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -843,34 +843,6 @@
   border-bottom-left-radius: 2px;
 }
 
-.live-overlay-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 6px 10px;
-  border-top: 1px solid rgb(255 255 255 / 0.08);
-  background: transparent;
-}
-
-.live-overlay-clear-btn {
-  background: transparent;
-  border: none;
-  color: var(--biliscript-live-glass-ink-secondary);
-  mix-blend-mode: var(--biliscript-live-glass-ink-blend);
-  font-size: var(--biliscript-font-size-xs, 11px);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.live-overlay-clear-btn:hover {
-  color: var(--biliscript-reader-danger, rgb(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37)));
-  background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.14);
-  mix-blend-mode: normal;
-}
-
 .biliscript-fullscreen-live-overlay :where(button):focus-visible {
   outline: 2px solid rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248));
   outline-offset: 2px;
@@ -888,8 +860,7 @@
   .live-overlay-status-text,
   .live-overlay-icon-btn,
   .live-overlay-pop-item > span,
-  .live-overlay-bubble-assistant,
-  .live-overlay-clear-btn {
+  .live-overlay-bubble-assistant {
     mix-blend-mode: normal;
   }
 }

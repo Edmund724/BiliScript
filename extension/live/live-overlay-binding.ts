@@ -74,7 +74,6 @@ export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
   getChatHistory?: () => Array<{ role: string; content: string }>;
-  onClearHistory?: () => Promise<void> | void;
   /**
    * 浮窗自动唤起策略：
    * - "always"（默认，用于直播间）：连接中/已连接即展示浮窗
@@ -169,8 +168,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         onVolumeChange: handleVolumeChange,
         onStopLive: () => {
           void options.getLiveController()?.stop();
-        },
-        onClearHistory: options.onClearHistory
+        }
       });
     }
     return overlay;

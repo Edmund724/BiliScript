@@ -6,7 +6,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
   let playerHost: HTMLElement;
   let mockController: Partial<LiveChatController>;
   let onStopLive: () => void;
-  let onClearHistory: () => Promise<void>;
 
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -27,7 +26,6 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     document.body.appendChild(playerHost);
 
     onStopLive = vi.fn();
-    onClearHistory = vi.fn(async () => {});
 
     let muted = false;
     let shareAudio = true;
@@ -67,8 +65,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
 
     expect(overlay.isVisible()).toBe(false);
@@ -85,8 +82,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -113,8 +109,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -138,8 +133,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
       onVolumeChange,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -186,8 +180,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -216,8 +209,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
     expect(overlay.isVisible()).toBe(true);
@@ -233,8 +225,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -256,12 +247,11 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(scrollBtn.hidden).toBe(true);
   });
 
-  it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，以及清空按钮", () => {
+  it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，浮窗不提供清空按钮", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -310,13 +300,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     expect(assistantBubble?.textContent).toBe("我看到了，是一只可爱的橘猫！");
 
-    // 3. 点击清空按钮
-    const clearBtn = overlay.getElement()?.querySelector(".live-overlay-clear-btn") as HTMLButtonElement;
-    clearBtn.click();
-
+    // 3. 不提供清空按钮，但提供 clearMessages 方法用于房间切换等程序清空
+    expect(overlay.getElement()?.querySelector(".live-overlay-clear-btn")).toBeNull();
+    overlay.clearMessages();
     expect(messages.children.length).toBe(0);
-    expect(onClearHistory).toHaveBeenCalledTimes(1);
-    expect(mockController.resetMerger).toHaveBeenCalledTimes(1);
   });
 
   it("麦克风未激活（isVoiceRecentlyActive 为 false）时拦截纯背景原声的 input 转写", () => {
@@ -326,8 +313,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -355,8 +341,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerWrap,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
@@ -368,8 +353,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
-      onStopLive,
-      onClearHistory
+      onStopLive
     });
     overlay.show();
 
