@@ -1,5 +1,5 @@
 // extension/live/viewport-drag.ts
-// 宿主容器内 Pointer 拖拽、移动阈值判定与边界钳制原语
+// 宿主容器内 Pointer 拖拽、移动阈值判定与右上角相对偏移边界钳制原语
 
 export interface ViewportDragOptions {
   handleEl: HTMLElement;
@@ -8,6 +8,7 @@ export interface ViewportDragOptions {
   ignoreSelector?: string;
   clickMoveThresholdPx?: number;
   onClickWithoutDrag?: () => void;
+  onDragEnd?: (offset: { right: number; top: number }) => void;
 }
 
 export interface ViewportDragHandle {
@@ -20,8 +21,8 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
   let moved = false;
   let startX = 0;
   let startY = 0;
-  let initialLeft = 0;
-  let initialTop = 0;
+  let initialRight = 16;
+  let initialTop = 16;
 
   function onPointerMove(e: PointerEvent): void {
     const targetEl = options.getTargetEl();
@@ -37,17 +38,27 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
     const hostRect = host.getBoundingClientRect();
     const rect = targetEl.getBoundingClientRect();
 
-    let nextLeft = initialLeft + deltaX;
+    let nextRight = initialRight - deltaX;
     let nextTop = initialTop + deltaY;
 
-    const maxLeft = Math.max(0, hostRect.width - rect.width);
-    const maxTop = Math.max(0, hostRect.height - rect.height);
+    if (hostRect.width > 0) {
+      const maxRight = Math.max(0, hostRect.width - (rect.width || 0));
+      nextRight = Math.max(0, Math.min(nextRight, maxRight));
+    } else {
+      nextRight = Math.max(0, nextRight);
+    }
 
-    nextLeft = Math.max(0, Math.min(nextLeft, maxLeft));
-    nextTop = Math.max(0, Math.min(nextTop, maxTop));
+    if (hostRect.height > 0) {
+      const maxTop = Math.max(0, hostRect.height - (rect.height || 0));
+      nextTop = Math.max(0, Math.min(nextTop, maxTop));
+    } else {
+      nextTop = Math.max(0, nextTop);
+    }
 
-    targetEl.style.left = `${nextLeft}px`;
+    targetEl.style.right = `${nextRight}px`;
     targetEl.style.top = `${nextTop}px`;
+    targetEl.style.left = "auto";
+    targetEl.style.bottom = "auto";
   }
 
   function stopDragListeners(): void {
@@ -62,8 +73,17 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
     const wasDragging = isDragging;
     const wasMoved = moved;
     stopDragListeners();
-    if (wasDragging && !wasMoved) {
-      options.onClickWithoutDrag?.();
+    if (wasDragging) {
+      if (!wasMoved) {
+        options.onClickWithoutDrag?.();
+      } else {
+        const targetEl = options.getTargetEl();
+        if (targetEl) {
+          const parsedRight = parseFloat(targetEl.style.right) || 0;
+          const parsedTop = parseFloat(targetEl.style.top) || 0;
+          options.onDragEnd?.({ right: parsedRight, top: parsedTop });
+        }
+      }
     }
   }
 
@@ -86,12 +106,35 @@ export function bindViewportDrag(options: ViewportDragOptions): ViewportDragHand
     const host = options.getHostEl();
     const hostRect = host.getBoundingClientRect();
 
-    initialLeft = rect.left - hostRect.left;
-    initialTop = rect.top - hostRect.top;
+    let currentRight = 16;
+    let currentTop = 16;
 
-    targetEl.style.left = `${initialLeft}px`;
+    if (hostRect.right > 0 && rect.right > 0) {
+      currentRight = hostRect.right - rect.right;
+    }
+    if (hostRect.top > 0 && rect.top > 0) {
+      currentTop = rect.top - hostRect.top;
+    }
+
+    if (targetEl.style.right && targetEl.style.right.endsWith("px")) {
+      const parsedRight = parseFloat(targetEl.style.right);
+      if (!Number.isNaN(parsedRight)) {
+        currentRight = parsedRight;
+      }
+    }
+    if (targetEl.style.top && targetEl.style.top.endsWith("px")) {
+      const parsedTop = parseFloat(targetEl.style.top);
+      if (!Number.isNaN(parsedTop)) {
+        currentTop = parsedTop;
+      }
+    }
+
+    initialRight = currentRight;
+    initialTop = currentTop;
+
+    targetEl.style.right = `${initialRight}px`;
     targetEl.style.top = `${initialTop}px`;
-    targetEl.style.right = "auto";
+    targetEl.style.left = "auto";
     targetEl.style.bottom = "auto";
 
     window.addEventListener("pointermove", onPointerMove);

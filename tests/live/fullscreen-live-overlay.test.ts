@@ -61,7 +61,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     vi.restoreAllMocks();
   });
 
-  it("show() 挂载浮窗节点并显示，默认位于右上角", () => {
+  it("show() 挂载浮窗节点并显示，默认位于右上角胶囊", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -71,11 +71,21 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(overlay.isVisible()).toBe(false);
     overlay.show();
     expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(true);
 
     const el = overlay.getElement();
+    const capsule = overlay.getMiniCapsuleElement();
     expect(el).not.toBeNull();
+    expect(capsule).not.toBeNull();
     expect(playerHost.contains(el)).toBe(true);
+    expect(playerHost.contains(capsule)).toBe(true);
     expect(el?.id).toBe("biliscript-fullscreen-live-overlay");
+    expect(el?.hidden).toBe(true);
+    expect(capsule?.hidden).toBe(false);
+
+    // 未拖动时，没有内联 left，依 CSS 默认贴右上角
+    expect(el?.style.left).toBe("");
+    expect(capsule?.style.left).toBe("");
   });
 
   it("头部状态胶囊展示连接状态，且点击结束伴看", () => {
@@ -84,7 +94,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getLiveController: () => mockController as LiveChatController,
       onStopLive
     });
-    overlay.show();
+    overlay.show({ forceExpand: true });
 
     const statusText = overlay.getElement()?.querySelector(".live-overlay-status-text");
     expect(statusText?.textContent).toBe("正在陪看");
@@ -111,7 +121,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getLiveController: () => mockController as LiveChatController,
       onStopLive
     });
-    overlay.show();
+    overlay.show({ forceExpand: true });
 
     const capsule = overlay.getElement()?.querySelector(".live-overlay-status-capsule");
     const micBtn = overlay.getElement()?.querySelector(".live-overlay-mic-btn");
@@ -135,7 +145,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       onVolumeChange,
       onStopLive
     });
-    overlay.show();
+    overlay.show({ forceExpand: true });
 
     // 1. 喇叭左侧独立的麦克风按钮切换静音
     const micBtn = overlay.getElement()?.querySelector(".live-overlay-mic-btn") as HTMLButtonElement;
@@ -176,7 +186,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
   });
 
-  it("最小化按钮使浮窗消失并展示微型状态胶囊，点击胶囊还原浮窗", () => {
+  it("浮窗默认以微型状态胶囊出现，点击展开，点击最小化收回胶囊", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -184,25 +194,32 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show();
 
-    const minBtn = overlay.getElement()?.querySelector(".live-overlay-min-btn") as HTMLButtonElement;
+    const el = overlay.getElement();
     const capsule = overlay.getMiniCapsuleElement();
 
-    expect(overlay.isMinimized()).toBe(false);
-    expect(overlay.isVisible()).toBe(true);
-    expect(capsule?.hidden).toBe(true);
-
-    minBtn.click();
+    // 默认胶囊出现
     expect(overlay.isMinimized()).toBe(true);
-    expect(overlay.isVisible()).toBe(false);
+    expect(overlay.isVisible()).toBe(true);
     expect(capsule?.hidden).toBe(false);
+    expect(el?.hidden).toBe(true);
 
-    // 点击胶囊还原浮窗
+    // 点击胶囊展开
     capsule?.dispatchEvent(new PointerEvent("pointerdown", { clientX: 10, clientY: 10 }));
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 10 }));
 
     expect(overlay.isMinimized()).toBe(false);
     expect(overlay.isVisible()).toBe(true);
     expect(capsule?.hidden).toBe(true);
+    expect(el?.hidden).toBe(false);
+
+    // 点击最小化按钮收回胶囊
+    const minBtn = el?.querySelector(".live-overlay-min-btn") as HTMLButtonElement;
+    minBtn.click();
+
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.isVisible()).toBe(true);
+    expect(capsule?.hidden).toBe(false);
+    expect(el?.hidden).toBe(true);
   });
 
   it("关闭按钮彻底结束伴看并隐藏浮窗", () => {
@@ -211,7 +228,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getLiveController: () => mockController as LiveChatController,
       onStopLive
     });
-    overlay.show();
+    overlay.show({ forceExpand: true });
     expect(overlay.isVisible()).toBe(true);
 
     const closeBtn = overlay.getElement()?.querySelector(".live-overlay-close-btn") as HTMLButtonElement;
@@ -227,7 +244,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getLiveController: () => mockController as LiveChatController,
       onStopLive
     });
-    overlay.show();
+    overlay.show({ forceExpand: true });
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
     const scrollBtn = overlay.getElement()?.querySelector(".live-overlay-scroll-bottom-btn") as HTMLButtonElement;
@@ -409,5 +426,113 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(allAssistantBubbles).toHaveLength(2);
     expect(allAssistantBubbles[1].textContent).toBe("说到一半");
     expect(allAssistantBubbles[1].classList.contains("is-streaming")).toBe(false);
+  });
+
+  it("未拖动时贴右上角，拖动后以相对右上角偏移保存，容器尺寸变化（进出全屏）保持偏移", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show();
+
+    const capsule = overlay.getMiniCapsuleElement()!;
+    capsule.getBoundingClientRect = () => ({
+      left: 900,
+      top: 16,
+      right: 984,
+      bottom: 44,
+      width: 84,
+      height: 28,
+      x: 900,
+      y: 16,
+      toJSON: () => {}
+    });
+
+    // 1. 未拖动时，没有 inline left，依靠 CSS 贴右上角
+    expect(capsule.style.left).toBe("");
+
+    // 2. 拖动胶囊向左 40px, 向下 30px (clientX: 950 -> 910, clientY: 20 -> 50)
+    capsule.dispatchEvent(new PointerEvent("pointerdown", { clientX: 950, clientY: 20 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 910, clientY: 50 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 910, clientY: 50 }));
+
+    // 初始距离右边: 1000 - 984 = 16px. deltaX = -40, nextRight = 16 - (-40) = 56px.
+    // 初始距离顶边: 16px. deltaY = +30, nextTop = 16 + 30 = 46px.
+    expect(capsule.style.right).toBe("56px");
+    expect(capsule.style.top).toBe("46px");
+    expect(capsule.style.left).toBe("auto");
+
+    // 3. 点击胶囊展开，展开态也继承该右上角偏移
+    const el = overlay.getElement()!;
+    el.getBoundingClientRect = () => ({
+      left: 624,
+      top: 46,
+      right: 944,
+      bottom: 446,
+      width: 320,
+      height: 400,
+      x: 624,
+      y: 46,
+      toJSON: () => {}
+    });
+    capsule.dispatchEvent(new PointerEvent("pointerdown", { clientX: 910, clientY: 50 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 910, clientY: 50 }));
+
+    expect(overlay.isMinimized()).toBe(false);
+    expect(el.style.right).toBe("56px");
+    expect(el.style.top).toBe("46px");
+    expect(el.style.left).toBe("auto");
+
+    // 4. 模拟容器尺寸改变（如进入全屏：1000px -> 1920px）
+    playerHost.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 1920,
+      bottom: 1080,
+      width: 1920,
+      height: 1080,
+      x: 0,
+      y: 0,
+      toJSON: () => {}
+    });
+
+    // 浮窗 inline style.right 仍为 56px，保持与右上角偏移，不使用像素 left
+    expect(el.style.right).toBe("56px");
+    expect(el.style.top).toBe("46px");
+    expect(el.style.left).toBe("auto");
+  });
+
+  it("消息区不读取面板历史，只显示自身转写与回复，clearMessages 仅清空浮窗自身", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+
+    const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
+    // 初始没有面板历史消息
+    expect(messages.children.length).toBe(0);
+
+    // 伴看转写上屏
+    overlay.updateTranscript({
+      kind: "input.done",
+      text: "伴看专属转写"
+    });
+    overlay.updateTranscript({
+      kind: "output.done",
+      runId: "r1",
+      turnId: "t1",
+      text: "伴看专属回复"
+    });
+
+    expect(messages.children.length).toBe(2);
+    expect(messages.querySelector(".live-overlay-bubble-user")?.textContent).toBe("伴看专属转写");
+    expect(messages.querySelector(".live-overlay-bubble-assistant")?.textContent).toBe("伴看专属回复");
+
+    // 清空浮窗消息
+    overlay.clearMessages();
+    expect(messages.children.length).toBe(0);
   });
 });

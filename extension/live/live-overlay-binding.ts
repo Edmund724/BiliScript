@@ -9,13 +9,14 @@
 import { isPlayerFullscreen, observeFullscreenChanges } from "../bilibili/fullscreen.js";
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import type { Settings } from "../core/defaults.js";
 import {
   createFullscreenLiveOverlay,
   type FullscreenLiveOverlay
 } from "./fullscreen-live-overlay.js";
 import type {
   LiveChatController,
-  LiveChatControllerOptions,
+  LiveChatControllerDeps,
   LiveChatState
 } from "./live-chat-controller.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
@@ -35,7 +36,7 @@ export interface LiveAudioSettingsPatch {
 }
 
 export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
-  state.patchSettings(patch);
+  state.patchSettings(patch as Partial<Settings>);
   void sendRuntimeMessage({
     type: "save-settings",
     settings: patch
@@ -61,7 +62,7 @@ export interface LiveOverlayControllerHooks {
 }
 
 export type BoundLiveControllerCallbacks = Pick<
-  LiveChatControllerOptions,
+  LiveChatControllerDeps,
   | "onVadStateChange"
   | "onTranscript"
   | "onReconnecting"
@@ -73,7 +74,6 @@ export type BoundLiveControllerCallbacks = Pick<
 export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
-  getChatHistory?: () => Array<{ role: string; content: string }>;
   /**
    * 浮窗自动唤起策略：
    * - "always"（默认，用于直播间）：连接中/已连接即展示浮窗
@@ -163,7 +163,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       overlay = createOverlayFn({
         getPlayerHost,
         getLiveController: options.getLiveController,
-        getChatHistory: options.getChatHistory,
         getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
         onVolumeChange: handleVolumeChange,
         onStopLive: () => {
@@ -237,8 +236,11 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         setFullscreenModeDomAttribute(true);
       }
       const targetOverlay = ensureOverlay();
-      targetOverlay.show();
-      targetOverlay.restore();
+      if (alreadyLive) {
+        targetOverlay.restore();
+      } else {
+        targetOverlay.show();
+      }
     }
     return true;
   }

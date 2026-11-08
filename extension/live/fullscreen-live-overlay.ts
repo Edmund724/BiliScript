@@ -16,7 +16,6 @@ import { bindViewportDrag, type ViewportDragHandle } from "./viewport-drag.js";
 export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
-  getChatHistory?: () => Array<{ role: string; content: string }>;
   getVolume?: () => number;
   onVolumeChange?: (volume: number) => void;
   onStopLive?: () => void;
@@ -58,7 +57,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let miniCapsuleEl: HTMLElement | null = null;
   let miniCapsuleDotEl: HTMLElement | null = null;
 
-  let isMin = false;
+  let isMin = true;
+  let savedOffset: { right: number; top: number } | null = null;
   let headerDragHandle: ViewportDragHandle | null = null;
   let capsuleDragHandle: ViewportDragHandle | null = null;
 
@@ -82,8 +82,37 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     return document.querySelector<HTMLElement>(".bpx-player-container") || document.body;
   }
 
+  function applyOffset(el: HTMLElement, offset: { right: number; top: number }): void {
+    const host = getMountHost();
+    const hostRect = host.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+
+    let clampedRight = Math.max(0, offset.right);
+    let clampedTop = Math.max(0, offset.top);
+
+    if (hostRect.width > 0 && rect.width > 0) {
+      const maxRight = Math.max(0, hostRect.width - rect.width);
+      clampedRight = Math.min(clampedRight, maxRight);
+    }
+    if (hostRect.height > 0 && rect.height > 0) {
+      const maxTop = Math.max(0, hostRect.height - rect.height);
+      clampedTop = Math.min(clampedTop, maxTop);
+    }
+
+    el.style.right = `${clampedRight}px`;
+    el.style.top = `${clampedTop}px`;
+    el.style.left = "auto";
+    el.style.bottom = "auto";
+  }
+
   function isVisible(): boolean {
-    return Boolean(rootEl && !rootEl.hidden && !rootEl.classList.contains("is-hidden"));
+    if (rootEl && !rootEl.hidden && !rootEl.classList.contains("is-hidden")) {
+      return true;
+    }
+    if (miniCapsuleEl && !miniCapsuleEl.hidden && !miniCapsuleEl.classList.contains("is-hidden")) {
+      return true;
+    }
+    return false;
   }
 
   function isMinimized(): boolean {
@@ -93,7 +122,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   const glassLens = createLiquidGlassLens({
     getMountHost,
     isMinimized,
-    isVisible
+    isVisible: () => Boolean(rootEl && !rootEl.hidden && !rootEl.classList.contains("is-hidden"))
   });
 
   function updateScrollFollowState(): void {
@@ -246,7 +275,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     bindEvents(overlay);
     bindCapsuleEvents(miniCapsule);
     glassLens.observeResize(overlay);
-    loadInitialHistory();
     return overlay;
   }
 
@@ -267,26 +295,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
   }
 
-  function loadInitialHistory(): void {
-    if (!messagesEl || !deps.getChatHistory) return;
-    const history = deps.getChatHistory();
-    messagesEl.innerHTML = "";
-    transcriptMerger.resetActiveTurns?.();
-    if (Array.isArray(history)) {
-      for (const item of history) {
-        if (!item || !item.content) continue;
-        const bubble = document.createElement("div");
-        bubble.className =
-          item.role === "user"
-            ? "live-overlay-bubble live-overlay-bubble-user"
-            : "live-overlay-bubble live-overlay-bubble-assistant";
-        bubble.textContent = item.content;
-        messagesEl.appendChild(bubble);
-      }
-      scrollToBottom(true);
-    }
-  }
-
   function bindEvents(overlay: HTMLElement): void {
     const header = overlay.querySelector(".live-overlay-header") as HTMLElement | null;
     headerDragHandle?.dispose();
@@ -295,7 +303,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         handleEl: header,
         getTargetEl: () => rootEl,
         getHostEl: getMountHost,
-        ignoreSelector: "button, [role='switch'], input, .live-overlay-audio-popover"
+        ignoreSelector: "button, [role='switch'], input, .live-overlay-audio-popover",
+        onDragEnd: (offset) => {
+          savedOffset = offset;
+        }
       });
     }
 
@@ -390,7 +401,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       handleEl: capsule,
       getTargetEl: () => miniCapsuleEl,
       getHostEl: getMountHost,
-      onClickWithoutDrag: () => restore()
+      onClickWithoutDrag: () => restore(),
+      onDragEnd: (offset) => {
+        savedOffset = offset;
+      }
     });
     capsule.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -462,6 +476,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (miniCapsuleEl) {
       miniCapsuleEl.hidden = false;
       miniCapsuleEl.classList.remove("is-hidden");
+      if (savedOffset) {
+        applyOffset(miniCapsuleEl, savedOffset);
+      }
     }
     syncState();
   }
@@ -486,6 +503,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       if (miniCapsuleEl) {
         miniCapsuleEl.hidden = false;
         miniCapsuleEl.classList.remove("is-hidden");
+        if (savedOffset) {
+          applyOffset(miniCapsuleEl, savedOffset);
+        }
       }
     } else {
       el.hidden = false;
@@ -494,13 +514,16 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         miniCapsuleEl.hidden = true;
         miniCapsuleEl.classList.add("is-hidden");
       }
-      loadInitialHistory();
+      if (savedOffset) {
+        applyOffset(el, savedOffset);
+      }
       glassLens.sync(el);
     }
     syncState();
   }
 
   function hide(): void {
+    isMin = true;
     if (rootEl) {
       rootEl.hidden = true;
       rootEl.classList.add("is-hidden");

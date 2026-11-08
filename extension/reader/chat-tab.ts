@@ -277,7 +277,6 @@ const liveBar = createChatLiveBar({
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
   getLiveController: () => liveController,
-  getChatHistory: () => chatSessionState.chatHistory,
   fullscreenMode: "player-fullscreen",
   onExitFullscreenWhileLive: async () => {
     if (!isReaderViewOpen()) {
