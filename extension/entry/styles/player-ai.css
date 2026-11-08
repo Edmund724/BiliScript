@@ -229,6 +229,12 @@
   z-index: 10;
 }
 
+/* 左邻 Hi-Res 带 20px 右外距，右邻清晰度无左外距；非全屏下左移 13px 使图标两侧留白相等 */
+.bpx-player-container:not([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
+  .biliscript-player-live-quick-action-wrap {
+  margin: 0 13px 0 -13px;
+}
+
 .biliscript-player-live-quick-action-wrap .bpx-player-ctrl-btn-icon {
   display: flex !important;
   align-items: center;
