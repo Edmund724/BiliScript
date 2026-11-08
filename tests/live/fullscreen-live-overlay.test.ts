@@ -51,8 +51,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       setVoicePriority: vi.fn((val: boolean) => {
         voicePriority = val;
       }),
-      stop: vi.fn(async () => {}),
-      resetMerger: vi.fn()
+      stop: vi.fn(async () => {})
     };
   });
 

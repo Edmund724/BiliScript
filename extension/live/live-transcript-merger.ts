@@ -1,32 +1,12 @@
 // extension/live/live-transcript-merger.ts
-// 实时全双工语音问答双端字幕归并器与共享轮次状态机：
+// 实时全双工语音问答浮窗字幕归并器与共享轮次状态机：
 // 1. 麦克风语音门控：只有在最近检测到用户麦克风语音活动（含尾音滑动窗口）或当前轮用户气泡已在活跃期内建立时，
-//    才将 input.transcript.updated / input.transcript.done 渲染为用户消息并写入对话历史；纯视频对白转写不显示在用户消息位置
-// 2. 独立消息 ID 与 runId 绑定：每次用户输入使用独立消息 ID（data-message-id），每轮 Agent 回复绑定对应的 run_id，持续向下追加，绝不覆盖此前内容
-// 3. 将 AI 侧 output.transcript.updated（按 runId+turnId 路由，全量替换转增量或重置）交给视图层流式渲染，output.transcript.done / response.ended 时定稿
-// 4. 乱序保护：若 AI 字幕先于用户 input.transcript.done 到达，自动先行提交非空待定用户气泡，保证 user -> assistant 顺序与原位修正
-// 5. 挂断隔离：dispose() 后清理未落盘半截气泡，并拦截一切迟到事件写入对话
+//    才将 input.transcript.updated / input.transcript.done 渲染为用户消息；纯视频对白转写不显示在用户消息位置
+// 2. 将 AI 侧 output.transcript.updated（按 runId+turnId 路由，全量替换转增量或重置）交给视图层流式渲染，output.transcript.done / response.ended 时定稿
+// 3. 乱序保护：若 AI 字幕先于用户 input.transcript.done 到达，自动先行提交非空待定用户气泡，保证 user -> assistant 顺序与原位修正
+// 4. 挂断隔离：dispose() 后清理未落盘半截气泡，并拦截一切迟到事件
 
-import { generateConversationId } from "../ai/conversation.js";
-import {
-  appendChatHistory,
-  applyConversationIdentity,
-  chatSessionState,
-  ensureConversationId
-} from "../chat/chat-state.js";
-import type { ChatAssistantTurn, ChatMessageArea } from "../chat/chat-stream-render.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
-
-export interface LiveTranscriptMergerDeps {
-  messagesContainer: HTMLElement;
-  messageArea: Pick<ChatMessageArea, "appendAssistantMessage">;
-  store: {
-    persistCurrent(): Promise<void>;
-  };
-  scrollToBottom?: (force?: boolean, opts?: { instant?: boolean }) => void;
-  onActivity?: () => void;
-  isVoiceRecentlyActive?: () => boolean;
-}
 
 export interface LiveOverlayTranscriptMergerDeps {
   getMessagesContainer: () => HTMLElement | null;
@@ -325,113 +305,6 @@ function createTranscriptTurnStateMachine<TUserHandle, TAssistantHandle>(
     resetActiveTurns,
     dispose
   };
-}
-
-export function createLiveTranscriptMerger(deps: LiveTranscriptMergerDeps): LiveTranscriptMerger {
-  let userMessageSequence = 0;
-  let pendingUserHistoryIndex: number | null = null;
-
-  function ensureActiveConversationId(): void {
-    if (!chatSessionState.currentConversationId) {
-      ensureConversationId(generateConversationId());
-    }
-  }
-
-  return createTranscriptTurnStateMachine<HTMLDivElement, ChatAssistantTurn>({
-    isVoiceRecentlyActive: deps.isVoiceRecentlyActive,
-    onActivity: deps.onActivity,
-    createUserTurn() {
-      userMessageSequence += 1;
-      const messageId = `live-user-${Date.now()}-${userMessageSequence}-${Math.random().toString(36).slice(2, 6)}`;
-      const node = document.createElement("div");
-      node.className = "chat-msg chat-msg-user chat-msg-live-pending";
-      node.setAttribute("data-message-id", messageId);
-      deps.messagesContainer.appendChild(node);
-      return node;
-    },
-    updateUserTurn(node, text) {
-      node.textContent = text;
-      deps.scrollToBottom?.(false, { instant: true });
-    },
-    commitPendingUserBeforeAssistant(_node, trimmed) {
-      ensureActiveConversationId();
-      pendingUserHistoryIndex = chatSessionState.chatHistory.length;
-      appendChatHistory({ role: "user", content: trimmed });
-      void deps.store.persistCurrent();
-    },
-    finalizeUserTurn(node, finalText, wasCommittedEarly) {
-      node.textContent = finalText;
-      node.classList.remove("chat-msg-live-pending");
-      ensureActiveConversationId();
-
-      if (
-        wasCommittedEarly &&
-        pendingUserHistoryIndex !== null &&
-        chatSessionState.chatHistory[pendingUserHistoryIndex]?.role === "user"
-      ) {
-        const nextHistory = [...chatSessionState.chatHistory];
-        nextHistory[pendingUserHistoryIndex] = {
-          ...nextHistory[pendingUserHistoryIndex],
-          content: finalText
-        };
-        applyConversationIdentity({ history: nextHistory });
-      } else {
-        appendChatHistory({ role: "user", content: finalText });
-      }
-
-      pendingUserHistoryIndex = null;
-      void deps.store.persistCurrent();
-      deps.scrollToBottom?.(true, { instant: true });
-    },
-    discardUserTurn(node, wasCommittedEarly) {
-      if (!wasCommittedEarly) {
-        node.remove();
-      } else {
-        node.classList.remove("chat-msg-live-pending");
-      }
-      pendingUserHistoryIndex = null;
-    },
-    settleEarlyCommittedUserTurnOnAssistantFinish(node) {
-      node.classList.remove("chat-msg-live-pending");
-      pendingUserHistoryIndex = null;
-    },
-    createAssistantTurn(runId) {
-      return deps.messageArea.appendAssistantMessage({ source: "live", runId });
-    },
-    updateAssistantTurn(turn, prevText, nextText) {
-      if (nextText.startsWith(prevText)) {
-        const delta = nextText.slice(prevText.length);
-        if (delta) {
-          turn.appendToken(delta);
-        }
-      } else {
-        turn.reset();
-        if (nextText) {
-          turn.appendToken(nextText);
-        }
-      }
-      deps.scrollToBottom?.(false, { instant: true });
-    },
-    finalizeAssistantTurn(turn, finalText, interrupted) {
-      ensureActiveConversationId();
-      const historyIndex = chatSessionState.chatHistory.length;
-      const raw = interrupted
-        ? turn.stop("已打断", { historyIndex }).raw
-        : turn.finish({ raw: finalText, historyIndex });
-      const content = (raw || finalText).trim();
-      if (content) {
-        appendChatHistory({ role: "assistant", content });
-        void deps.store.persistCurrent();
-      }
-      deps.scrollToBottom?.(false, { instant: true });
-    },
-    discardAssistantTurn(turn) {
-      turn.discard();
-    },
-    onReset() {
-      pendingUserHistoryIndex = null;
-    }
-  });
 }
 
 export function createLiveOverlayTranscriptMerger(

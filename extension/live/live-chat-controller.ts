@@ -32,7 +32,6 @@ import {
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
-import type { LiveTranscriptMerger } from "./live-transcript-merger.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
@@ -62,10 +61,6 @@ export interface LiveChatControllerDeps {
   getVideoElement?: () => HTMLVideoElement | null;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
-  // 中断键复用输入栏最右侧的发送/停止同键（组合根传 sendBtn）：说话期间挂
-  // .is-live-interrupt 类切停止键形态，点击路由由组合根决定。
-  interruptButton?: HTMLElement | null;
-  onInterruptStateChange?: (active: boolean) => void;
   onStateChange?: (state: LiveChatState, error?: string) => void;
   onSpeakingChange?: (speaking: boolean) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
@@ -80,7 +75,6 @@ export interface LiveChatControllerDeps {
   requestOrigins?: typeof requestProviderOriginsViaBackground;
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
-  createTranscriptMerger?: (opts?: { isVoiceRecentlyActive?: () => boolean }) => LiveTranscriptMerger;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
   getVideoContext?: () => MossLiveSessionContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -112,7 +106,6 @@ export interface LiveChatController {
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
-  resetMerger?(): void;
   dispose(): void;
 }
 
@@ -129,8 +122,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     getVideoElement = null,
     onVoicePriorityChange,
     onShareVideoAudioChange,
-    interruptButton = null,
-    onInterruptStateChange,
     onStateChange,
     onSpeakingChange,
     onReconnecting,
@@ -145,7 +136,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     requestOrigins = requestProviderOriginsViaBackground,
     startAudioCapture = createPageAudioCapture,
     startVideoCapture = createPageVideoFrameCapture,
-    createTranscriptMerger,
     onTranscript,
     getVideoContext,
     executeTool,
@@ -210,7 +200,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let reconnecting = false;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
-  let activeMerger: LiveTranscriptMerger | null = null;
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
   let activeTargetProviderType: LiveProviderType = "moss-live";
@@ -253,29 +242,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     muteButton.setAttribute("aria-label", label);
   }
 
-  function updateInterruptUi(): void {
-    if (!interruptButton) return;
-    // 中断键复用输入栏最右侧的发送/停止同键（文本对话流式时的停止键形态），不新增
-    // 专用按钮：说话期间挂 .is-live-interrupt 切停止图标（与 .is-stop 同视觉，但两个
-    // 类各归各的驱动方、互不覆盖）。禁用态经 onInterruptStateChange 通知 composer
-    // 统一同步，未传回调时回退为直接切换 disabled。
-    // label 回落按文本流式相位（.is-stop）还原，不复读旧值。
-    const shouldShow = state === "connected" && speaking;
-    interruptButton.classList.toggle("is-live-interrupt", shouldShow);
-    if (shouldShow) {
-      interruptButton.setAttribute("aria-label", "打断当前回答");
-      interruptButton.setAttribute("title", "打断当前回答");
-    } else {
-      interruptButton.removeAttribute("title");
-      interruptButton.setAttribute(
-        "aria-label",
-        interruptButton.classList.contains("is-stop") ? "停止" : "发送"
-      );
-    }
-    if (interruptButton instanceof HTMLButtonElement) {
-      interruptButton.disabled = !shouldShow;
-    }
-    onInterruptStateChange?.(shouldShow);
+  function updateSpeakingUi(): void {
     onSpeakingChange?.(speaking);
   }
 
@@ -315,14 +282,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (nextState !== "connected") volumeControl.open = false;
     }
     updateMuteUi();
-    updateInterruptUi();
+    updateSpeakingUi();
     onStateChange?.(nextState, errorMessage);
   }
 
   // 初始化 UI 呈现
   updateUi("idle");
 
-  function stopActiveMediaAndMerger(): void {
+  function stopActiveMedia(): void {
     micVadActive = false;
     currentVideoAudioStatus = "未开启";
     syncVideoDucking();
@@ -338,19 +305,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } catch {}
       activeVideoCapture = null;
     }
-    if (activeMerger) {
-      try {
-        activeMerger.dispose();
-      } catch {}
-      activeMerger = null;
-    }
   }
 
   function startActiveVideoCapture(generation: number): void {
     if (activeVideoCapture || generation !== currentGeneration || state !== "connected") return;
     try {
       activeVideoCapture = startVideoCapture({
-        getVideoElement: resolveVideoElement,
+        getVideo: resolveVideoElement,
         onJpegFrame: (jpegBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) return;
           try {
@@ -429,7 +390,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const sessionId = `live-${generation}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
     muted = false;
-    stopActiveMediaAndMerger();
+    stopActiveMedia();
     updateUi("connecting");
 
     // 1. 同步发起平台域名权限申请（保留 Chrome user gesture 上下文，调用前零先行 await）。
@@ -567,19 +528,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     activeAudioCapture = captureSession;
 
-    // 4. 创建本轮会话专属双端字幕归并器并连接 Offscreen 端口
-    activeMerger = createTranscriptMerger
-      ? createTranscriptMerger({
-          isVoiceRecentlyActive: () => activeAudioCapture?.isVoiceRecentlyActive() ?? true
-        })
-      : null;
+    // 4. 连接 Offscreen 端口
 
     let port: chrome.runtime.Port;
     try {
       port = connectPort();
       activePort = port;
     } catch (error) {
-      stopActiveMediaAndMerger();
+      stopActiveMedia();
       const errorMsg = `连接后台通信端口失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg);
       showNotice(errorMsg);
@@ -610,12 +566,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
           speaking = Boolean(msg.speaking);
-          updateInterruptUi();
+          updateSpeakingUi();
           syncVideoDucking();
         }
       } else if (msg.type === "transcript") {
         if (state === "connected" || state === "connecting") {
-          activeMerger?.handleEvent(msg.event);
           onTranscript?.(msg.event);
         }
       } else if (msg.type === "tool_call") {
@@ -671,7 +626,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           reason: msg.reason,
           error: msg.error || "MOSS-LIVE 连接异常中断"
         });
-        stopActiveMediaAndMerger();
+        stopActiveMedia();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
         disconnectPort();
@@ -683,7 +638,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
             reason: msg.reason,
             error: msg.error || "MOSS-LIVE 连接已关闭"
           });
-          stopActiveMediaAndMerger();
+          stopActiveMedia();
           updateUi("failure", errorMsg);
           showNotice(errorMsg);
           disconnectPort();
@@ -698,7 +653,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         const errorMsg = formatLiveCloseDiagnostics({
           error: "后台伴看通道已断开"
         });
-        stopActiveMediaAndMerger();
+        stopActiveMedia();
         updateUi("failure", errorMsg);
         showNotice(errorMsg);
         disconnectPort();
@@ -729,7 +684,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
     } catch (error) {
-      stopActiveMediaAndMerger();
+      stopActiveMedia();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg);
       showNotice(errorMsg);
@@ -757,7 +712,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     muted = Boolean(nextMuted);
     activeAudioCapture?.setMuted(muted);
     updateMuteUi();
-    updateInterruptUi();
+    updateSpeakingUi();
     syncVideoDucking();
     if (activePort) {
       try {
@@ -808,7 +763,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activePort.postMessage({ action: "interrupt" });
     } catch {}
     speaking = false;
-    updateInterruptUi();
+    updateSpeakingUi();
     syncVideoDucking();
   }
 
@@ -817,7 +772,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
     savedMossSessionId = null; // 用户主动点击结束伴看时清除 session_id
-    stopActiveMediaAndMerger();
+    stopActiveMedia();
     if (activePort) {
       try {
         activePort.postMessage({ action: "stop" });
@@ -875,9 +830,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     start,
     stop,
     toggle,
-    resetMerger: () => {
-      activeMerger?.resetActiveTurns?.();
-    },
     dispose
   };
 }

@@ -27,7 +27,6 @@ export const INPUT_MAX_HEIGHT = 320;
 export interface ReaderChatComposerEls {
   input: HTMLTextAreaElement;
   sendBtn: HTMLButtonElement;
-  liveSwitchBtn?: HTMLButtonElement | null;
 }
 
 export interface ReaderChatComposerRuntime {
@@ -40,15 +39,9 @@ export interface ReaderChatComposerDeps {
   els?: ReaderChatComposerEls;
   input?: HTMLTextAreaElement;
   sendBtn?: HTMLButtonElement;
-  liveSwitchBtn?: HTMLButtonElement | null;
   chatRuntime: ReaderChatComposerRuntime;
   onPasteImage?: (event: ClipboardEvent) => void;
   sendGate?: unknown;
-  isLiveActive?: () => boolean;
-  isLiveConnecting?: () => boolean;
-  onStartLive?: () => void;
-  onSwitchToLive?: () => void;
-  onInterruptLive?: () => void;
 }
 
 export interface ReaderChatComposer {
@@ -65,7 +58,6 @@ export interface ReaderChatComposer {
 export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderChatComposer {
   const input = deps.els?.input ?? deps.input!;
   const sendBtn = deps.els?.sendBtn ?? deps.sendBtn!;
-  const liveSwitchBtn = deps.els?.liveSwitchBtn ?? deps.liveSwitchBtn ?? null;
   const { chatRuntime, onPasteImage } = deps;
 
   // 输入框 placeholder 的默认串（模板的静态属性，见 reader/chat-template.ts）：
@@ -83,69 +75,24 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   let subtitleWaitActive = false;
 
   function updateSendBtnState(): void {
-    const isLiveActive = deps.isLiveActive?.() ?? false;
-    const isLiveConnecting = deps.isLiveConnecting?.() ?? false;
     const isStreaming = sendBtn.classList.contains("is-stop");
     const hasText = Boolean(input.value.trim());
 
-    // 1. 流式输出态优先级最高（Q2决议：流式生成中恒为停止键；左侧伴看切换键出现）
     if (isStreaming) {
-      sendBtn.classList.remove("is-live", "is-connecting", "is-live-interrupt");
       sendBtn.disabled = stopInFlight;
       sendBtn.setAttribute("aria-label", "停止");
       sendBtn.setAttribute("title", "停止生成");
-      if (liveSwitchBtn) liveSwitchBtn.hidden = false;
       return;
     }
 
-    if (liveSwitchBtn) liveSwitchBtn.hidden = true;
-
-    // 2. 伴看建连中（Connecting，Q5决议：Spinner 转圈并禁用防重）
-    if (isLiveConnecting) {
-      sendBtn.classList.remove("is-live", "is-live-interrupt");
-      sendBtn.classList.add("is-connecting");
-      sendBtn.disabled = true;
-      sendBtn.setAttribute("aria-label", "正在连接伴看...");
-      sendBtn.setAttribute("title", "正在连接伴看...");
-      return;
-    }
-    sendBtn.classList.remove("is-connecting");
-
-    // 3. 伴看已连接进行中（Connected，Q3决议：输入框无文字时由顶栏 End 处理退出，AI说话时同键为打断，AI空闲时禁用；有文字时切回发送键）
-    if (isLiveActive) {
-      if (sendBtn.classList.contains("is-live-interrupt")) {
-        sendBtn.classList.remove("is-live");
-        sendBtn.disabled = false;
-        sendBtn.setAttribute("aria-label", "打断当前回答");
-        sendBtn.setAttribute("title", "打断当前回答");
-        return;
-      }
-      if (hasText) {
-        sendBtn.classList.remove("is-live");
-        sendBtn.disabled = subtitleWaitActive;
-        sendBtn.setAttribute("aria-label", "发送");
-        sendBtn.setAttribute("title", "发送");
-      } else {
-        sendBtn.classList.remove("is-live");
-        sendBtn.disabled = true;
-        sendBtn.setAttribute("aria-label", "发送");
-        sendBtn.removeAttribute("title");
-      }
-      return;
-    }
-
-    // 4. 空闲且未伴看状态
     if (hasText) {
-      sendBtn.classList.remove("is-live", "is-live-interrupt");
       sendBtn.disabled = subtitleWaitActive;
       sendBtn.setAttribute("aria-label", "发送");
       sendBtn.setAttribute("title", "发送");
     } else {
-      sendBtn.classList.add("is-live");
-      sendBtn.classList.remove("is-live-interrupt");
-      sendBtn.disabled = subtitleWaitActive;
-      sendBtn.setAttribute("aria-label", "开启实时伴看");
-      sendBtn.setAttribute("title", "开启实时伴看");
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.removeAttribute("title");
     }
   }
 
@@ -254,31 +201,13 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     input.addEventListener("focus", autosizeInput);
     input.addEventListener("blur", autosizeInput);
 
-    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）；
-    // 伴看说话期间同键复用为中断键（.is-live-interrupt，伴看控制器驱动）；
-    // 空闲无字时为开启伴看键（.is-live，点击唤起实时伴看）。
+    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）。
     sendBtn.addEventListener("click", () => {
       if (sendBtn.classList.contains("is-stop")) {
         chatRuntime.stopActiveStream();
         return;
       }
-      if (sendBtn.classList.contains("is-live-interrupt")) {
-        if (deps.onInterruptLive) {
-          deps.onInterruptLive();
-        } else {
-          chatRuntime.stopActiveStream();
-        }
-        return;
-      }
-      if (sendBtn.classList.contains("is-live")) {
-        deps.onStartLive?.();
-        return;
-      }
       void sendFromUi();
-    });
-
-    liveSwitchBtn?.addEventListener("click", () => {
-      deps.onSwitchToLive?.();
     });
   }
 

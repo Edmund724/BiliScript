@@ -105,7 +105,6 @@ function handleRoomChange(): void {
   currentRoomId = nextRoomId;
   void controller?.stop();
   overlayBinding.clearMessages();
-  controller?.resetMerger?.();
 }
 
 export async function startLiveRoomCompanion(): Promise<void> {

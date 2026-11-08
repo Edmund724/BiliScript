@@ -141,14 +141,13 @@ import { logWarn } from "../shared/logging.js";
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
+import { normalizeLiveVoiceVolume } from "../core/validators.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
-import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
-import { createChatLiveBar } from "./chat-live-bar.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
 import {
   ensureReaderOverviewSource,
@@ -196,39 +195,13 @@ const els = {
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
   // 图片附件区（image-input 02 号票，模板默认 hidden）
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
-  // 伴看中断键复用输入栏最右侧的发送/停止同键（模板已无专用中断按钮），
-  // 说话期间由控制器挂 .is-live-interrupt 类切停止键形态。
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
-  liveSwitchBtn: document.getElementById(ids.readingChatLiveSwitchBtn) as HTMLButtonElement | null,
-  liveBar: document.getElementById(ids.readingChatLiveBar) as HTMLElement | null,
-  liveStatusDot: document.getElementById(ids.readingChatLiveStatusDot) as HTMLElement | null,
-  liveModelName: document.getElementById(ids.readingChatLiveModelName) as HTMLElement | null,
-  liveTimer: document.getElementById(ids.readingChatLiveTimer) as HTMLElement | null,
-  liveBarMuteBtn: document.getElementById(ids.readingChatLiveBarMuteBtn) as HTMLButtonElement | null,
-  liveBarVolumeBtn: document.getElementById(ids.readingChatLiveBarVolumeBtn) as HTMLButtonElement | null,
-  liveBarVolumePop: document.getElementById(ids.readingChatLiveBarVolumePop) as HTMLElement | null,
-  liveBarVolumeInput: document.getElementById(ids.readingChatLiveBarVolumeInput) as HTMLInputElement | null,
-  liveBarVolumeValue: document.getElementById(ids.readingChatLiveBarVolumeValue) as HTMLElement | null,
-  liveBarShareAudioSwitch: document.getElementById(ids.readingChatLiveBarShareAudioSwitch) as HTMLButtonElement | null,
-  liveBarShareAudioStatus: document.getElementById(ids.readingChatLiveBarShareAudioStatus) as HTMLElement | null,
-  liveBarVoicePrioritySwitch: document.getElementById(ids.readingChatLiveBarVoicePrioritySwitch) as HTMLButtonElement | null,
-  liveBarSpeedBtn: document.getElementById(ids.readingChatLiveBarSpeedBtn) as HTMLButtonElement | null,
-  liveBarSpeedPop: document.getElementById(ids.readingChatLiveBarSpeedPop) as HTMLElement | null,
-  liveBarSpeedInput: document.getElementById(ids.readingChatLiveBarSpeedInput) as HTMLInputElement | null,
-  liveBarSpeedValue: document.getElementById(ids.readingChatLiveBarSpeedValue) as HTMLElement | null,
-  liveBarEndBtn: document.getElementById(ids.readingChatLiveBarEndBtn) as HTMLButtonElement | null,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
-  liveBtn: document.getElementById(ids.readingChatLiveBtn) as HTMLButtonElement | null,
-  liveMuteBtn: document.getElementById(ids.readingChatLiveMuteBtn) as HTMLButtonElement | null,
   speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
   speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
   speechVolumeValue: document.getElementById(ids.readingChatSpeechVolumeValue) as HTMLElement | null,
-  speechVolumeResetBtn: document.getElementById(ids.readingChatSpeechVolumeResetBtn) as HTMLButtonElement | null,
-  liveVolume: document.getElementById(ids.readingChatLiveVolume) as HTMLElement | null,
-  liveVolumeInput: document.getElementById(ids.readingChatLiveVolumeInput) as HTMLInputElement | null,
-  liveVolumeValue: document.getElementById(ids.readingChatLiveVolumeValue) as HTMLElement | null,
-  liveVolumeResetBtn: document.getElementById(ids.readingChatLiveVolumeResetBtn) as HTMLButtonElement | null
+  speechVolumeResetBtn: document.getElementById(ids.readingChatSpeechVolumeResetBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -263,23 +236,9 @@ let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
 let preservingLiveSessionOnContextSwitch = false;
 
-const liveBar = createChatLiveBar({
-  elements: els,
-  getLiveController: () => liveController,
-  onSyncComposerSendState: () => composer.syncSendState(),
-  onBeforeManualStart: () => {
-    if (chatRuntime.isTurnActive()) {
-      chatRuntime.stopActiveStream();
-    }
-  }
-});
-
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
-  getLiveController: () => liveController,
-  onVoicePrioritySync: (nextOn) => liveBar.syncVoicePriority(nextOn),
-  onShareVideoAudioSync: (nextOn) => liveBar.syncShareVideoAudio(nextOn),
-  onVolumeSync: (val) => liveBar.syncVolume(val)
+  getLiveController: () => liveController
 });
 
 export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
@@ -372,33 +331,12 @@ const inputImages = createChatInputImages({
 const composer = createReaderChatComposer({
   els: {
     input: els.input,
-    sendBtn: els.sendBtn,
-    liveSwitchBtn: els.liveSwitchBtn
-  },
-  isLiveActive: () => isLiveSessionActive(),
-  isLiveConnecting: () => liveController?.getState() === "connecting",
-  onStartLive: () => {
-    void liveController?.start();
-  },
-  onSwitchToLive: () => {
-    if (chatRuntime.isTurnActive()) {
-      chatRuntime.stopActiveStream();
-    }
-    void liveController?.start();
-  },
-  onInterruptLive: () => {
-    liveController?.interrupt();
+    sendBtn: els.sendBtn
   },
   chatRuntime: {
     sendTurn: (text) => chatRuntime.sendTurn(text),
     isTurnActive: () => chatRuntime.isTurnActive(),
-    // 伴看说话期间发送键复用停止键形态（控制器挂 .is-live-interrupt）：
-    // 点击优先打断伴看语音，其余回落文本流中止。
     stopActiveStream: () => {
-      if (liveController?.isSpeaking() || els.sendBtn.classList.contains("is-live-interrupt")) {
-        liveController?.interrupt();
-        return;
-      }
       chatRuntime.stopActiveStream();
     }
   },
@@ -471,10 +409,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   onStreamInterrupted: () => {
-    if (!preservingLiveSessionOnContextSwitch && isLiveSessionActive()) {
-      liveOverlayBinding.dispose();
-      liveController?.dispose();
-    }
     chatRuntime.resetStreamState();
     resetConversationView();
     composer.setStreamingUiState(false);
@@ -559,9 +493,6 @@ const { loadContextState } = contextLoad;
 async function openConversationById(id: string): Promise<void> {
   if (chatRuntime.isTurnActive()) {
     await chatRuntime.settleTurn();
-  }
-  if (isLiveSessionActive()) {
-    await liveController?.stop();
   }
   conversationStore.applyById(id);
 }
@@ -774,11 +705,10 @@ const sessionTriggers = createReaderChatSessionTriggers({
   outsideClick: () => {
     setChatTabOutsideClickHandler((event) => {
       popovers.handleDocumentClick(event);
-      liveBar.handleOutsideClick(event);
     });
     return () => setChatTabOutsideClickHandler(null);
   },
-  // Esc 关闭三个弹层与伴看气泡（window 级监听，与文档级 click 委托不同事件，不互踩）。
+  // Esc 关闭两个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
   escapeKey: () => {
     window.addEventListener("keydown", onWindowEscapeKey);
     return () => window.removeEventListener("keydown", onWindowEscapeKey);
@@ -787,7 +717,6 @@ const sessionTriggers = createReaderChatSessionTriggers({
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
-  liveBar.closePopovers();
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
@@ -1023,13 +952,6 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  // 实时伴看 Live Bar 与控制器联动
-  const {
-    initialVolume,
-    initialShareVideoAudio,
-    initialVoicePriority
-  } = liveBar.bindEvents();
-
   // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
   // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
   const liveToolsBridge = createLiveToolsBridge({
@@ -1038,19 +960,10 @@ function bindEvents(): void {
     ensureOverview: (options) => ensureReaderOverviewSource(options)
   });
   liveController = createLiveChatController({
-    muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
-    initialVolume,
-    initialVoicePriority,
-    initialShareVideoAudio,
-    onVideoAudioStatusChange: (status) => liveBar.syncVideoAudioStatus(status),
-    // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
-    interruptButton: els.sendBtn,
-    onInterruptStateChange: () => composer.syncSendState(),
-    onSpeakingChange: (speaking) => liveBar.syncSpeaking(speaking),
-    ...liveOverlayBinding.bindControllerCallbacks({
-      onVadStateChange: (active) => liveBar.syncVad(active),
-      onStateChange: (liveState) => liveBar.syncState(liveState)
-    }),
+    initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+    initialVoicePriority: state.settings?.liveVoicePriority !== false,
+    initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
+    ...liveOverlayBinding.bindControllerCallbacks(),
     showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
     getVideoContext: liveToolsBridge.getVideoContext,
     executeTool: liveToolsBridge.executeTool,
@@ -1065,20 +978,7 @@ function bindEvents(): void {
         unsubscribePresenter();
         unsubscribeOverview();
       };
-    },
-    createTranscriptMerger: (opts) =>
-      createLiveTranscriptMerger({
-        messagesContainer: els.messages,
-        messageArea: chatRuntime.messageArea,
-        store: conversationStore,
-        scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
-        isVoiceRecentlyActive: opts?.isVoiceRecentlyActive,
-        onActivity: () => {
-          popovers.hideHistoryPopover();
-          removeCenteredState();
-          removeSuggestions();
-        }
-      })
+    }
   });
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
@@ -1162,8 +1062,7 @@ function isLiveSessionActive(): boolean {
 }
 
 function isConversationViewActive(): boolean {
-
-  return chatRuntime.isTurnActive() || isLiveSessionActive();
+  return chatRuntime.isTurnActive();
 }
 
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部
@@ -1249,7 +1148,6 @@ export function renderInitialState(): void {
 function resetConversationView(stateHtml = ""): void {
   // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
   conversationReplay.invalidate();
-  liveController?.resetMerger?.();
   updateChatLayoutState();
   els.messages.innerHTML = "";
   if (stateHtml) {

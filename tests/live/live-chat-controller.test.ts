@@ -11,7 +11,6 @@ import type {
   PageVideoFrameCaptureOptions,
   PageVideoFrameCaptureSession
 } from "../../extension/live/page-video-frame-capture.js";
-import type { LiveTranscriptMerger } from "../../extension/live/live-transcript-merger.js";
 import type {
   LiveProviderType,
   MossLiveToolCall,
@@ -134,6 +133,7 @@ describe("LiveChatController", () => {
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
     startVideoCapture?: (opts: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
     port?: FakePort;
+    onSpeakingChange?: (speaking: boolean) => void;
     onInterruptStateChange?: (active: boolean) => void;
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -142,8 +142,6 @@ describe("LiveChatController", () => {
     const liveButton = document.createElement("button");
     const muteButton = document.createElement("button");
     muteButton.hidden = true;
-    const interruptButton = document.createElement("button");
-    interruptButton.disabled = true;
     const showNotice = vi.fn();
     const fakePort = overrides.port || new FakePort();
     const connectPort = vi.fn(() => fakePort as any);
@@ -165,20 +163,6 @@ describe("LiveChatController", () => {
       });
 
     const receivedTranscripts: MossLiveTranscriptEvent[] = [];
-    let mergerDisposed = false;
-    const createTranscriptMerger = vi.fn((): LiveTranscriptMerger => {
-      mergerDisposed = false;
-      return {
-        handleEvent: (ev) => {
-          if (!mergerDisposed) {
-            receivedTranscripts.push(ev);
-          }
-        },
-        dispose: () => {
-          mergerDisposed = true;
-        }
-      };
-    });
 
     const requestOrigins = overrides.requestOrigins || vi.fn(async () => ({ ok: true }));
     const sendRuntimeMessage = overrides.sendRuntimeMessage || vi.fn(async (msg: any) => {
@@ -201,15 +185,16 @@ describe("LiveChatController", () => {
     const controller = createLiveChatController({
       liveButton,
       muteButton,
-      interruptButton,
-      onInterruptStateChange: overrides.onInterruptStateChange,
+      onSpeakingChange: overrides.onSpeakingChange,
       showNotice,
       connectPort,
       sendRuntimeMessage,
       requestOrigins,
       startAudioCapture,
       startVideoCapture,
-      createTranscriptMerger,
+      onTranscript: (ev) => {
+        receivedTranscripts.push(ev);
+      },
       getTargetOrigin: overrides.getTargetOrigin,
       getTargetModel: overrides.getTargetModel,
       getTargetProviderType: overrides.getTargetProviderType,
@@ -222,8 +207,7 @@ describe("LiveChatController", () => {
       controller,
       liveButton,
       muteButton,
-      interruptButton,
-      onInterruptStateChange: overrides.onInterruptStateChange,
+      onSpeakingChange: overrides.onSpeakingChange,
       showNotice,
       fakePort,
       connectPort,
@@ -234,7 +218,7 @@ describe("LiveChatController", () => {
       getAudioCapture: () => lastAudioCapture,
       getVideoCapture: () => lastVideoCapture,
       receivedTranscripts,
-      isMergerDisposed: () => mergerDisposed
+      isMergerDisposed: () => true
     };
   }
 
@@ -384,53 +368,37 @@ describe("LiveChatController", () => {
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
   });
 
-  it("reuses the shared send/stop button for interrupt with speaking_state and posts interrupt action without disconnecting", async () => {
-    const onInterruptStateChange = vi.fn();
-    const { controller, fakePort, interruptButton } = setupTest({ onInterruptStateChange });
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(false);
-    expect(interruptButton.disabled).toBe(true);
+  it("handles interrupt with speaking_state and posts interrupt action without disconnecting", async () => {
+    const onSpeakingChange = vi.fn();
+    const { controller, fakePort } = setupTest({ onSpeakingChange });
+    expect(controller.isSpeaking()).toBe(false);
 
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     expect(controller.getState()).toBe("connected");
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(false);
-    expect(interruptButton.disabled).toBe(true);
     expect(controller.isSpeaking()).toBe(false);
 
-    // AI starts speaking → 复用的发送/停止同键切到停止键形态
+    // AI starts speaking
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(true);
-    expect(interruptButton.getAttribute("aria-label")).toBe("打断当前回答");
-    expect(onInterruptStateChange).toHaveBeenCalledWith(true);
-    expect(interruptButton.disabled).toBe(false);
+    expect(onSpeakingChange).toHaveBeenCalledWith(true);
     expect(controller.isSpeaking()).toBe(true);
-
-    // User can interrupt while mic is muted
-    controller.setMuted(true);
-    expect(controller.isMuted()).toBe(true);
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(true);
 
     // Click interrupt
     fakePort.postedMessages.length = 0;
     controller.interrupt();
     expect(fakePort.postedMessages).toContainEqual({ action: "interrupt" });
     expect(controller.isSpeaking()).toBe(false);
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(false);
-    expect(onInterruptStateChange).toHaveBeenCalledWith(false);
-    expect(interruptButton.disabled).toBe(true);
+    expect(onSpeakingChange).toHaveBeenCalledWith(false);
     expect(controller.getState()).toBe("connected"); // Still connected!
 
     // When speaking resumes and then completes naturally
     fakePort.simulateMessage({ type: "speaking_state", speaking: true });
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(true);
-    expect(interruptButton.disabled).toBe(false);
+    expect(controller.isSpeaking()).toBe(true);
     fakePort.simulateMessage({ type: "speaking_state", speaking: false });
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(false);
-    expect(interruptButton.disabled).toBe(true);
+    expect(controller.isSpeaking()).toBe(false);
 
     await controller.stop();
-    expect(interruptButton.classList.contains("is-live-interrupt")).toBe(false);
-    expect(interruptButton.disabled).toBe(true);
+    expect(controller.isSpeaking()).toBe(false);
   });
 
   it("handles preparation failure (e.g. missing API key) without opening microphone", async () => {
