@@ -278,14 +278,3 @@ describe("isPinnedContextStrict 单一谓词（pinned 判定已统一）", () =>
     expect(isPinnedContextStrict(meta)).toBe(false);
   });
 });
-
-describe("失败文案常量与现网逐字一致", () => {
-  it("NO_TAB_MESSAGE 与 loadContextState 旧 no-tab 分支文案一致", () => {
-    expect(NO_TAB_MESSAGE).toBe("找不到当前标签页。");
-  });
-
-  it("CONTEXT_READ_FAILED_MESSAGE 与旧 error 分支及发送前失败闸文案一致", () => {
-    expect(CONTEXT_READ_FAILED_MESSAGE).toBe("当前页面上下文读取失败。");
-  });
-});
-

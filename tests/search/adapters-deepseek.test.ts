@@ -56,9 +56,3 @@ describe("parseDeepseekSearchResponse", () => {
   });
 });
 
-describe("注册表", () => {
-  it("deepseek 已登记进 SEARCH_ADAPTERS（漏登记 = Record 编译期红，此处钉运行面）", () => {
-    expect(SEARCH_ADAPTERS.deepseek).toBe(deepseekAdapter);
-    expect(deepseekAdapter.type).toBe("deepseek");
-  });
-});

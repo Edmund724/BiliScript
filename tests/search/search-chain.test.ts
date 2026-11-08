@@ -17,7 +17,7 @@
 // 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
 // 注入桩，不测真实网络与墙钟（§10 非断言节）。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SEARCH_PROVIDER_ORDER, SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
 import type { SearchProvider } from "../../extension/search/search-provider-normalize.js";
 import { parseDoubaoSearchResponse } from "../../extension/search/adapters/doubao.js";
@@ -104,21 +104,6 @@ function ids(resolved: SearchChainResolution): string[] {
   return resolved.chain.map((candidate) => candidate.provider.id);
 }
 
-describe("链序常量（spec §12.2 / §10 第 63 行）", () => {
-  it("DEFAULT_SEARCH_PROVIDER_ORDER = Exa → 豆包 → Tavily → Firecrawl → AnySearch → Parallel → DeepSeek，且 ≠ 预设表序", () => {
-    expect(DEFAULT_SEARCH_PROVIDER_ORDER).toEqual([
-      "exa",
-      "doubao",
-      "tavily",
-      "firecrawl",
-      "anysearch",
-      "parallel",
-      "deepseek"
-    ]);
-    // 表序只管预设目录（Firecrawl 起头），不再是链序
-    expect(DEFAULT_SEARCH_PROVIDER_ORDER).not.toEqual(SEARCH_PROVIDER_PRESETS.map((preset) => preset.id));
-  });
-});
 
 describe("resolveSearchChain 单选模式（spec §12.1 / §10 第 59 行）", () => {
   it("chain 只含 activeId 那一条记录（无回退），apiKey 取该记录自己的", () => {

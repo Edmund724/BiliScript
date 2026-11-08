@@ -6,6 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
+import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
 
 afterEach(() => {
@@ -128,5 +129,8 @@ describe("listModels（模型列表拉取归 adapter）", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(url).toBe("https://api.deepseek.com/v1/models");
     expect(init.headers.Authorization).toBe("Bearer sk-ant");
+  });
+  it("分发表键与词表叶完全一致（单源）", () => {
+    expect(Object.keys(PROTOCOL_ADAPTERS).sort()).toEqual([...AI_PROTOCOLS].sort());
   });
 });

@@ -108,4 +108,19 @@ describe("buildMessages images", () => {
     expect(messages[2]).toMatchObject({ role: "assistant", tool_calls: [{ id: "call_1" }] });
     expect(messages[4]).toEqual({ role: "user", content: "最近一轮", images: [{ mime: "image/webp", data: "WFla" }] });
   });
+  it("即便 context 中有 hotComments，也不向提示词注入评论内容", () => {
+    const messages = buildMessages({
+      context: {
+        hotComments: [
+          { uname: "热评用户", like: 999, message: "这是很火的评论正文", subMessages: ["这是楼中楼"] }
+        ]
+      },
+      userPrompt: "总结一下"
+    });
+
+    const system = String(messages[0].content);
+    expect(system).not.toContain("这是很火的评论正文");
+    expect(system).not.toContain("这是楼中楼");
+    expect(system).not.toContain("热门评论");
+  });
 });

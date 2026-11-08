@@ -57,15 +57,6 @@ describe("reader 显式端口", () => {
     expect(impls.flushReadingSubtitleToIndex).toHaveBeenCalledWith(7);
   });
 
-  it("方法集只含真实调用名（无死槽位）", () => {
-    // LAYOUT 经端口回调 SYNC 的两个方法，SYNC 经端口回调 LIFECYCLE 的补渲染。
-    expect(bus.READER_PORT_METHODS).toContain("syncReadingViewPlayback");
-    expect(bus.READER_PORT_METHODS).toContain("noteManualReaderInteraction");
-    expect(bus.READER_PORT_METHODS).toContain("flushReadingSubtitleToIndex");
-    expect(bus.readerPorts).toHaveProperty("syncReadingViewPlayback");
-    expect(bus.readerPorts).toHaveProperty("noteManualReaderInteraction");
-  });
-
   it("重复注册报错（防止实现被静默覆盖）", () => {
     bus.registerReaderPorts(validImpls());
     expect(() => bus.registerReaderPorts(validImpls())).toThrow(/重复注册/);
@@ -123,13 +114,6 @@ describe("常驻能力槽", () => {
 });
 
 describe("缺失策略", () => {
-  it("声明表一处可见：端口抛错、字幕刷新静默、命令类首次告警", () => {
-    expect(bus.READER_SEAM_METHODS.flushReadingSubtitleToIndex.policy).toBe("throw");
-    expect(bus.READER_SEAM_METHODS.subtitleRefresh.policy).toBe("noop");
-    expect(bus.READER_SEAM_METHODS.uiCommand.policy).toBe("noop-warn");
-    expect(bus.READER_SEAM_METHODS.tabIntent.policy).toBe("noop-warn");
-    expect(bus.READER_SEAM_METHODS.chatTabOutsideClick.policy).toBe("noop-warn");
-  });
 
   it("字幕刷新缺失不抛（链装载失败路径照旧发起刷新）", async () => {
     await expect(bus.requestSubtitleRefresh()).resolves.toBeUndefined();

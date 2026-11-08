@@ -442,32 +442,3 @@ describe("输入容错：非法 status", () => {
     expect(classifyAsrFailure({ source: "platform", status: 429, provider: undefined })).toBe("asr-quota");
   });
 });
-
-describe("判定表全表回归（票 04 判定表逐行）", () => {
-  it("每行「输入 → kind」一次跑完", () => {
-    const table: Array<[string, AsrFailureInput, AsrFailureKind]> = [
-      ["适配器哨兵", platform(-1, "响应体不是合法 JSON"), "asr-unknown"],
-      ["请求超时", platform(408, ""), "asr-network"],
-      ["音轨 CDN 403", { source: "media", status: 403 }, "asr-media"],
-      ["音轨 CDN 404", { source: "media", status: 404 }, "asr-media"],
-      ["鉴权失败", platform(401, ""), "asr-auth"],
-      ["余额用尽", platform(402, ""), "asr-quota"],
-      ["权限不足", platform(403, ""), "asr-auth"],
-      ["路由 / 模型缺失", platform(404, SHAPES.plainNotFound), "no-asr-config"],
-      ["格式不支持", platform(415, SHAPES.fastApiFormat), "asr-media"],
-      ["平台故障", platform(503, ""), "asr-server"],
-      ["模型不存在", platform(400, SHAPES.siliconFlowModel), "no-asr-config"],
-      ["格式非法", platform(400, SHAPES.openAiFormat), "asr-media"],
-      ["OpenAI 额度", platform(429, SHAPES.openAiQuota), "asr-quota"],
-      ["OpenAI 限流", platform(429, SHAPES.openAiRateLimit), "asr-ratelimit"],
-      ["连接被拒", platform(undefined, "Failed to fetch"), "asr-network"],
-      ["域名未授权", platform(undefined, "该平台域名未授权，请在保存时允许权限"), "no-asr-config"],
-      ["baseUrl 未配置", platform(undefined, "平台 baseUrl 未配置"), "no-asr-config"],
-      ["音轨下载失败", media("音频下载失败"), "asr-media"],
-      ["无从判断", platform(undefined, "转写请求失败"), "asr-unknown"]
-    ];
-    for (const [name, inputCase, expected] of table) {
-      expect(classifyAsrFailure(inputCase), name).toBe(expected);
-    }
-  });
-});

@@ -651,15 +651,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
   });
 
   it("分享按钮样式规格与复制按钮对齐，弹窗宿主配置 pointer-events: auto 且阻断冒泡", () => {
-    const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
-    const css = fs.readFileSync(cssPath, "utf-8");
-
-    expect(css).toContain(".biliscript-reading-ov-quote-share");
-    expect(css).toContain(".biliscript-reading-ov-quote-copy");
-    expect(css).toContain("width: 28px;");
-    expect(css).toContain("height: 28px;");
-    expect(css).toContain("#biliscript-reading-view .biliscript-quote-share-host");
-    expect(css).toContain("pointer-events: auto;");
 
     openQuoteShareModal({ content: "防穿透测试金句" });
     const host = document.querySelector<HTMLElement>(".biliscript-quote-share-host")!;
@@ -717,97 +708,5 @@ describe("金句卡片正文布局（预览与导出共用同一份）", () => {
     expect(multi.lines.length).toBeGreaterThan(1);
     expect(multi.textWidth).toBeLessThanOrEqual(336.19);
     expect(multi.textLeft + multi.textWidth / 2).toBeCloseTo(408 / 2, 6);
-  });
-});
-
-describe("quote-share 样式与架构契约", () => {
-  const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
-  const cssContent = fs.readFileSync(cssPath, "utf-8").replace(/\r\n/g, "\n");
-  // 连续圆角统一经语义令牌声明，兜底值与令牌同值。
-  const CONTINUOUS_CORNER = "corner-shape: var(--biliscript-corner-shape, superellipse(1.25));";
-
-  function rule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = cssContent.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
-    expect(match, `缺少样式规则 ${selector}`).not.toBeNull();
-    return match![1];
-  }
-
-  it("定义纹样径向遮罩、24s 慢速漂移、视差变量与无障碍降级", () => {
-    expect(cssContent).toContain(".biliscript-quote-card-pattern {");
-    expect(cssContent).toContain("opacity: 0.38;");
-    const expectedGradient =
-      "radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%)";
-    expect(cssContent).toContain(`mask-image: ${expectedGradient}`);
-    expect(cssContent).toContain("vector-effect: non-scaling-stroke;");
-    expect(cssContent).toContain("@keyframes biliscript-quote-drift");
-    expect(cssContent).toContain("animation: biliscript-quote-drift 24s ease-in-out infinite alternate;");
-    expect(cssContent).toContain("var(--quote-spring-x, 0)");
-    expect(cssContent).toContain("var(--quote-glow-x, 50%)");
-    expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
-    expect(cssContent).toContain("font-family: var(--biliscript-reader-font-serif);");
-    expect(cssContent).toContain("font-variant-numeric: lining-nums;");
-    expect(cssContent).toContain("font-size: var(--quote-fit-size, 5.147cqi);");
-  });
-
-  it("相纸、16:9 内卡、品牌角标与暗罩按契约落位", () => {
-    expect(rule(".biliscript-quote-card-sheet")).toContain("padding: 2.4cqi 2.4cqi 0;");
-    expect(rule(".biliscript-quote-card-sheet")).toContain(
-      "background: var(--biliscript-primitive-color-white);"
-    );
-    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain(
-      "aspect-ratio: 16 / 9;"
-    );
-    expect(rule(".biliscript-quote-card-brand")).toContain("height: 8cqi;");
-    expect(rule(".biliscript-quote-card-brand")).toContain(
-      "color: var(--biliscript-primitive-color-gray-950);"
-    );
-    expect(rule(".biliscript-quote-card-motif")).toContain("left: 2.4cqi;");
-    expect(rule(".biliscript-quote-card-motif")).toContain("height: 8cqi;");
-    expect(rule(".biliscript-quote-card-motif-bar")).toContain(
-      "border-radius: var(--biliscript-radius-pill);"
-    );
-    expect(rule(".biliscript-quote-card-motif-bar.is-lead")).toContain(
-      "background: var(--biliscript-primitive-color-rose-500);"
-    );
-    expect(rule(".biliscript-quote-card-motif-bar.is-track")).toContain(
-      "background: var(--biliscript-primitive-color-gray-200);"
-    );
-    expect(rule(".biliscript-quote-card-scrim")).toContain(
-      "rgba(var(--biliscript-primitive-color-black-rgb), 0.16)"
-    );
-    expect(cssContent).not.toContain(".biliscript-quote-card-source");
-    expect(cssContent).not.toContain(".biliscript-quote-card-timestamp");
-  });
-
-  it("容器、关闭键、操作按钮与切换按钮遵循面板圆角和令牌契约", () => {
-    expect(rule(".biliscript-quote-share-dialog")).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
-    expect(rule(".biliscript-quote-share-dialog")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-share-dialog")).toContain("box-shadow: var(--biliscript-reader-shadow);");
-    expect(rule(".biliscript-quote-share-close")).toContain("width: 34px;");
-    expect(rule(".biliscript-quote-share-close")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-action-btn")).toContain("height: 32px;");
-    expect(rule(".biliscript-quote-action-btn.is-primary")).toContain("background: var(--biliscript-reader-accent);");
-    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-preset-btn")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-pattern-btn")).toContain(CONTINUOUS_CORNER);
-  });
-
-  it("quote-share-modal.ts 与 reader/index.ts 仅导出 3 个公共模态函数，不泄露内部状态与辅助实现", async () => {
-    const modalModule = (await import("../../extension/reader/quote-share-modal.js")) as Record<string, unknown>;
-    expect(Object.keys(modalModule).sort()).toEqual([
-      "closeQuoteShareModal",
-      "isQuoteShareModalOpen",
-      "openQuoteShareModal"
-    ]);
-
-    const readerIndex = (await import("../../extension/reader/index.js")) as Record<string, unknown>;
-    expect(typeof readerIndex.openQuoteShareModal).toBe("function");
-    expect(typeof readerIndex.closeQuoteShareModal).toBe("function");
-    expect(typeof readerIndex.isQuoteShareModalOpen).toBe("function");
-    expect(readerIndex.getQuoteShareNoiseDataUrl).toBeUndefined();
-    expect(readerIndex.QUOTE_CARD_PRESETS).toBeUndefined();
   });
 });

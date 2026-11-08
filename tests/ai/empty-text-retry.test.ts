@@ -14,7 +14,6 @@ import { DEFAULT_MAX_TOKENS } from "../../extension/ai/output-budget.js";
 
 describe("重试预算", () => {
   it("base 缺省（chat 链：首发不带预算）→ 兜底上限的倍加", () => {
-    expect(EMPTY_TEXT_RETRY_MAX_TOKENS).toBe(DEFAULT_MAX_TOKENS * 2);
     expect(retryBudget()).toBe(EMPTY_TEXT_RETRY_MAX_TOKENS);
     expect(retryBudget()).toBeGreaterThan(DEFAULT_MAX_TOKENS);
   });

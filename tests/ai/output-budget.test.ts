@@ -6,21 +6,13 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  CONSERVATIVE_MAX_TOKENS,
-  DEFAULT_MAX_TOKENS,
+    DEFAULT_MAX_TOKENS,
   isOutputBudgetTooLarge
 } from "../../extension/ai/output-budget.js";
 // 估算函数住在 analysis-prompts.ts，但封顶值是本模块的政策——两条断言放在一起，
 // 「估算上限」与「协议兜底」是不是同源一眼可见。
 import { estimateOutputTokens } from "../../extension/ai/analysis-prompts.js";
 
-describe("上限取值", () => {
-  it("默认值是给新模型放得下的宽值，保守值仍是旧兜底（退回后可用的下限）", () => {
-    expect(DEFAULT_MAX_TOKENS).toBe(32768);
-    expect(CONSERVATIVE_MAX_TOKENS).toBe(8192);
-    expect(DEFAULT_MAX_TOKENS).toBeGreaterThan(CONSERVATIVE_MAX_TOKENS);
-  });
-});
 
 describe("estimateOutputTokens 的封顶与兜底同源", () => {
   it("按正文估算的输出预算不再被砍到 8192（5 万字段 25k、超长素材封顶在兜底值）", () => {

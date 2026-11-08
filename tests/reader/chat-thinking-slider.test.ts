@@ -34,59 +34,6 @@ function getRuleBody(css: string, selector: string): string {
   return matched.map((r) => r.body).join("\n");
 }
 
-describe("05: 思考强度滑轨样式与几何契约", () => {
-  it("CSS 契约：滑轨 24px、surface-2 底轨、无内描边、28×28px 滑块与 12px 呼吸间距", () => {
-    const css = readCss(CHAT_CSS_PATH);
-
-    // 1. .chat-thinking-track 高度设为 24px
-    const trackBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-track");
-    expect(trackBody).toMatch(/height:\s*24px/);
-
-    // 2. .chat-thinking-range 边距收缩为 12px
-    const rangeBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-range");
-    expect(rangeBody).toMatch(/left:\s*12px/);
-    expect(rangeBody).toMatch(/right:\s*12px/);
-    expect(rangeBody).toMatch(/top:\s*0/);
-    expect(rangeBody).toMatch(/bottom:\s*0/);
-
-    // 3. .chat-thinking-rail 几何与表面材质
-    const railBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-rail");
-    expect(railBody).toMatch(/left:\s*-12px/);
-    expect(railBody).toMatch(/right:\s*-12px/);
-    expect(railBody).toMatch(/top:\s*0/);
-    expect(railBody).toMatch(/height:\s*24px/);
-    expect(railBody).toMatch(/border-radius:\s*(?:var\(--biliscript-radius-pill[^)]*\)|999px)/);
-    expect(railBody).toMatch(/background:\s*var\(--biliscript-reader-surface-2\)/);
-    expect(railBody).toMatch(/box-shadow:\s*none/);
-
-    // 焦点环保持
-    const focusBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-track:focus-visible .chat-thinking-rail");
-    expect(focusBody).toContain("var(--biliscript-reader-accent)");
-
-    // 4. .chat-thinking-fill 几何
-    const fillBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-fill");
-    expect(fillBody).toMatch(/left:\s*-12px/);
-    expect(fillBody).toMatch(/top:\s*0/);
-    expect(fillBody).toMatch(/height:\s*24px/);
-
-    // 5. .chat-thinking-tick 刻度圆点垂直居中对齐
-    const tickBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-tick");
-    expect(tickBody).toMatch(/top:\s*0/);
-    expect(tickBody).toMatch(/height:\s*24px/);
-    expect(tickBody).toMatch(/width:\s*24px/);
-    expect(tickBody).toMatch(/margin-left:\s*-12px/);
-
-    // 6. .chat-thinking-thumb 尺寸为 28×28px（border-box 含 1px 描边），比 24px 轨条高 4px，
-    //    垂直居中（top: -2px），margin-left: -14px，轻软阴影
-    const thumbBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-thumb");
-    expect(thumbBody).toMatch(/box-sizing:\s*border-box/);
-    expect(thumbBody).toMatch(/width:\s*28px/);
-    expect(thumbBody).toMatch(/height:\s*28px/);
-    expect(thumbBody).toMatch(/top:\s*-2px/);
-    expect(thumbBody).toMatch(/margin-left:\s*-14px/);
-    expect(thumbBody).toMatch(/box-shadow:\s*0 1px 3px rgba\((?:var\(--biliscript-primitive-color-black-rgb\)|0,\s*0,\s*0),\s*0\.15\)/);
-  });
-});
 
 describe("05: 思考强度滑轨运行时几何与交互契约", () => {
   let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;

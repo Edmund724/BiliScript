@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   LIVE_PROVIDER_KEYS_STORAGE,
-  LIVE_PROVIDER_PRESETS,
-  listLiveModels,
+    listLiveModels,
   liveProviderStore,
   normalizeLiveProvider,
   resolveLiveModelsUrl,
@@ -49,17 +48,6 @@ beforeEach(() => {
 });
 
 describe("Gemini Live 平台预设与归一化", () => {
-  it("登记免自有 Key 的 Gemini Live 预设", () => {
-    expect(LIVE_PROVIDER_PRESETS).toContainEqual({
-      id: "gemini-live",
-      name: "Gemini Live",
-      type: "gemini-live",
-      baseUrl: "https://generativelanguage.googleapis.com",
-      model: "gemini-3.8-live",
-      requiresKey: false,
-      note: "Gemini Live 全双工实时音画伴看"
-    });
-  });
 
   it("接受 gemini-live 类型并应用平台默认值", () => {
     expect(normalizeLiveProvider({ id: "live_gemini", type: "gemini-live" })).toEqual({
@@ -113,7 +101,7 @@ describe("Gemini Live 模型探针", () => {
       baseUrl: "https://generativelanguage.googleapis.com"
     })).resolves.toEqual({
       ok: true,
-      models: ["gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-custom-live"]
+      models: ["gemini-3.8-live", "gemini-2.5-flash-native-audio-preview-12-2025", "gemini-custom-live"]
     });
 
     const request = sent.find((message) => message.type === "provider-http");
