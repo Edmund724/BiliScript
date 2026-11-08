@@ -2,11 +2,8 @@
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
-import { isPlayerFullscreen } from "../bilibili/fullscreen.js";
-import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
 import { ensureUiReady } from "../ui/lazy-ui.js";
-import { isReaderViewOpen } from "../reader/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -684,15 +681,7 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
   playerAiState.setSubmitting(true);
 
   try {
-    const host = findPlayerAiQuickActionHost();
-    const fullscreen = isPlayerFullscreen(host);
-
-    if (fullscreen) {
-      await ensureUiReady();
-    } else if (!isReaderViewOpen()) {
-      const shell = await ensureReaderShell();
-      await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
-    }
+    await ensureUiReady();
     const chat = await ensureReaderChatTab();
     await chat.ensureChatTabActivated({ consumeIntent: false });
     await chat.startLiveCompanion();

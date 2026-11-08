@@ -277,16 +277,6 @@ const liveBar = createChatLiveBar({
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
   getLiveController: () => liveController,
-  fullscreenMode: "player-fullscreen",
-  onExitFullscreenWhileLive: async () => {
-    if (!isReaderViewOpen()) {
-      const { ensureReaderShell } = await import("./lazy-shell.js");
-      const shell = await ensureReaderShell();
-      await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
-    }
-    await ensureChatTabActivated({ consumeIntent: false });
-    chatRuntime.scrollToBottom();
-  },
   onVoicePrioritySync: (nextOn) => liveBar.syncVoicePriority(nextOn),
   onShareVideoAudioSync: (nextOn) => liveBar.syncShareVideoAudio(nextOn),
   onVolumeSync: (val) => liveBar.syncVolume(val)
@@ -482,10 +472,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   onStreamInterrupted: () => {
     if (!preservingLiveSessionOnContextSwitch && isLiveSessionActive()) {
-      if (unobserveFullscreen) {
-        unobserveFullscreen();
-        unobserveFullscreen = null;
-      }
       liveOverlayBinding.dispose();
       liveController?.dispose();
     }
@@ -898,7 +884,6 @@ export function getLiveController(): LiveChatController | null {
 }
 
 export function closeChatSession(): void {
-  liveOverlayBinding.stopFullscreenObserver();
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
@@ -1045,60 +1030,56 @@ function bindEvents(): void {
     initialVoicePriority
   } = liveBar.bindEvents();
 
-  if (els.liveBar || els.liveBtn) {
-    // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
-    // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
-    const liveToolsBridge = createLiveToolsBridge({
-      showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-      getOverview: () => getReaderOverviewSource(),
-      ensureOverview: (options) => ensureReaderOverviewSource(options)
-    });
-    liveController = createLiveChatController({
-      liveButton: els.liveBtn,
-      muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
-      initialVolume,
-      initialVoicePriority,
-      initialShareVideoAudio,
-      onVideoAudioStatusChange: (status) => liveBar.syncVideoAudioStatus(status),
-      // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
-      interruptButton: els.sendBtn,
-      onInterruptStateChange: () => composer.syncSendState(),
-      onSpeakingChange: (speaking) => liveBar.syncSpeaking(speaking),
-      ...liveOverlayBinding.bindControllerCallbacks({
-        onVadStateChange: (active) => liveBar.syncVad(active),
-        onStateChange: (liveState) => liveBar.syncState(liveState)
-      }),
-      showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-      getVideoContext: liveToolsBridge.getVideoContext,
-      executeTool: liveToolsBridge.executeTool,
-      subscribeVideoContextChanges: (listener) => {
-        const unsubscribePresenter = subscribeReaderPresenter((event) => {
-          if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-            listener();
-          }
-        });
-        const unsubscribeOverview = subscribeReaderOverviewSource(listener);
-        return () => {
-          unsubscribePresenter();
-          unsubscribeOverview();
-        };
-      },
-      createTranscriptMerger: (opts) =>
-        createLiveTranscriptMerger({
-          messagesContainer: els.messages,
-          messageArea: chatRuntime.messageArea,
-          store: conversationStore,
-          scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
-          isVoiceRecentlyActive: opts?.isVoiceRecentlyActive,
-          onActivity: () => {
-            popovers.hideHistoryPopover();
-            removeCenteredState();
-            removeSuggestions();
-          }
-        })
-    });
-    liveOverlayBinding.initFullscreenObserver();
-  }
+  // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
+  // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
+  const liveToolsBridge = createLiveToolsBridge({
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    getOverview: () => getReaderOverviewSource(),
+    ensureOverview: (options) => ensureReaderOverviewSource(options)
+  });
+  liveController = createLiveChatController({
+    muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
+    initialVolume,
+    initialVoicePriority,
+    initialShareVideoAudio,
+    onVideoAudioStatusChange: (status) => liveBar.syncVideoAudioStatus(status),
+    // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
+    interruptButton: els.sendBtn,
+    onInterruptStateChange: () => composer.syncSendState(),
+    onSpeakingChange: (speaking) => liveBar.syncSpeaking(speaking),
+    ...liveOverlayBinding.bindControllerCallbacks({
+      onVadStateChange: (active) => liveBar.syncVad(active),
+      onStateChange: (liveState) => liveBar.syncState(liveState)
+    }),
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    getVideoContext: liveToolsBridge.getVideoContext,
+    executeTool: liveToolsBridge.executeTool,
+    subscribeVideoContextChanges: (listener) => {
+      const unsubscribePresenter = subscribeReaderPresenter((event) => {
+        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
+          listener();
+        }
+      });
+      const unsubscribeOverview = subscribeReaderOverviewSource(listener);
+      return () => {
+        unsubscribePresenter();
+        unsubscribeOverview();
+      };
+    },
+    createTranscriptMerger: (opts) =>
+      createLiveTranscriptMerger({
+        messagesContainer: els.messages,
+        messageArea: chatRuntime.messageArea,
+        store: conversationStore,
+        scrollToBottom: (force) => chatRuntime.scrollToBottom(force),
+        isVoiceRecentlyActive: opts?.isVoiceRecentlyActive,
+        onActivity: () => {
+          popovers.hideHistoryPopover();
+          removeCenteredState();
+          removeSuggestions();
+        }
+      })
+  });
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的

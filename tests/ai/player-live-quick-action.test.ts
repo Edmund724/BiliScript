@@ -126,7 +126,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
   });
 
-  it("非全屏下点击伴看按钮：打开阅读模式对话页并开启伴看", async () => {
+  it("非全屏下点击伴看按钮：直接激活对话 tab 并调用 startLiveCompanion（不打开阅读面板）", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
 
     schedulePlayerAiQuickActionSync(0);
@@ -138,13 +138,12 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     liveButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(mockShell.enterReaderShell).toHaveBeenCalledWith({
-      readerUrl: "",
-      intent: "chat"
-    });
-    expect(mockChatTab.ensureChatTabActivated).toHaveBeenCalled();
+    expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
+    expect(mockChatTab.ensureChatTabActivated).toHaveBeenCalledWith({ consumeIntent: false });
+    expect(mockChatTab.ensureChatTabActivated.mock.invocationCallOrder[0]).toBeLessThan(
+      mockChatTab.startLiveCompanion.mock.invocationCallOrder[0]
+    );
     expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
-    expect(mockOverlay.show).not.toHaveBeenCalled();
   });
 
   it("全屏下点击伴看按钮：直接激活对话 tab 并调用 startLiveCompanion（不打开阅读面板）", async () => {

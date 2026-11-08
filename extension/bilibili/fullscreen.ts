@@ -1,5 +1,5 @@
 // extension/bilibili/fullscreen.ts
-// B 站播放器全屏状态判定（浏览器全屏与网页全屏）与变化监听
+// B 站播放器全屏状态判定（浏览器全屏与网页全屏）
 
 export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   if (typeof document === "undefined") {
@@ -46,61 +46,3 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   return false;
 }
 
-export function observeFullscreenChanges(
-  callback: (isFullscreen: boolean) => void,
-  targetHost?: Element | null
-): () => void {
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    return () => {};
-  }
-
-  let lastState = isPlayerFullscreen(targetHost);
-
-  const check = () => {
-    const nextState = isPlayerFullscreen(targetHost);
-    if (nextState !== lastState) {
-      lastState = nextState;
-      callback(nextState);
-    }
-  };
-
-  const onDocFsChange = () => check();
-  document.addEventListener("fullscreenchange", onDocFsChange);
-  document.addEventListener("webkitfullscreenchange", onDocFsChange);
-  window.addEventListener("resize", check, { passive: true });
-
-  let observer: MutationObserver | null = null;
-  if (typeof MutationObserver !== "undefined") {
-    observer = new MutationObserver(() => check());
-    const bpx = targetHost?.querySelector(".bpx-player-container") || document.querySelector(".bpx-player-container");
-    const host = targetHost || bpx || document.querySelector("#bilibili-player, .player-wrap, #playerWrap");
-    if (host instanceof Element) {
-      observer.observe(host, {
-        attributes: true,
-        attributeFilter: ["class", "data-screen"]
-      });
-    }
-    if (bpx instanceof Element && bpx !== host) {
-      observer.observe(bpx, {
-        attributes: true,
-        attributeFilter: ["class", "data-screen"]
-      });
-    }
-    if (document.body) {
-      observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ["class"]
-      });
-    }
-  }
-
-  return () => {
-    document.removeEventListener("fullscreenchange", onDocFsChange);
-    document.removeEventListener("webkitfullscreenchange", onDocFsChange);
-    window.removeEventListener("resize", check);
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
-  };
-}

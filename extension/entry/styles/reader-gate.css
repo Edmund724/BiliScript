@@ -33,7 +33,6 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view.closing {
 }
 
 /* 全屏 / 网页全屏门控：播放器进入全屏或网页全屏时，文摘面板彻底移出视口挂起，不占位不遮挡 */
-:is(html, body)[data-biliscript-fullscreen-mode="1"] #biliscript-reading-view,
 body:has(.bpx-player-container[data-screen="web"]) #biliscript-reading-view,
 body:has(.bpx-player-container.bpx-state-web-fullscreen) #biliscript-reading-view,
 body:has(.bpx-player-container.bpx-state-fullscreen) #biliscript-reading-view,

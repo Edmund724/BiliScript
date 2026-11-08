@@ -97,47 +97,42 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
       });
 
       expect(await chat.startLiveCompanion()).toBe(true);
-      expect(chat.getFullscreenLiveOverlay()).toBeNull();
+      expect(chat.getFullscreenLiveOverlay()?.isVisible()).toBe(true);
       return chat;
-    }
-
-    async function expectPanelRestored() {
-      const { isReaderViewOpen } = await import("../../extension/reader/state.js");
-      await vi.waitFor(() => expect(isReaderViewOpen()).toBe(true));
     }
 
     afterEach(() => {
       Object.defineProperty(document, "fullscreenElement", { value: null, configurable: true });
     });
 
-    it("进入网页全屏时自动创建浮窗，退出后恢复面板", async () => {
+    it("进出网页全屏时浮窗持续展示且不中断会话，不操作全屏模式 DOM 属性", async () => {
       const chat = await startConnectedCompanion();
+      const overlay = chat.getFullscreenLiveOverlay();
+      expect(overlay?.isVisible()).toBe(true);
 
       playerContainer.setAttribute("data-screen", "web");
-      await vi.waitFor(() => expect(chat.getFullscreenLiveOverlay()?.isVisible()).toBe(true));
-      const overlay = chat.getFullscreenLiveOverlay();
-      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
+      expect(overlay?.isVisible()).toBe(true);
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
 
       playerContainer.removeAttribute("data-screen");
-      await vi.waitFor(() => expect(overlay?.isVisible()).toBe(false));
+      expect(overlay?.isVisible()).toBe(true);
       expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
-      await expectPanelRestored();
     });
 
-    it("进入浏览器全屏时自动创建浮窗，退出后恢复面板", async () => {
+    it("进出浏览器全屏时浮窗持续展示且不中断会话", async () => {
       const chat = await startConnectedCompanion();
+      const overlay = chat.getFullscreenLiveOverlay();
+      expect(overlay?.isVisible()).toBe(true);
 
       Object.defineProperty(document, "fullscreenElement", { value: playerContainer, configurable: true });
       document.dispatchEvent(new Event("fullscreenchange"));
-      await vi.waitFor(() => expect(chat.getFullscreenLiveOverlay()?.isVisible()).toBe(true));
-      const overlay = chat.getFullscreenLiveOverlay();
-      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
+      expect(overlay?.isVisible()).toBe(true);
+      expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
 
       Object.defineProperty(document, "fullscreenElement", { value: null, configurable: true });
       document.dispatchEvent(new Event("fullscreenchange"));
-      await vi.waitFor(() => expect(overlay?.isVisible()).toBe(false));
+      expect(overlay?.isVisible()).toBe(true);
       expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
-      await expectPanelRestored();
     });
 
     it("已处于浏览器全屏时开启伴看，浮窗挂载进实际全屏元素", async () => {

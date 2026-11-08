@@ -1,12 +1,10 @@
 // extension/live/live-overlay-binding.ts
-// 视频页与直播间共用的实时伴看浮窗、全屏生命周期与音频偏好协调模块。
+// 视频页与直播间共用的实时伴看浮窗与音频偏好协调模块。
 // 统一管理：
 // 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
 // 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
-// 3. 视频页全屏模式观察（player-fullscreen）、data-biliscript-fullscreen-mode 属性维护与退全屏恢复
-// 4. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
+// 3. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
 
-import { isPlayerFullscreen, observeFullscreenChanges } from "../bilibili/fullscreen.js";
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { Settings } from "../core/defaults.js";
@@ -43,17 +41,6 @@ export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
   }).catch(() => null);
 }
 
-function setFullscreenModeDomAttribute(enabled: boolean): void {
-  if (typeof document === "undefined") return;
-  if (enabled) {
-    document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
-    document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
-  } else {
-    document.documentElement?.removeAttribute("data-biliscript-fullscreen-mode");
-    document.body?.removeAttribute("data-biliscript-fullscreen-mode");
-  }
-}
-
 export interface LiveOverlayControllerHooks {
   onStateChange?: (liveState: LiveChatState) => void;
   onVadStateChange?: (active: boolean) => void;
@@ -74,13 +61,6 @@ export type BoundLiveControllerCallbacks = Pick<
 export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
-  /**
-   * 浮窗自动唤起策略：
-   * - "always"（默认，用于直播间）：连接中/已连接即展示浮窗
-   * - "player-fullscreen"（用于视频播放页）：仅在播放器全屏时自动展示浮窗，并维护全屏状态监听与退全屏回调
-   */
-  fullscreenMode?: "always" | "player-fullscreen";
-  onExitFullscreenWhileLive?: () => void | Promise<void>;
   shouldAutoShow?: () => boolean;
   onBeforeAutoShow?: () => void;
   onVoicePrioritySync?: (enabled: boolean) => void;
@@ -93,8 +73,6 @@ export interface LiveOverlayBindingOptions {
 export interface LiveOverlayBinding {
   getOverlay(): FullscreenLiveOverlay | null;
   ensureOverlay(): FullscreenLiveOverlay;
-  initFullscreenObserver(): void;
-  stopFullscreenObserver(): void;
   startOrRestoreCompanion(): Promise<boolean>;
   bindControllerCallbacks(hooks?: LiveOverlayControllerHooks): BoundLiveControllerCallbacks;
   handleVadChange(active: boolean): void;
@@ -110,44 +88,11 @@ export interface LiveOverlayBinding {
 export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): LiveOverlayBinding {
   const getPlayerHost = options.getPlayerHost ?? findDefaultLiveOverlayHost;
   const createOverlayFn = options.createOverlay ?? createFullscreenLiveOverlay;
-  const fullscreenMode = options.fullscreenMode ?? "always";
   let overlay: FullscreenLiveOverlay | null = null;
-  let overlayManuallyClosed = false;
-  let unobserveFullscreen: (() => void) | null = null;
 
   function isControllerLive(): boolean {
     const liveState = options.getLiveController()?.getState();
     return liveState === "connecting" || liveState === "connected";
-  }
-
-  function initFullscreenObserver(): void {
-    if (fullscreenMode !== "player-fullscreen" || unobserveFullscreen) return;
-    unobserveFullscreen = observeFullscreenChanges((isFullscreen) => {
-      const isLive = isControllerLive();
-      if (isFullscreen) {
-        setFullscreenModeDomAttribute(true);
-        if (isLive && !overlayManuallyClosed) {
-          ensureOverlay().show();
-        }
-      } else {
-        setFullscreenModeDomAttribute(false);
-        overlayManuallyClosed = false;
-        overlay?.hide();
-        if (isLive) {
-          void options.onExitFullscreenWhileLive?.();
-        }
-      }
-    });
-  }
-
-  function stopFullscreenObserver(): void {
-    if (unobserveFullscreen) {
-      unobserveFullscreen();
-      unobserveFullscreen = null;
-    }
-    if (fullscreenMode === "player-fullscreen") {
-      setFullscreenModeDomAttribute(false);
-    }
   }
 
   function handleVolumeChange(volumePercent: number): void {
@@ -156,9 +101,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   }
 
   function ensureOverlay(): FullscreenLiveOverlay {
-    if (fullscreenMode === "player-fullscreen") {
-      initFullscreenObserver();
-    }
     if (!overlay) {
       overlay = createOverlayFn({
         getPlayerHost,
@@ -176,9 +118,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   function shouldAutoShowOverlay(): boolean {
     if (options.shouldAutoShow) {
       return options.shouldAutoShow();
-    }
-    if (fullscreenMode === "player-fullscreen") {
-      return isPlayerFullscreen() && !overlayManuallyClosed;
     }
     return true;
   }
@@ -199,10 +138,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     overlay?.syncState(liveState);
     if (liveState === "connected" || liveState === "connecting") {
       if (shouldAutoShowOverlay()) {
-        if (fullscreenMode === "player-fullscreen") {
-          initFullscreenObserver();
-          setFullscreenModeDomAttribute(true);
-        }
         options.onBeforeAutoShow?.();
         ensureOverlay().show();
       }
@@ -224,23 +159,16 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   async function startOrRestoreCompanion(): Promise<boolean> {
     const controller = options.getLiveController();
     if (!controller) return false;
-    overlayManuallyClosed = false;
 
     const alreadyLive = isControllerLive();
     const started = alreadyLive ? true : await controller.start();
     if (!started) return false;
 
-    if (fullscreenMode === "always" || isPlayerFullscreen()) {
-      if (fullscreenMode === "player-fullscreen") {
-        initFullscreenObserver();
-        setFullscreenModeDomAttribute(true);
-      }
-      const targetOverlay = ensureOverlay();
-      if (alreadyLive) {
-        targetOverlay.restore();
-      } else {
-        targetOverlay.show();
-      }
+    const targetOverlay = ensureOverlay();
+    if (alreadyLive) {
+      targetOverlay.restore();
+    } else {
+      targetOverlay.show();
     }
     return true;
   }
@@ -275,7 +203,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   }
 
   function dispose(): void {
-    stopFullscreenObserver();
     overlay?.dispose();
     overlay = null;
   }
@@ -283,8 +210,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   return {
     getOverlay: () => overlay,
     ensureOverlay,
-    initFullscreenObserver,
-    stopFullscreenObserver,
     startOrRestoreCompanion,
     bindControllerCallbacks,
     handleVadChange,

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { isPlayerFullscreen, observeFullscreenChanges } from "../../extension/bilibili/fullscreen.js";
+import { isPlayerFullscreen } from "../../extension/bilibili/fullscreen.js";
 
-describe("bilibili/fullscreen 全屏状态判定与监听", () => {
+describe("bilibili/fullscreen 全屏状态判定", () => {
   let playerContainer: HTMLElement;
 
   beforeEach(() => {
@@ -57,18 +57,5 @@ describe("bilibili/fullscreen 全屏状态判定与监听", () => {
 
     document.body.classList.remove("player-mode-webfullscreen");
     expect(isPlayerFullscreen()).toBe(false);
-  });
-
-  it("observeFullscreenChanges 监听全屏切换并在回调触发", async () => {
-    const callback = vi.fn();
-    const unobserve = observeFullscreenChanges(callback, playerContainer);
-
-    playerContainer.setAttribute("data-screen", "web");
-    // 等待 MutationObserver 回调
-    await Promise.resolve();
-
-    expect(callback).toHaveBeenCalledWith(true);
-
-    unobserve();
   });
 });

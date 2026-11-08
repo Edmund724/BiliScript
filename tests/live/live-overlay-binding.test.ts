@@ -69,7 +69,7 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(state.settings?.liveVoicePriority).toBe(false);
   });
 
-  it("bindControllerCallbacks 统一接线控制器事件，且 startOrRestoreCompanion 在已连接全屏下直接 restore 浮窗", async () => {
+  it("bindControllerCallbacks 统一接线控制器事件，且 startOrRestoreCompanion 在已连接下直接 restore 浮窗", async () => {
     const host = document.createElement("div");
     host.className = "bpx-player-container";
     host.setAttribute("data-screen", "web");
@@ -93,8 +93,7 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     const onStateHook = vi.fn();
     const binding = createLiveOverlayBinding({
       getPlayerHost: () => host,
-      getLiveController: () => mockController,
-      fullscreenMode: "player-fullscreen"
+      getLiveController: () => mockController
     });
 
     const callbacks = binding.bindControllerCallbacks({
@@ -102,7 +101,6 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     });
     callbacks.onStateChange?.("connected");
     expect(onStateHook).toHaveBeenCalledWith("connected");
-    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
 
     // 首次启动：调用 controller.start 并展示浮窗
     currentState = "idle";
@@ -118,6 +116,5 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(restoreSpy).toHaveBeenCalledTimes(1);
 
     binding.dispose();
-    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
   });
 });
