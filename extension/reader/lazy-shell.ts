@@ -16,8 +16,6 @@
 //
 // 失败语义：加载失败清空缓存 promise，允许下次触发重试；消费方（message-handler
 // 的消息分支）捕获后按「logWarn + ok:false 回包 / 状态栏失败文案」口径降级。
-// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
-// 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 import { createLazyLoader } from "../shared/lazy-import.js";
 import type {
   EnterReaderShellOptions,
