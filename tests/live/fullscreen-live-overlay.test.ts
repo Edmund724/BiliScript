@@ -363,4 +363,67 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(playerHost.contains(overlay.getElement())).toBe(true);
     expect(playerWrap.contains(overlay.getElement())).toBe(true);
   });
+
+  it("共享轮次状态机守卫：拦截空文本流式包、补建直达 output.done 气泡并丢弃打断后的迟到分片", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive,
+      onClearHistory
+    });
+    overlay.show();
+
+    const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
+
+    // 1. 空文本 output.updated 不应提前创建空 DOM 气泡
+    overlay.updateTranscript({
+      kind: "output.updated",
+      runId: "r-empty",
+      turnId: "t-1",
+      text: ""
+    });
+    expect(messages.querySelectorAll(".live-overlay-bubble-assistant")).toHaveLength(0);
+
+    // 2. 无前置 output.updated 直接到达非空 output.done 时自动补建定稿气泡
+    overlay.updateTranscript({
+      kind: "output.done",
+      runId: "r-direct",
+      turnId: "t-1",
+      text: "直达定稿回复"
+    });
+    const bubblesAfterDirect = messages.querySelectorAll(".live-overlay-bubble-assistant");
+    expect(bubblesAfterDirect).toHaveLength(1);
+    expect(bubblesAfterDirect[0].textContent).toBe("直达定稿回复");
+    expect(bubblesAfterDirect[0].classList.contains("is-streaming")).toBe(false);
+
+    // 3. 打断后迟到的同轮次 output.updated / output.done 不得再冒出幽灵气泡
+    overlay.updateTranscript({
+      kind: "output.updated",
+      runId: "r-int",
+      turnId: "t-2",
+      text: "说到一半"
+    });
+    overlay.updateTranscript({
+      kind: "response.interrupted",
+      runId: "r-int",
+      turnId: "t-2"
+    });
+    overlay.updateTranscript({
+      kind: "output.updated",
+      runId: "r-int",
+      turnId: "t-2",
+      text: "打断后迟到的幽灵分片"
+    });
+    overlay.updateTranscript({
+      kind: "output.done",
+      runId: "r-int",
+      turnId: "t-2",
+      text: "打断后迟到的定稿"
+    });
+
+    const allAssistantBubbles = messages.querySelectorAll(".live-overlay-bubble-assistant");
+    expect(allAssistantBubbles).toHaveLength(2);
+    expect(allAssistantBubbles[1].textContent).toBe("说到一半");
+    expect(allAssistantBubbles[1].classList.contains("is-streaming")).toBe(false);
+  });
 });
