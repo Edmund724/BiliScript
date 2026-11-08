@@ -2,19 +2,22 @@
 // 实时伴看平台的 Provider/Key 存储、归一化与模型探针。
 // 平台列表存储在 chrome.storage.sync，自有 API Key 存储在 chrome.storage.local。
 
+import {
+  getAiCredentialStatusText,
+  queryAiCredentialKey
+} from "../core/ai-credential-reference.js";
 import { normalizeBaseUrl } from "../core/presets.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { createProviderStore, formatProbeHttpError } from "../core/provider-store.js";
-import {
-  GEMINI_LIVE_DEFAULT_MODEL,
-  GEMINI_LIVE_FALLBACK_MODELS,
-  GEMINI_LIVE_ROW_STATUS_TEXT,
-  queryGeminiCredentialKey
-} from "./gemini-live-credential.js";
 
 export const LIVE_PROVIDERS_STORAGE = "liveProviders";
 export const LIVE_PROVIDER_KEYS_STORAGE = "liveProviderKeys";
 export const DEFAULT_LIVE_MODEL = "moss-live-1.0";
+export const GEMINI_LIVE_DEFAULT_MODEL = "gemini-3.8-live";
+export const GEMINI_LIVE_FALLBACK_MODELS = [
+  GEMINI_LIVE_DEFAULT_MODEL,
+  "gemini-2.5-flash-native-audio-preview-12-2025"
+] as const;
 
 const LIVE_PROVIDER_TYPES = new Set(["moss-live", "gemini-live"]);
 
@@ -161,9 +164,9 @@ export async function listLiveModels({
 
   let headers: Record<string, string>;
   if (gemini) {
-    const credential = await queryGeminiCredentialKey();
+    const credential = await queryAiCredentialKey("gemini-live");
     if (!credential.key) {
-      return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT[credential.status] };
+      return { ok: false, error: getAiCredentialStatusText("gemini-live", credential.status) };
     }
     headers = { Accept: "application/json", "x-goog-api-key": credential.key };
   } else {

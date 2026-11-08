@@ -28,9 +28,9 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 // DeepSeek 凭据引用（GLOSSARY「凭据引用」）：搜索测试的 Key 与链装配同源——读 AI 族
 // 列表（ai-providers-list）+ 官方端点判定，再按记录 id 取 Key（get-ai-provider-key）。
 import {
-  DEEPSEEK_ROW_STATUS_TEXT,
-  queryDeepseekCredentialKey
-} from "../search/deepseek-credential.js";
+  getAiCredentialStatusText,
+  queryAiCredentialKey
+} from "../core/ai-credential-reference.js";
 
 import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
@@ -386,9 +386,9 @@ export async function runSearchTest(): Promise<void> {
   // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
   // 同源判定）；取不到按状态给三态文案之一，不发起请求。
   if (preset?.id === "deepseek") {
-    const resolved = await queryDeepseekCredentialKey();
+    const resolved = await queryAiCredentialKey("deepseek");
     if (!resolved.key) {
-      showStatus(DEEPSEEK_ROW_STATUS_TEXT[resolved.status], true);
+      showStatus(getAiCredentialStatusText("deepseek", resolved.status), true);
       return;
     }
     apiKey = resolved.key;

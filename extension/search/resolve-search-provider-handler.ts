@@ -5,7 +5,7 @@
 // 引用、链解析与空链归因都是搜索编排知识，组合根只注入读取 primitive 并登记
 // 工厂实例（形态同 search-cache-handler.ts）。
 // 纯域 module 直接 import，不进 deps：core/search-mode（模式单源）、./search-chain
-//（链解析）、./search-health（冷却图）、./deepseek-credential（凭据引用）、
+//（链解析）、./search-health（冷却图）、core/ai-credential-reference（凭据引用）、
 // core/presets 的 SEARCH_PROVIDER_PRESETS（预设表）。
 // 回包信封（withOkResponse：决议值原样回包 / 拒绝统一 { ok:false, error }）收进
 // 工厂，与 core/provider-handlers.ts 的先例同形态。
@@ -16,7 +16,7 @@ import { resolveSearchChain } from "./search-chain.js";
 import type { SearchProvider } from "./search-provider-normalize.js";
 import type { SearchHealthMap } from "./search-health.js";
 import { cooldownUntilByPresetId } from "./search-health.js";
-import { resolveDeepseekSearchKey, type DeepseekAiRecordLike } from "./deepseek-credential.js";
+import { resolveAiCredentialKey, type AiCredentialRecordLike } from "../core/ai-credential-reference.js";
 import { withOkResponse } from "../core/provider-handlers.js";
 import type { ResolveSearchProviderResponse } from "../shared/messaging-protocol.js";
 
@@ -34,7 +34,7 @@ export interface ResolveSearchProviderHandlerDeps {
   }>;
   /** AI 族快照：DeepSeek 付费候选的 Key 经凭据引用取这里（搜索读 AI、绝不回写） */
   getAiStore: () => Promise<{
-    providers: ReadonlyArray<DeepseekAiRecordLike>;
+    providers: ReadonlyArray<AiCredentialRecordLike>;
     keys: Record<string, string> | null | undefined;
   }>;
   /** 用户拖拽顺序快照（归一产物；缺席 / 脏值 → []） */
@@ -66,7 +66,7 @@ export function createResolveSearchProviderHandler({
         const settings = await getSettings();
         const { providers, keys } = await getSearchStore();
         // AI 族快照：DeepSeek 付费候选的 Key 经凭据引用取这里（官方端点判定单点在
-        // deepseek-credential 叶，AI 记录 / Key 变更经快照失效面联动清 search 缓存）。
+        // core/ai-credential-reference，AI 记录 / Key 变更经快照失效面联动清 search 缓存）。
         const { providers: aiProviders, keys: aiKeys } = await getAiStore();
         const order = await getOrder();
         const activeId = String(settings.activeSearchProviderId || "");
@@ -84,7 +84,7 @@ export function createResolveSearchProviderHandler({
           // Key 经凭据引用从 AI 族解析（无合格记录 / 非官方端点 / 无 Key = 空串跳过）。
           allowPaid: settings.allowPaidSearchProviders === true,
           paidKeys: {
-            deepseek: resolveDeepseekSearchKey(aiProviders, aiKeys)
+            deepseek: resolveAiCredentialKey("deepseek", aiProviders, aiKeys).key
           }
         });
         if (resolved.chain.length === 0) {

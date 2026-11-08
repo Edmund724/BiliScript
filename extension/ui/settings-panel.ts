@@ -50,10 +50,9 @@ import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
-// DeepSeek 凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：行副行状态文案
-// 与链装配消费同一判定叶，面板不自行判端点。
-import { DEEPSEEK_ROW_STATUS_TEXT, resolveDeepseekCredential } from "../search/deepseek-credential.js";
-import { GEMINI_LIVE_ROW_STATUS_TEXT, resolveGeminiCredential } from "../live/gemini-live-credential.js";
+// 跨族凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
+// 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
+import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
 import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
@@ -465,7 +464,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   renderActiveRadioFamily(
     "live",
     elements,
-    annotateGeminiLiveRows(liveProviders, providers),
+    annotateAiCredentialRows("live", liveProviders, providers),
     settings.activeLiveProviderId
   );
 
@@ -480,7 +479,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   familyRows.search.render(
     elements.searchProvidersList,
     elements.searchProvidersEmpty,
-    annotateDeepseekRows(sortSearchProviders(searchProviders), providers),
+    annotateAiCredentialRows("search", sortSearchProviders(searchProviders), providers),
     {
       presets: SEARCH_PROVIDER_PRESETS,
       activeId: settings.activeSearchProviderId || ""
@@ -533,49 +532,17 @@ function syncResetSearchOrderButton(elements: SettingsElements): void {
   elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
 }
 
-function annotateCredentialRows(
-  items: ProviderRowItem[],
-  presetId: string,
-  resolveText: () => string
-): ProviderRowItem[] {
-  if (!items.some((item) => String(item.presetId || "") === presetId)) return items;
-  const text = resolveText();
-  return items.map((item) =>
-    String(item.presetId || "") === presetId ? { ...item, statusNote: text } : item
-  );
-}
-
-function annotateDeepseekRows(
-  items: ProviderRowItem[],
-  aiProviders: readonly ProviderRowItem[]
-): ProviderRowItem[] {
-  return annotateCredentialRows(items, "deepseek", () => {
-    const { status } = resolveDeepseekCredential(aiProviders as Parameters<typeof resolveDeepseekCredential>[0]);
-    return DEEPSEEK_ROW_STATUS_TEXT[status];
-  });
-}
-
-function annotateGeminiLiveRows(
-  items: ProviderRowItem[],
-  aiProviders: readonly ProviderRowItem[]
-): ProviderRowItem[] {
-  return annotateCredentialRows(items, "gemini-live", () => {
-    const { status } = resolveGeminiCredential(aiProviders);
-    return GEMINI_LIVE_ROW_STATUS_TEXT[status];
-  });
-}
-
 function rerenderLiveProviders(
   elements: SettingsElements,
   providers: ProviderRowItem[],
   knownAiProviders?: readonly ProviderRowItem[]
 ): void {
   if (knownAiProviders) {
-    renderActiveRadioFamily("live", elements, annotateGeminiLiveRows(providers, knownAiProviders));
+    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, knownAiProviders));
     return;
   }
   void loadAiProviders().then((aiProviders) => {
-    renderActiveRadioFamily("live", elements, annotateGeminiLiveRows(providers, aiProviders));
+    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, aiProviders));
   });
 }
 
@@ -601,7 +568,7 @@ function rerenderSearchProviders(elements: SettingsElements, providers: Provider
     familyRows.search.render(
       elements.searchProvidersList,
       elements.searchProvidersEmpty,
-      annotateDeepseekRows(sortSearchProviders(providers), aiProviders),
+      annotateAiCredentialRows("search", sortSearchProviders(providers), aiProviders),
       {
         presets: SEARCH_PROVIDER_PRESETS,
         activeId: getActiveSearchProviderId(elements.searchProvidersList)

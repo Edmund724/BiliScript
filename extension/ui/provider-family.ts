@@ -206,8 +206,8 @@ const ASR_FAMILY: FamilyRowDeclaration = {
 // 单一真源）——判据表达式只写在这一处，模板 required / 切预设 sync / 占位符 /
 // 行状态点与徽章全部同源。
 // paid（DeepSeek 凭据引用）不按「必填」处理：搜索侧没有自有 Key 输入框，Key 经
-// 凭据引用取 AI 族（isKeyRequired=false），行状态三态文案由 deepseek-credential
-// 叶经 statusNote 覆写副行。
+// 凭据引用取 AI 族（isKeyRequired=false），行状态三态文案由 core/ai-credential-reference
+// 经 statusNote 覆写副行。
 function searchKeyRequired(preset: ProviderRowPreset | null): boolean {
   return (preset as SearchProviderPreset | null)?.access === "free-quota";
 }

@@ -1,7 +1,7 @@
 // core/presets.ts 的预设端点查表单源叶直测：presetBaseUrlForProtocol（预设级，
 // 「预览选中协议」语义）与 effectivePresetBaseUrl（记录级生效端点：记录自有
 // baseUrl 优先 → 协议缺省链 record.protocol → preset.protocol → "openai" 查表）。
-// 两个消费方（search/deepseek-credential 的官方端点判定、ui/provider-editor-projection
+// 两个消费方（core/ai-credential-reference 的官方端点判定、ui/provider-editor-projection
 // 的 re-export）共用这一份实现——两侧不允许各写一份。
 
 import { describe, expect, it } from "vitest";

@@ -248,7 +248,7 @@ export async function getSearchHealth(): Promise<SearchHealthMap> {
 // 都自然忽略，不必先过滤。
 //
 // 凭据引用例外（GLOSSARY「凭据引用」）：ai 域失效连带清 search 族缓存——搜索链的
-// DeepSeek 候选 Key 实时读 aiProviders / aiProviderKeys（deepseek-credential 叶），
+// DeepSeek 候选 Key 实时读 aiProviders / aiProviderKeys（core/ai-credential-reference），
 // AI 侧改 Key / 改端点 / 删记录后，下一条 resolve-search-provider 必须读到新值，
 // 否则搜索链拿着过期 Key 跑。方向单向（搜索读 AI），asr 缓存不受波及。
 export function invalidate(storageKeys: readonly string[]): void {

@@ -22,6 +22,7 @@
 // project 的输入。
 
 import { escapeHtml } from "../shared/string-utils.js";
+import { usesAiCredentialReference } from "../core/ai-credential-reference.js";
 import { presetBaseUrlForProtocol } from "../core/presets.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField } from "./model-picker.js";
@@ -213,10 +214,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   apiKey: {
     input: { draftKey: "apiKey", selector: ".provider-editor-apikey", clearStatus: true },
     project: (scope, draft) => {
-      const usesCredentialReference =
-        (scope.ctx.kind === "search" && scope.preset?.id === "deepseek") ||
-        (scope.ctx.kind === "live" && scope.preset?.id === "gemini-live");
-      if (usesCredentialReference) return { hidden: true, required: false };
+      if (usesAiCredentialReference(scope.ctx.kind, scope.preset?.id)) {
+        return { hidden: true, required: false };
+      }
       const projection: FieldProjection = {
         placeholder: scope.family.apiKeyPlaceholder(scope.preset, scope.ctx.hasSavedKey),
         required: scope.family.isKeyRequired(scope.preset) && !scope.ctx.hasSavedKey

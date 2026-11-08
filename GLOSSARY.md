@@ -251,14 +251,14 @@ _Avoid_: 把链首理解成「排链最前、失败自动回退下一家」（�
 _Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付费准入是正交开关，不是第二种智能模式）、付费平台进零成本组、付费失败静默回退、toast 式付费提示
 
 **凭据引用**:
-跨族读 Key 的唯一例外：搜索侧 DeepSeek 记录不设 Key 输入框，发请求时实时读 AI 族「第一条启用、`presetId` 为 `deepseek` 且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 搜索立即跟随，删掉该记录搜索侧自动降级为链中跳过；不提供搜索侧覆盖 Key（「只想用 DeepSeek 搜索」的用户在 AI 平台加一条记录即可）。方向单向（搜索读 AI，绝不回写）；三族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys`）隔离不变式的其余部分照旧。
-代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `queryDeepseekCredentialKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 search/resolve-search-provider-handler.ts 工厂消费，行状态文案由 settings-panel 经 `statusNote` 注入，Modal 搜索测试经 `queryDeepseekCredentialKey` 查询）
-_Avoid_: 把 Key 复制进 `searchProviderKeys`（双写腐化：AI 侧改/删后搜索侧那份静默过期）、搜索侧覆盖 Key 输入框
+跨族读 Key 的单向借用机制：搜索侧 DeepSeek 记录（`search/deepseek`）与实时伴看侧 Gemini Live 记录（`live/gemini-live`）不设独立 Key 输入框，发请求或建立会话时实时读 AI 族「第一条启用、对应 `presetId`（`deepseek` 或 `gemini`）且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 消费侧立即跟随，删掉该记录消费侧自动降级（搜索链跳过 / 伴看启动或探测报三态提示文案）；不提供消费侧覆盖 Key。方向单向（搜索/伴看读 AI，绝不回写）；各族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys` / `liveProviderKeys`）隔离不变式的其余部分照旧。
+代码名：`AI_CREDENTIAL_REFERENCE_SPECS` / `resolveAiCredentialReference` / `resolveAiCredentialKey` / `queryAiCredentialKey` / `annotateAiCredentialRows` / `usesAiCredentialReference` / `getAiCredentialStatusText`（判定、取 Key 与 UI 状态文案注入的唯一单点，extension/core/ai-credential-reference.ts；搜索链装配在 search/resolve-search-provider-handler.ts 消费，伴看会话与模型探针在 live/live-session-tracker.ts 与 live/live-provider-store.ts 消费，行状态文案由 settings-panel 经 `annotateAiCredentialRows` 注入，Modal 字段显隐与搜索测试经 `usesAiCredentialReference` / `queryAiCredentialKey` 查询）
+_Avoid_: 把 Key 复制进 `searchProviderKeys` 或 `liveProviderKeys`（双写腐化：AI 侧改/删后消费侧那份静默过期）、消费侧覆盖 Key 输入框、按渠道分叉手抄两套凭据引用模块
 
 **官方端点判定**:
-凭据引用的前置判据：AI 记录当前生效端点（规则单源在 core/presets.ts 的 `effectivePresetBaseUrl`：记录自有 baseUrl 优先，空值按协议缺省链 `record.protocol → preset.protocol → "openai"` 查 `presetBaseUrlForProtocol`）规范化（去尾斜杠、小写）后 host 严格等于 `api.deepseek.com`。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search`，Key 有效也会 404）；不通过时搜索行显示「AI 平台 Key 指向非官方端点」、链中跳过——诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态与搜索链消费同一处。
-代码名：`isOfficialDeepseekEndpoint` / `DEEPSEEK_OFFICIAL_HOST`（extension/search/deepseek-credential.ts，host 严格判等 + 仅 https）/ 生效端点叶 `effectivePresetBaseUrl` / `presetBaseUrlForProtocol`（extension/core/presets.ts，编辑 Modal 的协议端点预览同一份）
-_Avoid_: `includes("deepseek")` 子串匹配、跟随 AI 记录的自定义 baseUrl 发搜索请求
+凭据引用的前置判据：AI 记录当前生效端点（规则单源在 core/presets.ts 的 `effectivePresetBaseUrl`：记录自有 baseUrl 优先，空值按协议缺省链 `record.protocol → preset.protocol → "openai"` 查 `presetBaseUrlForProtocol`）规范化（仅放行 `https:`、默认端口 443、小写）后 host 严格等于声明式规格表中的官方域名（DeepSeek 为 `api.deepseek.com`，Gemini 为 `generativelanguage.googleapis.com`）。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search` 或 Gemini Bidi WebSocket，Key 有效也会失败）；不通过时对应平台行显示「AI 平台配置的并非 XXX 官方接口地址」并诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态、搜索链与伴看会话消费同一处。
+代码名：`isOfficialAiCredentialEndpoint` / `AI_CREDENTIAL_REFERENCE_SPECS`（extension/core/ai-credential-reference.ts，host 严格判等 + 仅 https）/ 生效端点叶 `effectivePresetBaseUrl` / `presetBaseUrlForProtocol`（extension/core/presets.ts，编辑 Modal 的协议端点预览同一份）
+_Avoid_: `includes("deepseek")` 或 `includes("googleapis")` 子串匹配、跟随 AI 记录的自定义反代 baseUrl 发搜索或伴看请求
 
 **工具循环**:
 AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.ts）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。

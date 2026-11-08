@@ -3,14 +3,14 @@
 // 防止乱序 prepare、过期 cleanup 与残留标签页锁踩踏在途 WebSocket 鉴权规则。
 
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import {
+  getAiCredentialStatusText,
+  isOfficialAiCredentialEndpoint,
+  resolveAiCredentialKey,
+  type AiCredentialRecordLike
+} from "../core/ai-credential-reference.js";
 import { hasHostPermission } from "../core/host-permissions.js";
 import { getProviderStore, getSettingsSnapshot } from "../core/settings-snapshot.js";
-import {
-  GEMINI_LIVE_ROW_STATUS_TEXT,
-  isOfficialGeminiEndpoint,
-  resolveGeminiCredential,
-  type GeminiAiRecordLike
-} from "./gemini-live-credential.js";
 import {
   resolveActiveLiveProviderId,
   type LiveProvider
@@ -115,7 +115,7 @@ export async function clearMossLiveWsAuthRule(): Promise<void> {
 
 export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 
-export type AiProviderCredentialCandidate = GeminiAiRecordLike;
+export type AiProviderCredentialCandidate = AiCredentialRecordLike;
 
 export interface LiveSessionPrepareDeps {
   getSettings: () => Promise<{ activeLiveProviderId?: string; liveGeminiNativeSearch?: boolean }>;
@@ -256,25 +256,20 @@ export class LiveSessionTracker {
         activeProvider.type === "gemini-live" || activeProvider.presetId === "gemini-live";
       let apiKey = "";
       if (isGeminiLive) {
-        if (!isOfficialGeminiEndpoint(activeProvider.baseUrl)) {
+        if (!isOfficialAiCredentialEndpoint("gemini-live", activeProvider.baseUrl)) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT.unofficial };
+          return { ok: false, error: getAiCredentialStatusText("gemini-live", "unofficial") };
         }
         const [aiProviders, aiKeys] = await Promise.all([
           deps.loadAiProviders(),
           deps.loadAiKeys()
         ]);
-        const cred = resolveGeminiCredential(aiProviders);
-        if (cred.status !== "ok") {
+        const cred = resolveAiCredentialKey("gemini-live", aiProviders, aiKeys);
+        if (!cred.key) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT[cred.status] };
+          return { ok: false, error: getAiCredentialStatusText("gemini-live", cred.status) };
         }
-        const recordId = cred.record?.id ? String(cred.record.id).trim() : "";
-        apiKey = recordId ? String(aiKeys[recordId] || "").trim() : "";
-        if (!apiKey) {
-          clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: GEMINI_LIVE_ROW_STATUS_TEXT["no-key"] };
-        }
+        apiKey = cred.key;
       } else {
         const keys = await deps.loadKeys();
         apiKey = String(keys[activeId] || "").trim();

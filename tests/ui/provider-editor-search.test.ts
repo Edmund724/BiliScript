@@ -307,7 +307,7 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     expect(executeWebSearchMock).not.toHaveBeenCalled();
   });
 
-  it("DeepSeek 搜索测试：经 queryDeepseekCredentialKey 复用 AI 平台 Key 发起测试", async () => {
+  it("DeepSeek 搜索测试：经 queryAiCredentialKey 复用 AI 平台 Key 发起测试", async () => {
     const item = {
       id: "p_deepseek",
       presetId: "deepseek",
