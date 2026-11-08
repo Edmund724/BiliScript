@@ -306,9 +306,13 @@
 
 #biliscript-player-live-quick-action.is-active,
 .biliscript-player-live-quick-action-wrap.is-active #biliscript-player-live-quick-action {
-  color: var(--biliscript-primitive-color-gemini-purple-dark);
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   opacity: 1;
-  filter: drop-shadow(0 0 6px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.6));
+}
+
+#biliscript-player-live-quick-action.is-active:hover {
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  opacity: 1;
 }
 
 .biliscript-fullscreen-live-overlay {
@@ -932,12 +936,12 @@
 }
 
 .biliscript-live-room-toggle.is-active {
-  color: var(--biliscript-primitive-color-gemini-purple-dark);
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   background: transparent;
 }
 
 .biliscript-live-room-toggle.is-active:hover {
-  color: var(--biliscript-primitive-color-gemini-purple-light);
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
 }
 

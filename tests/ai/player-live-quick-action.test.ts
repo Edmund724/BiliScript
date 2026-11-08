@@ -168,4 +168,34 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     );
     expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
   });
+
+  it("伴看开启与关闭时实时伴看快捷按钮同步高亮态（is-active）与无障碍属性", async () => {
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/live-overlay-binding.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    const liveButton = document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement;
+    const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap") as HTMLElement;
+
+    expect(liveButton.classList.contains("is-active")).toBe(false);
+    expect(liveWrap.classList.contains("is-active")).toBe(false);
+    expect(liveButton.getAttribute("aria-pressed")).toBe("false");
+    expect(liveButton.getAttribute("aria-label")).toBe("实时伴看");
+
+    // 开启伴看
+    syncPlayerLiveQuickActionState(true);
+    expect(liveButton.classList.contains("is-active")).toBe(true);
+    expect(liveWrap.classList.contains("is-active")).toBe(true);
+    expect(liveButton.getAttribute("aria-pressed")).toBe("true");
+    expect(liveButton.getAttribute("aria-label")).toBe("实时伴看 (已开启)");
+
+    // 关闭伴看
+    syncPlayerLiveQuickActionState(false);
+    expect(liveButton.classList.contains("is-active")).toBe(false);
+    expect(liveWrap.classList.contains("is-active")).toBe(false);
+    expect(liveButton.getAttribute("aria-pressed")).toBe("false");
+    expect(liveButton.getAttribute("aria-label")).toBe("实时伴看");
+  });
 });

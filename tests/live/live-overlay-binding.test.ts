@@ -30,8 +30,9 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
 
     expect(binding.getOverlay()).toBeNull();
 
-    // 状态切到 connected 自动挂载并展示浮窗
+    // 状态切到 connected 自动挂载并展示浮窗并标记伴看激活
     binding.handleStateChange("connected");
+    expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(true);
     const overlay = binding.getOverlay();
     expect(overlay).not.toBeNull();
     expect(overlay?.isVisible()).toBe(true);
@@ -48,9 +49,10 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
       overlay?.getElement()?.querySelector(".live-overlay-bubble-user")?.textContent
     ).toBe("你好");
 
-    // 切回 idle 自动隐藏
+    // 切回 idle 自动隐藏并移除激活标记
     binding.handleStateChange("idle");
     expect(overlay?.isVisible()).toBe(false);
+    expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
   });
 
   it("shouldAutoShow 为 false 时不自动弹出浮窗，且音频开关变更自动持久化到 state.settings", () => {

@@ -22,6 +22,21 @@ import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR =
   ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap, #live-player, .live-player-mounter, #live-player-ctnr";
 
+export function syncPlayerLiveQuickActionState(active: boolean): void {
+  if (typeof document === "undefined") return;
+  document.body.toggleAttribute("data-biliscript-live-active", active);
+  const btn = document.getElementById("biliscript-player-live-quick-action");
+  const wrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  btn?.classList.toggle("is-active", active);
+  wrap?.classList.toggle("is-active", active);
+  btn?.setAttribute("aria-pressed", String(active));
+  if (btn) {
+    const label = active ? "实时伴看 (已开启)" : "实时伴看";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+  }
+}
+
 export function findDefaultLiveOverlayHost(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   return document.querySelector<HTMLElement>(DEFAULT_LIVE_OVERLAY_HOST_SELECTOR);
@@ -135,8 +150,10 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   }
 
   function handleStateChange(liveState: LiveChatState): void {
+    const active = liveState === "connected" || liveState === "connecting";
+    syncPlayerLiveQuickActionState(active);
     overlay?.syncState(liveState);
-    if (liveState === "connected" || liveState === "connecting") {
+    if (active) {
       if (shouldAutoShowOverlay()) {
         options.onBeforeAutoShow?.();
         ensureOverlay().show();
@@ -203,6 +220,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   }
 
   function dispose(): void {
+    syncPlayerLiveQuickActionState(false);
     overlay?.dispose();
     overlay = null;
   }

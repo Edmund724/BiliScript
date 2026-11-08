@@ -320,6 +320,11 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
   let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
   const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
   let liveWrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+  const isActive = Boolean(
+    document.body.hasAttribute("data-biliscript-live-active") ||
+      existingLive?.classList.contains("is-active") ||
+      existingWrap?.classList.contains("is-active")
+  );
 
   if (!liveWrap) {
     liveWrap = document.createElement("div");
@@ -340,11 +345,16 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     liveButton.id = "biliscript-player-live-quick-action";
     liveButton.type = "button";
     liveButton.className = "biliscript-player-live-quick-action";
-    liveButton.title = "实时伴看";
-    liveButton.setAttribute("aria-label", "实时伴看");
+    const label = isActive ? "实时伴看 (已开启)" : "实时伴看";
+    liveButton.title = label;
+    liveButton.setAttribute("aria-label", label);
+    liveButton.setAttribute("aria-pressed", String(isActive));
     liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
     liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
   }
+
+  liveButton.classList.toggle("is-active", isActive);
+  liveWrap.classList.toggle("is-active", isActive);
 
   if (liveButton.parentElement !== iconWrap) {
     iconWrap.replaceChildren(liveButton);
