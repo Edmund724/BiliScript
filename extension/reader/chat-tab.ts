@@ -140,7 +140,7 @@ import { logWarn } from "../shared/logging.js";
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
-import { ids, isReaderViewOpen } from "./state.js";
+import { ids } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
