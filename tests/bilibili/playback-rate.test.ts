@@ -106,4 +106,39 @@ describe("bilibili/playback-rate 播放器 3x/4x 倍速按钮模块", () => {
     expect(container.querySelectorAll("[data-bilibili-3x]").length).toBe(0);
     expect(container.contains(nativeRateBtn)).toBe(true);
   });
+
+  it("不启动 setInterval 轮询；仅在挂载与全屏切换时读取 getComputedStyle，容器无关 DOM 变化不重算样式", async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const getComputedStyleSpy = vi.spyOn(window, "getComputedStyle");
+
+    startPlaybackRateButtons();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(getComputedStyleSpy).toHaveBeenCalledTimes(1);
+
+    // 触发容器内与倍速按钮无关的 DOM 变化
+    getComputedStyleSpy.mockClear();
+    const dummy = document.createElement("span");
+    container.appendChild(dummy);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(getComputedStyleSpy).not.toHaveBeenCalled();
+
+    // 触发全屏切换事件 -> 300ms 后同步一次样式
+    document.dispatchEvent(new Event("fullscreenchange"));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(getComputedStyleSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("仅修改 video.src 属性（未派发 loadedmetadata）时同样通过属性观察自动恢复 1x 倍速", async () => {
+    startPlaybackRateButtons();
+
+    const btn3 = container.querySelector('[data-bilibili-3x="3"]') as HTMLElement;
+    btn3.click();
+    expect(video.playbackRate).toBe(3);
+
+    video.setAttribute("src", "https://example.com/video3.mp4");
+    await Promise.resolve();
+
+    expect(video.playbackRate).toBe(1);
+  });
 });

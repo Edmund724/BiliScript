@@ -7,6 +7,12 @@ import { getSettings } from "../core/runtime.js";
 import { normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
+import {
+  applyControlBarPlacement,
+  observePlayerContainer,
+  resolveControlBarPlacement,
+  type PlayerContainerObserverHandle
+} from "../bilibili/player-control-mount.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
@@ -21,6 +27,7 @@ const NOTICE_DEFAULT_MS = 4000;
 let started = false;
 let controller: LiveChatController | null = null;
 let toggleButton: HTMLButtonElement | null = null;
+let containerObserverHandle: PlayerContainerObserverHandle | null = null;
 let currentRoomId = "";
 
 function findPlayerHost(): HTMLElement | null {
@@ -46,26 +53,27 @@ function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): vo
 function syncToggleButton(liveState: string): void {
   if (!toggleButton) return;
   const active = liveState === "connecting" || liveState === "connected";
-  toggleButton.classList.toggle("is-active", active);
-  toggleButton.setAttribute("aria-pressed", String(active));
+  if (toggleButton.classList.contains("is-active") !== active) {
+    toggleButton.classList.toggle("is-active", active);
+  }
+  const pressed = String(active);
+  if (toggleButton.getAttribute("aria-pressed") !== pressed) {
+    toggleButton.setAttribute("aria-pressed", pressed);
+  }
 }
 
 function mountToggleButton(): void {
   const host = findPlayerHost() || document.body;
-  const modernControls = host.querySelector<HTMLElement>(".live-web-player-controller .right-area .ext-nodes");
-  const legacyControls =
-    host.querySelector<HTMLElement>(".bpx-player-control-bottom-right") ||
-    document.querySelector<HTMLElement>(".bpx-player-control-bottom-right");
-  const controls = modernControls || legacyControls;
-  if (!controls) {
+  const placement = resolveControlBarPlacement({
+    host,
+    preferLiveRoomExtNodes: true
+  });
+  if (!placement) {
     if (toggleButton?.parentElement) {
       toggleButton.remove();
     }
     return;
   }
-
-  const quality = (!modernControls && controls.querySelector(".bpx-player-ctrl-quality")) || null;
-  const target = quality?.parentElement || controls;
 
   if (!toggleButton) {
     toggleButton = document.createElement("button");
@@ -87,13 +95,7 @@ function mountToggleButton(): void {
     });
   }
 
-  if (quality) {
-    if (toggleButton.parentElement !== target || toggleButton.nextElementSibling !== quality) {
-      target.insertBefore(toggleButton, quality);
-    }
-  } else if (toggleButton.parentElement !== controls || toggleButton !== controls.firstElementChild) {
-    controls.insertBefore(toggleButton, controls.firstElementChild);
-  }
+  applyControlBarPlacement(toggleButton, placement);
   syncToggleButton(controller?.getState() ?? "idle");
 }
 
@@ -133,9 +135,28 @@ export async function startLiveRoomCompanion(): Promise<void> {
   });
 
   mountToggleButton();
-  // 播放器节点由 B 站异步水合，挂载点可能被重建；定时自查补回按钮。
-  window.setInterval(mountToggleButton, 1000);
+  containerObserverHandle = observePlayerContainer({
+    containerSelector: PLAYER_HOST_SELECTOR,
+    onMutations: () => {
+      mountToggleButton();
+    }
+  });
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.addEventListener("navigatesuccess", handleRoomChange);
   window.addEventListener("popstate", handleRoomChange);
+}
+
+export function stopLiveRoomCompanion(): void {
+  if (!started) return;
+  started = false;
+  containerObserverHandle?.disconnect();
+  containerObserverHandle = null;
+  const nav = (window as unknown as { navigation?: EventTarget }).navigation;
+  nav?.removeEventListener("navigatesuccess", handleRoomChange);
+  window.removeEventListener("popstate", handleRoomChange);
+  void controller?.stop();
+  controller = null;
+  toggleButton?.remove();
+  toggleButton = null;
+  currentRoomId = "";
 }

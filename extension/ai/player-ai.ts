@@ -21,6 +21,13 @@ import { logInfoAlways } from "../shared/logging.js";
 // S3 分层：播放器 AI 样式随本动态 chunk 挂载（节点创建前就绪，见文件尾注释）
 import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-injector.js";
 import { decidePlayerAiQuickAction } from "./player-ai-mount-decision.js";
+import {
+  DEFAULT_PLAYER_CONTAINER_SELECTOR,
+  applyControlBarPlacement,
+  isControlBarItemMounted,
+  observePlayerContainer,
+  resolveControlBarPlacement
+} from "../bilibili/player-control-mount.js";
 
 // ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
 //
@@ -95,15 +102,8 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
   if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
     return false;
   }
-  const qualityNode = findQualityControlNode(playerHost);
-  if (qualityNode && qualityNode.parentElement) {
-    return liveWrap.parentElement === qualityNode.parentElement && liveWrap.nextElementSibling === qualityNode;
-  }
-  const bottomRight = findControlBottomRightNode(playerHost);
-  if (bottomRight) {
-    return liveWrap.parentElement === bottomRight;
-  }
-  return liveWrap.parentElement === playerHost;
+  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  return isControlBarItemMounted(liveWrap, placement);
 }
 
 function isPlayerAiQuickActionMountedStable(): boolean {
@@ -162,8 +162,6 @@ export function resetPlayerAiQuickActionRetryCount(): void {
   playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 }
 
-const PLAYER_CONTAINER_SELECTOR = ".bpx-player-container, #bilibili-player";
-
 // 显式启动入口：绑定 layout 监听并挂 observer。bind/observe 各自带幂等守卫
 // （layoutBound / observer 槽位），重复调用不会重复绑。
 export function startPlayerAiQuickAction(): void {
@@ -216,41 +214,20 @@ export function startPlayerAiQuickActionObserver(): void {
     // 0 → 帧内快车道（rAF）：DOM 变化后等一帧让 rect 落定即挂，避免 120ms 防抖
     schedulePlayerAiQuickActionSync(0);
   };
-  const observer = new MutationObserver(sync);
 
-  // 优先观察播放器容器；容器不存在时退回观察 body 的 childList+subtree
-  //（B 站播放器常挂进嵌套容器，不带 subtree 发现不了深层挂载，只能等
-  // retry 退避兜底，最坏 1s 步长）。发现播放器后断开 body 观察并
-  // 切换到容器，subtree 全观察的开销只存在于启动窗口。
-  const playerContainer = document.querySelector(PLAYER_CONTAINER_SELECTOR);
-  if (playerContainer) {
-    observer.observe(playerContainer, {
+  observePlayerContainer({
+    containerSelector: DEFAULT_PLAYER_CONTAINER_SELECTOR,
+    containerObserveOptions: {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ["style", "class"]
-    });
-    playerAiState.setObserver(observer);
-    return;
-  }
-
-  const bodyObserver = new MutationObserver(() => {
-    const nextPlayerContainer = document.querySelector(PLAYER_CONTAINER_SELECTOR);
-    if (!nextPlayerContainer) {
-      return;
+    },
+    onMutations: sync,
+    onObserverChange: (observer) => {
+      playerAiState.setObserver(observer);
     }
-    bodyObserver.disconnect();
-    observer.observe(nextPlayerContainer, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["style", "class"]
-    });
-    playerAiState.setObserver(observer);
-    sync();
   });
-  bodyObserver.observe(document.body, { childList: true, subtree: true });
-  playerAiState.setObserver(bodyObserver);
 }
 
 export function bindPlayerAiQuickActionLayoutEvents(): void {
@@ -341,45 +318,6 @@ function schedulePlayerAiQuickActionRetry(): void {
   schedulePlayerAiQuickActionSync(delay);
 }
 
-function findQualityControlNode(playerHost: HTMLElement): Element | null {
-  const controlRoots = [
-    playerHost.querySelector(".bpx-player-control-bottom-right"),
-    playerHost.querySelector(".bpx-player-control-wrap"),
-    document.querySelector(".bpx-player-control-bottom-right"),
-    document.querySelector(".bpx-player-control-wrap")
-  ].filter((n): n is Element => Boolean(n));
-
-  for (const root of controlRoots) {
-    const direct = root.querySelector(".bpx-player-ctrl-quality");
-    if (direct) {
-      return direct;
-    }
-    const candidates = Array.from(root.querySelectorAll(".bpx-player-ctrl-btn, button, [role='button']"));
-    for (const child of candidates) {
-      const text = [
-        child.getAttribute("aria-label"),
-        child.getAttribute("title"),
-        child.getAttribute("data-text"),
-        child.textContent,
-        typeof child.className === "string" ? child.className : ""
-      ].join(" ");
-      if (/清晰度|4K|1080P|720P|480P|360P|超清|高清|高码率/i.test(text)) {
-        return child;
-      }
-    }
-  }
-  return null;
-}
-
-function findControlBottomRightNode(playerHost: HTMLElement): Element | null {
-  return (
-    playerHost.querySelector(".bpx-player-control-bottom-right") ||
-    playerHost.querySelector(".bpx-player-control-wrap") ||
-    document.querySelector(".bpx-player-control-bottom-right") ||
-    document.querySelector(".bpx-player-control-wrap")
-  );
-}
-
 function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
   const existingLive = document.getElementById("biliscript-player-live-quick-action");
   let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
@@ -415,22 +353,9 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     iconWrap.replaceChildren(liveButton);
   }
 
-  const qualityNode = findQualityControlNode(playerHost);
-  if (qualityNode && qualityNode.parentElement) {
-    if (liveWrap.parentElement !== qualityNode.parentElement || liveWrap.nextElementSibling !== qualityNode) {
-      qualityNode.parentElement.insertBefore(liveWrap, qualityNode);
-    }
-  } else {
-    const bottomRight = findControlBottomRightNode(playerHost);
-    if (bottomRight) {
-      if (liveWrap.parentElement !== bottomRight || liveWrap !== bottomRight.firstElementChild) {
-        bottomRight.insertBefore(liveWrap, bottomRight.firstElementChild);
-      }
-    } else {
-      if (liveWrap.parentElement !== playerHost) {
-        playerHost.appendChild(liveWrap);
-      }
-    }
+  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  if (placement) {
+    applyControlBarPlacement(liveWrap, placement);
   }
 }
 

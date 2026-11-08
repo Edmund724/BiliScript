@@ -1,18 +1,26 @@
 // extension/bilibili/playback-rate.ts
 // B 站播放器 3x / 4x 倍速按钮模块。
 // 为播放器控制栏添加 3 倍速和 4 倍速按钮，点击切换 1x/3x 或 1x/4x，切换视频自动恢复 1x。
-// 字体样式实时同步原生倍速按钮。
+// 字体样式在挂载及全屏切换时同步原生倍速按钮。
 
 import { getRuntimeVideoElement } from "./video-probe.js";
+import {
+  applyControlBarPlacement,
+  observePlayerContainer,
+  type PlayerContainerObserverHandle
+} from "./player-control-mount.js";
 
 const BTN_FLAG = "data-bilibili-3x";
 const RATE_RESULT_CLASS = "bpx-player-ctrl-playbackrate-result";
+const PLAYBACK_RATE_CONTAINER_SELECTOR =
+  ".bpx-player-container, #bilibili-player, .bpx-player-control-wrap, .bpx-player-control-bottom-right";
 
 let isRunning = false;
-let checkTimer: ReturnType<typeof setInterval> | null = null;
 let lastVideoSrc = "";
 let currentBoundVideo: HTMLVideoElement | null = null;
-let mutationObserver: MutationObserver | null = null;
+let videoSrcObserver: MutationObserver | null = null;
+let containerObserverHandle: PlayerContainerObserverHandle | null = null;
+let fullscreenTimer: ReturnType<typeof setTimeout> | null = null;
 let rAFScheduled = false;
 
 function getVideo(): HTMLVideoElement | null {
@@ -89,26 +97,37 @@ function updateBtnState(): void {
   const currentRate = v ? v.playbackRate : 1;
   document.querySelectorAll<HTMLElement>(`[${BTN_FLAG}] .${RATE_RESULT_CLASS}`).forEach((el) => {
     const btnRate = Number(el.parentElement?.getAttribute(BTN_FLAG));
-    el.style.color = currentRate === btnRate ? "#00aeec" : el.dataset.nativeColor || "";
+    const nextColor = currentRate === btnRate ? "#00aeec" : el.dataset.nativeColor || "";
+    if (el.style.color !== nextColor) {
+      el.style.color = nextColor;
+    }
   });
 }
 
-function ensureButtons(): void {
+function ensureButtons(): boolean {
+  let mountedNew = false;
   const rateBtns = document.querySelectorAll<HTMLElement>(`.bpx-player-ctrl-playbackrate:not([${BTN_FLAG}])`);
   rateBtns.forEach((rateBtn) => {
     const parent = rateBtn.parentElement;
-    if (!parent) return;
+    if (!(parent instanceof HTMLElement)) return;
 
-    const existing3x = parent.querySelector(`[${BTN_FLAG}="3"]`);
-    const existing4x = parent.querySelector(`[${BTN_FLAG}="4"]`);
+    const existing3x = parent.querySelector<HTMLElement>(`[${BTN_FLAG}="3"]`);
+    const existing4x = parent.querySelector<HTMLElement>(`[${BTN_FLAG}="4"]`);
 
-    if (!existing4x) {
-      parent.insertBefore(createBtn(4), rateBtn);
+    const btn3 = existing3x ?? createBtn(3);
+    const btn4 = existing4x ?? createBtn(4);
+    if (!existing3x || !existing4x) {
+      mountedNew = true;
     }
-    if (!existing3x) {
-      parent.insertBefore(createBtn(3), rateBtn);
+
+    if (applyControlBarPlacement(btn3, { kind: "before", parent, reference: rateBtn })) {
+      mountedNew = true;
+    }
+    if (applyControlBarPlacement(btn4, { kind: "before", parent, reference: btn3 })) {
+      mountedNew = true;
     }
   });
+  return mountedNew;
 }
 
 function cleanStaleButtons(): void {
@@ -167,29 +186,47 @@ function handleLoadedMetadata(): void {
   checkVideoChange();
 }
 
+function unbindCurrentVideo(): void {
+  videoSrcObserver?.disconnect();
+  videoSrcObserver = null;
+  if (currentBoundVideo) {
+    currentBoundVideo.removeEventListener("ratechange", handleRateChange);
+    currentBoundVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
+    currentBoundVideo.removeEventListener("emptied", handleLoadedMetadata);
+    currentBoundVideo = null;
+  }
+}
+
 function bindVideoEvents(): void {
   const v = getVideo();
   if (v === currentBoundVideo) return;
 
-  if (currentBoundVideo) {
-    currentBoundVideo.removeEventListener("ratechange", handleRateChange);
-    currentBoundVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
-  }
-
+  unbindCurrentVideo();
   currentBoundVideo = v;
   if (!v) return;
 
   v.addEventListener("ratechange", handleRateChange);
   v.addEventListener("loadedmetadata", handleLoadedMetadata);
+  v.addEventListener("emptied", handleLoadedMetadata);
+
+  videoSrcObserver = new MutationObserver(() => {
+    checkVideoChange();
+  });
+  videoSrcObserver.observe(v, {
+    attributes: true,
+    attributeFilter: ["src"]
+  });
 }
 
-function mainLoop(): void {
+function syncPlaybackRateControls(forceStyleSync = false): void {
   if (!isRunning) return;
-  ensureButtons();
+  const mountedNew = ensureButtons();
   cleanStaleButtons();
   bindVideoEvents();
   checkVideoChange();
-  syncBtnStyle();
+  if (forceStyleSync || mountedNew) {
+    syncBtnStyle();
+  }
 }
 
 function scheduleSync(): void {
@@ -197,13 +234,19 @@ function scheduleSync(): void {
   rAFScheduled = true;
   requestAnimationFrame(() => {
     rAFScheduled = false;
-    mainLoop();
+    syncPlaybackRateControls(false);
   });
 }
 
 function handleFullscreenChange(): void {
-  setTimeout(() => {
-    if (isRunning) mainLoop();
+  if (fullscreenTimer) {
+    clearTimeout(fullscreenTimer);
+  }
+  fullscreenTimer = setTimeout(() => {
+    fullscreenTimer = null;
+    if (isRunning) {
+      syncPlaybackRateControls(true);
+    }
   }, 300);
 }
 
@@ -211,49 +254,36 @@ export function startPlaybackRateButtons(): void {
   if (isRunning) return;
   isRunning = true;
 
-  mainLoop();
-
-  checkTimer = setInterval(mainLoop, 2000);
+  syncPlaybackRateControls(true);
 
   document.addEventListener("fullscreenchange", handleFullscreenChange);
   document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
 
-  try {
-    mutationObserver = new MutationObserver(() => {
+  containerObserverHandle = observePlayerContainer({
+    containerSelector: PLAYBACK_RATE_CONTAINER_SELECTOR,
+    onMutations: () => {
       scheduleSync();
-    });
-    mutationObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: false
-    });
-  } catch {
-    // 忽略异常
-  }
+    }
+  });
 }
 
 export function stopPlaybackRateButtons(): void {
   if (!isRunning) return;
   isRunning = false;
 
-  if (checkTimer) {
-    clearInterval(checkTimer);
-    checkTimer = null;
+  if (fullscreenTimer) {
+    clearTimeout(fullscreenTimer);
+    fullscreenTimer = null;
   }
 
   document.removeEventListener("fullscreenchange", handleFullscreenChange);
   document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
 
-  if (mutationObserver) {
-    mutationObserver.disconnect();
-    mutationObserver = null;
-  }
+  containerObserverHandle?.disconnect();
+  containerObserverHandle = null;
 
-  if (currentBoundVideo) {
-    currentBoundVideo.removeEventListener("ratechange", handleRateChange);
-    currentBoundVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
-    currentBoundVideo = null;
-  }
+  unbindCurrentVideo();
+  lastVideoSrc = "";
 
   document.querySelectorAll(`[${BTN_FLAG}]`).forEach((el) => {
     el.remove();

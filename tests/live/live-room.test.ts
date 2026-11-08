@@ -12,7 +12,7 @@ import {
 } from "../../extension/live/moss-live-protocol.js";
 import { buildGeminiSetupTools } from "../../extension/live/offscreen-gemini-live-client.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../../extension/ui/icons.js";
-import { startLiveRoomCompanion } from "../../extension/live/live-room-entry.js";
+import { startLiveRoomCompanion, stopLiveRoomCompanion } from "../../extension/live/live-room-entry.js";
 
 const ROOM_URL = "https://live.bilibili.com/21452505?broadcast_type=0";
 
@@ -146,6 +146,15 @@ describe("直播间伴看开关按钮", () => {
     btn?.dispatchEvent(new MouseEvent("mouseleave"));
     expect(btn?.title).toBe("实时伴看");
 
+    // 模拟 B 站播放器控制栏重建：摘除按钮后由局部 MutationObserver 自愈补回（无 setInterval 轮询）
+    btn?.remove();
+    expect(host.querySelector(".biliscript-live-room-toggle")).toBeNull();
+    const sibling = document.createElement("span");
+    controls.appendChild(sibling);
+    await Promise.resolve();
+    expect(host.querySelector(".biliscript-live-room-toggle")?.parentElement).toBe(controls);
+
+    stopLiveRoomCompanion();
     host.remove();
   });
 });
