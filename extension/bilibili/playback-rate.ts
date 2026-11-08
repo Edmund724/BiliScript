@@ -74,12 +74,6 @@ function syncBtnStyle(): void {
   const nativeColor = cs.color;
 
   document.querySelectorAll<HTMLElement>(`[${BTN_FLAG}] .${RATE_RESULT_CLASS}`).forEach((el) => {
-    el.style.fontSize = cs.fontSize;
-    el.style.fontWeight = cs.fontWeight;
-    el.style.fontFamily = cs.fontFamily;
-    el.style.lineHeight = cs.lineHeight;
-    el.style.letterSpacing = cs.letterSpacing;
-
     if (!el.dataset.nativeColor) {
       el.dataset.nativeColor = nativeColor;
     }
