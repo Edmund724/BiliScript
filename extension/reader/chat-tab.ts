@@ -68,7 +68,7 @@ import { thinkingViewOf } from "../chat/thinking-picker.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeLiveVoiceVolume, normalizeSpeechVoiceVolume } from "../core/validators.js";
+import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -144,12 +144,11 @@ import { ids, isReaderViewOpen } from "./state.js";
 import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
 import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
-import { isPlayerFullscreen, observeFullscreenChanges } from "../bilibili/fullscreen.js";
 import { createLiveTranscriptMerger } from "../live/live-transcript-merger.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
-import { encodeBase64Bytes, DEFAULT_LIVE_VOICE_SPEED, LIVE_VOICE_SPEED_STEPS } from "../live/moss-live-protocol.js";
-import type { LiveChatState } from "../live/live-chat-controller.js";
+import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
+import { createChatLiveBar } from "./chat-live-bar.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
 import {
   ensureReaderOverviewSource,
@@ -262,8 +261,18 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let liveController: LiveChatController | null = null;
-let overlayManuallyClosed = false;
-let unobserveFullscreen: (() => void) | null = null;
+let preservingLiveSessionOnContextSwitch = false;
+
+const liveBar = createChatLiveBar({
+  elements: els,
+  getLiveController: () => liveController,
+  onSyncComposerSendState: () => composer.syncSendState(),
+  onBeforeManualStart: () => {
+    if (chatRuntime.isTurnActive()) {
+      chatRuntime.stopActiveStream();
+    }
+  }
+});
 
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
@@ -272,85 +281,27 @@ const liveOverlayBinding = createLiveOverlayBinding({
   onClearHistory: async () => {
     await conversationStore.clearAll();
   },
-  shouldAutoShow: () => isPlayerFullscreen() && !overlayManuallyClosed,
-  onBeforeAutoShow: () => {
-    initFullscreenObserver();
-    if (typeof document !== "undefined") {
-      document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
-      document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
+  fullscreenMode: "player-fullscreen",
+  onExitFullscreenWhileLive: async () => {
+    if (!isReaderViewOpen()) {
+      const { ensureReaderShell } = await import("./lazy-shell.js");
+      const shell = await ensureReaderShell();
+      await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
     }
+    await ensureChatTabActivated({ consumeIntent: false });
+    chatRuntime.scrollToBottom();
   },
-  onVoicePrioritySync: (nextOn) => {
-    if (els.liveBarVoicePrioritySwitch) {
-      els.liveBarVoicePrioritySwitch.dataset.on = String(nextOn);
-      els.liveBarVoicePrioritySwitch.setAttribute("aria-checked", String(nextOn));
-    }
-  },
-  onShareVideoAudioSync: (nextOn) => {
-    if (els.liveBarShareAudioSwitch) {
-      els.liveBarShareAudioSwitch.dataset.on = String(nextOn);
-      els.liveBarShareAudioSwitch.setAttribute("aria-checked", String(nextOn));
-    }
-  },
-  onVolumeSync: (val) => {
-    if (els.liveBarVolumeInput) {
-      els.liveBarVolumeInput.value = String(val);
-      els.liveBarVolumeInput.style.setProperty("--live-progress", `${val}%`);
-    }
-    if (els.liveBarVolumeValue) {
-      els.liveBarVolumeValue.textContent = `${val}%`;
-    }
-  }
+  onVoicePrioritySync: (nextOn) => liveBar.syncVoicePriority(nextOn),
+  onShareVideoAudioSync: (nextOn) => liveBar.syncShareVideoAudio(nextOn),
+  onVolumeSync: (val) => liveBar.syncVolume(val)
 });
-
-function initFullscreenObserver(): void {
-  if (unobserveFullscreen) return;
-  unobserveFullscreen = observeFullscreenChanges((isFullscreen) => {
-    const state = liveController?.getState();
-    const isLive = state === "connecting" || state === "connected";
-    if (isFullscreen) {
-      if (typeof document !== "undefined") {
-        document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
-        document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
-      }
-      if (isLive && !overlayManuallyClosed) {
-        ensureFullscreenOverlay().show();
-      }
-    } else {
-      if (typeof document !== "undefined") {
-        document.documentElement?.removeAttribute("data-biliscript-fullscreen-mode");
-        document.body?.removeAttribute("data-biliscript-fullscreen-mode");
-      }
-      overlayManuallyClosed = false;
-      liveOverlayBinding.getOverlay()?.hide();
-      if (isLive) {
-        void (async () => {
-          if (!isReaderViewOpen()) {
-            const { ensureReaderShell } = await import("./lazy-shell.js");
-            const shell = await ensureReaderShell();
-            await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
-          }
-          await ensureChatTabActivated({ consumeIntent: false });
-          chatRuntime.scrollToBottom();
-        })();
-      }
-    }
-  });
-}
 
 export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
   return liveOverlayBinding.getOverlay();
 }
 
 export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
-  initFullscreenObserver();
   return liveOverlayBinding.ensureOverlay();
-}
-let preservingLiveSessionOnContextSwitch = false;
-
-function closeLiveBarPopovers(): void {
-  if (els.liveBarVolumePop) els.liveBarVolumePop.hidden = true;
-  if (els.liveBarSpeedPop) els.liveBarSpeedPop.hidden = true;
 }
 
 
@@ -841,9 +792,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
   outsideClick: () => {
     setChatTabOutsideClickHandler((event) => {
       popovers.handleDocumentClick(event);
-      if (!event.target || !(event.target as HTMLElement).closest(".chat-live-pop-anchor")) {
-        closeLiveBarPopovers();
-      }
+      liveBar.handleOutsideClick(event);
     });
     return () => setChatTabOutsideClickHandler(null);
   },
@@ -856,7 +805,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
-  closeLiveBarPopovers();
+  liveBar.closePopovers();
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
@@ -945,17 +894,7 @@ export async function startLiveCompanion(): Promise<boolean> {
   if (chatRuntime.isTurnActive()) {
     chatRuntime.stopActiveStream();
   }
-  if (!liveController) return false;
-  overlayManuallyClosed = false;
-  const started = await liveController.start();
-  if (started && isPlayerFullscreen()) {
-    if (typeof document !== "undefined") {
-      document.documentElement?.setAttribute("data-biliscript-fullscreen-mode", "1");
-      document.body?.setAttribute("data-biliscript-fullscreen-mode", "1");
-    }
-    ensureFullscreenOverlay().show();
-  }
-  return started;
+  return liveOverlayBinding.startOrRestoreCompanion();
 }
 
 export function getLiveController(): LiveChatController | null {
@@ -963,14 +902,7 @@ export function getLiveController(): LiveChatController | null {
 }
 
 export function closeChatSession(): void {
-  if (unobserveFullscreen) {
-    unobserveFullscreen();
-    unobserveFullscreen = null;
-  }
-  if (typeof document !== "undefined") {
-    document.documentElement?.removeAttribute("data-biliscript-fullscreen-mode");
-    document.body?.removeAttribute("data-biliscript-fullscreen-mode");
-  }
+  liveOverlayBinding.stopFullscreenObserver();
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
@@ -1111,176 +1043,11 @@ function bindEvents(): void {
   });
 
   // 实时伴看 Live Bar 与控制器联动
-  let liveTimerInterval: number | null = null;
-  let liveSessionStartTime = 0;
-
-  const stopLiveTimer = () => {
-    if (liveTimerInterval !== null) {
-      window.clearInterval(liveTimerInterval);
-      liveTimerInterval = null;
-    }
-    if (els.liveTimer) {
-      els.liveTimer.textContent = "00:00";
-    }
-  };
-
-  const startLiveTimer = () => {
-    stopLiveTimer();
-    liveSessionStartTime = Date.now();
-    liveTimerInterval = window.setInterval(() => {
-      if (!els.liveTimer) return;
-      const elapsedSec = Math.floor((Date.now() - liveSessionStartTime) / 1000);
-      const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
-      const ss = String(elapsedSec % 60).padStart(2, "0");
-      els.liveTimer.textContent = `${mm}:${ss}`;
-    }, 1000);
-  };
-
-  const updateLiveBarUi = (liveState: LiveChatState) => {
-    if (!els.liveBar) return;
-    if (liveState === "connecting") {
-      els.liveBar.hidden = false;
-      if (els.liveStatusDot) {
-        els.liveStatusDot.className = "chat-live-status-dot is-connecting";
-      }
-      stopLiveTimer();
-    } else if (liveState === "connected") {
-      els.liveBar.hidden = false;
-      if (els.liveStatusDot) {
-        els.liveStatusDot.className = "chat-live-status-dot";
-      }
-      startLiveTimer();
-    } else {
-      els.liveBar.hidden = true;
-      if (els.liveStatusDot) {
-        els.liveStatusDot.className = "chat-live-status-dot";
-      }
-      stopLiveTimer();
-      closeLiveBarPopovers();
-      if (els.liveBarShareAudioStatus) {
-        els.liveBarShareAudioStatus.textContent = "未开启";
-        els.liveBarShareAudioStatus.dataset.status = "未开启";
-      }
-    }
-    composer.syncSendState();
-  };
-
-  // 伴看操作区：音量滑轨调节（只控制实时伴看音量，卡片风格对齐模型选择弹窗）
-  if (els.liveBarVolumeInput) {
-    const initVol = normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume);
-    els.liveBarVolumeInput.value = String(initVol);
-    els.liveBarVolumeInput.style.setProperty("--live-progress", `${initVol}%`);
-    if (els.liveBarVolumeValue) {
-      els.liveBarVolumeValue.textContent = `${initVol}%`;
-    }
-    const onLiveVolumeChange = (e: Event) => {
-      const target = e.target as HTMLInputElement;
-      const val = normalizeLiveVoiceVolume(target.value);
-      target.style.setProperty("--live-progress", `${val}%`);
-      if (els.liveBarVolumeValue) {
-        els.liveBarVolumeValue.textContent = `${val}%`;
-      }
-      liveController?.setVolume(val / 100);
-      state.patchSettings({ liveVoiceVolume: val });
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoiceVolume: val } }).catch(() => null);
-    };
-    els.liveBarVolumeInput.addEventListener("input", onLiveVolumeChange);
-  }
-
-  // 伴看操作区：原声共享与语音优先开关
-  const initialShareVideoAudio = state.settings?.liveShareVideoAudio === true;
-  const initialVoicePriority = state.settings?.liveVoicePriority !== false;
-
-  if (els.liveBarShareAudioSwitch) {
-    const switchEl = els.liveBarShareAudioSwitch;
-    switchEl.dataset.on = String(initialShareVideoAudio);
-    switchEl.setAttribute("aria-checked", String(initialShareVideoAudio));
-    switchEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const nextOn = switchEl.dataset.on !== "true";
-      switchEl.dataset.on = String(nextOn);
-      switchEl.setAttribute("aria-checked", String(nextOn));
-      liveController?.setShareVideoAudio(nextOn);
-      state.patchSettings({ liveShareVideoAudio: nextOn });
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveShareVideoAudio: nextOn } }).catch(() => null);
-      if (!nextOn && els.liveBarShareAudioStatus) {
-        els.liveBarShareAudioStatus.textContent = "未开启";
-        els.liveBarShareAudioStatus.dataset.status = "未开启";
-      }
-    });
-  }
-
-  if (els.liveBarVoicePrioritySwitch) {
-    const switchEl = els.liveBarVoicePrioritySwitch;
-    switchEl.dataset.on = String(initialVoicePriority);
-    switchEl.setAttribute("aria-checked", String(initialVoicePriority));
-    switchEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const nextOn = switchEl.dataset.on !== "true";
-      switchEl.dataset.on = String(nextOn);
-      switchEl.setAttribute("aria-checked", String(nextOn));
-      liveController?.setVoicePriority(nextOn);
-      state.patchSettings({ liveVoicePriority: nextOn });
-      void sendRuntimeMessage({ type: "save-settings", settings: { liveVoicePriority: nextOn } }).catch(() => null);
-    });
-  }
-
-  // 伴看操作区：语速调节（本机播放倍率控制，刻度点对齐）
-  if (els.liveBarSpeedInput) {
-    els.liveBarSpeedInput.value = "1";
-    els.liveBarSpeedInput.style.setProperty("--live-progress", "25%");
-    if (els.liveBarSpeedValue) {
-      els.liveBarSpeedValue.textContent = "1x";
-    }
-    els.liveBarSpeedInput.addEventListener("input", (e: Event) => {
-      const target = e.target as HTMLInputElement;
-      const stepIdx = Number(target.value);
-      const progressPct = Math.round((stepIdx / 4) * 100);
-      target.style.setProperty("--live-progress", `${progressPct}%`);
-      const speed = LIVE_VOICE_SPEED_STEPS[stepIdx] ?? DEFAULT_LIVE_VOICE_SPEED;
-      if (els.liveBarSpeedValue) {
-        els.liveBarSpeedValue.textContent = `${speed}x`;
-      }
-      liveController?.setSpeed(speed);
-    });
-  }
-
-  // 伴看操作区：气泡弹层互斥与按钮开合
-  els.liveBarVolumeBtn?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (els.liveBarVolumePop) {
-      const willOpen = els.liveBarVolumePop.hidden;
-      closeLiveBarPopovers();
-      els.liveBarVolumePop.hidden = !willOpen;
-    }
-  });
-
-  els.liveBarSpeedBtn?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (els.liveBarSpeedPop) {
-      const willOpen = els.liveBarSpeedPop.hidden;
-      closeLiveBarPopovers();
-      els.liveBarSpeedPop.hidden = !willOpen;
-    }
-  });
-
-  els.liveBarVolumePop?.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
-  els.liveBarSpeedPop?.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
-
-  els.liveBarEndBtn?.addEventListener("click", () => {
-    void liveController?.stop();
-  });
-
-  els.liveSwitchBtn?.addEventListener("click", () => {
-    if (chatRuntime.isTurnActive()) {
-      chatRuntime.stopActiveStream();
-    }
-    void liveController?.start();
-  });
+  const {
+    initialVolume,
+    initialShareVideoAudio,
+    initialVoicePriority
+  } = liveBar.bindEvents();
 
   if (els.liveBar || els.liveBtn) {
     // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
@@ -1293,43 +1060,18 @@ function bindEvents(): void {
     liveController = createLiveChatController({
       liveButton: els.liveBtn,
       muteButton: els.liveBarMuteBtn ?? els.liveMuteBtn,
-      initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+      initialVolume,
       initialVoicePriority,
       initialShareVideoAudio,
-      onVoicePriorityChange: liveOverlayBinding.handleVoicePriorityChange,
-      onShareVideoAudioChange: liveOverlayBinding.handleShareVideoAudioChange,
-      onVideoAudioStatusChange: (status) => {
-        if (els.liveBarShareAudioStatus) {
-          els.liveBarShareAudioStatus.textContent = status;
-          els.liveBarShareAudioStatus.dataset.status = status;
-        }
-      },
+      onVideoAudioStatusChange: (status) => liveBar.syncVideoAudioStatus(status),
       // 中断键复用输入栏最右侧发送/停止同键：说话期间控制器挂 .is-live-interrupt。
       interruptButton: els.sendBtn,
       onInterruptStateChange: () => composer.syncSendState(),
-      onSpeakingChange: (speaking) => {
-        if (els.liveStatusDot) {
-          if (speaking) {
-            els.liveStatusDot.classList.add("is-speaking");
-          } else {
-            els.liveStatusDot.classList.remove("is-speaking");
-          }
-        }
-        composer.syncSendState();
-      },
-      onVadStateChange: (active) => {
-        const muteBtn = els.liveBarMuteBtn ?? els.liveMuteBtn;
-        if (muteBtn) {
-          muteBtn.classList.toggle("is-talking", active);
-        }
-        liveOverlayBinding.handleVadChange(active);
-      },
-      onStateChange: (liveState) => {
-        updateLiveBarUi(liveState);
-        liveOverlayBinding.handleStateChange(liveState);
-      },
-      onTranscript: liveOverlayBinding.handleTranscript,
-      onReconnecting: liveOverlayBinding.handleReconnecting,
+      onSpeakingChange: (speaking) => liveBar.syncSpeaking(speaking),
+      ...liveOverlayBinding.bindControllerCallbacks({
+        onVadStateChange: (active) => liveBar.syncVad(active),
+        onStateChange: (liveState) => liveBar.syncState(liveState)
+      }),
       showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,
@@ -1359,7 +1101,7 @@ function bindEvents(): void {
           }
         })
     });
-    initFullscreenObserver();
+    liveOverlayBinding.initFullscreenObserver();
   }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {

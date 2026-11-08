@@ -123,19 +123,13 @@ export async function startLiveRoomCompanion(): Promise<void> {
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
     initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-    onVoicePriorityChange: overlayBinding.handleVoicePriorityChange,
-    onShareVideoAudioChange: overlayBinding.handleShareVideoAudioChange,
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
     getVideoContext: bridge.getVideoContext,
     executeTool: bridge.executeTool,
     showNotice,
-    onVadStateChange: overlayBinding.handleVadChange,
-    onTranscript: overlayBinding.handleTranscript,
-    onReconnecting: overlayBinding.handleReconnecting,
-    onStateChange: (liveState) => {
-      syncToggleButton(liveState);
-      overlayBinding.handleStateChange(liveState);
-    }
+    ...overlayBinding.bindControllerCallbacks({
+      onStateChange: syncToggleButton
+    })
   });
 
   mountToggleButton();

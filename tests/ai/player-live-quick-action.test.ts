@@ -147,7 +147,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(mockOverlay.show).not.toHaveBeenCalled();
   });
 
-  it("全屏下点击伴看按钮：直接唤起右上角全屏伴看浮窗并开启伴看", async () => {
+  it("全屏下点击伴看按钮：直接激活对话 tab 并调用 startLiveCompanion（不打开阅读面板）", async () => {
     // 模拟 B 站网页全屏
     playerContainer.setAttribute("data-screen", "web");
 
@@ -168,6 +168,5 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       mockChatTab.startLiveCompanion.mock.invocationCallOrder[0]
     );
     expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
-    expect(mockOverlay.restore).toHaveBeenCalled();
   });
 });

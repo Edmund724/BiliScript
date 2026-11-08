@@ -25,6 +25,7 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
   afterEach(async () => {
     const { closeChatSession } = await import("../../extension/reader/chat-tab.js");
     closeChatSession();
+    resetModuleState();
     await new Promise((resolve) => setTimeout(resolve, 20));
     document.body.innerHTML = "";
     vi.restoreAllMocks();

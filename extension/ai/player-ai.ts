@@ -764,24 +764,13 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
 
     if (fullscreen) {
       await ensureUiReady();
-      const chat = await ensureReaderChatTab();
-      await chat.ensureChatTabActivated({ consumeIntent: false });
-      const overlay = chat.ensureFullscreenOverlay();
-      const liveCtrl = chat.getLiveController();
-      const isLive = liveCtrl?.getState() === "connected" || liveCtrl?.getState() === "connecting";
-      if (!isLive) {
-        await chat.startLiveCompanion();
-      }
-      overlay.restore();
-    } else {
-      if (!isReaderViewOpen()) {
-        const shell = await ensureReaderShell();
-        await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
-      }
-      const chat = await ensureReaderChatTab();
-      await chat.ensureChatTabActivated({ consumeIntent: false });
-      await chat.startLiveCompanion();
+    } else if (!isReaderViewOpen()) {
+      const shell = await ensureReaderShell();
+      await shell.enterReaderShell({ readerUrl: "", intent: "chat" });
     }
+    const chat = await ensureReaderChatTab();
+    await chat.ensureChatTabActivated({ consumeIntent: false });
+    await chat.startLiveCompanion();
   } catch (error) {
     setMessage(`实时伴看启动失败：${getErrorMessage(error)}`);
   } finally {

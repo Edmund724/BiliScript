@@ -68,4 +68,56 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     binding.handleVoicePriorityChange(false);
     expect(state.settings?.liveVoicePriority).toBe(false);
   });
+
+  it("bindControllerCallbacks 统一接线控制器事件，且 startOrRestoreCompanion 在已连接全屏下直接 restore 浮窗", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    host.setAttribute("data-screen", "web");
+    document.body.appendChild(host);
+
+    let currentState: "idle" | "connected" = "idle";
+    const startFn = vi.fn(async () => {
+      currentState = "connected";
+      return true;
+    });
+    const mockController: any = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      isVoiceRecentlyActive: () => true,
+      start: startFn,
+      stop: vi.fn(async () => {})
+    };
+
+    const onStateHook = vi.fn();
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => mockController,
+      fullscreenMode: "player-fullscreen"
+    });
+
+    const callbacks = binding.bindControllerCallbacks({
+      onStateChange: onStateHook
+    });
+    callbacks.onStateChange?.("connected");
+    expect(onStateHook).toHaveBeenCalledWith("connected");
+    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBe("1");
+
+    // 首次启动：调用 controller.start 并展示浮窗
+    currentState = "idle";
+    expect(await binding.startOrRestoreCompanion()).toBe(true);
+    expect(startFn).toHaveBeenCalledTimes(1);
+    const overlay = binding.getOverlay()!;
+    expect(overlay.isVisible()).toBe(true);
+
+    // 已在伴看中再次触发：不重复调 start，直接 restore 浮窗
+    const restoreSpy = vi.spyOn(overlay, "restore");
+    expect(await binding.startOrRestoreCompanion()).toBe(true);
+    expect(startFn).toHaveBeenCalledTimes(1);
+    expect(restoreSpy).toHaveBeenCalledTimes(1);
+
+    binding.dispose();
+    expect(document.documentElement.getAttribute("data-biliscript-fullscreen-mode")).toBeNull();
+  });
 });
