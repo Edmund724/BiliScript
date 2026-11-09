@@ -1,40 +1,55 @@
-import {AbsoluteFill, Easing, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
 import {voiceDuckEmphasisAtFrame} from "../audio.mjs";
 import {LIVE_TIMELINE, SCENES} from "../timeline.mjs";
 import {
   BottomLectureCaption,
   BRAND_FONT_FAMILY,
   COLORS,
-  Crop,
   ELEVATION,
   EditorialHeaderBand,
   FONT_FAMILY,
-  entranceOpacity,
-  microPerspective
+  entranceOpacity
 } from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 
 const LIVE_FROM = SCENES.find((scene) => scene.id === "live")!.from;
-const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
 const LIVE_VIDEO_SOURCE = "subtitle-seek-03.mp4";
 const LIVE_VIDEO_START_FROM = 224;
+
+// Real Bilibili video page player geometry in 1920x1080 page space (bili-page-shell.jpg: x=54..1398)
+const PAGE_PLAYER = {
+  left: 54,
+  top: 171,
+  width: 1344,
+  height: 745
+} as const;
+const VIDEO_SOURCE_PLAYER_WIDTH = 1302;
+const VIDEO_SCALE_X = PAGE_PLAYER.width / VIDEO_SOURCE_PLAYER_WIDTH;
 
 export const LIVE_USER_PROMPT = "那普通人怎么跟 AI 打配合？";
 export const LIVE_AI_REPLY = "把检索和拆解交给 AI，你来掌舵判断。";
 export const LIVE_AI_QUOTE = "“把检索和拆解交给 AI，你来掌舵判断。”";
 
-const MicIcon = ({size = 22, muted = false}: {size?: number; muted?: boolean}) => (
+const PlayerLiveActionIcon = ({size = 20}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor">
+    <rect x="9" y="2.5" width="6" height="11" rx="3" fill="currentColor" />
+    <path d="M5 10a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M12 17v4.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M8 21.5h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+  </svg>
+);
+
+const MicIcon = ({size = 18}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
     <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
     <line x1="12" x2="12" y1="19" y2="22" />
-    {muted ? <line x1="2" x2="22" y1="2" y2="22" stroke="#f85149" strokeWidth="2.2" /> : null}
   </svg>
 );
 
-const SpeakerIcon = ({size = 22}: {size?: number}) => (
+const SpeakerIcon = ({size = 18}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
     <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
@@ -62,17 +77,28 @@ export const LiveScene = () => {
   );
 
   const pointerOpacity =
-    interpolate(frame, [2, 6], [0, 1], CLAMP) *
-    interpolate(frame, [LIVE_TIMELINE.overlayOpenAt + 4, LIVE_TIMELINE.overlayOpenAt + 10], [1, 0], CLAMP);
-  const pointerX = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [120, 26], {...CLAMP, easing: SMOOTH});
-  const pointerY = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [68, 22], {...CLAMP, easing: SMOOTH});
+    interpolate(frame, [2, 5], [0, 1], CLAMP) *
+    interpolate(frame, [LIVE_TIMELINE.overlayOpenAt + 3, LIVE_TIMELINE.overlayOpenAt + 9], [1, 0], CLAMP);
+  const pointerX = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [116, 24], {...CLAMP, easing: SMOOTH});
+  const pointerY = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [58, 20], {...CLAMP, easing: SMOOTH});
 
   const overlaySpring = spring({
     fps,
     frame: frame - (LIVE_TIMELINE.overlayOpenAt - 4),
-    config: {damping: 18, stiffness: 170, mass: 0.85}
+    config: {damping: 17, stiffness: 175, mass: 0.82}
   });
-  const overlayOpacity = interpolate(frame, [LIVE_TIMELINE.overlayOpenAt - 6, LIVE_TIMELINE.overlayOpenAt + 4], [0, 1], CLAMP);
+  const overlayOpacity = interpolate(frame, [LIVE_TIMELINE.overlayOpenAt - 5, LIVE_TIMELINE.overlayOpenAt + 4], [0, 1], CLAMP);
+
+  // Keep the full Bilibili video page (title, UP card, right playlist, bottom bar) cleanly framed inside the 1776x852 stage
+  const cameraBreath = interpolate(
+    frame,
+    [LIVE_TIMELINE.overlayOpenAt - 2, LIVE_TIMELINE.overlayOpenAt + 24],
+    [0, 1],
+    {...CLAMP, easing: SMOOTH}
+  );
+  const pageScale = interpolate(cameraBreath, [0, 1], [0.915, 0.935]);
+  const pageLeft = (1776 - 1920 * pageScale) / 2;
+  const pageTop = -64 * pageScale;
 
   const userBubbleReveal = interpolate(
     frame,
@@ -113,14 +139,10 @@ export const LiveScene = () => {
   );
   const visibleAiReply = frame >= LIVE_TIMELINE.aiReplyAt ? LIVE_AI_REPLY.slice(0, streamedChars) : "";
 
-  const playerWidth = 884;
-  const playerHeight = 532;
-  const cropScale = playerWidth / PLAYER_CROP.width;
-
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <EditorialHeaderBand
-        kicker="全双工语音 · 视频页 & 直播间实时伴看"
+        kicker="视频页 & 直播间通用 · 播放器液态玻璃伴看"
         title="懒得打字？开启实时伴看，边看边聊。"
         titleNode={
           <>
@@ -131,513 +153,627 @@ export const LiveScene = () => {
         delay={-12}
       />
 
-      {/* Left Stage: Bilibili Video Player with Control Bar Live Quick Action & Ducking Meter */}
+      {/* Main Visual Stage: Bilibili Video Page + Player Top-Right Liquid-Glass Companion Overlay */}
       <div
         style={{
           position: "absolute",
-          left: 96,
-          top: 254,
-          width: playerWidth,
-          opacity: entranceOpacity(frame, 2, 0),
+          left: 72,
+          top: 168,
+          width: 1776,
+          height: 856,
+          borderRadius: 30,
+          overflow: "hidden",
+          boxShadow: ELEVATION.videoPlane,
+          background: "#FFFFFF",
+          opacity: entranceOpacity(frame, 1, 0),
           zIndex: 6
         }}
       >
-        {/* Scene Context Bar */}
+        {/* Scaled 1920x1080 Bilibili Page Canvas (cropped cleanly below top nav bar) */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-            padding: "0 4px"
+            position: "absolute",
+            left: pageLeft,
+            top: pageTop,
+            width: 1920,
+            height: 1080,
+            transform: `scale(${pageScale.toFixed(4)})`,
+            transformOrigin: "0% 0%"
           }}
         >
-          <div style={{display: "flex", alignItems: "center", gap: 10}}>
-            <span
+          {/* Real Bilibili Video Page Shell (Title, UP card, Danmaku list, Playlist, Action Bar) */}
+          <Img
+            src={staticFile("media/bili-page-shell.jpg")}
+            style={{width: 1920, height: 1080, objectFit: "cover"}}
+          />
+          {/* Clean top-right unauthenticated login button in page header */}
+          <div style={{position: "absolute", left: 1424, top: 8, width: 44, height: 48, background: "#FFFFFF"}} />
+
+          {/* Bilibili Video Player Host (.bpx-player-container) */}
+          <div
+            style={{
+              position: "absolute",
+              left: PAGE_PLAYER.left,
+              top: PAGE_PLAYER.top,
+              width: PAGE_PLAYER.width,
+              height: PAGE_PLAYER.height,
+              borderRadius: 14,
+              overflow: "hidden",
+              background: "#0B0F17",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.22)"
+            }}
+          >
+            {/* Playing Lecture Video inside Player */}
+            <div
               style={{
-                padding: "6px 14px",
-                borderRadius: 999,
-                background: "rgba(0, 174, 236, 0.14)",
-                color: COLORS.bilibiliBlue,
-                fontSize: 20,
-                fontWeight: 760
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: VIDEO_SOURCE_PLAYER_WIDTH,
+                height: PAGE_PLAYER.height,
+                overflow: "hidden",
+                transform: `scaleX(${VIDEO_SCALE_X.toFixed(5)})`,
+                transformOrigin: "0% 0%"
               }}
             >
-              视频页 + 直播间通用
-            </span>
-            <span style={{fontSize: 21, fontWeight: 660, color: COLORS.muted}}>
-              复旦《AI 与未来社会》04:52
-            </span>
-          </div>
-
-          {/* Original Video Audio Ducking Indicator */}
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "6px 16px",
-              borderRadius: 999,
-              background: isDuckingVideo ? "rgba(16, 185, 129, 0.14)" : "rgba(15, 23, 42, 0.06)",
-              border: isDuckingVideo ? "1.5px solid rgba(16, 185, 129, 0.38)" : "1.5px solid rgba(15, 23, 42, 0.08)",
-              color: isDuckingVideo ? "#047857" : COLORS.muted,
-              fontSize: 19,
-              fontWeight: 740
-            }}
-          >
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: "50%",
-                background: isDuckingVideo ? "#10b981" : "#94a3b8",
-                boxShadow: isDuckingVideo ? "0 0 10px rgba(16, 185, 129, 0.8)" : "none"
-              }}
-            />
-            <span>{isDuckingVideo ? "语音优先 · 原片音量自动压低 80%" : "分享视频原声 · 100%"}</span>
-          </div>
-        </div>
-
-        {/* Bilibili Video Frame */}
-        <div
-          style={{
-            position: "relative",
-            width: playerWidth,
-            height: playerHeight,
-            borderRadius: 26,
-            overflow: "hidden",
-            boxShadow: ELEVATION.videoPlane,
-            background: "#0F172A"
-          }}
-        >
-          <OffthreadVideo
-            muted
-            src={staticFile(`media/${LIVE_VIDEO_SOURCE}`)}
-            startFrom={LIVE_VIDEO_START_FROM}
-            playbackRate={0.35}
-            style={{
-              position: "absolute",
-              left: -PLAYER_CROP.x * cropScale,
-              top: -PLAYER_CROP.y * cropScale - 20,
-              width: 1920 * cropScale,
-              height: 1080 * cropScale,
-              maxWidth: "none",
-              filter: isDuckingVideo ? "brightness(0.92)" : "none"
-            }}
-          />
-
-          {/* Top-Right In-Situ Mini Preview Badge inside Player */}
-          <div
-            style={{
-              position: "absolute",
-              top: 18,
-              right: 18,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 18px",
-              borderRadius: 999,
-              background: "rgba(18, 20, 24, 0.68)",
-              backdropFilter: "blur(18px) saturate(168%)",
-              boxShadow:
-                "inset 1.5px 1.5px 1px -1px rgba(255, 255, 255, 0.36), 0 12px 28px rgba(0, 0, 0, 0.36)",
-              color: "#f0f6fc",
-              fontSize: 19,
-              fontWeight: 700,
-              opacity: overlayOpacity
-            }}
-          >
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: isAiTalking ? "#38bdf8" : "#3fb950",
-                boxShadow: isAiTalking ? "0 0 10px #38bdf8" : "0 0 8px rgba(63, 185, 80, 0.6)",
-                transform: isAiTalking ? "scale(1.3)" : "scale(1)"
-              }}
-            />
-            <span>全屏液态玻璃浮层 · 正在陪看</span>
-          </div>
-
-          {/* Bottom Player Control Bar with #biliscript-player-live-quick-action */}
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 78,
-              padding: "0 24px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              background: "linear-gradient(180deg, rgba(10, 14, 22, 0) 0%, rgba(10, 14, 22, 0.88) 45%, rgba(10, 14, 22, 0.96) 100%)",
-              color: "rgba(255, 255, 255, 0.88)"
-            }}
-          >
-            {/* Left playback controls */}
-            <div style={{display: "flex", alignItems: "center", gap: 18}}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="6 4 20 12 6 20 6 4" />
-              </svg>
-              <span
+              <OffthreadVideo
+                muted
+                src={staticFile(`media/${LIVE_VIDEO_SOURCE}`)}
+                startFrom={LIVE_VIDEO_START_FROM}
+                playbackRate={0.35}
                 style={{
-                  fontFamily: BRAND_FONT_FAMILY,
-                  fontSize: 20,
-                  fontWeight: 680,
-                  fontVariantNumeric: "tabular-nums"
+                  position: "absolute",
+                  left: -PAGE_PLAYER.left,
+                  top: -PAGE_PLAYER.top,
+                  width: 1920,
+                  height: 1080,
+                  maxWidth: "none"
                 }}
-              >
-                04:52 / 48:16
-              </span>
+              />
             </div>
 
-            {/* Right control bar with #biliscript-player-live-quick-action */}
-            <div style={{display: "flex", alignItems: "center", gap: 18}}>
-              <span style={{fontSize: 19, fontWeight: 620, color: "rgba(255, 255, 255, 0.72)"}}>1080P 高清</span>
-              <span style={{fontSize: 19, fontWeight: 620, color: "rgba(255, 255, 255, 0.72)"}}>倍速</span>
-
-              {/* #biliscript-player-live-quick-action */}
+            {/* Top-Left Scene & Audio Ducking Badges inside Player (unobtrusive, leaves lecturer clear) */}
+            <div
+              style={{
+                position: "absolute",
+                top: 18,
+                left: 18,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                zIndex: 12
+              }}
+            >
+              {/* Video & Live Room Support Corner Badge */}
               <div
                 style={{
-                  position: "relative",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  background: "rgba(15, 23, 42, 0.72)",
+                  backdropFilter: "blur(14px) saturate(160%)",
+                  WebkitBackdropFilter: "blur(14px) saturate(160%)",
+                  boxShadow:
+                    "inset 1px 1px 0.5px rgba(255, 255, 255, 0.28), 0 8px 20px rgba(0, 0, 0, 0.28)",
+                  color: "#F8FAFC",
+                  fontSize: 18,
+                  fontWeight: 720
+                }}
+              >
+                <span
+                  style={{
+                    padding: "2px 10px",
+                    borderRadius: 999,
+                    background: "rgba(56, 189, 248, 0.24)",
+                    color: "#7DD3FC",
+                    fontSize: 16,
+                    fontWeight: 760
+                  }}
+                >
+                  视频页 + 直播间
+                </span>
+                <span>不挡看片 · 随看随聊</span>
+              </div>
+
+              {/* Voice Priority Auto-Ducking Pill */}
+              <div
+                style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 8,
-                  padding: "9px 18px",
+                  padding: "8px 16px",
                   borderRadius: 999,
-                  background: toggleClicked ? "rgba(0, 174, 236, 0.24)" : "rgba(255, 255, 255, 0.14)",
-                  border: toggleClicked ? "2px solid #00aeec" : "1.5px solid rgba(255, 255, 255, 0.28)",
-                  boxShadow: toggleClicked ? "0 0 24px rgba(0, 174, 236, 0.48)" : "none",
-                  color: toggleClicked ? "#38bdf8" : "#ffffff",
-                  fontSize: 20,
-                  fontWeight: 760,
-                  scale: interpolate(
-                    frame,
-                    [LIVE_TIMELINE.toggleClickAt - 2, LIVE_TIMELINE.toggleClickAt, LIVE_TIMELINE.toggleClickAt + 4],
-                    [1, 0.9, 1],
-                    CLAMP
-                  )
+                  background: isDuckingVideo
+                    ? "rgba(6, 78, 59, 0.80)"
+                    : "rgba(15, 23, 42, 0.66)",
+                  backdropFilter: "blur(14px) saturate(160%)",
+                  WebkitBackdropFilter: "blur(14px) saturate(160%)",
+                  boxShadow: isDuckingVideo
+                    ? "inset 0 0 0 1.5px rgba(52, 211, 153, 0.65), 0 8px 22px rgba(16, 185, 129, 0.28)"
+                    : "inset 1px 1px 0.5px rgba(255, 255, 255, 0.22), 0 8px 20px rgba(0, 0, 0, 0.24)",
+                  color: isDuckingVideo ? "#ECFDF5" : "rgba(248, 250, 252, 0.9)",
+                  fontSize: 17,
+                  fontWeight: 720
                 }}
               >
-                <MicIcon size={20} />
-                <span>实时伴看</span>
                 <span
                   style={{
-                    position: "absolute",
-                    inset: -8,
-                    borderRadius: 999,
-                    border: "2.5px solid #00aeec",
-                    background: "rgba(0, 174, 236, 0.18)",
-                    opacity: rippleOpacity,
-                    scale: rippleScale,
-                    pointerEvents: "none"
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: isDuckingVideo ? "#34D399" : "#38BDF8",
+                    boxShadow: isDuckingVideo ? "0 0 10px #34D399" : "none"
                   }}
                 />
-                {pointerOpacity > 0.01 ? (
-                  <svg
-                    viewBox="0 0 30 38"
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      width: 32,
-                      height: 40,
-                      opacity: pointerOpacity,
-                      translate: `${pointerX}px ${pointerY}px`,
-                      filter: "drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45))",
-                      pointerEvents: "none",
-                      zIndex: 12
-                    }}
-                  >
-                    <path
-                      d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
-                      fill="white"
-                      stroke={COLORS.foreground}
-                      strokeWidth="2"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : null}
+                <span>
+                  {isDuckingVideo ? "语音优先 · 原片音量自动压低至 20%" : "共享视频原声 · 100%"}
+                </span>
               </div>
-
-              <span style={{fontSize: 19, fontWeight: 620, color: "rgba(255, 255, 255, 0.72)"}}>全屏</span>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Right Stage: 1:1 Magnified #biliscript-fullscreen-live-overlay Liquid-Glass Companion Card */}
-      <div
-        style={{
-          position: "absolute",
-          left: 1024,
-          top: 242,
-          width: 800,
-          zIndex: 9,
-          opacity: overlayOpacity,
-          translate: `0px ${((1 - overlaySpring) * 28).toFixed(1)}px`,
-          scale: 0.94 + 0.06 * overlaySpring
-        }}
-      >
-        <div
-          style={{
-            position: "relative",
-            width: 800,
-            borderRadius: 30,
-            overflow: "hidden",
-            backgroundColor: "rgba(18, 20, 24, 0.86)",
-            backgroundImage:
-              "radial-gradient(120% 90% at 12% 0%, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 42%, transparent 72%), linear-gradient(160deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 48%, rgba(8, 10, 14, 0.24) 100%)",
-            backdropFilter: "blur(24px) saturate(168%)",
-            WebkitBackdropFilter: "blur(24px) saturate(168%)",
-            boxShadow:
-              "inset 1.5px 1.5px 1px -1px rgba(255, 255, 255, 0.42), inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 28px 64px -14px rgba(15, 23, 42, 0.46), 0 8px 24px -4px rgba(15, 23, 42, 0.24)",
-            padding: "24px 28px 28px",
-            transform: microPerspective(-5, 1),
-            color: "#f0f6fc"
-          }}
-        >
-          {/* .live-overlay-header */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingBottom: 18,
-              marginBottom: 18,
-              borderBottom: "1px solid rgba(255, 255, 255, 0.1)"
-            }}
-          >
-            {/* .live-overlay-status-capsule */}
+            {/* HERO FOCAL POINT: Top-Right Liquid-Glass Companion Overlay (#biliscript-fullscreen-live-overlay) */}
             <div
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "8px 18px",
-                borderRadius: 999,
-                background: "rgba(255, 255, 255, 0.1)",
-                boxShadow: "inset 0 1px 0.5px rgba(255, 255, 255, 0.28)"
+                position: "absolute",
+                top: 18,
+                right: 18,
+                width: 556,
+                borderRadius: 22,
+                overflow: "hidden",
+                /* Authentic Liquid-Glass material over live video: translucent dark tint + specular rim + backdrop blur & saturation */
+                backgroundColor: "rgba(18, 20, 26, 0.44)",
+                backgroundImage:
+                  "radial-gradient(125% 95% at 10% 0%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.06) 55%, transparent 100%), linear-gradient(165deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 44%, rgba(8, 10, 16, 0.28) 100%)",
+                backdropFilter: "blur(16px) saturate(180%) brightness(0.86)",
+                WebkitBackdropFilter: "blur(16px) saturate(180%) brightness(0.86)",
+                boxShadow:
+                  "inset 1.5px 1.5px 1px -0.5px rgba(255, 255, 255, 0.54), inset -1.5px -1.5px 1px -0.5px rgba(255, 255, 255, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.42), 0 24px 52px rgba(0, 0, 0, 0.54)",
+                color: "rgba(255, 255, 255, 0.96)",
+                opacity: overlayOpacity,
+                transformOrigin: "100% 0%",
+                translate: `0px ${((1 - overlaySpring) * 18).toFixed(1)}px`,
+                scale: 0.92 + 0.08 * overlaySpring,
+                zIndex: 20
               }}
             >
-              <span
+              {/* 12px Liquid-Glass Edge Refraction Rim Highlight */}
+              <div
                 style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: "50%",
-                  background: isAiTalking ? "#38bdf8" : "#3fb950",
-                  boxShadow: isAiTalking ? "0 0 12px #38bdf8" : "0 0 8px rgba(63, 185, 80, 0.65)",
-                  transform: isAiTalking ? `scale(${(1.22 + 0.18 * Math.sin(frame * 0.55)).toFixed(2)})` : "scale(1)"
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: 22,
+                  padding: 2,
+                  background:
+                    "linear-gradient(135deg, rgba(255, 255, 255, 0.48) 0%, rgba(56, 189, 248, 0.24) 28%, rgba(255, 255, 255, 0.06) 62%, rgba(251, 114, 153, 0.26) 100%)",
+                  WebkitMask:
+                    "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                  WebkitMaskComposite: "xor",
+                  maskComposite: "exclude",
+                  pointerEvents: "none"
                 }}
               />
-              <span style={{fontSize: 22, fontWeight: 740, color: "#f0f6fc"}}>正在陪看</span>
-              <span
+
+              {/* .live-overlay-header */}
+              <div
                 style={{
-                  marginLeft: 4,
-                  padding: "3px 12px",
-                  borderRadius: 999,
-                  background: "rgba(56, 189, 248, 0.18)",
-                  color: "#7dd3fc",
-                  fontSize: 18,
-                  fontWeight: 700
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "14px 18px",
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.12)"
                 }}
               >
-                MOSS Live · Gemini Live
-              </span>
+                {/* .live-overlay-status-capsule */}
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "6px 15px",
+                    borderRadius: 999,
+                    background: "rgba(255, 255, 255, 0.14)",
+                    boxShadow:
+                      "inset 1px 1px 0.5px -0.5px rgba(255, 255, 255, 0.38), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18)"
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: isAiTalking ? "#38bdf8" : "#3fb950",
+                      boxShadow: isAiTalking
+                        ? "0 0 10px #38bdf8"
+                        : "0 0 8px rgba(63, 185, 80, 0.75)",
+                      transform: isAiTalking
+                        ? `scale(${(1.22 + 0.18 * Math.sin(frame * 0.55)).toFixed(2)})`
+                        : "scale(1)"
+                    }}
+                  />
+                  <span style={{fontSize: 18, fontWeight: 740, color: "#FFFFFF"}}>正在陪看</span>
+                  <span
+                    style={{
+                      padding: "2px 10px",
+                      borderRadius: 999,
+                      background: "rgba(56, 189, 248, 0.24)",
+                      color: "#BAE6FD",
+                      fontSize: 15,
+                      fontWeight: 720
+                    }}
+                  >
+                    MOSS Live · Gemini Live
+                  </span>
+                </div>
+
+                {/* .live-overlay-header-actions */}
+                <div style={{display: "flex", alignItems: "center", gap: 6}}>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 9,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: isUserSpeaking
+                        ? "rgba(63, 185, 80, 0.28)"
+                        : "rgba(255, 255, 255, 0.12)",
+                      color: isUserSpeaking ? "#4ade80" : "rgba(255, 255, 255, 0.88)"
+                    }}
+                  >
+                    <MicIcon size={18} />
+                  </div>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 9,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "rgba(56, 189, 248, 0.22)",
+                      color: "#7dd3fc"
+                    }}
+                  >
+                    <SpeakerIcon size={18} />
+                  </div>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 9,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      color: "rgba(255, 255, 255, 0.78)",
+                      fontSize: 20,
+                      fontWeight: 600
+                    }}
+                  >
+                    −
+                  </div>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 9,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      color: "rgba(255, 255, 255, 0.78)",
+                      fontSize: 19,
+                      fontWeight: 600
+                    }}
+                  >
+                    ×
+                  </div>
+                </div>
+              </div>
+
+              {/* Compact Audio Preferences Strip (.live-overlay-audio-popover inline projection) */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "10px 18px",
+                  background: "rgba(255, 255, 255, 0.07)",
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.09)",
+                  opacity: 0.82 + 0.18 * duckReveal
+                }}
+              >
+                <div style={{display: "flex", alignItems: "center", gap: 8}}>
+                  <span style={{fontSize: 16, fontWeight: 680, color: "rgba(255, 255, 255, 0.92)"}}>
+                    分享视频声音
+                  </span>
+                  <span
+                    style={{
+                      width: 34,
+                      height: 19,
+                      borderRadius: 999,
+                      background: "#3fb950",
+                      padding: 2.5,
+                      display: "inline-flex",
+                      justifyContent: "flex-end"
+                    }}
+                  >
+                    <span style={{width: 14, height: 14, borderRadius: "50%", background: "#fff"}} />
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    background: isDuckingVideo ? "rgba(56, 189, 248, 0.24)" : "transparent",
+                    boxShadow: isDuckingVideo ? "inset 0 0 0 1px rgba(56, 189, 248, 0.48)" : "none"
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 720,
+                      color: isDuckingVideo ? "#BAE6FD" : "rgba(255, 255, 255, 0.92)"
+                    }}
+                  >
+                    语音优先 · 自动压低原片
+                  </span>
+                  <span
+                    style={{
+                      width: 34,
+                      height: 19,
+                      borderRadius: 999,
+                      background: "#3fb950",
+                      padding: 2.5,
+                      display: "inline-flex",
+                      justifyContent: "flex-end"
+                    }}
+                  >
+                    <span style={{width: 14, height: 14, borderRadius: "50%", background: "#fff"}} />
+                  </span>
+                </div>
+              </div>
+
+              {/* .live-overlay-messages */}
+              <div
+                style={{
+                  padding: "16px 18px 18px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 13
+                }}
+              >
+                {/* .live-overlay-bubble-user */}
+                <div
+                  style={{
+                    alignSelf: "flex-end",
+                    maxWidth: "88%",
+                    padding: "12px 18px",
+                    borderRadius: "16px 16px 3px 16px",
+                    background: "#3fb950",
+                    boxShadow:
+                      "inset 0 1px 0 0 rgba(255, 255, 255, 0.34), 0 6px 16px rgba(0, 0, 0, 0.24)",
+                    color: "#ffffff",
+                    fontSize: 20,
+                    fontWeight: 720,
+                    lineHeight: 1.4,
+                    opacity: userBubbleReveal,
+                    translate: `0px ${((1 - userBubbleReveal) * 10).toFixed(1)}px`
+                  }}
+                >
+                  <div style={{display: "flex", alignItems: "center", gap: 8}}>
+                    <span>🎙️</span>
+                    <span>{LIVE_USER_PROMPT}</span>
+                  </div>
+                </div>
+
+                {/* .live-overlay-bubble-assistant */}
+                <div
+                  style={{
+                    alignSelf: "flex-start",
+                    width: "94%",
+                    padding: "14px 18px",
+                    borderRadius: "16px 16px 16px 3px",
+                    background: "rgba(255, 255, 255, 0.16)",
+                    boxShadow:
+                      "inset 1px 1px 0.5px -0.5px rgba(255, 255, 255, 0.36), inset 0 0 0 0.5px rgba(255, 255, 255, 0.20), 0 8px 20px rgba(0, 0, 0, 0.24)",
+                    color: "#ffffff",
+                    opacity: aiBubbleReveal,
+                    translate: `0px ${((1 - aiBubbleReveal) * 10).toFixed(1)}px`
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 6
+                    }}
+                  >
+                    <span style={{fontSize: 16, fontWeight: 720, color: "#BAE6FD"}}>
+                      AI 实时语音伴看
+                    </span>
+                    <div style={{display: "flex", alignItems: "center", gap: 3.5, height: 16}}>
+                      {[0, 1, 2, 3, 4, 5].map((barIdx) => {
+                        const wave = isAiTalking
+                          ? 0.4 + 0.6 * Math.abs(Math.sin((frame - LIVE_TIMELINE.aiReplyAt) * 0.45 + barIdx * 0.9))
+                          : 0.25;
+                        return (
+                          <span
+                            key={barIdx}
+                            style={{
+                              width: 3.5,
+                              height: Math.round(5 + 11 * wave),
+                              borderRadius: 999,
+                              background: isAiTalking ? "#38bdf8" : "rgba(255, 255, 255, 0.38)"
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 22,
+                      fontWeight: 740,
+                      lineHeight: 1.42,
+                      color: "#FFFFFF",
+                      minHeight: 32,
+                      textShadow: "0 1px 4px rgba(0, 0, 0, 0.32)"
+                    }}
+                  >
+                    {visibleAiReply}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* .live-overlay-header-actions */}
-            <div style={{display: "flex", alignItems: "center", gap: 10}}>
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: isUserSpeaking ? "rgba(63, 185, 80, 0.24)" : "rgba(255, 255, 255, 0.1)",
-                  color: isUserSpeaking ? "#4ade80" : "#f0f6fc"
-                }}
-              >
-                <MicIcon size={21} />
-              </div>
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(56, 189, 248, 0.2)",
-                  color: "#38bdf8"
-                }}
-              >
-                <SpeakerIcon size={21} />
-              </div>
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  color: "rgba(240, 246, 252, 0.72)",
-                  fontSize: 24,
-                  fontWeight: 600
-                }}
-              >
-                −
-              </div>
-            </div>
-          </div>
-
-          {/* .live-overlay-audio-popover inline strip: 分享视频声音 + 语音优先 */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 14,
-              marginBottom: 20,
-              opacity: 0.75 + 0.25 * duckReveal
-            }}
-          >
+            {/* Bottom Bilibili Player Control Bar with #biliscript-player-live-quick-action */}
             <div
               style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 68,
+                padding: "0 24px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "12px 18px",
-                borderRadius: 16,
-                background: "rgba(255, 255, 255, 0.08)",
-                boxShadow: "inset 0 1px 0.5px rgba(255, 255, 255, 0.18)"
+                background:
+                  "linear-gradient(180deg, rgba(10, 14, 22, 0) 0%, rgba(10, 14, 22, 0.82) 48%, rgba(10, 14, 22, 0.94) 100%)",
+                color: "rgba(255, 255, 255, 0.9)"
               }}
             >
-              <div>
-                <div style={{fontSize: 20, fontWeight: 720, color: "#f0f6fc"}}>分享视频声音</div>
-                <div style={{fontSize: 18, fontWeight: 560, color: "rgba(240, 246, 252, 0.68)", marginTop: 2}}>
-                  画面 + 原声同步喂给 AI
-                </div>
-              </div>
+              {/* Progress Bar Line */}
               <div
                 style={{
-                  width: 46,
-                  height: 26,
-                  borderRadius: 999,
-                  background: "#3fb950",
-                  padding: 3,
-                  display: "flex",
-                  justifyContent: "flex-end"
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: 4,
+                  background: "rgba(255, 255, 255, 0.24)"
                 }}
               >
-                <span style={{width: 20, height: 20, borderRadius: "50%", background: "#ffffff"}} />
+                <div style={{width: "18%", height: "100%", background: "#00AEEC"}} />
               </div>
-            </div>
 
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "12px 18px",
-                borderRadius: 16,
-                background: isDuckingVideo ? "rgba(56, 189, 248, 0.16)" : "rgba(255, 255, 255, 0.08)",
-                border: isDuckingVideo ? "1.5px solid rgba(56, 189, 248, 0.45)" : "1.5px solid transparent",
-                boxShadow: "inset 0 1px 0.5px rgba(255, 255, 255, 0.22)"
-              }}
-            >
-              <div>
-                <div style={{fontSize: 20, fontWeight: 720, color: "#f0f6fc"}}>语音优先</div>
-                <div style={{fontSize: 18, fontWeight: 620, color: isDuckingVideo ? "#7dd3fc" : "rgba(240, 246, 252, 0.68)", marginTop: 2}}>
-                  开口自动压低原片音量
-                </div>
-              </div>
-              <div
-                style={{
-                  width: 46,
-                  height: 26,
-                  borderRadius: 999,
-                  background: "#3fb950",
-                  padding: 3,
-                  display: "flex",
-                  justifyContent: "flex-end"
-                }}
-              >
-                <span style={{width: 20, height: 20, borderRadius: "50%", background: "#ffffff"}} />
-              </div>
-            </div>
-          </div>
-
-          {/* .live-overlay-messages */}
-          <div style={{display: "flex", flexDirection: "column", gap: 18}}>
-            {/* .live-overlay-bubble-user */}
-            <div
-              style={{
-                alignSelf: "flex-end",
-                maxWidth: 640,
-                padding: "16px 24px",
-                borderRadius: "20px 20px 4px 20px",
-                background: "#3fb950",
-                boxShadow: "inset 0 1px 0.5px rgba(255, 255, 255, 0.35), 0 8px 20px rgba(16, 185, 129, 0.28)",
-                color: "#ffffff",
-                fontSize: 25,
-                fontWeight: 720,
-                lineHeight: 1.42,
-                opacity: userBubbleReveal,
-                translate: `0px ${((1 - userBubbleReveal) * 14).toFixed(1)}px`
-              }}
-            >
-              <div style={{display: "flex", alignItems: "center", gap: 10}}>
-                <span>🎙️</span>
-                <span>{LIVE_USER_PROMPT}</span>
-              </div>
-            </div>
-
-            {/* .live-overlay-bubble-assistant */}
-            <div
-              style={{
-                alignSelf: "flex-start",
-                width: "100%",
-                padding: "20px 24px",
-                borderRadius: "20px 20px 20px 4px",
-                background: "rgba(255, 255, 255, 0.12)",
-                boxShadow: "inset 0 1px 0.5px rgba(255, 255, 255, 0.25), 0 10px 24px rgba(0, 0, 0, 0.22)",
-                color: "#f0f6fc",
-                opacity: aiBubbleReveal,
-                translate: `0px ${((1 - aiBubbleReveal) * 14).toFixed(1)}px`
-              }}
-            >
-              <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10}}>
-                <span style={{fontSize: 19, fontWeight: 720, color: "#7dd3fc"}}>
-                  AI 伴看实时语音回复
+              {/* Left Playback Controls */}
+              <div style={{display: "flex", alignItems: "center", gap: 18}}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="6 4 20 12 6 20 6 4" />
+                </svg>
+                <span
+                  style={{
+                    fontFamily: BRAND_FONT_FAMILY,
+                    fontSize: 18,
+                    fontWeight: 680,
+                    fontVariantNumeric: "tabular-nums"
+                  }}
+                >
+                  04:52 / 48:16
                 </span>
-                {/* Voice waveform bars */}
-                <div style={{display: "flex", alignItems: "center", gap: 4, height: 20}}>
-                  {[0, 1, 2, 3, 4, 5].map((barIdx) => {
-                    const wave = isAiTalking
-                      ? 0.4 + 0.6 * Math.abs(Math.sin((frame - LIVE_TIMELINE.aiReplyAt) * 0.45 + barIdx * 0.9))
-                      : 0.25;
-                    return (
-                      <span
-                        key={barIdx}
-                        style={{
-                          width: 4,
-                          height: Math.round(6 + 14 * wave),
-                          borderRadius: 999,
-                          background: isAiTalking ? "#38bdf8" : "rgba(255, 255, 255, 0.35)"
-                        }}
-                      />
-                    );
-                  })}
-                </div>
               </div>
-              <div style={{fontSize: 27, fontWeight: 740, lineHeight: 1.45, color: "#ffffff", minHeight: 39}}>
-                {visibleAiReply}
+
+              {/* Right Control Bar Items + #biliscript-player-live-quick-action */}
+              <div style={{display: "flex", alignItems: "center", gap: 20}}>
+                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
+                  1080P 高清
+                </span>
+                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
+                  倍速
+                </span>
+                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
+                  字幕
+                </span>
+
+                {/* #biliscript-player-live-quick-action */}
+                <div
+                  style={{
+                    position: "relative",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 7,
+                    padding: "7px 15px",
+                    borderRadius: 999,
+                    background: toggleClicked
+                      ? "rgba(0, 174, 236, 0.26)"
+                      : "rgba(255, 255, 255, 0.14)",
+                    border: toggleClicked
+                      ? "2px solid #00aeec"
+                      : "1.5px solid rgba(255, 255, 255, 0.3)",
+                    boxShadow: toggleClicked ? "0 0 22px rgba(0, 174, 236, 0.52)" : "none",
+                    color: toggleClicked ? "#38bdf8" : "#ffffff",
+                    fontSize: 18,
+                    fontWeight: 760,
+                    scale: interpolate(
+                      frame,
+                      [
+                        LIVE_TIMELINE.toggleClickAt - 2,
+                        LIVE_TIMELINE.toggleClickAt,
+                        LIVE_TIMELINE.toggleClickAt + 4
+                      ],
+                      [1, 0.9, 1],
+                      CLAMP
+                    )
+                  }}
+                >
+                  <PlayerLiveActionIcon size={19} />
+                  <span>实时伴看</span>
+                  <span
+                    style={{
+                      position: "absolute",
+                      inset: -8,
+                      borderRadius: 999,
+                      border: "2.5px solid #00aeec",
+                      background: "rgba(0, 174, 236, 0.18)",
+                      opacity: rippleOpacity,
+                      scale: rippleScale,
+                      pointerEvents: "none"
+                    }}
+                  />
+                  {pointerOpacity > 0.01 ? (
+                    <svg
+                      viewBox="0 0 30 38"
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        width: 30,
+                        height: 38,
+                        opacity: pointerOpacity,
+                        translate: `${pointerX}px ${pointerY}px`,
+                        filter: "drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45))",
+                        pointerEvents: "none",
+                        zIndex: 25
+                      }}
+                    >
+                      <path
+                        d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
+                        fill="white"
+                        stroke={COLORS.foreground}
+                        strokeWidth="2"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : null}
+                </div>
+
+                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
+                  网页全屏
+                </span>
+                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
+                  全屏
+                </span>
               </div>
             </div>
           </div>
@@ -652,6 +788,7 @@ export const LiveScene = () => {
         emphasis={voiceEmphasis}
         from={LIVE_TIMELINE.aiReplyAt}
         duration={LIVE_TIMELINE.aiReplyDoneAt - LIVE_TIMELINE.aiReplyAt + 4}
+        style={{bottom: 24}}
       />
     </AbsoluteFill>
   );
