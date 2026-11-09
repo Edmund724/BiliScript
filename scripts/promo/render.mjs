@@ -68,7 +68,7 @@ async function writeReleaseText() {
     ...sfxNames.filter((name) => !/^bubble-\d+$/.test(name)),
     ...(bubbleNames.length ? [`bubble-${bubbleNames[0].slice(-2)}..${bubbleNames.at(-1).slice(-2)}`] : [])
   ].join(" / ");
-  const credits = `演示视频与原片讲课同期声片段（02:32 / 04:07 / 04:44）：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n实时伴看演示语音片段（29.2s–31.8s）：MOSS Live (moss-live-1.0) 实时多模态语音对话实录\nhttps://api.mosi.cn\n\n无原生 CC 字幕转写与概念检索演示视频：隔壁的程序员老王《一听就懂的傅里叶变换》\nhttps://www.bilibili.com/video/BV1Yqpx6pEuF/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：${sfxList} — BiliScript\n均为原创合成；来源与许可同上。\n\n平台 Logo：权利归各平台权利人；仅标识对应预设，不暗示合作或背书。\n${logoCredits}\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
+  const credits = `演示视频与原片讲课同期声片段（02:32 / 04:07 / 04:44）：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n实时伴看演示语音片段（29.0s–32.2s）：MOSS Live (moss-live-1.0) 实时多模态语音对话实录\nhttps://api.mosi.cn\n\n无原生 CC 字幕转写与概念检索演示视频：隔壁的程序员老王《一听就懂的傅里叶变换》\nhttps://www.bilibili.com/video/BV1Yqpx6pEuF/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：${sfxList} — BiliScript\n均为原创合成；来源与许可同上。\n\n平台 Logo：权利归各平台权利人；仅标识对应预设，不暗示合作或背书。\n${logoCredits}\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
   await mkdir(RELEASE_DIR, {recursive: true});
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-zh-CN.srt"), srt, "utf8");
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-credits.txt"), credits, "utf8");

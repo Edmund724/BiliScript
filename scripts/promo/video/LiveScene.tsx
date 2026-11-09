@@ -32,12 +32,51 @@ export const LIVE_USER_PROMPT = "那普通人怎么跟 AI 打配合？";
 export const LIVE_AI_REPLY = "把检索和拆解交给 AI，你来掌舵判断。";
 export const LIVE_AI_QUOTE = "“把检索和拆解交给 AI，你来掌舵判断。”";
 
-const PlayerLiveActionIcon = ({size = 20}: {size?: number}) => (
+const PlayerLiveActionIcon = ({size = 22}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor">
     <rect x="9" y="2.5" width="6" height="11" rx="3" fill="currentColor" />
-    <path d="M5 10a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-    <path d="M12 17v4.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-    <path d="M8 21.5h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M5 10a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    <path d="M12 17v4.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    <path d="M8 21.5h8" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+  </svg>
+);
+
+const BiliVolumeIcon = ({size = 22}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M3 9.2c0-.9.7-1.6 1.6-1.6h2.7l4.2-3.4c.9-.7 2.2-.1 2.2 1.1v13.4c0 1.2-1.3 1.8-2.2 1.1l-4.2-3.4H4.6c-.9 0-1.6-.7-1.6-1.6V9.2Z" />
+    <path d="M16.4 8.6a4.8 4.8 0 0 1 0 6.8" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
+    <path d="M19.2 5.8a8.8 8.8 0 0 1 0 12.4" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
+  </svg>
+);
+
+const BiliSettingsIcon = ({size = 22}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M10.1 2.4h3.8l.55 2.35c.54.18 1.05.47 1.5.85l2.3-.72 1.9 3.28-1.74 1.64c.09.52.09 1.08 0 1.6l1.74 1.64-1.9 3.28-2.3-.72c-.45.38-.96.67-1.5.85l-.55 2.35h-3.8l-.55-2.35a6.8 6.8 0 0 1-1.5-.85l-2.3.72-1.9-3.28 1.74-1.64a5.4 5.4 0 0 1 0-1.6L3.85 8.16l1.9-3.28 2.3.72c.45-.38.96-.67 1.5-.85L10.1 2.4ZM12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Zm0 2.1a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4Z"
+    />
+  </svg>
+);
+
+const BiliPipIcon = ({size = 22}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M11 19H5.2A2.2 2.2 0 0 1 3 16.8V7.2A2.2 2.2 0 0 1 5.2 5h13.6A2.2 2.2 0 0 1 21 7.2V11"
+      stroke="currentColor"
+      strokeWidth="2.3"
+      strokeLinecap="round"
+    />
+    <rect x="13" y="13.2" width="8.2" height="6.3" rx="1.6" fill="currentColor" />
+  </svg>
+);
+
+const BiliTrefoilIcon = ({size = 22}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="12" r="1.45" />
+    <path d="M9.6 10.6 4.9 7.9A8.2 8.2 0 0 1 11.1 3.9v5.4a2.8 2.8 0 0 0-1.5 1.3Z" />
+    <path d="M14.4 10.6a2.8 2.8 0 0 0-1.5-1.3V3.9a8.2 8.2 0 0 1 6.2 4l-4.7 2.7Z" />
+    <path d="M12 14.8c.55 0 1.06-.16 1.5-.44l4.7 2.7a8.2 8.2 0 0 1-12.4 0l4.7-2.7c.44.28.95.44 1.5.44Z" />
   </svg>
 );
 
@@ -79,8 +118,8 @@ export const LiveScene = () => {
   const pointerOpacity =
     interpolate(frame, [2, 5], [0, 1], CLAMP) *
     interpolate(frame, [LIVE_TIMELINE.overlayOpenAt + 3, LIVE_TIMELINE.overlayOpenAt + 9], [1, 0], CLAMP);
-  const pointerX = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [116, 24], {...CLAMP, easing: SMOOTH});
-  const pointerY = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [58, 20], {...CLAMP, easing: SMOOTH});
+  const pointerX = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [86, 17], {...CLAMP, easing: SMOOTH});
+  const pointerY = interpolate(frame, [2, LIVE_TIMELINE.toggleClickAt - 1], [48, 12], {...CLAMP, easing: SMOOTH});
 
   const overlaySpring = spring({
     fps,
@@ -130,7 +169,7 @@ export const LiveScene = () => {
       Math.floor(
         interpolate(
           frame,
-          [LIVE_TIMELINE.aiReplyAt, LIVE_TIMELINE.aiReplyAt + 42],
+          [LIVE_TIMELINE.aiReplyAt, LIVE_TIMELINE.aiReplyAt + 68],
           [2, LIVE_AI_REPLY.length],
           CLAMP
         )
@@ -684,37 +723,24 @@ export const LiveScene = () => {
                 </span>
               </div>
 
-              {/* Right Control Bar Items + #biliscript-player-live-quick-action */}
-              <div style={{display: "flex", alignItems: "center", gap: 20}}>
-                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
-                  1080P 高清
-                </span>
-                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
-                  倍速
-                </span>
-                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
-                  字幕
-                </span>
-
-                {/* #biliscript-player-live-quick-action */}
+              {/* Right Control Bar Items (.bpx-player-control-bottom-right) */}
+              <div style={{display: "flex", alignItems: "center", gap: 22, paddingRight: 4}}>
+                {/* #biliscript-player-live-quick-action (mounted before 1080P 高码率, pure icon button) */}
                 <div
                   style={{
                     position: "relative",
+                    width: 36,
+                    height: 22,
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 7,
-                    padding: "7px 15px",
-                    borderRadius: 999,
-                    background: toggleClicked
-                      ? "rgba(0, 174, 236, 0.26)"
-                      : "rgba(255, 255, 255, 0.14)",
-                    border: toggleClicked
-                      ? "2px solid #00aeec"
-                      : "1.5px solid rgba(255, 255, 255, 0.3)",
-                    boxShadow: toggleClicked ? "0 0 22px rgba(0, 174, 236, 0.52)" : "none",
-                    color: toggleClicked ? "#38bdf8" : "#ffffff",
-                    fontSize: 18,
-                    fontWeight: 760,
+                    justifyContent: "center",
+                    marginRight: 2,
+                    borderRadius: 6,
+                    background: "transparent",
+                    border: "none",
+                    color: toggleClicked ? "#00AEEC" : "rgba(255, 255, 255, 0.9)",
+                    opacity: toggleClicked ? 1 : 0.92,
+                    filter: toggleClicked ? "drop-shadow(0 0 8px rgba(0, 174, 236, 0.45))" : "none",
                     scale: interpolate(
                       frame,
                       [
@@ -722,19 +748,23 @@ export const LiveScene = () => {
                         LIVE_TIMELINE.toggleClickAt,
                         LIVE_TIMELINE.toggleClickAt + 4
                       ],
-                      [1, 0.9, 1],
+                      [1, 0.88, 1],
                       CLAMP
                     )
                   }}
                 >
-                  <PlayerLiveActionIcon size={19} />
-                  <span>实时伴看</span>
+                  <PlayerLiveActionIcon size={22} />
                   <span
                     style={{
                       position: "absolute",
-                      inset: -8,
-                      borderRadius: 999,
-                      border: "2.5px solid #00aeec",
+                      left: "50%",
+                      top: "50%",
+                      width: 34,
+                      height: 34,
+                      marginLeft: -17,
+                      marginTop: -17,
+                      borderRadius: "50%",
+                      border: "2px solid #00AEEC",
                       background: "rgba(0, 174, 236, 0.18)",
                       opacity: rippleOpacity,
                       scale: rippleScale,
@@ -768,11 +798,26 @@ export const LiveScene = () => {
                   ) : null}
                 </div>
 
-                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
-                  网页全屏
+                <span style={{fontSize: 16, fontWeight: 650, color: "rgba(255, 255, 255, 0.9)", letterSpacing: "0.01em"}}>
+                  1080P 高码率
                 </span>
-                <span style={{fontSize: 17, fontWeight: 620, color: "rgba(255, 255, 255, 0.76)"}}>
-                  全屏
+                <span style={{fontSize: 16, fontWeight: 650, color: "rgba(255, 255, 255, 0.9)"}}>
+                  倍速
+                </span>
+                <span style={{fontSize: 16, fontWeight: 650, color: "rgba(255, 255, 255, 0.9)"}}>
+                  字幕
+                </span>
+                <span style={{display: "inline-flex", alignItems: "center", color: "rgba(255, 255, 255, 0.9)"}}>
+                  <BiliVolumeIcon size={22} />
+                </span>
+                <span style={{display: "inline-flex", alignItems: "center", color: "rgba(255, 255, 255, 0.9)"}}>
+                  <BiliSettingsIcon size={22} />
+                </span>
+                <span style={{display: "inline-flex", alignItems: "center", color: "rgba(255, 255, 255, 0.9)"}}>
+                  <BiliPipIcon size={22} />
+                </span>
+                <span style={{display: "inline-flex", alignItems: "center", color: "rgba(255, 255, 255, 0.9)"}}>
+                  <BiliTrefoilIcon size={22} />
                 </span>
               </div>
             </div>
@@ -787,7 +832,7 @@ export const LiveScene = () => {
         active={voiceEmphasis > 0.01}
         emphasis={voiceEmphasis}
         from={LIVE_TIMELINE.aiReplyAt}
-        duration={LIVE_TIMELINE.aiReplyDoneAt - LIVE_TIMELINE.aiReplyAt + 4}
+        duration={LIVE_TIMELINE.aiReplyDoneAt - LIVE_TIMELINE.aiReplyAt + 14}
         style={{bottom: 24}}
       />
     </AbsoluteFill>

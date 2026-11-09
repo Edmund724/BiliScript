@@ -38,13 +38,13 @@ export const WEBSEARCH_TIMELINE = {
 };
 
 export const LIVE_TIMELINE = {
-  duration: beatF(9),
+  duration: beatF(11),
   toggleClickAt: 10,
   overlayOpenAt: 14,
-  userPromptAt: 24,
-  duckActiveAt: 32,
-  aiReplyAt: 51,
-  aiReplyDoneAt: 129
+  userPromptAt: 22,
+  duckActiveAt: 30,
+  aiReplyAt: 45,
+  aiReplyDoneAt: 142
 };
 
 export const PROVIDER_TIMELINE = {
@@ -65,7 +65,7 @@ export const SCENES = [
   { id: "subtitle", from: 540, duration: 120 },
   { id: "chat", from: 660, duration: 165 },
   { id: "live", from: 825, duration: LIVE_TIMELINE.duration },
-  { id: "providers", from: 960, duration: PROVIDER_TIMELINE.duration },
+  { id: "providers", from: 990, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
@@ -89,9 +89,9 @@ export const EVIDENCE_TIMES = [
   14.8, 15.5, 16.5, 17.5,
   18.0, 18.4, 18.9, 20.1, 21.0,
   22.1, 22.9, 24.6, 25.3, 25.6, 26.5,
-  27.8, 28.4, 29.1, 30.2, 31.3,
-  32.2, 32.6, 32.9, 33.4, 33.9, 34.3,
-  34.8, 35.3, 35.9, 36.5, 37.2,
+  27.8, 28.4, 29.1, 30.4, 31.8, 32.5,
+  33.2, 33.6, 33.9, 34.4, 34.9, 35.3,
+  35.8, 36.3, 36.9, 37.5, 38.2,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
