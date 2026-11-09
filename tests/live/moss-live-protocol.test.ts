@@ -371,6 +371,35 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses native client delegation creation and cancellation events", () => {
+    expect(parseMossServerJsonEvent({
+      type: "session.delegation.created",
+      data: {
+        delegation: { id: "del_001", type: "client", status: "in_progress" },
+        objective: "总结视频核心内容",
+        context: ["用户想先了解全片脉络"],
+        purpose: "task",
+        timeout_ms: null
+      }
+    })).toEqual({
+      kind: "delegation.created",
+      delegation: {
+        delegationId: "del_001",
+        objective: "总结视频核心内容",
+        context: ["用户想先了解全片脉络"]
+      }
+    });
+
+    expect(parseMossServerJsonEvent({
+      type: "session.delegation.cancelled",
+      data: {
+        delegation_id: "del_001",
+        cancelled_by: "server",
+        reason: "User cancelled the task"
+      }
+    })).toEqual({ kind: "delegation.cancelled", delegationId: "del_001" });
+  });
+
   it("returns null for malformed or unrecognized events", () => {
     expect(parseMossServerJsonEvent(null)).toBeNull();
     expect(parseMossServerJsonEvent("not-an-object")).toBeNull();
@@ -432,14 +461,17 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     ]);
   });
 
-  it("builds official session.update payload with persona and instructions only", () => {
+  it("builds session.update with lightweight tools and explicit delegation routing", () => {
     const payload = buildMinimalSessionUpdatePayload();
     expect(payload.action).toBe("session.update");
-    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona", "tools"]);
     expect(payload.session.persona.name).toBe("Bili伴看助手");
     expect(payload.session.instructions).toContain("screen通道");
     expect(payload.session.instructions).toContain("切勿提示用户打开摄像头");
     expect(payload.session.instructions).toContain("不得编造外部事实");
+    expect(payload.session.instructions).toContain("请通过后台委派（delegation）交由后台文本模型处理");
+    expect(payload.session.instructions).toContain("普通日常闲聊或常识问题请直接回答");
+    expect(payload.session.tools).toEqual(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS);
   });
 });
 
@@ -455,12 +487,13 @@ describe("subtitle-aware session and tool calls", () => {
       pageTitle: "工具调用",
       chapters: [{ title: "开场", from: 0, to: 10 }]
     });
-    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona", "tools"]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
     expect(payload.session.instructions).toContain("0s 开场");
     expect(payload.session.instructions).toContain("time 时刻文本");
-    expect(payload.session.instructions).toContain("将其 from 作为 seek 的 time");
+    expect(payload.session.instructions).toContain("控制播放器（跳转进度、暂停/播放/倍速）");
+    expect(payload.session.instructions).toContain("总结全片或片段内容");
     expect(payload.session.instructions).toContain("不得声称操作已成功");
   });
 
@@ -484,7 +517,8 @@ describe("subtitle-aware session and tool calls", () => {
       }
     });
     const instructions = payload.session.instructions;
-    expect(instructions).toContain("不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论");
+    expect(instructions).toContain("不得用前台字幕工具或 web_search 代替后台委派");
+    expect(instructions).toContain("已有覆盖完整的全片概览，可直接读取并回答");
     expect(instructions).toContain("全片概览状态：ready（覆盖：complete）");
     expect(instructions).toContain("全片简介：全片介绍实时语音链路。");
     expect(instructions).toContain("0:00 开场：为什么需要实时");
@@ -542,7 +576,7 @@ describe("subtitle-aware session and tool calls", () => {
     expect(instructions).not.toContain("全片简介：");
   });
 
-  it("tells the assistant to admit no overview is available when none is wired", () => {
+  it("uses backend delegation when no local overview is available", () => {
     const payload = buildMinimalSessionUpdatePayload({
       url: "https://www.bilibili.com/video/BV1test000000/",
       bvid: "BV1test000000",
@@ -553,7 +587,8 @@ describe("subtitle-aware session and tool calls", () => {
       pageTitle: "",
       chapters: []
     });
-    expect(payload.session.instructions).toContain("没有可用的全片概览");
+    expect(payload.session.instructions).toContain("没有可用的本地概览");
+    expect(payload.session.instructions).toContain("发起后台委派");
     expect(payload.session.instructions).toContain("不得编造全片内容");
   });
 
@@ -576,21 +611,13 @@ describe("subtitle-aware session and tool calls", () => {
     });
   });
 
-  it("declares four page function tools including summarize_video for MOSS-LIVE server-side registration", () => {
+  it("declares only lightweight player and nearby-subtitle tools for MOSS-LIVE", () => {
     const names = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.map((tool) => tool.name);
     expect(names).toEqual([
       "control_bilibili_player",
-      "get_subtitles_around_time",
-      "search_video_subtitles",
-      "summarize_video"
+      "get_subtitles_around_time"
     ]);
-
-    const summarizeTool = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.find(
-      (tool) => tool.name === "summarize_video"
-    );
-    expect(summarizeTool).toBeDefined();
-    expect(summarizeTool?.type).toBe("function");
-
+    expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => tool.type === "function")).toBe(true);
   });
 
   describe("formatLiveCloseDiagnostics", () => {

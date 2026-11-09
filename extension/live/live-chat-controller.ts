@@ -1,6 +1,6 @@
 // extension/live/live-chat-controller.ts
 // AI 对话面板中实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕与联网查证状态并处理断连/清理。
+// 负责校验密钥与权限、采集音视频、执行前台工具与后台视频委派，并管理静音、挂断、断连及换片清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
@@ -10,6 +10,7 @@ import {
   resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
   type LiveProviderType,
+  type MossLiveDelegationRequest,
   type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveTranscriptEvent,
@@ -21,6 +22,11 @@ import {
   resolveActiveLiveProviderId
 } from "./live-provider-store.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import {
+  VideoBackendTaskManager,
+  type VideoBackendTaskOptions,
+  type VideoBackendTaskResult
+} from "./video-backend-task.js";
 import {
   createPageAudioCapture,
   type PageAudioCaptureOptions,
@@ -47,6 +53,12 @@ export interface LiveReconnectingInfo {
   reason?: string;
   error?: string;
   notice: string;
+}
+
+export interface LiveVideoBackendTaskManager {
+  runTask(options: VideoBackendTaskOptions): Promise<VideoBackendTaskResult | null>;
+  cancelTask(taskId: string): boolean;
+  cancelAllTasks(): void;
 }
 
 export interface LiveChatControllerDeps {
@@ -79,6 +91,7 @@ export interface LiveChatControllerDeps {
   getVideoContext?: () => MossLiveSessionContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
   subscribeVideoContextChanges?: (listener: () => void) => () => void;
+  videoBackendTaskManager?: LiveVideoBackendTaskManager;
 }
 
 export interface LiveChatController {
@@ -147,6 +160,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     : null;
   const resolveVideoContext = getVideoContext ?? defaultToolsBridge!.getVideoContext;
   const resolveExecuteTool = executeTool ?? defaultToolsBridge!.executeTool;
+  const backendTasks = deps.videoBackendTaskManager ?? new VideoBackendTaskManager();
 
   let state: LiveChatState = "idle";
   let muted = false;
@@ -339,6 +353,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   let stopVideoContextWatch: (() => void) | null = null;
   let lastPostedContextJson: string | null = null;
+  let lastDelegationVideoKey: string | null = null;
 
   function readVideoContext(): MossLiveSessionContext | null {
     try {
@@ -348,8 +363,88 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  function delegationVideoKey(context: MossLiveSessionContext | null): string {
+    return context && !("kind" in context)
+      ? `${context.bvid}:${context.cid}:${context.pageIndex}`
+      : "";
+  }
+
+  function postDelegationSilent(
+    delegationId: string,
+    content: string,
+    generation: number
+  ): void {
+    if (generation !== currentGeneration || !activePort) return;
+    try {
+      activePort.postMessage({
+        action: "delegation_silent",
+        delegationId,
+        content: Array.from(content).slice(0, 2000).join("")
+      });
+    } catch {}
+  }
+
+  function postDelegationResult(
+    delegationId: string,
+    status: "completed" | "failed",
+    content: string,
+    generation: number
+  ): void {
+    if (generation !== currentGeneration || !activePort) return;
+    try {
+      activePort.postMessage({
+        action: "delegation_result",
+        delegationId,
+        status,
+        content: Array.from(content).slice(0, 2000).join("")
+      });
+    } catch {}
+  }
+
+  async function runBackendDelegation(
+    delegation: MossLiveDelegationRequest,
+    generation: number
+  ): Promise<void> {
+    const controller = new AbortController();
+    try {
+      await backendTasks.runTask({
+        taskId: delegation.delegationId,
+        objective: delegation.objective,
+        context: delegation.context,
+        scope: delegation.scope,
+        timeRange: delegation.timeRange,
+        signal: controller.signal,
+        onSilentProgress: (content) => {
+          postDelegationSilent(delegation.delegationId, content, generation);
+        },
+        onSpokenResult: (content) => {
+          postDelegationResult(delegation.delegationId, "completed", content, generation);
+        },
+        onError: (content) => {
+          postDelegationResult(delegation.delegationId, "failed", content, generation);
+        }
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      postDelegationResult(
+        delegation.delegationId,
+        "failed",
+        (error as Error)?.message || String(error),
+        generation
+      );
+    }
+  }
+
   function postVideoContext(context: MossLiveSessionContext | null): void {
     if (!activePort) return;
+    const nextDelegationVideoKey = delegationVideoKey(context);
+    if (
+      lastDelegationVideoKey !== null &&
+      nextDelegationVideoKey !== lastDelegationVideoKey
+    ) {
+      backendTasks.cancelAllTasks();
+    }
+    lastDelegationVideoKey = nextDelegationVideoKey;
     const nextJson = JSON.stringify(context);
     if (nextJson === lastPostedContextJson) return;
     lastPostedContextJson = nextJson;
@@ -390,6 +485,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const sessionId = `live-${generation}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
     muted = false;
+    backendTasks.cancelAllTasks();
     stopActiveMedia();
     updateUi("connecting");
 
@@ -555,6 +651,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           savedMossSessionId = msg.sessionId;
         }
       } else if (msg.type === "connecting") {
+        backendTasks.cancelAllTasks();
         updateUi("connecting");
       } else if (msg.type === "connected") {
         if (msg.sessionId) {
@@ -573,6 +670,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (state === "connected" || state === "connecting") {
           onTranscript?.(msg.event);
         }
+      } else if (msg.type === "delegation_created") {
+        void runBackendDelegation(msg.delegation, generation);
+      } else if (msg.type === "delegation_cancelled") {
+        backendTasks.cancelTask(msg.delegationId);
       } else if (msg.type === "tool_call") {
         const postToolResult = (result: unknown) => {
           if (generation !== currentGeneration || !activePort) return;
@@ -601,6 +702,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           showNotice(`联网查证失败${querySuffix}${event.error ? `：${event.error}` : ""}`, 6000);
         }
       } else if (msg.type === "reconnecting") {
+        backendTasks.cancelAllTasks();
         reconnecting = true;
         const notice = formatLiveCloseDiagnostics({
           isReconnect: true,
@@ -668,6 +770,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         : resolveMossLiveWsUrl(prepResp.provider?.baseUrl || targetOrigin, resolvedModel);
     const initialVideoContext = readVideoContext();
     lastPostedContextJson = JSON.stringify(initialVideoContext);
+    lastDelegationVideoKey = delegationVideoKey(initialVideoContext);
     watchVideoContext(generation);
     try {
       port.postMessage({
@@ -697,8 +800,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function disconnectPort(): void {
+    backendTasks.cancelAllTasks();
     stopVideoContextWatch?.();
     lastPostedContextJson = null;
+    lastDelegationVideoKey = null;
     if (activePort) {
       try {
         activePort.disconnect();

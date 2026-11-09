@@ -171,8 +171,9 @@ describe("OffscreenMossLiveClient", () => {
     // attach_session sent immediately on open
     expect(ws.sentData).toHaveLength(1);
     expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "attach_session",
-      memory_scope: "session"
+      type: "attach_session",
+      memory_scope: "session",
+      delegation: { type: "client" }
     });
 
     // not connected yet (session_attached required)
@@ -1447,6 +1448,140 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
   });
 });
 
+describe("OffscreenMossLiveClient native client delegation", () => {
+  const context = {
+    url: "https://www.bilibili.com/video/BV1test000000/",
+    bvid: "BV1test000000",
+    cid: "123",
+    title: "实时语音原理",
+    pageIndex: 1,
+    pageCount: 1,
+    pageTitle: "",
+    chapters: []
+  };
+
+  function connectClient(options: NonNullable<ConstructorParameters<typeof OffscreenMossLiveClient>[0]> = {}) {
+    const client = new OffscreenMossLiveClient({ videoContext: context, ...options });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+    return { client, ws };
+  }
+
+  function createDelegation(ws: FakeWebSocket, delegationId = "del_001") {
+    ws.simulateMessage(JSON.stringify({
+      type: "session.delegation.created",
+      data: {
+        delegation: { id: delegationId, type: "client", status: "in_progress" },
+        objective: "总结视频核心内容",
+        context: ["用户刚才在问全片脉络"],
+        purpose: "task",
+        timeout_ms: null
+      }
+    }));
+  }
+
+  it("maps task callbacks to silent memory and spoken commentary protocol messages", () => {
+    const onEvent = vi.fn();
+    const { client, ws } = connectClient({ onEvent });
+    createDelegation(ws);
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "delegation_created",
+      delegation: {
+        delegationId: "del_001",
+        objective: "总结视频核心内容",
+        context: ["用户刚才在问全片脉络"]
+      }
+    });
+
+    client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "章节事实" });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "completed",
+      content: "口语总结"
+    });
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { type: "session.thinking.append", delegation_id: "del_001", content: "章节事实" },
+      {
+        type: "session.commentary.append",
+        delegation_id: "del_001",
+        status: "completed",
+        content: "口语总结"
+      }
+    ]);
+
+    client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "迟到事实" });
+    expect(ws.sentData).toHaveLength(2);
+    client.close();
+  });
+
+  it("aborts through the page event and suppresses all late output after server cancellation", () => {
+    const onEvent = vi.fn();
+    const { client, ws } = connectClient({ onEvent });
+    createDelegation(ws);
+    ws.simulateMessage(JSON.stringify({
+      type: "session.delegation.cancelled",
+      data: {
+        delegation_id: "del_001",
+        cancelled_by: "server",
+        reason: "User cancelled the task"
+      }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({ type: "delegation_cancelled", delegationId: "del_001" });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "completed",
+      content: "取消后的迟到总结"
+    });
+    expect(ws.sentData).toHaveLength(0);
+    client.close();
+  });
+
+  it("maps failures and invalidates active delegations on video switch or close", () => {
+    const { client, ws } = connectClient();
+    createDelegation(ws, "del_failed");
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_failed",
+      status: "failed",
+      content: "字幕不可用"
+    });
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      type: "session.commentary.append",
+      delegation_id: "del_failed",
+      status: "failed",
+      content: "字幕不可用"
+    });
+
+    createDelegation(ws, "del_switch");
+    client.updateVideoContext({ ...context, cid: "456", pageIndex: 2 });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_switch",
+      status: "completed",
+      content: "旧视频结果"
+    });
+    expect(ws.sentData.filter((data) => JSON.parse(data).type === "session.commentary.append")).toHaveLength(1);
+
+    createDelegation(ws, "del_close");
+    client.close();
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_close",
+      status: "completed",
+      content: "断连后的结果"
+    });
+    expect(ws.sentData.filter((data) => JSON.parse(data).delegation_id === "del_close")).toHaveLength(0);
+  });
+});
+
 describe("OffscreenMossLiveClient web search tools", () => {
   function connectClient(
     options: NonNullable<ConstructorParameters<typeof OffscreenMossLiveClient>[0]> = {}
@@ -2001,8 +2136,9 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     ws.simulateOpen();
     const firstAttach = JSON.parse(ws.sentData[0]);
     expect(firstAttach).toEqual({
-      action: "attach_session",
+      type: "attach_session",
       memory_scope: "session",
+      delegation: { type: "client" },
       session_id: "sess_reconnect_test"
     });
 

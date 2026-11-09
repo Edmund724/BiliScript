@@ -31,6 +31,30 @@ export const DEFAULT_GEMINI_HANDSHAKE_TIMEOUT_MS = DEFAULT_LIVE_HANDSHAKE_TIMEOU
 export const DEFAULT_GEMINI_OVERVIEW_TOOL_TIMEOUT_MS = DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS;
 export const DEFAULT_GEMINI_PAGE_TOOL_TIMEOUT_MS = DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS;
 
+const GEMINI_LIVE_VIDEO_TASK_PARAMETERS = {
+  type: "OBJECT",
+  properties: {
+    scope: {
+      type: "STRING",
+      enum: ["full", "time_range", "query"],
+      description: "full：总结全片；time_range：总结指定时间段；query：检索全片字幕并回答特定问题。"
+    },
+    query: {
+      type: "STRING",
+      description: "用户关注的具体问题或主题；scope 为 query 时必填。"
+    },
+    start_sec: {
+      type: "NUMBER",
+      description: "时间段起始秒数；scope 为 time_range 时使用。"
+    },
+    end_sec: {
+      type: "NUMBER",
+      description: "时间段结束秒数；scope 为 time_range 时使用。"
+    }
+  },
+  required: ["scope"]
+} as const;
+
 export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     name: "control_bilibili_player",
@@ -78,31 +102,18 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
     }
   },
   {
-    name: "search_video_subtitles",
-    description: "在当前视频/分P的全部字幕中按关键词检索。",
-    parameters: {
-      type: "OBJECT",
-      properties: {
-        query: {
-          type: "STRING",
-          description: "字幕检索关键词。"
-        },
-        max_results: {
-          type: "NUMBER",
-          description: "最大返回条数（默认 12，范围 1–30）。"
-        }
-      },
-      required: ["query"]
-    }
+    name: "summarize_video",
+    behavior: "NON_BLOCKING",
+    description:
+      "在后台总结当前视频全片或指定时间段，梳理核心观点、内容脉络与关键细节。调用后可继续实时对话，完成后会自动播报结果。",
+    parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
   },
   {
-    name: "summarize_video",
+    name: "analyze_video_transcript",
+    behavior: "NON_BLOCKING",
     description:
-      "生成或获取当前视频的全片概览（包含全片简介、章节脉络与金句）。当用户要求总结全片、询问这期视频讲了什么、或者当前没有概览时调用。概览生成可能需要一定时间。",
-    parameters: {
-      type: "OBJECT",
-      properties: {}
-    }
+      "在后台检索并深入分析当前视频全片字幕，回答需要跨片段查证的具体问题。调用后可继续实时对话，完成后会自动播报结果。",
+    parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
   }
 ] as const;
 
@@ -189,6 +200,52 @@ function extractGeminiSearchQuery(args: unknown): string {
   return typeof record?.query === "string" ? record.query.trim() : "";
 }
 
+function readGeminiArgs(args: unknown): Record<string, unknown> {
+  if (typeof args === "string") {
+    try {
+      return asRecord(JSON.parse(args)) ?? {};
+    } catch {
+      return {};
+    }
+  }
+  return asRecord(args) ?? {};
+}
+
+function buildGeminiVideoDelegation(callId: string, name: string, rawArgs: unknown) {
+  const args = readGeminiArgs(rawArgs);
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  const hasTimeRange =
+    typeof args.start_sec === "number" || typeof args.end_sec === "number";
+  const requestedScope = args.scope;
+  const scope: "full" | "time_range" | "query" =
+    requestedScope === "full" || requestedScope === "time_range" || requestedScope === "query"
+      ? requestedScope
+      : name === "analyze_video_transcript" || query
+        ? "query"
+        : hasTimeRange
+          ? "time_range"
+          : "full";
+  const baseObjective = scope === "query"
+    ? "检索当前视频全片字幕并回答用户关注的问题"
+    : scope === "time_range"
+      ? "总结当前视频指定时间段的内容，梳理核心观点与关键细节"
+      : name === "analyze_video_transcript"
+        ? "深入分析当前视频全片字幕，梳理核心观点与关键细节"
+        : "总结当前视频全片内容，梳理核心观点与内容脉络";
+  const objective = query ? `${baseObjective}：${query}` : baseObjective;
+  const startSec = typeof args.start_sec === "number" ? args.start_sec : undefined;
+  const endSec = typeof args.end_sec === "number" ? args.end_sec : undefined;
+  return {
+    delegationId: callId,
+    objective,
+    context: [] as string[],
+    scope,
+    ...(scope === "time_range" && (startSec !== undefined || endSec !== undefined)
+      ? { timeRange: { startSec, endSec } }
+      : {})
+  };
+}
+
 export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   readonly defaultWsUrl = DEFAULT_GEMINI_LIVE_WS_URL;
   readonly handshakeTimeoutMessage =
@@ -204,6 +261,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   private audioChunkCounter = 0;
   private currentTurn: GeminiTurn | null = null;
   private discardOutputUntilInput = false;
+  private readonly activeVideoTaskCalls = new Map<string, string>();
+  private delegationVideoKey = "";
 
   constructor(options: { model?: string; liveGeminiNativeSearch?: boolean } = {}) {
     this.model = options.model || DEFAULT_GEMINI_LIVE_MODEL;
@@ -225,21 +284,27 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     this.turnCounter = 0;
     this.toolCallCounter = 0;
     this.audioChunkCounter = 0;
+    this.activeVideoTaskCalls.clear();
     this.runId = `gemini-live-${generation}`;
   }
 
   onResetPlayback(): void {
     this.currentTurn = null;
+    this.activeVideoTaskCalls.clear();
   }
 
   onSocketOpen(context: LiveWireSocketOpenContext): void {
+    const videoContext = context.videoContext;
+    this.delegationVideoKey = videoContext && !("kind" in videoContext)
+      ? `${videoContext.bvid}:${videoContext.cid}:${videoContext.pageIndex}`
+      : "";
     context.markContextSent(context.videoContext);
     context.sendJson({
       setup: {
         model: `models/${this.model.replace(/^models\//, "")}`,
         generationConfig: { responseModalities: ["AUDIO"] },
         systemInstruction: {
-          parts: [{ text: buildVideoInstructions(context.videoContext) }]
+          parts: [{ text: buildVideoInstructions(context.videoContext, true) }]
         },
         tools: buildGeminiSetupTools(this.liveGeminiNativeSearch, context.videoContext),
         inputAudioTranscription: {},
@@ -459,6 +524,10 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     callbacks: LiveWireRuntimeCallbacks
   ): { runId: string; turnId: string } | null {
     this.discardOutputUntilInput = true;
+    for (const callId of this.activeVideoTaskCalls.keys()) {
+      callbacks.cancelDelegation(callId);
+    }
+    this.activeVideoTaskCalls.clear();
     const turn = this.currentTurn;
     if (!turn) return null;
     this.currentTurn = null;
@@ -499,6 +568,12 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
           ? item.id.trim()
           : `gemini-tool-${++this.toolCallCounter}`;
       const args = item.args ?? {};
+      if (name === "summarize_video" || name === "analyze_video_transcript") {
+        if (this.activeVideoTaskCalls.has(callId)) continue;
+        this.activeVideoTaskCalls.set(callId, name);
+        callbacks.startDelegation(buildGeminiVideoDelegation(callId, name, args));
+        continue;
+      }
       callbacks.startFunctionCall({
         callId,
         name,
@@ -516,6 +591,11 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   ): void {
     const rawIds = Array.isArray(cancellation.ids) ? cancellation.ids : [];
     const ids = rawIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+    for (const id of ids) {
+      if (this.activeVideoTaskCalls.delete(id)) {
+        callbacks.cancelDelegation(id);
+      }
+    }
     if (ids.length > 0) {
       callbacks.cancelToolCallsByIds(ids);
     }
@@ -552,13 +632,68 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     }
   }
 
+  onVideoContextUpdated(context: MossLiveSessionContext | null): void {
+    const nextVideoKey = context && !("kind" in context)
+      ? `${context.bvid}:${context.cid}:${context.pageIndex}`
+      : "";
+    if (nextVideoKey !== this.delegationVideoKey) {
+      this.activeVideoTaskCalls.clear();
+      this.delegationVideoKey = nextVideoKey;
+    }
+  }
+
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void {
     transport.sendJson({
       clientContent: {
-        turns: [{ role: "user", parts: [{ text: buildVideoInstructions(context) }] }],
+        turns: [{ role: "user", parts: [{ text: buildVideoInstructions(context, true) }] }],
         turnComplete: false
       }
     });
+  }
+
+  private sendVideoTaskResponse(
+    delegationId: string,
+    response: Record<string, unknown>,
+    scheduling: "SILENT" | "WHEN_IDLE",
+    transport: LiveWireTransport
+  ): boolean {
+    const name = this.activeVideoTaskCalls.get(delegationId);
+    if (!name) return false;
+    if (scheduling === "WHEN_IDLE") this.activeVideoTaskCalls.delete(delegationId);
+    return transport.sendJson({
+      toolResponse: {
+        functionResponses: [
+          {
+            id: delegationId,
+            name,
+            response,
+            scheduling
+          }
+        ]
+      }
+    });
+  }
+
+  sendDelegationSilent(
+    delegationId: string,
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    return this.sendVideoTaskResponse(delegationId, { factText: content }, "SILENT", transport);
+  }
+
+  sendDelegationResult(
+    delegationId: string,
+    status: "completed" | "failed",
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    return this.sendVideoTaskResponse(
+      delegationId,
+      status === "completed" ? { spokenBriefing: content } : { error: content },
+      "WHEN_IDLE",
+      transport
+    );
   }
 
   sendToolResponse(
@@ -598,13 +733,31 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
 }
 
 export class OffscreenGeminiLiveClient extends OffscreenLiveSessionRuntime {
+  private readonly geminiAdapter: GeminiWireAdapter;
+
   constructor(options: GeminiLiveClientOptions = {}) {
-    super(
-      new GeminiWireAdapter({
-        model: options.model,
-        liveGeminiNativeSearch: options.liveGeminiNativeSearch
-      }),
-      options
-    );
+    const adapter = new GeminiWireAdapter({
+      model: options.model,
+      liveGeminiNativeSearch: options.liveGeminiNativeSearch
+    });
+    super(adapter, options);
+    this.geminiAdapter = adapter;
+  }
+
+  handleAction(msg: MossLiveClientAction): void {
+    if (msg.action === "delegation_silent") {
+      this.geminiAdapter.sendDelegationSilent(msg.delegationId, msg.content, this.transport);
+      return;
+    }
+    if (msg.action === "delegation_result") {
+      this.geminiAdapter.sendDelegationResult(
+        msg.delegationId,
+        msg.status,
+        msg.content,
+        this.transport
+      );
+      return;
+    }
+    super.handleAction(msg);
   }
 }

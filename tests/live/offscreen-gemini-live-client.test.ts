@@ -630,24 +630,33 @@ describe("OffscreenGeminiLiveClient context update", () => {
 });
 
 describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle", () => {
-  it("declares 4 Bilibili page tools + web_search when liveGeminiNativeSearch is false (default)", () => {
+  it("declares fast tools synchronously and video analysis tools as NON_BLOCKING", () => {
     const { client } = createClient();
     const ws = connect(client);
     const setup = ws.jsonFrames()[0].setup;
 
     expect(setup.tools).toHaveLength(1);
     expect(setup.tools[0]).not.toHaveProperty("googleSearch");
-    const names = setup.tools[0].functionDeclarations.map((fn: { name: string }) => fn.name);
-    expect(names).toEqual([
+    const declarations = setup.tools[0].functionDeclarations;
+    expect(declarations.map((fn: { name: string }) => fn.name)).toEqual([
       "control_bilibili_player",
       "get_subtitles_around_time",
-      "search_video_subtitles",
       "summarize_video",
+      "analyze_video_transcript",
       "web_search"
     ]);
+    expect(declarations[0]).not.toHaveProperty("behavior");
+    expect(declarations[1]).not.toHaveProperty("behavior");
+    for (const declaration of declarations.slice(2, 4)) {
+      expect(declaration.behavior).toBe("NON_BLOCKING");
+      expect(declaration.parameters.properties.scope.enum).toEqual(["full", "time_range", "query"]);
+      expect(declaration.parameters.properties.query.type).toBe("STRING");
+      expect(declaration.parameters.properties.start_sec.type).toBe("NUMBER");
+      expect(declaration.parameters.properties.end_sec.type).toBe("NUMBER");
+    }
   });
 
-  it("declares googleSearch and 4 Bilibili page tools (without web_search) when liveGeminiNativeSearch is true", () => {
+  it("keeps native googleSearch separate from the non-blocking video tools", () => {
     const { client } = createClient();
     client.handleAction({
       action: "start",
@@ -661,14 +670,16 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
 
     expect(setup.tools).toHaveLength(2);
     expect(setup.tools[0]).toEqual({ googleSearch: {} });
-    const names = setup.tools[1].functionDeclarations.map((fn: { name: string }) => fn.name);
-    expect(names).toEqual([
+    const declarations = setup.tools[1].functionDeclarations;
+    expect(declarations.map((fn: { name: string }) => fn.name)).toEqual([
       "control_bilibili_player",
       "get_subtitles_around_time",
-      "search_video_subtitles",
-      "summarize_video"
+      "summarize_video",
+      "analyze_video_transcript"
     ]);
-    expect(names).not.toContain("web_search");
+    expect(declarations[2].behavior).toBe("NON_BLOCKING");
+    expect(declarations[3].behavior).toBe("NON_BLOCKING");
+    expect(declarations.some((fn: { name: string }) => fn.name === "web_search")).toBe(false);
   });
 
   it("handles concurrent page tool and web_search calls in a single toolCall frame and wraps toolResponse.functionResponses", async () => {
@@ -902,10 +913,10 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
     expect(ws.jsonFrames()).toHaveLength(1);
   });
 
-  it("applies longer independent timeout to summarize_video without affecting other page tools", () => {
+  it("maps summarize_video to a background task and sends SILENT/WHEN_IDLE responses", () => {
     vi.useFakeTimers();
     const toolErrors: string[] = [];
-    const { client } = createClient({
+    const { client, events } = createClient({
       pageToolTimeoutMs: 500,
       overviewToolTimeoutMs: 2500,
       onToolError: (err) => toolErrors.push(err)
@@ -920,24 +931,39 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
             {
               id: "call-summary",
               name: "summarize_video",
-              args: {}
+              args: { scope: "time_range", query: "握手流程", start_sec: 12, end_sec: 48 }
             }
           ]
         }
       })
     );
-    expect(client.isSpeaking()).toBe(true);
 
-    // 500ms 时普通页面工具超时，但 summarize_video 尚未超时
-    vi.advanceTimersByTime(501);
+    expect(events).toContainEqual({
+      type: "delegation_created",
+      delegation: {
+        delegationId: "call-summary",
+        objective: "总结当前视频指定时间段的内容，梳理核心观点与关键细节：握手流程",
+        context: [],
+        scope: "time_range",
+        timeRange: { startSec: 12, endSec: 48 }
+      }
+    });
+    expect(client.isSpeaking()).toBe(false);
+    vi.advanceTimersByTime(3000);
     expect(toolErrors).toHaveLength(0);
-    expect(client.isSpeaking()).toBe(true);
     expect(ws.jsonFrames()).toHaveLength(0);
 
-    // 超过 2500ms 后 summarize_video 超时
-    vi.advanceTimersByTime(2000);
-    expect(client.isSpeaking()).toBe(false);
-    expect(toolErrors).toEqual(["页面工具执行超时，请稍后重试"]);
+    client.handleAction({
+      action: "delegation_silent",
+      delegationId: "call-summary",
+      content: "分章节事实"
+    });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "call-summary",
+      status: "completed",
+      content: "口语总结"
+    });
     expect(ws.jsonFrames()).toEqual([
       {
         toolResponse: {
@@ -945,14 +971,115 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
             {
               id: "call-summary",
               name: "summarize_video",
-              response: {
-                result: { ok: false, error: "页面工具执行超时，请稍后重试" }
-              }
+              response: { factText: "分章节事实" },
+              scheduling: "SILENT"
+            }
+          ]
+        }
+      },
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "call-summary",
+              name: "summarize_video",
+              response: { spokenBriefing: "口语总结" },
+              scheduling: "WHEN_IDLE"
             }
           ]
         }
       }
     ]);
+
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "call-summary",
+      status: "completed",
+      content: "重复结果"
+    });
+    expect(ws.jsonFrames()).toHaveLength(2);
+  });
+
+  it("maps transcript query arguments and suppresses late output after cancellation", () => {
+    const { client, events } = createClient();
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-transcript",
+              name: "analyze_video_transcript",
+              args: { scope: "query", query: "作者如何解释重连？" }
+            }
+          ]
+        }
+      })
+    );
+    expect(events).toContainEqual({
+      type: "delegation_created",
+      delegation: {
+        delegationId: "call-transcript",
+        objective: "检索当前视频全片字幕并回答用户关注的问题：作者如何解释重连？",
+        context: [],
+        scope: "query"
+      }
+    });
+
+    ws.simulateMessage(JSON.stringify({ toolCallCancellation: { ids: ["call-transcript"] } }));
+    expect(events).toContainEqual({
+      type: "delegation_cancelled",
+      delegationId: "call-transcript"
+    });
+
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "call-transcript",
+      status: "completed",
+      content: "取消后的迟到总结"
+    });
+    expect(ws.jsonFrames()).toHaveLength(0);
+  });
+
+  it("drops background task responses after a video switch or session close", () => {
+    const { client } = createClient();
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(JSON.stringify({
+      toolCall: {
+        functionCalls: [
+          { id: "call-switch", name: "summarize_video", args: { scope: "full" } }
+        ]
+      }
+    }));
+    client.updateVideoContext({ ...videoContext, cid: "200", pageIndex: 2 });
+    ws.sentData.length = 0;
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "call-switch",
+      status: "completed",
+      content: "旧视频结果"
+    });
+    expect(ws.jsonFrames()).toHaveLength(0);
+
+    ws.simulateMessage(JSON.stringify({
+      toolCall: {
+        functionCalls: [
+          { id: "call-close", name: "analyze_video_transcript", args: { scope: "query", query: "细节" } }
+        ]
+      }
+    }));
+    client.close();
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "call-close",
+      status: "completed",
+      content: "关闭后的结果"
+    });
+    expect(ws.jsonFrames()).toHaveLength(0);
   });
 
   it("cancels specific in-flight web_search and page tool calls on toolCallCancellation.ids", async () => {

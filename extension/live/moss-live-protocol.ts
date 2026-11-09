@@ -256,16 +256,14 @@ export function resolveMossLivePermissionOrigins(
 export const resolveLivePermissionOrigins = resolveMossLivePermissionOrigins;
 
 /**
- * MOSS-LIVE 服务端声明的页面工具定义清单（MOSS-LIVE 服务端版本 ≥ 2026-11）。
- * MOSS-LIVE 官方接口由服务端在 Assistant / Model 层声明可调用的工具与参数 Schema，
- * 客户端按此 Schema 接收 tool.call / response.function_call_arguments.done
- * 并在本地执行页面控制与状态更新。
+ * MOSS-LIVE 前台轻量工具清单。客户端通过 session.update.session.tools 声明，
+ * 接收 tool.call / response.function_call_arguments.done 后在本地执行播放器控制与局部字幕查询。
  */
 export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     type: "function",
     name: "control_bilibili_player",
-    description: "控制当前B站播放器。暂停或继续播放、调整倍速、跳转到指定秒数；跳到字幕检索结果时使用该结果的 from 作为 time。",
+    description: "控制当前B站播放器。暂停或继续播放、调整倍速、跳转到指定秒数；后台委派返回定位结果后，可使用其时间戳执行跳转。",
     parameters: {
       type: "object",
       properties: {
@@ -279,7 +277,7 @@ export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     type: "function",
     name: "get_subtitles_around_time",
-    description: "查询当前视频指定播放位置前后的字幕。未传 current_time 时使用当前播放位置。",
+    description: "查询当前视频指定播放位置前后的局部字幕。未传 current_time 时使用当前播放位置；全片检索或总结必须改用后台委派。",
     parameters: {
       type: "object",
       properties: {
@@ -287,29 +285,6 @@ export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
         before_seconds: { type: "number", description: "向前查询秒数，默认 30，最大 300" },
         after_seconds: { type: "number", description: "向后查询秒数，默认 30，最大 300" }
       }
-    }
-  },
-  {
-    type: "function",
-    name: "search_video_subtitles",
-    description: "在当前视频当前分P的完整字幕中做大小写不敏感的关键词检索。",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "要检索的字幕关键词" },
-        max_results: { type: "number", description: "最多返回条数，默认 20，最大 50" }
-      },
-      required: ["query"]
-    }
-  },
-  {
-    type: "function",
-    name: "summarize_video",
-    description:
-      "生成或获取当前视频的全片概览（包含全片简介、章节脉络与金句）。当用户要求总结全片、询问这期视频讲了什么、或者当前没有概览时调用。概览生成可能需要一定时间。",
-    parameters: {
-      type: "object",
-      properties: {}
     }
   }
 ] as const;
@@ -418,6 +393,7 @@ export interface MinimalSessionUpdatePayload {
       prompt: string;
     };
     instructions: string;
+    tools: readonly unknown[];
   };
 }
 
@@ -430,13 +406,19 @@ function buildLiveRoomInstructions(context: MossLiveRoomContext): string {
   return lines.join("\n");
 }
 
-export function buildVideoInstructions(context: MossLiveSessionContext | null | undefined): string {
+export function buildVideoInstructions(
+  context: MossLiveSessionContext | null | undefined,
+  clientDelegation = false
+): string {
   if (isLiveRoomContext(context)) {
     return buildLiveRoomInstructions(context);
   }
   const shortClock = formatClock(5, { hours: "auto" });
   const longClock = formatClock(3725, { hours: "auto" });
-  const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。若上行音频中同时包含视频原声与用户麦克风声音：当检测到用户麦克风说话时，系统会自动把上行混音中的视频原声音量突然压低，因此只要听到背景视频声音突然被压低且出现前景人声，即代表是用户本人在对你说话；未发生音量压低的连续人声则是视频原声，不要误判为用户提问。需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。遇到全片总结、这期讲了什么、内容脉络或核心观点类问题时：若全片概览尚未生成或未就绪，调用 summarize_video 生成概览并等待结果，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；无字幕、生成失败或取消时按工具返回如实说明并给出等待或重试方式，不得编造全片内容。`;
+  const taskRouting = clientDelegation
+    ? "当用户要求控制播放器（跳转进度、暂停/播放/倍速）时，请直接调用前台工具；当用户要求总结全片或片段内容、梳理视频脉络、或询问需要检索全片字幕才能回答的视频细节时，请通过后台委派（delegation）交由后台文本模型处理；普通日常闲聊或常识问题请直接回答。只有当前播放位置附近的局部字幕查询可使用 get_subtitles_around_time；不得用前台字幕工具或 web_search 代替后台委派。若上下文中已有覆盖完整的全片概览，可直接读取并回答，无需重复委派；概览覆盖不完整时必须明确说明。后台委派被取消或失败时如实说明，不得编造视频内容。"
+    : "需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速或指定时间跳转时调用 control_bilibili_player。跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。遇到全片总结、这期讲了什么、内容脉络或核心观点类问题时：若全片概览尚未生成或未就绪，调用 summarize_video 生成概览并等待结果，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；无字幕、生成失败或取消时按工具返回如实说明并给出等待或重试方式，不得编造全片内容。";
+  const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。若上行音频中同时包含视频原声与用户麦克风声音：当检测到用户麦克风说话时，系统会自动把上行混音中的视频原声音量突然压低，因此只要听到背景视频声音突然被压低且出现前景人声，即代表是用户本人在对你说话；未发生音量压低的连续人声则是视频原声，不要误判为用户提问。${taskRouting}需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。`;
   if (!context) {
     return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;
   }
@@ -444,12 +426,17 @@ export function buildVideoInstructions(context: MossLiveSessionContext | null | 
   const chapters = context.chapters.length
     ? context.chapters.map((chapter) => `${chapter.from}s ${chapter.title}`).join("；")
     : "无章节信息";
-  return `${base}\n当前视频：${context.title || context.bvid}\nBV：${context.bvid}\nCID：${context.cid}\n当前分P：${part}${context.pageCount ? ` / 共${context.pageCount}P` : ""}\n章节：${chapters}\n${buildOverviewInstructions(context.overview)}`;
+  return `${base}\n当前视频：${context.title || context.bvid}\nBV：${context.bvid}\nCID：${context.cid}\n当前分P：${part}${context.pageCount ? ` / 共${context.pageCount}P` : ""}\n章节：${chapters}\n${buildOverviewInstructions(context.overview, clientDelegation)}`;
 }
 
-function buildOverviewInstructions(overview: MossLiveOverviewContext | null | undefined): string {
+function buildOverviewInstructions(
+  overview: MossLiveOverviewContext | null | undefined,
+  clientDelegation = false
+): string {
   if (!overview) {
-    return "全片概览：当前没有可用的全片概览；遇到全片总结类问题时如实说明无法总结，不得编造全片内容。";
+    return clientDelegation
+      ? "全片概览：当前没有可用的本地概览；需要全片总结或脉络时发起后台委派，不得编造全片内容。"
+      : "全片概览：当前没有可用的全片概览；遇到全片总结类问题时如实说明无法总结，不得编造全片内容。";
   }
   const lines = [`全片概览状态：${overview.phase}（覆盖：${overview.coverage}）`];
   if (overview.statusText) {
@@ -491,7 +478,8 @@ export function buildMinimalSessionUpdatePayload(
         aliases: ["伴看助手", "小助手"],
         prompt: "你是BiliScript内置的B站视频伴看AI助手，正在和用户一起观看视频。回答应当自然口语化、简明扼要，像朋友一起看视频聊天。"
       },
-      instructions: buildVideoInstructions(context)
+      instructions: buildVideoInstructions(context, true),
+      tools: isLiveRoomContext(context) ? [] : MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS
     }
   };
 }
@@ -514,6 +502,14 @@ export interface MossLiveToolStatusEvent {
   error?: string;
 }
 
+export interface MossLiveDelegationRequest {
+  delegationId: string;
+  objective: string;
+  context: string[];
+  scope?: "full" | "time_range" | "query";
+  timeRange?: { startSec?: number; endSec?: number };
+}
+
 /** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
@@ -522,6 +518,8 @@ export type MossParsedServerEvent =
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
   | { kind: "audio.stop"; runId: string; turnId: string }
+  | { kind: "delegation.created"; delegation: MossLiveDelegationRequest }
+  | { kind: "delegation.cancelled"; delegationId: string }
   | { kind: "tool.call"; call: MossLiveToolCall }
   | {
       kind: "function_call.done";
@@ -549,7 +547,11 @@ function readStr(data: Record<string, unknown> | null, obj: Record<string, unkno
 export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | null {
   const obj = asRecord(raw);
   if (!obj) return null;
-  const action = typeof obj.action === "string" ? obj.action : "";
+  const action = typeof obj.type === "string"
+    ? obj.type
+    : typeof obj.action === "string"
+      ? obj.action
+      : "";
   if (!action) return null;
   const data = asRecord(obj.data);
 
@@ -609,6 +611,22 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       const turnId = readStr(data, obj, "turn_id");
       return { kind: "audio.stop", runId, turnId };
     }
+    case "session.delegation.created": {
+      const delegation = asRecord(data?.delegation);
+      const context = Array.isArray(data?.context)
+        ? data.context.filter((item): item is string => typeof item === "string")
+        : [];
+      return {
+        kind: "delegation.created",
+        delegation: {
+          delegationId: typeof delegation?.id === "string" ? delegation.id : "",
+          objective: readStr(data, obj, "objective"),
+          context
+        }
+      };
+    }
+    case "session.delegation.cancelled":
+      return { kind: "delegation.cancelled", delegationId: readStr(data, obj, "delegation_id") };
     case "tool.call": {
       const callId = readStr(data, obj, "call_id") || readStr(data, obj, "tool_call_id") || readStr(data, obj, "id");
       const name = readStr(data, obj, "name");
@@ -667,6 +685,13 @@ export type MossLiveClientAction =
   | { action: "set_speed"; speed: number }
   | { action: "context_update"; videoContext: MossLiveSessionContext | null }
   | { action: "tool_result"; callId: string; result: unknown }
+  | { action: "delegation_silent"; delegationId: string; content: string }
+  | {
+      action: "delegation_result";
+      delegationId: string;
+      status: "completed" | "failed";
+      content: string;
+    }
   | { action: "interrupt" }
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }
@@ -693,6 +718,8 @@ export type MossLiveServerEvent =
   | { type: "closed"; code?: number; reason?: string; error?: string }
   | { type: "duck_video"; active: boolean }
   | { type: "transcript"; event: MossLiveTranscriptEvent }
+  | { type: "delegation_created"; delegation: MossLiveDelegationRequest }
+  | { type: "delegation_cancelled"; delegationId: string }
   | { type: "tool_call"; call: MossLiveToolCall }
   | { type: "tool_error"; error: string }
   | { type: "tool_status"; event: MossLiveToolStatusEvent };

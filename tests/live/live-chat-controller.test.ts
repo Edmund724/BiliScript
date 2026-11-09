@@ -4,7 +4,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
-  createLiveChatController
+  createLiveChatController,
+  type LiveVideoBackendTaskManager
 } from "../../extension/live/live-chat-controller.js";
 import type { PageAudioCaptureOptions, PageAudioCaptureSession } from "../../extension/live/page-media-capture.js";
 import type {
@@ -674,6 +675,7 @@ describe("LiveChatController video context and page tools", () => {
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
+    videoBackendTaskManager?: LiveVideoBackendTaskManager;
   }) {
     const liveButton = document.createElement("button");
     const fakePort = new FakePort();
@@ -687,7 +689,8 @@ describe("LiveChatController video context and page tools", () => {
       startAudioCapture: async (options) => new FakeAudioCapture(options),
       getVideoContext: overrides.getVideoContext,
       executeTool: overrides.executeTool,
-      subscribeVideoContextChanges: overrides.subscribeVideoContextChanges
+      subscribeVideoContextChanges: overrides.subscribeVideoContextChanges,
+      videoBackendTaskManager: overrides.videoBackendTaskManager
     });
     return { controller, fakePort };
   }
@@ -785,6 +788,127 @@ describe("LiveChatController video context and page tools", () => {
     fakePort.postedMessages.length = 0;
     contextListener!();
     expect(fakePort.postedMessages).toHaveLength(0);
+  });
+
+  it("runs native delegations through the task manager and caps every callback at 2000 Unicode characters", async () => {
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(async (options) => {
+      options.onSilentProgress("😀".repeat(2001));
+      options.onSpokenResult("后台总结完成");
+      return null;
+    });
+    const manager: LiveVideoBackendTaskManager = {
+      runTask,
+      cancelTask: vi.fn(() => true),
+      cancelAllTasks: vi.fn()
+    };
+    const { controller, fakePort } = setupContextTest({ videoBackendTaskManager: manager });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: {
+        delegationId: "del_001",
+        objective: "总结全片",
+        context: ["近期对话"],
+        scope: "time_range",
+        timeRange: { startSec: 12, endSec: 48 }
+      }
+    });
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1));
+
+    const options = runTask.mock.calls[0][0];
+    expect(options).toMatchObject({
+      taskId: "del_001",
+      objective: "总结全片",
+      context: ["近期对话"],
+      scope: "time_range",
+      timeRange: { startSec: 12, endSec: 48 }
+    });
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(fakePort.postedMessages).toEqual([
+      { action: "delegation_silent", delegationId: "del_001", content: "😀".repeat(2000) },
+      {
+        action: "delegation_result",
+        delegationId: "del_001",
+        status: "completed",
+        content: "后台总结完成"
+      }
+    ]);
+    await controller.stop();
+  });
+
+  it("maps delegation errors and applies server cancellation by task id", async () => {
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(async (options) => {
+      if (options.taskId === "del_failed") options.onError?.("模型请求失败");
+      return null;
+    });
+    const cancelTask = vi.fn(() => true);
+    const manager: LiveVideoBackendTaskManager = {
+      runTask,
+      cancelTask,
+      cancelAllTasks: vi.fn()
+    };
+    const { controller, fakePort } = setupContextTest({ videoBackendTaskManager: manager });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: { delegationId: "del_failed", objective: "检索细节", context: [] }
+    });
+    await vi.waitFor(() => expect(fakePort.postedMessages).toContainEqual({
+      action: "delegation_result",
+      delegationId: "del_failed",
+      status: "failed",
+      content: "模型请求失败"
+    }));
+
+    fakePort.simulateMessage({ type: "delegation_cancelled", delegationId: "del_failed" });
+    expect(cancelTask).toHaveBeenCalledWith("del_failed");
+    await controller.stop();
+  });
+
+  it("cancels all delegations on video identity changes but not overview-only refreshes", async () => {
+    let context: MossLiveVideoContext | null = initialContext;
+    let contextListener: (() => void) | null = null;
+    const cancelAllTasks = vi.fn();
+    const manager: LiveVideoBackendTaskManager = {
+      runTask: vi.fn(async () => null),
+      cancelTask: vi.fn(() => true),
+      cancelAllTasks
+    };
+    const { controller } = setupContextTest({
+      getVideoContext: () => context,
+      subscribeVideoContextChanges: (listener) => {
+        contextListener = listener;
+        return () => {};
+      },
+      videoBackendTaskManager: manager
+    });
+    await controller.start();
+    cancelAllTasks.mockClear();
+
+    context = {
+      ...initialContext,
+      overview: {
+        phase: "ready",
+        coverage: "complete",
+        summary: "概览已就绪",
+        chapters: [],
+        quotes: [],
+        statusText: ""
+      }
+    };
+    contextListener!();
+    expect(cancelAllTasks).not.toHaveBeenCalled();
+
+    context = { ...initialContext, cid: "456", pageIndex: 2 };
+    contextListener!();
+    expect(cancelAllTasks).toHaveBeenCalledTimes(1);
+    await controller.stop();
   });
 
   it("returns tool failures to offscreen without tearing down the connected session", async () => {

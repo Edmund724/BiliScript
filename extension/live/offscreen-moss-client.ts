@@ -27,6 +27,7 @@ import {
   buildMinimalSessionUpdatePayload,
   packTaggedBinary,
   parseMossServerJsonEvent,
+  type MossLiveClientAction,
   type MossLiveSessionContext
 } from "./moss-live-protocol.js";
 
@@ -64,20 +65,29 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
   private mediaStreamsInitialized = false;
   private latestVideoJpeg: ArrayBufferLike | null = null;
+  private readonly activeDelegationIds = new Set<string>();
+  private delegationVideoKey = "";
 
   onConnectReset(): void {
     this.mediaStreamsInitialized = false;
     this.latestVideoJpeg = null;
+    this.activeDelegationIds.clear();
   }
 
   onResetPlayback(): void {
     this.latestVideoJpeg = null;
+    this.activeDelegationIds.clear();
   }
 
   onSocketOpen(context: LiveWireSocketOpenContext): void {
+    const videoContext = context.videoContext;
+    this.delegationVideoKey = videoContext && !("kind" in videoContext)
+      ? `${videoContext.bvid}:${videoContext.cid}:${videoContext.pageIndex}`
+      : "";
     const payload: Record<string, unknown> = {
-      action: "attach_session",
-      memory_scope: "session"
+      type: "attach_session",
+      memory_scope: "session",
+      delegation: { type: "client" }
     };
     if (context.sessionId) {
       payload.session_id = context.sessionId;
@@ -160,6 +170,18 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         callbacks.handleAudioStop(parsed.runId, parsed.turnId);
         break;
 
+      case "delegation.created":
+        if (parsed.delegation.delegationId && parsed.delegation.objective) {
+          this.activeDelegationIds.add(parsed.delegation.delegationId);
+          callbacks.startDelegation(parsed.delegation);
+        }
+        break;
+
+      case "delegation.cancelled":
+        this.activeDelegationIds.delete(parsed.delegationId);
+        callbacks.cancelDelegation(parsed.delegationId);
+        break;
+
       case "tool.call":
         callbacks.startPageToolCall(parsed.call, "", "");
         break;
@@ -222,6 +244,13 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
   }
 
   onVideoContextUpdated(context: MossLiveSessionContext | null): void {
+    const nextVideoKey = context && !("kind" in context)
+      ? `${context.bvid}:${context.cid}:${context.pageIndex}`
+      : "";
+    if (nextVideoKey !== this.delegationVideoKey) {
+      this.activeDelegationIds.clear();
+      this.delegationVideoKey = nextVideoKey;
+    }
     if (!context) {
       this.latestVideoJpeg = null;
     }
@@ -229,6 +258,35 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void {
     transport.sendJson(buildMinimalSessionUpdatePayload(context));
+  }
+
+  sendDelegationSilent(
+    delegationId: string,
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    if (!this.activeDelegationIds.has(delegationId)) return false;
+    return transport.sendJson({
+      type: "session.thinking.append",
+      delegation_id: delegationId,
+      content
+    });
+  }
+
+  sendDelegationResult(
+    delegationId: string,
+    status: "completed" | "failed",
+    content: string,
+    transport: LiveWireTransport
+  ): boolean {
+    if (!this.activeDelegationIds.has(delegationId)) return false;
+    this.activeDelegationIds.delete(delegationId);
+    return transport.sendJson({
+      type: "session.commentary.append",
+      delegation_id: delegationId,
+      status,
+      content
+    });
   }
 
   sendToolResponse(): boolean {
@@ -243,6 +301,18 @@ export class OffscreenMossLiveClient extends OffscreenLiveSessionRuntime {
     const adapter = new MossWireAdapter();
     super(adapter, options);
     this.mossAdapter = adapter;
+  }
+
+  handleAction(msg: MossLiveClientAction): void {
+    if (msg.action === "delegation_silent") {
+      this.mossAdapter.sendDelegationSilent(msg.delegationId, msg.content, this.transport);
+      return;
+    }
+    if (msg.action === "delegation_result") {
+      this.mossAdapter.sendDelegationResult(msg.delegationId, msg.status, msg.content, this.transport);
+      return;
+    }
+    super.handleAction(msg);
   }
 
   sendAudioPcm(pcmBuffer: ArrayBufferLike): boolean {

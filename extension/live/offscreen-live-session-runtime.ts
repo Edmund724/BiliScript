@@ -120,6 +120,8 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   handleAudioDone(runId: string, turnId: string): void;
   handleAudioStop(runId: string, turnId: string): void;
   finishActiveTurn(runId: string, turnId: string): void;
+  startDelegation(delegation: { delegationId: string; objective: string; context: string[] }): void;
+  cancelDelegation(delegationId: string): void;
   startPageToolCall(rawCall: MossLiveToolCall, runId: string, turnId: string): void;
   startFunctionCall(params: {
     callId: string;
@@ -696,6 +698,14 @@ export class OffscreenLiveSessionRuntime {
       finishActiveTurn: (runId, turnId) => {
         if (!isCurrent()) return;
         this.finishActiveTurn(runId, turnId);
+      },
+      startDelegation: (delegation) => {
+        if (!isCurrent()) return;
+        this.emit({ type: "delegation_created", delegation });
+      },
+      cancelDelegation: (delegationId) => {
+        if (!isCurrent()) return;
+        this.emit({ type: "delegation_cancelled", delegationId });
       },
       startPageToolCall: (rawCall, runId, turnId) => {
         if (!isCurrent()) return;
