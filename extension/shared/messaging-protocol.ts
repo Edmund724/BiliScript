@@ -1025,6 +1025,7 @@ export type BackgroundResponseOf<K extends BackgroundMessageType> =
 export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends ReaderCloseMessage ? ReaderCloseResponse
   : M extends ReaderRestoreMessage ? ReaderRestoreResponse
+  : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
   : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
   : never;
 

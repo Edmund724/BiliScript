@@ -159,7 +159,6 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
 
   it("正常完成生成：保留复制、朗读、重新生成、导出全部4个按钮，不出现继续生成按钮", () => {
     const deps = makeDeps();
-    deps.onSpeak = vi.fn();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
     const turn = area.appendAssistantMessage({ source: "live" });

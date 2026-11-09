@@ -105,7 +105,7 @@ describe("04: 跨标签页伴看自动接管", () => {
 
     const fakeDeps = {
       getSettings: async () => ({ activeLiveProviderId: "p1" }),
-      loadProviders: async () => [{ id: "p1", name: "MOSS", type: "moss-live" as const, baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }],
+      loadProviders: async () => [{ id: "p1", name: "MOSS", type: "moss-live" as const, presetId: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }],
       loadKeys: async () => ({ p1: "key1" }),
       hasPermission: async () => true,
       setAuthRule,
@@ -300,7 +300,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
 
     const store = createConversationStore({
       loadContextState: async () => true,
-      resolveAiConversationRef: async () => null,
+      resolveAiConversationRef: async () => ({}),
       onConversationChanged: () => {},
       onStreamInterrupted: () => {},
       onContextNotice: () => {},

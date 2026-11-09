@@ -3,7 +3,9 @@
 // 作为经典脚本加载，不依赖任何外部状态或 Chrome API。
 
 import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
-import type { AiContext, ChapterItem, HotComment, ImagePart } from "./types.js";
+import type { AiContext } from "./types.js";
+export type { AiContext };
+import type { ChapterItem, HotComment, ImagePart } from "./types.js";
 
 export const MAX_SAVED_CONVERSATIONS = 60;
 

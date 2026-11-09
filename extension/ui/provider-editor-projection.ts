@@ -334,7 +334,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const container = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search");
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
       return {
-        hidden: container ? container.hidden : true,
+        hidden: container ? container.hidden === true : true,
         checked: input ? input.checked : false
       };
     }

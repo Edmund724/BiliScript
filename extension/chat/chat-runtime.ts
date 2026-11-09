@@ -547,7 +547,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     speech.stop();
     const hasBody = Boolean(targetMessage.content?.trim());
-    const branch = hasBody ? "B" : "A";
+    const branch: "A" | "B" = hasBody ? "B" : "A";
     const initialRaw = hasBody ? targetMessage.content! : "";
     const initialThinking = targetMessage.thinking || "";
     const continuation = {
@@ -639,8 +639,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
 
       const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
-      const images = (regeneration || continuation)
-        ? ((regeneration || continuation).originalHistory[(regeneration || continuation).userIndex].images ?? [])
+      const branchRecord = regeneration || continuation;
+      const images = branchRecord
+        ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
         : deps.takeInputImages?.() ?? [];
 
       setStreamingUiState(true);

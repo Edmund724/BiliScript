@@ -8,6 +8,8 @@ import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
+let applyContextToMain: typeof import("../../extension/chat/chat-state.js").applyContextToMain;
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let appendChatHistory: typeof import("../../extension/chat/chat-state.js").appendChatHistory;
 let createConversationReplay: typeof import("../../extension/chat/replay.js").createConversationReplay;
 let createChatStreamRenderer: typeof import("../../extension/chat/chat-stream-render.js").createChatStreamRenderer;
@@ -62,7 +64,7 @@ async function flushTurn(): Promise<void> {
 beforeEach(async () => {
   resetModuleState();
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState, resetChatSessionStateForTests, appendChatHistory } = await import("../../extension/chat/chat-state.js"));
+  ({ chatSessionState, resetChatSessionStateForTests, appendChatHistory, applyContextToMain, applyConversationIdentity } = await import("../../extension/chat/chat-state.js"));
   ({ createConversationReplay } = await import("../../extension/chat/replay.js"));
   ({ createChatStreamRenderer } = await import("../../extension/chat/chat-stream-render.js"));
   resetChatSessionStateForTests();
@@ -144,18 +146,16 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
         onStreamInterrupted: vi.fn(),
         onContextNotice: vi.fn(),
         loadContextState: vi.fn(async () => true),
-        resolveAiConversationRef: () => ({ isVideoContext: false }),
-        isLiveActive: () => false
+        resolveAiConversationRef: vi.fn(async () => ({ isVideoContext: false })),
       });
 
       // 模拟已存在会话与消息历史
-      chatSessionState.contextData = { title: "测试视频", url: "https://www.bilibili.com/video/BV1test", isVideoContext: true };
+      applyContextToMain({ title: "测试视频", url: "https://www.bilibili.com/video/BV1test", isVideoContext: true });
       appendChatHistory(
         { role: "user", content: "问" },
         { role: "assistant", content: "", thinking: "深度思考", stopped: true }
       );
-      chatSessionState.currentConversationId = "conv-test";
-      chatSessionState.currentConversationMeta = { id: "conv-test", title: "测试" };
+      applyConversationIdentity({ id: "conv-test", meta: { id: "conv-test", title: "测试" } });
 
       await store.persistCurrent();
 
