@@ -3,7 +3,7 @@ import path from "node:path";
 import {mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
-import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "./audio.mjs";
+import {AUDIO, VOICE_DUCK_PRE_SECONDS, cueMixStartFrame, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {
   OVERVIEW_TIMELINE,
@@ -125,6 +125,10 @@ function tone(note, seconds, {type = "pluck", gain = 0.2} = {}) {
     if (type === "pad") {
       envelope = Math.min(1, time / 0.22) * Math.min(1, (seconds - time) / 0.4);
       sample = Math.sin(TAU * frequency * time) + 0.32 * Math.sin(TAU * frequency * 2 * time) + 0.12 * Math.sin(TAU * frequency * 3 * time);
+    } else if (type === "rhodes") {
+      envelope = Math.min(1, time / 0.012) * Math.exp(-time * 2.2) * Math.min(1, (seconds - time) / 0.18);
+      const tine = Math.sin(TAU * frequency * 4 * time) * Math.exp(-time * 18) * 0.16;
+      sample = Math.sin(TAU * frequency * time) + 0.26 * Math.sin(TAU * frequency * 2 * time) * Math.exp(-time * 3.5) + tine;
     } else if (type === "bass") {
       envelope = attack * Math.exp(-time * 3.8) * release;
       sample = Math.sin(TAU * frequency * time) + 0.22 * Math.sin(TAU * frequency * 2 * time);
@@ -212,8 +216,8 @@ function inProviderWave(seconds) {
 
 function inVoiceWindow(seconds) {
   return AUDIO.voices.some((voice) => {
-    const start = (voice.frame - 2) / PROMO_FPS;
-    const end = (voice.frame + (voice.durationFrames ?? 40) + 4) / PROMO_FPS;
+    const start = voice.frame / PROMO_FPS - VOICE_DUCK_PRE_SECONDS;
+    const end = (voice.frame + (voice.durationFrames ?? 40) + 6) / PROMO_FPS;
     return seconds >= start && seconds <= end;
   });
 }
@@ -221,34 +225,56 @@ function inVoiceWindow(seconds) {
 function makeScore() {
   const track = buffer(DURATION);
   const beat = 60 / AUDIO.music.bpm;
+  // 四幕递进和声进行（避免同一段两小节旋律循环 38 秒）：
+  // Act 1 (0–11s): 晨读概览 Dmaj7 -> Gmaj7 -> Bm7 -> A6 -> Em7 -> A7
+  // Act 2 (11–18.5s): 字幕转写与秒跳 Gmaj7 -> A7 -> F#m7 -> Bm7
+  // Act 3 (18.5–32s): 溯源追问与实时伴看 Em9 -> F#m7 -> Gmaj7 -> A13 -> Bm7 -> Gmaj7 -> Em7 -> Asus4
+  // Act 4 (32–35.5s): 平台矩阵高潮 Gmaj7 -> A6 -> Dmaj9 (00:36 片尾定版收尾和弦)
   const chords = [
-    [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
-    [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62], [50, 54, 57, 62], [50, 54, 57, 62]
+    [50, 54, 57, 61], [55, 59, 62, 66], [47, 54, 57, 62], [57, 61, 64, 66],
+    [52, 55, 59, 62], [57, 61, 64, 67], [55, 59, 62, 66], [57, 61, 64, 69],
+    [54, 57, 61, 64], [47, 54, 57, 62], [52, 55, 59, 64], [54, 57, 61, 64],
+    [55, 59, 62, 66], [57, 61, 64, 66], [47, 54, 57, 62], [55, 59, 62, 66],
+    [52, 55, 59, 62], [57, 62, 64, 69], [50, 54, 57, 61], [50, 54, 57, 62]
+  ];
+  const arpPatterns = [
+    [0, 2, 1, 3, 2, 3, 1, 2],
+    [0, 1, 2, 3, 1, 2, 3, 1],
+    [1, 3, 2, 0, 3, 2, 1, 0],
+    [0, 2, 3, 1, 2, 0, 3, 2],
+    [2, 0, 1, 3, 0, 2, 3, 1],
+    [0, 3, 1, 2, 3, 1, 2, 0]
   ];
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
+    // 片尾定版后（>= OUTRO_AT）停下循环伴奏分解，完全交给 00:36 收尾和弦
+    if (at >= OUTRO_AT - 0.1) continue;
     const dyn = sectionDynamicsAt(at + 0.1);
     const chord = chords[bar % chords.length];
-    const padDuration = at <= OUTRO_AT - 1.5 && at + 2.15 > OUTRO_AT - 0.5 ? Math.max(0.4, OUTRO_AT - 0.5 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
+    const padDuration = at <= OUTRO_AT - 1.5 && at + 2.15 > OUTRO_AT - 0.5 ? Math.max(0.4, OUTRO_AT - 0.5 - at) : 2.15;
     for (let note = 0; note < chord.length; note += 1) {
       add(track, tone(chord[note], padDuration, {type: "pad", gain: 0.038 * dyn}), at, (note - 1.5) * 0.25);
     }
-    const arp = [0, 2, 1, 3, 2, 1, 3, 1];
+    // 第三幕（Chat / WebSearch / Live）加入温润 Rhodes 电钢双音和弦呼吸，打破单一音色
+    if (at >= CHAT_FROM && at < PROVIDERS_FROM && !inVoiceWindow(at + beat)) {
+      add(track, tone(chord[1] + 12, 0.65, {type: "rhodes", gain: 0.048 * dyn}), at + beat, -0.22);
+      add(track, tone(chord[3] + 12, 0.65, {type: "rhodes", gain: 0.044 * dyn}), at + beat, 0.22);
+    }
+    const arp = arpPatterns[bar % arpPatterns.length];
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
-      if (stepAt >= OUTRO_AT - 0.55 && stepAt < OUTRO_AT + 0.08) continue;
+      if (stepAt >= OUTRO_AT - 0.55) continue;
       const inVoice = inVoiceWindow(stepAt);
-      // 金句单卡定格期间与原片人声段留出清透空间
+      // 金句单卡定格期间与原片/AI 人声前 0.2s 起留出清透中高频空间
       if ((stepAt >= QUOTE_FREEZE_FROM && stepAt < QUOTE_FREEZE_TO || inVoice) && step % 2 === 1) continue;
-      const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.55 : 1);
+      const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.42 : 1);
       const stepInProviderWave = inProviderWave(stepAt);
-      const note = chord[arp[step]] + (stepInProviderWave ? 24 : 12);
-      const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
-      add(track, tone(note, stepInProviderWave ? 0.19 : 0.28, {type: stepAt < SUBTOOLS_FROM ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+      const octaveShift = stepInProviderWave ? 24 : (bar % 4 === 2 && step >= 4 ? 24 : 12);
+      const note = chord[arp[step]] + octaveShift;
+      const gain = (bar >= 4 && bar <= 5 ? 0.054 : bar >= 6 && bar <= 8 ? 0.072 : 0.09) * stepDyn;
+      const synthType = stepAt < SUBTOOLS_FROM ? "bell" : (bar >= 10 && bar <= 14 && step % 3 === 0 ? "rhodes" : "pluck");
+      add(track, tone(note, stepInProviderWave ? 0.19 : 0.28, {type: synthType, gain}), stepAt, step % 2 ? 0.32 : -0.32);
     }
     // 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
     if (at >= PROVIDER_PULSE_FROM - 1 && at < PROVIDER_PULSE_TO) {
@@ -260,11 +286,12 @@ function makeScore() {
       }
     }
   }
-  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 40, 45, 43, 47, 50, 50];
+  const bassRoots = [50, 43, 47, 45, 40, 45, 43, 45, 42, 47, 40, 42, 43, 45, 47, 43, 40, 45, 50, 50];
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
-    if (at >= OUTRO_AT - 0.55 && at < OUTRO_AT - 0.1) continue;
+    // 片尾定版后停止鼓组循环，由收尾和弦自然延音收束
+    if (at >= OUTRO_AT - 0.55) continue;
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
@@ -272,19 +299,19 @@ function makeScore() {
     const inQuoteFreezeWindow = at >= QUOTE_FREEZE_FROM && at < QUOTE_FREEZE_TO;
     const inVoice = inVoiceWindow(at);
     const inProvider = inProviderWave(at);
-    add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProvider ? dyn * 1.08 : dyn), at);
+    add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.65 : inProvider ? dyn * 1.08 : dyn), at);
     if (index % 2 === 1 && at >= 2.5 && !inQuoteFreezeWindow && !inVoice) {
       add(track, snare(inProvider ? dyn * 1.05 : dyn), at);
     }
     if (at >= 2.5 && !inQuoteFreezeWindow) {
-      add(track, hat(index % 4 === 3 && !inVoice, inVoice ? dyn * 0.45 : dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
+      add(track, hat(index % 4 === 3 && !inVoice, inVoice ? dyn * 0.38 : dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
       if (inProvider) {
         add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
         add(track, hat(false, dyn * 0.65), at + (beat * 3) / 4, 0.2);
       }
     }
-    if (index >= 2 && index < beatCount - 4) {
-      add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn * (inVoice ? 0.75 : 1)}), at);
+    if (index >= 2) {
+      add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn * (inVoice ? 0.68 : 1)}), at);
     }
   }
 
@@ -309,21 +336,52 @@ function makeScore() {
     });
   }
 
+  // 贯穿四幕的叙事主题旋律线（避开原声窗口，随章节推进发展而不再两小节机械重复）
   const melody = [
-    [2, 74], [3, 78], [7, 76], [11, 74], [15, 81], [16, 78], [19, 76],
-    [23, 74], [27, 78], [31, 81], [35, 78], [39, 76], [43, 74], [47, 78], [51, 76],
-    [55, 74], [59, 78], [66, 81]
+    // Act 1: 晨读开启 -> 章节浏览
+    [2, 74], [3, 78], [6, 81], [7.5, 76], [10, 74], [11.5, 78], [13, 81], [14, 86],
+    // Act 2: 转写与搜词前导
+    [22, 79], [23.5, 81], [25, 83], [27, 78], [29, 76], [30.5, 74],
+    // Act 3: AI 追问与联网检索、伴看连接
+    [37, 74], [38.5, 78], [40, 81], [41.5, 85], [47, 83], [48.5, 78], [50, 76], [53, 74], [54.5, 81],
+    // Act 4: 平台矩阵高潮上扬
+    [64, 74], [65.5, 78], [67, 81], [68.5, 86], [70, 88]
   ];
   for (const [index, note] of melody) {
     const at = index * beat;
-    add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
+    if (inVoiceWindow(at)) continue;
+    add(track, tone(note, 0.68, {type: at >= CHAT_FROM && at < PROVIDERS_FROM ? "rhodes" : "bell", gain: 0.095 * sectionDynamicsAt(at)}), at, (index % 2 === 0 ? 0.18 : -0.18));
   }
 
-  // 品牌落定 Resolve；其前约 0.5s 收尾留白呼吸；其后标语落点
-  add(track, subHit(0.56), resolveAt);
-  add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
-  add(track, tone(78, 1.8, {type: "bell", gain: 0.14}), resolveAt, -0.2);
-  add(track, tone(81, 1.8, {type: "bell", gain: 0.14}), resolveAt, 0.2);
+  // 00:36 片尾定版收尾和弦（Finale Resolving Cadence in Dmaj9）：
+  // 在品牌落定（35.77s）至标语展开（36.0s）奏响温暖醇厚的 Dmaj9 解决和弦，自然延展至片尾 39.0s 淡出
+  const finaleHoldDuration = DURATION - resolveAt;
+  add(track, subHit(0.58), resolveAt);
+  add(track, tone(38, finaleHoldDuration, {type: "pad", gain: 0.042}), resolveAt, 0);
+  add(track, tone(45, finaleHoldDuration, {type: "pad", gain: 0.032}), resolveAt + 0.02, 0);
+  const finalePadVoicing = [
+    {note: 50, gain: 0.036, pan: -0.35},
+    {note: 54, gain: 0.034, pan: 0.28},
+    {note: 57, gain: 0.032, pan: -0.18},
+    {note: 61, gain: 0.028, pan: 0.22},
+    {note: 64, gain: 0.026, pan: -0.12},
+    {note: 66, gain: 0.028, pan: 0.32}
+  ];
+  for (const voice of finalePadVoicing) {
+    add(track, tone(voice.note, finaleHoldDuration, {type: "pad", gain: voice.gain}), resolveAt, voice.pan);
+    add(track, tone(voice.note + 12, 2.2, {type: "rhodes", gain: voice.gain * 1.45}), resolveAt + 0.04, -voice.pan * 0.8);
+  }
+  const finaleArpStrum = [62, 66, 69, 73, 76, 78, 81, 86];
+  finaleArpStrum.forEach((note, idx) => {
+    const strumAt = resolveAt + idx * 0.032;
+    const pan = ((idx / (finaleArpStrum.length - 1)) - 0.5) * 0.68;
+    add(track, tone(note, 2.2 - idx * 0.08, {type: "bell", gain: 0.115 - idx * 0.005}), strumAt, pan);
+  });
+  // 00:36.1 标语落定时的温暖泛音回应
+  const taglineAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.taglineAt) / PROMO_FPS;
+  add(track, tone(74, 2.1, {type: "bell", gain: 0.12}), taglineAt, -0.16);
+  add(track, tone(81, 2.1, {type: "bell", gain: 0.11}), taglineAt + 0.03, 0.16);
+  add(track, tone(86, 2.0, {type: "bell", gain: 0.10}), taglineAt + 0.06, 0);
 
   // Soft-clipping & dynamic shaping to hit -14 LUFS (±0.5) and LRA 4–6 in final mix
   normalize(track, 1.0);
@@ -677,15 +735,27 @@ await mkdir(path.join(OUTPUT_DIR, "sfx"), {recursive: true});
 
 const effects = {
   key: [sweep(2100, 1150, 0.09, 0.65)],
-  click: [sweep(1050, 460, 0.12, 0.68)],
+  click: [sweep(1680, 520, 0.085, 0.62), sweep(3200, 1180, 0.032, 0.36)],
   chord: [tone(74, 0.85, {type: "bell", gain: 0.42}), tone(78, 0.85, {type: "bell", gain: 0.36}), tone(81, 0.85, {type: "bell", gain: 0.32})],
-  resolve: [tone(74, 0.85, {type: "bell", gain: 0.65}), tone(81, 0.85, {type: "bell", gain: 0.5})]
+  resolve: [
+    tone(62, 1.35, {type: "pad", gain: 0.34}),
+    tone(66, 1.35, {type: "rhodes", gain: 0.42}),
+    tone(69, 1.35, {type: "rhodes", gain: 0.38}),
+    tone(73, 1.35, {type: "bell", gain: 0.44}),
+    tone(76, 1.35, {type: "bell", gain: 0.42}),
+    tone(81, 1.35, {type: "bell", gain: 0.48}),
+    tone(86, 1.35, {type: "bell", gain: 0.46})
+  ]
 };
 const sfxEvidence = [];
 const sfxBySrc = new Map();
 for (const [name, layers] of Object.entries(effects)) {
-  const track = buffer(name === "resolve" || name === "chord" ? 0.9 : 0.2);
-  layers.forEach((layer, index) => add(track, layer, 0, index ? 0.15 : -0.1));
+  const track = buffer(name === "resolve" ? 1.4 : name === "chord" ? 0.9 : 0.2);
+  layers.forEach((layer, index) => {
+    const offset = name === "resolve" ? index * 0.018 : 0;
+    const pan = ((index % 3) - 1) * 0.18;
+    add(track, layer, offset, pan);
+  });
   const level = normalize(track, 0.74);
   const file = path.join(OUTPUT_DIR, "sfx", `${name}.wav`);
   await writeFile(file, wav(track));
@@ -783,18 +853,18 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
 }
 
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
-const ceiling = 0.735;
+const ceiling = 0.695;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
   const vol = musicVolumeAtFrame(frame);
   for (let ch = 0; ch < 2; ch += 1) {
     if (vol <= 0.0001) {
-      fullMix[ch][i] = Math.tanh((sfxStem[ch][i] * 1.12) / ceiling) * ceiling;
+      fullMix[ch][i] = Math.tanh((sfxStem[ch][i] * 1.08) / ceiling) * ceiling;
       continue;
     }
-    const scaledScore = score[ch][i] * 1.42;
-    const rawCombined = scaledScore * vol + sfxStem[ch][i] * 1.12;
+    const scaledScore = score[ch][i] * 1.34;
+    const rawCombined = scaledScore * vol + sfxStem[ch][i] * 1.08;
     const limitedCombined = Math.tanh(rawCombined / ceiling) * ceiling;
     score[ch][i] = Math.max(-0.98, Math.min(0.98, (limitedCombined - sfxStem[ch][i]) / vol));
     fullMix[ch][i] = limitedCombined;

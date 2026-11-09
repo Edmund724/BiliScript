@@ -671,7 +671,7 @@ export const SubtoolsScene = () => {
               zIndex: 1,
               padding: "0 6px",
               marginBottom: 12,
-              minHeight: 30,
+              minHeight: 34,
               display: "flex",
               alignItems: "center",
               fontSize: 22,
@@ -680,8 +680,39 @@ export const SubtoolsScene = () => {
             }}
           >
             {isExported ? (
-              <span style={{opacity: statusSlideProgress, translate: `0px ${(1 - statusSlideProgress) * 4}px`, color: MIST_GLASS.accent}}>
-                ✓ 字幕已复制到剪贴板（支持导出 SRT / Markdown / TXT）。
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "3px 14px 3px 10px",
+                  borderRadius: 999,
+                  background: "rgba(0, 140, 255, 0.12)",
+                  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 6px 16px -6px rgba(0, 140, 255, 0.28)",
+                  opacity: statusSlideProgress,
+                  translate: `0px ${(1 - statusSlideProgress) * 6}px`,
+                  scale: copyPopScale,
+                  transformOrigin: "0% 50%",
+                  color: MIST_GLASS.accent
+                }}
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    background: MIST_GLASS.accent,
+                    color: "#FFFFFF",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  ✓
+                </span>
+                <span>字幕已复制到剪贴板（支持导出 SRT / Markdown / TXT）</span>
               </span>
             ) : (
               <span style={{opacity: asrStatusIn}}>语音识别完成，已生成 286 条中文字幕。</span>

@@ -44,6 +44,10 @@ const PROVIDER_BUBBLE_CUES = PROVIDER_LOGOS.map((logo, index) => ({
   duckDb: 2.2
 }));
 
+export const VOICE_DUCK_PRE_SECONDS = 0.2;
+export const VOICE_DUCK_PRE_FRAMES = Math.round(VOICE_DUCK_PRE_SECONDS * 30);
+export const VOICE_DUCK_RELEASE_FRAMES = 12;
+
 export const AUDIO = {
   music: {
     src: "media/promo-score.wav",
@@ -54,13 +58,18 @@ export const AUDIO = {
     gain: 0.8,
     fadeInFrames: 24,
     fadeOutFrames: 60,
-    fadeOutEndFrame: PROMO_DURATION
+    fadeOutEndFrame: PROMO_DURATION,
+    outroChordFrame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt
   },
   cues: [
     {id: "overview-trigger-click", frame: OVERVIEW_TIMELINE.triggerClickAt, src: "media/sfx/click.wav", gain: 0.46, duckDb: 3.2},
+    {id: "overview-quote-card-pop", frame: OVERVIEW_TIMELINE.quoteCardAt, src: "media/sfx/pop.wav", gain: 0.44, duckDb: 3.0},
+    {id: "overview-chapter-click", frame: OVERVIEW_TIMELINE.chapterClickAt - 1, src: "media/sfx/click.wav", gain: 0.46, duckDb: 3.2},
     {id: "overview-chapter-seek", frame: OVERVIEW_TIMELINE.chapterClickAt, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
-    {id: "overview-quote-click", frame: OVERVIEW_TIMELINE.quoteClickAt, src: "media/sfx/click.wav", gain: 0.46, duckDb: 3.2},
-    {id: "overview-quote-cut", frame: OVERVIEW_TIMELINE.quoteStartAt, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
+    {id: "overview-chapter-whoosh", frame: OVERVIEW_TIMELINE.chapterClickAt + 2, src: "media/sfx/whoosh.wav", gain: 0.36, duckDb: 3.2},
+    {id: "overview-quote-click", frame: OVERVIEW_TIMELINE.quoteClickAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.4},
+    {id: "overview-quote-cut", frame: OVERVIEW_TIMELINE.quoteStartAt, src: "media/sfx/whoosh.wav", gain: 0.44, duckDb: 4.5},
+    {id: "overview-quote-pop", frame: OVERVIEW_TIMELINE.quoteStartAt + 2, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 3.8},
     {
       id: "quote-save",
       frame: OVERVIEW_TIMELINE.quoteStartAt + OVERVIEW_TIMELINE.quoteLiftFrames - 4,
@@ -71,15 +80,21 @@ export const AUDIO = {
     {id: "voice-0232-fade", frame: OVERVIEW_TIMELINE.quoteStartAt + 42, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
     {id: "subtools-cut", frame: SUBTOOLS_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "subtools-settled", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.settledAt, src: "media/sfx/pop.wav", gain: 0.44, duckDb: 3.6},
-    {id: "subtools-export", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, src: "media/sfx/snap.wav", gain: 0.56, duckDb: 4.5},
+    {id: "subtools-export-click", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.4},
+    {id: "subtools-export", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt + 1, src: "media/sfx/snap.wav", gain: 0.56, duckDb: 4.5},
+    {id: "subtools-toast-pop", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt + 3, src: "media/sfx/pop.wav", gain: 0.52, duckDb: 3.8},
     {id: "subtitle-cut", frame: SUBTITLE_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "subtitle-keyword-resolve", frame: SUBTITLE_FROM + 8, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
     {id: "type-huan", frame: SUBTITLE_FROM + 12, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},
     {id: "type-jue", frame: SUBTITLE_FROM + 16, src: "media/sfx/mech-key-2.wav", gain: 0.60, duckDb: 3.8},
     {id: "type-enter", frame: SUBTITLE_FROM + 20, src: "media/sfx/mech-enter.wav", gain: 0.64, duckDb: 4.2},
+    {id: "subtitle-timestamp-click", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME - 1, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.4},
     {id: "subtitle-seek-snap", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/snap.wav", gain: 0.66, duckDb: 5.2},
+    {id: "subtitle-seek-whoosh", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 1, src: "media/sfx/whoosh.wav", gain: 0.38, duckDb: 3.6},
     {id: "chat-cut", frame: CHAT_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
-    {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
+    {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.6},
+    {id: "chat-timestamp-snap", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME + 1, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
+    {id: "chat-verify-whoosh", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM - 4, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4.0},
     {id: `${WEBSEARCH_HANDOFF.from}-defocus`, frame: WEBSEARCH_HANDOFF.at - WEBSEARCH_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${WEBSEARCH_HANDOFF.to}-focus`, frame: WEBSEARCH_HANDOFF.at + WEBSEARCH_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "websearch-verify", frame: WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4.2},
@@ -92,7 +107,7 @@ export const AUDIO = {
     ...PROVIDER_BUBBLE_CUES,
     {id: "provider-exit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, src: "media/sfx/snap.wav", gain: 0.52, duckDb: 4},
     {id: "outro-cut", frame: OUTRO_TIMELINE.from, src: "media/sfx/whoosh.wav", gain: 0.38, duckDb: 4},
-    {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.56, duckDb: 6},
+    {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.58, duckDb: 5.5},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2}
   ],
   voices: [
@@ -108,15 +123,16 @@ export function voiceDuckAtFrame(frame) {
   for (const voice of AUDIO.voices) {
     const local = frame - voice.frame;
     const holdEnd = (voice.durationFrames ?? 40) - 4;
-    const releaseFrames = 10;
-    const preFrames = 3;
+    const releaseFrames = VOICE_DUCK_RELEASE_FRAMES;
+    const preFrames = VOICE_DUCK_PRE_FRAMES;
     if (local < -preFrames || local > holdEnd + releaseFrames) continue;
-    const envelope =
+    const linearEnvelope =
       local < 0
         ? (local + preFrames) / preFrames
         : local <= holdEnd
           ? 1
           : (holdEnd + releaseFrames - local) / releaseFrames;
+    const envelope = 0.5 * (1 - Math.cos(Math.PI * Math.max(0, Math.min(1, linearEnvelope))));
     duck = Math.min(duck, 1 - envelope * (1 - 10 ** (-voice.duckDb / 20)));
   }
   return duck;
