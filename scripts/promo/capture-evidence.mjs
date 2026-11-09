@@ -62,6 +62,7 @@ const mobileShots = [
   {id: "websearch", at: 16.2},
   {id: "search", at: 19.5},
   {id: "chat-verify", at: 24.8},
+  {id: "live", at: 30.2},
 
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 30)},

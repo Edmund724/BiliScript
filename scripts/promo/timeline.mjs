@@ -37,6 +37,16 @@ export const WEBSEARCH_TIMELINE = {
   verifyCardAt: beatF(1.5)
 };
 
+export const LIVE_TIMELINE = {
+  duration: beatF(9),
+  toggleClickAt: 10,
+  overlayOpenAt: 14,
+  userPromptAt: 24,
+  duckActiveAt: 32,
+  aiReplyAt: 51,
+  aiReplyDoneAt: 129
+};
+
 export const PROVIDER_TIMELINE = {
   duration: beatF(5),
   plateAt: 2,
@@ -54,7 +64,8 @@ export const SCENES = [
   { id: "websearch", from: 435, duration: WEBSEARCH_TIMELINE.duration },
   { id: "subtitle", from: 540, duration: 120 },
   { id: "chat", from: 660, duration: 165 },
-  { id: "providers", from: 825, duration: PROVIDER_TIMELINE.duration },
+  { id: "live", from: 825, duration: LIVE_TIMELINE.duration },
+  { id: "providers", from: 960, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
@@ -78,8 +89,9 @@ export const EVIDENCE_TIMES = [
   14.8, 15.5, 16.5, 17.5,
   18.0, 18.4, 18.9, 20.1, 21.0,
   22.1, 22.9, 24.6, 25.3, 25.6, 26.5,
-  27.7, 28.1, 28.4, 28.9, 29.4, 29.8,
-  30.3, 30.8, 31.4, 32.0, 32.7,
+  27.8, 28.4, 29.1, 30.2, 31.3,
+  32.2, 32.6, 32.9, 33.4, 33.9, 34.3,
+  34.8, 35.3, 35.9, 36.5, 37.2,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
@@ -101,6 +113,9 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "timestamp-match", at: sceneSeconds("subtitle", SUBTITLE_MATCH_FRAME)},
   {id: "chat-timestamp-click", at: sceneSeconds("chat", CHAT_TIMESTAMP_CLICK_FRAME)},
   {id: "chat-player-verify", at: sceneSeconds("chat", CHAT_PLAYER_VERIFY_FROM - 6)},
+  {id: "live-overlay-open", at: sceneSeconds("live", LIVE_TIMELINE.overlayOpenAt)},
+  {id: "live-voice-priority", at: sceneSeconds("live", LIVE_TIMELINE.duckActiveAt)},
+  {id: "live-ai-reply", at: sceneSeconds("live", LIVE_TIMELINE.aiReplyAt + 12)},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},
   {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt)},

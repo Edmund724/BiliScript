@@ -4,6 +4,7 @@ import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
 import {
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_TIMESTAMP_CLICK_FRAME,
+  LIVE_TIMELINE,
   OVERVIEW_TIMELINE,
   PANEL_FOCUS_HANDOFFS,
   PROMO_DURATION,
@@ -17,6 +18,7 @@ const SUBTOOLS_FROM = SCENES.find((scene) => scene.id === "subtools").from;
 const WEBSEARCH_FROM = SCENES.find((scene) => scene.id === "websearch").from;
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat").from;
+const LIVE_FROM = SCENES.find((scene) => scene.id === "live").from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const WEBSEARCH_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "websearch");
 
@@ -81,6 +83,10 @@ export const AUDIO = {
     {id: "subtitle-seek-snap", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/snap.wav", gain: 0.66, duckDb: 5.2},
     {id: "chat-cut", frame: CHAT_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
+    {id: "live-cut", frame: LIVE_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
+    {id: "live-toggle-click", frame: LIVE_FROM + LIVE_TIMELINE.toggleClickAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.4},
+    {id: "live-overlay-open", frame: LIVE_FROM + LIVE_TIMELINE.overlayOpenAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 3.8},
+    {id: "live-voice-priority", frame: LIVE_FROM + LIVE_TIMELINE.duckActiveAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2},
     {id: "provider-plate", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.plateAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
     {id: "provider-orbit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, src: "media/sfx/chord.wav", gain: 0.42, duckDb: 4.2},
     ...PROVIDER_BUBBLE_CUES,
@@ -92,7 +98,8 @@ export const AUDIO = {
   voices: [
     {id: "voice-0232", frame: OVERVIEW_TIMELINE.quoteStartAt + 2, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
-    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 40}
+    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 40},
+    {id: "voice-live-ai", frame: LIVE_FROM + LIVE_TIMELINE.aiReplyAt, src: "media/sfx/voice-live-ai.wav", gain: 0.86, duckDb: 11.5, durationFrames: 78}
   ]
 };
 

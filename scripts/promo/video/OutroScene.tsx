@@ -15,7 +15,7 @@ const CTA_TOP = 632;
 // 三连星火以安装按钮为中心向下最远扩到 747px，兼容行排在星火之下。
 const COMPAT_TOP = 780;
 const INSTALL_POINTER = {x: 880, y: CTA_TOP + 42};
-const RECAP_ITEMS = ["字幕转写", "章节速览", "溯源追问"];
+const RECAP_ITEMS = ["字幕转写", "章节速览", "溯源追问", "实时伴看"];
 
 const ChromeIcon = ({size = 26}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">

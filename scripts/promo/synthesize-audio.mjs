@@ -25,6 +25,7 @@ const SUBTOOLS_FROM = sceneSeconds("subtools");
 const WEBSEARCH_FROM = sceneSeconds("websearch");
 const SUBTITLE_FROM = sceneSeconds("subtitle");
 const CHAT_FROM = sceneSeconds("chat");
+const LIVE_FROM = sceneSeconds("live");
 const PROVIDERS_SCENE = SCENES.find((scene) => scene.id === "providers");
 const PROVIDERS_FROM = PROVIDERS_SCENE.from / PROMO_FPS;
 const PROVIDER_PULSE_FROM = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.orbitAt) / PROMO_FPS;
@@ -149,7 +150,8 @@ function sectionDynamicsAt(seconds) {
   if (seconds < WEBSEARCH_FROM) return 0.84;
   if (seconds < SUBTITLE_FROM) return 0.90;
   if (seconds < CHAT_FROM) return 0.80;
-  if (seconds < PROVIDERS_FROM) return 0.86;
+  if (seconds < LIVE_FROM) return 0.86;
+  if (seconds < PROVIDERS_FROM) return 0.88;
   if (seconds < OUTRO_AT - 0.52) return 1.14;
   if (seconds < OUTRO_AT - 0.1) return 0.05;
   if (seconds < OUTRO_AT + 1.9) return 1.06;
@@ -175,8 +177,8 @@ function makeScore() {
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62],
-    [50, 54, 57, 62]
+    [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
+    [55, 59, 62, 67], [50, 54, 57, 62], [50, 54, 57, 62]
   ];
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
@@ -210,7 +212,7 @@ function makeScore() {
       }
     }
   }
-  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43, 47, 50];
+  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 40, 45, 43, 47, 50];
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
@@ -261,7 +263,8 @@ function makeScore() {
 
   const melody = [
     [2, 74], [3, 78], [7, 76], [11, 74], [15, 81], [16, 78], [19, 76],
-    [23, 74], [27, 78], [31, 81], [35, 78], [39, 76], [43, 74], [47, 78], [51, 76]
+    [23, 74], [27, 78], [31, 81], [35, 78], [39, 76], [43, 74], [47, 78], [51, 76],
+    [55, 74], [57, 78], [64, 81]
   ];
   for (const [index, note] of melody) {
     const at = index * beat;
@@ -681,7 +684,8 @@ for (const item of customSfxEntries) {
 const voiceExcerpts = [
   {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 但是它如果不答一定是零分", fadeOutSeconds: 0.15},
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉", fadeOutSeconds: 0.06},
-  {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究", fadeOutSeconds: 0.06}
+  {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究", fadeOutSeconds: 0.06},
+  {name: "voice-live-ai", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-live-ai.wav"), excerpt: "实时伴看 MOSS Live 回复：把检索和拆解交给 AI，你来掌舵判断。", fadeOutSeconds: 0.08, source: "moss-live-1.0-realtime", license: "Recorded from MOSS Live API for BiliScript demonstration"}
 ];
 for (const item of voiceExcerpts) {
   const rawWav = await readFile(item.sourceFile);
@@ -706,9 +710,9 @@ for (const item of voiceExcerpts) {
   sfxBySrc.set(`media/sfx/${item.name}.wav`, decoded.track);
   sfxEvidence.push({
     name: item.name,
-    source: "bilibili-BV1mAam6tEL8-excerpt",
+    source: item.source ?? "bilibili-BV1mAam6tEL8-excerpt",
     excerpt: item.excerpt,
-    license: "Fair-use demonstration excerpt from BV1mAam6tEL8",
+    license: item.license ?? "Fair-use demonstration excerpt from BV1mAam6tEL8",
     file: path.relative(REPO_ROOT, outPath),
     durationInSeconds: Number((decoded.frames / SAMPLE_RATE).toFixed(3)),
     peak: Number(voiceLevel.peak.toFixed(3))
@@ -731,7 +735,7 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
 }
 
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
-const ceiling = 0.75;
+const ceiling = 0.735;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));

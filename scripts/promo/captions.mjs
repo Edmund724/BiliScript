@@ -27,8 +27,11 @@ export const CAPTIONS = [
   {sceneId: "chat", text: "有疑问直接问视频，", startMs: 22000, endMs: 23500, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "点时间戳直达原话。", startMs: 23500, endMs: 25533, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "这里有一个研究……", ...voiceMilliseconds("voice-0444"), timestampMs: null, confidence: null},
-  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 27500, endMs: 30000, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "BiliScript", startMs: 30000, endMs: 30550, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频", startMs: 30550, endMs: 31800, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问", startMs: 31800, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
+  {sceneId: "live", text: "懒得打字？开启实时伴看，边看边聊。", startMs: 27500, endMs: 28350, timestampMs: null, confidence: null},
+  {sceneId: "live", text: "共享视频原声，开口自动压低原片音量。", startMs: 28350, endMs: 29200, timestampMs: null, confidence: null},
+  {sceneId: "live", text: "把检索和拆解交给 AI，你来掌舵判断。", ...voiceMilliseconds("voice-live-ai"), timestampMs: null, confidence: null},
+  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 32000, endMs: 34500, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "BiliScript", startMs: 34500, endMs: 35050, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "在 B 站，读下一条视频", startMs: 35050, endMs: 36300, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问 · 实时伴看", startMs: 36300, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
 ];
