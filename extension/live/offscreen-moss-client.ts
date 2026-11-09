@@ -127,6 +127,7 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
       case "session_attached": {
         const videoContext = callbacks.getVideoContext();
         callbacks.sendJson({ action: "media.mode", binary_protocol: "tagged-v1" });
+        callbacks.sendJson({ action: "media.configure", playback: "server" });
         callbacks.markContextSent(videoContext);
         callbacks.sendJson(buildMinimalSessionUpdatePayload(videoContext));
         callbacks.completeHandshake({

@@ -198,26 +198,30 @@ describe("OffscreenMossLiveClient", () => {
     expect(onConnected).toHaveBeenCalledTimes(1);
 
     // Verify protocol handshake messages sent
-    expect(ws.sentData).toHaveLength(3);
+    expect(ws.sentData).toHaveLength(4);
     expect(JSON.parse(ws.sentData[1])).toEqual({
       action: "media.mode",
       binary_protocol: "tagged-v1"
     });
-    expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload());
+    expect(JSON.parse(ws.sentData[2])).toEqual({
+      action: "media.configure",
+      playback: "server"
+    });
+    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload());
 
     // Server confirms session.updated -> client enables screen video stream focus and mic_state once
     ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
-    expect(ws.sentData).toHaveLength(6);
-    expect(JSON.parse(ws.sentData[3])).toEqual({
+    expect(ws.sentData).toHaveLength(7);
+    expect(JSON.parse(ws.sentData[4])).toEqual({
       action: "video.state",
       source: "screen",
       enabled: true
     });
-    expect(JSON.parse(ws.sentData[4])).toEqual({
+    expect(JSON.parse(ws.sentData[5])).toEqual({
       action: "video.stream_focus",
       source: "screen"
     });
-    expect(JSON.parse(ws.sentData[5])).toEqual({
+    expect(JSON.parse(ws.sentData[6])).toEqual({
       action: "mic_state",
       enabled: true
     });
@@ -788,6 +792,46 @@ describe("OffscreenMossLiveClient", () => {
       });
     });
 
+    it("avoids a client-receipt round-trip gap between long-response audio chunks", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+
+      const playbackMode = ws.sentData
+        .filter((data) => typeof data === "string")
+        .map((data) => JSON.parse(data))
+        .find((data) => data.action === "media.configure")?.playback || "client";
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.25));
+      const emitChunk = (chunkId: string) => {
+        ws.simulateMessage(JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: chunkId, run_id: "r1", turn_id: "t1" }
+        }));
+        ws.simulateMessage(pcmChunk.buffer);
+      };
+
+      emitChunk("c1");
+      fakeAudioCtx.currentTime = 0.1;
+      fakeAudioCtx.sources[0].finishPlayback();
+
+      if (playbackMode === "client") {
+        expect(ws.sentData.some((data) =>
+          typeof data === "string" && JSON.parse(data).action === "playback.chunk.completed"
+        )).toBe(true);
+        fakeAudioCtx.currentTime = 0.13;
+      }
+      emitChunk("c2");
+
+      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(0.1, 5);
+    });
+
     it("sends playback.completed when response.audio.done arrives AFTER all chunks already finished playing", () => {
       const fakeAudioCtx = new FakeAudioContext();
       const client = new OffscreenMossLiveClient({
@@ -1199,14 +1243,14 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
-    expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload(context));
+    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(context));
     client.updateVideoContext(context);
-    expect(ws.sentData).toHaveLength(3);
+    expect(ws.sentData).toHaveLength(4);
 
     const nextContext = { ...context, cid: "456", pageIndex: 2, pageTitle: "第二部分" };
     client.updateVideoContext(nextContext);
-    expect(ws.sentData).toHaveLength(4);
-    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
+    expect(ws.sentData).toHaveLength(5);
+    expect(JSON.parse(ws.sentData[4])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
 
     ws.simulateMessage(JSON.stringify({
       action: "tool.call",
