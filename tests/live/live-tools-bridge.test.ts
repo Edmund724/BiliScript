@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createLiveToolsBridge } from "../../extension/live/live-tools-bridge.js";
+import { runVideoBackendTask } from "../../extension/live/video-backend-task.js";
 import type { ClipState } from "../../extension/core/state.js";
 
 const URL = "https://www.bilibili.com/video/BV1test000000/?p=2";
@@ -234,6 +235,41 @@ describe("control_bilibili_player", () => {
     expect(found).toMatchObject({ ok: true, total: 1 });
     expect(result).toMatchObject({ ok: true, currentTime: 3725 });
     expect(video.currentTime).toBe(3725);
+  });
+
+  it("seeks to the second point from timestamped facts injected by a backend summary", async () => {
+    const { bridge, video } = setupPlayer();
+    let injectedFacts = "";
+    await runVideoBackendTask({
+      taskId: "summary-seek",
+      objective: "总结全片核心内容",
+      signal: new AbortController().signal,
+      onSilentProgress: (facts) => {
+        injectedFacts += facts;
+      },
+      onSpokenResult: () => {}
+    }, {
+      getClip: () => makeClip(),
+      resolveProvider: async () => ({ baseUrl: "https://api.example.com", model: "text-model" }),
+      runOverviewAnalysis: async () => ({
+        summary: "三点总结",
+        chapters: [
+          { from: 0, to: 300, title: "第一点", summary: "开场" },
+          { from: 300, to: 600, title: "第二点", summary: "核心实现" },
+          { from: 600, to: 900, title: "第三点", summary: "总结" }
+        ],
+        quotes: []
+      })
+    });
+
+    expect(injectedFacts).toContain("### [5:00] 第二点");
+    const result = await bridge.executeTool({
+      callId: "seek-second-point",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: 300 }
+    });
+    expect(result).toMatchObject({ ok: true, currentTime: 300, message: "已跳转到 5:00" });
+    expect(video.currentTime).toBe(300);
   });
 
   it.each([

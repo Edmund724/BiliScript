@@ -48,16 +48,26 @@ const bundled = await build({
   globalName: "LiveTools",
   platform: "browser"
 });
+const bundledController = await build({
+  entryPoints: [path.join(REPO_ROOT, "extension/live/live-chat-controller.ts")],
+  bundle: true,
+  write: false,
+  format: "iife",
+  globalName: "LiveController",
+  platform: "browser"
+});
 const bridgeSource = bundled.outputFiles[0].text;
+const controllerSource = bundledController.outputFiles[0].text;
 const browser = await launchBrowser({ autoplay: true });
 const page = await attachPage(browser);
 
 try {
   await page.cdp.send("Page.setDocumentContent", {
     frameId: page.target.id,
-    html: `<!doctype html><html><body><div class="bpx-player-video-wrap"><video preload="auto" src="${makeWavDataUri()}"></video></div></body></html>`
+    html: `<!doctype html><html><body><button id="live"></button><div class="bpx-player-video-wrap"><video preload="auto" src="${makeWavDataUri()}"></video></div></body></html>`
   });
   await page.cdp.evaluate(bridgeSource);
+  await page.cdp.evaluate(controllerSource);
   await page.cdp.evaluate(`(() => {
     const video = document.querySelector('.bpx-player-video-wrap video');
     const clip = {
@@ -74,8 +84,47 @@ try {
       ],
       chapters: []
     };
+    const listeners = [];
+    const port = {
+      postedMessages: [],
+      onMessage: { addListener: (listener) => listeners.push(listener) },
+      onDisconnect: { addListener: () => {} },
+      postMessage(message) { this.postedMessages.push(message); },
+      disconnect() {},
+      emit(message) { for (const listener of listeners) listener(message); }
+    };
+    const backendTasks = {
+      async runTask(options) {
+        options.onSilentProgress('### [0:02] 第二点\\n本章总结');
+        options.onSpokenResult('后台长总结');
+        return null;
+      },
+      cancelTask() { return true; },
+      cancelAllTasks() {}
+    };
     window.testVideo = video;
+    window.testPort = port;
     window.testBridge = LiveTools.createLiveToolsBridge({ getClip: () => clip, getUrl: () => 'https://www.bilibili.com/video/BV1test000000/' });
+    window.testController = LiveController.createLiveChatController({
+      liveButton: document.getElementById('live'),
+      getVideoElement: () => video,
+      connectPort: () => port,
+      requestOrigins: async () => ({ ok: true }),
+      sendRuntimeMessage: async (message) => message.type === 'live-session-prepare'
+        ? { ok: true, provider: { baseUrl: 'https://api.mosi.cn', model: 'moss-live-1.0' } }
+        : { ok: true },
+      startAudioCapture: async () => ({
+        setMuted() {}, isMuted: () => false, stop() {}, setShareVideoAudio() {},
+        isSharingVideoAudio: () => false, getVideoAudioStatus: () => '未开启',
+        isMicVadActive: () => false, isVoiceRecentlyActive: () => true
+      }),
+      startVideoCapture: () => ({ stop() {} }),
+      videoBackendTaskManager: backendTasks
+    });
+    window.emitSummary = () => port.emit({
+      type: 'delegation_created',
+      delegation: { delegationId: 'summary-1', objective: '总结全片', context: [] }
+    });
     window.testCall = (name, args, stampedVideo = { bvid: 'BV1test000000', cid: '123', pageIndex: 1 }) =>
       testBridge.executeTool({ callId: Math.random().toString(36), name, arguments: args, video: stampedVideo });
   })()`);
@@ -97,6 +146,37 @@ try {
       time: output.search.items[0].from
     });
     output.semanticTime = testVideo.currentTime;
+
+    output.summaryPlay = await testCall('control_bilibili_player', { command: 'play' });
+    output.controllerStarted = await testController.start();
+    testPort.emit({ type: 'connected' });
+    testPort.emit({ type: 'speaking_state', speaking: true });
+    output.shortReply = { paused: testVideo.paused, volume: testVideo.volume };
+    testPort.emit({ type: 'speaking_state', speaking: false });
+    output.shortReplyRestored = { paused: testVideo.paused, volume: testVideo.volume };
+
+    emitSummary();
+    await Promise.resolve();
+    testPort.emit({ type: 'speaking_state', speaking: true });
+    output.summaryStarted = { paused: testVideo.paused, volume: testVideo.volume };
+    testPort.emit({ type: 'speaking_state', speaking: false });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    output.summaryCompleted = { paused: testVideo.paused, volume: testVideo.volume };
+
+    emitSummary();
+    await Promise.resolve();
+    testPort.emit({ type: 'speaking_state', speaking: true });
+    testController.interrupt();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    output.summaryInterrupted = { paused: testVideo.paused, volume: testVideo.volume };
+
+    testVideo.pause();
+    emitSummary();
+    await Promise.resolve();
+    testPort.emit({ type: 'speaking_state', speaking: true });
+    testPort.emit({ type: 'speaking_state', speaking: false });
+    output.summaryAlreadyPaused = { paused: testVideo.paused, volume: testVideo.volume };
+
     output.invalidTime = await testCall('control_bilibili_player', { command: 'seek', time: -1 });
     output.invalidRate = await testCall('control_bilibili_player', { command: 'rate', rate: 1.2 });
     output.missingArgument = await testCall('control_bilibili_player', { command: 'seek' });
@@ -121,6 +201,24 @@ try {
     results.search.ok && results.search.items[0]?.from === 2 && results.semanticSeek.ok && Math.abs(results.semanticTime - 2) < 0.05,
     { search: results.search, seek: results.semanticSeek, currentTime: results.semanticTime }
   );
+  check(
+    "short-reply-duck-only",
+    results.controllerStarted && !results.shortReply.paused && Math.abs(results.shortReply.volume - 0.2) < 0.001 &&
+      !results.shortReplyRestored.paused && results.shortReplyRestored.volume === 1,
+    { active: results.shortReply, restored: results.shortReplyRestored }
+  );
+  check(
+    "summary-completion-restores",
+    results.summaryStarted.paused && Math.abs(results.summaryStarted.volume - 0.2) < 0.001 &&
+      !results.summaryCompleted.paused && results.summaryCompleted.volume === 1,
+    { active: results.summaryStarted, completed: results.summaryCompleted }
+  );
+  check(
+    "summary-interrupt-restores",
+    !results.summaryInterrupted.paused && results.summaryInterrupted.volume === 1,
+    results.summaryInterrupted
+  );
+  check("summary-respects-existing-pause", results.summaryAlreadyPaused.paused, results.summaryAlreadyPaused);
   check("invalid-time", results.invalidTime.ok === false && results.invalidTime.error, results.invalidTime);
   check("invalid-rate", results.invalidRate.ok === false && results.invalidRate.error, results.invalidRate);
   check("missing-argument", results.missingArgument.ok === false && results.missingArgument.error, results.missingArgument);

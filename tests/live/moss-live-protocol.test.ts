@@ -471,6 +471,8 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.session.instructions).toContain("不得编造外部事实");
     expect(payload.session.instructions).toContain("请通过后台委派（delegation）交由后台文本模型处理");
     expect(payload.session.instructions).toContain("普通日常闲聊或常识问题请直接回答");
+    expect(payload.session.instructions).toContain("跳到刚才总结或分析中的某一点");
+    expect(payload.session.instructions).toContain("把时间戳换算成秒数后调用 control_bilibili_player 的 seek");
     expect(payload.session.tools).toEqual(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS);
   });
 });

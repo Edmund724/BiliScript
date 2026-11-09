@@ -208,6 +208,45 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  const pendingLongSummaryDelegations = new Set<string>();
+  let longSummaryControlActive = false;
+  let longSummaryVideo: HTMLVideoElement | null = null;
+  let longSummaryShouldResume = false;
+
+  function beginLongSummaryControl(): void {
+    if (longSummaryControlActive || pendingLongSummaryDelegations.size === 0) return;
+    const delegationId = pendingLongSummaryDelegations.values().next().value;
+    if (typeof delegationId !== "string") return;
+    pendingLongSummaryDelegations.delete(delegationId);
+    longSummaryControlActive = true;
+    longSummaryVideo = resolveVideoElement();
+    longSummaryShouldResume = Boolean(longSummaryVideo && !longSummaryVideo.paused);
+    if (longSummaryShouldResume) {
+      try {
+        longSummaryVideo?.pause();
+      } catch {}
+    }
+  }
+
+  function endLongSummaryControl(): void {
+    if (!longSummaryControlActive) return;
+    const video = longSummaryVideo;
+    const shouldResume = longSummaryShouldResume;
+    longSummaryControlActive = false;
+    longSummaryVideo = null;
+    longSummaryShouldResume = false;
+    if (shouldResume && video && resolveVideoElement() === video) {
+      try {
+        void video.play().catch(() => {});
+      } catch {}
+    }
+  }
+
+  function clearLongSummaryControls(): void {
+    pendingLongSummaryDelegations.clear();
+    endLongSummaryControl();
+  }
+
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
   let savedMossSessionId: string | null = null;
@@ -269,6 +308,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       muted = false;
       speaking = false;
       micVadActive = false;
+      clearLongSummaryControls();
     }
     syncVideoDucking();
     if (liveButton) {
@@ -418,6 +458,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           postDelegationSilent(delegation.delegationId, content, generation);
         },
         onSpokenResult: (content) => {
+          if (generation !== currentGeneration || !activePort) return;
+          pendingLongSummaryDelegations.add(delegation.delegationId);
           postDelegationResult(delegation.delegationId, "completed", content, generation);
         },
         onError: (content) => {
@@ -443,6 +485,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       nextDelegationVideoKey !== lastDelegationVideoKey
     ) {
       backendTasks.cancelAllTasks();
+      pendingLongSummaryDelegations.clear();
     }
     lastDelegationVideoKey = nextDelegationVideoKey;
     const nextJson = JSON.stringify(context);
@@ -662,7 +705,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         startActiveVideoCapture(generation);
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
-          speaking = Boolean(msg.speaking);
+          const nextSpeaking = Boolean(msg.speaking);
+          if (nextSpeaking && !speaking) beginLongSummaryControl();
+          speaking = nextSpeaking;
+          if (!nextSpeaking) endLongSummaryControl();
           updateSpeakingUi();
           syncVideoDucking();
         }
@@ -673,6 +719,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } else if (msg.type === "delegation_created") {
         void runBackendDelegation(msg.delegation, generation);
       } else if (msg.type === "delegation_cancelled") {
+        pendingLongSummaryDelegations.delete(msg.delegationId);
         backendTasks.cancelTask(msg.delegationId);
       } else if (msg.type === "tool_call") {
         const postToolResult = (result: unknown) => {
@@ -868,6 +915,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activePort.postMessage({ action: "interrupt" });
     } catch {}
     speaking = false;
+    endLongSummaryControl();
     updateSpeakingUi();
     syncVideoDucking();
   }
