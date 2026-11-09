@@ -307,6 +307,33 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     expect(executeWebSearchMock).not.toHaveBeenCalled();
   });
 
+  it("DeepSeek 搜索测试：经 queryAiCredentialKey 复用 AI 平台 Key 发起测试", async () => {
+    const item = {
+      id: "p_deepseek",
+      presetId: "deepseek",
+      name: "DeepSeek",
+      baseUrl: "https://api.deepseek.com",
+      enabled: true,
+      hasSavedKey: true
+    };
+    const { host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [item] }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "sk-deepseek-shared" })
+    });
+    const dialog = await openSearchEditor(host);
+    switchPreset(dialog, "deepseek");
+    executeWebSearchMock.mockResolvedValueOnce({ results, platform: "DeepSeek" });
+
+    await clickTest(dialog);
+
+    expect(executeWebSearchMock).toHaveBeenCalledTimes(1);
+    expect(executeWebSearchMock.mock.calls[0][0]).toMatchObject({
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "sk-deepseek-shared"
+    });
+    expect(statusNode(dialog).textContent).toBe("连接成功 · 3 条结果");
+  });
+
   it("硬约束：探针词是设置页常量「联网搜索测试」、不走也不写查询缓存、不落盘", async () => {
     const { sent, host } = await mountPanel();
     const dialog = await openSearchEditor(host);

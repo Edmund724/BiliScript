@@ -76,3 +76,15 @@ export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIcon
   };
   return variants[variant] || variants.orbit;
 }
+
+
+export function buildPlayerLiveQuickActionIconSvg(): string {
+  return `
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="live" fill="currentColor">
+        <rect x="9" y="2.5" width="6" height="11" rx="3" fill="currentColor"></rect>
+        <path d="M5 10a7 7 0 0 0 14 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+        <path d="M12 17v4.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+        <path d="M8 21.5h8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+      </svg>
+  `;
+}

@@ -23,9 +23,11 @@
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
 import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
+import { buildContextKey, type AiContext } from "../ai/conversation.js";
 import {
   applyContextSnapshot,
   applyLiveContextSnapshot,
+  applyLiveContextToMain,
   chatSessionState,
   clearMainContext,
   noteLiveTabUrl,
@@ -54,6 +56,7 @@ export interface CreateContextLoadDeps {
   // 惰性互引（组装点以箭头函数接线，回调执行时 chatRuntime 实例已存在）
   isStreaming: () => boolean;
   hasPendingUserPrompt: () => boolean;
+  isLiveActive?: () => boolean;
 }
 
 export interface ContextLoad {
@@ -63,6 +66,7 @@ export interface ContextLoad {
 export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
   async function loadContextState({ forceRefresh = false, silent = false, preserveInput = false }: LoadContextStateOptions = {}): Promise<boolean> {
     const hasPinnedConversation = isPinnedContextStrict(chatSessionState.currentConversationMeta);
+    const isLiveActive = Boolean(deps.isLiveActive?.());
     // 上下文组装策略注入点（PR5）。ifSignature 沿用迁移前口径：上次全量快照
     // 的签名；liveContextData 为空（首次/此前失败）时签名为空串，策略必走全量。
     const outcome = await deps
@@ -72,7 +76,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     if (outcome.kind === "no-tab") {
       // 决策点一：无可用标签页，按计划做失败清理（文案/清上下文/
       // 重置视图的取舍全部来自策略计划）。
-      const plan = resolveNoTabPlan({ hasPinnedConversation, silent });
+      const plan = resolveNoTabPlan({ hasPinnedConversation, silent, isLiveActive });
       resetLiveContext();
       if (plan.clearContext) {
         clearMainContext();
@@ -89,7 +93,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
 
     // 决策点二（消息往返之后）：「输入 → 动作」映射全部交给策略模块。unchanged
     // 信封折算成 policy 的响应形态；forceRefresh 只随策略透传，不参与动作判定；
-    // isStreaming / hasPendingUserPrompt 是 chat-runtime 的纯闭包读取，此处
+    // isStreaming / hasPendingUserPrompt / isLiveActive 是运行时纯闭包读取，此处
     // 取值时点不改变可观察行为。
     const resp = outcome.kind === "error"
       ? { ok: false as const, error: outcome.error }
@@ -100,7 +104,8 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       hasPinnedConversation,
       silent,
       isStreaming: deps.isStreaming(),
-      hasPendingUserPrompt: deps.hasPendingUserPrompt()
+      hasPendingUserPrompt: deps.hasPendingUserPrompt(),
+      isLiveActive
     });
 
     // 候选5：content 状态未变 → 保持现状不动（不 applyContextPayload、不重渲染、
@@ -123,9 +128,32 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       return plan.returnValue;
     }
 
-    // 三个成功动作（pinned / 流式守卫 / live）的公共前缀：live 快照照常落地，
+    // 成功动作（pinned / 流式守卫 / 实时伴看 / live）的公共前缀：live 快照照常落地，
     // 保证轮询与补水的数据源不断供。
     applyLiveContextSnapshot(resp.payload as ChatSessionContextSnapshot);
+
+    // 实时伴看进行中（策略已排在 APPLY_PINNED 与 BLOCKED_STREAMING 之后）：
+    // 若视频/分P发生切换，则保留连接并切换对话视图到新视频对应的本地对话历史；
+    // 若属于同一视频，则仅同步主上下文，不重新清场或恢复历史，以保留在场伴看字幕气泡。
+    if (plan.action === LOAD_CONTEXT_ACTION.APPLY_LIVE_SESSION) {
+      const oldKey = chatSessionState.currentContextKey;
+      const nextKey = buildContextKey(resp.payload as AiContext);
+      const isVideoSwitch = Boolean(oldKey && nextKey && nextKey !== oldKey);
+
+      if (isVideoSwitch) {
+        const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null, preserveInput);
+        deps.renderHistoryList();
+        if (contextChanged) {
+          await deps.restoreLatest();
+          deps.renderInitialState();
+        }
+        return plan.returnValue;
+      }
+
+      applyLiveContextToMain();
+      deps.renderHistoryList();
+      return plan.returnValue;
+    }
 
     // pinned 与流式守卫的执行体逐字节相同：只落地 live 快照，不进主上下文。
     if (
@@ -152,9 +180,8 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     const contextChanged = applyContextSnapshot(payload);
 
     // 不再重判流式守卫：能走到这里只有 APPLY_LIVE——策略层选中它即蕴含「非流式
-    // 且无待发 prompt」（apply-pinned / blocked-streaming 已按 action 提前返回，
-    // 只落地 live 快照）。守卫由策略层单独承重，context-policy.ts 的
-    // isStreaming / hasPendingUserPrompt 是唯一判定点。
+    // 且无待发 prompt」（apply-pinned / blocked-streaming / apply-live-session 已按 action 提前返回）。
+    // 守卫由策略层单独承重，context-policy.ts 是唯一判定点。
     if (contextChanged) {
       // preserveInput（发送闸调用链，见 LoadContextStateOptions）：闸内重启是
       // 上下文跟随，不是用户语义上的「新会话」——不清输入框与附件区，否则闸后

@@ -11,11 +11,14 @@
 // getContexts 查询共用同一取值。
 export const OFFSCREEN_URL: string = "entry/offscreen.html";
 
-// 创建 reason 统一取 BLOBS：文档实际承载 ASR 解码 + 转写（WAV Blob 仅在本
-// context 内经 FormData 上传）与聊天 SSE 流式拉取。不能用 AUDIO_PLAYBACK——
-// Chrome 对无真实播放的 AUDIO_PLAYBACK 文档 30 秒强制关闭，长视频解码会被
-// 打断（详见 asr/offscreen-bridge.bg.js ensureAsrOffscreenDocument 注释）。
-export const OFFSCREEN_CREATE_REASON: string = "BLOBS";
+// 创建 reason 统一取 ["BLOBS"]：文档实际承载 ASR 解码 + 转写（WAV Blob 仅在本
+// context 内经 FormData 上传）、聊天 SSE 流式拉取以及 MOSS-LIVE WebSocket 伴看与 WebAudio 播放。
+// 两个真机禁区：
+// 1. 不能用 AUDIO_PLAYBACK——Chrome 对无真实播放的 AUDIO_PLAYBACK 文档 30 秒强制关闭，长视频解码与
+//    伴看静默期会被打断（详见 asr/offscreen-bridge.bg.js ensureAsrOffscreenDocument 注释）。
+// 2. 不能传 "WEBSOCKET"——Chromium offscreen.Reason 枚举无此项，传入会在 createDocument 时直接抛
+//    参数校验异常（Value must be one of AUDIO_PLAYBACK, ..., BLOBS, ...）。
+export const OFFSCREEN_CREATE_REASONS: readonly string[] = ["BLOBS"];
 
 // ASR 转写并发上限：offscreen ASR_ADAPTERS 与 asr/engine.js 调度默认共用。
 // 取值 10 来自 eval/ 并发扫描实测（XingChenASR-V3.2，120s 片）：并发 10 相对 9

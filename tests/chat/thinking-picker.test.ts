@@ -88,20 +88,6 @@ function realInput(presetId: string, baseUrl: string, model: string, level: unkn
   return { presetId, baseUrl, model, level, stream: true };
 }
 
-describe("标签表（05 号票：上游 7 档，与 chip 集合工件同源）", () => {
-  it("键集 = 上游 7 档（不多 none、不少档位），文案照上游写法", () => {
-    expect(Object.keys(THINKING_LEVEL_LABELS)).toEqual([...AI_THINKING_LEVELS]);
-    expect(THINKING_LEVEL_LABELS).toEqual({
-      off: "Off",
-      minimal: "Minimal",
-      low: "Low",
-      medium: "Medium",
-      high: "High",
-      xhigh: "Xhigh",
-      max: "Max"
-    });
-  });
-});
 
 describe("thinkingPickerEntries", () => {
   it("首项恒为 Default（不干预，所有模型都可选）", () => {

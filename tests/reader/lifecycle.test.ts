@@ -230,6 +230,21 @@ describe("reader 生命周期", () => {
     shell.closeReadingView();
   });
 
+  it("工具条相位订阅随 reader 装配绑定，无需壳侧再次触发", async () => {
+    state.reader.readingViewOpen = true;
+    const select = document.createElement("select");
+    select.id = ids.readingSubtitleSelect;
+    document.body.appendChild(select);
+    shell.renderReadingView();
+
+    const customSelect = await import("../../extension/ui/custom-select.js");
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+    const rebuild = vi.spyOn(customSelect, "rebuildCustomSelectOptions");
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+
+    expect(rebuild).toHaveBeenCalled();
+  });
+
   describe("字幕就绪副作用单一收口（arch-review-batch3/01）", () => {
     it("subtitle-ready 通知：驱动全量副作用（重投影 + 状态行 + 播放同步 + 双语装载）", async () => {
       state.clip.bvid = "BV1test000000";
@@ -291,6 +306,23 @@ describe("reader 生命周期", () => {
         // 通知路径：视图未开也照抓副轨
         shell.handleReaderPresenterNotification({ kind: "subtitle-ready" });
         expect(secSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        secSpy.mockRestore();
+      }
+    });
+
+    it("进入阅读模式：若字幕已在手（如预抓取落定），按偏好确保副轨发起装载", async () => {
+      const secSubtitle = await import("../../extension/reader/secondary-subtitle.js");
+      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleLoaded").mockReturnValue({
+        kind: "skipped",
+        reason: "bilingual-off"
+      });
+      try {
+        state.clip.bvid = "BV1test000000";
+        state.clip.subtitleBody = [{ from: 0, to: 5, content: "在手字幕" }];
+        await shell.enterReaderMode();
+        expect(secSpy).toHaveBeenCalledTimes(1);
+        shell.closeReadingView();
       } finally {
         secSpy.mockRestore();
       }

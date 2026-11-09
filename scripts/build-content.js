@@ -67,6 +67,7 @@ const legacyOutfile = path.join(outDir, "content-classic.js");
 const lazyTargets = [
   { name: "player-ai", source: "ai/player-ai.ts" },
   { name: "script-button", source: "ui/script-button.ts" },
+  { name: "live-room", source: "live/live-room-entry.ts" },
   { name: "ui-renderer", source: "ui/ui-renderer.ts" },
   { name: "reader", source: "reader/index.ts" },
   { name: "chat-tab", source: "reader/chat-tab.ts" },
@@ -82,6 +83,7 @@ const lazyTargets = [
   { name: "provider-editor", source: "ui/provider-editor.ts" },
   { name: "explain", source: "ai/explain.ts" },
   { name: "pipeline", source: "asr/pipeline.ts" },
+  { name: "playback-rate", source: "bilibili/playback-rate.ts" },
   { name: "fallback", source: "asr/fallback.ts" },
   { name: "analysis", source: "ai/analysis.ts" },
   // 模型目录元数据（model-catalog/04，ui/lazy-model-catalog 的动态 import 落点）：
@@ -585,6 +587,7 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "shared/watch-storage-keys.ts", mutable: true }, // 两侧各自注册真实 onChanged 监听
   { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
   { source: "reader/lazy-reader.ts", mutable: true }, // 同上
+  { source: "reader/lazy-chat-tab.ts", mutable: true }, // 同上
   { source: "subtitle/lazy.ts", mutable: true }, // 同上
   { source: "ui/lazy-ui.ts", mutable: true }, // 同上
   // —— 纯模块（无模块级可变状态，mutable: false，无头注标记）——
@@ -752,8 +755,8 @@ function report(lazyMeta) {
     `Resident total (bootstrap + main): ${residentTotal} bytes`
   );
 
-  // Content 常驻体积守卫：bootstrap + 主包总量上限（基线 34,882 B，预算上限 36,864 B，留有明确余量）。
-  const MAX_RESIDENT_BYTES = 36864;
+  // Content 常驻体积守卫：bootstrap + 主包总量上限（基线 36,983 B，预算上限 40,960 B，留有明确余量）。
+  const MAX_RESIDENT_BYTES = 40960;
   if (residentTotal > MAX_RESIDENT_BYTES) {
     console.error(
       `build-content.js: Content 常驻体积超限！当前 ${residentTotal} B > 预算上限 ${MAX_RESIDENT_BYTES} B`

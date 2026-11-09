@@ -10,8 +10,10 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
   MAX_INITIAL_QUICK_PROMPTS
 } from "./default-prompts.js";
 import {
@@ -69,8 +71,12 @@ export const normalizeEnablePlayerAiQuickAction = booleanField(false);
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 两代旧默认快捷提示词一次性升到当前默认（与 aiSystemPrompt 的 LEGACY 映射同机制）。
-  if (normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT || normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2) {
+  // 历史旧默认快捷提示词一次性升到当前默认（与 aiSystemPrompt 的 LEGACY 映射同机制）。
+  if (
+    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT ||
+    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 ||
+    normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3
+  ) {
     return DEFAULT_PLAYER_AI_QUICK_PROMPT;
   }
   // 空串（DEFAULT_SETTINGS 空占位 / 用户清空保存）回落当前默认：清空即恢复默认。
@@ -82,12 +88,13 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 四代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
+  // 五代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
   if (
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 ||
-    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 ||
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5
   ) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
@@ -124,6 +131,19 @@ export function normalizeDefaultModel(value: unknown): string {
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
 // ===== 联网搜索 normalizers =====
+export const normalizeLiveVoiceVolume = clampedIntField(
+  0,
+  100,
+  DEFAULT_SETTINGS.liveVoiceVolume
+);
+export const normalizeSpeechVoiceVolume = clampedIntField(
+  0,
+  100,
+  DEFAULT_SETTINGS.speechVoiceVolume
+);
+export const normalizeLiveVoicePriority = booleanField(true);
+export const normalizeLiveShareVideoAudio = booleanField(false);
+export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与

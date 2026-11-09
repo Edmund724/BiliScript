@@ -3,8 +3,8 @@
 // 生产方：解释卡片（reader/explain-card.js）底部的「去对话追问」按钮——用户在
 // 字幕句里选中词/句 → 选区下方浮出「解释」→ 点开后卡片就地给解释，想继续追问时
 // 点这个按钮，把选中片段 + 所在整句记进本叶子并切到 AI 对话 tab；
-// 消费方：AI 对话 tab（reader/chat-tab.js）激活时 peek → 渲染引用卡 → 自动发送
-// → 发送受理成功才 consume（一次意图只发一次，被闸拦下时保持 pending 可重试）。
+// 消费方：reader/explain-intent-consumption.js 在 AI 对话 tab 激活时 peek → 渲染引用卡
+// → 自动发送 → 发送受理成功才 consume（一次意图只发一次，被闸拦下时保持 pending 可重试）。
 //
 // 为什么是独立零依赖叶子（对照 ai/player-ai-state.ts 的 pending 请求模式）：
 // 写入方与读取方分属不同动态分包（卡片随 reader 域装载，对话组合根走

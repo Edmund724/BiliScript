@@ -51,6 +51,7 @@ export interface ImageSupportGateDeps {
 export interface ImageSupportGate {
   /** 带图消息被发送受理时调用：只有目录明确登记不收图才提示，其余（含查不到与查询失败）静默。 */
   check(images: readonly ImagePart[]): void;
+  supportsImages(): Promise<boolean>;
 }
 
 // 门控提示（乐观放行：只提示、不阻断）
@@ -113,7 +114,20 @@ export function createImageSupportGate(deps: ImageSupportGateDeps): ImageSupport
     });
   }
 
-  return { check };
+  async function supportsImages(): Promise<boolean> {
+    const target = currentTarget();
+    if (!target) {
+      return false;
+    }
+    try {
+      const meta = await lookupMeta(target.presetId, target.baseUrl, target.modelId);
+      return !meta || meta.input.includes("image");
+    } catch {
+      return true;
+    }
+  }
+
+  return { check, supportsImages };
 }
 
 /**

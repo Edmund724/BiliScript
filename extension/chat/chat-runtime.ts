@@ -57,7 +57,7 @@
 // harness without a DOM shim.
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import type { ImagePart } from "../ai/types.js";
+import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 // 会话 id 生成（平台会话头 x-opencode-session 的身份来源，见 ai/preset-headers.ts）：
 // 发送时物化，缺失才生成——持久化路径 persistCurrent 见已有 id 直接沿用。
 import { generateConversationId } from "../ai/conversation.js";
@@ -68,11 +68,13 @@ import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
 import type { ConversationStore } from "./conversation-store.js";
 import {
   appendChatHistory,
+  applyConversationIdentity,
   chatSessionState,
   clearConversationIdentity,
   ensureConversationId,
   type ChatSessionMessage
 } from "./chat-state.js";
+import { sanitizeFileName } from "../shared/string-utils.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
@@ -80,9 +82,10 @@ import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ViewResetIntent } from "./view-intent.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
-import { createChatStreamRenderer, type ChatAssistantTurn } from "./chat-stream-render.js";
+import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession, type ChatContinuationSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
 import { imageUnsupportedErrorHint } from "./image-support.js";
+import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 
@@ -153,6 +156,8 @@ export interface CreateChatRuntimeDeps {
   // 本条 chat 消息的 images 字段下发。未注入（旧组合根/测试）时不带该字段——
   // 无图消息的线格式逐字节不变。
   takeInputImages?: () => ImagePart[];
+  canUseVideoFrameTool?: () => Promise<boolean>;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -160,7 +165,10 @@ export interface CreateChatRuntimeDeps {
   // 面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也合法（注入桩/
   // 旧组合根），回执统一走 Promise 归一。
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
+  speechEngine?: ChatSpeechEngine;
+  getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
+  onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
 }
 
 /**
@@ -211,7 +219,7 @@ export interface CreateChatRuntimeDeps {
  * @returns {object} method set (all closures; stream state only via the
  *   runtime's own closure variables — sidepanel queries it with isStreaming() /
  *   isTurnActive(), never by reading runtime internals)。
- *   候选07：接口面刻意收窄为 9 + 1 + 1——只暴露 sidepanel 实际消费的 9 个方法 +
+ *   接口面收窄为 10 + 1 + 1——只暴露 sidepanel 实际消费的 10 个方法 +
  *   1 个协议测试入口 + 1 个消息区句柄（联网搜索回放重建经它表达顺序，spec §4：
  *   历史回放的时间线卡从 chatHistory 重建）；内部渲染/收尾步骤（首 token、
  *   计时器、占位、token 追加、三类终态收口、thinking 节点、全部 DOM 选择器与
@@ -220,6 +228,7 @@ export interface CreateChatRuntimeDeps {
  *   {
  *     sendTurn,                    // (text) => Promise<SendVerdict>（accepted / blocked / ignored）
  *     stopActiveStream,            // () => void
+ *     stopSpeech,                  // () => void  (离开对话 tab 时停止朗读)
  *     // ---- auto-scroll (flag owned by the ./chat-stream-render.js piece;
  *     // sidepanel writes via these narrow entries, flush/finalize read it
  *     // internally) ----
@@ -246,6 +255,20 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 只有渲染片一个主人。思考节点的一代际状态随句柄持有（原本文件的
   // thinkingNode / thinkingEnded 两条字段随之消失）。
   let activeTurn: ChatAssistantTurn | null = null;
+  let activeRegeneration: {
+    originalHistory: ChatSessionMessage[];
+    userIndex: number;
+    session: ChatRegenerationSession;
+  } | null = null;
+  let activeContinuation: {
+    originalHistory: ChatSessionMessage[];
+    userIndex: number;
+    historyIndex: number;
+    initialRaw: string;
+    userPrompt: string;
+    branch: "A" | "B";
+    session: ChatContinuationSession;
+  } | null = null;
   let activeUserPrompt = "";
   // 本代际用户消息的图片（image-input 04 号票）：发送受理时随 activeUserPrompt
   // 一起捕获，done/stopped 写回时挂在那条 user 消息上——图片从此进历史，
@@ -316,6 +339,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // ---- internal helpers ----
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
+    messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeRegeneration !== null || activeContinuation !== null);
   }
   // =========================================================================
   // DOM 渲染/滚动/水合片（./chat-stream-render.ts）的跨片消费面
@@ -323,7 +347,23 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 渲染片对外只给两个句柄：消息区句柄（messageArea：追加用户/助手消息 + 清场）
   // 与滚动/自动滚动窄入口。回合节点句柄（ChatAssistantTurn）由消息区句柄产出、
   // 经 activeTurn 槽位持有——本文件不再解构/调用任何 DOM 步骤函数。
-  const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer(deps);
+  const speech = createChatSpeechController({
+    engine: deps.speechEngine,
+    getVolume: deps.getSpeechVolume,
+    onError: (message) => deps.ui.showConversationContextNotice(message, 4000)
+  });
+  const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
+    ...deps,
+    onRegenerate: regenerateAssistant,
+    onContinue: (historyIndex, node) => {
+      deps.onContinue?.(historyIndex, node);
+      continueAssistant(historyIndex, node);
+    },
+    onExport: exportAssistant,
+    onSpeak: (button, text) => speech.toggle(button, text),
+    onClear: () => speech.stop(),
+    isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
+  });
   // =========================================================================
   // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
   // =========================================================================
@@ -337,6 +377,32 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // 错误不带该字段，由下方 error 分支显式重置。
     if (typeof msg.cachedContextKey === "string" && msg.cachedContextKey) {
       lastAckedContextKey = msg.cachedContextKey;
+    }
+    if (msg.type === "video-frame-request") {
+      if (!port) return;
+      void (async () => {
+        try {
+          if (!deps.captureCurrentVideoFrame) {
+            throw new Error("当前页面不支持视频截图");
+          }
+          const frame = await deps.captureCurrentVideoFrame();
+          port.postMessage({
+            action: "video-frame-result",
+            requestId: msg.requestId,
+            image: frame.image,
+            currentTime: frame.currentTime
+          });
+        } catch (error) {
+          try {
+            port.postMessage({
+              action: "video-frame-result",
+              requestId: msg.requestId,
+              error: String((error as Error)?.message || error)
+            });
+          } catch {}
+        }
+      })();
+      return;
     }
     if (msg.type === "reasoning") {
       handleFirstStreamToken();
@@ -416,8 +482,115 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 发送受理入口（唯一）：受理时序（空文本/在途早退、受理窗口开关、blocked 的
   // 终态结算）归 ./turn-lifecycle.ts；本文件的 runAcceptance 是受理体本体——
   // 从 provider 检查到 postMessage 的副作用链，逐字节保持原次序。
-  function sendTurn(text: string): Promise<SendVerdict> {
-    return turn.send(text);
+  async function sendTurn(text: string): Promise<SendVerdict> {
+    messageArea.setRegenerationDisabled(true);
+    const verdict = await turn.send(text);
+    if (!turn.isActive()) {
+      messageArea.setRegenerationDisabled(false);
+    }
+    return verdict;
+  }
+
+  function regenerateAssistant(historyIndex: number, node: HTMLDivElement): void {
+    if (turn.isActive() || activeRegeneration || activeContinuation) {
+      return;
+    }
+    const originalHistory = [...chatSessionState.chatHistory];
+    if (originalHistory[historyIndex]?.role !== "assistant") {
+      return;
+    }
+    let userIndex = historyIndex - 1;
+    while (userIndex >= 0 && originalHistory[userIndex]?.role !== "user") {
+      userIndex -= 1;
+    }
+    const prompt = userIndex >= 0 ? originalHistory[userIndex].content.trim() : "";
+    if (!prompt) {
+      return;
+    }
+    speech.stop();
+    const regeneration = {
+      originalHistory,
+      userIndex,
+      session: messageArea.beginRegeneration(node)
+    };
+    activeRegeneration = regeneration;
+    messageArea.setRegenerationDisabled(true);
+    void turn.send(prompt).then((verdict) => {
+      if (verdict === "accepted" || activeRegeneration !== regeneration) {
+        return;
+      }
+      regeneration.session.restore();
+      activeRegeneration = null;
+      messageArea.setRegenerationDisabled(false);
+    });
+  }
+
+  function continueAssistant(historyIndex: number, node: HTMLDivElement): void {
+    if (turn.isActive() || activeRegeneration || activeContinuation) {
+      return;
+    }
+    const originalHistory = [...chatSessionState.chatHistory];
+    const targetMessage = originalHistory[historyIndex];
+    if (targetMessage?.role !== "assistant") {
+      return;
+    }
+    let userIndex = historyIndex - 1;
+    while (userIndex >= 0 && originalHistory[userIndex]?.role !== "user") {
+      userIndex -= 1;
+    }
+    if (userIndex < 0) {
+      return;
+    }
+    const userPrompt = originalHistory[userIndex]?.content?.trim() || "";
+    if (!userPrompt) {
+      return;
+    }
+    speech.stop();
+    const hasBody = Boolean(targetMessage.content?.trim());
+    const branch = hasBody ? "B" : "A";
+    const initialRaw = hasBody ? targetMessage.content! : "";
+    const initialThinking = targetMessage.thinking || "";
+    const continuation = {
+      originalHistory,
+      userIndex,
+      historyIndex,
+      initialRaw,
+      userPrompt,
+      branch,
+      session: messageArea.beginContinuation(node, {
+        initialRaw,
+        thinking: initialThinking
+      })
+    };
+    activeContinuation = continuation;
+    messageArea.setRegenerationDisabled(true);
+    const sendPrompt = branch === "B" ? "继续" : userPrompt;
+    void turn.send(sendPrompt).then((verdict) => {
+      if (verdict === "accepted" || activeContinuation !== continuation) {
+        return;
+      }
+      continuation.session.restore();
+      activeContinuation = null;
+      messageArea.setRegenerationDisabled(false);
+    });
+  }
+
+  function exportAssistant(historyIndex: number, raw: string): void {
+    const answerNumber = chatSessionState.chatHistory.slice(0, historyIndex + 1).filter((message) => (
+      message.role === "assistant" && !(Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())
+    )).length || 1;
+    const videoTitle = String(chatSessionState.currentConversationMeta?.contextTitle || chatSessionState.contextData?.title || "");
+    const safeTitle = sanitizeFileName(videoTitle) || "BiliScript";
+    const filename = `${safeTitle}-回答-${answerNumber}.md`;
+    const blob = new Blob([raw], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   // 受理体（turn.runAcceptance 的实现）：闸已由 turn 放行（受理窗口已开）才进入。
@@ -457,50 +630,29 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.removeCenteredState();
       deps.ui.removeSuggestions();
 
-      // 受理即上屏（A1 残余窗口，方案①）：闸已放行即受理——用户消息与输入框
-      // 在此归位，不再等下面的 opt-in 弹层。弹层要 await 用户裁决，把 append
-      // 留在其后时，等待期间起的新一轮历史回放（分片让出点）会重建消息区，
-      // 紧随的 append 就插进回放中间（P2-1 同一失效形态；P2-1 的回放让位点只
-      // 等到 send-gate 放行，够不到弹层这段 await）。弹层结果从不取消发送
-      //（取消只是本条不带搜索），与 append 零数据依赖，故上移不改任何取值。
-      messageArea.appendUserMessage(text, { source: "live" });
-      deps.input.value = "";
-      deps.ui.autosizeInput();
+      const regeneration = activeRegeneration;
+      const continuation = activeContinuation;
+      if (!regeneration && !continuation) {
+        messageArea.appendUserMessage(text, { source: "live" });
+        deps.input.value = "";
+        deps.ui.autosizeInput();
+      }
 
-      // 联网搜索首次授权闸（spec §6.7，search/opt-in-notice.ts）：开关已开且位未置位
-      // 时，发送前先经面板内弹层取得同意——未获同意不外发查询词。判据不依赖
-      // 「用户点过 pill」，故存量 webSearchEnabled=true 的用户同样先看到说明。
-      // 同意 = 写位后继续；取消或阅读视图未挂载 = 本条 webSearchEnabled 传 false，
-      // 消息照常发出——不动 pill、不改任何持久设置（撤回由 pill 承担）。
-      // 弹层位于 append（见上）之后：此时用户消息已上屏，弹层只决定本条带不带搜索。
       const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
-
-      // 图片输入（image-input 路线 B）：闸都过了（发送确已受理）才消费附件区——
-      // 被 provider/上下文/无字幕拦下的发送不清空用户的图片。读取与清空同一次
-      // 调用（takeInputImages = 附件区的读+清，见 reader/chat-tab.ts 的接线）。
-      // 附件消费位置不动（仍在弹层之后——上面只上移了 append 三联）：受理口径
-      // 仍是「闸放行」，与弹层结果无关。
-      const images = deps.takeInputImages?.() ?? [];
+      const images = (regeneration || continuation)
+        ? ((regeneration || continuation).originalHistory[(regeneration || continuation).userIndex].images ?? [])
+        : deps.takeInputImages?.() ?? [];
 
       setStreamingUiState(true);
       activeUserPrompt = text;
-      // 本代际图片随 prompt 一起记下（04 号票：写回 chatHistory 时挂在那条 user
-      // 消息上，历史重发/落盘才有图可谈）。
       activeUserImages = images;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
-      // 会话 id 物化：本轮发送起该会话就有稳定 id（原先要等首次落盘由
-      // persistCurrent 生成），平台会话头（Opencode Go 的 x-opencode-session）
-      // 据此做到「每会话一个稳定标识、新会话新标识」；persistCurrent 见已有 id
-      // 直接沿用，落盘与身份守卫（isCurrent 快照比对）语义都不变。
       if (!chatSessionState.currentConversationId) {
         ensureConversationId(generateConversationId());
       }
       activeConversationId = chatSessionState.currentConversationId;
-      // 新代际：消息区句柄产出一个新的回合节点句柄（live = 流式占位形态）——
-      // 思考节点的一代际状态随句柄全新开始，上一代的思考盒引用不再被本代际
-      // 触及（收尾 reasoning 不会写进旧消息的思考盒）。
-      activeTurn = messageArea.appendAssistantMessage({ source: "live" });
+      activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
       startStreamSlowNoticeTimer();
       streamFirstTokenReceived = false;
 
@@ -515,9 +667,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       port.onDisconnect.addListener(() => {
         activePort = null;
-        // 候选5：断连意味着 offscreen 文档可能已被回收，其单槽字幕体缓存随文档
-        // 消失——重置 lastAcked，下一条消息重发全文（宁多传不错发）。
         lastAckedContextKey = null;
+        if (activeRegeneration) {
+          activeRegeneration.session.restore();
+          activeRegeneration = null;
+          pendingToolMessages = [];
+        }
+        if (activeContinuation) {
+          activeContinuation.session.restore();
+          activeContinuation = null;
+          pendingToolMessages = [];
+        }
         clearStreamRuntimeState();
         setStreamingUiState(false);
         // 断连即回合终结（offscreen 文档被回收 / 会话关闭）：结算待决 settle——
@@ -539,6 +699,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (contextKey && lastAckedContextKey === contextKey) {
         delete context.subtitleBody;
       }
+      const videoFrameToolEnabled = await deps.canUseVideoFrameTool?.() === true;
 
       port.postMessage({
         action: "chat",
@@ -553,6 +714,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：取消说明
         // 时本条传 false（本轮不搜索），其余情况等于全局记忆。
         webSearchEnabled,
+        ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         context,
         contextKey,
         prompt: text,
@@ -562,7 +724,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...(images.length ? { images } : {}),
         // 历史只走顶层 history（offscreen/ai 侧统一读 msg.history）；
         // 不再向 context 里塞 chatHistory 副本（无任何读取方的死负载）。
-        history: chatSessionState.chatHistory
+        history: continuation
+          ? (continuation.branch === "B"
+              ? [
+                  ...continuation.originalHistory.slice(0, continuation.userIndex),
+                  continuation.originalHistory[continuation.userIndex],
+                  { role: "assistant", content: continuation.initialRaw }
+                ]
+              : continuation.originalHistory.slice(0, continuation.userIndex))
+          : (regeneration
+              ? regeneration.originalHistory.slice(0, regeneration.userIndex)
+              : chatSessionState.chatHistory)
       });
 
       // 闸内登记的停流请求（settled 在端口就绪前收到，见 turn.stop）：端口已就绪、
@@ -611,9 +783,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (renderStep) {
       renderStep(streamTurn);
     }
-    // 注意：chat-msg-streaming 不在此摘除——流刚结束时切换 c-v 会让刚完成的
-    // 消息从真实高度突变回估算占位高（视口上跳）；摘除挪到下一次发送上屏时
-    //（消息区句柄的 live 装配），高度重估算被强制滚底掩盖。
+    activeRegeneration = null;
+    activeContinuation = null;
     activeUserPrompt = "";
     activeUserImages = [];
     if (activePort) {
@@ -623,22 +794,74 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     setStreamingUiState(false);
     deps.input.focus();
     scrollToBottom();
-    // 终态落定（step ③ 内的 commitAssistantTurn 已把在途一问一答写回、port 已断）：
-    // 结算待决 settle（turn.resolve 是唯一兑现点）。放在收口末尾——兑现者（历史项
-    // 切换）拿到的必然是终态后的一致状态（落盘已发起、isStreaming() 已为假），
-    // 不再有在途流写旧节点。
     turn.resolve();
   }
 
-  // 在途一问一答写回（done / stopped 共享）：身份守卫判定收在 store
-  // （deps.store.isCurrent）。发送后当前会话已变（删除/清空/切换）→ 不写回
-  // chatHistory、不持久化（防会话复活 / 串话），DOM 仍由 renderStep 更新。
-  // 联网搜索（spec §2.5）：tool 轮消息（assistant(tool_calls) + tool 结果）
-  // 按 user → tool 消息 → assistant 顺序插入，重开会话后可从历史重建。
-  // 图片（image-input 04 号票）：本代际的图片挂在那条 user 消息上（无图不带
-  // 字段——无图历史逐字节不变），「最近一条用户消息的图」由此进历史。
-  function commitAssistantTurn(raw: string): void {
-    if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
+  function getActiveAssistantHistoryIndex(): number {
+    if (activeContinuation) {
+      return activeContinuation.historyIndex;
+    }
+    if (activeRegeneration) {
+      return activeRegeneration.userIndex + 1 + pendingToolMessages.length;
+    }
+    return chatSessionState.chatHistory.length + 1 + pendingToolMessages.length;
+  }
+
+  function commitAssistantTurn(
+    raw: string,
+    opts: { thinking?: string; stopped?: boolean } = {}
+  ): boolean {
+    const thinkingText = typeof opts.thinking === "string" && opts.thinking.trim() ? opts.thinking : undefined;
+    const hasContent = Boolean(raw && raw.trim());
+    const hasThinking = Boolean(thinkingText);
+    const isStopped = Boolean(opts.stopped);
+
+    const assistantMsg: ChatSessionMessage = {
+      role: "assistant",
+      content: raw || ""
+    };
+    if (hasThinking) {
+      assistantMsg.thinking = thinkingText;
+    }
+    if (isStopped) {
+      assistantMsg.stopped = true;
+    }
+
+    if (activeRegeneration) {
+      if (!deps.store.isCurrent(activeConversationId)) {
+        pendingToolMessages = [];
+        return false;
+      }
+      if (isStopped && !hasContent && !hasThinking) {
+        pendingToolMessages = [];
+        return false;
+      }
+      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
+      history.push(...pendingToolMessages, assistantMsg);
+      applyConversationIdentity({ history });
+      void deps.store.persistCurrent();
+      pendingToolMessages = [];
+      return true;
+    }
+
+    if (activeContinuation) {
+      if (!deps.store.isCurrent(activeConversationId)) {
+        pendingToolMessages = [];
+        return false;
+      }
+      if (isStopped && !hasContent && !hasThinking) {
+        pendingToolMessages = [];
+        return false;
+      }
+      const history = [...activeContinuation.originalHistory];
+      history[activeContinuation.historyIndex] = assistantMsg;
+      applyConversationIdentity({ history });
+      void deps.store.persistCurrent();
+      pendingToolMessages = [];
+      return true;
+    }
+
+    if (activeUserPrompt && deps.store.isCurrent(activeConversationId)) {
       appendChatHistory(
         {
           role: "user",
@@ -646,34 +869,43 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           ...(activeUserImages.length ? { images: activeUserImages } : {})
         },
         ...pendingToolMessages,
-        { role: "assistant", content: raw }
+        assistantMsg
       );
       void deps.store.persistCurrent();
     }
     pendingToolMessages = [];
+    return true;
   }
 
-  // -------------------------------------------------------------------------
-  // 三条终态分派分支：各自只保留"步骤③"的特有 DOM / 持久化收尾
-  // -------------------------------------------------------------------------
-
-  // done：全量重渲染 + 写回一问一答
   function finalizeAssistant(streamTurn: ChatAssistantTurn | null): void {
     if (!streamTurn) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      // 句柄收尾：raw 缺省 = 本回合累计原文（含未 flush 增量），sources 缺省 =
-      // 本回合累计来源（联网搜索 spec §4：[n] 转内联引用），并返回本次原文供写回。
-      const raw = turn.finish({ userPrompt: activeUserPrompt });
+      const raw = turn.finish({
+        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
+        historyIndex: getActiveAssistantHistoryIndex()
+      });
+      const thinking = turn.getThinking?.();
       appendTruncatedBadge(turn);
-      commitAssistantTurn(raw);
+      const committed = commitAssistantTurn(raw, { thinking });
+      if (activeRegeneration) {
+        if (committed) {
+          activeRegeneration.session.commit();
+        } else {
+          activeRegeneration.session.restore();
+        }
+      }
+      if (activeContinuation) {
+        if (committed) {
+          activeContinuation.session.commit();
+        } else {
+          activeContinuation.session.restore();
+        }
+      }
     });
   }
 
-  // 截断徽标：本代际被 max_tokens 截断时，在渲染完成的正文之后挂一行常驻说明
-  //（位置与停止徽标一致）。不落会话记录——重开对话后正文还在、这行不在。
-  // 空文案（本代际未被截断）不挂：徽标文案由引擎给，空串即无徽标。
   function appendTruncatedBadge(turn: ChatAssistantTurn): void {
     if (!turnTruncatedNotice) {
       return;
@@ -681,31 +913,46 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     turn.markTruncated(turnTruncatedNotice);
   }
 
-  // error：错误占位（不渲染正文、不写回、不持久化）。图片输入（05 号票）：本轮带图
-  // 且平台回 400、而平台 detail 没给图片线索时，在错误文案后缀一句可操作提示——
-  // 判定与文案在 chat/image-support.js（activeUserImages 此处仍是本代际的图，
-  // endStream 的 renderStep 之后才清空）。
   function showAssistantError(streamTurn: ChatAssistantTurn | null, error: unknown): void {
     if (!streamTurn) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      // 错误文案（含带图不支持的可操作提示）在状态机侧拼好，节点形态归句柄。
-      turn.fail(`错误：${error}${imageUnsupportedErrorHint(error, activeUserImages)}`);
+      const message = `${error}${imageUnsupportedErrorHint(error, activeUserImages)}`;
+      turn.fail(`错误：${message}`);
+      if (activeRegeneration) {
+        deps.ui.showConversationContextNotice(`重新生成失败：${message}`, 4000);
+      }
+      if (activeContinuation) {
+        deps.ui.showConversationContextNotice(`继续生成失败：${message}`, 4000);
+      }
     });
   }
 
-  // stopped：有正文则渲染正文 + 停止徽标（并写回）；无正文则只放停止徽标
   function handleAssistantStopped(streamTurn: ChatAssistantTurn | null, reason: string): void {
     if (!streamTurn) {
       return;
     }
     endStream(streamTurn, (turn) => {
-      // 句柄收尾报告 body：有正文（raw.trim() 非空）才写回——判定与渲染收在同一处，
-      // 状态机不再复判。
-      const { raw, body } = turn.stop(reason, { userPrompt: activeUserPrompt });
-      if (body) {
-        commitAssistantTurn(raw);
+      const { raw } = turn.stop(reason, {
+        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
+        historyIndex: getActiveAssistantHistoryIndex()
+      });
+      const thinking = turn.getThinking?.();
+      const committed = commitAssistantTurn(raw, { thinking, stopped: true });
+      if (activeRegeneration) {
+        if (committed) {
+          activeRegeneration.session.commit();
+        } else {
+          activeRegeneration.session.restore();
+        }
+      }
+      if (activeContinuation) {
+        if (committed) {
+          activeContinuation.session.commit();
+        } else {
+          activeContinuation.session.restore();
+        }
       }
     });
   }
@@ -816,11 +1063,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return activeUserPrompt !== "";
   }
 
+  function stopSpeech(): void {
+    speech.stop();
+  }
+
   function resetStreamState(): void {
+    speech.stop();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。
     activeTurn?.discard();
+    activeRegeneration?.session.restore();
+    activeRegeneration = null;
+    activeContinuation?.session.restore();
+    activeContinuation = null;
+    pendingToolMessages = [];
     clearStreamRuntimeState();
     if (activePort) {
       try { activePort.disconnect(); } catch {}
@@ -846,7 +1103,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     dispatchChatPortMessage(msg, activePort);
   }
 
-  // 返回面 11 键（候选07：sidepanel 消费的 10 个方法 + 1 个协议测试入口；联网
+  // 返回面 12 键（sidepanel 消费的 11 个方法 + 1 个协议测试入口；联网
   // 搜索回放重建与消息区/回合句柄不再单列出口——回放经 messageArea 句柄表达顺序，
   // 节点装配形状只有渲染片一个主人）。内部步骤（handleFirstStreamToken /
   // clearStreamRuntimeState / startStreamSlowNoticeTimer / finalizeAssistant /
@@ -855,6 +1112,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   return {
     sendTurn,
     stopActiveStream,
+    stopSpeech,
     setAutoScroll,
     scrollToBottom,
     isStreaming,

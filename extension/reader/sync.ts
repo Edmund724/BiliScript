@@ -33,6 +33,7 @@ import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import {
   ids,
   isManualScrollPaused,
+  isReadingOverviewBodyVisible,
   isReadingSubtitleBodyVisible,
   resetManualScrollPause,
   setManualScrollPaused,
@@ -49,6 +50,7 @@ import { readerPorts } from "./reader-bus.js";
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
 import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
+
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
 //
@@ -112,6 +114,9 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
 
     setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll);
   }
+  if (isReadingOverviewBodyVisible()) {
+    syncReadingOverviewActiveChapter(currentTime);
+  }
   updateReaderFollowState();
   // 播放进度不再写面板状态行（2026-09 用户决议）：原来每拍把「当前进度 0:12」
   // 覆写进 header，位置反馈由字幕列表的自动高亮承担。
@@ -125,9 +130,10 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
 // 在文档时，整段跳过 querySelector 与 classList 写。列表整段重建
 //（renderReadingView）会使旧节点脱离文档、缓存自动失效回退到现查；分批渲染
 // 未追到目标时节点为 null，同样回退现查（条目上屏后的下一拍自然补上高亮）。
-// 章节高亮缓存已随 rail 章节列表 DOM（整页接管形态）退役一并删除。
-const lastActiveItems: { subtitle: ActiveItemCache } = {
-  subtitle: { index: -1, node: null }
+// 概览章节高亮同样纳入缓存（命中节点仍连接且时间仍在章界窗口内时 O(1) 短路）。
+const lastActiveItems: { subtitle: ActiveItemCache; overviewChapter: OverviewChapterCache } = {
+  subtitle: { index: -1, node: null },
+  overviewChapter: { node: null, minTime: 0, maxTime: -1 }
 };
 
 // 解析本次应激活的节点：命中缓存时返回 unchanged=true（DOM 已是目标状态，
@@ -135,9 +141,68 @@ const lastActiveItems: { subtitle: ActiveItemCache } = {
 // current——current 优先复用缓存里的旧激活节点（它就是上次被本函数加上
 // is-active 的节点，语义等价且省一次 querySelector），旧节点已脱离文档时
 // 退回 ".is-active" 现查，行为与原实现一致。
+interface OverviewChapterCache {
+  node: HTMLElement | null;
+  minTime: number;
+  maxTime: number;
+}
+
 interface ActiveItemCache {
   index: number;
   node: HTMLElement | null;
+}
+
+export function syncReadingOverviewActiveChapter(
+  currentTime: unknown = state.reader.readingVideoEl?.currentTime || 0
+): void {
+  const seconds = Number(currentTime);
+  const time = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const cached = lastActiveItems.overviewChapter;
+  if (cached.node?.isConnected && time >= cached.minTime && time < cached.maxTime) {
+    return;
+  }
+
+  const body = document.getElementById(ids.readingOverviewBody);
+  if (!body) return;
+  const cards = Array.from(body.querySelectorAll<HTMLElement>(".biliscript-reading-ov-chapter"));
+  let next: HTMLElement | null = null;
+  let minTime = 0;
+  let maxTime = Number.POSITIVE_INFINITY;
+
+  for (const card of cards) {
+    const from = Number(card.dataset.seconds) || 0;
+    const to = Number(card.dataset.to) || 0;
+    if (time < from) {
+      maxTime = Math.min(maxTime, from);
+      break;
+    }
+    if (to > from && time >= to) {
+      minTime = Math.max(minTime, to);
+      continue;
+    }
+    next = card;
+    minTime = Math.max(minTime, from);
+    if (to > from) {
+      maxTime = Math.min(maxTime, to);
+    }
+    break;
+  }
+
+  const current =
+    cached.node?.isConnected && cached.node.classList.contains("is-active")
+      ? cached.node
+      : body.querySelector<HTMLElement>(".biliscript-reading-ov-chapter.is-active");
+  cached.node = next;
+  cached.minTime = minTime;
+  cached.maxTime = maxTime;
+
+  if (current === next) return;
+  current?.classList.remove("is-active");
+  current?.removeAttribute("aria-current");
+  if (next) {
+    next.classList.add("is-active");
+    next.setAttribute("aria-current", "true");
+  }
 }
 
 function resolveActiveItem(cached: ActiveItemCache, index: number, list: HTMLElement, className: string) {
@@ -153,8 +218,7 @@ function resolveActiveItem(cached: ActiveItemCache, index: number, list: HTMLEle
 
 function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shouldScroll = false) {
   const subtitleList = getReaderElement(ids.readingSubtitleList);
-  // rail 章节列表 DOM 已随整页接管退役，章节高亮写组整段删除；
-  // activeChapterIndex 状态照常维护（概览 tab 的高亮消费）。
+  // 官方章节索引只用于字幕跟随；概览高亮由 syncReadingOverviewActiveChapter 按概览章界独立计算并缓存。
   const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
 
   if (!subtitleHit.unchanged) {

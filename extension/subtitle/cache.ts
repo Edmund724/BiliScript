@@ -155,7 +155,7 @@ interface SubtitleSignatureInput {
  * 换轨 / 切分P 后条数、时间戳或文本量变化即签名变化，概览缓存自然 miss，不做
  * 主动失效（07 票决议）。分章模式位（官方章节 / 给定目录指纹）一并纳入：分章
  * 来源变化会换提示词与产物形态，概览分章票 03 起还进段键（防新键装旧段）。
- * 算法必须逐位稳定——历史概览缓存键依赖它；语义变更须升 basis 版本位（当前 v2）。
+ * 算法必须逐位稳定——历史概览缓存键依赖它；语义变更须升 basis 版本位（当前 v4）。
  */
 
 // 候选10 批1：body 遍历度量（条数/首末时间戳/总字符数）按「输入数组引用」缓存
@@ -201,11 +201,8 @@ export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, ch
   const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
   const { count, firstFrom, lastTo, totalChars } = measureSubtitleBody(body);
   const basis = [
-    // 版本位 v2：概览产物语义变了（给定章节路径会产出逐章 summary、无目录时章节不再
-    // 恒空），旧 v1 键下的产物不再同构——升版让它们整体失效重生成，而不是被当成命中。
-    // 版本位 v3：简介/评论时间轴来源的产物语义又变了（章节只留标题、不再逐章 summary），
-    // 旧 v2 键下带 AI 简介的产物不再同构，同样整体失效重生成。
-    "v3",
+    // v4：产物新增全片简介，稀疏时间轴章节恢复一句话说明；旧缓存整体重生成。
+    "v4",
     sourceKey,
     String(lang ?? ""),
     String(count),

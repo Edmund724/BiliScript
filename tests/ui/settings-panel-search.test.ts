@@ -501,3 +501,38 @@ describe("设置页搜索节：「恢复默认顺序」（spec §6.10 / §12.3 /
     expect(button.disabled).toBe(true);
   });
 });
+
+describe("搜索平台与回退链手风琴展开", () => {
+  it("默认折叠，点击卡片行展开/收起，并同步选中摘要与 aria 状态", async () => {
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
+    });
+    await waitForSearchRows(host, 6);
+
+    const container = host.querySelector<HTMLElement>("#searchChainContainer")!;
+    const toggleBtn = host.querySelector<HTMLElement>("#toggleSearchChainBtn")!;
+    const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
+
+    expect(container.hidden).toBe(true);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(summary.textContent).toBe("智能模式");
+
+    // 点击展开
+    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(container.hidden).toBe(false);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
+
+    // 再次点击收起
+    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(container.hidden).toBe(true);
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+
+    // 选中具体平台时摘要更新
+    const tavilyRadio = searchList(host).querySelector<HTMLInputElement>(
+      '[data-provider-id="search_tavily"] .search-provider-active-radio'
+    )!;
+    tavilyRadio.checked = true;
+    tavilyRadio.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(summary.textContent).toBe("Tavily");
+  });
+});

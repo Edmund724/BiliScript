@@ -43,6 +43,8 @@ import {
   aiProviderStore
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
+import { liveProviderStore } from "../live/live-provider-store.js";
+import { liveSessionTracker, clearMossLiveWsAuthRule } from "../live/live-session-tracker.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
@@ -80,6 +82,7 @@ import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
 import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 // PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import { attachChatSpeechPort } from "../chat/chat-speech-bg.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE, ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
 // 消息入口策略（路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径）：组合根只注入
@@ -95,7 +98,8 @@ import {
   type MessageReplyDecision,
   type MessageSender,
   type ProviderListEntry,
-  type SearchProviderListEntry
+  type SearchProviderListEntry,
+  type LiveProviderListEntry
 } from "../shared/messaging-protocol.js";
 
 // ===== 写入口（落盘 + 失效一次做完）=====
@@ -423,6 +427,37 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
 // chrome.storage.local（arch-review-2026-09/05，替下 storage-local-bridge 垫片）。
 const handleSegmentCache = createSegmentCacheHandler();
 
+
+// MOSS-LIVE 伴看平台 CRUD 与会话准备处理器
+const liveProviderHandlers = createProviderMessageHandlers<LiveProviderListEntry>({
+  loadProviders: liveProviderStore.loadProviders,
+  saveProviders: invalidatingWrite(liveProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.live),
+  deleteProvider: invalidatingWrite(liveProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.live),
+  loadKeys: liveProviderStore.loadKeys
+});
+
+function handleLiveSessionPrepare(
+  message: Msg<"live-session-prepare">,
+  sender: MessageSender,
+  sendResponse: Reply<"live-session-prepare">
+): void {
+  withOkResponse(
+    liveSessionTracker.prepare(message?.sessionId || "", sender.tab?.id),
+    sendResponse
+  );
+}
+
+function handleLiveSessionCleanup(
+  message: Msg<"live-session-cleanup">,
+  _sender: MessageSender,
+  sendResponse: Reply<"live-session-cleanup">
+): void {
+  withOkResponse(
+    liveSessionTracker.cleanup(message?.sessionId),
+    sendResponse
+  );
+}
+
 // ===== 通用 offscreen 任务通道 =====
 
 // 把任务转发给"临时创建的 offscreen 文档"执行：asr-decode-prepare 建文档 +
@@ -496,6 +531,12 @@ const messageHandlerTable = {
   "search-providers-list": searchProviderHandlers.list,
   "search-providers-save": searchProviderHandlers.save,
   "search-providers-delete": searchProviderHandlers.remove,
+  "live-providers-list": liveProviderHandlers.list,
+  "live-providers-save": liveProviderHandlers.save,
+  "live-providers-delete": liveProviderHandlers.remove,
+  "live-session-prepare": handleLiveSessionPrepare,
+  "live-session-cleanup": handleLiveSessionCleanup,
+
   "resolve-search-provider": handleResolveSearchProvider,
   "search-cache": handleSearchCache,
   "search-health": handleSearchHealth,
@@ -514,6 +555,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   // 跨浏览器重启由平台自动清空，本清理是对扩展 reload/update 行为差异的兜底）。
   try {
     await reapAllSessionRules();
+    await clearMossLiveWsAuthRule();
   } catch (error) {
     // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
     logWarn("[BILISCRIPT] asr session rule reap on install/update failed", error);
@@ -579,14 +621,16 @@ chrome.action?.onClicked?.addListener(
 
 // ===== 入口监听 =====
 
-// 08 票 SW 保活：接受 offscreen 运行期间的长连端口（MV3：SW 生命周期与活动
-// 端口绑定，接受持有即钉住，无消息往来）；可选链与 chrome.action 先例一致，
+// 内容脚本没有 chrome.tts：朗读请求与事件经专用端口在 SW 转发。
+// offscreen 保活端口接受持有即生效；可选链与 chrome.action 先例一致，
 // 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
 chrome.runtime.onConnect?.addListener?.((port) => {
+  if (attachChatSpeechPort(port)) {
+    return;
+  }
   if (!isSwKeepalivePort(port)) {
     return;
   }
-  // 保活端口无消息往来：接受持有即生效。
 });
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，

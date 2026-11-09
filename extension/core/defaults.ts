@@ -49,6 +49,12 @@ export interface KnownSettings {
   defaultModel: string;
   aiThinkingLevel: ThinkingLevelValue;
   activeAsrProviderId: string;
+  activeLiveProviderId: string;
+  liveVoiceVolume: number;
+  speechVoiceVolume: number;
+  liveVoicePriority: boolean;
+  liveShareVideoAudio: boolean;
+  liveGeminiNativeSearch: boolean;
   asrAutoFallback: boolean;
   asrLanguage: string;
   // ===== 联网搜索（spec §3.2）=====
@@ -81,6 +87,9 @@ export interface KnownSettings {
   customPanelWidthEnabled: boolean; // 是否启用自定义文摘面板宽度，默认关
   customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 540
   autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
+  // ===== 历史会话清理 =====
+  cleanConversationsOlderThan30Days: boolean; // 自动清理 30 天以前的历史会话记录，默认关
+  enableExtraPlaybackRates: boolean; // 在视频播放器控制栏显示 3x/4x 倍速按钮，默认关
 }
 
 export interface Settings extends KnownSettings {
@@ -118,6 +127,12 @@ export const DEFAULT_SETTINGS: Settings = {
   // asrProviders 列表不在此处：provider 列表归 asr/asr-provider-store.js
   // （provider-store 收口，经 asr-providers-save 消息写回），settings 只存标量。
   activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
+  activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
+  liveVoiceVolume: 100,      // 实时伴看 AI 音量（百分比）
+  speechVoiceVolume: 100,    // AI 回答朗读音量（百分比）
+  liveVoicePriority: true,   // 实时伴看语音优先（自动压低视频音量，默认开启）
+  liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
+  liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====
@@ -139,5 +154,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: false,
   customPanelWidth: 540,
-  autoOpenReader: false
+  autoOpenReader: false,
+  cleanConversationsOlderThan30Days: false,
+  enableExtraPlaybackRates: false
 };

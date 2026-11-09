@@ -124,7 +124,7 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     expect(createDocument).toHaveBeenCalledTimes(1);
     expect(createDocument.mock.calls[0][0]).toMatchObject({
       url: "chrome-extension://test/entry/offscreen.html",
-      // BLOBS（非 AUDIO_PLAYBACK）：Chrome 对无音频播放的 AUDIO_PLAYBACK
+      // BLOBS（非 AUDIO_PLAYBACK，且不传非法的 WEBSOCKET）：承载 ASR 解码/转写与 MOSS-LIVE 伴看；Chrome 对无音频播放的 AUDIO_PLAYBACK
       // 文档 30 秒强制关闭，长视频解码会被「音频解码中断」
       reasons: ["BLOBS"]
     });
@@ -280,7 +280,7 @@ const EXPECTED_RULE_SHAPE = {
       { header: "Origin", operation: "set", value: "https://www.bilibili.com" }
     ]
   },
-  condition: { requestDomains: ["bilivideo.com"], resourceTypes: ["xmlhttprequest"] }
+  condition: { requestDomains: ["bilivideo.com", "bilivideo.cn", "akamaized.net"], resourceTypes: ["xmlhttprequest"] }
 };
 
 async function prepareOnce() {

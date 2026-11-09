@@ -181,7 +181,7 @@ export async function refreshClip(): Promise<void> {
     state.setSettings(await getSettings());
     ensureRunActive(runId, state.clip.fetchRunId);
 
-    await resolveClipMeta(runId);
+    const metaResult = await resolveClipMeta(runId);
 
     // 视频身份（作者/分P）此刻已落 state，但字幕还没到手：无字幕轨时更是整轮
     // ASR 转写（几分钟到几小时）期间不会再有任何渲染通知——subtitle-ready 在
@@ -229,8 +229,9 @@ export async function refreshClip(): Promise<void> {
 
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
+    const upowerBlocked = metaResult.upowerBlocked || Boolean(subtitleBundle.upowerBlocked);
 
-    const preferred = await selectSubtitleTrack(runId);
+    const preferred = await selectSubtitleTrack(runId, { upowerBlocked });
     if (!preferred) {
       return;
     }
@@ -274,7 +275,7 @@ export async function refreshClip(): Promise<void> {
 // 段1 meta 解析：bvid 校验 → meta 抓取（带重试）→ clipState 基础信息写入 →
 // 分 P / cid / duration 经 page-context seam 解析（时长缺失兜底
 // readRuntimeVideoDuration，仍缺失则中止）→ resolved ids 日志。
-async function resolveClipMeta(runId: number): Promise<void> {
+async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean }> {
   clipState.setBvid(extractBvid(location.href));
   if (!state.clip.bvid) {
     throw new Error("当前页面不是标准 BV 视频地址，无法抓取字幕。");
@@ -322,15 +323,19 @@ async function resolveClipMeta(runId: number): Promise<void> {
     pageIndex: resolvedPageIndex,
     videoDuration: state.clip.videoDuration
   });
+  return { upowerBlocked: Boolean(meta.upowerBlocked) };
 }
 
 // 段2 轨道选择：无字幕轨 / 无偏好轨两个守卫出口经 finishNoSubtitle 收尾
 //（转写成果在 fallback 内经字幕接受事务落位后直接让调用方 return），返回选中
 // 的偏好轨，null = 已走无字幕出口。
-async function selectSubtitleTrack(runId: number): Promise<SubtitleTrack | null> {
+async function selectSubtitleTrack(
+  runId: number,
+  { upowerBlocked = false }: { upowerBlocked?: boolean } = {}
+): Promise<SubtitleTrack | null> {
   // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
   if (state.clip.subtitles.length === 0) {
-    await finishNoSubtitle(runId);
+    await finishNoSubtitle(runId, { upowerBlocked });
     return null;
   }
 
@@ -341,7 +346,7 @@ async function selectSubtitleTrack(runId: number): Promise<SubtitleTrack | null>
   });
 
   if (!preferred) {
-    await finishNoSubtitle(runId);
+    await finishNoSubtitle(runId, { upowerBlocked });
     return null;
   }
   return preferred;
@@ -382,13 +387,20 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
 }
 
 // 无字幕出口编排（refreshClip 两处守卫分支共用，原为逐行相同的两段手抄）：
-// 先给 ASR 回退一个机会——done 时转写成果已在 fallback 内经字幕接受事务
-//（commit.acceptSubtitle）收尾，这里直接 return；skip / empty / error 三种
-// 都落回无字幕状态（逆事务 commit.commitNoSubtitle）。失败/空结果/配置原因
-// 已由 fallback 各终态分支写进 clipState（reason + detail），出口只负责清空
-// 与呈现——状态栏与 reader 通知的文案由事务统一拼装（唯一出口）。
+// 充电专属未充电视频（upowerBlocked）无完整音轨，直接跳过 ASR 并以
+// "upower-exclusive" 落入无字幕状态；其余视频先给 ASR 回退一个机会——done 时
+// 转写成果已在 fallback 内经字幕接受事务（commit.acceptSubtitle）收尾，这里直接
+// return；skip / empty / error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
 // STALE_RUN（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
-async function finishNoSubtitle(runId: number): Promise<void> {
+async function finishNoSubtitle(
+  runId: number,
+  { upowerBlocked = false }: { upowerBlocked?: boolean } = {}
+): Promise<void> {
+  if (upowerBlocked) {
+    clipState.setNoSubtitleDetail("");
+    await commitNoSubtitle({ noSubtitleReason: "upower-exclusive", runId });
+    return;
+  }
   const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
   const asrResult = await (await loadActiveAsrFallback()).maybeRunAsrFallback({ runId });
   if (asrResult === "done") {

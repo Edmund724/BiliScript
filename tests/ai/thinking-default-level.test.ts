@@ -17,8 +17,7 @@ import { chatSessionState, resetChatSessionStateForTests } from "../../extension
 import {
   AI_THINKING_LEVELS,
   AI_THINKING_LEVEL_VALUES,
-  THINKING_DEFAULT_LEVEL,
-  UPSTREAM_PROVIDER_BY_PRESET,
+    UPSTREAM_PROVIDER_BY_PRESET,
   clampThinkingLevel,
   normalizeThinkingLevel,
   resolveThinkingAdjustment,
@@ -33,10 +32,8 @@ const PRESET_BY_UPSTREAM: Record<string, string> = Object.fromEntries(
 
 describe("default 词表分层（不进强度阶梯）", () => {
   it("可选值 = default + 7 档；强度阶梯里没有 default", () => {
-    expect(AI_THINKING_LEVEL_VALUES[0]).toBe("default");
     expect([...AI_THINKING_LEVEL_VALUES]).toEqual(["default", ...AI_THINKING_LEVELS]);
     expect((AI_THINKING_LEVELS as readonly string[]).includes("default")).toBe(false);
-    expect(THINKING_DEFAULT_LEVEL).toBe("default");
   });
 
   // 归一化口径（2026-10-05 两轮裁定）：缺省 / 脏值回落 default——请求侧与存储 / 面板侧

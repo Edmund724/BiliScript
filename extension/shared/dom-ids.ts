@@ -65,6 +65,10 @@ export const ids = {
   readingChatRoot: "biliscript-reading-chat",
   // 联网搜索开关 pill（spec §4，chat header 工具条，历史按钮同排）
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
+  readingChatSpeechVolume: "biliscript-reading-chat-speech-volume",
+  readingChatSpeechVolumeInput: "biliscript-reading-chat-speech-volume-input",
+  readingChatSpeechVolumeValue: "biliscript-reading-chat-speech-volume-value",
+  readingChatSpeechVolumeResetBtn: "biliscript-reading-chat-speech-volume-reset-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
   readingChatLineHeight: "biliscript-reading-chat-line-height",

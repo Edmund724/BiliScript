@@ -14,6 +14,7 @@
 // 设置面板的行删除路径复用同一函数（loadOriginSharingProviders），新增一族只改表。
 
 import { permissionRevokeErrorMessage, revokeOrphanOrigin } from "../core/host-permissions.js";
+import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowItem } from "./provider-row.js";
 
@@ -55,7 +56,7 @@ export interface ProviderTransactions {
 }
 
 // orphan origin 回收的存活并集：问分派表里所有 optionalHostPermission 的族
-// （当前 ai+asr；搜索是 manifest 静态 host 权限不参与）。两条删除路径
+// （当前 ai+asr+live；搜索是 manifest 静态 host 权限不参与）。两条删除路径
 //（deleteProvider / 设置面板行删除）共用，新增一族只改表。
 export async function loadOriginSharingProviders(families: ProviderFamilyTable): Promise<ProviderRowItem[]> {
   const eligible = Object.values(families).filter((family) => family.optionalHostPermission);
@@ -76,7 +77,11 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
     // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
     // optional 权限代申请。手势不变式：本调用之前零先行 await。
     if (family.optionalHostPermission && upsert.baseUrl) {
-      const permission = await deps.requestOrigins([String(upsert.baseUrl)]);
+      const rawUrl = String(upsert.baseUrl);
+      const model = typeof upsert.model === "string" ? upsert.model : undefined;
+      const permission = await deps.requestOrigins(
+        PROVIDER_FAMILY_ROWS[kind].editor.resolvePermissionOrigins(rawUrl, model)
+      );
       if (!permission.ok) {
         return { ok: false, error: permission.error };
       }

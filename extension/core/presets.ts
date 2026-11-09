@@ -249,7 +249,7 @@ export function presetBaseUrlForProtocol(
 
 // 记录级：AI 记录的当前生效端点——记录自带 baseUrl（trim 后非空）优先；为空时
 // 按协议缺省链 record.protocol → preset.protocol → "openai" 查 presetBaseUrlForProtocol。
-// 消费方：DeepSeek 凭据引用的官方端点判定（search/deepseek-credential）等「记录
+// 消费方：跨族凭据引用的官方端点判定（core/ai-credential-reference）等「记录
 // 当前实际指向哪」的判定，与编辑 Modal 的协议端点预览同源（对齐由同 import 保证）。
 export interface EffectivePresetRecordLike {
   baseUrl?: unknown;

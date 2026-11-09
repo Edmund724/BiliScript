@@ -27,6 +27,8 @@ export interface LifetimePort {
 export interface OffscreenLifetime {
   // 聊天端口入集；其断连自动出集
   trackChatPort(port: LifetimePort): void;
+  // MOSS-LIVE 伴看端口入集；其断连自动出集
+  trackLivePort(port: LifetimePort): void;
   // asr-decode 端口入集；其断连自动出集
   trackAsrPort(port: LifetimePort): void;
   // 概览代发端口入集；其断连自动出集
@@ -39,9 +41,10 @@ export interface OffscreenLifetime {
 // → 不关，保守保留文档。
 export function shouldCloseAfterAsrTask(
   currentChatCount: unknown,
-  activeProviderRequests: unknown
+  activeProviderRequests: unknown,
+  currentLiveCount: unknown = 0
 ): boolean {
-  return Number(currentChatCount) <= 0 && Number(activeProviderRequests) <= 0;
+  return Number(currentChatCount) <= 0 && Number(activeProviderRequests) <= 0 && Number(currentLiveCount) <= 0;
 }
 
 // closeSelf 在判决为「关」时同步调用一次；本模块不关心关闭动作的实现与结果。
@@ -51,6 +54,7 @@ export function createOffscreenLifetime({
   closeSelf: () => void;
 }): OffscreenLifetime {
   let currentChatCount = 0;
+  let currentLiveCount = 0;
   const activeAsrPorts = new Set<LifetimePort>();
   const activeProviderPorts = new Set<LifetimePort>();
 
@@ -59,6 +63,12 @@ export function createOffscreenLifetime({
       currentChatCount += 1;
       port.onDisconnect.addListener(() => {
         currentChatCount -= 1;
+      });
+    },
+    trackLivePort(port) {
+      currentLiveCount += 1;
+      port.onDisconnect.addListener(() => {
+        currentLiveCount -= 1;
       });
     },
     trackAsrPort(port) {
@@ -80,7 +90,7 @@ export function createOffscreenLifetime({
       activeAsrPorts.delete(port);
       if (
         activeAsrPorts.size > 0 ||
-        !shouldCloseAfterAsrTask(currentChatCount, activeProviderPorts.size)
+        !shouldCloseAfterAsrTask(currentChatCount, activeProviderPorts.size, currentLiveCount)
       ) {
         return;
       }

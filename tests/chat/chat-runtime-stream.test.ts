@@ -179,6 +179,45 @@ describe("sendMessage 建流与协议入口", () => {
     expect(chatSessionState.chatHistory).toEqual([]);
   });
 
+  it("支持图片时下发截帧工具开关，video-frame-request 回传真实图片与播放时间", async () => {
+    const deps = makeDeps();
+    deps.canUseVideoFrameTool = vi.fn(async () => true);
+    deps.captureCurrentVideoFrame = vi.fn(async () => ({
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+    deps.input.value = "看看当前画面";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+
+    expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      action: "chat",
+      videoFrameToolEnabled: true
+    }));
+
+    session.listeners.message[0]({ type: "video-frame-request", requestId: "frame-1" });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith({
+      action: "video-frame-result",
+      requestId: "frame-1",
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("能力查询失败或缺省时不下发截帧工具开关", async () => {
+    const disabledDeps = makeDeps();
+    disabledDeps.canUseVideoFrameTool = vi.fn(async () => false);
+    disabledDeps.input.value = "纯文本问答";
+    const disabledRuntime = createChatRuntime(disabledDeps);
+    await disabledRuntime.sendTurn(disabledDeps.input.value);
+    expect(disabledDeps.ports[0].port.postMessage.mock.calls[0][0].videoFrameToolEnabled).toBeUndefined();
+
+    const { session } = await makeRuntime();
+    expect(session.port.postMessage.mock.calls[0][0].videoFrameToolEnabled).toBeUndefined();
+  });
+
   it("假 port 的 onMessage 监听器与 handleChatPortMessage 走同一协议分派（wiring）", async () => {
     const { deps, runtime, session } = await makeRuntime();
     const node = assistantNode(deps);
@@ -587,14 +626,14 @@ describe("终态分派：stopped / error", () => {
     expect(node.querySelector(".chat-stream-stable")).toBeNull();
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "总结一下" },
-      { role: "assistant", content: "部分回答" }
+      { role: "assistant", content: "部分回答", stopped: true }
     ]);
     expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
     expect(session.port.disconnect).toHaveBeenCalled();
     expect(runtime.isStreaming()).toBe(false);
   });
 
-  it("stopped 无正文：只放停止徽标（默认文案），不写回不持久化", async () => {
+  it("stopped 无正文：放停止徽标，写回持久化", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
 
@@ -603,8 +642,11 @@ describe("终态分派：stopped / error", () => {
 
     expect(node.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止生成");
     expect(node.querySelector(".chat-msg-assistant-body")).toBeNull();
-    expect(chatSessionState.chatHistory).toEqual([]);
-    expect(deps.store.persistCurrent).not.toHaveBeenCalled();
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "帮我写个标题" },
+      { role: "assistant", content: "", stopped: true }
+    ]);
+    expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
     expect(runtime.isStreaming()).toBe(false);
   });
 
@@ -1801,5 +1843,137 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(document.querySelector(".confirm-dialog")).toBeNull();
     expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("未挂载");
+  });
+});
+
+describe("消息操作：重新生成与导出", () => {
+  async function makeTwoTurnConversation() {
+    const { deps, runtime } = await makeRuntime("第一问");
+    feed(runtime, { type: "token", data: "第一答" });
+    feed(runtime, { type: "done" });
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+    return { deps, runtime };
+  }
+
+  async function regenerateAt(deps: TestDeps, index: number): Promise<void> {
+    deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn")[index].click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+  }
+
+  it("重新生成较早回答：沿用原问题和之前历史，保留草稿，成功后原位替换并删除后续", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    deps.input.value = "尚未发送的草稿";
+
+    await regenerateAt(deps, 0);
+
+    const request = deps.ports[2].port.postMessage.mock.calls[0][0];
+    expect(request.prompt).toBe("第一问");
+    expect(request.history).toEqual([]);
+    expect(deps.input.value).toBe("尚未发送的草稿");
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(true);
+    expect([...deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn")].every((button) => button.disabled)).toBe(true);
+
+    feed(runtime, { type: "token", data: "新的第一答" });
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "新的第一答" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+    expect(deps.messages.querySelector(".chat-msg-assistant-body")?.textContent).toBe("新的第一答");
+  });
+
+  it("重新生成失败：恢复原回答、后续消息和历史，不保留半截新内容", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 0);
+
+    feed(runtime, { type: "tool-status", status: "searching", query: "新搜索" });
+    feed(runtime, { type: "token", data: "失败的新回答" });
+    feed(runtime, { type: "error", error: "网络中断" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答" },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: "第二答" }
+    ]);
+    const assistants = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant");
+    expect(assistants[0].textContent).toContain("第一答");
+    expect(assistants[0].textContent).not.toContain("失败的新回答");
+    expect(assistants[1].textContent).toContain("第二答");
+    expect(assistants[1].hidden).toBe(false);
+    expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("重新生成失败：网络中断", 4000);
+  });
+
+  it("重新生成后手动停止：已有部分内容则替换旧回答并标记停止", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 1);
+
+    expect(deps.ports[2].port.postMessage.mock.calls[0][0].history).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答" }
+    ]);
+    feed(runtime, { type: "token", data: "部分新回答" });
+    feed(runtime, { type: "stopped", reason: "用户手动停止" });
+
+    expect(chatSessionState.chatHistory[3]).toEqual({ role: "assistant", content: "部分新回答", stopped: true });
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")[1].textContent).toContain("部分新回答");
+    expect(deps.messages.querySelector(".chat-msg-stopped")?.textContent).toBe("用户手动停止");
+  });
+
+  it("重新生成后手动停止：尚无内容则恢复完整原对话", async () => {
+    const { deps, runtime } = await makeTwoTurnConversation();
+    await regenerateAt(deps, 0);
+
+    feed(runtime, { type: "stopped", reason: "用户手动停止" });
+
+    expect(chatSessionState.chatHistory).toHaveLength(4);
+    const assistants = deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant");
+    expect(assistants[0].textContent).toContain("第一答");
+    expect(assistants[1].textContent).toContain("第二答");
+    expect(assistants[1].hidden).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-stopped")).toBeNull();
+  });
+
+  it("导出：下载与复制口径一致的 Markdown，文件名包含视频标题和回答序号", async () => {
+    const { deps } = await makeTwoTurnConversation();
+    chatSessionStateForTests.currentConversationMeta = { contextTitle: "视频: 标题" };
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    let exportedBlob: Blob | undefined;
+    let clickedAnchor: HTMLAnchorElement | null = null;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn((blob: Blob) => {
+        exportedBlob = blob;
+        return "blob:chat-answer";
+      })
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchor = this;
+    });
+
+    try {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[0].click();
+
+      expect(clickedAnchor!.download).toBe("视频_ 标题-回答-1.md");
+      expect(exportedBlob?.type).toBe("text/markdown;charset=utf-8");
+      expect(await exportedBlob?.text()).toBe("第一答");
+
+      chatSessionStateForTests.currentConversationMeta = null;
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-export-btn")[1].click();
+      expect(clickedAnchor!.download).toBe("BiliScript-回答-2.md");
+      expect(await exportedBlob?.text()).toBe("第二答");
+    } finally {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+    }
   });
 });

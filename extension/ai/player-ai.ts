@@ -1,7 +1,9 @@
 // 候选03 常驻瘦身：setMessage 迁入 core/ui-status.js，player-ai 动态 chunk
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
 import { setMessage } from "../core/ui-status.js";
-import { buildPlayerAiQuickActionIconSvg } from "../ui/icons.js";
+import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
+import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
+import { ensureUiReady } from "../ui/lazy-ui.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -16,6 +18,13 @@ import { logInfoAlways } from "../shared/logging.js";
 // S3 分层：播放器 AI 样式随本动态 chunk 挂载（节点创建前就绪，见文件尾注释）
 import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-injector.js";
 import { decidePlayerAiQuickAction } from "./player-ai-mount-decision.js";
+import {
+  DEFAULT_PLAYER_CONTAINER_SELECTOR,
+  applyControlBarPlacement,
+  isControlBarItemMounted,
+  observePlayerContainer,
+  resolveControlBarPlacement
+} from "../bilibili/player-control-mount.js";
 
 // ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
 //
@@ -84,11 +93,24 @@ const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 // 结果变化，落回全量路径重挂到新宿主，按钮样式按现状跟着重同步。
 // 任一不成立都落回全量路径——按钮被 B 站重渲染摘掉、宿主被替换、wrap 被移走
 // 都是失同步，必须走原 rAF / 退避兜底补回。
+function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  const liveButton = document.getElementById("biliscript-player-live-quick-action");
+  if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
+    return false;
+  }
+  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  return isControlBarItemMounted(liveWrap, placement);
+}
+
 function isPlayerAiQuickActionMountedStable(): boolean {
   const wrap = playerAiQuickActionMountedWrap;
   const host = playerAiQuickActionMountedHost;
   const button = wrap?.firstElementChild;
   if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
+    return false;
+  }
+  if (!isPlayerLiveQuickActionMountedStable(host)) {
     return false;
   }
   return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
@@ -136,8 +158,6 @@ export function resetPlayerAiQuickActionRetryCount(): void {
   playerAiQuickActionRetryCount = 0;
   playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 }
-
-const PLAYER_CONTAINER_SELECTOR = ".bpx-player-container, #bilibili-player";
 
 // 显式启动入口：绑定 layout 监听并挂 observer。bind/observe 各自带幂等守卫
 // （layoutBound / observer 槽位），重复调用不会重复绑。
@@ -191,41 +211,20 @@ export function startPlayerAiQuickActionObserver(): void {
     // 0 → 帧内快车道（rAF）：DOM 变化后等一帧让 rect 落定即挂，避免 120ms 防抖
     schedulePlayerAiQuickActionSync(0);
   };
-  const observer = new MutationObserver(sync);
 
-  // 优先观察播放器容器；容器不存在时退回观察 body 的 childList+subtree
-  //（B 站播放器常挂进嵌套容器，不带 subtree 发现不了深层挂载，只能等
-  // retry 退避兜底，最坏 1s 步长）。发现播放器后断开 body 观察并
-  // 切换到容器，subtree 全观察的开销只存在于启动窗口。
-  const playerContainer = document.querySelector(PLAYER_CONTAINER_SELECTOR);
-  if (playerContainer) {
-    observer.observe(playerContainer, {
+  observePlayerContainer({
+    containerSelector: DEFAULT_PLAYER_CONTAINER_SELECTOR,
+    containerObserveOptions: {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ["style", "class"]
-    });
-    playerAiState.setObserver(observer);
-    return;
-  }
-
-  const bodyObserver = new MutationObserver(() => {
-    const nextPlayerContainer = document.querySelector(PLAYER_CONTAINER_SELECTOR);
-    if (!nextPlayerContainer) {
-      return;
+    },
+    onMutations: sync,
+    onObserverChange: (observer) => {
+      playerAiState.setObserver(observer);
     }
-    bodyObserver.disconnect();
-    observer.observe(nextPlayerContainer, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["style", "class"]
-    });
-    playerAiState.setObserver(observer);
-    sync();
   });
-  bodyObserver.observe(document.body, { childList: true, subtree: true });
-  playerAiState.setObserver(bodyObserver);
 }
 
 export function bindPlayerAiQuickActionLayoutEvents(): void {
@@ -316,6 +315,57 @@ function schedulePlayerAiQuickActionRetry(): void {
   schedulePlayerAiQuickActionSync(delay);
 }
 
+function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
+  const existingLive = document.getElementById("biliscript-player-live-quick-action");
+  let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
+  const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  let liveWrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+  const isActive = Boolean(
+    document.body.hasAttribute("data-biliscript-live-active") ||
+      existingLive?.classList.contains("is-active") ||
+      existingWrap?.classList.contains("is-active")
+  );
+
+  if (!liveWrap) {
+    liveWrap = document.createElement("div");
+    liveWrap.id = "biliscript-player-live-quick-action-wrap";
+    liveWrap.className = "bpx-player-ctrl-btn biliscript-player-live-quick-action-wrap";
+    liveWrap.setAttribute("data-biliscript-extension-node", "live-quick-action");
+  }
+
+  let iconWrap = liveWrap.querySelector(".bpx-player-ctrl-btn-icon");
+  if (!iconWrap) {
+    iconWrap = document.createElement("div");
+    iconWrap.className = "bpx-player-ctrl-btn-icon";
+    liveWrap.appendChild(iconWrap);
+  }
+
+  if (!liveButton) {
+    liveButton = document.createElement("button");
+    liveButton.id = "biliscript-player-live-quick-action";
+    liveButton.type = "button";
+    liveButton.className = "biliscript-player-live-quick-action";
+    const label = isActive ? "实时伴看 (已开启)" : "实时伴看";
+    liveButton.title = label;
+    liveButton.setAttribute("aria-label", label);
+    liveButton.setAttribute("aria-pressed", String(isActive));
+    liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
+    liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
+  }
+
+  liveButton.classList.toggle("is-active", isActive);
+  liveWrap.classList.toggle("is-active", isActive);
+
+  if (liveButton.parentElement !== iconWrap) {
+    iconWrap.replaceChildren(liveButton);
+  }
+
+  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  if (placement) {
+    applyControlBarPlacement(liveWrap, placement);
+  }
+}
+
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
@@ -346,6 +396,9 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   }
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
+
+  mountPlayerLiveQuickAction(playerHost);
+
   // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
   playerAiQuickActionMountedWrap = wrap;
   playerAiQuickActionMountedHost = playerHost;
@@ -436,6 +489,8 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
+  document.getElementById("biliscript-player-live-quick-action")?.remove();
   document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
 }
 
@@ -618,6 +673,45 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     playerAiState.setSubmitting(false);
     if (button) {
       button.disabled = false;
+    }
+  }
+}
+
+async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
+  event.preventDefault();
+  event.stopPropagation();
+  if (playerAiState.playerAiQuickActionSubmitting) {
+    return;
+  }
+
+  const liveButton = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  if (liveButton) {
+    liveButton.disabled = true;
+  }
+  playerAiState.setSubmitting(true);
+
+  try {
+    await ensureUiReady();
+    const chat = await ensureReaderChatTab();
+    const isCurrentlyActive = Boolean(
+      liveButton?.classList.contains("is-active") ||
+        document.body.hasAttribute("data-biliscript-live-active") ||
+        chat.getLiveController()?.getState() === "connected" ||
+        chat.getLiveController()?.getState() === "connecting"
+    );
+
+    if (isCurrentlyActive) {
+      chat.stopLiveCompanion();
+    } else {
+      await chat.ensureChatTabActivated({ consumeIntent: false });
+      await chat.startLiveCompanion();
+    }
+  } catch (error) {
+    setMessage(`实时伴看操作失败：${getErrorMessage(error)}`);
+  } finally {
+    playerAiState.setSubmitting(false);
+    if (liveButton) {
+      liveButton.disabled = false;
     }
   }
 }

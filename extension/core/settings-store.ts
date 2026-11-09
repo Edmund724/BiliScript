@@ -25,6 +25,11 @@ import {
   normalizeAiInitialQuickPrompts,
   normalizeDefaultModel,
   normalizeAiThinkingLevel,
+  normalizeLiveVoiceVolume,
+  normalizeLiveVoicePriority,
+  normalizeLiveShareVideoAudio,
+  normalizeSpeechVoiceVolume,
+  normalizeLiveGeminiNativeSearch,
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
@@ -71,6 +76,12 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   defaultModel: normalizeDefaultModel,
   aiThinkingLevel: normalizeAiThinkingLevel,
   activeAsrProviderId: (value) => String(value || "").trim(),
+  activeLiveProviderId: (value) => String(value || "").trim(),
+  liveVoiceVolume: normalizeLiveVoiceVolume,
+  speechVoiceVolume: normalizeSpeechVoiceVolume,
+  liveVoicePriority: normalizeLiveVoicePriority,
+  liveShareVideoAudio: normalizeLiveShareVideoAudio,
+  liveGeminiNativeSearch: normalizeLiveGeminiNativeSearch,
   asrAutoFallback: booleanField(true),
   asrLanguage: normalizeAsrLanguage,
   // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，
@@ -95,7 +106,9 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   chatParagraphSpacing: normalizeChatParagraphSpacing,
   customPanelWidthEnabled: normalizeCustomPanelWidthEnabled,
   customPanelWidth: normalizeCustomPanelWidth,
-  autoOpenReader: normalizeAutoOpenReader
+  autoOpenReader: normalizeAutoOpenReader,
+  cleanConversationsOlderThan30Days: booleanField(false),
+  enableExtraPlaybackRates: booleanField(false)
 });
 
 const SETTINGS_NORMALIZER_ENTRIES = Object.entries(SETTINGS_FIELD_NORMALIZERS) as Array<

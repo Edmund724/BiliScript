@@ -20,6 +20,13 @@ export interface ImagePart {
   data: string;
 }
 
+export interface CapturedVideoFrame {
+  image: ImagePart;
+  currentTime: number;
+}
+
+export type CaptureCurrentVideoFrame = () => Promise<CapturedVideoFrame>;
+
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
@@ -31,6 +38,8 @@ export interface ChatMessage {
   // Gemini 原生 parts 与思考签名（thoughtSignature）：多块保留与原样回放
   thoughtSignature?: string;
   parts?: unknown[];
+  thinking?: string;
+  stopped?: boolean;
 }
 
 // 响应 usage 采集（ai-usage-telemetry T1）：字段名随协议，由各 adapter 解析后归一

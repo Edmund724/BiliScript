@@ -22,8 +22,10 @@ const TOGGLE_IDS = [
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
   "autoOpenReader",
+  "enableExtraPlaybackRates",
   "includeDateInFilename",
   "includeTimestampInBody",
+  "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
   "chatInputGlow"
 ] as const;

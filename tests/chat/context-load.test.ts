@@ -67,7 +67,8 @@ function makeHarness({
     restartChat: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
-    hasPendingUserPrompt: vi.fn(() => false)
+    hasPendingUserPrompt: vi.fn(() => false),
+    isLiveActive: vi.fn(() => false)
   };
   const contextLoad = createContextLoad({
     fetchContext: deps.fetchContext,
@@ -78,7 +79,8 @@ function makeHarness({
     restartChat: deps.restartChat,
     restoreLatest: deps.restoreLatest,
     isStreaming: deps.isStreaming,
-    hasPendingUserPrompt: deps.hasPendingUserPrompt
+    hasPendingUserPrompt: deps.hasPendingUserPrompt,
+    isLiveActive: deps.isLiveActive
   });
   return { deps, contextLoad };
 }
@@ -230,6 +232,47 @@ describe("loadContextState 动作分支", () => {
     expect(deps.restoreLatest).not.toHaveBeenCalled();
     expect(deps.renderInitialState).not.toHaveBeenCalled();
     expect(deps.renderSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it("apply-live-session：实时伴看中同视频同步主上下文但不清场/不恢复，换片/分P时切换到新视频对话历史", async () => {
+    chatSessionStateForTests.currentContextKey = "url:https://www.bilibili.com/video/BV1";
+    chatSessionStateForTests.contextData = makePayload();
+    const sameVideoPayload = makePayload({ signature: "sig-live-same", title: "同视频字幕刷新" });
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload: sameVideoPayload })
+    });
+    deps.isLiveActive.mockReturnValue(true);
+
+    // 1. 伴看中 + 文本流式中：BLOCKED_STREAMING 优先，主上下文冻结
+    deps.isStreaming.mockReturnValue(true);
+    await contextLoad.loadContextState({ silent: true });
+    expect(chatSessionState.contextData).toEqual(makePayload());
+    expect(deps.restartChat).not.toHaveBeenCalled();
+
+    // 2. 伴看中 + 同视频（上下文未变）：APPLY_LIVE_SESSION 同步主上下文，但不调 restartChat / restoreLatest / renderInitialState
+    deps.isStreaming.mockReturnValue(false);
+    await contextLoad.loadContextState({ silent: true });
+    expect(chatSessionState.contextData).toEqual(sameVideoPayload);
+    expect(deps.restartChat).not.toHaveBeenCalled();
+    expect(deps.restoreLatest).not.toHaveBeenCalled();
+    expect(deps.renderInitialState).not.toHaveBeenCalled();
+
+    // 3. 伴看中 + 换片/分P（上下文改变）：APPLY_LIVE_SESSION 切换对话视图到新视频对应的本地对话历史
+    const switchVideoPayload = makePayload({
+      signature: "sig-live-new",
+      title: "新视频",
+      url: "https://www.bilibili.com/video/BV2"
+    });
+    deps.fetchContext.mockResolvedValueOnce({
+      kind: "payload",
+      tabUrl: "https://www.bilibili.com/video/BV2",
+      payload: switchVideoPayload
+    });
+    await contextLoad.loadContextState({ silent: true });
+    expect(chatSessionState.contextData).toEqual(switchVideoPayload);
+    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
+    expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
+    expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
   });
 
   it("apply-live：上下文变化但流式中 → 动作被 policy 判为 blocked-streaming（只落地 live 快照）", async () => {

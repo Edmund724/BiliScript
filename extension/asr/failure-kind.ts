@@ -131,6 +131,14 @@ function classifyWithoutStatus(haystack: string, source: AsrFailureSource): AsrF
     // 无报文可看：媒体来源的抛出点全是音轨问题，平台来源无从判断
     return source === "media" ? "asr-media" : "asr-unknown";
   }
+  if (source === "media") {
+    // 媒体来源：域名未授权等配置类在管线抛出点仍落 no-asr-config；
+    // 其余（Failed to fetch/网络错误/解码/格式/兜底）全落 asr-media，避免把音轨下载失败误报为语音平台网络故障
+    if (includesAny(haystack, CONFIG_KEYWORDS)) {
+      return "no-asr-config";
+    }
+    return "asr-media";
+  }
   if (includesAny(haystack, NETWORK_KEYWORDS)) {
     return "asr-network";
   }
@@ -146,8 +154,8 @@ function classifyWithoutStatus(haystack: string, source: AsrFailureSource): AsrF
   if (includesAny(haystack, MEDIA_KEYWORDS)) {
     return "asr-media";
   }
-  // 无命中：媒体来源默认落媒体类（音轨取不到 / 解不了），平台来源无从判断
-  return source === "media" ? "asr-media" : "asr-unknown";
+  // 无命中：媒体来源已在上方拦截，此处平台来源无从判断
+  return "asr-unknown";
 }
 
 // 429 双义分流：报文特征优先（最具体）→ host 默认 → 额度兜底。

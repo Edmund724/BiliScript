@@ -81,6 +81,8 @@ export interface ChatSessionMessage {
   images?: ImagePart[];
   tool_calls?: unknown;
   tool_call_id?: string;
+  thinking?: string;
+  stopped?: boolean;
 }
 
 // 持久化历史会话（storage 的内存镜像条目）。字段集与 conversation-store 的

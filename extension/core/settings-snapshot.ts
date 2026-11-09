@@ -4,9 +4,9 @@
 // player-ai-quick-action）读设置/平台存储的唯一读路径（sw-settings-snapshot
 // 票，架构评审候选 3 落地）。此前这四个 handler 每条聊天消息全量直读
 // storage（resolve-ai-provider 内 aiProviderKeys 还重复读两次，≥6 次读 +
-// 25 步归一化）。本模块缓存两族读取产物：
+// 25 步归一化）。本模块缓存两类读取产物：
 //   - settings 全量：getMergedSettings 的 normalizeSettings 产物；
-//   - 三 providerStore（ai/asr/search）：normalize + hasSavedKey 装配产物 +
+//   - 四 providerStore（ai/asr/search/live）：normalize + hasSavedKey 装配产物 +
 //     明文 Key 映射（keys 只活在 SW，回包仍只带 hasSavedKey 占位）；
 //   - searchProviderOrder 原始值（sync；2026-10-01 增补，spec §12.3 / §12.5 第 9 行）：
 //     归一在读取时对当前记录集合做（normalizeSearchProviderOrder 单源在
@@ -43,7 +43,7 @@
 // writeSnapshotKeys 只按键面分区裸写。
 //
 // 守叶子纪律：本模块拖入的 store/归一化模块本就在 SW 静态图里
-// （background 直 import 三 store 与 settings-store），不新增静态边。
+// （background 直 import 四 store 与 settings-store），不新增静态边。
 // 缓存条目按引用返回：handler 回包经消息序列化天然隔离，调用方不得原地
 // 改写快照产物。
 
@@ -53,18 +53,20 @@ import type { ProviderBase, ProviderKeys } from "./provider-store.js";
 import { aiProviderStore, AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE, type AiProvider } from "./ai-provider-store.js";
 import { asrProviderStore, ASR_PROVIDERS_STORAGE, ASR_PROVIDER_KEYS_STORAGE, type AsrProvider } from "../asr/asr-provider-store.js";
 import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE, SEARCH_PROVIDERS_STORAGE, SEARCH_PROVIDER_KEYS_STORAGE } from "../search/search-provider-store.js";
+import { liveProviderStore, LIVE_PROVIDERS_STORAGE, LIVE_PROVIDER_KEYS_STORAGE, type LiveProvider } from "../live/live-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import { normalizeSearchProviderOrder } from "../search/search-order.js";
 import { SEARCH_HEALTH_KEY, readSearchHealth, type SearchHealthMap } from "../search/search-health.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
-export type ProviderFamily = "ai" | "asr" | "search";
+export type ProviderFamily = "ai" | "asr" | "search" | "live";
 
 interface ProviderFamilyMap {
   ai: AiProvider;
   asr: AsrProvider;
   search: SearchProvider;
+  live: LiveProvider;
 }
 
 // 一族快照：归一化 + hasSavedKey 装配产物 + 明文 Key 映射（SW 内专用）。
@@ -85,7 +87,8 @@ interface ProviderFamilyKeyPair {
 const PROVIDER_FAMILY_KEY_PAIRS: Record<ProviderFamily, ProviderFamilyKeyPair> = {
   ai: { list: AI_PROVIDERS_STORAGE, keys: AI_PROVIDER_KEYS_STORAGE },
   asr: { list: ASR_PROVIDERS_STORAGE, keys: ASR_PROVIDER_KEYS_STORAGE },
-  search: { list: SEARCH_PROVIDERS_STORAGE, keys: SEARCH_PROVIDER_KEYS_STORAGE }
+  search: { list: SEARCH_PROVIDERS_STORAGE, keys: SEARCH_PROVIDER_KEYS_STORAGE },
+  live: { list: LIVE_PROVIDERS_STORAGE, keys: LIVE_PROVIDER_KEYS_STORAGE }
 };
 
 // 族 → storage 键面（写入口失效与 onChanged 订阅共用；从键对表派生，顺序恒为
@@ -97,7 +100,8 @@ function keyFace({ list, keys }: ProviderFamilyKeyPair): readonly string[] {
 export const PROVIDER_FAMILY_STORAGE_KEYS: Record<ProviderFamily, readonly string[]> = {
   ai: keyFace(PROVIDER_FAMILY_KEY_PAIRS.ai),
   asr: keyFace(PROVIDER_FAMILY_KEY_PAIRS.asr),
-  search: keyFace(PROVIDER_FAMILY_KEY_PAIRS.search)
+  search: keyFace(PROVIDER_FAMILY_KEY_PAIRS.search),
+  live: keyFace(PROVIDER_FAMILY_KEY_PAIRS.live)
 };
 
 const PROVIDER_FAMILIES = Object.keys(PROVIDER_FAMILY_STORAGE_KEYS) as ProviderFamily[];
@@ -157,14 +161,16 @@ interface FamilyStoreReader {
 const FAMILY_STORES: Record<ProviderFamily, FamilyStoreReader> = {
   ai: aiProviderStore,
   asr: asrProviderStore,
-  search: searchProviderStore
+  search: searchProviderStore,
+  live: liveProviderStore
 };
 
 let settingsCache: Promise<Settings> | null = null;
 const familyCaches: Record<ProviderFamily, Promise<ProviderStoreSnapshot> | null> = {
   ai: null,
   asr: null,
-  search: null
+  search: null,
+  live: null
 };
 // searchProviderOrder 的**原始值**读缓存（spec §12.3 / §12.5 第 9 行）：归一在每次
 // 调用时对「当前记录集合」做（记录集合由 search 族快照缓存保证零读）——归一判据依赖
@@ -242,7 +248,7 @@ export async function getSearchHealth(): Promise<SearchHealthMap> {
 // 都自然忽略，不必先过滤。
 //
 // 凭据引用例外（GLOSSARY「凭据引用」）：ai 域失效连带清 search 族缓存——搜索链的
-// DeepSeek 候选 Key 实时读 aiProviders / aiProviderKeys（deepseek-credential 叶），
+// DeepSeek 候选 Key 实时读 aiProviders / aiProviderKeys（core/ai-credential-reference），
 // AI 侧改 Key / 改端点 / 删记录后，下一条 resolve-search-provider 必须读到新值，
 // 否则搜索链拿着过期 Key 跑。方向单向（搜索读 AI），asr 缓存不受波及。
 export function invalidate(storageKeys: readonly string[]): void {

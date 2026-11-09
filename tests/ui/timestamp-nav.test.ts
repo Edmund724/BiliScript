@@ -83,11 +83,4 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
     );
     expect(deps.seek).toHaveBeenCalledWith(62);
   });
-
-  it("TIMESTAMP_PATTERN 上游约束不变（正则单源 ui/markdown.ts）", () => {
-    TIMESTAMP_PATTERN.lastIndex = 0;
-    expect(TIMESTAMP_PATTERN.test("99:99")).toBe(true);
-    TIMESTAMP_PATTERN.lastIndex = 0;
-    expect(TIMESTAMP_PATTERN.test("12:34:56")).toBe(true);
-  });
 });

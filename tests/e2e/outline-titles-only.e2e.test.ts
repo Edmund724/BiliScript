@@ -9,9 +9,8 @@
 //   → resolveChapterSource 目录解析（顶层正文 + 楼中楼续篇）→ runOverviewAnalysis
 //   产物 → buildMessages 聊天展示
 //
-// 拍板口径：评论/简介时间轴目录（outline 来源）章节只留标题、不写 AI 简介，金句照常；
-// 视频内官方章节（manuscript）与 AI 自由分章（auto）保留逐章简介。渲染侧（空简介
-// 不出简介区块）回归在 tests/reader/overview.test.ts。
+// 当前口径：评论/简介时间轴达到 10 章时只留标题，总体简介与金句照常；
+// 稀疏时间轴、官方章节与 AI 自由分章保留逐章说明。
 // 走查末尾写出可复现工件（.scratch/tickets/outline-titles-only/artifacts/01-e2e-walkthrough.md）。
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -97,6 +96,7 @@ function makeQuotesOnlyModel() {
   const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
     calls.push({ system: String(input.messages[0]?.content || ""), user: String(input.messages.at(-1)?.content || "") });
     const text = JSON.stringify({
+      summary: "视频围绕 agent 工程实践展开，讨论工具、语言轴与确定性边界，并给出可复用的协作原则。",
       keyQuotes: [{ quote: QUOTE_TEXT, timestamp: "3:00", timestampSeconds: 180 }]
     });
     for (let i = 0; i < text.length; i += 7) {
@@ -179,6 +179,7 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     );
 
     expect(calls[0].system).toContain("为给定的章节目录挑选金句");
+    expect(result.summary).toContain("agent 工程实践");
     expect(result.chapters).toHaveLength(27);
     expect(result.chapters.every((item) => item.summary === "")).toBe(true);
     expect(result.chapters.find((item) => item.from === 573)?.title).toBe(FULL_0933_TITLE);
@@ -204,10 +205,8 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
       userPrompt: "这个视频讲了什么？"
     });
     const systemText = String(messages[0].content);
-    const commentBlock = systemText.split("以下是按热度排序的前")[1]?.split("\n\n").slice(1).join("\n\n") || "";
-    expect(systemText).toContain(PINNED_MESSAGE.slice(0, 500));
-    expect(systemText).not.toContain("TDD 该不该用");
-    expect(systemText).not.toContain("核心原则：确定性归脚本");
+    expect(systemText).not.toContain("以下是按热度排序的前");
+    expect(systemText).not.toContain(PINNED_MESSAGE.slice(0, 100));
 
     // ⑦ 工件：可复现走查记录（同一测试重跑逐字节一致）
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "outline-titles-only", "artifacts");
@@ -234,20 +233,19 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
         `- kind: ${source.kind}；章节 ${source.chapters.length} 条`,
         ...source.chapters.map((item) => `- ${clock(item.seconds)} ${item.title}`),
         "",
-        "## ④ 概览产物（outline 来源只留标题 + 金句照常）",
+        "## ④ 概览产物（密集 outline 只留章节标题，总体简介与金句照常）",
+        `- 总体简介：${result.summary}`,
         ...result.chapters.map((item) => `- [${item.from}..${item.to}] ${item.title} | summary=${JSON.stringify(item.summary)}`),
         ...result.quotes.map((item) => `- 金句 @${item.from}s：${item.content}`),
         "",
-        "## ⑤ 聊天展示（buildMessages 评论块，逐字截取）",
-        "```text",
-        commentBlock,
-        "```",
+        "## ⑤ 聊天展示（buildMessages）",
+        "- 评论数据已从聊天展示解耦，buildMessages 不再向提示词注入热门评论",
         "",
         "## ⑥ 走查结论",
         "- 旧 500 字符截断点落在 09:33 行内，正是用户报的「语言轴：一个词 ag」；真数据下由 slice(0, 500) 复现",
-        "- 500 字符截断只发生在聊天展示；目录解析拿全文，09:33 整行与楼中楼续篇（25:00 起）都不丢",
-        "- 楼中楼续篇只进目录解析，不进聊天展示",
-        "- outline 来源章节只留标题（summary 恒空），金句照常生成",
+        "- 目录解析拿全文，09:33 整行与楼中楼续篇（25:00 起）都不丢",
+        "- 楼中楼续篇与热评正文均不进聊天提示词，热评仅供目录解析",
+        "- 27 章的密集 outline 只留章节标题（summary 恒空），总体简介与金句照常生成",
         ""
       ].join("\n")
     );

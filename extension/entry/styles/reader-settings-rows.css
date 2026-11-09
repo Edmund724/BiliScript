@@ -201,7 +201,8 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -380,7 +381,8 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-active,
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active,
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-active {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -393,7 +395,8 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-active input[type="radio"],
-#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active input[type="radio"] {
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-active input[type="radio"],
+#biliscript-reading-view .biliscript-reading-settings-host .live-provider-active input[type="radio"] {
   margin: 0;
 }
 
@@ -430,6 +433,22 @@
   opacity: 0.6;
   cursor: default;
 }
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row .add-property-btn {
+  height: 28px;
+  padding: 0 var(--biliscript-space-10);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
+  background: var(--biliscript-reader-surface-2);
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row .add-property-btn:hover:not(:disabled) {
+  border-color: var(--biliscript-reader-border);
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
 
 /* 面板外部的 global document click 委托会关闭模型下拉；
  * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。
@@ -494,29 +513,24 @@
 }
 
 /* ===== 滑块行 ===== */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-row {
-  margin-top: var(--biliscript-space-xs);
-  gap: var(--biliscript-space-sm);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-header-actions {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-control {
   display: inline-flex;
   align-items: center;
-  gap: var(--biliscript-space-6);
+  gap: var(--biliscript-space-8, 8px);
+  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn {
   background: none;
   border: none;
   padding: 0;
+  margin: 0;
   width: 20px;
   height: 20px;
+  min-width: 20px;
+  flex: 0 0 20px;
+  box-sizing: border-box;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   cursor: pointer;
   display: inline-flex;
@@ -544,20 +558,32 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-badge {
   display: inline-block;
-  padding: 2px var(--biliscript-space-sm);
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  flex: 0 0 50px;
+  padding: 2px 0;
   font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-accent);
+  text-align: center;
+  box-sizing: border-box;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input {
   -webkit-appearance: none;
   appearance: none;
-  width: 100%;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  flex: 0 0 120px;
   height: 6px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
   border-radius: var(--biliscript-radius-pill);
   background: linear-gradient(
     to right,
@@ -600,13 +626,6 @@
   border: 2px solid var(--biliscript-reader-surface);
   box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
   cursor: pointer;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--biliscript-font-size-sm);
-  color: var(--biliscript-reader-faint);
 }
 
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {

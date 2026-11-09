@@ -55,6 +55,8 @@ interface ConversationMessage {
   images?: ImagePart[];
   tool_calls?: unknown[];
   tool_call_id?: string;
+  thinking?: string;
+  stopped?: boolean;
 }
 
 // 图片白名单透传（image-input 路线 B，04 号票落盘策略）：数组非空且每项 mime/data
@@ -125,11 +127,17 @@ export function normalizeConversations(value: unknown): NormalizedConversation[]
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown; images?: unknown; tool_calls?: unknown; tool_call_id?: unknown }) => {
+            .map((msg: { role?: unknown; content?: unknown; images?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
               const base: ConversationMessage = { role: String(msg.role), content: String(msg.content) };
               const images = normalizeImageParts(msg.images);
               if (images) {
                 base.images = images;
+              }
+              if (typeof msg.thinking === "string" && msg.thinking.trim()) {
+                base.thinking = msg.thinking;
+              }
+              if (msg.stopped === true) {
+                base.stopped = true;
               }
               const calls = msg.tool_calls;
               if (Array.isArray(calls) && calls.length) {

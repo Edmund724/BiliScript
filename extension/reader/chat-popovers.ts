@@ -1,5 +1,5 @@
-// reader/chat-popovers.ts — 对话 tab 历史整页、模型面板与更多操作二级菜单的开合、互斥与
-// 文档级外点关闭（任一打开先关其余层，Esc 全关，外点全关）。
+// reader/chat-popovers.ts — 对话 tab 历史整页、模型面板与更多操作菜单的开合、
+// 互斥与文档级外点关闭（任一打开先关其余层，Esc 全关，外点全关）。
 import { ids } from "./state.js";
 
 export interface CreateReaderChatPopoversDeps {

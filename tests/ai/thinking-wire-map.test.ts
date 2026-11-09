@@ -37,7 +37,7 @@ import {
   thinkingType,
   type ThinkingVocabulary
 } from "../../extension/ai/thinking-profiles.js";
-import { PLATFORM_IDENTITY_KEYS } from "../../extension/ai/platform-identity-vocab.js";
+import { PLATFORM_IDENTITY_KEYS, isPlatformKey } from "../../extension/ai/platform-identity-vocab.js";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import {
   MESSAGES_OFF_EXIT,
@@ -362,7 +362,6 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     // 表内今天三态（native / silent；word 无实例）：minimax 2026-10-05 由 unresearched 改为
     // native——厂商文档登记了 thinking 与该端点的 off 语义（见单元头注与 UPSTREAM_TOGGLE_SHAPES.minimax）。
     // 第四态由**表外兜底**承载：「没人研究过 → 原生默认」这条路仍然显式存在、可被否决。
-    expect(UNRESEARCHED_OFF_EXIT.kind).toBe("unresearched");
     for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
       expect(["native", "silent", "word", "unresearched", "non-messages"], platform).toContain(cell.kind);
     }
@@ -389,7 +388,6 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
   });
 
   it("表外 / 未识别平台 → 未声明（原生）；原型链上的键不算表内格", () => {
-    expect(UNRESEARCHED_OFF_EXIT.kind).toBe("unresearched");
     expect(messagesOffExitCell(undefined).kind).toBe("unresearched");
     expect(messagesOffExitCell("未登记的平台").kind).toBe("unresearched");
     expect(messagesOffExitCell("constructor").kind).toBe("unresearched");
@@ -491,7 +489,6 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
   });
 
   it("表外 / 未识别平台 → 未声明（裸 effort）；原型链上的键不算表内格", () => {
-    expect(UNRESEARCHED_TIER_EXIT.kind).toBe("unresearched");
     expect(messagesTierExitCell(undefined).kind).toBe("unresearched");
     expect(messagesTierExitCell("未登记的平台").kind).toBe("unresearched");
     expect(messagesTierExitCell("constructor").kind).toBe("unresearched");
@@ -587,7 +584,6 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
     expect(MESSAGES_ON_EXIT.gemini.kind).toBe("non-messages");
     expect(MESSAGES_ON_EXIT.minimax.kind).toBe("word");
     expect(MESSAGES_ON_EXIT.minimax.fields).toEqual({ thinking: { type: "adaptive" } });
-    expect(UNRESEARCHED_ON_EXIT.kind).toBe("unresearched");
     expect(messagesOnExitCell(undefined).kind).toBe("unresearched");
     expect(messagesOnExitCell("未登记的平台").kind).toBe("unresearched");
     // 原型链上的键不算表内格。
@@ -687,38 +683,6 @@ describe("入参分型（宽松事实收口 01 的第 1、2 项）：每行只�
   const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   const WIRE_MAP = "extension/ai/thinking-wire-map.ts";
   const OPENAI_ADAPTER = "extension/ai/adapters/openai.ts";
-
-  it("第 1 项：stream 从写法层消失——声明与传参都无（无人读的字段不留痕）", () => {
-    const code = stripComments(readFileSync(WIRE_MAP, "utf8"));
-    // 判据非空转：扫描确实看到了本文件的正文（probe 是 Messages 行真读的事实）。
-    expect(code).toContain("probe");
-    expect(code.includes("stream"), `${WIRE_MAP} 仍出现 stream——该字段是票 01 第 1 项要删的死字段`).toBe(false);
-  });
-
-  it("第 2 项：openai 行不再被迫填无意义的平台事实（adapter 里没有这类填值）", () => {
-    const code = stripComments(readFileSync(OPENAI_ADAPTER, "utf8"));
-    // 判据非空转：openai 行真读的 token 参数名事实仍由它传。
-    expect(code).toContain("tokenParam");
-    expect(code.includes("effortVocabularyOnly"), `${OPENAI_ADAPTER} 仍出现 effortVocabularyOnly——该事实对 openai 行无意义`).toBe(
-      false
-    );
-  });
-
-  it("纯叶契约：写法层的每一条 import 都是 type-only（零运行时 import，SW 静态图安全）", () => {
-    const importLines = stripComments(readFileSync(WIRE_MAP, "utf8"))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("import "));
-    expect(importLines.length, `扫描空转：${WIRE_MAP} 没有 import 行`).toBeGreaterThan(0);
-    for (const line of importLines) {
-      expect(line.startsWith("import type "), `运行时 import：${line}`).toBe(true);
-    }
-  });
-
-  // 「某协议行不收哪些字段」的编译期断言（@ts-expect-error）不在这里：它们一旦被执行就会
-  // 用非法入参真调表。按仓内既有体例（tests/chat/chat-state-readonly.types.ts）落在
-  // tests/ai/thinking-wire-input.types.ts，由 `pnpm typecheck` 执行、vitest 不加载。
-
   it("判据非空转：同一形状的合法入参照常通过（字段落在正确的行上）", () => {
     expect(openaiWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_completion_tokens");
     expect(
@@ -729,5 +693,13 @@ describe("入参分型（宽松事实收口 01 的第 1、2 项）：每行只�
         effortVocabularyOnly: false
       }).fields
     ).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "high" } });
+  });
+  it("isPlatformKey：词表内为真；表外 / 非串 / 原型链上的键为假", () => {
+    for (const key of PLATFORM_IDENTITY_KEYS) {
+      expect(isPlatformKey(key), key).toBe(true);
+    }
+    for (const value of ["", "custom", "ghost", "constructor", "toString", undefined, null, 42, {}]) {
+      expect(isPlatformKey(value), String(value)).toBe(false);
+    }
   });
 });

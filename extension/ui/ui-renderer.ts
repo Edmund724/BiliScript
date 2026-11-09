@@ -165,6 +165,16 @@ export function buildUiHtml(): string {
                         <span>宽松</span>
                       </div>
                     </div>
+                    <div id="${ids.readingChatSpeechVolume}" class="biliscript-slider-row">
+                      <div class="biliscript-slider-header">
+                        <label class="biliscript-set-label" for="${ids.readingChatSpeechVolumeInput}">朗读音量</label>
+                        <div class="biliscript-slider-header-actions">
+                          <span id="${ids.readingChatSpeechVolumeValue}" class="biliscript-slider-badge">100%</span>
+                          <button id="${ids.readingChatSpeechVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认音量 (100%)" aria-label="恢复默认音量">${READING_RESET_ICON}</button>
+                        </div>
+                      </div>
+                      <input id="${ids.readingChatSpeechVolumeInput}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
+                    </div>
                   </div>
                 </div>
               </div>

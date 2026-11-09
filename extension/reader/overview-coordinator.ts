@@ -10,7 +10,7 @@
 //  5. 生成进度纪律：generating 期间进度通知与每秒 wait ticker 均就地刷新状态条文案，不整块重渲以保留选区、焦点与滚动位置。
 
 import { buildSubtitleSignature } from "../subtitle/cache.js";
-import { resolveChapterSource, type ChapterSource, type ChapterSourceKind } from "../shared/chapter-outline.js";
+import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiProvider } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
@@ -35,8 +35,6 @@ export interface ReaderOverviewSnapshot {
   readonly phase: ReaderOverviewPhase;
   readonly analysis: OverviewAnalysis | null;
   readonly aiChapters: boolean;
-  /** 分章来源（shared/chapter-outline 的裁定）：呈现层据此决定章节标题是否做主副拆分。 */
-  readonly chapterSourceKind: ChapterSourceKind;
   readonly progressText: string;
   readonly errorText: string;
   readonly stripText: string;
@@ -48,6 +46,8 @@ export interface ReaderOverviewCoordinator {
   trigger(options?: { forceRefresh?: boolean }): Promise<void>;
   /** 取消进行中的生成 */
   cancel(): void;
+  /** 概览相位或产物变化时通知（不含每秒进度）；返回退订函数 */
+  subscribe(listener: () => void): () => void;
   /** 会话收尾：状态与产物引用归位（不取消进行中生成） */
   reset(): void;
   /** 当前相位查询（含当前 clip 身份自愈对账） */
@@ -98,7 +98,6 @@ interface ReaderOverviewInternalState {
   phase: ReaderOverviewPhase;
   analysis: OverviewAnalysis | null;
   aiChapters: boolean;
-  chapterSourceKind: ChapterSourceKind;
   progressText: string;
   errorText: string;
   generatedFor: string;
@@ -121,7 +120,6 @@ export function createOverviewCoordinator(
     phase: "idle",
     analysis: null,
     aiChapters: false,
-    chapterSourceKind: "auto",
     progressText: "",
     errorText: "",
     generatedFor: "",
@@ -131,6 +129,41 @@ export function createOverviewCoordinator(
   let inflightAbort: ReaderOverviewInflightAbort | null = null;
   let waitTicker: ReturnType<typeof setInterval> | null = null;
   let cancelRequested = false;
+  // 伴看等外部消费方的变更订阅：只在相位/产物/错误变化时扇出，进度文案不进签名
+  // （每秒变化会把会话指令刷成噪声）。签名去重让 cancel/reset 的重复写点天然幂等。
+  const changeListeners = new Set<() => void>();
+  let lastNotifiedSignature = "";
+
+  function overviewChangeSignature(): string {
+    return JSON.stringify({
+      phase: overview.phase,
+      analysis: overview.analysis,
+      errorText: overview.errorText
+    });
+  }
+
+  function notifyOverviewChanged(): void {
+    const signature = overviewChangeSignature();
+    if (signature === lastNotifiedSignature) return;
+    lastNotifiedSignature = signature;
+    for (const listener of [...changeListeners]) {
+      try {
+        listener();
+      } catch {
+        // 订阅方异常不得打断协调器状态机
+      }
+    }
+  }
+
+  function subscribeOverviewChanges(listener: () => void): () => void {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    changeListeners.add(listener);
+    return () => {
+      changeListeners.delete(listener);
+    };
+  }
 
   function getClipBody(): { from: number; to: number; content: string }[] {
     const body = deps.getClip().subtitleBody;
@@ -299,6 +332,7 @@ export function createOverviewCoordinator(
     overview.inflight = null;
     clearOverviewToCancelled();
     renderIfOpen();
+    notifyOverviewChanged();
   }
 
   function triggerReaderOverviewGeneration(
@@ -310,6 +344,7 @@ export function createOverviewCoordinator(
     if (getClipBody().length === 0) {
       markEmptyPhase();
       renderIfOpen();
+      notifyOverviewChanged();
       return Promise.resolve();
     }
     const clipKey = currentOverviewKey();
@@ -334,14 +369,13 @@ export function createOverviewCoordinator(
     }
     cancelRequested = false;
     overview.generatedFor = clipKey;
-    const chapterKind = currentChapterSource().kind;
-    overview.aiChapters = chapterKind === "auto";
-    overview.chapterSourceKind = chapterKind;
+    overview.aiChapters = currentChapterSource().kind === "auto";
     overview.phase = "generating";
     overview.progressText = "";
     overview.errorText = "";
     startWaitTicker();
     renderIfOpen();
+    notifyOverviewChanged();
 
     const run = startOverviewRun(clipKey, forceRefresh, slot);
     overview.inflight = run;
@@ -395,28 +429,38 @@ export function createOverviewCoordinator(
         return;
       }
       overview.analysis = analysis;
-      overview.phase = Array.isArray(analysis.failedRanges) && analysis.failedRanges.length > 0 ? "partial" : "ready";
+      overview.phase =
+        (Array.isArray(analysis.failedRanges) && analysis.failedRanges.length > 0) || analysis.summaryFailed
+          ? "partial"
+          : "ready";
       overview.progressText = "";
       overview.errorText = "";
       renderIfOpen();
+      notifyOverviewChanged();
     } catch (error) {
       if (inflightAbort !== slot || overview.generatedFor !== clipKey) {
         return;
       }
       if (isCancelledError(error) || isAbortedMarkerError(error)) {
-        if (cancelRequested) {
+        if (cancelRequested || isCancelledError(error)) {
           clearOverviewToCancelled();
+          if (isCancelledError(error) && !cancelRequested) {
+            overview.errorText = "费用确认已取消，未生成全片概览";
+          }
           renderIfOpen();
+          notifyOverviewChanged();
           return;
         }
         dropOverviewProduct();
         renderIfOpen();
+        notifyOverviewChanged();
         return;
       }
       overview.phase = "error";
       overview.errorText = getErrorMessage(error, "概览生成失败");
       overview.progressText = "";
       renderIfOpen();
+      notifyOverviewChanged();
     }
   }
 
@@ -426,11 +470,11 @@ export function createOverviewCoordinator(
     overview.phase = "idle";
     overview.analysis = null;
     overview.aiChapters = false;
-    overview.chapterSourceKind = "auto";
     overview.progressText = "";
     overview.errorText = "";
     overview.generatedFor = "";
     overview.inflight = null;
+    notifyOverviewChanged();
   }
 
   function getReaderOverviewPhase(): ReaderOverviewPhase {
@@ -444,7 +488,6 @@ export function createOverviewCoordinator(
       phase: overview.phase,
       analysis: overview.analysis,
       aiChapters: overview.aiChapters,
-      chapterSourceKind: overview.chapterSourceKind,
       progressText: overview.progressText,
       errorText: overview.errorText,
       stripText: stripText(),
@@ -470,6 +513,7 @@ export function createOverviewCoordinator(
   return {
     trigger: triggerReaderOverviewGeneration,
     cancel: cancelReaderOverview,
+    subscribe: subscribeOverviewChanges,
     reset: resetReaderOverviewState,
     getPhase: getReaderOverviewPhase,
     getSnapshot: getReaderOverviewSnapshot,

@@ -220,6 +220,10 @@ describe("组合根装配与懒加载边界", () => {
     expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatLineHeight)).not.toBe(null);
     expect(document.getElementById(ids.readingChatParagraphSpacing)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatSpeechVolumeInput)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatSpeechVolumeResetBtn)).not.toBe(null);
+    const volumeLabel = document.querySelector(`label[for="${ids.readingChatSpeechVolumeInput}"]`);
+    expect(volumeLabel?.textContent).toBe("朗读音量");
     // - 初始态：无会话历史 → 空消息区 + 建议区（无居中错误）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);

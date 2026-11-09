@@ -10,10 +10,10 @@ import {
   closeQuoteShareModal,
   isQuoteShareModalOpen
 } from "../../extension/reader/quote-share-modal.js";
+import { layoutQuoteCardText } from "../../extension/reader/quote-share-export.js";
 import { renderReadingOverview, onReadingOverviewClick } from "../../extension/reader/overview-ui.js";
 import { closeReadingView } from "../../extension/reader/lifecycle.js";
 import { ids } from "../../extension/reader/state.js";
-import { state } from "../../extension/core/state.js";
 import type { ReaderOverviewSnapshot } from "../../extension/reader/overview-coordinator.js";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 
@@ -22,7 +22,6 @@ function makeSnapshot(analysis: OverviewAnalysis | null): ReaderOverviewSnapshot
     phase: "ready",
     analysis,
     aiChapters: false,
-    chapterSourceKind: "auto",
     progressText: "",
     errorText: "",
     stripText: "",
@@ -74,14 +73,10 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     ]);
   });
 
-  it("打开分享弹窗：渲染骨架结构、正文、来源、噪点背景与默认射线纹样", () => {
+  it("打开分享弹窗：渲染相纸、16:9 卡片、正文、品牌与默认配色", () => {
     expect(isQuoteShareModalOpen()).toBe(false);
 
-    openQuoteShareModal({
-      content: "代码如诗，简洁至上。",
-      from: 75,
-      videoTitle: "精通重构之道"
-    });
+    openQuoteShareModal({ content: "代码如诗，简洁至上。" });
 
     expect(isQuoteShareModalOpen()).toBe(true);
 
@@ -95,27 +90,30 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     const textEl = host?.querySelector(".biliscript-quote-card-text");
     expect(textEl?.textContent).toBe("代码如诗，简洁至上。");
 
+    // 卡面只承载金句：视频标题与时间戳都不再出现
+    expect(host?.querySelector(".biliscript-quote-card-source")).toBeNull();
     expect(host?.querySelector(".biliscript-quote-card-timestamp")).toBeNull();
-
-    const sourceEl = host?.querySelector(".biliscript-quote-card-source");
-    expect(sourceEl?.textContent).toBe("精通重构之道");
+    expect(host?.querySelector(".biliscript-quote-card-brand")?.textContent).toBe("BiliScript");
+    expect(host?.querySelector(".biliscript-quote-card-sheet")).not.toBeNull();
+    expect(host?.querySelector(".biliscript-quote-card-scrim")).not.toBeNull();
+    expect(
+      host?.querySelectorAll(".biliscript-quote-card-motif .biliscript-quote-card-motif-bar").length
+    ).toBe(2);
+    expect(host?.querySelector(".biliscript-quote-card-motif-bar.is-lead")).not.toBeNull();
+    expect(host?.querySelector(".biliscript-quote-card-motif-bar.is-track")).not.toBeNull();
 
     const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
-    expect(card?.dataset.preset).toBe("purple-gold");
-    expect(card?.dataset.pattern).toBe("rays");
+    expect(card?.dataset.preset).toBe("mist-deep-sea");
+    expect(card?.dataset.pattern).toBe("none");
 
     const noiseEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-noise");
     expect(noiseEl?.style.backgroundImage).toContain("data:");
 
     const patternEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-pattern");
     expect(patternEl).not.toBeNull();
-    expect(patternEl?.innerHTML).toContain("<svg");
-    expect(patternEl?.innerHTML).toContain('viewBox="0 0 400 300"');
-    expect(patternEl?.innerHTML).toContain('stroke-width="0.8"');
-    expect(patternEl?.innerHTML).toContain("<line");
-    expect(patternEl?.innerHTML).toContain('x1="200" y1="150"');
+    expect(patternEl?.innerHTML).toBe("");
 
-    const activePatternBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='rays']");
+    const activePatternBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='none']");
     expect(activePatternBtn?.classList.contains("is-active")).toBe(true);
     expect(activePatternBtn?.getAttribute("aria-pressed")).toBe("true");
   });
@@ -123,7 +121,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
   it("支持在打开弹窗时通过 options.preset 和 options.pattern 指定初始预设与纹样", () => {
     openQuoteShareModal({
       content: "测试等高线纹样",
-      from: 10,
       preset: "mist-deep-sea",
       pattern: "contours"
     });
@@ -141,7 +138,6 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
   it("点击纹样切换按钮在 5 种几何纹样及「无纹样」间无缝切换", () => {
     openQuoteShareModal({
       content: "测试金句纹样切换",
-      from: 0
     });
 
     const host = document.querySelector(".biliscript-quote-share-host");
@@ -189,25 +185,24 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
   it("点击主题预设按钮切换卡片配色", () => {
     openQuoteShareModal({
       content: "测试金句",
-      from: 10
     });
 
     const host = document.querySelector(".biliscript-quote-share-host");
     const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
-    expect(card?.dataset.preset).toBe("purple-gold");
-
-    const seaBtn = host?.querySelector<HTMLButtonElement>("[data-preset='mist-deep-sea']");
-    expect(seaBtn).not.toBeNull();
-
-    seaBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
     expect(card?.dataset.preset).toBe("mist-deep-sea");
-    expect(seaBtn?.classList.contains("is-active")).toBe(true);
-    expect(seaBtn?.getAttribute("aria-pressed")).toBe("true");
 
     const purpleBtn = host?.querySelector<HTMLButtonElement>("[data-preset='purple-gold']");
-    expect(purpleBtn?.classList.contains("is-active")).toBe(false);
-    expect(purpleBtn?.getAttribute("aria-pressed")).toBe("false");
+    expect(purpleBtn).not.toBeNull();
+
+    purpleBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(card?.dataset.preset).toBe("purple-gold");
+    expect(purpleBtn?.classList.contains("is-active")).toBe(true);
+    expect(purpleBtn?.getAttribute("aria-pressed")).toBe("true");
+
+    const seaBtn = host?.querySelector<HTMLButtonElement>("[data-preset='mist-deep-sea']");
+    expect(seaBtn?.classList.contains("is-active")).toBe(false);
+    expect(seaBtn?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("当 Canvas 2D 上下文正常时生成灰度像素 PNG 噪点，不可用时安全降级为 SVG 噪点", () => {
@@ -271,18 +266,18 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
   });
 
   it("点击关闭按钮、遮罩层或按 Escape 键关闭弹窗", () => {
-    openQuoteShareModal({ content: "金句内容", from: 10 });
+    openQuoteShareModal({ content: "金句内容" });
     expect(isQuoteShareModalOpen()).toBe(true);
 
     document.querySelector<HTMLElement>(".biliscript-quote-share-close")?.click();
     expect(isQuoteShareModalOpen()).toBe(false);
     expect(document.querySelector(".biliscript-quote-share-host")).toBeNull();
 
-    openQuoteShareModal({ content: "金句内容", from: 10 });
+    openQuoteShareModal({ content: "金句内容" });
     document.querySelector<HTMLElement>(".biliscript-quote-share-mask")?.click();
     expect(isQuoteShareModalOpen()).toBe(false);
 
-    openQuoteShareModal({ content: "金句内容", from: 10 });
+    openQuoteShareModal({ content: "金句内容" });
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(isQuoteShareModalOpen()).toBe(false);
   });
@@ -292,8 +287,8 @@ describe("quote-share-modal 模态弹窗与卡片渲染", () => {
     expect(isQuoteShareModalOpen()).toBe(false);
     expect(document.querySelector(".biliscript-quote-share-host")).toBeNull();
 
-    openQuoteShareModal({ content: "第一条金句", from: 10 });
-    openQuoteShareModal({ content: "第二条金句", from: 20 });
+    openQuoteShareModal({ content: "第一条金句" });
+    openQuoteShareModal({ content: "第二条金句" });
     expect(document.querySelectorAll(".biliscript-quote-share-host").length).toBe(1);
     expect(document.querySelector(".biliscript-quote-card-text")?.textContent).toBe("第二条金句");
   });
@@ -337,7 +332,7 @@ describe("quote-share-motion-and-parallax 悬停视差与弹簧回弹", () => {
     });
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
 
-    openQuoteShareModal({ content: "微视差测试", from: 0 });
+    openQuoteShareModal({ content: "微视差测试" });
 
     const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
     expect(card.querySelector(".biliscript-quote-card-blobs-layer")).not.toBeNull();
@@ -390,7 +385,7 @@ describe("quote-share-motion-and-parallax 悬停视差与弹簧回弹", () => {
 
   it("prefers-reduced-motion: reduce 激活时鼠标悬停不开启视差与高光", () => {
     setMatchMediaReduce(true);
-    openQuoteShareModal({ content: "减弱动效测试", from: 0 });
+    openQuoteShareModal({ content: "减弱动效测试" });
 
     const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
     card.dispatchEvent(new MouseEvent("mousemove", { clientX: 200, clientY: 200, bubbles: true }));
@@ -412,9 +407,10 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     vi.restoreAllMocks();
   });
 
-  it("点击「保存 PNG」直接将模态状态送入光栅化管线：完成 2x 缩放、超椭圆连续圆角裁切、长文分段折行与 a[download] 下载", async () => {
+  it("点击「保存 PNG」把模态状态送入固定设计画布：白边相纸、超椭圆裁切、共享折行与 a[download] 下载", async () => {
     const points: Array<{ type: string; x: number; y: number }> = [];
     const filledTexts: string[] = [];
+    const filledStyles: string[] = [];
     let clipCalled = false;
     let strokeCalled = false;
     let createdCanvasWidth = 0;
@@ -435,6 +431,12 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
       stroke: vi.fn(() => {
         strokeCalled = true;
       }),
+      fill: vi.fn(function (this: { fillStyle: string }) {
+        filledStyles.push(String(this.fillStyle));
+      }),
+      rect: vi.fn(),
+      roundRect: vi.fn(),
+      strokeRect: vi.fn(),
       createLinearGradient: vi.fn(() => fakeGrad),
       createRadialGradient: vi.fn(() => fakeGrad),
       createPattern: vi.fn(() => null),
@@ -509,7 +511,6 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
 
     openQuoteShareModal({
       content: "第一段需要折行的长金句一二三四五六七八九十\n第二段精简金句",
-      videoTitle: "这是一个非常长的视频标题用于验证底部来源截断逻辑是否生效",
       preset: "slate-brown",
       pattern: "none"
     });
@@ -519,15 +520,18 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
 
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(createdCanvasWidth).toBeGreaterThanOrEqual(800);
-    expect(createdCanvasHeight).toBeGreaterThanOrEqual(600);
+    // 固定设计画布：内卡 1200 宽，相纸约 1261×806，不随窗口变化
+    expect(createdCanvasWidth).toBe(1261);
+    expect(createdCanvasHeight).toBe(806);
     expect(clipCalled).toBe(true);
     expect(strokeCalled).toBe(true);
-    // 验证 n=4 超椭圆右上角 45° 对角采样点（比正圆弧更贴角外扩）
-    expect(points.some((p) => p.x > 396 && p.y < 4)).toBe(true);
-    // 验证长文本折行与分段保留
-    expect(filledTexts.filter((t) => t !== "“" && !t.includes("视频标题")).length).toBeGreaterThan(2);
+    // 超椭圆右上角 45° 采样点比正圆弧更贴角外扩
+    expect(points.some((p) => p.x > 405 && p.y < 15)).toBe(true);
+    // 折行与分段保留，品牌角标与底栏双段标记也进图
     expect(filledTexts).toContain("第二段精简金句");
+    expect(filledTexts).toContain("BiliScript");
+    expect(filledStyles).toContain("#e04a75");
+    expect(filledStyles).toContain("#e9ebef");
     expect(downloadAnchorClicked).toBe(true);
     expect(capturedBlobs[0]).toBeInstanceOf(Blob);
     expect(capturedBlobs[0]?.type).toBe("image/png");
@@ -564,7 +568,7 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     });
     (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
 
-    openQuoteShareModal({ content: "测试复制图片", from: 10 });
+    openQuoteShareModal({ content: "测试复制图片" });
     const copyBtn = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
     copyBtn.click();
 
@@ -582,7 +586,7 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
       configurable: true
     });
 
-    openQuoteShareModal({ content: "测试复制失败", from: 10 });
+    openQuoteShareModal({ content: "测试复制失败" });
     const copyBtnFail = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
     copyBtnFail.click();
 
@@ -607,7 +611,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
       </div>
     `;
     closeQuoteShareModal();
-    state.clip.setTitle("测试视频标题");
   });
 
   afterEach(() => {
@@ -619,6 +622,7 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
   it("金句卡片底行渲染分享图标按钮，点击打开分享弹窗且关闭阅读视图时自动收起", () => {
     renderReadingOverview(
       makeSnapshot({
+        summary: "",
         chapters: [],
         quotes: [{ from: 60, content: "不经一番寒彻骨，怎得梅花扑鼻香。" }]
       })
@@ -627,7 +631,6 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
     const shareBtn = document.querySelector<HTMLElement>("[data-overview-action='share-quote']")!;
     expect(shareBtn).not.toBeNull();
     expect(shareBtn.dataset.quote).toBe("不经一番寒彻骨，怎得梅花扑鼻香。");
-    expect(shareBtn.dataset.seconds).toBe("60");
     expect(shareBtn.getAttribute("aria-label")).toBe("分享金句卡片");
 
     const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
@@ -638,24 +641,18 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
     expect(document.querySelector(".biliscript-quote-card-text")?.textContent).toBe(
       "不经一番寒彻骨，怎得梅花扑鼻香。"
     );
-    expect(document.querySelector(".biliscript-quote-card-source")?.textContent).toBe("测试视频标题");
+    // 卡片不再带视频标题与时间戳：来源靠品牌角标承担
+    expect(document.querySelector(".biliscript-quote-card-source")).toBeNull();
+    expect(document.querySelector(".biliscript-quote-card-timestamp")).toBeNull();
+    expect(document.querySelector(".biliscript-quote-card-brand")?.textContent).toBe("BiliScript");
 
     closeReadingView();
     expect(isQuoteShareModalOpen()).toBe(false);
   });
 
   it("分享按钮样式规格与复制按钮对齐，弹窗宿主配置 pointer-events: auto 且阻断冒泡", () => {
-    const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
-    const css = fs.readFileSync(cssPath, "utf-8");
 
-    expect(css).toContain(".biliscript-reading-ov-quote-share");
-    expect(css).toContain(".biliscript-reading-ov-quote-copy");
-    expect(css).toContain("width: 28px;");
-    expect(css).toContain("height: 28px;");
-    expect(css).toContain("#biliscript-reading-view .biliscript-quote-share-host");
-    expect(css).toContain("pointer-events: auto;");
-
-    openQuoteShareModal({ content: "防穿透测试金句", from: 10 });
+    openQuoteShareModal({ content: "防穿透测试金句" });
     const host = document.querySelector<HTMLElement>(".biliscript-quote-share-host")!;
 
     let viewClickTriggered = false;
@@ -669,64 +666,47 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
   });
 });
 
-describe("quote-share 样式与架构契约", () => {
-  const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
-  const cssContent = fs.readFileSync(cssPath, "utf-8").replace(/\r\n/g, "\n");
-  // 连续圆角统一经语义令牌声明，兜底值与令牌同值。
-  const CONTINUOUS_CORNER = "corner-shape: var(--biliscript-corner-shape, superellipse(1.25));";
+describe("金句卡片正文布局（预览与导出共用同一份）", () => {
+  const cjk = (n: number) => "字".repeat(n);
 
-  function rule(selector: string): string {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = cssContent.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
-    expect(match, `缺少样式规则 ${selector}`).not.toBeNull();
-    return match![1];
-  }
-
-  it("定义纹样径向遮罩、24s 慢速漂移、视差变量与无障碍降级", () => {
-    expect(cssContent).toContain(".biliscript-quote-card-pattern {");
-    expect(cssContent).toContain("opacity: 0.38;");
-    const expectedGradient =
-      "radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%)";
-    expect(cssContent).toContain(`mask-image: ${expectedGradient}`);
-    expect(cssContent).toContain("vector-effect: non-scaling-stroke;");
-    expect(cssContent).toContain("@keyframes biliscript-quote-drift");
-    expect(cssContent).toContain("animation: biliscript-quote-drift 24s ease-in-out infinite alternate;");
-    expect(cssContent).toContain("var(--quote-spring-x, 0)");
-    expect(cssContent).toContain("var(--quote-glow-x, 50%)");
-    expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
-    expect(cssContent).toContain("font-family: var(--biliscript-reader-font-serif);");
-    expect(cssContent).toContain("font-variant-numeric: lining-nums;");
-    expect(cssContent).toContain("font-size: clamp(16px, 5.5cqi, 21px);");
+  it("短句保持基准字号单行", () => {
+    const layout = layoutQuoteCardText("短金句");
+    expect(layout.fontSize).toBe(21);
+    expect(layout.lines).toEqual(["短金句"]);
+    expect(layout.truncated).toBe(false);
+    // 上下等距：文字块中线落在卡面中线上
+    expect(layout.textTop + (layout.lines.length * layout.lineHeight) / 2).toBeCloseTo(229.5 / 2, 5);
   });
 
-  it("容器、关闭键、操作按钮与切换按钮遵循面板圆角和令牌契约", () => {
-    expect(rule(".biliscript-quote-share-dialog")).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
-    expect(rule(".biliscript-quote-share-dialog")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-share-dialog")).toContain("box-shadow: var(--biliscript-reader-shadow);");
-    expect(rule(".biliscript-quote-share-close")).toContain("width: 34px;");
-    expect(rule(".biliscript-quote-share-close")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-action-btn")).toContain("height: 32px;");
-    expect(rule(".biliscript-quote-action-btn.is-primary")).toContain("background: var(--biliscript-reader-accent);");
-    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-preset-btn")).toContain(CONTINUOUS_CORNER);
-    expect(rule(".biliscript-quote-pattern-btn")).toContain(CONTINUOUS_CORNER);
+  it("长句逐级降字号直到装进正文区", () => {
+    const layout = layoutQuoteCardText(cjk(70));
+    expect(layout.fontSize).toBeGreaterThanOrEqual(14);
+    expect(layout.fontSize).toBeLessThan(21);
+    expect(layout.lines.length * layout.lineHeight).toBeLessThanOrEqual(161.78);
+    expect(layout.truncated).toBe(false);
   });
 
-  it("quote-share-modal.ts 与 reader/index.ts 仅导出 3 个公共模态函数，不泄露内部状态与辅助实现", async () => {
-    const modalModule = (await import("../../extension/reader/quote-share-modal.js")) as Record<string, unknown>;
-    expect(Object.keys(modalModule).sort()).toEqual([
-      "closeQuoteShareModal",
-      "isQuoteShareModalOpen",
-      "openQuoteShareModal"
-    ]);
+  it("极端长句在 14px 下限按行数截断并补省略号", () => {
+    const layout = layoutQuoteCardText(cjk(300));
+    expect(layout.fontSize).toBe(14);
+    expect(layout.truncated).toBe(true);
+    expect(layout.lines.length).toBe(4);
+    expect(layout.lines[3].endsWith("…")).toBe(true);
+  });
 
-    const readerIndex = (await import("../../extension/reader/index.js")) as Record<string, unknown>;
-    expect(typeof readerIndex.openQuoteShareModal).toBe("function");
-    expect(typeof readerIndex.closeQuoteShareModal).toBe("function");
-    expect(typeof readerIndex.isQuoteShareModalOpen).toBe("function");
-    expect(readerIndex.getQuoteShareNoiseDataUrl).toBeUndefined();
-    expect(readerIndex.QUOTE_CARD_PRESETS).toBeUndefined();
+  it("段落换行保留为独立行", () => {
+    const layout = layoutQuoteCardText("第一段\n第二段");
+    expect(layout.lines).toEqual(["第一段", "第二段"]);
+  });
+
+  it("文字块按最宽行左右居中，各行共用同一左缘", () => {
+    const single = layoutQuoteCardText("金句");
+    expect(single.textWidth).toBeLessThan(336.19);
+    expect(single.textLeft + single.textWidth / 2).toBeCloseTo(408 / 2, 6);
+
+    const multi = layoutQuoteCardText(cjk(70));
+    expect(multi.lines.length).toBeGreaterThan(1);
+    expect(multi.textWidth).toBeLessThanOrEqual(336.19);
+    expect(multi.textLeft + multi.textWidth / 2).toBeCloseTo(408 / 2, 6);
   });
 });

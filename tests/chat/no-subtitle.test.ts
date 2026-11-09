@@ -1,6 +1,6 @@
 // chat/no-subtitle.ts 纯模块测试：按原因的无字幕拦截文案。
 // 锁定一件事：
-//   - buildNoSubtitleNotice：十个 reason + 缺失未知的提示文案与「前往设置」
+//   - buildNoSubtitleNotice：十一个 reason + 缺失未知的提示文案与「前往设置」
 //     动作位。本模块已退化为薄适配层（票 06）：文案逐字来自 core 的单一真源
 //     （buildAsrNoSubtitleMessage 的 sidepanel 面），openSettings 由 remedy
 //     枚举映射（open-settings → true，其余 → false）。
@@ -22,8 +22,12 @@ import {
 } from "../../extension/core/asr-failure-notice.js";
 
 describe("buildNoSubtitleNotice（薄适配层：文案单一真源 + remedy → openSettings）", () => {
-  it("十类原因逐字等于 sidepanel 面的文案（前缀 + 病因 + 补救）", () => {
+  it("十一类原因逐字等于 sidepanel 面的文案（前缀 + 病因 + 补救）", () => {
     const cases: Array<[NoSubtitleReason, string]> = [
+      [
+        "upower-exclusive",
+        `${SIDEPANEL_BASE} 该视频为充电专属视频，未开通充电无法获取完整音轨。 开通充电后可重新抓取生成字幕`
+      ],
       [
         "no-asr-config",
         `${SIDEPANEL_BASE} 语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。 请到设置页检查语音转写平台`
@@ -51,6 +55,7 @@ describe("buildNoSubtitleNotice（薄适配层：文案单一真源 + remedy →
   it("openSettings 只由 remedy === open-settings 决定（配置类与鉴权类为 true，其余 false）", () => {
     const openSettingsReasons: CoreNoSubtitleReason[] = ["no-asr-config", "asr-disabled", "asr-auth"];
     const noSettingsReasons: CoreNoSubtitleReason[] = [
+      "upower-exclusive",
       "asr-quota",
       "asr-ratelimit",
       "asr-network",

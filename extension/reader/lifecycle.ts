@@ -89,6 +89,7 @@ import {
   registerOverviewUiActions,
   renderReadingOverview as renderReadingOverviewUi
 } from "./overview-ui.js";
+import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
@@ -138,6 +139,7 @@ bindReadingTranscribeBanner();
 export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
   onNotice: (text) => notifyReaderPresenter({ kind: "status", text })
 });
+subtitleToolbar.bindEvents();
 
 // 句内搜索生产实例（工厂与依赖注入见 ./subtitle-search.ts）：DOM 访问绑 reader
 // 的常驻 id，补渲染/手动交互绑端口与 SYNC。对外具名入口（refresh / move / clear）
@@ -183,6 +185,17 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   clearInterval: (...args) => clearInterval(...args)
 });
 export { overviewCoordinator };
+
+// 伴看上下文取用同一份快照：登记后 chat-tab 组合根经 live-overview-source 直读，
+// 不反向静态依赖本装配根（见该叶子头注）。
+registerReaderOverviewSource({
+  getSnapshot: () => overviewCoordinator.getSnapshot(),
+  subscribe: (listener) => overviewCoordinator.subscribe(listener),
+  ensureOverview: async (options) => {
+    await overviewCoordinator.trigger(options);
+    return overviewCoordinator.getSnapshot();
+  }
+});
 
 export const triggerReaderOverviewGeneration = (
   options?: { forceRefresh?: boolean }
@@ -324,6 +337,7 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
 // 在 fetch 落定后按当前 state 走单一收口进行纯幂等重投影 + 条件触发。
 function reconcileReaderAfterSubtitleFetch() {
   onReaderSubtitleReady({
+    ensureSecondarySubtitle: true,
     triggerMode: "if-subtitles-present"
   });
 }
@@ -438,6 +452,7 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   // subtitle-ready 到达后再触发；重复触发由缓存与在飞 promise 去重）。字幕在面板
   // 打开前就已落定（页面预抓取，不再有 subtitle-ready）时，这是唯一的起跑点。
   warmUpReaderQuickPrompts();
+  ensureSecondarySubtitleLoaded();
 }
 
 function openReaderViewShell(

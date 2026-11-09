@@ -107,8 +107,9 @@ function buildCompletionFake(
     const system = input.messages[0]?.content || "";
     const user = input.messages.at(-1)?.content || "";
     const isGiven = system.includes("为给定的章节目录补写每章大意");
-    // 目录只留标题模式（简介/评论时间轴来源，F5）：模型只出金句，不产章节与简介。
+    // 密集时间轴只出总体简介与金句，不产逐章说明。
     const isQuotesOnly = system.includes("为给定的章节目录挑选金句");
+    const isSummaryOnly = system.includes("根据各段内容概述");
     const rangeMatch = user.match(/第 (\d+) \/ (\d+) 段/);
     const index = rangeMatch ? Number(rangeMatch[1]) : 1;
     if (failedSegments.has(index)) {
@@ -122,8 +123,11 @@ function buildCompletionFake(
     // 时间戳落在段区间内：分段按 50k 预算切，每段 50 条（5s/条），段 i 起点 = (i-1)*250。
     // 末段只有 10 条（50s 跨度），章/金句时间戳取段起点 +5/+40 才能三段全部有效。
     const base = rangeMatch ? (Number(rangeMatch[1]) - 1) * 250 : 0;
-    const payload = isQuotesOnly
+    const payload = isSummaryOnly
+      ? { summary: "综合全部分段得到的全片简介。" }
+      : isQuotesOnly
       ? {
+          summary: `第 ${index} 段概述。`,
           keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 10 }]
         }
       : isGiven
@@ -207,8 +211,8 @@ describe("validateAnalysis 越界丢弃与秒反推", () => {
     const chapters2 = [{ title: "小数秒", timestampSeconds: 10.9 }];
     expect(mod.validateAnalysis({ chapters: chapters2 }, 100).chapters[0].from).toBe(10);
     expect(mod.validateAnalysis({ chapters: [{ title: "字符串秒", timestampSeconds: "42" }] }, 100).chapters[0].from).toBe(42);
-    expect(mod.validateAnalysis(null, 100)).toEqual({ chapters: [], quotes: [] });
-    expect(mod.validateAnalysis({ chapters: "not-array", keyQuotes: 42 }, 100)).toEqual({ chapters: [], quotes: [] });
+    expect(mod.validateAnalysis(null, 100)).toEqual({ summary: "", chapters: [], quotes: [] });
+    expect(mod.validateAnalysis({ chapters: "not-array", keyQuotes: 42 }, 100)).toEqual({ summary: "", chapters: [], quotes: [] });
     expect(mod.validateAnalysis({ chapters: [{ title: "NaN", timestampSeconds: "abc" }] }, 100).chapters).toEqual([]);
   });
 });
@@ -276,10 +280,9 @@ describe("双路径分派", () => {
     // 传输层：页面源直发会撞平台网关 CORS 预检（ModelScope 的 Anthropic 端点拒
     // anthropic-version/x-api-key），概览一律经 offscreen 代发
     expect(calls[0].fetchImpl).toBe(await loadOffscreenRelay());
-    // 系统提示词 = 整份分章提示词；用户提示词无 rangeNote（分段标记不出现）
-    expect(calls[0].messages[0].content).toContain("产出一份结构化概览：章节 + 金句");
-    // script-only-ui：顶层概述字段已移除（章节条目内的 summary 不受影响）
-    expect(calls[0].messages[0].content).not.toContain('"summary": "全片概述');
+    // 系统提示词包含顶层简介；用户提示词无 rangeNote（分段标记不出现）
+    expect(calls[0].messages[0].content).toContain("产出一份结构化概览：简介 + 章节 + 金句");
+    expect(calls[0].messages[0].content).toContain('"summary": "本次字幕的简介');
     const user = calls[0].messages.at(-1)!.content;
     expect(user).toContain("视频标题：测试视频");
     expect(user).toContain("UP 主：UP 主甲");
@@ -303,10 +306,11 @@ describe("双路径分派", () => {
       { chatCompletion }
     );
 
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
-    // 每段一次调用：无显式 retries（重试由池层负责）且同为流式（分段路径不经
-    // 池层换形态，与单发路径共用 requestValidatedPart）
-    expect(calls.every((c) => c.retries === undefined)).toBe(true);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
+    const segmentCalls = calls.filter((call) => !call.messages[0]?.content.includes("根据各段内容概述"));
+    expect(segmentCalls).toHaveLength(5);
+    // 每段一次调用；最后再调用一次归并全片简介。
+    expect(segmentCalls.every((c) => c.retries === undefined)).toBe(true);
     expect(calls.every((c) => c.stream === true && typeof c.onEvent === "function")).toBe(true);
     // 每段请求都携带 off 档位（协议层据此注入 THINKING_DISABLE_FIELDS）
     expect(calls.every((c) => c.thinkingLevel === "off")).toBe(true);
@@ -324,7 +328,8 @@ describe("双路径分派", () => {
     // 前情回顾只进输入不进输出：maxTokens 估算基于本段正文
     expect(secondUser).toContain("字幕：");
 
-    // 合并：各段章节按 from 排序，金句按文本去重
+    // 合并：各段章节按 from 排序，金句按文本去重，简介由末次调用综合全部分段。
+    expect(result.summary).toBe("综合全部分段得到的全片简介。");
     expect(result.chapters.map((c) => c.title)).toEqual([
       "章1a", "章1b", "章2a", "章2b", "章3a", "章3b", "章4a", "章4b", "章5a", "章5b"
     ]);
@@ -337,19 +342,19 @@ describe("双路径分派", () => {
     const { chatCompletion } = buildCompletionFake();
     const context = makeContext({ subtitleBody: makeSubtitleBody(210000) });
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
 
     const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
     expect(segKeys).toHaveLength(5);
     // 键尾是字幕签名（概览分章票 03 起段键挂签名），段序号在签名前一位
     expect(segKeys.map((k) => Number(k.split("_").at(-2))).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
 
-    // 清掉段 2 的落盘 → 重跑只重跑段 2（其余段命中段缓存）
+    // 清掉段 2 的落盘 → 重跑段 2 与全片简介，其余段命中段缓存。
     const seg2Key = segKeys.find((k) => k.split("_").at(-2) === "2");
     storage.map.delete(seg2Key as string);
     chatCompletion.mockClear();
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
-    expect(chatCompletion).toHaveBeenCalledTimes(1);
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
     expect(chatCompletion.mock.calls[0][0].messages.at(-1)!.content).toContain("第 2 / 5 段");
   });
 });
@@ -612,6 +617,41 @@ describe("部分失败降级", () => {
     expect(segKeys).toHaveLength(4);
   });
 
+  it("全片简介归并失败：保留章节与金句；重试复用分段缓存，只重发简介请求", async () => {
+    const base = buildCompletionFake();
+    let failSummary = true;
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
+      if (input.messages[0]?.content.includes("根据各段内容概述")) {
+        if (failSummary) throw new Error("简介归并失败");
+        emitTokens(input, JSON.stringify({ summary: "重试后得到的全片简介。" }));
+        return { done: true } as const;
+      }
+      return base.chatCompletion(input);
+    });
+    const context = makeContext({ subtitleBody: makeSubtitleBody(210000) });
+    const first = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context },
+      { chatCompletion }
+    );
+
+    expect(first.summary).toBe("");
+    expect(first.summaryFailed).toBe(true);
+    expect(first.chapters.length).toBeGreaterThan(0);
+    expect(first.quotes.length).toBeGreaterThan(0);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
+
+    failSummary = false;
+    chatCompletion.mockClear();
+    const retry = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context, forceRefresh: true },
+      { chatCompletion }
+    );
+    expect(retry.summary).toBe("重试后得到的全片简介。");
+    expect(retry.summaryFailed).toBe(false);
+    expect(chatCompletion).toHaveBeenCalledTimes(1);
+    expect(chatCompletion.mock.calls[0][0].messages[0]?.content).toContain("根据各段内容概述");
+  });
+
   it("分段路径全军覆没：抛第一个真实错误，不落任何缓存", async () => {
     const { chatCompletion } = buildCompletionFake({ failedSegments: new Set([1, 2, 3, 4, 5]) });
     await expect(
@@ -646,7 +686,7 @@ describe("部分失败降级", () => {
         { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
         { chatCompletion }
       )
-    ).rejects.toThrow("模型没有产出有效的章节或金句");
+    ).rejects.toThrow("模型没有产出有效的简介、章节或金句");
   });
 
   it("无字幕：直接抛错，不发起调用", async () => {
@@ -669,7 +709,7 @@ const MANUSCRIPT_CHAPTERS = [
 const COMMENT_TIMELINE = "时间轴来啦：\n00:00 评论区开场\n01:40 评论区正题\n04:20 评论区收尾";
 
 describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
-  it("同时有官方章节与评论时间轴：用时间轴标题与边界，章节只留标题（不写 AI 简介），金句照常", async () => {
+  it("稀疏评论时间轴优先于官方章节：保留目录标题与边界，补总体简介和逐章说明", async () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const result = await mod.runOverviewAnalysis(
       {
@@ -686,30 +726,33 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     const system = calls[0].messages[0].content;
     const user = calls[0].messages.at(-1)!.content;
-    expect(system).toContain("为给定的章节目录挑选金句");
-    expect(system).not.toContain("为给定的章节目录补写每章大意");
+    expect(system).toContain("为给定的章节目录补写每章大意");
     expect(system).not.toContain("章节数量由你判断");
     expect(user).toContain("现成章节目录（来自视频章节/简介/评论，共 3 章）：");
     expect(user).toContain("0:00 评论区开场");
     expect(user).toContain("4:20 评论区收尾");
-    expect(user).toContain("不要为章节写简介");
     expect(user).not.toContain("官方开场");
-    // 边界 = 下一条时间戳，末章 to = 视频时长；标题照抄目录、简介一律空（F5），金句照常
+    expect(result.summary).toBe("第 1 段概述。");
     expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "评论区开场", summary: "" },
-      { from: 100, to: 260, title: "评论区正题", summary: "" },
-      { from: 260, to: 300, title: "评论区收尾", summary: "" }
+      { from: 0, to: 100, title: "评论区开场", summary: "摘要0" },
+      { from: 100, to: 260, title: "评论区正题", summary: "摘要100" },
+      { from: 260, to: 300, title: "评论区收尾", summary: "摘要260" }
     ]);
     expect(result.quotes.map((q) => q.content)).toEqual(["金句1"]);
   });
 
-  it("评论/简介时间轴来源 + 模型不听话硬写简介（F7）：简介一律丢弃，标题照抄目录", async () => {
+  it("评论时间轴达到 10 章：即使模型硬写逐章说明也丢弃，总体简介保留", async () => {
+    const denseTimeline = Array.from({ length: 10 }, (_, index) => {
+      const seconds = index * 30;
+      return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")} 第 ${index + 1} 章`;
+    }).join("\n");
     const { chatCompletion } = buildCompletionFake({
       parts: {
         1: {
+          summary: "密集时间轴的总体简介。",
           chapters: [
-            { title: "模型自拟标题甲", timestampSeconds: 0, summary: "不该出现的简介甲" },
-            { title: "模型自拟标题乙", timestampSeconds: 100, summary: "不该出现的简介乙" }
+            { title: "模型自拟标题甲", timestampSeconds: 0, summary: "不该出现的说明甲" },
+            { title: "模型自拟标题乙", timestampSeconds: 100, summary: "不该出现的说明乙" }
           ],
           keyQuotes: [{ quote: "金句1", timestampSeconds: 10 }]
         }
@@ -720,18 +763,16 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
         provider: makeProvider(),
         context: makeContext({
           subtitleBody: makeSubtitleBody(50000),
-          hotComments: [{ uname: "UP", like: 999, message: COMMENT_TIMELINE }]
+          hotComments: [{ uname: "UP", like: 999, message: denseTimeline }]
         })
       },
       { chatCompletion }
     );
 
-    expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "评论区开场", summary: "" },
-      { from: 100, to: 260, title: "评论区正题", summary: "" },
-      { from: 260, to: 300, title: "评论区收尾", summary: "" }
-    ]);
-    expect(result.chapters.map((item) => item.summary).join("")).not.toContain("简介");
+    expect(result.summary).toBe("密集时间轴的总体简介。");
+    expect(result.chapters).toHaveLength(10);
+    expect(result.chapters.every((chapter) => chapter.summary === "" && chapter.missingSummary === undefined)).toBe(true);
+    expect(result.chapters.map((item) => item.summary).join("")).not.toContain("说明");
     expect(result.quotes.map((q) => q.content)).toEqual(["金句1"]);
   });
 
@@ -765,7 +806,7 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
 
     const system = calls[0].messages[0].content;
     const user = calls[0].messages.at(-1)!.content;
-    expect(system).toContain("产出一份结构化概览：章节 + 金句");
+    expect(system).toContain("产出一份结构化概览：简介 + 章节 + 金句");
     expect(system).not.toContain("为给定的章节目录补写每章大意");
     expect(user).toContain("后段门槛");
     expect(user).not.toContain("现成章节目录");
@@ -849,8 +890,8 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     const catalogBlock = user.split("现成章节目录（来自视频章节/简介/评论，共")[1].split("按系统提示词的要求")[0];
     expect(catalogBlock).not.toContain("越界章");
     expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "甲", summary: "" },
-      { from: 100, to: 300, title: "乙", summary: "" }
+      { from: 0, to: 100, title: "甲", summary: "摘要0" },
+      { from: 100, to: 300, title: "乙", summary: "摘要100" }
     ]);
   });
 
@@ -865,10 +906,11 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
       { chatCompletion }
     );
 
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
-    expect(calls.every((call) => call.messages[0].content.includes("为给定的章节目录补写每章大意"))).toBe(true);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
+    const segmentCalls = calls.filter((call) => !call.messages[0]?.content.includes("根据各段内容概述"));
+    expect(segmentCalls.every((call) => call.messages[0].content.includes("为给定的章节目录补写每章大意"))).toBe(true);
     expect(
-      calls.every((call) =>
+      segmentCalls.every((call) =>
         call.messages.at(-1)!.content.includes("现成章节目录（来自视频章节/简介/评论，共 2 章）：")
       )
     ).toBe(true);
@@ -1013,7 +1055,7 @@ describe("缓存键与签名", () => {
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(210000) }) },
       { chatCompletion }
     );
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
     chatCompletion.mockClear();
 
     // 同轨道、同段数（仍 5 段），仅末尾多一条字幕 → 签名变
@@ -1021,7 +1063,7 @@ describe("缓存键与签名", () => {
       subtitleBody: [...makeSubtitleBody(210000), { from: 1050, to: 1055, content: "新补的结尾" }]
     });
     await mod.runOverviewAnalysis({ provider: makeProvider(), context: refetched }, { chatCompletion });
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -1137,7 +1179,8 @@ describe("成本护栏与进度", () => {
       "正在整理第 2/5 段（40%）",
       "正在整理第 3/5 段（60%）",
       "正在整理第 4/5 段（80%）",
-      "正在整理第 5/5 段（100%）"
+      "正在整理第 5/5 段（100%）",
+      "正在生成全片简介…"
     ]);
     // 分段路径不接流式进度：单发路径的「正在生成概览…」文案不得覆盖段进度
     expect(onProgress.mock.calls.every(([n]) => !String(n).startsWith("正在生成概览"))).toBe(true);
@@ -1222,8 +1265,8 @@ describe("mergeAnalyses 秒级去重与拼接", () => {
   });
 
   it("空入参 / null part 容错", () => {
-    expect(mod.mergeAnalyses([])).toEqual({ chapters: [], quotes: [] });
-    expect(mod.mergeAnalyses([null, undefined, {}])).toEqual({ chapters: [], quotes: [] });
+    expect(mod.mergeAnalyses([])).toEqual({ summary: "", chapters: [], quotes: [] });
+    expect(mod.mergeAnalyses([null, undefined, {}])).toEqual({ summary: "", chapters: [], quotes: [] });
   });
 });
 
@@ -1433,8 +1476,8 @@ describe("双路径 × 现成章节目录（简介/评论）", () => {
       { provider: makeProvider(), context: makeContext({ subtitleBody: body, videoDescription: description }) },
       { chatCompletion }
     );
-    expect(chatCompletion).toHaveBeenCalledTimes(5);
-    for (const call of calls) {
+    expect(chatCompletion).toHaveBeenCalledTimes(6);
+    for (const call of calls.filter((item) => !item.messages[0]?.content.includes("根据各段内容概述"))) {
       expect(call.messages.at(-1)!.content).toContain("现成章节目录（来自视频章节/简介/评论，共 4 章）：");
     }
   });

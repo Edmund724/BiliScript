@@ -81,6 +81,7 @@ function stubRuntimeMessages(extra?: (message: Record<string, unknown>) => unkno
 }
 
 const SAMPLE_ANALYSIS: OverviewAnalysis = {
+  summary: "这支视频介绍测试的常见误区，并说明如何用有效反馈改进代码。",
   chapters: [
     { from: 0, to: 120, title: "开场", summary: "为什么测试难写" },
     { from: 120, to: 300, title: "误区一", summary: " mocking 一切" }
@@ -318,6 +319,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
 
     // 旧编排落定：回执因 generatedFor 已换成新视频而按过期丢弃，不串片
     resolveOld({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "旧视频章节", summary: "" }],
       quotes: []
     });
@@ -327,6 +329,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
 
     // 新编排落定：正常渲染新视频产物
     resolveNew({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "新视频章节", summary: "" }],
       quotes: []
     });
@@ -430,6 +433,32 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     await vi.waitFor(() => expect(overviewText()).not.toContain("个分段生成失败"));
   });
 
+  it("简介缺失：章节与金句照常展示，复用 partial 重试入口补简介", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue({
+      ...SAMPLE_ANALYSIS,
+      summary: "",
+      summaryFailed: true
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+    expect(overviewText()).toContain("简介暂未生成");
+    expect(overviewText()).toContain("全片简介未生成");
+    expect(overviewText()).toContain("开场");
+    expect(overviewText()).toContain("测试不是目的，而是反馈。");
+
+    runOverviewMock.mockClear();
+    runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
+    const retry = overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='retry-failed']");
+    expect(retry?.textContent).toBe("重试简介");
+    bindOverviewDelegation();
+    retry!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(overviewText()).toContain(SAMPLE_ANALYSIS.summary));
+    expect(overviewText()).not.toContain("简介暂未生成");
+  });
+
   it("error：错误条带原因 + 重试按钮；error 态切 tab 不自动重跑", async () => {
     seedClip();
     runOverviewMock.mockRejectedValue(new Error("模型请求失败"));
@@ -480,6 +509,7 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
   // 用同一形状断言分区；本套件只 mock runOverviewAnalysis，analysis.js 其余
   // 导出走真实实现。
   const GROUPED_ANALYSIS: OverviewAnalysis = {
+    summary: "全片简介。",
     chapters: [
       { from: 100, to: 200, title: "章一", summary: "前半段" },
       { from: 200, to: 300, title: "章二", summary: "后半段" }
@@ -495,11 +525,13 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     return overviewBody().querySelector<HTMLElement>(`.biliscript-reading-ov-quote[data-seconds='${seconds}']`);
   }
 
-  // 分区结构：章节 section 只放章节卡，金句 section 只放金句卡，互不混排。
+  // 分区结构：简介 → 章节 → 金句；章节卡与金句卡互不混排。
   function assertSectionsSplit(): void {
     const sections = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-section"));
-    expect(sections.length).toBe(2);
-    const [chapterSection, quoteSection] = sections;
+    expect(sections.length).toBe(3);
+    const [summarySection, chapterSection, quoteSection] = sections;
+    expect(summarySection.querySelector(".biliscript-reading-ov-h")?.textContent).toBe("简介");
+    expect(summarySection.textContent).toContain("全片简介");
     expect(chapterSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("章节");
     expect(quoteSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("金句");
     expect(chapterSection.querySelectorAll(".biliscript-reading-ov-quote").length).toBe(0);
@@ -534,6 +566,7 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
   it("orphan 金句（早于第一章）：按 from 平铺进金句 section，不丢弃", async () => {
     seedClip({ chapters: [{ from: 100, title: "章一" }] });
     runOverviewMock.mockResolvedValue({
+      summary: "全片简介。",
       chapters: [{ from: 100, to: 300, title: "章一", summary: "" }],
       quotes: [
         { from: 30, content: "开篇点题的金句" },
@@ -602,30 +635,18 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
   });
 });
 
-// 读者 UI 打磨票 02：简介/评论时间轴（outline）来源且无独立 summary 的章节，
-// 标题按首个主分隔符拆为粗体主标题 + 常规体次级说明；官方章节与 AI 分章不拆。
-describe("章节主副标题拆分渲染（仅 outline 来源）", () => {
+describe("章节完整标题渲染", () => {
   function chapterTitleTexts(): string[] {
     return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-title")).map(
       (node) => node.textContent || ""
     );
   }
 
-  function chapterSubtitleTexts(): string[] {
-    return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle")).map(
-      (node) => node.textContent || ""
-    );
-  }
-
-  // 简介带 ≥2 条时间轴 → 分章来源裁定 outline（state.clip.chapters 为空）。
-  function seedOutlineClip(description: string): void {
+  it("时间轴标题含分隔符也完整保留，不拆成次级说明", async () => {
     seedClip();
-    state.clip.description = description;
-  }
-
-  it("outline 来源：含分隔符的标题拆为粗体主标题 + 常规体次级说明两层", async () => {
-    seedOutlineClip("00:00 环境准备：安装与配置\n03:00 常见问题——答疑");
+    state.clip.description = "00:00 环境准备：安装与配置\n03:00 常见问题——答疑";
     runOverviewMock.mockResolvedValue({
+      summary: "全片简介。",
       chapters: [
         { from: 0, to: 180, title: "环境准备：安装与配置", summary: "" },
         { from: 180, to: 300, title: "常见问题——答疑", summary: "" }
@@ -635,68 +656,22 @@ describe("章节主副标题拆分渲染（仅 outline 来源）", () => {
 
     await reader.triggerReaderOverviewGeneration();
 
-    expect(chapterTitleTexts()).toEqual(["环境准备", "常见问题"]);
-    expect(chapterSubtitleTexts()).toEqual(["安装与配置", "答疑"]);
-  });
-
-  it("outline 来源：无分隔符的短标题保持单层结构（无次级说明节点）", async () => {
-    seedOutlineClip("00:00 评论区开场\n03:00 评论区正题");
-    runOverviewMock.mockResolvedValue({
-      chapters: [
-        { from: 0, to: 180, title: "评论区开场", summary: "" },
-        { from: 180, to: 300, title: "评论区正题", summary: "" }
-      ],
-      quotes: []
-    });
-
-    await reader.triggerReaderOverviewGeneration();
-
-    expect(chapterTitleTexts()).toEqual(["评论区开场", "评论区正题"]);
+    expect(chapterTitleTexts()).toEqual(["环境准备：安装与配置", "常见问题——答疑"]);
     expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
   });
 
-  it("outline 来源：拆分后的文本经安全转义——标题含 HTML 不产生真实元素", async () => {
-    seedOutlineClip("00:00 主线&lt;img&gt;：细节&amp;\n03:00 常态");
-    runOverviewMock.mockResolvedValue({
-      chapters: [
-        { from: 0, to: 180, title: "主线<img>：细节&", summary: "" },
-        { from: 180, to: 300, title: "常态", summary: "" }
-      ],
-      quotes: []
-    });
-
-    await reader.triggerReaderOverviewGeneration();
-
-    expect(chapterTitleTexts()).toEqual(["主线<img>", "常态"]);
-    expect(chapterSubtitleTexts()).toEqual(["细节&"]);
-    // 转义生效：文本以字面量呈现，DOM 里没有注入的 img 元素
-    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter img").length).toBe(0);
-  });
-
-  it("官方章节（manuscript）含分隔符也不拆分", async () => {
-    seedClip({ chapters: [{ from: 100, title: "官方章一" }] });
-    runOverviewMock.mockResolvedValue({
-      chapters: [{ from: 100, to: 300, title: "官方章一：不分", summary: "", missingSummary: true }],
-      quotes: []
-    });
-
-    await reader.triggerReaderOverviewGeneration();
-
-    expect(chapterTitleTexts()).toEqual(["官方章一：不分"]);
-    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
-  });
-
-  it("AI 自由分章含分隔符也不拆分", async () => {
+  it("完整标题经安全转义，不产生注入元素", async () => {
     seedClip();
     runOverviewMock.mockResolvedValue({
-      chapters: [{ from: 0, to: 300, title: "AI 章：不分", summary: "AI 概括" }],
+      summary: "全片简介。",
+      chapters: [{ from: 0, to: 300, title: "主线<img>：细节&", summary: "" }],
       quotes: []
     });
 
     await reader.triggerReaderOverviewGeneration();
 
-    expect(chapterTitleTexts()).toEqual(["AI 章：不分"]);
-    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
+    expect(chapterTitleTexts()).toEqual(["主线<img>：细节&"]);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter img").length).toBe(0);
   });
 });
 
@@ -1073,6 +1048,7 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
 
     // 新结果落定：面板换成这一轮的产物
     afterError.resolve({
+      summary: "新一轮简介。",
       chapters: [{ from: 0, to: 120, title: "新一轮章节", summary: "" }],
       quotes: [{ from: 10, content: "新一轮金句" }]
     });
@@ -1160,6 +1136,7 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
 
     // 最终落定：新结果正常上屏
     retry.resolve({
+      summary: "第二轮简介。",
       chapters: [{ from: 0, to: 120, title: "第二轮章节", summary: "" }],
       quotes: [{ from: 20, content: "第二轮金句" }]
     });

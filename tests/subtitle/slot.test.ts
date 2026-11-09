@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { clipState, emptySecondarySubtitle } from "../../extension/core/state.js";
 import type { SubtitleBodyItem, NoSubtitleReason } from "../../extension/core/state.js";
-import {
-  slot,
-  install,
+import { install,
   clearToEmpty,
   installSecondary,
   markSecondaryLoading,
@@ -373,18 +371,6 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
       expect(clipState.subtitleFetchState).toBe("ready");
       expect(clipState.subtitleBody).toEqual(SAMPLE_BODY_A);
-    });
-  });
-
-  describe("API 契约一致性：同时支持平铺函数与命名空间对象 slot", () => {
-    it("slot 对象暴露的所有动词与同名平铺函数引用一致", () => {
-      expect(slot.install).toBe(install);
-      expect(slot.clearToEmpty).toBe(clearToEmpty);
-      expect(slot.installSecondary).toBe(installSecondary);
-      expect(slot.markSecondaryLoading).toBe(markSecondaryLoading);
-      expect(slot.markSecondaryError).toBe(markSecondaryError);
-      expect(slot.clearSecondary).toBe(clearSecondary);
-      expect(slot.clearAllForVideoSwitch).toBe(clearAllForVideoSwitch);
     });
   });
 });

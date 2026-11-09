@@ -202,6 +202,10 @@
   --biliscript-primitive-color-amber-600-rgb: 216, 158, 46;
   --biliscript-primitive-color-mask-rgb: 20, 16, 12;
 
+  /* --- 分享卡底栏双段标记 --- */
+  --biliscript-primitive-color-rose-500: #e04a75;
+  --biliscript-primitive-color-rose-500-rgb: 224, 74, 117;
+
   /* --- Gemini 虹彩流光族 --- */
   --biliscript-primitive-color-gemini-blue-light: #4285f4;
   --biliscript-primitive-color-gemini-blue-light-rgb: 66, 133, 244;

@@ -1,7 +1,7 @@
 // 「概览数据管线」三片之校验/合并（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数、零 import；
 // 对外经 analysis.ts 壳再导出）。适配纯函数整搬自 .scratch/bilibili-script/lib/ai.js，
-// 产出归一化为本仓库字段名：{ chapters: {from,to,title,summary,missingSummary?}[],
-// quotes: {from,content}[], failedRanges?: {from,to}[] }。
+// 产出归一化为本仓库字段名：{ summary, chapters: {from,to,title,summary,missingSummary?}[],
+// quotes: {from,content}[], failedRanges?: {from,to}[], summaryFailed?: boolean }。
 
 // ============================================================
 // 类型与常量
@@ -13,9 +13,8 @@ export interface AnalysisChapter {
   title: string;
   summary: string;
   /**
-   * 官方章节（manuscript）缺概括标记：模型没为该章产出 summary（graft 认领落空
-   * 或认领到的 summary 为空）时置真，UI 据此显示「本章概括缺失」与重跑入口。
-   * 简介/评论时间轴（titlesOnly）的空串是设计内行为，不打标。
+   * 本应生成说明的给定章节缺说明时置真，UI 据此显示占位与重跑入口。
+   * 密集时间轴（titlesOnly）的空串是设计内行为，不打标。
    */
   missingSummary?: boolean;
 }
@@ -30,16 +29,19 @@ interface AnalysisFailureRange {
   to: number;
 }
 
-/** 概览产物（含给定章节与分段合并后的整份形态）；failedRanges 仅在分段路径有失败段时存在。 */
+/** 概览产物；failedRanges 记录字幕分段失败，summaryFailed 记录全片简介归并失败。 */
 export interface OverviewAnalysis {
+  summary: string;
   chapters: AnalysisChapter[];
   quotes: AnalysisQuote[];
   failedRanges?: AnalysisFailureRange[];
+  summaryFailed?: boolean;
 }
 
-// 校验上限：章节数 / 金句数（对齐参考仓库 validateAnalysis 的裁剪量级）。
 export const MAX_ANALYSIS_CHAPTERS = 100;
 const MAX_ANALYSIS_QUOTES = 50;
+const MAX_OVERVIEW_SUMMARY_CHARS = 2000;
+const MAX_CHAPTER_SUMMARY_CHARS = 600;
 
 // ============================================================
 // 适配纯函数（整搬自参考仓库 lib/ai.js，产出字段名归一化为本仓库形状）。
@@ -83,7 +85,7 @@ export function validateAnalysis(analysis: unknown, maxSeconds: unknown, minSeco
       const from = safeSeconds(item?.timestampSeconds);
       const title = safeString(item?.title, 300);
       if (from === null || !title) return null;
-      return { from, title, summary: safeString(item?.summary, 1500) };
+      return { from, title, summary: safeString(item?.summary, MAX_CHAPTER_SUMMARY_CHARS) };
     })
     .filter((item): item is { from: number; title: string; summary: string } => item !== null)
     .sort((a, b) => a.from - b.from)
@@ -107,16 +109,15 @@ export function validateAnalysis(analysis: unknown, maxSeconds: unknown, minSeco
     .sort((a, b) => a.from - b.from);
 
   return {
+    summary: safeString(source.summary, MAX_OVERVIEW_SUMMARY_CHARS),
     chapters,
     quotes
   };
 }
 
 /**
- * 合并各段概览：章节按秒级去重（相邻段边界容易产出同秒重复章），金句按文本
- * 去重；排序与数量裁剪收口在此。
- * 入参各 part 均已经 validateAnalysis 校验，这里不再重跑全量校验——分段产物
- * 的章界（to = 段内下一章 from / 段尾）在合并排序后依然成立。
+ * 合并各段章节与金句并去重。段简介保留在各 part 中，由编排层另行归并成全片简介。
+ * 入参各 part 均已经 validateAnalysis 校验，这里不再重跑全量校验。
  */
 export function mergeAnalyses(parts: unknown): OverviewAnalysis {
   const chapters: AnalysisChapter[] = [];
@@ -150,6 +151,7 @@ export function mergeAnalyses(parts: unknown): OverviewAnalysis {
   quotes.sort((a, b) => a.from - b.from);
 
   return {
+    summary: "",
     chapters: chapters.slice(0, MAX_ANALYSIS_CHAPTERS),
     quotes: quotes.slice(0, MAX_ANALYSIS_QUOTES)
   };

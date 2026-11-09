@@ -32,6 +32,7 @@ const BODY: SubtitleBodyItem[] = [
 ];
 
 const SAMPLE_ANALYSIS: OverviewAnalysis = {
+  summary: "全片简介。",
   chapters: [
     { from: 0, to: 120, title: "开场", summary: "为什么测试难写" },
     { from: 120, to: 300, title: "误区一", summary: " mocking 一切" }
@@ -205,6 +206,16 @@ describe("相位迁移", () => {
     expect(h.coordinator.getSnapshot().analysis?.chapters.length).toBe(2);
   });
 
+  it("简介归并失败 → partial：章节与金句产物保留", async () => {
+    const h = makeHarness();
+    h.runOverviewAnalysis.mockResolvedValue({ ...SAMPLE_ANALYSIS, summary: "", summaryFailed: true });
+
+    await h.coordinator.trigger();
+
+    expect(h.coordinator.getPhase()).toBe("partial");
+    expect(h.coordinator.getSnapshot().analysis?.chapters).toHaveLength(2);
+  });
+
   it("管线拒绝 → error：错误文本带默认前缀与原因", async () => {
     const h = makeHarness();
     h.runOverviewAnalysis.mockRejectedValue(new Error("模型请求失败"));
@@ -269,6 +280,7 @@ describe("去重与纪元校验", () => {
 
     // 旧编排落定：inflightAbort 已换代 + generatedFor 已换 key → 旧产物按过期丢弃
     oldRun.resolve({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "旧视频章节", summary: "" }],
       quotes: []
     });
@@ -278,6 +290,7 @@ describe("去重与纪元校验", () => {
 
     // 新编排落定：正常入槽
     newRun.resolve({
+      summary: "",
       chapters: [{ from: 0, to: 120, title: "新视频章节", summary: "" }],
       quotes: []
     });
@@ -551,5 +564,92 @@ describe("reset 会话收尾", () => {
     expect(h.coordinator.getPhase()).toBe("idle");
     expect(h.coordinator.getSnapshot().analysis).toBeNull();
     expect(h.intervals.size).toBe(0);
+  });
+});
+
+describe("变更订阅（伴看上下文同步）", () => {
+  it("触发与完成各通知一次；进度通知不触发上下文变更", async () => {
+    const h = makeHarness();
+    const listener = vi.fn();
+    h.coordinator.subscribe(listener);
+    const d = pendingRun(h);
+
+    const run = h.coordinator.trigger();
+    await waitForRunStarted(h);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(h.coordinator.getPhase()).toBe("generating");
+
+    const handlers = h.runOverviewAnalysis.mock.calls[0][1] as RunHandlers;
+    handlers.onProgress?.("正在整理第 1/2 段（50%）");
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    d.resolve(SAMPLE_ANALYSIS);
+    await run;
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(h.coordinator.getPhase()).toBe("ready");
+  });
+
+  it("退订后不再收到通知", async () => {
+    const h = makeHarness();
+    const listener = vi.fn();
+    const unsubscribe = h.coordinator.subscribe(listener);
+    h.runOverviewAnalysis.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    unsubscribe();
+    await h.coordinator.trigger();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("换视频后旧编排的迟到回执不通知新会话", async () => {
+    const h = makeHarness();
+    const listener = vi.fn();
+    h.coordinator.subscribe(listener);
+    const oldRun = pendingRun(h);
+
+    const first = h.coordinator.trigger();
+    await waitForRunStarted(h);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    h.clip.bvid = "BV1newvideo000";
+    h.clip.cid = "2000";
+    const newRun = pendingRun(h);
+    const second = h.coordinator.trigger();
+    await waitForRunStarted(h);
+    const notificationsAfterSwitch = listener.mock.calls.length;
+
+    oldRun.resolve({ summary: "旧视频总结", chapters: [], quotes: [] });
+    await first;
+    expect(listener).toHaveBeenCalledTimes(notificationsAfterSwitch);
+    expect(h.coordinator.getSnapshot().analysis).toBeNull();
+
+    newRun.resolve({ summary: "新视频总结", chapters: [], quotes: [] });
+    await second;
+    expect(listener).toHaveBeenCalledTimes(notificationsAfterSwitch + 1);
+    expect(h.coordinator.getSnapshot().analysis?.summary).toBe("新视频总结");
+  });
+
+  it("取消与 reset 都通知，且 reset 后的迟到回执不重复通知", async () => {
+    const h = makeHarness();
+    const listener = vi.fn();
+    h.coordinator.subscribe(listener);
+    const d = pendingRun(h);
+
+    const run = h.coordinator.trigger();
+    await waitForRunStarted(h);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    h.coordinator.cancel();
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    d.reject(abortedMarkerError());
+    await run;
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(h.coordinator.getPhase()).toBe("cancelled");
+
+    h.coordinator.reset();
+    expect(listener).toHaveBeenCalledTimes(3);
+    h.coordinator.reset();
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });

@@ -263,6 +263,12 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
       if (matched) break;
     }
     modelSelect.value = matched || firstValue;
+    // 回落后的选中值落盘：存储里的旧值（模型已从目录移除 / 改名）不再命中任何选项时，
+    // 下拉框显示的是回落项；概览 / 选区解释 / 快速提问读存储值发请求，不同步就会
+    // 用已失效的旧模型。
+    if (modelSelect.value && modelSelect.value !== storedSelectedProviderId) {
+      setSelectedProvider(modelSelect.value);
+    }
     modelSelect.disabled = false;
     updateModelSelectWidth(widthEls);
   }

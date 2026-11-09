@@ -32,6 +32,16 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view.closing {
   display: block;
 }
 
+/* 全屏 / 网页全屏门控：播放器进入全屏或网页全屏时，文摘面板彻底移出视口挂起，不占位不遮挡 */
+body:has(.bpx-player-container[data-screen="web"]) #biliscript-reading-view,
+body:has(.bpx-player-container.bpx-state-web-fullscreen) #biliscript-reading-view,
+body:has(.bpx-player-container.bpx-state-fullscreen) #biliscript-reading-view,
+body.player-mode-webfullscreen #biliscript-reading-view,
+body.player-full-win #biliscript-reading-view {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 /* 贴栏形态下为 B 站顶栏下拉浮层让位：.bili-header__bar 建立 z-index: 1002 的
  * 层叠上下文，收藏/历史/动态/消息/大会员/头像等 .v-popover 均挂在其内部。
  * 当鼠标悬停或聚焦顶栏浮层触发容器及搜索框时，贴栏态面板压至 1001（低于顶栏
@@ -45,7 +55,48 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1001;
 }
 
-/* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位回弹。 */
+/* 评论区展开笔记与记笔记浮窗让位：B 站原生右侧笔记抽屉（.video-note-sidebar-panel）
+ * 激活时由内部 .video-note-sidebar-content 展开呈现，外层 z-index 原生设为 99；
+ * 记笔记浮窗（.note-pc）原生 z-index 为 1000。
+ * 激活展开期间将其层级固定提升至 1001（低于顶栏 1002），同时文摘面板让位压至 1000
+ * （高于用户名片 999、右栏推荐 1~20 与播放器 1），使展开的笔记始终完整叠在文摘面板上层。 */
+body[data-biliscript-reader-mode="1"] .video-note-sidebar-panel:has(.video-note-sidebar-content:not([style*="display: none"]):not([style*="display:none"])),
+body[data-biliscript-reader-mode="1"] .note-pc:not([style*="display: none"]):not([style*="display:none"]) {
+  z-index: 1001 !important;
+}
+
+body[data-biliscript-reader-mode="1"]:has(
+  .video-note-sidebar-panel .video-note-sidebar-content:not([style*="display: none"]):not([style*="display:none"]),
+  .note-pc:not([style*="display: none"]):not([style*="display:none"])
+) #biliscript-reading-view {
+  z-index: 1000;
+}
+
+/* 左栏向右溢出弹层让位：工具栏右侧菜单（稍后再看/手机看/记笔记等）与播放器右下角控制浮层
+ * 均挂在 .left-container 内部（其原生 position: sticky; z-index: 1 创建层叠上下文，默认被贴栏文摘面板遮挡）。
+ * 当悬停、聚焦或其内部弹出浮层时，提升 .left-container 层叠层级至 1001，
+ * 同时使贴栏态文摘面板让位至 1000，使弹出的菜单与提示始终完整叠在文摘面板上层。 */
+body[data-biliscript-reader-mode="1"]:has(
+  .video-toolbar-right:hover,
+  .video-toolbar-right:focus-within,
+  .video-tool-more-popover[aria-hidden="false"],
+  .bpx-player-control-bottom-right:hover,
+  .bpx-player-control-bottom-right:focus-within
+) .left-container {
+  z-index: 1001 !important;
+}
+
+body[data-biliscript-reader-mode="1"]:has(
+  .video-toolbar-right:hover,
+  .video-toolbar-right:focus-within,
+  .video-tool-more-popover[aria-hidden="false"],
+  .bpx-player-control-bottom-right:hover,
+  .bpx-player-control-bottom-right:focus-within
+) #biliscript-reading-view:not([data-biliscript-script-float="1"]) {
+  z-index: 1000;
+}
+
+/* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位轻微缩放。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] {
   left: 50%;
   top: 50%;
@@ -55,11 +106,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   height: min(76vh, 860px);
   transform-origin: center;
   translate: -50% -50%;
-  scale: 0.92;
-  transition:
-    scale 240ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    opacity 240ms cubic-bezier(0.4, 0, 1, 1),
-    display 240ms allow-discrete;
+  scale: 0.98;
+  transition: display 280ms allow-discrete;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-shadow);
@@ -71,21 +119,25 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   translate: -50% -50%;
   scale: 1;
   transition:
-    scale 420ms var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1)),
-    opacity 160ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    display 240ms allow-discrete;
+    scale 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity 180ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    display 320ms allow-discrete;
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].closing {
   translate: -50% -50%;
-  scale: 0.94;
+  scale: 0.98;
   pointer-events: none;
+  transition:
+    scale 280ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 160ms cubic-bezier(0.4, 0, 1, 1),
+    display 280ms allow-discrete;
 }
 
 @starting-style {
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].open {
     translate: -50% -50%;
-    scale: 0.92;
+    scale: 0.98;
     opacity: 0;
   }
 }
@@ -778,9 +830,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 #biliscript-reading-view .biliscript-reading-overview {
-  /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉；
-   * 顶 6px / 底 12px 留白确保最顶与最底静止时首尾卡片与标题落在渐隐遮罩安全区（08 号票） */
-  padding: 6px 8px 12px 2px;
+  /* 向两侧各借 12px 板面留白并等量补偿 padding，卡片位置与宽度不变，
+   * 让播放高亮的外阴影远离 overflow 裁切边界；顶底留白维持渐隐遮罩安全区。 */
+  margin-inline: -12px;
+  padding: 6px 20px 12px 14px;
 }
 
 /* 示意图对齐四条（实机截图逐项比对决议）：
@@ -857,7 +910,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
     var(--biliscript-gemini-glow);
 }
 
-#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
+#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within,
+#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-ov-chapter.is-active:hover {
   border-color: rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.3);
   box-shadow:
     inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.92),
@@ -865,7 +920,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
     0 8px 30px -2px rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.32);
 }
 
-#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-ov-chapter.is-active:hover {
   border-color: rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.35);
   box-shadow:
     inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.16),
@@ -873,7 +930,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
     0 10px 32px -2px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.36);
 }
 
-#biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
+#biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within,
+#biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-ov-chapter.is-active:hover {
   border-color: var(--biliscript-reader-border);
   box-shadow:
     var(--biliscript-reader-card-highlight),
@@ -930,6 +989,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
+#biliscript-reading-view .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view .biliscript-reading-ov-chapter.is-active:hover {
+  background: var(--biliscript-reader-card);
+}
+
 /* 内容区（tab-body）透明直露雾底：灰内容卡与雾壳是两层料，实机上有可见
  * 色差（用户报「应该是融为一体」）；透明后全面板只有一层雾底，白玻璃凸起
  * 卡靠灰差浮出。字幕行、历史对话条目透明落雾底，状态靠整行 wash 表达。 */
@@ -958,7 +1022,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 /* 平台行（AI/ASR/搜索）：凸起卡，与概览章节/金句同配方 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1367,6 +1432,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .live-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea,
@@ -1405,9 +1471,16 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 }
 
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search:focus-within {
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search:focus-within,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active:hover {
   border: 1px solid var(--biliscript-reader-accent);
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active:hover {
+  background: var(--biliscript-reader-card);
 }
 
 /* editorial 输入卡底色维持暖米书摘卡（--card 档），与列表卡同一纸色分层。 */
@@ -1425,7 +1498,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .live-provider-row {
   border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }

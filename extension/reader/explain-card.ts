@@ -21,9 +21,7 @@
 import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
-import { renderMarkdown } from "../ui/markdown.js";
-import { hydrateMermaid } from "../ui/lazy-mermaid.js";
-import { hydrateMath } from "../ui/lazy-math.js";
+import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
 import { resolveWebSearchRuntime } from "../search/search-runtime.js";
@@ -130,10 +128,8 @@ function renderCard(): void {
     </section>
   `;
 
-  // 作答块里的 mermaid 图表（renderMarkdown 只产出占位）：卡片每次整卡重建，
-  // 水合随时机同走一次；loading/error 态没有占位，判定在懒入口内早退。
-  hydrateMermaid(root);
-  hydrateMath(root);
+  // 作答块里的图表与数学公式：卡片每次整卡重建，水合随时机同走一次
+  hydrateMarkdownContent(root);
 
   // 焦点进对话框：键盘用户点完「解释」后 Esc/Tab 立即可用（选区已清，不再需要
   // 页面焦点；jsdom 无布局但 focus() 可调，守卫存在性即可）。

@@ -104,4 +104,23 @@ describe("style-injector 挂载记录跨实例共享", () => {
 
     expect(lazyReady).toBe(residentReady); // 修复前懒加载区侧为 Promise.resolve() 新对象
   });
+
+  it("阅读表 ready 等全部 link load，而不是只等 DOM 挂载", async () => {
+    const ready = resident.ensureReaderStyles();
+    let settled = false;
+    void ready.then(() => {
+      settled = true;
+    });
+    const links = READER_PATHS.map((path) => document.head.querySelector(`link[href$="${path}"]`));
+
+    for (const link of links.slice(0, 2)) {
+      link?.dispatchEvent(new Event("load"));
+    }
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    links[2]?.dispatchEvent(new Event("load"));
+    await ready;
+    expect(settled).toBe(true);
+  });
 });

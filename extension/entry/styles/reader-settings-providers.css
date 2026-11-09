@@ -117,6 +117,17 @@
   min-width: 0;
 }
 
+#biliscript-reading-view .provider-editor-field.provider-editor-field-gemini-search {
+  margin-top: var(--biliscript-space-xs);
+}
+
+#biliscript-reading-view .provider-editor-field.provider-editor-field-gemini-search .biliscript-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--biliscript-space-md);
+}
+
 #biliscript-reading-view .provider-editor-label {
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);

@@ -337,7 +337,6 @@ describe("回合生命周期 createTurnLifecycle", () => {
       void h.turn.settled();
       await h.flushMicrotasks();
       expect(delays).toEqual([TURN_SETTLE_FALLBACK_MS]);
-      expect(TURN_SETTLE_FALLBACK_MS).toBe(4000);
     });
 
     it("落定后撤下看门狗：终态先到时兜底不再触发（不误拆下一回合）", async () => {

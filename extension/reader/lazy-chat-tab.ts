@@ -14,16 +14,22 @@
 //
 // 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对路径
 // 按扩展自身 URL 解析（与 reader/lazy-reader.ts 同款，见其头注）。
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
+// 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 import { createLazyLoader } from "../shared/lazy-import.js";
+import type { LiveChatController } from "../live/live-chat-controller.js";
+import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
 
 // 对话 tab 组合根对外的窄接口（懒加载消费方——ui-renderer / lifecycle /
-// overview——只依赖这三个入口，不触达组合根内部编排）。
+// overview——只依赖这四个入口，不触达组合根内部编排）。
 export interface ReaderChatTabDomain {
   // 激活对话 tab：首次调用走 init（组装 + 加载 + 渲染 + 消费待解释意图）；
   // 已初始化时走重开/重进的恢复路径（工单 08：重开从会话历史恢复），并顺带
   // 消费可能新写入的待解释意图。runQuickActionPrompt 传 consumeIntent:false
   // 跳过意图消费（避免与快捷动作发送互相踩踏）。
   ensureChatTabActivated(opts?: { consumeIntent?: boolean }): Promise<void>;
+  // 离开对话 tab 即停止朗读，不触发会话重建或后台播放。
+  stopChatSpeech(): void;
   // 会话收尾（closeReadingView 清理清单调用）：断流收口（工单 08 决议：关闭
   // 即断流，重开从会话历史恢复；不做后台续跑）+ 摘全局触发源 + 关 popover。
   closeChatSession(): void;
@@ -32,6 +38,14 @@ export interface ReaderChatTabDomain {
   //（= chat-tab sendTurn 的 SendVerdict === "accepted"：仅 accepted → true，
   // ignored/blocked → false；不再按输入框是否清空反推）。
   runQuickActionPrompt(prompt: string): Promise<boolean>;
+  // 跨标签页接管：停止实时伴看（停止旧音画采集并收起伴看状态条）
+  stopLiveCompanion(): void;
+  // 启动实时伴看
+  startLiveCompanion(): Promise<boolean>;
+  // 获取伴看控制器与浮窗实例
+  getLiveController(): LiveChatController | null;
+  ensureFullscreenOverlay(): FullscreenLiveOverlay;
+  getFullscreenLiveOverlay(): FullscreenLiveOverlay | null;
 }
 
 const loader = createLazyLoader<ReaderChatTabDomain>(() => import("./chat-tab.js"));

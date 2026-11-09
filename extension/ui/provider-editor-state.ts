@@ -24,11 +24,12 @@
 // `generation !== state.generation || !state.open`。挂抽屉观察器的槽位单独留
 // sessionObserver（settings-panel-hidden 需要就地写入的宿主对象）。
 
+import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import type { SettingsPanelObserverHost } from "./settings-panel-hidden.js";
 
-export type ProviderEditorKind = "ai" | "asr" | "search";
+export type ProviderEditorKind = "ai" | "asr" | "search" | "live";
 
 // 编辑草稿（候选 4 片 3）：Modal 的唯一真源。DOM 是它的投影——输入/change
 // 事件写 draft，模板与联动读 draft 后重投影；保存 / 测试连接 / 拉取弹窗 /
@@ -41,6 +42,7 @@ export interface EditorDraft {
   protocol: AiProtocol | "";
   models: string[];
   model: string;
+  liveGeminiNativeSearch?: boolean;
 }
 
 // 草稿只读视图（state.draft 对片外的类型）：顶层字段与 models 元素都不可写，
@@ -60,7 +62,8 @@ export function draftsEqual(a: EditorDraftView, b: EditorDraftView): boolean {
     a.protocol === b.protocol &&
     a.model === b.model &&
     a.models.length === b.models.length &&
-    a.models.every((model, index) => model === b.models[index])
+    a.models.every((model, index) => model === b.models[index]) &&
+    Boolean(a.liveGeminiNativeSearch) === Boolean(b.liveGeminiNativeSearch)
   );
 }
 
@@ -213,9 +216,21 @@ export interface SessionBranches<T> {
   fail?: (error: unknown) => void;
 }
 
+export interface OriginPreflightBranches<T> extends SessionBranches<T> {
+  denied?: (error: string) => void;
+  beforeWork?: () => void;
+  workAlive?: () => boolean;
+}
+
 export interface EditorSessionHandle {
   isCurrent(): boolean;
   run<T>(work: () => Promise<T> | T, branches: SessionBranches<T>): Promise<void>;
+  runWithOriginPreflight<T>(
+    urls: readonly string[],
+    work: () => Promise<T> | T,
+    branches: OriginPreflightBranches<T>,
+    requestOrigins?: (urls: string[]) => Promise<{ ok: boolean; error?: string }>
+  ): Promise<void>;
 }
 
 export function captureSession(alive?: () => boolean): EditorSessionHandle {
@@ -235,6 +250,52 @@ export function captureSession(alive?: () => boolean): EditorSessionHandle {
       }
       if (!isCurrent()) return;
       branches.ok(value);
+    },
+    runWithOriginPreflight<T>(
+      urls: readonly string[],
+      work: () => Promise<T> | T,
+      branches: OriginPreflightBranches<T>,
+      requestOrigins = requestProviderOriginsViaBackground
+    ): Promise<void> {
+      const permissionPromise = requestOrigins([...urls]);
+      return (async () => {
+        let permission: { ok: boolean; error?: string };
+        try {
+          permission = await permissionPromise;
+        } catch (error) {
+          if (!isCurrent()) return;
+          if (branches.fail) {
+            branches.fail(error);
+          } else {
+            throw error;
+          }
+          return;
+        }
+        if (!isCurrent()) return;
+        if (!permission.ok) {
+          if (branches.workAlive && !branches.workAlive()) return;
+          if (branches.denied) {
+            branches.denied(permission.error || "未取得该平台域名权限，无法继续");
+          } else if (branches.fail) {
+            branches.fail(new Error(permission.error || "未取得该平台域名权限，无法继续"));
+          }
+          return;
+        }
+        if (branches.beforeWork) {
+          branches.beforeWork();
+        }
+        let value: T;
+        try {
+          value = await work();
+        } catch (error) {
+          if (!isCurrent() || (branches.workAlive && !branches.workAlive())) return;
+          if (!branches.fail) throw error;
+          branches.fail(error);
+          return;
+        }
+        if (!isCurrent() || (branches.workAlive && !branches.workAlive())) return;
+        branches.ok(value);
+      })();
     }
   };
 }
@@ -245,6 +306,16 @@ export function runIfCurrent<T>(
   alive?: () => boolean
 ): Promise<void> {
   return captureSession(alive).run(work, branches);
+}
+
+export function runWithOriginPreflight<T>(
+  urls: readonly string[],
+  work: () => Promise<T> | T,
+  branches: OriginPreflightBranches<T>,
+  alive?: () => boolean,
+  requestOrigins?: (urls: string[]) => Promise<{ ok: boolean; error?: string }>
+): Promise<void> {
+  return captureSession(alive).runWithOriginPreflight(urls, work, branches, requestOrigins);
 }
 
 // ===== DOM 读取（host 直下的 dialog 内按类名取，open 时接线） =====

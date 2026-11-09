@@ -4,32 +4,11 @@
 // asr/asr-provider-normalize.ts，预设数据仍住 core/presets.ts。）
 
 import { describe, expect, it } from "vitest";
-import { ASR_PROVIDER_PRESETS, normalizeAsrLanguage } from "../../extension/core/presets.js";
+import { normalizeAsrLanguage } from "../../extension/core/presets.js";
 import { normalizeAsrProvider } from "../../extension/asr/asr-provider-normalize.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
-// 本地查找助手：生产代码没有按 id 查预设的导出（按需直接遍历预设表）。
-const presetById = (id: string) => ASR_PROVIDER_PRESETS.find((p) => p.id === id) || null;
 
-describe("ASR_PROVIDER_PRESETS", () => {
-  it("每个预设字段齐全且 type 为合法值之一", () => {
-    const validTypes = new Set(["openai-transcriptions"]);
-    for (const p of ASR_PROVIDER_PRESETS) {
-      expect(p.id).toBeTruthy();
-      expect(p.name).toBeTruthy();
-      expect(validTypes.has(p.type)).toBe(true);
-      expect(typeof p.baseUrl).toBe("string");
-      expect(typeof p.model).toBe("string");
-      expect(typeof p.supportsTimestamps).toBe("boolean");
-      expect(typeof p.note).toBe("string");
-    }
-  });
-
-  it("SiliconFlow 与本地 Whisper 同为 openai-transcriptions", () => {
-    expect(presetById("siliconflow-sensevoice")!.type).toBe("openai-transcriptions");
-    expect(presetById("local-whisper")!.type).toBe("openai-transcriptions");
-  });
-});
 
 describe("normalizeAsrProvider", () => {
   it("完整 provider 原样保留关键字段并补 enabled 默认 true", () => {

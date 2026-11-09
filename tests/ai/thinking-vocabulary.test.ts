@@ -93,8 +93,6 @@ describe("封闭词汇（事实层 → 写法层的中转词汇）", () => {
   });
 
   it("哨兵：noFields 与 unknown 是两个显式状态（判别键不同、都不带载荷）", () => {
-    expect(NO_FIELDS.kind).toBe("noFields");
-    expect(UNKNOWN_VOCABULARY.kind).toBe("unknown");
     expect(NO_FIELDS.kind).not.toBe(UNKNOWN_VOCABULARY.kind);
     expect(KIND_NAMES).toContain(NO_FIELDS.kind);
     expect(KIND_NAMES).toContain(UNKNOWN_VOCABULARY.kind);

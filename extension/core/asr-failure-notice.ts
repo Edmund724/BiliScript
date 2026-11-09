@@ -79,6 +79,11 @@ interface CopyEntry {
 }
 
 const COPY_TABLE: Record<NonNullReason, CopyEntry> = {
+  "upower-exclusive": {
+    cause: "该视频为充电专属视频，未开通充电无法获取完整音轨。",
+    remedyText: "开通充电后可重新抓取生成字幕",
+    remedy: "retry-later"
+  },
   // 语义已扩为「平台 / 模型不可用」：未配置平台、域名未授权、baseUrl 缺失、模型
   // 不存在、模型没下载——补救动作同一个（去设置页检查），故不拆近名类目。
   "no-asr-config": {

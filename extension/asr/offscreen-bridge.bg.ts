@@ -11,7 +11,7 @@
 // chrome.declarativeNetRequest / chrome.offscreen.createDocument 的最小表面
 // 声明见本目录 chrome-asr-types.d.ts（共享 chrome-types.d.ts 未覆盖）。
 
-import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../shared/offscreen-constants.js";
+import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASONS } from "../shared/offscreen-constants.js";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "./protocol.js";
 import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
 
@@ -28,7 +28,8 @@ import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse 
 // - 海外镜像域（如 upos-hz-mirrorakam.akamaized.net）在仓库代码链与夹具中
 //   零证据，不声明权限、不写规则（最窄原则）；若未来 playurl 返回该域导致
 //   403，属真实浏览器验收（工单 06）的观察项。
-export const ASR_AUDIO_CDN_DOMAIN = "bilivideo.com" as const;
+export const ASR_AUDIO_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
+export const ASR_AUDIO_CDN_DOMAIN = ASR_AUDIO_CDN_DOMAINS[0];
 export const ASR_AUDIO_ORIGIN_PAGE = "https://www.bilibili.com" as const;
 
 import {
@@ -176,10 +177,10 @@ async function ensureAsrOffscreenDocument(): Promise<void> {
       url: chrome.runtime.getURL(OFFSCREEN_URL),
       // 不用 AUDIO_PLAYBACK：Chrome 对无真实播放的 AUDIO_PLAYBACK 文档
       // 30 秒强制关闭（长视频解码 >30s 会「音频解码中断」）；本文档实际
-      // 是解码 + 转写（WAV Blob 仅在本 context 内经 FormData 上传），
-      // BLOBS 不受该限制。取值统一收拢在 shared/offscreen-constants.js
-      //（与 sidepanel 聊天自愈的创建方共用同一 reason）。
-      reasons: [OFFSCREEN_CREATE_REASON],
+      // 是解码 + 转写（WAV Blob 仅在本 context 内经 FormData 上传）以及
+      // MOSS-LIVE WebSocket 伴看连接。取值统一收拢在 shared/offscreen-constants.js
+      //（与聊天通道的创建方共用同一 reasons 列表）。
+      reasons: [...OFFSCREEN_CREATE_REASONS],
       justification: "Download, decode, slice and transcribe video audio for ASR subtitles."
     });
   } catch (error) {
@@ -223,7 +224,7 @@ export async function addDownloadRules(ruleId: number): Promise<void> {
           ]
         },
         condition: {
-          requestDomains: [ASR_AUDIO_CDN_DOMAIN],
+          requestDomains: [...ASR_AUDIO_CDN_DOMAINS],
           resourceTypes: ["xmlhttprequest"]
         }
       }

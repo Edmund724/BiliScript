@@ -13,7 +13,6 @@
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { fetchProviderModels, resolveAiModelListTarget } from "../ai/provider-models.js";
-import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state } from "./provider-editor-state.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
@@ -192,15 +191,13 @@ export async function openFetchDialog(): Promise<void> {
   // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或弹窗已关即丢弃，
   // 不再触发注定过期的模型请求。
   const session = captureSession(() => getFetchDialog() !== null);
-  await session.run(
-    () => requestProviderOriginsViaBackground(target.permissionBaseUrls),
+  await session.runWithOriginPreflight(
+    target.permissionBaseUrls,
+    () => loadFetchModels(target.baseUrl, apiKey, draft.protocol),
     {
-      ok: (permission) => {
-        if (!permission.ok) {
-          renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
-          return;
-        }
-        void loadFetchModels(target.baseUrl, apiKey, draft.protocol);
+      ok: () => {},
+      denied: (error) => {
+        renderFetchError(error || "未取得该平台域名权限，无法拉取模型列表");
       }
     }
   );

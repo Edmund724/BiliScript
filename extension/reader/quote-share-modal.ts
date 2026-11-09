@@ -9,12 +9,16 @@ import {
   READING_DOWNLOAD_ICON
 } from "../ui/reading-icons.js";
 import {
+  QUOTE_CARD_CANONICAL_WIDTH,
   QUOTE_CARD_PATTERNS,
   QUOTE_CARD_PRESETS,
   type QuoteCardExportOptions,
+  type QuoteCardTextMeasurer,
   type QuotePatternId,
+  createQuoteCardTextMeasurer,
   getQuoteShareNoiseDataUrl,
   getQuoteSharePatternSvg,
+  layoutQuoteCardText,
   renderQuoteCardBlob,
   copyQuoteCardBlobToClipboard,
   downloadQuoteCardBlob
@@ -23,8 +27,6 @@ import { ids } from "./state.js";
 
 export interface OpenQuoteShareModalOptions {
   content: string;
-  from?: number;
-  videoTitle?: string;
   preset?: string;
   pattern?: QuotePatternId;
 }
@@ -42,11 +44,12 @@ interface Spring2DInstance {
 interface QuoteShareModalState {
   open: boolean;
   content: string;
-  videoTitle: string;
   activePreset: string;
   activePattern: QuotePatternId;
   host: HTMLElement | null;
   spring: Spring2DInstance | null;
+  resizeObserver: ResizeObserver | null;
+  lastCardWidth: number;
   copying: boolean;
   downloading: boolean;
 }
@@ -54,11 +57,12 @@ interface QuoteShareModalState {
 const state: QuoteShareModalState = {
   open: false,
   content: "",
-  videoTitle: "",
-  activePreset: "purple-gold",
-  activePattern: "rays",
+  activePreset: "mist-deep-sea",
+  activePattern: "none",
   host: null,
   spring: null,
+  resizeObserver: null,
+  lastCardWidth: 0,
   copying: false,
   downloading: false
 };
@@ -286,16 +290,15 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
 
   state.open = true;
   state.content = content;
-  state.videoTitle = String(options.videoTitle || "").trim();
   if (options.preset && QUOTE_CARD_PRESETS.some((p) => p.id === options.preset)) {
     state.activePreset = options.preset;
   } else {
-    state.activePreset = "purple-gold";
+    state.activePreset = "mist-deep-sea";
   }
   if (options.pattern && QUOTE_CARD_PATTERNS.some((p) => p.id === options.pattern)) {
     state.activePattern = options.pattern;
   } else {
-    state.activePattern = "rays";
+    state.activePattern = "none";
   }
 
   const host = document.createElement("div");
@@ -308,6 +311,9 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   const container = document.getElementById(ids.readingView) || document.body;
   container.appendChild(host);
   state.host = host;
+
+  fitQuoteCardText(host);
+  observeCardResize(host);
 
   document.addEventListener("keydown", onDocumentKeyDown, true);
 }
@@ -324,10 +330,73 @@ export function closeQuoteShareModal(): void {
     state.spring.stop();
     state.spring = null;
   }
+  if (state.resizeObserver) {
+    state.resizeObserver.disconnect();
+    state.resizeObserver = null;
+  }
+  state.lastCardWidth = 0;
 
   document.removeEventListener("keydown", onDocumentKeyDown, true);
   state.host?.remove();
   state.host = null;
+}
+
+let quoteTextMeasurer: QuoteCardTextMeasurer | null | undefined;
+
+/** 预览与导出共用同一个测量器；上下文不可用时交给布局模块的估算降级。 */
+function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
+  if (quoteTextMeasurer !== undefined) {
+    return quoteTextMeasurer;
+  }
+  try {
+    const canvas = document.createElement("canvas");
+    quoteTextMeasurer = createQuoteCardTextMeasurer(canvas.getContext("2d"));
+  } catch {
+    quoteTextMeasurer = null;
+  }
+  return quoteTextMeasurer;
+}
+
+/**
+ * 按卡宽等比落字号与折行：折行来自共享布局（标称 408 版式），预览与导出逐行一致。
+ * 卡宽变窄时字号同步缩小，保持「同一张版式缩印」的观感。
+ */
+function fitQuoteCardText(host: HTMLElement): void {
+  const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
+  const textInner = host.querySelector<HTMLElement>(".biliscript-quote-card-text-inner");
+  if (!card || !textInner) {
+    return;
+  }
+
+  const cardWidth = card.getBoundingClientRect().width || QUOTE_CARD_CANONICAL_WIDTH;
+  const layout = layoutQuoteCardText(state.content, getQuoteTextMeasurer());
+  const domScale = cardWidth / QUOTE_CARD_CANONICAL_WIDTH;
+
+  card.style.setProperty("--quote-fit-size", `${(layout.fontSize * domScale).toFixed(2)}px`);
+  card.style.setProperty("--quote-text-left", `${(layout.textLeft * domScale).toFixed(2)}px`);
+  textInner.innerHTML = layout.lines.map((line) => escapeHtml(line)).join("<br>");
+  state.lastCardWidth = cardWidth;
+}
+
+function observeCardResize(host: HTMLElement): void {
+  if (typeof ResizeObserver !== "function") {
+    return;
+  }
+  const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
+  if (!card) {
+    return;
+  }
+  state.resizeObserver = new ResizeObserver(() => {
+    if (!state.host) {
+      return;
+    }
+    const width = card.getBoundingClientRect().width;
+    if (Math.abs(width - state.lastCardWidth) < 0.5) {
+      return;
+    }
+    fitQuoteCardText(state.host);
+  });
+  state.resizeObserver.observe(card);
 }
 
 function onDocumentKeyDown(event: KeyboardEvent): void {
@@ -394,16 +463,14 @@ function bindModalEvents(host: HTMLElement): void {
       return;
     }
     if (action === "copy-image") {
-      const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
-      if (card && target instanceof HTMLButtonElement) {
-        await handleCopyImageAction(target, card);
+      if (target instanceof HTMLButtonElement) {
+        await handleCopyImageAction(target);
       }
       return;
     }
     if (action === "download-image") {
-      const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
-      if (card && target instanceof HTMLButtonElement) {
-        await handleDownloadImageAction(target, card);
+      if (target instanceof HTMLButtonElement) {
+        await handleDownloadImageAction(target);
       }
       return;
     }
@@ -420,15 +487,11 @@ function bindModalEvents(host: HTMLElement): void {
   });
 }
 
-function buildExportOptions(card: HTMLElement): QuoteCardExportOptions {
-  const rect = card.getBoundingClientRect();
+function buildExportOptions(): QuoteCardExportOptions {
   return {
     content: state.content,
-    videoTitle: state.videoTitle || "BiliScript",
     preset: state.activePreset,
-    pattern: state.activePattern,
-    width: Math.round(rect.width) || 400,
-    height: Math.round(rect.height) || 300
+    pattern: state.activePattern
   };
 }
 
@@ -512,14 +575,14 @@ async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promis
   }
 }
 
-async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+async function handleCopyImageAction(btn: HTMLButtonElement): Promise<void> {
   await runAsyncButtonAction({
     btn,
     busyKey: "copying",
     loadingText: "生成中...",
     defaultIconHtml: READING_COPY_ICON,
     action: async () => {
-      const blob = await renderQuoteCardBlob(buildExportOptions(card));
+      const blob = await renderQuoteCardBlob(buildExportOptions());
       return await copyQuoteCardBlobToClipboard(blob);
     },
     successText: "已复制 ✓",
@@ -530,14 +593,14 @@ async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement):
   });
 }
 
-async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+async function handleDownloadImageAction(btn: HTMLButtonElement): Promise<void> {
   await runAsyncButtonAction({
     btn,
     busyKey: "downloading",
     loadingText: "导出中...",
     defaultIconHtml: READING_DOWNLOAD_ICON,
     action: async () => {
-      const blob = await renderQuoteCardBlob(buildExportOptions(card));
+      const blob = await renderQuoteCardBlob(buildExportOptions());
       const filename = `biliscript-quote-${Date.now()}.png`;
       downloadQuoteCardBlob(blob, filename);
     },
@@ -586,22 +649,27 @@ function buildModalHtml(): string {
         ${patternsHtml}
       </div>
       <div class="biliscript-quote-share-preview">
-        <div class="biliscript-quote-card biliscript-quote-share-card" data-preset="${state.activePreset}" data-pattern="${state.activePattern}">
-          <div class="biliscript-quote-card-bg">
-            <div class="biliscript-quote-card-blobs-layer">
-              <div class="biliscript-quote-card-blobs"></div>
+        <div class="biliscript-quote-card-sheet">
+          <div class="biliscript-quote-card biliscript-quote-share-card" data-preset="${state.activePreset}" data-pattern="${state.activePattern}">
+            <div class="biliscript-quote-card-bg">
+              <div class="biliscript-quote-card-blobs-layer">
+                <div class="biliscript-quote-card-blobs"></div>
+              </div>
+              <div class="biliscript-quote-card-pattern" aria-hidden="true">${getQuoteSharePatternSvg(state.activePattern)}</div>
+              <div class="biliscript-quote-card-glow" aria-hidden="true"></div>
+              <div class="biliscript-quote-card-noise" style="background-image: url('${noiseUrl}');"></div>
             </div>
-            <div class="biliscript-quote-card-pattern" aria-hidden="true">${getQuoteSharePatternSvg(state.activePattern)}</div>
-            <div class="biliscript-quote-card-glow" aria-hidden="true"></div>
-            <div class="biliscript-quote-card-noise" style="background-image: url('${noiseUrl}');"></div>
+            <div class="biliscript-quote-card-scrim" aria-hidden="true"></div>
+            <div class="biliscript-quote-card-content">
+              <div class="biliscript-quote-card-quote-mark" aria-hidden="true">“</div>
+              <p class="biliscript-quote-card-text"><span class="biliscript-quote-card-text-inner">${escapeHtml(state.content)}</span></p>
+            </div>
           </div>
-          <div class="biliscript-quote-card-content">
-            <div class="biliscript-quote-card-quote-mark" aria-hidden="true">“</div>
-            <p class="biliscript-quote-card-text">${escapeHtml(state.content)}</p>
-            <footer class="biliscript-quote-card-footer">
-              <span class="biliscript-quote-card-source">${escapeHtml(state.videoTitle || "BiliScript")}</span>
-            </footer>
-          </div>
+          <div class="biliscript-quote-card-brand">BiliScript</div>
+          <span class="biliscript-quote-card-motif" aria-hidden="true">
+            <span class="biliscript-quote-card-motif-bar is-lead"></span>
+            <span class="biliscript-quote-card-motif-bar is-track"></span>
+          </span>
         </div>
       </div>
       <footer class="biliscript-quote-share-actions">

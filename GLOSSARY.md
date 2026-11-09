@@ -4,6 +4,25 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 
 ## 术语
 
+### 实时伴看
+
+**实时伴看**:
+在观看视频过程中，与 AI 语音助手建立低延迟双工交互，共同理解视频画面与声音，提供随看随聊的伴随式对话体验。
+_Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
+
+**直播间伴看**:
+在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂全屏伴看浮窗与播放器内的开关按钮，不出现文摘面板。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。
+代码名：`live/live-room-entry.ts` / `live/live-room-bridge.ts` / `MossLiveRoomContext` / `isLiveRoomPage` / `parseLiveRoomId`
+_Avoid_: 直播面板、直播总结、把房间号当 `bvid` 用
+
+**视频原声共享**:
+在实时伴看期间，将当前正在播放的视频音频流与用户麦克风音频进行本地混音后输入给 AI 助手，使其具备听取视频原声对白与音效的上下文理解能力。
+_Avoid_: 屏幕音频录制、系统内录、原声混响
+
+**语音优先**:
+当用户麦克风检测到说话活动或 AI 助手正在播报回复时，自动降低当前视频播放音量以保障对话清晰度，语音结束后平滑恢复原音量的听觉管理策略。
+_Avoid_: 闪避、音频躲避、自动静音
+
 ### 内容与载体
 
 **视频**:
@@ -78,7 +97,7 @@ _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 
 _Avoid_: 宿主、播放器宿主（那是 video-probe 的概念）
 
 **阅读壳**:
-文摘面板进入与退出阅读形态的唯一事务。按意图三档（open 进入 / restore 恢复 / chat 进对话）执行「先挂阅读样式表、再翻 body/html 属性」的无闪变时序，含摘除播放器快捷按钮、suppress 抑制窗口与 restore 档的 shell 完好性自查；restore 重进在首帧禁用进场过渡。退出在 exiting 阶段先移除面板 `.open` 并等待收回过渡（transitionend、超时与减少动态偏好兜底），再拆定位宿主、翻回呈现属性、复位 ready 并摘样式表，**不拆壳根**——域叶子在模块求值时解析并长期持有壳内节点引用，重建会让引用静默失效，故 `ensureUiReady` 的 `forceRecreate` 只服务壳根首建前的清场。生命周期由四态状态机收口（closed/entering/open/exiting，单源 `core/state.ts` 的 `transitionReaderShell`，`readingViewOpen` 是其派生投影）：进入与退出事务同队列串行（entering 中收到 close 顺延），失败回退合法边（entering→closed / exiting→open）。全部入口（按钮/编排触发、恢复、进对话）与关闭出口都必须经此收口，禁止手抄序列。
+文摘面板进入与退出阅读形态的唯一事务。按意图三档（open 进入 / restore 恢复 / chat 进对话）执行「挂阅读样式表并等待加载、翻 body/html 属性、刷新关闭态计算样式」的无闪变时序，含摘除播放器快捷按钮、suppress 抑制窗口与 restore 档的 shell 完好性自查；restore 重进在首帧禁用进场过渡。退出在 exiting 阶段先移除面板 `.open` 并等待收回过渡（transitionend、超时与减少动态偏好兜底），再拆定位宿主、翻回呈现属性、复位 ready 并摘样式表，**不拆壳根**——域叶子在模块求值时解析并长期持有壳内节点引用，重建会让引用静默失效，故 `ensureUiReady` 的 `forceRecreate` 只服务壳根首建前的清场。生命周期由四态状态机收口（closed/entering/open/exiting，单源 `core/state.ts` 的 `transitionReaderShell`，`readingViewOpen` 是其派生投影）：进入与退出事务同队列串行（entering 中收到 close 顺延），失败回退合法边（entering→closed / exiting→open）。全部入口（按钮/编排触发、恢复、进对话）与关闭出口都必须经此收口，禁止手抄序列。
 代码名：`enterReaderShell` / `exitReaderShell`（intent 三档）/ `reader/shell.ts`；承载消息 `reader-enter` / `reader-restore` / `reader-close`——页面内 文摘按钮与工具栏图标点击共用同一 `reader-enter` 事务，无 popup / Side Panel 入口。
 _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 
@@ -166,12 +185,12 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：章节列表（逐章带简介）+ 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界，模型只补每章简介。
+文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：全片简介 + 章节列表 + 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界；时间轴有效章节不超过 9 个时由模型补一句话说明，达到 10 个时只保留标题。
 代码名：`ai/analysis.js`（`runOverviewAnalysis`）/ `shared/chapter-outline.js`（`resolveChapterSource`）
 _Avoid_: 总览
 
 **分章计划**:
-概览分章政策的唯一解释点：把 `resolveChapterSource` 的裁定（时间轴目录 / 官方章节 / AI 自由分章）一次翻译成管线要用的全部事实——系统提示词三选一、越界过滤后的给定章节、用户提示词变量、预算切段输入与产物 graft。末章界（视频时长与字幕末条时间戳取大）只推导一次、由 `graft` 闭包捕获，单发与分段路径统一调 `plan.graft(modelChapters)`（两套推导就此合一）。graft 语义：有给定章节时标题与边界照抄清单、模型只贡献 summary（时间轴来源 summary 一律空串）；无给定章节时原样返回模型章节。`budgetChapters` 是官方章节专用的切段输入，刻意用**未过滤**的 signatureChapters（与给定章节的越界过滤口径不同，行为冻结）。
+概览分章政策的唯一解释点：把 `resolveChapterSource` 的裁定（时间轴目录 / 官方章节 / AI 自由分章）一次翻译成管线要用的全部事实——系统提示词三选一、越界过滤后的给定章节、用户提示词变量、预算切段输入与产物 graft。末章界（视频时长与字幕末条时间戳取大）只推导一次、由 `graft` 闭包捕获，单发与分段路径统一调 `plan.graft(modelChapters)`（两套推导就此合一）。graft 语义：有给定章节时标题与边界照抄清单、模型只贡献 summary（达到 10 章的时间轴 summary 一律空串，稀疏时间轴与官方章节补一句话说明）；无给定章节时原样返回模型章节。`budgetChapters` 是官方章节专用的切段输入，刻意用**未过滤**的 signatureChapters（与给定章节的越界过滤口径不同，行为冻结）。
 代码名：`resolveChapterPlan` / `ChapterPlan`（`titlesOnly` / `hasGivenChapters` / `givenChapters` / `promptVars` / `budgetChapters` / `graft`，`ai/chapter-plan.js`）/ `applyGivenChapters`（同模块私有）
 _Avoid_: 在编排层再判一次 `chapterSource.kind`、单发与分段各推一次末章界
 
@@ -237,14 +256,14 @@ _Avoid_: 把链首理解成「排链最前、失败自动回退下一家」（�
 _Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付费准入是正交开关，不是第二种智能模式）、付费平台进零成本组、付费失败静默回退、toast 式付费提示
 
 **凭据引用**:
-跨族读 Key 的唯一例外：搜索侧 DeepSeek 记录不设 Key 输入框，发请求时实时读 AI 族「第一条启用、`presetId` 为 `deepseek` 且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 搜索立即跟随，删掉该记录搜索侧自动降级为链中跳过；不提供搜索侧覆盖 Key（「只想用 DeepSeek 搜索」的用户在 AI 平台加一条记录即可）。方向单向（搜索读 AI，绝不回写）；三族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys`）隔离不变式的其余部分照旧。
-代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 search/resolve-search-provider-handler.ts 工厂消费，行状态文案由 settings-panel 经 `statusNote` 注入）
-_Avoid_: 把 Key 复制进 `searchProviderKeys`（双写腐化：AI 侧改/删后搜索侧那份静默过期）、搜索侧覆盖 Key 输入框
+跨族读 Key 的单向借用机制：搜索侧 DeepSeek 记录（`search/deepseek`）与实时伴看侧 Gemini Live 记录（`live/gemini-live`）不设独立 Key 输入框，发请求或建立会话时实时读 AI 族「第一条启用、对应 `presetId`（`deepseek` 或 `gemini`）且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 消费侧立即跟随，删掉该记录消费侧自动降级（搜索链跳过 / 伴看启动或探测报三态提示文案）；不提供消费侧覆盖 Key。方向单向（搜索/伴看读 AI，绝不回写）；各族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys` / `liveProviderKeys`）隔离不变式的其余部分照旧。
+代码名：`AI_CREDENTIAL_REFERENCE_SPECS` / `resolveAiCredentialReference` / `resolveAiCredentialKey` / `queryAiCredentialKey` / `annotateAiCredentialRows` / `usesAiCredentialReference` / `getAiCredentialStatusText`（判定、取 Key 与 UI 状态文案注入的唯一单点，extension/core/ai-credential-reference.ts；搜索链装配在 search/resolve-search-provider-handler.ts 消费，伴看会话与模型探针在 live/live-session-tracker.ts 与 live/live-provider-store.ts 消费，行状态文案由 settings-panel 经 `annotateAiCredentialRows` 注入，Modal 字段显隐与搜索测试经 `usesAiCredentialReference` / `queryAiCredentialKey` 查询）
+_Avoid_: 把 Key 复制进 `searchProviderKeys` 或 `liveProviderKeys`（双写腐化：AI 侧改/删后消费侧那份静默过期）、消费侧覆盖 Key 输入框、按渠道分叉手抄两套凭据引用模块
 
 **官方端点判定**:
-凭据引用的前置判据：AI 记录当前生效端点（规则单源在 core/presets.ts 的 `effectivePresetBaseUrl`：记录自有 baseUrl 优先，空值按协议缺省链 `record.protocol → preset.protocol → "openai"` 查 `presetBaseUrlForProtocol`）规范化（去尾斜杠、小写）后 host 严格等于 `api.deepseek.com`。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search`，Key 有效也会 404）；不通过时搜索行显示「AI 平台 Key 指向非官方端点」、链中跳过——诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态与搜索链消费同一处。
-代码名：`isOfficialDeepseekEndpoint` / `DEEPSEEK_OFFICIAL_HOST`（extension/search/deepseek-credential.ts，host 严格判等 + 仅 https）/ 生效端点叶 `effectivePresetBaseUrl` / `presetBaseUrlForProtocol`（extension/core/presets.ts，编辑 Modal 的协议端点预览同一份）
-_Avoid_: `includes("deepseek")` 子串匹配、跟随 AI 记录的自定义 baseUrl 发搜索请求
+凭据引用的前置判据：AI 记录当前生效端点（规则单源在 core/presets.ts 的 `effectivePresetBaseUrl`：记录自有 baseUrl 优先，空值按协议缺省链 `record.protocol → preset.protocol → "openai"` 查 `presetBaseUrlForProtocol`）规范化（仅放行 `https:`、默认端口 443、小写）后 host 严格等于声明式规格表中的官方域名（DeepSeek 为 `api.deepseek.com`，Gemini 为 `generativelanguage.googleapis.com`）。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search` 或 Gemini Bidi WebSocket，Key 有效也会失败）；不通过时对应平台行显示「AI 平台配置的并非 XXX 官方接口地址」并诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态、搜索链与伴看会话消费同一处。
+代码名：`isOfficialAiCredentialEndpoint` / `AI_CREDENTIAL_REFERENCE_SPECS`（extension/core/ai-credential-reference.ts，host 严格判等 + 仅 https）/ 生效端点叶 `effectivePresetBaseUrl` / `presetBaseUrlForProtocol`（extension/core/presets.ts，编辑 Modal 的协议端点预览同一份）
+_Avoid_: `includes("deepseek")` 或 `includes("googleapis")` 子串匹配、跟随 AI 记录的自定义反代 baseUrl 发搜索或伴看请求
 
 **工具循环**:
 AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.ts）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
@@ -300,6 +319,10 @@ AI 对话输入卡片（`.chat-input-card`）背后的 Gemini 虹彩流光。常
 _Avoid_: 聚焦彩条、输入框发光内衬、局部硬编码渐变
 
 ### AI 对话
+
+**待解释意图**:
+用户从字幕或选区解释卡发起、等待 AI 对话受理的一次解释请求；发送被受理前仍可取消，受理后不再保留。
+_Avoid_: 解释任务、待发送消息
 
 **图片输入**:
 用户在 AI 对话里经剪贴板粘贴发给模型的图片。消息形状为路线 B：`content` 保持 string，图片并列挂在 `ChatMessage.images`（`{mime, data}`，base64 不带前缀）；发送前在 content script 统一压成 WebP q0.9、长边 ≤1568px，单条 ≤4 张、单张 ≤1MB。历史重发只保留最近一条用户消息的图（更早的替换为文本占位），落盘每会话最多留最近一张。门控乐观放行：目录明确不收图只提示不阻断，查不到静默交给平台 400。清场边界：附件只由发送受理时的 `takeInputImages`（读+清一次）消费，被闸拦下不消费；发送闸调用链上的上下文重启（apply-live → restartChat）是上下文跟随，带 `preserveInput` 不清输入框与附件区（否则闸后才消费的图片被静默吞掉、正文照发），用户主动「新会话」与其它上下文切换路径照旧清场。

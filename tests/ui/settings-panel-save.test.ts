@@ -344,6 +344,7 @@ describe("恢复默认偏好按钮", () => {
     expect(resetPayload).not.toHaveProperty("defaultModel");
     expect(resetPayload).not.toHaveProperty("activeAsrProviderId");
     expect(resetPayload).not.toHaveProperty("asrAutoFallback");
+    expect(resetPayload).not.toHaveProperty("liveGeminiNativeSearch");
     expect(resetPayload).not.toHaveProperty("asrLanguage");
     expect(resetPayload).not.toHaveProperty("aiBtnDefaultOnMigrated");
     // 笔记导出字段已退出偏好键面：重置载荷不再携带

@@ -5,11 +5,12 @@
 // 容器 28px 圆角/superellipse(1.25)/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
-// 12px 圆角、卡片 20px 圆角与 clamp(16px,5.5cqi,21px) 字号。四象限（flyme/
-// editorial × light/dark）下这些值全部来自 --biliscript-reader-* token，
-// computed style、真 hover/:active 伪类、focus-visible、busy 禁用态、真实
-// 下载与剪贴板写入全都够不着 jsdom。柔光/视差/导出的像素逻辑本场景不改不判，
-// 只验「弹窗长得和面板一致、交互状态诚实」。
+// 12px 圆角。分享卡本体是「白边相纸 + 16:9 内卡」：20px 连续圆角、卡内只有引号与正文、
+// 相纸底栏品牌角标与左侧双段标记、卡面不再出现视频标题与时间戳，字号由共享布局按卡宽落值（非固定 clamp），
+// 导出画布固定 1261×806（不随窗口宽度变化）。四象限（flyme/editorial × light/dark）
+// 下这些值全部来自 --biliscript-reader-* token，computed style、真 hover/:active
+// 伪类、focus-visible、busy 禁用态、真实下载与剪贴板写入全都够不着 jsdom。
+// 柔光/视差/导出的像素逻辑本场景不改不判，只验「弹窗长得和面板一致、交互状态诚实」。
 //
 // 数据口径（诚实标注）：字幕 fixture 与 reader-follow-button 同一份 committed
 // 数据（SW fetch 补丁换两个网络应答）；金句文本直接取 fixture 首句正文，经
@@ -27,7 +28,7 @@
 // tests/fixtures/（可提交数据），场景代码里不出现 .scratch/ 路径。
 
 import path from "node:path";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import {
   CDP,
   DEFAULT_DIST,
@@ -59,7 +60,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/5.5cqi 全契约" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/superellipse(1.25)/面板阴影/mask、关闭键 34×34、操作钮 32/999、相纸 16:9 卡 20px/品牌/双段标记" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -69,7 +70,8 @@ const SCENARIOS = [
   { id: "Q8", slug: "08-editorial-light", title: "editorial 浅色档（设置抽屉真实保存链路）：同契约" },
   { id: "Q9", slug: "09-editorial-dark", title: "editorial 深色档：同契约" },
   { id: "Q10", slug: "10-narrow-viewport", title: "窄视口：不横向溢出、全部操作可到达，恢复后几何还原" },
-  { id: "Q11", slug: "11-reduced-motion", title: "prefers-reduced-motion：host/close transition none、close active transform none" }
+  { id: "Q11", slug: "11-reduced-motion", title: "prefers-reduced-motion：host/close transition none、close active transform none" },
+  { id: "Q12", slug: "12-overview-playback", title: "概览：简介 → 章节 → 金句、完整标题、播放高亮与主题 token 一致且不自动滚动" }
 ];
 
 // ===== 可提交 fixture（只读）=====
@@ -136,7 +138,13 @@ const JS = {
     const save = host.querySelector('.biliscript-quote-download-btn');
     const card = host.querySelector('.biliscript-quote-card');
     const cardText = host.querySelector('.biliscript-quote-card-text');
-    if (!dialog || !mask || !close || !copy || !save || !card || !cardText) {
+    const cardTextInner = host.querySelector('.biliscript-quote-card-text-inner');
+    const sheet = host.querySelector('.biliscript-quote-card-sheet');
+    const brand = host.querySelector('.biliscript-quote-card-brand');
+    const motifBars = Array.from(host.querySelectorAll('.biliscript-quote-card-motif-bar'));
+    const scrim = host.querySelector('.biliscript-quote-card-scrim');
+    const source = host.querySelector('.biliscript-quote-card-source');
+    if (!dialog || !mask || !close || !copy || !save || !card || !cardText || !sheet || !brand) {
       return { error: 'modal-node-missing' };
     }
     const probe = document.createElement('div');
@@ -172,12 +180,28 @@ const JS = {
     const csCard = getComputedStyle(card);
     const csCardText = getComputedStyle(cardText);
     const csMask = getComputedStyle(mask);
+    const csSheet = getComputedStyle(sheet);
+    const csBrand = getComputedStyle(brand);
+    const csScrim = scrim ? getComputedStyle(scrim) : null;
     const presetBtn = host.querySelector('.biliscript-quote-preset-btn.is-active');
     const patternBtn = host.querySelector('.biliscript-quote-pattern-btn.is-active');
     const cornerShape = csDialog.cornerShape || csDialog.getPropertyValue('corner-shape') || '';
     return {
       view: (() => { const v = document.getElementById('biliscript-reading-view'); return v ? { theme: v.getAttribute('data-theme'), palette: v.getAttribute('data-palette') } : null; })(),
-      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      rects: { dialog: rect(dialog), close: rect(close), copy: rect(copy), save: rect(save), card: rect(card), text: rect(cardText), textInner: cardTextInner ? rect(cardTextInner) : null, sheet: rect(sheet), brand: rect(brand), preset: presetBtn ? rect(presetBtn) : null, pattern: patternBtn ? rect(patternBtn) : null },
+      sheet: { backgroundColor: csSheet.backgroundColor },
+      brand: { text: brand.textContent.trim(), color: csBrand.color, fontWeight: csBrand.fontWeight, fontSize: csBrand.fontSize },
+      scrim: scrim ? { backgroundColor: csScrim.backgroundColor } : null,
+      motif: motifBars.length ? {
+        count: motifBars.length,
+        bars: motifBars.map((el) => ({
+          ...rect(el),
+          color: getComputedStyle(el).backgroundColor,
+          radius: getComputedStyle(el).borderRadius
+        }))
+      } : null,
+      hasSourceTitle: !!source,
+      hasTimestamp: !!host.querySelector('.biliscript-quote-card-timestamp'),
       dialog: {
         backgroundColor: csDialog.backgroundColor,
         borderTopColor: csDialog.borderTopColor,
@@ -198,14 +222,10 @@ const JS = {
       card: {
         borderRadius: csCard.borderRadius,
         fontSize: csCardText.fontSize,
-        fontSizeExpected: Math.min(21, Math.max(16, Math.round((card.getBoundingClientRect().width) * 0.055))) + 'px',
+        fitSize: card.style.getPropertyValue('--quote-fit-size').trim(),
         fontFamily: csCardText.fontFamily,
         fontVariantNumeric: csCardText.fontVariantNumeric,
         textAlign: csCardText.textAlign,
-        verticalCenterDelta: Math.abs(
-          (cardText.getBoundingClientRect().top - card.getBoundingClientRect().top) -
-          (card.getBoundingClientRect().bottom - cardText.getBoundingClientRect().bottom)
-        ),
         text: cardText.textContent,
         preset: card.dataset.preset,
         pattern: card.dataset.pattern,
@@ -280,9 +300,17 @@ function renderOverviewExpression(quote) {
     const apply = (mod) => {
       mod.renderReadingOverview({
         phase: 'ready',
-        analysis: { chapters: [], quotes: [${JSON.stringify(quote)}] },
-        aiChapters: false,
-        chapterSourceKind: 'auto',
+        analysis: {
+          summary: '视频从模型幻觉的成因谈起，说明评分机制、语言本质与数据局限，并给出选择 AI 工具的判断标准。',
+          chapters: [
+            { from: 0, to: 60, title: '机器幻觉的成因：评分机制与语言本质', summary: '训练机制鼓励作答，模型因此倾向于补全而不是承认未知。' },
+            { from: 60, to: 120, title: '幻觉无法彻底避免：商业价值与数据局限', summary: '仅靠已有数据无法推演所有事实，回答策略还受产品价值影响。' },
+            { from: 120, to: 180, title: '如何选择 AI：接得上与对得齐', summary: '能力匹配实际需求，比单纯追求更强模型更重要。' },
+            { from: 180, to: 240, title: '总结：理解边界再使用工具', summary: '把模型放在适合的位置，同时保留人的判断。' }
+          ],
+          quotes: [${JSON.stringify(quote)}]
+        },
+        aiChapters: true,
         progressText: '',
         errorText: '',
         stripText: '',
@@ -698,6 +726,95 @@ async function main() {
   check("reader-module-importable", importProbe?.ok === true, importProbe);
 
   try {
+    // ---------- Q12 概览真实渲染与播放高亮 ----------
+    {
+      const rendered = await evaluateInContentScript(renderOverviewExpression(QUOTE));
+      check("Q12.overview-rendered", rendered?.ok === true, rendered);
+      const probe = await evaluateInContentScript(`(async () => {
+        const mod = globalThis.__biliscriptReaderMod || await import(${JSON.stringify(READER_URL)});
+        globalThis.__biliscriptReaderMod = mod;
+        const body = document.getElementById('biliscript-reading-overview-body');
+        body.scrollTop = Math.min(40, body.scrollHeight);
+        const scrollBefore = body.scrollTop;
+        const view = document.getElementById('biliscript-reading-view');
+        const inputProbe = document.createElement('div');
+        inputProbe.className = 'biliscript-reading-chat';
+        inputProbe.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+        inputProbe.innerHTML = '<div class="chat-input-card"><textarea></textarea></div>';
+        const inputCard = inputProbe.querySelector('.chat-input-card');
+        inputCard.style.transition = 'none';
+        view.appendChild(inputProbe);
+        const input = inputProbe.querySelector('textarea');
+        input.focus();
+        const inputComputed = getComputedStyle(inputCard);
+        const inputStyle = {
+          borderColor: inputComputed.borderTopColor,
+          backgroundColor: inputComputed.backgroundColor,
+          backgroundImage: inputComputed.backgroundImage,
+          boxShadow: inputComputed.boxShadow
+        };
+        input.blur();
+        inputProbe.remove();
+        mod.stopReadingViewSync();
+        mod.syncReadingViewPlayback(false, 125);
+        mod.stopReadingViewSync();
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const active = body.querySelector('.biliscript-reading-ov-chapter.is-active');
+        const activeStyle = active ? getComputedStyle(active) : null;
+        const matchedRules = [];
+        if (active) {
+          for (const sheet of Array.from(document.styleSheets)) {
+            let rules;
+            try { rules = Array.from(sheet.cssRules || []); } catch { continue; }
+            for (const rule of rules) {
+              if (!rule.selectorText || !active.matches(rule.selectorText)) continue;
+              const cssText = rule.style?.cssText || '';
+              if (/border|background/.test(cssText)) matchedRules.push({ selector: rule.selectorText, cssText });
+            }
+          }
+        }
+        const result = {
+          matchedRules,
+          headings: Array.from(body.querySelectorAll('.biliscript-reading-ov-h')).map(node => (node.textContent || '').trim()),
+          summary: body.querySelector('.biliscript-reading-ov-summary')?.textContent || '',
+          firstTitle: body.querySelector('.biliscript-reading-ov-chapter-title')?.textContent || '',
+          splitTitleCount: body.querySelectorAll('.biliscript-reading-ov-chapter-subtitle').length,
+          activeSeconds: active?.dataset.seconds || null,
+          activeCount: body.querySelectorAll('.biliscript-reading-ov-chapter.is-active').length,
+          ariaCurrent: active?.getAttribute('aria-current') || null,
+          activeStyle: activeStyle ? {
+            borderColor: activeStyle.borderTopColor,
+            backgroundColor: activeStyle.backgroundColor,
+            backgroundImage: activeStyle.backgroundImage,
+            boxShadow: activeStyle.boxShadow
+          } : null,
+          glowGutter: active ? {
+            left: active.getBoundingClientRect().left - body.getBoundingClientRect().left,
+            right: body.getBoundingClientRect().right - active.getBoundingClientRect().right
+          } : null,
+          inputStyle,
+          scrollBefore,
+          scrollAfter: body.scrollTop
+        };
+        mod.startReadingViewSync();
+        return result;
+      })()`);
+      check("Q12.section-order", JSON.stringify(probe?.headings) === JSON.stringify(["简介", "章节AI 生成", "金句AI 精选"]), probe?.headings);
+      check("Q12.summary-present", (probe?.summary || "").includes("模型幻觉"), { summary: probe?.summary });
+      checkEquals("Q12.full-chapter-title", probe?.firstTitle, "机器幻觉的成因：评分机制与语言本质");
+      checkEquals("Q12.no-split-subtitle", probe?.splitTitleCount, 0);
+      checkEquals("Q12.playback-active-chapter", probe?.activeSeconds, "120");
+      checkEquals("Q12.single-active-chapter", probe?.activeCount, 1);
+      checkEquals("Q12.active-aria-current", probe?.ariaCurrent, "true");
+      check("Q12.active-border-matches-input", probe?.activeStyle?.borderColor === probe?.inputStyle?.borderColor, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-background-matches-input", probe?.activeStyle?.backgroundColor === probe?.inputStyle?.backgroundColor && probe?.activeStyle?.backgroundImage === probe?.inputStyle?.backgroundImage, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-ring-matches-input", probe?.activeStyle?.boxShadow === probe?.inputStyle?.boxShadow, { active: probe?.activeStyle, input: probe?.inputStyle });
+      check("Q12.active-glow-not-clipped", probe?.glowGutter?.left >= 12 && probe?.glowGutter?.right >= 12, probe?.glowGutter);
+      check("Q12.no-auto-scroll", probe?.scrollAfter === probe?.scrollBefore, { before: probe?.scrollBefore, after: probe?.scrollAfter });
+      await shot("12-overview-playback", "概览：简介、完整章节标题与播放高亮");
+      record("Q12", { title: SCENARIOS[11].title, rendered, probe });
+    }
+
     // ---------- Q1 flyme 浅色基线 ----------
     {
       const q1 = {};
@@ -746,13 +863,50 @@ async function main() {
         checkEquals(`Q1.${kind}-active-font-weight-600`, pill?.fontWeight, "600");
         check(`Q1.${kind}-active-has-no-border-or-shadow`, pill?.borderTopWidth === "0px" && pill?.boxShadow === "none", { borderTopWidth: pill?.borderTopWidth, boxShadow: pill?.boxShadow });
       }
-      // 卡片本体
+      // 卡片本体：白边相纸 + 16:9 卡 + 底栏品牌，卡面不带视频标题与时间戳
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
-      checkEquals("Q1.card-font-5.5cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);
+      const cardRect = q1.probe?.rects?.card;
+      const sheetRect = q1.probe?.rects?.sheet;
+      const textRect = q1.probe?.rects?.text;
+      const brandRect = q1.probe?.rects?.brand;
+      check("Q1.card-ratio-16x9", !!cardRect && Math.abs(cardRect.h / cardRect.w - 9 / 16) < 0.01, { cardRect });
+      checkEquals("Q1.sheet-white", q1.probe?.sheet?.backgroundColor, "rgb(255, 255, 255)");
+      check("Q1.sheet-ratio", !!sheetRect && Math.abs(sheetRect.h / sheetRect.w - 0.6395) < 0.01, { sheetRect });
+      check("Q1.sheet-wraps-card", !!sheetRect && !!cardRect && sheetRect.left <= cardRect.left + 0.5 && sheetRect.top <= cardRect.top + 0.5 && sheetRect.bottom >= cardRect.bottom - 0.5, { sheetRect, cardRect });
+      const fitSize = parseFloat(q1.probe?.card?.fitSize || "0");
+      const fontSize = parseFloat(q1.probe?.card?.fontSize || "0");
+      check("Q1.card-font-fitted", fitSize > 0 && Math.abs(fitSize - fontSize) < 0.06 && fontSize <= 21.1, { fontSize, fitSize });
       check("Q1.card-system-serif-lining-nums", q1.probe?.card?.fontFamily?.startsWith("Georgia") && q1.probe?.card?.fontVariantNumeric === "lining-nums", { family: q1.probe?.card?.fontFamily, numeric: q1.probe?.card?.fontVariantNumeric });
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
-      check("Q1.card-text-vertically-centered", q1.probe?.card?.verticalCenterDelta <= 1, { delta: q1.probe?.card?.verticalCenterDelta });
+      check("Q1.card-text-inside-card", !!textRect && !!cardRect && textRect.top >= cardRect.top && textRect.bottom <= cardRect.bottom, { textRect, cardRect });
+      const textInnerRect = q1.probe?.rects?.textInner;
+      check("Q1.card-text-block-centered", !!textInnerRect && !!cardRect &&
+        Math.abs((textInnerRect.top + textInnerRect.bottom) / 2 - (cardRect.top + cardRect.bottom) / 2) <= 1,
+        { textInner: textInnerRect, card: cardRect });
+      check("Q1.card-text-block-centered-h", !!textInnerRect && !!cardRect &&
+        Math.abs((textInnerRect.left - cardRect.left) - (cardRect.right - textInnerRect.right)) <= 1,
+        { textInner: textInnerRect, card: cardRect });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
+      check("Q1.card-has-no-video-title", q1.probe?.hasSourceTitle === false, { hasSourceTitle: q1.probe?.hasSourceTitle });
+      check("Q1.card-has-no-timestamp", q1.probe?.hasTimestamp === false, { hasTimestamp: q1.probe?.hasTimestamp });
+      checkEquals("Q1.brand-wordmark", q1.probe?.brand?.text, "BiliScript");
+      check("Q1.brand-ink-and-weight", q1.probe?.brand?.color === "rgb(23, 24, 26)" && q1.probe?.brand?.fontWeight === "600", { color: q1.probe?.brand?.color, weight: q1.probe?.brand?.fontWeight });
+      check("Q1.brand-in-bottom-band", !!brandRect && !!cardRect && !!sheetRect && brandRect.top >= cardRect.bottom - 0.5 && brandRect.bottom <= sheetRect.bottom + 0.5, { brandRect, cardRect, sheetRect });
+      const bars = q1.probe?.motif?.bars ?? [];
+      const [lead, track] = bars;
+      checkEquals("Q1.motif-two-bars", q1.probe?.motif?.count, 2);
+      checkEquals("Q1.motif-lead-rose", lead?.color, "rgb(224, 74, 117)");
+      checkEquals("Q1.motif-track-gray", track?.color, "rgb(233, 235, 239)");
+      check("Q1.motif-pill-radius", !!lead && !!track && lead.radius === track.radius && parseFloat(lead.radius) >= lead.h / 2 - 0.01, { lead: lead?.radius, track: track?.radius });
+      check("Q1.motif-aligns-card-left", !!lead && !!cardRect && Math.abs(lead.left - cardRect.left) <= 1, { leadLeft: lead?.left, cardLeft: cardRect?.left });
+      check("Q1.motif-bar-proportions", !!lead && !!track && !!cardRect &&
+        Math.abs(lead.h / cardRect.w - 5 / 408) < 0.002 &&
+        Math.abs(lead.w / cardRect.w - 16 / 408) < 0.003 &&
+        Math.abs(track.w / cardRect.w - 36 / 408) < 0.003, { lead, track, cardW: cardRect?.w });
+      check("Q1.motif-on-band-centerline", !!lead && !!track && !!cardRect && !!sheetRect &&
+        Math.abs((lead.top + lead.h / 2) - (cardRect.bottom + (sheetRect.bottom - cardRect.bottom) / 2)) <= 1 &&
+        Math.abs(track.top - lead.top) <= 0.5, { lead, track, cardRect, sheetRect });
+      checkEquals("Q1.scrim-16", q1.probe?.scrim?.backgroundColor, "rgba(0, 0, 0, 0.16)");
       await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/superellipse(1.25)/面板阴影/mask）");
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
     }
@@ -949,8 +1103,15 @@ async function main() {
           q5.download = { ok: false, error: error.message };
         }
       }
+      // 导出成图覆盖纹样层：默认是「无纹样」，先切到「射线」再保存
+      const patternHit = await clickElement(pageCdp, "射线纹样", `document.querySelector("[data-pattern='rays']")`);
+      check("Q5.pattern-selected-for-export", patternHit.ok === true, patternHit);
+      const patternNow = await pageCdp.evaluate(`document.querySelector('.biliscript-quote-card')?.dataset.pattern || null`);
+      checkEquals("Q5.pattern-for-export", patternNow, "rays");
       const hit = await clickElement(pageCdp, "保存 PNG", `document.querySelector('.biliscript-quote-download-btn')`);
       check("Q5.save-click-hittable", hit.ok === true, hit);
+      // 目录里可能留着上一次运行的导出图：只认本次点击之后落盘的文件。
+      const saveStartedAt = Date.now();
       // 成功态约 1500ms 即复位，不能先等文件——文件落盘与成功态同一轮询循环里盯：
       const deadline = Date.now() + 20000;
       const dirs = [OUT_DIR, path.join(browser.profileDir, "Downloads")];
@@ -968,7 +1129,12 @@ async function main() {
         if (!file) {
           for (const dir of dirs) {
             try {
-              const found = readdirSync(dir).filter((f) => /^biliscript-quote-.*\.png$/i.test(f)).sort().at(-1);
+              const found = readdirSync(dir)
+                .filter((f) => /^biliscript-quote-.*\.png$/i.test(f))
+                .map((f) => ({ name: f, mtime: statSync(path.join(dir, f)).mtimeMs }))
+                .filter((entry) => entry.mtime >= saveStartedAt - 2000)
+                .sort((a, b) => a.mtime - b.mtime)
+                .at(-1)?.name;
               if (found) { file = path.join(dir, found); break; }
             } catch {}
           }
@@ -987,16 +1153,15 @@ async function main() {
       if (file) {
         const buf = readFileSync(file);
         const pngMagic = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-        const cardRect = (await pageCdp.evaluate(JS.probe))?.rects?.card;
         const dimensions = { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
         q5.pngDimensions = dimensions;
         check("Q5.png-nonempty", buf.length > 200, { bytes: buf.length });
         check("Q5.png-magic", pngMagic, { head: buf.subarray(0, 8).toString("hex") });
-        check("Q5.png-matches-current-card-geometry", cardRect && dimensions.width === Math.round(cardRect.w * 2) && dimensions.height === Math.round(cardRect.h * 2), { dimensions, cardRect });
+        check("Q5.png-fixed-design-dimensions", dimensions.width === 1261 && dimensions.height === 806, { dimensions, expected: { width: 1261, height: 806 } });
       }
       await sleep(1800);
       await shot("05-save-png", "保存 PNG 真实下载");
-      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与当前卡片尺寸" });
+      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与固定设计尺寸（1261×806）" });
     }
 
     // ---------- Q6 三条关闭路径，每条后可重开 ----------
@@ -1101,6 +1266,7 @@ async function main() {
         q10.hitTests.push(ht);
         check(`Q10.reachable.${label}`, ht?.ok === true, ht);
       }
+      await sleep(300);
       await shot("10-narrow-viewport", "窄视口（420px）：不横向溢出、操作可达");
       // 关闭键在窄屏也可真点（可操作性收尾），随后恢复视口
       await mustClick(pageCdp, "Q10.close-hittable", "关闭键", `document.querySelector('.biliscript-quote-share-close')`, NARROW_VIEWPORT);

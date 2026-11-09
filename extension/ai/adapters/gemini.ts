@@ -371,6 +371,10 @@ export function convertGeminiMessages(
         }
       }
 
+      for (const image of msg.images ?? []) {
+        parts.push({ inlineData: { mimeType: image.mime, data: image.data } });
+      }
+
       if (parts.length > 0) {
         intermediateTurns.push({ role: "user", parts });
       }

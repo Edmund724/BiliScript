@@ -83,6 +83,24 @@ export function isSupportedVideoPage(url: string = location.href): boolean {
   }
 }
 
+// 顶层直播间与同源 blanc 内嵌播放器共用房间号；顶层 blanc 不启动，嵌入时启动。
+export function parseLiveRoomId(url: string = location.href): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "live.bilibili.com") {
+      return "";
+    }
+    return parsed.pathname.match(/^\/(?:blanc\/)?(\d+)\/?$/)?.[1] ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function isLiveRoomPage(url: string = location.href, embedded: boolean = window.self !== window.top): boolean {
+  if (!parseLiveRoomId(url)) return false;
+  return embedded || !new URL(url).pathname.startsWith("/blanc/");
+}
+
 export function computeCurrentClipSignature(url: string = location.href): string {
   const bvid = extractBvid(url);
   const page = extractPageIndex(url);

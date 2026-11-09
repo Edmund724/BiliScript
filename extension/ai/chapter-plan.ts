@@ -20,6 +20,8 @@ import {
 import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter, type OverviewAnalysis } from "./analysis-validate.js";
 import type { ChapterSource, ChapterSourceKind, OutlineChapter } from "../shared/chapter-outline.js";
 
+const MAX_OUTLINE_CHAPTERS_WITH_SUMMARIES = 9;
+
 // 用户提示词变量（buildAnalysisPrompt 的章节目录相关入参）：title / ownerName /
 // videoDescription 透传上下文，chapterOutline 与 titlesOnly 随来源而定。
 export interface ChapterPlanPromptVars {
@@ -40,7 +42,7 @@ export interface ChapterPlanBudgetChapter {
 export interface ChapterPlan {
   /** 裁定来源（透传 chapterSource.kind，供消费方诊断/断言，不重复解释）。 */
   kind: ChapterSourceKind;
-  /** 简介/评论时间轴来源：章节只留标题、summary 一律空串。 */
+  /** 达到 10 章的简介/评论时间轴：章节只留标题、summary 一律空串。 */
   titlesOnly: boolean;
   /** 过滤后仍有给定章节 → 章节不是模型的活儿（照抄 + 补 summary）。 */
   hasGivenChapters: boolean;
@@ -80,9 +82,9 @@ export function resolveChapterPlan({
   const endSeconds = resolveEndSeconds(ctx, bodyItems);
   const givenChapters = chapterSource.chapters.filter((chapter) => chapter.seconds <= endSeconds);
   const hasGivenChapters = givenChapters.length > 0;
-  // 简介/评论时间轴目录（outline）只留标题、不写 AI 简介（用户拍板 2026-09-30）：
-  // 模型只挑金句；官方章节（manuscript）仍逐章补简介。
-  const titlesOnly = chapterSource.kind === "outline";
+  // 时间轴章节较少时补一句话说明；达到 10 章时只保留标题，避免概览变成二次长文。
+  const titlesOnly =
+    chapterSource.kind === "outline" && givenChapters.length > MAX_OUTLINE_CHAPTERS_WITH_SUMMARIES;
   const systemPrompt = !hasGivenChapters
     ? ANALYSIS_SYSTEM_PROMPT
     : titlesOnly
@@ -126,10 +128,8 @@ export function resolveChapterPlan({
 // 给定章节 → 产物章节（概览分章票 03 决议）：标题与边界一律以给定清单为准，模型
 // 只提供每章 summary——按 from 最近邻一对一 graft（每个模型章节最多被认领一次），
 // 对不上的章留空串。时间轴目录没有 to，边界取下一章 from；末章回落 endSeconds。
-// titlesOnly（简介/评论时间轴来源，用户拍板 2026-09-30）：章节只留标题，summary
-// 一律空串——即使模型不听话硬写简介也丢弃（F7）。
-// 非 titlesOnly（官方章节）的空串是缺陷而非设计：模型少返回一章时贪心认领的缺口
-// 总落在清单尾部，这类章打 missingSummary 标记，UI 显示「本章概括缺失」+ 重跑入口。
+// titlesOnly 是密集时间轴的精简模式，summary 一律空串；其他给定章节的空串
+// 是生成缺口，打 missingSummary 标记，由 UI 显示占位与重跑入口。
 function applyGivenChapters(
   given: OutlineChapter[],
   modelChapters: AnalysisChapter[],
@@ -160,9 +160,7 @@ function applyGivenChapters(
   return out.slice(0, MAX_ANALYSIS_CHAPTERS);
 }
 
-// 缓存装载路径的缺章补标（与 graft 同口径）：旧产物没有 missingSummary 字段，
-// manuscript 来源命中缓存时补打，UI 因此能对旧缓存也显示缺章占位与重跑入口。
-// 调用方按 kind 把关——outline 的 titlesOnly 空串是设计内行为，不应走到这里。
+// 缓存装载路径与 graft 同口径补标；调用方只在当前来源本应生成说明时调用。
 export function flagMissingChapterSummaries(analysis: OverviewAnalysis): OverviewAnalysis {
   const chapters = (Array.isArray(analysis?.chapters) ? analysis.chapters : []).map((chapter) =>
     String(chapter?.summary ?? "").trim() ? chapter : { ...chapter, missingSummary: true }

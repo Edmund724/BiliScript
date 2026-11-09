@@ -263,12 +263,23 @@
 
 .markdown-body table th {
   font-weight: var(--base-text-weight-semibold, 600);
+  text-align: left;
 }
 
 .markdown-body table th,
 .markdown-body table td {
-  padding: 6px 13px;
-  border: 1px solid var(--borderColor-default);
+  padding: 12px 16px;
+  border: 0;
+}
+
+.markdown-body table th:first-child,
+.markdown-body table td:first-child {
+  padding-left: 0;
+}
+
+.markdown-body table th:last-child,
+.markdown-body table td:last-child {
+  padding-right: 0;
 }
 
 .markdown-body table td>:last-child {
@@ -276,12 +287,9 @@
 }
 
 .markdown-body table tr {
-  background-color: var(--bgColor-default);
-  border-top: 1px solid var(--borderColor-muted);
-}
-
-.markdown-body table tr:nth-child(2n) {
-  background-color: var(--bgColor-muted);
+  background-color: transparent;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--fgColor-default) 12%, transparent);
 }
 
 .markdown-body code {

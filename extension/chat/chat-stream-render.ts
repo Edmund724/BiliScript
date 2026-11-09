@@ -1,35 +1,21 @@
 // extension/chat/chat-stream-render.ts — chat 消息 DOM 渲染/滚动/水合片
-// 12 票浅拆（自 extension/chat/chat-runtime.ts 迁入，函数体逐字节未变）：
-// 流式双容器增量渲染（token 累加器 / flush 帧调度 / 长任务预算切片）、思考节点
-// 生命周期与滚动合帧、用户/助手消息 DOM 装配（占位 / 终态重渲染 / mermaid 水合 /
-// 时间戳链接 / 复制按钮）、自动滚动标志与 scrollToBottom。
+// 负责流式双容器增量渲染、思考节点、用户/助手消息装配、消息操作栏、
+// 原位重新生成的可恢复 DOM 事务，以及自动滚动。
 //
-// 句柄化（渲染片 seam 收口）：本片对外只给两个句柄 + 滚动/自动滚动窄入口——
-//   - 消息区句柄（ChatMessageArea）：追加用户/助手消息（带来源 live/replay）与
-//     清场。「助手消息节点长什么样」只有本片一个主人：live = 流式占位（流式豁免
-//     类 + 光标），replay = 终态直出；回放只表达顺序。
-//   - 回合节点句柄（ChatAssistantTurn）：一个助手消息节点的操作面（token /
-//     思考 / 重置流式 / 收尾成形态 / 三终态徽标 / 时间线卡）。
-// 节点装配、选择器、token flush 与思考节点状态全部退回本片 implementation：
-// chat-runtime 不再出现选择器与 createElement，replay 不再自拼节点；15 键返回面
-// 随之缩为 3 键。
+// ChatMessageArea 是消息区操作面：追加消息、清场、重新生成事务与按钮禁用。
+// ChatAssistantTurn 是单条助手消息的操作面：token / 思考 / 流式重置 /
+// 终态收尾 / 徽标 / 时间线卡。节点装配与选择器只留在本模块。
 //
-// 拆分手法：本片是工厂 createChatStreamRenderer(deps)，闭包自持流式渲染状态
-//（shouldAutoScrollMessages / tokenFlushFrame / tokenFlushEpoch / 三个按节点隔离
-// 的 WeakMap）——每个 createChatRuntime 实例调用一次，实例间隔离语义与拆分前
-// 一致。deps 只需 messages 与两个渲染回调（ChatStreamRendererDeps 结构子集，
-// createChatRuntime 直接传入完整 deps）。
+// 工厂闭包自持自动滚动、flush 帧调度与按节点隔离的 WeakMap 状态；
+// 每个 createChatRuntime 实例调用一次，实例间互不共享。
 
 import {
-  createMarkdownCommitCursor,
-  createMarkdownTailCursor,
-  createThinkStripCursor,
+  createMarkdownStreamSession,
+  hydrateMarkdownContent,
   renderMarkdownStripped,
   stripThinkBlocks,
-  type MarkdownCommitCursor,
   type MarkdownRenderOptions,
-  type MarkdownTailCursor,
-  type ThinkStripCursor
+  type MarkdownStreamSession
 } from "../ui/markdown.js";
 
 const CHAT_MARKDOWN_OPTIONS: MarkdownRenderOptions = { dropHeadingAdjacentHr: true };
@@ -40,60 +26,73 @@ function createChevronSpan(className: string): HTMLSpanElement {
   chevron.innerHTML = READING_CHEVRON_DOWN_ICON.trim();
   return chevron;
 }
-// mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
-//（懒 chunk，见 ui/lazy-mermaid 头注）。
-import { hydrateMermaid } from "../ui/lazy-mermaid.js";
-import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
-import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON } from "../ui/reading-icons.js";
+import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
+
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
-// chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染的两个
-// 回调（结构子集——createChatRuntime 直接传入完整 CreateChatRuntimeDeps）。
+// chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染与消息操作回调。
 export interface ChatStreamRendererDeps {
   messages: HTMLElement;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   smoothStream?: boolean;
+  onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
+  onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
+  onExport?: (historyIndex: number, raw: string) => void;
+  onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
+  onClear?: () => void;
+  isRegenerationDisabled?: () => boolean;
 }
 
-// 消息来源（渲染片装配形状的唯一开关）：
-//   live   —— 发送/流式路径：接管自动滚动并强制滚底；助手节点是流式占位
-//             （chat-msg-streaming + 光标 + 独立 token 累加器）；
-//   replay —— 历史回放：静默追加（不滚底、不动自动滚动标志）；助手节点是
-//             终态直出形态（无流式类、无光标），等回合句柄 finish 填正文。
 export type ChatMessageSource = "live" | "replay";
 
-// 消息区句柄：追加用户/助手消息与清场——回放侧只表达顺序，节点装配形状不出台。
+export interface ChatRegenerationSession {
+  turn: ChatAssistantTurn;
+  commit: () => void;
+  restore: () => void;
+}
+
+export interface ChatContinuationSession {
+  turn: ChatAssistantTurn;
+  commit: () => void;
+  restore: () => void;
+}
+
 export interface ChatMessageArea {
-  /** 追加用户消息（source 决定滚底与自动滚动接管）。 */
-  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource }) => void;
-  /** 追加助手消息节点并返回其回合操作面（source 决定装配形态）。 */
-  appendAssistantMessage: (opts?: { source?: ChatMessageSource }) => ChatAssistantTurn;
-  /** 清场：整段重建消息区（回放启动）。 */
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string }) => void;
+  appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
+  beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
+  beginContinuation: (node: HTMLDivElement, opts?: { initialRaw?: string; thinking?: string }) => ChatContinuationSession;
+  setRegenerationDisabled: (disabled: boolean) => void;
   clear: () => void;
 }
 
 // 回合节点句柄：一个助手消息节点的操作面（状态机不再出现选择器与节点创建；
 // 一代际的 token 缓冲、思考节点状态都由本句柄闭包持有）。
 export interface ChatAssistantTurn {
+  /** 助手消息节点元素 */
+  node?: HTMLDivElement;
   /** 灌入 token 增量（帧合批；未 flush 的增量同样进终态原文）。 */
   appendToken: (token: unknown) => void;
   /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
   appendThinking: (text: unknown) => void;
+  /** 获取本回合累积的思考文本。 */
+  getThinking?: () => string;
   /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，内部自动取消挂起帧，光标归位。 */
   reset: () => void;
   /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
   discard: () => void;
   /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
-  finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] }) => string;
+  finish: (opts?: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
   /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案）。 */
   fail: (text: string) => void;
   /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
-  stop: (reason: string, opts?: { userPrompt?: string }) => { raw: string; body: boolean };
+  stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
   /** 联网搜索 tool-status → 时间线卡（插在本节点之前）。 */
@@ -113,26 +112,17 @@ export interface ChatStreamRenderer {
   messageArea: ChatMessageArea;
 }
 
-// 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量原文，
-// pending = 未 flush 的增量帧，stableText/stableCut/stableEl/tailEl 为双容器渲染
-// 状态，stripCursor/tailCursor 为剥除/切分的增量游标（ui/markdown 头注有逐字节
-// 论证；cursor 状态随 resetTokenStreamState 一并重置）。
+// 流式 token 累加器（按节点存放在 WeakMap）：pending = 未 flush 的增量帧，
+// stableEl/tailEl 为双容器，session 为双容器 Markdown 渲染会话。
 interface TokenStreamState {
-  base: string;
   pending: string[];
   charQueue: string;
-  stableText: string;
-  // 上次渲染时的切点行号（与 tailCursor.cut 比较；初值 -2 保证首帧必物化）
-  stableCut: number;
-  committedCut: number;
   stableEl: HTMLDivElement | null;
   tailEl: HTMLDivElement | null;
   cursor: HTMLSpanElement | null;
   uncollapsedThinking: HTMLDivElement[];
   allThinking: HTMLDivElement[];
-  stripCursor: ThinkStripCursor;
-  tailCursor: MarkdownTailCursor;
-  commitCursor: MarkdownCommitCursor;
+  session: MarkdownStreamSession | null;
 }
 
 // 思考文本的显示状态（全量文本缓冲 + 按节点隔离的滚动合帧 + 钉底标志）
@@ -194,9 +184,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessageNode(text: string, source: ChatMessageSource): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string): void {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
+    if (messageId) {
+      node.setAttribute("data-message-id", messageId);
+    }
     node.textContent = text;
     deps.messages.appendChild(node);
     // 只有发送路径（live）接管自动滚动并强制滚底；回放（replay）静默追加。
@@ -226,12 +219,18 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return cursor;
   }
 
-  function appendAssistantMessageNode(source: ChatMessageSource): HTMLDivElement {
+  function appendAssistantMessageNode(
+    source: ChatMessageSource,
+    runId?: string,
+    messageId?: string
+  ): HTMLDivElement {
     // 回放：终态直出形态（无流式豁免类、无光标）——与 live 收尾后的节点逐字
     // 同形（差流式类），正文等回合句柄 finish 填。回放不清场外的东西、不滚底。
     if (source === "replay") {
       const replayed = document.createElement("div");
       replayed.className = "chat-msg chat-msg-assistant";
+      if (runId) replayed.setAttribute("data-run-id", runId);
+      if (messageId) replayed.setAttribute("data-message-id", messageId);
       deps.messages.appendChild(replayed);
       return replayed;
     }
@@ -251,6 +250,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 见 reader-chat.css）——正在输出的消息需要准确的实时高度，滚动跟随
     // 才能落到真实底部。
     node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
+    if (runId) node.setAttribute("data-run-id", runId);
+    if (messageId) node.setAttribute("data-message-id", messageId);
     // 流式 token 累加器（原 dataset.raw）随占位节点初始化/重置，
     // 保证第二条消息不会串上上一条的流式文本。
     resetTokenStreamState(node);
@@ -283,42 +284,55 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
-    if (!assistantNode) {
-      return null;
-    }
+  function buildThinkingElement(
+    thinkingContent: string,
+    opts: { collapsible?: boolean; collapsed?: boolean; labelText?: string } = {}
+  ): HTMLDivElement {
     const node = document.createElement("div");
-    node.className = "chat-thinking";
-    thinkingStartTimes.set(node, Date.now());
+    const classList = ["chat-thinking"];
+    if (opts.collapsible) {
+      classList.push("chat-thinking-collapsible");
+    }
+    if (opts.collapsed) {
+      classList.push("chat-thinking-collapsed");
+    }
+    node.className = classList.join(" ");
+
     const label = document.createElement("span");
     label.className = "chat-thinking-label";
-    // 图标、文案与折叠 chevron 各占一个子节点：折叠态只改文案（见
-    // collapseThinking），直接写 label.textContent 会连图标一起清掉。
     const icon = document.createElement("span");
     icon.className = "chat-thinking-icon";
     icon.innerHTML = THINKING_ICON_SVG;
     const labelText = document.createElement("span");
     labelText.className = "chat-thinking-label-text";
-    labelText.textContent = "思考中…";
+    labelText.textContent = opts.labelText || "思考过程";
     label.appendChild(icon);
     label.appendChild(labelText);
     label.appendChild(createChevronSpan("chat-thinking-chevron"));
     const text = document.createElement("div");
     text.className = "chat-thinking-text";
+    text.textContent = thinkingContent;
     node.appendChild(label);
     node.appendChild(text);
 
     thinkingTextNodes.set(node, text);
     thinkingLabelTexts.set(node, labelText);
 
-    // 折叠交互在思考流结束后生效（见 collapseThinking）：点击整行在
-    // 折叠/展开间切换；流式期间（不可折叠态）点击无事发生。
     node.addEventListener("click", () => {
       if (!node.classList.contains("chat-thinking-collapsible")) {
         return;
       }
       node.classList.toggle("chat-thinking-collapsed");
     });
+    return node;
+  }
+
+  function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
+    if (!assistantNode) {
+      return null;
+    }
+    const node = buildThinkingElement("", { collapsible: false, collapsed: false, labelText: "思考中…" });
+    thinkingStartTimes.set(node, Date.now());
     assistantNode.prepend(node);
 
     const state = getTokenStreamState(assistantNode);
@@ -498,20 +512,14 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
   function freshTokenStreamState(): TokenStreamState {
     return {
-      base: "",
       pending: [],
       charQueue: "",
-      stableText: "",
-      stableCut: -2,
-      committedCut: 0,
       stableEl: null,
       tailEl: null,
       cursor: null,
       uncollapsedThinking: [],
       allThinking: [],
-      stripCursor: createThinkStripCursor(),
-      tailCursor: createMarkdownTailCursor(),
-      commitCursor: createMarkdownCommitCursor()
+      session: null
     };
   }
 
@@ -527,10 +535,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     return state;
   }
-  // 流式双容器懒创建（首帧 flush 时挂上；finalize / stopped 的整体重渲染会
+  // 流式双容器与 Markdown 会话懒创建（首帧 flush 时挂上；finalize / stopped 的整体重渲染会
   // 自然清掉它们）
   function ensureStreamContainers(node: HTMLDivElement, state: TokenStreamState): void {
-    if (state.stableEl && state.tailEl) {
+    if (state.stableEl && state.tailEl && state.session) {
       return;
     }
     const stableEl = document.createElement("div");
@@ -541,15 +549,20 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     node.appendChild(tailEl);
     state.stableEl = stableEl;
     state.tailEl = tailEl;
+    state.session = createMarkdownStreamSession(stableEl, tailEl, {
+      ...CHAT_MARKDOWN_OPTIONS,
+      renderMarkdown: renderMarkdownStripped
+    });
   }
 
-  // 全量流式文本 = base + 未 flush 的 pending（不做清空，供 finalize/stopped 只读）
+  // 全量流式文本 = session.rawText + 未 flush 的 pending（不做清空，供 finalize/stopped 只读）
   function getStreamRaw(node: HTMLElement): string {
     const state = tokenStreamStates.get(node);
     if (!state) {
       return "";
     }
-    return state.base + state.pending.join("") + state.charQueue;
+    const sessionRaw = state.session ? state.session.rawText : "";
+    return sessionRaw + state.pending.join("") + state.charQueue;
   }
 
   function cancelTokenFlush(): void {
@@ -612,43 +625,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     } else {
       delta = state.pending.join("");
     }
-    // 50ms 长任务预算：deadline 取样在剥除/切分之前，让增量游标的耗时也计入
-    // 本帧预算，与「剥除/切分、稳定块与末块的 renderMarkdown + innerHTML 重建
-    // 都计入本帧同步工作」的注释一致。预算耗尽先让出主线程（yieldToMain）再
-    // 继续；恢复后校验代际（流被取消/收口，或有更新的一帧已启动），不等即作
-    // 废本帧——不渲染（文本与游标状态已在下方同步段原子提交，下一帧从游标
-    // 状态续渲，不会丢也不会重复）。预算检查保持同步：未触发让出时 flush 在
-    // 帧回调内同步完成（与旧的同步渲染时序一致）。
+    // 50ms 长任务预算：长 tail 或图表解析可能超出单帧预算，超出即让出主线程。
     let deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-    const stale = () => epoch !== tokenFlushEpoch;
-    // think 块先剥除再切分（增量游标内部保持同一顺序），保证未闭合的  ```
-    // 或 <think> 不会横跨 stable/tail 切点。游标输出与 stripThinkBlocks /
-    // splitMarkdownTail 全量逐字节一致（ui/markdown 头注论证），每帧正则只跑
-    // 未定居尾 + 本帧新增，不再随已渲染前缀增长。
-    state.stripCursor.push(delta);
-    const lines = state.stripCursor.lines;
-    state.tailCursor.update(lines);
-    const cut = state.tailCursor.cut;
-    // stable 物化：切点不变即 stable 不变（切点只增不减），增长点才拼接。
-    // stableCut/stableText 是渲染簿记，随渲染提交——让出点作废的帧不得留下
-    // 「已渲染」记录（否则下一帧会跳过 stable 重渲染）。
-    const stableChanged = !(cut >= 0 && cut === state.stableCut);
-    let stableText: string;
-    if (!stableChanged) {
-      stableText = state.stableText;
-    } else {
-      stableText = cut < 0 ? "" : lines.slice(0, cut).join("\n");
-    }
-    // tail 每帧物化（拼接 + trimEnd 还原全量版的尾部 trim，逐字节等价）
-    const tailText = (cut < 0 ? lines.join("\n") : lines.slice(cut).join("\n")).trimEnd();
-    // 文本与游标状态原子提交：游标位置与 base 必须同步前进——否则帧在让出
-    // 点作废或渲染抛错后，下一帧会把同一段 pending 重复喂给游标。
-    state.base += delta;
-    if (deps.smoothStream) {
-      state.charQueue = state.charQueue.slice(smoothStep);
-    } else {
-      state.pending.length = 0;
-    }
     ensureStreamContainers(node, state);
     // 正文首帧渲染 = 思考流结束：所有未折叠的思考盒（正常情况下一个；
     // 收尾 reasoning 在 token 后到达时可能有第二个）收成「思考过程」行，
@@ -659,63 +637,32 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       state.uncollapsedThinking = [];
     }
-    // 稳定前缀增量提交：由 commitCursor 维护块级上下文并增量追加到现有 DOM，
-    // 旧节点保持引用不变，表格按行追加，列表按项追加，Mermaid/Math 仅水合新节点。
-    if (stableChanged && (stableText !== "" || state.stableEl!.innerHTML !== "")) {
-      if (performance.now() >= deadline) {
+    // 文本与游标状态原子提交：在让出前先喂入 session 并消耗队列
+    if (deps.smoothStream) {
+      state.charQueue = state.charQueue.slice(smoothStep);
+    } else {
+      state.pending.length = 0;
+    }
+    const sessionRes = state.session!.flush(delta, {
+      cursor: state.cursor,
+      shouldYield: () => performance.now() >= deadline,
+      yieldToMain: async () => {
         await yieldToMain();
         deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-        if (stale()) {
-          return;
-        }
-      }
-      const toCut = cut < 0 ? 0 : cut;
-      const fromCut = state.committedCut < 0 ? 0 : state.committedCut;
-      if (toCut > fromCut) {
-        const deltaText = lines.slice(fromCut, toCut).join("\n");
-        const deltaHtml = renderMarkdownStripped(deltaText, {
-          ...CHAT_MARKDOWN_OPTIONS,
-          hrAdjacentBefore: state.stableText,
-          hrAdjacentAfter: tailText
-        });
-        const { newNodes } = state.commitCursor.commit(deltaHtml, state.stableEl!);
-        for (const newNode of newNodes) {
-          hydrateMermaid(newNode);
-          hydrateMath(newNode);
-        }
-        state.committedCut = toCut;
-      } else if (toCut === 0 && state.stableEl!.innerHTML !== "") {
-        state.stableEl!.innerHTML = "";
-        state.commitCursor.reset();
-        state.committedCut = 0;
-      }
-      state.stableCut = cut;
-      state.stableText = stableText;
-    }
-    if (performance.now() >= deadline) {
-      await yieldToMain();
-      deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
-      if (stale()) {
-        return;
-      }
-    }
-    // 直接取光标引用再重写 tail（innerHTML 赋值会清掉 tail 内的旧光标）
-    const cursor = state.cursor;
-    // tail 每帧整体重建，且未闭合的围栏本就整段留在 tail——不对它水合
-    //（每帧重渲染一遍图表既慢又闪）；围栏闭合进入 stable 后自然渲染，流收口
-    // 的整渲染再兜一次。
-    state.tailEl!.innerHTML = renderMarkdownStripped(tailText, {
-      ...CHAT_MARKDOWN_OPTIONS,
-      hrAdjacentBefore: stableText
+      },
+      isStale: () => epoch !== tokenFlushEpoch
     });
-    if (cursor) {
-      state.tailEl!.appendChild(cursor);
+    if (sessionRes && typeof sessionRes.then === "function") {
+      await sessionRes;
+    }
+    if (epoch !== tokenFlushEpoch) {
+      return;
     }
     // 流式帧滚动瞬时化（见 scrollToBottom instant 分支：不逐帧重启 CSS
     // 平滑滚动动画）
     scrollToBottom(false, { instant: true });
     // 插值队列续帧：若 charQueue 中仍有残余字符且当前流代际未作废，继续调度下一帧平滑释放
-    if (deps.smoothStream && state.charQueue.length > 0 && !stale()) {
+    if (deps.smoothStream && state.charQueue.length > 0 && epoch === tokenFlushEpoch) {
       scheduleTokenFlush(node);
     }
   };
@@ -1120,56 +1067,63 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
   }
 
-  // =========================================================================
-  // renderAssistantMessage
-  // =========================================================================
-  function renderAssistantMessage(node: HTMLDivElement | null, raw: unknown, { userPrompt = "", sources = [] }: { userPrompt?: string; sources?: ChatSearchSource[] } = {}): void {
-    if (!node) {
-      return;
-    }
-    // 思考行在终态重渲染中保留：仍流式打开的思考盒（如 token 后到达的收尾
-    // reasoning 未经正文帧）一并折叠，重挂载到正文之前。历史回放路径无思考
-    // 节点（思考不落盘），此处为无害空操作。
-    const state = getTokenStreamState(node);
-    if (state.uncollapsedThinking.length > 0) {
-      for (const thinking of state.uncollapsedThinking) {
-        collapseThinking(thinking);
-      }
-      state.uncollapsedThinking = [];
-    }
-    node.innerHTML = "";
-    state.allThinking.forEach((thinking) => node.appendChild(thinking));
-    const cleanedRaw = stripThinkBlocks(raw);
-    const pasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
+  function createActionButton(className: string, label: string, icon: string): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `chat-msg-action-btn ${className}`;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+    button.innerHTML = icon;
+    return button;
+  }
 
-    const content = document.createElement("div");
-    // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
-    // 变量由 github-markdown-theme.css 桥接到 --biliscript-reader-*）。
-    content.className = "chat-msg-assistant-body markdown-body";
-    content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
-    linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
-    // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
-    // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
-    hydrateMermaid(content);
-    hydrateMath(content);
-    // 联网搜索（spec §4）：[n] → 上标内联引用（流结束后统一转换；流式期间
-    // 原文呈现）。编号与时间线卡 chip 行同序（跨搜索累计）。
-    if (sources.length) {
-      renderSearchCitations(content, sources);
-    }
-    node.appendChild(content);
-
+  function createActionBar(
+    node: HTMLDivElement,
+    {
+      stopped = false,
+      historyIndex,
+      content,
+      getPasteReadyRaw,
+      hasSpeakableContent = false,
+      cleanedRaw = ""
+    }: {
+      stopped?: boolean;
+      historyIndex?: number;
+      content?: HTMLElement;
+      getPasteReadyRaw?: () => string;
+      hasSpeakableContent?: boolean;
+      cleanedRaw?: string;
+    } = {}
+  ): HTMLDivElement {
     const actions = document.createElement("div");
     actions.className = "chat-msg-actions";
-    const copyBtn = document.createElement("button");
-    copyBtn.type = "button";
-    copyBtn.className = "chat-msg-copy-btn";
-    copyBtn.setAttribute("aria-label", "复制回复");
-    copyBtn.setAttribute("title", "复制回复");
-    copyBtn.innerHTML = READING_COPY_ICON;
+
+    const regenerateBtn = createActionButton("chat-msg-regenerate-btn", "重新生成", READING_RESET_ICON);
+    regenerateBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+    regenerateBtn.addEventListener("click", () => {
+      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+        deps.onRegenerate?.(historyIndex, node);
+      }
+    });
+
+    if (stopped) {
+      actions.appendChild(regenerateBtn);
+
+      const continueBtn = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
+      continueBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+      continueBtn.addEventListener("click", () => {
+        if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+          deps.onContinue?.(historyIndex, node);
+        }
+      });
+      actions.appendChild(continueBtn);
+      return actions;
+    }
+
+    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
     copyBtn.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(pasteReadyRaw);
+        await navigator.clipboard.writeText(getPasteReadyRaw ? getPasteReadyRaw() : "");
         setMessage("回复已复制到剪贴板。");
         flashCopySuccess(copyBtn, {
           originalSvg: READING_COPY_ICON,
@@ -1184,6 +1138,88 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
     actions.appendChild(copyBtn);
 
+    const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
+    speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
+    speakBtn.setAttribute("aria-pressed", "false");
+    speakBtn.addEventListener("click", () => {
+      if (content) {
+        void deps.onSpeak?.(speakBtn, content);
+      }
+    });
+    actions.appendChild(speakBtn);
+
+    actions.appendChild(regenerateBtn);
+
+    const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
+    exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
+    exportBtn.addEventListener("click", () => {
+      if (historyIndex === undefined) {
+        return;
+      }
+      try {
+        deps.onExport?.(historyIndex, getPasteReadyRaw ? getPasteReadyRaw() : "");
+      } catch (error) {
+        setMessage(`导出失败：${getErrorMessage(error)}`);
+      }
+    });
+    actions.appendChild(exportBtn);
+
+    return actions;
+  }
+  // =========================================================================
+  // renderAssistantMessage
+  // =========================================================================
+  function renderAssistantMessage(
+    node: HTMLDivElement | null,
+    raw: unknown,
+    { sources = [], historyIndex, stopped = false, thinking }: { userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number; stopped?: boolean; thinking?: string } = {}
+  ): void {
+    if (!node) {
+      return;
+    }
+    // 思考行在终态重渲染中保留：仍流式打开的思考盒（如 token 后到达的收尾
+    // reasoning 未经正文帧）一并折叠，重挂载到正文之前。
+    const state = getTokenStreamState(node);
+    if (state.uncollapsedThinking.length > 0) {
+      for (const thinking of state.uncollapsedThinking) {
+        collapseThinking(thinking);
+      }
+      state.uncollapsedThinking = [];
+    }
+    node.innerHTML = "";
+    state.allThinking.forEach((thinking) => node.appendChild(thinking));
+    if (state.allThinking.length === 0 && typeof thinking === "string" && thinking.trim()) {
+      const thinkingEl = buildThinkingElement(thinking, { collapsible: true, collapsed: true, labelText: "思考过程" });
+      node.appendChild(thinkingEl);
+    }
+    const cleanedRaw = stripThinkBlocks(raw);
+    let cachedPasteReadyRaw: string | null = null;
+    function getPasteReadyRaw(): string {
+      if (cachedPasteReadyRaw === null) {
+        cachedPasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
+      }
+      return cachedPasteReadyRaw;
+    }
+
+    const content = document.createElement("div");
+    content.className = "chat-msg-assistant-body markdown-body";
+    content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
+    linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
+    const hasSpeakableContent = Boolean(content.textContent?.trim() || content.querySelector("pre, img[alt]"));
+    hydrateMarkdownContent(content);
+    if (sources.length) {
+      renderSearchCitations(content, sources);
+    }
+    node.appendChild(content);
+
+    const actions = createActionBar(node, {
+      stopped,
+      historyIndex,
+      content,
+      getPasteReadyRaw,
+      hasSpeakableContent,
+      cleanedRaw
+    });
     node.appendChild(actions);
   }
   // =========================================================================
@@ -1212,9 +1248,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   //   - thinkingNode：本回合尚在累积的思考节点（null = 未创建或已收尾）；
   //   - thinkingEnded：本回合思考已收尾（token 到达即收尾）——其后到达的收尾
   //     reasoning 事件新建节点（附着本回合节点），不写进已折叠的旧节点。
-  function createTurnHandle(node: HTMLDivElement): ChatAssistantTurn {
+  function createTurnHandle(node: HTMLDivElement, opts?: { initialThinking?: string }): ChatAssistantTurn {
     let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
+    let accumulatedThinking = opts?.initialThinking || "";
 
     function flushPendingThinking(): void {
       const state = getTokenStreamState(node);
@@ -1239,6 +1276,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     function appendThinking(text: unknown): void {
+      accumulatedThinking += String(text ?? "");
       if (!thinkingNode && thinkingEnded) {
         thinkingEnded = false;
       }
@@ -1248,12 +1286,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       appendThinkingText(thinkingNode, text);
     }
 
+    function getThinking(): string {
+      return accumulatedThinking;
+    }
+
     // 重置流式（读流中断重试：整体重放 / 拆除级重置）：清空本条消息的流式缓冲与已渲染内容，
     // 从头接收重试流——取消挂起 flush、重置 token 累加器（base/pending 清零）、
     // 移除 stable/tail 容器与思考节点（光标先摘下来放回节点末尾，flush 时机随
     // 下一帧恢复）、清时间线卡（整体重放含重新搜索）；思考节点随下一个 reasoning
     // 事件重建。不走收口六步：流并未终止（port 不断开、流式 UI 不退出）。
     function reset(): void {
+      accumulatedThinking = "";
       cancelTokenFlush();
       const state = getTokenStreamState(node);
       const cursor = state.cursor;
@@ -1282,11 +1325,42 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 确保终态 DOM 物化前旧帧彻底作废）；raw 缺省 = 本回合累计原文（live 路径），
     // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
     // 回放显式传来源（含空数组），不触发这条消费副作用。
-    function finish({ raw, userPrompt = "", sources }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] } = {}): string {
+    function finish({ raw, thinking, stopped = false, userPrompt = "", sources, historyIndex }: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
       flushPendingThinking();
       cancelTokenFlush();
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
-      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node) });
+      const finalThinking = typeof thinking === "string" && thinking.trim() ? thinking : accumulatedThinking;
+      if (stopped) {
+        const label = "已停止生成";
+        if (text.trim()) {
+          renderAssistantMessage(node, text, {
+            userPrompt,
+            sources: sources ?? takeTurnSearchSources(node),
+            historyIndex,
+            stopped: true,
+            thinking: finalThinking
+          });
+          appendBadge(node, "chat-msg-stopped", label);
+          return text;
+        }
+        node.innerHTML = "";
+        if (finalThinking && finalThinking.trim()) {
+          const thinkingEl = buildThinkingElement(finalThinking, {
+            collapsible: true,
+            collapsed: false,
+            labelText: "已停止"
+          });
+          node.appendChild(thinkingEl);
+        }
+        const actions = createActionBar(node, {
+          stopped: true,
+          historyIndex
+        });
+        node.appendChild(actions);
+        appendBadge(node, "chat-msg-stopped", label);
+        return text;
+      }
+      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node), historyIndex, thinking: finalThinking });
       return text;
     }
 
@@ -1304,17 +1378,58 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
     // 挂停止态：自动取消挂起的流式渲染帧；
     // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
-    function stop(reason: string, { userPrompt = "" }: { userPrompt?: string } = {}): { raw: string; body: boolean } {
+    function stop(reason: string, { userPrompt = "", historyIndex }: { userPrompt?: string; historyIndex?: number } = {}): { raw: string; body: boolean } {
       flushPendingThinking();
       cancelTokenFlush();
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
-        renderAssistantMessage(node, text, { userPrompt, sources: takeTurnSearchSources(node) });
+        renderAssistantMessage(node, text, {
+          userPrompt,
+          sources: takeTurnSearchSources(node),
+          historyIndex,
+          stopped: true,
+          thinking: accumulatedThinking
+        });
         appendBadge(node, "chat-msg-stopped", label);
         return { raw: text, body: true };
       }
       const state = getTokenStreamState(node);
+      if (state.allThinking.length > 0) {
+        for (const thinking of state.allThinking) {
+          cancelThinkingFrame(thinking);
+          const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
+          if (textNode) {
+            const st = thinkingDisplayStates.get(textNode);
+            if (st) {
+              flushThinkingText(textNode, st);
+            }
+          }
+          thinking.classList.add("chat-thinking-collapsible");
+          thinking.classList.remove("chat-thinking-collapsed");
+          const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
+          if (labelText) {
+            labelText.textContent = "已停止";
+          }
+        }
+        state.uncollapsedThinking = [];
+        if (state.cursor?.parentNode === node) {
+          state.cursor.remove();
+        }
+        if (state.stableEl?.parentNode === node) {
+          state.stableEl.remove();
+        }
+        if (state.tailEl?.parentNode === node) {
+          state.tailEl.remove();
+        }
+        const actions = createActionBar(node, {
+          stopped: true,
+          historyIndex
+        });
+        node.appendChild(actions);
+        appendBadge(node, "chat-msg-stopped", label);
+        return { raw: text, body: false };
+      }
       for (const thinking of state.allThinking) {
         cancelThinkingFrame(thinking);
       }
@@ -1348,8 +1463,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     return {
+      node,
       appendToken,
       appendThinking,
+      getThinking,
       reset,
       discard,
       finish,
@@ -1361,16 +1478,182 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     };
   }
 
-  // 消息区句柄：追加用户/助手消息（带来源）与清场——「助手消息节点长什么样」
-  // 只有本片一个主人，回放只表达顺序。
+  function beginRegeneration(node: HTMLDivElement): ChatRegenerationSession {
+    const originalStreaming = node.classList.contains("chat-msg-streaming");
+    const originalContent = document.createDocumentFragment();
+    while (node.firstChild) {
+      originalContent.appendChild(node.firstChild);
+    }
+    const previous = node.previousElementSibling;
+    const originalSearchCard = previous?.classList.contains("chat-search-card") ? previous : null;
+    originalSearchCard?.remove();
+    const following: HTMLElement[] = [];
+    let next = node.nextElementSibling;
+    while (next) {
+      if (next instanceof HTMLElement) {
+        next.hidden = true;
+        following.push(next);
+      }
+      next = next.nextElementSibling;
+    }
+
+    cancelTokenFlush();
+    const oldState = getTokenStreamState(node);
+    for (const thinking of oldState.allThinking) {
+      cancelThinkingFrame(thinking);
+    }
+    resetTokenStreamState(node);
+    const state = getTokenStreamState(node);
+    state.cursor = createStreamCursor();
+    node.appendChild(state.cursor);
+    node.classList.add("chat-msg-streaming");
+    const baseTurn = createTurnHandle(node);
+    let settled = false;
+    function restore(): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      baseTurn.discard();
+      clearSearchCard(node);
+      node.innerHTML = "";
+      node.appendChild(originalContent);
+      if (originalSearchCard) {
+        deps.messages.insertBefore(originalSearchCard, node);
+      }
+      following.forEach((element) => {
+        element.hidden = false;
+      });
+      node.classList.toggle("chat-msg-streaming", originalStreaming);
+    }
+    const turn: ChatAssistantTurn = {
+      ...baseTurn,
+      discard: restore,
+      fail() {
+        restore();
+      },
+      stop(reason, options) {
+        const result = baseTurn.stop(reason, options);
+        if (!result.body && !baseTurn.getThinking?.()) {
+          restore();
+        }
+        return result;
+      }
+    };
+
+    return {
+      turn,
+      commit() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        following.forEach((element) => element.remove());
+      },
+      restore
+    };
+  }
+
+  function beginContinuation(
+    node: HTMLDivElement,
+    opts: { initialRaw?: string; thinking?: string } = {}
+  ): ChatContinuationSession {
+    const originalStreaming = node.classList.contains("chat-msg-streaming");
+    const originalChildren = Array.from(node.childNodes);
+
+    cancelTokenFlush();
+    const oldState = getTokenStreamState(node);
+    for (const thinking of oldState.allThinking) {
+      cancelThinkingFrame(thinking);
+    }
+    resetTokenStreamState(node);
+
+    node.querySelectorAll(".chat-msg-stopped").forEach((el) => el.remove());
+    node.querySelectorAll(".chat-msg-actions").forEach((el) => el.remove());
+
+    const existingThinking = Array.from(node.querySelectorAll<HTMLDivElement>(".chat-thinking"));
+    const state = getTokenStreamState(node);
+    state.allThinking = [...existingThinking];
+    state.uncollapsedThinking = existingThinking.filter((el) => !el.classList.contains("chat-thinking-collapsed"));
+
+    const initialRaw = String(opts.initialRaw || "");
+    const hasBody = Boolean(initialRaw.trim());
+
+    if (hasBody) {
+      const existingBody = node.querySelector(".chat-msg-assistant-body");
+      if (existingBody) {
+        existingBody.remove();
+      }
+      state.cursor = createStreamCursor();
+      ensureStreamContainers(node, state);
+      state.session!.flush(initialRaw, { cursor: state.cursor });
+    } else {
+      const existingBody = node.querySelector(".chat-msg-assistant-body");
+      if (existingBody) {
+        existingBody.remove();
+      }
+      state.cursor = createStreamCursor();
+      node.appendChild(state.cursor);
+    }
+
+    deps.messages
+      .querySelectorAll(".chat-msg-assistant.chat-msg-streaming")
+      .forEach((el) => el.classList.remove("chat-msg-streaming"));
+    node.classList.add("chat-msg-streaming");
+    shouldAutoScrollMessages = true;
+    scrollToBottom(true, { instant: true });
+
+    const baseTurn = createTurnHandle(node, { initialThinking: opts.thinking });
+    let settled = false;
+
+    function restore(): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      baseTurn.discard();
+      clearSearchCard(node);
+      node.innerHTML = "";
+      originalChildren.forEach((child) => node.appendChild(child));
+      node.classList.toggle("chat-msg-streaming", originalStreaming);
+    }
+
+    const turn: ChatAssistantTurn = {
+      ...baseTurn,
+      discard: restore,
+      fail() {
+        restore();
+      },
+      stop(reason, options) {
+        return baseTurn.stop(reason, options);
+      }
+    };
+
+    return {
+      turn,
+      commit() {
+        settled = true;
+      },
+      restore
+    };
+  }
+
   const messageArea: ChatMessageArea = {
-    appendUserMessage(text, { source = "live" } = {}) {
-      appendUserMessageNode(text, source);
+    appendUserMessage(text, { source = "live", messageId } = {}) {
+      appendUserMessageNode(text, source, messageId);
     },
-    appendAssistantMessage({ source = "live" } = {}) {
-      return createTurnHandle(appendAssistantMessageNode(source));
+    appendAssistantMessage({ source = "live", runId, messageId } = {}) {
+      return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
+    },
+    beginRegeneration,
+    beginContinuation,
+    setRegenerationDisabled(disabled) {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn, .chat-msg-continue-btn").forEach((button) => {
+        button.disabled = disabled;
+      });
     },
     clear() {
+      deps.onClear?.();
       deps.messages.innerHTML = "";
     }
   };

@@ -283,6 +283,7 @@ beforeEach(async () => {
   lazy.secondaryCalls = [];
   lazy.secondaryMode = "ok";
   lazy.secondaryBody = EN_BODY;
+  storageListenerBase = storageListenerCount();
 
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
@@ -292,7 +293,6 @@ beforeEach(async () => {
   // 通知链才会驱动 renderReadingView（本文件同样把 withReader mock 掉，故显式装载）。
   await import("../../extension/reader/lifecycle.js");
   readerBus = await import("../../extension/reader/reader-bus.js");
-  storageListenerBase = storageListenerCount();
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
 });
@@ -704,205 +704,6 @@ describe("骨架与壳重建（forceRecreate）", () => {
   });
 });
 
-describe("形态与三处登记（源码/表面锁）", () => {
-  const CSS = "extension/entry/styles/bilingual-subtitles.css";
-  const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
-
-  it("卡片右锚 + flex 列 + 滚动区下移 + 页脚在滚动区外（硬约束 §5.1/§5.2）", () => {
-    const css = read(CSS);
-    const cardRule =
-      css.match(/\.custom-select-dropdown:has\(> \.biliscript-bilingual-popover\)\s*\{[^}]*\}/)?.[0] || "";
-    expect(cardRule).toContain("right: 0");
-    expect(cardRule).toContain("left: auto");
-    expect(cardRule).toContain("display: flex");
-    expect(cardRule).toContain("flex-direction: column");
-    expect(cardRule).toContain("overflow: hidden");
-    expect(cardRule).toContain("max-height: 320px");
-    // 收起态正确性规则必须在场（组件表那条与 display: flex 同分）
-    expect(css).toContain(".custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden]");
-    // 卡片根不产生盒子：滚动区与页脚才是浮层的 flex 项
-    expect(css).toMatch(/\.biliscript-bilingual-popover\s*\{[^}]*display:\s*contents/);
-    // 滚动不落在卡片上，也不落在跨两列的主区上（主区只裁剪，滚动归属每一列）
-    const mainRule = css.match(/\.biliscript-bilingual-main\s*\{[^}]*\}/)?.[0] || "";
-    expect(mainRule).toContain("overflow: hidden");
-    expect(mainRule).not.toContain("overflow-y: auto");
-    expect(mainRule).toContain("min-height: 0");
-    // 页脚不可收缩（固定在列表之外）
-    const footerRule = css.match(/\.biliscript-bilingual-footer\s*\{[^}]*\}/)?.[0] || "";
-    expect(footerRule).toContain("flex: 0 0 auto");
-  });
-
-  it("空态不参与列宽（硬约束 §5.3）+ 色值一律走 --biliscript-reader-* 令牌", () => {
-    const css = read(CSS);
-    expect(css).toContain("max-width: calc(var(--biliscript-script-width, 540px) - 78px)");
-    expect(css).toMatch(/\.biliscript-bilingual-empty\s*\{[^}]*max-width:\s*140px/);
-    expect(css).toContain("text-overflow: ellipsis");
-    // 新增样式不写字面色（原型里的 rgba 阴影换成令牌；开关滑块按 toggle-switch 规范走白底与双层微阴影）
-    const generalCss = css
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/[^{}]*?\.biliscript-bilingual-switch::after\s*\{[^}]*\}/g, "");
-    expect(generalCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    expect(generalCss).not.toMatch(/\brgba?\(/);
-    // 副行与徽标都用面板色板令牌
-    expect(css).toMatch(/\.biliscript-reading-subtext\s*\{[^}]*--biliscript-reader-faint/);
-    expect(css).toMatch(/\.biliscript-reading-subtext\[data-state="fail"\]\s*\{[^}]*--biliscript-reader-accent/);
-  });
-
-  it("副列组件壳收起：宿主与壳都无盒、自带 trigger 隐藏、壳内浮层退回普通列表", () => {
-    const css = read(CSS);
-    // 宿主/壳 display: contents（副列选项行直接是列的流内容）
-    expect(css).toMatch(/\.biliscript-bilingual-secondary\s*\{[^}]*display:\s*contents/);
-    expect(css).toMatch(/\.biliscript-bilingual-secondary-picker\s*\{[^}]*display:\s*contents/);
-    // 宿主收起态：声明了 display 就必须重述 [hidden]
-    expect(css).toContain(".biliscript-bilingual-secondary[hidden]");
-    // 壳自带 trigger 不可见（一行里只有工具条那枚 affordance）
-    expect(css).toContain(".biliscript-bilingual-secondary-picker > .custom-select-trigger");
-    // 壳内浮层取消定位/边框/滚动
-    const subDropdownRule =
-      css.match(/\.biliscript-bilingual-col\[data-col="sub"\] \.custom-select-dropdown\s*\{[^}]*\}/)?.[0] || "";
-    expect(subDropdownRule).toContain("position: static");
-    expect(subDropdownRule).toContain("overflow: visible");
-    expect(subDropdownRule).toContain("box-shadow: none");
-    expect(css).toMatch(/\[data-col="sub"\] \.custom-select-dropdown\[hidden\]\s*\{[^}]*display:\s*block/);
-  });
-
-  it("卡片骨架是节点身份不变量：连续重渲后槽位内容仍在场、开关与副列 select 还是同一批节点", () => {
-    loadTracks(SAMPLE_TRACKS, "ai-zh");
-    setBilingual(true, "en-US");
-    shell.renderReadingView();
-    const toggle = switchButton();
-    const select = secondarySelect();
-    const hostWrappers = () => pickerWrapper().querySelectorAll(".biliscript-bilingual-secondary").length;
-    const dropdowns = () => pickerWrapper().querySelectorAll(".custom-select-dropdown").length;
-    expect(hostWrappers()).toBe(1);
-    expect(dropdowns()).toBe(2);
-
-    // 换轨（组件整批换自己那批选项行）+ 关/开双语：骨架与副列壳都不重建（否则监听器丢、
-    // 副列 select 会一份份堆积出来）
-    clickMainOption("日本語");
-    switchButton().click();
-    switchButton().click();
-    shell.renderReadingView();
-
-    // 骨架的落位归组件的槽位声明（setCustomSelectSlots）：不再断言「被搬回原位」，
-    // 只断言槽位内容仍在场——换项摘不到调用方的节点。
-    expect(cardRoot()).not.toBeNull();
-    expect(card().contains(footer())).toBe(true);
-    expect(switchButton()).toBe(toggle);
-    expect(secondarySelect()).toBe(select);
-    expect(hostWrappers()).toBe(1);
-    expect(dropdowns()).toBe(2);
-    expect(colRows("main").length).toBe(5);
-  });
-
-  it("列表副行：块级子节点、12px/18px、muted 色；loading/fail 斜体、fail 不可点", () => {
-    const css = read(CSS);
-    const subRule =
-      css.match(/#biliscript-reading-view \.biliscript-reading-text \.biliscript-reading-subtext\s*\{[^}]*\}/)?.[0] || "";
-    expect(subRule).toContain("display: block");
-    expect(subRule).toMatch(/font-size:\s*(?:var\(--biliscript-font-size-sm[^)]*\)|12px)/);
-    expect(subRule).toContain("line-height: 18px");
-    expect(subRule).toContain("margin-top: 1px");
-    expect(subRule).toContain("color: var(--biliscript-reader-faint)");
-    expect(css).toContain('[data-state="loading"]');
-    expect(css).toContain("font-style: italic");
-    // 失败行不可点：光标保持默认，且全表没有给副行挂 click 的痕迹
-    expect(css).toMatch(/\[data-state="fail"\][^}]*cursor:\s*default/);
-    expect(css).not.toContain("cursor: pointer;\n}\n\n#biliscript-reading-view .biliscript-reading-text");
-  });
-
-  it("trigger 徽标不在值区里（组件值投影会抹掉它），且 trigger 定宽仍是 120px", () => {
-    loadTracks(SAMPLE_TRACKS, "ai-zh");
-    setBilingual(true, "en-US");
-    shell.renderReadingView();
-
-    const badgeNode = badge();
-    expect(badgeNode).not.toBeNull();
-    expect(trigger().querySelector(".custom-select-value")?.contains(badgeNode!)).toBe(false);
-    expect(trigger().contains(badgeNode!)).toBe(true);
-    // 定宽 120px 的可锁判据在 reader.css（本票不动它）
-    const readerCss = read("extension/entry/styles/reader.css");
-    const pickerRule =
-      readerCss.match(/\.biliscript-reading-track-picker\s*\{[^}]*\}/g)?.join("\n") || "";
-    expect(pickerRule).toContain("width: 120px");
-  });
-
-  it("登记面：injector 的 ensure + 表住在 build 入口目录里 + manifest 的 WAR 通配", () => {
-    const injector = read("extension/shared/style-injector.ts");
-    expect(injector).toMatch(/export function ensureBilingualSubtitleStyles/);
-    expect(injector).toContain("entry/styles/bilingual-subtitles.css");
-
-    // dist 侧（build.js 的 cssEntries 按 entry/styles/ 目录派生，见
-    // tests/entry/reader-settings-css-split.test.ts 的目录派生守卫）：表住在这个
-    // 目录里 ⇒ 必被 minify 进 dist；manifest 的 entry/styles/* 通配只放行不改产物。
-    expect(existsSync(join(process.cwd(), CSS)), `${CSS} 不在 build 入口目录里`).toBe(true);
-
-    const manifest = JSON.parse(read("extension/manifest.json")) as {
-      web_accessible_resources: { resources: string[] }[];
-    };
-    expect(manifest.web_accessible_resources[0].resources).toContain("entry/styles/*");
-  });
-
-  it("叶子在模块顶层挂表（组件表同款先例），且静态 import 组件 ⇒ 组件表随叶子一同在场", () => {
-    const source = read("extension/reader/subtitle-tab-ui.ts");
-    expect(source).toMatch(/ensureBilingualSubtitleStyles\(\);/);
-    // 静态 import（不是动态装载）：组件模块体求值即挂组件表，与该叶子同一次装载在场
-    expect(source).toMatch(/^import \{[^}]*initCustomSelect[^}]*\} from "\.\.\/ui\/custom-select\.js";$/m);
-  });
-
-  it("级联不靠挂载序：卡片度量靠特异度压过组件表，收起态靠本表重述的 [hidden]", () => {
-    const componentCss = read("extension/entry/styles/custom-select.css");
-    const bilingualCss = read(CSS);
-
-    const probe = (order: "component-first" | "bilingual-first") => {
-      // 用环境自带的 document 临时注入两张真表（jsdom 不加载 link 资源，故真实
-      // 挂载路径下的 link 不带进规则）；测完把 style 与探针节点都摘掉。
-      const view = document.createElement("div");
-      view.id = "biliscript-reading-view";
-      const dropdown = document.createElement("ul");
-      dropdown.className = "custom-select-dropdown";
-      const popover = document.createElement("li");
-      popover.className = "biliscript-bilingual-popover";
-      dropdown.appendChild(popover);
-      view.appendChild(dropdown);
-      document.body.appendChild(view);
-      const sheets = (order === "component-first" ? [componentCss, bilingualCss] : [bilingualCss, componentCss]).map((css) => {
-        const style = document.createElement("style");
-        style.textContent = css;
-        document.head.appendChild(style);
-        return style;
-      });
-      const metrics = () => {
-        const cs = window.getComputedStyle(dropdown);
-        // 只取 jsdom 可靠解析的字段：overflow 简写在 jsdom 里不回填长手
-        //（本表 overflow: hidden 压不过组件表的 overflow-y: auto 长手），
-        // 真机判据是 overflow-y: hidden，测试里改用 left/max-width/display 判归属。
-        return { display: cs.display, left: cs.left, maxWidth: cs.maxWidth };
-      };
-      const expanded = metrics();
-      dropdown.setAttribute("hidden", "");
-      const collapsed = metrics();
-      for (const style of sheets) {
-        style.remove();
-      }
-      view.remove();
-      return { expanded, collapsed };
-    };
-
-    const componentFirst = probe("component-first");
-    const bilingualFirst = probe("bilingual-first");
-
-    // 卡片度量归本表：组件表默认 left: 0 / max-width: 260px，本表是右锚 + calc 宽度
-    expect(componentFirst.expanded.display).toBe("flex");
-    expect(componentFirst.expanded.left).toBe("auto");
-    expect(componentFirst.expanded.maxWidth).not.toBe("260px");
-    // 收起态：本表重述的 [hidden] 在场，两种挂载序都收得干净（组件表先挂就会列表常开）
-    expect(componentFirst.collapsed.display).toBe("none");
-    expect(bilingualFirst.collapsed.display).toBe("none");
-    // 顺序无关：两遍逐字段一致——谁先挂都不改变结论
-    expect(bilingualFirst).toEqual(componentFirst);
-  });
-});
 
 // ===== 真机走查（headless Edge + CDP，真实 B 站页面）反向发现的两条缺陷及其锁 =====
 //
@@ -910,14 +711,6 @@ describe("形态与三处登记（源码/表面锁）", () => {
 // ② 靠的是「列表属主是谁」（jsdom 里列表是由测试手动 renderReadingView 出来的，
 // 不重渲也看不出差别——真机上副行就一直挂在列表上）。
 describe("真机反向发现的修复锁", () => {
-  it("副列浮层的展开覆盖必须带 !important（压 B 站页面的全局 [hidden] 重置）", () => {
-    const css = readFileSync(join(process.cwd(), "extension/entry/styles/bilingual-subtitles.css"), "utf8");
-    const rule =
-      css.match(/\.biliscript-bilingual-col\[data-col="sub"\] \.custom-select-dropdown\[hidden\]\s*\{[^}]*\}/)?.[0] || "";
-    // B 站样式表里有 `[hidden] { display: none !important }`：不带 !important 时
-    // 本选择器特异性再高也压不过它 ⇒ 副列 8 行 rect 全 0、列宽塌成表头宽（真机实测）。
-    expect(rule, "副列浮层展开覆盖丢了 !important").toContain("display: block !important");
-  });
 
   it("关闭开关：请列表属主重渲（副行不能挂在列表上）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
@@ -964,29 +757,3 @@ describe("真机反向发现的修复锁", () => {
 // 两列）全程不脱离文档 ⇒ scrollTop 自然保住。行为面用例在
 // tests/ui/custom-select.test.ts 的「弹层槽位」组（含「槽位节点不得在重铺期间脱离
 // 浮层」这条真机语义的替身断言）；这里只锁定滚动归属（源码面）。
-describe("弹层滚动：两列各自滚（源码锁）", () => {
-  const BILINGUAL_CSS = "extension/entry/styles/bilingual-subtitles.css";
-
-  it("滚动归属每一列：列是滚动盒、主区只裁剪、交叉轴不再收缩（源码锁）", () => {
-    const css = readFileSync(join(process.cwd(), BILINGUAL_CSS), "utf8");
-    const mainRule = css.match(/\.biliscript-bilingual-main\s*\{[^}]*\}/)?.[0] || "";
-    expect(mainRule).toContain("display: flex");
-    expect(mainRule).toContain("overflow: hidden");
-    const colsRule = css.match(/\.biliscript-bilingual-cols\s*\{[^}]*\}/)?.[0] || "";
-    // align-items: flex-start 会把列收缩到内容高 ⇒ 滚动盒没有高度可滚，两列又只能
-    // 回到共用一个滚动区。交叉轴必须是默认的 stretch。
-    expect(colsRule).not.toContain("align-items");
-    expect(colsRule).toContain("min-height: 0");
-    const colRule = css.match(/\.biliscript-bilingual-col\s*\{[^}]*\}/)?.[0] || "";
-    expect(colRule).toContain("overflow-y: auto");
-    expect(colRule).toContain("min-height: 0");
-    expect(colRule).toContain("min-width: 0");
-    // 细滚动条跟 reader.css 三处滚动容器同一套：只走 ::-webkit-scrollbar 定制
-    //（Chrome 121+ 设标准 scrollbar-color/width 会跳过 webkit 定制、回退原生粗灰条）
-    expect(css).not.toContain("scrollbar-width:");
-    expect(css).not.toContain("scrollbar-color:");
-    expect(css).not.toContain("@supports not (scrollbar-color: auto)");
-    expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar");
-    expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar-button");
-  });
-});

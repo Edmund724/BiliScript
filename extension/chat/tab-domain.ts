@@ -43,7 +43,7 @@
 // B 档写方归并原语、offscreen 端口名、presets/providers 工厂）统一自本模块
 // 转出——chat-tab 的 chat 域 import 面收敛为本模块一处（工单 08 验收：10 → 1）。
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import type { ImagePart } from "../ai/types.js";
+import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
 import type { Settings } from "../core/defaults.js";
 import {
@@ -134,9 +134,13 @@ export interface CreateChatTabDomainDeps {
   // 图片附件（image-input 02 号票，可选）：发送受理时消费附件区，随 chat 消息的
   // images 字段下发（组合根接 reader/chat-tab.ts 的 inputImages.takeImages）。
   takeInputImages?: () => ImagePart[];
+  canUseVideoFrameTool?: () => Promise<boolean>;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
+  getSpeechVolume?: () => number | undefined;
+  isLiveActive?: () => boolean;
 }
 
 export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
@@ -185,7 +189,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     restartChat: deps.restartChat,
     restoreLatest: () => store.restoreLatest(),
     isStreaming: () => runtime.isStreaming(),
-    hasPendingUserPrompt: () => runtime.hasPendingUserPrompt()
+    hasPendingUserPrompt: () => runtime.hasPendingUserPrompt(),
+    isLiveActive: deps.isLiveActive
   });
   // 发送闸（GLOSSARY.md 词条「发送闸」）：发送前上下文就绪事务（G1-G7 + 字幕
   // 等待闸 + 转写相位订阅）。消费前两件的实例方法（loadContextState /
@@ -224,9 +229,12 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
     takeInputImages: deps.takeInputImages,
+    canUseVideoFrameTool: deps.canUseVideoFrameTool,
+    captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,
+    getSpeechVolume: deps.getSpeechVolume,
     smoothStream: true
   });
   // 历史回放事务（GLOSSARY.md 词条「历史回放」）：消费 runtime 的消息区句柄与两个

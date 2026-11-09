@@ -73,45 +73,6 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
   return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)));
 }
 
-/** 主副标题拆分结果：粗体主标题 + 常规体次级说明（概览章节卡两层展示）。 */
-export interface OutlineTitleSplit {
-  primary: string;
-  secondary: string;
-}
-
-// 主分隔符口径（读者 UI 打磨票 02）：全角冒号、半角冒号、成对破折号——。
-// 单个「—」（未成对 em dash）不算分隔符，故分隔符表里只有双写形式。
-const OUTLINE_TITLE_SEPARATORS = ["：", ":", "——"] as const;
-
-/**
- * 简介/评论时间轴章节标题的「主副标题拆分」（仅展示层消费）：按出现位置取
- * 最早的主分隔符切成两段；任一侧为空（标题以分隔符开头/结尾）或不含分隔符
- * 时返回 null——调用方保持原有单层结构。官方章节（manuscript）与 AI 自由分章
- * 不调用本函数。
- */
-export function splitOutlineChapterTitle(title: unknown): OutlineTitleSplit | null {
-  const text = String(title ?? "").trim();
-  let cut = -1;
-  let cutLength = 0;
-  for (const separator of OUTLINE_TITLE_SEPARATORS) {
-    const index = text.indexOf(separator);
-    if (index < 0) continue;
-    if (cut < 0 || index < cut || (index === cut && separator.length > cutLength)) {
-      cut = index;
-      cutLength = separator.length;
-    }
-  }
-  if (cut < 0) {
-    return null;
-  }
-  const primary = text.slice(0, cut).trim();
-  const secondary = text.slice(cut + cutLength).trim();
-  if (!primary || !secondary) {
-    return null;
-  }
-  return { primary, secondary };
-}
-
 /**
  * 热门评论（HotComment[]）→ 可解析文本：message 正文 + 楼中楼续篇（subMessages）
  * 依次拼接，一行一条。续篇是置顶目录评论发在楼中楼里的第二段目录，只进目录解析；

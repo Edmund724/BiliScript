@@ -1,4 +1,4 @@
-// ui/reading-icons.ts — 阅读视图跨域共用的内联 SVG 图标（复制 / 对勾 / 下载 / 播放 / 重置 / 分享 / 关闭 / 下拉 chevron）。
+// ui/reading-icons.ts — 阅读视图跨域共用的内联 SVG 图标（复制 / 对勾 / 下载 / 播放 / 朗读 / 停止 / 重置 / 分享 / 关闭 / 下拉 chevron）。
 // 与 ui/reading-header-icons.ts（面板 header 专用表）分开：本表消费方横跨
 // reader / chat / subtitle 三个域的叶子，header 表只随 UI 壳常驻。
 // 均为纯字符串常量，不依赖 DOM/全局状态；stroke/fill 属性自绘（宿主 CSS
@@ -18,6 +18,14 @@ export const READING_DOWNLOAD_ICON = `
 
 export const READING_PLAY_ICON = `
   <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true"><path d="M8.8 5.5v13l11-6.5z"></path></svg>
+`;
+
+export const READING_SPEAKER_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18 6a8.5 8.5 0 0 1 0 12"></path></svg>
+`;
+
+export const READING_STOP_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
 `;
 
 export const READING_RESET_ICON = `

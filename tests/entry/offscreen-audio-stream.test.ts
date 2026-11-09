@@ -185,6 +185,19 @@ describe("streamAudioSegments", () => {
     expect(items.map((item) => item.segment)).toEqual(adtsFromFmp4(fixture, asc));
   });
 
+  it("主 URL GET 抛网络错误换备用 URL 成功", async () => {
+    stubFetch({
+      getResponses: [
+        () => {
+          throw new TypeError("Failed to fetch");
+        },
+        () => okStreamResponse([fixture])
+      ]
+    });
+    const items = await collect(streamAudioSegments(["bad", "good"], () => false));
+    expect(items.map((item) => item.segment)).toEqual(adtsFromFmp4(fixture, asc));
+  });
+
   it("全部 URL 失败抛「音频下载失败」", async () => {
     stubFetch({
       getResponses: [() => ({ ok: false }), () => ({ ok: true, body: { getReader: () => readerFromChunks([]) } })]

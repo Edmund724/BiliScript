@@ -75,11 +75,25 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   let subtitleWaitActive = false;
 
   function updateSendBtnState(): void {
-    if (sendBtn.classList.contains("is-stop")) {
+    const isStreaming = sendBtn.classList.contains("is-stop");
+    const hasText = Boolean(input.value.trim());
+
+    if (isStreaming) {
       sendBtn.disabled = stopInFlight;
+      sendBtn.setAttribute("aria-label", "停止");
+      sendBtn.setAttribute("title", "停止生成");
       return;
     }
-    sendBtn.disabled = subtitleWaitActive || !input.value.trim();
+
+    if (hasText) {
+      sendBtn.disabled = subtitleWaitActive;
+      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.setAttribute("title", "发送");
+    } else {
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.removeAttribute("title");
+    }
   }
 
   function setSubtitleWaitUi(active: boolean): void {
@@ -89,16 +103,9 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   }
 
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
-    // 流式中输入框不禁用（等待期间可继续打字）：发送闸由双发竞态闸拦——流式中
-    // 回车/发送键走到的 sendTurn 会被在途判据直接忽略，新消息发不出去。
     stopInFlight = stopping;
-    // 同键双形态：空闲 = ↑ 发送键（空输入禁用）；流式中 = 停止键（圆形 + 方块
-    // 图标，点击 abort 同一条 stopActiveStream 链），停止中禁用防连点。
     sendBtn.classList.toggle("is-stop", isStreaming);
-    sendBtn.setAttribute("aria-label", isStreaming ? "停止" : "发送");
-    // 空闲分支同 updateSendBtnState：等待态下的 restartChat（新对话/上下文跟随）
-    // 也会走到这里，不带等待态会把等待中的发送键放回可用。
-    sendBtn.disabled = isStreaming ? stopping : subtitleWaitActive || !input.value.trim();
+    updateSendBtnState();
   }
 
   function autosizeInput(): void {
@@ -172,6 +179,10 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   function bind(): void {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        if (!input.value.trim()) {
+          e.preventDefault();
+          return;
+        }
         e.preventDefault();
         void sendFromUi();
       }

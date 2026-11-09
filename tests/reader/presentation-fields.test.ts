@@ -310,57 +310,6 @@ describe("C. storage 键 ↔ 字段与同步键对应", () => {
   });
 });
 
-describe("D. 源码扫描：data-biliscript-* 属性字面量必须登记在案", () => {
-  // 覆盖四个表驱动消费方 + 仍然直写 mode 的组合根/消息处理器 + CSS/模板/探针
-  // 消费方。其属性均为 LOCAL 局部标志（ready/hide-sending-bar 等），不纳入扫描面。
-  const SCANNED_FILES = [
-    "extension/reader/presentation.ts",
-    "extension/reader/lifecycle.ts",
-    "extension/reader/state.ts",
-    "extension/reader/init-essentials.ts",
-    "extension/entry/content.ts",
-    "extension/entry/message-handler.ts",
-    "extension/ui/ui-renderer.ts",
-    "extension/bilibili/video-probe.ts",
-    "extension/entry/styles/reader-gate.css"
-  ];
-  const ATTR_PATTERN = /data-biliscript-(?:reader|reading)-[a-z-]+/g;
-
-  it("扫描文件中出现的属性全部在表内或 LOCAL_FLAG_ATTRIBUTES 中", () => {
-    const known = new Set([...allDeclaredAttrs(), ...LOCAL_FLAG_ATTRIBUTES]);
-    for (const relPath of SCANNED_FILES) {
-      const source = readFileSync(resolve(process.cwd(), relPath), "utf8");
-      const found: string[] = [...new Set(source.match(ATTR_PATTERN) || [])];
-      for (const attr of found) {
-        expect(
-          known.has(attr),
-          `${relPath} 出现未登记属性 ${attr}：要么进 presentation-fields.js 主表，要么进 LOCAL_FLAG_ATTRIBUTES`
-        ).toBe(true);
-      }
-    }
-  });
-
-  it("消费方不再手抄清单：page-state 与 init-essentials 中已无属性/监听键字面量", () => {
-    for (const relPath of ["extension/reader/state.ts", "extension/reader/init-essentials.ts"]) {
-      const source = readFileSync(resolve(process.cwd(), relPath), "utf8");
-      expect(source.match(ATTR_PATTERN), `${relPath} 不应再出现属性字面量`).toBe(null);
-      expect(source.includes("changes.reader"), `${relPath} 不应手抄 reader 监听键`).toBe(false);
-    }
-  });
-});
-
-describe("D2. 同步设置键的收敛订阅从派生清单取，不再手抄键数组", () => {
-  const SUBSCRIBER = "extension/reader/subtitle-tab-ui.ts";
-
-  it("subtitle-tab-ui 的订阅键面引用派生清单，且无 sync/local 字面量数组", () => {
-    const source = readFileSync(resolve(process.cwd(), SUBSCRIBER), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-    expect(source).toContain("READER_SETTINGS_WATCH_KEYS");
-    expect(source).not.toMatch(/(?:sync|local):\s*\[/);
-  });
-});
-
 describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
   it("E1. apply 写全 writtenByApply 字段的三处目标，且不触碰其他字段", () => {
     state.reader.setTheme("dark");

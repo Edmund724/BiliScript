@@ -40,7 +40,7 @@
 //     → renderInitialState）；
 //     对话 tab 的流式中关闭不做后台续跑（connectPort 的 closed 闸兜底）。
 //   - 会话单例 initialized / initInFlight / sessionClosed：init 四路互不依赖的
-//     初始化并行起跑；激活/恢复/关闭三入口经 reader/lazy-chat-tab 暴露。会话级
+//     初始化并行起跑；激活/停止朗读/关闭入口经 reader/lazy-chat-tab 暴露。会话级
 //     触发源（字幕相位总线 / URL 变化 / clip 落定 / 存储变更 / 预热落定 / 外点
 //     关闭槽 / Esc）收在 createReaderChatSessionTriggers 的会话对象里，随激活
 //     挂载、随收尾摘除；元素级 bindEvents 与窗口 resize 是常驻监听，只在 init
@@ -66,10 +66,9 @@ import { extractBvid } from "../bilibili/video-id-shared.js";
 import { thinkingViewOf } from "../chat/thinking-picker.js";
 // 档位入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
-import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeChatLineHeight, normalizeChatParagraphSpacing } from "../core/validators.js";
+import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -102,12 +101,8 @@ import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 // 转写中判定（与字幕 tab 横幅同源：相位 transcribing 且字幕体为空）。
 import { isReaderTranscribing } from "./transcribe-banner.js";
-// PR3 契约：待解释意图 peek/consume/clear（消费落在本组合根）。
-import {
-  peekPendingExplainIntent,
-  consumePendingExplainIntent,
-  clearPendingExplainIntent
-} from "./explain-intent.js";
+// 待解释意图的对话侧消费：引用卡、提示词与受理后 consume 事务收在独立 module。
+import { createExplainIntentConsumption } from "./explain-intent-consumption.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
@@ -146,6 +141,19 @@ import { logWarn } from "../shared/logging.js";
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
+import { normalizeLiveVoiceVolume } from "../core/validators.js";
+import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
+import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
+import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
+import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
+import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
+import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
+// 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
+import {
+  ensureReaderOverviewSource,
+  getReaderOverviewSource,
+  subscribeReaderOverviewSource
+} from "./live-overview-source.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 
@@ -189,7 +197,11 @@ const els = {
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
-  intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null
+  intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
+  speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
+  speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
+  speechVolumeValue: document.getElementById(ids.readingChatSpeechVolumeValue) as HTMLElement | null,
+  speechVolumeResetBtn: document.getElementById(ids.readingChatSpeechVolumeResetBtn) as HTMLButtonElement | null
 };
 
 function requireShell(): void {
@@ -221,6 +233,22 @@ function requireShell(): void {
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
+let liveController: LiveChatController | null = null;
+let preservingLiveSessionOnContextSwitch = false;
+
+const liveOverlayBinding = createLiveOverlayBinding({
+  getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
+  getLiveController: () => liveController
+});
+
+export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
+  return liveOverlayBinding.getOverlay();
+}
+
+export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
+  return liveOverlayBinding.ensureOverlay();
+}
+
 
 // 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
 // false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
@@ -308,9 +336,16 @@ const composer = createReaderChatComposer({
   chatRuntime: {
     sendTurn: (text) => chatRuntime.sendTurn(text),
     isTurnActive: () => chatRuntime.isTurnActive(),
-    stopActiveStream: () => chatRuntime.stopActiveStream()
+    stopActiveStream: () => {
+      chatRuntime.stopActiveStream();
+    }
   },
   onPasteImage: (e) => inputImages.handlePaste(e)
+});
+
+const explainIntentConsumption = createExplainIntentConsumption({
+  card: els.intentCard,
+  autoSendPrompt: composer.autoSendPrompt
 });
 
 // 发图门控（image-input 05 号票）：带图消息被发送受理时查一次模型目录，目录明确
@@ -419,8 +454,17 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     imageSupportGate.check(images);
     return images;
   },
+  canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
+  captureCurrentVideoFrame: async () => {
+    const frame = await capturePageVideoFrame();
+    return {
+      image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
+      currentTime: frame.currentTime
+    };
+  },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
+  getSpeechVolume: () => normalizeSpeechVoiceVolume(state.settings?.speechVoiceVolume) / 100,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
   // 不阻断 connect，维持历史行为，由连接结果兜底）。chrome.offscreen 仅扩展
   // 上下文可用：content script 经 "ensure-offscreen-chat" 消息委托 background
@@ -432,7 +476,8 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
     await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
     return chrome.runtime.connect({ name: OFFSCREEN_CHAT_PORT_NAME });
-  }
+  },
+  isLiveActive: () => isLiveSessionActive()
 });
 
 const { loadContextState } = contextLoad;
@@ -633,13 +678,16 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // aiProviderKeys，摘除即 unsubscribe。
   storageWatcher: () => watchStorageKeys(() => {
     void refreshProvidersAndPrefsAfterExternalChange();
+    void liveController?.refreshTarget();
   }, {
     sync: [
       "aiProviders",
       "aiSystemPrompt",
       "aiInitialQuickPrompts",
       "defaultModel",
-      "aiThinkingLevel"
+      "aiThinkingLevel",
+      "liveProviders",
+      "activeLiveProviderId"
     ],
     local: ["aiProviderKeys"]
   }),
@@ -655,10 +703,12 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（reader-bus 转发槽），
   // 同一时刻至多一个注册者，摘除即置回 null。
   outsideClick: () => {
-    setChatTabOutsideClickHandler(popovers.handleDocumentClick);
+    setChatTabOutsideClickHandler((event) => {
+      popovers.handleDocumentClick(event);
+    });
     return () => setChatTabOutsideClickHandler(null);
   },
-  // Esc 关闭三个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
+  // Esc 关闭两个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
   escapeKey: () => {
     window.addEventListener("keydown", onWindowEscapeKey);
     return () => window.removeEventListener("keydown", onWindowEscapeKey);
@@ -687,7 +737,8 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
       refreshThinkingUi();
     }),
     conversationStore.loadAll(),
-    loadContextState()
+    loadContextState(),
+    liveController?.refreshTarget() ?? Promise.resolve()
   ]);
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
@@ -697,7 +748,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   // PR3 契约消费：有待解释意图 → 渲染引用卡 + 自动发送（发送成功即 consume）。
   // 快捷动作路径传 consumeIntent:false 跳过（与快捷发送互不踩踏）。
   if (consumeIntent) {
-    await consumeExplainIntentIfPending();
+    await explainIntentConsumption.consumeIfPending();
   }
 }
 
@@ -709,6 +760,7 @@ async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
   // 都由这一次重判画出来，不再另调 renderChip）。
   await loadProvidersAndPrefs().catch(() => null);
+  void liveController?.refreshTarget();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -737,8 +789,27 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   // 已初始化的普通激活（tab 切回）：消费可能新写入的待解释意图（解释卡片
   // 「去对话追问」在对话 tab 已装载时点击 / 上次挂起的意图重试）。无意图时为无害 no-op。
   if (consumeIntent) {
-    await consumeExplainIntentIfPending();
+    await explainIntentConsumption.consumeIfPending();
   }
+}
+
+export function stopChatSpeech(): void {
+  chatRuntime.stopSpeech();
+}
+
+export function stopLiveCompanion(): void {
+  void liveController?.stop();
+}
+
+export async function startLiveCompanion(): Promise<boolean> {
+  if (chatRuntime.isTurnActive()) {
+    chatRuntime.stopActiveStream();
+  }
+  return liveOverlayBinding.startOrRestoreCompanion();
+}
+
+export function getLiveController(): LiveChatController | null {
+  return liveController;
 }
 
 export function closeChatSession(): void {
@@ -750,6 +821,7 @@ export function closeChatSession(): void {
     return;
   }
   sessionClosed = true;
+  liveController?.dispose();
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();
@@ -768,7 +840,7 @@ export function closeChatSession(): void {
   sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
   // 隐藏，下次激活按无意图渲染。
-  hideExplainIntentCard();
+  explainIntentConsumption.hide();
   sessionTriggers.deactivate();
 }
 
@@ -793,61 +865,6 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
   }
   await startNewConversation();
   return composer.sendViaInputBox(text);
-}
-
-// ============================================================
-// PR3 契约消费：待解释意图 → 引用卡（时间戳 pill 母题）+ 自动发送
-// ============================================================
-
-// 解释提示词模板：引用句 + 时间戳 pill 文案，发送出去的消息自带引用上下文。
-// 两种口径：卡片「去对话追问」带选中片段 → 解释这个词句；整句意图（无
-// selection）→ 解释这句字幕。
-function buildExplainPrompt(intent: { from: number; content: string; selection?: string }): string {
-  const stamp = formatClock(intent.from, { hours: "auto" });
-  if (intent.selection) {
-    return `请结合视频上下文解释我选中的词句：「${intent.selection}」。它出自字幕句「${intent.content}」（${stamp}）。说明它的含义、背景，以及在这句话里指什么。`;
-  }
-  return `请结合视频上下文解释这句字幕：「${intent.content}」（${stamp}）。说明它的含义、背景，以及与前后文的关系。`;
-}
-
-function renderExplainIntentCard(intent: { from: number; content: string; selection?: string }): void {
-  if (!els.intentCard) {
-    return;
-  }
-  const quote = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-quote");
-  if (quote) {
-    quote.textContent = intent.selection ? `「${intent.selection}」｜${intent.content}` : `「${intent.content}」`;
-  }
-  const stamp = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-time");
-  if (stamp) {
-    stamp.textContent = formatClock(intent.from, { hours: "auto" });
-  }
-  els.intentCard.hidden = false;
-}
-
-function hideExplainIntentCard(): void {
-  if (els.intentCard) {
-    els.intentCard.hidden = true;
-  }
-}
-
-// peek 意图 → 渲染引用卡 → 自动发送解释提示词；发送成功（受理结论 accepted）才
-// consumePendingExplainIntent——一次意图只发一次。发送被 subtitle-wait 挂起时
-// sendTurn 的 promise 不提前兑现（等待在其内部 await），意图保持 pending；回合
-// 已在途（受理窗口 / 流段）时 autoSendPrompt 直接返回 false（不消费，留在 pending，
-// 下一次激活补发）——直到真正发出或用户取消（引用卡上的取消按钮）。
-async function consumeExplainIntentIfPending(): Promise<void> {
-  const intent = peekPendingExplainIntent();
-  if (!intent || !intent.content) {
-    hideExplainIntentCard();
-    return;
-  }
-  renderExplainIntentCard(intent);
-  const sent = await composer.autoSendPrompt(buildExplainPrompt(intent));
-  if (sent) {
-    consumePendingExplainIntent();
-    hideExplainIntentCard();
-  }
 }
 
 // ============================================================
@@ -893,13 +910,30 @@ function bindEvents(): void {
     }
   });
 
-  const syncTypographySlidersFromState = () => {
+  const speechVolumeSlider = bindResettableRangeSlider({
+    input: els.speechVolumeInput,
+    badge: els.speechVolumeValue,
+    resetBtn: els.speechVolumeResetBtn,
+    defaultValue: DEFAULT_SETTINGS.speechVoiceVolume,
+    normalize: normalizeSpeechVoiceVolume,
+    format: (val) => `${val}%`,
+    initialValue: state.settings?.speechVoiceVolume,
+    onPreview: (val) => {
+      state.patchSettings({ speechVoiceVolume: val });
+    },
+    onCommit: (val) => {
+      void sendRuntimeMessage({ type: "save-settings", settings: { speechVoiceVolume: val } }).catch(() => null);
+    }
+  });
+
+  const syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
     paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
+    speechVolumeSlider.setValue(state.settings?.speechVoiceVolume);
   };
 
   els.moreBtn?.addEventListener("click", (event) => {
-    syncTypographySlidersFromState();
+    syncMoreMenuSlidersFromState();
     popovers.toggleMoreMenu(event);
   });
   els.newChatBtn?.addEventListener("click", () => {
@@ -917,7 +951,35 @@ function bindEvents(): void {
   els.historyBackBtn?.addEventListener("click", () => {
     popovers.hideHistoryPopover();
   });
-  // 模型 chip：点开模型 + 思考档位面板。
+
+  // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
+  // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
+  const liveToolsBridge = createLiveToolsBridge({
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    getOverview: () => getReaderOverviewSource(),
+    ensureOverview: (options) => ensureReaderOverviewSource(options)
+  });
+  liveController = createLiveChatController({
+    initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+    initialVoicePriority: state.settings?.liveVoicePriority !== false,
+    initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
+    ...liveOverlayBinding.bindControllerCallbacks(),
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    getVideoContext: liveToolsBridge.getVideoContext,
+    executeTool: liveToolsBridge.executeTool,
+    subscribeVideoContextChanges: (listener) => {
+      const unsubscribePresenter = subscribeReaderPresenter((event) => {
+        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
+          listener();
+        }
+      });
+      const unsubscribeOverview = subscribeReaderOverviewSource(listener);
+      return () => {
+        unsubscribePresenter();
+        unsubscribeOverview();
+      };
+    }
+  });
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
@@ -967,8 +1029,7 @@ function bindEvents(): void {
     const target = event.target as HTMLElement | null;
     const intentBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
     if (intentBtn && intentBtn.dataset.chatIntentAction === "cancel") {
-      clearPendingExplainIntent();
-      hideExplainIntentCard();
+      explainIntentConsumption.cancel();
       return;
     }
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
@@ -995,6 +1056,15 @@ function onWindowResize(): void {
 // 输入框高度上限常量（实现与逻辑收归 chat-tab-composer.ts，本处保留供测试与类型锁定）
 export const INPUT_MAX_HEIGHT = 320;
 
+function isLiveSessionActive(): boolean {
+  const s = liveController?.getState();
+  return s === "connecting" || s === "connected";
+}
+
+function isConversationViewActive(): boolean {
+  return chatRuntime.isTurnActive();
+}
+
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部
 // 设置变更 → 刷新」编排（流式守卫 + 重渲染留在组合根）。
 async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
@@ -1006,10 +1076,10 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   refreshThinkingUi();
   // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
   //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
-  // 重建清场。守卫判据是 isTurnActive() 而非 isStreaming()——后者在 connectPort
-  // 之前的窗口为假，旧判据会在这个窗口把消息区重建掉（把已上屏的提问清走）。
+  // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
+  // 防止上下文对账把已上屏的实时问答重建掉。
   lists.renderHistoryList();
-  if (chatRuntime.isTurnActive()) {
+  if (isConversationViewActive()) {
     return;
   }
   renderInitialState();
@@ -1028,8 +1098,14 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
   if (sessionClosed) {
     return;
   }
-  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
+  preservingLiveSessionOnContextSwitch = isLiveSessionActive();
+  let ok = false;
+  try {
+    ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
+  } finally {
+    preservingLiveSessionOnContextSwitch = false;
+  }
+  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {

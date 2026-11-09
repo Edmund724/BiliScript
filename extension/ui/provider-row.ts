@@ -61,12 +61,12 @@ export interface ProviderRowItem {
   enabled?: boolean;
   apiKey?: string;
   hasSavedKey?: boolean;
-  // 副行状态覆写（仅搜索族 DeepSeek 行使用）：凭据引用三态文案（「已复用 AI 平台
-  // Key」等，deepseek-credential 叶产出），渲染时优先于预设 note。
+  // 凭据引用状态：搜索族 DeepSeek 行覆写预设 note；实时族 Gemini Live 行追加到模型名后。
   statusNote?: string;
   // 平台协议（multi-protocol-ai）：编辑 Modal 预填/回写；宽松 string，合法性
   // 由编辑 Modal 经注册表词表收敛。
   protocol?: string;
+  liveGeminiNativeSearch?: boolean;
 }
 
 // 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset

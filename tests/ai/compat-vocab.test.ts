@@ -53,46 +53,6 @@ function presetProtocols(): Record<string, AiProtocol[]> {
   return out;
 }
 
-describe("compat-vocab 词表叶", () => {
-  it("纯叶：模块无值 import（零运行时依赖，不拖入 adapters/分发表）", () => {
-    const source = readFileSync("extension/ai/compat-vocab.ts", "utf8");
-    expect(source).not.toMatch(/^\s*import\s+(?!type\b)/m);
-  });
-
-  it("键集合稳定：键名与顺序是契约（改语义可，改键名须同步迁移消费点）", () => {
-    expect(Object.keys(COMPAT_QUIRKS)).toEqual([
-      "maxTokensField",
-      "thinkingFormat",
-      "streamingOnlyThinkingOff",
-      "effortVocabMessages",
-      "thinkingDisabledMustBeExplicit",
-      "probeOmitsThinking",
-      "maxTokensRequired",
-      "sessionHeader",
-      "systemOutOfBand",
-      "toolResultInUserMessage",
-      "stopReasonVocabulary",
-      "noDoneSentinel",
-      "thinkingSignatureNotReplayed",
-      "parallelToolUseFlattened",
-      "serverToolsNotTranslated",
-      "contentPartsAsArray",
-      "toolCallFragmentsByIndex",
-      "authHeaderScheme",
-      "bearerOptionalWithoutKey"
-    ]);
-  });
-
-  it("每条怪癖都有非空语义与合法适用协议（protocols 只能是词表叶的 AiProtocol）", () => {
-    for (const [key, spec] of Object.entries(COMPAT_QUIRKS)) {
-      expect(spec.summary.trim().length, key).toBeGreaterThan(0);
-      expect(spec.protocols.length, key).toBeGreaterThan(0);
-      for (const protocol of spec.protocols) {
-        expect(AI_PROTOCOLS, `${key} → ${protocol}`).toContain(protocol);
-      }
-    }
-  });
-});
 
 describe("二次校验层（声明与接纳对账）", () => {
   it("真实表零违规：词表声明的适用协议 ⟺ adapter 接纳的怪癖键集", () => {

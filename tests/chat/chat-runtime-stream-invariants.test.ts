@@ -126,14 +126,29 @@ function assistantNode(deps: RuntimeDeps): HTMLElement {
   return deps.messages.querySelector(".chat-msg-assistant") as HTMLElement;
 }
 
-// 帧快照：stable/tail 的 innerHTML（tail 摘除光标后）+ 光标接回断言所需信息
+function withoutTableLayout(element: Element): HTMLElement {
+  const clone = element.cloneNode(true) as HTMLElement;
+  for (const label of Array.from(clone.querySelectorAll(".biliscript-md-table-cell-label"))) {
+    label.remove();
+  }
+  for (const shell of Array.from(clone.querySelectorAll(".biliscript-md-table"))) {
+    const table = shell.querySelector("table");
+    if (table) {
+      shell.replaceWith(table);
+    }
+  }
+  return clone;
+}
+
+// Markdown 结构等价不包含表格的展示层包装；包装契约由 markdown-table 测试锁定。
 function frameSnapshot(node: Element) {
   const stableEl = node.querySelector(".chat-stream-stable")!;
   const tailEl = node.querySelector(".chat-stream-tail")!;
-  const tailClone = tailEl.cloneNode(true) as HTMLElement;
+  const stableClone = withoutTableLayout(stableEl);
+  const tailClone = withoutTableLayout(tailEl);
   tailClone.querySelector(".chat-msg-cursor")?.remove();
   return {
-    stableHTML: stableEl.innerHTML,
+    stableHTML: stableClone.innerHTML,
     tailHTML: tailClone.innerHTML,
     stableText: stableEl.textContent,
     cursorOk:
@@ -241,7 +256,7 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
       // 不变量 5：终态整渲染从全量文本重放，与流式渲染逐字节一致
       feed(runtime, { type: "done" });
       const full = tokens.join("");
-      const finalHTML = node.querySelector(".chat-msg-assistant-body")!.innerHTML;
+      const finalHTML = withoutTableLayout(node.querySelector(".chat-msg-assistant-body")!).innerHTML;
       expect(finalHTML).toBe(md.renderMarkdown(md.stripThinkBlocks(full)));
       const last = frames[frames.length - 1].snapshot;
       expect(finalHTML).toBe(last.stableHTML + last.tailHTML);

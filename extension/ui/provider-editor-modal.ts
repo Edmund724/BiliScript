@@ -17,9 +17,10 @@
 //（runIfCurrent / captureSession），不再手抄代际比对。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
+
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
+import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -27,13 +28,13 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 // DeepSeek 凭据引用（GLOSSARY「凭据引用」）：搜索测试的 Key 与链装配同源——读 AI 族
 // 列表（ai-providers-list）+ 官方端点判定，再按记录 id 取 Key（get-ai-provider-key）。
 import {
-  DEEPSEEK_ROW_STATUS_TEXT,
-  resolveDeepseekCredential,
-  type DeepseekCredentialStatus
-} from "../search/deepseek-credential.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
-import { wireModelPicker } from "./model-picker.js";
+  getAiCredentialStatusText,
+  queryAiCredentialKey
+} from "../core/ai-credential-reference.js";
+
+import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
+import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
@@ -77,6 +78,39 @@ import {
   openFetchDialog,
   syncFetchSelectionState
 } from "./provider-editor-fetch-dialog.js";
+
+// 单模型输入族（modelSource === "input"：asr / live）的运行时 I/O 动作表：
+// 纯声明留在 provider-family.ts，带网络/port 副作用的探针与模型枚举留在本懒加载片。
+interface InputModelFamilyIo {
+  readonly defaultType: string;
+  readonly fetchModels: (params: {
+    baseUrl: string;
+    apiKey?: string;
+    providerId?: string;
+    type?: string;
+  }) => Promise<ModelPickerFetchResult | null>;
+  readonly probePlatform: (params: {
+    id: string;
+    name: string;
+    type: string;
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+  }) => Promise<{ ok?: boolean; error?: string }>;
+}
+
+const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamilyIo>> = {
+  asr: {
+    defaultType: "openai-transcriptions",
+    fetchModels: listAsrModels,
+    probePlatform: testAsrConnection
+  },
+  live: {
+    defaultType: "moss-live",
+    fetchModels: listLiveModels,
+    probePlatform: testLiveConnection
+  }
+};
 
 // 状态行写入口（ASR 平台级测试 / 测试模型下拉与保存共用；错误态着色走
 // data-error，与平铺行 .ai-provider-status 的 CSS 契约同款）
@@ -179,6 +213,7 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     hasSavedKey: state.hasSavedKey,
     models: normalizeDraftModels(draft.models),
     model: draft.model.trim(),
+    liveGeminiNativeSearch: draft.liveGeminiNativeSearch === true,
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
     protocol: normalizeProtocolValue(draft.protocol)
   });
@@ -254,21 +289,21 @@ export async function deleteActive(): Promise<void> {
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 //
 // AI：行级测试（拍板 Q4/Q12，runModelTest），平台级按钮已退役；本函数只剩
-// ASR 平台级测试与搜索测试动作（spec §6.6）。ASR 的探针经 port 走 offscreen，
-// 与实际转写同一条链路（dc6c4c1：探针与真跑曾分叉，才会「未授权却测出连接成功」）；
-// 探针的 host 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
+// 单模型输入族（ASR / Live）平台级探针与搜索测试动作（spec §6.6）。探针的 host
+// 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
 
 export async function runTest(): Promise<void> {
-  // 平台级测试能力按族声明（ASR 探针 / 搜索测试动作）；函数体仍按族直写
-  if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  if (!family.editor.supportsPlatformTest) return;
   if (state.kind === "search") {
     // 不同步 await：搜索域名是 manifest 静态 host 权限（settings-panel 保存链同款
     // 判据），不代申请；这里让出控制权也不影响手势（该分支直接返回，从不到申请处）
     void runSearchTest();
     return;
   }
+  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
   const draft = state.draft;
-  if (!draft) return;
+  if (!draft || !inputIo) return;
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
   if (!baseUrl) {
@@ -283,44 +318,36 @@ export async function runTest(): Promise<void> {
   // tests/ui/provider-editor.test.ts 的点击当拍核验）。已授权时 Chrome 直接放行
   // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
   const session = captureSession();
-  await session.run(
-    () => requestProviderOriginsViaBackground([baseUrl]),
+  await session.runWithOriginPreflight(
+    family.editor.resolvePermissionOrigins(baseUrl, model),
+    () => {
+      const preset = family.resolvePreset(state.presets, draft.presetId);
+      const apiKey = draft.apiKey.trim();
+      const name = draft.name.trim() || preset?.name || "自定义";
+      return inputIo.probePlatform({
+        id: state.editingId,
+        name,
+        type: preset?.type || inputIo.defaultType,
+        baseUrl,
+        model,
+        ...(apiKey ? { apiKey } : {})
+      });
+    },
     {
-      ok: (permission) => {
-        if (!permission.ok) {
-          showStatus(permission.error || "未取得该平台域名权限，无法测试连接", true);
-          return;
-        }
+      beforeWork: () => {
         setBusy(true);
         showStatus("正在测试...");
-        const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
-        const apiKey = draft.apiKey.trim();
-        const name = draft.name.trim() || preset?.name || "自定义";
-        // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
-        void session.run(
-          () =>
-            testAsrConnection({
-              id: state.editingId,
-              name,
-              type: preset?.type || "openai-transcriptions",
-              baseUrl,
-              model,
-              ...(apiKey ? { apiKey } : {})
-            }),
-          {
-            ok: (resp) => {
-              if (!resp?.ok) {
-                setBusy(false);
-                showStatus(`失败：${resp?.error || "未知错误"}`, true);
-                return;
-              }
-              // 测试成功：只回报连通性，不写设置——用户显式点「保存」才落盘
-              setBusy(false);
-              showStatus("连接成功");
-            }
-            // fail 缺省：探针异常原样上抛（与既有 void 调用语义一致）
-          }
-        );
+      },
+      denied: (error) => {
+        showStatus(error || "未取得该平台域名权限，无法测试连接", true);
+      },
+      ok: (resp) => {
+        setBusy(false);
+        if (!resp?.ok) {
+          showStatus(`失败：${resp?.error || "未知错误"}`, true);
+          return;
+        }
+        showStatus("连接成功");
       }
     }
   );
@@ -333,26 +360,6 @@ export async function runTest(): Promise<void> {
 // 前置（baseUrl 空 / Key 必填但空）是本地校验，不是测试态：不发起请求。
 export const SEARCH_TEST_QUERY = "联网搜索测试";
 
-// DeepSeek 搜索测试的 Key 解析（凭据引用，与链装配同源判定）：读 AI 族列表找
-// 第一条「启用 + presetId deepseek + 官方端点」记录，再按记录 id 取 Key。
-// 任一步失败返回空 Key + 对应状态（状态文案单源在 DEEPSEEK_ROW_STATUS_TEXT）。
-async function resolveDeepseekKeyForSearchTest(): Promise<{ key: string; status: DeepseekCredentialStatus }> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
-    if (!resp?.ok || !Array.isArray(resp.providers)) {
-      return { key: "", status: "no-record" };
-    }
-    const { status, record } = resolveDeepseekCredential(resp.providers);
-    if (status !== "ok" || !record || !record.id) {
-      return { key: "", status };
-    }
-    const keyResp = await sendRuntimeMessage({ type: "get-ai-provider-key", providerId: record.id });
-    const key = keyResp?.ok ? String(keyResp.apiKey || "").trim() : "";
-    return { key, status: key ? "ok" : "no-key" };
-  } catch {
-    return { key: "", status: "no-record" };
-  }
-}
 
 // 五态：HTTP 200 有结果 →「连接成功 · N 条结果」；200 且 0 条 →「未返回结果」
 // （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
@@ -379,9 +386,9 @@ export async function runSearchTest(): Promise<void> {
   // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
   // 同源判定）；取不到按状态给三态文案之一，不发起请求。
   if (preset?.id === "deepseek") {
-    const resolved = await resolveDeepseekKeyForSearchTest();
+    const resolved = await queryAiCredentialKey("deepseek");
     if (!resolved.key) {
-      showStatus(DEEPSEEK_ROW_STATUS_TEXT[resolved.status], true);
+      showStatus(getAiCredentialStatusText("deepseek", resolved.status), true);
       return;
     }
     apiKey = resolved.key;
@@ -463,7 +470,8 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
     protocol: isAi ? protocol : "",
     // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
     models: isAi && Array.isArray(item?.models) ? item.models.map(String) : [],
-    model: isAi ? "" : String(item?.model ?? preset?.model ?? "")
+    model: isAi ? "" : String(item?.model ?? preset?.model ?? ""),
+    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false
   };
 }
 
@@ -520,6 +528,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         </div>`
             : `
         ${blocks.model}
+        ${blocks.liveGeminiNativeSearch}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>
@@ -636,9 +645,9 @@ export function wireDialog(): void {
 
   // 预设切换（候选 4 片 3：改 draft 后重投影）：baseUrl 未改过（空或仍是上一
   // 预设默认值）才跟随（平铺行同款规则）。AI 名称留过实值（≠当前预设名）视为
-  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。ASR 名称/
-  // 模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——Modal 的 host 权限
-  // 在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
+  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。单模型输入族
+  //（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——
+  // Modal 的 host 权限在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
   presetSelect?.addEventListener("change", () => {
     const next = family.resolvePreset(state.presets, presetSelect.value);
     const draft = state.draft;
@@ -667,9 +676,9 @@ export function wireDialog(): void {
         if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
           current.baseUrl = next.baseUrl || "";
         }
-        // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
-        // 只是无模型字段可跟
-        if (state.kind === "asr") {
+        // 单模型输入族（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）；
+        // 搜索平台同款语义，只是无模型字段可跟
+        if (family.editor.modelSource === "input") {
           current.model = next.model || "";
         }
         current.name = next.name || "";
@@ -723,6 +732,16 @@ export function wireDialog(): void {
   // 的字段表声明（DRAFT_INPUTS），这里只做一次统一接线。
   // ASR 单模型输入只回写 draft（状态行由 model-picker 自持）；其下拉选值已在
   // model-picker 内补派 input 事件。
+  const geminiSearchInput = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
+  if (geminiSearchInput) {
+    initToggleSwitch(geminiSearchInput);
+    geminiSearchInput.addEventListener("change", () => {
+      editDraft((draft) => {
+        draft.liveGeminiNativeSearch = geminiSearchInput.checked;
+      });
+    });
+  }
+
   for (const field of DRAFT_INPUTS) {
     const input = dialog.querySelector<HTMLInputElement>(field.selector);
     input?.addEventListener("input", () => {
@@ -778,20 +797,27 @@ export function wireDialog(): void {
   dialog.addEventListener("blur", syncAriaInvalid, true);
   dialog.addEventListener("input", syncAriaInvalid);
 
-  // ASR 侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）；
-  // 直调 provider-models（与平铺行一致）
-  if (state.kind === "asr") {
+  // 单模型输入族（ASR / Live）侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）
+  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
+  if (family.editor.modelSource === "input" && inputIo) {
     wireModelPicker(dialog as unknown as ProviderRowElement, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
       apiKeyClass: "provider-editor-apikey",
       statusClass: "provider-editor-status",
       showStatus: (_node, text, isError) => showStatus(text, isError),
-      fetchModels: ({ baseUrl, apiKey, providerId }) =>
-        listAsrModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
+      fetchModels: ({ baseUrl, apiKey, providerId }) => {
+        const preset = family.resolvePreset(state.presets, state.draft?.presetId || "");
+        return inputIo.fetchModels({
+          baseUrl,
+          apiKey,
+          providerId: providerId || state.editingId,
+          type: preset?.type
+        });
+      },
       isKeyRequired: () => {
         const draft = state.draft;
-        const preset = PROVIDER_FAMILY_ROWS.asr.resolvePreset(state.presets, draft?.presetId || "");
+        const preset = family.resolvePreset(state.presets, draft?.presetId || "");
         if (preset?.requiresKey === false) return false;
         try {
           const url = new URL(draft?.baseUrl || "");
@@ -799,7 +825,7 @@ export function wireDialog(): void {
         } catch {
           // 非合法绝对 URL，沿用预设规则
         }
-        return PROVIDER_FAMILY_ROWS.asr.editor.isKeyRequired(preset);
+        return family.editor.isKeyRequired(preset);
       },
       hasSavedKey: () => Boolean(state.hasSavedKey)
     });

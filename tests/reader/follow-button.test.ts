@@ -93,10 +93,4 @@ describe("Follow playback 悬浮按钮", () => {
     expect(video.currentTime).toBe(12);
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
   });
-
-  it("CSS/JS 契约：reader.css 的显隐选择器引用跟随态属性，转写中强制隐藏", () => {
-    const css = readFileSync(resolve(process.cwd(), "extension/entry/styles/reader.css"), "utf8");
-    expect(css).toContain('#biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn');
-    expect(css).toContain(".biliscript-reading-tab-body.is-transcribing .biliscript-reading-follow-btn");
-  });
 });

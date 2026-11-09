@@ -2,7 +2,7 @@
 //
 // 设置项挂载在文摘面板的设置抽屉（ui-renderer 模板内的 #biliscript-reading-settings-host
 // 容器，分节、随抽屉滚动）：
-//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索平台）与标量设置项；
+//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索 / MOSS-LIVE）与标量设置项；
 //   - 标量设置项按 SCALAR_FIELD_BINDINGS 声明式驱动水合、即时保存与跨端同步；
 //   - 平台经 provider-editor Modal 的单平台事务 provider-transaction 保存，
 //     平台行构建与验证复用 ../ui/provider-family.ts、../core/validators.ts；
@@ -37,19 +37,22 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { confirmDialog } from "./confirm-dialog.js";
+import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
+import { isProviderEditorOpen } from "./provider-editor.js";
+import { cleanExpiredConversations } from "../chat/conversation-store.js";
 import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
-import { createProviderFamilyRows } from "./provider-family.js";
+import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
-// DeepSeek 凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：行副行状态文案
-// 与链装配消费同一判定叶，面板不自行判端点。
-import { DEEPSEEK_ROW_STATUS_TEXT, resolveDeepseekCredential } from "../search/deepseek-credential.js";
+// 跨族凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
+// 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
+import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
 import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
@@ -112,14 +115,19 @@ function collectElements(host: HTMLElement) {
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
     customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
+    enableExtraPlaybackRates: byIdIn<HTMLInputElement>(dom.enableExtraPlaybackRates),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
     includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
     enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    cleanConversationsOlderThan30Days: byIdIn<HTMLInputElement>(dom.cleanConversationsOlderThan30Days),
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
     addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
+    liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
+    liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
+    addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -136,6 +144,9 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
+    toggleSearchChainBtn: byIdIn<HTMLElement>(dom.toggleSearchChainBtn),
+    searchChainContainer: byIdIn<HTMLElement>(dom.searchChainContainer),
+    searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
   };
@@ -275,9 +286,26 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   },
   {
     kind: "toggle",
+    key: "cleanConversationsOlderThan30Days",
+    getElement: (el) => el.cleanConversationsOlderThan30Days,
+    normalize: (val) => val === true,
+    onApply: async (val) => {
+      if (val) {
+        await cleanExpiredConversations();
+      }
+    }
+  },
+  {
+    kind: "toggle",
     key: "autoOpenReader",
     getElement: (el) => el.autoOpenReader,
     normalize: (val) => val === true
+  },
+  {
+    kind: "toggle",
+    key: "enableExtraPlaybackRates",
+    getElement: (el) => el.enableExtraPlaybackRates,
+    normalize: (val) => Boolean(val)
   },
   {
     kind: "toggle",
@@ -431,18 +459,17 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
-  // ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
+  // 实时伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
+  const liveProviders = await loadLiveProviders();
+  renderActiveRadioFamily(
+    "live",
+    elements,
+    annotateAiCredentialRows("live", liveProviders, providers),
+    settings.activeLiveProviderId
+  );
+
   const asrProviders = await loadAsrProviders();
-  const rawAsrActiveId = String(settings.activeAsrProviderId || "").trim();
-  const activeAsrId = resolveActiveAsrProviderId(asrProviders, rawAsrActiveId);
-  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
-    presets: asrPresets,
-    activeId: activeAsrId
-  });
-  if (activeAsrId !== rawAsrActiveId) {
-    state.patchSettings({ activeAsrProviderId: activeAsrId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: activeAsrId } });
-  }
+  renderActiveRadioFamily("asr", elements, asrProviders, settings.activeAsrProviderId);
 
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   const searchProviders = await loadSearchProviders();
@@ -452,7 +479,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   familyRows.search.render(
     elements.searchProvidersList,
     elements.searchProvidersEmpty,
-    annotateDeepseekRows(sortSearchProviders(searchProviders), providers),
+    annotateAiCredentialRows("search", sortSearchProviders(searchProviders), providers),
     {
       presets: SEARCH_PROVIDER_PRESETS,
       activeId: settings.activeSearchProviderId || ""
@@ -461,6 +488,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   syncResetSearchOrderButton(elements);
   // 悬空链首提示：链首指向已不存在的记录时露条件提示行；用户改选或链首指向在场记录即隐藏。
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
+  syncSearchChainActiveSummary(elements, settings.activeSearchProviderId);
   navSyncRef?.updateActiveIndicator(false);
 }
 
@@ -504,36 +532,50 @@ function syncResetSearchOrderButton(elements: SettingsElements): void {
   elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
 }
 
-// DeepSeek 行凭据引用三态文案（GLOSSARY「凭据引用」）：搜索侧 DeepSeek 记录没有
-// 自有 Key，副行状态由 AI 族记录 + 官方端点判定得出；无 DeepSeek 行时零开销原样返回。
-function annotateDeepseekRows(
-  items: ProviderRowItem[],
-  aiProviders: readonly ProviderRowItem[]
-): ProviderRowItem[] {
-  if (!items.some((item) => String(item.presetId || "") === "deepseek")) {
-    return items;
+function rerenderLiveProviders(
+  elements: SettingsElements,
+  providers: ProviderRowItem[],
+  knownAiProviders?: readonly ProviderRowItem[]
+): void {
+  if (knownAiProviders) {
+    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, knownAiProviders));
+    return;
   }
-  const { status } = resolveDeepseekCredential(aiProviders as Parameters<typeof resolveDeepseekCredential>[0]);
-  const text = DEEPSEEK_ROW_STATUS_TEXT[status];
-  return items.map((item) =>
-    String(item.presetId || "") === "deepseek" ? { ...item, statusNote: text } : item
-  );
+  void loadAiProviders().then((aiProviders) => {
+    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, aiProviders));
+  });
 }
 
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
 // 行内 radio 现读。DeepSeek 行副行 = 凭据引用三态文案（现查 AI 族列表）。
+
+function syncSearchChainActiveSummary(elements: SettingsElements, activeId?: string): void {
+  const summaryEl = elements.searchChainActiveSummary;
+  if (!summaryEl) return;
+  const currentActive = String(activeId !== undefined ? activeId : getActiveSearchProviderId(elements.searchProvidersList) || "").trim();
+  if (!currentActive || isSmartSearchActive(currentActive)) {
+    summaryEl.textContent = "智能模式";
+    return;
+  }
+  const checkedRadio = elements.searchProvidersList?.querySelector<HTMLInputElement>(".search-provider-active-radio:checked");
+  const row = checkedRadio?.closest(".search-provider-row") as HTMLElement | null;
+  const name = row?.querySelector(".provider-row-name")?.textContent?.trim();
+  summaryEl.textContent = name || "单个平台";
+}
+
 function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
   void loadAiProviders().then((aiProviders) => {
     familyRows.search.render(
       elements.searchProvidersList,
       elements.searchProvidersEmpty,
-      annotateDeepseekRows(sortSearchProviders(providers), aiProviders),
+      annotateAiCredentialRows("search", sortSearchProviders(providers), aiProviders),
       {
         presets: SEARCH_PROVIDER_PRESETS,
         activeId: getActiveSearchProviderId(elements.searchProvidersList)
       }
     );
     syncResetSearchOrderButton(elements);
+    syncSearchChainActiveSummary(elements);
   });
 }
 
@@ -576,7 +618,11 @@ function loadSearchProviders(): Promise<ProviderRowItem[]> {
   return loadProviderRows(() => sendRuntimeMessage({ type: "search-providers-list" }));
 }
 
-// ===== provider 三族分派表 =====
+function loadLiveProviders(): Promise<ProviderRowItem[]> {
+  return loadProviderRows(() => sendRuntimeMessage({ type: "live-providers-list" }));
+}
+
+// ===== provider 各族分派表 =====
 
 type ProviderListResponse = {
   ok: boolean;
@@ -584,7 +630,7 @@ type ProviderListResponse = {
   error?: string;
 };
 
-// 族 → 设置面板分派表。AI/ASR/搜索三族在本面板的分派点（整列表消息、新平台 id
+// 族 → 设置面板分派表。各族在本面板的分派点（整列表消息、新平台 id
 // 生成、现查列表、预设装载、列表重渲、optional host 权限策略）同构，Record 全键覆盖。
 // 各族的消息 type 写在本族箭头函数体内、保持单字面量以保留 ResponseOf 推断。
 interface ProviderFamilyUi {
@@ -598,7 +644,98 @@ interface ProviderFamilyUi {
   optionalHostPermission: boolean;
 }
 
+// 单选激活族（activeRadio 非空且无智能哨兵：live / asr）的共享重渲与删除回退：
+// 保持「列表非空即有激活平台」不变量，原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
+type ActiveRadioFamilyKind = "live" | "asr";
+
+interface ActiveRadioFamilySpec {
+  readonly settingsKey: "activeLiveProviderId" | "activeAsrProviderId";
+  readonly getListNode: (elements: SettingsElements) => HTMLElement;
+  readonly getEmptyNode: (elements: SettingsElements) => HTMLElement;
+  readonly getPresets: () => readonly ProviderRowPreset[];
+  readonly resolveActiveId: (
+    providers: ReadonlyArray<{ id?: string | null }>,
+    activeId?: string | null
+  ) => string;
+}
+
+const ACTIVE_RADIO_FAMILY_SPEC: Record<ActiveRadioFamilyKind, ActiveRadioFamilySpec> = {
+  live: {
+    settingsKey: "activeLiveProviderId",
+    getListNode: (el) => el.liveProvidersList,
+    getEmptyNode: (el) => el.liveProvidersEmpty,
+    getPresets: () => LIVE_PROVIDER_PRESETS,
+    resolveActiveId: resolveActiveLiveProviderId
+  },
+  asr: {
+    settingsKey: "activeAsrProviderId",
+    getListNode: (el) => el.asrProvidersList,
+    getEmptyNode: (el) => el.asrProvidersEmpty,
+    getPresets: () => asrPresets,
+    resolveActiveId: resolveActiveAsrProviderId
+  }
+};
+
+function renderActiveRadioFamily(
+  kind: ActiveRadioFamilyKind,
+  elements: SettingsElements,
+  providers: ProviderRowItem[],
+  rawActiveId?: string
+): void {
+  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
+  const listNode = spec.getListNode(elements);
+  const prevActiveId =
+    rawActiveId !== undefined
+      ? String(rawActiveId || "").trim()
+      : familyRows[kind].getActiveId?.(listNode) || "";
+  const nextActiveId = spec.resolveActiveId(providers, prevActiveId);
+  familyRows[kind].render(listNode, spec.getEmptyNode(elements), providers, {
+    presets: spec.getPresets(),
+    activeId: nextActiveId
+  });
+  if (nextActiveId !== prevActiveId) {
+    state.patchSettings({ [spec.settingsKey]: nextActiveId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } });
+  }
+}
+
+function bindActiveRadioDeleteHandler(kind: ActiveRadioFamilyKind, elements: SettingsElements): void {
+  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
+  const decl = PROVIDER_FAMILY_ROWS[kind];
+  const radioClass = `${decl.activeRadio!.classPrefix}-provider-active-radio`;
+  familyRows[kind].controller.setDeleteHandler(async () => {
+    const listNode = spec.getListNode(elements);
+    const remainingRows = Array.from(listNode.querySelectorAll<HTMLElement>(`.${decl.rowClass}`));
+    const currentCheckedId = familyRows[kind].getActiveId?.(listNode) || "";
+    const nextActiveId = spec.resolveActiveId(
+      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
+      currentCheckedId
+    );
+    if (nextActiveId && nextActiveId !== currentCheckedId) {
+      const targetRadio = remainingRows
+        .find((row) => row.dataset.providerId === nextActiveId)
+        ?.querySelector<HTMLInputElement>(`.${radioClass}`);
+      if (targetRadio) targetRadio.checked = true;
+    }
+    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
+      state.patchSettings({ [spec.settingsKey]: nextActiveId });
+      await sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } });
+    }
+  });
+}
+
 const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
+  live: {
+    list: () => sendRuntimeMessage({ type: "live-providers-list" }),
+    loadProviders: loadLiveProviders,
+    save: (providers) => sendRuntimeMessage({ type: "live-providers-save", providers }),
+    remove: (providerId) => sendRuntimeMessage({ type: "live-providers-delete", providerId }),
+    generateId: () => familyRows.live.controller.generateId(),
+    presets: () => LIVE_PROVIDER_PRESETS,
+    rerender: rerenderLiveProviders,
+    optionalHostPermission: true
+  },
+
   ai: {
     list: () => sendRuntimeMessage({ type: "ai-providers-list" }),
     loadProviders: loadAiProviders,
@@ -616,7 +753,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
     generateId: () => familyRows.asr.controller.generateId(),
     presets: () => asrPresets,
-    rerender: (elements, providers) => rerenderAsrProviders(elements, providers),
+    rerender: (elements, providers) => renderActiveRadioFamily("asr", elements, providers),
     optionalHostPermission: true
   },
   search: {
@@ -635,26 +772,8 @@ const familyRows = createProviderFamilyRows({
   onRowEdit: (kind, providerId) => void openProviderEditorById(kind, providerId)
 });
 
-function getActiveAsrProviderId(listNode: HTMLElement): string {
-  return familyRows.asr.getActiveId?.(listNode) || "";
-}
 function getActiveSearchProviderId(listNode: HTMLElement): string {
   return familyRows.search.getActiveId?.(listNode) || "";
-}
-
-// ASR 列表重渲（Modal 保存 / 删除后）：保持「列表非空即有激活平台」不变量，
-// 原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
-function rerenderAsrProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
-  const prevActiveId = getActiveAsrProviderId(elements.asrProvidersList);
-  const nextActiveId = resolveActiveAsrProviderId(providers, prevActiveId);
-  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
-    presets: asrPresets,
-    activeId: nextActiveId
-  });
-  if (nextActiveId !== prevActiveId) {
-    state.patchSettings({ activeAsrProviderId: nextActiveId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
-  }
 }
 
 // ===== 单平台保存与删除 =====
@@ -678,6 +797,9 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   }
   const elements = collectElements(host);
   PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
+  if (kind === "ai") {
+    void loadLiveProviders().then((liveProviders) => rerenderLiveProviders(elements, liveProviders, providers));
+  }
 }
 
 async function openProviderEditorById(kind: ProviderEditorKind, providerId: string): Promise<void> {
@@ -750,6 +872,7 @@ function buildDefaultPreferencePayload() {
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
+    enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow
   };
 }
@@ -1076,25 +1199,10 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-  familyRows.asr.controller.setDeleteHandler(async () => {
-    const remainingRows = Array.from(
-      elements.asrProvidersList.querySelectorAll<HTMLElement>(".asr-provider-row")
-    );
-    const currentCheckedId = getActiveAsrProviderId(elements.asrProvidersList);
-    const nextActiveId = resolveActiveAsrProviderId(
-      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
-      currentCheckedId
-    );
-    if (nextActiveId && nextActiveId !== currentCheckedId) {
-      const targetRadio = remainingRows
-        .find((row) => row.dataset.providerId === nextActiveId)
-        ?.querySelector<HTMLInputElement>(".asr-provider-active-radio");
-      if (targetRadio) targetRadio.checked = true;
-    }
-    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
-      state.patchSettings({ activeAsrProviderId: nextActiveId });
-      await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
-    }
+  bindActiveRadioDeleteHandler("live", elements);
+  bindActiveRadioDeleteHandler("asr", elements);
+  familyRows.ai.controller.setDeleteHandler(async () => {
+    rerenderLiveProviders(elements, await loadLiveProviders());
   });
   familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
@@ -1119,14 +1227,33 @@ function bindSettingsEvents(host: HTMLElement): void {
     searchProviderOrder = [];
     rerenderSearchProviders(elements, await loadSearchProviders());
   });
-  // 悬空链首提示随用户改选消失：选中任一在场记录即不再悬空。
+  // 搜索平台卡片内原地折叠展开
+  const toggleSearchChain = () => {
+    const isHidden = elements.searchChainContainer.hidden;
+    elements.searchChainContainer.hidden = !isHidden;
+    elements.toggleSearchChainBtn.setAttribute("aria-expanded", String(isHidden));
+    elements.toggleSearchChainBtn.setAttribute(
+      "aria-label",
+      isHidden ? "收起搜索平台与回退链" : "展开搜索平台与回退链"
+    );
+  };
+  elements.toggleSearchChainBtn?.addEventListener("click", toggleSearchChain);
+  elements.toggleSearchChainBtn?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleSearchChain();
+    }
+  });
+
+  // 悬空链首提示与摘要随用户改选更新
   elements.searchProvidersList?.addEventListener("change", () => {
     if (getActiveSearchProviderId(elements.searchProvidersList)) {
       elements.searchProvidersDanglingHint.hidden = true;
     }
+    syncSearchChainActiveSummary(elements);
   });
   // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里
-  // optionalHostPermission 的并集，当前 ai+asr）的存活平台使用才 remove」。
+  // optionalHostPermission 的并集，当前 ai+asr+live）的存活平台使用才 remove」。
   const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
     const providers = await loadOriginSharingProviders(PROVIDER_FAMILY_UI);
     const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
@@ -1136,12 +1263,14 @@ function bindSettingsEvents(host: HTMLElement): void {
   };
   familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
   familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
+  familyRows.live.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
 
   // 添加平台：直接进空白编辑 Modal
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
   elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
+  elements.addLiveProviderBtn.addEventListener("click", () => void openProviderEditorById("live", ""));
   elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
 
   // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。

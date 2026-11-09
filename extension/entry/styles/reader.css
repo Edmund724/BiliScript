@@ -27,23 +27,20 @@
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
    * 都不依赖内容横向尺寸（height: auto 的窄窗浮层只涉纵向，不受容纳约束）。 */
   container-type: inline-size;
-  /* 贴栏态以右缘为锚：translate 只负责无过冲滑入，scale 独立承担左缘回弹。
-   * display 参与离散过渡，退出期间由 .closing 保持渲染。 */
+  /* 贴栏态以右缘为锚：translate 与 scale 同节奏开合，均不过冲。
+   * 基态只保留 display 离散过渡；视觉退出参数在 .closing，避免样式重挂时
+   * 关闭态先跑一段视觉过渡。退出期间由 .closing 保持渲染。 */
   transform-origin: right center;
   translate: 100% 0;
-  scale: 0.92 0.98;
+  scale: 0.98;
   opacity: 0;
-  transition:
-    translate 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
-    scale 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
-    opacity 240ms cubic-bezier(0.4, 0, 1, 1),
-    display 240ms allow-discrete;
+  transition: display 280ms allow-discrete;
 }
 
 @starting-style {
   #biliscript-reading-view.open {
     translate: 100% 0;
-    scale: 0.92 0.98;
+    scale: 0.98;
     opacity: 0;
   }
 }
@@ -55,20 +52,25 @@
 
 #biliscript-reading-view.open {
   translate: 0 0;
-  scale: 1 1;
+  scale: 1;
   opacity: 1;
   transition:
-    translate 220ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    scale 420ms var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1)),
-    opacity 160ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    display 240ms allow-discrete;
+    translate 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    scale 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity 180ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    display 320ms allow-discrete;
 }
 
 #biliscript-reading-view.closing {
   translate: 100% 0;
-  scale: 0.94 0.98;
+  scale: 0.98;
   opacity: 0;
   pointer-events: none;
+  transition:
+    translate 280ms cubic-bezier(0.4, 0, 1, 1),
+    scale 280ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 160ms cubic-bezier(0.4, 0, 1, 1),
+    display 280ms allow-discrete;
 }
 
 #biliscript-reading-view[data-biliscript-reader-restore="1"] {
@@ -636,7 +638,7 @@
   height: 0;
 }
 .biliscript-reading-item {
-  --biliscript-reader-time-col: 76px;
+  --biliscript-reader-time-col: calc(76px * var(--biliscript-reader-font-scale, 1));
   width: 100%;
   display: grid;
   grid-template-columns: var(--biliscript-reader-time-col) minmax(0, 1fr);
@@ -792,7 +794,7 @@
 }
 
 /* 活动行 = 整颗白卡：行容器切 inline-grid、宽度随内容自适应包裹（max-width 100% 兜底长句折行），
- * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，窄档 64px 同样对齐）；
+ * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，随字号缩放且宽窄档同样对齐）；
  * 白卡同时包住时间戳与文字，右缘随文字结束，确保正文左边缘与未激活行严格垂直对齐；
  * 内边距沿用基础行（10px 12px），激活切换不改行高。
  * 圆角 12px，与分段控件槽/项、tab 内容卡、章节/金句卡同一半径语言
@@ -847,7 +849,6 @@
  * 属安全降级。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-item {
-    --biliscript-reader-time-col: 64px;
     gap: 10px;
     padding: 10px 8px;
   }
@@ -1444,16 +1445,14 @@
   word-break: break-word;
 }
 
-/* ===== PR4 概览 tab：章节 / 金句 =====
- * 视觉基准：章节列表（时间戳 pill + 标题 + 小结）→ 金句卡（surface-2 暖底淡卡 +
- * 右下角时间戳与复制图标钮）。
- * 色值全部走 --biliscript-reader-* token（gate 段两主题定义），暗色主题自动跟随；
- * 时间戳 pill 复用 .biliscript-reading-time 母题。
- *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
+/* ===== 概览 tab：简介 / 章节 / 金句 =====
+ * 色值全部走 --biliscript-reader-* token，暗色主题自动跟随；
+ * 时间戳 pill 复用 .biliscript-reading-time 母题。 */
 .biliscript-reading-overview {
   flex: 1;
   min-height: 0;
-  padding: 6px 8px 12px 2px;
+  margin-inline: -12px;
+  padding: 6px 20px 12px 14px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
@@ -1491,21 +1490,28 @@
   padding: 1px 8px;
 }
 
+.biliscript-reading-ov-summary {
+  margin: 0;
+  font-size: var(--biliscript-font-size-md);
+  line-height: 1.75;
+  color: var(--biliscript-reader-text);
+  word-break: break-word;
+}
+
+.biliscript-reading-ov-summary.is-empty,
 .biliscript-reading-ov-empty {
   font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-faint);
 }
 
-/* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
- * 周边区分（script-only-ui 决策：参考 YouTube Digest Overview 卡片式）。 */
 .biliscript-reading-ov-chapter {
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 0;
+  border: 1px solid transparent;
   background: var(--biliscript-reader-surface-2);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1515,7 +1521,7 @@
   font-family: inherit;
   color: inherit;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, box-shadow 0.15s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-ov-chapter:active {
@@ -1524,6 +1530,13 @@
 
 .biliscript-reading-ov-chapter:hover {
   background: var(--biliscript-reader-surface-3);
+}
+
+.biliscript-reading-ov-chapter.is-active,
+.biliscript-reading-ov-chapter.is-active:hover {
+  border-color: var(--chat-input-focus-border, var(--biliscript-reader-accent));
+  background: var(--biliscript-reader-surface-2);
+  box-shadow: var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 
 .biliscript-reading-ov-chapter-copy {
@@ -1540,18 +1553,6 @@
   line-height: 1.5;
   color: var(--biliscript-reader-text);
   text-wrap: balance;
-  word-break: break-word;
-}
-
-/* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
- * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方主标题。 */
-.biliscript-reading-ov-chapter-subtitle {
-  font-family: var(--biliscript-reader-font-sans);
-  font-size: var(--biliscript-font-size-sm);
-  font-size-adjust: from-font;
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--biliscript-reader-muted);
   word-break: break-word;
 }
 
@@ -2065,7 +2066,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   position: relative;
   z-index: 1;
   width: 90%;
-  max-width: 440px;
+  max-width: 460px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -2214,30 +2215,79 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   font-weight: 600;
 }
 
-/* 主卡片预览区 */
+/* 主卡片预览区：容器查询基准（cqi = 相纸宽，相纸宽 = 预览区宽） */
 .biliscript-quote-share-preview {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 0;
+  padding: 4px 0 12px;
+  container-type: inline-size;
 }
 
-/* 金句卡片主体视觉骨架（20px 圆角，0.5px 精细描边） */
+/* 金句卡片相纸：纯白满版，左右/上 2.4%、底栏 8%（承载品牌角标） */
+.biliscript-quote-card-sheet {
+  position: relative;
+  width: 100%;
+  padding: 2.4cqi 2.4cqi 0;
+  background: var(--biliscript-primitive-color-white);
+  box-shadow: inset 0 0 0 1px rgba(var(--biliscript-primitive-color-black-rgb), 0.06), 0 12px 30px rgba(var(--biliscript-primitive-color-black-rgb), 0.16);
+}
+
+/* 金句卡片主体：16:9，20px 圆角，0.5px 精细描边；字号与内边距以卡宽为基准 */
 .biliscript-quote-card,
 .biliscript-quote-share-card {
   position: relative;
   width: 100%;
-  min-height: 315px;
+  aspect-ratio: 16 / 9;
   border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12)), 0 8px 32px rgba(var(--biliscript-primitive-color-black-rgb), 0.28);
+  box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
   box-sizing: border-box;
   container-type: inline-size;
+}
+
+/* 品牌角标：相纸底栏右侧，近黑 600 字重，像印刷签名 */
+.biliscript-quote-card-brand {
+  height: 8cqi;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-size: 2.567cqi;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--biliscript-primitive-color-gray-950);
+  user-select: none;
+}
+
+/* 底栏双段标记：短玫红 + 长灰，与品牌角标同处底栏、垂直居中，左缘对齐内卡 */
+.biliscript-quote-card-motif {
+  position: absolute;
+  left: 2.4cqi;
+  bottom: 0;
+  height: 8cqi;
+  display: inline-flex;
+  align-items: center;
+  gap: 1.283cqi;
+  pointer-events: none;
+}
+
+.biliscript-quote-card-motif-bar {
+  height: 1.167cqi;
+  border-radius: var(--biliscript-radius-pill);
+}
+
+.biliscript-quote-card-motif-bar.is-lead {
+  width: 3.733cqi;
+  background: var(--biliscript-primitive-color-rose-500);
+}
+
+.biliscript-quote-card-motif-bar.is-track {
+  width: 8.4cqi;
+  background: var(--biliscript-primitive-color-gray-200);
 }
 
 /* 卡片背景与色团层 */
@@ -2343,65 +2393,56 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   pointer-events: none;
 }
 
-/* 正文独立占满卡片并垂直居中；引号与来源绝对定位，不参与正文偏移。 */
+/* 中性暗罩：与导出同参数，压住浅段渐变让白字在浅配色上也可读 */
+.biliscript-quote-card-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: rgba(var(--biliscript-primitive-color-black-rgb), 0.16);
+}
+
+/* 正文占满卡片；引号、正文与时间戳各自绝对定位，互不参与对方的偏移 */
 .biliscript-quote-card-content {
   position: absolute;
   inset: 0;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  padding: 34px 36px;
-  box-sizing: border-box;
   color: var(--biliscript-primitive-color-white);
-  text-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
 }
 
 .biliscript-quote-card-quote-mark {
   position: absolute;
-  top: 25px;
-  left: 36px;
+  top: 6.127cqi;
+  left: 8.824cqi;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 34px;
+  font-size: 8.333cqi;
   line-height: 1;
   opacity: 0.6;
   user-select: none;
 }
 
+/* 正文区：上下等距 8.3cqi；文字块按最宽行左右居中，行内左对齐 */
 .biliscript-quote-card-text {
-  font-family: var(--biliscript-reader-font-serif);
-  font-variant-numeric: lining-nums;
-  font-size: clamp(16px, 5.5cqi, 21px);
-  font-size-adjust: from-font;
-  font-weight: 400;
-  line-height: 1.85;
-  text-align: left;
-  text-wrap: pretty;
-  text-box: trim-both cap alphabetic;
-  word-break: break-word;
-  letter-spacing: 0.025em;
-  margin: 0;
-  max-width: 100%;
-}
-
-.biliscript-quote-card-footer {
   position: absolute;
-  right: 36px;
-  bottom: 23px;
+  top: 8.3cqi;
+  bottom: 8.3cqi;
+  left: var(--quote-text-left, 8.8cqi);
+  right: auto;
+  margin: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0;
-  font-size: var(--biliscript-font-size-xs);
-  opacity: 0.75;
-  letter-spacing: 0.04em;
-  text-align: right;
+  font-family: var(--biliscript-reader-font-serif);
+  font-variant-numeric: lining-nums;
+  font-size: var(--quote-fit-size, 5.147cqi);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  text-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
 }
 
-.biliscript-quote-card-source {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.biliscript-quote-card-text-inner {
+  display: block;
   white-space: nowrap;
-  max-width: 180px;
 }
 
 /* 导出与复制操作按钮区 */

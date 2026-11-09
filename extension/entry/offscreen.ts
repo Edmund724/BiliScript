@@ -38,6 +38,7 @@ import type {
   ResolveAiProviderResponse
 } from "../shared/messaging-protocol.js";
 import type { ChatMsg } from "../ai/ladder.js";
+import type { CapturedVideoFrame } from "../ai/types.js";
 // 联网搜索运行时解析器（spec §2.3/§2.4）：resolve-search-provider 往返 + executeSearch
 // 闭包组装收口单源（search/search-runtime.ts，选区解释链同走此解析）。
 import {
@@ -50,6 +51,8 @@ import {
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
+import { MOSS_LIVE_PORT_NAME, type MossLiveClientAction } from "../live/moss-live-protocol.js";
+import { attachMossLivePort } from "../live/offscreen-moss-port.js";
 // 概览链的平台请求代发（overview-offscreen-transport）：端口名常量与两端同址
 // 在 core/provider-http-offscreen.ts；本文档只认领端口并按活跃端口集簿记生命周期。
 import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
@@ -92,6 +95,12 @@ let currentChatGeneration = 0;
 let activeGeneration = 0;
 let activeAbortController: AbortController | null = null;
 let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } | null = null;
+let pendingVideoFrame: {
+  requestId: string;
+  generation: number;
+  resolve: (frame: CapturedVideoFrame) => void;
+  reject: (error: Error) => void;
+} | null = null;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let idleTimeoutGeneration = 0;
 var STREAM_IDLE_TIMEOUT_MS = 90000;
@@ -125,6 +134,18 @@ const asrHandlerLoader = createLazyLoader(async () => {
 });
 
 // AI 族懒加载：首条 "chat" 消息到达时拉 ../ai/ladder.js 的 runLadderChat。
+
+// MOSS-LIVE 客户端懒加载器
+const mossLiveLoader = createLazyLoader(async () => {
+  const { OffscreenMossLiveClient } = await import("../live/offscreen-moss-client.js");
+  return OffscreenMossLiveClient;
+});
+
+const geminiLiveLoader = createLazyLoader(async () => {
+  const { OffscreenGeminiLiveClient } = await import("../live/offscreen-gemini-live-client.js");
+  return OffscreenGeminiLiveClient;
+});
+
 const ladderLoader = createLazyLoader(async () => {
   const { runLadderChat } = await import("../ai/ladder.js");
   return runLadderChat;
@@ -188,6 +209,22 @@ chrome.runtime.onConnect.addListener((port) => {
     attachProviderHttpPort(port);
     return;
   }
+  if (port && port.name === MOSS_LIVE_PORT_NAME) {
+    lifetime.trackLivePort(port);
+    attachMossLivePort(port, {
+      loadClient: async () => {
+        const MossClientClass = await mossLiveLoader.load();
+        return (opts) => new MossClientClass(opts);
+      },
+      loadGeminiClient: async () => {
+        const GeminiClientClass = await geminiLiveLoader.load();
+        return (opts) => new GeminiClientClass(opts);
+      },
+      postMessage: safePostMessage
+    });
+    return;
+  }
+
   if (!port || port.name !== OFFSCREEN_CHAT_PORT_NAME) {
     return;
   }
@@ -211,6 +248,22 @@ chrome.runtime.onConnect.addListener((port) => {
           resolve(msg.ok !== false);
         } else {
           resolve(false);
+        }
+      }
+      return;
+    }
+    if (msg.action === "video-frame-result") {
+      if (pendingVideoFrame?.requestId === msg.requestId) {
+        const pending = pendingVideoFrame;
+        pendingVideoFrame = null;
+        if (pending.generation !== activeGeneration) {
+          pending.reject(new Error("截图请求已过期"));
+        } else if (msg.error) {
+          pending.reject(new Error(msg.error));
+        } else if (msg.image?.mime && msg.image.data && Number.isFinite(msg.currentTime)) {
+          pending.resolve({ image: msg.image, currentTime: msg.currentTime! });
+        } else {
+          pending.reject(new Error("截图回执缺少图片或播放时间"));
         }
       }
       return;
@@ -322,7 +375,10 @@ chrome.runtime.onConnect.addListener((port) => {
           port: ackedPort,
           signal: requestController.signal,
           // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
-          ...(searchRuntime ? { webSearch: searchRuntime } : {})
+          ...(searchRuntime ? { webSearch: searchRuntime } : {}),
+          ...(msg.videoFrameToolEnabled === true
+            ? { captureCurrentVideoFrame: () => requestVideoFrame(ackedPort, generation) }
+            : {})
         },
         {
           askCostGuard: (costPort, message) => askCostGuard(costPort, message, generation),
@@ -406,6 +462,11 @@ function abortActiveRequest() {
     pendingCostGuard = null;
     resolve(false);
   }
+  if (pendingVideoFrame) {
+    const { reject } = pendingVideoFrame;
+    pendingVideoFrame = null;
+    reject(new Error("截图请求已中止"));
+  }
   if (activeAbortController && !activeAbortController.signal.aborted) {
     activeAbortController.abort();
   }
@@ -445,6 +506,23 @@ function askCostGuard(port: PostMessagePort, message: string, generation: number
   return new Promise<boolean>((resolve) => {
     pendingCostGuard = { resolve, generation };
     port.postMessage({ type: "cost-guard", data: { message } });
+  });
+}
+
+function requestVideoFrame(port: PostMessagePort, generation: number): Promise<CapturedVideoFrame> {
+  return new Promise((resolve, reject) => {
+    if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
+      reject(new Error("当前无法发起截图请求"));
+      return;
+    }
+    const requestId = `video-frame-${generation}-${Date.now()}`;
+    pendingVideoFrame = { requestId, generation, resolve, reject };
+    try {
+      port.postMessage({ type: "video-frame-request", requestId });
+    } catch (error) {
+      pendingVideoFrame = null;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 

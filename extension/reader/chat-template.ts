@@ -124,7 +124,8 @@ export function buildChatTabBodyHtml(): string {
                   </div>
                 </div>
               </div>
-              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" disabled aria-label="发送">
+              <!-- 主操作键：输入有文字时发送；流式中停止 -->
+              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" aria-label="发送" title="发送" disabled>
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>

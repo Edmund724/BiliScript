@@ -28,7 +28,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../extension/reader/lazy-reader.js", () => ({
   ensureReaderDomain: mocks.ensureReaderDomain
 }));
-vi.mock("../../extension/reader/state.js", () => ({
+vi.mock("../../extension/reader/state.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../extension/reader/state.js")>(),
   isReaderViewOpen: mocks.isReaderViewOpen,
   enforceNormalPageStateIfNeeded: vi.fn(),
   // 标签激活属主（reader/script-tab-activation）经它写唯一状态位
@@ -102,7 +103,8 @@ function makeChatStub() {
   return {
     ensureChatTabActivated: vi.fn(async () => {}),
     runQuickActionPrompt: vi.fn(async () => true),
-    closeChatSession: vi.fn()
+    closeChatSession: vi.fn(),
+    stopLiveCompanion: vi.fn()
   };
 }
 
@@ -237,5 +239,19 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
     await vi.waitFor(() => expect(chat.runQuickActionPrompt).toHaveBeenCalledWith("总结"));
     expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1");
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+  });
+
+  it("live-session-takeover：若对话 tab 已装载则调用 stopLiveCompanion 自动关闭伴看", async () => {
+    const { isReaderChatTabLoaded } = await import("../../extension/reader/lazy-chat-tab.js");
+    (isReaderChatTabLoaded as any).mockReturnValue(true);
+    const chat = makeChatStub();
+    ensureReaderChatTabMock.mockResolvedValue(chat);
+
+    const sendResponse = vi.fn();
+    const keepOpen = messageListener({ type: "live-session-takeover" }, {}, sendResponse);
+    expect(keepOpen).toBe(true);
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    expect(chat.stopLiveCompanion).toHaveBeenCalledTimes(1);
   });
 });

@@ -121,6 +121,63 @@ describe("offscreen 聊天通道断连容错", () => {
     expect(() => ladderPort!.postMessage({ type: "token", data: "late" })).not.toThrow();
   });
 
+  it("截帧工具经聊天端口请求当前帧，并解析图片与播放时间回执", async () => {
+    let capturedFrame: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: () => Promise<unknown> }) => {
+      capturedFrame = await captureCurrentVideoFrame();
+    });
+    await importOffscreen();
+    const session = connectChat();
+
+    session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+    await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "video-frame-request",
+      requestId: expect.any(String)
+    })));
+    const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
+    const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+
+    session.send({
+      action: "video-frame-result",
+      requestId: request.requestId,
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    });
+    await vi.waitFor(() => expect(capturedFrame).toEqual({
+      image: { mime: "image/jpeg", data: "/9j/" },
+      currentTime: 151
+    }));
+  });
+
+  it("截帧等待中断连会 reject 并收尾，不产生 unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let captureError: unknown;
+      runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: () => Promise<unknown> }) => {
+        try {
+          await captureCurrentVideoFrame();
+        } catch (error) {
+          captureError = error;
+        }
+      });
+      await importOffscreen();
+      const session = connectChat();
+
+      session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+      await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "video-frame-request" })));
+      session.fireDisconnect();
+
+      await vi.waitFor(() => expect(captureError).toEqual(new Error("截图请求已中止")));
+      await flushTicks();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.removeListener("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("断连后 ladder 抛错：catch 通道的错误回报被吞，无 unhandled rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
