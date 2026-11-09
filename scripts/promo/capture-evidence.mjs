@@ -1,16 +1,17 @@
 import path from "node:path";
 import {execFile} from "node:child_process";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {AUDIO} from "./audio.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
+import {availableCpus, createLimiter} from "./parallel.mjs";
 import {EVIDENCE_TIMES, EVIDENCE_TRANSITIONS, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
 import {resolveVerificationTarget} from "./verification-target.mjs";
 
 const execFileAsync = promisify(execFile);
-const {input, kind, width, height, evidenceRoot} = await resolveVerificationTarget();
+const {input, inputInfo, kind, width, height, evidenceRoot} = await resolveVerificationTarget();
 const root = path.join(evidenceRoot, `${kind}-visual`);
 const sheetsDir = path.join(root, "contact-sheets");
 const transitionsDir = path.join(root, "transitions");
@@ -20,15 +21,19 @@ const audioDir = path.join(evidenceRoot, `${kind}-audio`);
 await rm(root, {recursive: true, force: true});
 await Promise.all([sheetsDir, transitionsDir, stillsDir, mobileDir, audioDir].map((dir) => mkdir(dir, {recursive: true})));
 
+const limit = createLimiter(Math.max(2, Math.min(8, availableCpus())));
+
 async function ffmpeg(args) {
-  await execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], {maxBuffer: 4 * 1024 * 1024});
+  await limit(() => execFileAsync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], {maxBuffer: 4 * 1024 * 1024}));
 }
 
 const duration = PROMO_DURATION / PROMO_FPS;
+const jobs = [];
+
 const contactSheets = [];
 for (let start = 0, page = 1; start < duration; start += 8, page += 1) {
   const file = `sheet-${String(page).padStart(2, "0")}.jpg`;
-  await ffmpeg(["-ss", String(start), "-t", String(Math.min(8, duration - start)), "-i", input, "-vf", "fps=2,scale=384:216,tile=4x4:padding=4:margin=4:color=white", "-frames:v", "1", "-q:v", "2", path.join(sheetsDir, file)]);
+  jobs.push(ffmpeg(["-ss", String(start), "-t", String(Math.min(8, duration - start)), "-i", input, "-vf", "fps=2,scale=384:216,tile=4x4:padding=4:margin=4:color=white", "-frames:v", "1", "-q:v", "2", path.join(sheetsDir, file)]));
   contactSheets.push({file, from: start, to: Math.min(start + 7.5, duration - 1 / PROMO_FPS)});
 }
 
@@ -41,17 +46,41 @@ for (const transition of transitions) {
   const seconds = transition.holdToEnd ? duration - start : 1;
   const tile = transition.holdToEnd ? "6x4" : "5x2";
   const file = `${transition.id}.jpg`;
-  await ffmpeg(["-ss", String(start), "-t", String(seconds), "-i", input, "-vf", `fps=10,scale=320:180,tile=${tile}:padding=4:margin=4:color=white`, "-frames:v", "1", "-q:v", "2", path.join(transitionsDir, file)]);
+  jobs.push(ffmpeg(["-ss", String(start), "-t", String(seconds), "-i", input, "-vf", `fps=10,scale=320:180,tile=${tile}:padding=4:margin=4:color=white`, "-frames:v", "1", "-q:v", "2", path.join(transitionsDir, file)]));
   transition.file = file;
   transition.from = start;
   transition.to = Math.min(duration - 1 / PROMO_FPS, start + seconds - 0.1);
 }
 
-const stills = [];
-for (const seconds of EVIDENCE_TIMES) {
-  const file = `${String(Math.round(seconds * PROMO_FPS)).padStart(4, "0")}.png`;
-  await ffmpeg(["-ss", String(seconds), "-i", input, "-frames:v", "1", "-vf", "scale=1920:1080", path.join(stillsDir, file)]);
-  stills.push({seconds, file});
+const stills = EVIDENCE_TIMES.map((seconds) => ({seconds, file: `${String(Math.round(seconds * PROMO_FPS)).padStart(4, "0")}.png`}));
+
+// render.mjs 从同一成片抽好的关键帧可直接复用；来源不一致时退回自行抽帧。
+async function reuseRenderedStills() {
+  const recorded = await readFile(path.join(evidenceRoot, `${kind}-frames.json`), "utf8").catch(() => null);
+  if (!recorded) return false;
+  let manifest;
+  try {
+    manifest = JSON.parse(recorded);
+  } catch {
+    return false;
+  }
+  const source = manifest.source;
+  if (!source || source.size !== inputInfo.size || source.mtimeMs !== inputInfo.mtimeMs) return false;
+  if (!Array.isArray(manifest.frames) || manifest.frames.length !== stills.length) return false;
+  for (const [index, still] of stills.entries()) {
+    const frame = manifest.frames[index];
+    if (frame.seconds !== still.seconds || Math.round(frame.seconds * PROMO_FPS) !== Math.round(still.seconds * PROMO_FPS)) return false;
+    const info = await stat(path.join(evidenceRoot, frame.file)).catch(() => null);
+    if (!info?.isFile() || info.size === 0) return false;
+  }
+  await Promise.all(stills.map((still, index) => copyFile(path.join(evidenceRoot, manifest.frames[index].file), path.join(stillsDir, still.file))));
+  return true;
+}
+
+if (!(await reuseRenderedStills())) {
+  for (const still of stills) {
+    jobs.push(ffmpeg(["-ss", String(still.seconds), "-i", input, "-frames:v", "1", "-vf", "scale=1920:1080", path.join(stillsDir, still.file)]));
+  }
 }
 
 const mobileShots = [
@@ -70,7 +99,7 @@ const mobileShots = [
 ];
 for (const shot of mobileShots) {
   const file = `${shot.id}.png`;
-  await ffmpeg(["-ss", String(shot.at), "-i", input, "-frames:v", "1", "-vf", "scale=360:202", path.join(mobileDir, file)]);
+  jobs.push(ffmpeg(["-ss", String(shot.at), "-i", input, "-frames:v", "1", "-vf", "scale=360:202", path.join(mobileDir, file)]));
   shot.file = file;
 }
 
@@ -79,9 +108,18 @@ const publicDir = path.join(PROMO_DIR, "public");
 const effectInputs = AUDIO.cues.map((cue) => path.join(publicDir, cue.src));
 const filters = AUDIO.cues.map((cue, index) => `[${index}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${cue.gain},adelay=${Math.round(cue.frame / PROMO_FPS * 1000)}:all=1[effect${index}]`);
 filters.push(`${AUDIO.cues.map((_, index) => `[effect${index}]`).join("")}amix=inputs=${AUDIO.cues.length}:duration=longest:normalize=0,atrim=0:${duration},asetpts=N/SR/TB[out]`);
-await ffmpeg([...effectInputs.flatMap((file) => ["-i", file]), "-filter_complex", filters.join(";"), "-map", "[out]", "-c:a", "pcm_s16le", effectsPath]);
-await ffmpeg(["-i", effectsPath, "-lavfi", "showspectrumpic=s=1600x500:scale=log:fscale=log", "-frames:v", "1", path.join(audioDir, "sfx-spectrum.png")]);
-const effectsMeasurement = await execFileAsync("ffmpeg", ["-hide_banner", "-i", effectsPath, "-af", "loudnorm=I=-16:TP=-1.5:LRA=8:print_format=json", "-f", "null", "-"]).catch((error) => error.code ? Promise.reject(error) : error);
+
+let effectsMeasurement;
+const effectsJob = (async () => {
+  await ffmpeg([...effectInputs.flatMap((file) => ["-i", file]), "-filter_complex", filters.join(";"), "-map", "[out]", "-c:a", "pcm_s16le", effectsPath]);
+  [effectsMeasurement] = await Promise.all([
+    limit(() => execFileAsync("ffmpeg", ["-hide_banner", "-i", effectsPath, "-af", "loudnorm=I=-16:TP=-1.5:LRA=8:print_format=json", "-f", "null", "-"]).catch((error) => (error.code ? Promise.reject(error) : error))),
+    ffmpeg(["-i", effectsPath, "-lavfi", "showspectrumpic=s=1600x500:scale=log:fscale=log", "-frames:v", "1", path.join(audioDir, "sfx-spectrum.png")])
+  ]);
+})();
+
+await Promise.all([...jobs, effectsJob]);
+
 const effectsJson = [...effectsMeasurement.stderr.matchAll(/\{[^{}]+\}/g)].at(-1);
 if (!effectsJson) throw new Error("未测到独立音效轨响度");
 await writeFile(path.join(audioDir, "sfx-measurements.json"), JSON.stringify({source: "AUDIO.cues", durationInSeconds: duration, loudness: JSON.parse(effectsJson[0]), listeningReview: "not-verified"}, null, 2) + "\n", "utf8");

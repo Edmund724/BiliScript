@@ -30,7 +30,8 @@ export async function preparePromoAssets() {
     }
     const destination = path.join(mediaDir, name);
     await mkdir(path.dirname(destination), {recursive: true});
-    await copyFile(source, destination);
+    const copied = await stat(destination).catch(() => null);
+    if (!(copied?.size === info.size && copied.mtimeMs >= info.mtimeMs)) await copyFile(source, destination);
     files.push({name, source: path.relative(REPO_ROOT, source).replaceAll("\\", "/"), bytes: info.size});
   }
   if (PROVIDER_LOGOS.length !== 14 || new Set(PROVIDER_LOGOS.map((logo) => logo.id)).size !== 14) {

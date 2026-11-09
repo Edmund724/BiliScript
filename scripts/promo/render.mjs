@@ -1,12 +1,13 @@
 import path from "node:path";
 import {execFile} from "node:child_process";
-import {mkdir, readFile, readdir, unlink, writeFile} from "node:fs/promises";
+import {mkdir, readFile, readdir, rename, stat, unlink, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {bundle} from "@remotion/bundler";
 import {getCompositions, getVideoMetadata, renderStill, renderMedia} from "@remotion/renderer";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {resolveSharedBrowserExecutable} from "./browser-executable.mjs";
 import {PROMO_DIR} from "./lib.mjs";
+import {availableCpus, createLimiter} from "./parallel.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 import {AUDIO} from "./audio.mjs";
@@ -85,9 +86,9 @@ function progressLogger(label, alreadyPercent = false) {
   };
 }
 
-async function remuxMasteredAudio(output) {
+async function muxMasteredAudio(input, destination) {
   const mixWavPath = path.join(PROMO_DIR, "assets", "audio", "remotion-mix.wav");
-  const remuxedOutput = path.join(EVIDENCE_DIR, `remuxed-${path.basename(output)}`);
+  const muxedOutput = path.join(EVIDENCE_DIR, `muxed-${path.basename(destination)}`);
   await execFileAsync(
     "ffmpeg",
     [
@@ -96,7 +97,7 @@ async function remuxMasteredAudio(output) {
       "error",
       "-y",
       "-i",
-      output,
+      input,
       "-i",
       mixWavPath,
       "-map",
@@ -113,32 +114,14 @@ async function remuxMasteredAudio(output) {
       "+faststart",
       "-metadata",
       "title=BiliScript｜B 站视频文摘",
-      remuxedOutput
+      muxedOutput
     ],
     {maxBuffer: 4 * 1024 * 1024}
   );
-  const remuxedBytes = await readFile(remuxedOutput);
-  await writeFile(output, remuxedBytes);
-  await unlink(remuxedOutput).catch(() => {});
+  await rename(muxedOutput, destination);
 }
 
-async function validateFinalVideo(output) {
-  const metadata = await getVideoMetadata(output);
-  if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS) {
-    throw new Error(`成片规格不符：${JSON.stringify(metadata)}`);
-  }
-  if (Math.abs(metadata.durationInSeconds - PROMO_DURATION / PROMO_FPS) > 0.05) {
-    throw new Error(`成片时长不符：${metadata.durationInSeconds}`);
-  }
-  if (metadata.audioCodec !== "aac") {
-    throw new Error(`成片缺少 AAC 音轨：${metadata.audioCodec}`);
-  }
-  const bytes = await readFile(output);
-  const moov = bytes.indexOf(Buffer.from("moov"));
-  const mdat = bytes.indexOf(Buffer.from("mdat"));
-  if (moov < 0 || mdat < 0 || moov > mdat) {
-    throw new Error("成片未启用 fast-start");
-  }
+async function encodeMaster(input) {
   const masterOutput = path.join(RELEASE_DIR, "BiliScript-promo-master.mp4");
   await execFileAsync(
     "ffmpeg",
@@ -148,7 +131,7 @@ async function validateFinalVideo(output) {
       "error",
       "-y",
       "-i",
-      output,
+      input,
       "-c:v",
       "libx264",
       "-preset",
@@ -175,6 +158,26 @@ async function validateFinalVideo(output) {
     ],
     {maxBuffer: 4 * 1024 * 1024}
   );
+  return masterOutput;
+}
+
+async function validateFinalVideo(output, masterOutput) {
+  const metadata = await getVideoMetadata(output);
+  if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS) {
+    throw new Error(`成片规格不符：${JSON.stringify(metadata)}`);
+  }
+  if (Math.abs(metadata.durationInSeconds - PROMO_DURATION / PROMO_FPS) > 0.05) {
+    throw new Error(`成片时长不符：${metadata.durationInSeconds}`);
+  }
+  if (metadata.audioCodec !== "aac") {
+    throw new Error(`成片缺少 AAC 音轨：${metadata.audioCodec}`);
+  }
+  const bytes = await readFile(output);
+  const moov = bytes.indexOf(Buffer.from("moov"));
+  const mdat = bytes.indexOf(Buffer.from("mdat"));
+  if (moov < 0 || mdat < 0 || moov > mdat) {
+    throw new Error("成片未启用 fast-start");
+  }
   const masterBytes = await readFile(masterOutput);
   const masterBitrateMbps = Number(((masterBytes.length * 8) / metadata.durationInSeconds / 1_000_000).toFixed(2));
   if (masterBitrateMbps < 10) {
@@ -291,15 +294,12 @@ if (!stillsOnly && !postOnly) {
     port: RENDER_PORT,
     browserExecutable,
     codec: "h264",
-    audioCodec: "aac",
-    audioBitrate: "192k",
+    muted: true,
     crf: draft ? 21 : 15,
     pixelFormat: "yuv420p",
     jpegQuality: 95,
     x264Preset: draft ? "veryfast" : "medium",
     scale: draft ? 0.5 : 1,
-    concurrency: draft ? 4 : 3,
-    enforceAudioTrack: true,
     overwrite: true,
     outputLocation: output,
     metadata: {title: "BiliScript｜B 站视频文摘"},
@@ -319,32 +319,90 @@ await renderStill({
   output: draft ? path.join(EVIDENCE_DIR, "cover-draft.png") : path.join(RELEASE_DIR, "BiliScript-promo-cover.png"),
   overwrite: true
 });
-if (!stillsOnly) await remuxMasteredAudio(output);
-if (!draft) {
-  await writeReleaseText();
-  await validateFinalVideo(output);
-}
+if (!stillsOnly) await muxMasteredAudio(output, output);
 
 const prefix = draft ? "draft" : "final";
 const staleFrames = (await readdir(EVIDENCE_DIR)).filter((name) => new RegExp(`^${prefix}-\\d{4}\\.(?:jpg|png)$`).test(name));
 await Promise.all(staleFrames.map((name) => unlink(path.join(EVIDENCE_DIR, name))));
-const evidenceFrames = [];
-for (const seconds of EVIDENCE_TIMES) {
+const evidenceFrames = EVIDENCE_TIMES.map((seconds) => {
   const frame = Math.round(seconds * PROMO_FPS);
-  const file = `${prefix}-${String(frame).padStart(4, "0")}.png`;
-  await renderStill({
-    composition: promo,
-    serveUrl,
-    inputProps: {},
-    port: RENDER_PORT,
-    browserExecutable,
-    frame,
-    scale: 1,
-    imageFormat: "png",
-    output: path.join(EVIDENCE_DIR, file),
-    overwrite: true
-  });
-  evidenceFrames.push({seconds, frame, file});
+  return {seconds, frame, file: `${prefix}-${String(frame).padStart(4, "0")}.png`};
+});
+const evidenceSource = await stat(output).catch(() => null);
+const renderedVideo = evidenceSource?.isFile() ?? false;
+
+async function writeEvidenceFrames() {
+  // 成片已包含全部帧：直接多路抽帧，避免逐帧重开页面重渲 4K 源。
+  const ffmpegLimiter = createLimiter(Math.max(2, Math.min(8, availableCpus())));
+  await Promise.all(
+    evidenceFrames.map((evidenceFrame) =>
+      ffmpegLimiter(() =>
+        execFileAsync(
+          "ffmpeg",
+          [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            String(Math.max(0, evidenceFrame.frame - 0.5) / PROMO_FPS),
+            "-i",
+            output,
+            "-frames:v",
+            "1",
+            path.join(EVIDENCE_DIR, evidenceFrame.file)
+          ],
+          {maxBuffer: 4 * 1024 * 1024}
+        )
+      )
+    )
+  );
 }
-await writeFile(path.join(EVIDENCE_DIR, `${prefix}-frames.json`), JSON.stringify({excluded: manifest.excluded, frames: evidenceFrames}, null, 2) + "\n", "utf8");
+
+async function renderEvidenceFrames() {
+  for (const evidenceFrame of evidenceFrames) {
+    await renderStill({
+      composition: promo,
+      serveUrl,
+      inputProps: {},
+      port: RENDER_PORT,
+      browserExecutable,
+      frame: evidenceFrame.frame,
+      scale: 1,
+      imageFormat: "png",
+      output: path.join(EVIDENCE_DIR, evidenceFrame.file),
+      overwrite: true
+    });
+  }
+}
+
+let masterOutput = null;
+await Promise.all([
+  renderedVideo ? writeEvidenceFrames() : renderEvidenceFrames(),
+  // 母版编码与关键帧抽取互不依赖，同时跑；母版直接由成片音画重编码。
+  draft
+    ? null
+    : encodeMaster(output).then((file) => {
+        masterOutput = file;
+      })
+]);
+await writeFile(
+  path.join(EVIDENCE_DIR, `${prefix}-frames.json`),
+  JSON.stringify(
+    {
+      excluded: manifest.excluded,
+      ...(evidenceSource
+        ? {source: {file: path.relative(REPO_ROOT, output).replaceAll("\\", "/"), size: evidenceSource.size, mtimeMs: evidenceSource.mtimeMs}}
+        : {}),
+      frames: evidenceFrames
+    },
+    null,
+    2
+  ) + "\n",
+  "utf8"
+);
+if (!draft) {
+  await writeReleaseText();
+  await validateFinalVideo(output, masterOutput);
+}
 console.log(`关键帧证据已输出：${EVIDENCE_DIR}`);

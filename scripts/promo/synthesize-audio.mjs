@@ -1,5 +1,6 @@
+import crypto from "node:crypto";
 import path from "node:path";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO, cueMixStartFrame, musicVolumeAtFrame} from "./audio.mjs";
@@ -32,6 +33,53 @@ const PROVIDER_PULSE_FROM = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.orbitAt) /
 const PROVIDER_PULSE_TO = (PROVIDERS_SCENE.from + PROVIDER_TIMELINE.exitAt) / PROMO_FPS;
 const OUTRO_AT = OUTRO_TIMELINE.from / PROMO_FPS;
 const OUTPUT_DIR = path.join(PROMO_DIR, "assets", "audio");
+const CACHE_HASH_FILE = path.join(OUTPUT_DIR, ".cache-hash");
+const AUDIO_SELECTION_FILE = path.join(PROMO_DIR, "evidence", "audio-selection.json");
+
+async function computeAudioInputsHash() {
+  const hash = crypto.createHash("sha256");
+  for (const rel of [
+    "synthesize-audio.mjs",
+    "audio.mjs",
+    "timeline.mjs",
+    "outro-timeline.mjs",
+    "subtitle-timeline.mjs",
+    "provider-logos.mjs"
+  ]) {
+    hash.update(rel);
+    hash.update(await readFile(path.join(REPO_ROOT, "scripts", "promo", rel)));
+  }
+  // 原片人声片段直接参与配乐合成，内容变化必须让缓存失效。
+  const voiceDir = path.join(REPO_ROOT, "scripts", "promo", "assets", "voice");
+  for (const name of (await readdir(voiceDir)).sort()) {
+    hash.update(name);
+    hash.update(await readFile(path.join(voiceDir, name)));
+  }
+  return hash.digest("hex");
+}
+
+const currentAudioHash = await computeAudioInputsHash();
+if (!process.argv.includes("--force")) {
+  const cachedHash = await readFile(CACHE_HASH_FILE, "utf8").catch(() => "");
+  const selectionRaw = await readFile(AUDIO_SELECTION_FILE, "utf8").catch(() => "");
+  if (cachedHash.trim() === currentAudioHash && selectionRaw) {
+    try {
+      const cachedSelection = JSON.parse(selectionRaw);
+      const requiredFiles = [
+        path.join(OUTPUT_DIR, "promo-score.wav"),
+        path.join(OUTPUT_DIR, "remotion-mix.wav"),
+        ...(cachedSelection.sfx ?? []).map((item) => path.join(OUTPUT_DIR, "sfx", `${item.name}.wav`))
+      ];
+      const checks = await Promise.all(requiredFiles.map((file) => stat(file).catch(() => null)));
+      if (checks.every((info) => info?.isFile() && info.size > 100)) {
+        console.log(`原创配乐与 ${cachedSelection.sfx.length} 类音效已命中缓存：${OUTPUT_DIR}`);
+        process.exit(0);
+      }
+    } catch {
+      // Cache metadata invalid, fall through to full synthesis
+    }
+  }
+}
 const TAU = Math.PI * 2;
 let randomState = 0x42b1115c;
 
@@ -773,5 +821,6 @@ const evidence = {
   cues: AUDIO.cues
 };
 await mkdir(path.join(PROMO_DIR, "evidence"), {recursive: true});
-await writeFile(path.join(PROMO_DIR, "evidence", "audio-selection.json"), JSON.stringify(evidence, null, 2) + "\n", "utf8");
+await writeFile(AUDIO_SELECTION_FILE, JSON.stringify(evidence, null, 2) + "\n", "utf8");
+await writeFile(CACHE_HASH_FILE, currentAudioHash + "\n", "utf8");
 console.log(`原创配乐与 ${sfxEvidence.length} 类音效已生成：${OUTPUT_DIR}`);
