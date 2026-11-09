@@ -47,8 +47,6 @@ const CHAT_PLAYER = {left: 96, top: 124, width: 1080, height: 649};
 
 const CHAT_PUSH_IN_FROM = CHAT_PLAYER_VERIFY_FROM - 6;
 const CHAT_PUSH_IN_TO = CHAT_PLAYER_VERIFY_FROM + 12;
-const CHAT_PUSH_OUT_FROM = CHAT_PLAYER_VERIFY_TO - 4;
-const CHAT_PUSH_OUT_TO = CHAT_PLAYER_VERIFY_TO + 6;
 const PUSH_EASING = Easing.bezier(0.45, 0, 0.15, 1);
 
 type HeadlinePart = {text: string; accent?: boolean};
@@ -255,7 +253,7 @@ const usePanelHandoffFocus = (
 
 const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: number}) => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION);
+  const {blur, focusScale} = usePanelHandoffFocus(CHAT_DURATION, undefined, WEBSEARCH_HANDOFF);
 
   const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
   const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
@@ -490,8 +488,8 @@ export const ChatScene = () => {
   const voiceEmphasis = voiceDuckEmphasisAtFrame(CHAT_FROM + frame);
   const verifyBlend = interpolate(
     frame,
-    [CHAT_PUSH_IN_FROM, CHAT_PUSH_IN_TO, CHAT_PUSH_OUT_FROM, CHAT_PUSH_OUT_TO],
-    [0, 1, 1, 0],
+    [CHAT_PUSH_IN_FROM, CHAT_PUSH_IN_TO],
+    [0, 1],
     {...CLAMP, easing: PUSH_EASING}
   );
   const panelLeft = interpolate(verifyBlend, [0, 1], [940, 1220]);
@@ -559,7 +557,7 @@ const SUBTOOLS_EXPORT_BUTTONS = ["复制字幕", "导出字幕"] as const;
 
 export const SubtoolsScene = () => {
   const frame = useCurrentFrame();
-  const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration, undefined, WEBSEARCH_HANDOFF);
+  const {blur, focusScale} = usePanelHandoffFocus(SUBTOOLS_TIMELINE.duration);
   const settledAt = SUBTOOLS_TIMELINE.settledAt;
   const sublineAt = SUBTOOLS_TIMELINE.exportAt;
   const clickAt = SUBTOOLS_TIMELINE.exportClickAt;

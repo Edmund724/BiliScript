@@ -1,36 +1,39 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {voiceDuckEmphasisAtFrame} from "../audio.mjs";
-import {LIVE_TIMELINE, SCENES} from "../timeline.mjs";
+import {LIVE_TIMELINE} from "../timeline.mjs";
 import {
-  BottomLectureCaption,
   BRAND_FONT_FAMILY,
   COLORS,
   ELEVATION,
-  EditorialHeaderBand,
-  FONT_FAMILY,
-  entranceOpacity
+  FONT_FAMILY
 } from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
+const EXPAND_EASING = Easing.bezier(0.55, 0, 0.25, 1);
 
-const LIVE_FROM = SCENES.find((scene) => scene.id === "live")!.from;
 const LIVE_VIDEO_SOURCE = "subtitle-seek-03.mp4";
 const LIVE_VIDEO_START_FROM = 224;
 
-// Real Bilibili video page player geometry in 1920x1080 page space (bili-page-shell.jpg: x=54..1398)
-const PAGE_PLAYER = {
-  left: 54,
-  top: 171,
-  width: 1344,
-  height: 745
-} as const;
-const VIDEO_SOURCE_PLAYER_WIDTH = 1302;
-const VIDEO_SCALE_X = PAGE_PLAYER.width / VIDEO_SOURCE_PLAYER_WIDTH;
+// 页面播放器在 1920x1080 页面中的几何中心正好是 16:9 播放器 0.7 倍时的画面中心
+const PAGE_PLAYER = {left: 54, top: 171, width: 1344, height: 745};
+const PAGE_PLAYER_CENTER = {
+  x: PAGE_PLAYER.left + PAGE_PLAYER.width / 2,
+  y: PAGE_PLAYER.top + PAGE_PLAYER.height / 2
+};
+const PAGE_PLAYER_SCALE = 0.7;
+const PAGE_PLAYER_RADIUS = 14;
+
+// 录屏是整页画面，全屏只取播放器区域；按高度铺满并轻微横向裁切
+const VIDEO_CROP_SCALE = 1080 / PAGE_PLAYER.height;
+const VIDEO_CROP = {
+  width: Number((1920 * VIDEO_CROP_SCALE).toFixed(2)),
+  height: Number((1080 * VIDEO_CROP_SCALE).toFixed(2)),
+  left: Number((960 - PAGE_PLAYER_CENTER.x * VIDEO_CROP_SCALE).toFixed(2)),
+  top: Number((540 - PAGE_PLAYER_CENTER.y * VIDEO_CROP_SCALE).toFixed(2))
+};
 
 export const LIVE_USER_PROMPT = "那普通人怎么跟 AI 打配合？";
 export const LIVE_AI_REPLY = "把检索和拆解交给 AI，你来掌舵判断。";
-export const LIVE_AI_QUOTE = "“把检索和拆解交给 AI，你来掌舵判断。”";
 
 const PlayerLiveActionIcon = ({size = 22}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor">
@@ -191,7 +194,34 @@ function getLiquidGlassLensMap(width: number, height: number, radius = 16, edge 
 export const LiveScene = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const voiceEmphasis = voiceDuckEmphasisAtFrame(LIVE_FROM + frame);
+
+  // 从 B 站页面播放器位置展开铺满画幅，页面外壳同步淡出
+  const expand = interpolate(
+    frame,
+    [LIVE_TIMELINE.fullscreenAt, LIVE_TIMELINE.fullscreenDoneAt],
+    [0, 1],
+    {...CLAMP, easing: EXPAND_EASING}
+  );
+  const playerScale = interpolate(expand, [0, 1], [PAGE_PLAYER_SCALE, 1]);
+  const playerCenterX = interpolate(expand, [0, 1], [PAGE_PLAYER_CENTER.x, 960]);
+  const playerCenterY = interpolate(expand, [0, 1], [PAGE_PLAYER_CENTER.y, 540]);
+  const playerRadius = interpolate(expand, [0, 1], [PAGE_PLAYER_RADIUS, 0]);
+  const pageShellOpacity = interpolate(frame, [LIVE_TIMELINE.fullscreenAt, 8, 17], [1, 1, 0], CLAMP);
+
+  // 全屏沉淀后把镜头 1.4x 推近右上角伴看浮窗，控件与音量 HUD 留在画面内
+  const cameraPush = interpolate(
+    frame,
+    [LIVE_TIMELINE.pushInAt, LIVE_TIMELINE.pushInAt + LIVE_TIMELINE.cameraPushFrames],
+    [1, 1.4],
+    {...CLAMP, easing: SMOOTH}
+  );
+  const cameraStyle = {
+    position: "absolute" as const,
+    inset: 0,
+    overflow: "hidden" as const,
+    transform: `scale(${cameraPush.toFixed(4)})`,
+    transformOrigin: "100% 0%"
+  };
 
   const toggleClicked = frame >= LIVE_TIMELINE.toggleClickAt;
   const rippleOpacity = interpolate(
@@ -219,17 +249,6 @@ export const LiveScene = () => {
     config: {damping: 17, stiffness: 175, mass: 0.82}
   });
   const overlayOpacity = interpolate(frame, [LIVE_TIMELINE.overlayOpenAt - 5, LIVE_TIMELINE.overlayOpenAt + 4], [0, 1], CLAMP);
-
-  // Keep the full Bilibili video page (title, UP card, right playlist, bottom bar) cleanly framed inside the 1776x852 stage
-  const cameraBreath = interpolate(
-    frame,
-    [LIVE_TIMELINE.overlayOpenAt - 2, LIVE_TIMELINE.overlayOpenAt + 24],
-    [0, 1],
-    {...CLAMP, easing: SMOOTH}
-  );
-  const pageScale = interpolate(cameraBreath, [0, 1], [0.915, 0.935]);
-  const pageLeft = (1776 - 1920 * pageScale) / 2;
-  const pageTop = -64 * pageScale;
 
   const userBubbleReveal = interpolate(
     frame,
@@ -262,7 +281,7 @@ export const LiveScene = () => {
 
   // 1:1 authentic floating window geometry (uniformly scaled 1.25x from 320px -> 400px for 1080p legibility)
   const OVERLAY_WIDTH = 400;
-  const OVERLAY_HEIGHT = 192;
+  const OVERLAY_HEIGHT = 210;
   const OVERLAY_RADIUS = 18;
   const lensMap = getLiquidGlassLensMap(OVERLAY_WIDTH, OVERLAY_HEIGHT, OVERLAY_RADIUS, 15);
 
@@ -283,97 +302,53 @@ export const LiveScene = () => {
   const visibleAiReply = frame >= LIVE_TIMELINE.aiReplyAt ? LIVE_AI_REPLY.slice(0, streamedChars) : "";
 
   return (
-    <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
-      <EditorialHeaderBand
-        kicker="视频页 & 直播间通用 · 播放器液态玻璃伴看"
-        title="懒得打字？开启实时伴看，边看边聊。"
-        titleNode={
-          <>
-            懒得打字？开启<span style={{color: COLORS.pink}}>实时伴看</span>，边看边聊。
-          </>
-        }
-        titleSize={52}
-        delay={-12}
-      />
+    <AbsoluteFill style={{fontFamily: FONT_FAMILY, background: "#07090F"}}>
+      {/* B 站页面底板：全屏化过程中淡出，让播放器接管整幅画面 */}
+      <div style={{position: "absolute", inset: 0, opacity: pageShellOpacity}}>
+        <Img
+          src={staticFile("media/bili-page-shell.jpg")}
+          style={{width: 1920, height: 1080, objectFit: "cover"}}
+        />
+        {/* Clean top-right unauthenticated login button in page header */}
+        <div style={{position: "absolute", left: 1424, top: 8, width: 44, height: 48, background: "#FFFFFF"}} />
+      </div>
 
-      {/* Main Visual Stage: Bilibili Video Page + Player Top-Right Liquid-Glass Companion Overlay */}
+      {/* 全屏播放器：从页面播放器位置展开到铺满画幅 */}
       <div
         style={{
           position: "absolute",
-          left: 72,
-          top: 168,
-          width: 1776,
-          height: 856,
-          borderRadius: 30,
+          left: 0,
+          top: 0,
+          width: 1920,
+          height: 1080,
+          translate: `${(playerCenterX - 960).toFixed(2)}px ${(playerCenterY - 540).toFixed(2)}px`,
+          scale: playerScale.toFixed(4),
+          transformOrigin: "50% 50%",
+          borderRadius: playerRadius,
           overflow: "hidden",
-          boxShadow: ELEVATION.videoPlane,
-          background: "#FFFFFF",
-          opacity: entranceOpacity(frame, 1, 0),
-          zIndex: 6
+          background: "#0B0F17",
+          boxShadow: ELEVATION.videoPlane
         }}
       >
-        {/* Scaled 1920x1080 Bilibili Page Canvas (cropped cleanly below top nav bar) */}
-        <div
-          style={{
-            position: "absolute",
-            left: pageLeft,
-            top: pageTop,
-            width: 1920,
-            height: 1080,
-            transform: `scale(${pageScale.toFixed(4)})`,
-            transformOrigin: "0% 0%"
-          }}
-        >
-          {/* Real Bilibili Video Page Shell (Title, UP card, Danmaku list, Playlist, Action Bar) */}
-          <Img
-            src={staticFile("media/bili-page-shell.jpg")}
-            style={{width: 1920, height: 1080, objectFit: "cover"}}
-          />
-          {/* Clean top-right unauthenticated login button in page header */}
-          <div style={{position: "absolute", left: 1424, top: 8, width: 44, height: 48, background: "#FFFFFF"}} />
-
-          {/* Bilibili Video Player Host (.bpx-player-container) */}
-          <div
-            style={{
-              position: "absolute",
-              left: PAGE_PLAYER.left,
-              top: PAGE_PLAYER.top,
-              width: PAGE_PLAYER.width,
-              height: PAGE_PLAYER.height,
-              borderRadius: 14,
-              overflow: "hidden",
-              background: "#0B0F17",
-              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.22)"
-            }}
-          >
-            {/* Playing Lecture Video inside Player */}
-            <div
+        {/* 镜头推近层：原片跟随右上角浮窗一起放大 */}
+        <div style={cameraStyle}>
+          <div style={{position: "absolute", inset: 0, overflow: "hidden"}}>
+            <OffthreadVideo
+              muted
+              src={staticFile(`media/${LIVE_VIDEO_SOURCE}`)}
+              startFrom={LIVE_VIDEO_START_FROM}
+              playbackRate={0.35}
               style={{
                 position: "absolute",
-                left: 0,
-                top: 0,
-                width: VIDEO_SOURCE_PLAYER_WIDTH,
-                height: PAGE_PLAYER.height,
-                overflow: "hidden",
-                transform: `scaleX(${VIDEO_SCALE_X.toFixed(5)})`,
-                transformOrigin: "0% 0%"
+                left: VIDEO_CROP.left,
+                top: VIDEO_CROP.top,
+                width: VIDEO_CROP.width,
+                height: VIDEO_CROP.height,
+                maxWidth: "none"
               }}
-            >
-              <OffthreadVideo
-                muted
-                src={staticFile(`media/${LIVE_VIDEO_SOURCE}`)}
-                startFrom={LIVE_VIDEO_START_FROM}
-                playbackRate={0.35}
-                style={{
-                  position: "absolute",
-                  left: -PAGE_PLAYER.left,
-                  top: -PAGE_PLAYER.top,
-                  width: 1920,
-                  height: 1080,
-                  maxWidth: "none"
-                }}
-              />
-            </div>
+            />
+          </div>
+        </div>
 
             {/* SVG Liquid-Glass 12px Edge Refraction + 3-Channel Chromatic Dispersion Filter (from liquid-glass-lens.ts) */}
             {lensMap ? (
@@ -649,6 +624,8 @@ export const LiveScene = () => {
               </div>
             </div>
 
+            {/* 镜头推近层：右上角浮窗与视频同一镜头倍率 */}
+            <div style={cameraStyle}>
             {/* HERO FOCAL POINT: 1:1 Authentic Top-Right Liquid-Glass Companion Overlay (#biliscript-fullscreen-live-overlay) */}
             <div
               style={{
@@ -849,6 +826,7 @@ export const LiveScene = () => {
                 ) : null}
               </div>
             </div>
+            </div>
 
             {/* Bottom Bilibili Player Control Bar with #biliscript-player-live-quick-action */}
             <div
@@ -1019,20 +997,7 @@ export const LiveScene = () => {
                 </span>
               </div>
             </div>
-          </div>
-        </div>
       </div>
-
-      <BottomLectureCaption
-        timestamp="LIVE"
-        speaker="MOSS Live 伴看语音"
-        quote={LIVE_AI_QUOTE}
-        active={voiceEmphasis > 0.01}
-        emphasis={voiceEmphasis}
-        from={LIVE_TIMELINE.aiReplyAt}
-        duration={LIVE_TIMELINE.aiReplyDoneAt - LIVE_TIMELINE.aiReplyAt + 14}
-        style={{bottom: 24}}
-      />
     </AbsoluteFill>
   );
 };

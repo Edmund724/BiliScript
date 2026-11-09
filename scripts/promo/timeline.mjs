@@ -32,45 +32,49 @@ export const SUBTOOLS_TIMELINE = {
 };
 
 export const WEBSEARCH_TIMELINE = {
-  duration: beatF(7),
+  duration: beatF(6),
   searchBadgeAt: beatF(0.5),
   verifyCardAt: beatF(1.5)
 };
 
 export const LIVE_TIMELINE = {
   duration: beatF(11),
-  toggleClickAt: 10,
-  overlayOpenAt: 14,
-  userPromptAt: 22,
-  duckActiveAt: 30,
+  fullscreenAt: 0,
+  fullscreenDoneAt: 18,
+  toggleClickAt: 20,
+  overlayOpenAt: 24,
+  userPromptAt: 30,
+  duckActiveAt: 38,
+  pushInAt: 24,
+  cameraPushFrames: 18,
   aiReplyAt: 45,
   aiReplyDoneAt: 142
 };
 
 export const PROVIDER_TIMELINE = {
-  duration: beatF(5),
+  duration: beatF(7),
   plateAt: 2,
   orbitAt: 4,
   logoStagger: 2.5,
   logoOffsets: [0, 3, 6, 8, 10, 12, 14, 16, 17, 18, 19, 20, 21, 22],
   logoPopFrames: 4,
-  exitAt: 61,
+  exitAt: 91,
   exitDuration: 12
 };
 
 export const SCENES = [
   { id: "overview", from: 0, duration: OVERVIEW_TIMELINE.duration },
   { id: "subtools", from: 330, duration: SUBTOOLS_TIMELINE.duration },
-  { id: "websearch", from: 435, duration: WEBSEARCH_TIMELINE.duration },
-  { id: "subtitle", from: 540, duration: 120 },
-  { id: "chat", from: 660, duration: 165 },
-  { id: "live", from: 825, duration: LIVE_TIMELINE.duration },
-  { id: "providers", from: 990, duration: PROVIDER_TIMELINE.duration },
+  { id: "subtitle", from: 435, duration: 120 },
+  { id: "chat", from: 555, duration: 150 },
+  { id: "websearch", from: 705, duration: WEBSEARCH_TIMELINE.duration },
+  { id: "live", from: 795, duration: LIVE_TIMELINE.duration },
+  { id: "providers", from: 960, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
-  {from: "subtools", to: "websearch", at: 435, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "chat", to: "websearch", at: 705, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = beatF(5);
@@ -80,17 +84,17 @@ export const CHAT_PLAYER_VERIFY_TO = 144;
 export const CHAT_SHOTS = [
   { startFrom: 0, duration: 50, playbackRate: 1.5 },
   { startFrom: 300, duration: 55, playbackRate: 1.5 },
-  { startFrom: 390, duration: 60, playbackRate: 0.75 }
+  { startFrom: 390, duration: 45, playbackRate: 0.75 }
 ];
 
 export const EVIDENCE_TIMES = [
   0, 0.6, 1.2, 1.8, 2.2, 2.8, 3.6, 4.4, 5.2, 6.2, 7.5, 7.9, 9.0, 10.8,
   11.3, 12.0, 12.8, 13.8,
-  14.8, 15.5, 16.5, 17.5,
-  18.0, 18.4, 18.9, 20.1, 21.0,
-  22.1, 22.9, 24.6, 25.3, 25.6, 26.5,
-  27.8, 28.4, 29.1, 30.4, 31.8, 32.5,
-  33.2, 33.6, 33.9, 34.4, 34.9, 35.3,
+  14.5, 14.9, 15.4, 16.6, 17.5,
+  18.6, 19.4, 21.1, 21.8, 22.1, 23.0,
+  23.8, 24.5, 25.3, 26.1,
+  26.8, 27.4, 28.1, 29.4, 30.8, 31.5,
+  32.2, 32.6, 32.9, 33.6, 34.4, 35.2,
   35.8, 36.3, 36.9, 37.5, 38.2,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
@@ -107,14 +111,16 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "quote-lift", at: sceneSeconds("overview", OVERVIEW_TIMELINE.quoteStartAt)},
   {id: "quote-freeze", at: sceneSeconds("overview", OVERVIEW_TIMELINE.quoteStartAt + OVERVIEW_TIMELINE.quoteLiftFrames - 4)},
   {id: "subtools-export-click", at: sceneSeconds("subtools", SUBTOOLS_TIMELINE.exportClickAt)},
-  {id: "subtools-websearch-defocus", at: sceneSeconds("websearch")},
-  {id: "websearch-verify-card", at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt)},
   {id: "keyword-slice", at: sceneSeconds("subtitle", 12)},
   {id: "timestamp-match", at: sceneSeconds("subtitle", SUBTITLE_MATCH_FRAME)},
   {id: "chat-timestamp-click", at: sceneSeconds("chat", CHAT_TIMESTAMP_CLICK_FRAME)},
   {id: "chat-player-verify", at: sceneSeconds("chat", CHAT_PLAYER_VERIFY_FROM - 6)},
+  {id: "chat-websearch-defocus", at: sceneSeconds("websearch")},
+  {id: "websearch-verify-card", at: sceneSeconds("websearch", WEBSEARCH_TIMELINE.verifyCardAt)},
   {id: "live-overlay-open", at: sceneSeconds("live", LIVE_TIMELINE.overlayOpenAt)},
+  {id: "live-fullscreen", at: sceneSeconds("live", LIVE_TIMELINE.fullscreenDoneAt + 4)},
   {id: "live-voice-priority", at: sceneSeconds("live", LIVE_TIMELINE.duckActiveAt)},
+  {id: "live-camera-push", at: sceneSeconds("live", LIVE_TIMELINE.pushInAt + LIVE_TIMELINE.cameraPushFrames)},
   {id: "live-ai-reply", at: sceneSeconds("live", LIVE_TIMELINE.aiReplyAt + 12)},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt)},

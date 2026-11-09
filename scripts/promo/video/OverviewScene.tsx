@@ -150,6 +150,63 @@ const PlayerSeekOverlay = () => {
 
 const BILI_TRIGGER_ICON = {x: 1359, y: 563, size: 36};
 
+const OPENING_HOOK = {
+  lead: "48 分钟的硬核长视频",
+  question: "怎么",
+  accent: "3 分钟",
+  tail: "吸收完？"
+} as const;
+
+const OpeningHook = () => {
+  const frame = useCurrentFrame();
+  if (frame > 54) return null;
+  const enter = interpolate(frame, [0, 6], [0.78, 1], {...CLAMP, easing: SMOOTH});
+  const lift = interpolate(frame, [0, 10], [14, 0], {...CLAMP, easing: SMOOTH});
+  const exit = interpolate(frame, [44, 54], [0, 1], {...CLAMP, easing: SMOOTH});
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 96,
+        top: 112,
+        zIndex: 24,
+        opacity: enter * (1 - exit),
+        translate: `0px ${(lift - exit * 10).toFixed(1)}px`,
+        pointerEvents: "none"
+      }}
+    >
+      <div
+        style={{
+          padding: "26px 36px 28px",
+          borderRadius: 26,
+          background: "rgba(251, 251, 253, 0.94)",
+          boxShadow: "0 26px 64px rgba(15, 23, 42, 0.20), inset 0 0 0 1px rgba(255, 255, 255, 0.92)",
+          backdropFilter: "blur(18px) saturate(1.1)",
+          WebkitBackdropFilter: "blur(18px) saturate(1.1)"
+        }}
+      >
+        <div
+          style={{
+            fontFamily: FONT_FAMILY,
+            fontSize: 58,
+            lineHeight: 1.2,
+            letterSpacing: -1.6,
+            fontWeight: 660,
+            color: COLORS.foreground
+          }}
+        >
+          <div>{OPENING_HOOK.lead}</div>
+          <div>
+            {OPENING_HOOK.question} <span style={{color: COLORS.pink}}>{OPENING_HOOK.accent}</span>
+            {OPENING_HOOK.tail}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PlayerAiQuickActionIcon = ({frame}: {frame: number}) => {
   const hoverStart = 20;
   const hoverEnd = 34;
@@ -1170,18 +1227,33 @@ const QuotePolaroid = () => {
 export const OverviewScene = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const brandOpacity = interpolate(frame, [T.spatialEnterAt - 2, T.spatialEnterAt + 6], [0, 1], CLAMP);
+  // 开场镜头推近播放器右侧插件动作，再随抽屉舒展回拉至晨读舞台
+  const zoomIn = interpolate(frame, [4, 30], [0, 1], {...CLAMP, easing: SMOOTH});
+  const zoomOut = interpolate(frame, [54, 68], [0, 1], {...CLAMP, easing: SMOOTH});
+  const cameraScale = 1 + 0.45 * zoomIn * (1 - zoomOut);
+  const cameraStyle = {
+    position: "absolute" as const,
+    inset: 0,
+    transform: `scale(${cameraScale.toFixed(4)})`,
+    transformOrigin: "100% 15%",
+    pointerEvents: "none" as const
+  };
+
   return (
     <>
-      <BiliPageTriggerStage />
+      <div style={cameraStyle}>
+        <BiliPageTriggerStage />
+      </div>
       <BrandWhisper opacity={brandOpacity} />
       <SceneTitle title={OVERVIEW_HEADLINE} size={58} delay={T.spatialEnterAt - 4} style={{left: 96, top: 186, width: 868}} />
       <VideoReference duration={duration} />
-      <div style={{position: "absolute", inset: 0}}>
+      <div style={cameraStyle}>
         <OverviewSpotlightCard />
         <Sequence from={T.quoteStartAt} durationInFrames={duration - T.quoteStartAt}>
           <QuotePolaroid />
         </Sequence>
       </div>
+      <OpeningHook />
     </>
   );
 };

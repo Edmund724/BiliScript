@@ -195,10 +195,10 @@ function snare(gainScale = 1) {
 function sectionDynamicsAt(seconds) {
   if (seconds < QUOTE_FREEZE_FROM) return 0.66;
   if (seconds < SUBTOOLS_FROM) return 0.72;
-  if (seconds < WEBSEARCH_FROM) return 0.84;
-  if (seconds < SUBTITLE_FROM) return 0.90;
+  if (seconds < SUBTITLE_FROM) return 0.84;
   if (seconds < CHAT_FROM) return 0.80;
-  if (seconds < LIVE_FROM) return 0.86;
+  if (seconds < WEBSEARCH_FROM) return 0.86;
+  if (seconds < LIVE_FROM) return 0.90;
   if (seconds < PROVIDERS_FROM) return 0.88;
   if (seconds < OUTRO_AT - 0.52) return 1.14;
   if (seconds < OUTRO_AT - 0.1) return 0.05;

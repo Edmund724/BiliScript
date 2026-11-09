@@ -72,9 +72,6 @@ export const AUDIO = {
     {id: "subtools-cut", frame: SUBTOOLS_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "subtools-settled", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.settledAt, src: "media/sfx/pop.wav", gain: 0.44, duckDb: 3.6},
     {id: "subtools-export", frame: SUBTOOLS_FROM + SUBTOOLS_TIMELINE.exportClickAt, src: "media/sfx/snap.wav", gain: 0.56, duckDb: 4.5},
-    {id: `${WEBSEARCH_HANDOFF.from}-defocus`, frame: WEBSEARCH_HANDOFF.at - WEBSEARCH_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
-    {id: `${WEBSEARCH_HANDOFF.to}-focus`, frame: WEBSEARCH_HANDOFF.at + WEBSEARCH_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
-    {id: "websearch-verify", frame: WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4.2},
     {id: "subtitle-cut", frame: SUBTITLE_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "subtitle-keyword-resolve", frame: SUBTITLE_FROM + 8, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
     {id: "type-huan", frame: SUBTITLE_FROM + 12, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},
@@ -83,6 +80,9 @@ export const AUDIO = {
     {id: "subtitle-seek-snap", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/snap.wav", gain: 0.66, duckDb: 5.2},
     {id: "chat-cut", frame: CHAT_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
+    {id: `${WEBSEARCH_HANDOFF.from}-defocus`, frame: WEBSEARCH_HANDOFF.at - WEBSEARCH_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
+    {id: `${WEBSEARCH_HANDOFF.to}-focus`, frame: WEBSEARCH_HANDOFF.at + WEBSEARCH_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
+    {id: "websearch-verify", frame: WEBSEARCH_FROM + WEBSEARCH_TIMELINE.verifyCardAt, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4.2},
     {id: "live-cut", frame: LIVE_FROM, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "live-toggle-click", frame: LIVE_FROM + LIVE_TIMELINE.toggleClickAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 3.4},
     {id: "live-overlay-open", frame: LIVE_FROM + LIVE_TIMELINE.overlayOpenAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 3.8},
@@ -98,7 +98,7 @@ export const AUDIO = {
   voices: [
     {id: "voice-0232", frame: OVERVIEW_TIMELINE.quoteStartAt + 2, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
-    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 40},
+    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 34},
     {id: "voice-live-ai", frame: LIVE_FROM + LIVE_TIMELINE.aiReplyAt, src: "media/sfx/voice-live-ai.wav", gain: 0.86, duckDb: 11.5, durationFrames: 97}
   ]
 };
