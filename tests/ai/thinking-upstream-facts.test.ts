@@ -479,7 +479,10 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
       "modelscope/zhipuai/glm-4.6",
       ...FLIPPED,
       "alibaba-cn/qwen3.8-max",
-      "alibaba-cn/kimi-k3"
+      "alibaba-cn/kimi-k3",
+      "kimi-code-plan-cn/k3.1-pro",
+      "kimi-code-plan-cn/k3.1-pro-highspeed",
+      "minimax-cn/minimax-m3.1-flash"
     ].sort();
     expect([...divergent].sort()).toEqual(expected);
   });
@@ -712,7 +715,7 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     expect(levelsOf("amd", "DeepSeek-V4.1-Flash")).not.toContain("off");
   });
 
-  it("丢 off 的行按新上游事实失去 off（21 行 openrouter + moonshot/k3；glm-5.2 已由 D1=A2 补回）", () => {
+  it("丢 off 的行按新上游事实失去 off（16 行 openrouter + moonshot/k3；glm-5.2 已由 D1=A2 补回；gemini-3.1-flash-image-preview 上游重新带 off）", () => {
     // D1=A2 前本清单还含 openrouter/z-ai/glm-5.2 与 sensenova/glm-5.2（13 号票 canonical 优先把
     // 它们的 direct off 抹掉）；本仓补声明给 zhipuai/glm-5.2 补上 toggle 后，这两行的**模型侧**
     // 事实重新带 off，故移出本清单——它们仍未关得掉，但原因换成了「平台形状未登记」（见紧随的
@@ -726,22 +729,17 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
       ["openrouter", "openrouter", "anthropic/claude-opus-5"],
       ["openrouter", "openrouter", "anthropic/claude-sonnet-4.5"],
       ["openrouter", "openrouter", "anthropic/claude-sonnet-4.6"],
-      ["openrouter", "openrouter", "google/gemini-3.1-flash-image-preview"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-image"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-image"],
       ["openrouter", "openrouter", "google/gemini-3-flash-preview"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-preview"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite"],
       ["openrouter", "openrouter", "moonshotai/kimi-k3"],
-      ["openrouter", "openrouter", "openai/o4-mini"],
-      ["openrouter", "openrouter", "openai/o3-mini"],
-      ["openrouter", "openrouter", "openai/o1"],
       ["openrouter", "openrouter", "openai/o3-pro"],
       ["openrouter", "openrouter", "openai/o3"],
-      ["openrouter", "openrouter", "openai/o1-pro"],
       ["moonshot", "kimi-code-plan-cn", "k3"]
     ];
-    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(21);
+    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(16);
     for (const [presetId, upstreamId, model] of lost) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
@@ -858,7 +856,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     return [...models].sort();
   };
 
-  it("目录内 287 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
+  it("目录内 293 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
     const counts: Record<string, number> = {};
     let unknown: string[] = [];
     let total = 0;
@@ -872,8 +870,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       }
     }
     expect(unknown).toEqual([]);
-    expect(counts).toEqual({ openrouter: 247, amd: 5, sensenova: 6, opencodego: 29 });
-    expect(total).toBe(287);
+    expect(counts).toEqual({ openrouter: 241, amd: 8, sensenova: 6, opencodego: 38 });
+    expect(total).toBe(293);
   });
 
   it("上游词表更窄的行：档位被静默改写（amd/Qwen3.8-27B 的 high → medium）", () => {
@@ -937,7 +935,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("off 级联：票面「上游词表含 off」的口径 177 行（152/3/5/17），逐平台钉数", () => {
+  it("off 级联：票面「上游词表含 off」的口径 177 行（146/5/5/21），逐平台钉数", () => {
     // 口径 = 上游词表含 off（toggle 或 effort none）的目录内行数。当前实测
     // 152 / 3 / 5 / 17 = 177（2026-10-17 上游快照漂移后更新：opencode-go 删 8 增 2、
     // openrouter 增 9 删 2、sensenova 增 1，见 03-catalog-check §1）。
@@ -951,11 +949,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 152, amd: 3, sensenova: 5, opencodego: 17 });
+    }).toEqual({ openrouter: 146, amd: 5, sensenova: 5, opencodego: 21 });
     expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(177);
   });
 
-  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 223 行（与口径 A 的 177 差异见 18-report）", () => {
+  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 231 行（与口径 A 的 177 差异见 18-report）", () => {
     const cascade = (presetId: string): string[] =>
       modelsOf(presetId).filter((model) => {
         const adjustment = resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: true });
@@ -969,8 +967,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
-    expect(counts).toEqual({ openrouter: 188, amd: 5, sensenova: 5, opencodego: 25 });
-    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(223);
+    expect(counts).toEqual({ openrouter: 185, amd: 8, sensenova: 5, opencodego: 33 });
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(231);
     // 级联目标 = 可用集里最小的非 off 档：glm-5.2（A={high,max}）偏好 off → high。
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(glm.effectiveLevel).toBe("high");
@@ -1029,7 +1027,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
-  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 102 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
+  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 109 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
     // 25 行 = 18 号票当时四家的分歧集；2026-10-06「手写侧剥 org 前缀」放开后扩到百家以上
     //（全部是上游 id 带命名空间前缀的缺口行：openrouter 的 openai/*、qwen/*、z-ai/*、
     // deepseek/* —— 剥前缀后手写侧才认出血统方言）。运行期这些行仍先命中上游目录，
@@ -1043,6 +1041,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "amd/deepseek-v4-flash",
       "amd/deepseek-v4-flash-vision-exp",
       "amd/deepseek-v4.1-flash",
+      "amd/glm-5.3-flash",
+      "amd/mimo-v2.6-flash",
       "amd/qwen3.8-27b",
       "amd/qwen3.8-flash-next",
       "opencode-go/deepseek-v4-pro",
@@ -1052,8 +1052,12 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "opencode-go/glm-5.3-flash",
       "opencode-go/gpt-5.6-luna",
       "opencode-go/gpt-6-luna",
+      "opencode-go/mimo-v2.5",
+      "opencode-go/mimo-v2.5-pro",
       "opencode-go/mimo-v2.6-flash",
       "opencode-go/mimo-v2.6-pro",
+      "opencode-go/minimax-m3.1-flash",
+      "opencode-go/minimax-m3.1-flash-free",
       "opencode-go/qwen3.7-plus",
       "opencode-go/qwen3.8-flash",
       "opencode-go/qwen3.8-max",
@@ -1067,6 +1071,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/deepseek/deepseek-v4-pro-0813",
       "openrouter/deepseek/deepseek-v4.1-flash",
       "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      "openrouter/minimax/minimax-m3.1-flash",
       "openrouter/moonshotai/kimi-k2.5",
       "openrouter/moonshotai/kimi-k2.6",
       "openrouter/openai/gpt-5",
@@ -1135,13 +1140,14 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/z-ai/glm-5.3",
       "openrouter/z-ai/glm-5.3-flash",
       "openrouter/z-ai/glm-5.3-flashx",
+      "openrouter/z-ai/glm-5.3-flashx-legal",
       "openrouter/z-ai/glm-5.3-prime",
       "openrouter/z-ai/glm-5v-turbo",
       "openrouter/~deepseek/deepseek-v4-flash-latest",
       "sensenova/deepseek-v4-flash",
       "sensenova/deepseek-v4-pro",
       "sensenova/deepseek-v4.1-flash",
-      "sensenova/glm-5.2",
+      "sensenova/glm-5.2"
     ]);
     // 7 档口径比 3 档多出的行 = 上游词表带 max、而手写 class 没有 max 写点的行。
     // 19 号票删掉 kimi-k3* 专条后，opencode-go / sensenova 的 kimi-k3 手写侧已无结论，

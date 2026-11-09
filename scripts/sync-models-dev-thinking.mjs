@@ -120,6 +120,13 @@ const CANONICAL_MODEL_REDIRECTS = [
       "DeepSeek-v4.1-flash 都可以直接用上游 deepseek provider 的 deepseek-flash 参数」。"
   },
   {
+    canonical: "deepseek/deepseek-v4.1-flash-1017",
+    redirect: "deepseek/deepseek-flash",
+    reason:
+      "上游 deepseek provider 没有 deepseek-v4.1-flash-1017 这个 id（只有 deepseek-flash）；" +
+      "用户 2026-10-05 裁定「所有的 DeepSeek-v4.1-flash 都可以直接用上游 deepseek provider 的 deepseek-flash 参数」。"
+  },
+  {
     canonical: "deepseek/deepseek-v4-pro-0813",
     redirect: "deepseek/deepseek-v4-pro",
     reason:
@@ -175,26 +182,7 @@ const VOCABULARY_OVERRIDES = [
 //   ① key 形状合法、存在于快照、reasoning_options 非空；
 //   ② 该行**当前不得**已有 toggle —— 上游将来补上就硬报错提醒删除本条（**自退役**）；
 //   ③ 增强后的 effort 词表必须等于声明里写的期望值 —— 上游改词表时硬报错，防静默漂移。
-const OFF_CAPABILITY_DECLARATIONS = [
-  {
-    key: "zhipuai/glm-5.2",
-    effort: ["high", "max"],
-    reason:
-      "上游 zhipuai/glm-5.2 的 reasoning_options 只有 effort[high,max]、漏了 {\"type\":\"toggle\"}，" +
-      "本仓补上 off 能力（结构增强，不改词表主人）。依据只许引两处：①厂商文档 " +
-      "docs.z.ai/guides/capabilities/thinking-mode 只把 GLM-5.3 / 5.3-FLASH 列为不可关闭" +
-      "（GLM-5.2 不在其中），docs.bigmodel.cn/cn/guide/capabilities/thinking 里 thinking.type 是 " +
-      "GLM-5.2 的原生参数、reasoning_effort 仅 5.2 及以上支持 —— 「按轮开关」是该族既有能力；" +
-      "②本仓先例：extension/ai/thinking-profiles.ts 的 CLASSES[\"glm-hybrid-effort\"] 本来就带 " +
-      "off:{thinking:{type:\"disabled\"}}，今天只服务目录外 id（同一 zhipu 预设下手填 glm-5.2-air " +
-      "能选 Off、目录里的 glm-5.2 不能），本声明让上游投影与它对齐。**不许用「家族 N 行也有 " +
-      "toggle」当依据**：中转站会造词面（glm-4.6/glm-4.7 被造出厂商没有的 effort 词），且全库 " +
-      "toggle+[high,max] 的 42 行里 37 行是 DeepSeek，不是 GLM-5.2 家族。13 号票 canonical 优先让 " +
-      "本行成为全家族词表主人，缺口因此外溢到 alibaba-cn / opencode-go / openrouter / sensenova " +
-      "四行；其中只有 zhipu（thinking:{type:\"disabled\"}）与 qwen（enable_thinking:false）已登记 " +
-      "开关形状 → 行为 2 行，其余 3 家事实带 toggle 但无写点（裁定 3 不发明新形状，面板逐字节不变）。"
-  }
-];
+const OFF_CAPABILITY_DECLARATIONS = [];
 
 // 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
 // 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量与 spec
@@ -202,9 +190,9 @@ const OFF_CAPABILITY_DECLARATIONS = [
 // effortSets 是**派生计数**（被引用值集里的 effort 词表去重），不等于上游原始的
 // effort 值集种数（见 spec §上游形态）。
 const EXPECTED_COUNTS = {
-  models: 617,
-  reasoning: 447,
-  withOptions: 380,
+  models: 600,
+  reasoning: 451,
+  withOptions: 384,
   gaps: 67,
   effortSets: 31
 };

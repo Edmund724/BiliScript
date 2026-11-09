@@ -67,7 +67,7 @@ function extensionFilesReferencing(pattern: RegExp): string[] {
 }
 
 describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () => {
-  it("13 家上游 / 617 个模型，preset 登记的 provider 全在其中", () => {
+  it("13 家上游 / 600 个模型，preset 登记的 provider 全在其中", () => {
     const registered = new Set(EXPECTED_CATALOG_PROVIDERS.map(([, provider]) => provider));
     expect(Object.keys(UPSTREAM_CATALOG).filter((id) => registered.has(id)).sort()).toEqual(
       [...registered].sort()
@@ -76,7 +76,7 @@ describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () =
       (sum, models) => sum + Object.keys(models).length,
       0
     );
-    expect(total).toBe(617);
+    expect(total).toBe(600);
     expect(Object.keys(UPSTREAM_CATALOG)).toHaveLength(13);
     expect(UPSTREAM_CATALOG_SOURCE.contentHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(UPSTREAM_CATALOG_SOURCE.source).toBe("https://models.dev/api.json");
@@ -173,7 +173,7 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
       name: "DeepSeek V4 Pro",
       reasoning: true,
       input: ["text"],
-      contextWindow: 1000000,
+      contextWindow: 1048576,
       maxTokens: 393216
     });
   });
