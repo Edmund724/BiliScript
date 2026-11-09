@@ -45,7 +45,7 @@ describe("宣传片配乐、微交互音效与原声/AI 语音闪避", () => {
       fadeOutEndFrame: PROMO_DURATION,
       outroChordFrame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt
     });
-    expect(PROMO_DURATION).toBe(39 * PROMO_FPS);
+    expect(PROMO_DURATION).toBe(40.5 * PROMO_FPS);
     expect(AUDIO.music.durationInFrames).toBe(PROMO_DURATION);
     for (const scene of SCENES.slice(1)) {
       expect(((scene.from * AUDIO.music.bpm) / 60) % PROMO_FPS, scene.id).toBe(0);
@@ -108,6 +108,7 @@ describe("宣传片配乐、微交互音效与原声/AI 语音闪避", () => {
       ["voice-0232", OVERVIEW_TIMELINE.quoteStartAt + 2, "media/sfx/voice-0232.wav"],
       ["voice-0407", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, "media/sfx/voice-0407.wav"],
       ["voice-0444", CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, "media/sfx/voice-0444.wav"],
+      ["voice-live-user", LIVE_FROM + LIVE_TIMELINE.userPromptAt, "media/sfx/voice-live-user.wav"],
       ["voice-live-ai", LIVE_FROM + LIVE_TIMELINE.aiReplyAt, "media/sfx/voice-live-ai.wav"]
     ]);
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);

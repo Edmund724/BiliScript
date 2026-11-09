@@ -38,17 +38,18 @@ export const WEBSEARCH_TIMELINE = {
 };
 
 export const LIVE_TIMELINE = {
-  duration: beatF(11),
+  duration: beatF(14),
   fullscreenAt: 0,
   fullscreenDoneAt: 18,
   toggleClickAt: 20,
   overlayOpenAt: 24,
   userPromptAt: 30,
+  userPromptDoneAt: 78,
   duckActiveAt: 38,
   pushInAt: 24,
   cameraPushFrames: 18,
-  aiReplyAt: 45,
-  aiReplyDoneAt: 142
+  aiReplyAt: 90,
+  aiReplyDoneAt: 187
 };
 
 export const PROVIDER_TIMELINE = {
@@ -69,7 +70,7 @@ export const SCENES = [
   { id: "chat", from: 555, duration: 150 },
   { id: "websearch", from: 705, duration: WEBSEARCH_TIMELINE.duration },
   { id: "live", from: 795, duration: LIVE_TIMELINE.duration },
-  { id: "providers", from: 960, duration: PROVIDER_TIMELINE.duration },
+  { id: "providers", from: 1005, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
@@ -93,9 +94,9 @@ export const EVIDENCE_TIMES = [
   14.5, 14.9, 15.4, 16.6, 17.5,
   18.6, 19.4, 21.1, 21.8, 22.1, 23.0,
   23.8, 24.5, 25.3, 26.1,
-  26.8, 27.4, 28.1, 29.4, 30.8, 31.5,
-  32.2, 32.6, 32.9, 33.6, 34.4, 35.2,
-  35.8, 36.3, 36.9, 37.5, 38.2,
+  26.8, 27.4, 28.1, 29.0, 29.8, 31.2, 32.8,
+  33.7, 34.1, 34.4, 35.1, 35.9, 36.7,
+  37.3, 37.8, 38.4, 39.0, 39.7,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 

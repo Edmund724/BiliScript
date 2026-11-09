@@ -114,6 +114,7 @@ export const AUDIO = {
     {id: "voice-0232", frame: OVERVIEW_TIMELINE.quoteStartAt + 2, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
     {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 34},
+    {id: "voice-live-user", frame: LIVE_FROM + LIVE_TIMELINE.userPromptAt, src: "media/sfx/voice-live-user.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
     {id: "voice-live-ai", frame: LIVE_FROM + LIVE_TIMELINE.aiReplyAt, src: "media/sfx/voice-live-ai.wav", gain: 0.86, duckDb: 11.5, durationFrames: 97}
   ]
 };

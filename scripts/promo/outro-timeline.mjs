@@ -8,7 +8,7 @@ export const OUTRO_CTA_ITEMS = [
 
 export const OUTRO_TIMELINE = {
   fps: 30,
-  from: 1065,
+  from: 1110,
   duration: 105,
   features: [],
   brandResolveAt: OUTRO_BRAND_RESOLVE_START_FRAME,

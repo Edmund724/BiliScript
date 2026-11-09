@@ -27,11 +27,11 @@ export const CAPTIONS = [
   {sceneId: "chat", text: "这里有一个研究……", ...voiceMilliseconds("voice-0444"), timestampMs: null, confidence: null},
   {sceneId: "websearch", text: "视频里提的新概念？", startMs: 23500, endMs: 24700, timestampMs: null, confidence: null},
   {sceneId: "websearch", text: "AI 联网搜背景，附来源链接。", startMs: 24700, endMs: 26500, timestampMs: null, confidence: null},
-  {sceneId: "live", text: "懒得打字？开启实时伴看，边看边聊。", startMs: 26500, endMs: 27250, timestampMs: null, confidence: null},
-  {sceneId: "live", text: "共享视频原声，开口自动压低原片音量。", startMs: 27250, endMs: 28000, timestampMs: null, confidence: null},
+  {sceneId: "live", text: "懒得打字？开启实时伴看，开口自动压低原片音量。", startMs: 26500, endMs: 27500, timestampMs: null, confidence: null},
+  {sceneId: "live", text: "那普通人怎么跟 AI 配合？", ...voiceMilliseconds("voice-live-user"), timestampMs: null, confidence: null},
   {sceneId: "live", text: "把检索和拆解交给 AI，你来掌舵判断。", ...voiceMilliseconds("voice-live-ai"), timestampMs: null, confidence: null},
-  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 32000, endMs: 35500, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "BiliScript", startMs: 35500, endMs: 36050, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "在 B 站，读下一条视频", startMs: 36050, endMs: 37300, timestampMs: null, confidence: null},
-  {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问 · 实时伴看", startMs: 37300, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
+  {sceneId: "providers", text: "接入你顺手的 AI 大脑", startMs: 33500, endMs: 37000, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "BiliScript", startMs: 37000, endMs: 37550, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "在 B 站，读下一条视频", startMs: 37550, endMs: 38800, timestampMs: null, confidence: null},
+  {sceneId: "outro", text: "字幕转写 · 章节速览 · 溯源追问 · 实时伴看", startMs: 38800, endMs: outroMilliseconds(OUTRO_TIMELINE.duration), timestampMs: null, confidence: null}
 ];

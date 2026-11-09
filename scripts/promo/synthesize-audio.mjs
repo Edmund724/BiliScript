@@ -345,7 +345,7 @@ function makeScore() {
     // Act 3: AI 追问与联网检索、伴看连接
     [37, 74], [38.5, 78], [40, 81], [41.5, 85], [47, 83], [48.5, 78], [50, 76], [53, 74], [54.5, 81],
     // Act 4: 平台矩阵高潮上扬
-    [64, 74], [65.5, 78], [67, 81], [68.5, 86], [70, 88]
+    [67, 74], [68.5, 78], [70, 81], [71.5, 86], [73, 88]
   ];
   for (const [index, note] of melody) {
     const at = index * beat;
@@ -803,6 +803,7 @@ const voiceExcerpts = [
   {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 但是它如果不答一定是零分", fadeOutSeconds: 0.15},
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉", fadeOutSeconds: 0.06},
   {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究", fadeOutSeconds: 0.06},
+  {name: "voice-live-user", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-live-user.wav"), excerpt: "实时伴看用户语音提问：那普通人怎么跟 AI 配合？", fadeOutSeconds: 0.06, source: "author-voice-recording", license: "Original author voice recording; MIT License"},
   {name: "voice-live-ai", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-live-ai.wav"), excerpt: "实时伴看 MOSS Live 回复：把检索和拆解交给 AI，你来掌舵判断。", fadeOutSeconds: 0.08, source: "moss-live-1.0-realtime", license: "Recorded from MOSS Live API for BiliScript demonstration"}
 ];
 for (const item of voiceExcerpts) {

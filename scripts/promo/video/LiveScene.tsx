@@ -32,7 +32,7 @@ const VIDEO_CROP = {
   top: Number((540 - PAGE_PLAYER_CENTER.y * VIDEO_CROP_SCALE).toFixed(2))
 };
 
-export const LIVE_USER_PROMPT = "那普通人怎么跟 AI 打配合？";
+export const LIVE_USER_PROMPT = "那普通人怎么跟 AI 配合？";
 export const LIVE_AI_REPLY = "把检索和拆解交给 AI，你来掌舵判断。";
 
 const PlayerLiveActionIcon = ({size = 22}: {size?: number}) => (
@@ -252,7 +252,7 @@ export const LiveScene = () => {
 
   const userBubbleReveal = interpolate(
     frame,
-    [LIVE_TIMELINE.userPromptAt - 4, LIVE_TIMELINE.userPromptAt + 8],
+    [LIVE_TIMELINE.userPromptAt - 1, LIVE_TIMELINE.userPromptAt + 7],
     [0, 1],
     {...CLAMP, easing: SMOOTH}
   );
@@ -264,12 +264,12 @@ export const LiveScene = () => {
   );
   const aiBubbleReveal = interpolate(
     frame,
-    [LIVE_TIMELINE.aiReplyAt - 4, LIVE_TIMELINE.aiReplyAt + 8],
+    [LIVE_TIMELINE.aiReplyAt - 1, LIVE_TIMELINE.aiReplyAt + 7],
     [0, 1],
     {...CLAMP, easing: SMOOTH}
   );
 
-  const isUserSpeaking = frame >= LIVE_TIMELINE.userPromptAt && frame < LIVE_TIMELINE.aiReplyAt - 3;
+  const isUserSpeaking = frame >= LIVE_TIMELINE.userPromptAt && frame <= LIVE_TIMELINE.userPromptDoneAt;
   const isAiTalking = frame >= LIVE_TIMELINE.aiReplyAt && frame <= LIVE_TIMELINE.aiReplyDoneAt;
   const isDuckingVideo = frame >= LIVE_TIMELINE.userPromptAt && frame <= LIVE_TIMELINE.aiReplyDoneAt;
 
@@ -284,6 +284,22 @@ export const LiveScene = () => {
   const OVERLAY_HEIGHT = 210;
   const OVERLAY_RADIUS = 18;
   const lensMap = getLiquidGlassLensMap(OVERLAY_WIDTH, OVERLAY_HEIGHT, OVERLAY_RADIUS, 15);
+
+  const streamedUserChars = Math.max(
+    0,
+    Math.min(
+      LIVE_USER_PROMPT.length,
+      Math.floor(
+        interpolate(
+          frame,
+          [LIVE_TIMELINE.userPromptAt, LIVE_TIMELINE.userPromptDoneAt - 6],
+          [2, LIVE_USER_PROMPT.length],
+          CLAMP
+        )
+      )
+    )
+  );
+  const visibleUserPrompt = frame >= LIVE_TIMELINE.userPromptAt ? LIVE_USER_PROMPT.slice(0, streamedUserChars) : "";
 
   const streamedChars = Math.max(
     0,
@@ -781,28 +797,30 @@ export const LiveScene = () => {
                 }}
               >
                 {/* .live-overlay-bubble-user (pure text, #3fb950 green, 15px 15px 2.5px 15px radius) */}
-                <div
-                  style={{
-                    alignSelf: "flex-end",
-                    maxWidth: "82%",
-                    padding: "10px 15px",
-                    borderRadius: "15px 15px 2.5px 15px",
-                    background: "#3fb950",
-                    boxShadow:
-                      "inset 0 1px 0 0 rgba(255, 255, 255, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18)",
-                    color: "#ffffff",
-                    fontSize: 15.5,
-                    fontWeight: 500,
-                    lineHeight: 1.45,
-                    opacity: userBubbleReveal,
-                    translate: `0px ${((1 - userBubbleReveal) * 8).toFixed(1)}px`
-                  }}
-                >
-                  {LIVE_USER_PROMPT}
-                </div>
+                {frame >= LIVE_TIMELINE.userPromptAt ? (
+                  <div
+                    style={{
+                      alignSelf: "flex-end",
+                      maxWidth: "82%",
+                      padding: "10px 15px",
+                      borderRadius: "15px 15px 2.5px 15px",
+                      background: "#3fb950",
+                      boxShadow:
+                        "inset 0 1px 0 0 rgba(255, 255, 255, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18)",
+                      color: "#ffffff",
+                      fontSize: 15.5,
+                      fontWeight: 500,
+                      lineHeight: 1.45,
+                      opacity: userBubbleReveal,
+                      translate: `0px ${((1 - userBubbleReveal) * 8).toFixed(1)}px`
+                    }}
+                  >
+                    {visibleUserPrompt}
+                  </div>
+                ) : null}
 
                 {/* .live-overlay-bubble-assistant (pure text, translucent glass, 15px 15px 15px 2.5px radius) */}
-                {frame >= LIVE_TIMELINE.aiReplyAt - 4 ? (
+                {frame >= LIVE_TIMELINE.aiReplyAt ? (
                   <div
                     style={{
                       alignSelf: "flex-start",
