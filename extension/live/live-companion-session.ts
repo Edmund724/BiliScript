@@ -29,13 +29,16 @@ import {
 } from "./live-chat-controller.js";
 import {
   createLiveOverlayBinding,
-  type LiveOverlayBinding
+  type LiveOverlayBinding,
+  type LiveOverlayControllerHooks
 } from "./live-overlay-binding.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 
 export interface LiveSessionConsumerHooks {
   showNotice?: (message: string, autoHideMs?: number) => void;
   onBeforeStart?: () => void;
+  onStateChange?: LiveOverlayControllerHooks["onStateChange"];
+  onReconnecting?: () => void;
 }
 
 let liveController: LiveChatController | null = null;
@@ -159,7 +162,16 @@ export function ensureLiveController(): LiveChatController {
       initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
       initialVoicePriority: state.settings?.liveVoicePriority !== false,
       initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-      ...liveOverlayBinding.bindControllerCallbacks(),
+      ...liveOverlayBinding.bindControllerCallbacks({
+        onStateChange: (liveState, error, failureKind) => {
+          if (error !== undefined) {
+            sessionHooks?.onStateChange?.(liveState, error, failureKind);
+          } else {
+            sessionHooks?.onStateChange?.(liveState);
+          }
+        },
+        onReconnecting: () => sessionHooks?.onReconnecting?.()
+      }),
       showNotice: notifyConsumer,
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,
@@ -212,6 +224,17 @@ export async function startLiveCompanion(): Promise<boolean> {
   ensureLiveController();
   sessionHooks?.onBeforeStart?.();
   return liveOverlayBinding.startOrRestoreCompanion();
+}
+
+export async function retryLiveCompanion(): Promise<boolean> {
+  const controller = ensureLiveController();
+  await controller.stop();
+  return startLiveCompanion();
+}
+
+export function restoreLiveCompanionOverlay(): void {
+  if (!isLiveCompanionActive()) return;
+  liveOverlayBinding.ensureOverlay().restore();
 }
 
 export function stopLiveCompanion(): void {

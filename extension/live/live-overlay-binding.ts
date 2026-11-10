@@ -17,7 +17,8 @@ import {
 import type {
   LiveChatController,
   LiveChatControllerDeps,
-  LiveChatState
+  LiveChatState,
+  LiveReconnectingInfo
 } from "./live-chat-controller.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
@@ -62,6 +63,7 @@ export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
 
 export interface LiveOverlayControllerHooks {
   onStateChange?: (liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
+  onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
@@ -247,7 +249,10 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         handleVadChange(active);
       },
       onTranscript: handleTranscript,
-      onReconnecting: handleReconnecting,
+      onReconnecting: (info) => {
+        hooks?.onReconnecting?.(info);
+        handleReconnecting();
+      },
       onStateChange: (liveState, error, failureKind) => {
         if (error !== undefined) {
           hooks?.onStateChange?.(liveState, error, failureKind);

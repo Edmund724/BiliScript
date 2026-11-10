@@ -81,6 +81,7 @@ export const ids = {
   readingChatNewBtn: "biliscript-reading-chat-new-btn",
   readingChatOpenSettings: "biliscript-reading-chat-open-settings",
   readingChatAsrNotice: "biliscript-reading-chat-asr-notice",
+  readingChatLiveStatus: "biliscript-reading-chat-live-status",
   readingChatMessages: "biliscript-reading-chat-messages",
   readingChatSuggestions: "biliscript-reading-chat-suggestions",
   // 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。挂在
