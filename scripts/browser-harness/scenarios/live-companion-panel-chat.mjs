@@ -2,12 +2,13 @@
 // 端到端真机场景：伴看与面板对话并行 —— `pnpm harness:scenario live-companion-panel-chat`。
 //
 // 判据（jsdom 够不着的部分）：
-// 1. 非全屏与全屏下，伴看浮窗都默认以胶囊出现，点击展开并可收起为胶囊；
-// 2. 拖拽浮窗后进出全屏，浮窗位置保存为相对右上角的偏移，进出全屏时自适应贴右上角，
+// 1. 首次连接展开，非全屏与全屏下可收起为胶囊，指针/键盘展开、最小化与焦点往返；
+// 2. 胶囊状态与麦克风文本、ARIA、最小目标，以及键盘静音和结束均可操作；
+// 3. 拖拽浮窗后进出全屏，浮窗位置保存为相对右上角的偏移，进出全屏时自适应贴右上角，
 //    且不遮挡全屏画面中心区域（50% 视口中央画面保持无遮挡）；
-// 3. 伴看进行中，文摘面板发起文本问答可正常发送并收到回复，伴看会话不断开、快速操作按钮保持高亮；
-// 4. 面板对话历史中没有伴看语音转写与回复内容，浮窗中没有面板文本问答内容（两者内容隔离）；
-// 5. 产出可重复运行的验证工件（evidence.json 及四态真机渲染截图）。
+// 4. 伴看进行中，文摘面板发起文本问答可正常发送并收到回复，伴看会话不断开、快速操作按钮保持高亮；
+// 5. 面板对话历史中没有伴看语音转写与回复内容，浮窗中没有面板文本问答内容（两者内容隔离）；
+// 6. 产出可重复运行的验证工件（evidence.json 及四态真机渲染截图）。
 
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
@@ -224,14 +225,19 @@ try {
   // 初始化伴看绑定器与面板对话事件监听
   await page.cdp.evaluate(`(() => {
     let liveState = "idle";
+    let muted = false;
     const callbacks = {};
 
     const mockLiveController = {
       getState: () => liveState,
-      isMuted: () => false,
-      toggleMute: () => {},
+      isMuted: () => muted,
+      toggleMute: () => {
+        muted = !muted;
+      },
       getVolume: () => 1,
       setVolume: () => {},
+      getSpeed: () => 1,
+      setSpeed: () => {},
       isSharingVideoAudio: () => true,
       setShareVideoAudio: () => {},
       isVoicePriority: () => true,
@@ -299,7 +305,7 @@ try {
     });
   })()`);
 
-  // CDP 鼠标真实指针事件辅助
+  // CDP 真实指针与键盘输入辅助
   async function getElementMetrics(selector) {
     return page.cdp.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -329,10 +335,37 @@ try {
     await new Promise((r) => setTimeout(r, 120));
   }
 
+  async function pressKey(selector, key, code, windowsVirtualKeyCode) {
+    await page.cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    await page.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key,
+      code,
+      windowsVirtualKeyCode,
+      nativeVirtualKeyCode: windowsVirtualKeyCode,
+      text: key === "Enter" ? "\r" : " ",
+      unmodifiedText: key === "Enter" ? "\r" : " "
+    });
+    await page.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      windowsVirtualKeyCode,
+      nativeVirtualKeyCode: windowsVirtualKeyCode
+    });
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
   // =========================================================================
-  // 1. 非全屏状态下开启伴看：默认胶囊出现，点击展开并可收回
+  // 1. 非全屏首次连接展开，最小化后可用键盘展开
   // =========================================================================
   await clickCenter("#biliscript-player-live-quick-action");
+  await waitFor("非全屏首次浮窗展开", async () =>
+    page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
+  );
+  check("C0-first-connection-expands-overlay", true);
+
+  await clickCenter(".live-overlay-min-btn");
   await waitFor("非全屏胶囊就绪", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('.biliscript-fullscreen-live-mini-capsule:not(.is-hidden):not([hidden])'))")
   );
@@ -350,12 +383,21 @@ try {
       btnActive: btn.classList.contains('is-active'),
       controllerState: window.__mockLiveController.getState(),
       capsuleDistanceToPlayerRight: Math.round(pRect.right - cRect.right),
-      capsuleDistanceToPlayerTop: Math.round(cRect.top - pRect.top)
+      capsuleDistanceToPlayerTop: Math.round(cRect.top - pRect.top),
+      capsuleTag: capsule.tagName,
+      capsuleStatus: capsule.querySelector('.live-overlay-mini-status-text')?.textContent,
+      capsuleMic: capsule.querySelector('.live-overlay-mini-mic-text')?.textContent,
+      capsuleExpanded: capsule.getAttribute('aria-expanded'),
+      capsuleControls: capsule.getAttribute('aria-controls'),
+      capsuleLabel: capsule.getAttribute('aria-label'),
+      capsuleWidth: cRect.width,
+      capsuleHeight: cRect.height,
+      overlayId: overlay.id
     };
   })()`);
 
   check(
-    "C1-non-fullscreen-default-capsule",
+    "C1-non-fullscreen-minimized-capsule",
     nonFsCapsuleState.capsuleVisible &&
       !nonFsCapsuleState.overlayVisible &&
       nonFsCapsuleState.btnActive &&
@@ -364,12 +406,24 @@ try {
       nonFsCapsuleState.capsuleDistanceToPlayerRight <= 32,
     nonFsCapsuleState
   );
+  check(
+    "C1b-capsule-text-aria-and-target",
+    nonFsCapsuleState.capsuleTag === "BUTTON" &&
+      nonFsCapsuleState.capsuleStatus === "正在伴看" &&
+      nonFsCapsuleState.capsuleMic === "麦克风已开启" &&
+      nonFsCapsuleState.capsuleExpanded === "false" &&
+      nonFsCapsuleState.capsuleControls === nonFsCapsuleState.overlayId &&
+      nonFsCapsuleState.capsuleLabel.includes("正在伴看") &&
+      nonFsCapsuleState.capsuleLabel.includes("麦克风已开启") &&
+      nonFsCapsuleState.capsuleWidth >= 24 &&
+      nonFsCapsuleState.capsuleHeight >= 24,
+    nonFsCapsuleState
+  );
 
   const shot1 = path.join(OUT_DIR, "01-capsule-non-fullscreen.png");
   await screenshot(page.cdp, shot1);
 
-  // 点击胶囊展开浮窗
-  await clickCenter(".biliscript-fullscreen-live-mini-capsule");
+  await pressKey(".biliscript-fullscreen-live-mini-capsule", "Enter", "Enter", 13);
   await waitFor("非全屏浮窗展开", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
   );
@@ -377,16 +431,37 @@ try {
   const nonFsExpandedState = await page.cdp.evaluate(`(() => {
     const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
     const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const minButton = overlay.querySelector('.live-overlay-min-btn');
     return {
       capsuleVisible: Boolean(capsule && !capsule.hidden && !capsule.classList.contains('is-hidden')),
-      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden'))
+      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden')),
+      focusClass: document.activeElement?.className,
+      minExpanded: minButton.getAttribute('aria-expanded'),
+      minControls: minButton.getAttribute('aria-controls'),
+      overlayId: overlay.id
     };
   })()`);
 
   check(
-    "C2-non-fullscreen-click-expand",
-    !nonFsExpandedState.capsuleVisible && nonFsExpandedState.overlayVisible,
+    "C2-non-fullscreen-keyboard-expand-and-focus",
+    !nonFsExpandedState.capsuleVisible &&
+      nonFsExpandedState.overlayVisible &&
+      String(nonFsExpandedState.focusClass).includes("live-overlay-min-btn") &&
+      nonFsExpandedState.minExpanded === "true" &&
+      nonFsExpandedState.minControls === nonFsExpandedState.overlayId,
     nonFsExpandedState
+  );
+
+  await pressKey(".live-overlay-mic-btn", " ", "Space", 32);
+  const keyboardMuteState = await page.cdp.evaluate(`(() => ({
+    muted: window.__mockLiveController.isMuted(),
+    pressed: document.querySelector('.live-overlay-mic-btn').getAttribute('aria-pressed'),
+    capsuleMic: document.querySelector('.live-overlay-mini-mic-text').textContent
+  }))()`);
+  check(
+    "C2b-keyboard-mute-syncs-accessible-state",
+    keyboardMuteState.muted && keyboardMuteState.pressed === "true" && keyboardMuteState.capsuleMic === "麦克风已静音",
+    keyboardMuteState
   );
 
   const shot2 = path.join(OUT_DIR, "02-expanded-non-fullscreen.png");
@@ -485,8 +560,8 @@ try {
   const shot3 = path.join(OUT_DIR, "03-dragged-fullscreen-top-right.png");
   await screenshot(page.cdp, shot3);
 
-  // 全屏下最小化回胶囊并点击展开
-  await clickCenter(".live-overlay-min-btn");
+  // 全屏下用键盘最小化回胶囊，再用指针展开
+  await pressKey(".live-overlay-min-btn", "Enter", "Enter", 13);
   await waitFor("全屏胶囊显形", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('.biliscript-fullscreen-live-mini-capsule:not(.is-hidden):not([hidden])'))")
   );
@@ -496,13 +571,20 @@ try {
     const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
     return {
       capsuleVisible: Boolean(capsule && !capsule.hidden && !capsule.classList.contains('is-hidden')),
-      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden'))
+      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden')),
+      focused: document.activeElement === capsule,
+      capsuleExpanded: capsule.getAttribute('aria-expanded'),
+      capsuleMic: capsule.querySelector('.live-overlay-mini-mic-text')?.textContent
     };
   })()`);
 
   check(
-    "C4b-fullscreen-capsule-and-expand",
-    fullscreenCapsuleState.capsuleVisible && !fullscreenCapsuleState.overlayVisible,
+    "C4b-fullscreen-keyboard-minimize-and-focus",
+    fullscreenCapsuleState.capsuleVisible &&
+      !fullscreenCapsuleState.overlayVisible &&
+      fullscreenCapsuleState.focused &&
+      fullscreenCapsuleState.capsuleExpanded === "false" &&
+      fullscreenCapsuleState.capsuleMic === "麦克风已静音",
     fullscreenCapsuleState
   );
 
@@ -599,6 +681,22 @@ try {
     "C9-screenshots-generated",
     existsSync(shot1) && existsSync(shot2) && existsSync(shot3) && existsSync(shot4),
     { shot1, shot2, shot3, shot4 }
+  );
+
+  await pressKey(".live-overlay-close-btn", " ", "Space", 32);
+  const keyboardStopState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    return {
+      liveState: window.__mockLiveController.getState(),
+      overlayHidden: overlay.hidden && overlay.hasAttribute('inert'),
+      capsuleHidden: capsule.hidden && capsule.hasAttribute('inert')
+    };
+  })()`);
+  check(
+    "C10-keyboard-stop-hides-idle-overlay",
+    keyboardStopState.liveState === "idle" && keyboardStopState.overlayHidden && keyboardStopState.capsuleHidden,
+    keyboardStopState
   );
 
   await writeEvidence(OUT_DIR, {
