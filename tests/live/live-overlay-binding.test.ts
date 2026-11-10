@@ -56,6 +56,48 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
   });
 
+  it("后台状态同步保留迷你态，失败仅自动展开一次并在恢复后回到迷你", () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    let currentState: "idle" | "connecting" | "connected" | "failure" = "idle";
+    const controller = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      getSpeed: () => 1
+    };
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => controller as any
+    });
+
+    currentState = "connected";
+    binding.handleStateChange("connected");
+    const overlay = binding.getOverlay()!;
+    expect(overlay.isMinimized()).toBe(false);
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+    binding.handleStateChange("connected");
+    expect(overlay.isMinimized()).toBe(true);
+
+    currentState = "failure";
+    binding.handleStateChange("failure", "网络超时", "network");
+    expect(overlay.isMinimized()).toBe(false);
+    binding.handleStateChange("failure", "网络超时", "network");
+    expect(overlay.isMinimized()).toBe(false);
+
+    currentState = "connecting";
+    binding.handleStateChange("connecting");
+    expect(overlay.isMinimized()).toBe(true);
+    currentState = "failure";
+    binding.handleStateChange("failure", "再次失败", "network");
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+    binding.handleStateChange("failure", "再次失败", "network");
+    expect(overlay.isMinimized()).toBe(true);
+    binding.dispose();
+  });
+
   it("shouldAutoShow 为 false 时不自动弹出浮窗，且音频开关变更自动持久化到 state.settings", () => {
     const binding = createLiveOverlayBinding({
       getLiveController: () => null,
@@ -227,6 +269,56 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     binding.getOverlay()?.getElement()?.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")?.click();
 
     await vi.waitFor(() => expect(calls).toEqual(["stop", "start"]));
+    binding.dispose();
+  });
+
+  it("真实重试链在 stop idle 与 start connecting 后保留失败前迷你偏好", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    const calls: string[] = [];
+    let currentState: "idle" | "connecting" | "connected" | "failure" = "connected";
+    const controller = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      getSpeed: () => 1,
+      stop: vi.fn(async () => {
+        calls.push("stop");
+        currentState = "idle";
+        callbacks.onStateChange?.("idle");
+      }),
+      start: vi.fn(async () => {
+        calls.push("start");
+        currentState = "connecting";
+        callbacks.onStateChange?.("connecting");
+        return true;
+      })
+    };
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => controller as any
+    });
+    const callbacks = binding.bindControllerCallbacks();
+    callbacks.onStateChange?.("connected");
+    const overlay = binding.getOverlay()!;
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+    currentState = "failure";
+    callbacks.onStateChange?.("failure", "网络超时", "network");
+    expect(overlay.isMinimized()).toBe(false);
+
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")!.click();
+
+    await vi.waitFor(() => expect(calls).toEqual(["stop", "start"]));
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.getMiniCapsuleElement()?.hidden).toBe(false);
+    expect(overlay.getElement()?.hidden).toBe(true);
+
+    currentState = "connected";
+    callbacks.onStateChange?.("connected");
+    expect(overlay.isMinimized()).toBe(true);
     binding.dispose();
   });
 
