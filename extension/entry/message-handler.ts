@@ -44,7 +44,7 @@ import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/stat
 //（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
 // reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
 // 本文件不静态依赖 fetcher，也不碰 reader 重域）。
-import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { requestInterpretStop, requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
@@ -130,18 +130,23 @@ function handleReaderShellEnter(
   return true;
 }
 
-// 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
-//（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
+// 跨标签页会话接管（live-session-takeover）：按 channel 只停止被接管的通道——
+// 伴看停伴看会话并对已装载对话 tab 联动；同传只停同传会话。两通道并行共存，
+// 一条接管消息不得波及其他通道的会话。
 function handleLiveSessionTakeover(
-  _message: Msg<"live-session-takeover">,
+  message: Msg<"live-session-takeover">,
   sendResponse: SendResponse
 ): boolean {
   (async () => {
     try {
-      requestLiveCompanionStop();
-      if (isReaderChatTabLoaded()) {
-        const chatDomain = await ensureReaderChatTab();
-        chatDomain.stopLiveCompanion();
+      if (message?.channel === "interpret") {
+        requestInterpretStop();
+      } else {
+        requestLiveCompanionStop();
+        if (isReaderChatTabLoaded()) {
+          const chatDomain = await ensureReaderChatTab();
+          chatDomain.stopLiveCompanion();
+        }
       }
       sendResponse({ ok: true });
     } catch {
@@ -151,6 +156,8 @@ function handleLiveSessionTakeover(
   return true;
 }
 
+// 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
+//（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
 function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResponse): boolean {
   (async () => {
     try {

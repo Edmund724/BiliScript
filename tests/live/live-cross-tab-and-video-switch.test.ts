@@ -126,11 +126,39 @@ describe("04: 跨标签页伴看自动接管", () => {
     const res2 = await tracker.prepare("session-tab-202", fakeDeps, 202);
     expect(res2.ok).toBe(true);
     // 旧标签页收到接管通知
-    expect(notifyTabTakeover).toHaveBeenCalledWith(101);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
     // 所有权转移至标签页 202
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
     expect(setAuthRule).toHaveBeenCalledTimes(2);
+  });
+
+  it("默认接管通知经 chrome.tabs 发送并携带被接管的会话通道", async () => {
+    const tracker = new LiveSessionTracker();
+    const sendMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("chrome", { tabs: { sendMessage } });
+
+    const deps = {
+      getSettings: async () => ({ activeLiveProviderId: "p1" }),
+      loadProviders: async () => [
+        { id: "p1", name: "MOSS", type: "moss-live" as const, presetId: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }
+      ],
+      loadKeys: async () => ({ p1: "key1" }),
+      hasPermission: async () => true,
+      setAuthRule: vi.fn(async () => {}),
+      clearAuthRule: vi.fn(async () => {}),
+      ensureOffscreen: async () => {},
+      resolveActiveId: () => "p1",
+      isTabAlive: async () => true
+    };
+
+    await tracker.prepareFor("companion", "companion-tab-101", deps, 101);
+    await tracker.prepareFor("companion", "companion-tab-202", deps, 202);
+    await tracker.prepareFor("interpret", "interpret-tab-101", deps, 101);
+    await tracker.prepareFor("interpret", "interpret-tab-202", deps, 202);
+
+    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover", channel: "companion" });
+    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover", channel: "interpret" });
   });
 
   it("旧标签页收到接管通知时，停止音画采集并收起伴看状态条", async () => {

@@ -314,7 +314,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       202
     );
     expect(res2.ok).toBe(true);
-    expect(notifyTabTakeover).toHaveBeenCalledWith(101);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
     expect(setAuthRule).toHaveBeenCalledTimes(2);
@@ -664,7 +664,7 @@ describe("LiveSessionTracker dual-channel rule sharing (companion + interpret)",
     // 同通道跨标签页仍然接管
     const resI2 = await tracker.prepareFor("interpret", "interp-tab-2", deps, 303);
     expect(resI2.ok).toBe(true);
-    expect(notifyTabTakeover).toHaveBeenCalledWith(202);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(202, "interpret");
     expect(tracker.getOwnerTabId("interpret")).toBe(303);
     expect(tracker.getActiveRuleOwner("companion")).toBe("comp-tab");
   });

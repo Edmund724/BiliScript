@@ -417,6 +417,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   async function cleanupSessionRule(targetSessionId?: string): Promise<void> {
+    // 无会话 id 的清理无法区分新旧会话：接管后新标签页已装规则时，旧页面
+    // 迟到的空 id 清理会踩掉新会话的所有权与鉴权规则。
+    if (!targetSessionId) return;
     try {
       await sendRuntimeMessage({ type: "live-session-cleanup", sessionId: targetSessionId });
     } catch {

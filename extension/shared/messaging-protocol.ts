@@ -66,6 +66,8 @@ export type ReaderRestoreResponse = { ok: boolean };
 
 export type LiveSessionTakeoverMessage = {
   type: "live-session-takeover";
+  /** 被接管的会话通道：接管只停止该通道的会话，另一通道保持运行 */
+  channel: LiveSessionChannel;
 };
 export type LiveSessionTakeoverResponse = { ok: boolean };
 
@@ -405,7 +407,8 @@ export type LiveSessionPrepareResponse = {
 };
 export type LiveSessionCleanupMessage = {
   type: "live-session-cleanup";
-  sessionId?: string;
+  /** 被清理的会话 id：清理必须限定到具体会话，避免旧会话清掉接管后的新会话 */
+  sessionId: string;
   /** 会话通道：伴看（缺省）或同传 */
   channel?: LiveSessionChannel;
 };

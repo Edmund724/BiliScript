@@ -20,6 +20,7 @@ import {
   type LiveProviderType,
   type LiveSessionChannel
 } from "./moss-live-protocol.js";
+import type { LiveSessionTakeoverMessage } from "../shared/messaging-protocol.js";
 
 export type { LiveSessionChannel };
 
@@ -136,7 +137,7 @@ export interface LiveSessionPrepareDeps {
   ensureOffscreen: () => Promise<unknown>;
   resolveActiveId: (providers: LiveProvider[], activeId?: string) => string;
   isTabAlive?: (tabId: number) => Promise<boolean>;
-  notifyTabTakeover?: (tabId: number) => Promise<void>;
+  notifyTabTakeover?: (tabId: number, channel: LiveSessionChannel) => Promise<void>;
 }
 
 export interface LiveSessionPrepareResult {
@@ -165,12 +166,14 @@ async function isTabAliveByChromeTabs(tabId: number): Promise<boolean> {
   }
 }
 
-async function notifyTabTakeoverByChromeTabs(tabId: number): Promise<void> {
+async function notifyTabTakeoverByChromeTabs(tabId: number, channel: LiveSessionChannel): Promise<void> {
   if (typeof chrome === "undefined" || typeof chrome.tabs?.sendMessage !== "function") {
     return;
   }
+  const message: LiveSessionTakeoverMessage = { type: "live-session-takeover", channel };
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "live-session-takeover" });
+    // 携带通道：旧标签页只停止被接管的通道（伴看/同传），不波及其并行会话
+    await chrome.tabs.sendMessage(tabId, message);
   } catch {
     // 忽略旧标签页可能已关闭或未就绪的异常
   }
@@ -259,7 +262,7 @@ export class LiveSessionTracker {
       const alive = await deps.isTabAlive(conflictingTabId);
       if (alive) {
         // 同通道内用户切换到另一个标签页并开启会话时，自动通知并关闭前一个标签页的会话
-        void deps.notifyTabTakeover(conflictingTabId).catch(() => {});
+        void deps.notifyTabTakeover(conflictingTabId, channel).catch(() => {});
       }
       if (state.ownerTabId === conflictingTabId) {
         await this.cleanupByTabFor(channel, conflictingTabId, deps.clearAuthRule);

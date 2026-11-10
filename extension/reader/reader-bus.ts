@@ -24,6 +24,10 @@
 //     ui 壳的单一文档级 click 委托经 dispatchChatTabOutsideClick 转发给对话 tab
 //     在激活时注册的处理体（setChatTabOutsideClickHandler），避免第二个
 //     document 监听与壳互踩。
+//   content 接管 → live-companion-session（跨标签停止）：
+//     SW 的 live-session-takeover 按通道请实现方停止对应会话；伴看、同传各一个
+//     槽（setLiveCompanionStopHandler / setInterpretStopHandler），实现方为
+//     live/live-companion-session，槽缺失按 no-op。
 //   reader 域内部逆边（显式端口）：
 //     LAYOUT/SYNC 需要上层实现而依赖图禁止静态 import 时，经 readerPorts 的
 //     显式方法回调；实现由域组装根 lifecycle 在模块求值时经 registerReaderPorts
@@ -64,6 +68,7 @@ type SettingsPersistHandler = () => void;
 type UiCommandHandler = (name: string, payload?: unknown) => void;
 type TabIntentHandler = (tab: ReaderScriptTab) => void;
 type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
+type SessionStopHandler = () => void;
 
 // 单 handler 槽的签名表：方法名 → 回调签名。新增槽在此加一行。
 interface ReaderSeamHandlerMap {
@@ -72,6 +77,8 @@ interface ReaderSeamHandlerMap {
   uiCommand: UiCommandHandler;
   tabIntent: TabIntentHandler;
   chatTabOutsideClick: ChatTabOutsideClickHandler;
+  liveCompanionStop: SessionStopHandler;
+  interpretStop: SessionStopHandler;
   noteManualReaderInteraction: (...args: unknown[]) => unknown;
   syncReadingViewPlayback: (...args: unknown[]) => unknown;
   flushReadingSubtitleToIndex: (...args: unknown[]) => unknown;
@@ -92,6 +99,8 @@ export const READER_SEAM_METHODS = Object.freeze({
   uiCommand: { policy: "noop-warn", owner: "ui/ui-renderer" },
   tabIntent: { policy: "noop-warn", owner: "reader/script-tab-activation" },
   chatTabOutsideClick: { policy: "noop-warn", owner: "reader/chat-tab" },
+  liveCompanionStop: { policy: "noop", owner: "live/live-companion-session" },
+  interpretStop: { policy: "noop", owner: "live/live-companion-session" },
   noteManualReaderInteraction: { policy: "throw", owner: "reader/lifecycle" },
   syncReadingViewPlayback: { policy: "throw", owner: "reader/lifecycle" },
   flushReadingSubtitleToIndex: { policy: "throw", owner: "reader/lifecycle" }
@@ -121,7 +130,6 @@ interface ReaderBusSlots {
   readers: ReaderPresenterHandler[];
   handlers: Partial<ReaderSeamHandlerMap>;
   warnedMissing: Set<ReaderSeamMethod>;
-  liveCompanionStop?: (() => void) | null;
 }
 
 const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
@@ -379,21 +387,37 @@ export function dispatchChatTabOutsideClick(event: MouseEvent): void {
   }
 }
 
-// ===== 独立伴看会话跨标签接管停止通道（content → live-companion-session） =====
+// ===== 跨标签接管停止通道（content → live-companion-session） =====
 
-export function setLiveCompanionStopHandler(handler: (() => void) | null): void {
-  const slots = readerBusSlots();
-  slots.liveCompanionStop = typeof handler === "function" ? handler : null;
+// 接管通知按通道隔离：伴看、同传各一个槽，只停被接管的通道，不波及其他会话。
+// 两槽缺失按 no-op（接管到达的页面可能本就没起该通道会话），策略见
+// READER_SEAM_METHODS。
+
+export function setLiveCompanionStopHandler(handler: SessionStopHandler | null): void {
+  setSeamHandler("liveCompanionStop", typeof handler === "function" ? handler : null);
 }
 
 export function requestLiveCompanionStop(): void {
-  const handler = readerBusSlots().liveCompanionStop;
-  if (typeof handler === "function") {
-    try {
-      handler();
-    } catch (error) {
-      logWarn("[BILISCRIPT] live companion stop handler failed", { error });
-    }
+  requestSessionStop("liveCompanionStop");
+}
+
+export function setInterpretStopHandler(handler: SessionStopHandler | null): void {
+  setSeamHandler("interpretStop", typeof handler === "function" ? handler : null);
+}
+
+export function requestInterpretStop(): void {
+  requestSessionStop("interpretStop");
+}
+
+function requestSessionStop(method: "liveCompanionStop" | "interpretStop"): void {
+  const handler = resolveSeamHandler(method);
+  if (!handler) {
+    return;
+  }
+  try {
+    handler();
+  } catch (error) {
+    logWarn(`[BILISCRIPT] ${method} handler failed`, { error });
   }
 }
 

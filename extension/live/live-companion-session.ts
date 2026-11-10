@@ -6,6 +6,7 @@ import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import {
+  setInterpretStopHandler,
   setLiveCompanionStopHandler,
   subscribeReaderPresenter
 } from "../reader/reader-bus.js";
@@ -101,6 +102,9 @@ function onWindowPageHide(): void {
 function bindLifecycleListeners(): void {
   setLiveCompanionStopHandler(() => {
     stopLiveCompanion();
+  });
+  setInterpretStopHandler(() => {
+    void interpretController?.stop();
   });
   if (!unsubscribeInterpretPresenter) {
     unsubscribeInterpretPresenter = subscribeReaderPresenter((event) => {
@@ -215,6 +219,7 @@ export function disposeLiveCompanionSession(): void {
     pageHideBound = false;
   }
   setLiveCompanionStopHandler(null);
+  setInterpretStopHandler(null);
   unsubscribeInterpretPresenter?.();
   unsubscribeInterpretPresenter = null;
   cancelReaderOverviewSource();

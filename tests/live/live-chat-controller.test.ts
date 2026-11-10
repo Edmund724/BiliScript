@@ -677,6 +677,17 @@ describe("LiveChatController", () => {
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
   });
 
+  it("空闲态 stop() 不发无会话 id 的 cleanup，避免清掉接管后的新会话", async () => {
+    const { controller, sendRuntimeMessage } = setupTest();
+
+    await controller.stop();
+
+    expect(controller.getState()).toBe("idle");
+    expect(sendRuntimeMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "live-session-cleanup" })
+    );
+  });
+
   it("rejects late events from stopped session (generation check)", async () => {
     const { controller, liveButton, fakePort } = setupTest();
 
