@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
 import {
   DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS,
   OffscreenMossLiveClient,
@@ -199,7 +200,7 @@ describe("OffscreenMossLiveClient", () => {
     expect(onConnected).toHaveBeenCalledTimes(1);
 
     // Verify protocol handshake messages sent
-    expect(ws.sentData).toHaveLength(5);
+    expect(ws.sentData).toHaveLength(6);
     expect(JSON.parse(ws.sentData[1])).toEqual({
       action: "media.mode",
       binary_protocol: "tagged-v1"
@@ -210,6 +211,10 @@ describe("OffscreenMossLiveClient", () => {
     });
     expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload());
     expect(JSON.parse(ws.sentData[4])).toEqual({
+      action: "client_context.update",
+      context: { time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    });
+    expect(JSON.parse(ws.sentData[5])).toEqual({
       action: "media.output.configure",
       volume_db: 0,
       speed: 1
@@ -217,19 +222,94 @@ describe("OffscreenMossLiveClient", () => {
 
     // Server confirms session.updated -> client enables screen video stream focus and mic_state once
     ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
-    expect(ws.sentData).toHaveLength(8);
-    expect(JSON.parse(ws.sentData[5])).toEqual({
+    expect(ws.sentData).toHaveLength(9);
+    expect(JSON.parse(ws.sentData[6])).toEqual({
       action: "video.state",
       source: "screen",
       enabled: true
     });
-    expect(JSON.parse(ws.sentData[6])).toEqual({
+    expect(JSON.parse(ws.sentData[7])).toEqual({
       action: "video.stream_focus",
       source: "screen"
     });
-    expect(JSON.parse(ws.sentData[7])).toEqual({
+    expect(JSON.parse(ws.sentData[8])).toEqual({
       action: "mic_state",
       enabled: true
+    });
+  });
+
+  describe("client context time zone", () => {
+    const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    it("sends exactly one client_context.update carrying only the device time zone after session_attached", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+      const updates = ws.sentData
+        .map((data) => JSON.parse(data))
+        .filter((frame) => frame.action === "client_context.update");
+      expect(updates).toEqual([
+        { action: "client_context.update", context: { time_zone: deviceTimeZone } }
+      ]);
+    });
+
+    it("resends the time zone once the reconnected socket attaches the session", () => {
+      const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+      client.connect();
+      let ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({
+        action: "session_attached",
+        data: { session_id: "tz-reconnect" }
+      }));
+      ws.close(1006, "network lost");
+
+      ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({
+        action: "session_attached",
+        data: { session_id: "tz-reconnect" }
+      }));
+
+      const updates = ws.sentData
+        .map((data) => JSON.parse(data))
+        .filter((frame) => frame.action === "client_context.update");
+      expect(updates).toEqual([
+        { action: "client_context.update", context: { time_zone: deviceTimeZone } }
+      ]);
+    });
+
+    it("records a rejected client context without interrupting the session", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      registerDebugGate(() => true);
+      const onError = vi.fn();
+      const transcripts: MossLiveTranscriptEvent[] = [];
+      const client = new OffscreenMossLiveClient({
+        onError,
+        onTranscript: (event) => transcripts.push(event)
+      });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+      ws.simulateMessage(JSON.stringify({
+        action: "client_context.updated",
+        data: { accepted: false }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "input.transcript.updated",
+        data: { text: "会话继续" }
+      }));
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("时区上下文"));
+      expect(client.getState()).toBe("connected");
+      expect(onError).not.toHaveBeenCalled();
+      expect(transcripts).toEqual([{ kind: "input.updated", text: "会话继续" }]);
+      warn.mockRestore();
     });
   });
 
@@ -1422,12 +1502,12 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
 
     expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(context));
     client.updateVideoContext(context);
-    expect(ws.sentData).toHaveLength(5);
+    expect(ws.sentData).toHaveLength(6);
 
     const nextContext = { ...context, cid: "456", pageIndex: 2, pageTitle: "第二部分" };
     client.updateVideoContext(nextContext);
-    expect(ws.sentData).toHaveLength(6);
-    expect(JSON.parse(ws.sentData[5])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
+    expect(ws.sentData).toHaveLength(7);
+    expect(JSON.parse(ws.sentData[6])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
 
     ws.simulateMessage(JSON.stringify({
       action: "tool.call",

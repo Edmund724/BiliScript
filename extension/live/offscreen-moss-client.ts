@@ -3,6 +3,7 @@
 // 会话状态机、重连、工具超时与音频播放协调由 OffscreenLiveSessionRuntime 统一承载；
 // 本文件仅负责 MOSS-LIVE (wss://api.mosi.cn/v1/realtime) 的 tagged-v1 二进制帧与 JSON 握手协议映射。
 
+import { logWarn } from "../shared/logging.js";
 import {
   DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS,
   DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS,
@@ -24,6 +25,7 @@ import {
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
   MossBinaryTag,
+  buildClientContextUpdatePayload,
   buildMinimalSessionUpdatePayload,
   packTaggedBinary,
   parseMossServerJsonEvent,
@@ -130,6 +132,7 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         callbacks.sendJson({ action: "media.configure", playback: "server" });
         callbacks.markContextSent(videoContext);
         callbacks.sendJson(buildMinimalSessionUpdatePayload(videoContext));
+        callbacks.sendJson(buildClientContextUpdatePayload());
         callbacks.completeHandshake({
           sessionId: parsed.sessionId || undefined,
           emitSessionAttached: Boolean(parsed.sessionId)
@@ -152,6 +155,12 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
               packTaggedBinary(MossBinaryTag.ScreenJpeg, this.latestVideoJpeg)
             );
           }
+        }
+        break;
+
+      case "client_context.updated":
+        if (!parsed.accepted) {
+          logWarn("[BILISCRIPT] 服务端未接受伴看客户端时区上下文，会话继续");
         }
         break;
 
