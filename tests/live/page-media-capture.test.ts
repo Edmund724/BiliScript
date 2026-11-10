@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   createPageAudioCapture,
+  createVideoAudioCapture,
   formatMediaCaptureError,
   formatMicCaptureError,
   type VideoAudioTrackStatus,
@@ -370,5 +371,124 @@ describe("createPageAudioCapture", () => {
     expect(capture.isSharingVideoAudio()).toBe(false);
 
     capture.stop();
+  });
+});
+
+describe("createVideoAudioCapture (interpret uplink, no mic)", () => {
+  function createFakeVideo() {
+    const fakeVideoTrack = new FakeMediaStreamTrack();
+    const fakeVideoStream = new FakeMediaStream([fakeVideoTrack]);
+    const fakeVideo = {
+      muted: false,
+      volume: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      captureStream: () => fakeVideoStream
+    } as unknown as HTMLVideoElement;
+    return { fakeVideo, fakeVideoStream };
+  }
+
+  it("captures video original audio into 20ms PCM frames without touching getUserMedia", () => {
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const frames: Uint8Array[] = [];
+    const { fakeVideo, fakeVideoStream } = createFakeVideo();
+    const getUserMedia = vi.fn();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia
+      }
+    });
+
+    const capture = createVideoAudioCapture({
+      onPcmFrame: (pcm) => frames.push(pcm),
+      getVideoElement: () => fakeVideo,
+      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
+
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
+    expect(frames).toHaveLength(1);
+    expect(frames[0].byteLength).toBe(MOSS_UPSTREAM_FRAME_BYTES);
+    const samples = decodePcmS16LEToFloat32(frames[0].buffer);
+    expect(samples[0]).toBeCloseTo(0.4, 2);
+
+    capture.stop();
+  });
+
+  it("pushes silence frames continuously even with no video element (静音也推)", () => {
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const frames: Uint8Array[] = [];
+    const statuses: VideoAudioTrackStatus[] = [];
+
+    const capture = createVideoAudioCapture({
+      onPcmFrame: (pcm) => frames.push(pcm),
+      onVideoAudioStatusChange: (status) => statuses.push(status),
+      getVideoElement: () => null,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    expect(capture.getVideoAudioStatus()).toBe("未检测到音轨");
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
+    expect(frames).toHaveLength(2);
+    const samples = decodePcmS16LEToFloat32(frames[0].buffer);
+    expect(samples.every((s) => s === 0)).toBe(true);
+
+    capture.stop();
+  });
+
+  it("keeps pushing silence frames while the video is muted and recovers on unmute", () => {
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const frames: Uint8Array[] = [];
+    const { fakeVideo, fakeVideoStream } = createFakeVideo();
+
+    const capture = createVideoAudioCapture({
+      onPcmFrame: (pcm) => frames.push(pcm),
+      getVideoElement: () => fakeVideo,
+      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    fakeVideo.muted = true;
+    const volChangeHandler = (fakeVideo.addEventListener as any).mock.calls.find(
+      (call: any[]) => call[0] === "volumechange"
+    )?.[1];
+    volChangeHandler?.();
+    expect(capture.getVideoAudioStatus()).toBe("视频已静音");
+
+    // 静音期间仍然推帧（内容为空音）
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
+    expect(frames).toHaveLength(1);
+
+    fakeVideo.muted = false;
+    volChangeHandler?.();
+    expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
+    expect(frames).toHaveLength(2);
+    expect(decodePcmS16LEToFloat32(frames[1].buffer)[0]).toBeCloseTo(0.4, 2);
+
+    capture.stop();
+  });
+
+  it("stop() disconnects the graph, closes the AudioContext and ignores late callbacks", () => {
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const frames: Uint8Array[] = [];
+    const { fakeVideo, fakeVideoStream } = createFakeVideo();
+
+    const capture = createVideoAudioCapture({
+      onPcmFrame: (pcm) => frames.push(pcm),
+      getVideoElement: () => fakeVideo,
+      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    capture.stop();
+    expect(fakeAudioCtx.closed).toBe(true);
+    expect(fakeAudioCtx.processorConnected).toBe(false);
+    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
+    expect(frames).toHaveLength(0);
   });
 });

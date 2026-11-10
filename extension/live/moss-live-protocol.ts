@@ -19,10 +19,14 @@ export const enum MossBinaryTag {
 }
 
 export type LiveProviderType = "moss-live" | "gemini-live";
+/** 实时会话通道：伴看与同传并行共存，各自独立接管、共享 DNR 握手规则 */
+export type LiveSessionChannel = "companion" | "interpret";
 export const DEFAULT_MOSS_LIVE_WS_URL = "wss://api.mosi.cn/v1/realtime?model=moss-live-1.0";
 export const MOSS_LIVE_PORT_NAME = "offscreen-moss-live";
 export const MAX_MOSS_RECONNECT_ATTEMPTS = 3;
 export const DEFAULT_MOSS_RECONNECT_DELAY_MS = 500;
+/** 会话附着握手等待上限（伴看 / 同传共用） */
+export const DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS = 10000;
 
 /** 上行麦克风音频采样率（16 kHz 单声道 S16LE） */
 export const MOSS_UPSTREAM_SAMPLE_RATE = 16000;

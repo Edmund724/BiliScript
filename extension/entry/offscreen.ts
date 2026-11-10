@@ -52,6 +52,7 @@ import {
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
 import { MOSS_LIVE_PORT_NAME, type MossLiveClientAction } from "../live/moss-live-protocol.js";
+import { MOSS_INTERPRET_PORT_NAME, type MossInterpretServerEvent } from "../live/moss-interpret-protocol.js";
 import { attachMossLivePort } from "../live/offscreen-moss-port.js";
 // 概览链的平台请求代发（overview-offscreen-transport）：端口名常量与两端同址
 // 在 core/provider-http-offscreen.ts；本文档只认领端口并按活跃端口集簿记生命周期。
@@ -148,6 +149,12 @@ const geminiLiveLoader = createLazyLoader(async () => {
   return OffscreenGeminiLiveClient;
 });
 
+// 同传客户端懒加载器（独立 runtime，不复用伴看 MossAudioPlayer）
+const mossInterpretLoader = createLazyLoader(async () => {
+  const { OffscreenInterpretClient } = await import("../live/offscreen-interpret-client.js");
+  return OffscreenInterpretClient;
+});
+
 const ladderLoader = createLazyLoader(async () => {
   const { runLadderChat } = await import("../ai/ladder.js");
   return runLadderChat;
@@ -219,6 +226,20 @@ chrome.runtime.onConnect.addListener((port) => {
       loadGeminiClient: async () => {
         const GeminiClientClass = await geminiLiveLoader.load();
         return (opts) => new GeminiClientClass(opts);
+      },
+      postMessage: safePostMessage
+    });
+    return;
+  }
+  if (port && port.name === MOSS_INTERPRET_PORT_NAME) {
+    // 同传通道：独立端口名 + 独立 runtime，与伴看并行共存（接管只发生在同通道内）
+    lifetime.trackLivePort(port);
+    attachMossLivePort(port, {
+      channel: "interpret",
+      loadClient: async () => {
+        const InterpretClientClass = await mossInterpretLoader.load();
+        return (opts: { onEvent: (event: MossInterpretServerEvent) => void }) =>
+          new InterpretClientClass(opts);
       },
       postMessage: safePostMessage
     });

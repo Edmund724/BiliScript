@@ -1,49 +1,65 @@
 // extension/live/offscreen-moss-port.ts
 // Offscreen 文档专属 MOSS-LIVE 端口懒加载与代际隔离薄壳。
 // 在 onConnect 同步挂载端口监听，保证首条 start 消息不丢失，并在异步加载客户端模块期间
-// 拦截 stop / disconnect 竞态以防套接字泄漏；具体协议动作与会话状态机全由 OffscreenMossLiveClient 处理。
+// 拦截 stop / disconnect 竞态以防套接字泄漏；具体协议动作与会话状态机全由客户端处理。
+//
+// 双通道：伴看（companion，默认）与同传（interpret）各占一个独立的活跃会话槽位，
+// 接管只发生在同通道内——同传 start 不会顶掉伴看会话，反之亦然。
 
 import type {
   LiveProviderType,
+  LiveSessionChannel,
   MossLiveClientAction,
   MossLiveServerEvent,
   MossLiveSessionContext
 } from "./moss-live-protocol.js";
 
-export interface MossLiveClientInstance {
-  handleAction(action: MossLiveClientAction): void;
+export interface MossLiveClientInstance<TAction = MossLiveClientAction> {
+  handleAction(action: TAction): void;
   close(): void;
 }
 
-export type MossLiveClientFactory = (options: {
-  onEvent: (event: MossLiveServerEvent) => void;
-}) => MossLiveClientInstance;
+export type MossLiveClientFactory<
+  TAction = MossLiveClientAction,
+  TEvent = MossLiveServerEvent
+> = (options: {
+  onEvent: (event: TEvent) => void;
+}) => MossLiveClientInstance<TAction>;
 
 export type LiveClientProviderType = LiveProviderType;
 
-export interface AttachMossLivePortOptions {
-  loadClient: (providerType?: LiveClientProviderType) => Promise<MossLiveClientFactory>;
-  loadGeminiClient?: () => Promise<MossLiveClientFactory>;
+export interface AttachMossLivePortOptions<
+  TAction = MossLiveClientAction,
+  TEvent = MossLiveServerEvent
+> {
+  channel?: LiveSessionChannel;
+  loadClient: (providerType?: LiveClientProviderType) => Promise<MossLiveClientFactory<TAction, TEvent>>;
+  loadGeminiClient?: () => Promise<MossLiveClientFactory<TAction, TEvent>>;
   postMessage?: (port: chrome.runtime.Port, message: unknown) => void;
 }
 
 interface ActiveLivePortSession {
   port: chrome.runtime.Port;
-  client: MossLiveClientInstance;
+  /** 活跃槽位只持有关闭能力：事件转发仍走各端口自己的 onEvent 闭包 */
+  client: { close(): void };
   postMessage: (port: chrome.runtime.Port, message: unknown) => void;
 }
 
-let activeGlobalLiveSession: ActiveLivePortSession | null = null;
+const activeLiveSessions = new Map<LiveSessionChannel, ActiveLivePortSession>();
 
 export function resetActiveLiveSessionForTests(): void {
-  activeGlobalLiveSession = null;
+  activeLiveSessions.clear();
 }
 
-export function attachMossLivePort(
+export function attachMossLivePort<
+  TAction = MossLiveClientAction,
+  TEvent = MossLiveServerEvent
+>(
   port: chrome.runtime.Port,
-  options: AttachMossLivePortOptions
+  options: AttachMossLivePortOptions<TAction, TEvent>
 ): { dispose: () => void } {
   const {
+    channel = "companion",
     loadClient,
     postMessage = (p, m) => {
       try {
@@ -56,14 +72,14 @@ export function attachMossLivePort(
 
   let disposed = false;
   let currentGeneration = 0;
-  let liveClient: MossLiveClientInstance | null = null;
+  let liveClient: MossLiveClientInstance<TAction> | null = null;
   let latestVideoContext: MossLiveSessionContext | null = null;
 
   function cleanup(): void {
     disposed = true;
     currentGeneration += 1;
-    if (activeGlobalLiveSession?.port === port) {
-      activeGlobalLiveSession = null;
+    if (activeLiveSessions.get(channel)?.port === port) {
+      activeLiveSessions.delete(channel);
     }
     if (liveClient) {
       try {
@@ -81,9 +97,9 @@ export function attachMossLivePort(
     if (!msg) return;
 
     if (msg.action === "start") {
-      if (activeGlobalLiveSession && activeGlobalLiveSession.port !== port) {
-        const prev = activeGlobalLiveSession;
-        activeGlobalLiveSession = null;
+      const prev = activeLiveSessions.get(channel);
+      if (prev && prev.port !== port) {
+        activeLiveSessions.delete(channel);
         try {
           prev.postMessage(prev.port, { type: "closed", reason: "takeover" });
         } catch {}
@@ -125,7 +141,7 @@ export function attachMossLivePort(
         }
 
         liveClient = client;
-        activeGlobalLiveSession = { port, client, postMessage };
+        activeLiveSessions.set(channel, { port, client, postMessage });
         client.handleAction({
           action: "start",
           wsUrl: msg.wsUrl,
@@ -138,8 +154,9 @@ export function attachMossLivePort(
           ...(msg.voiceId !== undefined ? { voiceId: msg.voiceId } : {}),
           ...(msg.volume !== undefined ? { volume: msg.volume } : {}),
           ...(msg.sessionId !== undefined ? { sessionId: msg.sessionId } : {}),
-          videoContext: latestVideoContext
-        });
+          // videoContext 是伴看会话概念；同传 start 不携带
+          ...(channel === "companion" ? { videoContext: latestVideoContext } : {})
+        } as unknown as TAction);
       } catch (error) {
         if (!disposed && generation === currentGeneration) {
           postMessage(port, {
@@ -156,13 +173,13 @@ export function attachMossLivePort(
     }
 
     if (msg.action === "stop") {
-      if (activeGlobalLiveSession?.port === port) {
-        activeGlobalLiveSession = null;
+      if (activeLiveSessions.get(channel)?.port === port) {
+        activeLiveSessions.delete(channel);
       }
       if (liveClient) {
         const active = liveClient;
         liveClient = null;
-        active.handleAction(msg);
+        active.handleAction(msg as unknown as TAction);
         currentGeneration += 1;
       } else {
         currentGeneration += 1;
@@ -171,7 +188,7 @@ export function attachMossLivePort(
       return;
     }
 
-    liveClient?.handleAction(msg);
+    liveClient?.handleAction(msg as unknown as TAction);
   });
 
   port.onDisconnect.addListener(() => {

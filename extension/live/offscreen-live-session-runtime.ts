@@ -18,6 +18,7 @@ import {
 } from "./moss-audio-player.js";
 import { MOSS_STANDARD_VIDEO_CONFIG, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import {
+  DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS,
   DEFAULT_MOSS_RECONNECT_DELAY_MS,
   MAX_MOSS_RECONNECT_ATTEMPTS,
   decodeBase64Bytes,
@@ -34,7 +35,7 @@ export type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike };
 
 export type LiveSessionClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
-export const DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS = 10000;
+export { DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS };
 export const DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS = 10000;
 export const DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS = 120000;
 

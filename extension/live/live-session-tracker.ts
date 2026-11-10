@@ -17,8 +17,11 @@ import {
 } from "./live-provider-store.js";
 import {
   resolveMossLivePermissionOrigins,
-  type LiveProviderType
+  type LiveProviderType,
+  type LiveSessionChannel
 } from "./moss-live-protocol.js";
+
+export type { LiveSessionChannel };
 
 // ===== 伴看会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
 
@@ -190,30 +193,58 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
   };
 }
 
+interface LiveChannelState {
+  latestRequestedOwner: string | null;
+  activeRuleOwner: string | null;
+  ownerTabId: number | null;
+}
+
+/**
+ * 会话所有权追踪：伴看（companion）与同传（interpret）两个通道各自维护
+ * latest/owner/tab 状态，跨标签页接管只在同通道内发生；DNR 鉴权规则
+ * （ruleId: 9002，同域名同 Key）由两通道共享——任一通道 cleanup 只释放自己
+ * 的持有，规则在最后一个持有者释放时才真正清除。
+ */
 export class LiveSessionTracker {
-  private latestRequestedOwner: string | null = null;
-  private activeRuleOwner: string | null = null;
-  private ownerTabId: number | null = null;
+  private readonly channels = new Map<LiveSessionChannel, LiveChannelState>();
+  private readonly ruleHolders = new Set<LiveSessionChannel>();
 
-  getLatestOwner(): string | null {
-    return this.latestRequestedOwner;
+  private channelState(channel: LiveSessionChannel): LiveChannelState {
+    let state = this.channels.get(channel);
+    if (!state) {
+      state = { latestRequestedOwner: null, activeRuleOwner: null, ownerTabId: null };
+      this.channels.set(channel, state);
+    }
+    return state;
   }
 
-  getActiveRuleOwner(): string | null {
-    return this.activeRuleOwner;
+  getLatestOwner(channel: LiveSessionChannel = "companion"): string | null {
+    return this.channels.get(channel)?.latestRequestedOwner ?? null;
   }
 
-  getOwnerTabId(): number | null {
-    return this.ownerTabId;
+  getActiveRuleOwner(channel: LiveSessionChannel = "companion"): string | null {
+    return this.channels.get(channel)?.activeRuleOwner ?? null;
+  }
+
+  getOwnerTabId(channel: LiveSessionChannel = "companion"): number | null {
+    return this.channels.get(channel)?.ownerTabId ?? null;
   }
 
   reset(): void {
-    this.latestRequestedOwner = null;
-    this.activeRuleOwner = null;
-    this.ownerTabId = null;
+    this.channels.clear();
+    this.ruleHolders.clear();
   }
 
-  async prepare(
+  prepare(
+    sessionId: string,
+    depsOrTabId?: Partial<LiveSessionPrepareDeps> | number,
+    maybeTabId?: number
+  ): Promise<LiveSessionPrepareResult> {
+    return this.prepareFor("companion", sessionId, depsOrTabId, maybeTabId);
+  }
+
+  async prepareFor(
+    channel: LiveSessionChannel,
     sessionId: string,
     depsOrTabId?: Partial<LiveSessionPrepareDeps> | number,
     maybeTabId?: number
@@ -221,28 +252,45 @@ export class LiveSessionTracker {
     const overrides = typeof depsOrTabId === "object" && depsOrTabId !== null ? depsOrTabId : undefined;
     const tabId = typeof depsOrTabId === "number" ? depsOrTabId : maybeTabId;
     const deps = resolvePrepareDeps(overrides);
+    const state = this.channelState(channel);
 
-    if (this.ownerTabId !== null && typeof tabId === "number" && this.ownerTabId !== tabId) {
-      const conflictingTabId = this.ownerTabId;
+    if (state.ownerTabId !== null && typeof tabId === "number" && state.ownerTabId !== tabId) {
+      const conflictingTabId = state.ownerTabId;
       const alive = await deps.isTabAlive(conflictingTabId);
       if (alive) {
-        // 用户切换到另一个视频标签页并开启实时伴看时，自动通知并关闭前一个视频标签页的伴看
+        // 同通道内用户切换到另一个标签页并开启会话时，自动通知并关闭前一个标签页的会话
         void deps.notifyTabTakeover(conflictingTabId).catch(() => {});
       }
-      if (this.ownerTabId === conflictingTabId) {
-        await this.cleanupByTab(conflictingTabId, deps.clearAuthRule);
+      if (state.ownerTabId === conflictingTabId) {
+        await this.cleanupByTabFor(channel, conflictingTabId, deps.clearAuthRule);
       }
     }
 
     const targetSessionId = sessionId.trim() || `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    this.latestRequestedOwner = targetSessionId;
+    state.latestRequestedOwner = targetSessionId;
     if (typeof tabId === "number") {
-      this.ownerTabId = tabId;
+      state.ownerTabId = tabId;
     }
 
     const clearCurrentTabOwnershipIfUnchanged = () => {
-      if (this.latestRequestedOwner === targetSessionId) {
-        this.ownerTabId = null;
+      if (state.latestRequestedOwner === targetSessionId) {
+        state.ownerTabId = null;
+      }
+    };
+
+    // 回滚：仅当本通道的活跃规则仍属于本次会话时才释放持有（同通道更新的
+    // prepare 已接管时不得释放）；规则只在没有任何通道持有时才真正清除
+    // （同传/伴看另一方可能仍在用同一条握手规则）。
+    const releaseRuleHoldIfOwned = async () => {
+      if (state.activeRuleOwner !== targetSessionId) return;
+      state.activeRuleOwner = null;
+      this.ruleHolders.delete(channel);
+      if (this.ruleHolders.size === 0) {
+        try {
+          await deps.clearAuthRule();
+        } catch {
+          // 忽略回滚错误
+        }
       }
     };
 
@@ -301,24 +349,20 @@ export class LiveSessionTracker {
       }
 
       // 检查在权限校验与配置读取期间是否已被更新的会话请求取代
-      if (this.latestRequestedOwner !== targetSessionId) {
+      if (state.latestRequestedOwner !== targetSessionId) {
         return { ok: false, error: "会话准备已过期" };
       }
 
       await deps.setAuthRule(apiKey, baseUrl, providerType);
       ruleInstalledForSession = true;
-      this.activeRuleOwner = targetSessionId;
+      state.activeRuleOwner = targetSessionId;
+      this.ruleHolders.add(channel);
 
       await deps.ensureOffscreen();
 
       // 再次核对所有权：确保在确保 offscreen 期间未被更新的 prepare 取代
-      if (this.latestRequestedOwner !== targetSessionId) {
-        if (this.activeRuleOwner === targetSessionId) {
-          this.activeRuleOwner = null;
-          try {
-            await deps.clearAuthRule();
-          } catch {}
-        }
+      if (state.latestRequestedOwner !== targetSessionId) {
+        await releaseRuleHoldIfOwned();
         return { ok: false, error: "会话准备已过期" };
       }
 
@@ -337,56 +381,76 @@ export class LiveSessionTracker {
       };
     } catch (error) {
       clearCurrentTabOwnershipIfUnchanged();
-      if (ruleInstalledForSession && this.activeRuleOwner === targetSessionId) {
-        this.activeRuleOwner = null;
-        try {
-          await deps.clearAuthRule();
-        } catch {
-          // 忽略回滚错误
-        }
+      if (ruleInstalledForSession) {
+        await releaseRuleHoldIfOwned();
       }
       return { ok: false, error: (error as Error)?.message || String(error) };
     }
   }
 
-  async cleanup(
+  cleanup(
     sessionId?: string,
     clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
   ): Promise<LiveSessionCleanupResult> {
+    return this.cleanupFor("companion", sessionId, clearAuthRule);
+  }
+
+  async cleanupFor(
+    channel: LiveSessionChannel,
+    sessionId?: string,
+    clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
+  ): Promise<LiveSessionCleanupResult> {
+    const state = this.channelState(channel);
     const targetSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
     try {
       if (targetSessionId) {
-        if (this.latestRequestedOwner && this.latestRequestedOwner !== targetSessionId) {
+        if (state.latestRequestedOwner && state.latestRequestedOwner !== targetSessionId) {
           // 存在更新的准备请求，旧会话的 cleanup 不得清理新会话规则
           return { ok: true };
         }
-        if (this.activeRuleOwner && this.activeRuleOwner !== targetSessionId) {
+        if (state.activeRuleOwner && state.activeRuleOwner !== targetSessionId) {
           // 活跃规则属于其他会话，旧会话的 cleanup 不得清理新会话规则
           return { ok: true };
         }
       }
-      this.latestRequestedOwner = null;
-      this.activeRuleOwner = null;
-      this.ownerTabId = null;
-      await clearAuthRule();
+      state.latestRequestedOwner = null;
+      state.activeRuleOwner = null;
+      state.ownerTabId = null;
+      this.ruleHolders.delete(channel);
+      // 规则由两通道共享：另一方仍持有时保留规则
+      if (this.ruleHolders.size === 0) {
+        await clearAuthRule();
+      }
       return { ok: true };
     } catch (error) {
       return { ok: false, error: (error as Error)?.message || String(error) };
     }
   }
 
-  async cleanupByTab(
+  cleanupByTab(
     tabId: number,
     clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
   ): Promise<LiveSessionCleanupResult> {
-    if (this.ownerTabId !== tabId) {
+    return this.cleanupByTabFor("companion", tabId, clearAuthRule);
+  }
+
+  async cleanupByTabFor(
+    channel: LiveSessionChannel,
+    tabId: number,
+    clearAuthRule: () => Promise<void> = clearMossLiveWsAuthRule
+  ): Promise<LiveSessionCleanupResult> {
+    const state = this.channelState(channel);
+    if (state.ownerTabId !== tabId) {
       return { ok: true };
     }
-    this.latestRequestedOwner = null;
-    this.activeRuleOwner = null;
-    this.ownerTabId = null;
+    state.latestRequestedOwner = null;
+    state.activeRuleOwner = null;
+    state.ownerTabId = null;
+    this.ruleHolders.delete(channel);
     try {
-      await clearAuthRule();
+      if (this.ruleHolders.size === 0) {
+        await clearAuthRule();
+      }
       return { ok: true };
     } catch (error) {
       return { ok: false, error: (error as Error)?.message || String(error) };

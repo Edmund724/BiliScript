@@ -21,6 +21,7 @@ import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
+import type { LiveSessionChannel } from "../live/moss-live-protocol.js";
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
 
 // ===== content script 处理的 runtime 消息 =====
@@ -391,6 +392,8 @@ export type LiveProvidersDeleteResponse = {
 export type LiveSessionPrepareMessage = {
   type: "live-session-prepare";
   sessionId?: string;
+  /** 会话通道：伴看（缺省）或同传；两通道共享同一条 DNR 握手规则 */
+  channel?: LiveSessionChannel;
 };
 export type LiveSessionPrepareResponse = {
   ok: boolean;
@@ -403,6 +406,8 @@ export type LiveSessionPrepareResponse = {
 export type LiveSessionCleanupMessage = {
   type: "live-session-cleanup";
   sessionId?: string;
+  /** 会话通道：伴看（缺省）或同传 */
+  channel?: LiveSessionChannel;
 };
 export type LiveSessionCleanupResponse = {
   ok: boolean;
