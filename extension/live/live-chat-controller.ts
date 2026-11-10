@@ -484,7 +484,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function postDelegationResult(
     delegationId: string,
-    status: "completed" | "failed",
+    status: "in_progress" | "completed" | "failed",
     content: string,
     generation: number
   ): void {
@@ -504,6 +504,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     generation: number
   ): Promise<void> {
     const controller = new AbortController();
+    const timeout = delegation.purpose === "reasoning" && delegation.timeoutMs !== undefined
+      ? setTimeout(() => {
+          postDelegationResult(
+            delegation.delegationId,
+            "in_progress",
+            "后台分析仍在进行，完成后我会继续汇报。",
+            generation
+          );
+        }, delegation.timeoutMs)
+      : null;
     try {
       await backendTasks.runTask({
         taskId: delegation.delegationId,
@@ -532,6 +542,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         (error as Error)?.message || String(error),
         generation
       );
+    } finally {
+      if (timeout !== null) clearTimeout(timeout);
     }
   }
 

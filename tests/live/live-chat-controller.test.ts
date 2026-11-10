@@ -909,6 +909,63 @@ describe("LiveChatController video context and page tools", () => {
     await controller.stop();
   });
 
+  it("reports reasoning delegations as in progress on timeout without cancelling the final result", async () => {
+    vi.useFakeTimers();
+    let finishTask: (() => void) | undefined;
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>((options) => new Promise((resolve) => {
+      finishTask = () => {
+        options.onSpokenResult("最终答案");
+        resolve(null);
+      };
+    }));
+    const manager: LiveVideoBackendTaskManager = {
+      runTask,
+      cancelTask: vi.fn(() => true),
+      cancelAllTasks: vi.fn()
+    };
+    const { controller, fakePort } = setupContextTest({ videoBackendTaskManager: manager });
+    try {
+      await controller.start();
+      fakePort.simulateMessage({ type: "connected" });
+      fakePort.postedMessages.length = 0;
+      fakePort.simulateMessage({
+        type: "delegation_created",
+        delegation: {
+          delegationId: "del_reasoning",
+          objective: "检索细节",
+          context: [],
+          purpose: "reasoning",
+          timeoutMs: 1000
+        }
+      });
+      await Promise.resolve();
+      expect(runTask).toHaveBeenCalledTimes(1);
+      expect(fakePort.postedMessages).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fakePort.postedMessages).toEqual([{
+        action: "delegation_result",
+        delegationId: "del_reasoning",
+        status: "in_progress",
+        content: "后台分析仍在进行，完成后我会继续汇报。"
+      }]);
+
+      finishTask!();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(fakePort.postedMessages.at(-1)).toEqual({
+        action: "delegation_result",
+        delegationId: "del_reasoning",
+        status: "completed",
+        content: "最终答案"
+      });
+      expect(manager.cancelTask).not.toHaveBeenCalled();
+    } finally {
+      await controller.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("maps delegation errors and applies server cancellation by task id", async () => {
     const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(async (options) => {
       if (options.taskId === "del_failed") options.onError?.("模型请求失败");

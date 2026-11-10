@@ -525,6 +525,8 @@ export interface MossLiveDelegationRequest {
   delegationId: string;
   objective: string;
   context: string[];
+  purpose?: "task" | "reasoning";
+  timeoutMs?: number;
   scope?: "full" | "time_range" | "query";
   timeRange?: { startSec?: number; endSec?: number };
 }
@@ -684,12 +686,18 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
               : [];
           })
         : [];
+      const purpose = data?.purpose ?? obj.purpose;
+      const timeoutMs = data?.timeout_ms ?? obj.timeout_ms;
       return {
         kind: "delegation.created",
         delegation: {
           delegationId: typeof delegation?.id === "string" ? delegation.id : "",
           objective: readStr(data, obj, "objective"),
-          context
+          context,
+          purpose: purpose === "reasoning" ? "reasoning" : "task",
+          ...(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+            ? { timeoutMs }
+            : {})
         }
       };
     }
@@ -760,7 +768,7 @@ export type MossLiveClientAction =
   | {
       action: "delegation_result";
       delegationId: string;
-      status: "completed" | "failed";
+      status: "in_progress" | "completed" | "failed";
       content: string;
     }
   | { action: "interrupt" }

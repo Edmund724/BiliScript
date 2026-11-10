@@ -446,15 +446,17 @@ describe("parseMossServerJsonEvent", () => {
         delegation: { id: "del_001", type: "client", status: "in_progress" },
         objective: "总结视频核心内容",
         context: ["用户想先了解全片脉络"],
-        purpose: "task",
-        timeout_ms: null
+        purpose: "reasoning",
+        timeout_ms: 2500
       }
     })).toEqual({
       kind: "delegation.created",
       delegation: {
         delegationId: "del_001",
         objective: "总结视频核心内容",
-        context: ["用户想先了解全片脉络"]
+        context: ["用户想先了解全片脉络"],
+        purpose: "reasoning",
+        timeoutMs: 2500
       }
     });
 
@@ -482,7 +484,8 @@ describe("parseMossServerJsonEvent", () => {
       delegation: {
         delegationId: "del_002",
         objective: "总结视频核心内容",
-        context: ["user：先讲全片脉络", "无角色"]
+        context: ["user：先讲全片脉络", "无角色"],
+        purpose: "task"
       }
     });
   });

@@ -1994,11 +1994,18 @@ describe("OffscreenMossLiveClient native client delegation", () => {
       delegation: {
         delegationId: "del_001",
         objective: "总结视频核心内容",
-        context: ["用户刚才在问全片脉络"]
+        context: ["用户刚才在问全片脉络"],
+        purpose: "task"
       }
     });
 
     client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "章节事实" });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "in_progress",
+      content: "仍在分析"
+    });
     client.handleAction({
       action: "delegation_result",
       delegationId: "del_001",
@@ -2018,13 +2025,20 @@ describe("OffscreenMossLiveClient native client delegation", () => {
         action: "session.commentary.append",
         event_id: expect.any(String),
         delegation_id: "del_001",
+        status: "in_progress",
+        content: "仍在分析"
+      },
+      {
+        action: "session.commentary.append",
+        event_id: expect.any(String),
+        delegation_id: "del_001",
         status: "completed",
         content: "口语总结"
       }
     ]);
 
     client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "迟到事实" });
-    expect(ws.sentData).toHaveLength(2);
+    expect(ws.sentData).toHaveLength(3);
     client.close();
   });
 

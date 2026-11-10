@@ -436,12 +436,12 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
   sendDelegationResult(
     delegationId: string,
-    status: "completed" | "failed",
+    status: "in_progress" | "completed" | "failed",
     content: string,
     transport: LiveWireTransport
   ): boolean {
     if (!this.activeDelegationIds.has(delegationId)) return false;
-    this.activeDelegationIds.delete(delegationId);
+    if (status !== "in_progress") this.activeDelegationIds.delete(delegationId);
     return transport.sendJson({
       action: "session.commentary.append",
       event_id: crypto.randomUUID(),

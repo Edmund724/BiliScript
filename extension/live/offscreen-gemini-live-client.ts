@@ -750,6 +750,7 @@ export class OffscreenGeminiLiveClient extends OffscreenLiveSessionRuntime {
       return;
     }
     if (msg.action === "delegation_result") {
+      if (msg.status === "in_progress") return;
       this.geminiAdapter.sendDelegationResult(
         msg.delegationId,
         msg.status,
