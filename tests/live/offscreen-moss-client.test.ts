@@ -413,6 +413,7 @@ describe("OffscreenMossLiveClient", () => {
     const afterAttach = ws.sentData.map((data) => JSON.parse(data));
     expect(afterAttach.slice(4).map((message) => message.action)).toEqual([
       "session.update",
+      "client_context.update",
       "media.output.configure"
     ]);
   });
