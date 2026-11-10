@@ -39,7 +39,7 @@ export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL: ChatToolDefinition = {
   type: "function",
   function: {
     name: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
-    description: "当字幕不足以回答某个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，自主截取该时间点的一帧。targetTime 必须是字幕或用户问题所指的视频秒数，不要猜测。不会改变用户播放器。",
+    description: "当字幕不足以回答某个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，自主截取该时间点前、中、后三帧（前后各间隔 2 秒，视频边界处截断）。targetTime 必须是字幕或用户问题所指的视频秒数，不要猜测。不会改变用户播放器。每次提问最多补充三帧。",
     parameters: {
       type: "object",
       properties: {
@@ -284,20 +284,33 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
             if (isHistoricalFrame && (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0)) {
               throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
             }
-            const frame = isHistoricalFrame
+            const captureResult = isHistoricalFrame
               ? await captureCurrentVideoFrame(targetTime)
               : await captureCurrentVideoFrame();
-            const time = formatClock(frame.currentTime, { hours: "auto" });
+            const frames = (Array.isArray(captureResult) ? captureResult : [captureResult]).slice(0, 3);
+            if (!frames.length) {
+              throw new Error("三个时间点均未截取成功");
+            }
+            const times = frames.map((frame) => formatClock(frame.currentTime, { hours: "auto" }));
             const target = isHistoricalFrame ? formatClock(targetTime, { hours: "auto" }) : "";
             toolContent = isHistoricalFrame
-              ? `已截取视频在 ${time} 的画面（目标时间点 ${target}）。`
-              : `已截取视频在 ${time} 的画面。`;
-            frameMessages.push({
-              role: "user",
-              content: isHistoricalFrame
-                ? `以下是 ${call.function.name} 工具截取的视频画面，实际截图时间 ${time}；目标时间点 ${target}。请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
-                : `以下是 ${call.function.name} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
-              images: [frame.image]
+              ? Array.isArray(captureResult)
+                ? frames.length === 3
+                  ? `已截取目标时间点 ${target} 附近的前、中、后三帧，实际时间依次为 ${times.join("、")}。`
+                  : `目标时间点 ${target} 附近仅成功截取 ${frames.length} 张画面，实际时间依次为 ${times.join("、")}；其余 ${3 - frames.length} 张截取失败。`
+                : `已截取视频在 ${times[0]} 的画面（目标时间点 ${target}）。`
+              : `已截取视频在 ${times[0]} 的画面。`;
+            frames.forEach((frame, index) => {
+              const time = times[index];
+              frameMessages.push({
+                role: "user",
+                content: isHistoricalFrame
+                  ? Array.isArray(captureResult)
+                    ? `以下是 ${call.function.name} 工具截取的第 ${index + 1} 张，实际截图时间 ${time}；目标时间点 ${target}。图片按时间顺序排列，请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
+                    : `以下是 ${call.function.name} 工具截取的视频画面，实际截图时间 ${time}；目标时间点 ${target}。请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
+                  : `以下是 ${call.function.name} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
+                images: [frame.image]
+              });
             });
           } catch (e) {
             if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {

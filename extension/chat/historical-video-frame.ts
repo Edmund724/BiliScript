@@ -65,7 +65,7 @@ function waitForVideo(
 export async function captureHistoricalVideoFrame(
   { bvid, cid, targetTime }: HistoricalVideoFrameInput,
   options: HistoricalVideoFrameOptions = {}
-): Promise<PageVideoFrameSnapshot> {
+): Promise<PageVideoFrameSnapshot[]> {
   if (!Number.isFinite(targetTime) || targetTime < 0) {
     throw new Error("目标时间点必须是大于或等于 0 的有限秒数");
   }
@@ -96,18 +96,29 @@ export async function captureHistoricalVideoFrame(
       throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${video.duration} 秒`);
     }
     await waitForVideo(video, "canplay", () => video.readyState >= 2, timeoutMs);
-    const seeked = waitForVideo(
-      video,
-      "seeked",
-      () => Math.abs(video.currentTime - targetTime) <= SEEK_TOLERANCE_SECONDS && video.readyState >= 2,
-      timeoutMs
-    );
-    video.currentTime = targetTime;
-    await seeked;
-    return await capturePageVideoFrame({
-      getVideo: () => video,
-      createCanvas: options.createCanvas
-    });
+    const frames: PageVideoFrameSnapshot[] = [];
+    const duration = Number.isFinite(video.duration) ? Math.max(0, video.duration) : Number.POSITIVE_INFINITY;
+    const frameTimes = [targetTime - 2, targetTime, targetTime + 2]
+      .map((time) => Math.min(duration, Math.max(0, time)));
+    for (const frameTime of frameTimes) {
+      try {
+        const seeked = waitForVideo(
+          video,
+          "seeked",
+          () => Math.abs(video.currentTime - frameTime) <= SEEK_TOLERANCE_SECONDS && video.readyState >= 2,
+          timeoutMs
+        );
+        video.currentTime = frameTime;
+        await seeked;
+        frames.push(await capturePageVideoFrame({
+          getVideo: () => video,
+          createCanvas: options.createCanvas
+        }));
+      } catch {
+        // 单帧失败不阻断其余时间点；仅成功画面进入后续模型请求。
+      }
+    }
+    return frames;
   } finally {
     video.pause();
     video.removeAttribute("src");

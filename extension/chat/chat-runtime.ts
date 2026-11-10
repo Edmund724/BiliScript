@@ -385,14 +385,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           if (!deps.captureCurrentVideoFrame) {
             throw new Error("当前页面不支持视频截图");
           }
-          const frame = msg.targetTime === undefined
+          const captureResult = msg.targetTime === undefined
             ? await deps.captureCurrentVideoFrame()
             : await deps.captureCurrentVideoFrame(msg.targetTime);
           port.postMessage({
             action: "video-frame-result",
             requestId: msg.requestId,
-            image: frame.image,
-            currentTime: frame.currentTime
+            ...(Array.isArray(captureResult)
+              ? { frames: captureResult }
+              : { image: captureResult.image, currentTime: captureResult.currentTime })
           });
         } catch (error) {
           try {

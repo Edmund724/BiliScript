@@ -150,10 +150,10 @@ describe("offscreen 聊天通道断连容错", () => {
     }));
   });
 
-  it("历史帧调用把目标时间随请求发到宿主，并解析实际截图时间", async () => {
-    let capturedFrame: unknown;
+  it("历史帧调用把目标时间随请求发到宿主，并解析有序三帧回执", async () => {
+    let capturedFrames: unknown;
     runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: (targetTime?: number) => Promise<unknown> }) => {
-      capturedFrame = await captureCurrentVideoFrame(90);
+      capturedFrames = await captureCurrentVideoFrame(90);
     });
     await importOffscreen();
     const session = connectChat();
@@ -166,17 +166,17 @@ describe("offscreen 聊天通道断连容错", () => {
     })));
     const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
     const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+    const frames = [88, 90, 92].map((currentTime, index) => ({
+      image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+      currentTime
+    }));
 
     session.send({
       action: "video-frame-result",
       requestId: request.requestId,
-      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
-      currentTime: 88.25
+      frames
     });
-    await vi.waitFor(() => expect(capturedFrame).toEqual({
-      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
-      currentTime: 88.25
-    }));
+    await vi.waitFor(() => expect(capturedFrames).toEqual(frames));
   });
 
   it("截帧等待中断连会 reject 并收尾，不产生 unhandled rejection", async () => {

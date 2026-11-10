@@ -457,13 +457,18 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
   captureCurrentVideoFrame: async (targetTime?: number) => {
-    const frame = targetTime === undefined
-      ? await capturePageVideoFrame()
-      : await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime });
-    return {
+    if (targetTime === undefined) {
+      const frame = await capturePageVideoFrame();
+      return {
+        image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
+        currentTime: frame.currentTime
+      };
+    }
+    const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime });
+    return frames.map((frame) => ({
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
       currentTime: frame.currentTime
-    };
+    }));
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,

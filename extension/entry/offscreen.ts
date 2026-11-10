@@ -98,7 +98,7 @@ let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } 
 let pendingVideoFrame: {
   requestId: string;
   generation: number;
-  resolve: (frame: CapturedVideoFrame) => void;
+  resolve: (frame: CapturedVideoFrame | CapturedVideoFrame[]) => void;
   reject: (error: Error) => void;
 } | null = null;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -260,6 +260,10 @@ chrome.runtime.onConnect.addListener((port) => {
           pending.reject(new Error("截图请求已过期"));
         } else if (msg.error) {
           pending.reject(new Error(msg.error));
+        } else if (Array.isArray(msg.frames) && msg.frames.every((frame) => (
+          frame.image?.mime && frame.image.data && Number.isFinite(frame.currentTime)
+        ))) {
+          pending.resolve(msg.frames);
         } else if (msg.image?.mime && msg.image.data && Number.isFinite(msg.currentTime)) {
           pending.resolve({ image: msg.image, currentTime: msg.currentTime! });
         } else {
@@ -509,7 +513,7 @@ function askCostGuard(port: PostMessagePort, message: string, generation: number
   });
 }
 
-function requestVideoFrame(port: PostMessagePort, generation: number, targetTime?: number): Promise<CapturedVideoFrame> {
+function requestVideoFrame(port: PostMessagePort, generation: number, targetTime?: number): Promise<CapturedVideoFrame | CapturedVideoFrame[]> {
   return new Promise((resolve, reject) => {
     if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
       reject(new Error("当前无法发起截图请求"));

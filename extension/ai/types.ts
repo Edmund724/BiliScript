@@ -25,7 +25,7 @@ export interface CapturedVideoFrame {
   currentTime: number;
 }
 
-export type CaptureCurrentVideoFrame = (targetTime?: number) => Promise<CapturedVideoFrame>;
+export type CaptureCurrentVideoFrame = (targetTime?: number) => Promise<CapturedVideoFrame | CapturedVideoFrame[]>;
 
 export interface ChatMessage {
   role: ChatMessageRole;

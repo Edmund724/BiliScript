@@ -16,7 +16,7 @@
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderAccess, SearchProviderPreset } from "../core/presets.js";
-import type { AiProvider, ImagePart } from "../ai/types.js";
+import type { AiProvider, CapturedVideoFrame, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
@@ -607,6 +607,7 @@ export type OffscreenVideoFrameResultMessage = {
   requestId: string;
   image?: ImagePart;
   currentTime?: number;
+  frames?: CapturedVideoFrame[];
   error?: string;
 };
 

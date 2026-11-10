@@ -5,11 +5,13 @@ function makeVideo(duration = 120) {
   const video = document.createElement("video");
   let currentTime = 0;
   let readyState = 0;
+  const seeks: number[] = [];
   Object.defineProperties(video, {
     currentTime: {
       configurable: true,
       get: () => currentTime,
       set: (value: number) => {
+        seeks.push(value);
         currentTime = value - 0.05;
         queueMicrotask(() => video.dispatchEvent(new Event("seeked")));
       }
@@ -23,6 +25,7 @@ function makeVideo(duration = 120) {
   video.pause = vi.fn();
   return {
     video,
+    seeks,
     metadataReady() {
       readyState = 1;
       video.dispatchEvent(new Event("loadedmetadata"));
@@ -45,7 +48,7 @@ function makeCanvas() {
 }
 
 describe("隐藏视频历史帧截取", () => {
-  it("加载当前视频的 durl，seek 到目标时间并导出实际帧后清理隐藏媒体", async () => {
+  it("围绕目标时间依次截取前中后三帧，导出后清理隐藏媒体", async () => {
     const media = makeVideo();
     const { canvas, context } = makeCanvas();
     const transport = vi.fn(async () => ({
@@ -65,14 +68,65 @@ describe("隐藏视频历史帧截取", () => {
     media.metadataReady();
     media.canPlay();
 
-    const frame = await pending;
+    const frames = await pending;
     expect(transport).toHaveBeenCalledWith(expect.stringContaining("bvid=BV1history&cid=101"));
-    expect(frame.currentTime).toBe(89.95);
-    expect(Array.from(frame.jpegBytes)).toEqual([1, 2, 3]);
+    expect(media.seeks).toEqual([88, 90, 92]);
+    expect(frames.map((frame) => frame.currentTime)).toEqual([87.95, 89.95, 91.95]);
+    expect(frames.every((frame) => Array.from(frame.jpegBytes).join(",") === "1,2,3")).toBe(true);
+    expect(context.drawImage).toHaveBeenCalledTimes(3);
     expect(context.drawImage).toHaveBeenCalledWith(media.video, 0, 0, 640, 360);
     expect(media.video.isConnected).toBe(false);
     expect(media.video.getAttribute("src")).toBeNull();
     expect(media.video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("视频首尾边界内的前中后时间点被截断到有效范围", async () => {
+    async function seekTimesAt(targetTime: number) {
+      const media = makeVideo(10);
+      const { canvas } = makeCanvas();
+      const pending = captureHistoricalVideoFrame(
+        { bvid: "BV1history", cid: "101", targetTime },
+        {
+          transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+          createVideo: () => media.video,
+          createCanvas: () => canvas
+        }
+      );
+      await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+      media.metadataReady();
+      media.canPlay();
+      await pending;
+      return media.seeks;
+    }
+
+    await expect(seekTimesAt(0.5)).resolves.toEqual([0, 0.5, 2.5]);
+    await expect(seekTimesAt(9.5)).resolves.toEqual([7.5, 9.5, 10]);
+  });
+
+  it("中间帧编码失败时保留前后成功帧并继续按序截取", async () => {
+    const media = makeVideo();
+    const { canvas, context } = makeCanvas();
+    vi.mocked(canvas.toBlob).mockImplementation((callback) => {
+      callback(context.drawImage.mock.calls.length === 2
+        ? null
+        : new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }));
+    });
+    const pending = captureHistoricalVideoFrame(
+      { bvid: "BV1history", cid: "101", targetTime: 90 },
+      {
+        transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+        createVideo: () => media.video,
+        createCanvas: () => canvas
+      }
+    );
+    await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+    media.metadataReady();
+    media.canPlay();
+
+    const frames = await pending;
+    expect(media.seeks).toEqual([88, 90, 92]);
+    expect(frames.map((frame) => frame.currentTime)).toEqual([87.95, 91.95]);
+    expect(media.video.isConnected).toBe(false);
   });
 
   it("隐藏媒体失败时抛出真实错误并清理，不操作页面播放器", async () => {

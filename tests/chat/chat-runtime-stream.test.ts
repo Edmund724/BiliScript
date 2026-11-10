@@ -207,13 +207,13 @@ describe("sendMessage 建流与协议入口", () => {
     expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith();
   });
 
-  it("video-frame-request 携带目标时间时按该时间取帧并回传实际时间", async () => {
+  it("video-frame-request 携带目标时间时按该时间取帧并回传有序三帧", async () => {
     const deps = makeDeps();
     deps.canUseVideoFrameTool = vi.fn(async () => true);
-    deps.captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => ({
-      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
-      currentTime: targetTime === 90 ? 88.25 : 0
-    }));
+    deps.captureCurrentVideoFrame = vi.fn(async () => [88, 90, 92].map((currentTime, index) => ({
+      image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+      currentTime
+    })));
     deps.input.value = "看看 1:30 的画面";
     const runtime = createChatRuntime(deps);
     await runtime.sendTurn(deps.input.value);
@@ -224,10 +224,19 @@ describe("sendMessage 建流与协议入口", () => {
     await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith({
       action: "video-frame-result",
       requestId: "history-1",
-      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
-      currentTime: 88.25
+      frames: [88, 90, 92].map((currentTime, index) => ({
+        image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+        currentTime
+      }))
     }));
     expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90);
+    expect(deps.messages.querySelectorAll(".chat-msg-user img")).toHaveLength(0);
+    session.listeners.message[0]({ type: "done" });
+    expect(chatSessionState.chatHistory).toEqual([
+      expect.objectContaining({ role: "user", content: "看看 1:30 的画面" }),
+      expect.objectContaining({ role: "assistant" })
+    ]);
+    expect(chatSessionState.chatHistory.every((message) => !message.images?.length)).toBe(true);
   });
 
   it("能力查询失败或缺省时不下发截帧工具开关", async () => {
