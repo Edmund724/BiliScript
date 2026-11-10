@@ -8,6 +8,10 @@
 // import = 编译后无边，取值域实体在零 import 的词表叶 ai/thinking-levels.ts
 //（core 与请求路径两侧同源）。
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
+import type {
+  InterpretSubtitleDisplayMode,
+  LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
 
 // ===== Version =====
 // Single source of truth for the extension version; consumed by the content
@@ -57,6 +61,8 @@ export interface KnownSettings {
   liveShareVideoAudio: boolean;
   liveGeminiNativeSearch: boolean;
   liveLowBandwidth: boolean;
+  liveInterpretTargetLang: LiveInterpretTargetLang;
+  liveInterpretDisplayMode: InterpretSubtitleDisplayMode;
   asrAutoFallback: boolean;
   asrLanguage: string;
   // ===== 联网搜索（spec §3.2）=====
@@ -137,6 +143,8 @@ export const DEFAULT_SETTINGS: Settings = {
   liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
   liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
+  liveInterpretTargetLang: "zh",
+  liveInterpretDisplayMode: "auto",
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====

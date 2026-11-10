@@ -1,4 +1,8 @@
 import { READING_RESET_ICON } from "./reading-icons.js";
+import {
+  LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS
+} from "../live/interpret-subtitle-preferences.js";
 // ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（script-only-ui，2026-09 拆分）。
 //
 // 自 settings-panel.ts 拆出（大文件拆分工单）：settings-panel.ts 只留流程编排
@@ -30,6 +34,8 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
   liveLowBandwidth: "liveLowBandwidth",
+  liveInterpretTargetLang: "liveInterpretTargetLang",
+  liveInterpretDisplayMode: "liveInterpretDisplayMode",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -103,6 +109,22 @@ export function buildSettingsHtml(): string {
       <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">同传目标语言</label>
+          <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
+            ${LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => `
+              <option value="${option.value}">${option.label}</option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.liveInterpretDisplayMode}">同传字幕显示</label>
+          <select id="${ids.liveInterpretDisplayMode}" class="biliscript-set-select">
+            ${LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.map((option) => `
+              <option value="${option.value}">${option.label}</option>
+            `).join("")}
+          </select>
+        </div>
         <div class="biliscript-set-check biliscript-toggle-row">
           <span class="biliscript-toggle-text">低带宽画面采集</span>
           <label class="biliscript-toggle-switch">

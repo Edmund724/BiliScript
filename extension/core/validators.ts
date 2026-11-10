@@ -20,6 +20,12 @@ import {
   DEFAULT_SETTINGS,
   type Settings
 } from "./defaults.js";
+import {
+  LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type InterpretSubtitleDisplayMode,
+  type LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
 
 // ===== Shared scalar helpers =====
 export function toString(value: unknown): string {
@@ -146,6 +152,19 @@ export const normalizeLiveVoicePriority = booleanField(true);
 export const normalizeLiveShareVideoAudio = booleanField(false);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeLiveLowBandwidth = booleanField(false);
+
+export function normalizeLiveInterpretTargetLang(value: unknown): LiveInterpretTargetLang {
+  const normalized = toString(value).trim();
+  return LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === normalized)?.value
+    ?? DEFAULT_SETTINGS.liveInterpretTargetLang;
+}
+
+export function normalizeLiveInterpretDisplayMode(value: unknown): InterpretSubtitleDisplayMode {
+  const normalized = toString(value).trim();
+  return LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.find((option) => option.value === normalized)?.value
+    ?? DEFAULT_SETTINGS.liveInterpretDisplayMode;
+}
+
 export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与

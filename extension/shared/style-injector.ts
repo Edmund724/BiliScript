@@ -22,8 +22,8 @@
 //
 // 挂载态即 DOM：不导出只读探针，某张表挂没挂就是
 // link[data-biliscript-style="1"]（href 尾段 = entry/styles/<name>.css）在不在
-// document 里，消费方与测试同口径。导出面共 9 个原语（6 个 ensure + 2 个
-// remove + whenReaderSettingsStylesReady），只保留生产消费者用到的那些。
+// document 里，消费方与测试同口径。各 ensure 原语由对应能力模块挂载，
+// 阅读壳退出只移除其拥有的阅读主表。
 //
 // 挂载记录与设置表的 ready promise 挂 globalThis 而非模块级变量：两轮构建
 //（scripts/build-content.js）把常驻底座在轮 B 懒 chunk 区重复一份，本模块在
@@ -69,6 +69,10 @@ export function removeReaderStyles(): void {
 
 export function ensurePlayerAiStyles(): void {
   mountStyleLink("entry/styles/player-ai.css");
+}
+
+export function ensureInterpretSubtitleStyles(): void {
+  mountStyleLink("entry/styles/interpret-subtitles.css");
 }
 
 export function removePlayerAiStyles(): void {
