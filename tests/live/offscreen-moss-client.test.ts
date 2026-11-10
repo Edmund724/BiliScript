@@ -383,6 +383,24 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 
+  it("fills missing media.configured fields from the requested low-bandwidth tier", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: { video: { max_long_side: 400 }, error: "" }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 400, jpegQuality: 0.5, intervalMs: 2000 }
+    });
+  });
+
   it("sends change_voice after session_attached and defers session.update until voice_changed", () => {
     const onConnected = vi.fn();
     const client = new OffscreenMossLiveClient({ onConnected });

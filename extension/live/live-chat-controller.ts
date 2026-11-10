@@ -23,7 +23,10 @@ import {
 } from "./live-provider-store.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
-import { recordLiveVoiceFallbackNotice } from "./live-voice-fallback-notice.js";
+import {
+  LIVE_VOICE_FALLBACK_NOTICE_TEXT,
+  recordLiveVoiceFallbackNotice
+} from "./live-voice-fallback-notice.js";
 import {
   VideoBackendTaskManager,
   type VideoBackendTaskOptions,
@@ -424,17 +427,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   // change_voice 失败（如音色已被删）：页面内先告知，再清掉该 provider 的
   // voiceId（下次会话回到平台默认）并留下一次性提示给设置面板。
   function handleVoiceFallback(voiceId: string): void {
-    showNotice("所选音色已不可用，伴看已回退默认音色", 6000);
+    showNotice(LIVE_VOICE_FALLBACK_NOTICE_TEXT, 6000);
     activeTargetVoiceId = "";
     void clearFallbackVoiceSelection(voiceId);
   }
 
   async function clearFallbackVoiceSelection(voiceId: string): Promise<void> {
-    await recordLiveVoiceFallbackNotice({
-      providerId: activeTargetProviderId,
-      voiceId,
-      at: Date.now()
-    });
+    await recordLiveVoiceFallbackNotice({ voiceId });
     try {
       const providers = await liveProviderStore.loadProviders();
       const index = providers.findIndex((provider) => provider.id === activeTargetProviderId);

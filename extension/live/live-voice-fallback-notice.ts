@@ -6,9 +6,7 @@
 export const LIVE_VOICE_FALLBACK_NOTICE_STORAGE = "liveVoiceFallbackNotice";
 
 export interface LiveVoiceFallbackNotice {
-  providerId: string;
   voiceId: string;
-  at: number;
 }
 
 export const LIVE_VOICE_FALLBACK_NOTICE_TEXT = "所选音色已不可用，伴看已回退默认音色。";
@@ -19,9 +17,7 @@ function normalizeNotice(value: unknown): LiveVoiceFallbackNotice | null {
   const voiceId = String(raw.voiceId || "").trim();
   if (!voiceId) return null;
   return {
-    providerId: String(raw.providerId || "").trim(),
-    voiceId,
-    at: Number.isFinite(raw.at) ? Number(raw.at) : 0
+    voiceId
   };
 }
 

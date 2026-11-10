@@ -235,7 +235,8 @@ export async function listLiveVoices({
   return { ok: true, voices };
 }
 
-export interface ListLiveModelsOptions {  baseUrl?: string;
+export interface ListLiveModelsOptions {
+  baseUrl?: string;
   apiKey?: string;
   providerId?: string;
   type?: string;

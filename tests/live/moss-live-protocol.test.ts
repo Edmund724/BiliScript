@@ -266,7 +266,7 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
-  it("parses media.configured video parameters and falls back to standard for missing fields", () => {
+  it("parses media.configured video receipt verbatim for adapter-side normalization", () => {
     expect(
       parseMossServerJsonEvent({
         action: "media.configured",
@@ -277,7 +277,7 @@ describe("parseMossServerJsonEvent", () => {
       })
     ).toEqual({
       kind: "media.configured",
-      video: { maxLongSide: 384, jpegQuality: 0.5, intervalMs: 2000 },
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
       error: ""
     });
 
@@ -288,7 +288,7 @@ describe("parseMossServerJsonEvent", () => {
       })
     ).toEqual({
       kind: "media.configured",
-      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1500 },
+      video: { interval_ms: 1500 },
       error: ""
     });
 
@@ -299,7 +299,7 @@ describe("parseMossServerJsonEvent", () => {
       })
     ).toEqual({
       kind: "media.configured",
-      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      video: {},
       error: "unsupported"
     });
   });

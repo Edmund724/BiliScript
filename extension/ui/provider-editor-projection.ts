@@ -355,7 +355,8 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     }
   },
 
-  catalogEmpty: {    project: (scope, draft) => (scope.family.modelSource === "catalog" ? { hidden: draft.models.length > 0 } : {}),
+  catalogEmpty: {
+    project: (scope, draft) => (scope.family.modelSource === "catalog" ? { hidden: draft.models.length > 0 } : {}),
     html: (projection) =>
       `<p class="provider-editor-catalog-empty" ${projection.hidden ? "hidden" : ""}>未添加模型</p>`,
     apply: (dialog, projection) => {

@@ -65,3 +65,8 @@ export function buildMossMediaConfigureVideo(
     interval_ms: config.intervalMs
   };
 }
+
+/** media.configured.video 回执的原始蛇形形状：服务端可能只回部分键，值也未必合法。 */
+export type MossVideoConfiguredReceipt = Partial<
+  Record<"max_long_side" | "jpeg_quality" | "interval_ms", unknown>
+>;

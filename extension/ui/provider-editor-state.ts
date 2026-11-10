@@ -215,7 +215,7 @@ export function editDraft(mutate: (draft: EditorDraft) => void): void {
   }
 }
 
-// 音色列表落位（每次 Modal 会话只取一次；失败不置位，下次打开重试）。
+// 音色列表落位（每次 Modal 会话只取一次；成败都只经历一次，见 markEditorVoicesLoaded）。
 export function applyEditorVoices(voices: readonly LiveVoice[]): void {
   bag.voices = voices.map((voice) => ({ id: voice.id, name: voice.name || voice.id }));
   bag.voicesLoaded = true;

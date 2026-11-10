@@ -33,7 +33,7 @@ import {
   type MossLiveClientAction,
   type MossLiveSessionContext
 } from "./moss-live-protocol.js";
-import { buildMossMediaConfigureVideo, resolveMossVideoConfig } from "./moss-video-config.js";
+import { buildMossMediaConfigureVideo, normalizeMossVideoConfig, resolveMossVideoConfig } from "./moss-video-config.js";
 
 export type {
   AudioBufferLike,
@@ -222,7 +222,11 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         break;
 
       case "media.configured":
-        callbacks.applyMediaConfiguration(parsed);
+        // 回执缺省字段按请求档位补齐，避免低带宽档被静默抬回 standard。
+        callbacks.applyMediaConfiguration({
+          video: normalizeMossVideoConfig(parsed.video, resolveMossVideoConfig(this.lowBandwidth)),
+          error: parsed.error
+        });
         break;
 
       case "transcript":
@@ -269,7 +273,9 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         break;
 
       case "error":
-        if (this.awaitingVoice) {
+        // 等待 change_voice 应答期间，仅音色相关（或无错误码）的 error 按音色
+        // 失败处理；其余错误不吞掉，走常规会话错误路径。
+        if (this.awaitingVoice && (!parsed.code || /voice/i.test(parsed.code))) {
           // change_voice 失败（如音色已删）：回退默认音色、上报一次，再照常
           // session.update 让会话建立，不把整个会话判失败。
           const voiceId = this.awaitingVoice;
@@ -281,6 +287,9 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
             this.completeAttach(pending);
           }
           return;
+        }
+        if (this.awaitingVoice) {
+          this.clearVoiceWait();
         }
         if (parsed.code === "unsupported_control") {
           callbacks.useLocalPlaybackRate();

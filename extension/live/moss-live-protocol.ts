@@ -10,7 +10,7 @@
 // 后续字节为原始 payload。
 
 import { formatClock } from "../shared/clock-text.js";
-import { normalizeMossVideoConfig, type MossVideoCaptureConfig } from "./moss-video-config.js";
+import { type MossVideoCaptureConfig, type MossVideoConfiguredReceipt } from "./moss-video-config.js";
 
 export const enum MossBinaryTag {
   AudioPcm = 0x00,
@@ -542,7 +542,7 @@ export type MossParsedServerEvent =
   | { kind: "session.updated"; error: string }
   | { kind: "client_context.updated"; accepted: boolean }
   | { kind: "output.configured"; volumeDb?: number; speed?: number }
-  | { kind: "media.configured"; video: MossVideoCaptureConfig; error: string }
+  | { kind: "media.configured"; video: MossVideoConfiguredReceipt; error: string }
   | { kind: "transcript"; event: MossLiveTranscriptEvent }
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
@@ -613,11 +613,12 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
       };
     }
     case "media.configured": {
-      // 画面参数回执：video 可能只回部分字段，缺省字段按 standard 默认补齐。
+      // 回执原样透传：逐字段归一化由适配器完成，缺省字段以请求档位补齐。
       const error = readStr(data, obj, "error");
+      const video = asRecord(data?.video) ?? asRecord(obj.video) ?? {};
       return {
         kind: "media.configured",
-        video: normalizeMossVideoConfig(data?.video ?? obj.video),
+        video,
         error
       };
     }

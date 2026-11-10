@@ -13,6 +13,7 @@ import type {
   PageVideoFrameCaptureSession
 } from "../../extension/live/page-video-frame-capture.js";
 import type { MossVideoCaptureConfig } from "../../extension/live/moss-video-config.js";
+import { LIVE_VOICE_FALLBACK_NOTICE_TEXT } from "../../extension/live/live-voice-fallback-notice.js";
 import type {
   LiveProviderType,
   MossLiveToolCall,
@@ -1289,10 +1290,9 @@ describe("LiveChatController 音色选择", () => {
 
     fakePort.simulateMessage({ type: "voice_fallback", voiceId: "deleted-voice" });
 
-    expect(showNotice).toHaveBeenCalledWith("所选音色已不可用，伴看已回退默认音色", 6000);
+    expect(showNotice).toHaveBeenCalledWith(LIVE_VOICE_FALLBACK_NOTICE_TEXT, 6000);
     await vi.waitFor(() => {
       expect(localStore.liveVoiceFallbackNotice).toMatchObject({
-        providerId: "live_moss",
         voiceId: "deleted-voice"
       });
     });
