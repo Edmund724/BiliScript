@@ -314,6 +314,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 字幕体可达数 MB，逐条追问经 port 重传纯属浪费。null = 未确认（首条消息、
   // port 断连、字幕体缺失错误之后），必然全量携带。
   let lastAckedContextKey: string | null = null;
+  const pendingVideoFrames = new Map<string, AbortController>();
 
   // ---- 回合生命周期（./turn-lifecycle.ts，GLOSSARY.md 词条「发送闸」「历史回放」）----
   // 一个回合「受理开始 → 终态落定」的时序与结算唯一实现点：在途判据（受理窗口
@@ -340,6 +341,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
     messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeRegeneration !== null || activeContinuation !== null);
+  }
+  function abortAllVideoFrames(): void {
+    const controllers = [...pendingVideoFrames.values()];
+    pendingVideoFrames.clear();
+    for (const controller of controllers) controller.abort();
   }
   // =========================================================================
   // DOM 渲染/滚动/水合片（./chat-stream-render.ts）的跨片消费面
@@ -378,16 +384,24 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (typeof msg.cachedContextKey === "string" && msg.cachedContextKey) {
       lastAckedContextKey = msg.cachedContextKey;
     }
+    if (msg.type === "video-frame-cancel") {
+      const controller = pendingVideoFrames.get(msg.requestId);
+      pendingVideoFrames.delete(msg.requestId);
+      controller?.abort();
+      return;
+    }
     if (msg.type === "video-frame-request") {
       if (!port) return;
+      const controller = new AbortController();
+      pendingVideoFrames.get(msg.requestId)?.abort();
+      pendingVideoFrames.set(msg.requestId, controller);
       void (async () => {
         try {
           if (!deps.captureCurrentVideoFrame) {
             throw new Error("当前页面不支持视频截图");
           }
-          const captureResult = msg.targetTime === undefined
-            ? await deps.captureCurrentVideoFrame()
-            : await deps.captureCurrentVideoFrame(msg.targetTime);
+          const captureResult = await deps.captureCurrentVideoFrame(msg.targetTime, controller.signal);
+          if (controller.signal.aborted || pendingVideoFrames.get(msg.requestId) !== controller) return;
           port.postMessage({
             action: "video-frame-result",
             requestId: msg.requestId,
@@ -396,6 +410,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
               : { image: captureResult.image, currentTime: captureResult.currentTime })
           });
         } catch (error) {
+          if (controller.signal.aborted) return;
           try {
             port.postMessage({
               action: "video-frame-result",
@@ -403,6 +418,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
               error: String((error as Error)?.message || error)
             });
           } catch {}
+        } finally {
+          if (pendingVideoFrames.get(msg.requestId) === controller) {
+            pendingVideoFrames.delete(msg.requestId);
+          }
         }
       })();
       return;
@@ -670,6 +689,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       });
 
       port.onDisconnect.addListener(() => {
+        abortAllVideoFrames();
         activePort = null;
         lastAckedContextKey = null;
         if (activeRegeneration) {
@@ -1073,6 +1093,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
   function resetStreamState(): void {
     speech.stop();
+    abortAllVideoFrames();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。

@@ -204,7 +204,7 @@ describe("sendMessage 建流与协议入口", () => {
       currentTime: 151
     }));
     expect(deps.captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
-    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith();
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(undefined, expect.any(AbortSignal));
   });
 
   it("video-frame-request 携带目标时间时按该时间取帧并回传有序三帧", async () => {
@@ -229,7 +229,7 @@ describe("sendMessage 建流与协议入口", () => {
         currentTime
       }))
     }));
-    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90);
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90, expect.any(AbortSignal));
     expect(deps.messages.querySelectorAll(".chat-msg-user img")).toHaveLength(0);
     session.listeners.message[0]({ type: "done" });
     expect(chatSessionState.chatHistory).toEqual([
@@ -237,6 +237,55 @@ describe("sendMessage 建流与协议入口", () => {
       expect.objectContaining({ role: "assistant" })
     ]);
     expect(chatSessionState.chatHistory.every((message) => !message.images?.length)).toBe(true);
+  });
+
+  it("video-frame-cancel 中止在飞取帧并丢弃迟到结果", async () => {
+    const deps = makeDeps();
+    let captureSignal: AbortSignal | undefined;
+    let resolveCapture!: (frames: Array<{ image: { mime: string; data: string }; currentTime: number }>) => void;
+    deps.captureCurrentVideoFrame = vi.fn((_targetTime?: number, signal?: AbortSignal) => {
+      captureSignal = signal;
+      return new Promise<Array<{ image: { mime: string; data: string }; currentTime: number }>>((resolve) => { resolveCapture = resolve; });
+    });
+    deps.input.value = "看看 1:30 的画面";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+    session.listeners.message[0]({ type: "video-frame-request", requestId: "history-1", targetTime: 90 });
+    await vi.waitFor(() => expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90, expect.any(AbortSignal)));
+
+    session.listeners.message[0]({ type: "video-frame-cancel", requestId: "history-1" });
+    expect(captureSignal?.aborted).toBe(true);
+    resolveCapture([{ image: { mime: "image/jpeg", data: "/9j/" }, currentTime: 90 }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(session.port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      action: "video-frame-result",
+      requestId: "history-1"
+    }));
+  });
+
+  it.each(["reset", "disconnect"] as const)("会话生命周期终止（%s）会中止在飞取帧", async (termination) => {
+    const deps = makeDeps();
+    let captureSignal: AbortSignal | undefined;
+    deps.captureCurrentVideoFrame = vi.fn((_targetTime?: number, signal?: AbortSignal) => {
+      captureSignal = signal;
+      return new Promise<never>(() => {});
+    });
+    deps.input.value = "看看 1:30 的画面";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+    session.listeners.message[0]({ type: "video-frame-request", requestId: "history-1", targetTime: 90 });
+    await vi.waitFor(() => expect(deps.captureCurrentVideoFrame).toHaveBeenCalled());
+
+    if (termination === "reset") {
+      runtime.resetStreamState();
+    } else {
+      session.listeners.disconnect[0]();
+    }
+
+    expect(captureSignal?.aborted).toBe(true);
   });
 
   it("能力查询失败或缺省时不下发截帧工具开关", async () => {

@@ -94,10 +94,12 @@ void (async () => {
 let currentChatGeneration = 0;
 let activeGeneration = 0;
 let activeAbortController: AbortController | null = null;
+let activeChatPort: PostMessagePort | null = null;
 let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } | null = null;
 let pendingVideoFrame: {
   requestId: string;
   generation: number;
+  port: PostMessagePort;
   resolve: (frame: CapturedVideoFrame | CapturedVideoFrame[]) => void;
   reject: (error: Error) => void;
 } | null = null;
@@ -162,10 +164,8 @@ function armIdleTimeout(generation: number, abortController: AbortController, po
   clearIdleTimeout(generation);
   idleTimeoutGeneration = generation;
   idleTimeoutId = setTimeout(function () {
-    if (generation === activeGeneration && abortController && !abortController.signal.aborted) {
-      abortController.abort();
-      // 超时中断只 abort：原始段缓冲的落盘已收口到 map-reduce 写会话的收尾
-      // close（本次 abort 令编排走 abort 收束，close 随该轮 finally 落盘）
+    if (generation === activeGeneration && !abortController.signal.aborted) {
+      abortActiveRequest();
       port.postMessage({
         type: "error",
         error: "请求超时（90 秒未返回任何数据），已自动中断"
@@ -294,6 +294,7 @@ chrome.runtime.onConnect.addListener((port) => {
     const requestController = new AbortController();
     activeAbortController = requestController;
     activeGeneration = generation;
+    activeChatPort = port;
 
     try {
       // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
@@ -407,6 +408,10 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   port.onDisconnect.addListener(() => {
+    // 换片断流后新回合可能已经接管；旧端口的迟到断连不得中止新回合。
+    if (activeChatPort !== port) {
+      return;
+    }
     if (pendingCostGuard) {
       const resolve = pendingCostGuard.resolve;
       pendingCostGuard = null;
@@ -467,15 +472,17 @@ function abortActiveRequest() {
     resolve(false);
   }
   if (pendingVideoFrame) {
-    const { reject } = pendingVideoFrame;
+    const pending = pendingVideoFrame;
     pendingVideoFrame = null;
-    reject(new Error("截图请求已中止"));
+    safePostMessage(pending.port, { type: "video-frame-cancel", requestId: pending.requestId });
+    pending.reject(new Error("截图请求已中止"));
   }
   if (activeAbortController && !activeAbortController.signal.aborted) {
     activeAbortController.abort();
   }
   activeAbortController = null;
   activeGeneration = 0;
+  activeChatPort = null;
   clearIdleTimeout();
 }
 
@@ -502,6 +509,7 @@ function clearActiveRequestState(generation?: number) {
   }
   activeAbortController = null;
   activeGeneration = 0;
+  activeChatPort = null;
 }
 
 // 向侧边栏弹成本护栏确认，等待其回复 { action: "cost-guard-confirm", ok: boolean }。
@@ -520,7 +528,7 @@ function requestVideoFrame(port: PostMessagePort, generation: number, targetTime
       return;
     }
     const requestId = `video-frame-${generation}-${Date.now()}`;
-    pendingVideoFrame = { requestId, generation, resolve, reject };
+    pendingVideoFrame = { requestId, generation, port, resolve, reject };
     try {
       port.postMessage({
         type: "video-frame-request",

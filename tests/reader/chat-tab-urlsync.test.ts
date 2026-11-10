@@ -93,6 +93,11 @@ async function waitFor(predicate: () => boolean, { timeoutMs = 1000 } = {}): Pro
   }
 }
 
+function dispatchClipChange(page: number): void {
+  setLocationUrl(`https://www.bilibili.com/video/BV1test000000/?p=${page}&biliscript_reader=1`);
+  window.dispatchEvent(new Event("biliscript:urlchange"));
+}
+
 function seedReadyContext(): void {
   state.clip.title = "测试视频";
   state.clip.bvid = "BV1test000000";
@@ -131,9 +136,9 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await reopened.ensureChatTabActivated();
     const reopenedBaseline = gatewayMock.fetchHotComments.mock.calls.length;
 
-    window.dispatchEvent(new Event("biliscript:urlchange"));
-    window.dispatchEvent(new Event("biliscript:urlchange"));
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    dispatchClipChange(2);
+    dispatchClipChange(3);
+    dispatchClipChange(4);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(reopenedBaseline + 1);
@@ -148,7 +153,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
 
     state.clip.title = "防抖后的新标题";
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    dispatchClipChange(2);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     // 标题的呈现面（头部 chip）已删：强刷结果改在 live 上下文快照上对账
@@ -167,7 +172,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
 
     // 触发 URL 变化（排入 120ms 防抖同步）
     state.clip.title = "关闭前排入的新标题";
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    dispatchClipChange(2);
 
     // 在防抖 120ms 触发前立刻关闭会话
     chat.closeChatSession();
@@ -186,11 +191,26 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
 
     // 重开后触发源已重新激活，新 URL 变化正常触发防抖同步
     state.clip.title = "重开后的新标题";
-    window.dispatchEvent(new Event("biliscript:urlchange"));
+    dispatchClipChange(3);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(chatSessionState.liveContextData?.title).toBe("重开后的新标题");
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline + 1);
+    chat.closeChatSession();
+  });
+
+  it("同片内部 URL 更新不触发强刷", async () => {
+    gatewayMock.getCurrentAid.mockReturnValue(7100);
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
+    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
+
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline);
     chat.closeChatSession();
   });
 });

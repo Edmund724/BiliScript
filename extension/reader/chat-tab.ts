@@ -59,7 +59,7 @@
 
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
-import { extractBvid } from "../bilibili/video-id-shared.js";
+import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 // 思考档位的显示视图（一级行 · chip 条目 · 提示文案）：一次解析（偏好 + 上下文）的产出，
 // 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
 // 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
@@ -456,7 +456,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     return images;
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
-  captureCurrentVideoFrame: async (targetTime?: number) => {
+  captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
     if (targetTime === undefined) {
       const frame = await capturePageVideoFrame();
       return {
@@ -464,7 +464,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
         currentTime: frame.currentTime
       };
     }
-    const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime });
+    const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime }, { signal });
     return frames.map((frame) => ({
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
       currentTime: frame.currentTime
@@ -656,9 +656,23 @@ const sessionTriggers = createReaderChatSessionTriggers({
     sendGate.bindStatusBus();
     return () => sendGate.unbindStatusBus();
   },
-  // ① URL 变化 → 强刷快档（见上方 scheduleLiveContextSync 的 120ms 防抖槽）。
+  // ① URL 变化 → 真换片（BV/分P 签名变化）时先经「拆除会话」事务断流
+  //（detachForRestart 同步发出 onStreamInterrupted，取消在飞取帧并复位
+  // 流式 UI），再走强刷快档（见上方 scheduleLiveContextSync 的 120ms 防抖
+  // 槽）；同片内部 replaceState 只刷新上下文，不打断在途回合。流式期间
+  // context-policy 会以 BLOCKED_STREAMING 冻结上下文切换，因此断流必须
+  // 先于本轮回合同步发生，不能等 120ms 后的 loadContextState。
   urlChange: () => {
-    const handler = () => scheduleLiveContextSync();
+    let clipSignature = computeCurrentClipSignature();
+    const handler = () => {
+      const nextSignature = computeCurrentClipSignature();
+      if (nextSignature === clipSignature) {
+        return;
+      }
+      clipSignature = nextSignature;
+      conversationStore.detachForRestart();
+      scheduleLiveContextSync();
+    };
     window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
     return () => window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
   },

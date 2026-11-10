@@ -156,4 +156,54 @@ describe("隐藏视频历史帧截取", () => {
     expect(player.load).not.toHaveBeenCalled();
     player.remove();
   });
+
+  it("等待隐藏媒体就绪时中止会立即结束并释放媒体", async () => {
+    const media = makeVideo();
+    const controller = new AbortController();
+    const pending = captureHistoricalVideoFrame(
+      { bvid: "BV1history", cid: "101", targetTime: 90 },
+      {
+        transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+        createVideo: () => media.video,
+        signal: controller.signal
+      }
+    );
+    await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+
+    controller.abort();
+    media.video.dispatchEvent(new Event("error"));
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(media.video.isConnected).toBe(false);
+    expect(media.video.getAttribute("src")).toBeNull();
+    expect(media.video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("整次取帧超时返回可读错误并清理，即使画面编码一直不回调", async () => {
+    const media = makeVideo();
+    const { canvas } = makeCanvas();
+    canvas.toBlob = vi.fn();
+    const pending = captureHistoricalVideoFrame(
+      { bvid: "BV1history", cid: "101", targetTime: 90 },
+      {
+        transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+        createVideo: () => media.video,
+        createCanvas: () => canvas,
+        timeoutMs: 100
+      }
+    );
+    const observed = pending.catch((error) => error);
+    await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+    media.metadataReady();
+    media.canPlay();
+
+    const outcome = await Promise.race([
+      observed,
+      new Promise((resolve) => setTimeout(() => resolve("still-pending"), 300))
+    ]);
+
+    expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining("历史帧截取超时") }));
+    expect(media.video.isConnected).toBe(false);
+    expect(media.video.getAttribute("src")).toBeNull();
+  });
 });

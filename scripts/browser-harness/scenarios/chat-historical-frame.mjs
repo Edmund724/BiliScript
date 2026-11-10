@@ -11,6 +11,8 @@ import {
   attachPage,
   createWorkerSession,
   log,
+  screenshot,
+  sleep,
   waitFor,
   withBrowser,
   writeEvidence
@@ -24,11 +26,22 @@ const providerId = liveGemini ? "gemini-live-acceptance" : "historical-stub";
 const OUT_DIR = artifactDir(path.join("scenarios", liveGemini ? `${NAME}-gemini-live` : NAME));
 const fixture = JSON.parse(readFileSync(path.join(REPO_ROOT, "tests", "fixtures", "bilibili", "hidden-video-seek-probe.json"), "utf8"));
 const sample = fixture.samples[0];
+const longSample = fixture.samples[1];
+const longView = JSON.parse(readFileSync(path.join(REPO_ROOT, "tests", "fixtures", "bilibili", "bv1q9he6seyx-view.json"), "utf8"));
+const part2 = longView.data.pages.find((page) => page.page === 2);
+const part2Sample = { ...longSample, cid: String(part2.cid), targetTime: 120 };
 const targetSecond = Math.round(sample.targetTime);
 const url = `https://www.bilibili.com/video/${sample.bvid}/`;
 const fixtureDir = path.join(REPO_ROOT, "tests", "fixtures", "bilibili", "bilingual-walkthrough");
 const bundles = JSON.parse(readFileSync(path.join(fixtureDir, "bundles.json"), "utf8"));
 const bodies = JSON.parse(readFileSync(path.join(fixtureDir, "bodies.json"), "utf8"));
+const longBody = {
+  ...bodies[`${sample.bvid}-zh`],
+  body: [
+    ...bodies[`${sample.bvid}-zh`].body,
+    { from: longSample.duration - 5, to: longSample.duration - 1, sid: 1000, location: 0, content: "长视频末尾字幕", music: 0 }
+  ]
+};
 const prompt = liveGemini
   ? `请描述这个视频第 ${targetSecond} 秒的画面：人物正在做什么、场景中有什么、屏幕上有哪些文字？同时说明同一时刻的字幕内容。`
   : `请说明 ${sample.targetTime} 秒附近的内容，字幕不足时查看当时画面。`;
@@ -69,16 +82,48 @@ async function createLiveDist() {
 
 async function installSubtitleFixtures(worker) {
   const { cdp, sessionId } = worker.handle;
+  await cdp.evaluate("globalThis.__historicalFailPlayurl = false; globalThis.__historicalPlayurlDelayMs = 0; globalThis.__historicalPlayurlRequests = []", { sessionId });
   await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, sessionId);
   cdp.on("Fetch.requestPaused", async (params) => {
     const requestUrl = params.request?.url || "";
     const requestId = params.requestId;
     let payload = null;
-    if (/x\/player\/(?:wbi\/)?v2/.test(requestUrl) && requestUrl.includes(sample.bvid)) {
-      payload = bundles[sample.bvid];
+    if (/x\/player\/(?:wbi\/)?v2/.test(requestUrl)) {
+      const request = new URL(requestUrl);
+      const bvid = request.searchParams.get("bvid") || "";
+      payload = bundles[bvid] || bundles[sample.bvid];
+      if (!bundles[bvid] && bvid === longSample.bvid) {
+        payload = {
+          ...payload,
+          data: {
+            ...payload.data,
+            aid: longView.data.aid,
+            bvid,
+            cid: Number(request.searchParams.get("cid")) || longSample.cid,
+            subtitle: {
+              ...payload.data.subtitle,
+              subtitles: payload.data.subtitle.subtitles.map((track, index) => index === 0 ? {
+                ...track,
+                subtitle_url: "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/long-zh.json",
+                subtitle_url_v2: "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/long-zh.json"
+              } : track)
+            }
+          }
+        };
+      }
+    } else if (/x\/player\/playurl/.test(requestUrl)) {
+      await cdp.evaluate(`globalThis.__historicalPlayurlRequests.push(${JSON.stringify(requestUrl)})`, { sessionId });
+      const shouldFail = await cdp.evaluate("globalThis.__historicalFailPlayurl === true", { sessionId });
+      const delayMs = await cdp.evaluate("globalThis.__historicalPlayurlDelayMs || 0", { sessionId });
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (shouldFail) {
+        payload = { code: -500, message: "受控历史帧接口失败" };
+        await cdp.evaluate("globalThis.__historicalFailPlayurl = false", { sessionId });
+      }
     } else {
       const match = /walkthrough-fixture\/([A-Za-z0-9-]+)\.json$/.exec(requestUrl);
-      if (match && bodies[match[1]]) payload = bodies[match[1]];
+      if (match?.[1] === "long-zh") payload = longBody;
+      else if (match && bodies[match[1]]) payload = bodies[match[1]];
     }
     try {
       if (payload) {
@@ -107,7 +152,7 @@ async function attachOffscreen(browser) {
 }
 
 async function installModelChannel(cdp) {
-  await cdp.evaluate("globalThis.__historicalFrameRequests = []; globalThis.__historicalFrameToolRequests = 0");
+  await cdp.evaluate(`globalThis.__historicalFrameRequests = []; globalThis.__historicalFrameBehavior = ${JSON.stringify({ targetTime: sample.targetTime, mode: "success" })}`);
   const urlPattern = liveGemini
     ? "*generativelanguage.googleapis.com/v1beta/models/*"
     : "*/chat/completions";
@@ -121,19 +166,19 @@ async function installModelChannel(cdp) {
     }
 
     const isToolConversation = body.tools || body.messages?.some((message) => message.role === "tool");
-    const toolRequestCount = isToolConversation
-      ? await cdp.evaluate("++globalThis.__historicalFrameToolRequests")
-      : 0;
+    const hasToolResult = body.messages?.some((message) => message.role === "tool");
+    const behavior = await cdp.evaluate("globalThis.__historicalFrameBehavior");
     const content = body.messages?.[0]?.content?.includes("3 个")
       ? '["视频讲了什么？","有哪些关键结论？","如何应用这些结论？"]'
       : '{"summary":"受控回放概览","chapters":[],"keyQuotes":[]}';
-    const chunks = toolRequestCount === 1
+    const finalContent = behavior.mode === "failure" ? "未获取画面，仅依据字幕作答" : "已结合字幕与历史画面作答";
+    const chunks = isToolConversation && !hasToolResult
       ? [
-          { choices: [{ delta: { tool_calls: [{ index: 0, id: "history_e2e", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime: sample.targetTime }) } }] }, finish_reason: null }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: "history_e2e", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime: behavior.targetTime }) } }] }, finish_reason: null }] },
           { choices: [{ delta: {}, finish_reason: "tool_calls" }] }
         ]
       : [
-          { choices: [{ delta: { content: toolRequestCount === 2 ? "已结合字幕与历史画面作答" : content }, finish_reason: null }] },
+          { choices: [{ delta: { content: isToolConversation ? finalContent : content }, finish_reason: null }] },
           { choices: [{ delta: {}, finish_reason: "stop" }] }
         ];
     const stream = chunks.map((chunk) => "data: " + JSON.stringify(chunk) + "\n\n").join("") + "data: [DONE]\n\n";
@@ -240,6 +285,128 @@ function findHistoricalResponse(body) {
   return null;
 }
 
+async function setStubBehavior(offscreen, targetTime, mode = "success") {
+  await offscreen.evaluate(`globalThis.__historicalFrameBehavior = ${JSON.stringify({ targetTime, mode })}`);
+}
+
+async function openChatPage(page, pageUrl) {
+  await page.cdp.send("Page.navigate", { url: pageUrl });
+  await waitFor("页面视频与扩展按钮", () => page.cdp.evaluate("document.querySelector('video')?.readyState >= 1 && !!document.getElementById('biliscript-script-button')"), { timeoutMs: 60000, intervalMs: 300 });
+  await page.cdp.evaluate("document.getElementById('biliscript-script-button').click()");
+  await waitFor("对话标签", () => page.cdp.evaluate("!!document.getElementById('biliscript-reading-tab-chat')"), { timeoutMs: 20000, intervalMs: 200 });
+  await page.cdp.evaluate("document.getElementById('biliscript-reading-tab-chat').click()");
+  await waitFor("对话输入框与模型", () => page.cdp.evaluate(`!!document.getElementById('biliscript-reading-chat-input') && document.getElementById('biliscript-reading-chat-model-select')?.value.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
+  await sleep(1500);
+}
+
+async function askQuestion(page, text) {
+  await page.cdp.evaluate(`(() => {
+    const input = document.getElementById("biliscript-reading-chat-input");
+    input.value = ${JSON.stringify(text)};
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    globalThis.__historicalLifecycleAssistantCount = document.getElementById("biliscript-reading-chat-messages").querySelectorAll(".chat-msg-assistant").length;
+  })()`);
+  await waitFor("字幕就绪且发送键可用", () => page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn')?.disabled === false"), { timeoutMs: 60000, intervalMs: 200 });
+  await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
+}
+
+async function waitQuestionAnswer(page, expected) {
+  return waitFor("受控历史帧回答", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    const send = document.getElementById("biliscript-reading-chat-send-btn");
+    const assistants = messages.querySelectorAll(".chat-msg-assistant");
+    if (assistants.length <= globalThis.__historicalLifecycleAssistantCount || send.classList.contains("is-stop")) return false;
+    const answer = assistants[assistants.length - 1];
+    const text = answer?.innerText || answer?.textContent || "";
+    return text.includes(${JSON.stringify(expected)}) ? text : false;
+  })()`), { timeoutMs: 60000, intervalMs: 300 });
+}
+
+async function runStubQuestion(page, offscreen, targetTime, mode = "success") {
+  const requestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
+  await setStubBehavior(offscreen, targetTime, mode);
+  await askQuestion(page, `请说明 ${targetTime} 秒附近的内容，字幕不足时查看当时画面。`);
+  try {
+    const answer = await waitQuestionAnswer(page, mode === "failure" ? "未获取画面" : "已结合字幕与历史画面作答");
+    const requests = (await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + requestStart + ")"))
+      .filter((body) => body.tools || body.messages?.some((message) => message.role === "tool"));
+    return { answer, requests, followup: requests.find((body) => body.messages?.some((message) => message.role === "tool")) };
+  } catch (error) {
+    evidence.lifecycleDiagnostics = {
+      targetTime,
+      mode,
+      requests: (await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + requestStart + ")")).map(sanitizeRequest),
+      page: await page.cdp.evaluate(`(() => ({
+        text: document.getElementById("biliscript-reading-chat-messages")?.textContent || "",
+        sendDisabled: document.getElementById("biliscript-reading-chat-send-btn")?.disabled,
+        sendClass: document.getElementById("biliscript-reading-chat-send-btn")?.className,
+        videos: Array.from(document.querySelectorAll("video")).map((video) => ({ currentTime: video.currentTime, paused: video.paused, readyState: video.readyState, networkState: video.networkState, hidden: video.dataset.biliscriptHistoricalFrame !== undefined, src: video.currentSrc.slice(0, 160) }))
+      }))()`)
+    };
+    await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-failure.png")).catch(() => {});
+    throw error;
+  }
+}
+
+async function observePlayer(page, playing) {
+  if (playing) {
+    await page.cdp.evaluate("document.querySelector('video').play()");
+    await waitFor("用户播放器播放中", () => page.cdp.evaluate("document.querySelector('video')?.paused === false"), { timeoutMs: 15000, intervalMs: 200 });
+  }
+  await page.cdp.evaluate(`(() => {
+    globalThis.__historicalLifecyclePlayerCleanup?.();
+    const player = document.querySelector("video");
+    const record = { events: { seekEvents: 0, playEvents: 0, pauseEvents: 0 } };
+    const onSeek = () => record.events.seekEvents++;
+    const onPlay = () => record.events.playEvents++;
+    const onPause = () => record.events.pauseEvents++;
+    player.addEventListener("seeking", onSeek);
+    player.addEventListener("play", onPlay);
+    player.addEventListener("pause", onPause);
+    const snapshot = () => ({ currentTime: player.currentTime, paused: player.paused, muted: player.muted, volume: player.volume, playbackRate: player.playbackRate });
+    record.before = snapshot();
+    record.snapshot = snapshot;
+    record.startedAt = performance.now();
+    globalThis.__historicalLifecyclePlayer = record;
+    globalThis.__historicalLifecyclePlayerCleanup = () => {
+      player.removeEventListener("seeking", onSeek);
+      player.removeEventListener("play", onPlay);
+      player.removeEventListener("pause", onPause);
+    };
+  })()`);
+}
+
+async function readPlayerEvidence(page) {
+  return page.cdp.evaluate(`(() => {
+    const record = globalThis.__historicalLifecyclePlayer;
+    const player = document.querySelector("video");
+    const rect = player.getBoundingClientRect();
+    const result = {
+      before: record.before,
+      after: record.snapshot(),
+      elapsedSeconds: (performance.now() - record.startedAt) / 1000,
+      events: record.events,
+      visible: rect.width > 0 && rect.height > 0 && getComputedStyle(player).visibility !== "hidden",
+      hiddenRemaining: document.querySelectorAll("video[data-biliscript-historical-frame]").length
+    };
+    globalThis.__historicalLifecyclePlayerCleanup?.();
+    globalThis.__historicalLifecyclePlayerCleanup = null;
+    return result;
+  })()`);
+}
+
+function playerUnaffected(player, playing) {
+  if (!player?.visible || player.hiddenRemaining !== 0 || player.events.seekEvents !== 0 || player.events.playEvents !== 0 || player.events.pauseEvents !== 0) return false;
+  if (player.before.muted !== player.after.muted || player.before.volume !== player.after.volume || player.before.playbackRate !== player.after.playbackRate) return false;
+  if (!playing) return JSON.stringify(player.before) === JSON.stringify(player.after);
+  const advance = player.after.currentTime - player.before.currentTime;
+  return player.before.paused === false && player.after.paused === false && advance >= -0.1 && advance <= player.elapsedSeconds * player.before.playbackRate + 1.5;
+}
+
+if (!part2 || !longSample) {
+  throw new Error("真机 fixture 必须包含长视频与第二分P");
+}
+
 if (liveGemini && !geminiApiKey) {
   await finishWithoutKey();
 } else {
@@ -315,6 +482,7 @@ if (liveGemini && !geminiApiKey) {
       await page.cdp.evaluate("document.getElementById('biliscript-reading-tab-chat').click()");
       await waitFor("对话输入框", () => page.cdp.evaluate("!!document.getElementById('biliscript-reading-chat-input')"), { timeoutMs: 20000, intervalMs: 200 });
       await waitFor("对话模型选项", () => page.cdp.evaluate(`document.getElementById('biliscript-reading-chat-model-select')?.value.includes(${JSON.stringify(providerId)})`), { timeoutMs: 20000, intervalMs: 200 });
+      await sleep(1500);
       await page.cdp.evaluate(`(() => {
         const input = document.getElementById("biliscript-reading-chat-input");
         input.value = ${JSON.stringify(prompt)};
@@ -400,6 +568,76 @@ if (liveGemini && !geminiApiKey) {
       }
       check("用户播放器未被移动或改变播放声音状态", JSON.stringify(evidence.player.before) === JSON.stringify(evidence.player.after) && evidence.player.events.seekEvents === 0 && evidence.player.events.playEvents === 0, evidence.player);
       check("隐藏视频已清理", evidence.player.hiddenRemaining === 0, evidence.player.hiddenRemaining);
+
+      if (!liveGemini) {
+        const longUrl = `https://www.bilibili.com/video/${longSample.bvid}/?p=1`;
+        await openChatPage(page, longUrl);
+        await observePlayer(page, true);
+        const longResult = await runStubQuestion(page, offscreen, longSample.targetTime);
+        const longPlayer = await readPlayerEvidence(page);
+        await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-long-playing.png"));
+        check("长视频播放中提问注入三张历史帧", extractImages(longResult.followup).length === 3, longResult.requests.map(sanitizeRequest));
+        check("长视频取帧不影响播放进度、声音与可见画面", playerUnaffected(longPlayer, true), longPlayer);
+        await page.cdp.evaluate("document.querySelector('video').pause()");
+
+        await observePlayer(page, false);
+        const stopRequestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
+        await setStubBehavior(offscreen, 2300);
+        await askQuestion(page, "请说明 2300 秒附近的画面。");
+        await waitFor("停止前隐藏视频在飞", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 1"), { timeoutMs: 30000, intervalMs: 50 });
+        await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
+        await waitFor("停止后回合与隐藏媒体收尾", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0 && !document.getElementById('biliscript-reading-chat-send-btn').classList.contains('is-stop')"), { timeoutMs: 15000, intervalMs: 100 });
+        const stopPlayer = await readPlayerEvidence(page);
+        const stoppedRequests = await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + stopRequestStart + ")");
+        check("停止回答中止取帧且不向模型补入迟到画面", playerUnaffected(stopPlayer, false) && !stoppedRequests.some((body) => body.messages?.some((message) => message.role === "tool")), { player: stopPlayer, requests: stoppedRequests.map(sanitizeRequest) });
+
+        const switchRequestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
+        await setStubBehavior(offscreen, 2300);
+        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 2000");
+        await askQuestion(page, "请说明 2300 秒附近的画面。");
+        await waitFor("换P前隐藏视频在飞", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 1"), { timeoutMs: 30000, intervalMs: 50 });
+        const part2Url = `https://www.bilibili.com/video/${longSample.bvid}/?p=2`;
+        await page.cdp.evaluate(`history.pushState({}, '', ${JSON.stringify(part2Url)})`);
+        await waitFor("SPA 换P清理旧媒体", () => page.cdp.evaluate(`location.href.includes("p=2") && document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0`), { timeoutMs: 15000, intervalMs: 100 });
+        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 0");
+        await page.cdp.evaluate("document.querySelector('video')?.pause()");
+        await sleep(4000);
+        await observePlayer(page, false);
+        const part2Result = await runStubQuestion(page, offscreen, part2Sample.targetTime);
+        const part2Player = await readPlayerEvidence(page);
+        const playurls = await worker.evaluate("globalThis.__historicalPlayurlRequests || []");
+        const switchedRequests = (await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + switchRequestStart + ")"))
+          .filter((body) => body.tools || body.messages?.some((message) => message.role === "tool"));
+        const part2ToolText = part2Result.followup?.messages?.find((message) => message.role === "tool")?.content || "";
+        await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-part2.png"));
+        check("SPA 换分P后新取帧使用新 cid", new URL(playurls.at(-1)).searchParams.get("cid") === part2Sample.cid, playurls.slice(-3));
+        check("旧回合结果不进入换P后的上下文", part2ToolText.includes("目标时间点 2:00") && !switchedRequests.some((body) => body.messages?.some((message) => typeof message.content === "string" && message.content.includes("目标时间点 38:20"))), switchedRequests.map(sanitizeRequest));
+        check("分P新回合正常取三帧且播放器不受影响", extractImages(part2Result.followup).length === 3 && playerUnaffected(part2Player, false), { player: part2Player, requests: part2Result.requests.map(sanitizeRequest) });
+
+        await observePlayer(page, false);
+        await worker.evaluate("globalThis.__historicalFailPlayurl = true");
+        const failureResult = await runStubQuestion(page, offscreen, 120, "failure");
+        const failurePlayer = await readPlayerEvidence(page);
+        const failureToolText = failureResult.followup?.messages?.find((message) => message.role === "tool")?.content || "";
+        check("取帧失败以可读工具结果降级且不伪造画面", failureToolText.includes("受控历史帧接口失败") && extractImages(failureResult.followup).length === 0 && failureResult.answer.includes("未获取画面") && !failureResult.answer.includes("已结合"), { answer: failureResult.answer, requests: failureResult.requests.map(sanitizeRequest) });
+        check("取帧失败仍清理媒体且不影响播放器", playerUnaffected(failurePlayer, false), failurePlayer);
+
+        await observePlayer(page, false);
+        const consecutiveFirst = await runStubQuestion(page, offscreen, 120);
+        const consecutiveSecond = await runStubQuestion(page, offscreen, 130);
+        const consecutivePlayer = await readPlayerEvidence(page);
+        check("连续提问各自注入三帧且无残留媒体", extractImages(consecutiveFirst.followup).length === 3 && extractImages(consecutiveSecond.followup).length === 3 && playerUnaffected(consecutivePlayer, false), { player: consecutivePlayer, first: consecutiveFirst.requests.map(sanitizeRequest), second: consecutiveSecond.requests.map(sanitizeRequest) });
+
+        await observePlayer(page, false);
+        await setStubBehavior(offscreen, 140);
+        await askQuestion(page, "请说明 140 秒附近的画面。");
+        await waitFor("关闭前隐藏视频在飞", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 1"), { timeoutMs: 30000, intervalMs: 50 });
+        await page.cdp.evaluate("document.getElementById('biliscript-reading-close-btn').click()");
+        await waitFor("关闭会话清理媒体", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0 && !document.getElementById('biliscript-reading-view').classList.contains('open')"), { timeoutMs: 15000, intervalMs: 100 });
+        const closePlayer = await readPlayerEvidence(page);
+        check("关闭会话中止取帧且不影响用户播放器", playerUnaffected(closePlayer, false), closePlayer);
+        await page.cdp.evaluate("document.querySelectorAll('video,audio').forEach((media) => media.pause())");
+      }
     });
   } catch (error) {
     check("场景无致命错误", false, { message: error.message, stack: String(error.stack || "").slice(0, 1200) });

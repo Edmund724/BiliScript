@@ -92,6 +92,10 @@ export interface ChatVideoFrameRequestEvent {
   requestId: string;
   targetTime?: number;
 }
+export interface ChatVideoFrameCancelEvent {
+  type: "video-frame-cancel";
+  requestId: string;
+}
 
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，
 // tool 内容已截断（完整结果只活在当轮请求里）。宿主 dispatch 缓存，
@@ -113,6 +117,7 @@ export type ChatPortMessage =
   | (ChatToolTurnEvent & ChatReceipt)
   | (ChatToolStatusEvent & ChatReceipt)
   | (ChatVideoFrameRequestEvent & ChatReceipt)
+  | (ChatVideoFrameCancelEvent & ChatReceipt)
   | (StreamDoneEvent & ChatReceipt)
   | (StreamStoppedEvent & ChatReceipt)
   | (PortErrorEvent & ChatReceipt)
