@@ -115,6 +115,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   const createOverlayFn = options.createOverlay ?? createFullscreenLiveOverlay;
   let overlay: FullscreenLiveOverlay | null = null;
   let lastLiveState: LiveChatState = "idle";
+  let retryInProgress = false;
 
   function isControllerLive(): boolean {
     const liveState = options.getLiveController()?.getState();
@@ -146,11 +147,16 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
           void options.getLiveController()?.stop();
         },
         onRetryLive: () => {
+          const controller = options.getLiveController();
+          if (!controller) return;
+          retryInProgress = true;
           void (async () => {
-            const controller = options.getLiveController();
-            if (!controller) return;
-            await controller.stop();
-            await controller.start();
+            try {
+              await controller.stop();
+              await controller.start();
+            } finally {
+              retryInProgress = false;
+            }
           })();
         }
       });
@@ -185,7 +191,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       if (shouldAutoShowOverlay()) {
         options.onBeforeAutoShow?.();
         const targetOverlay = ensureOverlay();
-        const forceExpand = lastLiveState === "idle" || !targetOverlay.isVisible();
+        const forceExpand = (lastLiveState === "idle" && !retryInProgress) || !targetOverlay.isVisible();
         targetOverlay.show({ forceExpand });
         targetOverlay.syncState(liveState, false, error, failureKind);
       } else {
@@ -195,7 +201,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       overlay?.syncState(liveState, false, undefined);
       const interpretState = options.getInterpretController?.()?.getState();
       const interpretActive = interpretState === "connecting" || interpretState === "connected";
-      if (!interpretActive) overlay?.hide();
+      if (!interpretActive && !retryInProgress) overlay?.hide();
     }
     lastLiveState = liveState;
   }

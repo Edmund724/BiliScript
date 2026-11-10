@@ -272,6 +272,56 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     binding.dispose();
   });
 
+  it("真实重试链在 stop idle 与 start connecting 后保留失败前迷你偏好", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    const calls: string[] = [];
+    let currentState: "idle" | "connecting" | "connected" | "failure" = "connected";
+    const controller = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      getSpeed: () => 1,
+      stop: vi.fn(async () => {
+        calls.push("stop");
+        currentState = "idle";
+        callbacks.onStateChange?.("idle");
+      }),
+      start: vi.fn(async () => {
+        calls.push("start");
+        currentState = "connecting";
+        callbacks.onStateChange?.("connecting");
+        return true;
+      })
+    };
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => controller as any
+    });
+    const callbacks = binding.bindControllerCallbacks();
+    callbacks.onStateChange?.("connected");
+    const overlay = binding.getOverlay()!;
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+    currentState = "failure";
+    callbacks.onStateChange?.("failure", "网络超时", "network");
+    expect(overlay.isMinimized()).toBe(false);
+
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")!.click();
+
+    await vi.waitFor(() => expect(calls).toEqual(["stop", "start"]));
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.getMiniCapsuleElement()?.hidden).toBe(false);
+    expect(overlay.getElement()?.hidden).toBe(true);
+
+    currentState = "connected";
+    callbacks.onStateChange?.("connected");
+    expect(overlay.isMinimized()).toBe(true);
+    binding.dispose();
+  });
+
   it("propagates a typed failure into the persistent player failure card", () => {
     const host = document.createElement("div");
     host.className = "bpx-player-container";
