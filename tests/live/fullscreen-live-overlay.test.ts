@@ -101,7 +101,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show({ forceExpand: true });
 
     const statusText = overlay.getElement()?.querySelector(".live-overlay-status-text");
-    expect(statusText?.textContent).toBe("正在陪看");
+    expect(statusText?.textContent).toBe("正在伴看");
 
     overlay.syncState("connecting");
     expect(statusText?.textContent).toBe("连接中...");
@@ -324,6 +324,168 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(overlay.isVisible()).toBe(true);
     expect(capsule?.hidden).toBe(false);
     expect(el?.hidden).toBe(true);
+  });
+
+  it("原生按钮激活只展开，焦点往返并同步 ARIA、hidden 与 inert", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show();
+
+    const root = overlay.getElement()!;
+    const capsule = overlay.getMiniCapsuleElement() as HTMLButtonElement;
+    const minButton = root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!;
+    expect(capsule.tagName).toBe("BUTTON");
+    expect(capsule.getAttribute("role")).toBeNull();
+    expect(capsule.getAttribute("tabindex")).toBeNull();
+    expect(capsule.getAttribute("aria-expanded")).toBe("false");
+    expect(capsule.getAttribute("aria-controls")).toBe(root.id);
+    expect(capsule.getAttribute("aria-label")).toContain("正在伴看");
+    expect(root.nextElementSibling).toBe(capsule);
+    expect(root.hasAttribute("inert")).toBe(true);
+    expect(capsule.hasAttribute("inert")).toBe(false);
+
+    capsule.click();
+
+    expect(onStopLive).not.toHaveBeenCalled();
+    expect(overlay.isMinimized()).toBe(false);
+    expect(document.activeElement).toBe(minButton);
+    expect(capsule.getAttribute("aria-expanded")).toBe("true");
+    expect(minButton.getAttribute("aria-expanded")).toBe("true");
+    expect(minButton.getAttribute("aria-controls")).toBe(root.id);
+    expect(minButton.getAttribute("aria-label")).toBe("最小化伴看浮窗");
+    expect(root.hidden).toBe(false);
+    expect(root.hasAttribute("inert")).toBe(false);
+    expect(capsule.hidden).toBe(true);
+    expect(capsule.hasAttribute("inert")).toBe(true);
+    root.querySelectorAll("svg").forEach((svg) => {
+      expect(svg.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    minButton.click();
+
+    expect(overlay.isMinimized()).toBe(true);
+    expect(document.activeElement).toBe(capsule);
+    expect(capsule.getAttribute("aria-expanded")).toBe("false");
+    expect(minButton.getAttribute("aria-expanded")).toBe("false");
+    expect(root.hidden).toBe(true);
+    expect(root.hasAttribute("inert")).toBe(true);
+    expect(capsule.hidden).toBe(false);
+    expect(capsule.hasAttribute("inert")).toBe(false);
+  });
+
+  it("迷你胶囊显示连接、重连与麦克风静音文本", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show();
+    const capsule = overlay.getMiniCapsuleElement()!;
+    const status = capsule.querySelector(".live-overlay-mini-status-text");
+    const mic = capsule.querySelector(".live-overlay-mini-mic-text");
+
+    expect(status?.textContent).toBe("正在伴看");
+    expect(mic?.textContent).toBe("麦克风已开启");
+    overlay.syncState("connecting");
+    expect(status?.textContent).toBe("连接中");
+    overlay.syncState("connected", true);
+    expect(status?.textContent).toBe("重连中");
+    overlay.syncState("connected");
+    expect(status?.textContent).toBe("正在伴看");
+
+    capsule.click();
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-mic-btn")!.click();
+    overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+
+    expect(mic?.textContent).toBe("麦克风已静音");
+    expect(capsule.getAttribute("aria-label")).toContain("麦克风已静音");
+    expect(onStopLive).not.toHaveBeenCalled();
+  });
+
+  it("连接或失败活跃时隐藏与切换只进入胶囊，空闲才完全隐藏", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+
+    overlay.hide();
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.getMiniCapsuleElement()?.hidden).toBe(false);
+
+    overlay.toggle();
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(true);
+
+    overlay.syncState("idle");
+    overlay.hide();
+    expect(overlay.isVisible()).toBe(false);
+    expect(overlay.getElement()?.hasAttribute("inert")).toBe(true);
+    expect(overlay.getMiniCapsuleElement()?.hasAttribute("inert")).toBe(true);
+  });
+
+  it("失败强制展开错误卡，处理后恢复迷你偏好且后台同步不抢焦点", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    const outsideButton = document.createElement("button");
+    document.body.appendChild(outsideButton);
+    overlay.show();
+    outsideButton.focus();
+
+    overlay.syncState("failure", false, "网络超时", "network");
+    const root = overlay.getElement()!;
+    const capsule = overlay.getMiniCapsuleElement()!;
+    const failureCard = root.querySelector<HTMLElement>(".live-overlay-failure-card")!;
+    expect(overlay.isMinimized()).toBe(false);
+    expect(failureCard.hidden).toBe(false);
+    expect(capsule.querySelector(".live-overlay-mini-status-text")?.textContent).toBe("需要处理");
+    expect(document.activeElement).toBe(outsideButton);
+
+    overlay.syncState("connecting");
+    expect(overlay.isMinimized()).toBe(true);
+    expect(failureCard.hidden).toBe(true);
+    expect(document.activeElement).toBe(outsideButton);
+
+    capsule.click();
+    const minButton = root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!;
+    expect(document.activeElement).toBe(minButton);
+    overlay.syncState("connected");
+    expect(document.activeElement).toBe(minButton);
+    overlay.syncState("failure", false, "再次失败", "network");
+    overlay.syncState("connecting");
+    expect(overlay.isMinimized()).toBe(false);
+    expect(document.activeElement).toBe(minButton);
+
+    minButton.click();
+    expect(document.activeElement).toBe(capsule);
+    overlay.syncState("connected");
+    expect(document.activeElement).toBe(capsule);
+  });
+
+  it("用户在失败期间主动最小化后，重复失败同步不重新展开", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show();
+    mockController.getState = () => "failure";
+    overlay.syncState("failure", false, "网络超时", "network");
+    const minButton = overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!;
+    minButton.click();
+
+    overlay.syncState("failure", false, "网络超时", "network");
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.getElement()?.querySelector<HTMLElement>(".live-overlay-failure-card")?.hidden).toBe(false);
+    expect(overlay.getMiniCapsuleElement()?.querySelector(".live-overlay-mini-status-text")?.textContent).toBe("需要处理");
   });
 
   it("关闭按钮彻底结束伴看并隐藏浮窗", () => {

@@ -60,7 +60,7 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
     expect(statusText?.textContent).toBe("连接中...");
 
     overlay.syncState("connected");
-    expect(statusText?.textContent).toBe("正在陪看");
+    expect(statusText?.textContent).toBe("正在伴看");
 
     // VAD 动效
     overlay.updateVad(true);

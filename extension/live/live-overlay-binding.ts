@@ -185,10 +185,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       if (shouldAutoShowOverlay()) {
         options.onBeforeAutoShow?.();
         const targetOverlay = ensureOverlay();
-        const forceExpand =
-          lastLiveState === "idle" ||
-          liveState === "failure" ||
-          !targetOverlay.isVisible();
+        const forceExpand = lastLiveState === "idle" || !targetOverlay.isVisible();
         targetOverlay.show({ forceExpand });
         targetOverlay.syncState(liveState, false, error, failureKind);
       } else {
