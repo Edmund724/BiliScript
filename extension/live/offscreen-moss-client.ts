@@ -32,6 +32,7 @@ import {
   type MossLiveClientAction,
   type MossLiveSessionContext
 } from "./moss-live-protocol.js";
+import { buildMossMediaConfigureVideo, resolveMossVideoConfig } from "./moss-video-config.js";
 
 export type {
   AudioBufferLike,
@@ -69,6 +70,12 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
   private latestVideoJpeg: ArrayBufferLike | null = null;
   private readonly activeDelegationIds = new Set<string>();
   private delegationVideoKey = "";
+  // 低带宽开关随 start 下发；重连后的 session_attached 继续按同一档位重发配置。
+  private lowBandwidth = false;
+
+  onStartAction(msg: Extract<MossLiveClientAction, { action: "start" }>): void {
+    this.lowBandwidth = msg.lowBandwidth === true;
+  }
 
   onConnectReset(): void {
     this.mediaStreamsInitialized = false;
@@ -129,7 +136,11 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
       case "session_attached": {
         const videoContext = callbacks.getVideoContext();
         callbacks.sendJson({ action: "media.mode", binary_protocol: "tagged-v1" });
-        callbacks.sendJson({ action: "media.configure", playback: "server" });
+        callbacks.sendJson({
+          action: "media.configure",
+          playback: "server",
+          video: buildMossMediaConfigureVideo(resolveMossVideoConfig(this.lowBandwidth))
+        });
         callbacks.markContextSent(videoContext);
         callbacks.sendJson(buildMinimalSessionUpdatePayload(videoContext));
         callbacks.sendJson(buildClientContextUpdatePayload());
@@ -166,6 +177,10 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
       case "output.configured":
         callbacks.applyOutputConfiguration(parsed);
+        break;
+
+      case "media.configured":
+        callbacks.applyMediaConfiguration(parsed);
         break;
 
       case "transcript":

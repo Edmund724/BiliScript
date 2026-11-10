@@ -12,6 +12,7 @@ import type {
   PageVideoFrameCaptureOptions,
   PageVideoFrameCaptureSession
 } from "../../extension/live/page-video-frame-capture.js";
+import type { MossVideoCaptureConfig } from "../../extension/live/moss-video-config.js";
 import type {
   LiveProviderType,
   MossLiveToolCall,
@@ -104,10 +105,16 @@ class FakeAudioCapture implements PageAudioCaptureSession {
 
 class FakeVideoCapture implements PageVideoFrameCaptureSession {
   stopped = false;
+  config: Partial<MossVideoCaptureConfig> | null = null;
   onJpegFrame: (bytes: Uint8Array<ArrayBuffer>) => void;
 
   constructor(options: PageVideoFrameCaptureOptions) {
     this.onJpegFrame = options.onJpegFrame;
+    this.config = options.config ?? null;
+  }
+
+  configure(next: Partial<MossVideoCaptureConfig>): void {
+    this.config = { ...this.config, ...next };
   }
 
   stop(): void {
@@ -485,6 +492,57 @@ describe("LiveChatController", () => {
 
     getVideoCapture()!.emitFrame(new Uint8Array([2]));
     expect(fakePort.postedMessages).toEqual([{ action: "video", jpegBase64: expect.any(String) }]);
+    await controller.stop();
+  });
+
+  it("applies low-bandwidth capture from start and reconfigures capture from media.configured, falling back once on error", async () => {
+    const sendRuntimeMessage = vi.fn(async (msg: any) => {
+      if (msg.type === "live-session-prepare") {
+        return {
+          ok: true,
+          liveLowBandwidth: true,
+          provider: {
+            id: "moss-1",
+            baseUrl: "https://api.mosi.cn",
+            model: "moss-live-1.0"
+          }
+        };
+      }
+      return { ok: true };
+    });
+    const { controller, fakePort, showNotice, getVideoCapture } = setupTest({ sendRuntimeMessage });
+
+    await controller.start();
+    expect(fakePort.postedMessages).toContainEqual(
+      expect.objectContaining({ action: "start", lowBandwidth: true })
+    );
+    fakePort.simulateMessage({ type: "connected" });
+
+    const capture = getVideoCapture()!;
+    expect(capture.config).toMatchObject({ maxLongSide: 384, jpegQuality: 0.5, intervalMs: 2000 });
+
+    fakePort.simulateMessage({
+      type: "video_configured",
+      video: { maxLongSide: 400, jpegQuality: 0.55, intervalMs: 1500 }
+    });
+    expect(capture.config).toMatchObject({ maxLongSide: 400, jpegQuality: 0.55, intervalMs: 1500 });
+
+    fakePort.simulateMessage({
+      type: "video_configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      error: "low bandwidth unsupported"
+    });
+    fakePort.simulateMessage({
+      type: "video_configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      error: "low bandwidth unsupported again"
+    });
+    expect(capture.config).toMatchObject({ maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 });
+    const fallbackNotices = showNotice.mock.calls.filter(([text]) =>
+      String(text).includes("回退默认画质")
+    );
+    expect(fallbackNotices).toHaveLength(1);
+
     await controller.stop();
   });
 

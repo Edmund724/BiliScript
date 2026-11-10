@@ -27,7 +27,8 @@ const TOGGLE_IDS = [
   "includeTimestampInBody",
   "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
-  "chatInputGlow"
+  "chatInputGlow",
+  "liveLowBandwidth"
 ] as const;
 
 function mountToggle(checked = false): { root: HTMLElement; input: HTMLInputElement; track: HTMLElement; thumb: HTMLElement; text: HTMLElement } {

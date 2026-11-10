@@ -31,6 +31,7 @@ import {
   normalizeLiveShareVideoAudio,
   normalizeSpeechVoiceVolume,
   normalizeLiveGeminiNativeSearch,
+  normalizeLiveLowBandwidth,
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
@@ -84,6 +85,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   liveVoicePriority: normalizeLiveVoicePriority,
   liveShareVideoAudio: normalizeLiveShareVideoAudio,
   liveGeminiNativeSearch: normalizeLiveGeminiNativeSearch,
+  liveLowBandwidth: normalizeLiveLowBandwidth,
   asrAutoFallback: booleanField(true),
   asrLanguage: normalizeAsrLanguage,
   // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，

@@ -207,7 +207,8 @@ describe("OffscreenMossLiveClient", () => {
     });
     expect(JSON.parse(ws.sentData[2])).toEqual({
       action: "media.configure",
-      playback: "server"
+      playback: "server",
+      video: { max_long_side: 512, jpeg_quality: 0.75, interval_ms: 1000 }
     });
     expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload());
     expect(JSON.parse(ws.sentData[4])).toEqual({
@@ -310,6 +311,77 @@ describe("OffscreenMossLiveClient", () => {
       expect(onError).not.toHaveBeenCalled();
       expect(transcripts).toEqual([{ kind: "input.updated", text: "会话继续" }]);
       warn.mockRestore();
+    });
+  });
+
+  it("sends low-bandwidth video parameters with start and resends them after reconnect", () => {
+    const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "low-bandwidth" }
+    }));
+
+    const readConfigure = (socket: FakeWebSocket) =>
+      socket.sentData
+        .filter((data) => typeof data === "string")
+        .map((data) => JSON.parse(data))
+        .find((data) => data.action === "media.configure");
+
+    expect(readConfigure(ws)).toEqual({
+      action: "media.configure",
+      playback: "server",
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 }
+    });
+
+    // 断线重连后仍按低带宽档重发
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "low-bandwidth" }
+    }));
+    expect(readConfigure(ws)).toEqual({
+      action: "media.configure",
+      playback: "server",
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 }
+    });
+  });
+
+  it("forwards media.configured video to the page and falls back to standard on error", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: {
+        video: { max_long_side: 400, jpeg_quality: 0.55, interval_ms: 1500 },
+        error: ""
+      }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 400, jpegQuality: 0.55, intervalMs: 1500 }
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: {
+        video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
+        error: "low bandwidth unsupported"
+      }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      error: "low bandwidth unsupported"
     });
   });
 

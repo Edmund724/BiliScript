@@ -64,7 +64,7 @@ describe("LiveChatController AI volume", () => {
         isMicVadActive: () => false,
         isVoiceRecentlyActive: () => true
       }),
-      startVideoCapture: () => ({ stop: () => {} })
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} })
     });
     await controller.start();
     port.emit({ type: "connected" });
@@ -165,7 +165,7 @@ describe("LiveChatController voice priority and ducking", () => {
           isVoiceRecentlyActive: () => true
         };
       },
-      startVideoCapture: () => ({ stop: () => {} }),
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} }),
       videoBackendTaskManager: options.videoBackendTaskManager
     });
 
@@ -386,7 +386,7 @@ describe("LiveChatController voice priority and ducking", () => {
           isVoiceRecentlyActive: () => true
         };
       },
-      startVideoCapture: () => ({ stop: () => {} })
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} })
     });
 
     expect(controller.isSharingVideoAudio()).toBe(true);

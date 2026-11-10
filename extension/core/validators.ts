@@ -145,6 +145,7 @@ export const normalizeSpeechVoiceVolume = clampedIntField(
 export const normalizeLiveVoicePriority = booleanField(true);
 export const normalizeLiveShareVideoAudio = booleanField(false);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
+export const normalizeLiveLowBandwidth = booleanField(false);
 export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与

@@ -265,6 +265,44 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses media.configured video parameters and falls back to standard for missing fields", () => {
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: {
+          video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
+          error: ""
+        }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: { maxLongSide: 384, jpegQuality: 0.5, intervalMs: 2000 },
+      error: ""
+    });
+
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: { video: { interval_ms: 1500 }, error: "" }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1500 },
+      error: ""
+    });
+
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: { error: "unsupported" }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      error: "unsupported"
+    });
+  });
+
   it("parses response.interrupted with turn identity", () => {
     expect(
       parseMossServerJsonEvent({

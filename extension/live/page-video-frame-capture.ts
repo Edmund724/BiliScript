@@ -1,8 +1,13 @@
-// 页面当前视频元素的 1fps JPEG 抽帧；单帧在飞，换来源或停止后丢弃迟到编码结果。
+// 页面当前视频元素的 JPEG 抽帧；单帧在飞，换来源或停止后丢弃迟到编码结果。
+// 实时伴看的长边、质量与间隔取自服务端 media.configured.video 回执（会话可重配）。
 
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import {
+  MOSS_STANDARD_VIDEO_CONFIG,
+  type MossVideoCaptureConfig
+} from "./moss-video-config.js";
 
-export const MOSS_VIDEO_FRAME_INTERVAL_MS = 1000;
+// 一次性画面截取（AI 视觉工具）使用的固定画质，与会话抽帧参数无关。
 export const MOSS_VIDEO_FRAME_MAX_EDGE = 960;
 export const MOSS_VIDEO_JPEG_QUALITY = 0.72;
 
@@ -10,10 +15,14 @@ export interface PageVideoFrameCaptureOptions {
   onJpegFrame: (jpegBytes: Uint8Array<ArrayBuffer>) => void;
   getVideo?: () => HTMLVideoElement | null;
   createCanvas?: () => HTMLCanvasElement | null;
+  /** 初始抽帧参数；缺省为服务端 standard 默认值。 */
+  config?: Partial<MossVideoCaptureConfig>;
 }
 
 export interface PageVideoFrameCaptureSession {
   stop(): void;
+  /** 按服务端回执重配抽帧参数（长边、质量即时生效；间隔变更重新排期）。 */
+  configure(config: Partial<MossVideoCaptureConfig>): void;
 }
 
 export interface PageVideoFrameSnapshot {
@@ -80,6 +89,8 @@ export function createPageVideoFrameCapture(
   let lastFrameKey = "";
   let lastJpegBytes: Uint8Array<ArrayBuffer> | null = null;
   let canvas: HTMLCanvasElement | null = null;
+  let config: MossVideoCaptureConfig = { ...MOSS_STANDARD_VIDEO_CONFIG, ...options.config };
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   function selectVideo(): HTMLVideoElement | null {
     const video = getVideo();
@@ -142,7 +153,7 @@ export function createPageVideoFrameCapture(
     if (!canvas) canvas = createCanvas();
     if (!canvas) return;
 
-    const { width, height } = getVideoFrameSize(video.videoWidth, video.videoHeight);
+    const { width, height } = getVideoFrameSize(video.videoWidth, video.videoHeight, config.maxLongSide);
     const context = canvas.getContext("2d");
     if (!context) return;
 
@@ -154,21 +165,51 @@ export function createPageVideoFrameCapture(
       context.drawImage(video, 0, 0, width, height);
       canvas.toBlob((blob) => {
         void finishEncoding(blob, video, source, generation, frameKey);
-      }, "image/jpeg", MOSS_VIDEO_JPEG_QUALITY);
+      }, "image/jpeg", config.jpegQuality);
     } catch {
       encoding = false;
     }
   }
 
-  const timer = setInterval(captureFrame, MOSS_VIDEO_FRAME_INTERVAL_MS);
+  function scheduleNext(): void {
+    if (stopped) return;
+    timer = setTimeout(() => {
+      timer = null;
+      captureFrame();
+      scheduleNext();
+    }, config.intervalMs);
+  }
+
   captureFrame();
+  scheduleNext();
 
   return {
+    configure(next: Partial<MossVideoCaptureConfig>): void {
+      if (stopped) return;
+      const previous = config;
+      config = { ...config, ...next };
+      if (
+        config.maxLongSide !== previous.maxLongSide ||
+        config.jpegQuality !== previous.jpegQuality
+      ) {
+        // 画质变化后旧缓存帧尺寸/质量已过期，下一帧强制重编码。
+        lastFrameKey = "";
+        lastJpegBytes = null;
+      }
+      if (config.intervalMs !== previous.intervalMs && timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+        scheduleNext();
+      }
+    },
     stop(): void {
       if (stopped) return;
       stopped = true;
       sourceGeneration += 1;
-      clearInterval(timer);
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
       activeVideo = null;
       activeSource = "";
       lastFrameKey = "";

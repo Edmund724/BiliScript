@@ -28,6 +28,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
   addLiveProviderBtn: "addLiveProviderBtn",
+  liveLowBandwidth: "liveLowBandwidth",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -100,6 +101,15 @@ export function buildSettingsHtml(): string {
       </div>
       <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">低带宽画面采集</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveLowBandwidth}" type="checkbox" class="biliscript-toggle-input" aria-label="低带宽画面采集" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
 
     </section>
 

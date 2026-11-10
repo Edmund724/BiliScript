@@ -157,7 +157,8 @@ describe("04: 跨标签页伴看自动接管", () => {
         isVoiceRecentlyActive: () => true
       }),
       startVideoCapture: () => ({
-        stop: () => { videoStopped = true; }
+        stop: () => { videoStopped = true; },
+        configure: () => {}
       }),
       onStateChange: (state) => {
         liveState = state;
@@ -245,7 +246,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
         isMicVadActive: () => false,
         isVoiceRecentlyActive: () => true
       }),
-      startVideoCapture: () => ({ stop: () => {} }),
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} }),
       getVideoContext: () => latestContext,
       subscribeVideoContextChanges: (listener) => {
         (window as any).__notifyContextChange = listener;

@@ -10,6 +10,7 @@
 // 后续字节为原始 payload。
 
 import { formatClock } from "../shared/clock-text.js";
+import { normalizeMossVideoConfig, type MossVideoCaptureConfig } from "./moss-video-config.js";
 
 export const enum MossBinaryTag {
   AudioPcm = 0x00,
@@ -530,6 +531,7 @@ export type MossParsedServerEvent =
   | { kind: "session.updated"; error: string }
   | { kind: "client_context.updated"; accepted: boolean }
   | { kind: "output.configured"; volumeDb?: number; speed?: number }
+  | { kind: "media.configured"; video: MossVideoCaptureConfig; error: string }
   | { kind: "transcript"; event: MossLiveTranscriptEvent }
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
@@ -591,6 +593,15 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
         kind: "output.configured",
         ...(typeof volumeDb === "number" && Number.isFinite(volumeDb) ? { volumeDb } : {}),
         ...(typeof speed === "number" && Number.isFinite(speed) ? { speed } : {})
+      };
+    }
+    case "media.configured": {
+      // 画面参数回执：video 可能只回部分字段，缺省字段按 standard 默认补齐。
+      const error = readStr(data, obj, "error");
+      return {
+        kind: "media.configured",
+        video: normalizeMossVideoConfig(data?.video ?? obj.video),
+        error
       };
     }
     case "input.transcript.updated": {
@@ -711,6 +722,7 @@ export type MossLiveClientAction =
       providerType?: LiveProviderType;
       model?: string;
       liveGeminiNativeSearch?: boolean;
+      lowBandwidth?: boolean;
       volume?: number;
       speed?: number;
       videoContext?: MossLiveSessionContext | null;
@@ -750,6 +762,7 @@ export type MossLiveServerEvent =
   | LiveReconnectingEvent
   | { type: "speaking_state"; speaking: boolean }
   | { type: "output_configured"; volume: number; speed: number }
+  | { type: "video_configured"; video: MossVideoCaptureConfig; error?: string }
   | { type: "error"; error: string; code?: number | string; reason?: string }
   | { type: "closed"; code?: number; reason?: string; error?: string }
   | { type: "duck_video"; active: boolean }

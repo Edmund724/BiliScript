@@ -39,6 +39,7 @@ import {
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
+import { resolveMossVideoConfig, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
@@ -258,6 +259,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let reconnecting = false;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
+  // 本次会话的画面采集参数：先按开关取请求档位，收到 media.configured 后以回执为准。
+  let videoCaptureConfig: MossVideoCaptureConfig = resolveMossVideoConfig(false);
+  let videoConfigErrorNotified = false;
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
   let activeTargetProviderType: LiveProviderType = "moss-live";
@@ -371,6 +375,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       activeVideoCapture = startVideoCapture({
         getVideo: resolveVideoElement,
+        config: videoCaptureConfig,
         onJpegFrame: (jpegBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) return;
           try {
@@ -614,6 +619,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         : prepResp.provider?.type === "moss-live"
           ? "moss-live"
           : targetProviderType;
+    // 低带宽开关在会话建立时生效：请求档位先用于抽帧，服务端回执到达后再覆盖。
+    videoCaptureConfig = resolveMossVideoConfig(prepResp.liveLowBandwidth === true);
+    videoConfigErrorNotified = false;
     activeTargetProviderType = resolvedProviderType;
     if (prepResp.provider?.baseUrl) {
       activeTargetOrigin = prepResp.provider.baseUrl;
@@ -713,6 +721,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         speed = normalizeLiveVoiceSpeed(msg.speed);
         onVolumeChange?.(Math.round(volume * 100));
         onSpeedChange?.(speed);
+      } else if (msg.type === "video_configured") {
+        videoCaptureConfig = msg.video;
+        activeVideoCapture?.configure(msg.video);
+        if (msg.error && !videoConfigErrorNotified) {
+          videoConfigErrorNotified = true;
+          showNotice(`伴看画面参数未生效，已回退默认画质：${msg.error}`, 6000);
+        }
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
           const nextSpeaking = Boolean(msg.speaking);
@@ -840,6 +855,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         ...(speed !== 1 ? { speed } : {}),
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
+          : {}),
+        ...(typeof prepResp.liveLowBandwidth === "boolean"
+          ? { lowBandwidth: prepResp.liveLowBandwidth }
           : {}),
         ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
