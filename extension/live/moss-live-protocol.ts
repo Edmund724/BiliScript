@@ -278,6 +278,7 @@ export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
     type: "function",
     name: "get_subtitles_around_time",
     description: "查询当前视频指定播放位置前后的局部字幕。未传 current_time 时使用当前播放位置；全片检索或总结必须改用后台委派。",
+    read_only: true,
     parameters: {
       type: "object",
       properties: {
@@ -614,7 +615,13 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
     case "session.delegation.created": {
       const delegation = asRecord(data?.delegation);
       const context = Array.isArray(data?.context)
-        ? data.context.filter((item): item is string => typeof item === "string")
+        ? data.context.flatMap((item): string[] => {
+            if (typeof item === "string") return [item];
+            const line = asRecord(item);
+            return typeof line?.content === "string" && line.content
+              ? [typeof line.role === "string" && line.role ? `${line.role}：${line.content}` : line.content]
+              : [];
+          })
         : [];
       return {
         kind: "delegation.created",

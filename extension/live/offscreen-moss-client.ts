@@ -268,9 +268,11 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
   ): boolean {
     if (!this.activeDelegationIds.has(delegationId)) return false;
     return transport.sendJson({
-      type: "session.thinking.append",
+      action: "session.thinking.append",
+      event_id: crypto.randomUUID(),
       delegation_id: delegationId,
-      content
+      content,
+      status: "in_progress"
     });
   }
 
@@ -283,7 +285,8 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
     if (!this.activeDelegationIds.has(delegationId)) return false;
     this.activeDelegationIds.delete(delegationId);
     return transport.sendJson({
-      type: "session.commentary.append",
+      action: "session.commentary.append",
+      event_id: crypto.randomUUID(),
       delegation_id: delegationId,
       status,
       content

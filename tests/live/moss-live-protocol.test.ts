@@ -400,6 +400,25 @@ describe("parseMossServerJsonEvent", () => {
     })).toEqual({ kind: "delegation.cancelled", delegationId: "del_001" });
   });
 
+  it("parses delegation context given as role/content lines", () => {
+    expect(parseMossServerJsonEvent({
+      action: "session.delegation.created",
+      data: {
+        delegation: { id: "del_002", target: "client" },
+        objective: "总结视频核心内容",
+        context: [{ role: "user", content: "先讲全片脉络" }, { role: "", content: "无角色" }, { role: "user", content: "" }],
+        purpose: "task"
+      }
+    })).toEqual({
+      kind: "delegation.created",
+      delegation: {
+        delegationId: "del_002",
+        objective: "总结视频核心内容",
+        context: ["user：先讲全片脉络", "无角色"]
+      }
+    });
+  });
+
   it("returns null for malformed or unrecognized events", () => {
     expect(parseMossServerJsonEvent(null)).toBeNull();
     expect(parseMossServerJsonEvent("not-an-object")).toBeNull();
@@ -620,6 +639,9 @@ describe("subtitle-aware session and tool calls", () => {
       "get_subtitles_around_time"
     ]);
     expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => tool.type === "function")).toBe(true);
+    expect(
+      MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.filter((tool) => "read_only" in tool).map((tool) => tool.name)
+    ).toEqual(["get_subtitles_around_time"]);
   });
 
   describe("formatLiveCloseDiagnostics", () => {

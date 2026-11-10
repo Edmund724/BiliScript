@@ -1550,9 +1550,16 @@ describe("OffscreenMossLiveClient native client delegation", () => {
     });
 
     expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
-      { type: "session.thinking.append", delegation_id: "del_001", content: "章节事实" },
       {
-        type: "session.commentary.append",
+        action: "session.thinking.append",
+        event_id: expect.any(String),
+        delegation_id: "del_001",
+        content: "章节事实",
+        status: "in_progress"
+      },
+      {
+        action: "session.commentary.append",
+        event_id: expect.any(String),
         delegation_id: "del_001",
         status: "completed",
         content: "口语总结"
@@ -1598,7 +1605,8 @@ describe("OffscreenMossLiveClient native client delegation", () => {
       content: "字幕不可用"
     });
     expect(JSON.parse(ws.sentData[0])).toEqual({
-      type: "session.commentary.append",
+      action: "session.commentary.append",
+      event_id: expect.any(String),
       delegation_id: "del_failed",
       status: "failed",
       content: "字幕不可用"
@@ -1612,7 +1620,7 @@ describe("OffscreenMossLiveClient native client delegation", () => {
       status: "completed",
       content: "旧视频结果"
     });
-    expect(ws.sentData.filter((data) => JSON.parse(data).type === "session.commentary.append")).toHaveLength(1);
+    expect(ws.sentData.filter((data) => JSON.parse(data).action === "session.commentary.append")).toHaveLength(1);
 
     createDelegation(ws, "del_close");
     client.close();
