@@ -575,4 +575,54 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.clearMessages();
     expect(messages.children.length).toBe(0);
   });
+
+  it("仅在无 CC 字幕时提供实时翻译按钮，无 Key 时禁用并说明原因", () => {
+    let shouldShowInterpret = false;
+    let availability = { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
+    let interpretState = "idle";
+    const toggle = vi.fn(async () => {});
+    const interpretController = {
+      getState: () => interpretState,
+      getAvailability: () => availability,
+      toggle
+    };
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      getInterpretController: () => interpretController as any,
+      shouldShowInterpret: () => shouldShowInterpret
+    });
+    overlay.show({ forceExpand: true });
+
+    const button = overlay.getElement()?.querySelector(".live-overlay-interpret-btn") as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    expect(button.hidden).toBe(true);
+
+    shouldShowInterpret = true;
+    overlay.syncState();
+    expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe("实时翻译");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.title).toBe(availability.error);
+    button.click();
+    expect(toggle).not.toHaveBeenCalled();
+
+    availability = { ok: true } as any;
+    overlay.syncState();
+    expect(button.getAttribute("aria-disabled")).toBe("false");
+    button.click();
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    interpretState = "connected";
+    overlay.syncState();
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.classList.contains("is-active")).toBe(true);
+
+    overlay.showInterpretNotice("同声传译连接被服务端关闭（关闭码: 1013）", 6000);
+    const notice = overlay.getElement()?.querySelector(".live-overlay-interpret-notice") as HTMLElement;
+    expect(notice.hidden).toBe(false);
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.textContent).toContain("1013");
+    overlay.dispose();
+  });
 });

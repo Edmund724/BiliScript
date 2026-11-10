@@ -17,6 +17,7 @@ export interface InterpretSubtitleOverlayDeps {
 export interface InterpretSubtitleOverlay {
   handleTranscript(event: MossInterpretTranscriptEvent): void;
   clear(): void;
+  clearForSeek(): void;
   getElement(): HTMLElement | null;
   dispose(): void;
 }
@@ -95,15 +96,24 @@ export function createInterpretSubtitleOverlay(
     root.hidden = !showOriginal && !showTranslation;
   }
 
-  function clear(): void {
-    cancelFade();
-    if (sourceTurn) retiredTurns.add(sourceTurn);
+  function clearCurrent(): void {
     sourceTurn = "";
     sourceText = "";
     outputs.clear();
     if (originalEl) originalEl.textContent = "";
     if (translationEl) translationEl.textContent = "";
     if (rootEl) rootEl.hidden = true;
+  }
+
+  function clear(): void {
+    cancelFade();
+    if (sourceTurn) retiredTurns.add(sourceTurn);
+    clearCurrent();
+  }
+
+  function clearForSeek(): void {
+    cancelFade();
+    clearCurrent();
   }
 
   function scheduleFade(): void {
@@ -164,5 +174,5 @@ export function createInterpretSubtitleOverlay(
     translationEl = null;
   }
 
-  return { handleTranscript, clear, getElement: () => rootEl, dispose };
+  return { handleTranscript, clear, clearForSeek, getElement: () => rootEl, dispose };
 }

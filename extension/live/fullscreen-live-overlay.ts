@@ -6,8 +6,10 @@
 // 4. 纯语音实时流式对话气泡（通过 live-transcript-merger 共享轮次状态机驱动）
 // 5. 播放器容器内拖拽移动（通过 viewport-drag 原语驱动）
 // 6. 液体玻璃 12px 窄边缘 SVG 位移与三通道色散镜头（通过 liquid-glass-lens 驱动）
+// 7. 无 CC 字幕视频的实时翻译开关（独立 InterpretSessionController）
 
 import { createLiquidGlassLens } from "./liquid-glass-lens.js";
+import type { InterpretSessionController } from "./interpret-session-controller.js";
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
@@ -17,6 +19,8 @@ import { bindViewportDrag, type ViewportDragHandle } from "./viewport-drag.js";
 export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
+  getInterpretController?: () => InterpretSessionController | null;
+  shouldShowInterpret?: () => boolean;
   getVolume?: () => number;
   onVolumeChange?: (volume: number) => void;
   onSpeedChange?: (speed: number) => void;
@@ -32,6 +36,7 @@ export interface FullscreenLiveOverlay {
   isVisible(): boolean;
   isMinimized(): boolean;
   syncState(state?: LiveChatState, reconnecting?: boolean, error?: string): void;
+  showInterpretNotice(message: string, autoHideMs?: number): void;
   updateVad(active: boolean): void;
   updateTranscript(event: MossLiveTranscriptEvent): void;
   clearMessages(): void;
@@ -60,6 +65,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let failureReasonEl: HTMLElement | null = null;
   let cancelBtnEl: HTMLButtonElement | null = null;
   let retryBtnEl: HTMLButtonElement | null = null;
+  let interpretBtnEl: HTMLButtonElement | null = null;
+  let interpretNoticeEl: HTMLElement | null = null;
+  let interpretNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let messagesEl: HTMLElement | null = null;
   let scrollBottomBtnEl: HTMLButtonElement | null = null;
 
@@ -259,6 +267,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         </div>
       </div>
       <div class="live-overlay-body">
+        <button type="button" class="live-overlay-action-btn live-overlay-interpret-btn" aria-label="实时翻译" aria-pressed="false" aria-disabled="false" hidden>实时翻译</button>
+        <div class="live-overlay-interpret-notice" role="status" hidden></div>
         <div class="live-overlay-failure-card" hidden>
           <div class="live-overlay-failure-reason"></div>
           <div class="live-overlay-failure-actions">
@@ -323,8 +333,46 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     failureReasonEl = overlay.querySelector(".live-overlay-failure-reason");
     cancelBtnEl = overlay.querySelector(".live-overlay-cancel-btn");
     retryBtnEl = overlay.querySelector(".live-overlay-retry-btn");
+    interpretBtnEl = overlay.querySelector(".live-overlay-interpret-btn");
+    interpretNoticeEl = overlay.querySelector(".live-overlay-interpret-notice");
     messagesEl = overlay.querySelector(".live-overlay-messages");
     scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
+  }
+
+  function syncInterpretButton(): void {
+    if (!interpretBtnEl) return;
+    const shouldShow = deps.shouldShowInterpret?.() === true;
+    const controller = shouldShow ? deps.getInterpretController?.() : null;
+    interpretBtnEl.hidden = !shouldShow || !controller;
+    if (!controller) return;
+
+    const interpretState = controller.getState();
+    const availability = controller.getAvailability();
+    const active = interpretState === "connecting" || interpretState === "connected";
+    const unavailable = !availability.ok && !active;
+    if (interpretState === "connecting" && interpretNoticeEl) {
+      if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
+      interpretNoticeTimer = null;
+      interpretNoticeEl.hidden = true;
+      interpretNoticeEl.textContent = "";
+    }
+    interpretBtnEl.classList.toggle("is-active", interpretState === "connected");
+    interpretBtnEl.classList.toggle("is-connecting", interpretState === "connecting");
+    interpretBtnEl.setAttribute("aria-pressed", String(interpretState === "connected"));
+    interpretBtnEl.setAttribute("aria-busy", String(interpretState === "connecting"));
+    interpretBtnEl.setAttribute("aria-disabled", String(unavailable));
+    if (!availability.ok) {
+      interpretBtnEl.setAttribute("aria-description", availability.error);
+    } else {
+      interpretBtnEl.removeAttribute("aria-description");
+    }
+    interpretBtnEl.title = unavailable && !availability.ok
+      ? availability.error
+      : interpretState === "connecting"
+        ? "正在连接实时翻译..."
+        : interpretState === "connected"
+          ? "关闭实时翻译"
+          : "开启实时翻译";
   }
 
   function bindEvents(overlay: HTMLElement): void {
@@ -347,6 +395,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       const controller = deps.getLiveController();
       controller?.toggleMute();
       syncMicButton();
+    });
+
+    interpretBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (interpretBtnEl?.getAttribute("aria-disabled") === "true") return;
+      void deps.getInterpretController?.()?.toggle();
     });
 
     audioBtnEl?.addEventListener("click", (e) => {
@@ -414,24 +468,28 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       minimize();
     });
 
-    closeBtnEl?.addEventListener("click", (e) => {
-      e.stopPropagation();
+    const stopCompanion = () => {
       if (deps.onStopLive) {
         deps.onStopLive();
       } else {
         void deps.getLiveController()?.stop();
       }
-      hide();
+      const interpretState = deps.getInterpretController?.()?.getState();
+      if (interpretState === "connecting" || interpretState === "connected") {
+        syncState("idle");
+      } else {
+        hide();
+      }
+    };
+
+    closeBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      stopCompanion();
     });
 
     cancelBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (deps.onStopLive) {
-        deps.onStopLive();
-      } else {
-        void deps.getLiveController()?.stop();
-      }
-      hide();
+      stopCompanion();
     });
 
     retryBtnEl?.addEventListener("click", (e) => {
@@ -631,6 +689,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       lastFailureError = error;
     }
     if (!rootEl) return;
+    syncInterpretButton();
     const controller = deps.getLiveController();
     const state = customState ?? controller?.getState() ?? "idle";
     const isReconnecting = reconnecting ?? Boolean(controller?.isReconnecting?.());
@@ -716,7 +775,28 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     return rootEl;
   }
 
+  function showInterpretNotice(message: string, autoHideMs = 6000): void {
+    ensureMounted();
+    if (!interpretNoticeEl) return;
+    if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
+    interpretNoticeTimer = null;
+    interpretNoticeEl.textContent = message;
+    interpretNoticeEl.hidden = false;
+    if (autoHideMs > 0) {
+      interpretNoticeTimer = setTimeout(() => {
+        interpretNoticeTimer = null;
+        if (interpretNoticeEl) {
+          interpretNoticeEl.hidden = true;
+          interpretNoticeEl.textContent = "";
+        }
+      }, autoHideMs);
+    }
+  }
+
   function dispose(): void {
+    if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
+    interpretNoticeTimer = null;
+    interpretNoticeEl = null;
     headerDragHandle?.dispose();
     headerDragHandle = null;
     capsuleDragHandle?.dispose();
@@ -742,6 +822,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     isVisible,
     isMinimized,
     syncState,
+    showInterpretNotice,
     updateVad,
     updateTranscript,
     clearMessages,

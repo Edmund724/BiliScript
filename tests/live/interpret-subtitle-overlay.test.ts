@@ -143,4 +143,20 @@ describe("同声传译字幕浮层", () => {
     expect(root.textContent).toBe("新原文新译文");
     overlay.dispose();
   });
+
+  it("seek 清空后立即接受同一 turn 的新快照", () => {
+    const overlay = createOverlay("bilingual");
+    overlay.handleTranscript({ kind: "input.updated", turn: "turn-1", text: "seek 前" });
+    overlay.handleTranscript({ kind: "output.updated", sourceTurn: "turn-1", runId: "run-1", text: "旧译文" });
+    const root = overlay.getElement()!;
+
+    overlay.clearForSeek();
+    expect(root.hidden).toBe(true);
+    overlay.handleTranscript({ kind: "input.updated", turn: "turn-1", text: "seek 后" });
+    overlay.handleTranscript({ kind: "output.updated", sourceTurn: "turn-1", runId: "run-1", text: "新译文" });
+
+    expect(root.hidden).toBe(false);
+    expect(root.textContent).toBe("seek 后新译文");
+    overlay.dispose();
+  });
 });

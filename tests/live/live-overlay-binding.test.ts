@@ -195,4 +195,29 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(stopFn).toHaveBeenCalledTimes(1);
     expect(overlay.isVisible()).toBe(false);
   });
+
+  it("伴看停止不隐藏仍在运行的同传入口", () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    let interpretState: "idle" | "connected" = "connected";
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => null,
+      getInterpretController: () => ({
+        getState: () => interpretState,
+        getAvailability: () => ({ ok: true })
+      }) as any,
+      shouldShowInterpret: () => true
+    });
+
+    binding.handleStateChange("connected");
+    binding.handleStateChange("idle");
+
+    expect(binding.getOverlay()?.isVisible()).toBe(true);
+    const interpretButton = binding.getOverlay()?.getElement()?.querySelector<HTMLElement>(".live-overlay-interpret-btn");
+    expect(interpretButton?.hidden).toBe(false);
+    interpretState = "idle";
+    binding.dispose();
+  });
 });

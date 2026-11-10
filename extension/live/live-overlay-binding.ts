@@ -1,16 +1,18 @@
 // extension/live/live-overlay-binding.ts
-// 视频页与直播间共用的实时伴看浮窗与音频偏好协调模块。
+// 视频页与直播间共用的实时伴看浮窗、同传入口与音频偏好协调模块。
 // 统一管理：
 // 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
 // 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
 // 3. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
+// 4. 视频页同传控制器与 CC 显隐判定向浮窗的透传
 
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { Settings } from "../core/defaults.js";
 import {
   createFullscreenLiveOverlay,
-  type FullscreenLiveOverlay
+  type FullscreenLiveOverlay,
+  type FullscreenLiveOverlayDeps
 } from "./fullscreen-live-overlay.js";
 import type {
   LiveChatController,
@@ -79,6 +81,8 @@ export type BoundLiveControllerCallbacks = Pick<
 export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
+  getInterpretController?: FullscreenLiveOverlayDeps["getInterpretController"];
+  shouldShowInterpret?: FullscreenLiveOverlayDeps["shouldShowInterpret"];
   shouldAutoShow?: () => boolean;
   onBeforeAutoShow?: () => void;
   onVoicePrioritySync?: (enabled: boolean) => void;
@@ -130,6 +134,8 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       overlay = createOverlayFn({
         getPlayerHost,
         getLiveController: options.getLiveController,
+        getInterpretController: options.getInterpretController,
+        shouldShowInterpret: options.shouldShowInterpret,
         getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
         onVolumeChange: handleVolumeChange,
         onSpeedChange: handleSpeedChange,
@@ -182,7 +188,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       }
     } else {
       overlay?.syncState(liveState, false, undefined);
-      overlay?.hide();
+      const interpretState = options.getInterpretController?.()?.getState();
+      const interpretActive = interpretState === "connecting" || interpretState === "connected";
+      if (!interpretActive) overlay?.hide();
     }
     lastLiveState = liveState;
   }

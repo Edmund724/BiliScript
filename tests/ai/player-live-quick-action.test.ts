@@ -314,4 +314,29 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     expect(document.querySelector(".biliscript-fullscreen-live-mini-capsule")).toBeNull();
     expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
   });
+
+  it("同传按钮跟随真实 CC 字幕状态：无 CC 或仅 ASR 时显示，有 CC 时隐藏", async () => {
+    const session = await import("../../extension/live/live-companion-session.js");
+    const { state } = await import("../../extension/core/state.js");
+    const { notifyReaderPresenter } = await import("../../extension/reader/reader-bus.js");
+    session.ensureLiveController();
+    session.getLiveOverlayBinding().handleStateChange("connected");
+
+    const button = document.querySelector(".live-overlay-interpret-btn") as HTMLButtonElement;
+    expect(button.hidden).toBe(true);
+
+    state.clip.setSubtitleFetchState("empty");
+    notifyReaderPresenter({ kind: "subtitle-ready" });
+    expect(button.hidden).toBe(false);
+
+    state.clip.setSubtitles([{ id: "cc-1", lan: "zh-CN", subtitleUrl: "https://example.com/cc.json" }]);
+    state.clip.setSubtitleFetchState("ready");
+    notifyReaderPresenter({ kind: "subtitle-ready" });
+    expect(button.hidden).toBe(true);
+
+    state.clip.setSubtitles([{ id: "asr-1", lan: "asr-zh", subtitleUrl: "" }]);
+    notifyReaderPresenter({ kind: "subtitle-ready" });
+    expect(button.hidden).toBe(false);
+    window.dispatchEvent(new Event("pagehide"));
+  });
 });
