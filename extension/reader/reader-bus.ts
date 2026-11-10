@@ -121,6 +121,7 @@ interface ReaderBusSlots {
   readers: ReaderPresenterHandler[];
   handlers: Partial<ReaderSeamHandlerMap>;
   warnedMissing: Set<ReaderSeamMethod>;
+  liveCompanionStop?: (() => void) | null;
 }
 
 const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
@@ -375,6 +376,24 @@ export function dispatchChatTabOutsideClick(event: MouseEvent): void {
     handler(event);
   } catch (error) {
     logWarn("[BILISCRIPT] chat tab outside-click handler failed", { error });
+  }
+}
+
+// ===== 独立伴看会话跨标签接管停止通道（content → live-companion-session） =====
+
+export function setLiveCompanionStopHandler(handler: (() => void) | null): void {
+  const slots = readerBusSlots();
+  slots.liveCompanionStop = typeof handler === "function" ? handler : null;
+}
+
+export function requestLiveCompanionStop(): void {
+  const handler = readerBusSlots().liveCompanionStop;
+  if (typeof handler === "function") {
+    try {
+      handler();
+    } catch (error) {
+      logWarn("[BILISCRIPT] live companion stop handler failed", { error });
+    }
   }
 }
 

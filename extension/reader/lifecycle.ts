@@ -178,7 +178,7 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   isReadingViewOpen: () => state.reader.readingViewOpen,
   resolveProvider: () => resolveActiveProvider(),
   loadAnalysis: () => import("../ai/analysis.js"),
-  confirm: (options) => confirmDialog(options),
+  confirm: (options) => (state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true)),
   registerUiActions: (actions) => registerOverviewUiActions(actions),
   now: () => Date.now(),
   setInterval: (...args) => setInterval(...args),
@@ -194,7 +194,8 @@ registerReaderOverviewSource({
   ensureOverview: async (options) => {
     await overviewCoordinator.trigger(options);
     return overviewCoordinator.getSnapshot();
-  }
+  },
+  cancel: () => overviewCoordinator.cancel()
 });
 
 export const triggerReaderOverviewGeneration = (

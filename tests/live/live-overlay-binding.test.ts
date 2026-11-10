@@ -104,12 +104,13 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     callbacks.onStateChange?.("connected");
     expect(onStateHook).toHaveBeenCalledWith("connected");
 
-    // 首次启动：调用 controller.start 并展示浮窗
+    // 首次启动：调用 controller.start 并展开连接卡
     currentState = "idle";
     expect(await binding.startOrRestoreCompanion()).toBe(true);
     expect(startFn).toHaveBeenCalledTimes(1);
     const overlay = binding.getOverlay()!;
     expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(false);
 
     // 已在伴看中再次触发：不重复调 start，直接 restore 浮窗
     const restoreSpy = vi.spyOn(overlay, "restore");
@@ -118,5 +119,77 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(restoreSpy).toHaveBeenCalledTimes(1);
 
     binding.dispose();
+  });
+
+  it("首次连接展开连接卡；连接中、已连接和通用失败均可见，失败提供取消与重试", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+
+    let currentState: "idle" | "connecting" | "connected" | "failure" = "idle";
+    const startFn = vi.fn(async () => {
+      currentState = "connecting";
+      callbacks.onStateChange?.("connecting");
+      return true;
+    });
+    const stopFn = vi.fn(async () => {
+      currentState = "idle";
+      callbacks.onStateChange?.("idle");
+    });
+
+    const mockController: any = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      isVoiceRecentlyActive: () => true,
+      start: startFn,
+      stop: stopFn
+    };
+
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => mockController
+    });
+    const callbacks = binding.bindControllerCallbacks();
+
+    // 1. 首次进入 connecting：显示展开的连接卡
+    callbacks.onStateChange?.("connecting");
+    const overlay = binding.getOverlay()!;
+    expect(overlay).not.toBeNull();
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(false);
+    expect(overlay.getElement()?.querySelector(".live-overlay-status-text")?.textContent).toBe("连接中...");
+
+    // 2. 进入 failure：保持可见并展开，显示错误原因及取消/重试按钮
+    currentState = "failure";
+    callbacks.onStateChange?.("failure", "网络握手超时");
+    expect(overlay.isVisible()).toBe(true);
+    expect(overlay.isMinimized()).toBe(false);
+    expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
+
+    const failureCard = overlay.getElement()?.querySelector(".live-overlay-failure-card") as HTMLElement | null;
+    expect(failureCard).not.toBeNull();
+    expect(failureCard?.hidden).toBe(false);
+    expect(failureCard?.textContent).toContain("网络握手超时");
+
+    const retryBtn = failureCard?.querySelector(".live-overlay-retry-btn") as HTMLButtonElement | null;
+    const cancelBtn = failureCard?.querySelector(".live-overlay-cancel-btn") as HTMLButtonElement | null;
+    expect(retryBtn).not.toBeNull();
+    expect(cancelBtn).not.toBeNull();
+
+    // 3. 点击重试：调用 controller.start() 重新进入 connecting，失败卡隐藏
+    retryBtn!.click();
+    expect(startFn).toHaveBeenCalledTimes(1);
+    expect(overlay.isVisible()).toBe(true);
+    expect(failureCard?.hidden).toBe(true);
+
+    // 4. 再次失败后点击取消：调用 controller.stop() 回到 idle 并隐藏浮窗
+    currentState = "failure";
+    callbacks.onStateChange?.("failure", "连接被拒绝");
+    expect(failureCard?.hidden).toBe(false);
+    cancelBtn!.click();
+    expect(stopFn).toHaveBeenCalledTimes(1);
+    expect(overlay.isVisible()).toBe(false);
   });
 });

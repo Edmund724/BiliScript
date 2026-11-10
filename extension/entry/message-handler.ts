@@ -44,7 +44,7 @@ import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/stat
 //（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
 // reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
 // 本文件不静态依赖 fetcher，也不碰 reader 重域）。
-import { requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
@@ -138,6 +138,7 @@ function handleLiveSessionTakeover(
 ): boolean {
   (async () => {
     try {
+      requestLiveCompanionStop();
       if (isReaderChatTabLoaded()) {
         const chatDomain = await ensureReaderChatTab();
         chatDomain.stopLiveCompanion();

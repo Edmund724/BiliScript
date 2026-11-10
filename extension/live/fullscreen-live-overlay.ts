@@ -19,6 +19,7 @@ export interface FullscreenLiveOverlayDeps {
   getVolume?: () => number;
   onVolumeChange?: (volume: number) => void;
   onStopLive?: () => void;
+  onRetryLive?: () => void;
 }
 
 export interface FullscreenLiveOverlay {
@@ -28,7 +29,7 @@ export interface FullscreenLiveOverlay {
   restore(): void;
   isVisible(): boolean;
   isMinimized(): boolean;
-  syncState(state?: LiveChatState, reconnecting?: boolean): void;
+  syncState(state?: LiveChatState, reconnecting?: boolean, error?: string): void;
   updateVad(active: boolean): void;
   updateTranscript(event: MossLiveTranscriptEvent): void;
   clearMessages(): void;
@@ -51,6 +52,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let voicePrioritySwitchEl: HTMLButtonElement | null = null;
   let minBtnEl: HTMLButtonElement | null = null;
   let closeBtnEl: HTMLButtonElement | null = null;
+  let failureCardEl: HTMLElement | null = null;
+  let failureReasonEl: HTMLElement | null = null;
+  let cancelBtnEl: HTMLButtonElement | null = null;
+  let retryBtnEl: HTMLButtonElement | null = null;
   let messagesEl: HTMLElement | null = null;
   let scrollBottomBtnEl: HTMLButtonElement | null = null;
 
@@ -58,6 +63,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let miniCapsuleDotEl: HTMLElement | null = null;
 
   let isMin = true;
+  let lastFailureError: string | undefined;
   let savedOffset: { right: number; top: number } | null = null;
   let headerDragHandle: ViewportDragHandle | null = null;
   let capsuleDragHandle: ViewportDragHandle | null = null;
@@ -240,6 +246,13 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         </div>
       </div>
       <div class="live-overlay-body">
+        <div class="live-overlay-failure-card" hidden>
+          <div class="live-overlay-failure-reason"></div>
+          <div class="live-overlay-failure-actions">
+            <button type="button" class="live-overlay-action-btn live-overlay-cancel-btn">取消</button>
+            <button type="button" class="live-overlay-action-btn live-overlay-retry-btn">重试</button>
+          </div>
+        </div>
         <div class="live-overlay-messages"></div>
         <button type="button" class="live-overlay-scroll-bottom-btn" title="回到底部" aria-label="回到底部" hidden>
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -291,6 +304,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     voicePrioritySwitchEl = overlay.querySelector(".live-overlay-priority-switch");
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
     closeBtnEl = overlay.querySelector(".live-overlay-close-btn");
+    failureCardEl = overlay.querySelector(".live-overlay-failure-card");
+    failureReasonEl = overlay.querySelector(".live-overlay-failure-reason");
+    cancelBtnEl = overlay.querySelector(".live-overlay-cancel-btn");
+    retryBtnEl = overlay.querySelector(".live-overlay-retry-btn");
     messagesEl = overlay.querySelector(".live-overlay-messages");
     scrollBottomBtnEl = overlay.querySelector(".live-overlay-scroll-bottom-btn");
   }
@@ -378,6 +395,25 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         void deps.getLiveController()?.stop();
       }
       hide();
+    });
+
+    cancelBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (deps.onStopLive) {
+        deps.onStopLive();
+      } else {
+        void deps.getLiveController()?.stop();
+      }
+      hide();
+    });
+
+    retryBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (deps.onRetryLive) {
+        deps.onRetryLive();
+      } else {
+        void deps.getLiveController()?.start();
+      }
     });
 
     messagesEl?.addEventListener("scroll", updateScrollFollowState, { passive: true });
@@ -549,11 +585,17 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
-  function syncState(customState?: LiveChatState, reconnecting?: boolean): void {
+  function syncState(customState?: LiveChatState, reconnecting?: boolean, error?: string): void {
+    if (error !== undefined) {
+      lastFailureError = error;
+    }
     if (!rootEl) return;
     const controller = deps.getLiveController();
     const state = customState ?? controller?.getState() ?? "idle";
     const isReconnecting = reconnecting ?? Boolean(controller?.isReconnecting?.());
+    if (state !== "failure") {
+      lastFailureError = undefined;
+    }
 
     if (miniCapsuleDotEl) {
       miniCapsuleDotEl.className = "live-overlay-status-dot";
@@ -586,6 +628,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       statusDotEl.classList.add("is-failure");
     } else {
       statusTextEl.textContent = "已就绪";
+    }
+
+    if (failureCardEl) {
+      const showFailure = state === "failure" && !isReconnecting;
+      failureCardEl.hidden = !showFailure;
+      if (showFailure && failureReasonEl) {
+        failureReasonEl.textContent = lastFailureError || "伴看连接失败，请重试";
+      }
     }
 
     syncAudioControls();

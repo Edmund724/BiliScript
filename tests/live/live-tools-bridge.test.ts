@@ -673,6 +673,100 @@ describe("control_bilibili_player", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toContain("视频已切换");
     });
+
+    it("initializes text tool host on demand when chat/reader DOM does not exist and returns summary", async () => {
+      const { state } = await import("../../extension/core/state.js");
+      const { createLiveToolsBridge: createFreshBridge } = await import("../../extension/live/live-tools-bridge.js");
+      Object.assign(state.clip, makeClip());
+
+      const sendMessageMock = globalThis.chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+      sendMessageMock.mockImplementation((message: Record<string, unknown>, callback?: (resp: unknown) => void) => {
+        if (message?.type === "resolve-ai-provider") {
+          callback?.({
+            ok: true,
+            provider: {
+              id: "prov-1",
+              presetId: "custom",
+              name: "测试文本模型",
+              baseUrl: "https://api.example.com/v1",
+              model: "text-model",
+              enabled: true,
+              hasSavedKey: true
+            },
+            apiKey: "sk-test"
+          });
+          return undefined;
+        }
+        callback?.({ ok: true });
+        return undefined;
+      });
+
+      const analysisModule = await import("../../extension/ai/analysis.js");
+      const runOverviewSpy = vi.spyOn(analysisModule, "runOverviewAnalysis").mockResolvedValue(READY_ANALYSIS);
+
+      expect(document.getElementById("biliscript-reading-view")).toBeNull();
+      expect(document.getElementById("biliscript-chat-messages")).toBeNull();
+
+      const bridge = createFreshBridge({
+        getUrl: () => URL
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-on-demand",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(runOverviewSpy).toHaveBeenCalledTimes(1);
+      expect(res).toMatchObject({
+        ok: true,
+        video: videoIdentity,
+        coverage: "complete",
+        summary: "全片简介"
+      });
+      // 不创建文摘面板或对话 DOM
+      expect(document.getElementById("biliscript-reading-view")).toBeNull();
+      expect(document.getElementById("biliscript-chat-messages")).toBeNull();
+      // 概览快照已同步进上下文
+      expect(bridge.getVideoContext()?.overview?.summary).toBe("全片简介");
+    });
+
+    it("returns explicit failure when text model provider is unavailable without throwing", async () => {
+      const { state } = await import("../../extension/core/state.js");
+      const { createLiveToolsBridge: createFreshBridge } = await import("../../extension/live/live-tools-bridge.js");
+      Object.assign(state.clip, makeClip());
+
+      const sendMessageMock = globalThis.chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+      sendMessageMock.mockImplementation((message: Record<string, unknown>, callback?: (resp: unknown) => void) => {
+        if (message?.type === "resolve-ai-provider") {
+          callback?.({
+            ok: false,
+            error: "还没有配置 AI 平台，请先在插件设置中添加并启用。"
+          });
+          return undefined;
+        }
+        callback?.({ ok: true });
+        return undefined;
+      });
+
+      const bridge = createFreshBridge({
+        getUrl: () => URL
+      });
+
+      const res = await bridge.executeTool({
+        callId: "call-no-provider",
+        name: "summarize_video",
+        arguments: {},
+        video: videoIdentity
+      });
+
+      expect(res).toEqual({
+        ok: false,
+        error: expect.stringContaining("还没有配置 AI 平台")
+      });
+      expect(document.getElementById("biliscript-reading-view")).toBeNull();
+    });
   });
 
 });

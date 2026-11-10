@@ -4,6 +4,8 @@ import { resetModuleState } from "../setup.js";
 describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
   let playerContainer: HTMLElement;
   let mockShell: { enterReaderShell: ReturnType<typeof vi.fn> };
+  let mockEnsureUiReady: ReturnType<typeof vi.fn>;
+  let mockEnsureReaderChatTab: ReturnType<typeof vi.fn>;
   let mockChatTab: {
     ensureChatTabActivated: ReturnType<typeof vi.fn>;
     startLiveCompanion: ReturnType<typeof vi.fn>;
@@ -11,6 +13,14 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
     getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
     getLiveController: ReturnType<typeof vi.fn>;
+  };
+  let mockLiveSession: {
+    startLiveCompanion: ReturnType<typeof vi.fn>;
+    stopLiveCompanion: ReturnType<typeof vi.fn>;
+    getLiveController: ReturnType<typeof vi.fn>;
+    ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
+    getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
+    isLiveCompanionActive: ReturnType<typeof vi.fn>;
   };
   let mockOverlay: {
     show: ReturnType<typeof vi.fn>;
@@ -53,21 +63,35 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       getLiveController: vi.fn(() => null)
     };
 
+    mockLiveSession = {
+      startLiveCompanion: vi.fn(async () => true),
+      stopLiveCompanion: vi.fn(() => {}),
+      getLiveController: vi.fn(() => null),
+      ensureFullscreenOverlay: vi.fn(() => mockOverlay),
+      getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
+      isLiveCompanionActive: vi.fn(() => false)
+    };
+
+    mockEnsureUiReady = vi.fn(async () => {});
+    mockEnsureReaderChatTab = vi.fn(async () => mockChatTab);
+
     vi.doMock("../../extension/reader/lazy-shell.js", () => ({
       ensureReaderShell: async () => mockShell
     }));
 
     vi.doMock("../../extension/reader/lazy-chat-tab.js", () => ({
-      ensureReaderChatTab: async () => mockChatTab,
-      isReaderChatTabLoaded: () => true
+      ensureReaderChatTab: mockEnsureReaderChatTab,
+      isReaderChatTabLoaded: () => false
     }));
+
+    vi.doMock("../../extension/live/live-companion-session.js", () => mockLiveSession);
 
     vi.doMock("../../extension/reader/state.js", () => ({
       isReaderViewOpen: () => isReaderOpen
     }));
 
     vi.doMock("../../extension/ui/lazy-ui.js", () => ({
-      ensureUiReady: vi.fn(async () => {})
+      ensureUiReady: mockEnsureUiReady
     }));
 
     vi.doMock("../../extension/core/runtime.js", () => ({
@@ -84,6 +108,12 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     document.body.innerHTML = "";
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.doUnmock("../../extension/reader/lazy-shell.js");
+    vi.doUnmock("../../extension/reader/lazy-chat-tab.js");
+    vi.doUnmock("../../extension/live/live-companion-session.js");
+    vi.doUnmock("../../extension/reader/state.js");
+    vi.doUnmock("../../extension/ui/lazy-ui.js");
+    vi.doUnmock("../../extension/core/runtime.js");
   });
 
   it("实时伴看按钮独立挂载于底部控制栏清晰度控件左侧，不与 AI 快捷按钮共用 wrap", async () => {
@@ -126,7 +156,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
   });
 
-  it("非全屏下点击伴看按钮：直接激活对话 tab 并调用 startLiveCompanion（不打开阅读面板）", async () => {
+  it("非全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
 
     schedulePlayerAiQuickActionSync(0);
@@ -139,14 +169,15 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     await vi.advanceTimersByTimeAsync(20);
 
     expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
-    expect(mockChatTab.ensureChatTabActivated).toHaveBeenCalledWith({ consumeIntent: false });
-    expect(mockChatTab.ensureChatTabActivated.mock.invocationCallOrder[0]).toBeLessThan(
-      mockChatTab.startLiveCompanion.mock.invocationCallOrder[0]
-    );
-    expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(mockEnsureUiReady).not.toHaveBeenCalled();
+    expect(mockEnsureReaderChatTab).not.toHaveBeenCalled();
+    expect(mockChatTab.ensureChatTabActivated).not.toHaveBeenCalled();
+    expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("biliscript-reading-view")).toBeNull();
+    expect(document.getElementById("biliscript-chat-messages")).toBeNull();
   });
 
-  it("全屏下点击伴看按钮：直接激活对话 tab 并调用 startLiveCompanion（不打开阅读面板）", async () => {
+  it("全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {
     // 模拟 B 站网页全屏
     playerContainer.setAttribute("data-screen", "web");
 
@@ -162,11 +193,10 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     await vi.advanceTimersByTimeAsync(20);
 
     expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
-    expect(mockChatTab.ensureChatTabActivated).toHaveBeenCalledWith({ consumeIntent: false });
-    expect(mockChatTab.ensureChatTabActivated.mock.invocationCallOrder[0]).toBeLessThan(
-      mockChatTab.startLiveCompanion.mock.invocationCallOrder[0]
-    );
-    expect(mockChatTab.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(mockEnsureUiReady).not.toHaveBeenCalled();
+    expect(mockEnsureReaderChatTab).not.toHaveBeenCalled();
+    expect(mockChatTab.ensureChatTabActivated).not.toHaveBeenCalled();
+    expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
   });
 
   it("伴看开启与关闭时实时伴看快捷按钮同步高亮态（is-active）与无障碍属性", async () => {
@@ -199,7 +229,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(liveButton.getAttribute("aria-label")).toBe("实时伴看");
   });
 
-  it("伴看已处于开启状态下再次点击伴看按钮：调用 stopLiveCompanion 关闭伴看", async () => {
+  it("伴看已处于开启状态下再次点击伴看按钮：调用独立会话 stopLiveCompanion 关闭伴看", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
     const { syncPlayerLiveQuickActionState } = await import("../../extension/live/live-overlay-binding.js");
 
@@ -217,7 +247,71 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     liveButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(mockChatTab.stopLiveCompanion).toHaveBeenCalledTimes(1);
-    expect(mockChatTab.startLiveCompanion).not.toHaveBeenCalled();
+    expect(mockLiveSession.stopLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
+  });
+});
+
+describe("live/live-companion-session: 独立伴看会话所有权、对话按需消费与页面关闭清理", () => {
+  beforeEach(() => {
+    resetModuleState();
+    document.body.innerHTML = "";
+    const playerContainer = document.createElement("div");
+    playerContainer.className = "bpx-player-container";
+    document.body.appendChild(playerContainer);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  it("独立伴看会话持有控制器与浮窗；关闭 AI 对话会话不销毁伴看，关闭页面（pagehide）彻底清理连接、浮窗与工具任务", async () => {
+    const session = await import("../../extension/live/live-companion-session.js");
+    const controller = session.ensureLiveController();
+    expect(controller).not.toBeNull();
+
+    const startSpy = vi.spyOn(controller, "start").mockImplementation(async () => {
+      vi.spyOn(controller, "getState").mockReturnValue("connected");
+      session.getLiveOverlayBinding().handleStateChange("connected");
+      return true;
+    });
+    const stopSpy = vi.spyOn(controller, "stop");
+    const disposeSpy = vi.spyOn(controller, "dispose");
+
+    // 1. 面板未打开时直接启动伴看：展开播放器内连接卡，不创建文摘面板或对话 DOM
+    expect(await session.startLiveCompanion()).toBe(true);
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    const overlay = session.getFullscreenLiveOverlay();
+    expect(overlay).not.toBeNull();
+    expect(overlay?.isVisible()).toBe(true);
+    expect(overlay?.isMinimized()).toBe(false);
+    expect(document.getElementById("biliscript-reading-view")).toBeNull();
+    expect(document.getElementById("biliscript-chat-messages")).toBeNull();
+
+    // 2. 打开文摘面板并初始化对话 tab：消费同一个独立伴看控制器与浮窗，关闭对话会话不中断伴看
+    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    uiRenderer.ensureUiReady({ forceRecreate: true });
+    const chat = await import("../../extension/reader/chat-tab.js");
+    await chat.ensureChatTabActivated();
+
+    expect(chat.getLiveController()).toBe(controller);
+    expect(chat.getFullscreenLiveOverlay()).toBe(overlay);
+
+    chat.closeChatSession();
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(overlay?.isVisible()).toBe(true);
+
+    // 2.5 即使 AI 对话未加载或已关闭，跨标签页接管请求（reader-bus requestLiveCompanionStop）仍可停止独立伴看
+    const { requestLiveCompanionStop } = await import("../../extension/reader/reader-bus.js");
+    requestLiveCompanionStop();
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    // 3. 页面关闭（pagehide）：清理伴看连接、移除浮窗 DOM 并取消遗留工具任务
+    window.dispatchEvent(new Event("pagehide"));
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("biliscript-fullscreen-live-overlay")).toBeNull();
+    expect(document.querySelector(".biliscript-fullscreen-live-mini-capsule")).toBeNull();
+    expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
   });
 });

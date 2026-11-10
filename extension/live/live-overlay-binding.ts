@@ -57,7 +57,7 @@ export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
 }
 
 export interface LiveOverlayControllerHooks {
-  onStateChange?: (liveState: LiveChatState) => void;
+  onStateChange?: (liveState: LiveChatState, error?: string) => void;
   onVadStateChange?: (active: boolean) => void;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
@@ -93,7 +93,7 @@ export interface LiveOverlayBinding {
   handleVadChange(active: boolean): void;
   handleTranscript(event: MossLiveTranscriptEvent): void;
   handleReconnecting(): void;
-  handleStateChange(liveState: LiveChatState): void;
+  handleStateChange(liveState: LiveChatState, error?: string): void;
   handleVoicePriorityChange(enabled: boolean): void;
   handleShareVideoAudioChange(enabled: boolean): void;
   clearMessages(): void;
@@ -104,6 +104,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   const getPlayerHost = options.getPlayerHost ?? findDefaultLiveOverlayHost;
   const createOverlayFn = options.createOverlay ?? createFullscreenLiveOverlay;
   let overlay: FullscreenLiveOverlay | null = null;
+  let lastLiveState: LiveChatState = "idle";
 
   function isControllerLive(): boolean {
     const liveState = options.getLiveController()?.getState();
@@ -124,6 +125,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         onVolumeChange: handleVolumeChange,
         onStopLive: () => {
           void options.getLiveController()?.stop();
+        },
+        onRetryLive: () => {
+          void options.getLiveController()?.start();
         }
       });
     }
@@ -149,18 +153,28 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     overlay?.syncState(options.getLiveController()?.getState(), true);
   }
 
-  function handleStateChange(liveState: LiveChatState): void {
+  function handleStateChange(liveState: LiveChatState, error?: string): void {
     const active = liveState === "connected" || liveState === "connecting";
+    const shouldShowOverlay = active || liveState === "failure";
     syncPlayerLiveQuickActionState(active);
-    overlay?.syncState(liveState);
-    if (active) {
+    if (shouldShowOverlay) {
       if (shouldAutoShowOverlay()) {
         options.onBeforeAutoShow?.();
-        ensureOverlay().show();
+        const targetOverlay = ensureOverlay();
+        const forceExpand =
+          lastLiveState === "idle" ||
+          liveState === "failure" ||
+          !targetOverlay.isVisible();
+        targetOverlay.show({ forceExpand });
+        targetOverlay.syncState(liveState, false, error);
+      } else {
+        overlay?.syncState(liveState, false, error);
       }
     } else {
+      overlay?.syncState(liveState, false, undefined);
       overlay?.hide();
     }
+    lastLiveState = liveState;
   }
 
   function handleVoicePriorityChange(enabled: boolean): void {
@@ -178,14 +192,22 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     if (!controller) return false;
 
     const alreadyLive = isControllerLive();
+    const wasVisible = overlay?.isVisible() ?? false;
     const started = alreadyLive ? true : await controller.start();
-    if (!started) return false;
+    if (!started) {
+      if (controller.getState() === "failure" && shouldAutoShowOverlay()) {
+        const targetOverlay = ensureOverlay();
+        targetOverlay.show({ forceExpand: true });
+        targetOverlay.syncState("failure");
+      }
+      return false;
+    }
 
     const targetOverlay = ensureOverlay();
     if (alreadyLive) {
       targetOverlay.restore();
     } else {
-      targetOverlay.show();
+      targetOverlay.show({ forceExpand: !wasVisible || !targetOverlay.isVisible() });
     }
     return true;
   }
@@ -200,9 +222,13 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       },
       onTranscript: handleTranscript,
       onReconnecting: handleReconnecting,
-      onStateChange: (liveState) => {
-        hooks?.onStateChange?.(liveState);
-        handleStateChange(liveState);
+      onStateChange: (liveState, error) => {
+        if (error !== undefined) {
+          hooks?.onStateChange?.(liveState, error);
+        } else {
+          hooks?.onStateChange?.(liveState);
+        }
+        handleStateChange(liveState, error);
       },
       onVoicePriorityChange: (enabled) => {
         hooks?.onVoicePriorityChange?.(enabled);

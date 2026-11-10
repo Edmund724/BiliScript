@@ -2,8 +2,12 @@
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
-import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
-import { ensureUiReady } from "../ui/lazy-ui.js";
+import {
+  getLiveController,
+  isLiveCompanionActive,
+  startLiveCompanion,
+  stopLiveCompanion
+} from "../live/live-companion-session.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -691,20 +695,18 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
   playerAiState.setSubmitting(true);
 
   try {
-    await ensureUiReady();
-    const chat = await ensureReaderChatTab();
     const isCurrentlyActive = Boolean(
       liveButton?.classList.contains("is-active") ||
         document.body.hasAttribute("data-biliscript-live-active") ||
-        chat.getLiveController()?.getState() === "connected" ||
-        chat.getLiveController()?.getState() === "connecting"
+        isLiveCompanionActive() ||
+        getLiveController()?.getState() === "connected" ||
+        getLiveController()?.getState() === "connecting"
     );
 
     if (isCurrentlyActive) {
-      chat.stopLiveCompanion();
+      stopLiveCompanion();
     } else {
-      await chat.ensureChatTabActivated({ consumeIntent: false });
-      await chat.startLiveCompanion();
+      await startLiveCompanion();
     }
   } catch (error) {
     setMessage(`实时伴看操作失败：${getErrorMessage(error)}`);

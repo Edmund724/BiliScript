@@ -141,22 +141,29 @@ import { logWarn } from "../shared/logging.js";
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
-import { normalizeLiveVoiceVolume } from "../core/validators.js";
-import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
-import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
-import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
-import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
+import {
+  ensureFullscreenOverlay,
+  ensureLiveController,
+  getFullscreenLiveOverlay,
+  getLiveController,
+  isLiveCompanionActive,
+  setLiveSessionHooks,
+  startLiveCompanion,
+  stopLiveCompanion
+} from "../live/live-companion-session.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
-// 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
-import {
-  ensureReaderOverviewSource,
-  getReaderOverviewSource,
-  subscribeReaderOverviewSource
-} from "./live-overview-source.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
+
+export {
+  ensureFullscreenOverlay,
+  getFullscreenLiveOverlay,
+  getLiveController,
+  startLiveCompanion,
+  stopLiveCompanion
+};
 
 ensureReaderChatStyles();
 
@@ -234,20 +241,16 @@ function requireShell(): void {
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
-let liveController: LiveChatController | null = null;
-let preservingLiveSessionOnContextSwitch = false;
 
-const liveOverlayBinding = createLiveOverlayBinding({
-  getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
-  getLiveController: () => liveController
-});
-
-export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
-  return liveOverlayBinding.getOverlay();
-}
-
-export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
-  return liveOverlayBinding.ensureOverlay();
+function bindLiveConsumerHooks(): void {
+  setLiveSessionHooks({
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    onBeforeStart: () => {
+      if (chatRuntime.isTurnActive()) {
+        chatRuntime.stopActiveStream();
+      }
+    }
+  });
 }
 
 
@@ -700,7 +703,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
   // aiProviderKeys，摘除即 unsubscribe。
   storageWatcher: () => watchStorageKeys(() => {
     void refreshProvidersAndPrefsAfterExternalChange();
-    void liveController?.refreshTarget();
+    void getLiveController()?.refreshTarget();
   }, {
     sync: [
       "aiProviders",
@@ -760,7 +763,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     }),
     conversationStore.loadAll(),
     loadContextState(),
-    liveController?.refreshTarget() ?? Promise.resolve()
+    getLiveController()?.refreshTarget() ?? Promise.resolve()
   ]);
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
@@ -781,8 +784,9 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
   // 都由这一次重判画出来，不再另调 renderChip）。
+  bindLiveConsumerHooks();
   await loadProvidersAndPrefs().catch(() => null);
-  void liveController?.refreshTarget();
+  void getLiveController()?.refreshTarget();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -819,21 +823,6 @@ export function stopChatSpeech(): void {
   chatRuntime.stopSpeech();
 }
 
-export function stopLiveCompanion(): void {
-  void liveController?.stop();
-}
-
-export async function startLiveCompanion(): Promise<boolean> {
-  if (chatRuntime.isTurnActive()) {
-    chatRuntime.stopActiveStream();
-  }
-  return liveOverlayBinding.startOrRestoreCompanion();
-}
-
-export function getLiveController(): LiveChatController | null {
-  return liveController;
-}
-
 export function closeChatSession(): void {
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
@@ -843,7 +832,7 @@ export function closeChatSession(): void {
     return;
   }
   sessionClosed = true;
-  liveController?.dispose();
+  setLiveSessionHooks(null);
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();
@@ -974,34 +963,8 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
-  // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
-  const liveToolsBridge = createLiveToolsBridge({
-    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-    getOverview: () => getReaderOverviewSource(),
-    ensureOverview: (options) => ensureReaderOverviewSource(options)
-  });
-  liveController = createLiveChatController({
-    initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
-    initialVoicePriority: state.settings?.liveVoicePriority !== false,
-    initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-    ...liveOverlayBinding.bindControllerCallbacks(),
-    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-    getVideoContext: liveToolsBridge.getVideoContext,
-    executeTool: liveToolsBridge.executeTool,
-    subscribeVideoContextChanges: (listener) => {
-      const unsubscribePresenter = subscribeReaderPresenter((event) => {
-        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-          listener();
-        }
-      });
-      const unsubscribeOverview = subscribeReaderOverviewSource(listener);
-      return () => {
-        unsubscribePresenter();
-        unsubscribeOverview();
-      };
-    }
-  });
+  ensureLiveController();
+  bindLiveConsumerHooks();
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
@@ -1079,8 +1042,7 @@ function onWindowResize(): void {
 export const INPUT_MAX_HEIGHT = 320;
 
 function isLiveSessionActive(): boolean {
-  const s = liveController?.getState();
-  return s === "connecting" || s === "connected";
+  return isLiveCompanionActive();
 }
 
 function isConversationViewActive(): boolean {
@@ -1120,13 +1082,7 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
   if (sessionClosed) {
     return;
   }
-  preservingLiveSessionOnContextSwitch = isLiveSessionActive();
-  let ok = false;
-  try {
-    ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  } finally {
-    preservingLiveSessionOnContextSwitch = false;
-  }
+  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
   if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
