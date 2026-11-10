@@ -21,6 +21,7 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
       isSharingVideoAudio: () => false,
       isVoicePriority: () => true,
       isVoiceRecentlyActive: () => true,
+      getSpeed: () => 1,
       stop: stopFn
     };
 
@@ -88,6 +89,7 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
       isSharingVideoAudio: () => false,
       isVoicePriority: () => true,
       isVoiceRecentlyActive: () => true,
+      getSpeed: () => 1,
       start: startFn,
       stop: vi.fn(async () => {})
     };
@@ -143,6 +145,7 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
       isSharingVideoAudio: () => false,
       isVoicePriority: () => true,
       isVoiceRecentlyActive: () => true,
+      getSpeed: () => 1,
       start: startFn,
       stop: stopFn
     };

@@ -51,6 +51,7 @@ export interface KnownSettings {
   activeAsrProviderId: string;
   activeLiveProviderId: string;
   liveVoiceVolume: number;
+  liveVoiceSpeed: number;
   speechVoiceVolume: number;
   liveVoicePriority: boolean;
   liveShareVideoAudio: boolean;
@@ -129,6 +130,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
   activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
   liveVoiceVolume: 100,      // 实时伴看 AI 音量（百分比）
+  liveVoiceSpeed: 1,         // 实时伴看 AI 语速（0.5/0.75/1/1.25/1.5）
   speechVoiceVolume: 100,    // AI 回答朗读音量（百分比）
   liveVoicePriority: true,   // 实时伴看语音优先（自动压低视频音量，默认开启）
   liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）

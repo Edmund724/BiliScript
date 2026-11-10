@@ -3,7 +3,7 @@
 // 播放器快捷按钮与 AI 对话面板均消费本模块，关闭文摘面板不销毁伴看会话；页面卸载（pagehide）时统一释放。
 
 import { state } from "../core/state.js";
-import { normalizeLiveVoiceVolume } from "../core/validators.js";
+import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import {
   setLiveCompanionStopHandler,
@@ -82,6 +82,7 @@ export function ensureLiveController(): LiveChatController {
     });
     liveController = createLiveChatController({
       initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+      initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
       initialVoicePriority: state.settings?.liveVoicePriority !== false,
       initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
       ...liveOverlayBinding.bindControllerCallbacks(),

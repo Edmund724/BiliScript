@@ -22,6 +22,7 @@ import {
   resolveActiveLiveProviderId
 } from "./live-provider-store.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import {
   VideoBackendTaskManager,
   type VideoBackendTaskOptions,
@@ -73,6 +74,8 @@ export interface LiveChatControllerDeps {
   getVideoElement?: () => HTMLVideoElement | null;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
+  onVolumeChange?: (volumePercent: number) => void;
+  onSpeedChange?: (speed: number) => void;
   onStateChange?: (state: LiveChatState, error?: string) => void;
   onSpeakingChange?: (speaking: boolean) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
@@ -135,6 +138,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     getVideoElement = null,
     onVoicePriorityChange,
     onShareVideoAudioChange,
+    onVolumeChange,
+    onSpeedChange,
     onStateChange,
     onSpeakingChange,
     onReconnecting,
@@ -173,8 +178,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let currentVideoAudioStatus: VideoAudioTrackStatus = "未开启";
   const effectiveDuckRatio = Number.isFinite(duckRatio) && duckRatio >= 0 && duckRatio <= 1 ? duckRatio : DEFAULT_LIVE_DUCK_RATIO;
   const resolveVideoElement = getVideoElement ?? getRuntimeVideoElement;
-  let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(1, initialVolume)) : 1;
-  let speed = Number.isFinite(initialSpeed) && initialSpeed > 0 ? initialSpeed : 1;
+  let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(2, initialVolume)) : 1;
+  let speed = normalizeLiveVoiceSpeed(initialSpeed);
   let currentGeneration = 0;
   function shouldDuck(): boolean {
     if (!voicePriority) return false;
@@ -703,6 +708,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connected");
         syncVideoContext();
         startActiveVideoCapture(generation);
+      } else if (msg.type === "output_configured") {
+        volume = Number.isFinite(msg.volume) ? Math.max(0, Math.min(2, msg.volume)) : volume;
+        speed = normalizeLiveVoiceSpeed(msg.speed);
+        onVolumeChange?.(Math.round(volume * 100));
+        onSpeedChange?.(speed);
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
           const nextSpeaking = Boolean(msg.speaking);
@@ -874,7 +884,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function setVolume(nextVolume: number): void {
-    volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(1, nextVolume)) : 1;
+    volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(2, nextVolume)) : 1;
     if (!activePort) return;
     try {
       activePort.postMessage({ action: "set_volume", volume });
@@ -882,7 +892,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function setSpeed(nextSpeed: number): void {
-    speed = Number.isFinite(nextSpeed) && nextSpeed > 0 ? nextSpeed : 1;
+    speed = normalizeLiveVoiceSpeed(nextSpeed);
     if (!activePort) return;
     try {
       activePort.postMessage({ action: "set_speed", speed });

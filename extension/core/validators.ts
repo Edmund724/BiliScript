@@ -130,10 +130,11 @@ export function normalizeDefaultModel(value: unknown): string {
 // 也从同一叶取词表）；函数名保留 core 侧的历史 import 面。
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
-// ===== 联网搜索 normalizers =====
+// ===== 语音输出 normalizers =====
+export { normalizeLiveVoiceSpeed } from "../live/live-voice-speed.js";
 export const normalizeLiveVoiceVolume = clampedIntField(
   0,
-  100,
+  200,
   DEFAULT_SETTINGS.liveVoiceVolume
 );
 export const normalizeSpeechVoiceVolume = clampedIntField(

@@ -312,6 +312,17 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses server-side output volume and speed confirmation", () => {
+    expect(parseMossServerJsonEvent({
+      action: "media.output.configured",
+      data: { volume_db: 8, speed: 1.25 }
+    })).toEqual({
+      kind: "output.configured",
+      volumeDb: 8,
+      speed: 1.25
+    });
+  });
+
   it("parses completed web search calls and interruption markers", () => {
     expect(
       parseMossServerJsonEvent({

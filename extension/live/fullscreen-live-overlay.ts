@@ -11,6 +11,7 @@ import { createLiquidGlassLens } from "./liquid-glass-lens.js";
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
+import { LIVE_VOICE_SPEED_STEPS, normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import { bindViewportDrag, type ViewportDragHandle } from "./viewport-drag.js";
 
 export interface FullscreenLiveOverlayDeps {
@@ -18,6 +19,7 @@ export interface FullscreenLiveOverlayDeps {
   getLiveController: () => LiveChatController | null;
   getVolume?: () => number;
   onVolumeChange?: (volume: number) => void;
+  onSpeedChange?: (speed: number) => void;
   onStopLive?: () => void;
   onRetryLive?: () => void;
 }
@@ -48,6 +50,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let audioPopEl: HTMLElement | null = null;
   let volumeSliderEl: HTMLInputElement | null = null;
   let volumeValueEl: HTMLElement | null = null;
+  let speedSliderEl: HTMLInputElement | null = null;
+  let speedValueEl: HTMLElement | null = null;
   let shareAudioSwitchEl: HTMLButtonElement | null = null;
   let voicePrioritySwitchEl: HTMLButtonElement | null = null;
   let minBtnEl: HTMLButtonElement | null = null;
@@ -215,11 +219,20 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
               </svg>
             </button>
             <div class="live-overlay-audio-popover" hidden>
-              <div class="live-overlay-pop-item live-overlay-pop-volume-item">
-                <span>伴看音量</span>
-                <div class="live-overlay-volume-control">
-                  <input type="range" class="live-overlay-volume-slider" min="0" max="100" step="1" value="100" style="--live-progress: 100%;" aria-label="伴看音量" />
-                  <span class="live-overlay-volume-value">100%</span>
+              <div class="live-overlay-output-controls">
+                <div class="live-overlay-pop-item live-overlay-pop-volume-item">
+                  <span>伴看音量</span>
+                  <div class="live-overlay-volume-control">
+                    <input type="range" class="live-overlay-volume-slider" min="0" max="200" step="1" value="100" style="--live-progress: 50%;" aria-label="伴看音量" aria-valuetext="100%" />
+                    <span class="live-overlay-volume-value">100%</span>
+                  </div>
+                </div>
+                <div class="live-overlay-pop-item live-overlay-pop-speed-item">
+                  <span>语速</span>
+                  <div class="live-overlay-volume-control">
+                    <input type="range" class="live-overlay-volume-slider live-overlay-speed-slider" min="0" max="4" step="1" value="2" style="--live-progress: 50%;" aria-label="语速" aria-valuetext="1×" />
+                    <span class="live-overlay-volume-value live-overlay-speed-value">1×</span>
+                  </div>
                 </div>
               </div>
               <div class="live-overlay-pop-item">
@@ -298,8 +311,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     micBtnEl = overlay.querySelector(".live-overlay-mic-btn");
     audioBtnEl = overlay.querySelector(".live-overlay-audio-btn");
     audioPopEl = overlay.querySelector(".live-overlay-audio-popover");
-    volumeSliderEl = overlay.querySelector(".live-overlay-volume-slider");
-    volumeValueEl = overlay.querySelector(".live-overlay-volume-value");
+    volumeSliderEl = overlay.querySelector(".live-overlay-volume-slider:not(.live-overlay-speed-slider)");
+    volumeValueEl = overlay.querySelector(".live-overlay-volume-value:not(.live-overlay-speed-value)");
+    speedSliderEl = overlay.querySelector(".live-overlay-speed-slider");
+    speedValueEl = overlay.querySelector(".live-overlay-speed-value");
     shareAudioSwitchEl = overlay.querySelector(".live-overlay-share-switch");
     voicePrioritySwitchEl = overlay.querySelector(".live-overlay-priority-switch");
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
@@ -358,13 +373,25 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     const onVolumeInput = (e: Event) => {
       e.stopPropagation();
       const target = e.target as HTMLInputElement;
-      const val = Math.max(0, Math.min(100, Math.round(Number(target.value) || 0)));
+      const val = Math.max(0, Math.min(200, Math.round(Number(target.value) || 0)));
       syncVolumeDisplay(val);
       deps.getLiveController()?.setVolume(val / 100);
       deps.onVolumeChange?.(val);
     };
     volumeSliderEl?.addEventListener("input", onVolumeInput);
     volumeSliderEl?.addEventListener("change", onVolumeInput);
+
+    const onSpeedInput = (e: Event) => {
+      e.stopPropagation();
+      const target = e.target as HTMLInputElement;
+      const index = Math.max(0, Math.min(LIVE_VOICE_SPEED_STEPS.length - 1, Math.round(Number(target.value) || 0)));
+      const speed = LIVE_VOICE_SPEED_STEPS[index];
+      syncSpeedDisplay(speed);
+      deps.getLiveController()?.setSpeed(speed);
+      deps.onSpeedChange?.(speed);
+    };
+    speedSliderEl?.addEventListener("input", onSpeedInput);
+    speedSliderEl?.addEventListener("change", onSpeedInput);
 
     shareAudioSwitchEl?.addEventListener("click", () => {
       const controller = deps.getLiveController();
@@ -452,11 +479,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
   function resolveCurrentVolume(): number {
     if (deps.getVolume) {
-      return Math.round(Math.max(0, Math.min(100, deps.getVolume())));
+      return Math.round(Math.max(0, Math.min(200, deps.getVolume())));
     }
     const c = deps.getLiveController();
     if (c?.getVolume) {
-      return Math.round(Math.max(0, Math.min(1, c.getVolume())) * 100);
+      return Math.round(Math.max(0, Math.min(2, c.getVolume())) * 100);
     }
     return 100;
   }
@@ -464,11 +491,24 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   function syncVolumeDisplay(val: number): void {
     if (volumeSliderEl) {
       volumeSliderEl.value = String(val);
-      volumeSliderEl.style.setProperty("--live-progress", `${val}%`);
+      volumeSliderEl.style.setProperty("--live-progress", `${val / 2}%`);
+      volumeSliderEl.setAttribute("aria-valuetext", `${val}%`);
     }
     if (volumeValueEl) {
       volumeValueEl.textContent = `${val}%`;
     }
+  }
+
+  function syncSpeedDisplay(value: number): void {
+    const speed = normalizeLiveVoiceSpeed(value);
+    const index = LIVE_VOICE_SPEED_STEPS.indexOf(speed);
+    const text = `${speed}×`;
+    if (speedSliderEl) {
+      speedSliderEl.value = String(index);
+      speedSliderEl.style.setProperty("--live-progress", `${index / (LIVE_VOICE_SPEED_STEPS.length - 1) * 100}%`);
+      speedSliderEl.setAttribute("aria-valuetext", text);
+    }
+    if (speedValueEl) speedValueEl.textContent = text;
   }
 
   function syncMicButton(): void {
@@ -486,6 +526,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
     syncMicButton();
     syncVolumeDisplay(resolveCurrentVolume());
+    syncSpeedDisplay(controller.getSpeed());
 
     if (shareAudioSwitchEl) {
       const share = controller.isSharingVideoAudio();

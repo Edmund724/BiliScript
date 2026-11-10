@@ -41,13 +41,14 @@ beforeEach(() => {
 });
 
 describe("LiveChatController AI volume", () => {
-  async function setup() {
+  async function setup(options: { initialSpeed?: number } = {}) {
     const port = new FakePort();
     const volumeControl = document.createElement("details");
     const controller = createLiveChatController({
       liveButton: document.createElement("button"),
       volumeControl,
       initialVolume: 0.6,
+      initialSpeed: options.initialSpeed,
       connectPort: () => port as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (message: any) => message.type === "live-session-prepare"
@@ -80,11 +81,24 @@ describe("LiveChatController AI volume", () => {
     expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 0.35 });
 
     controller.setVolume(2);
-    expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 1 });
+    expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 2 });
 
     await controller.stop();
     expect(volumeControl.hidden).toBe(true);
     expect(volumeControl.open).toBe(false);
+  });
+
+  it("adopts server-confirmed output volume and speed", async () => {
+    const { controller, port } = await setup();
+    port.emit({ type: "output_configured", volume: 1.5, speed: 1.25 });
+    expect(controller.getVolume()).toBe(1.5);
+    expect(controller.getSpeed()).toBe(1.25);
+  });
+
+  it("clamps the legacy 2x setting to the new 1.5x maximum", async () => {
+    const { controller, port } = await setup({ initialSpeed: 2 });
+    expect(controller.getSpeed()).toBe(1.5);
+    expect(port.postedMessages[0]).toMatchObject({ action: "start", speed: 1.5 });
   });
 
   it("ignores legacy duck events instead of taking over the page player volume", async () => {

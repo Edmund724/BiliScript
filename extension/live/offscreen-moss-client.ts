@@ -155,6 +155,10 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         }
         break;
 
+      case "output.configured":
+        callbacks.applyOutputConfiguration(parsed);
+        break;
+
       case "transcript":
         callbacks.emitTranscript(parsed.event);
         break;
@@ -199,9 +203,24 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         break;
 
       case "error":
-        callbacks.failOrReconnectOnServerError(parsed.message, parsed.code);
+        if (parsed.code === "unsupported_control") {
+          callbacks.useLocalPlaybackRate();
+        } else {
+          callbacks.failOrReconnectOnServerError(parsed.message, parsed.code);
+        }
         break;
     }
+  }
+
+  configureOutput(
+    output: { volumeDb: number; speed?: number },
+    transport: LiveWireTransport
+  ): boolean {
+    return transport.sendJson({
+      action: "media.output.configure",
+      volume_db: output.volumeDb,
+      ...(output.speed !== undefined ? { speed: output.speed } : {})
+    });
   }
 
   sendAudio(

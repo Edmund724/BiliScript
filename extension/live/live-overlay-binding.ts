@@ -44,6 +44,7 @@ export function findDefaultLiveOverlayHost(): HTMLElement | null {
 
 export interface LiveAudioSettingsPatch {
   liveVoiceVolume?: number;
+  liveVoiceSpeed?: number;
   liveVoicePriority?: boolean;
   liveShareVideoAudio?: boolean;
 }
@@ -69,6 +70,8 @@ export type BoundLiveControllerCallbacks = Pick<
   | "onTranscript"
   | "onReconnecting"
   | "onStateChange"
+  | "onVolumeChange"
+  | "onSpeedChange"
   | "onVoicePriorityChange"
   | "onShareVideoAudioChange"
 >;
@@ -82,6 +85,7 @@ export interface LiveOverlayBindingOptions {
   onShareVideoAudioSync?: (enabled: boolean) => void;
   getVolume?: () => number;
   onVolumeSync?: (volumePercent: number) => void;
+  onSpeedSync?: (speed: number) => void;
   createOverlay?: typeof createFullscreenLiveOverlay;
 }
 
@@ -116,6 +120,11 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     persistLiveAudioSettings({ liveVoiceVolume: volumePercent });
   }
 
+  function handleSpeedChange(speed: number): void {
+    options.onSpeedSync?.(speed);
+    persistLiveAudioSettings({ liveVoiceSpeed: speed });
+  }
+
   function ensureOverlay(): FullscreenLiveOverlay {
     if (!overlay) {
       overlay = createOverlayFn({
@@ -123,6 +132,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         getLiveController: options.getLiveController,
         getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
         onVolumeChange: handleVolumeChange,
+        onSpeedChange: handleSpeedChange,
         onStopLive: () => {
           void options.getLiveController()?.stop();
         },
@@ -229,6 +239,14 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
           hooks?.onStateChange?.(liveState);
         }
         handleStateChange(liveState, error);
+      },
+      onVolumeChange: (volumePercent) => {
+        handleVolumeChange(volumePercent);
+        overlay?.syncState();
+      },
+      onSpeedChange: (speed) => {
+        handleSpeedChange(speed);
+        overlay?.syncState();
       },
       onVoicePriorityChange: (enabled) => {
         hooks?.onVoicePriorityChange?.(enabled);

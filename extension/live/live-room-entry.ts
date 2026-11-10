@@ -4,7 +4,7 @@
 
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
-import { normalizeLiveVoiceVolume } from "../core/validators.js";
+import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import {
@@ -122,6 +122,7 @@ export async function startLiveRoomCompanion(): Promise<void> {
   const bridge = createLiveRoomBridge();
   controller = createLiveChatController({
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+    initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
     initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),

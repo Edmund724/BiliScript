@@ -78,6 +78,7 @@ class FakeAudioBuffer implements AudioBufferLike {
 
 class FakeAudioBufferSourceNode implements AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null = null;
+  readonly playbackRate = { value: 1 };
   onended: (() => void) | null = null;
   connected = false;
   startedAt: number | null = null;
@@ -198,7 +199,7 @@ describe("OffscreenMossLiveClient", () => {
     expect(onConnected).toHaveBeenCalledTimes(1);
 
     // Verify protocol handshake messages sent
-    expect(ws.sentData).toHaveLength(4);
+    expect(ws.sentData).toHaveLength(5);
     expect(JSON.parse(ws.sentData[1])).toEqual({
       action: "media.mode",
       binary_protocol: "tagged-v1"
@@ -208,22 +209,198 @@ describe("OffscreenMossLiveClient", () => {
       playback: "server"
     });
     expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload());
+    expect(JSON.parse(ws.sentData[4])).toEqual({
+      action: "media.output.configure",
+      volume_db: 0,
+      speed: 1
+    });
 
     // Server confirms session.updated -> client enables screen video stream focus and mic_state once
     ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
-    expect(ws.sentData).toHaveLength(7);
-    expect(JSON.parse(ws.sentData[4])).toEqual({
+    expect(ws.sentData).toHaveLength(8);
+    expect(JSON.parse(ws.sentData[5])).toEqual({
       action: "video.state",
       source: "screen",
       enabled: true
     });
-    expect(JSON.parse(ws.sentData[5])).toEqual({
+    expect(JSON.parse(ws.sentData[6])).toEqual({
       action: "video.stream_focus",
       source: "screen"
     });
-    expect(JSON.parse(ws.sentData[6])).toEqual({
+    expect(JSON.parse(ws.sentData[7])).toEqual({
       action: "mic_state",
       enabled: true
+    });
+  });
+
+  it("configures server output after attach while keeping local gain at unity above 100%", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });
+    client.handleAction({ action: "start", volume: 1.5, speed: 1.25 });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 8,
+      speed: 1.25
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.outputGain.gain.value).toBe(1);
+  });
+
+  it("reconfigures changed output settings and reapplies them after reconnect", () => {
+    const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", volume: 1.5, speed: 1.25 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-reconnect" }
+    }));
+    ws.sentData.length = 0;
+
+    client.handleAction({ action: "set_volume", volume: 1.75 });
+    client.handleAction({ action: "set_speed", speed: 0.75 });
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "media.output.configure", volume_db: 12, speed: 1.25 },
+      { action: "media.output.configure", volume_db: 12, speed: 0.75 }
+    ]);
+
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-reconnect" }
+    }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 12,
+      speed: 0.75
+    });
+  });
+
+  it("preserves local volume below 100% when the server confirms zero gain", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      createAudioContext: () => fakeAudioCtx,
+      onEvent
+    });
+    client.handleAction({ action: "start", volume: 0.5, speed: 0.75 });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "media.output.configured",
+      data: { volume_db: 0, speed: 0.75 }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "output_configured",
+      volume: 0.5,
+      speed: 0.75
+    });
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.outputGain.gain.value).toBe(0.5);
+  });
+
+  it("falls back to local playbackRate without resending server speed control", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      createAudioContext: () => fakeAudioCtx,
+      onError,
+      reconnectDelayMs: 0
+    });
+    client.handleAction({ action: "start", speed: 1.5 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-fallback" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { error: { code: "unsupported_control", message: "speed unsupported" } }
+    }));
+
+    expect(client.getState()).toBe("connected");
+    expect(onError).not.toHaveBeenCalled();
+    ws.sentData.length = 0;
+    client.handleAction({ action: "set_speed", speed: 0.75 });
+    client.handleAction({ action: "set_volume", volume: 1.25 });
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "media.output.configure", volume_db: 4 }
+    ]);
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.sources[0].playbackRate.value).toBe(0.75);
+
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 4
+    });
+  });
+
+  it("retries server speed control in a new session after a local fallback", () => {
+    const client = new OffscreenMossLiveClient();
+    client.handleAction({ action: "start", speed: 1.5 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { error: { code: "unsupported_control", message: "speed unsupported" } }
+    }));
+
+    client.handleAction({ action: "stop" });
+    client.handleAction({ action: "start", speed: 1.25 });
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 0,
+      speed: 1.25
+    });
+  });
+
+  it("emits server-confirmed output settings for controller synchronization", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.output.configured",
+      data: { volume_db: 8, speed: 1.25 }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "output_configured",
+      volume: 1.5,
+      speed: 1.25
     });
   });
 
@@ -1245,12 +1422,12 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
 
     expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(context));
     client.updateVideoContext(context);
-    expect(ws.sentData).toHaveLength(4);
+    expect(ws.sentData).toHaveLength(5);
 
     const nextContext = { ...context, cid: "456", pageIndex: 2, pageTitle: "第二部分" };
     client.updateVideoContext(nextContext);
-    expect(ws.sentData).toHaveLength(5);
-    expect(JSON.parse(ws.sentData[4])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
+    expect(ws.sentData).toHaveLength(6);
+    expect(JSON.parse(ws.sentData[5])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
 
     ws.simulateMessage(JSON.stringify({
       action: "tool.call",

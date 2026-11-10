@@ -113,6 +113,7 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   completeHandshake(options?: { sessionId?: string | null; emitSessionAttached?: boolean }): void;
   updateSessionHandle(sessionId: string, options?: { emitSessionAttached?: boolean }): void;
   markContextSent(context: MossLiveSessionContext | null): void;
+  applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
   emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
   enqueueAudioContext(chunkId: string, runId: string, turnId: string): boolean;
   enqueueAudioFrame(pcmBuffer: ArrayBufferLike): void;
@@ -133,6 +134,7 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   }): void;
   cancelToolCallsByIds(ids: string[]): void;
   interrupt(): void;
+  useLocalPlaybackRate(): void;
   fail(error: Error, code?: number | string): void;
   failOrReconnectOnServerError(message: string, code?: number | string): void;
 }
@@ -163,6 +165,10 @@ export interface LiveWireProtocolAdapter {
     transport: LiveWireTransport
   ): void;
   onVideoContextUpdated?(context: MossLiveSessionContext | null): void;
+  configureOutput?(
+    output: { volumeDb: number; speed?: number },
+    transport: LiveWireTransport
+  ): boolean;
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void;
   sendToolResponse(
     call: { callId: string; name: string },
@@ -262,6 +268,9 @@ export class OffscreenLiveSessionRuntime {
   protected readonly reconnectDelayMs: number;
   protected reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   protected lastSocketError = "";
+  protected outputVolume = 1;
+  protected outputSpeed = 1;
+  protected serverSpeedUnsupported = false;
 
   protected readonly transport: LiveWireTransport = {
     sendJson: (payload: unknown) => this.sendJson(payload),
@@ -470,9 +479,19 @@ export class OffscreenLiveSessionRuntime {
     this.syncSpeakingState();
   }
 
+  protected configureOutput(): void {
+    const output: { volumeDb: number; speed?: number } = {
+      volumeDb: Math.max(0, (this.outputVolume - 1) * 16)
+    };
+    if (!this.serverSpeedUnsupported) output.speed = this.outputSpeed;
+    this.adapter.configureOutput?.(output, this.transport);
+  }
+
   handleAction(msg: MossLiveClientAction): void {
     switch (msg.action) {
       case "start":
+        this.serverSpeedUnsupported = false;
+        if (this.adapter.configureOutput) this.audioPlayer.setPlaybackRate(1);
         if (msg.wsUrl !== undefined) {
           this.wsUrl = msg.wsUrl || this.adapter.defaultWsUrl;
         }
@@ -483,19 +502,34 @@ export class OffscreenLiveSessionRuntime {
           this.sessionId = msg.sessionId || null;
         }
         this.adapter.onStartAction?.(msg);
-        if (msg.speed !== undefined) {
-          this.audioPlayer.setPlaybackRate(msg.speed);
+        if (msg.speed !== undefined && Number.isFinite(msg.speed) && msg.speed > 0) {
+          this.outputSpeed = msg.speed;
+          if (!this.adapter.configureOutput) this.audioPlayer.setPlaybackRate(msg.speed);
         }
-        this.audioPlayer.setVolume(msg.volume ?? 1);
+        if (msg.volume !== undefined && Number.isFinite(msg.volume)) {
+          this.outputVolume = Math.max(0, Math.min(2, msg.volume));
+        }
+        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
         this.connect();
         break;
 
       case "set_volume":
-        this.audioPlayer.setVolume(msg.volume);
+        if (Number.isFinite(msg.volume)) {
+          this.outputVolume = Math.max(0, Math.min(2, msg.volume));
+        }
+        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        this.configureOutput();
         break;
 
       case "set_speed":
-        this.audioPlayer.setPlaybackRate(msg.speed);
+        if (Number.isFinite(msg.speed) && msg.speed > 0) {
+          this.outputSpeed = msg.speed;
+        }
+        if (this.adapter.configureOutput && !this.serverSpeedUnsupported) {
+          this.configureOutput();
+        } else {
+          this.audioPlayer.setPlaybackRate(this.outputSpeed);
+        }
         break;
 
       case "context_update":
@@ -642,6 +676,7 @@ export class OffscreenLiveSessionRuntime {
           this.emit({ type: "session_attached", sessionId: options.sessionId });
         }
         this.emit({ type: "connected", sessionId: this.sessionId || undefined });
+        this.configureOutput();
       },
       updateSessionHandle: (sessionId, options) => {
         if (!isCurrent() || !sessionId) return;
@@ -652,6 +687,20 @@ export class OffscreenLiveSessionRuntime {
       },
       markContextSent: (context) => {
         this.lastSentContextKey = JSON.stringify(context);
+      },
+      applyOutputConfiguration: (config) => {
+        if (!isCurrent()) return;
+        if (config.volumeDb !== undefined && Number.isFinite(config.volumeDb)) {
+          if (config.volumeDb !== 0 || this.outputVolume >= 1) {
+            this.outputVolume = Math.max(0, Math.min(2, 1 + config.volumeDb / 16));
+          }
+          this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        }
+        if (config.speed !== undefined && Number.isFinite(config.speed) && config.speed > 0) {
+          this.outputSpeed = config.speed;
+          if (this.serverSpeedUnsupported) this.audioPlayer.setPlaybackRate(config.speed);
+        }
+        this.emit({ type: "output_configured", volume: this.outputVolume, speed: this.outputSpeed });
       },
       emitTranscript: (event, options) => {
         if (!isCurrent()) return;
@@ -727,6 +776,11 @@ export class OffscreenLiveSessionRuntime {
       interrupt: () => {
         if (!isCurrent()) return;
         this.interrupt();
+      },
+      useLocalPlaybackRate: () => {
+        if (!isCurrent()) return;
+        this.serverSpeedUnsupported = true;
+        this.audioPlayer.setPlaybackRate(this.outputSpeed);
       },
       fail: (error, code) => {
         if (!isCurrent()) return;

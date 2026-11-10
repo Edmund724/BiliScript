@@ -31,6 +31,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     let shareAudio = true;
     let voicePriority = true;
     let volume = 0.8;
+    let speed = 1.25;
     let state = "connected" as const;
 
     mockController = {
@@ -42,6 +43,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       getVolume: () => volume,
       setVolume: vi.fn((val: number) => {
         volume = val;
+      }),
+      getSpeed: () => speed,
+      setSpeed: vi.fn((val: number) => {
+        speed = val;
       }),
       isSharingVideoAudio: () => shareAudio,
       setShareVideoAudio: vi.fn((val: boolean) => {
@@ -183,6 +188,42 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const prioSwitch = popover.querySelector(".live-overlay-priority-switch") as HTMLButtonElement;
     prioSwitch.click();
     expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
+  });
+
+  it("支持 200% 音量与五档吸附语速，并同步服务端调速", () => {
+    const onSpeedChange = vi.fn();
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onSpeedChange,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const popover = overlay.getElement()?.querySelector(".live-overlay-audio-popover") as HTMLElement;
+    const volumeSlider = popover.querySelector(".live-overlay-volume-slider") as HTMLInputElement;
+    expect(volumeSlider.max).toBe("200");
+    volumeSlider.value = "150";
+    volumeSlider.dispatchEvent(new Event("input"));
+    expect(mockController.setVolume).toHaveBeenCalledWith(1.5);
+
+    const speedSlider = popover.querySelector(".live-overlay-speed-slider") as HTMLInputElement;
+    const speedValue = popover.querySelector(".live-overlay-speed-value") as HTMLElement;
+    expect(speedSlider.min).toBe("0");
+    expect(speedSlider.max).toBe("4");
+    expect(speedSlider.step).toBe("1");
+    expect(speedSlider.value).toBe("3");
+    expect(speedValue.textContent).toBe("1.25×");
+
+    speedSlider.value = "0";
+    speedSlider.dispatchEvent(new Event("input"));
+    expect(mockController.setSpeed).toHaveBeenCalledWith(0.5);
+    expect(onSpeedChange).toHaveBeenCalledWith(0.5);
+    expect(speedValue.textContent).toBe("0.5×");
+
+    mockController.getSpeed = () => 1.5;
+    overlay.syncState();
+    expect(speedSlider.value).toBe("4");
+    expect(speedValue.textContent).toBe("1.5×");
   });
 
   it("浮窗默认以微型状态胶囊出现，点击展开，点击最小化收回胶囊", () => {

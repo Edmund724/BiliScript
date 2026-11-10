@@ -23,10 +23,6 @@ export const MOSS_LIVE_PORT_NAME = "offscreen-moss-live";
 export const MAX_MOSS_RECONNECT_ATTEMPTS = 3;
 export const DEFAULT_MOSS_RECONNECT_DELAY_MS = 500;
 
-export const DEFAULT_LIVE_VOICE_SPEED = 1.0;
-export const LIVE_VOICE_SPEED_STEPS = [0.75, 1.0, 1.25, 1.5, 2.0] as const;
-export type LiveVoiceSpeed = (typeof LIVE_VOICE_SPEED_STEPS)[number];
-
 /** 上行麦克风音频采样率（16 kHz 单声道 S16LE） */
 export const MOSS_UPSTREAM_SAMPLE_RATE = 16000;
 /** 下行 AI 语音音频采样率（48 kHz 单声道 S16LE） */
@@ -515,6 +511,7 @@ export interface MossLiveDelegationRequest {
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
   | { kind: "session.updated"; error: string }
+  | { kind: "output.configured"; volumeDb?: number; speed?: number }
   | { kind: "transcript"; event: MossLiveTranscriptEvent }
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
   | { kind: "audio.done"; runId: string; turnId: string }
@@ -564,6 +561,15 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
     case "session.updated": {
       const error = readStr(data, obj, "error");
       return { kind: "session.updated", error };
+    }
+    case "media.output.configured": {
+      const volumeDb = data?.volume_db ?? obj.volume_db;
+      const speed = data?.speed ?? obj.speed;
+      return {
+        kind: "output.configured",
+        ...(typeof volumeDb === "number" && Number.isFinite(volumeDb) ? { volumeDb } : {}),
+        ...(typeof speed === "number" && Number.isFinite(speed) ? { speed } : {})
+      };
     }
     case "input.transcript.updated": {
       const text = readStr(data, obj, "text");
@@ -721,6 +727,7 @@ export type MossLiveServerEvent =
   | { type: "session_attached"; sessionId: string }
   | LiveReconnectingEvent
   | { type: "speaking_state"; speaking: boolean }
+  | { type: "output_configured"; volume: number; speed: number }
   | { type: "error"; error: string; code?: number | string; reason?: string }
   | { type: "closed"; code?: number; reason?: string; error?: string }
   | { type: "duck_video"; active: boolean }
