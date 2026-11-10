@@ -235,7 +235,7 @@ describe("MOSS Live 音色选择器与回退提示", () => {
 
   it("音色回退提示在设置里只出现一次（读取即清除）", async () => {
     await chrome.storage.local.set({
-      liveVoiceFallbackNotice: { providerId: "live_moss", voiceId: "voice-1", at: 1 }
+      liveVoiceFallbackNotice: { voiceId: "voice-1" }
     });
     const { host } = await mountPanel({
       "live-providers-list": () => ({ ok: true, providers: [MOSS_LIVE] })

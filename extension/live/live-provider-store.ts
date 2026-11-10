@@ -228,7 +228,8 @@ export async function listLiveVoices({
     }
 
     const nextCursor = typeof data?.next_cursor === "string" ? data.next_cursor.trim() : "";
-    if (data?.has_more !== true || !nextCursor || nextCursor === cursor) break;
+    // 有的分页实现只回 next_cursor 不带 has_more：以游标是否前进为准。
+    if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }
 

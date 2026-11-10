@@ -459,6 +459,44 @@ describe("OffscreenMossLiveClient", () => {
     expect(actions.filter((action) => action === "change_voice")).toHaveLength(1);
   });
 
+  it("treats a voice failure with a generic error code as a fallback, not a session error", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    client.handleAction({ action: "start", voiceId: "deleted-voice" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    // 服务端可能回通用错误码 + 音色相关错误信息
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "invalid_request", message: "音色不存在" }
+    }));
+
+    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
+    expect(onError).not.toHaveBeenCalled();
+    expect(client.getState()).toBe("connected");
+  });
+
+  it("keeps non-voice errors during the voice wait on the normal session error path", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError, reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", voiceId: "voice-1" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "internal_error", message: "server exploded" }
+    }));
+
+    expect(onVoiceFallback).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalled();
+  });
+
   it("sends change_voice mid-session so the next reply uses the new voice", () => {
     const client = new OffscreenMossLiveClient();
     client.handleAction({ action: "start" });

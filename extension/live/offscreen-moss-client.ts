@@ -51,7 +51,7 @@ export const DEFAULT_MOSS_PAGE_TOOL_TIMEOUT_MS = DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_
 export const DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS = DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS;
 // change_voice 的应答等待上限：到点未收到 voice_changed 仍继续发 session.update，
 // 不让音色握手拖住整条会话的可用性。
-export const DEFAULT_MOSS_VOICE_ACK_TIMEOUT_MS = 3000;
+const DEFAULT_MOSS_VOICE_ACK_TIMEOUT_MS = 3000;
 
 interface PendingAttach {
   callbacks: LiveWireRuntimeCallbacks;
@@ -272,10 +272,13 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
         });
         break;
 
-      case "error":
-        // 等待 change_voice 应答期间，仅音色相关（或无错误码）的 error 按音色
-        // 失败处理；其余错误不吞掉，走常规会话错误路径。
-        if (this.awaitingVoice && (!parsed.code || /voice/i.test(parsed.code))) {
+      case "error": {
+        // 等待 change_voice 应答期间，仅音色相关的 error 按音色失败处理（错误码
+        // 或错误信息命中其一即可，服务端两处的具体措辞未文档化）；其余错误不吞
+        // 掉，走常规会话错误路径。
+        const isVoiceError =
+          /voice/i.test(parsed.code) || /voice|音色/i.test(parsed.message);
+        if (this.awaitingVoice && isVoiceError) {
           // change_voice 失败（如音色已删）：回退默认音色、上报一次，再照常
           // session.update 让会话建立，不把整个会话判失败。
           const voiceId = this.awaitingVoice;
@@ -297,6 +300,7 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
           callbacks.failOrReconnectOnServerError(parsed.message, parsed.code);
         }
         break;
+      }
     }
   }
 
