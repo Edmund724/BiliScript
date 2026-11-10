@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import os from "node:os";
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import {
   CDP,
+  DEFAULT_DIST,
   REPO_ROOT,
   artifactDir,
   attachPage,
@@ -50,6 +52,19 @@ async function finishWithoutKey() {
   evidence.failed = evidence.checks.filter((item) => !item.ok).map((item) => item.name);
   await writeEvidence(OUT_DIR, evidence);
   process.exitCode = 1;
+}
+
+async function createLiveDist() {
+  const distDir = await mkdtemp(path.join(os.tmpdir(), "biliscript-gemini-dist-"));
+  await cp(DEFAULT_DIST, distDir, { recursive: true });
+  const manifestPath = path.join(distDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.host_permissions = [...new Set([
+    ...(manifest.host_permissions || []),
+    "https://generativelanguage.googleapis.com/*"
+  ])];
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+  return distDir;
 }
 
 async function installSubtitleFixtures(worker) {
@@ -132,6 +147,7 @@ async function installModelChannel(cdp) {
 }
 
 function toolNames(body) {
+  if (!body) return [];
   if (liveGemini) {
     return body.tools?.flatMap((tool) => tool.functionDeclarations?.map((declaration) => declaration.name) || []) || [];
   }
@@ -227,12 +243,14 @@ function findHistoricalResponse(body) {
 if (liveGemini && !geminiApiKey) {
   await finishWithoutKey();
 } else {
+  let distDir = DEFAULT_DIST;
   try {
-    await withBrowser({ autoplay: true }, async (context) => {
+    if (liveGemini) distDir = await createLiveDist();
+    await withBrowser({ autoplay: true, distDir }, async (context) => {
       const { browser } = context;
       const page = await attachPage(browser);
       context.cdps = [page.cdp];
-      const worker = createWorkerSession({ pageCdp: page.cdp, browser });
+      const worker = createWorkerSession({ pageCdp: page.cdp, browser, distDir });
       await worker.ensureAlive();
       await installSubtitleFixtures(worker);
       const extensionId = await worker.evaluate("chrome.runtime.id");
@@ -301,30 +319,26 @@ if (liveGemini && !geminiApiKey) {
         const input = document.getElementById("biliscript-reading-chat-input");
         input.value = ${JSON.stringify(prompt)};
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        globalThis.__historicalFrameAnswer = "";
-        globalThis.__historicalFrameAnswerError = false;
         const messages = document.getElementById("biliscript-reading-chat-messages");
-        const send = document.getElementById("biliscript-reading-chat-send-btn");
-        const initialAssistantCount = messages.querySelectorAll(".chat-msg-assistant").length;
-        const observer = new MutationObserver(() => {
-          const assistants = messages.querySelectorAll(".chat-msg-assistant");
-          const answer = assistants[assistants.length - 1];
-          const text = answer ? answer.innerText || answer.textContent || "" : "";
-          const hasError = Boolean(answer?.querySelector(".chat-msg-error"));
-          if (assistants.length > initialAssistantCount && answer && !send.classList.contains("is-stop") && (text.trim() || hasError)) {
-            globalThis.__historicalFrameAnswer = text;
-            globalThis.__historicalFrameAnswerError = hasError;
-            observer.disconnect();
-          }
-        });
-        observer.observe(messages, { childList: true, subtree: true, characterData: true });
-        observer.observe(send, { attributes: true, attributeFilter: ["class"] });
+        globalThis.__historicalFrameAssistantCount = messages.querySelectorAll(".chat-msg-assistant").length;
       })()`);
       await waitFor("字幕就绪且发送键可用", () => page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn')?.disabled === false"), { timeoutMs: 60000, intervalMs: 200 });
       await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
 
+      let completion;
       try {
-        await waitFor("历史帧工具对话完成", () => page.cdp.evaluate("Boolean(globalThis.__historicalFrameAnswer)"), { timeoutMs: 150000, intervalMs: 500 });
+        completion = await waitFor("历史帧工具对话完成", () => page.cdp.evaluate(`(() => {
+          const messages = document.getElementById("biliscript-reading-chat-messages");
+          const send = document.getElementById("biliscript-reading-chat-send-btn");
+          const assistants = messages.querySelectorAll(".chat-msg-assistant");
+          if (assistants.length <= globalThis.__historicalFrameAssistantCount || send.classList.contains("is-stop")) return false;
+          ${liveGemini ? "" : `if (!messages.textContent.includes("已结合字幕与历史画面作答")) return false;`}
+          const answer = assistants[assistants.length - 1];
+          const text = answer ? answer.innerText || answer.textContent || "" : "";
+          const hasError = Boolean(answer?.querySelector(".chat-msg-error"));
+          if (!text.trim() && !hasError) return false;
+          return { answer: text, error: hasError };
+        })()`), { timeoutMs: 150000, intervalMs: 500 });
       } catch (error) {
         const rawRequests = await offscreen.evaluate("globalThis.__historicalFrameRequests || []");
         evidence.diagnostics = {
@@ -350,8 +364,8 @@ if (liveGemini && !geminiApiKey) {
       for (const [index, image] of images.entries()) {
         await writeFile(path.join(OUT_DIR, `historical-frame-${index + 1}.jpg`), image.bytes);
       }
-      evidence.answer = await page.cdp.evaluate("globalThis.__historicalFrameAnswer");
-      evidence.answerError = await page.cdp.evaluate("globalThis.__historicalFrameAnswerError");
+      evidence.answer = completion.answer;
+      evidence.answerError = completion.error;
       evidence.player = await page.cdp.evaluate(`(() => {
         const player = document.querySelector("video");
         return {
@@ -362,6 +376,8 @@ if (liveGemini && !geminiApiKey) {
         };
       })()`);
 
+      check("模型请求已发出", requests.length > 0, { answer: evidence.answer, answerError: evidence.answerError });
+      if (!requests.length) return;
       check("首请求自主工具面包含当前帧与历史帧", toolNames(requests[0]).includes("capture_current_video_frame") && toolNames(requests[0]).includes("capture_video_frame_at_time"), toolNames(requests[0]));
       if (liveGemini) {
         const call = findHistoricalCall(requests);
@@ -387,6 +403,10 @@ if (liveGemini && !geminiApiKey) {
     });
   } catch (error) {
     check("场景无致命错误", false, { message: error.message, stack: String(error.stack || "").slice(0, 1200) });
+  } finally {
+    if (liveGemini && distDir !== DEFAULT_DIST) {
+      await rm(distDir, { recursive: true, force: true });
+    }
   }
 
   evidence.failed = evidence.checks.filter((item) => !item.ok).map((item) => item.name);

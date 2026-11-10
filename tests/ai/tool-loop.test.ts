@@ -898,7 +898,8 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
                         name: "web_search",
                         args: { query: "gemini vitest" },
                         id: "call_gemini_1"
-                      }
+                      },
+                      thoughtSignature: "sig_gemini_tool"
                     }
                   ]
                 },
@@ -961,7 +962,9 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
     expect(r2Contents).toHaveLength(3);
     expect(r2Contents[0].role).toBe("user");
     expect(r2Contents[1].role).toBe("model");
-    expect(r2Contents[1].parts[0].functionCall.name).toBe("web_search");
+    const functionCallPart = r2Contents[1].parts.find((part: any) => part.functionCall);
+    expect(functionCallPart.functionCall.name).toBe("web_search");
+    expect(functionCallPart.thoughtSignature).toBe("sig_gemini_tool");
     expect(r2Contents[2].role).toBe("user");
     expect(r2Contents[2].parts[0].functionResponse.name).toBe("web_search");
   });

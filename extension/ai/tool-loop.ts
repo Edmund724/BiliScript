@@ -251,10 +251,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       return typeof result === "string" ? result : finalText;
     }
 
-    const { finishReason, assistantContent, toolCalls } = result as {
+    const { finishReason, assistantContent, toolCalls, thoughtSignature } = result as {
       finishReason: string | null;
       assistantContent: string;
       toolCalls: ChatToolCall[];
+      thoughtSignature?: string;
     };
     if (finishReason !== "tool_calls") {
       return typeof result === "string" ? result : finalText;
@@ -266,7 +267,8 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     const assistantMessage: ChatMessage = {
       role: "assistant",
       content: assistantContent || "",
-      tool_calls: toolCalls
+      tool_calls: toolCalls,
+      ...(thoughtSignature ? { thoughtSignature } : {})
     };
     const toolMessages: ChatMessage[] = [];
     const frameMessages: ChatMessage[] = [];
