@@ -1190,3 +1190,114 @@ describe("LiveChatController video context and page tools", () => {
   });
 
 });
+
+describe("LiveChatController 音色选择", () => {
+  function installLiveStorage(voiceId: string) {
+    const localStore: Record<string, unknown> = { liveProviderKeys: { live_moss: "sk-moss" } };
+    const syncStore: Record<string, unknown> = {
+      activeLiveProviderId: "live_moss",
+      liveProviders: [
+        {
+          id: "live_moss",
+          presetId: "moss-live",
+          name: "MOSS Live",
+          type: "moss-live",
+          baseUrl: "https://api.mosi.cn",
+          model: "moss-live-1.0",
+          enabled: true,
+          ...(voiceId ? { voiceId } : {})
+        }
+      ]
+    };
+    const pick = (store: Record<string, unknown>, keys: unknown): Record<string, unknown> => {
+      const names = Array.isArray(keys) ? keys : typeof keys === "string" ? [keys] : Object.keys(store);
+      const out: Record<string, unknown> = {};
+      for (const key of names) {
+        if (key in store) out[key] = store[key];
+      }
+      return out;
+    };
+    vi.stubGlobal("chrome", {
+      storage: {
+        sync: {
+          get: vi.fn(async (keys: unknown) => pick(syncStore, keys)),
+          set: vi.fn(async (items: Record<string, unknown>) => Object.assign(syncStore, items))
+        },
+        local: {
+          get: vi.fn(async (keys: unknown) => pick(localStore, keys)),
+          set: vi.fn(async (items: Record<string, unknown>) => Object.assign(localStore, items)),
+          remove: vi.fn(async (key: string) => {
+            delete localStore[key];
+          })
+        }
+      }
+    });
+    return { localStore, syncStore };
+  }
+
+  function setupVoiceController() {
+    const fakePort = new FakePort();
+    const showNotice = vi.fn();
+    const controller = createLiveChatController({
+      liveButton: document.createElement("button"),
+      showNotice,
+      connectPort: () => fakePort as any,
+      requestOrigins: async () => ({ ok: true }),
+      sendRuntimeMessage: (async (msg: any) =>
+        msg.type === "live-session-prepare"
+          ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
+          : { ok: true }) as any,
+      startAudioCapture: async (options) => new FakeAudioCapture(options)
+    });
+    return { controller, fakePort, showNotice };
+  }
+
+  it("把 provider 的音色带进会话启动消息", async () => {
+    installLiveStorage("voice-1");
+    const { controller, fakePort } = setupVoiceController();
+    await controller.refreshTarget();
+    await controller.start();
+
+    expect(fakePort.postedMessages[0]).toMatchObject({
+      action: "start",
+      voiceId: "voice-1"
+    });
+  });
+
+  it("通话中改音色直接向 offscreen 下发 change_voice（下一轮回答生效）", async () => {
+    const { syncStore } = installLiveStorage("voice-1");
+    const { controller, fakePort } = setupVoiceController();
+    await controller.refreshTarget();
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.postedMessages.length = 0;
+
+    syncStore.liveProviders = [
+      { ...(syncStore.liveProviders as any[])[0], voiceId: "voice-2" }
+    ];
+    await controller.refreshTarget();
+
+    expect(fakePort.postedMessages).toEqual([{ action: "change_voice", voiceId: "voice-2" }]);
+  });
+
+  it("音色失效时回退默认音色、清掉选择并留下一次性设置提示", async () => {
+    const { localStore, syncStore } = installLiveStorage("deleted-voice");
+    const { controller, fakePort, showNotice } = setupVoiceController();
+    await controller.refreshTarget();
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+
+    fakePort.simulateMessage({ type: "voice_fallback", voiceId: "deleted-voice" });
+
+    expect(showNotice).toHaveBeenCalledWith("所选音色已不可用，伴看已回退默认音色", 6000);
+    await vi.waitFor(() => {
+      expect(localStore.liveVoiceFallbackNotice).toMatchObject({
+        providerId: "live_moss",
+        voiceId: "deleted-voice"
+      });
+    });
+    await vi.waitFor(() => {
+      expect((syncStore.liveProviders as Array<{ voiceId?: string }>)[0]?.voiceId).toBeUndefined();
+    });
+  });
+});

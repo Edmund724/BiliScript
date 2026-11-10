@@ -31,6 +31,8 @@ export interface LiveProvider {
   enabled: boolean;
   apiKey?: string;
   liveGeminiNativeSearch?: boolean;
+  // 会话音色（仅 MOSS-LIVE）：音色列表返回的 voice id，空/缺省 = 平台默认音色。
+  voiceId?: string;
 }
 
 function isGeminiLive(value: { type?: unknown; presetId?: unknown }): boolean {
@@ -46,6 +48,7 @@ export function normalizeLiveProvider(item: unknown): LiveProvider | null {
   const type = String(raw.type || "").trim() || (presetId === "gemini-live" ? "gemini-live" : "moss-live");
   if (!LIVE_PROVIDER_TYPES.has(type)) return null;
   const gemini = type === "gemini-live";
+  const voiceId = String(raw.voiceId || "").trim();
   return {
     id,
     presetId: presetId || (gemini ? "gemini-live" : "moss-live"),
@@ -54,7 +57,8 @@ export function normalizeLiveProvider(item: unknown): LiveProvider | null {
     baseUrl: normalizeBaseUrl(raw.baseUrl) || (gemini ? "https://generativelanguage.googleapis.com" : "https://api.mosi.cn"),
     model: String(raw.model || "").trim() || (gemini ? GEMINI_LIVE_DEFAULT_MODEL : DEFAULT_LIVE_MODEL),
     enabled: raw.enabled !== false,
-    ...(gemini && typeof raw.liveGeminiNativeSearch === "boolean" ? { liveGeminiNativeSearch: raw.liveGeminiNativeSearch } : {})
+    ...(gemini && typeof raw.liveGeminiNativeSearch === "boolean" ? { liveGeminiNativeSearch: raw.liveGeminiNativeSearch } : {}),
+    ...(voiceId ? { voiceId } : {})
   };
 }
 
@@ -139,8 +143,99 @@ export function resolveLiveModelsUrl(baseUrl: string, type?: string): string {
   return `${normalized}/v1/models`;
 }
 
-export interface ListLiveModelsOptions {
+// ===== 平台音色库（MOSS-LIVE 音色选择器）=====
+// GET /v1/audio/voices 分页取全（limit 上限 150，after=next_cursor）；只有
+// name 有展示意义，空名回落 id。音色列表是账号级数据，凭证与模型列表同源
+//（草稿 Key 优先，其次该 provider 已存 Key）。
+
+export const LIVE_VOICES_PAGE_SIZE = 150;
+const LIVE_VOICES_MAX_PAGES = 20;
+
+export interface LiveVoice {
+  id: string;
+  name: string;
+}
+
+export interface ListLiveVoicesOptions {
   baseUrl?: string;
+  apiKey?: string;
+  providerId?: string;
+}
+
+export type ListLiveVoicesResult =
+  | { ok: true; voices: LiveVoice[] }
+  | { ok: false; error: string };
+
+export function resolveLiveVoicesUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (!normalized) return "";
+  if (/\/v1\/audio\/voices$/i.test(normalized)) return normalized;
+  if (/\/audio\/voices$/i.test(normalized)) return normalized;
+  if (/\/v1\/realtime$/i.test(normalized)) {
+    return normalized.replace(/\/v1\/realtime$/i, "/v1/audio/voices");
+  }
+  if (/\/realtime$/i.test(normalized)) {
+    return normalized.replace(/\/realtime$/i, "/v1/audio/voices");
+  }
+  if (/\/v1$/i.test(normalized)) return `${normalized}/audio/voices`;
+  return `${normalized}/v1/audio/voices`;
+}
+
+export async function listLiveVoices({
+  baseUrl,
+  apiKey,
+  providerId
+}: ListLiveVoicesOptions = {}): Promise<ListLiveVoicesResult> {
+  const voicesUrl = resolveLiveVoicesUrl(baseUrl || "");
+  if (!voicesUrl) return { ok: false, error: "请先填写 baseUrl" };
+
+  const resolvedApiKey = await liveProviderStore.resolveDraftApiKey(apiKey, providerId);
+  if (!resolvedApiKey) return { ok: false, error: "请先填写 API Key" };
+
+  const headers = { Accept: "application/json", Authorization: `Bearer ${resolvedApiKey}` };
+  const voices: LiveVoice[] = [];
+  const seen = new Set<string>();
+  let cursor = "";
+
+  for (let page = 0; page < LIVE_VOICES_MAX_PAGES; page += 1) {
+    const pageUrl = `${voicesUrl}?limit=${LIVE_VOICES_PAGE_SIZE}${
+      cursor ? `&after=${encodeURIComponent(cursor)}` : ""
+    }`;
+    let resp: Response;
+    try {
+      resp = await providerFetchViaBackground(pageUrl, { method: "GET", headers });
+    } catch (error) {
+      return { ok: false, error: `网络错误: ${(error as Error).message}` };
+    }
+    if (!resp.ok) return { ok: false, error: await formatProbeHttpError(resp) };
+
+    let data: {
+      data?: Array<{ id?: unknown; name?: unknown }>;
+      has_more?: unknown;
+      next_cursor?: unknown;
+    } | null;
+    try {
+      data = await resp.json();
+    } catch {
+      return { ok: false, error: "返回内容不是合法 JSON" };
+    }
+
+    for (const item of Array.isArray(data?.data) ? data.data : []) {
+      const id = String(item?.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      voices.push({ id, name: String(item?.name || "").trim() || id });
+    }
+
+    const nextCursor = typeof data?.next_cursor === "string" ? data.next_cursor.trim() : "";
+    if (data?.has_more !== true || !nextCursor || nextCursor === cursor) break;
+    cursor = nextCursor;
+  }
+
+  return { ok: true, voices };
+}
+
+export interface ListLiveModelsOptions {  baseUrl?: string;
   apiKey?: string;
   providerId?: string;
   type?: string;

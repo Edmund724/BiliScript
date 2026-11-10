@@ -13,6 +13,17 @@ const GEMINI_LIVE = {
   hasSavedKey: false
 };
 
+const MOSS_LIVE = {
+  id: "live_moss",
+  presetId: "moss-live",
+  name: "MOSS Live",
+  type: "moss-live",
+  baseUrl: "https://api.mosi.cn",
+  model: "moss-live-1.0",
+  enabled: true,
+  hasSavedKey: true
+};
+
 const GEMINI_AI = {
   id: "p_gemini",
   presetId: "gemini",
@@ -172,5 +183,73 @@ describe("设置面板 Gemini Live 凭据引用", () => {
       providers?: Array<{ liveGeminiNativeSearch?: boolean }>;
     };
     expect(saveMsg?.providers?.[0]?.liveGeminiNativeSearch).toBe(true);
+  });
+});
+
+describe("MOSS Live 音色选择器与回退提示", () => {
+  it("打开编辑 Modal 时取一次音色列表，选项显示 name（空名回退 id），保存按 provider 落盘", async () => {
+    await chrome.storage.local.set({ liveProviderKeys: { live_moss: "sk-moss" } });
+    const { host, sent } = await mountPanel({
+      "live-providers-list": () => ({ ok: true, providers: [MOSS_LIVE] }),
+      "provider-http": () => ({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({
+          data: [
+            { id: "voice-1", name: "Alice" },
+            { id: "voice-2", name: "" }
+          ],
+          has_more: false
+        })
+      })
+    });
+
+    click(host.querySelector("#liveProvidersList .provider-row-edit"));
+    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const voice = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice")!;
+    await vi.waitFor(() => expect(voice.options).toHaveLength(3));
+
+    expect(Array.from(voice.options).map((option) => option.textContent)).toEqual([
+      "默认音色",
+      "Alice",
+      "voice-2"
+    ]);
+    voice.value = "voice-1";
+    voice.dispatchEvent(new Event("change", { bubbles: true }));
+
+    click(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "live-providers-save")).toBe(true);
+    });
+
+    const saveMessage = sent.find((message) => message.type === "live-providers-save") as {
+      providers?: Array<{ voiceId?: string }>;
+    };
+    expect(saveMessage.providers?.[0]?.voiceId).toBe("voice-1");
+    const requests = sent.filter((message) => message.type === "provider-http");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("https://api.mosi.cn/v1/audio/voices?limit=150");
+    expect(requests[0]?.headers).toMatchObject({ authorization: "Bearer sk-moss" });
+  });
+
+  it("音色回退提示在设置里只出现一次（读取即清除）", async () => {
+    await chrome.storage.local.set({
+      liveVoiceFallbackNotice: { providerId: "live_moss", voiceId: "voice-1", at: 1 }
+    });
+    const { host } = await mountPanel({
+      "live-providers-list": () => ({ ok: true, providers: [MOSS_LIVE] })
+    });
+
+    const hint = host.querySelector<HTMLElement>("#liveVoiceFallbackHint")!;
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe("所选音色已不可用，伴看已回退默认音色。");
+    const stored = await chrome.storage.local.get(["liveVoiceFallbackNotice"]);
+    expect(stored.liveVoiceFallbackNotice).toBeUndefined();
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    await vi.waitFor(() => expect(hint.hidden).toBe(true));
+    expect(hint.textContent).toBe("");
   });
 });

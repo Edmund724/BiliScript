@@ -20,7 +20,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
-import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
+import { listLiveModels, listLiveVoices, testLiveConnection } from "../live/live-provider-store.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -42,11 +42,13 @@ import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
   beginEditorSession,
+  applyEditorVoices,
   captureSession,
   draftsEqual,
   editDraft,
   endEditorSession,
   getDialog,
+  markEditorVoicesLoaded,
   normalizeDraftModels,
   runIfCurrent,
   sessionObserver,
@@ -111,6 +113,41 @@ const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamily
     probePlatform: testLiveConnection
   }
 };
+
+// ===== 音色列表（MOSS-LIVE 编辑器下拉）=====
+// 只在打开 Modal 时取一次（失败也记为已尝试），选项来自 /v1/audio/voices 分页
+// 全量；凭证与模型列表同源（草稿 Key 优先，其次该 provider 的已存 Key）。
+function isMossLivePreset(preset: { id?: string; type?: string } | null | undefined): boolean {
+  return preset?.type === "moss-live" || preset?.id === "moss-live";
+}
+
+function primeEditorVoices(): void {
+  if (state.kind !== "live" || state.voicesLoaded) return;
+  const draft = state.draft;
+  if (!draft) return;
+  const preset = PROVIDER_FAMILY_ROWS.live.resolvePreset(state.presets, draft.presetId);
+  if (!isMossLivePreset(preset)) return;
+  const baseUrl = draft.baseUrl.trim();
+  const apiKey = draft.apiKey.trim();
+  // 新增平台尚未填 Key 时无从鉴权：下拉只留「默认音色」，不发起请求
+  if (!baseUrl || (!apiKey && !state.hasSavedKey)) return;
+  void runIfCurrent(
+    () => listLiveVoices({ baseUrl, apiKey, providerId: state.editingId }),
+    {
+      ok: (result) => {
+        if (!result.ok) {
+          markEditorVoicesLoaded();
+          return;
+        }
+        applyEditorVoices(result.voices);
+        renderProjection();
+      },
+      fail: () => {
+        markEditorVoicesLoaded();
+      }
+    }
+  );
+}
 
 // 状态行写入口（ASR 平台级测试 / 测试模型下拉与保存共用；错误态着色走
 // data-error，与平铺行 .ai-provider-status 的 CSS 契约同款）
@@ -214,6 +251,7 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     models: normalizeDraftModels(draft.models),
     model: draft.model.trim(),
     liveGeminiNativeSearch: draft.liveGeminiNativeSearch === true,
+    voiceId: String(draft.voiceId || "").trim(),
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
     protocol: normalizeProtocolValue(draft.protocol)
   });
@@ -471,7 +509,8 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
     // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
     models: isAi && Array.isArray(item?.models) ? item.models.map(String) : [],
     model: isAi ? "" : String(item?.model ?? preset?.model ?? ""),
-    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false
+    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false,
+    voiceId: options.kind === "live" ? String(item?.voiceId || "") : ""
   };
 }
 
@@ -484,7 +523,8 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const blocks = projectionBlocks(draft, {
     kind: options.kind,
     presets: options.presets,
-    hasSavedKey: Boolean(item?.hasSavedKey)
+    hasSavedKey: Boolean(item?.hasSavedKey),
+    voices: state.voices
   });
   const isAi = options.kind === "ai";
   const isSearch = options.kind === "search";
@@ -528,6 +568,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         </div>`
             : `
         ${blocks.model}
+        ${blocks.voice}
         ${blocks.liveGeminiNativeSearch}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
@@ -691,6 +732,8 @@ export function wireDialog(): void {
     clearStatus();
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
     refreshModelCatalogMeta();
+    // 切到 MOSS-LIVE 时按本次会话首次取音色列表（已取过则 no-op）
+    primeEditorVoices();
   });
   if (presetSelect) {
     // AI / ASR 一律接管（ADR-0007）：原生 select 的弹层由浏览器绘制，圆角与
@@ -739,6 +782,18 @@ export function wireDialog(): void {
       editDraft((draft) => {
         draft.liveGeminiNativeSearch = geminiSearchInput.checked;
       });
+    });
+  }
+
+  // 音色下拉（仅 MOSS-LIVE 渲染）：选值写 draft，保存时按 provider 落盘
+  const voiceSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice");
+  if (voiceSelect) {
+    initCustomSelect(voiceSelect, "custom-select-wrapper provider-editor-voice-wrapper");
+    voiceSelect.addEventListener("change", () => {
+      editDraft((draft) => {
+        draft.voiceId = voiceSelect.value;
+      });
+      clearStatus();
     });
   }
 
@@ -859,6 +914,7 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   //（含 required 挂摘、Key 占位符等）统一落到 DOM，随后联动只调 renderProjection
   renderProjection();
   wireDialog();
+  primeEditorVoices();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是

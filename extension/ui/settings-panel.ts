@@ -47,6 +47,10 @@ import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-famil
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
+import {
+  LIVE_VOICE_FALLBACK_NOTICE_TEXT,
+  takeLiveVoiceFallbackNotice
+} from "../live/live-voice-fallback-notice.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
@@ -127,6 +131,7 @@ function collectElements(host: HTMLElement) {
     addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
     liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
     liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
+    liveVoiceFallbackHint: byIdIn<HTMLElement>(dom.liveVoiceFallbackHint),
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
@@ -476,6 +481,8 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
     annotateAiCredentialRows("live", liveProviders, providers),
     settings.activeLiveProviderId
   );
+  // 音色回退提示：会话侧写入的一次性信箱，读到即清（设置里只出现一次）
+  await syncLiveVoiceFallbackHint(elements);
 
   const asrProviders = await loadAsrProviders();
   renderActiveRadioFamily("asr", elements, asrProviders, settings.activeAsrProviderId);
@@ -629,6 +636,15 @@ function loadSearchProviders(): Promise<ProviderRowItem[]> {
 
 function loadLiveProviders(): Promise<ProviderRowItem[]> {
   return loadProviderRows(() => sendRuntimeMessage({ type: "live-providers-list" }));
+}
+
+// 音色回退提示（仅一次）：信箱内容在读取时清除，重开设置不再重复出现。
+async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
+  const notice = await takeLiveVoiceFallbackNotice();
+  const hint = elements.liveVoiceFallbackHint;
+  if (!hint) return;
+  hint.textContent = notice ? LIVE_VOICE_FALLBACK_NOTICE_TEXT : "";
+  hint.hidden = !notice;
 }
 
 // ===== provider 各族分派表 =====

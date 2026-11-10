@@ -27,6 +27,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   addAiProviderBtn: "addAiProviderBtn",
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
+  liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
   liveLowBandwidth: "liveLowBandwidth",
   asrProvidersList: "asrProvidersList",
@@ -110,6 +111,7 @@ export function buildSettingsHtml(): string {
           </label>
         </div>
       </div>
+      <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
 
     </section>
 
