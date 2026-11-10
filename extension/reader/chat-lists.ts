@@ -26,6 +26,9 @@ import { chatSessionState } from "../chat/chat-state.js";
 import { extractBvid } from "../bilibili/video-id-shared.js";
 import { state } from "../core/state.js";
 import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
+import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import { renderLiveTextToolRecordHtml } from "./chat-live-text-records.js";
+import { hydrateMarkdownContent } from "../ui/markdown.js";
 
 export interface CreateReaderChatListsDeps {
   historyList: HTMLElement;
@@ -96,6 +99,8 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     );
   }
 
+  let openLiveHistoryId: string | null = null;
+
   function renderHistoryList(): void {
     if (!historyList) {
       return;
@@ -104,9 +109,37 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       historyClearBtn.hidden = chatSessionState.savedConversations.length === 0;
     }
     if (!chatSessionState.savedConversations.length) {
-      historyList.innerHTML = '<span class="chat-history-empty">还没有历史对话</span>';
+      openLiveHistoryId = null;
+      historyList.innerHTML = '<span class="chat-history-empty">还没有历史记录</span>';
       return;
     }
+
+    const selected = chatSessionState.savedConversations.find((item) => item.id === openLiveHistoryId);
+    if (isLiveTextToolHistoryEntry(selected)) {
+      const metaText = `${formatConversationTimestamp(selected.updatedAt || selected.createdAt)} · ${selected.records.length} 条记录`;
+      historyList.innerHTML = `
+        <section class="chat-live-history-detail" aria-label="伴看记录">
+          <button type="button" class="chat-live-history-back">返回历史列表</button>
+          <div class="chat-live-history-heading">
+            <span class="chat-live-history-title">${escapeHtml(selected.title)}</span>
+            <span class="chat-live-history-meta">${escapeHtml(metaText)}</span>
+          </div>
+          <div class="chat-live-history-records">
+            ${selected.records.map((record) => renderLiveTextToolRecordHtml(record, { readOnly: true })).join("")}
+          </div>
+        </section>`;
+      hydrateMarkdownContent(historyList);
+      historyList.querySelector(".chat-live-history-back")?.addEventListener("click", () => {
+        const returnId = openLiveHistoryId;
+        openLiveHistoryId = null;
+        renderHistoryList();
+        historyList.querySelectorAll<HTMLButtonElement>(".chat-history-open").forEach((button) => {
+          if (button.dataset.id === returnId) button.focus();
+        });
+      });
+      return;
+    }
+    openLiveHistoryId = null;
 
     const liveVideoRef = chatSessionState.liveContextData?.isVideoContext ? chatSessionState.liveContextData : null;
     const canHighlightLiveMatches = Boolean(
@@ -118,24 +151,28 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
 
     historyList.innerHTML = chatSessionState.savedConversations
       .map((conversation) => {
-        const isActive = conversation.id === chatSessionState.currentConversationId;
+        const liveEntry = isLiveTextToolHistoryEntry(conversation) ? conversation : null;
+        const isActive = !liveEntry && conversation.id === chatSessionState.currentConversationId;
         const isLiveMatch = Boolean(
+          !liveEntry &&
           !isActive &&
           canHighlightLiveMatches &&
           doesConversationMatchCurrentContext(conversation, liveVideoRef, chatSessionState.liveContextKey)
         );
-        const metaText = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
+        const timestamp = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
+        const metaText = liveEntry ? `${timestamp} · ${liveEntry.records.length} 条记录` : timestamp;
         const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
         return `
           <div class="chat-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""}" data-id="${escapeHtml(conversation.id)}">
             <button type="button" class="chat-history-open" data-id="${escapeHtml(conversation.id)}">
               <span class="chat-history-title" title="${escapeHtml(conversation.title)}">
+                ${liveEntry ? '<span class="chat-history-kind">伴看记录</span>' : ""}
                 <span class="chat-history-title-main">${escapeHtml(titleDisplay.main)}</span>
                 ${titleDisplay.suffix ? `<span class="chat-history-title-suffix">${escapeHtml(titleDisplay.suffix)}</span>` : ""}
               </span>
               <span class="chat-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
             </button>
-            <button type="button" class="chat-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话">×</button>
+            <button type="button" class="chat-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="${liveEntry ? "删除伴看记录" : "删除历史对话"}">×</button>
           </div>
         `;
       })
@@ -144,6 +181,14 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     historyList.querySelectorAll(".chat-history-open").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = String(btn.getAttribute("data-id") || "");
+        const conversation = chatSessionState.savedConversations.find((item) => item.id === id);
+        if (isLiveTextToolHistoryEntry(conversation)) {
+          openLiveHistoryId = id;
+          renderHistoryList();
+          historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus();
+          return;
+        }
+        openLiveHistoryId = null;
         deps.applyById(id);
         deps.hideHistoryPopover();
       });

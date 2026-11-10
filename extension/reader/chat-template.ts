@@ -35,7 +35,7 @@ export function buildChatTabBodyHtml(): string {
                 <path d="m15 18-6-6 6-6"></path>
               </svg>
             </button>
-            <span class="chat-history-popover-title">历史对话</span>
+            <span class="chat-history-popover-title">历史记录</span>
             <button id="${ids.readingChatHistoryClearBtn}" type="button" class="chat-history-clear-btn">清空全部</button>
           </div>
           <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
@@ -62,6 +62,7 @@ export function buildChatTabBodyHtml(): string {
             <button type="button" data-live-status-action="settings">伴看设置</button>
             <button type="button" data-live-status-action="stop" hidden>结束</button>
           </div>
+          <div class="chat-live-tool-records" hidden></div>
         </section>
         <main class="chat-messages" id="${ids.readingChatMessages}">
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>

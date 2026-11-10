@@ -1015,7 +1015,7 @@ export class OffscreenLiveSessionRuntime {
           { ok: false, error },
           this.transport
         );
-        this.emit({ type: "tool_error", error });
+        this.emit({ type: "tool_error", error, callId: call.callId });
       }, timeoutMs)
     };
 

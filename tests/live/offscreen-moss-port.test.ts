@@ -464,7 +464,9 @@ describe("attachMossLivePort subtitle tool bridge", () => {
       expect(ws.sentData).toHaveLength(0);
       expect(port.postedMessages).toContainEqual({
         type: "tool_error",
-        error: "页面工具执行超时，请稍后重试"
+        error: "页面工具执行超时，请稍后重试",
+        callId: "call-timeout"
+
       });
       expect(client.getState()).toBe("connected");
     } finally {

@@ -6,6 +6,11 @@ import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-share
 import type { AiContext } from "./types.js";
 export type { AiContext };
 import type { ChapterItem, HotComment, ImagePart } from "./types.js";
+import {
+  isLiveTextToolHistoryEntry,
+  normalizeLiveTextToolHistoryEntry,
+  type LiveTextToolHistoryEntry
+} from "../live/live-text-tool-history.js";
 
 export const MAX_SAVED_CONVERSATIONS = 60;
 
@@ -118,14 +123,18 @@ interface NormalizedConversation {
   updatedAt: number;
   contextRef: AiContext;
   messages: ConversationMessage[];
+  [key: string]: unknown;
 }
 
-export function normalizeConversations(value: unknown): NormalizedConversation[] {
+export function normalizeConversations(value: unknown): Array<NormalizedConversation | LiveTextToolHistoryEntry> {
   if (!Array.isArray(value)) {
     return [];
   }
   return value
     .map((item) => {
+      if (isLiveTextToolHistoryEntry(item)) {
+        return normalizeLiveTextToolHistoryEntry(item);
+      }
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
@@ -172,7 +181,7 @@ export function normalizeConversations(value: unknown): NormalizedConversation[]
         messages
       };
     })
-    .filter((item): item is NormalizedConversation => Boolean(item))
+    .filter((item): item is NormalizedConversation | LiveTextToolHistoryEntry => Boolean(item))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, MAX_SAVED_CONVERSATIONS);
 }
@@ -312,11 +321,11 @@ export function formatConversationTimestamp(value: unknown): string {
 // ============ 匹配 / 比较 ============
 
 export function doesConversationMatchCurrentContext(
-  conversation: { contextKey?: unknown; contextRef?: unknown; contextUrl?: unknown } | null | undefined,
+  conversation: { kind?: unknown; contextKey?: unknown; contextRef?: unknown; contextUrl?: unknown } | null | undefined,
   currentRef: AiContext | null | undefined,
   targetContextKey = ""
 ): boolean {
-  if (!conversation) {
+  if (!conversation || isLiveTextToolHistoryEntry(conversation)) {
     return false;
   }
   const normalizedConversationKey = resolveConversationStorageKey(

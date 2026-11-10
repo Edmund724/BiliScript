@@ -33,6 +33,7 @@ import {
   type LiveOverlayControllerHooks
 } from "./live-overlay-binding.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import { persistLiveTextToolRecord } from "./live-text-tool-history-storage.js";
 
 export interface LiveSessionConsumerHooks {
   showNotice?: (message: string, autoHideMs?: number) => void;
@@ -175,6 +176,7 @@ export function ensureLiveController(): LiveChatController {
       showNotice: notifyConsumer,
       getVideoContext: liveToolsBridge.getVideoContext,
       executeTool: liveToolsBridge.executeTool,
+      persistTextToolRecord: (record) => persistLiveTextToolRecord(record),
       subscribeVideoContextChanges: (listener) => {
         const unsubscribePresenter = subscribeReaderPresenter((event) => {
           if (

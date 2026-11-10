@@ -251,6 +251,14 @@ const liveStatus = createChatLiveStatus({
   root: els.liveStatus,
   getState: () => getLiveController()?.getState() ?? "idle",
   isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
+  getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
+  subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
+  onRetryTextToolRecord: (callId) => {
+    getLiveController()?.retryTextToolRecord?.(callId);
+  },
+  onContinueTextToolRecord: (callId) => {
+    getLiveController()?.dismissTextToolRecord?.(callId);
+  },
   onStart: () => {
     void startLiveCompanion();
   },

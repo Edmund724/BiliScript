@@ -5,10 +5,12 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import type { TestState } from "./reader-test-env.js";
+import { createLiveTextToolRecordStore } from "../../extension/live/live-text-tool-records.js";
 
 const liveHarness = vi.hoisted(() => ({
   deps: null as any,
   controller: null as any,
+  records: null as any,
   state: "idle",
   reconnecting: false,
   emit: (_state: string, _error?: string, _failureKind?: string, _reconnecting?: boolean) => {}
@@ -24,6 +26,8 @@ vi.mock("../../extension/live/live-chat-controller.js", () => ({
     liveHarness.deps = deps;
     liveHarness.state = "idle";
     liveHarness.reconnecting = false;
+    const records = createLiveTextToolRecordStore();
+    liveHarness.records = records;
     liveHarness.emit = (state, error, failureKind, reconnecting = false) => {
       liveHarness.state = state;
       liveHarness.reconnecting = reconnecting;
@@ -35,6 +39,22 @@ vi.mock("../../extension/live/live-chat-controller.js", () => ({
     liveHarness.controller = {
       getState: () => liveHarness.state,
       isReconnecting: () => liveHarness.reconnecting,
+      getTextToolRecords: records.getSnapshot,
+      subscribeTextToolRecords: records.subscribe,
+      retryTextToolRecord: vi.fn((callId: string) => {
+        const record = records.getSnapshot().find((item) => item.callId === callId);
+        if (record?.status !== "failed") return false;
+        records.apply({
+          type: "started",
+          callId,
+          source: record.source,
+          objective: record.objective,
+          startedAt: Date.now(),
+          retry: true
+        });
+        return true;
+      }),
+      dismissTextToolRecord: vi.fn((callId: string) => records.apply({ type: "dismissed", callId })),
       isMuted: () => false,
       isSpeaking: () => false,
       isMicVadActive: () => false,
@@ -121,6 +141,7 @@ beforeEach(async () => {
   ports.length = 0;
   liveHarness.deps = null;
   liveHarness.controller = null;
+  liveHarness.records = null;
   liveHarness.state = "idle";
   liveHarness.reconnecting = false;
   shellHarness.enter.mockClear();
@@ -355,6 +376,101 @@ describe("AI 对话实时伴看状态区", () => {
     await chat.ensureChatTabActivated();
     expect(statusElement().hidden).toBe(false);
     expect(statusElement().dataset.state).toBe("connected");
+    expect(shellHarness.ensure).not.toHaveBeenCalled();
+    expect(liveHarness.controller.start).not.toHaveBeenCalled();
+  });
+
+  it("两类来源在稳定状态区显示统一记录，完整 Markdown 可展开且不影响普通消息与发送闸", async () => {
+    await activateChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const chatState = await import("../../extension/chat/chat-state.js");
+    input.value = "普通问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(ports).toHaveLength(1));
+    const history = [...chatState.chatSessionState.chatHistory];
+    const messageHtml = messages.innerHTML;
+    const postCount = ports[0].postMessage.mock.calls.length;
+    const records = liveHarness.records;
+
+    records.apply({ type: "started", callId: "gemini-1", source: "gemini", objective: "回答跨片段问题", startedAt: Date.now() - 1250 });
+    records.apply({ type: "progress", callId: "gemini-1", summary: "生成中的摘要", markdown: "生成中的摘要" });
+    records.apply({ type: "started", callId: "moss-1", source: "moss", objective: "生成全片总结", startedAt: Date.now() - 800 });
+    records.apply({
+      type: "completed",
+      callId: "gemini-1",
+      summary: "Gemini 结果摘要",
+      markdown: "# 完整分析\n\n**关键结论**",
+      endedAt: Date.now()
+    });
+    records.apply({
+      type: "completed",
+      callId: "moss-1",
+      summary: "MOSS 结果摘要",
+      markdown: "# 全片概览\n\n完整内容",
+      endedAt: Date.now()
+    });
+    records.apply({
+      type: "completed",
+      callId: "moss-1",
+      summary: "MOSS 结果摘要",
+      markdown: "# 全片概览\n\n完整内容",
+      endedAt: Date.now()
+    });
+
+    const root = statusElement().querySelector<HTMLElement>(".chat-live-tool-records") as HTMLElement;
+    const items = root.querySelectorAll<HTMLElement>("[data-live-tool-record]");
+    expect(items).toHaveLength(2);
+    expect(root.textContent).toContain("Gemini · 视频分析");
+    expect(root.textContent).toContain("MOSS · 视频分析");
+    expect(root.textContent).toContain("回答跨片段问题");
+    expect(root.textContent).toContain("生成全片总结");
+    expect(root.textContent).toContain("Gemini 结果摘要");
+    expect(root.querySelector(".chat-live-tool-record-duration")?.textContent).toContain("秒");
+    expect(messages.contains(root)).toBe(false);
+    expect(root.getAttribute("aria-live")).toBeNull();
+
+    const details = items[0].querySelector<HTMLDetailsElement>("details") as HTMLDetailsElement;
+    expect(details.firstElementChild?.tagName).toBe("SUMMARY");
+    expect(details.querySelector("summary button")).toBeNull();
+    details.open = true;
+    expect(details.querySelector(".markdown-body strong")?.textContent).toBe("关键结论");
+    expect(messages.innerHTML).toBe(messageHtml);
+    expect(chatState.chatSessionState.chatHistory).toEqual(history);
+    expect(ports).toHaveLength(1);
+    expect(ports[0].postMessage.mock.calls).toHaveLength(postCount);
+  });
+
+  it("失败记录提供重试和继续伴看，关闭面板不保留记录 DOM 且事件不自动打开", async () => {
+    const chat = await activateChat();
+    const records = liveHarness.records;
+    records.apply({ type: "started", callId: "failed-1", source: "moss", objective: "生成全片总结", startedAt: 10 });
+    records.apply({ type: "failed", callId: "failed-1", error: "文本模型限流", endedAt: 20 });
+    const root = statusElement().querySelector<HTMLElement>(".chat-live-tool-records") as HTMLElement;
+    expect(root.textContent).toContain("文本模型限流");
+
+    root.querySelector<HTMLButtonElement>("[data-live-record-action='retry']")?.click();
+    expect(liveHarness.controller.retryTextToolRecord).toHaveBeenCalledWith("failed-1");
+    expect(root.querySelectorAll("[data-live-tool-record]")).toHaveLength(1);
+    expect(root.textContent).toContain("正在生成");
+    records.apply({ type: "failed", callId: "failed-1", error: "再次失败", endedAt: 30 });
+    root.querySelector<HTMLButtonElement>("[data-live-record-action='continue']")?.click();
+    expect(root.querySelectorAll("[data-live-tool-record]")).toHaveLength(0);
+    expect(liveHarness.controller.stop).not.toHaveBeenCalled();
+
+    records.apply({ type: "started", callId: "closed-1", source: "gemini", objective: "保留当前会话记录", startedAt: 40 });
+    records.apply({ type: "completed", callId: "closed-1", summary: "完成", markdown: "完整结果", endedAt: 50 });
+    expect(root.querySelectorAll("[data-live-tool-record]")).toHaveLength(1);
+    chat.closeChatSession();
+    expect(statusElement().hidden).toBe(true);
+    expect(root.childElementCount).toBe(0);
+    records.apply({ type: "progress", callId: "closed-1", summary: "关闭期间更新", markdown: "关闭期间更新" });
+    expect(root.childElementCount).toBe(0);
+    expect(shellHarness.ensure).not.toHaveBeenCalled();
+
+    await chat.ensureChatTabActivated();
+    expect(root.querySelectorAll("[data-live-tool-record]")).toHaveLength(1);
+    expect(root.textContent).toContain("完整结果");
     expect(shellHarness.ensure).not.toHaveBeenCalled();
     expect(liveHarness.controller.start).not.toHaveBeenCalled();
   });

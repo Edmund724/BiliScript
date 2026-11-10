@@ -33,6 +33,7 @@ function makeOptions(overrides: Partial<VideoBackendTaskOptions> = {}): VideoBac
     signal: new AbortController().signal,
     onSilentProgress: vi.fn(),
     onSpokenResult: vi.fn(),
+    onTextProgress: vi.fn(),
     onError: vi.fn(),
     ...overrides
   };
@@ -110,6 +111,12 @@ describe("runVideoBackendTask", () => {
     expect(userText).not.toContain("[0:00-0:10] 开场");
     expect(userText).toContain("300 秒到 600 秒");
     expect(String(calls[0].messages[0].content)).toContain("用户刚才在问项目结构");
+    expect(vi.mocked(options.onTextProgress!).mock.calls.map(([text]) => text)).toEqual([
+      "旧流",
+      "",
+      "这一区间",
+      "这一区间介绍了开源项目。"
+    ]);
     expect(vi.mocked(options.onSpokenResult).mock.calls[0][0]).toContain("这一区间介绍了开源项目。");
   });
 

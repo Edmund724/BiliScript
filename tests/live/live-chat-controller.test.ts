@@ -834,9 +834,11 @@ describe("LiveChatController", () => {
 describe("LiveChatController video context and page tools", () => {
   function setupContextTest(overrides: {
     getVideoContext?: () => MossLiveVideoContext | null;
+    getTargetProviderType?: () => LiveProviderType;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
     videoBackendTaskManager?: LiveVideoBackendTaskManager;
+    persistTextToolRecord?: (record: import("../../extension/live/live-text-tool-records.js").LiveTextToolRecord) => Promise<void> | void;
   }) {
     const liveButton = document.createElement("button");
     const fakePort = new FakePort();
@@ -849,9 +851,11 @@ describe("LiveChatController video context and page tools", () => {
         : { ok: true }) as any,
       startAudioCapture: async (options) => new FakeAudioCapture(options),
       getVideoContext: overrides.getVideoContext,
+      getTargetProviderType: overrides.getTargetProviderType,
       executeTool: overrides.executeTool,
       subscribeVideoContextChanges: overrides.subscribeVideoContextChanges,
-      videoBackendTaskManager: overrides.videoBackendTaskManager
+      videoBackendTaskManager: overrides.videoBackendTaskManager,
+      persistTextToolRecord: overrides.persistTextToolRecord
     });
     return { controller, fakePort };
   }
@@ -1339,6 +1343,191 @@ describe("LiveChatController video context and page tools", () => {
       );
       expect(JSON.stringify([onStateChange.mock.calls, showNotice.mock.calls])).not.toContain("sk-live-secret");
     });
+  });
+
+  it("Gemini 委托的流式片段、完成与重复事件归并为一个文本工具记录", async () => {
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(async (options) => {
+      options.onTextProgress?.("# 阶段结果");
+      options.onTextProgress?.("# 阶段结果\n\n补充细节");
+      options.onSpokenResult("播报结果");
+      return {
+        taskId: options.taskId,
+        source: "text-model",
+        rawText: "最终摘要",
+        detailText: "# 完整分析\n\n**最终结论**",
+        spokenBriefing: "播报结果"
+      };
+    });
+    const persistTextToolRecord = vi.fn();
+    const { controller, fakePort } = setupContextTest({
+      getTargetProviderType: () => "gemini-live",
+      getVideoContext: () => initialContext,
+      videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() },
+      persistTextToolRecord
+    });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    const delegation = { delegationId: "gemini-call", objective: "跨片段梳理论点", context: ["私密上下文"] };
+    fakePort.simulateMessage({ type: "delegation_created", delegation });
+    fakePort.simulateMessage({ type: "delegation_created", delegation });
+
+    await vi.waitFor(() => expect(controller.getTextToolRecords()[0]?.status).toBe("completed"));
+    expect(runTask).toHaveBeenCalledTimes(1);
+    expect(controller.getTextToolRecords()).toHaveLength(1);
+    expect(controller.getTextToolRecords()[0]).toMatchObject({
+      callId: "gemini-call",
+      source: "gemini",
+      status: "completed",
+      objective: "跨片段梳理论点",
+      summary: "最终摘要",
+      markdown: "# 完整分析\n\n**最终结论**"
+    });
+    expect(controller.getTextToolRecords()[0].durationMs).toEqual(expect.any(Number));
+    expect(JSON.stringify(controller.getTextToolRecords())).not.toContain("私密上下文");
+    expect(persistTextToolRecord).toHaveBeenCalledTimes(1);
+    expect(persistTextToolRecord).toHaveBeenCalledWith(expect.objectContaining({
+      callId: "gemini-call",
+      status: "completed",
+      video: {
+        bvid: initialContext.bvid,
+        cid: initialContext.cid,
+        pageIndex: 1,
+        title: initialContext.title,
+        url: initialContext.url
+      }
+    }));
+    expect(JSON.stringify(persistTextToolRecord.mock.calls)).not.toContain("私密上下文");
+    await controller.stop();
+  });
+
+  it("MOSS 全片总结失败可沿原 callId 重试，重复调用和迟到错误不改终态", async () => {
+    let attempt = 0;
+    const executeTool = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) return { ok: false, error: "文本模型限流" };
+      return {
+        ok: true,
+        coverage: "complete",
+        summary: "全片摘要",
+        chapters: [{ time: "0:00", title: "开场", summary: "介绍背景" }],
+        quotes: [{ time: "1:00", content: "关键原话" }]
+      };
+    });
+    const persistTextToolRecord = vi.fn();
+    const { controller, fakePort } = setupContextTest({
+      executeTool,
+      getVideoContext: () => initialContext,
+      persistTextToolRecord
+    });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    const call: MossLiveToolCall = { callId: "moss-summary", name: "summarize_video", arguments: {} };
+    fakePort.simulateMessage({ type: "tool_call", call });
+    fakePort.simulateMessage({ type: "tool_call", call });
+
+    await vi.waitFor(() => expect(controller.getTextToolRecords()[0]?.status).toBe("failed"));
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(controller.getTextToolRecords()[0]).toMatchObject({ source: "moss", error: "文本模型限流" });
+
+    expect(controller.retryTextToolRecord("moss-summary")).toBe(true);
+    await vi.waitFor(() => expect(controller.getTextToolRecords()[0]?.status).toBe("completed"));
+    expect(executeTool).toHaveBeenCalledTimes(2);
+    expect(controller.getTextToolRecords()).toHaveLength(1);
+    expect(controller.getTextToolRecords()[0]).toMatchObject({
+      callId: "moss-summary",
+      source: "moss",
+      status: "completed",
+      objective: "生成当前视频全片总结",
+      summary: "全片摘要"
+    });
+    expect(controller.getTextToolRecords()[0].markdown).toContain("### [0:00] 开场");
+    expect(controller.getTextToolRecords()[0].markdown).toContain("## 关键原话");
+
+    fakePort.simulateMessage({ type: "tool_call", call });
+    fakePort.simulateMessage({ type: "tool_error", callId: "moss-summary", error: "迟到超时" });
+    expect(executeTool).toHaveBeenCalledTimes(2);
+    expect(controller.getTextToolRecords()[0]).toMatchObject({ status: "completed", error: undefined });
+    expect(persistTextToolRecord).toHaveBeenCalledTimes(2);
+    expect(persistTextToolRecord.mock.calls.map(([record]) => record.status)).toEqual(["failed", "completed"]);
+    expect(persistTextToolRecord.mock.calls.map(([record]) => record.callId)).toEqual(["moss-summary", "moss-summary"]);
+    expect(persistTextToolRecord.mock.calls.every(([record]) => record.video?.bvid === initialContext.bvid)).toBe(true);
+    await controller.stop();
+  });
+
+  it("重连使在途记录失败，重试后旧尝试的流与结果不能覆盖新记录", async () => {
+    const optionsByAttempt: Parameters<LiveVideoBackendTaskManager["runTask"]>[0][] = [];
+    const finishes: Array<() => void> = [];
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>((options) => {
+      optionsByAttempt.push(options);
+      const attempt = optionsByAttempt.length;
+      return new Promise((resolve) => {
+        finishes.push(() => resolve({
+          taskId: options.taskId,
+          source: "text-model",
+          rawText: attempt === 1 ? "旧结果" : "新结果",
+          detailText: attempt === 1 ? "旧全文" : "新全文",
+          spokenBriefing: "播报"
+        }));
+      });
+    });
+    const { controller, fakePort } = setupContextTest({
+      getTargetProviderType: () => "gemini-live",
+      videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() }
+    });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: { delegationId: "retry-call", objective: "分析细节", context: [] }
+    });
+    await vi.waitFor(() => expect(optionsByAttempt).toHaveLength(1));
+
+    fakePort.simulateMessage({ type: "reconnecting", attempt: 1, maxAttempts: 3 });
+    expect(controller.getTextToolRecords()[0]).toMatchObject({ status: "failed", error: expect.stringContaining("连接中断") });
+    fakePort.simulateMessage({ type: "connected" });
+    expect(controller.retryTextToolRecord("retry-call")).toBe(true);
+    await vi.waitFor(() => expect(optionsByAttempt).toHaveLength(2));
+
+    optionsByAttempt[0].onTextProgress?.("旧流片段");
+    finishes[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(controller.getTextToolRecords()[0]).toMatchObject({ status: "running", summary: "" });
+
+    optionsByAttempt[1].onTextProgress?.("新流片段");
+    finishes[1]();
+    await vi.waitFor(() => expect(controller.getTextToolRecords()[0]?.status).toBe("completed"));
+    expect(controller.getTextToolRecords()).toHaveLength(1);
+    expect(controller.getTextToolRecords()[0]).toMatchObject({ summary: "新结果", markdown: "新全文" });
+    await controller.stop();
+  });
+
+  it("停止伴看时，在途调用先以失败终态留档再清理面板记录", async () => {
+    const persistTextToolRecord = vi.fn();
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(() => new Promise(() => {}));
+    const { controller, fakePort } = setupContextTest({
+      getVideoContext: () => initialContext,
+      videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() },
+      persistTextToolRecord
+    });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: { delegationId: "cancelled-call", objective: "分析细节", context: [] }
+    });
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1));
+
+    await controller.stop();
+
+    expect(controller.getTextToolRecords()).toEqual([]);
+    expect(persistTextToolRecord).toHaveBeenCalledTimes(1);
+    expect(persistTextToolRecord).toHaveBeenCalledWith(expect.objectContaining({
+      callId: "cancelled-call",
+      status: "failed",
+      error: "本次分析已取消。",
+      video: expect.objectContaining({ bvid: initialContext.bvid, cid: initialContext.cid })
+    }));
   });
 
 });

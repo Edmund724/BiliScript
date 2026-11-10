@@ -803,7 +803,7 @@ export type MossLiveServerEvent =
   | { type: "delegation_created"; delegation: MossLiveDelegationRequest }
   | { type: "delegation_cancelled"; delegationId: string }
   | { type: "tool_call"; call: MossLiveToolCall }
-  | { type: "tool_error"; error: string }
+  | { type: "tool_error"; error: string; callId?: string }
   | { type: "tool_status"; event: MossLiveToolStatusEvent };
 
 export interface LiveCloseDiagnosticsOptions {

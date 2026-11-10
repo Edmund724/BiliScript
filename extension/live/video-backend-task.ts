@@ -31,6 +31,7 @@ export interface VideoBackendTaskOptions {
   signal: AbortSignal;
   onSilentProgress: (factText: string) => void;
   onSpokenResult: (spokenBriefing: string) => void;
+  onTextProgress?: (markdown: string) => void;
   onError?: (errText: string) => void;
 }
 
@@ -232,10 +233,13 @@ async function runTextModelTask(
     thinkingLevel: "off",
     fetchImpl: providerFetchViaOffscreen,
     onEvent: (event) => {
-      if (event.type === "token") text += event.data;
+      if (event.type !== "token") return;
+      text += event.data;
+      options.onTextProgress?.(text);
     },
     onStreamReset: () => {
       text = "";
+      options.onTextProgress?.(text);
     }
   });
   throwIfAborted(options.signal);

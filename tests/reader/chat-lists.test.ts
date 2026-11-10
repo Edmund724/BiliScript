@@ -238,4 +238,73 @@ describe("renderHistoryList（历史会话）", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(deps.deleteById).toHaveBeenCalledWith("c1");
   });
+
+  it("伴看记录展示类别与数量，打开只读详情不恢复对话或提供伴看动作", async () => {
+    applyConversationIdentity({ id: "ordinary", history: [{ role: "user", content: "普通问题" }] });
+    setSavedConversations([
+      {
+        id: "live:BV1test000000:1",
+        kind: "live-text-tool",
+        title: "伴看视频",
+        contextKey: "video:BV1test000000|1",
+        contextTitle: "伴看视频",
+        contextUrl: "https://www.bilibili.com/video/BV1test000000",
+        isVideoContext: true,
+        createdAt: 100,
+        updatedAt: 200,
+        contextRef: { bvid: "BV1test000000", cid: "1" },
+        messages: [],
+        records: [
+          {
+            callId: "completed",
+            source: "gemini",
+            status: "completed",
+            objective: "梳理论点",
+            summary: "完成摘要",
+            markdown: "# 完整结果\n\n**正文**",
+            startedAt: 100,
+            endedAt: 200,
+            durationMs: 100
+          },
+          {
+            callId: "failed",
+            source: "moss",
+            status: "failed",
+            objective: "总结全片",
+            summary: "失败前摘要",
+            markdown: "失败前全文",
+            error: "模型限流",
+            startedAt: 50,
+            endedAt: 80,
+            durationMs: 30
+          }
+        ]
+      }
+    ]);
+    const { lists, deps, historyList } = makeDeps();
+    lists.renderHistoryList();
+
+    expect(historyList.textContent).toContain("伴看记录");
+    expect(historyList.textContent).toContain("伴看视频");
+    expect(historyList.textContent).toContain("2 条记录");
+    clickOnce(historyList.querySelector(".chat-history-open")!);
+
+    expect(deps.applyById).not.toHaveBeenCalled();
+    expect(deps.hideHistoryPopover).not.toHaveBeenCalled();
+    expect(chatSessionState.currentConversationId).toBe("ordinary");
+    expect(chatSessionState.chatHistory).toEqual([{ role: "user", content: "普通问题" }]);
+    expect(historyList.textContent).toContain("梳理论点");
+    expect(historyList.textContent).toContain("完成摘要");
+    expect(historyList.textContent).toContain("模型限流");
+    expect(historyList.textContent).toContain("失败前摘要");
+    expect(historyList.querySelector(".chat-live-tool-record-markdown")?.textContent).toContain("完整结果");
+    expect(historyList.querySelectorAll("details[data-record-details]")).toHaveLength(2);
+    expect(historyList.querySelector("[data-live-record-action]")).toBeNull();
+
+    clickOnce(historyList.querySelector(".chat-live-history-back")!);
+    expect(historyList.querySelector(".chat-live-history-detail")).toBeNull();
+    clickOnce(historyList.querySelector(".chat-history-remove")!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deps.deleteById).toHaveBeenCalledWith("live:BV1test000000:1");
+  });
 });

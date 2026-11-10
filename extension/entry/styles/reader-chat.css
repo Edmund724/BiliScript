@@ -1393,6 +1393,102 @@
   outline-offset: 2px;
 }
 
+.biliscript-reading-chat .chat-live-tool-records {
+  flex: 0 0 100%;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--biliscript-reader-border);
+}
+
+.biliscript-reading-chat .chat-live-tool-records[hidden] {
+  display: none !important;
+}
+
+.biliscript-reading-chat .chat-live-tool-record {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface);
+  color: var(--biliscript-reader-text);
+  font-size: var(--biliscript-font-size-sm);
+  line-height: 1.45;
+}
+
+.biliscript-reading-chat .chat-live-tool-record[data-status="failed"] {
+  border-color: color-mix(in srgb, var(--biliscript-reader-danger) 45%, var(--biliscript-reader-border));
+}
+
+.biliscript-reading-chat .chat-live-tool-record-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-xs);
+}
+
+.biliscript-reading-chat .chat-live-tool-record-status {
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-live-tool-record[data-status="failed"] .chat-live-tool-record-status,
+.biliscript-reading-chat .chat-live-tool-record-error {
+  color: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-chat .chat-live-tool-record-duration {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-objective,
+.biliscript-reading-chat .chat-live-tool-record-summary,
+.biliscript-reading-chat .chat-live-tool-record-error {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-objective {
+  font-weight: 600;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-summary,
+.biliscript-reading-chat .chat-live-tool-record-error {
+  color: var(--biliscript-reader-muted);
+}
+
+.biliscript-reading-chat .chat-live-tool-record-actions {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-details {
+  margin-top: 7px;
+  border-top: 1px solid var(--biliscript-reader-border);
+  padding-top: 5px;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-details > summary {
+  width: fit-content;
+  color: var(--biliscript-reader-accent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-details > summary:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
+.biliscript-reading-chat .chat-live-tool-record-markdown {
+  margin-top: 7px;
+  font-size: var(--biliscript-font-size-sm);
+}
+
 .biliscript-reading-chat .chat-footer {
   display: flex;
   flex-direction: column;
@@ -2157,6 +2253,48 @@
 .biliscript-reading-chat .chat-history-remove:hover {
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
+}
+
+.biliscript-reading-chat .chat-history-kind {
+  flex: 0 0 auto;
+  color: var(--biliscript-reader-accent);
+  font-size: var(--biliscript-font-size-xs);
+}
+
+.biliscript-reading-chat .chat-live-history-detail {
+  padding: 0 12px 12px;
+}
+
+.biliscript-reading-chat .chat-live-history-back {
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-live-history-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 12px;
+}
+
+.biliscript-reading-chat .chat-live-history-title {
+  color: var(--biliscript-reader-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.biliscript-reading-chat .chat-live-history-meta {
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-sm);
+}
+
+.biliscript-reading-chat .chat-live-history-records {
+  display: grid;
+  gap: 8px;
 }
 
 /* 输入框：高度只随内容走——未聚焦与聚焦同高（模板 rows=1 起步），长高由

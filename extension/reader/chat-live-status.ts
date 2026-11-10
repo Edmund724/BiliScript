@@ -1,16 +1,22 @@
 import type { LiveChatState } from "../live/live-chat-controller.js";
 import type { LiveFailureKind } from "../live/live-session-tracker.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
+import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
+import { createChatLiveTextRecords } from "./chat-live-text-records.js";
 
 export interface ChatLiveStatusDeps {
   root: HTMLElement | null;
   getState: () => LiveChatState;
   isReconnecting: () => boolean;
+  getTextToolRecords?: () => LiveTextToolRecord[];
+  subscribeTextToolRecords?: (listener: () => void) => () => void;
   onStart: () => void;
   onRetry: () => void;
   onStop: () => void;
   onRestore: () => void;
   onOpenSettings: (target: LiveSettingsTarget) => void;
+  onRetryTextToolRecord?: (callId: string) => void;
+  onContinueTextToolRecord?: (callId: string) => void;
 }
 
 export interface ChatLiveStatus {
@@ -36,6 +42,13 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
   let currentState: LiveChatState = "idle";
   let currentError: string | undefined;
   let currentFailureKind: LiveFailureKind | undefined;
+  const textRecords = createChatLiveTextRecords({
+    root: root?.querySelector<HTMLElement>(".chat-live-tool-records") ?? null,
+    getRecords: deps.getTextToolRecords ?? (() => []),
+    subscribe: deps.subscribeTextToolRecords ?? (() => () => {}),
+    onRetry: (callId) => deps.onRetryTextToolRecord?.(callId),
+    onContinue: (callId) => deps.onContinueTextToolRecord?.(callId)
+  });
 
   root?.querySelectorAll<HTMLButtonElement>("[data-live-status-action]").forEach((button) => {
     const action = button.dataset.liveStatusAction as LiveStatusAction;
@@ -79,11 +92,13 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
       currentFailureKind = undefined;
     }
     render(state === "connecting" && deps.isReconnecting());
+    textRecords.sync();
   }
 
   function setOpen(nextOpen: boolean): void {
     open = nextOpen;
     if (root) root.hidden = !open;
+    textRecords.setOpen(open);
     if (open) sync();
   }
 
