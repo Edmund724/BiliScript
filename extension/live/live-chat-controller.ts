@@ -23,6 +23,7 @@ import {
 } from "./live-provider-store.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
+import { recordLiveVoiceFallbackNotice } from "./live-voice-fallback-notice.js";
 import {
   VideoBackendTaskManager,
   type VideoBackendTaskOptions,
@@ -261,6 +262,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
   let activeTargetProviderType: LiveProviderType = "moss-live";
+  let activeTargetProviderId = "";
+  let activeTargetVoiceId = "";
 
   async function refreshTarget(): Promise<void> {
     try {
@@ -284,6 +287,23 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           ? "https://generativelanguage.googleapis.com"
           : "https://api.mosi.cn");
       activeTargetModel = active?.model || DEFAULT_LIVE_MODEL;
+      activeTargetProviderId = String(active?.id || "");
+      // 通话中改音色：设置改动经 liveProviders 存储监听回到这里，直接向 offscreen
+      // 下发 change_voice（服务端从下一轮回答开始使用）；未连接时只更新目标值。
+      const nextVoiceId = String(active?.voiceId || "").trim();
+      const voiceChanged = nextVoiceId !== activeTargetVoiceId;
+      activeTargetVoiceId = nextVoiceId;
+      if (
+        voiceChanged &&
+        nextVoiceId &&
+        state === "connected" &&
+        activeTargetProviderType === "moss-live" &&
+        activePort
+      ) {
+        try {
+          activePort.postMessage({ action: "change_voice", voiceId: nextVoiceId });
+        } catch {}
+      }
     } catch {
       // 忽略加载错误
     }
@@ -393,6 +413,32 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       await sendRuntimeMessage({ type: "live-session-cleanup", sessionId: targetSessionId });
     } catch {
       // 忽略清理阶段的发送失败
+    }
+  }
+
+  // change_voice 失败（如音色已被删）：页面内先告知，再清掉该 provider 的
+  // voiceId（下次会话回到平台默认）并留下一次性提示给设置面板。
+  function handleVoiceFallback(voiceId: string): void {
+    showNotice("所选音色已不可用，伴看已回退默认音色", 6000);
+    activeTargetVoiceId = "";
+    void clearFallbackVoiceSelection(voiceId);
+  }
+
+  async function clearFallbackVoiceSelection(voiceId: string): Promise<void> {
+    await recordLiveVoiceFallbackNotice({
+      providerId: activeTargetProviderId,
+      voiceId,
+      at: Date.now()
+    });
+    try {
+      const providers = await liveProviderStore.loadProviders();
+      const index = providers.findIndex((provider) => provider.id === activeTargetProviderId);
+      if (index < 0 || providers[index].voiceId !== voiceId) return;
+      const { voiceId: _removed, ...rest } = providers[index];
+      const next = providers.map((provider, i) => (i === index ? rest : provider));
+      await liveProviderStore.saveProviders(next);
+    } catch {
+      // 回退提示已落盘；清选择失败时下次会话仍会走同一条回退路径
     }
   }
 
@@ -698,6 +744,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (msg.sessionId) {
           savedMossSessionId = msg.sessionId;
         }
+      } else if (msg.type === "voice_fallback") {
+        handleVoiceFallback(msg.voiceId);
       } else if (msg.type === "connecting") {
         backendTasks.cancelAllTasks();
         updateUi("connecting");
@@ -838,6 +886,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         volume,
         ...(savedMossSessionId ? { sessionId: savedMossSessionId } : {}),
         ...(speed !== 1 ? { speed } : {}),
+        ...(activeTargetVoiceId ? { voiceId: activeTargetVoiceId } : {}),
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
           : {}),

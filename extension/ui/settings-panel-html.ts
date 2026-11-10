@@ -27,6 +27,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   addAiProviderBtn: "addAiProviderBtn",
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
+  liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
@@ -100,6 +101,7 @@ export function buildSettingsHtml(): string {
       </div>
       <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
 
     </section>
 

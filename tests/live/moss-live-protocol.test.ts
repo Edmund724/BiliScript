@@ -10,6 +10,7 @@ import {
   MOSS_UPSTREAM_FRAME_SAMPLES,
   MOSS_UPSTREAM_SAMPLE_RATE,
   MossBinaryTag,
+  buildChangeVoicePayload,
   buildMinimalSessionUpdatePayload,
   createPcm16kFrameChunker,
   decodeBase64Bytes,
@@ -708,5 +709,23 @@ describe("subtitle-aware session and tool calls", () => {
       expect(text).toContain("关闭码: 1006");
     });
 
+  });
+});
+
+describe("MOSS-LIVE 音色事件", () => {
+  it("builds change_voice with the documented voice_name field", () => {
+    expect(buildChangeVoicePayload("voice-1")).toEqual({
+      action: "change_voice",
+      voice_name: "voice-1"
+    });
+  });
+
+  it("parses voice_changed from data.name and keeps the voice id", () => {
+    expect(
+      parseMossServerJsonEvent({ action: "voice_changed", data: { name: "voice-1" } })
+    ).toEqual({ kind: "voice_changed", voiceId: "voice-1" });
+    expect(
+      parseMossServerJsonEvent({ action: "voice_changed", data: { name: "voice-2" } })
+    ).toEqual({ kind: "voice_changed", voiceId: "voice-2" });
   });
 });

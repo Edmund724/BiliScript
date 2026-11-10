@@ -233,6 +233,79 @@ describe("OffscreenMossLiveClient", () => {
     });
   });
 
+  it("sends change_voice after session_attached and defers session.update until voice_changed", () => {
+    const onConnected = vi.fn();
+    const client = new OffscreenMossLiveClient({ onConnected });
+    client.handleAction({ action: "start", voiceId: "voice-1" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "voice-session" }
+    }));
+
+    // 音色握手未完成前不完成会话：不发 session.update，也不进入 connected
+    expect(client.getState()).toBe("connecting");
+    expect(onConnected).not.toHaveBeenCalled();
+    const handshake = ws.sentData.map((data) => JSON.parse(data));
+    expect(handshake.slice(1).map((message) => message.action)).toEqual([
+      "media.mode",
+      "media.configure",
+      "change_voice"
+    ]);
+    expect(handshake[3]).toEqual({ action: "change_voice", voice_name: "voice-1" });
+    expect(handshake.some((message) => message.action === "session.update")).toBe(false);
+
+    ws.simulateMessage(JSON.stringify({ action: "voice_changed", data: { name: "voice-1" } }));
+
+    expect(client.getState()).toBe("connected");
+    expect(onConnected).toHaveBeenCalledTimes(1);
+    const afterAttach = ws.sentData.map((data) => JSON.parse(data));
+    expect(afterAttach.slice(4).map((message) => message.action)).toEqual([
+      "session.update",
+      "media.output.configure"
+    ]);
+  });
+
+  it("falls back to the default voice and reports once when change_voice fails", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    client.handleAction({ action: "start", voiceId: "deleted-voice" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "invalid_voice", message: "音色不存在" }
+    }));
+
+    // 不阻断会话：回退默认音色、照常 session.update 并完成握手
+    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
+    expect(onError).not.toHaveBeenCalled();
+    expect(client.getState()).toBe("connected");
+    const actions = ws.sentData.map((data) => JSON.parse(data).action);
+    expect(actions).toContain("session.update");
+    expect(actions.filter((action) => action === "change_voice")).toHaveLength(1);
+  });
+
+  it("sends change_voice mid-session so the next reply uses the new voice", () => {
+    const client = new OffscreenMossLiveClient();
+    client.handleAction({ action: "start" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    client.handleAction({ action: "change_voice", voiceId: "voice-2" });
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "change_voice", voice_name: "voice-2" }
+    ]);
+    client.close();
+  });
+
   it("configures server output after attach while keeping local gain at unity above 100%", () => {
     const fakeAudioCtx = new FakeAudioContext();
     const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });

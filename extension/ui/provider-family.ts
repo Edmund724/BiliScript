@@ -52,6 +52,8 @@ export interface EditorUpsertFields {
   // 协议下拉收敛值（usesProtocol 族；他族忽略）
   protocol: AiProtocol;
   liveGeminiNativeSearch?: boolean;
+  // MOSS-LIVE 音色（仅 live 族的 MOSS 平台落盘；Gemini 忽略）
+  voiceId?: string;
 }
 
 export interface FamilyEditorDeclaration {
@@ -305,19 +307,24 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     usesProtocol: false,
     supportsPlatformTest: true,
     resolvePermissionOrigins: resolveMossLivePermissionOrigins,
-    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model, liveGeminiNativeSearch }) => ({
-      upsert: {
-        id,
-        presetId: preset?.id || "moss-live",
-        name: name || preset?.name || "MOSS Live",
-        type: preset?.type || "moss-live",
-        baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
-        model: model || preset?.model || "moss-live-1.0",
-        apiKey,
-        hasSavedKey,
-        ...(preset?.id === "gemini-live" ? { liveGeminiNativeSearch: liveGeminiNativeSearch === true } : {})
-      }
-    })
+    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model, liveGeminiNativeSearch, voiceId }) => {
+      const gemini = preset?.type === "gemini-live" || preset?.id === "gemini-live";
+      const trimmedVoiceId = String(voiceId || "").trim();
+      return {
+        upsert: {
+          id,
+          presetId: preset?.id || "moss-live",
+          name: name || preset?.name || "MOSS Live",
+          type: preset?.type || "moss-live",
+          baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
+          model: model || preset?.model || "moss-live-1.0",
+          apiKey,
+          hasSavedKey,
+          ...(gemini ? { liveGeminiNativeSearch: liveGeminiNativeSearch === true } : {}),
+          ...(!gemini && trimmedVoiceId ? { voiceId: trimmedVoiceId } : {})
+        }
+      };
+    }
   }
 };
 

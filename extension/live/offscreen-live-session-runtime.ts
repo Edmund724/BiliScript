@@ -102,6 +102,9 @@ export interface LiveWireSocketOpenContext extends LiveWireTransport {
   sessionId: string | null;
   videoContext: MossLiveSessionContext | null;
   micEnabled: boolean;
+  // 当前选用的音色（空 = 平台默认音色）：协议适配器在 session_attached 后据此
+  // 决定是否发 change_voice。
+  voiceId: string;
   markContextSent(context: MossLiveSessionContext | null): void;
 }
 
@@ -112,6 +115,9 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   getMicEnabled(): boolean;
   completeHandshake(options?: { sessionId?: string | null; emitSessionAttached?: boolean }): void;
   updateSessionHandle(sessionId: string, options?: { emitSessionAttached?: boolean }): void;
+  // change_voice 失败（音色已删/无权限）时由适配器上报：运行时清空当前音色并
+  // 通知页面侧回退默认音色。
+  reportVoiceFallback(voiceId: string): void;
   markContextSent(context: MossLiveSessionContext | null): void;
   applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
   emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
@@ -169,6 +175,9 @@ export interface LiveWireProtocolAdapter {
     output: { volumeDb: number; speed?: number },
     transport: LiveWireTransport
   ): boolean;
+  // 通话中改音色：适配器在已附着会话上直接发 change_voice（下一轮回答生效），
+  // 尚未附着时只记下选择、由 session_attached 的握手分支发送。
+  changeVoice?(voiceId: string, transport: LiveWireTransport): boolean;
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void;
   sendToolResponse(
     call: { callId: string; name: string },
@@ -201,6 +210,7 @@ export interface OffscreenLiveSessionRuntimeOptions {
   onConnecting?: () => void;
   onConnected?: (sessionId?: string) => void;
   onSessionAttached?: (sessionId: string) => void;
+  onVoiceFallback?: (voiceId: string) => void;
   onReconnecting?: (
     attempt: number,
     maxAttempts: number,
@@ -271,6 +281,9 @@ export class OffscreenLiveSessionRuntime {
   protected outputVolume = 1;
   protected outputSpeed = 1;
   protected serverSpeedUnsupported = false;
+  // 当前选用的音色（空 = 平台默认）；start/change_voice 动作写入，重连时随
+  // onSocketOpen 交给适配器重发。
+  protected voiceId = "";
 
   protected readonly transport: LiveWireTransport = {
     sendJson: (payload: unknown) => this.sendJson(payload),
@@ -330,6 +343,9 @@ export class OffscreenLiveSessionRuntime {
         break;
       case "session_attached":
         this.options.onSessionAttached?.(event.sessionId);
+        break;
+      case "voice_fallback":
+        this.options.onVoiceFallback?.(event.voiceId);
         break;
       case "reconnecting":
         this.options.onReconnecting?.(event.attempt, event.maxAttempts, {
@@ -509,8 +525,18 @@ export class OffscreenLiveSessionRuntime {
         if (msg.volume !== undefined && Number.isFinite(msg.volume)) {
           this.outputVolume = Math.max(0, Math.min(2, msg.volume));
         }
+        // 每次 start 都是新选择：省略 voiceId 表示回到平台默认音色，不能沿用
+        // 上一条会话遗留的旧音色。
+        this.voiceId = msg.voiceId !== undefined ? String(msg.voiceId || "").trim() : "";
         this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
         this.connect();
+        break;
+
+      case "change_voice":
+        // 通话中改音色：直接下发，服务端从下一轮回答开始使用；未附着时由
+        // session_attached 的握手分支带上。
+        this.voiceId = String(msg.voiceId || "").trim();
+        this.adapter.changeVoice?.(this.voiceId, this.transport);
         break;
 
       case "set_volume":
@@ -617,6 +643,7 @@ export class OffscreenLiveSessionRuntime {
           sessionId: this.sessionId,
           videoContext: this.videoContext,
           micEnabled: this.micEnabled,
+          voiceId: this.voiceId,
           sendJson: this.transport.sendJson,
           sendBinary: this.transport.sendBinary,
           markContextSent: (ctx) => {
@@ -684,6 +711,12 @@ export class OffscreenLiveSessionRuntime {
         if (options?.emitSessionAttached !== false) {
           this.emit({ type: "session_attached", sessionId });
         }
+      },
+      reportVoiceFallback: (voiceId) => {
+        if (!isCurrent()) return;
+        // 回退默认音色：清空当前选择，避免重连时再次下发已失效音色。
+        this.voiceId = "";
+        this.emit({ type: "voice_fallback", voiceId });
       },
       markContextSent: (context) => {
         this.lastSentContextKey = JSON.stringify(context);

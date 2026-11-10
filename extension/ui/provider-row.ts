@@ -67,6 +67,8 @@ export interface ProviderRowItem {
   // 由编辑 Modal 经注册表词表收敛。
   protocol?: string;
   liveGeminiNativeSearch?: boolean;
+  // MOSS-LIVE 音色（编辑 Modal 预填/回写；行本身不展示）
+  voiceId?: string;
 }
 
 // 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset

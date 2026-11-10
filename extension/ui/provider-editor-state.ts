@@ -26,6 +26,7 @@
 
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
+import type { LiveVoice } from "../live/live-provider-store.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import type { SettingsPanelObserverHost } from "./settings-panel-hidden.js";
 
@@ -43,6 +44,8 @@ export interface EditorDraft {
   models: string[];
   model: string;
   liveGeminiNativeSearch?: boolean;
+  // MOSS-LIVE 音色选择（音色列表 data[].id；空 = 平台默认音色）
+  voiceId?: string;
 }
 
 // 草稿只读视图（state.draft 对片外的类型）：顶层字段与 models 元素都不可写，
@@ -63,7 +66,8 @@ export function draftsEqual(a: EditorDraftView, b: EditorDraftView): boolean {
     a.model === b.model &&
     a.models.length === b.models.length &&
     a.models.every((model, index) => model === b.models[index]) &&
-    Boolean(a.liveGeminiNativeSearch) === Boolean(b.liveGeminiNativeSearch)
+    Boolean(a.liveGeminiNativeSearch) === Boolean(b.liveGeminiNativeSearch) &&
+    String(a.voiceId || "") === String(b.voiceId || "")
   );
 }
 
@@ -127,6 +131,10 @@ export interface EditorState {
   // 代际号：测试探针/保存回执落定前比对，Modal 已关/已重开则丢弃过期回执
   readonly generation: number;
   readonly host: HTMLElement | null;
+  // 平台音色列表（MOSS-LIVE 编辑器下拉的数据源）：每次打开 Modal 取一次，
+  // voicesLoaded 标记「本次会话已取过」，避免预设切换时重复请求。
+  readonly voices: readonly LiveVoice[];
+  readonly voicesLoaded: boolean;
 }
 
 type MutableEditorState = { -readonly [K in keyof EditorState]: EditorState[K] };
@@ -143,7 +151,9 @@ const bag: MutableEditorState = {
   draft: null,
   baselineDraft: null,
   generation: 0,
-  host: null
+  host: null,
+  voices: [],
+  voicesLoaded: false
 };
 
 // 片外只读视图：`state.x = ...` 编译期即失败（写入走原语）。
@@ -181,6 +191,8 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.hasSavedKey = Boolean(init.hasSavedKey);
   bag.draft = init.draft;
   bag.baselineDraft = init.baselineDraft === undefined ? cloneDraft(init.draft) : init.baselineDraft;
+  bag.voices = [];
+  bag.voicesLoaded = false;
 }
 
 // 结束会话（幂等）：代际作废在飞回执、摘宿主与观察器、清草稿。文档级监听的
@@ -201,6 +213,18 @@ export function editDraft(mutate: (draft: EditorDraft) => void): void {
   if (bag.draft) {
     mutate(bag.draft as EditorDraft);
   }
+}
+
+// 音色列表落位（每次 Modal 会话只取一次；失败不置位，下次打开重试）。
+export function applyEditorVoices(voices: readonly LiveVoice[]): void {
+  bag.voices = voices.map((voice) => ({ id: voice.id, name: voice.name || voice.id }));
+  bag.voicesLoaded = true;
+}
+
+// 取值失败也记为「本次会话已尝试」：音色列表只在打开设置时请求一次，
+// 失败不重试，重开 Modal 再取。
+export function markEditorVoicesLoaded(): void {
+  bag.voicesLoaded = true;
 }
 
 // ===== 结算原语（owner 2）=====

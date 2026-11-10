@@ -12,7 +12,9 @@ import {
   LIVE_PROVIDERS_STORAGE,
   LIVE_PROVIDER_KEYS_STORAGE,
   resolveLiveModelsUrl,
+  resolveLiveVoicesUrl,
   listLiveModels,
+  listLiveVoices,
   testLiveConnection
 } from "../../extension/live/live-provider-store.js";
 
@@ -78,6 +80,12 @@ describe("normalizeLiveProvider", () => {
     expect(normalizeLiveProvider({ id: "p1", type: "openai" })).toBeNull();
     expect(normalizeLiveProvider({ type: "moss-live" })).toBeNull();
     expect(normalizeLiveProvider(null)).toBeNull();
+  });
+
+  it("keeps a trimmed voiceId and omits empty selections", () => {
+    expect(normalizeLiveProvider({ id: "moss-1", voiceId: " voice-1 " })?.voiceId).toBe("voice-1");
+    expect(normalizeLiveProvider({ id: "moss-1" })?.voiceId).toBeUndefined();
+    expect(normalizeLiveProvider({ id: "moss-1", voiceId: "   " })?.voiceId).toBeUndefined();
   });
 });
 
@@ -163,6 +171,75 @@ describe("liveProviderStore CRUD and storage isolation", () => {
     const keys = local[LIVE_PROVIDER_KEYS_STORAGE] as Record<string, string>;
     expect(keys["moss-1"]).toBeUndefined();
     expect(keys["moss-2"]).toBe("sk-2");
+  });
+});
+
+describe("resolveLiveVoicesUrl & listLiveVoices", () => {
+  it("normalizes baseUrl into the /v1/audio/voices endpoint", () => {
+    expect(resolveLiveVoicesUrl("https://api.mosi.cn")).toBe("https://api.mosi.cn/v1/audio/voices");
+    expect(resolveLiveVoicesUrl("https://api.mosi.cn/v1")).toBe("https://api.mosi.cn/v1/audio/voices");
+    expect(resolveLiveVoicesUrl("https://api.mosi.cn/v1/realtime")).toBe("https://api.mosi.cn/v1/audio/voices");
+    expect(resolveLiveVoicesUrl("https://api.mosi.cn/v1/audio/voices")).toBe("https://api.mosi.cn/v1/audio/voices");
+    expect(resolveLiveVoicesUrl("")).toBe("");
+  });
+
+  it("pages through the voice library and falls back to id for empty names", async () => {
+    installStorageStub();
+    const requests: Array<{ url: string; headers: Record<string, string> }> = [];
+    (globalThis as any).chrome.runtime.sendMessage = vi.fn((msg: any, cb: (r: any) => void) => {
+      if (msg?.type !== "provider-http") return;
+      requests.push({ url: msg.url, headers: msg.headers });
+      if (!msg.url.includes("after=")) {
+        cb({
+          ok: true,
+          status: 200,
+          body: JSON.stringify({
+            data: [
+              { id: "voice-1", name: "Alice" },
+              { id: "voice-2", name: "  " }
+            ],
+            has_more: true,
+            next_cursor: "cursor-2"
+          })
+        });
+        return;
+      }
+      cb({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({
+          data: [
+            { id: "voice-3", name: "Bob" },
+            { id: "voice-1", name: "Alice" }
+          ],
+          has_more: false
+        })
+      });
+    });
+
+    const result = await listLiveVoices({ baseUrl: "https://api.mosi.cn", apiKey: "sk-moss" });
+
+    expect(result).toEqual({
+      ok: true,
+      voices: [
+        { id: "voice-1", name: "Alice" },
+        { id: "voice-2", name: "voice-2" },
+        { id: "voice-3", name: "Bob" }
+      ]
+    });
+    expect(requests[0].url).toContain("limit=150");
+    expect(requests[0].url).not.toContain("after=");
+    expect(requests[1].url).toContain("after=cursor-2");
+    expect(requests[0].headers.authorization).toBe("Bearer sk-moss");
+  });
+
+  it("reports a missing key without issuing a request", async () => {
+    installStorageStub();
+    const sendMessage = vi.fn();
+    (globalThis as any).chrome.runtime.sendMessage = sendMessage;
+    const result = await listLiveVoices({ baseUrl: "https://api.mosi.cn" });
+    expect(result).toEqual({ ok: false, error: "请先填写 API Key" });
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
 

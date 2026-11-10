@@ -134,6 +134,7 @@ export function attachMossLivePort(
           ...(msg.liveGeminiNativeSearch !== undefined
             ? { liveGeminiNativeSearch: msg.liveGeminiNativeSearch }
             : {}),
+          ...(msg.voiceId !== undefined ? { voiceId: msg.voiceId } : {}),
           ...(msg.volume !== undefined ? { volume: msg.volume } : {}),
           ...(msg.sessionId !== undefined ? { sessionId: msg.sessionId } : {}),
           videoContext: latestVideoContext

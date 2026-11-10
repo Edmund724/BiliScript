@@ -507,9 +507,20 @@ export interface MossLiveDelegationRequest {
   timeRange?: { startSec?: number; endSec?: number };
 }
 
+/** change_voice 载荷：voice_name 为音色列表返回的 data[].id（官方文档字段名）。 */
+export interface ChangeVoicePayload {
+  action: "change_voice";
+  voice_name: string;
+}
+
+export function buildChangeVoicePayload(voiceId: string): ChangeVoicePayload {
+  return { action: "change_voice", voice_name: String(voiceId || "").trim() };
+}
+
 /** MOSS-LIVE 服务端 JSON 事件结构化解析结果 */
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
+  | { kind: "voice_changed"; voiceId: string }
   | { kind: "session.updated"; error: string }
   | { kind: "output.configured"; volumeDb?: number; speed?: number }
   | { kind: "transcript"; event: MossLiveTranscriptEvent }
@@ -557,6 +568,12 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
     case "session_attached": {
       const sessionId = readStr(data, obj, "session_id");
       return { kind: "session_attached", sessionId };
+    }
+    case "voice_changed": {
+      // 官方文档：data.name 为当前会话设置成功的音色 ID；兼容 voice_name / voice_id 变体。
+      const voiceId =
+        readStr(data, obj, "name") || readStr(data, obj, "voice_name") || readStr(data, obj, "voice_id");
+      return { kind: "voice_changed", voiceId };
     }
     case "session.updated": {
       const error = readStr(data, obj, "error");
@@ -689,11 +706,13 @@ export type MossLiveClientAction =
       providerType?: LiveProviderType;
       model?: string;
       liveGeminiNativeSearch?: boolean;
+      voiceId?: string;
       volume?: number;
       speed?: number;
       videoContext?: MossLiveSessionContext | null;
       sessionId?: string | null;
     }
+  | { action: "change_voice"; voiceId: string }
   | { action: "set_volume"; volume: number }
   | { action: "set_speed"; speed: number }
   | { action: "context_update"; videoContext: MossLiveSessionContext | null }
@@ -725,6 +744,7 @@ export type MossLiveServerEvent =
   | { type: "connecting" }
   | { type: "connected"; sessionId?: string }
   | { type: "session_attached"; sessionId: string }
+  | { type: "voice_fallback"; voiceId: string }
   | LiveReconnectingEvent
   | { type: "speaking_state"; speaking: boolean }
   | { type: "output_configured"; volume: number; speed: number }
