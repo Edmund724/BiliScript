@@ -481,6 +481,23 @@ export function buildMinimalSessionUpdatePayload(
   };
 }
 
+/** 会话建立后的客户端上下文上报：只带设备时区，不上报设备位置。 */
+export interface ClientContextUpdatePayload {
+  action: "client_context.update";
+  context: {
+    time_zone: string;
+  };
+}
+
+export function buildClientContextUpdatePayload(
+  timeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+): ClientContextUpdatePayload {
+  return {
+    action: "client_context.update",
+    context: { time_zone: timeZone }
+  };
+}
+
 /** 双端字幕与回合生命周期事件（经 Offscreen 转发至页面侧归并器） */
 export type MossLiveTranscriptEvent =
   | { kind: "input.updated"; text: string }
@@ -511,6 +528,7 @@ export interface MossLiveDelegationRequest {
 export type MossParsedServerEvent =
   | { kind: "session_attached"; sessionId: string }
   | { kind: "session.updated"; error: string }
+  | { kind: "client_context.updated"; accepted: boolean }
   | { kind: "output.configured"; volumeDb?: number; speed?: number }
   | { kind: "transcript"; event: MossLiveTranscriptEvent }
   | { kind: "audio.context"; chunkId: string; runId: string; turnId: string }
@@ -561,6 +579,10 @@ export function parseMossServerJsonEvent(raw: unknown): MossParsedServerEvent | 
     case "session.updated": {
       const error = readStr(data, obj, "error");
       return { kind: "session.updated", error };
+    }
+    case "client_context.updated": {
+      const accepted = data?.accepted ?? obj.accepted;
+      return { kind: "client_context.updated", accepted: accepted !== false };
     }
     case "media.output.configured": {
       const volumeDb = data?.volume_db ?? obj.volume_db;

@@ -10,6 +10,7 @@ import {
   MOSS_UPSTREAM_FRAME_SAMPLES,
   MOSS_UPSTREAM_SAMPLE_RATE,
   MossBinaryTag,
+  buildClientContextUpdatePayload,
   buildMinimalSessionUpdatePayload,
   createPcm16kFrameChunker,
   decodeBase64Bytes,
@@ -323,6 +324,23 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses client_context.updated acceptance, treating a missing flag as accepted", () => {
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: { accepted: false }
+    })).toEqual({ kind: "client_context.updated", accepted: false });
+
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: { accepted: true }
+    })).toEqual({ kind: "client_context.updated", accepted: true });
+
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: {}
+    })).toEqual({ kind: "client_context.updated", accepted: true });
+  });
+
   it("parses completed web search calls and interruption markers", () => {
     expect(
       parseMossServerJsonEvent({
@@ -504,6 +522,17 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.session.instructions).toContain("跳到刚才总结或分析中的某一点");
     expect(payload.session.instructions).toContain("把时间戳换算成秒数后调用 control_bilibili_player 的 seek");
     expect(payload.session.tools).toEqual(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS);
+  });
+
+  it("builds client_context.update with only the device time zone", () => {
+    expect(buildClientContextUpdatePayload("Asia/Shanghai")).toEqual({
+      action: "client_context.update",
+      context: { time_zone: "Asia/Shanghai" }
+    });
+    expect(buildClientContextUpdatePayload()).toEqual({
+      action: "client_context.update",
+      context: { time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    });
   });
 });
 
