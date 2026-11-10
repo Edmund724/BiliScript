@@ -148,6 +148,7 @@ import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
 import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
+import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
 // 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
 import {
   ensureReaderOverviewSource,
@@ -455,8 +456,10 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     return images;
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
-  captureCurrentVideoFrame: async () => {
-    const frame = await capturePageVideoFrame();
+  captureCurrentVideoFrame: async (targetTime?: number) => {
+    const frame = targetTime === undefined
+      ? await capturePageVideoFrame()
+      : await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime });
     return {
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
       currentTime: frame.currentTime

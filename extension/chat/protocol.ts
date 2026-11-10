@@ -90,6 +90,7 @@ export interface ChatToolStatusEvent {
 export interface ChatVideoFrameRequestEvent {
   type: "video-frame-request";
   requestId: string;
+  targetTime?: number;
 }
 
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，

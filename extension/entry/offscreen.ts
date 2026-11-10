@@ -377,7 +377,7 @@ chrome.runtime.onConnect.addListener((port) => {
           // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
           ...(searchRuntime ? { webSearch: searchRuntime } : {}),
           ...(msg.videoFrameToolEnabled === true
-            ? { captureCurrentVideoFrame: () => requestVideoFrame(ackedPort, generation) }
+            ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
             : {})
         },
         {
@@ -509,7 +509,7 @@ function askCostGuard(port: PostMessagePort, message: string, generation: number
   });
 }
 
-function requestVideoFrame(port: PostMessagePort, generation: number): Promise<CapturedVideoFrame> {
+function requestVideoFrame(port: PostMessagePort, generation: number, targetTime?: number): Promise<CapturedVideoFrame> {
   return new Promise((resolve, reject) => {
     if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
       reject(new Error("当前无法发起截图请求"));
@@ -518,7 +518,11 @@ function requestVideoFrame(port: PostMessagePort, generation: number): Promise<C
     const requestId = `video-frame-${generation}-${Date.now()}`;
     pendingVideoFrame = { requestId, generation, resolve, reject };
     try {
-      port.postMessage({ type: "video-frame-request", requestId });
+      port.postMessage({
+        type: "video-frame-request",
+        requestId,
+        ...(targetTime !== undefined ? { targetTime } : {})
+      });
     } catch (error) {
       pendingVideoFrame = null;
       reject(error instanceof Error ? error : new Error(String(error)));

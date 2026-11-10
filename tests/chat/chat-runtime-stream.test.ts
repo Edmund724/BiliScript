@@ -204,6 +204,30 @@ describe("sendMessage 建流与协议入口", () => {
       currentTime: 151
     }));
     expect(deps.captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith();
+  });
+
+  it("video-frame-request 携带目标时间时按该时间取帧并回传实际时间", async () => {
+    const deps = makeDeps();
+    deps.canUseVideoFrameTool = vi.fn(async () => true);
+    deps.captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => ({
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: targetTime === 90 ? 88.25 : 0
+    }));
+    deps.input.value = "看看 1:30 的画面";
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn(deps.input.value);
+    const session = deps.ports[0];
+
+    session.listeners.message[0]({ type: "video-frame-request", requestId: "history-1", targetTime: 90 });
+
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith({
+      action: "video-frame-result",
+      requestId: "history-1",
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: 88.25
+    }));
+    expect(deps.captureCurrentVideoFrame).toHaveBeenCalledWith(90);
   });
 
   it("能力查询失败或缺省时不下发截帧工具开关", async () => {

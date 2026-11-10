@@ -1,4 +1,4 @@
-// ai/tool-loop.ts 联网搜索与当前视频截帧工具循环测试（spec §2.3）。
+// ai/tool-loop.ts 联网搜索与视频截帧工具循环测试（spec §2.3）。
 // 假 fetch 全覆盖（completion.test 同款 sseResponse），覆盖：
 // 1. 单轮 tool_calls → 搜索/截帧 → 二次调用续跑（tool 消息回填 / tool-status /
 //    tool-turn 副本 / 图片消息线格式）；
@@ -6,7 +6,7 @@
 // 3. 搜索/截帧失败降级：tool 错误消息 + notice，回答不中断；
 // 4. 平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次；
 // 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断；
-// 6. 当前帧截图每轮最多一次，无联网搜索时也可独立使用。
+// 6. 当前帧与历史帧共享每轮一次的截帧预算，无联网搜索时也可独立使用。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   runToolLoop,
@@ -603,7 +603,10 @@ describe("当前视频截帧工具", () => {
     }));
 
     expect(capture.calls).toHaveLength(2);
-    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["capture_current_video_frame"]);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
     expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "tool", tool_call_id: "frame_1", content: "已截取视频在 2:31 的画面。" }),
       expect.objectContaining({
@@ -615,8 +618,42 @@ describe("当前视频截帧工具", () => {
       })
     ]));
     expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith();
     expect(capture.toolTurns[0]).toHaveLength(2);
     expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("历史帧工具传入目标秒数，后续消息标注实际截图时间并携带图片", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_1", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => ({
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: targetTime === 90 ? 88.25 : 0
+    }));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(90);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "history_1", content: "已截取视频在 1:28 的画面（目标时间点 1:30）。" }),
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("实际截图时间 1:28；目标时间点 1:30") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,SElTVE9SWQ==" } }
+        ]
+      })
+    ]));
   });
 
   it("每轮最多截图一次：后续请求不再提供工具，重复调用只回填提示", async () => {
@@ -645,6 +682,30 @@ describe("当前视频截帧工具", () => {
     ]));
   });
 
+  it("历史帧参数无效时不取帧，回填可读错误并继续文字回答", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_bad", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":-1}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn();
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "history_bad",
+        content: "截取视频画面失败：targetTime 必须是大于或等于 0 的有限秒数"
+      })
+    ]));
+    expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
+  });
+
   it("截图失败降级为 tool 错误与 notice，不追加图片，回答继续", async () => {
     capture = makeCapture();
     useCaptureRounds([captureRound("frame_1")]);
@@ -662,7 +723,7 @@ describe("当前视频截帧工具", () => {
     expect(capture.notices).toEqual(["截取视频画面失败：当前没有可截取的视频画面"]);
   });
 
-  it("联网搜索与截帧能力同时注入时，两个工具都随首请求提供", async () => {
+  it("联网搜索与截帧能力同时注入时，搜索与两种截帧工具都随首请求提供", async () => {
     capture = makeCapture();
     const captureCurrentVideoFrame = vi.fn();
 
@@ -672,7 +733,11 @@ describe("当前视频截帧工具", () => {
       captureCurrentVideoFrame
     }));
 
-    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["web_search", "capture_current_video_frame"]);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "web_search",
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
     expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
   });
 });

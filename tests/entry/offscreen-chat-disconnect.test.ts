@@ -150,6 +150,35 @@ describe("offscreen 聊天通道断连容错", () => {
     }));
   });
 
+  it("历史帧调用把目标时间随请求发到宿主，并解析实际截图时间", async () => {
+    let capturedFrame: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: (targetTime?: number) => Promise<unknown> }) => {
+      capturedFrame = await captureCurrentVideoFrame(90);
+    });
+    await importOffscreen();
+    const session = connectChat();
+
+    session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "video-frame-request",
+      requestId: expect.any(String),
+      targetTime: 90
+    })));
+    const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
+    const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+
+    session.send({
+      action: "video-frame-result",
+      requestId: request.requestId,
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: 88.25
+    });
+    await vi.waitFor(() => expect(capturedFrame).toEqual({
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: 88.25
+    }));
+  });
+
   it("截帧等待中断连会 reject 并收尾，不产生 unhandled rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);

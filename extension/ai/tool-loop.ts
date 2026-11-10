@@ -1,8 +1,8 @@
-// tool-loop.ts — 联网搜索与当前视频截帧的工具调用循环（spec §2.3，offscreen 侧包住
+// tool-loop.ts — 联网搜索与视频截帧的工具调用循环（spec §2.3，offscreen 侧包住
 // chatCompletion 的单次调用）。纯编排层：不知道 port / DOM / chrome API，
 // 搜索执行经 executeSearch 回调注入（offscreen 注入 search-executor 的闭包，
-// SW 经 provider-http 通道发起，密钥不出 SW），截帧执行经 captureCurrentVideoFrame
-// 回调注入，port 回吐留在调用方（ai/client.ts 的 streamChat，port 适配单源）。
+// SW 经 provider-http 通道发起，密钥不出 SW），当前帧与历史帧经 captureCurrentVideoFrame
+// 回调注入（可选 targetTime 区分），port 回吐留在调用方（ai/client.ts 的 streamChat，port 适配单源）。
 //
 // 语义（spec §2.3）：
 // - finish_reason=tool_calls 时不回 done：回填 assistant(tool_calls) 消息 →
@@ -10,7 +10,7 @@
 // - 单条搜索 tool call 计入配额；达 maxToolCalls 后摘除搜索工具并注入「本轮次数已达
 //   上限」system 提示（不进持久化历史，buildMessages 的历史过滤自动丢弃）；
 // - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
-// - 当前帧截图每轮最多一次，图片经后续 user 消息进入请求，不写进持久化副本；
+// - 当前帧或历史帧截图每轮最多执行一次，图片经后续 user 消息进入请求，不写进持久化副本；
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
@@ -31,6 +31,22 @@ export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL: ChatToolDefinition = {
     name: CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME,
     description: "截取当前视频播放位置的一帧画面。只有当回答必须依赖当前可见画面、图表、代码或操作界面时调用；不要用于回顾其他时间点。每轮最多调用一次。",
     parameters: { type: "object", properties: {} }
+  }
+};
+
+export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME = "capture_video_frame_at_time";
+export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL: ChatToolDefinition = {
+  type: "function",
+  function: {
+    name: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+    description: "当字幕不足以回答某个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，自主截取该时间点的一帧。targetTime 必须是字幕或用户问题所指的视频秒数，不要猜测。不会改变用户播放器。",
+    parameters: {
+      type: "object",
+      properties: {
+        targetTime: { type: "number", description: "目标视频时间点，单位为秒" }
+      },
+      required: ["targetTime"]
+    }
   }
 };
 
@@ -184,7 +200,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     const captureAvailable = Boolean(captureCurrentVideoFrame) && !captureUsed && !retriedWithoutTools;
     const tools = [
       ...(searchAvailable ? [toolDefinition] : []),
-      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL] : [])
+      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL] : [])
     ];
     const withTools = tools.length > 0;
 
@@ -255,17 +271,32 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     const toolMessages: ChatMessage[] = [];
     const frameMessages: ChatMessage[] = [];
     for (const call of toolCalls) {
-      if (call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME) {
+      const isCurrentFrame = call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME;
+      const isHistoricalFrame = call.function.name === CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME;
+      if (isCurrentFrame || isHistoricalFrame) {
         let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
         if (captureCurrentVideoFrame && !captureUsed) {
           captureUsed = true;
           try {
-            const frame = await captureCurrentVideoFrame();
+            const targetTime = isHistoricalFrame
+              ? Number((JSON.parse(call.function.arguments) as { targetTime?: unknown }).targetTime)
+              : undefined;
+            if (isHistoricalFrame && (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0)) {
+              throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
+            }
+            const frame = isHistoricalFrame
+              ? await captureCurrentVideoFrame(targetTime)
+              : await captureCurrentVideoFrame();
             const time = formatClock(frame.currentTime, { hours: "auto" });
-            toolContent = `已截取视频在 ${time} 的画面。`;
+            const target = isHistoricalFrame ? formatClock(targetTime, { hours: "auto" }) : "";
+            toolContent = isHistoricalFrame
+              ? `已截取视频在 ${time} 的画面（目标时间点 ${target}）。`
+              : `已截取视频在 ${time} 的画面。`;
             frameMessages.push({
               role: "user",
-              content: `以下是 ${CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
+              content: isHistoricalFrame
+                ? `以下是 ${call.function.name} 工具截取的视频画面，实际截图时间 ${time}；目标时间点 ${target}。请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
+                : `以下是 ${call.function.name} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
               images: [frame.image]
             });
           } catch (e) {
@@ -325,7 +356,10 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     }
     messages.push(assistantMessage, ...toolMessages, ...frameMessages);
-    toolCallCount += toolCalls.filter((call) => call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME).length;
+    toolCallCount += toolCalls.filter((call) =>
+      call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME &&
+      call.function.name !== CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME
+    ).length;
 
     // 持久化副本：tool 内容截 2,000 字符（完整结果只活在当轮请求里，spec §2.5）。
     // 截图只存在于本轮请求；持久化副本不含图片字节。
