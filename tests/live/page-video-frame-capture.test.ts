@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  MOSS_VIDEO_FRAME_INTERVAL_MS,
   MOSS_VIDEO_FRAME_MAX_EDGE,
   capturePageVideoFrame,
   createPageVideoFrameCapture,
   getVideoFrameSize
 } from "../../extension/live/page-video-frame-capture.js";
+import { MOSS_STANDARD_VIDEO_CONFIG } from "../../extension/live/moss-video-config.js";
 
 describe("capturePageVideoFrame", () => {
   it("截取当前播放位置并返回 960px JPEG 字节与 currentTime", async () => {
@@ -110,8 +110,8 @@ describe("createPageVideoFrameCapture", () => {
 
     // Video remains paused at 42.5s across multiple 1-second ticks:
     // cached frame must continue to be sent without re-running drawImage/toBlob.
-    await vi.advanceTimersByTimeAsync(MOSS_VIDEO_FRAME_INTERVAL_MS);
-    await vi.advanceTimersByTimeAsync(MOSS_VIDEO_FRAME_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
+    await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(toBlob).toHaveBeenCalledTimes(1);
     expect(frames).toHaveLength(3);
@@ -120,11 +120,65 @@ describe("createPageVideoFrameCapture", () => {
 
     // Video advances to a new timestamp -> re-encodes a new frame
     (fakeVideo as { currentTime: number }).currentTime = 43.5;
-    await vi.advanceTimersByTimeAsync(MOSS_VIDEO_FRAME_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(MOSS_STANDARD_VIDEO_CONFIG.intervalMs);
     expect(drawImage).toHaveBeenCalledTimes(2);
     expect(toBlob).toHaveBeenCalledTimes(2);
     expect(frames).toHaveLength(4);
     expect(Array.from(frames[3])).toEqual([0xff, 0xd8, 0x12, 0xff, 0xd9]);
+
+    session.stop();
+  });
+
+  it("按会话参数缩放抽帧，并在 configure 后按新长边、质量与间隔生效", async () => {
+    vi.useFakeTimers();
+
+    const fakeVideo = {
+      currentSrc: "blob:https://www.bilibili.com/video-2",
+      src: "",
+      readyState: 4,
+      videoWidth: 1920,
+      videoHeight: 1080,
+      currentTime: 7
+    } as unknown as HTMLVideoElement;
+
+    const drawImage = vi.fn();
+    let lastQuality = 0;
+    const toBlob = vi.fn((callback: BlobCallback, _mime?: string, quality?: number) => {
+      lastQuality = quality ?? 0;
+      callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" }));
+    });
+    const fakeCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => ({ drawImage })),
+      toBlob
+    } as unknown as HTMLCanvasElement;
+
+    const frames: Uint8Array[] = [];
+    const session = createPageVideoFrameCapture({
+      getVideo: () => fakeVideo,
+      createCanvas: () => fakeCanvas,
+      config: { maxLongSide: 384, jpegQuality: 0.5, intervalMs: 2000 },
+      onJpegFrame: (bytes) => frames.push(bytes)
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fakeCanvas.width).toBe(384);
+    expect(fakeCanvas.height).toBe(216);
+    expect(lastQuality).toBe(0.5);
+    expect(frames).toHaveLength(1);
+
+    // 低带宽档 2 秒一帧：1 秒内不产生新帧
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(frames).toHaveLength(1);
+
+    // 回执改回 standard 档：长边/质量立即生效，间隔变更重新排期
+    session.configure({ maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fakeCanvas.width).toBe(512);
+    expect(fakeCanvas.height).toBe(288);
+    expect(lastQuality).toBe(0.75);
+    expect(frames).toHaveLength(2);
 
     session.stop();
   });

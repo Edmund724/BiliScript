@@ -16,6 +16,7 @@ import {
   type AudioBufferSourceNodeLike,
   type AudioContextLike
 } from "./moss-audio-player.js";
+import { MOSS_STANDARD_VIDEO_CONFIG, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import {
   DEFAULT_MOSS_RECONNECT_DELAY_MS,
   MAX_MOSS_RECONNECT_ATTEMPTS,
@@ -114,6 +115,7 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   updateSessionHandle(sessionId: string, options?: { emitSessionAttached?: boolean }): void;
   markContextSent(context: MossLiveSessionContext | null): void;
   applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
+  applyMediaConfiguration(config: { video: MossVideoCaptureConfig; error: string }): void;
   emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
   enqueueAudioContext(chunkId: string, runId: string, turnId: string): boolean;
   enqueueAudioFrame(pcmBuffer: ArrayBufferLike): void;
@@ -701,6 +703,16 @@ export class OffscreenLiveSessionRuntime {
           if (this.serverSpeedUnsupported) this.audioPlayer.setPlaybackRate(config.speed);
         }
         this.emit({ type: "output_configured", volume: this.outputVolume, speed: this.outputSpeed });
+      },
+      applyMediaConfiguration: (config) => {
+        if (!isCurrent()) return;
+        // 服务端拒绝或回执带错时回退 standard 画质，由页面侧提示一次。
+        const error = config.error.trim();
+        this.emit({
+          type: "video_configured",
+          video: error ? { ...MOSS_STANDARD_VIDEO_CONFIG } : config.video,
+          ...(error ? { error } : {})
+        });
       },
       emitTranscript: (event, options) => {
         if (!isCurrent()) return;

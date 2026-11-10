@@ -128,6 +128,7 @@ function collectElements(host: HTMLElement) {
     liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
     liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
+    liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -327,6 +328,14 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "asrAutoFallback",
     getElement: (el) => el.asrAutoFallback,
     normalize: (val) => val !== false,
+    patchState: false,
+    watchSync: true
+  },
+  {
+    kind: "toggle",
+    key: "liveLowBandwidth",
+    getElement: (el) => el.liveLowBandwidth,
+    normalize: (val) => val === true,
     patchState: false,
     watchSync: true
   },

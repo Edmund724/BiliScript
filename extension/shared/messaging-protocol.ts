@@ -396,6 +396,7 @@ export type LiveSessionPrepareResponse = {
   ok: boolean;
   provider?: LiveProviderListEntry;
   liveGeminiNativeSearch?: boolean;
+  liveLowBandwidth?: boolean;
   sessionId?: string;
   error?: string;
 };
