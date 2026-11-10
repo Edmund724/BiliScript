@@ -58,7 +58,7 @@ import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
 // 跨族凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
 // 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
-import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
+import { annotateAiCredentialRows, resolveAiCredentialReference } from "../core/ai-credential-reference.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
 import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
@@ -71,6 +71,7 @@ import {
 } from "../core/host-permissions.js";
 import { createProviderTransactions, loadOriginSharingProviders } from "./provider-transaction.js";
 import { ids } from "../reader/state.js";
+import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import {
   ensureReaderSettingsStyles,
   whenReaderSettingsStylesReady
@@ -83,6 +84,7 @@ let asrPresets: AsrProviderPreset[] = [];
 
 // 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
+let pendingLiveSettingsTarget: LiveSettingsTarget | null = null;
 let navSyncRef: { updateActiveIndicator: (smooth?: boolean) => void } | null = null;
 
 // ===== 分区渲染隔离 =====
@@ -131,6 +133,7 @@ function collectElements(host: HTMLElement) {
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
     addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
+    liveSettingsHeader: byIdIn<HTMLElement>(dom.liveSettingsHeader),
     liveProvidersList: byIdIn<HTMLElement>(dom.liveProvidersList),
     liveProvidersEmpty: byIdIn<HTMLElement>(dom.liveProvidersEmpty),
     liveVoiceFallbackHint: byIdIn<HTMLElement>(dom.liveVoiceFallbackHint),
@@ -431,10 +434,33 @@ export function renderReaderSettingsPanel(): void {
       bindSettingsEvents(host);
       host.dataset.biliscriptSettingsRendered = "1";
       void loadSettings(collectElements(host));
+      const pendingTarget = pendingLiveSettingsTarget;
+      pendingLiveSettingsTarget = null;
+      if (pendingTarget) void openLiveSettings(pendingTarget);
     })();
     return;
   }
   void loadSettings(collectElements(host));
+}
+
+export async function openLiveSettings(target: LiveSettingsTarget): Promise<void> {
+  const host = settingsHostRef ?? document.getElementById(ids.readingSettingsHost);
+  if (!host) return;
+  pendingLiveSettingsTarget = target;
+  if (!host.dataset.biliscriptSettingsRendered) {
+    renderReaderSettingsPanel();
+    return;
+  }
+  pendingLiveSettingsTarget = null;
+  host.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="llm"]')?.click();
+  if (target === "live") {
+    collectElements(host).liveSettingsHeader?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
+  const { record: gemini } = resolveAiCredentialReference("gemini-live", providers);
+  await openProviderEditorById("ai", String(gemini?.id || ""), gemini ? undefined : "gemini");
+  document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
 }
 
 // ===== 装载与保存 =====
@@ -847,7 +873,7 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   }
 }
 
-async function openProviderEditorById(kind: ProviderEditorKind, providerId: string): Promise<void> {
+async function openProviderEditorById(kind: ProviderEditorKind, providerId: string, presetId?: string): Promise<void> {
   const family = PROVIDER_FAMILY_UI[kind];
   const providers = await family.loadProviders();
   const item = providerId ? providers.find((p) => String(p?.id || "") === providerId) || null : null;
@@ -859,6 +885,7 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
     openProviderEditor({
       kind,
       item,
+      presetId,
       presets: family.presets(),
       onSave: providerTransactions.upsertProvider,
       onDelete: providerTransactions.deleteProvider

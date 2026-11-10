@@ -673,6 +673,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
         return;
       }
       clipSignature = nextSignature;
+      sendGate.cancel();
       conversationStore.detachForRestart();
       scheduleLiveContextSync();
     };
@@ -838,12 +839,10 @@ export function closeChatSession(): void {
   chatRuntime.resetStreamState();
   composer.setStreamingUiState(false);
   scrollFollow.reset();
-  // 挂起中的 subtitle-wait 立即失效（pollContext 的 closed 闸 → wait 兑现
-  // false → 发送流程提前返回并清等待提示）。
-  sendGate.kickSubtitleWait();
-  // 等待态收口：kick 只在其后无在途轮询时才立刻兑现（tick 的去重闸会吞掉这次
-  // kick），那条「等待结束 → false」的推送因此可能滞后一轮轮询才到；本行保证
-  // 会话关闭即不残留等待态，重开时发送键不会带着「正在抓取字幕…」禁用下去。
+  // 挂起中的 subtitle-wait 立即失效：在飞轮询也同步作废，迟到结果不能在
+  // 重开后复活旧发送意图。
+  sendGate.cancel();
+  // 等待态同步收口，重开时发送键不会带着「正在抓取字幕…」禁用下去。
   composer.setSubtitleWaitUi(false);
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();

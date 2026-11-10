@@ -29,6 +29,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
+  liveSettingsHeader: "biliscript-live-settings",
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
   liveVoiceFallbackHint: "liveVoiceFallbackHint",
@@ -102,7 +103,7 @@ export function buildSettingsHtml(): string {
       <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
 
-      <div class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
+      <div id="${ids.liveSettingsHeader}" class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
         <div class="biliscript-set-h">实时伴看平台</div>
         <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>

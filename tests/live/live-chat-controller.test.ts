@@ -143,6 +143,7 @@ describe("LiveChatController", () => {
     startVideoCapture?: (opts: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
     port?: FakePort;
     onSpeakingChange?: (speaking: boolean) => void;
+    onStateChange?: (state: any, error?: string, failureKind?: string) => void;
     onInterruptStateChange?: (active: boolean) => void;
     getVideoContext?: () => MossLiveVideoContext | null;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
@@ -195,6 +196,7 @@ describe("LiveChatController", () => {
       liveButton,
       muteButton,
       onSpeakingChange: overrides.onSpeakingChange,
+      onStateChange: overrides.onStateChange,
       showNotice,
       connectPort,
       sendRuntimeMessage,
@@ -345,7 +347,9 @@ describe("LiveChatController", () => {
   });
 
   it("handles user denial of host permissions with actionable failure state", async () => {
+    const onStateChange = vi.fn();
     const { controller, liveButton, showNotice } = setupTest({
+      onStateChange,
       requestOrigins: async () => ({
         ok: false,
         error: "用户拒绝授予 host_permissions：未授权 https://api.mosi.cn/*"
@@ -358,10 +362,17 @@ describe("LiveChatController", () => {
     expect(controller.getState()).toBe("failure");
     expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("未授权 https://api.mosi.cn/*"));
+    expect(onStateChange).toHaveBeenCalledWith(
+      "failure",
+      "用户拒绝授予 host_permissions：未授权 https://api.mosi.cn/*",
+      "permission-denied"
+    );
   });
 
   it("handles microphone permission denial with clear feedback and cleans up session rule", async () => {
+    const onStateChange = vi.fn();
     const { controller, liveButton, showNotice, connectPort, sendRuntimeMessage } = setupTest({
+      onStateChange,
       startAudioCapture: async () => {
         throw new Error("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
       }
@@ -375,6 +386,11 @@ describe("LiveChatController", () => {
     expect(showNotice).toHaveBeenCalledWith("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
     expect(connectPort).not.toHaveBeenCalled();
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
+    expect(onStateChange).toHaveBeenCalledWith(
+      "failure",
+      "麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试",
+      "microphone"
+    );
   });
 
   it("handles interrupt with speaking_state and posts interrupt action without disconnecting", async () => {
@@ -427,6 +443,23 @@ describe("LiveChatController", () => {
     expect(liveButton.classList.contains("is-failure")).toBe(true);
     expect(showNotice).toHaveBeenCalledWith("未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key");
     expect(startAudioCapture).not.toHaveBeenCalled();
+  });
+
+  it("propagates the prepare failure category through onStateChange", async () => {
+    const onStateChange = vi.fn();
+    const { controller } = setupTest({
+      onStateChange,
+      sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-session-prepare") {
+          return { ok: false, failureKind: "gemini-credential", error: "请配置 Gemini Key" };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(await controller.start()).toBe(false);
+
+    expect(onStateChange).toHaveBeenCalledWith("failure", "请配置 Gemini Key", "gemini-credential");
   });
 
   it("transitions to connecting, posts start to port, switches to connected, and streams mic audio frames", async () => {
@@ -655,8 +688,66 @@ describe("LiveChatController", () => {
     expect(muteButton.hidden).toBe(true);
     expect(getAudioCapture()?.stopped).toBe(true);
     expect(isMergerDisposed()).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith("WebSocket 连接失败");
+    expect(showNotice).toHaveBeenCalledWith("伴看连接已断开。");
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
+  });
+
+  it("classifies rejected provider credentials without echoing the key into feedback", async () => {
+    const onStateChange = vi.fn();
+    const { controller, fakePort, showNotice } = setupTest({ onStateChange });
+
+    await controller.start();
+    fakePort.simulateMessage({
+      type: "error",
+      code: 1008,
+      error: "401 Unauthorized: Bearer sk-live-secret"
+    });
+
+    expect(onStateChange).toHaveBeenCalledWith(
+      "failure",
+      "平台拒绝了 API Key，请检查或更换后重试",
+      "key-rejected"
+    );
+    expect(showNotice).toHaveBeenCalledWith("平台拒绝了 API Key，请检查或更换后重试");
+    expect(JSON.stringify(onStateChange.mock.calls)).not.toContain("sk-live-secret");
+  });
+
+  it("does not expose server diagnostics or credentials through public network failure feedback", async () => {
+    const onStateChange = vi.fn();
+    const { controller, fakePort, showNotice } = setupTest({ onStateChange });
+
+    await controller.start();
+    fakePort.simulateMessage({
+      type: "error",
+      code: 1006,
+      reason: "Relay rejected apiKey=sk-live-secret",
+      error: "Bearer sk-live-secret"
+    });
+
+    expect(onStateChange).toHaveBeenCalledWith(
+      "failure",
+      expect.stringContaining("1006"),
+      "network"
+    );
+    const publicFeedback = JSON.stringify([onStateChange.mock.calls, showNotice.mock.calls]);
+    expect(publicFeedback).not.toContain("sk-live-secret");
+    expect(publicFeedback).not.toContain("Relay rejected");
+    expect(publicFeedback).not.toContain("Bearer");
+  });
+
+  it("classifies an unexpected background port disconnect as a network failure", async () => {
+    const onStateChange = vi.fn();
+    const { controller, fakePort } = setupTest({ onStateChange });
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.disconnect();
+
+    expect(onStateChange).toHaveBeenCalledWith(
+      "failure",
+      expect.stringContaining("后台伴看通道已断开"),
+      "network"
+    );
   });
 
   it("stop() closes connection, stops mic capture, calls cleanup, and resets to idle", async () => {
@@ -1161,7 +1252,7 @@ describe("LiveChatController video context and page tools", () => {
       expect(controller.getSavedSessionId?.()).toBeNull();
     });
 
-    it("displays reconnecting Chinese notice with WebSocket code and reason", async () => {
+    it("displays reconnecting notice with only safe progress and WebSocket code", async () => {
       const fakePort = new FakePort();
       const showNotice = vi.fn();
       const onReconnecting = vi.fn();
@@ -1200,24 +1291,10 @@ describe("LiveChatController video context and page tools", () => {
         attempt: 1,
         maxAttempts: 3,
         code: 1006,
-        reason: "Connection reset",
-        error: "Relay 连接中断",
-        notice: expect.stringContaining("第 1/3 次")
+        notice: "伴看连接已断开（关闭码: 1006），正在尝试自动重连 (第 1/3 次)..."
       });
       expect(showNotice).toHaveBeenCalledWith(
-        expect.stringContaining("关闭码: 1006"),
-        6000
-      );
-      expect(showNotice).toHaveBeenCalledWith(
-        expect.stringContaining("原因: Connection reset"),
-        6000
-      );
-      expect(showNotice).toHaveBeenCalledWith(
-        expect.stringContaining("错误详情: Relay 连接中断"),
-        6000
-      );
-      expect(showNotice).toHaveBeenCalledWith(
-        expect.stringContaining("第 1/3 次"),
+        "伴看连接已断开（关闭码: 1006），正在尝试自动重连 (第 1/3 次)...",
         6000
       );
 
@@ -1227,11 +1304,13 @@ describe("LiveChatController video context and page tools", () => {
       expect(controller.isReconnecting?.()).toBe(false);
     });
 
-    it("displays failure diagnostics with close code, reason, and relay error on closed message", async () => {
+    it("closed 失败仅保留安全关闭码，不回显外部诊断", async () => {
       const fakePort = new FakePort();
       const showNotice = vi.fn();
+      const onStateChange = vi.fn();
       const controller = createLiveChatController({
         connectPort: () => fakePort as any,
+        onStateChange,
         requestOrigins: async () => ({ ok: true }),
         sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
           ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
@@ -1247,14 +1326,18 @@ describe("LiveChatController video context and page tools", () => {
       fakePort.simulateMessage({
         type: "closed",
         code: 1006,
-        reason: "Relay timeout",
-        error: "已达最大重连次数 (3 次)"
+        reason: "Relay timeout apiKey=sk-live-secret",
+        error: "Bearer sk-live-secret"
       });
 
       expect(controller.getState()).toBe("failure");
-      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("关闭码: 1006"));
-      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("原因: Relay timeout"));
-      expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("已达最大重连次数 (3 次)"));
+      expect(showNotice).toHaveBeenCalledWith("伴看连接已断开（关闭码: 1006）。");
+      expect(onStateChange).toHaveBeenCalledWith(
+        "failure",
+        "伴看连接已断开（关闭码: 1006）。",
+        "network"
+      );
+      expect(JSON.stringify([onStateChange.mock.calls, showNotice.mock.calls])).not.toContain("sk-live-secret");
     });
   });
 

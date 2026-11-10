@@ -177,6 +177,24 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(document.getElementById("biliscript-chat-messages")).toBeNull();
   });
 
+  it("player-ai 最外层启动异常进入浮窗失败卡且不泄露凭据", async () => {
+    const syncState = vi.fn();
+    (mockOverlay as any).syncState = syncState;
+    mockLiveSession.startLiveCompanion.mockRejectedValue(new Error("启动失败：AIza-outer-secret"));
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    (document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(mockLiveSession.ensureFullscreenOverlay).toHaveBeenCalledTimes(1);
+    expect(mockOverlay.show).toHaveBeenCalledWith({ forceExpand: true });
+    expect(syncState).toHaveBeenCalledWith("failure", false, "实时伴看启动失败，请重试", "unknown");
+    expect(document.body.textContent).not.toContain("AIza-outer-secret");
+  });
+
   it("全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {
     // 模拟 B 站网页全屏
     playerContainer.setAttribute("data-screen", "web");

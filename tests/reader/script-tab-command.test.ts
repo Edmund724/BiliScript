@@ -22,6 +22,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
+const settingsPanelMocks = vi.hoisted(() => ({
+  renderReaderSettingsPanel: vi.fn(),
+  openLiveSettings: vi.fn()
+}));
+
+vi.mock("../../extension/ui/settings-panel.js", () => settingsPanelMocks);
+
 vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
   ensureReaderChatTab: vi.fn(),
   isReaderChatTabLoaded: vi.fn(() => false)
@@ -155,6 +162,15 @@ describe("壳命令 project-tab（纯 DOM 投影）", () => {
     expectTabActive("Chat", false);
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
     expect(ensureOverviewTab).not.toHaveBeenCalled();
+  });
+});
+
+describe("壳命令 open-settings", () => {
+  it("展开设置抽屉并转发伴看定位目标", async () => {
+    m.requestUiCommand("open-settings", { target: "gemini-key" });
+
+    expect(m.state.reader.readingSettingsExpanded).toBe(true);
+    await vi.waitFor(() => expect(settingsPanelMocks.openLiveSettings).toHaveBeenCalledWith("gemini-key"));
   });
 });
 

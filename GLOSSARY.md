@@ -340,7 +340,7 @@ _Avoid_: 清会话、重置对话、手抄拆除序列
 _Avoid_: 在效果壳重判流式守卫、按计划字段而非 action 反推是否进主上下文、给计划加无消费方的字段（`clearTabUrl` / `applyToMainContext` 已因零消费删除）
 
 **发送闸**:
-发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendTurn` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。等待方向单向：发送等回放让位，回放不等任何东西；回合终结的两个维度的标志必须成对收口——`sendInFlight` 与 `activePort`（`isTurnActive()` 的判据）在 blocked 提前返回、异常与终态三条出口都复位，否则此后发送被入口判 ignored（静默发不出去）。
+发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendTurn` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。关闭面板或视频/分P签名变化经 `cancel()` 同步取消在飞等待并作废迟到轮询，旧发送意图不得在重开或新内容上复活。等待方向单向：发送等回放让位，回放不等任何东西；回合终结的两个维度的标志必须成对收口——`sendInFlight` 与 `activePort`（`isTurnActive()` 的判据）在 blocked 提前返回、异常与终态三条出口都复位，否则此后发送被入口判 ignored（静默发不出去）。
 代码名：`extension/chat/send-gate.ts`（`createSendGate` / `GateOutcome`）/ `ensureCurrentContextForSend`（chat-runtime 的 deps 缝，发送闸对编排壳的唯一出口）/ `SendVerdict`（`extension/chat/turn-lifecycle.ts` 的 `createTurnLifecycle` / `TurnLifecycle` / `TURN_SETTLE_FALLBACK_MS`——回合生命周期深 module；chat-runtime 的受理入口 `sendTurn`）
 _Avoid_: 发送前检查、发送前置条件散落各调用点、按输入框是否清空反推受理
 

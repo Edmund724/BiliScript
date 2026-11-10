@@ -140,6 +140,16 @@ export interface LiveSessionPrepareDeps {
   notifyTabTakeover?: (tabId: number, channel: LiveSessionChannel) => Promise<void>;
 }
 
+export type LiveFailureKind =
+  | "provider-unconfigured"
+  | "key-missing"
+  | "key-rejected"
+  | "gemini-credential"
+  | "permission-denied"
+  | "microphone"
+  | "network"
+  | "unknown";
+
 export interface LiveSessionPrepareResult {
   ok: boolean;
   provider?: LiveProviderListEntry;
@@ -147,6 +157,7 @@ export interface LiveSessionPrepareResult {
   liveGeminiNativeSearch?: boolean;
   liveLowBandwidth?: boolean;
   error?: string;
+  failureKind?: LiveFailureKind;
 }
 
 export interface LiveSessionCleanupResult {
@@ -305,7 +316,11 @@ export class LiveSessionTracker {
       const activeProvider = providers.find((p) => p.id === activeId);
       if (!activeProvider) {
         clearCurrentTabOwnershipIfUnchanged();
-        return { ok: false, error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key" };
+        return {
+          ok: false,
+          failureKind: "provider-unconfigured",
+          error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key"
+        };
       }
 
       const isGeminiLive =
@@ -314,7 +329,11 @@ export class LiveSessionTracker {
       if (isGeminiLive) {
         if (!isOfficialAiCredentialEndpoint("gemini-live", activeProvider.baseUrl)) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: getAiCredentialStatusText("gemini-live", "unofficial") };
+          return {
+            ok: false,
+            failureKind: "gemini-credential",
+            error: getAiCredentialStatusText("gemini-live", "unofficial")
+          };
         }
         const [aiProviders, aiKeys] = await Promise.all([
           deps.loadAiProviders(),
@@ -323,7 +342,11 @@ export class LiveSessionTracker {
         const cred = resolveAiCredentialKey("gemini-live", aiProviders, aiKeys);
         if (!cred.key) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: getAiCredentialStatusText("gemini-live", cred.status) };
+          return {
+            ok: false,
+            failureKind: "gemini-credential",
+            error: getAiCredentialStatusText("gemini-live", cred.status)
+          };
         }
         apiKey = cred.key;
       } else {
@@ -331,7 +354,11 @@ export class LiveSessionTracker {
         apiKey = String(keys[activeId] || "").trim();
         if (!apiKey) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
+          return {
+            ok: false,
+            failureKind: "key-missing",
+            error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key"
+          };
         }
       }
 
@@ -348,7 +375,11 @@ export class LiveSessionTracker {
       const hasPerm = hasHttpPerm && hasWsPerm;
       if (!hasPerm) {
         clearCurrentTabOwnershipIfUnchanged();
-        return { ok: false, error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限` };
+        return {
+          ok: false,
+          failureKind: "permission-denied",
+          error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限`
+        };
       }
 
       // 检查在权限校验与配置读取期间是否已被更新的会话请求取代

@@ -21,6 +21,7 @@ import {
   liveProviderStore,
   resolveActiveLiveProviderId
 } from "./live-provider-store.js";
+import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import {
@@ -52,6 +53,17 @@ import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messa
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export const DEFAULT_LIVE_DUCK_RATIO = 0.2;
 
+function classifyConnectionFailure(
+  providerType: LiveProviderType,
+  details: { code?: string | number; reason?: string; error?: string }
+): LiveFailureKind {
+  const diagnostic = `${details.code ?? ""} ${details.reason ?? ""} ${details.error ?? ""}`;
+  if (/\b(?:401|403)\b|unauthorized|forbidden|authentication|invalid[^\n]*(?:api[ -]?key|key)|(?:api[ -]?key|密钥)[^\n]*(?:invalid|无效|失效|拒绝)/i.test(diagnostic)) {
+    return providerType === "gemini-live" ? "gemini-credential" : "key-rejected";
+  }
+  return "network";
+}
+
 export interface LiveReconnectingInfo {
   attempt: number;
   maxAttempts: number;
@@ -81,7 +93,7 @@ export interface LiveChatControllerDeps {
   onShareVideoAudioChange?: (enabled: boolean) => void;
   onVolumeChange?: (volumePercent: number) => void;
   onSpeedChange?: (speed: number) => void;
-  onStateChange?: (state: LiveChatState, error?: string) => void;
+  onStateChange?: (state: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onSpeakingChange?: (speaking: boolean) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
@@ -331,7 +343,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     onSpeakingChange?.(speaking);
   }
 
-  function updateUi(nextState: LiveChatState, errorMessage?: string): void {
+  function updateUi(nextState: LiveChatState, errorMessage?: string, failureKind?: LiveFailureKind): void {
     state = nextState;
     if (nextState !== "connecting") {
       reconnecting = false;
@@ -369,7 +381,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     updateMuteUi();
     updateSpeakingUi();
-    onStateChange?.(nextState, errorMessage);
+    onStateChange?.(nextState, errorMessage, failureKind);
   }
 
   // 初始化 UI 呈现
@@ -628,7 +640,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = `权限申请异常：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "permission-denied");
       showNotice(errorMsg);
       return false;
     }
@@ -640,7 +652,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     if (!permResult.ok) {
       const errorMsg = permResult.error || "未授予平台域名权限，无法建立伴看连接";
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "permission-denied");
       showNotice(errorMsg);
       return false;
     }
@@ -655,7 +667,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = `启动服务通信失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       return false;
     }
@@ -668,7 +680,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     if (!prepResp?.ok) {
       const errorMsg = prepResp?.error || "伴看会话准备失败";
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, prepResp?.failureKind);
       showNotice(errorMsg);
       return false;
     }
@@ -728,7 +740,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = (error as Error)?.message || String(error || "麦克风授权或启动失败");
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "microphone");
       showNotice(errorMsg);
       return false;
     }
@@ -749,7 +761,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch (error) {
       stopActiveMedia();
       const errorMsg = `连接后台通信端口失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       void cleanupSessionRule(sessionId);
       return false;
@@ -842,9 +854,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           isReconnect: true,
           attempt: msg.attempt,
           maxAttempts: msg.maxAttempts,
-          code: msg.code,
-          reason: msg.reason,
-          error: msg.error
+          code: msg.code
         });
         updateUi("connecting", notice);
         showNotice(notice, 6000);
@@ -852,45 +862,34 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           attempt: msg.attempt,
           maxAttempts: msg.maxAttempts,
           code: msg.code,
-          reason: msg.reason,
-          error: msg.error,
           notice
         });
-      } else if (msg.type === "error") {
-        const errorMsg = formatLiveCloseDiagnostics({
-          code: msg.code,
-          reason: msg.reason,
-          error: msg.error || "MOSS-LIVE 连接异常中断"
-        });
-        stopActiveMedia();
-        updateUi("failure", errorMsg);
-        showNotice(errorMsg);
-        disconnectPort();
-        void cleanupSessionRule(sessionId);
-      } else if (msg.type === "closed") {
-        if (state === "connecting" || state === "connected") {
-          const errorMsg = formatLiveCloseDiagnostics({
-            code: msg.code,
-            reason: msg.reason,
-            error: msg.error || "MOSS-LIVE 连接已关闭"
-          });
-          stopActiveMedia();
-          updateUi("failure", errorMsg);
-          showNotice(errorMsg);
-          disconnectPort();
-          void cleanupSessionRule(sessionId);
-        }
+      } else if (msg.type === "error" || msg.type === "closed") {
+        handleConnectionFailure(msg);
       }
     });
+
+    function handleConnectionFailure(msg: Extract<MossLiveServerEvent, { type: "error" | "closed" }>): void {
+      if (msg.type === "closed" && state !== "connecting" && state !== "connected") return;
+      const failureKind = classifyConnectionFailure(resolvedProviderType, msg);
+      const errorMsg = failureKind === "key-rejected" || failureKind === "gemini-credential"
+        ? resolvedProviderType === "gemini-live"
+          ? "Gemini 凭据无效或已被拒绝，请检查后重试"
+          : "平台拒绝了 API Key，请检查或更换后重试"
+        : formatLiveCloseDiagnostics({ code: msg.code });
+      stopActiveMedia();
+      updateUi("failure", errorMsg, failureKind);
+      showNotice(errorMsg);
+      disconnectPort();
+      void cleanupSessionRule(sessionId);
+    }
 
     port.onDisconnect.addListener(() => {
       if (generation !== currentGeneration) return;
       if (state === "connecting" || state === "connected") {
-        const errorMsg = formatLiveCloseDiagnostics({
-          error: "后台伴看通道已断开"
-        });
+        const errorMsg = "后台伴看通道已断开。";
         stopActiveMedia();
-        updateUi("failure", errorMsg);
+        updateUi("failure", errorMsg, "network");
         showNotice(errorMsg);
         disconnectPort();
         void cleanupSessionRule(sessionId);
@@ -927,7 +926,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch (error) {
       stopActiveMedia();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       disconnectPort();
       void cleanupSessionRule(sessionId);

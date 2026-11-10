@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => ({
   isPlayerAiLoaded: vi.fn(),
   ensureReaderDomain: vi.fn(),
   ensureReaderChatTab: vi.fn(),
-  replaceReaderModeUrl: vi.fn()
+  replaceReaderModeUrl: vi.fn(),
+  requestUiCommand: vi.fn()
 }));
 
 vi.mock("../../extension/ui/lazy-ui.js", () => ({
@@ -41,6 +42,10 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
 vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
   ensureReaderChatTab: mocks.ensureReaderChatTab,
   isReaderChatTabLoaded: vi.fn(() => false)
+}));
+vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../extension/reader/reader-bus.js")>(),
+  requestUiCommand: mocks.requestUiCommand
 }));
 // arch-slim-2/03：reader-url 单源后 shell.ts 也消费 buildReaderModeUrl——
 // 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
@@ -194,6 +199,16 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     const enterOrder = reader.enterReaderMode.mock.invocationCallOrder[0];
     expect(uiOrder).toBeLessThan(replaceOrder);
     expect(replaceOrder).toBeLessThan(enterOrder);
+  });
+
+  it("伴看设置意图在进入后携带定位目标打开设置", async () => {
+    await enterReaderShell({
+      readerUrl: READER_MODE_URL,
+      intent: "open",
+      settingsTarget: "gemini-key"
+    });
+
+    expect(mocks.requestUiCommand).toHaveBeenCalledWith("open-settings", { target: "gemini-key" });
   });
 
   it("阅读样式表全部加载完成后才进入 reader 域", async () => {

@@ -45,6 +45,8 @@ import { READER_CLOSED_EVENT } from "../shared/self-heal.js";
 import { getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
 import { READER_READY_ATTR } from "./presentation-fields.js";
+import { requestUiCommand } from "./reader-bus.js";
+import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 
 export type ReaderShellIntent = "open" | "restore" | "chat";
 
@@ -53,6 +55,7 @@ export interface EnterReaderShellOptions {
   intent: ReaderShellIntent;
   /** chat 档专用：非空 = 激活对话 tab 后自动发送快捷提示词；空 = 只定位/聚焦 */
   prompt?: string;
+  settingsTarget?: LiveSettingsTarget;
 }
 
 // 空 readerUrl 的语义是「已在阅读模式内，只聚焦/激活」。但 background 的
@@ -279,6 +282,9 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       } else {
         await activateScriptTab("chat", { consumeIntent: false });
       }
+    }
+    if (options.settingsTarget) {
+      requestUiCommand("open-settings", { target: options.settingsTarget });
     }
   }, onFailed);
 }

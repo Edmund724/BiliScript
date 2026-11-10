@@ -16,7 +16,8 @@ import {
   getReaderOverviewSource,
   subscribeReaderOverviewSource
 } from "../reader/live-overview-source.js";
-import type { FullscreenLiveOverlay } from "./fullscreen-live-overlay.js";
+import { ensureReaderShell } from "../reader/lazy-shell.js";
+import type { FullscreenLiveOverlay, LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { createInterpretSubtitleOverlay } from "./interpret-subtitle-overlay.js";
 import {
   createInterpretSessionController,
@@ -92,7 +93,10 @@ const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost,
   getLiveController: () => liveController,
   getInterpretController: ensureInterpretController,
-  shouldShowInterpret
+  shouldShowInterpret,
+  onOpenLiveSettings: (target) => {
+    void openLiveCompanionSettings(target);
+  }
 });
 
 function onWindowPageHide(): void {
@@ -133,6 +137,11 @@ function bindLifecycleListeners(): void {
 
 export function setLiveSessionHooks(hooks: LiveSessionConsumerHooks | null): void {
   sessionHooks = hooks;
+}
+
+export async function openLiveCompanionSettings(target: LiveSettingsTarget): Promise<void> {
+  const shell = await ensureReaderShell();
+  await shell.enterReaderShell({ readerUrl: "", intent: "open", settingsTarget: target });
 }
 
 export function ensureLiveController(): LiveChatController {

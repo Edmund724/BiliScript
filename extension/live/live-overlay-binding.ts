@@ -20,6 +20,7 @@ import type {
   LiveChatState
 } from "./live-chat-controller.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
+import type { LiveFailureKind } from "./live-session-tracker.js";
 
 export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR =
   ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap, #live-player, .live-player-mounter, #live-player-ctnr";
@@ -60,7 +61,7 @@ export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
 }
 
 export interface LiveOverlayControllerHooks {
-  onStateChange?: (liveState: LiveChatState, error?: string) => void;
+  onStateChange?: (liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onVadStateChange?: (active: boolean) => void;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
@@ -90,6 +91,7 @@ export interface LiveOverlayBindingOptions {
   getVolume?: () => number;
   onVolumeSync?: (volumePercent: number) => void;
   onSpeedSync?: (speed: number) => void;
+  onOpenLiveSettings?: FullscreenLiveOverlayDeps["onOpenLiveSettings"];
   createOverlay?: typeof createFullscreenLiveOverlay;
 }
 
@@ -101,7 +103,7 @@ export interface LiveOverlayBinding {
   handleVadChange(active: boolean): void;
   handleTranscript(event: MossLiveTranscriptEvent): void;
   handleReconnecting(): void;
-  handleStateChange(liveState: LiveChatState, error?: string): void;
+  handleStateChange(liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind): void;
   handleVoicePriorityChange(enabled: boolean): void;
   handleShareVideoAudioChange(enabled: boolean): void;
   clearMessages(): void;
@@ -139,11 +141,17 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
         onVolumeChange: handleVolumeChange,
         onSpeedChange: handleSpeedChange,
+        onOpenLiveSettings: options.onOpenLiveSettings,
         onStopLive: () => {
           void options.getLiveController()?.stop();
         },
         onRetryLive: () => {
-          void options.getLiveController()?.start();
+          void (async () => {
+            const controller = options.getLiveController();
+            if (!controller) return;
+            await controller.stop();
+            await controller.start();
+          })();
         }
       });
     }
@@ -169,7 +177,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     overlay?.syncState(options.getLiveController()?.getState(), true);
   }
 
-  function handleStateChange(liveState: LiveChatState, error?: string): void {
+  function handleStateChange(liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind): void {
     const active = liveState === "connected" || liveState === "connecting";
     const shouldShowOverlay = active || liveState === "failure";
     syncPlayerLiveQuickActionState(active);
@@ -182,9 +190,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
           liveState === "failure" ||
           !targetOverlay.isVisible();
         targetOverlay.show({ forceExpand });
-        targetOverlay.syncState(liveState, false, error);
+        targetOverlay.syncState(liveState, false, error, failureKind);
       } else {
-        overlay?.syncState(liveState, false, error);
+        overlay?.syncState(liveState, false, error, failureKind);
       }
     } else {
       overlay?.syncState(liveState, false, undefined);
@@ -240,13 +248,13 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       },
       onTranscript: handleTranscript,
       onReconnecting: handleReconnecting,
-      onStateChange: (liveState, error) => {
+      onStateChange: (liveState, error, failureKind) => {
         if (error !== undefined) {
-          hooks?.onStateChange?.(liveState, error);
+          hooks?.onStateChange?.(liveState, error, failureKind);
         } else {
           hooks?.onStateChange?.(liveState);
         }
-        handleStateChange(liveState, error);
+        handleStateChange(liveState, error, failureKind);
       },
       onVolumeChange: (volumePercent) => {
         handleVolumeChange(volumePercent);

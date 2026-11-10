@@ -17,6 +17,7 @@
 // 时序约定（测试锁定，改动前先读）：
 //   - wait() 重复触发：新等待使旧等待立即 resolve false（最后一次发送生效）；
 //   - kick() 与轮询去重：同一时刻最多一轮 pollContext 在跑；
+//   - cancel() 立即 resolve false 并推进代币，在飞轮询的迟到结果不得续跑；
 //   - finish（就绪/失败/失效）后挂着的定时器必须作废，notice 必须清理。
 
 export interface CreateSubtitleWaiterDeps {
@@ -31,6 +32,7 @@ export interface CreateSubtitleWaiterDeps {
 export interface SubtitleWaiter {
   wait: () => Promise<boolean>;
   kick: () => void;
+  cancel: () => void;
 }
 
 /**
@@ -129,6 +131,13 @@ export function createSubtitleWaiter(deps: CreateSubtitleWaiterDeps): SubtitleWa
       if (kickCurrent) {
         kickCurrent();
       }
+    },
+    cancel: () => {
+      if (!activeFinish) {
+        return;
+      }
+      activeFinish(false);
+      token += 1;
     }
   };
 }

@@ -119,6 +119,70 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(overlay.isVisible()).toBe(true);
   });
 
+  it("按失败原因提供匹配的主次动作", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController
+    });
+    overlay.show({ forceExpand: true });
+    const cases = [
+      ["provider-unconfigured", "设置伴看", null, "settings"],
+      ["key-missing", "填写 Key", "重试", "settings"],
+      ["key-rejected", "检查 Key", "重试", "settings"],
+      ["gemini-credential", "设置 Gemini Key", "重试", "settings"],
+      ["permission-denied", "设置伴看", "重新授权", "retry"],
+      ["microphone", null, "重试", "retry"],
+      ["network", null, "重试", "retry"]
+    ] as const;
+
+    for (const [kind, settingsLabel, retryLabel, primary] of cases) {
+      overlay.syncState("failure", false, "失败原因", kind);
+      const root = overlay.getElement()!;
+      const settings = root.querySelector<HTMLButtonElement>(".live-overlay-settings-btn")!;
+      const retry = root.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")!;
+      expect(settings.hidden).toBe(settingsLabel === null);
+      if (settingsLabel) expect(settings.textContent).toBe(settingsLabel);
+      expect(retry.hidden).toBe(retryLabel === null);
+      if (retryLabel) expect(retry.textContent).toBe(retryLabel);
+      expect(settings.dataset.primaryAction).toBe(String(primary === "settings"));
+      expect(retry.dataset.primaryAction).toBe(String(primary === "retry"));
+    }
+  });
+
+  it("unknown 失败不向浮窗回显外部错误中的凭据", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController
+    });
+    overlay.show({ forceExpand: true });
+
+    overlay.syncState("failure", false, "启动失败：apiKey=sk-live-secret", "unknown");
+
+    const card = overlay.getElement()!.querySelector<HTMLElement>(".live-overlay-failure-card")!;
+    expect(card.querySelector(".live-overlay-failure-reason")?.textContent).toBe("实时伴看启动失败，请重试");
+    expect(card.textContent).not.toContain("sk-live-secret");
+    expect(card.textContent).not.toContain("apiKey");
+  });
+
+  it("设置动作区分实时伴看配置与 Gemini Key 目标", () => {
+    const onOpenLiveSettings = vi.fn();
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onOpenLiveSettings
+    });
+    overlay.show({ forceExpand: true });
+    const settings = overlay.getElement()!.querySelector<HTMLButtonElement>(".live-overlay-settings-btn")!;
+
+    overlay.syncState("failure", false, "缺少 Key", "key-missing");
+    settings.click();
+    expect(onOpenLiveSettings).toHaveBeenLastCalledWith("live");
+
+    overlay.syncState("failure", false, "Gemini 凭据失效", "gemini-credential");
+    settings.click();
+    expect(onOpenLiveSettings).toHaveBeenLastCalledWith("gemini-key");
+  });
+
   it("麦克风语音活动（VAD）动效类切换", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,

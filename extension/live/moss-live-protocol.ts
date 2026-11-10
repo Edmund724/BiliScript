@@ -816,23 +816,14 @@ export interface LiveCloseDiagnosticsOptions {
 }
 
 /**
- * 格式化伴看连接断开、失败与自动重连的中文诊断提示，明确展示关闭码、服务端原因及错误详情。
+ * 格式化伴看连接诊断；外部 reason/error 不进入用户反馈，仅保留安全关闭码与重连进度。
  */
 export function formatLiveCloseDiagnostics(options: LiveCloseDiagnosticsOptions): string {
-  const parts: string[] = [];
-  if (options.code !== undefined && options.code !== null && String(options.code).trim() !== "") {
-    parts.push(`关闭码: ${options.code}`);
-  }
-  if (options.reason && options.reason.trim()) {
-    parts.push(`原因: ${options.reason.trim()}`);
-  }
-  if (options.error && options.error.trim()) {
-    const trimmedErr = options.error.trim();
-    if (trimmedErr !== options.reason?.trim()) {
-      parts.push(`错误详情: ${trimmedErr}`);
-    }
-  }
-  const detailStr = parts.length > 0 ? `（${parts.join("，")}）` : "";
+  const rawCode = typeof options.code === "number" ? options.code : String(options.code || "").trim();
+  const safeCode = typeof rawCode === "number"
+    ? Number.isInteger(rawCode) ? String(rawCode) : ""
+    : /^\d+$/.test(rawCode) ? rawCode : "";
+  const detailStr = safeCode ? `（关闭码: ${safeCode}）` : "";
 
   if (options.isReconnect) {
     const attemptStr = options.attempt ? ` (第 ${options.attempt}/${options.maxAttempts ?? MAX_MOSS_RECONNECT_ATTEMPTS} 次)` : "";
@@ -843,9 +834,5 @@ export function formatLiveCloseDiagnostics(options: LiveCloseDiagnosticsOptions)
     return `伴看连接已断开，自动重连 ${options.maxAttempts} 次均失败${detailStr}。`;
   }
 
-  if (options.code !== undefined || (options.reason && options.reason.trim())) {
-    return `伴看连接已断开${detailStr}。`;
-  }
-
-  return options.error?.trim() || "伴看连接已断开。";
+  return `伴看连接已断开${detailStr}。`;
 }

@@ -174,16 +174,16 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     const failureCard = overlay.getElement()?.querySelector(".live-overlay-failure-card") as HTMLElement | null;
     expect(failureCard).not.toBeNull();
     expect(failureCard?.hidden).toBe(false);
-    expect(failureCard?.textContent).toContain("网络握手超时");
+    expect(failureCard?.textContent).toContain("实时伴看启动失败，请重试");
 
     const retryBtn = failureCard?.querySelector(".live-overlay-retry-btn") as HTMLButtonElement | null;
     const cancelBtn = failureCard?.querySelector(".live-overlay-cancel-btn") as HTMLButtonElement | null;
     expect(retryBtn).not.toBeNull();
     expect(cancelBtn).not.toBeNull();
 
-    // 3. 点击重试：调用 controller.start() 重新进入 connecting，失败卡隐藏
+    // 3. 点击重试：先完整停止，再调用 controller.start() 重新进入 connecting
     retryBtn!.click();
-    expect(startFn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(startFn).toHaveBeenCalledTimes(1));
     expect(overlay.isVisible()).toBe(true);
     expect(failureCard?.hidden).toBe(true);
 
@@ -192,8 +192,83 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     callbacks.onStateChange?.("failure", "连接被拒绝");
     expect(failureCard?.hidden).toBe(false);
     cancelBtn!.click();
-    expect(stopFn).toHaveBeenCalledTimes(1);
+    expect(stopFn).toHaveBeenCalledTimes(2);
     expect(overlay.isVisible()).toBe(false);
+  });
+
+  it("重试先完整停止并清理旧会话，再重新建立连接", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    const calls: string[] = [];
+    let currentState = "failure";
+    const controller = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      getSpeed: () => 1,
+      stop: vi.fn(async () => {
+        calls.push("stop");
+        currentState = "idle";
+      }),
+      start: vi.fn(async () => {
+        calls.push("start");
+        currentState = "connecting";
+        return true;
+      })
+    };
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => controller as any
+    });
+    binding.handleStateChange("failure", "网络超时", "network");
+
+    binding.getOverlay()?.getElement()?.querySelector<HTMLButtonElement>(".live-overlay-retry-btn")?.click();
+
+    await vi.waitFor(() => expect(calls).toEqual(["stop", "start"]));
+    binding.dispose();
+  });
+
+  it("propagates a typed failure into the persistent player failure card", () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => ({
+        getState: () => "failure",
+        isMuted: () => false,
+        isSharingVideoAudio: () => false,
+        isVoicePriority: () => true,
+        getSpeed: () => 1
+      }) as any
+    });
+
+    binding.handleStateChange("failure", "请配置 Gemini Key", "gemini-credential");
+
+    const card = binding.getOverlay()?.getElement()?.querySelector<HTMLElement>(".live-overlay-failure-card");
+    expect(card?.getAttribute("data-failure-kind")).toBe("gemini-credential");
+    expect(card?.hidden).toBe(false);
+    binding.dispose();
+  });
+
+  it("把浮窗设置目标转发给视频页设置入口", () => {
+    const onOpenLiveSettings = vi.fn();
+    let overlayDeps: any;
+    const binding = createLiveOverlayBinding({
+      getLiveController: () => null,
+      onOpenLiveSettings,
+      createOverlay: ((deps: any) => {
+        overlayDeps = deps;
+        return {};
+      }) as any
+    });
+
+    binding.ensureOverlay();
+    overlayDeps.onOpenLiveSettings("gemini-key");
+
+    expect(onOpenLiveSettings).toHaveBeenCalledWith("gemini-key");
   });
 
   it("伴看停止不隐藏仍在运行的同传入口", () => {

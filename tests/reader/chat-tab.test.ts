@@ -757,6 +757,101 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     expect(ports).toHaveLength(1);
   });
 
+  it("发送闸轮询在飞时关闭并重开：迟到就绪不得复活旧发送意图", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.aid = "7100";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    gatewayMock.getCurrentAid.mockReturnValue(7100);
+    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
+    let releasePoll!: () => void;
+    gatewayMock.fetchHotComments.mockImplementation(async () => {
+      if (gatewayMock.fetchHotComments.mock.calls.length === baseline + 2) {
+        await new Promise<void>((resolve) => {
+          releasePoll = resolve;
+        });
+      }
+      return [];
+    });
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const sending = chat.runQuickActionPrompt("等待字幕时发送");
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chatState.chatSessionStateForTests.liveContextData!.signature = "stale-before-poll";
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= baseline + 2);
+
+    chat.closeChatSession();
+    await chat.ensureChatTabActivated();
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "迟到的字幕" }];
+    releasePoll();
+
+    await expect(sending).resolves.toBe(false);
+    expect(ports).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      label: "换视频",
+      url: "https://www.bilibili.com/video/BV1next000000/",
+      bvid: "BV1next000000",
+      cid: "201"
+    },
+    {
+      label: "换分P",
+      url: "https://www.bilibili.com/video/BV1test000000/?p=2",
+      bvid: "BV1test000000",
+      cid: "102"
+    }
+  ])("$label 使在飞等待的旧发送意图失效", async ({ url, bvid, cid }) => {
+    state.clip.title = "旧视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.aid = "7100";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    gatewayMock.getCurrentAid.mockReturnValue(7100);
+    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
+    let releasePoll!: () => void;
+    gatewayMock.fetchHotComments.mockImplementation(async () => {
+      if (gatewayMock.fetchHotComments.mock.calls.length === baseline + 2) {
+        await new Promise<void>((resolve) => {
+          releasePoll = resolve;
+        });
+      }
+      return [];
+    });
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const sending = chat.runQuickActionPrompt("只在旧视频等待时发送");
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chatState.chatSessionStateForTests.liveContextData!.signature = "stale-before-poll";
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= baseline + 2);
+
+    state.clip.bvid = bvid;
+    state.clip.cid = cid;
+    state.clip.title = "新内容";
+    setLocationUrl(url);
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "新内容字幕" }];
+    releasePoll();
+
+    await expect(sending).resolves.toBe(false);
+    expect(ports).toHaveLength(0);
+    chat.closeChatSession();
+  });
+
   it("重开（重新激活）：从会话历史恢复视图并重挂触发源", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();

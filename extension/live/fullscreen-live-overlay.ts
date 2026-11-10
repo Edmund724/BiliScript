@@ -11,10 +11,13 @@
 import { createLiquidGlassLens } from "./liquid-glass-lens.js";
 import type { InterpretSessionController } from "./interpret-session-controller.js";
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
+import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import { LIVE_VOICE_SPEED_STEPS, normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import { bindViewportDrag, type ViewportDragHandle } from "./viewport-drag.js";
+
+export type LiveSettingsTarget = "live" | "gemini-key";
 
 export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
@@ -26,6 +29,7 @@ export interface FullscreenLiveOverlayDeps {
   onSpeedChange?: (speed: number) => void;
   onStopLive?: () => void;
   onRetryLive?: () => void;
+  onOpenLiveSettings?: (target: LiveSettingsTarget) => void;
 }
 
 export interface FullscreenLiveOverlay {
@@ -35,7 +39,7 @@ export interface FullscreenLiveOverlay {
   restore(): void;
   isVisible(): boolean;
   isMinimized(): boolean;
-  syncState(state?: LiveChatState, reconnecting?: boolean, error?: string): void;
+  syncState(state?: LiveChatState, reconnecting?: boolean, error?: string, failureKind?: LiveFailureKind): void;
   showInterpretNotice(message: string, autoHideMs?: number): void;
   updateVad(active: boolean): void;
   updateTranscript(event: MossLiveTranscriptEvent): void;
@@ -64,6 +68,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let failureCardEl: HTMLElement | null = null;
   let failureReasonEl: HTMLElement | null = null;
   let cancelBtnEl: HTMLButtonElement | null = null;
+  let settingsBtnEl: HTMLButtonElement | null = null;
   let retryBtnEl: HTMLButtonElement | null = null;
   let interpretBtnEl: HTMLButtonElement | null = null;
   let interpretNoticeEl: HTMLElement | null = null;
@@ -76,6 +81,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
   let isMin = true;
   let lastFailureError: string | undefined;
+  let lastFailureKind: LiveFailureKind | undefined;
   let savedOffset: { right: number; top: number } | null = null;
   let headerDragHandle: ViewportDragHandle | null = null;
   let capsuleDragHandle: ViewportDragHandle | null = null;
@@ -269,11 +275,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       <div class="live-overlay-body">
         <button type="button" class="live-overlay-action-btn live-overlay-interpret-btn" aria-label="实时翻译" aria-pressed="false" aria-disabled="false" hidden>实时翻译</button>
         <div class="live-overlay-interpret-notice" role="status" hidden></div>
-        <div class="live-overlay-failure-card" hidden>
+        <div class="live-overlay-failure-card" role="alert" hidden>
           <div class="live-overlay-failure-reason"></div>
           <div class="live-overlay-failure-actions">
             <button type="button" class="live-overlay-action-btn live-overlay-cancel-btn">取消</button>
-            <button type="button" class="live-overlay-action-btn live-overlay-retry-btn">重试</button>
+            <button type="button" class="live-overlay-action-btn live-overlay-settings-btn" data-primary-action="false" hidden>设置伴看</button>
+            <button type="button" class="live-overlay-action-btn live-overlay-retry-btn" data-primary-action="true">重试</button>
           </div>
         </div>
         <div class="live-overlay-messages"></div>
@@ -332,6 +339,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     failureCardEl = overlay.querySelector(".live-overlay-failure-card");
     failureReasonEl = overlay.querySelector(".live-overlay-failure-reason");
     cancelBtnEl = overlay.querySelector(".live-overlay-cancel-btn");
+    settingsBtnEl = overlay.querySelector(".live-overlay-settings-btn");
     retryBtnEl = overlay.querySelector(".live-overlay-retry-btn");
     interpretBtnEl = overlay.querySelector(".live-overlay-interpret-btn");
     interpretNoticeEl = overlay.querySelector(".live-overlay-interpret-notice");
@@ -490,6 +498,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     cancelBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
       stopCompanion();
+    });
+
+    settingsBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deps.onOpenLiveSettings?.(lastFailureKind === "gemini-credential" ? "gemini-key" : "live");
     });
 
     retryBtnEl?.addEventListener("click", (e) => {
@@ -684,9 +697,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
-  function syncState(customState?: LiveChatState, reconnecting?: boolean, error?: string): void {
+  function syncState(customState?: LiveChatState, reconnecting?: boolean, error?: string, failureKind?: LiveFailureKind): void {
     if (error !== undefined) {
       lastFailureError = error;
+    }
+    if (failureKind !== undefined) {
+      lastFailureKind = failureKind;
     }
     if (!rootEl) return;
     syncInterpretButton();
@@ -695,6 +711,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     const isReconnecting = reconnecting ?? Boolean(controller?.isReconnecting?.());
     if (state !== "failure") {
       lastFailureError = undefined;
+      lastFailureKind = undefined;
     }
 
     if (miniCapsuleDotEl) {
@@ -733,8 +750,39 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (failureCardEl) {
       const showFailure = state === "failure" && !isReconnecting;
       failureCardEl.hidden = !showFailure;
-      if (showFailure && failureReasonEl) {
-        failureReasonEl.textContent = lastFailureError || "伴看连接失败，请重试";
+      if (showFailure) {
+        const kind = lastFailureKind || "unknown";
+        failureCardEl.dataset.failureKind = kind;
+        if (failureReasonEl) {
+          failureReasonEl.textContent = kind === "unknown"
+            ? "实时伴看启动失败，请重试"
+            : lastFailureError || "伴看连接失败，请重试";
+        }
+        if (settingsBtnEl) {
+          const settingsLabel = kind === "provider-unconfigured"
+            ? "设置伴看"
+            : kind === "key-missing"
+              ? "填写 Key"
+              : kind === "key-rejected"
+                ? "检查 Key"
+                : kind === "gemini-credential"
+                  ? "设置 Gemini Key"
+                  : kind === "permission-denied"
+                    ? "设置伴看"
+                    : null;
+          settingsBtnEl.hidden = settingsLabel === null;
+          settingsBtnEl.textContent = settingsLabel || "设置伴看";
+          settingsBtnEl.dataset.primaryAction = String(
+            kind === "provider-unconfigured" || kind === "key-missing" || kind === "key-rejected" || kind === "gemini-credential"
+          );
+        }
+        if (retryBtnEl) {
+          retryBtnEl.hidden = kind === "provider-unconfigured";
+          retryBtnEl.textContent = kind === "permission-denied" ? "重新授权" : "重试";
+          retryBtnEl.dataset.primaryAction = String(kind !== "provider-unconfigured" && settingsBtnEl?.dataset.primaryAction !== "true");
+        }
+      } else {
+        delete failureCardEl.dataset.failureKind;
       }
     }
 

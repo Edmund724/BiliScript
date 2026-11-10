@@ -9,6 +9,8 @@
 //
 // 写法与 reader/lazy-reader.ts 同款：加载器本体收拢于 shared/lazy-import.ts
 // 的 createLazyLoader（手写 promise 缓存 + 失败清缓存可重试的共享工厂）。
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL：常驻侧与懒侧各自缓存同一 shell 动态
+// import 的 Promise；ESM 按模块 URL 去重，shell 本体仍是单例。
 //
 // 为什么直接写相对路径：本模块身处 ESM 主包模块图内，动态 import() 的相对
 // 路径按扩展自身 URL 解析（bootstrap 已用 chrome.runtime.getURL 的绝对路径
@@ -24,8 +26,8 @@ import type {
 } from "./shell.js";
 
 // shell 的意图档类型随装载边对外透出（type-only，零运行时边）：消费方
-//（entry/message-handler 的意图表）不直接静态 import shell 本体，守住
-// shell-sequence 守卫的「调用方闭包」约束（shell 静态调用方仅 ui 两文件）。
+//（entry/message-handler 的意图表与 live/live-companion-session 的设置入口）
+// 不直接静态 import shell 本体，守住 shell-sequence 守卫的调用方闭包约束。
 export type { ReaderShellIntent };
 
 // 阅读壳对外的窄接口（本加载器消费方只触达进入事务入口与事务收敛等待，

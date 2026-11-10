@@ -243,6 +243,33 @@ describe("发送闸 createSendGate", () => {
       await expect(promise).resolves.toEqual({ pass: true });
     });
 
+    it("cancel() 立即取消在飞轮询，发送闸返回 read-failed，迟到结果不得放行", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
+      let releasePoll!: () => void;
+      const h = makeHarness({
+        clip: () => clip({ subtitleFetchState: "loading" }),
+        loadContextState: vi.fn(async () => {
+          if (h.mocks.loadContextState.mock.calls.length === 2) {
+            await new Promise<void>((resolve) => {
+              releasePoll = resolve;
+            });
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
+          }
+          return true;
+        })
+      });
+      const pending = h.gate.ensureContextForSend();
+      await vi.waitFor(() => expect(releasePoll).toBeDefined());
+
+      h.gate.cancel();
+
+      await expect(pending).resolves.toEqual({ pass: false, kind: "read-failed" });
+      releasePoll();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(h.mocks.loadContextState).toHaveBeenCalledTimes(2);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
+    });
+
     it("clip 已就绪（字幕体非空）→ 不即时出抓取通知（不闪一条又立刻撤）", async () => {
       const h = makeHarness({ clip: () => clip({ subtitleBody: ["x"], subtitleFetchState: "ready" }) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });

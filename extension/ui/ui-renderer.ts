@@ -291,6 +291,12 @@ subscribeUiCommand((name, payload) => {
   }
   if (name === "open-settings") {
     openReaderSettingsPanel();
+    const target = (payload as { target?: unknown } | null)?.target;
+    if (target === "live" || target === "gemini-key") {
+      void import("./settings-panel.js")
+        .then((mod) => mod.openLiveSettings(target))
+        .catch(() => {});
+    }
   }
 });
 

@@ -88,6 +88,51 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
   });
 
+  it("公开 Gemini 凭据入口直达共享 AI 记录的 Key 字段", async () => {
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const key = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("gemini");
+    expect(key.closest<HTMLElement>(".provider-editor-field")!.hidden).toBe(false);
+    expect(document.activeElement).toBe(key);
+  });
+
+  it("Gemini 凭据入口使用唯一引用解析，空 baseUrl 按官方默认端点直达且不误选其他记录", async () => {
+    const defaultGemini = { ...GEMINI_AI, id: "p_gemini_default", name: "Gemini 默认端点", baseUrl: "" };
+    const customGemini = { ...GEMINI_AI, id: "p_gemini_custom", name: "Gemini 自定义代理", baseUrl: "https://proxy.example.com" };
+    const nonGemini = { ...GEMINI_AI, id: "p_openai", presetId: "openai", name: "非 Gemini 记录", protocol: "openai" };
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [customGemini, nonGemini, defaultGemini] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.value).toBe("Gemini 默认端点");
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-apikey"));
+  });
+
+  it("没有共享 AI 记录时 Gemini 凭据入口直接打开 Gemini 预设", async () => {
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("gemini");
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-apikey"));
+  });
+
   it("AI 平台新增官方 Gemini 记录后同步刷新实时平台行", async () => {
     let aiProviders: Record<string, unknown>[] = [];
     const { host } = await mountPanel({

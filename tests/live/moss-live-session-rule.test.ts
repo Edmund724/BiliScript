@@ -180,6 +180,31 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     };
   }
 
+  it("classifies an unconfigured live provider at the prepare boundary", async () => {
+    const tracker = new LiveSessionTracker();
+
+    const result = await tracker.prepare(
+      "session-without-provider",
+      createFakeDeps({ loadProviders: async () => [] })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureKind: "provider-unconfigured"
+    });
+  });
+
+  it("classifies a missing provider-owned API key at the prepare boundary", async () => {
+    const tracker = new LiveSessionTracker();
+
+    const result = await tracker.prepare(
+      "session-without-key",
+      createFakeDeps({ loadKeys: async () => ({}) })
+    );
+
+    expect(result).toMatchObject({ ok: false, failureKind: "key-missing" });
+  });
+
   it("stop -> immediate restart with out-of-order prepare/permission completion: old prepare does not finish as active owner and does not overwrite rule", async () => {
     const tracker = new LiveSessionTracker();
     let resolvePerm1!: (v: boolean) => void;
@@ -288,6 +313,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(res.ok).toBe(false);
+    expect(res.failureKind).toBe("permission-denied");
     expect(res.error).toContain("未授予平台域名权限");
     expect(setAuthRule).not.toHaveBeenCalled();
   });
@@ -519,6 +545,34 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     );
     expect(unofficialLiveRes.ok).toBe(false);
     expect(unofficialLiveRes.error).toBe("AI 平台配置的并非 Gemini 官方接口地址");
+  });
+
+  it("classifies Gemini credential setup and endpoint failures separately from provider-owned keys", async () => {
+    const tracker = new LiveSessionTracker();
+    const provider = {
+      id: "gemini-live-1",
+      presetId: "gemini-live",
+      name: "Gemini Live",
+      type: "gemini-live" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.1-flash-live-preview",
+      enabled: true,
+      hasSavedKey: false
+    };
+
+    const missingCredential = await tracker.prepare(
+      "session-gemini-credential",
+      createFakeDeps({ loadProviders: async () => [provider], loadAiProviders: async () => [] })
+    );
+    const unofficialEndpoint = await tracker.prepare(
+      "session-gemini-endpoint",
+      createFakeDeps({
+        loadProviders: async () => [{ ...provider, baseUrl: "https://proxy.example.com" }]
+      })
+    );
+
+    expect(missingCredential).toMatchObject({ ok: false, failureKind: "gemini-credential" });
+    expect(unofficialEndpoint).toMatchObject({ ok: false, failureKind: "gemini-credential" });
   });
 });
 

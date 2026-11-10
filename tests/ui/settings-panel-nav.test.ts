@@ -98,6 +98,46 @@ describe("设置抽屉顶部快速跳转导航条", () => {
     expect(indicator!.style.transform).toContain("translateX");
     expect(indicator!.style.width).toMatch(/\d+px/);
   });
+  it("公开伴看设置入口定位到实时伴看配置", async () => {
+    const host = await mountPanel();
+    const target = host.querySelector<HTMLElement>("#biliscript-live-settings")!;
+    target.scrollIntoView = vi.fn();
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("live");
+
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(host.querySelector('.biliscript-settings-nav-item[data-section="llm"]')?.classList.contains("is-active")).toBe(true);
+  });
+
+  it("首次设置渲染期间的伴看定位不会丢失", async () => {
+    document.body.innerHTML = `
+      <div id="biliscript-reading-view">
+        <section id="biliscript-reading-settings-panel">
+          <div id="biliscript-reading-settings-host"></div>
+        </section>
+      </div>`;
+    installSettingsPanelBus();
+    const panel = await import("../../extension/ui/settings-panel.js");
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      await panel.openLiveSettings("live");
+
+      await vi.waitFor(() => {
+        expect(document.getElementById("biliscript-reading-settings-host")?.dataset.biliscriptSettingsRendered).toBe("1");
+        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+      });
+    } finally {
+      if (originalScrollIntoView) {
+        HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
+  });
+
   it("CSS 契约：导航指示器不声明无效或常驻 will-change（清理 width 无效合成层提示）", () => {
     const css = readFileSync(join(process.cwd(), "extension/entry/styles/reader-settings-shell.css"), "utf8");
     const ruleMatch = css.match(/\.biliscript-settings-nav-indicator\s*\{[^}]*\}/);

@@ -105,8 +105,10 @@ export interface SendGate {
    *  {pass:false,kind:"no-subtitle"} 无字幕拦截（notice 已显示）；
    *  {pass:false,kind:"fetch-error"} 抓取失败拦截（notice 已显示）。 */
   ensureContextForSend: () => Promise<GateOutcome>;
-  /** 挂起中的等待闸立即补一轮（asr-done/failed 与 subtitle-ready 相位、会话关闭路径用）。 */
+  /** 挂起中的等待闸立即补一轮（asr-done/failed 与 subtitle-ready 相位用）。 */
   kickSubtitleWait: () => void;
+  /** 立即取消在飞发送等待，并作废尚未完成的轮询结果。 */
+  cancel: () => void;
   /** 订阅字幕状态总线（幂等；重复调用不重复订阅）。 */
   bindStatusBus: () => void;
   unbindStatusBus: () => void;
@@ -338,6 +340,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   return {
     ensureContextForSend,
     kickSubtitleWait: () => subtitleWaiter.kick(),
+    cancel: () => subtitleWaiter.cancel(),
     bindStatusBus,
     unbindStatusBus,
     refreshAsrNotice: updateAsrNotice

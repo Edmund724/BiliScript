@@ -3,6 +3,7 @@
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 import {
+  ensureFullscreenOverlay,
   getLiveController,
   isLiveCompanionActive,
   startLiveCompanion,
@@ -708,8 +709,14 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
     } else {
       await startLiveCompanion();
     }
-  } catch (error) {
-    setMessage(`实时伴看操作失败：${getErrorMessage(error)}`);
+  } catch {
+    const errorMessage = "实时伴看启动失败，请重试";
+    try {
+      const overlay = ensureFullscreenOverlay();
+      overlay.show({ forceExpand: true });
+      overlay.syncState("failure", false, errorMessage, "unknown");
+    } catch {}
+    setMessage(errorMessage);
   } finally {
     playerAiState.setSubmitting(false);
     if (liveButton) {

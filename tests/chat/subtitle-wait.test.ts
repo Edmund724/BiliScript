@@ -162,6 +162,30 @@ describe("createSubtitleWaiter", () => {
     expect(await promise).toBe(true);
   });
 
+  it("cancel() 立即终止在飞等待，迟到轮询不得重新挂起定时器", async () => {
+    let releasePoll!: (value: PollOutcome) => void;
+    harness = makeHarness([
+      () => new Promise((resolve) => {
+        releasePoll = resolve;
+      }),
+      READY
+    ]);
+    const promise = harness.waiter.wait();
+    await harness.flush();
+    expect(harness.deps.pollContext).toHaveBeenCalledTimes(1);
+
+    harness.waiter.cancel();
+
+    await expect(promise).resolves.toBe(false);
+    expect(harness.deps.removeNotice).toHaveBeenCalledTimes(1);
+    expect(harness.timers).toHaveLength(0);
+
+    releasePoll(PENDING);
+    await harness.flush();
+    expect(harness.timers).toHaveLength(0);
+    expect(harness.deps.pollContext).toHaveBeenCalledTimes(1);
+  });
+
   it("新 wait() 使旧等待立即失效（resolve false），旧定时器作废", async () => {
     harness = makeHarness([PENDING, READY]);
     const first = harness.waiter.wait();
