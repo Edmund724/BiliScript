@@ -15,7 +15,7 @@
 // 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
 // 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
 // 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
-// 意图卡/转写行/消息区/输入卡一起 display:none，与设置抽屉接管面板第
+// 意图卡/转写行/伴看状态区/消息区/输入卡一起 display:none，与设置抽屉接管面板第
 // 3–4 行同一套纯属性反应；类名沿用 chat-history-popover（历史包袱，语义已是
 // 整页而非 popover）。
 // 「历史对话 / 新会话」两键已并入壳的标签行（ui-renderer.ts 的
@@ -52,6 +52,17 @@ export function buildChatTabBodyHtml(): string {
 
         <!-- 转写状态行：默认基础句；等待发送期间文案由 chat-tab.ts 切换（唯一提示，不另起消息区通知） -->
         <div id="${ids.readingChatAsrNotice}" class="chat-asr-notice" hidden>当前视频无字幕，正在进行语音转写…</div>
+        <section id="${ids.readingChatLiveStatus}" class="chat-live-status" aria-label="实时伴看状态" data-state="idle" hidden>
+          <span class="chat-live-status-text" role="status" aria-atomic="true"></span>
+          <div class="chat-live-status-actions">
+            <button type="button" data-live-status-action="start">开启</button>
+            <button type="button" data-live-status-action="cancel" hidden>取消</button>
+            <button type="button" data-live-status-action="restore" hidden>显示浮窗</button>
+            <button type="button" data-live-status-action="retry" hidden>重试</button>
+            <button type="button" data-live-status-action="settings">伴看设置</button>
+            <button type="button" data-live-status-action="stop" hidden>结束</button>
+          </div>
+        </section>
         <main class="chat-messages" id="${ids.readingChatMessages}">
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>

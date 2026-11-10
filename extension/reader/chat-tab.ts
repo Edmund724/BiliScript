@@ -147,10 +147,14 @@ import {
   getFullscreenLiveOverlay,
   getLiveController,
   isLiveCompanionActive,
+  openLiveCompanionSettings,
+  restoreLiveCompanionOverlay,
+  retryLiveCompanion,
   setLiveSessionHooks,
   startLiveCompanion,
   stopLiveCompanion
 } from "../live/live-companion-session.js";
+import { createChatLiveStatus } from "./chat-live-status.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
@@ -205,6 +209,7 @@ const els = {
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
+  liveStatus: document.getElementById(ids.readingChatLiveStatus) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
   speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
@@ -242,6 +247,23 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 
+const liveStatus = createChatLiveStatus({
+  root: els.liveStatus,
+  getState: () => getLiveController()?.getState() ?? "idle",
+  isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
+  onStart: () => {
+    void startLiveCompanion();
+  },
+  onRetry: () => {
+    void retryLiveCompanion();
+  },
+  onStop: stopLiveCompanion,
+  onRestore: restoreLiveCompanionOverlay,
+  onOpenSettings: (target) => {
+    void openLiveCompanionSettings(target);
+  }
+});
+
 function bindLiveConsumerHooks(): void {
   setLiveSessionHooks({
     showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
@@ -249,8 +271,11 @@ function bindLiveConsumerHooks(): void {
       if (chatRuntime.isTurnActive()) {
         chatRuntime.stopActiveStream();
       }
-    }
+    },
+    onStateChange: (liveState, error, failureKind) => liveStatus.sync(liveState, error, failureKind),
+    onReconnecting: () => liveStatus.sync()
   });
+  liveStatus.setOpen(true);
 }
 
 
@@ -829,11 +854,12 @@ export function closeChatSession(): void {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
   }
+  liveStatus.setOpen(false);
+  setLiveSessionHooks(null);
   if (!initialized) {
     return;
   }
   sessionClosed = true;
-  setLiveSessionHooks(null);
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();

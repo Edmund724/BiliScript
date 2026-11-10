@@ -1337,6 +1337,62 @@
   display: none !important;
 }
 
+.biliscript-reading-chat .chat-live-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface-2);
+}
+
+.biliscript-reading-chat .chat-live-status[hidden],
+.biliscript-reading-chat .chat-live-status-actions button[hidden] {
+  display: none !important;
+}
+
+.biliscript-reading-chat .chat-live-status-text {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.4;
+}
+
+.biliscript-reading-chat .chat-live-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.biliscript-reading-chat .chat-live-status-actions button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--btn-radius, var(--biliscript-radius-panel));
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  font-size: var(--biliscript-font-size-sm);
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-live-status-actions button:hover {
+  background: var(--biliscript-reader-accent-soft);
+}
+
+.biliscript-reading-chat .chat-live-status-actions button:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 .biliscript-reading-chat .chat-footer {
   display: flex;
   flex-direction: column;
@@ -1855,6 +1911,7 @@
  * 历史页是第一个子元素）。 */
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .biliscript-reading-chat-intent,
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-asr-notice,
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-live-status,
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-messages,
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-footer {
   display: none;
