@@ -90,9 +90,9 @@ flowchart TD
 ### 模块 M5：AI 多轮对话与双端实时伴看（AI Chat & Multimodal Live Companion）
 * **用户场景**：用户针对视频内容向 AI 深度提问（含发图、让 AI 回看历史画面、联网查证），或在看视频/看直播时开启全双工语音「实时伴看」边看边聊。
 * **核心链路**：
-  1. **对话输入与「发送闸」拦截**：快捷提示词胶囊启动、自由输入与剪贴板贴图；字幕未就绪时触发「发送闸」挂起消息并展示等待提示（可取消），确定无字幕时拦截回填 [`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L600-L760)。
-  2. **模型/思考强度切换与联网搜索授权**：底栏模型胶囊弹出模型与思考强度面板（离散档位滑轨）[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts#L1-L190)；开启联网开关时首次弹出「联网搜索授权（Opt-in）」内嵌卡片 [`opt-in-notice.ts`](file:///d:/src/BiliScript/extension/search/opt-in-notice.ts#L1-L90)；工具调用状态条（联网检索、抽帧回看历史画面 `inspect_video_frames`）与来源引用渲染。
-  3. **会话管理与排版/朗读控制**：顶栏右侧「更多操作 (⋮)」菜单 → 开启新会话、打开「历史对话」整页接管层（恢复/删除会话）、调节对话行高/段距与 TTS 朗读音量 [`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts#L1-L180)。
+  1. **对话输入与「发送闸」拦截**：快捷提示词胶囊启动、自由输入与剪贴板贴图；字幕未就绪时触发「发送闸」挂起消息并展示等待提示，确定无字幕时拦截且保留输入与图片 [`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L600-L760)。
+  2. **模型/思考强度切换与联网搜索授权**：底栏模型胶囊弹出模型与思考强度面板（离散档位滑轨）[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts#L1-L190)；开启联网开关后首次发送弹出「联网搜索授权（Opt-in）」确认框 [`opt-in-notice.ts`](file:///d:/src/BiliScript/extension/search/opt-in-notice.ts#L1-L90)；联网检索有工具状态条与来源引用，抽帧回看历史画面（`capture_video_frame_at_time`，工具名定义见 [`tool-loop.ts`](file:///d:/src/BiliScript/extension/ai/tool-loop.ts#L38)）目前没有任何可见状态。
+  3. **会话管理与排版/朗读控制**：标签行右侧「更多操作 (⋮)」菜单 → 开启新会话、打开「历史对话」整页接管层（恢复/删除会话）、调节对话行高/段距与 TTS 朗读音量 [`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts#L1-L180)。
   4. **视频页与直播间「实时伴看」**：点击播放器控制栏「实时伴看」按钮 → 挂载播放器内浮窗 [`fullscreen-live-overlay.ts`](file:///d:/src/BiliScript/extension/live/fullscreen-live-overlay.ts#L1-L260) → 麦克风/视频伴音采集、音频设置弹层（伴看音量/分享视频声音/语音优先）、语音打断、最小化为迷你胶囊态与拖拽吸附。
 
 ---
@@ -120,9 +120,9 @@ flowchart TD
 #### IA-03 【中危】「AI 对话」高频核心操作（新建会话 / 历史记录）与低频排版滑块混装藏匿
 * **代码位置**：[`ui-renderer.ts`](file:///d:/src/BiliScript/extension/ui/ui-renderer.ts#L75-L95)、[`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts#L85-L150)、[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts#L30-L120)
 * **现象与认知负担**：
-  * `开启新会话` 与 `历史对话` 是多轮对话最高频的会话生命周期操作，却被收进了顶栏右侧的 `更多操作 (⋮)` 二级下拉菜单中，每次新建或切换会话均需 2 次点击。
+  * `开启新会话` 与 `历史对话` 是多轮对话最高频的会话生命周期操作，却被收进了标签行右侧的 `更多操作 (⋮)` 二级下拉菜单中，每次新建或切换会话均需 2 次点击。
   * 该二级菜单同时塞入了 `对话行高`、`对话段落间距`、`朗读音量` 三个低频偏好滑块，导致“动作触发器（Action）”与“全局偏好设置（Preference）”混杂。
-  * 此外，点击菜单中的 `历史对话` 后，`#biliscript-reading-chat-history-popover` 整页覆盖对话区，同时把触发它的 `更多操作 (⋮)` 按钮隐藏（`chat-popovers.ts:72`），用户只能去左上角找 `<` 返回按钮，交互空间跳变剧烈。
+  * 此外，点击菜单中的 `历史对话` 后，`#biliscript-reading-chat-history-popover` 只接管对话内容区，标签行与 `更多操作 (⋮)` 仍然可见。用户既能用左上角 `<` 返回，也能再次从 `⋯` 关闭历史；双入口与多层叠放造成返回心智割裂，而不是“触发按钮消失”。
 
 #### IA-04 【中危】外观排版与音频设置散落 3 处容器，缺乏统一寻路心智
 * **代码位置**：[`settings-panel-html.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel-html.ts#L220-L250)、[`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts#L105-L145)、[`fullscreen-live-overlay.ts`](file:///d:/src/BiliScript/extension/live/fullscreen-live-overlay.ts#L160-L230)
@@ -189,10 +189,10 @@ flowchart TD
 | **P0** | **Session 1：模块 M5 & M1（跨端实时伴看闭环与入口对齐）** | **UF-01**（直播间无设置死胡同）<br/>**IA-02**（视频页伴看盲区报错与单入口）<br/>**UF-04**（关面板误杀伴看与流） | - [ ] **打通直播间配置死胡同**：评估在直播间提供轻量设置唤起路径（或扩展 Popup/独立 Options 页/按需挂载设置宿主）<br/>- [ ] **修复视频页伴看盲区报错**：面板关闭时点击播放器「实时伴看」若未配置/失败，须在播放器内给出可见反馈或自动展开面板定位至提示/设置<br/>- [ ] **补齐面板内伴看入口与音频设置寻路**：评估在 `AI 对话` 内提供伴看状态感知与开关，解耦“关闭文摘面板”与“销毁播放器伴看会话”的强绑定 | [`live-room-entry.ts`](file:///d:/src/BiliScript/extension/live/live-room-entry.ts)<br/>[`live-overlay-binding.ts`](file:///d:/src/BiliScript/extension/live/live-overlay-binding.ts)<br/>[`fullscreen-live-overlay.ts`](file:///d:/src/BiliScript/extension/live/fullscreen-live-overlay.ts)<br/>[`content.ts`](file:///d:/src/BiliScript/extension/entry/content.ts) |
 | **P0** | **Session 2：模块 M1（文摘面板壳层导航与唤起一致性）** | **IA-01**（设置抽屉无返回按钮易误关面板）<br/>**UF-03**（播放器 AI 按钮强制重置会话）<br/>**UF-05**（非支持页点击扩展图标静默无响应） | - [ ] **重构设置抽屉顶栏导航**：为设置抽屉增加明确的「← 返回」出口，消除误触右上角 `×` 关闭整个文摘面板的陷阱<br/>- [ ] **收敛 5 大入口行为预期**：消除播放器「AI 分析」按钮在已有活跃会话时的静默清空副作用（增加保护或复用判断）<br/>- [ ] **补齐非视频页点击扩展图标反馈**：评估在非视频页点击扩展图标时的引导提示或独立设置入口 | [`ui-renderer.ts`](file:///d:/src/BiliScript/extension/ui/ui-renderer.ts)<br/>[`settings-panel.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel.ts)<br/>[`player-ai.ts`](file:///d:/src/BiliScript/extension/ai/player-ai.ts)<br/>[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts) |
 | **P1** | **Session 3：模块 M2（首次配置冷启动与四族平台减负）** | **UF-02**（四族平台配置模型割裂与「凭据引用」折返跑）<br/>**IA-05**（4 层弹窗叠放负担） | - [ ] **走查新用户 0→1 首配路径**：从空状态拦截卡片点击「前往设置」到完成首个 AI 模型可用性的最短路径优化<br/>- [ ] **统一四族平台选择与激活反馈**：明确 AI 模型平台在 `概览`/`解释`/`对话` 中的默认生效指示，降低跨列表认知差<br/>- [ ] **消除「凭据引用」折返跑**：当用户在 `Gemini Live` / `DeepSeek Search` 遇到未配置主 AI 平台或域名不匹配时，提供一键跳转创建或内联配置引导<br/>- [ ] **审视搜索回退链（「零成本组」/「链首平台」）与多层 Modal 交互细节** | [`settings-panel-html.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel-html.ts)<br/>[`provider-editor-modal.ts`](file:///d:/src/BiliScript/extension/ui/provider-editor-modal.ts)<br/>[`chat-notices.ts`](file:///d:/src/BiliScript/extension/reader/chat-notices.ts) |
-| **P1** | **Session 4：模块 M5（AI 对话高频交互、模型面板与工具反馈）** | **IA-03**（新建/历史会话藏匿于更多菜单）<br/>**IA-04**（排版与音频设置散落 3 处） | - [ ] **提升高频会话操作可见性**：重新审视 `开启新会话` 与 `历史对话` 的层级位置，将其与低频排版滑块解耦<br/>- [ ] **优化「历史对话」整页接管体验**：解决打开历史记录后顶栏触发按钮消失、进出动画与返回心智割裂问题<br/>- [ ] **归拢排版与音频偏好设置**：梳理设置抽屉「外观与布局」与对话内快捷调节的职责边界<br/>- [ ] **走查「发送闸」、模型与思考强度面板、联网搜索首次授权卡（Opt-in）与历史视频帧工具状态反馈** | [`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts)<br/>[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts)<br/>[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts)<br/>[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts) |
+| **P1** | **Session 4：模块 M5（AI 对话高频交互、模型面板与工具反馈）** | **IA-03**（新建/历史会话藏匿于更多菜单）<br/>**IA-04**（排版与音频设置散落 3 处） | - [ ] **提升高频会话操作可见性**：将 `开启新会话` 与 `历史对话` 外置，与排版/朗读偏好解耦<br/>- [ ] **优化「历史对话」整页接管体验**：统一双入口、进出动画、焦点归还、当前项定位与删除撤销<br/>- [ ] **归拢排版与音频偏好设置**：设置抽屉承接完整持久偏好，场景内保留同源快捷调节<br/>- [ ] **走查「发送闸」与多模态输入**：保护等待期草稿、在途图片与授权弹层结算<br/>- [ ] **走查模型与工具反馈**：联动模型/思考强度，补齐历史视频帧、来源引用与消息操作终态 | [`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts)<br/>[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts)<br/>[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts)<br/>[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts)<br/>[`chat-runtime.ts`](file:///d:/src/BiliScript/extension/chat/chat-runtime.ts)<br/>[`chat-stream-render.ts`](file:///d:/src/BiliScript/extension/chat/chat-stream-render.ts)<br/>[`settings-panel-html.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel-html.ts) |
 | **P2** | **Session 5：模块 M3 & M4（字幕精读、双语选轨、即席解释与概览金句）** | 跨 Tab「待解释意图」移交体验、双语选轨六态心智、概览分段失败重试体验 | - [ ] **走查主副双语选轨专用弹层**：验证单轨/多轨/双语开启/无副轨六种状态下的选项禁用与文案引导清晰度<br/>- [ ] **走查无字幕 ASR 语音转写横幅全状态机**：未配置/待转写/自动转写/转写中取消/失败重试的视觉反馈<br/>- [ ] **走查划词「解释」→ 解释卡 →「去对话追问」跨 Tab 移交**：验证从 `字幕` 切至 `AI 对话` 时的上下文衔接感与回退路径（想要回到刚才读到的字幕行是否顺畅）<br/>- [ ] **走查概览三源分章、分段部分失败重试与金句分享卡片 Modal** | [`subtitle-tab-ui.ts`](file:///d:/src/BiliScript/extension/reader/subtitle-tab-ui.ts)<br/>[`transcribe-banner.ts`](file:///d:/src/BiliScript/extension/reader/transcribe-banner.ts)<br/>[`explain-card.ts`](file:///d:/src/BiliScript/extension/reader/explain-card.ts)<br/>[`overview-ui.ts`](file:///d:/src/BiliScript/extension/reader/overview-ui.ts)<br/>[`quote-share-modal.ts`](file:///d:/src/BiliScript/extension/reader/quote-share-modal.ts) |
 
-Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。Session 3 的详细方案见第七节（待审批，未实施）。
+Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。Session 3 的详细方案见第七节（待审批，未实施）。Session 4 的详细方案见第八节（待审批，未实施）。
 
 
 ---
@@ -838,3 +838,196 @@ AI 默认摘要必须复用解析单源：从 handler / active-provider 中提�
 7. 搜索授权拒绝后关闭联网开关并继续无搜索主任务，避免下次发送重复追问；授权与平台可用性继续分开反馈。
 
 执行工单为 `.scratch/tickets/provider-onboarding-consistency/issues/01-13`；每张实现票以 300k 以内新上下文可完成为粒度上限。
+
+
+---
+
+## 八、Session 4 深度走查方案：AI 对话高频交互、模型面板与工具反馈（待审批）
+
+> 范围：IA-03、IA-04、输入卡底栏、发送闸、模型与思考强度面板、联网搜索 Opt-in 回归，以及消息区工具状态与单条消息操作。实时伴看的入口、浮窗与生命周期已由第五节裁定，本节只归拢其音频偏好的寻路，不重开伴看方案。本节只记录代码复核结论与待实施交互方案，不代表业务代码已经修改。
+
+### 8.1 代码复核后的事实校正
+
+- **会话动作与偏好确实混装，但历史页的触发按钮没有消失。** 新建、历史、对话行高、段距和朗读音量都在标签行右侧的 `⋯` 菜单；历史层只覆盖对话内容区，标签行和 `⋯` 仍可见。真实问题是历史页同时存在「返回」与「再次点 ⋯」两个出口，且打开设置只会暂时遮住历史，关闭设置后历史又出现（`extension/ui/ui-renderer.ts:119-187,384-392`、`extension/reader/chat-popovers.ts:31-75`、`extension/entry/styles/reader-chat.css:1974-2014`）。
+- **历史切换与删除缺少事务反馈。** 流式中点历史项会先等待当前回合落定，但历史页同帧关闭，用户会看到旧会话并可能重复点击；单条删除没有确认或撤销，删除后列表重建还会丢焦点。当前项只有中性底色，没有「当前」文字或 `aria-current`（`extension/reader/chat-lists.ts:152-203`、`extension/reader/chat-tab.ts:558-565`、`extension/chat/conversation-store.ts:576-595`）。
+- **新建会话是有破坏性的清场动作。** 它会丢弃在途部分回答，并清空草稿和图片；历史切换则先保存当前回合。两个相邻入口的对在途回合语义相反，却都没有事前说明（`extension/reader/chat-tab.ts:1387-1406,1458-1477`、`extension/chat/chat-runtime.ts:1122-1147`）。
+- **偏好不仅分散，重置范围也不一致。** 设置抽屉的「恢复默认偏好」会重置抽屉中不可见的对话行高和段距，却不重置对话朗读或伴看音频；伴看音量、语速、分享视频声音、语音优先只在浮窗中可调（`extension/ui/settings-panel.ts:1428-1452`、`extension/live/fullscreen-live-overlay.ts:285-319`）。
+- **发送闸目前没有独立等待卡或取消按钮。** 可见反馈是消息区通知、输入框 placeholder 和发送键禁用；无字幕/读取失败时输入与图片从未被清空，不存在“先清空再回填”。但等待期间继续输入的新草稿会在成功受理时被清空，重复发送则静默返回 `ignored`（`extension/chat/send-gate.ts:267-351`、`extension/chat/chat-runtime.ts:650-712`、`extension/reader/chat-tab-composer.ts:150-177`）。
+- **贴图压缩是一个未被表达的在途状态。** 粘贴后立即发送可能漏掉尚未进入附件列表的图片；纯图片无文字时发送键禁用但没有原因。缩略图只有 52px，删除键仅 18px，没有大图预览和逐张可区分名称（`extension/chat/chat-input-images.ts:75-206`、`extension/reader/chat-tab-composer.ts:79-96,181-186`）。
+- **模型切换会立即关面板，联动结果不可见。** 新模型对应的思考档位、默认值和 clamp 提示只有再次打开面板才能确认；`pointercancel` 会留下未提交的视觉档位，滚轮经过滑轨会直接改档并落盘。面板打开不定位当前项，也不完整管理焦点（`extension/reader/chat-model-panel.ts:180-215,504-637`、`extension/reader/chat-popovers.ts:48-51,77-89`）。
+- **Opt-in 是确认框，不是内嵌授权卡。** Session 3 已裁定拒绝后本轮无搜索继续并关闭联网偏好，本场不反转该决策；但关闭阅读视图没有显式结算确认框，可能留下不可见却仍捕获事件的模态与未结束的受理窗口（`extension/search/opt-in-notice.ts:57-99`、`extension/ui/confirm-dialog.ts:90-105,156-171`、`extension/reader/lifecycle.ts:542-597`）。
+- **历史视频帧工具的实际名称是 `capture_video_frame_at_time`，不是 `inspect_video_frames`。** 截帧最长 45 秒，目前不发工具状态，成功帧只进入模型请求，失败仅有 4 秒通知；用户无法知道正在看什么或看过哪些帧（`extension/ai/tool-loop.ts:313-366`、`extension/chat/historical-video-frame.ts:9`）。
+- **工具卡与消息操作没有完整终态。** 停止或出错后，搜索卡可永久停在「搜索中…」；停止态回答不能复制、朗读或导出，截断回答没有「继续生成」。复制失败静默，复制/导出还会把 Markdown 标题改成笔记层级；TTS 在切换历史会话后可能继续朗读已不可见的内容（`extension/chat/chat-stream-render.ts:965-975,1111-1205,1371-1446`、`extension/chat/chat-speech.ts:164-190,260-379`）。
+
+### 8.2 IA-03：标签行只放会话动作，偏好进入独立场景面板
+
+AI 对话激活时，标签行右侧工具区固定为三个图标键，均提供可见 `title` 与 `aria-label`，不使用只有图形而没有名称的按钮：
+
+| 顺序 | 控件 | 一级行为 | 防误触 |
+| --- | --- | --- | --- |
+| 1 | **新会话 `＋`** | 空闲且无草稿时直接新建 | 有草稿、图片或在途回合时确认；文案写明「正在生成的回答将被丢弃」，取消后原状态不变 |
+| 2 | **历史对话** | 打开历史内容模式 | 不终止当前回合；切换目标会话时才进入保存/切换事务 |
+| 3 | **对话显示与朗读 `Aa`** | 打开场景偏好面板 | 只含对话行高、段落间距、朗读音量，以及「更多显示设置」深链 |
+
+- 新建和历史不再藏在 `⋯` 中，常用动作从两次点击降为一次；原 `⋯` 不再承担会话生命周期。第三个入口复用现有弹层与滑块，不再把动作和连续调节混装。
+- 「更多显示设置」直达设置抽屉「外观与布局 → 对话排版与朗读」。场景面板与抽屉编辑同一组设置键，不创建会话级副本。
+- 新会话确认按实际风险合并为一次，不连续弹多个框：仅在在途时显示「正在生成的回答将被丢弃」，仅在草稿或图片存在时显示「未发送草稿与图片将被清空」，与当前 `detachForRestart` 的丢弃语义一致。不提供「保留/丢弃」二选一，也不得暗示会保存部分回答。
+- 工具区保持现有标签组居中几何；窄面板下优先缩短留白，不把新建/历史重新折回菜单。
+
+### 8.3 IA-03：历史对话成为与设置同级的内容模式
+
+#### 层级、进出与返回锚点
+
+- 历史继续属于 AI 对话，不新增第四个一级 Tab；打开后与设置一样接管内容区。历史可见性只有单一状态源：`ui-renderer` 按同一个 history `hidden` 投影根属性隐藏标签行，不为标签行新建第二个布尔，也不维护第二套 open 状态。
+- 头部固定为「← 返回 / 历史对话 / 清空」。打开时聚焦返回键；取消返回、Esc 或外点退出后焦点回到历史入口。选定会话并落定后，焦点改为输入框末尾。打开设置前必须经 reader-bus 发 `close-chat-history` 命令显式退出历史，关闭设置不得让历史复现。
+- 进出动效由 `hidden` 驱动：关闭时以 `allow-discrete` 配合兄弟层过渡，让对话正文在历史完全淡出后才恢复交互，保证退出前不叠字；不用 `transitionend` 维护第二个 open 状态，`prefers-reduced-motion` 下直接切换。模型/显示弹层仍遵守 ADR-0020，不另造弹层动画系统。
+- 打开列表后以 `block:'nearest'` 定位当前会话；仅取消返回时保留历史列表滚动位置。切换会话后仍按现有规则进入目标会话底部，不伪造旧阅读位置。
+- 历史层不销毁实时伴看或转写，也不改变它们既有的 DOM 顺序。「伴看记录」仍是只读历史条目，不恢复连接。
+
+#### 当前项、切换与删除
+
+| 场景 | 目标反馈 | 焦点/终态 |
+| --- | --- | --- |
+| 当前会话 | 「当前」文字徽标 + `aria-current="true"`；视觉权重高于「同视频」 | 不只靠颜色区分 |
+| 流式中切换 | 历史页保持，目标行显示「正在保存当前回答…」，列表 `aria-busy` | 禁止重复提交；`settleTurn()` 落定后才关页并聚焦输入框 |
+| 删除普通项 | 即时移除 + 6 秒「已删除 / 撤销」 | 焦点移到下一项，无下一项则上一项；撤销恢复原顺序 |
+| 删除当前且在途会话 | 先确认「正在生成的回答将被丢弃」 | 取消则不动作；确认后回到当前空会话并给出可见回执 |
+| 清空全部 | 保留危险确认 | 完成后显示空态与「开始新会话」，不无反馈地跳走 |
+
+整行除独立删除键外都可打开，去除右侧死区。撤销条只在历史页存活一次，离开历史、换视频或关闭面板时结算并清理计时器，不在之后复活旧会话。
+
+### 8.4 IA-04：阅读排版与音频偏好完整可寻，场景内只做同源快捷调节
+
+采用一条判据，且只适用于**阅读排版与音频呈现类偏好**：跨视频、跨会话生效且需要被找回/重置的显示或音频偏好，必须能在设置抽屉找到；高频场景可保留快捷控件，但不得成为唯一入口。模型、思考档位、联网开关是任务参数（决定本轮请求怎么发），不进入这条规则，也不因此被搬进设置抽屉或纳入默认重置。本次只调整 UI/IA，不迁移存储键、不改状态归属。
+
+| 偏好 | 设置抽屉的唯一权威入口 | 场景内快捷入口 |
+| --- | --- | --- |
+| 面板字体、宽度、色板、输入框光晕 | 外观与布局（现有） | 无 |
+| 对话行高、段落间距 | 外观与布局 → 对话排版与朗读 | AI 对话 `Aa` 面板 |
+| 对话朗读音量 `speechVoiceVolume` | 外观与布局 → 对话排版与朗读 | AI 对话 `Aa` 面板 |
+| 伴看音量、语速、分享视频声音、语音优先 | 实时伴看 → 音频 | 伴看浮窗音频弹层（保留） |
+
+- 不新增设置顶层导航项；「对话朗读」与「实时伴看」按任务对象命名，不再用两个无法区分作用域的「音量」。
+- 两处控件读写同一 key、同一默认值和同一重置规则；抽屉或浮窗打开时，另一处经 storage 变更的值应立即同步。
+- 「恢复默认偏好」本批只承诺覆盖上表归拢的 7 项（对话行高、段落间距、对话朗读音量，以及伴看音量、语速、分享视频声音、语音优先）；`readerTheme`、`liveLowBandwidth` 等既有键的重置口径保持不变，也不宣称覆盖抽屉全部可见键。补入这 7 项只为消除“看不见却被重置”和“看得见却重置不到”，不作泛化承诺。
+- 场景 `Aa` 面板保留即时预览；设置抽屉修改同样即时预览并落盘。伴看音频复用 `persistLiveAudioSettings` 写路径，不新增第二套保存逻辑；若抽屉需要复用该函数，先把持久化下沉为 live 域叶子模块，再由浮窗与设置面板共同引用，避免设置面板反向依赖浮窗控制器。
+- 获批实施后同步更新 `GLOSSARY.md` 的「文摘排版」「图标键」「重置键」等当前状态描述；待审批阶段不提前把方案写成既定契约。
+
+### 8.5 模型胶囊与思考强度：选择后同屏确认联动
+
+- 点击模型后**保持面板打开**：当前行勾选与焦点留在原位置，胶囊同步更新「平台 · 模型」，底部思考区立即按新模型重算。只有 Esc、外点或再次点击胶囊才关闭，避免用户为确认档位再次打开。
+- 若新模型沿用 `Default`，不额外弹通知；若实际档位被 clamp、关闭或回落，在思考区标题旁显示一次性内联说明，并同步到胶囊 `title`。不得为了简化而删除 `Default`、隐藏零档行或把 `default` 放进 clamp 阶梯，继续遵守 ADR-0015。
+- 打开面板时聚焦并滚动到当前模型；模型列表使用 roving tabindex，方向键移动、Enter/Space 选择、Home/End 首尾。Esc 或选择后的主动关闭把焦点还给胶囊；外点不抢回焦点。
+- 胶囊补 `aria-haspopup`、`aria-controls`、`aria-expanded`；面板有可命名角色，模型项有可见 `:focus-visible`。未配置平台时胶囊仍可打开空态并提供「前往设置」，不做无解释的死按钮。
+- 思考滑轨移除普通滚轮改档；`pointercancel` 必须回到最后已提交值。刻度不增加 Tab 停靠点，键盘统一在滑轨上步进，Default 通过重置键恢复；`aria-valuetext` 明确朗读「Default（不干预）」或实际档位，重置键在默认态真正 `disabled`。
+- 面板、滑块填充和最高档动效纳入 reduced-motion；不增加模型元数据、不复制另一套档位推导。
+
+### 8.6 发送闸、贴图与 Opt-in：先保护用户输入，再补充效率
+
+#### 等待与拦截状态
+
+| 状态 | 输入区表现 | 可用动作 | 输入/附件规则 |
+| --- | --- | --- | --- |
+| 字幕已就绪 | 不闪 placeholder，不短暂禁用发送 | 正常发送 | 受理后按快照消费本次文本与图片 |
+| 正在抓取字幕 / 转写 | 输入卡上方出现等待卡：原因 +「完成后自动发送」 | 「取消」；输入仍可编辑 | 保留发送快照之后的全部新编辑，不清空图片 |
+| 无字幕 | 输入卡上方拦截卡说明「当前视频无字幕」 | 「重新抓取」「前往设置」 | 原文与图片原地保留；重新抓取或配置完成后由用户再次确认发送 |
+| 字幕读取失败 | 拦截卡说明「字幕读取失败」，不写成无字幕 | 「重试读取」 | 原文与图片原地保留；重试成功后再发送，不要求用户去 ASR 设置 |
+| 用户取消等待 | 撤下等待卡并显示短回执 | 继续编辑或重新发送 | 草稿与图片不变，焦点回输入框末尾 |
+
+- 只有字幕等待器真正进入 pending 才显示等待卡，不让每次快速发送都闪等待态；等待卡与消息区等待通知二选一，不重复播报。等待中重复发送给出「正在等待字幕，完成后自动发送」，不再静默无效。
+- 成功受理清空输入前比较当前值与本回合快照。快照同时覆盖文本与图片：等待期间新输入的文本保留，新粘贴的图片也留在附件区，不随原回合发出。只有当前值与快照一致才清空；否则提示「已发送原文，保留了后来修改的草稿与图片」，不得清空或自动合并用户未确认的文本与图片。
+- 取消复用现有发送闸代次作废与 `cancel()` 收口。`GateOutcome` 必须新增内部 `cancelled` 结果，让取消路径不落入无字幕分支；不新增第二道发送闸。成功受理、重试或拦截原因消失时清除陈旧 notice。
+
+#### 剪贴板图片
+
+- 每张图片从粘贴开始就有稳定位置：压缩中显示同尺寸骨架与进度，完成后原位替换，顺序按粘贴顺序而非压缩完成顺序。压缩中发送键禁用并显示「图片处理中…」，回车也给出同样原因，绝不能无图发出。
+- 失败定位到第几张及原因；删除键扩大到至少 24×24，名称包含序号，删除后焦点到相邻图片或输入框。点击缩略图打开大图预览，Esc/外点关闭并归还焦点。
+- 当前协议仍需文字时，贴图且正文为空要明确显示「图片需随文字一起发送」；本批不擅自开放纯图片消息或改消息形状。
+
+#### 联网搜索首次授权
+
+- 保留 Session 3 的持久化语义，本场只把 §7.6 的次键文案由「本次不搜索」改为「关闭联网搜索」：「允许并继续」只记授权位；「关闭联网搜索」本轮无搜索继续并关闭 `webSearchEnabled`，按钮名称与后果一致。
+- 授权放在字幕闸通过之后、用户气泡上屏之前；拒绝后正常进入无搜索生成，并短暂提示「已关闭联网搜索，可在输入区重新开启」。付费链提示继续保留。
+- 确认框结算原因新增 `view-destroyed`，与用户拒绝分开：阅读视图销毁时释放焦点捕获、结束受理窗口并复位 `sendInFlight/activePort`；授权返回处必须检查会话已销毁，已销毁则取消本回合——不继续无搜索生成、不向已关闭视图写入、不改授权位或联网偏好。重开后不得出现吞 Esc/点击的幽灵模态。
+
+### 8.7 消息区与多模态工具：所有活动都有终态
+
+#### 工具活动与来源引用
+
+| 工具 | 进行中 | 成功 | 失败/降级 | 停止或回合错误 |
+| --- | --- | --- | --- | --- |
+| 联网搜索 | 「正在搜索 · 查询词」 | 「N 条来源」，可展开步骤与来源 | 「搜索失败，已继续生成」+ 可诊断通知 | 「已取消」或「搜索失败」，不得残留进行中状态 |
+| `capture_video_frame_at_time` | 「正在回看 00:12 附近画面…」 | 「已回看 3 帧」，可查看实际帧时间 | 「未取到画面，已按文字继续」；部分成功说明缺失 | 「已取消」，迟到结果不得再改 UI |
+
+- 复用现有工具循环与 `tool-status` 通道，沿用既有 `searching / done / failed` 三态，只新增 `cancelled` 终态与 `tool`、`callId` 等必要字段；不引入 `running` 第二套状态词，不新增第二套循环，不把完整工具结果写入历史。截帧执行前即发状态，避免 45 秒空白；截帧活动存在时不再误报「模型响应较慢」。
+- 搜索来源默认折叠，流式期间不反复展开造成滚动跳动；头部累计来源数与步骤本次数量语义分开且一致。来源行和正文 `[n]` 都可键盘触发，预览支持 focus/blur 与 Esc；真机修正滚动容器中的预览坐标。
+- 终态只播报一次摘要到独立 `role="status"`，错误用 `role="alert"`；不给逐 token 消息区加 live，避免读屏被流式更新淹没。流式光标也遵守 reduced-motion。
+
+#### 单条消息操作
+
+- **复制**：回复复制保留原 Markdown，不套用笔记标题升级；「复制为笔记格式」若需要应另设动作。复制成功保留短反馈，失败显示「复制失败，请手动选择文本」；用户消息也可复制。
+- **朗读**：仍是单槽互斥，控制器按消息身份而非 DOM 按钮引用管理。切换/删除会话、新会话和关闭面板必须停止朗读；朗读文本剔除 `[n]` 引用编号。停止态回复仍允许复制、朗读和导出。
+- **停止/截断**：主动停止已有「继续生成」，本批只补停止态的复制、朗读和导出，不重复实现继续；只有 max tokens 截断缺少「继续生成」才需补齐。点击停止立即显示「正在停止…」并防连点，终态后恢复操作；禁用操作不再显示可点击 hover。
+- **重新生成**：保留原用户消息与图片，失败可回原回答；`stream-reset` 清空上一代 `pendingToolMessages`，防止工具消息重复落盘。重试必须沿用原消息上下文；视频/分P 已变化时先提示或确认，不静默拿当前视频回答旧问题。
+- 用户气泡中的已发送图片应有缩略图，与输入预览使用同一查看交互，保证多模态消息“发出了什么”可回看。
+
+### 8.8 可执行代码改动清单（获批后实施）
+
+#### 第一批：输入与回合数据安全优先
+
+- `extension/chat/chat-runtime.ts`、`extension/chat/turn-lifecycle.ts`：保护等待期新草稿与新图片；把 Opt-in 移到闸后、气泡前；`takeInputImages` 必须按代次/快照只消费受理那一刻的图片，不得在清空时连带清掉等待期间新贴的图片；成功时清陈旧 notice；`stream-reset` 清上一代工具消息；所有取消/异常出口成对复位发送状态。
+- `extension/chat/send-gate.ts`、`extension/chat/tab-domain.ts`：仅在真实 pending 时进入等待 UI；`GateOutcome` 新增内部 `cancelled`（不是可选项），复用现有代次和 `cancel()`，不复制发送管线。
+- `extension/reader/chat-template.ts`、`chat-tab-composer.ts`、`chat-notices.ts`：新增输入卡上方等待/拦截卡（无字幕与读取失败两态分别给动作）、取消与重抓/重试读取动作、重复发送反馈和停止中状态；统一 status/alert 播报。
+- `extension/chat/chat-input-images.ts`、`extension/reader/chat-tab.ts`、`extension/reader/chat-tab-composer.ts`：pending 占位、顺序稳定、发送守卫、逐张错误、删除焦点与大图预览；保留现有压缩与数量/体积约束。
+- `extension/ui/confirm-dialog.ts`、`extension/reader/lifecycle.ts`、`extension/search/opt-in-notice.ts`：确认框结算原因新增 `view-destroyed`，关闭阅读视图显式 dismiss；授权按钮文案改为「关闭联网搜索」；授权返回处检查会话已销毁并取消本回合，不继续生成、不写已关闭视图、不写偏好。
+
+#### 第二批：IA-03 会话动作与历史内容模式
+
+- `extension/ui/ui-renderer.ts`：在 `.biliscript-reading-tabs-tools` 外置新会话、历史、`Aa`，保留现有控件 id 或集中更新绑定；原菜单只保留偏好与设置深链，修正 ARIA。打开设置前经 reader-bus 发 `close-chat-history` 命令，新增该壳→对话命令槽（按 `READER_SEAM_METHODS` 登记，owner `reader/chat-tab`），关闭设置不得让历史复现。
+- `extension/shared/dom-ids.ts`：历史头部沿用 `readingChatHistoryBackBtn`、`readingChatHistoryClearBtn`，新增标题 `readingChatHistoryTitle`（`biliscript-reading-chat-history-title`），三者统一登记。
+- `extension/reader/chat-tab.ts`：新会话增加草稿/图片/在途保护；历史切换等待 `settleTurn()` 落定后再退出，切换/删除/关闭时停止 TTS；注册 `close-chat-history` 处理体。
+- `extension/reader/chat-popovers.ts`、`chat-template.ts`：历史改为以 `hidden` 为单一状态源的内容模式，标签行由 `ui-renderer` 读同一投影根属性隐藏；记录并归还焦点，接入 Esc/外点逐层退出；补区域名称与当前入口状态。
+- `extension/reader/chat-lists.ts`、`extension/chat/conversation-store.ts`：当前徽标/定位、整行命中区、切换 busy、删除后焦点、6 秒撤销及恢复原顺序；删除与清空走 store 既有 `deleteById`/`clearAll`，`detachCurrent` 只在 store 内部被这两个原语复用，不作为新导出。
+- `extension/entry/styles/reader.css`、`reader-chat.css`：内容区接管、`hidden` + `allow-discrete` 的兄弟层退出过渡（无叠字，不用 `transitionend` 维护第二状态）、当前项层级、焦点环、撤销条与 reduced-motion；保持伴看状态条和伴看记录既有 DOM 顺序。
+
+#### 第三批：IA-04 设置归拢与模型面板
+
+- `extension/ui/settings-panel-html.ts`、`settings-panel.ts`：外观区加入对话行高/段距/朗读，实时伴看区加入四项音频；绑定同一设置键，补 storage 同步与默认重置（只覆盖本批归拢的 7 项，不改 `readerTheme`、`liveLowBandwidth` 等既有重置口径），更新既有“排版不在抽屉”的测试断言。
+- `extension/live/live-overlay-binding.ts`、`fullscreen-live-overlay.ts`：保留场景弹层；`persistLiveAudioSettings` 如需被抽屉复用，先下沉为 live 域叶子模块，再由浮窗与设置面板共同引用，避免设置面板依赖浮窗控制器。「分享视频声音 / 语音优先」按 §5.6 只校准帮助提示，不增加常驻次级说明。
+- `extension/reader/chat-model-panel.ts`、`chat-popovers.ts`、`chat-template.ts`：模型选择后保持打开并同屏刷新思考区；当前项定位、roving tabindex、焦点归还、未配置空态；修 `pointercancel`、滚轮、Default 键盘/ARIA 和禁用态。
+- `extension/entry/styles/reader-chat.css`：模型项与滑轨焦点、减少动态、联动提示和窄面板布局。
+
+#### 第四批：工具终态、引用与消息操作
+
+- `extension/chat/protocol.ts`、`extension/ai/tool-loop.ts`：`tool-status` 沿用 `searching / done / failed`，只新增 `cancelled` 终态与 `tool`、`callId` 等必要字段，不引入 `running` 第二套状态词；截帧前中后回传状态，保留 45 秒超时、部分失败与工具历史约束。
+- `extension/chat/chat-stream-render.ts`：统一 `stop/fail/finish/discard` 的工具终态收口；渲染历史帧活动与实际帧时间；稳定来源计数、键盘引用、预览焦点与滚动坐标；停止态补复制/朗读/导出，只有 max tokens 截断补「继续生成」，复制/导出原文与失败提示。
+- `extension/chat/chat-speech.ts`：按消息身份管理单槽朗读，剔除引用编号，在会话拆除与视图重建时可靠停止。
+- `extension/chat/chat-runtime.ts`：截帧期间抑制错误的慢响应提示；重新生成校验原上下文，上下文失配时由 UI 确认，不静默换视频。
+- `extension/entry/styles/reader-chat.css`：工具活动、终态、引用焦点、消息操作禁用态、停止中与 reduced-motion。
+
+实施后同步更新 `GLOSSARY.md` 中实际改变的界面位置、发送闸 `GateOutcome` 枚举（新增 `cancelled`）和工具状态描述；不新增「底栏」「消息流」同义词条。获批后按上述四批拆执行票，每张票以 300k 以内新上下文可完成为粒度上限。
+
+### 8.9 验收清单
+
+- **会话入口**：新会话/历史均一键可达；有草稿、图片、在途回合时取消确认后零副作用；确认文案明确在途回答会被丢弃；窄面板与最宽面板中标签组不跳动。
+- **历史事务**：打开定位当前项，当前项有文字与 `aria-current`；流式切换显示保存中且不能连点；删除可撤销、焦点不丢；Esc/外点逐层退出，设置往返不复活历史，reduced-motion 无叠字动画。
+- **偏好同源**：本批归拢的 7 项（对话行高、段落间距、对话朗读音量，伴看音量、语速、分享视频声音、语音优先）都能从抽屉找到并恢复默认，`readerTheme`、`liveLowBandwidth` 等既有键口径不变；`Aa`、浮窗、抽屉和另一标签页修改后数值一致，不出现第二份存储。
+- **发送闸**：字幕就绪不闪等待态；抓取/转写可取消；等待中新增或修改的草稿不丢，等待期新贴的图片也留在附件区、不随原消息发出；无字幕与读取失败各自保留文本/图片，读取失败只提供「重试读取」；成功重试后旧提示消失；重复发送有反馈。
+- **图片**：粘贴后立即发送不会漏图；多图顺序稳定，逐张失败可定位；删除、预览、Esc 与焦点归还可用；空正文贴图明确说明需要文字。
+- **Opt-in**：同意只记一次；拒绝后无搜索继续且开关关闭；关闭阅读视图会中止本回合，无幽灵模态、无偏好误写，重开后可正常发送；付费提示不回归。
+- **模型联动**：切模型后面板内立即看到新档位与 clamp 说明；Default 语义不变，重置键在默认态真正 `disabled`；未配置平台时胶囊可打开空态并给出「前往设置」；pointercancel 回滚、普通滚轮不改档；完整键盘路径与焦点归还通过。
+- **工具终态**：搜索与历史帧分别覆盖进行中、成功、部分/全部失败、停止、回合错误；任何终态都无进行中状态残留；历史帧状态不触发错误的慢响应提示。
+- **消息操作**：复制内容不被改标题层级，失败可见；停止态保留继续生成并补复制/朗读/导出，截断补继续生成；切会话停止 TTS 且不朗读引用编号；重试不重复落工具消息，不静默换上下文。
+- **来源与播报**：流式来源折叠不引发跳动，引用和预览可键盘操作；完成/停止/错误只播报一次，不逐 token 播报。
+- 自动化更新并运行 `pnpm exec vitest run tests/reader tests/chat tests/ui tests/live tests/search tests/ai` 中对应既有用例；真机运行 `pnpm harness:browser`，覆盖焦点、真实 DOM 几何、历史/设置叠层、流式停止、滚动中来源预览、贴图压缩时序与 reduced-motion。预览坐标、关闭动效和短等待闪烁必须真机确认，不能以 jsdom 代替。
+
+### 8.10 待审批的产品决策
+
+1. 新会话与历史外置为一级图标键；原 `⋯` 改为只承担排版/朗读的 `Aa` 场景面板，并提供设置深链。
+2. 历史采用隐藏标签行的内容模式；返回回历史入口，选定会话后回输入框；单条删除采用 6 秒撤销，当前在途会话删除仍需确认。
+3. 设置抽屉成为阅读排版与音频呈现类持久偏好的完整入口，对话和伴看只保留同源快捷调节；默认重置只覆盖本批归拢的 7 项，不改变既有其他键口径。
+4. 模型选择后面板保持打开，以同屏反馈思考档位重算；保留 Default 与现有面板动效契约。
+5. 发送闸增加可取消等待卡，等待中可继续编辑，新文本与新图片都不随原回合发出；图片压缩完成前禁止发送，不开放纯图片消息。
+6. Opt-in 延续“拒绝即关闭联网偏好”的 Session 3 决策，次键改名为「关闭联网搜索」；阅读视图销毁只 dismiss 并取消本回合，不视为拒绝。
+7. 工具反馈复用并扩展现有 `tool-status`（沿用 `searching/done/failed`，新增 `cancelled`），为历史视频帧补可见过程与终态；不重写工具循环、不持久化完整工具结果。
+8. 复制回复保留原 Markdown；主动停止后补复制/朗读/导出，只有 max tokens 截断补「继续生成」；重试不得重复使用工具消息或静默替换原视频上下文。
