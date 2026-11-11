@@ -226,7 +226,8 @@ export async function confirmDiscardChanges(): Promise<void> {
   const ok = await confirmDialog({
     message: "未保存的更改将丢失，确定关闭？",
     confirmText: "放弃更改",
-    danger: true
+    danger: true,
+    mountHost: state.host?.parentElement || undefined
   });
   if (ok) {
     closeProviderEditor(true);
@@ -294,7 +295,12 @@ export async function deleteActive(): Promise<void> {
   if (!state.editingId || !onDelete) return;
   // 面板内二次确认（ui/confirm-dialog.js）：原生 confirm 绘制在浏览器窗口中央，
   // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听整体让位
-  if (!(await confirmDialog({ message: "确定要删除这个平台吗？删除后需要重新配置。", confirmText: "删除", danger: true }))) {
+  if (!(await confirmDialog({
+    message: "确定要删除这个平台吗？删除后需要重新配置。",
+    confirmText: "删除",
+    danger: true,
+    mountHost: state.host?.parentElement || undefined
+  }))) {
     return;
   }
   setBusy(true);
@@ -585,11 +591,9 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
 
 // ===== 挂载与全局监听 =====
 
-// 挂载宿主：#biliscript-reading-view 直下（面板内弹层的最大合理范围，不在设置抽屉
-// 滚动容器内——mask 不随内容滚动）。阅读视图重建时宿主随根节点一起消失，
-// open 入口的幂等重置兜底状态残留。
-export function ensureHost(): HTMLElement | null {
-  const view = document.getElementById(ids.readingView);
+// 默认挂在视频页阅读视图；直播间传入自己的 dialog 内宿主。
+export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
+  const view = mountHost || document.getElementById(ids.readingView);
   if (!view) {
     return null;
   }
@@ -608,7 +612,7 @@ export function onDocumentClickCapture(event: MouseEvent): void {
   // 确认弹层（删除二次确认）叠在本 Modal 之上时整体让位：同一批事件由
   // confirm-dialog 的 capture 监听承接，避免一次外点/Esc 把两层一起关掉
   if (isConfirmDialogOpen()) return;
-  const view = document.getElementById(ids.readingView);
+  const view = state.host?.parentElement || document.getElementById(ids.readingView);
   if (view && event.target instanceof Node && view.contains(event.target)) {
     return;
   }
@@ -620,6 +624,7 @@ export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
   // 确认弹层打开期间让位（同 onDocumentClickCapture）：Esc 逐层退出，先关确认
   if (isConfirmDialogOpen()) return;
+  event.preventDefault();
   event.stopPropagation();
   // 弹窗开着先关弹窗（拍板 Q5：Esc 逐层退出），否则关编辑器
   if (getFetchDialog()) {
@@ -892,7 +897,7 @@ export function wireDialog(): void {
 export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   // 幂等重置：重复打开（编辑 A 中改开 B）先作废旧 Modal 的在飞回执与监听
   closeProviderEditor(true);
-  const host = ensureHost();
+  const host = ensureHost(options.mountHost);
   if (!host) {
     return;
   }

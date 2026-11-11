@@ -145,6 +145,7 @@ export interface CreateProviderRowConfig {
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
   onRowEdit: (row: ProviderRowElement) => void;
+  getConfirmMountHost?: () => HTMLElement | null;
   buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
 }
 
@@ -238,6 +239,7 @@ export function createProviderRow({
   buildTailFields,
   wireTailExtras,
   onRowEdit,
+  getConfirmMountHost,
   buildDeleteMessage
 }: CreateProviderRowConfig): ProviderRowController {
   let onDelete: ProviderRowHandler = async () => {};
@@ -345,7 +347,12 @@ export function createProviderRow({
       // DOM 之前执行，注入方据此拿到该行的 baseUrl 回收 host 权限
       //（chrome.permissions.remove 不需要用户手势）；钩子报错不阻断删除。
       row.querySelector(`.${removeClass}`)?.addEventListener("click", async () => {
-        if (!(await confirmDialog({ message: "确定要删除这个平台吗？", confirmText: "删除", danger: true }))) {
+        if (!(await confirmDialog({
+          message: "确定要删除这个平台吗？",
+          confirmText: "删除",
+          danger: true,
+          mountHost: getConfirmMountHost?.() || undefined
+        }))) {
           return;
         }
         const providerId = row.dataset.providerId || "";

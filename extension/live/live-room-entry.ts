@@ -31,18 +31,48 @@ let toggleButton: HTMLButtonElement | null = null;
 let containerObserverHandle: PlayerContainerObserverHandle | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
 let currentRoomId = "";
+let settingsRequestId = 0;
+let settingsModule: typeof import("./live-room-settings.js") | null = null;
 
 function findPlayerHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
+}
+
+function closeLiveRoomSettings(): void {
+  settingsRequestId += 1;
+  settingsModule?.closeLiveRoomSettings();
+}
+
+async function reconnectLive(roomId: string): Promise<boolean> {
+  const currentController = controller;
+  if (!currentController || roomId !== currentRoomId) return false;
+  await currentController.refreshTarget();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  await currentController.stop();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  return currentController.start();
 }
 
 const overlayBinding = createLiveOverlayBinding({
   getPlayerHost: findPlayerHost,
   getLiveController: () => controller,
   onOpenLiveSettings: (target) => {
+    const requestId = ++settingsRequestId;
+    const roomId = currentRoomId;
     void import("./live-room-settings.js")
-      .then((settings) => settings.openLiveRoomSettings(target, findPlayerHost))
-      .catch(() => showNotice("伴看设置加载失败，请重试"));
+      .then(async (settings) => {
+        if (requestId !== settingsRequestId || roomId !== currentRoomId) return;
+        settingsModule = settings;
+        await settings.openLiveRoomSettings(target, findPlayerHost, {
+          getState: () => controller?.getState() ?? "idle",
+          reconnect: () => reconnectLive(roomId)
+        });
+      })
+      .catch(() => {
+        if (requestId === settingsRequestId && roomId === currentRoomId) {
+          showNotice("伴看设置加载失败，请重试");
+        }
+      });
   }
 });
 
@@ -110,7 +140,7 @@ function handleRoomChange(): void {
   const nextRoomId = parseLiveRoomId();
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
-  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
+  closeLiveRoomSettings();
   void controller?.stop();
   overlayBinding.clearMessages();
 }
@@ -141,7 +171,7 @@ export async function startLiveRoomCompanion(): Promise<void> {
       onStateChange: syncToggleButton
     })
   });
-  void controller.refreshTarget();
+  await controller.refreshTarget();
   unsubscribeStorageWatcher = watchStorageKeys(
     () => {
       void controller?.refreshTarget();
@@ -174,7 +204,7 @@ export function stopLiveRoomCompanion(): void {
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.removeEventListener("navigatesuccess", handleRoomChange);
   window.removeEventListener("popstate", handleRoomChange);
-  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
+  closeLiveRoomSettings();
   void controller?.stop();
   controller = null;
   toggleButton?.remove();

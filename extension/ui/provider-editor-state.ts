@@ -109,6 +109,7 @@ export interface ProviderEditorOpenOptions {
   item?: ProviderRowItem | null;
   presetId?: string;
   presets: readonly ProviderRowPreset[];
+  mountHost?: HTMLElement;
   onSave: ProviderEditorSave;
   // 编辑态的删除入口（Modal 头部警示按钮）；缺省 = 不渲染删除按钮
   onDelete?: ProviderEditorDelete;
