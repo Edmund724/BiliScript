@@ -22,7 +22,7 @@ import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
-import type { AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
+import type { AgentBridgeContentSubtitlesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -75,13 +75,20 @@ export type AgentBridgeSnapshotResponse = {
   snapshot?: Omit<AgentBridgeTabSnapshot, "tabId">;
   error?: string;
 };
+export type AgentBridgeSubtitlesMessage = { type: "agent-bridge-subtitles" };
+export type AgentBridgeSubtitlesResponse = {
+  ok: boolean;
+  result?: AgentBridgeContentSubtitlesResult;
+  error?: string;
+};
 
 export type ContentScriptMessage =
   | ReaderEnterMessage
   | ReaderCloseMessage
   | ReaderRestoreMessage
   | LiveSessionTakeoverMessage
-  | AgentBridgeSnapshotMessage;
+  | AgentBridgeSnapshotMessage
+  | AgentBridgeSubtitlesMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
 
@@ -1063,6 +1070,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends ReaderRestoreMessage ? ReaderRestoreResponse
   : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
   : M extends AgentBridgeSnapshotMessage ? AgentBridgeSnapshotResponse
+  : M extends AgentBridgeSubtitlesMessage ? AgentBridgeSubtitlesResponse
   : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
   : never;
 

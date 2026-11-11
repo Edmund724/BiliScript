@@ -172,6 +172,18 @@ function handleAgentBridgeSnapshot(_message: Msg<"agent-bridge-snapshot">, sendR
   return false;
 }
 
+function handleAgentBridgeSubtitles(_message: Msg<"agent-bridge-subtitles">, sendResponse: SendResponse): boolean {
+  void (async () => {
+    try {
+      const { getAgentBridgeSubtitles } = await import("../agent-bridge/content-subtitles.js");
+      sendResponse({ ok: true, result: await getAgentBridgeSubtitles() });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+}
+
 // 编译期穷尽路由表（与 SW 侧 background.ts 的 messageHandlerTable 同款收敛，
 // arch-slim-3/04）：字面量表经 satisfies 对
 // { [K in ContentScriptMessageType]: ContentScriptHandler<K> } 校验——消息名
@@ -183,7 +195,8 @@ const contentMessageHandlerTable = {
   "reader-restore": handleReaderShellEnter,
   "reader-close": handleReaderClose,
   "live-session-takeover": handleLiveSessionTakeover,
-  "agent-bridge-snapshot": handleAgentBridgeSnapshot
+  "agent-bridge-snapshot": handleAgentBridgeSnapshot,
+  "agent-bridge-subtitles": handleAgentBridgeSubtitles
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 
 const contentMessageHandlers = new Map<

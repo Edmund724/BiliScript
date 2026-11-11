@@ -150,6 +150,20 @@ describe("fetchHotCommentsJson：楼中楼续篇补抓", () => {
     expect(comments).toHaveLength(2);
   });
 
+  it("Agent 模式按点赞数补抓高赞楼中楼，不要求正文含时间戳", async () => {
+    const transport = fakeTransport([
+      [mainMatch, mainPayload()],
+      [subMatch, subReplyPayload()]
+    ]);
+
+    await fetchHotCommentsJson(transport, 123, 20, { includeHighLikedReplies: true });
+
+    const roots = transport.calls
+      .filter((url) => url.includes(subMatch))
+      .map((url) => new URL(url).searchParams.get("root"));
+    expect(roots).toEqual(["315310607649", "222"]);
+  });
+
   it("多条楼中楼：全部续篇正文按序收进 subMessages", async () => {
     const transport = fakeTransport([
       [mainMatch, mainPayload()],

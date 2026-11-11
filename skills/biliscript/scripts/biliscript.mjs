@@ -13,7 +13,7 @@ const DEFAULT_PORT = 18492;
 const HOST = "127.0.0.1";
 const EXTENSION_PROTOCOL = "biliscript-extension-v1";
 const CLI_PROTOCOL_PREFIX = "biliscript-cli-v1.";
-const MAX_FRAME_BYTES = 1024 * 1024;
+const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -296,31 +296,36 @@ function selectRole(request, socket, token) {
   return null;
 }
 
-export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000 } = {}) {
+export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000, options } = {}) {
   const token = ensureToken(port);
   const peer = await connectWebSocket({
     port,
     protocol: `${CLI_PROTOCOL_PREFIX}${token}`,
-    timeoutMs: Math.min(timeoutMs, 2000)
+    timeoutMs: timeoutMs > 0 ? Math.min(timeoutMs, 2000) : 2000
   });
   return new Promise((resolve, reject) => {
     const id = randomBytes(12).toString("hex");
-    const timer = setTimeout(() => {
+    const timer = timeoutMs > 0 ? setTimeout(() => {
       peer.close();
       reject(new Error("等待本地 Bridge 响应超时"));
-    }, timeoutMs);
+    }, timeoutMs) : null;
     peer.onMessage = (message) => {
       if (message?.type !== "response" || message.id !== id) return;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       peer.close();
-      if (message.ok) resolve(message.result);
-      else reject(new Error(String(message.error || "桥接命令执行失败")));
+      if (message.ok) {
+        resolve(message.result);
+      } else {
+        const error = new Error(String(message.error || "桥接命令执行失败"));
+        error.remote = true;
+        reject(error);
+      }
     };
     peer.onClose = () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       reject(new Error("本地 Bridge 连接已断开"));
     };
-    peer.sendJSON({ type: "request", id, command });
+    peer.sendJSON({ type: "request", id, command, ...(options ? { options } : {}) });
   });
 }
 
@@ -390,17 +395,18 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
         if (message?.type !== "response" || typeof message.id !== "string") return;
         const pending = pendingTabs.get(message.id);
         if (!pending) return;
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
         pendingTabs.delete(message.id);
+        lastActivity = Date.now();
         respondToCli(pending.client, pending.clientRequestId, message.ok
-          ? { ok: true, result: { ...daemonStatus("tabs", extension), ...message.result } }
-          : { ok: false, error: String(message.error || "扩展读取标签页失败") });
+          ? { ok: true, result: { ...daemonStatus(pending.command, extension), ...message.result } }
+          : { ok: false, error: String(message.error || "扩展执行桥接命令失败") });
       };
       peer.onClose = () => {
         if (extension !== peer) return;
         extension = null;
         for (const [requestId, pending] of pendingTabs) {
-          clearTimeout(pending.timer);
+          if (pending.timer) clearTimeout(pending.timer);
           pendingTabs.delete(requestId);
           respondToCli(pending.client, pending.clientRequestId, { ok: false, error: "扩展连接已断开" });
         }
@@ -416,31 +422,36 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
     peer.onMessage = (message) => {
       lastActivity = Date.now();
       if (message?.type !== "request" || typeof message.id !== "string") return;
-      if (message.command === "status") {
-        respondToCli(peer, message.id, { ok: true, result: daemonStatus("status", extension) });
+      const command = String(message.command || "");
+      if (command === "status") {
+        respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extension) });
         return;
       }
-      if (message.command !== "tabs") {
+      if (!["tabs", "subtitles", "comments"].includes(command)) {
         respondToCli(peer, message.id, { ok: false, error: "未知命令" });
         return;
       }
       if (!extension) {
-        respondToCli(peer, message.id, { ok: true, result: { ...daemonStatus("tabs", extension), tabs: [] } });
+        if (command === "tabs") {
+          respondToCli(peer, message.id, { ok: true, result: { ...daemonStatus(command, extension), tabs: [] } });
+        } else {
+          respondToCli(peer, message.id, { ok: false, error: "扩展未连接，请在扩展设置中开启「桌面 Agent 桥接」" });
+        }
         return;
       }
       const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
-      const timer = setTimeout(() => {
+      const timer = command === "tabs" ? setTimeout(() => {
         pendingTabs.delete(requestId);
         respondToCli(peer, message.id, { ok: false, error: "等待扩展标签页快照超时" });
-      }, 6000);
-      pendingTabs.set(requestId, { client: peer, clientRequestId: message.id, timer });
-      extension.sendJSON({ type: "request", id: requestId, command: "tabs" });
+      }, 6000) : null;
+      pendingTabs.set(requestId, { client: peer, clientRequestId: message.id, command, timer });
+      extension.sendJSON({ type: "request", id: requestId, command, ...(message.options ? { options: message.options } : {}) });
     };
   });
 
   const heartbeat = setInterval(() => extension?.ping(), 20000);
   const idleTimer = setInterval(() => {
-    if (Date.now() - lastActivity < idleMs) return;
+    if (pendingTabs.size > 0 || Date.now() - lastActivity < idleMs) return;
     clearInterval(heartbeat);
     clearInterval(idleTimer);
     for (const client of clients) client.close();
@@ -458,12 +469,17 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
   return server;
 }
 
-async function waitForDaemon(command, port) {
+function commandTimeout(command) {
+  return command === "subtitles" || command === "comments" ? 0 : 8000;
+}
+
+async function waitForDaemon(command, port, options) {
   let lastError;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      return await requestDaemon(command, { port });
+      return await requestDaemon(command, { port, options, timeoutMs: commandTimeout(command) });
     } catch (error) {
+      if (error.remote) throw error;
       lastError = error;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -471,12 +487,13 @@ async function waitForDaemon(command, port) {
   throw lastError || new Error("本地 Bridge 启动失败");
 }
 
-async function runCommand(command) {
+async function runCommand(command, options) {
   const port = configuredPort();
   ensureToken(port);
   try {
-    return await requestDaemon(command, { port, timeoutMs: 1000 });
-  } catch {
+    return await requestDaemon(command, { port, options, timeoutMs: command === "status" || command === "tabs" ? 1000 : 0 });
+  } catch (error) {
+    if (error.remote) throw error;
     const child = spawn(process.execPath, [SCRIPT_PATH, "--daemon"], {
       detached: true,
       stdio: "ignore",
@@ -484,8 +501,35 @@ async function runCommand(command) {
       env: process.env
     });
     child.unref();
-    return waitForDaemon(command, port);
+    return waitForDaemon(command, port, options);
   }
+}
+
+function parseCliArgs(args) {
+  const command = args[0];
+  if (!["status", "tabs", "subtitles", "comments"].includes(command)) return null;
+  if (command === "status" || command === "tabs") return args.length === 1 ? { command } : null;
+  const options = {};
+  for (let index = 1; index < args.length; index += 1) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) return null;
+    index += 1;
+    if (flag === "--tab") {
+      options.tabId = Number(value);
+      if (!Number.isInteger(options.tabId) || options.tabId <= 0) return null;
+    } else if (flag === "--bvid") {
+      options.bvid = value;
+    } else if (command === "subtitles" && (flag === "--from" || flag === "--to")) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < 0) return null;
+      options[flag.slice(2)] = number;
+    } else {
+      return null;
+    }
+  }
+  if (options.from !== undefined && options.to !== undefined && options.to < options.from) return null;
+  return { command, options };
 }
 
 async function main() {
@@ -501,20 +545,20 @@ async function main() {
     }
     return;
   }
-  const command = args[0];
-  if (!["status", "tabs"].includes(command) || args.length !== 1) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status|tabs>" }));
+  const parsed = parseCliArgs(args);
+  if (!parsed) {
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]" }));
     process.exitCode = 1;
     return;
   }
   try {
-    console.log(JSON.stringify(await runCommand(command)));
+    console.log(JSON.stringify(await runCommand(parsed.command, parsed.options)));
   } catch (error) {
     console.log(JSON.stringify({
       ok: false,
-      command,
-      bridgeOnline: false,
-      extensionOnline: false,
+      command: parsed.command,
+      bridgeOnline: error.remote === true,
+      ...(error.remote ? {} : { extensionOnline: false }),
       error: error.message
     }));
     process.exitCode = 1;

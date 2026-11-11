@@ -1,18 +1,19 @@
 // extension/asr/pipeline.ts
-// ASR 管线编排（页面侧，只做编排不碰音频字节）：取音轨 → offscreen 下载/
+// ASR 管线编排（调用侧只做编排不碰音频字节）：取音轨 → offscreen 下载/
 // 解码/切片/逐片转写（转写引擎与解码同 context，跨 port 只传文本结果）→
 // 时间戳加片偏移合并为 B 站字幕格式 [{from,to,content}]。
 //
-// 页面不再感知 provider/Key：平台选择、Key 组装、语言档位全部在 offscreen
+// 调用侧不感知 provider/Key：平台选择、Key 组装、语言档位全部在 offscreen
 // 侧完成（entry/offscreen-asr.js 直调 background 的 get-asr-runtime-config），
 // 调度引擎（asr/engine.js，活队列 + 逐片重试 + 失败计数）也在 offscreen。
-// 页面职责只剩：回退决策由上游 fallback 承担；本模块负责取音轨地址、
-// 发任务、收文本结果、合并、空结果诊断。
+// 页面回退决策由上游 fallback 承担；本模块负责取音轨地址、发任务、收文本结果、
+// 合并与空结果诊断，页面与后台 Agent 桥接共用。
 //
 // 本模块不做任何过期守卫：转写与视频切换解耦（切走视频任务照跑、成果照落
-// 缓存），中止只剩真断连（页面关闭/扩展重载 → port disconnect）。
+// 缓存），中止只剩真断连（调用方关闭/扩展重载 → port disconnect）。
 
 import { getSourceAudioUrl } from "./audio-source.js";
+import type { JsonTransport } from "../bilibili/gateway-core.js";
 import { createOffscreenChunkHost } from "./offscreen-bridge.page.js";
 import type { OffscreenChunkHost, AsrChunkRecord, AsrChunkResult } from "./offscreen-bridge.page.js";
 import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
@@ -214,6 +215,7 @@ export interface RunAsrPipelineArgs {
   cid: string;
   onProgress?: (message: string) => void;
   chunkHost?: OffscreenChunkHost;
+  sourceTransport?: JsonTransport;
   onEmptyDiagnostic?: (diagText: string) => void;
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
   onChunkResult?: (record: AsrChunkRecord, items: SubtitleItem[]) => void;
@@ -231,6 +233,7 @@ export async function runAsrPipeline({
   cid,
   onProgress,
   chunkHost,
+  sourceTransport,
   onEmptyDiagnostic,
   onAttemptOutcome,
   onChunkResult,
@@ -239,9 +242,9 @@ export async function runAsrPipeline({
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
 
-  // 取音轨（页面同域能力：playurl 依赖 B 站页面 cookie，走 contentFetchJson）
+  // 取音轨：playurl 依赖浏览器登录态，页面与 SW 分别经注入传输请求。
   onProgress?.("无字幕轨，正在获取音频流…");
-  const source = await getSourceAudioUrl({ bvid, cid });
+  const source = await getSourceAudioUrl({ bvid, cid }, sourceTransport);
 
   // offscreen 文档内完成下载 → 解码 → 切片 → 逐片转写（engine 并发调度），
   // 每片完成即把文本结果经 port 发回；音频字节与 API Key 都不出 offscreen。

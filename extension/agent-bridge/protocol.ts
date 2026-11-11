@@ -15,3 +15,77 @@ export interface AgentBridgeTabSnapshot {
 export interface AgentBridgeTabsResult {
   tabs: AgentBridgeTabSnapshot[];
 }
+
+export interface AgentBridgeRequestOptions {
+  tabId?: number;
+  bvid?: string;
+  from?: number;
+  to?: number;
+}
+
+export interface AgentBridgeSubtitleItem {
+  from: number;
+  to: number;
+  content: string;
+}
+
+export interface AgentBridgeVideo {
+  bvid: string;
+  aid: string;
+  cid: string;
+  title: string;
+  author: string;
+  description: string;
+  uploadDate: string;
+  duration: number;
+  page: number;
+  pageCount: number;
+}
+
+export interface AgentBridgePage {
+  cid: string;
+  page: number;
+  part: string;
+  duration: number;
+}
+
+export interface AgentBridgeChapter {
+  title: string;
+  from: number;
+  to: number;
+  source: string;
+}
+
+export interface AgentBridgeSubtitle {
+  source: string;
+  trackId: string;
+  language: string;
+  items: AgentBridgeSubtitleItem[];
+}
+
+export interface AgentBridgeSubtitlesResult {
+  video: AgentBridgeVideo;
+  pages: AgentBridgePage[];
+  chapters: AgentBridgeChapter[];
+  subtitle: AgentBridgeSubtitle;
+}
+
+export interface AgentBridgeComment {
+  uname: string;
+  like: number;
+  message: string;
+  subMessages?: string[];
+}
+
+export interface AgentBridgeCommentsResult {
+  video: AgentBridgeVideo;
+  comments: AgentBridgeComment[];
+}
+
+export interface AgentBridgeContentSubtitlesResult {
+  bvid: string;
+  cid: string;
+  pageIndex: number;
+  chapters: AgentBridgeChapter[];
+  subtitle: AgentBridgeSubtitle;
+}

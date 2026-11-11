@@ -1,6 +1,7 @@
 import { getErrorMessage } from "../shared/error-helpers.js";
 import {
   buildHotCommentsApiError,
+  highLikedReplyRootIds,
   mergeHotCommentsFromPayload,
   subReplyMessages,
   subReplyRootIds,
@@ -15,9 +16,13 @@ const SUB_REPLY_PAGE_SIZE = 20;
 async function fetchSubReplyInputs(
   transport: JsonTransport,
   aid: number,
-  payload: unknown
+  payload: unknown,
+  includeHighLiked: boolean
 ): Promise<SubReplyInput[]> {
-  const roots = subReplyRootIds(payload).slice(0, MAX_SUB_REPLY_ROOTS);
+  const rootIds = includeHighLiked
+    ? highLikedReplyRootIds(payload, MAX_SUB_REPLY_ROOTS)
+    : subReplyRootIds(payload);
+  const roots = rootIds.slice(0, MAX_SUB_REPLY_ROOTS);
   return Promise.all(
     roots.map(async (root) => {
       const url =
@@ -33,7 +38,8 @@ async function fetchSubReplyInputs(
 export async function fetchHotCommentsJson(
   transport: JsonTransport,
   aid: number | string,
-  count = 18
+  count = 18,
+  { includeHighLikedReplies = false }: { includeHighLikedReplies?: boolean } = {}
 ): Promise<HotComment[]> {
   const safeAid = Number(aid || 0) || 0;
   const safeCount = Math.max(0, Number(count) || 0);
@@ -49,6 +55,6 @@ export async function fetchHotCommentsJson(
   if (apiError) {
     throw apiError;
   }
-  const subReplies = await fetchSubReplyInputs(transport, safeAid, payload);
+  const subReplies = await fetchSubReplyInputs(transport, safeAid, payload, includeHighLikedReplies);
   return mergeHotCommentsFromPayload(payload, safeCount, subReplies);
 }

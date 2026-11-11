@@ -130,6 +130,15 @@ export function subReplyRootIds(payload: unknown): (number | string)[] {
     .filter((rpid): rpid is number | string => typeof rpid === "number" || (typeof rpid === "string" && !!rpid));
 }
 
+export function highLikedReplyRootIds(payload: unknown, limit = 5): (number | string)[] {
+  return mergedReplyItems(payload)
+    .filter((item) => Number((item as { like?: unknown }).like) > 0)
+    .sort((a, b) => Number((b as { like?: unknown }).like || 0) - Number((a as { like?: unknown }).like || 0))
+    .slice(0, limit)
+    .map((item) => (item as { rpid?: unknown }).rpid)
+    .filter((rpid): rpid is number | string => typeof rpid === "number" || (typeof rpid === "string" && !!rpid));
+}
+
 /**
  * x/v2/reply/reply 响应 → 楼中楼续篇正文列表（按接口顺序，trim 后去空）。
  * 只取子评论正文（data.replies[]），不取 data.root 回显。

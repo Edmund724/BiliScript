@@ -244,11 +244,11 @@ let adts: typeof import("../../extension/asr/adts.js");
 let chunker: typeof import("../../extension/asr/chunker.js");
 let streamChunker: typeof import("../../extension/asr/stream-chunker.js");
 let pipeline: typeof import("../../extension/asr/pipeline.js");
-let gateway: typeof import("../../extension/bilibili/gateway.js");
+let contentTransport: typeof import("../../extension/bilibili/content-transport.js");
 
-// runAsrPipeline 的取音轨走 gateway.contentFetchJson（audio-source 的真实默认 transport）；
-// 只替换这一个传输口，其余 gateway 导出保持真身（URL 构造、选轨都在真模块里）。
-vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
+// runAsrPipeline 的取音轨走 content-transport.contentFetchJson（audio-source 的真实默认 transport）；
+// 只替换这一个传输口，URL 构造与选轨仍在真模块里。
+vi.mock("../../extension/bilibili/content-transport.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };
 });
@@ -259,7 +259,7 @@ beforeEach(async () => {
   chunker = await import("../../extension/asr/chunker.js");
   streamChunker = await import("../../extension/asr/stream-chunker.js");
   pipeline = await import("../../extension/asr/pipeline.js");
-  gateway = await import("../../extension/bilibili/gateway.js");
+  contentTransport = await import("../../extension/bilibili/content-transport.js");
 });
 
 afterEach(() => {
@@ -479,7 +479,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
     const selected = tracks.reduce((min, track) => (track.bandwidth < min.bandwidth ? track : min), tracks[0]);
 
     // 真 playurl 响应驱动真 audio-source 选轨（页面 transport 只按 URL 路由）
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async (url: string) => {
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async (url: string) => {
       if (url.includes("/x/player/playurl")) return PLAYURL_DASH;
       throw new Error(`unexpected url: ${url}`);
     });
@@ -553,7 +553,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
 
   it("转写失败片不参与合并，空结果诊断带真片数与失败计数", async () => {
     const layout = await buildChainLayout();
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async () => PLAYURL_DASH);
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async () => PLAYURL_DASH);
     const [first, second, third] = layout.chunks;
 
     const diagnostics: string[] = [];
@@ -582,7 +582,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
   });
 
   it("生产 playurl URL（platform=html5）无 dash 音轨：管线在取音轨处停下并报可读原因", async () => {
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async (url: string) => {
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async (url: string) => {
       expect(url).toContain("platform=html5");
       return PLAYURL_HTML5;
     });

@@ -1,11 +1,11 @@
 // extension/asr/audio-source.ts
 // 音频源获取：向 playurl 接口请求 DASH 音轨列表，选 bandwidth 最小的一条。
-// 请求走页面同域能力（B 站页面调 api.bilibili.com 无跨域问题），复用
-// gateway.js 的 contentFetchJson 传输通道（带登录 cookie 与 B 站请求头）。
+// 请求默认走 content-transport.js 的 contentFetchJson 通道（带登录 cookie 与
+// B 站请求头）；后台 Agent 桥接经 sourceTransport 注入 SW 传输。
 // 本模块是纯被动能力：只在外部显式调用 getSourceAudioUrl 时发起请求。
 
-import { contentFetchJson } from "../bilibili/gateway.js";
-import type { JsonTransport } from "../bilibili/gateway.js";
+import { contentFetchJson } from "../bilibili/content-transport.js";
+import type { JsonTransport } from "../bilibili/gateway-core.js";
 
 const NO_AUDIO_MESSAGE = "该视频没有可用音轨，无法语音识别";
 

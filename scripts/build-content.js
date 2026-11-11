@@ -76,6 +76,7 @@ const lazyTargets = [
   { name: "fetcher", source: "subtitle/fetcher.ts" },
   { name: "ui", source: "subtitle/ui.ts" },
   { name: "gateway", source: "bilibili/gateway.ts" },
+  { name: "agent-bridge-subtitles", source: "agent-bridge/content-subtitles.ts" },
   // bilibili/video-probe.ts 不再列懒加载目标：ADR-0017 修订后常驻预抓取链静态
   // 依赖它的 waitForVideoMetadata（元数据等待出装配根），列为懒加载目标会让轮 A
   // 把该静态边 external 成 chunks/ 引用，直接命中「主包不得静态引用 chunks/」守卫。
