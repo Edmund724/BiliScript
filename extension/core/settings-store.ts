@@ -16,6 +16,7 @@ import { withTimeout } from "../shared/error-helpers.js";
 import {
   booleanField,
   normalizeDownloadFormat,
+  normalizeAgentBridgeUrl,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
   normalizeReaderTheme,
@@ -73,6 +74,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   downloadFormat: normalizeDownloadFormat,
   enablePlayerAiQuickAction: normalizeEnablePlayerAiQuickAction,
   enableAgentBridge: booleanField(false),
+  agentBridgeUrl: normalizeAgentBridgeUrl,
   playerAiQuickPrompt: normalizePlayerAiQuickPrompt,
   readerTheme: normalizeReaderTheme,
   readerThemeUserSet: booleanField(false),

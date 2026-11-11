@@ -67,9 +67,15 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
-  enableAgentBridge: "enableAgentBridge",
-  agentBridgeInstall: "agentBridgeInstall",
-  copyAgentBridgeInstallBtn: "copyAgentBridgeInstallBtn",
+  agentBridgeConnectBtn: "agentBridgeConnectBtn",
+  agentBridgeAddressBtn: "agentBridgeAddressBtn",
+  agentBridgeAddressView: "agentBridgeAddressView",
+  agentBridgeAddressBackBtn: "agentBridgeAddressBackBtn",
+  agentBridgeUrl: "agentBridgeUrl",
+  agentBridgeResetUrlBtn: "agentBridgeResetUrlBtn",
+  agentBridgeTestBtn: "agentBridgeTestBtn",
+  agentBridgeSaveBtn: "agentBridgeSaveBtn",
+  agentBridgeAddressStatus: "agentBridgeAddressStatus",
   cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
   status: "biliscriptSettingsStatus",
   toggleSearchChainBtn: "toggleSearchChainBtn",
@@ -102,7 +108,7 @@ export function buildSettingsHtml(): string {
         <button type="button" class="biliscript-settings-nav-item" data-section="initial-prompt">初始问题</button>
         <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
         <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
-        <button type="button" class="biliscript-settings-nav-item" data-section="agent">桌面 Agent</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="agent">本地 Agent</button>
         <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
       </nav>
     </div>
@@ -383,19 +389,38 @@ export function buildSettingsHtml(): string {
     </section>
 
     <section class="biliscript-set-group" data-settings-section="agent">
-      <div class="biliscript-set-h">桌面 Agent 桥接</div>
+      <div class="biliscript-set-h">本地 Agent 远程控制</div>
+      <div class="biliscript-set-card biliscript-agent-bridge-card">
+        <div class="biliscript-set-row biliscript-agent-bridge-connection">
+          <span class="biliscript-agent-bridge-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 4 17m0 0v-5m0 5h5M15 12l5-5m0 0v5m0-5h-5"/></svg>
+          </span>
+          <div class="biliscript-agent-bridge-connection-copy">
+            <span class="biliscript-set-label">连接状态</span>
+            <p>连接后可通过 Kimi 等本地 Agent 远程操控 BiliScript 浏览器扩展</p>
+          </div>
+          <button id="${ids.agentBridgeConnectBtn}" type="button" class="biliscript-agent-bridge-connect">去连接</button>
+        </div>
+        <button id="${ids.agentBridgeAddressBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
+          <span class="biliscript-set-label">连接地址</span>
+          <svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </div>
+    </section>
+
+    <section id="${ids.agentBridgeAddressView}" class="biliscript-agent-bridge-address-view" hidden>
+      <div class="biliscript-agent-bridge-address-header">
+        <button id="${ids.agentBridgeAddressBackBtn}" type="button" class="biliscript-reading-icon-btn" title="返回" aria-label="返回本地 Agent 设置">${READING_HEADER_ICONS.back}</button>
+        <div class="biliscript-set-h">连接地址</div>
+      </div>
       <div class="biliscript-set-card">
-        <div class="biliscript-set-check biliscript-toggle-row">
-          <span class="biliscript-toggle-text">允许本机桌面 Agent 读取 B 站标签页</span>
-          <label class="biliscript-toggle-switch">
-            <input id="${ids.enableAgentBridge}" type="checkbox" class="biliscript-toggle-input" aria-label="桌面 Agent 桥接" />
-            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-          </label>
-        </div>
-        <div id="${ids.agentBridgeInstall}" class="biliscript-agent-bridge-install" hidden>
-          <code>npx skills add Edmund724/BiliScript</code>
-          <button id="${ids.copyAgentBridgeInstallBtn}" type="button" class="biliscript-agent-bridge-copy" aria-label="复制桌面 Agent 安装命令">复制</button>
-        </div>
+        <input id="${ids.agentBridgeUrl}" class="biliscript-set-input biliscript-agent-bridge-url" type="text" inputmode="url" spellcheck="false" aria-label="本地 Agent 连接地址" />
+      </div>
+      <p id="${ids.agentBridgeAddressStatus}" class="biliscript-set-status" role="status"></p>
+      <div class="biliscript-agent-bridge-address-actions">
+        <button id="${ids.agentBridgeResetUrlBtn}" type="button" class="biliscript-agent-bridge-secondary">恢复默认</button>
+        <button id="${ids.agentBridgeTestBtn}" type="button" class="biliscript-agent-bridge-secondary">测试</button>
+        <button id="${ids.agentBridgeSaveBtn}" type="button" class="biliscript-agent-bridge-primary">保存</button>
       </div>
     </section>
 

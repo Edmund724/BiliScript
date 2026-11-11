@@ -9,7 +9,7 @@ description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、�
 
 ## 前置条件
 
-- 用户已在 Chrome 或 Edge 安装 BiliScript，并在「设置 → 桌面 Agent」开启「允许本机桌面 Agent 读取 B 站标签页」。
+- 用户已在 Chrome 或 Edge 安装 BiliScript，并在「设置 → 本地 Agent」点击「去连接」完成连接。
 - 本机可运行 Node.js。未打开的视频需要无字幕转写时，用户还需在扩展中启用并配置 ASR。
 
 ## 工作流
@@ -23,7 +23,7 @@ node "<skill-dir>/scripts/biliscript.mjs" status
 node "<skill-dir>/scripts/biliscript.mjs" tabs
 ```
 
-`status` 会按需启动本地 Bridge。若 `extensionOnline` 为 `false`，请用户安装扩展并开启桌面 Agent 桥接，不要反复重启命令。
+`status` 会按需启动本地 Bridge。若 `extensionOnline` 为 `false`，请用户在扩展的「设置 → 本地 Agent」点击「去连接」，不要反复重启命令。
 
 `tabs` 返回已打开的 B 站视频及 `tabId`、`bvid`、`title`、`currentTime`、`duration` 等字段。根据用户意图选择目标：
 

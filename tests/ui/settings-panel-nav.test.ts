@@ -54,7 +54,7 @@ describe("设置抽屉顶部快速跳转导航条", () => {
       { section: "initial-prompt", text: "初始问题" },
       { section: "appearance", text: "外观" },
       { section: "export", text: "导出" },
-      { section: "agent", text: "桌面 Agent" }
+      { section: "agent", text: "本地 Agent" }
     ]);
 
     // 默认首项处于激活态

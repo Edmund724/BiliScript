@@ -38,6 +38,7 @@ import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
+import { bindAgentBridgeSettings, type AgentBridgeSettingsController } from "./agent-bridge-settings.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { isProviderEditorOpen } from "./provider-editor.js";
@@ -110,6 +111,7 @@ let asrPresets: AsrProviderPreset[] = [];
 
 // 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
+let agentBridgeSettings: AgentBridgeSettingsController | null = null;
 let pendingLiveSettingsTarget: LiveSettingsTarget | null = null;
 let navSyncRef: { updateActiveIndicator: (smooth?: boolean) => void } | null = null;
 
@@ -156,9 +158,15 @@ function collectElements(host: HTMLElement) {
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
     includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
     enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
-    enableAgentBridge: byIdIn<HTMLInputElement>(dom.enableAgentBridge),
-    agentBridgeInstall: byIdIn<HTMLElement>(dom.agentBridgeInstall),
-    copyAgentBridgeInstallBtn: byIdIn<HTMLButtonElement>(dom.copyAgentBridgeInstallBtn),
+    agentBridgeConnectBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeConnectBtn),
+    agentBridgeAddressBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBtn),
+    agentBridgeAddressView: byIdIn<HTMLElement>(dom.agentBridgeAddressView),
+    agentBridgeAddressBackBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBackBtn),
+    agentBridgeUrl: byIdIn<HTMLInputElement>(dom.agentBridgeUrl),
+    agentBridgeResetUrlBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeResetUrlBtn),
+    agentBridgeTestBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeTestBtn),
+    agentBridgeSaveBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeSaveBtn),
+    agentBridgeAddressStatus: byIdIn<HTMLElement>(dom.agentBridgeAddressStatus),
     cleanConversationsOlderThan30Days: byIdIn<HTMLInputElement>(dom.cleanConversationsOlderThan30Days),
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
@@ -336,15 +344,6 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "enableDebugLogs",
     getElement: (el) => el.enableDebugLogs,
     normalize: (val) => Boolean(val)
-  },
-  {
-    kind: "toggle",
-    key: "enableAgentBridge",
-    getElement: (el) => el.enableAgentBridge,
-    normalize: (val) => val === true,
-    patchState: false,
-    watchSync: true,
-    onApply: (val) => syncAgentBridgeInstall(val)
   },
   {
     kind: "toggle",
@@ -619,11 +618,6 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
   elements.status.dataset.error = isError ? "true" : "false";
 }
 
-function syncAgentBridgeInstall(enabled: boolean): void {
-  const install = settingsHostRef?.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.agentBridgeInstall}`);
-  if (install) install.hidden = !enabled;
-}
-
 function normalizeProviderModels(provider: { models?: unknown; model?: unknown }): string[] {
   if (Array.isArray(provider?.models)) {
     const seen = new Set<string>();
@@ -754,7 +748,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   for (const binding of SCALAR_FIELD_BINDINGS) {
     hydrateScalarField(binding, elements, settings[binding.key]);
   }
-  syncAgentBridgeInstall(settings.enableAgentBridge === true);
+  agentBridgeSettings?.sync(settings);
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
 
   // AI 配置
@@ -1682,14 +1676,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     bindScalarFieldEvents(binding, elements, navSync);
   }
 
-  elements.copyAgentBridgeInstallBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText("npx skills add Edmund724/BiliScript");
-      setStatus(elements, "安装命令已复制");
-    } catch {
-      setStatus(elements, "复制失败，请手动复制安装命令", true);
-    }
-  });
+  agentBridgeSettings = bindAgentBridgeSettings(host, elements, (text, isError) => setStatus(elements, text, isError));
 
   const saveInitialQuickPrompts = () => {
     const prompts = collectInitialQuickPrompts(elements);
@@ -1798,27 +1785,26 @@ function bindSettingsEvents(host: HTMLElement): void {
     (changes) => {
       for (const binding of watchedSyncBindings) {
         const change = changes[binding.key];
-        if (change) {
-          hydrateScalarField(binding, elements, change.newValue);
-          if (binding.key === "enableAgentBridge") {
-            syncAgentBridgeInstall(change.newValue === true);
-          }
-        }
-        if (changes.subtitleTranslateProviderId || changes.subtitleTranslateModel) {
-          void Promise.all([loadAiProviders(), getSettings()]).then(([providers, settings]) => {
-            renderSubtitleTranslateModelOptions(
-              elements.subtitleTranslateModel,
-              providers,
-              settings.subtitleTranslateProviderId,
-              settings.subtitleTranslateModel
-            );
-          });
-        }
+        if (change) hydrateScalarField(binding, elements, change.newValue);
+      }
+      if (changes.agentBridgeUrl) agentBridgeSettings?.updateUrl(changes.agentBridgeUrl.newValue);
+      if (changes.enableAgentBridge) void agentBridgeSettings?.refresh();
+      if (changes.subtitleTranslateProviderId || changes.subtitleTranslateModel) {
+        void Promise.all([loadAiProviders(), getSettings()]).then(([providers, settings]) => {
+          renderSubtitleTranslateModelOptions(
+            elements.subtitleTranslateModel,
+            providers,
+            settings.subtitleTranslateProviderId,
+            settings.subtitleTranslateModel
+          );
+        });
       }
     },
     {
       sync: [
         ...watchedSyncBindings.map((binding) => binding.key),
+        "enableAgentBridge",
+        "agentBridgeUrl",
         "subtitleTranslateProviderId",
         "subtitleTranslateModel"
       ]

@@ -1,4 +1,6 @@
-export const AGENT_BRIDGE_URL = "ws://127.0.0.1:18492";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
+
+export const AGENT_BRIDGE_URL = DEFAULT_SETTINGS.agentBridgeUrl;
 export const AGENT_BRIDGE_PROTOCOL = "biliscript-extension-v1";
 export const AGENT_BRIDGE_ALARM = "biliscript-agent-bridge-reconnect";
 

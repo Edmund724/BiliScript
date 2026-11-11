@@ -435,7 +435,7 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
         if (command === "tabs") {
           respondToCli(peer, message.id, { ok: true, result: { ...daemonStatus(command, extension), tabs: [] } });
         } else {
-          respondToCli(peer, message.id, { ok: false, error: "扩展未连接，请在扩展设置中开启「桌面 Agent 桥接」" });
+          respondToCli(peer, message.id, { ok: false, error: "扩展未连接，请在扩展的「设置 → 本地 Agent」点击「去连接」" });
         }
         return;
       }

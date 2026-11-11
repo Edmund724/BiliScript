@@ -42,6 +42,7 @@ export interface KnownSettings {
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
   enableAgentBridge: boolean;
+  agentBridgeUrl: string;
   readerTheme: string;
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
@@ -125,6 +126,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeTimestampInBody: true,
   enableDebugLogs: false,
   enableAgentBridge: false,
+  agentBridgeUrl: "ws://127.0.0.1:18492",
   readerTheme: "light",
   readerThemeUserSet: false,
   readerPalette: "flyme",

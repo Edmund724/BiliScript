@@ -47,7 +47,7 @@ import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 // storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { logWarn, logWarnAlways } from "../shared/logging.js";
-import { createAgentBridge } from "../agent-bridge/background.js";
+import { createAgentBridge, testAgentBridgeConnection } from "../agent-bridge/background.js";
 import { AGENT_BRIDGE_ALARM } from "../agent-bridge/protocol.js";
 import {
   aiProviderStore
@@ -156,8 +156,29 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
 }
 
 const agentBridge = createAgentBridge({
-  getEnabled: async () => (await getSettingsSnapshot()).enableAgentBridge === true
+  getConfig: async () => {
+    const settings = await getSettingsSnapshot();
+    return { enabled: settings.enableAgentBridge === true, url: settings.agentBridgeUrl };
+  }
 });
+
+function handleAgentBridgeStatus(_message: Msg<"agent-bridge-status">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-status">): void {
+  sendResponse({ ok: true, ...agentBridge.getStatus() });
+}
+
+function handleAgentBridgeConnect(_message: Msg<"agent-bridge-connect">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-connect">): void {
+  withOkResponse(
+    (async () => ({ ok: true, connected: await agentBridge.connect() }))(),
+    sendResponse
+  );
+}
+
+function handleAgentBridgeTest(message: Msg<"agent-bridge-test">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-test">): void {
+  withOkResponse(
+    (async () => ({ ok: true, connected: await testAgentBridgeConnection(message.url) }))(),
+    sendResponse
+  );
+}
 
 // save-settings 处理器（core/save-settings-handler.ts 工厂）：写入口（落盘 + 失效）
 // → 撤回判定 → 撤回钩子的编排收进 core 域；撤回判据与清缓存钩子住 search 域
@@ -541,6 +562,9 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
 const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
+  "agent-bridge-status": handleAgentBridgeStatus,
+  "agent-bridge-connect": handleAgentBridgeConnect,
+  "agent-bridge-test": handleAgentBridgeTest,
   "request-provider-origins": handleRequestProviderOrigins,
   "check-provider-origin": handleCheckProviderOrigin,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
@@ -682,7 +706,7 @@ chrome.runtime.onConnect?.addListener?.((port) => {
   }
 });
 
-watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge"] });
+watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge", "agentBridgeUrl"] });
 chrome.runtime.onStartup?.addListener(() => void agentBridge.sync());
 chrome.alarms?.onAlarm.addListener((alarm) => {
   if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();

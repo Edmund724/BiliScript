@@ -73,6 +73,24 @@ export function normalizeDownloadFormat(value: unknown): string {
   return value === "txt" ? "txt" : "srt";
 }
 
+export function parseAgentBridgeUrl(value: unknown): string | null {
+  const input = toString(value).trim();
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    if (url.protocol !== "ws:" || !loopback || !url.port) return null;
+    if (url.username || url.password || (url.pathname && url.pathname !== "/") || url.search || url.hash) return null;
+    return input.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAgentBridgeUrl(value: unknown): string {
+  return parseAgentBridgeUrl(value) ?? DEFAULT_SETTINGS.agentBridgeUrl;
+}
+
 export const normalizeEnablePlayerAiQuickAction = booleanField(false);
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {

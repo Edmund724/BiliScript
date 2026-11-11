@@ -27,7 +27,6 @@ const TOGGLE_IDS = [
   "includeTimestampInBody",
   "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
-  "enableAgentBridge",
   "chatInputGlow",
   "liveLowBandwidth"
 ] as const;

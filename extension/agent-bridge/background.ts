@@ -3,11 +3,11 @@ import type { AgentBridgeFrameResponse, AgentBridgeSnapshotResponse, AgentBridge
 import { handleAsrDecodeCleanup, handleVideoFramePrepare } from "../asr/offscreen-bridge.bg.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { createAgentBridgeVideoService } from "./video-service.js";
+import { parseAgentBridgeUrl } from "../core/validators.js";
 import {
   AGENT_BRIDGE_ALARM,
   AGENT_BRIDGE_FRAME_TASK_PREPARE,
   AGENT_BRIDGE_PROTOCOL,
-  AGENT_BRIDGE_URL,
   type AgentBridgeContentSubtitlesResult,
   type AgentBridgeFramesResult,
   type AgentBridgeOffscreenFrameResponse,
@@ -25,7 +25,7 @@ const VIDEO_URL_PATTERNS = [
 ];
 
 interface AgentBridgeDeps {
-  getEnabled: () => Promise<boolean>;
+  getConfig: () => Promise<{ enabled: boolean; url: string }>;
   videoService?: ReturnType<typeof createAgentBridgeVideoService>;
 }
 
@@ -232,8 +232,48 @@ async function captureOffscreenFrames(input: { bvid: string; cid: string; target
   }
 }
 
-export function createAgentBridge({ getEnabled, videoService = createAgentBridgeVideoService() }: AgentBridgeDeps) {
+const CONNECTION_TIMEOUT_MS = 3000;
+
+function waitForSocket(active: WebSocket, closeWhenDone = false): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (connected: boolean): void => {
+      if (settled) return;
+      settled = true;
+      active.removeEventListener("open", onOpen);
+      active.removeEventListener("close", onClose);
+      active.removeEventListener("error", onError);
+      clearTimeout(timeout);
+      if (closeWhenDone) {
+        try { active.close(); } catch {}
+      }
+      resolve(connected);
+    };
+    const onOpen = (): void => finish(true);
+    const onClose = (): void => finish(false);
+    const onError = (): void => finish(false);
+    const timeout = setTimeout(() => finish(false), CONNECTION_TIMEOUT_MS);
+    active.addEventListener("open", onOpen);
+    active.addEventListener("close", onClose);
+    active.addEventListener("error", onError);
+    if (active.readyState === WebSocket.OPEN) finish(true);
+    if (active.readyState === WebSocket.CLOSED) finish(false);
+  });
+}
+
+export async function testAgentBridgeConnection(rawUrl: unknown): Promise<boolean> {
+  const url = parseAgentBridgeUrl(rawUrl);
+  if (!url) return false;
+  try {
+    return await waitForSocket(new WebSocket(url, AGENT_BRIDGE_PROTOCOL), true);
+  } catch {
+    return false;
+  }
+}
+
+export function createAgentBridge({ getConfig, videoService = createAgentBridgeVideoService() }: AgentBridgeDeps) {
   let socket: WebSocket | null = null;
+  let socketUrl = "";
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let syncTask: Promise<void> | null = null;
   let syncRequested = false;
@@ -292,14 +332,13 @@ export function createAgentBridge({ getEnabled, videoService = createAgentBridge
     reconnectTimer = null;
     const active = socket;
     socket = null;
+    socketUrl = "";
     if (active) {
       active.onclose = null;
       active.onerror = null;
       active.onmessage = null;
       active.onopen = null;
-      try {
-        active.close();
-      } catch {}
+      try { active.close(); } catch {}
     }
     void Promise.resolve(chrome.alarms?.clear(AGENT_BRIDGE_ALARM)).catch(() => {});
   };
@@ -312,9 +351,10 @@ export function createAgentBridge({ getEnabled, videoService = createAgentBridge
     }, RECONNECT_DELAY_MS);
   };
 
-  const connect = (): void => {
-    const active = new WebSocket(AGENT_BRIDGE_URL, AGENT_BRIDGE_PROTOCOL);
+  const openSocket = (url: string): void => {
+    const active = new WebSocket(url, AGENT_BRIDGE_PROTOCOL);
     socket = active;
+    socketUrl = url;
     active.onopen = () => {
       if (socket !== active) return;
       send({ type: "hello", role: "extension", version: 1 });
@@ -333,15 +373,14 @@ export function createAgentBridge({ getEnabled, videoService = createAgentBridge
           const result = await execute(message.command, message.options);
           if (socket === active) send({ type: "response", id: message.id, ok: true, result });
         } catch (error) {
-          if (socket === active) {
-            send({ type: "response", id: message.id, ok: false, error: (error as Error).message });
-          }
+          if (socket === active) send({ type: "response", id: message.id, ok: false, error: (error as Error).message });
         }
       })();
     };
     active.onclose = () => {
       if (socket !== active) return;
       socket = null;
+      socketUrl = "";
       scheduleReconnect();
     };
     active.onerror = () => {
@@ -357,13 +396,24 @@ export function createAgentBridge({ getEnabled, videoService = createAgentBridge
     syncTask = (async () => {
       do {
         syncRequested = false;
-        const enabled = await getEnabled();
+        const { enabled, url } = await getConfig();
         if (!enabled) {
           stop();
           continue;
         }
         void Promise.resolve(chrome.alarms?.create(AGENT_BRIDGE_ALARM, { periodInMinutes: 0.5 })).catch(() => {});
-        if (!socket || socket.readyState === WebSocket.CLOSED) connect();
+        if (socket && socketUrl !== url) stop();
+        if (socket?.readyState === WebSocket.CLOSED) {
+          socket = null;
+          socketUrl = "";
+        }
+        if (!socket) {
+          try {
+            openSocket(url);
+          } catch {
+            scheduleReconnect();
+          }
+        }
       } while (syncRequested);
     })().finally(() => {
       syncTask = null;
@@ -371,5 +421,12 @@ export function createAgentBridge({ getEnabled, videoService = createAgentBridge
     return syncTask;
   };
 
-  return { sync };
+  return {
+    sync,
+    getStatus: () => ({ connected: socket?.readyState === WebSocket.OPEN }),
+    connect: async (): Promise<boolean> => {
+      await sync();
+      return socket ? waitForSocket(socket) : false;
+    }
+  };
 }

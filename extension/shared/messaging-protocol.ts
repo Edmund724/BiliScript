@@ -117,6 +117,12 @@ export type GetSettingsResponse = {
 export type SaveSettingsMessage = { type: "save-settings"; settings?: unknown };
 // 响应锚点：core/save-settings-handler.ts 工厂产物 handleSaveSettings——落盘成功仅 { ok: true }。
 export type SaveSettingsResponse = { ok: boolean; error?: string };
+export type AgentBridgeStatusMessage = { type: "agent-bridge-status" };
+export type AgentBridgeStatusResponse = { ok: boolean; connected?: boolean; error?: string };
+export type AgentBridgeConnectMessage = { type: "agent-bridge-connect" };
+export type AgentBridgeConnectResponse = { ok: boolean; connected?: boolean; error?: string };
+export type AgentBridgeTestMessage = { type: "agent-bridge-test"; url?: unknown };
+export type AgentBridgeTestResponse = { ok: boolean; connected?: boolean; error?: string };
 // script-only-ui：content script 语境没有 chrome.permissions API（仅扩展自有
 // 页面/SW 可用），侧边栏设置面板保存时的 host 权限申请改走此消息由 SW 代为
 // 申请。用户手势经一次 runtime 消息传导；SW 处理器必须在调用
@@ -575,6 +581,9 @@ export type GetDebugLogGateResponse = {
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
+  | AgentBridgeStatusMessage
+  | AgentBridgeConnectMessage
+  | AgentBridgeTestMessage
   | RequestProviderOriginsMessage
   | CheckProviderOriginMessage
   | EnsureOffscreenChatMessage
@@ -873,6 +882,15 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     shape: (message) =>
       message.settings == null
       || (typeof message.settings === "object" && !Array.isArray(message.settings))
+  }),
+  "agent-bridge-status": registerBackgroundMessage<AgentBridgeStatusMessage, AgentBridgeStatusResponse>({
+    reply: "async"
+  }),
+  "agent-bridge-connect": registerBackgroundMessage<AgentBridgeConnectMessage, AgentBridgeConnectResponse>({
+    reply: "async"
+  }),
+  "agent-bridge-test": registerBackgroundMessage<AgentBridgeTestMessage, AgentBridgeTestResponse>({
+    reply: "async"
   }),
   "request-provider-origins": registerBackgroundMessage<
     RequestProviderOriginsMessage,
