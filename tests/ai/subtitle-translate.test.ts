@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildSubtitleTranslateRequest,
+  formatSubtitleNumberedLines,
+  parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
-  resolveSubtitleTranslateProviderConfig
+  resolveSubtitleTranslateProviderConfig,
+  translateSubtitleItems
 } from "../../extension/ai/subtitle-translate.js";
 import { NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/provider-handlers.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
@@ -265,5 +268,92 @@ describe("字幕翻译请求装配与思考关闭 buildSubtitleTranslateRequest"
       thinkingLevel: "MINIMAL",
       includeThoughts: false
     });
+  });
+});
+
+describe("字幕翻译序号行协议", () => {
+  const originalItems = [
+    { from: 0, to: 2.5, content: "Hello world" },
+    { from: 2.5, to: 5.0, content: "How are you today?" },
+    { from: 5.0, to: 8.0, content: "Let's learn something new." }
+  ];
+
+  it("formatSubtitleNumberedLines 生成严格 1..N 序号行", () => {
+    const formatted = formatSubtitleNumberedLines(originalItems);
+    expect(formatted).toBe("1. Hello world\n2. How are you today?\n3. Let's learn something new.");
+  });
+
+  it("parseSubtitleNumberedLines 解析序号行并 1:1 对齐时间戳", () => {
+    const llmOutput = "1. 你好，世界\n2. 你今天好吗？\n3. 让我们学点新东西。";
+    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
+
+    expect(parsed).toEqual([
+      { from: 0, to: 2.5, content: "你好，世界" },
+      { from: 2.5, to: 5.0, content: "你今天好吗？" },
+      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
+    ]);
+  });
+
+  it("容错支持多种标点变体（如 1、 1:）与额外前言后语", () => {
+    const llmOutput = [
+      "这是翻译结果：",
+      "1、你好，世界",
+      "2: 你今天好吗？",
+      "3. 让我们学点新东西。",
+      "希望对你有帮助！"
+    ].join("\n");
+
+    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
+    expect(parsed).toEqual([
+      { from: 0, to: 2.5, content: "你好，世界" },
+      { from: 2.5, to: 5.0, content: "你今天好吗？" },
+      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
+    ]);
+  });
+
+  it("某行缺失时自动回退原文，时间戳不偏移", () => {
+    const llmOutput = "1. 你好，世界\n3. 让我们学点新东西。";
+    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems);
+
+    expect(parsed).toEqual([
+      { from: 0, to: 2.5, content: "你好，世界" },
+      { from: 2.5, to: 5.0, content: "How are you today?" },
+      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
+    ]);
+  });
+
+  it("translateSubtitleItems 调度模型并返回对齐条目", async () => {
+    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n2. 你好吗\n3. 学新知识");
+    const result = await translateSubtitleItems({
+      items: originalItems,
+      targetLang: "zh",
+      providerResolution: {
+        provider: { id: "p1", name: "P1", baseUrl: "https://api.test", models: ["m1"], enabled: true, hasSavedKey: true },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      { from: 0, to: 2.5, content: "你好" },
+      { from: 2.5, to: 5.0, content: "你好吗" },
+      { from: 5.0, to: 8.0, content: "学新知识" }
+    ]);
+  });
+
+  it("空列表直接返回空数组，不发起请求", async () => {
+    const mockChatCompletion = vi.fn();
+    const result = await translateSubtitleItems({
+      items: [],
+      targetLang: "zh",
+      chatCompletionFn: mockChatCompletion as any
+    });
+    expect(result).toEqual([]);
+    expect(mockChatCompletion).not.toHaveBeenCalled();
   });
 });

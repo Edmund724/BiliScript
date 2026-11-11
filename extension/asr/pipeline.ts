@@ -216,6 +216,8 @@ export interface RunAsrPipelineArgs {
   chunkHost?: OffscreenChunkHost;
   onEmptyDiagnostic?: (diagText: string) => void;
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
+  onChunkResult?: (record: AsrChunkRecord, items: SubtitleItem[]) => void;
+  signal?: AbortSignal | null;
 }
 
 // runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmptyDiagnostic })
@@ -224,7 +226,16 @@ export interface RunAsrPipelineArgs {
 // 决定 UI 应用时机，转写本身与视频切换解耦，跑完即返回。chunkHost 为可选
 // 注入的任务宿主（测试传合成宿主，生产默认走 createOffscreenChunkHost：
 // offscreen 文档内下载+解码+切片+逐片转写，每片完成即回传文本结果）。
-export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmptyDiagnostic, onAttemptOutcome }: RunAsrPipelineArgs): Promise<SubtitleItem[]> {
+export async function runAsrPipeline({
+  bvid,
+  cid,
+  onProgress,
+  chunkHost,
+  onEmptyDiagnostic,
+  onAttemptOutcome,
+  onChunkResult,
+  signal
+}: RunAsrPipelineArgs): Promise<SubtitleItem[]> {
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
 
@@ -239,7 +250,22 @@ export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmpty
   const hostResult = await host({
     audioUrl: source.url,
     backupUrls: source.backupUrls || [],
-    onProgress
+    onProgress,
+    signal,
+    onChunkResult: (record) => {
+      if (onChunkResult) {
+        const items = synthesizeChunk({
+          startSec: record.startSec,
+          durationSec: record.durationSec,
+          result: record.result
+        });
+        try {
+          onChunkResult(record, items);
+        } catch {
+          // ignore
+        }
+      }
+    }
   });
   // 失败字段不再解构：片级失败摘要经协议模块的判定 → 投影读出（宿主结果形状见
   // asr/protocol.js 的 AsrFailureFields）。

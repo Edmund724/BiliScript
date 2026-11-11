@@ -19,6 +19,7 @@ export interface InterpretSubtitleOverlay {
   clear(): void;
   clearForSeek(): void;
   showNotice(message: string, autoHideMs?: number): void;
+  setSubtitle(original: string, translation: string): void;
   getElement(): HTMLElement | null;
   dispose(): void;
 }
@@ -191,6 +192,22 @@ export function createInterpretSubtitleOverlay(
     }
   }
 
+  function setSubtitle(original: string, translation: string): void {
+    cancelFade();
+    sourceText = original;
+    const root = ensureMounted();
+    if (!root || !originalEl || !translationEl) return;
+    const lines = resolveInterpretSubtitleLines(original, deps.getTargetLang(), deps.getDisplayMode());
+    const showOriginal = lines.showOriginal && Boolean(original.trim());
+    const showTranslation = lines.showTranslation && Boolean(translation.trim());
+
+    originalEl.textContent = original;
+    translationEl.textContent = translation;
+    originalEl.hidden = !showOriginal;
+    translationEl.hidden = !showTranslation;
+    root.hidden = !showOriginal && !showTranslation;
+  }
+
   function dispose(): void {
     cancelFade();
     if (noticeTimer !== null) clearTimeout(noticeTimer);
@@ -203,5 +220,5 @@ export function createInterpretSubtitleOverlay(
     translationEl = null;
   }
 
-  return { handleTranscript, clear, clearForSeek, showNotice, getElement: () => rootEl, dispose };
+  return { handleTranscript, clear, clearForSeek, showNotice, setSubtitle, getElement: () => rootEl, dispose };
 }

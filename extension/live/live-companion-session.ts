@@ -78,6 +78,7 @@ function ensureInterpretController(): InterpretSessionController {
   if (!interpretController) {
     interpretController = createInterpretSessionController({
       getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
+      getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
       showNotice: (message, autoHideMs) => {
         if (sessionHooks?.showNotice) {
           sessionHooks.showNotice(message, autoHideMs);
@@ -85,6 +86,7 @@ function ensureInterpretController(): InterpretSessionController {
           interpretSubtitleOverlay.showNotice(message, autoHideMs);
         }
       },
+      setSubtitle: interpretSubtitleOverlay.setSubtitle,
       onTranscript: interpretSubtitleOverlay.handleTranscript,
       clearSubtitles: interpretSubtitleOverlay.clear,
       clearSubtitlesOnSeek: interpretSubtitleOverlay.clearForSeek,

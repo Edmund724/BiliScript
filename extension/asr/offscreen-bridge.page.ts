@@ -58,6 +58,8 @@ export interface OffscreenChunkHostArgs {
   audioUrl: string | undefined;
   backupUrls?: string[];
   onProgress?: (message: string) => void;
+  onChunkResult?: (record: AsrChunkRecord) => void;
+  signal?: AbortSignal | null;
 }
 
 // 任务结果：results 为按片 index 排序的单片记录；totalChunks 为产出片数，
@@ -96,7 +98,16 @@ type AsrPortMessageLike =
   | AsrErrorMessage;
 
 export function createOffscreenChunkHost(): OffscreenChunkHost {
-  return async function offscreenChunkHost({ audioUrl, backupUrls, onProgress }: OffscreenChunkHostArgs): Promise<OffscreenChunkHostResult> {
+  return async function offscreenChunkHost({
+    audioUrl,
+    backupUrls,
+    onProgress,
+    onChunkResult,
+    signal
+  }: OffscreenChunkHostArgs): Promise<OffscreenChunkHostResult> {
+    if (signal?.aborted) {
+      throw new Error("ASR 任务已中止");
+    }
     // 先让 background 建 offscreen 文档 + 加防盗链规则（响应带回 ruleId），
     // 再直连文档传任务。响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）
     const prepared = await sendOffloadMessage({ type: "offload-task", taskType: ASR_TASK_PREPARE });
@@ -129,6 +140,12 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
         callback(value);
       };
 
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          finish(reject, new Error("ASR 任务已中止"));
+        }, { once: true });
+      }
+
       const port = chrome.runtime.connect({ name: ASR_DECODE_PORT_NAME });
       port.onMessage.addListener((rawMsg: unknown) => {
         const msg = rawMsg as AsrPortMessageLike | null;
@@ -143,12 +160,18 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
           return;
         }
         if (msg.type === ASR_MSG_CHUNK_RESULT) {
-          results.push({
+          const record: AsrChunkRecord = {
             index: Number(msg.index) || 0,
             startSec: Number(msg.startSec) || 0,
             durationSec: Number(msg.durationSec) || 0,
             result: msg.result as AsrChunkResult | null
-          });
+          };
+          results.push(record);
+          try {
+            onChunkResult?.(record);
+          } catch {
+            // chunk 回调异常不影响收包
+          }
           return;
         }
         if (msg.type === ASR_MSG_DONE) {
