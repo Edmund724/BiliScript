@@ -651,7 +651,8 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   syncResetSearchOrderButton(elements);
   // 悬空链首提示：链首指向已不存在的记录时露条件提示行；用户改选或链首指向在场记录即隐藏。
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
-  syncSearchChainActiveSummary(elements, settings.activeSearchProviderId);
+  syncSearchModeControls(elements);
+  syncSearchChainActiveSummary(elements);
   navSyncRef?.updateActiveIndicator(false);
 }
 
@@ -712,18 +713,59 @@ function rerenderLiveProviders(
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
 // 行内 radio 现读。DeepSeek 行副行 = 凭据引用三态文案（现查 AI 族列表）。
 
-function syncSearchChainActiveSummary(elements: SettingsElements, activeId?: string): void {
+// 摘要与模式控件同步（票 06）：折叠摘要让读者无需展开即可判断「智能回退 / 单平台
+// 调用、失败是否回退、是否可能付费」；展开体内只留对当前模式有效的控件。
+//
+// 摘要取值以 DOM 选中态为准（行 radio 现读）：智能模式按列表顺序回退，单平台模式
+// 只用它且失败不回退。已删除 / 不可用的旧单选 id 没有任何行选中（悬空按空处理走
+// 智能链，spec §6.8），现读后自然落到智能文案，不再误报单个平台。
+const SMART_SUMMARY_BASE = "智能搜索 · 失败自动回退";
+const SINGLE_MODE_NOTE =
+  "已单选平台：只使用选中的平台搜索，失败不会切换到其他平台。";
+const SMART_MODE_NOTE =
+  "智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。";
+
+// 当前模式（DOM 真值）：单平台返回选中行元素，否则（智能 / 悬空 / 未选）返回 null。
+function resolveSelectedSearchRow(elements: SettingsElements): HTMLElement | null {
+  const checked = elements.searchProvidersList?.querySelector<HTMLInputElement>(
+    ".search-provider-active-radio:checked"
+  );
+  const row = checked?.closest(".search-provider-row") as HTMLElement | null;
+  if (!row || isSmartSearchActive(row.dataset.providerId || "")) return null;
+  return row;
+}
+
+function isPaidSearchRow(row: HTMLElement): boolean {
+  const presetId = row.dataset.currentPresetId || "";
+  return SEARCH_PROVIDER_PRESETS.some((preset) => preset.id === presetId && preset.access === "paid");
+}
+
+function syncSearchChainActiveSummary(elements: SettingsElements): void {
   const summaryEl = elements.searchChainActiveSummary;
   if (!summaryEl) return;
-  const currentActive = String(activeId !== undefined ? activeId : getActiveSearchProviderId(elements.searchProvidersList) || "").trim();
-  if (!currentActive || isSmartSearchActive(currentActive)) {
-    summaryEl.textContent = "智能模式";
+  const row = resolveSelectedSearchRow(elements);
+  if (!row) {
+    // 智能（含悬空旧 id 的实际行为）：付费准入开时才提示可能产生付费。
+    const paidAdmitted = elements.allowPaidSearchProviders?.checked === true;
+    summaryEl.textContent = paidAdmitted ? `${SMART_SUMMARY_BASE} · 可能使用付费平台` : SMART_SUMMARY_BASE;
     return;
   }
-  const checkedRadio = elements.searchProvidersList?.querySelector<HTMLInputElement>(".search-provider-active-radio:checked");
-  const row = checkedRadio?.closest(".search-provider-row") as HTMLElement | null;
-  const name = row?.querySelector(".provider-row-name")?.textContent?.trim();
-  summaryEl.textContent = name || "单个平台";
+  const name = row.querySelector(".provider-row-name")?.textContent?.trim() || "所选平台";
+  summaryEl.textContent = `仅使用 ${name} · 失败不回退${isPaidSearchRow(row) ? " · 可能付费" : ""}`;
+}
+
+// 模式控件显隐：智能模式 = 有序回退说明 + 拖拽 + 恢复默认 + 付费准入；单平台模式
+// 隐藏这些对单选无效的控件（把手经 search-chain-single-mode 类隐藏，样式在
+// reader-settings-rows.css），说明行改口「失败不回退」——关键后果不只存在于悬停。
+function syncSearchModeControls(elements: SettingsElements): void {
+  const single = resolveSelectedSearchRow(elements) !== null;
+  const note = elements.searchChainContainer?.querySelector<HTMLElement>(".search-chain-mode-note");
+  if (note) note.textContent = single ? SINGLE_MODE_NOTE : SMART_MODE_NOTE;
+  const footer = elements.searchChainContainer?.querySelector<HTMLElement>(".search-chain-footer-bar");
+  if (footer) footer.hidden = single;
+  const paidRow = elements.allowPaidSearchProviders?.closest<HTMLElement>(".biliscript-toggle-row");
+  if (paidRow) paidRow.hidden = single;
+  elements.searchProvidersList?.classList.toggle("search-chain-single-mode", single);
 }
 
 function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
@@ -738,6 +780,7 @@ function rerenderSearchProviders(elements: SettingsElements, providers: Provider
       }
     );
     syncResetSearchOrderButton(elements);
+    syncSearchModeControls(elements);
     syncSearchChainActiveSummary(elements);
   });
 }
@@ -1429,7 +1472,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     searchProviderOrder = [];
     rerenderSearchProviders(elements, await loadSearchProviders());
   });
-  // 搜索平台卡片内原地折叠展开
+  // 搜索平台卡片内原地折叠展开（原生 button：Enter/Space 由浏览器原生触发 click）
   const toggleSearchChain = () => {
     const isHidden = elements.searchChainContainer.hidden;
     elements.searchChainContainer.hidden = !isHidden;
@@ -1440,18 +1483,17 @@ function bindSettingsEvents(host: HTMLElement): void {
     );
   };
   elements.toggleSearchChainBtn?.addEventListener("click", toggleSearchChain);
-  elements.toggleSearchChainBtn?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleSearchChain();
-    }
+  // 付费准入开关改变 → 智能摘要的「可能使用付费平台」段跟着改口
+  elements.allowPaidSearchProviders?.addEventListener("change", () => {
+    syncSearchChainActiveSummary(elements);
   });
 
-  // 悬空链首提示与摘要随用户改选更新
+  // 悬空链首提示与摘要 / 模式控件随用户改选更新
   elements.searchProvidersList?.addEventListener("change", () => {
     if (getActiveSearchProviderId(elements.searchProvidersList)) {
       elements.searchProvidersDanglingHint.hidden = true;
     }
+    syncSearchModeControls(elements);
     syncSearchChainActiveSummary(elements);
   });
   // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里

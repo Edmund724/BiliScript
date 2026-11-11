@@ -377,6 +377,14 @@
   background: var(--biliscript-reader-surface-2);
 }
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row {
+  /* 原生 button 复位：行外观与原来 div 一致（票 06：可键盘聚焦的原生按钮语义）。
+     内边距由 .biliscript-set-card > .biliscript-set-row 规则提供，此处不复写。 */
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   justify-content: space-between;
