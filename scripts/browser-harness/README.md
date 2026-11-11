@@ -71,6 +71,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 | `live-companion-closure` | 视频页与直播间伴看闭环：面板关闭启动、失败重试与设置重连、AI 状态与浮窗、全屏设置、麦克风拒绝后重试、切 P、直播间平台与 Gemini Key 配置、换房间、独立伴看记录及跨标签接管；使用 fixture 与 stub，不需要真实账号或凭据 | 约 20s（起一次隔离 Edge，离线回放，16 项检查与逐场景截图） |
 | `provider-onboarding-acceptance`（A1–A6.5，21 项检查） | 首配真机判据：概览、AI 对话（草稿恢复后由用户明确发送）、解释卡、语音转写四条「未配置 → 保存并继续 → 一次性续跑」链路；取消、保存失败、重复保存、普通编辑、换分 P 下旧任务意图不复活；全程真实指针/键盘/选区输入（点击前校验几何与 `elementFromPoint` 命中），离线 fixture 回放 B 站文档与接口、AI SSE、ASR 音轨与转写 | 全流程约 2–3 分钟（起一次隔离 Edge，离线；`--fixture-only` 不适用） |
 | `provider-projection-acceptance`（B1.1–B4.3，29 项检查） | 生效投影真机判据：AI 默认平台/模型徽标与摘要、对话另选与概览/对话两条链路的实际请求、删除后的回落与不可用投影、Live 与 ASR 激活对真实会话/转写请求、搜索智能回退与单平台摘要对真实搜索请求、付费准入与单轮上限的可见性/生效范围、排序恢复 | 全流程约 4–6 分钟（起一次隔离 Edge，离线回放 B 站接口、AI SSE、搜索平台、Live WebSocket、ASR 音轨与转写） |
+| `provider-credential-editor-acceptance`（C1–C8.1，24 项检查） | 凭据 / 编辑器 / 授权真机判据：搜索 DeepSeek 与伴看 Gemini Live 的凭据引用四态（无记录 / 缺 Key / 非官方地址 / 可用）、同层往返与草稿恢复；Key 只落 AI 族、AI 删除后两族状态同步、证据不含 Key 明文；模型子视图跨过滤选择、逐层 Esc、dirty 确认、Tab 环绕与焦点归还；浏览器权限库（mic）的拒绝 / 授权 / 重新授权 / 多 origin 与 Live 保存的 http(s)+ws(s) 双 origin 声明；搜索首次授权的付费提示、拒绝后开关同步、下一条不重复询问与同意后真实搜索；400×360 下的字段错误、确认框与动作可达；全程离线 fixture | 全流程约 2–3 分钟（两次起隔离 Edge，离线；headless 无原生授权弹窗，边界见下） |
 
 工件落 `.scratch/browser-harness/scenarios/<name>/`（`evidence.json` + 逐场景 PNG）。断言清单在 `evidence.checks`：任一 FAIL 即退出码 1（`evidence.failed` 是失败项名单）。
 
@@ -88,6 +89,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 - `element.click()` 是 `isTrusted: false`：**播放器控件、剪贴板、下载、全屏、真键击**在这一层都够不着（扩展自己挂的 DOM 能吃，这是场景里其余点击的理由）。要真输入就得算坐标发 CDP 指针事件——`bilingual-subtitles` 已经这么做了；仍够不着的是**文本拖选**（用 `Range` + `selectionchange` 构造，见「坑」里 `element.click()` 那条）。
 - headless 里留一个**还在播的 `<video>`** 会让整个浏览器几秒后不再响应 CDP（「坑」里「别在页里留还在播的媒体元素」那条）。场景必须自己 `pause()`；注意这同时会改变「阅读列表跟着播放位置走」这类读数的取值——那种读数只记录、不判定。
 - **真网是外部依赖**：页面结构、样式表、接口形状都可能变。`--fixture-only` 是能离线跑的底线（fixture 形状 + 期望值复算），全流程红了要先分辨是产品回归还是站点变更。
+- **headless 无法结算交互式 `chrome.permissions.request`**：原生授权气泡在无头实例里不绘制，request 永久 pending（实测数秒仍未 settle，见 `provider-credential-editor-acceptance` 场景头注）。真机验收分两段：常驻 manifest 的 origin 走真实 request（已授权时 Chrome 直接放行、不弹窗）；未常驻 origin 的「拒绝」由 SW 单点替身结算（其余链路与真实 API 不变），「重新授权」用第二次装机把域名写进 `host_permissions` 建立真实授权态再由 `chrome.permissions.contains()` 复核。浏览器权限库（mic 等）不受影响，仍走 CDP `Browser.grantPermissions` / `resetPermissions` 真实结算。
 - **临时 profile 里的 `chrome.storage.sync` 会被云端整包回放**：默认 `--disable-sync` 已关掉这条（见「坑」里「临时 profile 不等于干净环境」那条），场景另有一条「污染即失败」的判定，免得把回放造成的翻转当成绿色。
 
 ## 坑
