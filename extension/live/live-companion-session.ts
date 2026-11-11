@@ -1,5 +1,5 @@
 // extension/live/live-companion-session.ts
-// 视频页实时会话组装根：伴看与同传各自持有独立控制器，共享浮窗宿主与页面生命周期。
+// 视频页实时会话组装根：伴看与字幕翻译各自持有独立控制器，共享浮窗宿主与页面生命周期。
 // 播放器快捷按钮与 AI 对话面板均消费伴看控制器；关闭文摘面板不销毁会话；pagehide 统一释放。
 
 import { state } from "../core/state.js";

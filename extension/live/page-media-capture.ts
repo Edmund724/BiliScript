@@ -1,7 +1,7 @@
 // extension/live/page-media-capture.ts
 // 页面侧（Content Script）音频采集模块。
 // 伴看：麦克风输入（AEC/ANS/AGC）与视频原声混音，纯麦克风支路本地 VAD，视频音量压低。
-// 同传：只取视频原声（不含麦克风），静音也持续推帧。
+// 字幕翻译：只取视频原声（不含麦克风），静音也持续推帧。
 // 两路共用 MOSS-LIVE 要求的 16kHz 单声道 PCM S16LE 20ms（320 采样 = 640 字节）分帧输出，
 // 以及同一条视频音轨管线（captureStream 缓存、状态评估、事件监听）。
 
@@ -177,16 +177,16 @@ function defaultCaptureVideoStream(video: HTMLVideoElement): MediaStream | null 
   }
 }
 
-// ===== 视频音轨管线（伴看混音与同传纯原声共用） =====
+// ===== 视频音轨管线（伴看混音与字幕翻译纯原声共用） =====
 
 interface VideoAudioPipelineDeps {
   audioCtx: PageAudioContextLike;
   getVideo: () => HTMLVideoElement | null;
   captureStreamFn: (video: HTMLVideoElement) => MediaStream | null;
-  /** 是否消费视频原声（伴看受 shareVideoAudio 开关控制；同传恒为 true） */
+  /** 是否消费视频原声（伴看受 shareVideoAudio 开关控制；字幕翻译恒为 true） */
   isSharing: () => boolean;
   onStatusChange: (status: VideoAudioTrackStatus) => void;
-  /** 把视频音源接入各自混音拓扑（伴看进 merger 通道 1；同传直连 processor 通道 0） */
+  /** 把视频音源接入各自混音拓扑（伴看进 merger 通道 1；字幕翻译直连 processor 通道 0） */
   connectSource: (sourceNode: PageAudioSourceNodeLike) => void;
   isStopped: () => boolean;
 }

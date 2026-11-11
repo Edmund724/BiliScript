@@ -25,7 +25,7 @@
 //     在激活时注册的处理体（setChatTabOutsideClickHandler），避免第二个
 //     document 监听与壳互踩。
 //   content 接管 → live-companion-session（跨标签停止）：
-//     SW 的 live-session-takeover 按通道请实现方停止对应会话；伴看、同传各一个
+//     SW 的 live-session-takeover 按通道请实现方停止对应会话；伴看、字幕翻译各一个
 //     槽（setLiveCompanionStopHandler / setInterpretStopHandler），实现方为
 //     live/live-companion-session，槽缺失按 no-op。
 //   reader 域内部逆边（显式端口）：

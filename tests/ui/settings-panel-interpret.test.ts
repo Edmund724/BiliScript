@@ -7,7 +7,7 @@ beforeEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("设置面板同声传译字幕", () => {
+describe("设置面板字幕翻译", () => {
   it("提供 14 种目标语言与三态显示模式，保存时不改双语字幕轨偏好", async () => {
     document.body.innerHTML = `
       <div id="biliscript-reading-view">

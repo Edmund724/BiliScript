@@ -10,10 +10,10 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 在观看视频过程中，与 AI 语音助手建立低延迟双工交互，共同理解视频画面与声音，提供随看随聊的伴随式对话体验。
 _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
 
-**同声传译字幕**:
+**实时字幕翻译**:
 视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。
-代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（同传目标语言）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语）
-_Avoid_: 把同传译文当作视频字幕轨，或复用副轨开关表示同传显示模式
+代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（翻译目标语言）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语）
+_Avoid_: 同声传译、同传；把译文当作视频字幕轨，或复用副轨开关表示译文显示模式
 
 **直播间伴看**:
 在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂全屏伴看浮窗与播放器内的开关按钮，不出现文摘面板。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。

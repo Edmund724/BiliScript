@@ -369,7 +369,7 @@ describe("设置抽屉行内下拉菜单（右对齐向左展开防截断与定�
   const markup =
     '<div class="biliscript-reading-settings-host">' +
     '<div class="biliscript-set-card"><div class="biliscript-set-row">' +
-    '<label for="liveInterpretTargetLang">同传目标语言</label>' +
+    '<label for="liveInterpretTargetLang">翻译目标语言</label>' +
     '<select id="liveInterpretTargetLang"><option value="zh">中文</option></select>' +
     '</div></div></div>';
 

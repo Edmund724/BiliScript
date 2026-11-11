@@ -1,3 +1,4 @@
+import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
 import {
   LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
@@ -24,6 +25,7 @@ import {
 // collectElements 元素袋的字段名（saveBtn / resetBtn / status 的 id 带
 // biliscriptSettings 前缀，字段名不带）；value = 渲染进模板的 id。
 export const SETTINGS_PANEL_DOM_IDS = {
+  readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
   settingsNav: "biliscriptSettingsNav",
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
@@ -91,19 +93,25 @@ export type SettingsPanelDomId = (typeof SETTINGS_PANEL_DOM_IDS)[keyof typeof SE
 export function buildSettingsHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
   return `
-    <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
-      <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="live">实时伴看</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="ai-button">AI 按钮</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="system-prompt">系统提示词</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="initial-prompt">初始问题</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="agent">桌面 Agent</button>
-      <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
-    </nav>
+    <div class="biliscript-settings-nav-bar">
+      <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-settings-back-btn" title="返回" aria-label="返回">
+        ${READING_HEADER_ICONS.back}
+      </button>
+      <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
+        <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="live">实时伴看</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="subtitle">字幕翻译</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="ai-button">AI 按钮</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="system-prompt">系统提示词</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="initial-prompt">初始问题</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="agent">桌面 Agent</button>
+        <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
+      </nav>
+    </div>
 
     <section class="biliscript-set-group" data-settings-section="llm">
       <div class="biliscript-set-header-row">
@@ -126,29 +134,6 @@ export function buildSettingsHtml(): string {
       <div class="biliscript-set-card biliscript-provider-group">
         <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
         <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-        <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
-          <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
-            <option value="">跟随 AI 默认平台</option>
-          </select>
-        </div>
-        <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint" hidden></p>
-        <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">同传目标语言</label>
-          <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
-            ${LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => `
-              <option value="${option.value}">${option.label}</option>
-            `).join("")}
-          </select>
-        </div>
-        <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.liveInterpretDisplayMode}">同传字幕显示</label>
-          <select id="${ids.liveInterpretDisplayMode}" class="biliscript-set-select">
-            ${LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.map((option) => `
-              <option value="${option.value}">${option.label}</option>
-            `).join("")}
-          </select>
-        </div>
         <div class="biliscript-set-check biliscript-toggle-row">
           <span class="biliscript-toggle-text">低带宽画面采集</span>
           <label class="biliscript-toggle-switch">
@@ -158,6 +143,38 @@ export function buildSettingsHtml(): string {
         </div>
       </div>
       <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
+
+    </section>
+
+    <section class="biliscript-set-group" data-settings-section="subtitle">
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">字幕翻译</div>
+      </div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
+          <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
+            <option value="">跟随 AI 默认平台</option>
+          </select>
+        </div>
+        <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint" hidden></p>
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">翻译目标语言</label>
+          <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
+            ${LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => `
+              <option value="${option.value}">${option.label}</option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.liveInterpretDisplayMode}">字幕显示方式</label>
+          <select id="${ids.liveInterpretDisplayMode}" class="biliscript-set-select">
+            ${LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.map((option) => `
+              <option value="${option.value}">${option.label}</option>
+            `).join("")}
+          </select>
+        </div>
+      </div>
 
     </section>
 

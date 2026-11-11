@@ -1,10 +1,10 @@
 // extension/live/live-overlay-binding.ts
-// 视频页与直播间共用的实时伴看浮窗、同传入口与音频偏好协调模块。
+// 视频页与直播间共用的实时伴看浮窗、字幕翻译入口与音频偏好协调模块。
 // 统一管理：
 // 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
 // 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
 // 3. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
-// 4. 视频页同传快捷按钮的连接状态与可用性同步
+// 4. 视频页字幕翻译快捷按钮的连接状态与可用性同步
 
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";

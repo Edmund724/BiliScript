@@ -30,13 +30,13 @@ async function mountPanel(): Promise<HTMLElement> {
 }
 
 describe("设置抽屉顶部快速跳转导航条", () => {
-  it("渲染 10 个预期标签与对应 section 映射", async () => {
+  it("渲染 11 个预期标签与对应 section 映射", async () => {
     const host = await mountPanel();
     const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav");
     expect(nav).not.toBeNull();
 
     const items = Array.from(nav!.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-    expect(items).toHaveLength(10);
+    expect(items).toHaveLength(11);
 
     const labels = items.map((item) => ({
       section: item.dataset.section,
@@ -46,6 +46,7 @@ describe("设置抽屉顶部快速跳转导航条", () => {
     expect(labels).toEqual([
       { section: "llm", text: "语言模型" },
       { section: "live", text: "实时伴看" },
+      { section: "subtitle", text: "字幕翻译" },
       { section: "asr", text: "语音转写" },
       { section: "search", text: "搜索" },
       { section: "ai-button", text: "AI 按钮" },
