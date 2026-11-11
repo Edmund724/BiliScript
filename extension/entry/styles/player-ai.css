@@ -609,10 +609,13 @@
 }
 
 .live-overlay-audio-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
   width: 320px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  overflow-y: auto;
   background:
     radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.14) 0%, transparent 65%),
     rgb(18 20 26 / 0.76);
@@ -630,13 +633,44 @@
     0 8px 24px rgb(0 0 0 / 0.5);
   color: var(--biliscript-live-glass-ink);
   z-index: 1000;
-  display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.live-overlay-audio-popover.is-open {
+  display: flex;
+}
+
 .live-overlay-audio-popover[hidden] {
   display: none !important;
+}
+
+.live-overlay-audio-status {
+  color: rgb(255 205 120);
+  font-size: var(--biliscript-font-size-xs, 11px);
+  line-height: 1.5;
+}
+
+.live-overlay-audio-settings-btn {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--biliscript-radius-8, 8px);
+  background: rgb(255 255 255 / 0.1);
+  color: var(--biliscript-live-glass-ink);
+  font: inherit;
+  font-size: var(--biliscript-font-size-xs, 11px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-overlay-audio-settings-btn:hover {
+  background: rgb(255 255 255 / 0.18);
+}
+
+.live-overlay-audio-settings-btn:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
 }
 
 .live-overlay-pop-item {
@@ -1113,4 +1147,51 @@
   line-height: 1.5;
   background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.8);
   pointer-events: none;
+}
+
+
+.biliscript-live-room-settings {
+  width: min(760px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 48px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--biliscript-reader-border, rgb(255 255 255 / 0.16));
+  border-radius: var(--biliscript-radius-panel, 14px);
+  background: var(--biliscript-reader-surface, rgb(24 26 32));
+  color: var(--biliscript-reader-text, rgb(245 245 245));
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.45);
+}
+
+.biliscript-live-room-settings::backdrop {
+  background: rgb(0 0 0 / 0.56);
+}
+
+.biliscript-live-room-settings-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--biliscript-reader-hover, rgb(255 255 255 / 0.12));
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.biliscript-live-room-settings-view {
+  height: 100%;
+  min-height: 0;
+}
+
+.biliscript-live-room-settings-view .biliscript-reading-settings-panel {
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
 }

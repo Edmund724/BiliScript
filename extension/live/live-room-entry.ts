@@ -6,6 +6,7 @@ import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
+import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import {
   applyControlBarPlacement,
@@ -28,6 +29,7 @@ let started = false;
 let controller: LiveChatController | null = null;
 let toggleButton: HTMLButtonElement | null = null;
 let containerObserverHandle: PlayerContainerObserverHandle | null = null;
+let unsubscribeStorageWatcher: (() => void) | null = null;
 let currentRoomId = "";
 
 function findPlayerHost(): HTMLElement | null {
@@ -36,7 +38,12 @@ function findPlayerHost(): HTMLElement | null {
 
 const overlayBinding = createLiveOverlayBinding({
   getPlayerHost: findPlayerHost,
-  getLiveController: () => controller
+  getLiveController: () => controller,
+  onOpenLiveSettings: (target) => {
+    void import("./live-room-settings.js")
+      .then((settings) => settings.openLiveRoomSettings(target, findPlayerHost))
+      .catch(() => showNotice("伴看设置加载失败，请重试"));
+  }
 });
 
 function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): void {
@@ -103,6 +110,7 @@ function handleRoomChange(): void {
   const nextRoomId = parseLiveRoomId();
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
+  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
   void controller?.stop();
   overlayBinding.clearMessages();
 }
@@ -133,6 +141,16 @@ export async function startLiveRoomCompanion(): Promise<void> {
       onStateChange: syncToggleButton
     })
   });
+  void controller.refreshTarget();
+  unsubscribeStorageWatcher = watchStorageKeys(
+    () => {
+      void controller?.refreshTarget();
+    },
+    {
+      sync: ["liveProviders", "activeLiveProviderId"],
+      local: ["liveProviderKeys"]
+    }
+  );
 
   mountToggleButton();
   containerObserverHandle = observePlayerContainer({
@@ -149,11 +167,14 @@ export async function startLiveRoomCompanion(): Promise<void> {
 export function stopLiveRoomCompanion(): void {
   if (!started) return;
   started = false;
+  unsubscribeStorageWatcher?.();
+  unsubscribeStorageWatcher = null;
   containerObserverHandle?.disconnect();
   containerObserverHandle = null;
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.removeEventListener("navigatesuccess", handleRoomChange);
   window.removeEventListener("popstate", handleRoomChange);
+  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
   void controller?.stop();
   controller = null;
   toggleButton?.remove();
