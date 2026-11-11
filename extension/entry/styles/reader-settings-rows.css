@@ -710,7 +710,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-address-view {
   display: grid;
-  gap: var(--biliscript-space-lg);
+  gap: var(--biliscript-space-md);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-address-view[hidden] {
@@ -729,6 +729,10 @@
   background: transparent;
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-address-view > .biliscript-set-status:empty {
+  display: none;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-address-actions {
   display: flex;
   justify-content: flex-end;
@@ -736,27 +740,70 @@
 }
 
 #biliscript-reading-view .agent-bridge-install-dialog {
-  width: min(460px, calc(100% - 32px));
+  width: min(420px, calc(100% - 32px));
+  padding: var(--biliscript-space-xl);
+  scrollbar-width: none;
+}
+
+#biliscript-reading-view .agent-bridge-install-dialog::-webkit-scrollbar {
+  display: none;
 }
 
 #biliscript-reading-view .agent-bridge-install-dialog h2 {
-  margin: 0 0 var(--biliscript-space-sm);
+  margin: 0;
+  padding-right: var(--biliscript-space-3xl);
   font-size: var(--biliscript-font-size-lg);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+#biliscript-reading-view .agent-bridge-install-close {
+  position: absolute;
+  top: var(--biliscript-space-md);
+  right: var(--biliscript-space-md);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--biliscript-radius-circle);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+}
+
+#biliscript-reading-view .agent-bridge-install-close:hover {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .agent-bridge-install-close svg {
+  width: 18px;
+  height: 18px;
 }
 
 #biliscript-reading-view .agent-bridge-install-dialog > p {
-  margin: 0 0 var(--biliscript-space-md);
+  margin: var(--biliscript-space-sm) 0 var(--biliscript-space-lg);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.5;
 }
 
+#biliscript-reading-view .agent-bridge-install-prompt-card {
+  position: relative;
+}
+
 #biliscript-reading-view .agent-bridge-install-prompt {
+  display: block;
   width: 100%;
-  min-height: 220px;
-  resize: vertical;
-  padding: var(--biliscript-space-10);
-  border: 1px solid var(--biliscript-reader-border);
+  min-height: 128px;
+  height: auto;
+  field-sizing: content;
+  resize: none;
+  overflow: hidden;
+  padding: var(--biliscript-space-md) var(--biliscript-space-md) calc(var(--biliscript-space-4xl) + var(--biliscript-space-md));
+  border: 0;
   border-radius: var(--biliscript-radius-panel-inner);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
@@ -764,4 +811,25 @@
   font: inherit;
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.6;
+}
+
+#biliscript-reading-view .agent-bridge-install-copy {
+  position: absolute;
+  right: var(--biliscript-space-sm);
+  bottom: var(--biliscript-space-sm);
+  min-height: 28px;
+  padding: 0 var(--biliscript-space-10);
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  font-size: var(--biliscript-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#biliscript-reading-view .agent-bridge-install-copy:hover {
+  background: var(--biliscript-reader-surface);
+  color: var(--biliscript-reader-text);
 }

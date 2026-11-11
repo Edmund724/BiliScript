@@ -44,13 +44,17 @@ describe("本地 Agent 设置", () => {
     expect(prompt.value).toContain("npx skills add Edmund724/BiliScript");
     expect(prompt.value).toContain("scripts/biliscript.mjs");
     expect(prompt.value).toContain("extensionOnline");
+    expect(prompt.value.length).toBeLessThan(300);
     expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     expect(sent).toContainEqual({ type: "agent-bridge-connect" });
 
-    document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!.click();
+    const copyButton = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
+    expect(copyButton.closest(".agent-bridge-install-prompt-card")).not.toBeNull();
+    expect(document.querySelector(".agent-bridge-install-dialog .confirm-dialog-foot")).toBeNull();
+    copyButton.click();
     await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledWith(prompt.value));
-    expect(document.querySelector('[data-agent-install-action="copy"]')?.textContent).toBe("已复制");
-    document.querySelector<HTMLButtonElement>('[data-agent-install-action="close"]')!.click();
+    expect(copyButton.textContent).toBe("已复制");
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
   });
 
   it("连接成功不弹安装引导，并保留断开入口", async () => {
