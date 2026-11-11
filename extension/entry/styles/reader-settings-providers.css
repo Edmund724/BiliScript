@@ -224,6 +224,51 @@
   color: var(--biliscript-reader-accent);
 }
 
+/* 跨族凭据引用内联行（票 07，伴看 Gemini 编辑器）：四态状态文案 + 同层动作，
+ * 跟在 Key 字段（伴看 Gemini 隐藏）之后、测试行之前 */
+#biliscript-reading-view .provider-editor-linked-credential {
+  display: flex;
+  align-items: center;
+  gap: var(--biliscript-space-sm);
+  min-width: 0;
+  padding: var(--biliscript-space-10) var(--biliscript-space-sm);
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .provider-editor-linked-credential-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.4;
+  color: var(--biliscript-reader-muted);
+}
+
+#biliscript-reading-view .provider-editor-linked-credential-btn {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 var(--biliscript-space-14);
+  border: 0;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#biliscript-reading-view .provider-editor-linked-credential-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+#biliscript-reading-view .provider-editor-linked-credential-btn:hover {
+  background: var(--biliscript-reader-surface-3);
+}
+
 #biliscript-reading-view .provider-editor-foot {
   flex: 0 0 auto;
   display: flex;

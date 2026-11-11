@@ -103,6 +103,17 @@ export type ProviderEditorDelete = (
   target: { id: string; baseUrl: string }
 ) => Promise<{ ok: boolean; error?: string }>;
 
+// 跨族凭据引用的编辑器内联动作（票 provider-onboarding-consistency/07，伴看侧
+// Gemini Live）：伴看编辑器内展示 AI 族凭据四态（无记录 / 缺 Key / 非官方地址 /
+// 可用）的状态文案与对应动作。动作把编辑会话同层切换到 AI 族编辑器（复用同一
+// 宿主，不加可见 Modal 层），保存或取消后由装配方凭暂存草稿恢复原伴看编辑器。
+// actionLabel / onAction 缺省 = 纯状态行（「可用」态无动作）。
+export interface LinkedCredentialAction {
+  statusText: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
 export interface ProviderEditorOpenOptions {
   kind: ProviderEditorKind;
   // 编辑目标（后端权威列表项，含 hasSavedKey）；缺省 = 新增空白
@@ -119,6 +130,14 @@ export interface ProviderEditorOpenOptions {
   firstSetup?: boolean;
   onAfterSave?: (() => void) | null;
   onSessionEnd?: (() => void) | null;
+  // 取消钮文案（缺省「取消」）：跨族凭据往返流程改口「返回伴看平台」
+  cancelLabel?: string;
+  // 恢复草稿（票 07）：显式给定初始草稿与 dirty 基线（跨族凭据往返后恢复原伴看
+  // 草稿）；缺省 = 由编辑目标/预设推导初稿、打开即基线
+  initialDraft?: EditorDraft;
+  baselineDraft?: EditorDraftView | null;
+  // 跨族凭据引用的内联状态行 + 动作（仅伴看 Gemini 编辑器传入）
+  linkedCredential?: LinkedCredentialAction | null;
 }
 
 // 会话控制字段：对外只读（写入走下面的意图级原语）。
@@ -138,6 +157,9 @@ export interface EditorState {
   readonly firstSetup: boolean;
   readonly onAfterSave: (() => void) | null;
   readonly onSessionEnd: (() => void) | null;
+  // 跨族凭据引用内联动作（票 07）：伴看 Gemini 编辑器的四态状态行 + 同层切到
+  // AI 族编辑器的动作；会话结束清空
+  readonly linkedCredential: LinkedCredentialAction | null;
   // 编辑草稿与打开时的基线（dirty = 逐字段对比，见 draftsEqual）
   readonly draft: EditorDraftView | null;
   readonly baselineDraft: EditorDraftView | null;
@@ -164,6 +186,7 @@ const bag: MutableEditorState = {
   firstSetup: false,
   onAfterSave: null,
   onSessionEnd: null,
+  linkedCredential: null,
   draft: null,
   baselineDraft: null,
   generation: 0,
@@ -195,6 +218,7 @@ export interface EditorSessionInit {
   firstSetup?: boolean;
   onAfterSave?: (() => void) | null;
   onSessionEnd?: (() => void) | null;
+  linkedCredential?: LinkedCredentialAction | null;
 }
 
 // 打开一次编辑会话：会话控制字段的唯一写入点。
@@ -211,6 +235,7 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.firstSetup = init.firstSetup === true;
   bag.onAfterSave = init.onAfterSave ?? null;
   bag.onSessionEnd = init.onSessionEnd ?? null;
+  bag.linkedCredential = init.linkedCredential ?? null;
   bag.draft = init.draft;
   bag.baselineDraft = init.baselineDraft === undefined ? cloneDraft(init.draft) : init.baselineDraft;
   bag.voices = [];
@@ -227,6 +252,7 @@ export function endEditorSession(): void {
   bag.firstSetup = false;
   bag.onAfterSave = null;
   bag.onSessionEnd = null;
+  bag.linkedCredential = null;
   sessionObserver.observer?.disconnect();
   sessionObserver.observer = null;
   bag.host?.remove();
