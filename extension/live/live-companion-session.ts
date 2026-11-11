@@ -68,6 +68,7 @@ const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
 });
 
 export function syncPlayerInterpretQuickAction(): void {
+  bindLifecycleListeners();
   const shouldShow = shouldShowInterpret();
   const controller = shouldShow ? ensureInterpretController() : interpretController;
   syncPlayerInterpretQuickActionState(controller, shouldShow);

@@ -377,8 +377,8 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     button.id = "biliscript-player-interpret-quick-action";
     wrap.appendChild(button);
     document.body.appendChild(wrap);
-    session.ensureLiveController();
 
+    state.clip.setSubtitleFetchState("loading");
     session.syncPlayerInterpretQuickAction();
     expect(button.hidden).toBe(true);
 
