@@ -9,6 +9,14 @@ import {
   probeContentScriptVersion,
   triggerReaderModeInTab
 } from "./content-orchestration-wiring.js";
+// 非支持页工具栏可见反馈（工单 04，触点与文案单源在
+// extension/entry/unsupported-page-feedback.ts）：徽标/标题/页内提示的应用与清空。
+import {
+  applyUnsupportedPageFeedback,
+  clearUnsupportedPageFeedback,
+  isWwwBilibiliPage,
+  showUnsupportedPageToast
+} from "./unsupported-page-feedback.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 import { createSaveSettingsHandler } from "../core/save-settings-handler.js";
 // 设置快照（sw-settings-snapshot 票）：四个热路径读 handler 读设置/平台存储
@@ -38,7 +46,7 @@ import {
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 // storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { logWarn } from "../shared/logging.js";
+import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { createAgentBridge } from "../agent-bridge/background.js";
 import { AGENT_BRIDGE_ALARM } from "../agent-bridge/protocol.js";
 import {
@@ -614,33 +622,51 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script）=====
-
-// chrome.action 命名空间声明已归并 chrome-types.d.ts（工单 04），原局部
-// ActionOnClickedEvent 契约与 cast 删除。可选链守卫：既有测试环境的 chrome
-// stub 可能缺 action 命名空间（生产 MV3 + manifest.action 恒有），顶层注册
-// 不可因缺命名空间抛错。
+// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script；非支持页反馈 04）=====
 
 // 与页内 文摘按钮同一条 reader-enter 事务：经 triggerReaderModeInTab 的
 // 重试/注入链发 reader-enter，content 侧落 entry/message-handler.ts →
 // ensureReaderShell 进入事务——不建 popup / Side Panel / 第二套打开流程。
 // 目标标签页只取 onClicked 事件自带的活动标签页：reader-enter 载荷没有 tabId
-// 字段，跨标签页消息无从伪造目标；非受支持的 B 站视频/稍后再看页直接忽略。
+// 字段，跨标签页消息无从伪造目标。受支持页触发成功后清掉本标签页的非支持反馈；
+// 非支持页不再静默——打 tab 级「!」徽标 + 标题引导（applyUnsupportedPageFeedback），
+// www.bilibili.com 已有 host 权限覆盖的页面（首页/番剧等）再注入 6 秒页内提示，
+// 搜索/空间等未获权限页只徽标+标题、不注入（isWwwBilibiliPage 判据，manifest 不动）。
 // readerUrl 与页内按钮同源 buildReaderModeUrl（单源 bilibili/video-id-shared.ts，
 // SW 侧不 import 拖 core/state 的 bilibili/reader-url.ts）。监听器顶层同步注册
 //（MV3：SW 可被重启，事件监听器必须在首个事件前同步就位）。
 chrome.action?.onClicked?.addListener(
   async (tab) => {
     const tabId = tab.id ?? 0;
-    if (!tabId || !isSupportedBilibiliPage(tab.url)) {
+    if (!tabId) {
       return;
     }
-    const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
-    if (!triggered) {
-      logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+    if (isSupportedBilibiliPage(tab.url)) {
+      const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
+      if (triggered) {
+        await clearUnsupportedPageFeedback(tabId);
+      } else {
+        logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+      }
+      return;
+    }
+    await applyUnsupportedPageFeedback(tabId);
+    if (isWwwBilibiliPage(tab.url)) {
+      try {
+        await showUnsupportedPageToast(tabId);
+      } catch (error) {
+        // 注入失败只记日志：徽标/标题已先落，反馈不静默丢失（工单 04）。
+        logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
+      }
     }
   }
 );
+
+// 非支持页反馈的清理：标签页一开始导航（loading）即清徽标/标题，不跨导航残留。
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "loading") return;
+  void clearUnsupportedPageFeedback(tabId);
+});
 
 // ===== 入口监听 =====
 

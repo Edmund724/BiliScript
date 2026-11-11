@@ -84,10 +84,31 @@ declare namespace chrome {
   namespace action {
     // 工具栏 action（manifest.action，无 default_popup）：点击事件在
     // entry/background.ts 顶层同步注册（MV3：SW 重启后监听器须在首个事件前
-    // 就位）。本仓库只用 onClicked，不扩展未使用的表面。
+    // 就位）。徽标/标题表面供非支持页可见反馈（工单 04，
+    // extension/entry/unsupported-page-feedback.ts）。不扩展未使用的表面。
     interface OnClickedEvent {
       addListener(listener: (tab: tabs.Tab) => void): void;
     }
+
+    interface BadgeTextDetails {
+      tabId?: number;
+      text: string;
+    }
+
+    interface BadgeBackgroundColorDetails {
+      tabId?: number;
+      color: string | [number, number, number, number];
+    }
+
+    interface TitleDetails {
+      tabId?: number;
+      // 空字符串清除标题并回落 manifest.action.default_title（Chrome 语义）。
+      title: string;
+    }
+
+    function setBadgeText(details: BadgeTextDetails): Promise<void>;
+    function setBadgeBackgroundColor(details: BadgeBackgroundColorDetails): Promise<void>;
+    function setTitle(details: TitleDetails): Promise<void>;
 
     const onClicked: OnClickedEvent;
   }
@@ -183,6 +204,9 @@ declare namespace chrome {
 
     function executeScript(injection: { target: InjectionTarget; files: string[] }): Promise<InjectionResult[]>;
     function executeScript(injection: { target: InjectionTarget; func: () => unknown }): Promise<InjectionResult[]>;
+    // func + args：非支持页页内提示的轻量注入（工单 04），func 被序列化进目标页，
+    // 不得闭包引用模块作用域（闭包引用在序列化后失效）。
+    function executeScript(injection: { target: InjectionTarget; func: (...args: never[]) => unknown; args?: unknown[] }): Promise<InjectionResult[]>;
     function insertCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
   }
 
