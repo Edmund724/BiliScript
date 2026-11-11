@@ -29,6 +29,10 @@ export interface HistoricalVideoFrameOptions {
   signal?: AbortSignal;
 }
 
+export interface HistoricalVideoFrameSnapshot extends PageVideoFrameSnapshot {
+  targetTime: number;
+}
+
 function abortError(): DOMException {
   return new DOMException("历史帧截取已中止", "AbortError");
 }
@@ -78,7 +82,7 @@ function waitForVideo(
 export async function captureHistoricalVideoFrame(
   { bvid, cid, targetTime }: HistoricalVideoFrameInput,
   options: HistoricalVideoFrameOptions = {}
-): Promise<PageVideoFrameSnapshot[]> {
+): Promise<HistoricalVideoFrameSnapshot[]> {
   if (!Number.isFinite(targetTime) || targetTime < 0) {
     throw new Error("目标时间点必须是大于或等于 0 的有限秒数");
   }
@@ -109,7 +113,7 @@ export async function captureHistoricalVideoFrame(
       controller.abort();
     }, timeoutMs);
   });
-  const run = async (): Promise<PageVideoFrameSnapshot[]> => {
+  const run = async (): Promise<HistoricalVideoFrameSnapshot[]> => {
     try {
       const transport = options.transport ?? contentFetchJson;
       const payload = await transport(buildPlayurlUrl(bvid, cid)) as PlayurlResponse | null;
@@ -137,7 +141,7 @@ export async function captureHistoricalVideoFrame(
         throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${video.duration} 秒`);
       }
       await waitForVideo(video, "canplay", () => video!.readyState >= 2, timeoutMs, controller.signal);
-      const frames: PageVideoFrameSnapshot[] = [];
+      const frames: HistoricalVideoFrameSnapshot[] = [];
       const duration = Number.isFinite(video.duration) ? Math.max(0, video.duration) : Number.POSITIVE_INFINITY;
       const frameTimes = [targetTime - 2, targetTime, targetTime + 2]
         .map((time) => Math.min(duration, Math.max(0, time)));
@@ -152,10 +156,13 @@ export async function captureHistoricalVideoFrame(
           );
           video.currentTime = frameTime;
           await seeked;
-          frames.push(await capturePageVideoFrame({
-            getVideo: () => video,
-            createCanvas: options.createCanvas
-          }));
+          frames.push({
+            ...await capturePageVideoFrame({
+              getVideo: () => video,
+              createCanvas: options.createCanvas
+            }),
+            targetTime: frameTime
+          });
         } catch (error) {
           if (controller.signal.aborted) throw abortError();
           // 单帧失败不阻断其余时间点；仅成功画面进入后续模型请求。

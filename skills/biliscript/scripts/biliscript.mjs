@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -427,7 +427,7 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
         respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extension) });
         return;
       }
-      if (!["tabs", "subtitles", "comments"].includes(command)) {
+      if (!["tabs", "subtitles", "comments", "frame"].includes(command)) {
         respondToCli(peer, message.id, { ok: false, error: "未知命令" });
         return;
       }
@@ -470,7 +470,7 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
 }
 
 function commandTimeout(command) {
-  return command === "subtitles" || command === "comments" ? 0 : 8000;
+  return ["subtitles", "comments", "frame"].includes(command) ? 0 : 8000;
 }
 
 async function waitForDaemon(command, port, options) {
@@ -505,11 +505,36 @@ async function runCommand(command, options) {
   }
 }
 
+function writeFrameFiles(result, out) {
+  const frames = Array.isArray(result?.frames) ? result.frames : [];
+  if (!frames.length) throw new Error("扩展未返回可用视频帧");
+  const outputDirectory = out ? path.resolve(out) : mkdtempSync(path.join(tmpdir(), "biliscript-frames-"));
+  mkdirSync(outputDirectory, { recursive: true });
+  const batchId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+  const bvid = String(result.bvid || "video").replace(/[^0-9A-Za-z_-]/g, "_");
+  const written = frames.map((frame, index) => {
+    const bytes = Buffer.from(String(frame?.data || ""), "base64");
+    if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+      throw new Error(`第 ${index + 1} 张截图不是有效 JPEG 数据`);
+    }
+    const targetTime = Number(frame.targetTime);
+    const currentTime = Number(frame.currentTime);
+    if (!Number.isFinite(targetTime) || !Number.isFinite(currentTime) || currentTime < 0) {
+      throw new Error(`第 ${index + 1} 张截图缺少有效时间信息`);
+    }
+    const filePath = path.join(outputDirectory, `${bvid}-${batchId}-${index + 1}.jpg`);
+    writeFileSync(filePath, bytes, { flag: "wx" });
+    return { path: filePath, targetTime, currentTime };
+  });
+  return { ...result, frames: written };
+}
+
 function parseCliArgs(args) {
   const command = args[0];
-  if (!["status", "tabs", "subtitles", "comments"].includes(command)) return null;
+  if (!["status", "tabs", "subtitles", "comments", "frame"].includes(command)) return null;
   if (command === "status" || command === "tabs") return args.length === 1 ? { command } : null;
   const options = {};
+  let out;
   for (let index = 1; index < args.length; index += 1) {
     const flag = args[index];
     const value = args[index + 1];
@@ -524,12 +549,17 @@ function parseCliArgs(args) {
       const number = Number(value);
       if (!Number.isFinite(number) || number < 0) return null;
       options[flag.slice(2)] = number;
+    } else if (command === "frame" && flag === "--time") {
+      options.targetTime = Number(value);
+      if (!Number.isFinite(options.targetTime) || options.targetTime < 0) return null;
+    } else if (command === "frame" && flag === "--out") {
+      out = value;
     } else {
       return null;
     }
   }
   if (options.from !== undefined && options.to !== undefined && options.to < options.from) return null;
-  return { command, options };
+  return { command, options, ...(out ? { out } : {}) };
 }
 
 async function main() {
@@ -547,12 +577,22 @@ async function main() {
   }
   const parsed = parseCliArgs(args);
   if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]" }));
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
     process.exitCode = 1;
     return;
   }
   try {
-    console.log(JSON.stringify(await runCommand(parsed.command, parsed.options)));
+    const result = await runCommand(parsed.command, parsed.options);
+    let output = result;
+    if (parsed.command === "frame") {
+      try {
+        output = writeFrameFiles(result, parsed.out);
+      } catch (error) {
+        error.remote = true;
+        throw error;
+      }
+    }
+    console.log(JSON.stringify(output));
   } catch (error) {
     console.log(JSON.stringify({
       ok: false,

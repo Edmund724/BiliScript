@@ -21,7 +21,35 @@ export interface AgentBridgeRequestOptions {
   bvid?: string;
   from?: number;
   to?: number;
+  targetTime?: number;
 }
+
+export interface AgentBridgeFrame {
+  data: string;
+  targetTime: number;
+  currentTime: number;
+}
+
+export interface AgentBridgeFramesResult {
+  bvid: string;
+  cid: string;
+  frames: AgentBridgeFrame[];
+}
+
+export interface AgentBridgeOffscreenFrameMessage {
+  type: "agent-bridge-offscreen-frame";
+  bvid: string;
+  cid: string;
+  targetTime: number;
+}
+
+export interface AgentBridgeOffscreenFrameResponse {
+  ok: boolean;
+  result?: AgentBridgeFramesResult;
+  error?: string;
+}
+
+export const AGENT_BRIDGE_FRAME_TASK_PREPARE = "agent-bridge-frame-prepare";
 
 export interface AgentBridgeSubtitleItem {
   from: number;

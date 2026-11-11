@@ -258,6 +258,7 @@ declare namespace chrome {
     interface RuleAction {
       type: string;
       requestHeaders?: ModifyHeaderInfo[];
+      responseHeaders?: ModifyHeaderInfo[];
     }
 
     interface RuleCondition {

@@ -623,3 +623,43 @@ describe("reapAllSessionRules（安装/更新整池清理）", () => {
     expect(store.rules.size).toBe(1);
   });
 });
+
+
+describe("后台视频帧媒体会话规则", () => {
+  it("仅覆盖 media 与跨域响应头，与 ASR 并发分配不同 id 且独立清理", async () => {
+    const store = makeRuleStore();
+    stubSwEnv({
+      matchAllResult: existingDocClients,
+      updateSessionRules: store.updateSessionRules,
+      getSessionRules: store.getSessionRules
+    });
+    bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
+
+    const frameResponses: BridgeResponse[] = [];
+    await bridge.handleVideoFramePrepare({}, {}, (response) => frameResponses.push(response as BridgeResponse));
+    const frame = frameResponses[0] as PrepareResponse;
+    const asr = await prepareOnce();
+
+    expect(asr.ruleId).not.toBe(frame.ruleId);
+    expect(store.rules.get(frame.ruleId)).toMatchObject({
+      action: {
+        requestHeaders: [
+          { header: "Referer", operation: "set", value: "https://www.bilibili.com" },
+          { header: "Origin", operation: "set", value: "https://www.bilibili.com" }
+        ],
+        responseHeaders: [
+          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
+        ]
+      },
+      condition: {
+        requestDomains: ["bilivideo.com", "bilivideo.cn", "akamaized.net"],
+        resourceTypes: ["media"]
+      }
+    });
+    expect(store.rules.get(asr.ruleId)).toMatchObject(EXPECTED_RULE_SHAPE);
+
+    await cleanupOnce(frame.ruleId);
+    expect(store.rules.has(frame.ruleId)).toBe(false);
+    expect(store.rules.has(asr.ruleId)).toBe(true);
+  });
+});

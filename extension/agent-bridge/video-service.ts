@@ -281,6 +281,10 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
   }
 
   return {
+    async resolveVideoInfo(query: AgentBridgeSubtitleQuery): Promise<AgentBridgeVideo> {
+      return (await resolve(query.bvid, query.pageIndex, query.cid)).video;
+    },
+
     async completeContentSubtitles(
       query: AgentBridgeSubtitleQuery,
       content: AgentBridgeContentSubtitlesResult

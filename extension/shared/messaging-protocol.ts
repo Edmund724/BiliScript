@@ -22,7 +22,7 @@ import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
-import type { AgentBridgeContentSubtitlesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
+import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -81,6 +81,17 @@ export type AgentBridgeSubtitlesResponse = {
   result?: AgentBridgeContentSubtitlesResult;
   error?: string;
 };
+export type AgentBridgeFrameMessage = {
+  type: "agent-bridge-frame";
+  bvid: string;
+  cid: string;
+  targetTime?: number;
+};
+export type AgentBridgeFrameResponse = {
+  ok: boolean;
+  result?: AgentBridgeFramesResult;
+  error?: string;
+};
 
 export type ContentScriptMessage =
   | ReaderEnterMessage
@@ -88,7 +99,8 @@ export type ContentScriptMessage =
   | ReaderRestoreMessage
   | LiveSessionTakeoverMessage
   | AgentBridgeSnapshotMessage
-  | AgentBridgeSubtitlesMessage;
+  | AgentBridgeSubtitlesMessage
+  | AgentBridgeFrameMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
 
@@ -1071,6 +1083,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
   : M extends AgentBridgeSnapshotMessage ? AgentBridgeSnapshotResponse
   : M extends AgentBridgeSubtitlesMessage ? AgentBridgeSubtitlesResponse
+  : M extends AgentBridgeFrameMessage ? AgentBridgeFrameResponse
   : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
   : never;
 

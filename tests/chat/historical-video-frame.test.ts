@@ -71,6 +71,7 @@ describe("隐藏视频历史帧截取", () => {
     const frames = await pending;
     expect(transport).toHaveBeenCalledWith(expect.stringContaining("bvid=BV1history&cid=101"));
     expect(media.seeks).toEqual([88, 90, 92]);
+    expect(frames.map((frame) => frame.targetTime)).toEqual([88, 90, 92]);
     expect(frames.map((frame) => frame.currentTime)).toEqual([87.95, 89.95, 91.95]);
     expect(frames.every((frame) => Array.from(frame.jpegBytes).join(",") === "1,2,3")).toBe(true);
     expect(context.drawImage).toHaveBeenCalledTimes(3);

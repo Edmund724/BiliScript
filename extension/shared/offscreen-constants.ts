@@ -1,6 +1,5 @@
-// offscreen 协议共享常量：同一 offscreen 文档（entry/offscreen.html）被两条
-// 链路共同创建/复用——sidepanel 聊天自愈（pages/sidepanel-offscreen-ensure.js）
-// 与 background asr-decode-prepare（asr/offscreen-bridge.bg.js）；转写并发上限也
+// offscreen 协议共享常量：同一 offscreen 文档（entry/offscreen.html）被聊天、
+// ASR 与 Agent 后台截帧共同创建/复用；转写并发上限也
 // 被 offscreen 接线层（entry/offscreen-asr.js ASR_ADAPTERS）与调度引擎默认值
 // （asr/engine.js）同时引用。收拢到此处保证取值唯一。
 //

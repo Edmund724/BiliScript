@@ -1,7 +1,7 @@
-// ASR offscreen 通道的 background 侧执行器：offscreen 文档创建（prepare 时
-// 确保文档存在）、防盗链 dnr 规则生命周期（id 池簿记、SW 冷启动对账、
-// prepare 前死标签页残留回收、安装/更新整池清理——工单 04）、prepare/cleanup
-// 任务 handler，以及 offscreen 文档自关闭请求的代执行（工单 03：offscreen 无
+// Offscreen 媒体的 background 侧执行器：offscreen 文档创建（prepare 时
+// 确保文档存在）、ASR 音频与 Agent 视频帧的防盗链 dnr 规则生命周期（id 池簿记、
+// SW 冷启动对账、prepare 前死标签页残留回收、安装/更新整池清理）、prepare/cleanup
+// 任务 handler，以及 offscreen 文档自关闭请求的代执行（offscreen 无
 // chrome.offscreen，自关经 "offscreen-request-close" 消息委托本模块，发送者
 // 校验 + 明确回成功/失败）。仅在 background service worker 环境加载
 // （entry/background.js 注册到 offload-task 消息路由），顶层不触碰
@@ -56,10 +56,13 @@ export async function reapAllSessionRules(): Promise<void> {
   await sessionRuleManager.clearAll();
 }
 
-// 任务准备：创建（或复用）offscreen 文档 + 分配一个独立 id 并按它加防盗链
-// 下载规则。页面侧连 "asr-decode" 端口前调用，保证文档与规则就绪；ruleId
-// 随响应带回，页面侧 cleanup 时原样带回，只删自己这条。
-export async function handleAsrDecodePrepare(message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
+// 任务准备：创建（或复用）offscreen 文档 + 分配独立规则 id。ASR 与后台视频
+// 截帧共用文档和 id 池，分别写 xmlhttprequest / media 规则；cleanup 只删自己这条。
+async function prepareOffscreenMediaTask(
+  sender: MessageSender,
+  sendResponse: (response: OffloadTaskResponse) => void,
+  videoFrame: boolean
+): Promise<void> {
   let ruleId = 0;
   try {
     // 首次分配前对账一次（实例内幂等缓存），避免与上一 SW 实例残留的会话
@@ -70,7 +73,7 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
     await sessionRuleManager.reapOrphans();
     ruleId = await sessionRuleManager.allocate(taskOwnerKey(sender));
     await ensureAsrOffscreenDocument();
-    await addDownloadRules(ruleId);
+    await (videoFrame ? addVideoFrameRules(ruleId) : addDownloadRules(ruleId));
     sendResponse({ ok: true, ruleId });
   } catch (error) {
     // updateSessionRules 失败照既有错误路径上报不吞；该 id 未成功占用
@@ -80,6 +83,14 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
     }
     sendResponse({ ok: false, error: String((error as { message?: string })?.message || error) });
   }
+}
+
+export async function handleAsrDecodePrepare(_message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
+  await prepareOffscreenMediaTask(sender, sendResponse, false);
+}
+
+export async function handleVideoFramePrepare(_message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
+  await prepareOffscreenMediaTask(sender, sendResponse, true);
 }
 
 // 任务收尾：删掉本次解码任务自己的防盗链规则（成功失败都要调，页面侧用
@@ -229,6 +240,32 @@ export async function addDownloadRules(ruleId: number): Promise<void> {
         }
       }
     ]
+  });
+}
+
+export async function addVideoFrameRules(ruleId: number): Promise<void> {
+  const id = Number(ruleId) || 0;
+  if (id <= 0) throw new Error("缺少防盗链规则 id");
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [id],
+    addRules: [{
+      id,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [
+          { header: "Referer", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE },
+          { header: "Origin", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE }
+        ],
+        responseHeaders: [
+          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
+        ]
+      },
+      condition: {
+        requestDomains: [...ASR_AUDIO_CDN_DOMAINS],
+        resourceTypes: ["media"]
+      }
+    }]
   });
 }
 
