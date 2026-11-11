@@ -71,17 +71,19 @@ import {
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
-// 跨族凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
+// 跨族凭据引用四态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
 // 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
 import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
-// 伴看 Gemini 凭据同层往返编排（票 07）：编辑器内联凭据行 + 暂存/恢复伴看草稿。
+// 消费族凭据同层往返编排（票 07/08）：伴看 Gemini Live 与搜索 DeepSeek 的编辑器
+// 内联凭据行 + 暂存/恢复原草稿共用同一份编排。
 import {
-  enterGeminiCredentialEditor,
-  geminiLinkedCredential,
-  resolveGeminiCredentialPlan,
-  stashLiveEditorDraft,
-  type LiveEditorStash
-} from "./gemini-credential-link.js";
+  enterAiCredentialEditor,
+  linkedCredentialFor,
+  resolveAiCredentialPlan,
+  stashEditorDraft,
+  type AiCredentialLinkTarget,
+  type AiEditorStash
+} from "./ai-credential-link.js";
 import type { EditorDraft, EditorDraftView } from "./provider-editor-state.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
@@ -497,8 +499,9 @@ export async function openLiveSettings(target: LiveSettingsTarget): Promise<void
   // Gemini 记录（不静默改写中转地址），缺 Key / 可用编辑实际引用记录并聚焦 Key；
   // 经横幅/会话故障直达，无伴看草稿可恢复，保存 / 取消即停在本编辑器
   const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
-  await enterGeminiCredentialEditor({
-    plan: resolveGeminiCredentialPlan(providers),
+  await enterAiCredentialEditor({
+    target: "gemini-live",
+    plan: resolveAiCredentialPlan("gemini-live", providers),
     aiPresets: aiPresets,
     onSave: providerTransactions.upsertProvider,
     onDelete: providerTransactions.deleteProvider
@@ -782,7 +785,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   const searchProviders = await loadSearchProviders();
   // 列表顺序 = 链序：先取用户拖拽序（归一后），再按「order 下标 > 内置默认序」
-  // 排序渲染。DeepSeek 行副行 = 凭据引用三态文案（AI 族列表在同一份 loadSettings 里已取到）。
+  // 排序渲染。DeepSeek 行副行 = 凭据引用四态文案与命中来源（AI 族列表在同一份 loadSettings 里已取到）。
   searchProviderOrder = await loadSearchProviderOrder(searchProviders);
   familyRows.search.render(
     elements.searchProvidersList,
@@ -856,7 +859,7 @@ function rerenderLiveProviders(
 }
 
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
-// 行内 radio 现读。DeepSeek 行副行 = 凭据引用三态文案（现查 AI 族列表）。
+// 行内 radio 现读。DeepSeek 行副行 = 凭据引用四态文案与命中来源（现查 AI 族列表）。
 
 // 摘要与模式控件同步（票 06）：折叠摘要让读者无需展开即可判断「智能回退 / 单平台
 // 调用、失败是否回退、是否可能付费」；展开体内只留对当前模式有效的控件。
@@ -913,8 +916,12 @@ function syncSearchModeControls(elements: SettingsElements): void {
   elements.searchProvidersList?.classList.toggle("search-chain-single-mode", single);
 }
 
-function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
-  void loadAiProviders().then((aiProviders) => {
+function rerenderSearchProviders(
+  elements: SettingsElements,
+  providers: ProviderRowItem[],
+  knownAiProviders?: readonly ProviderRowItem[]
+): void {
+  const render = (aiProviders: readonly ProviderRowItem[]) => {
     familyRows.search.render(
       elements.searchProvidersList,
       elements.searchProvidersEmpty,
@@ -927,7 +934,12 @@ function rerenderSearchProviders(elements: SettingsElements, providers: Provider
     syncResetSearchOrderButton(elements);
     syncSearchModeControls(elements);
     syncSearchChainActiveSummary(elements);
-  });
+  };
+  if (knownAiProviders) {
+    render(knownAiProviders);
+    return;
+  }
+  void loadAiProviders().then(render);
 }
 
 // 悬空链首提示行的显隐：activeSearchProviderId 指向不存在记录才出现。
@@ -1169,8 +1181,29 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   const elements = collectElements(host);
   PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
   if (kind === "ai") {
-    void loadLiveProviders().then((liveProviders) => rerenderLiveProviders(elements, liveProviders, providers));
+    // AI 族变更后，实时伴看与搜索两类凭据引用行同事务重渲：两族列表先并发取回，
+    // 再用同一份 AI 列表快照渲染，避免逐族现查出现一前一后的陈旧状态
+    void Promise.all([loadLiveProviders(), loadSearchProviders()]).then(
+      ([liveProviders, searchProviders]) => {
+        rerenderLiveProviders(elements, liveProviders, providers);
+        rerenderSearchProviders(elements, searchProviders, providers);
+      }
+    );
   }
+}
+
+// 编辑器内联凭据引用行（票 07/08）：伴看 Gemini Live 与搜索 DeepSeek 的编辑器内
+// 展示 AI 族四态文案 + 同层进入 AI 族编辑器的动作；他族/他平台不渲染。
+function linkedCredentialTargetOf(
+  kind: ProviderEditorKind,
+  item: ProviderRowItem | null
+): AiCredentialLinkTarget | null {
+  if (!item) return null;
+  if (kind === "live" && (item.type === "gemini-live" || item.presetId === "gemini-live")) {
+    return "gemini-live";
+  }
+  if (kind === "search" && item.presetId === "deepseek") return "deepseek";
+  return null;
 }
 
 async function openProviderEditorById(
@@ -1186,13 +1219,15 @@ async function openProviderEditorById(
   if (providerId && !item) {
     return;
   }
-  // 伴看 Gemini 编辑器：内联凭据引用行（四态文案 + 同层进入 AI 族编辑器动作，
-  // 票 07）；他族/他平台不渲染
-  const linkedCredential = kind === "live" && item
-    && (item.type === "gemini-live" || item.presetId === "gemini-live")
-    ? geminiLinkedCredential(resolveGeminiCredentialPlan(await loadAiProviders()), () => {
-        void enterGeminiCredentialFromLiveEditor();
-      })
+  const linkedTarget = linkedCredentialTargetOf(kind, item);
+  const linkedCredential = linkedTarget
+    ? linkedCredentialFor(
+        linkedTarget,
+        resolveAiCredentialPlan(linkedTarget, await loadAiProviders()),
+        () => {
+          void enterLinkedCredentialEditor(linkedTarget);
+        }
+      )
     : null;
   try {
     const { openProviderEditor } = await import("./provider-editor.js");
@@ -1223,36 +1258,49 @@ async function openProviderEditorById(
   }
 }
 
-// 伴看编辑器内联凭据动作（票 07）：暂存伴看草稿 → 同层打开 AI 族凭据编辑器
-// （复用同一宿主，不增加可见 Modal 层）；保存成功或取消都会话结束后恢复原伴看
-// 草稿（dirty 基线一并带回），保存成功另提示仍需显式保存伴看记录
-async function enterGeminiCredentialFromLiveEditor(): Promise<void> {
-  const stash = stashLiveEditorDraft("live");
+// 消费族编辑器内联凭据动作（票 07/08）：暂存原草稿 → 同层打开 AI 族凭据编辑器
+// （复用同一宿主，不增加可见 Modal 层）；保存成功或取消都会话结束后恢复原草稿
+// （dirty 基线一并带回），保存成功另提示仍需显式保存消费族记录
+async function enterLinkedCredentialEditor(target: AiCredentialLinkTarget): Promise<void> {
+  const kind = target === "deepseek" ? "search" : "live";
+  const stash = stashEditorDraft(kind);
   const aiProviders = await loadAiProviders();
-  await enterGeminiCredentialEditor({
-    plan: resolveGeminiCredentialPlan(aiProviders),
+  await enterAiCredentialEditor({
+    target,
+    plan: resolveAiCredentialPlan(target, aiProviders),
     aiPresets: aiPresets,
     onSave: providerTransactions.upsertProvider,
     onDelete: providerTransactions.deleteProvider,
     stash,
-    reopenLiveEditor: (stashed, hint) => {
-      void restoreLiveEditorAfterCredential(stashed, hint);
+    reopenConsumerEditor: (stashed, hint) => {
+      void restoreConsumerEditorAfterCredential(kind, stashed, hint);
     }
   });
 }
 
-async function restoreLiveEditorAfterCredential(stash: LiveEditorStash, hint: string | null): Promise<void> {
+async function restoreConsumerEditorAfterCredential(
+  kind: "live" | "search",
+  stash: AiEditorStash,
+  hint: string | null
+): Promise<void> {
   const host = settingsHostRef;
   if (!host) return;
   // 抽屉收起的强制关闭路径不恢复：草稿随既有规则丢弃，不得在抽屉外重开编辑器
   if (document.getElementById(ids.readingSettingsPanel)?.hidden) return;
-  // 重新装载两行：伴看行状态文案随新引用刷新（rerenderLiveProviders 经 annotate
-  // 现查 AI 族列表）
-  const [liveProviders, aiProviders] = await Promise.all([loadLiveProviders(), loadAiProviders()]);
+  // 重新装载消费族与 AI 族列表：行状态文案 / 命中来源随新引用刷新（annotate 与
+  // 恢复后的编辑器内联行共用同一份 AI 列表快照）
+  const [consumerProviders, aiProviders] = await Promise.all([
+    kind === "live" ? loadLiveProviders() : loadSearchProviders(),
+    loadAiProviders()
+  ]);
   const elements = collectElements(host);
-  rerenderLiveProviders(elements, liveProviders, aiProviders);
+  if (kind === "live") {
+    rerenderLiveProviders(elements, consumerProviders, aiProviders);
+  } else {
+    rerenderSearchProviders(elements, consumerProviders, aiProviders);
+  }
   if (hint) setStatus(elements, hint);
-  await openProviderEditorById("live", stash.editingId, undefined, undefined, {
+  await openProviderEditorById(kind, stash.editingId, undefined, undefined, {
     initialDraft: stash.draft,
     baselineDraft: stash.baseline
   });
@@ -1657,7 +1705,15 @@ function bindSettingsEvents(host: HTMLElement): void {
   bindActiveRadioDeleteHandler("live", elements);
   bindActiveRadioDeleteHandler("asr", elements);
   familyRows.ai.controller.setDeleteHandler(async () => {
-    rerenderLiveProviders(elements, await loadLiveProviders());
+    // 列表行删除不经过 providerTransactions（消息已在行内发出）：删除后同一份 AI
+    // 快照 + 两族列表并发取回，实时伴看与搜索两类引用行同事务重渲
+    const [aiProviders, liveProviders, searchProviders] = await Promise.all([
+      loadAiProviders(),
+      loadLiveProviders(),
+      loadSearchProviders()
+    ]);
+    rerenderLiveProviders(elements, liveProviders, aiProviders);
+    rerenderSearchProviders(elements, searchProviders, aiProviders);
   });
   familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {

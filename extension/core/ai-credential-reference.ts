@@ -13,7 +13,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 
 export type AiCredentialPresetLike = Pick<
   AiProviderPreset,
-  "id" | "baseUrl" | "protocol" | "protocolBaseUrls"
+  "id" | "name" | "baseUrl" | "protocol" | "protocolBaseUrls"
 >;
 
 export type AiCredentialReferenceTarget = "deepseek" | "gemini-live";
@@ -22,6 +22,8 @@ export type AiCredentialStatus = "ok" | "no-record" | "unofficial" | "no-key";
 
 export interface AiCredentialRecordLike {
   id?: string;
+  // 记录自定义名（缺省时来源展示回落 AI 预设名）
+  name?: string;
   presetId?: string;
   baseUrl?: string;
   protocol?: string;
@@ -60,7 +62,7 @@ export const AI_CREDENTIAL_REFERENCE_SPECS: Readonly<
     rowStatusText: {
       ok: "已复用 AI 平台 Key",
       "no-record": "请先在 AI 平台添加官方 DeepSeek 记录",
-      "no-key": "请先在 AI 平台添加官方 DeepSeek 记录",
+      "no-key": "官方 DeepSeek AI Key 缺失或引用已失效",
       unofficial: "AI 平台配置的并非 DeepSeek 官方接口地址"
     }
   },
@@ -123,6 +125,19 @@ export function getAiCredentialStatusText(
   return AI_CREDENTIAL_REFERENCE_SPECS[target].rowStatusText[status];
 }
 
+// 命中来源的人读名：记录自定义名优先，缺省回落 AI 预设名（多处官方记录时
+// 用来指出实际生效的那一条，避免误判成「刚保存的这条」）。
+export function getAiCredentialSourceLabel(
+  target: AiCredentialReferenceTarget,
+  record: AiCredentialRecordLike | null | undefined,
+  presets: readonly AiCredentialPresetLike[] = PRESETS
+): string {
+  const name = String(record?.name || "").trim();
+  if (name) return name;
+  const spec = AI_CREDENTIAL_REFERENCE_SPECS[target];
+  return presets.find((item) => item?.id === spec.aiPresetId)?.name || spec.officialHost;
+}
+
 export function resolveAiCredentialReference<T extends AiCredentialRecordLike>(
   target: AiCredentialReferenceTarget,
   aiProviders: readonly T[] | null | undefined,
@@ -169,7 +184,17 @@ export function resolveAiCredentialKey(
   return { key, status: "ok" };
 }
 
-export function annotateAiCredentialRows<T extends { presetId?: string; statusNote?: string }>(
+// 消费族行注解：statusNote 供副行文案，credentialStatus / credentialSource 是
+// 结构化产物——行的 Key 指示点与来源展示都读这两项，不再把消费族 hasSavedKey
+// 当成应有自有 Key（DeepSeek 搜索 / Gemini 伴看都不设自有 Key 输入框）。
+export interface AiCredentialRowAnnotation {
+  presetId?: string;
+  statusNote?: string;
+  credentialStatus?: AiCredentialStatus;
+  credentialSource?: string;
+}
+
+export function annotateAiCredentialRows<T extends AiCredentialRowAnnotation>(
   kind: string,
   items: T[],
   aiProviders: readonly AiCredentialRecordLike[] | null | undefined,
@@ -186,11 +211,21 @@ export function annotateAiCredentialRows<T extends { presetId?: string; statusNo
     if (!result.some((item) => String(item.presetId || "") === spec.consumerPresetId)) {
       continue;
     }
-    const status = statusOverrides[spec.target]
-      ?? resolveAiCredentialReference(spec.target, aiProviders, presets).status;
+    const resolution = resolveAiCredentialReference(spec.target, aiProviders, presets);
+    const status = statusOverrides[spec.target] ?? resolution.status;
     const text = spec.rowStatusText[status];
+    const source = status === "ok" && resolution.status === "ok"
+      ? getAiCredentialSourceLabel(spec.target, resolution.record, presets)
+      : "";
     result = result.map((item) =>
-      String(item.presetId || "") === spec.consumerPresetId ? { ...item, statusNote: text } : item
+      String(item.presetId || "") === spec.consumerPresetId
+        ? {
+            ...item,
+            statusNote: text,
+            credentialStatus: status,
+            ...(source ? { credentialSource: source } : {})
+          }
+        : item
     );
   }
   return result;
