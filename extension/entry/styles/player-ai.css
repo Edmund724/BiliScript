@@ -380,12 +380,13 @@
 
 .biliscript-interpret-menu {
   background: rgb(31 31 31 / 0.95);
-  border-radius: 10px;
+  border-radius: var(--biliscript-primitive-radius-10, 10px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   bottom: calc(100% + 12px);
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
   box-sizing: border-box;
-  color: #fff;
-  font-size: 14px;
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  font-size: var(--biliscript-font-size-base, 14px);
   line-height: 1.4;
   max-height: min(60vh, 380px);
   min-width: 200px;
@@ -409,7 +410,7 @@
 
 .biliscript-interpret-menu::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 0.25);
-  border-radius: 3px;
+  border-radius: var(--biliscript-radius-pill, 999px);
 }
 
 .biliscript-interpret-menu::-webkit-scrollbar-thumb:hover {
@@ -418,7 +419,7 @@
 
 .biliscript-interpret-menu-title {
   color: rgb(255 255 255 / 0.55);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm, 12px);
   padding: 4px 16px 6px;
 }
 
@@ -429,7 +430,7 @@
   background: transparent;
   border: 0;
   box-sizing: border-box;
-  color: #fff;
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   cursor: pointer;
   display: flex;
   font-family: inherit;
@@ -447,7 +448,7 @@
 }
 
 .biliscript-interpret-menu-item.is-selected .biliscript-interpret-menu-item-label {
-  color: var(--bpx-primary-color, #00a1d6);
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
 }
 
 .biliscript-interpret-menu-item-label {
@@ -460,10 +461,11 @@
 
 .biliscript-interpret-menu-ai {
   border: 1px solid rgb(255 255 255 / 0.25);
-  border-radius: 4px;
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   color: rgb(255 255 255 / 0.45);
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--biliscript-font-size-2xs, 10px);
   line-height: 1.2;
   padding: 0 3px;
 }
@@ -482,7 +484,7 @@
 }
 
 .biliscript-interpret-menu-bilingual-label {
-  color: #fff;
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
 }
 
 .biliscript-interpret-menu-switch {
@@ -490,7 +492,7 @@
   appearance: none;
   background: rgb(255 255 255 / 0.25);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--biliscript-radius-pill, 999px);
   cursor: pointer;
   flex: 0 0 auto;
   height: 20px;
@@ -502,7 +504,7 @@
 }
 
 .biliscript-interpret-menu-switch > span {
-  background: #fff;
+  background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   border-radius: 50%;
   display: block;
   height: 16px;
@@ -512,7 +514,7 @@
 }
 
 .biliscript-interpret-menu-switch.is-on {
-  background: var(--bpx-primary-color, #00a1d6);
+  background: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
 }
 
 .biliscript-interpret-menu-switch.is-on > span {
@@ -531,7 +533,7 @@
 
 .biliscript-interpret-menu-grid-title {
   color: rgb(255 255 255 / 0.55);
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm, 12px);
   padding: 4px 16px 6px;
 }
 

@@ -650,6 +650,12 @@ function isPlayerSubtitleControlNode(node: unknown): boolean {
   if (!(node instanceof Element)) {
     return false;
   }
+  // 本扩展自挂的播放器控件不算字幕控件：解读按钮自身就带「字幕」语义与
+  // bpx-player-ctrl-subtitle 类名，若计入则挂载完成后的下一次 sync 会把自己
+  // 刚挂的按钮误判成 B 站控制条水合，校准在控件真正就绪前就被消耗掉。
+  if (node.closest("[data-biliscript-extension-node]")) {
+    return false;
+  }
   const text = [
     node.getAttribute("aria-label"),
     node.getAttribute("title"),
