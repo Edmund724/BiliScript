@@ -8,7 +8,7 @@
 //   provider-editor-state  ← 状态袋 + 会话写入/结算原语（owner 2，零运行时依赖）
 //   provider-editor-projection ← 字段投影表：DOM 形态 + 目标态规则（owner 1）
 //   provider-editor-catalog ← AI 模型目录（行模板 / 增删 / 空态 / 行级测试）
-//   provider-editor-fetch-dialog ← 「获取可用模型」勾选弹窗
+//   provider-editor-fetch-dialog ← 「获取可用模型」内联子视图（票 09 起，无第二张遮罩）
 //   provider-editor-modal（本文件）→ 以上各片
 //   provider-editor.ts → 本文件（对外导出壳，导入路径零变化）
 //
@@ -79,8 +79,7 @@ import {
   closeFetchDialog,
   confirmFetchSelection,
   getFetchDialog,
-  openFetchDialog,
-  syncFetchSelectionState
+  openFetchDialog
 } from "./provider-editor-fetch-dialog.js";
 
 // 单模型输入族（modelSource === "input"：asr / live）的运行时 I/O 动作表：
@@ -698,19 +697,8 @@ export function wireDialog(): void {
     else if (action === "close-fetch") closeFetchDialog();
     else if (action === "confirm-fetch") confirmFetchSelection();
     else if (action === "retry-fetch") void openFetchDialog();
-    // 「获取可用模型」弹窗内勾选：全选点击把目录外可选项整体勾/去勾（jsdom
-    // 与浏览器都先完成 checkbox 自身切换，再进此委托），随后同步三态与计数
-    if (target.closest(".provider-editor-fetch-dialog")) {
-      const all = target.closest<HTMLInputElement>(".provider-editor-fetch-all");
-      if (all) {
-        getFetchDialog()
-          ?.querySelectorAll<HTMLInputElement>(".provider-editor-fetch-check:not(:disabled)")
-          .forEach((check) => {
-            check.checked = all.checked;
-          });
-      }
-      syncFetchSelectionState();
-    }
+    // 「获取可用模型」子视图内的勾选（全选三态 / 选择集）由子视图自持委托
+    // （provider-editor-fetch-dialog 片），此处只结算动作按钮
   });
 
   const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset");

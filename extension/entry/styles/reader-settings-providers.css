@@ -601,78 +601,66 @@
   background: var(--biliscript-reader-fill-hover);
 }
 
-/* 「获取可用模型」弹窗：宿主内的第二层弹层（mask + 居中卡片），盖在编辑
- * Modal 之上；Esc/取消/点遮罩只关本层（拍板 Q5）。 */
-#biliscript-reading-view .provider-editor-fetch-mask {
-  position: absolute;
-  inset: 0;
-  background: var(--biliscript-reader-mask-bg);
-}
-
+/* 「获取可用模型」内联子视图（票 09）：渲染在 .provider-editor-dialog 内
+ *（inset 覆盖编辑器内容，不再生成第二张遮罩）；Esc/取消/返回只退回平台编辑器
+ *（拍板 Q5 的逐层退出语义不变）。 */
 #biliscript-reading-view .provider-editor-fetch-dialog {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(440px, calc(100% - 48px));
-  max-height: calc(100% - 48px);
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: var(--biliscript-space-10);
   padding: var(--biliscript-space-14) var(--biliscript-space-lg);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--biliscript-reader-shadow);
 }
 
 #biliscript-reading-view .provider-editor-fetch-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--biliscript-space-sm);
   min-width: 0;
 }
 
 #biliscript-reading-view .provider-editor-fetch-title {
+  flex: 1 1 auto;
+  text-align: center;
   font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
 }
 
-#biliscript-reading-view .provider-editor-fetch-close {
-  width: 28px;
+/* 返回键（票 09 子视图头）：文字钮，与 Modal 取消键同度量 */
+#biliscript-reading-view .provider-editor-fetch-back {
+  flex: 0 0 auto;
   height: 28px;
-  padding: 0;
+  padding: 0 var(--biliscript-space-10);
   border: 0;
-  border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
-  color: var(--biliscript-reader-faint);
-  font-size: var(--biliscript-font-size-md);
-  line-height: 1;
+  color: var(--biliscript-reader-muted);
+  font: inherit;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-fetch-close:active {
+#biliscript-reading-view .provider-editor-fetch-back:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-#biliscript-reading-view .provider-editor-fetch-close:hover {
-  color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-surface-2);
 }
 
-/* 弹窗输入（挂在 .provider-editor-host 直下，不受 .provider-editor-dialog
- * 基础输入样式覆盖）：与 Modal 输入框同度量 */
+#biliscript-reading-view .provider-editor-fetch-back:hover {
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-fill-hover);
+}
+
+/* 子视图搜索输入（渲染在 .provider-editor-dialog 内）：与 Modal 输入框同度量，
+ * 覆盖 .provider-editor-dialog 的基础输入样式 */
 #biliscript-reading-view .provider-editor-fetch-dialog input[type="text"] {
   width: 100%;
   height: 32px;
@@ -771,6 +759,17 @@
 }
 
 #biliscript-reading-view .provider-editor-fetch-error[hidden] {
+  display: none;
+}
+
+/* 不可见已选说明（票 09）：搜索过滤下被隐藏的已选数量 */
+#biliscript-reading-view .provider-editor-fetch-note {
+  margin: 0;
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-faint);
+}
+
+#biliscript-reading-view .provider-editor-fetch-note[hidden] {
   display: none;
 }
 
@@ -902,7 +901,7 @@
   #biliscript-reading-view .provider-editor-model-test:active,
   #biliscript-reading-view .provider-editor-model-remove:active,
   #biliscript-reading-view .provider-editor-model-add:active,
-  #biliscript-reading-view .provider-editor-fetch-close:active,
+  #biliscript-reading-view .provider-editor-fetch-back:active,
   #biliscript-reading-view .provider-editor-fetch-retry:active,
   #biliscript-reading-view .provider-editor-fetch-cancel:active,
   #biliscript-reading-view .provider-editor-fetch-confirm:active,

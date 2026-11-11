@@ -300,4 +300,41 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     expect(work).not.toHaveBeenCalled();
     expect(ok).not.toHaveBeenCalled();
   });
+
+  it("S8 「获取可用模型」拉取在飞时关子视图重开：旧回执不覆盖新子视图（票 09 代次令牌）", async () => {
+    const editor = await import("../../extension/ui/provider-editor.js");
+    const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
+    let resolveA: ((result: { ok: boolean; models?: string[] }) => void) | undefined;
+    let resolveB: ((result: { ok: boolean; models?: string[] }) => void) | undefined;
+    vi.mocked(fetchProviderModels)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveA = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveB = resolve; }));
+
+    editor.openProviderEditor({ kind: "ai", presets: PRESETS, onSave: async () => ({ ok: true }) });
+    const dialog = dialogNode();
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+
+    // 第一次打开：拉取 A 在飞；取消关子视图后重开：拉取 B 在飞
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await flushMicrotasks();
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeTruthy();
+    fireClick(document.querySelector(".provider-editor-fetch-cancel"));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await flushMicrotasks();
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeTruthy();
+    expect(vi.mocked(fetchProviderModels), "重开的子视图应发起新拉取").toHaveBeenCalledTimes(2);
+
+    // 旧回执（代次不匹配）落定：不得渲染进新子视图
+    resolveA!({ ok: true, models: ["stale-model"] });
+    await flushMicrotasks();
+    expect(document.querySelector('.provider-editor-fetch-check[value="stale-model"]')).toBeNull();
+
+    // 新回执落定：正常渲染
+    resolveB!({ ok: true, models: ["fresh-model"] });
+    await flushMicrotasks();
+    expect(document.querySelector('.provider-editor-fetch-check[value="fresh-model"]')).toBeTruthy();
+  });
 });
