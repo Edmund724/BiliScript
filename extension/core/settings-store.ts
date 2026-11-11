@@ -149,7 +149,15 @@ export async function getMergedSettings(timeoutMs = 5000): Promise<Settings> {
     new Error("storage timeout")
   ).catch(() => ({}));
 
-  return normalizeSettings({ ...DEFAULT_SETTINGS, ...(syncSettings as Record<string, unknown>) });
+  const merged = normalizeSettings({ ...DEFAULT_SETTINGS, ...(syncSettings as Record<string, unknown>) });
+  // 宽度自定义标记的存量补齐（读路径推导，不落盘）：customPanelWidthEnabled 是
+  // 后补的显式自定义标记——只设过宽度（旧版滑块直写 customPanelWidth、无开关键）
+  // 的存量用户按「已自定义」对待，避免升级后三种壳层形态宽度被静默回默认。
+  // 显式恢复默认（宽度回到 540、标记 false）后本推导不再置位，无需一次性迁移旗标。
+  if (merged.customPanelWidthEnabled !== true && merged.customPanelWidth !== DEFAULT_SETTINGS.customPanelWidth) {
+    merged.customPanelWidthEnabled = true;
+  }
+  return merged;
 }
 
 // 写入白名单：settings 域的键面 = DEFAULT_SETTINGS 声明的键集，等于归一步骤表键

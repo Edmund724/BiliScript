@@ -2,13 +2,15 @@
 //
 // 职责：计算右栏 rect 并写入 #biliscript-reading-view 的 CSS 变量
 // --biliscript-script-left/top/width/height。定位 CSS（reader-gate.css）消费这些变量，
-// 本模块只负责「算 + 写」；浮层形态（降级 2）不写变量，改设
+// 本模块只负责「算 + 写」；浮层形态（降级 2）不写定位变量，改设
 // data-biliscript-script-float="1" 属性，让 CSS 回落到 reader.css 既有的
-// 居中浮层基础样式。
+// 居中浮层基础样式；显式自定义宽度时另写 --biliscript-script-float-width
+// （CSS 用 min() 与视口边距约束取窄）。
 //
 // 贴栏形态的几何：面板贴视口右界，纵向钳进一屏（top 跟锚点
 // 但不出视口，底缘贴视口底），内容超高由面板内部滚动消化。
-// 宽度由 getTargetPanelWidth() 决定（默认 540px，支持 400–650px 自定义）。
+// 宽度由 getCustomPanelWidth() 决定：显式自定义（customPanelWidthEnabled）
+// 时取 400–650px 自定义值，否则默认 540px。
 //
 // player-host 整页接管退役后，本模块是 LAYOUT 层唯一的布局调度器
 //（rAF 合帧 + 脏检查，思路源自旧 player-host 调度器）——script-host
@@ -43,16 +45,22 @@ const ANCHOR_SELECTORS = [
 
 // 锚点有效硬下限：宽度过小视为隐藏副本/折叠态，跳过落到次优先候选。
 const ANCHOR_MIN_WIDTH = 280;
-// 贴栏形态宽度保底下限（300px）与默认目标宽度（380px）。
+// 贴栏形态默认目标宽度（540px）与播放器降级/浮层共用的宽度保底下限（300px）。
 const PANEL_MIN_WIDTH = 300;
 const DEFAULT_PANEL_TARGET_WIDTH = 540;
 
-function getTargetPanelWidth(): number {
+// 显式自定义宽度：仅当设置里显式开启（customPanelWidthEnabled，设置面板宽度滑块
+// 改动时置位、重置键清除）且值落在 400–650 时返回取整值，否则返回 null——
+// 三种形态各自回落默认几何（贴栏 540、降级占满可用宽、浮层 CSS 默认上限）。
+function getCustomPanelWidth(): number | null {
+  if (state.settings?.customPanelWidthEnabled !== true) {
+    return null;
+  }
   const custom = Number(state.settings?.customPanelWidth);
   if (Number.isFinite(custom) && custom >= 400 && custom <= 650) {
     return Math.round(custom);
   }
-  return DEFAULT_PANEL_TARGET_WIDTH;
+  return null;
 }
 
 // 贴播放器右缘时的间距。贴栏纵向钳进一屏的最低高度保底（视口过矮时
@@ -74,6 +82,11 @@ const REANCHOR_INTERVAL_MS = 2000;
 const SCRIPT_VAR_PREFIX = "--biliscript-script-";
 const SCRIPT_VARS = ["left", "top", "width", "height"] as const;
 const FLOAT_ATTR = "data-biliscript-script-float";
+// 浮层形态的显式自定义宽度：脚本写入、reader-gate.css 的浮层宽度规则消费
+//（min(var(--biliscript-script-float-width, 760px), calc(100vw - 32px))——
+// 视口边距约束恒生效，自定义宽度只在更窄时取窄）。未自定义不写入，
+// 回落 CSS 默认 760px 上限。
+const FLOAT_WIDTH_VAR = "--biliscript-script-float-width";
 // 滚动进行中标记：贴栏态面板每帧随 --biliscript-script-top 位移，header/设置抽屉的
 // backdrop-filter 跟着每帧重采样（M12 巡检 P2-2）。滚动期间摘掉毛玻璃、停下
 // 恢复——面板壳自身是不透明底，header/抽屉的 backdrop 只有面板底色，摘掉期间
@@ -93,8 +106,8 @@ let layoutRafId = 0;
 let scrollIdleTimer = 0;
 // 上次写组快照：与本次计算结果全同则整组跳写，避免每个滚动事件的无谓样式
 // 失效（脏检查快照 lastSnapshot）。浮层分支记
-// floating: true，与贴栏分支互斥，形态切换天然强制重写。
-let lastSnapshot: { floating: boolean; values: string[] } | null = null;
+// floating: true 与浮层宽度（无自定义为空串），与贴栏分支互斥，形态切换天然强制重写。
+let lastSnapshot: { floating: boolean; values: string[]; floatWidth?: string } | null = null;
 
 // ===== 对外三个入口 =====
 
@@ -183,6 +196,7 @@ export function closeScriptHost(): void {
   for (const name of SCRIPT_VARS) {
     readingView.style.removeProperty(SCRIPT_VAR_PREFIX + name);
   }
+  readingView.style.removeProperty(FLOAT_WIDTH_VAR);
   readingView.removeAttribute(FLOAT_ATTR);
 }
 
@@ -336,7 +350,7 @@ function applyScriptRect(finding?: AnchorFinding): void {
     observeScriptAnchor(anchor);
   }
 
-  // 锚点命中且视口够宽：贴栏形态，宽度由 getTargetPanelWidth() 决定。
+  // 锚点命中且视口够宽：贴栏形态，宽度为显式自定义值（无则默认 540px）。
   const anchorRect = found?.rect;
   if (anchorRect && window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
     const rect = clampAnchorRect(anchorRect);
@@ -345,14 +359,17 @@ function applyScriptRect(finding?: AnchorFinding): void {
   }
 
   // 降级 1：锚点全落空但视口够宽且有播放器——面板占「播放器右缘 + 12 →
-  // 视口右缘」，纵向同样钳进一屏；挤不出下限宽则继续降级。
+  // 视口右缘」，纵向同样钳进一屏；显式自定义宽度时收缩为自定义宽（不超过可用
+  // 宽度）；挤不出下限宽则继续降级。
   if (window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
     const playerRect = getPlayerRect();
     if (playerRect) {
       const right = getViewportRightBound();
       const left = playerRect.right + PLAYER_GAP;
-      const width = right - left;
-      if (width >= PANEL_MIN_WIDTH) {
+      const available = right - left;
+      if (available >= PANEL_MIN_WIDTH) {
+        const custom = getCustomPanelWidth();
+        const width = custom == null ? available : Math.min(custom, available);
         const top = clampTopIntoViewport(playerRect.top);
         applyPinnedRect(readingView, {
           left,
@@ -365,9 +382,10 @@ function applyScriptRect(finding?: AnchorFinding): void {
     }
   }
 
-  // 降级 2：窄窗 / 连播放器都没有——浮层形态。不写四个变量，改设浮层
-  // 属性，reader-gate.css 让面板回落到 reader.css 居中浮层基础样式。
-  applyFloating();
+  // 降级 2：窄窗 / 连播放器都没有——浮层形态。不写四个定位变量，改设浮层
+  // 属性，reader-gate.css 让面板回落到 reader.css 居中浮层基础样式；显式自定义
+  // 宽度另写 --biliscript-script-float-width（CSS 侧与视口边距约束取窄）。
+  applyFloating(readingView);
 }
 
 // 视口右界：documentElement.clientWidth 不含经典滚动条（页面滚动条保持
@@ -386,11 +404,11 @@ function clampTopIntoViewport(rawTop: number): number {
   );
 }
 
-// 命中锚点后取面板 rect：宽度由 getTargetPanelWidth() 决定，贴视口右界；
+// 命中锚点后取面板 rect：宽度为显式自定义值（无则默认 540px），贴视口右界；
 // left 为 right - width；纵向钳进一屏（top 跟锚点但不出视口，底缘贴视口底）。
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
-  const width = getTargetPanelWidth();
+  const width = getCustomPanelWidth() ?? DEFAULT_PANEL_TARGET_WIDTH;
   const left = right - width;
   const top = clampTopIntoViewport(rect.top);
   return { left, top, width, height: window.innerHeight - top };
@@ -428,22 +446,26 @@ function applyPinnedRect(
   }
   lastSnapshot = { floating: false, values };
   readingView.removeAttribute(FLOAT_ATTR);
+  readingView.style.removeProperty(FLOAT_WIDTH_VAR);
   SCRIPT_VARS.forEach((name, index) => {
     readingView.style.setProperty(SCRIPT_VAR_PREFIX + name, values[index]);
   });
 }
 
-function applyFloating(): void {
-  if (lastSnapshot?.floating) {
+function applyFloating(readingView: HTMLElement): void {
+  const custom = getCustomPanelWidth();
+  const floatWidth = custom == null ? "" : `${custom}px`;
+  if (lastSnapshot?.floating && lastSnapshot.floatWidth === floatWidth) {
     return;
   }
-  lastSnapshot = { floating: true, values: [] };
-  const readingView = document.getElementById(ids.readingView);
-  if (!readingView) {
-    return;
-  }
+  lastSnapshot = { floating: true, values: [], floatWidth };
   for (const name of SCRIPT_VARS) {
     readingView.style.removeProperty(SCRIPT_VAR_PREFIX + name);
+  }
+  if (floatWidth) {
+    readingView.style.setProperty(FLOAT_WIDTH_VAR, floatWidth);
+  } else {
+    readingView.style.removeProperty(FLOAT_WIDTH_VAR);
   }
   readingView.setAttribute(FLOAT_ATTR, "1");
 }

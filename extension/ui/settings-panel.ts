@@ -207,6 +207,12 @@ interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly format?: (val: number) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
+  // 滑块提交/预览时随主键一并 patch 与落盘的附加键（如宽度滑块置位
+  // customPanelWidthEnabled 显式自定义标记）。
+  readonly commitExtras?: () => Record<string, unknown>;
+  // 重置键的附加清除键：提供后重置走完整替代路径（主键回默认值 + 附加键 +
+  // patch + 落盘），替代默认的「主键默认值 + onCommit」。
+  readonly resetExtras?: () => Record<string, unknown>;
   readonly onPreview?: (val: number, navSync: NavSync) => void;
 }
 
@@ -265,6 +271,8 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     defaultValue: DEFAULT_SETTINGS.customPanelWidth,
     normalize: normalizeCustomPanelWidth,
     format: (width) => `${width}px`,
+    commitExtras: () => ({ customPanelWidthEnabled: true }),
+    resetExtras: () => ({ customPanelWidthEnabled: false }),
     onPreview: (_width, navSync) => {
       relayoutScriptHost();
       navSync.updateActiveIndicator(false);
@@ -1241,14 +1249,23 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         onPreview: binding.onPreview
           ? (val) => {
               if (binding.patchState !== false) {
-                state.patchSettings({ [binding.key]: val });
+                state.patchSettings({ [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
               }
               binding.onPreview!(val, navSync);
             }
           : undefined,
         onCommit: (val) => {
-          void saveSettingField(elements, { [binding.key]: val });
-        }
+          void saveSettingField(elements, { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
+        },
+        onReset: binding.resetExtras
+          ? (val) => {
+              const patch = { [binding.key]: val, ...binding.resetExtras!() };
+              if (binding.patchState !== false) {
+                state.patchSettings(patch);
+              }
+              void saveSettingField(elements, patch);
+            }
+          : undefined
       });
       break;
     }

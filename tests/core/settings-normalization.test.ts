@@ -541,3 +541,53 @@ describe("normalizeSettings：文摘面板排版设置归一", () => {
     expect(normalizeSettings({ chatParagraphSpacing: "" }).chatParagraphSpacing).toBe(12);
   });
 });
+
+// 宽度自定义标记（customPanelWidthEnabled）的存量补齐：开关键后于宽度键引入，
+// 旧版滑块只直写 customPanelWidth。读路径按「宽度非默认 = 已自定义」推导置位，
+// 不落盘、无需一次性迁移旗标；显式恢复默认（宽度回 540）后推导自然不再置位。
+describe("getMergedSettings：宽度自定义标记存量补齐", () => {
+  it("只设宽度未设开关键 → 读路径按已自定义对待", async () => {
+    const { getMergedSettings } = await loadStoreModule();
+    syncGetMock.mockImplementation(async (defaults) => ({ ...defaults, customPanelWidth: 460 }));
+
+    const merged = await getMergedSettings();
+
+    expect(merged.customPanelWidth).toBe(460);
+    expect(merged.customPanelWidthEnabled).toBe(true);
+  });
+
+  it("宽度为默认值（540）时不置位：未自定义保持默认几何", async () => {
+    const { getMergedSettings } = await loadStoreModule();
+    syncGetMock.mockImplementation(async (defaults) => ({ ...defaults, customPanelWidth: 540 }));
+
+    const merged = await getMergedSettings();
+
+    expect(merged.customPanelWidthEnabled).toBe(false);
+  });
+
+  it("显式恢复默认（宽度 540 + 标记 false）读回不再置位", async () => {
+    const { getMergedSettings } = await loadStoreModule();
+    syncGetMock.mockImplementation(async (defaults) => ({
+      ...defaults,
+      customPanelWidth: 540,
+      customPanelWidthEnabled: false
+    }));
+
+    const merged = await getMergedSettings();
+
+    expect(merged.customPanelWidthEnabled).toBe(false);
+  });
+
+  it("显式 true 原样保留（含宽度恰为默认值的显式自定义）", async () => {
+    const { getMergedSettings } = await loadStoreModule();
+    syncGetMock.mockImplementation(async (defaults) => ({
+      ...defaults,
+      customPanelWidth: 540,
+      customPanelWidthEnabled: true
+    }));
+
+    const merged = await getMergedSettings();
+
+    expect(merged.customPanelWidthEnabled).toBe(true);
+  });
+});
