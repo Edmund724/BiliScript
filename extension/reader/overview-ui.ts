@@ -11,6 +11,7 @@ import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
+import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
@@ -28,6 +29,10 @@ import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 export interface OverviewUiActions {
   retry: () => void;
   cancel: () => void;
+  /** 配置类错误「去设置」（票 01）：直达正确的平台编辑界面并记录续跑意图 */
+  setup: (errorClass: OverviewSetupErrorClass) => void;
+  /** 无字幕配置空态「前往设置」：打开设置抽屉并定位语音转写分区 */
+  openTranscribeSettings: () => void;
 }
 
 let registeredActions: OverviewUiActions | null = null;
@@ -148,15 +153,23 @@ function buildEmptyStateHtml(): string {
   }
   let title = "该视频没有可用字幕";
   let copy = "视频概览需基于字幕生成。";
+  let settingsAction = "";
   if (state.clip.noSubtitleReason) {
     const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
     title = notice.cause || title;
     copy = notice.remedyText || copy;
+    // 配置类无字幕空态（票 01）：补救动作是「去设置检查」时给明确设置入口，
+    // 直达语音转写分区；非配置类（充值/重试/无人声）不挂，不伪装成配置问题。
+    if (notice.remedy === "open-settings") {
+      settingsAction = `
+        <button type="button" class="biliscript-reading-mini-btn" data-overview-action="open-transcribe-settings">前往设置</button>`;
+    }
   }
   return `
     <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
       <div class="biliscript-reading-placeholder-title">${escapeHtml(title)}</div>
       <p class="biliscript-reading-placeholder-copy">${escapeHtml(copy)}</p>
+      ${settingsAction}
     </div>
   `;
 }
@@ -207,10 +220,16 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
 }
 
 function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
+  // 配置类错误（票 01）：无平台 / 缺 Key 给「去设置」直达正确的平台编辑界面
+  // （首配模式，保存后续跑概览）；其余错误只给「重试」，不伪装成配置问题。
+  const errorClass = classifyOverviewSetupError(snapshot.errorText);
+  const setupButton = errorClass
+    ? `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="setup" data-setup-class="${errorClass}">去设置</button>`
+    : "";
   return `
     <div class="biliscript-reading-ov-strip is-error">
       <span class="biliscript-reading-ov-strip-text">概览生成失败：${escapeHtml(snapshot.errorText || "未知错误")}</span>
-      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
+      ${setupButton}<button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
     </div>
   `;
 }
@@ -343,6 +362,17 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "cancel") {
       currentActions?.cancel();
+      return;
+    }
+    if (action === "setup") {
+      const errorClass = target.dataset.setupClass;
+      if (errorClass === "no-provider" || errorClass === "missing-key") {
+        currentActions?.setup(errorClass);
+      }
+      return;
+    }
+    if (action === "open-transcribe-settings") {
+      currentActions?.openTranscribeSettings();
       return;
     }
     if (action === "copy-quote") {

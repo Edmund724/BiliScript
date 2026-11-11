@@ -265,6 +265,12 @@ export async function save(): Promise<void> {
     showStatus(validationError, true);
     return;
   }
+  // 首配模式（票 01）：首个 AI 平台至少一个模型才可续跑——普通编辑仍允许空目录
+  // （multi-model-catalog Q13），这里只收紧首配保存。
+  if (state.firstSetup && state.kind === "ai" && (upsert.models?.length ?? 0) === 0) {
+    showStatus("请至少添加一个模型后再保存", true);
+    return;
+  }
   setBusy(true);
   showStatus("正在保存...");
   // 会话结算（owner 2）：落盘回执落定时 Modal 已关/已重开即静默丢弃，否则
@@ -274,6 +280,16 @@ export async function save(): Promise<void> {
     {
       ok: (result) => {
         if (result.ok) {
+          // 首配续跑：先通知装配方（消费意图/退出设置），再关 Modal——
+          // 装配方回调里关设置会强制关闭本 Modal，随后的 close 幂等收空。
+          const afterSave = state.onAfterSave;
+          if (afterSave) {
+            try {
+              afterSave();
+            } catch {
+              // 装配方回调异常不得阻断保存收场
+            }
+          }
           closeProviderEditor(true);
           return;
         }
@@ -584,7 +600,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
       </div>
       <footer class="provider-editor-foot">
         <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">取消</button>
-        <button type="button" class="provider-editor-save" data-provider-editor-action="save">保存</button>
+        <button type="button" class="provider-editor-save" data-provider-editor-action="save">${escapeHtml(options.submitLabel?.trim() || "保存")}</button>
       </footer>
     </section>
   `;
@@ -907,6 +923,9 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
     editingId: String(options.item?.id || ""),
     openBaseUrl: String(options.item?.baseUrl || ""),
     hasSavedKey: Boolean(options.item?.hasSavedKey),
+    firstSetup: options.firstSetup === true,
+    onAfterSave: options.onAfterSave ?? null,
+    onSessionEnd: options.onSessionEnd ?? null,
     draft: buildInitialDraft(options)
   });
   host.innerHTML = buildDialogHtml(options);

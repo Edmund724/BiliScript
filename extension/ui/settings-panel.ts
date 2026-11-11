@@ -35,6 +35,8 @@ import {
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
+import { openReaderSettingsMode } from "../reader/settings-mode.js";
+import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
@@ -485,6 +487,74 @@ export async function openLiveSettings(target: LiveSettingsTarget): Promise<void
   const { record: gemini } = resolveAiCredentialReference("gemini-live", providers);
   await openProviderEditorById("ai", String(gemini?.id || ""), gemini ? undefined : "gemini");
   document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
+}
+
+// ===== 概览首配直达入口（票 provider-onboarding-consistency/01）=====
+
+// 首配编辑会话回调：保存成功后与编辑器会话结束时的装配方出口（消费/作废续跑
+// 意图、退出设置抽屉），由 reader 装配根注入。
+export interface AiSetupSession {
+  onAfterSave(): void;
+  onSessionEnd(): void;
+}
+
+// 概览配置类错误（无平台 / 缺 Key）的「去设置」直达：
+// - "no-provider"：无记录 → 直接新增 AI 平台编辑器（保存并继续语义）；
+// - "missing-key"：定位缺 Key 的启用记录 → 直接编辑该记录并聚焦 Key 输入框；
+//   定位不到（列表在报错后已被改动）则只打开设置抽屉。
+// 连通性测试不是必经步骤：保存只做本地校验 + 落盘。
+export async function openReaderAiSetup(
+  errorClass: OverviewSetupErrorClass,
+  session: AiSetupSession
+): Promise<void> {
+  openReaderSettingsMode();
+  renderReaderSettingsPanel();
+  focusSettingsNavSection("llm");
+  if (errorClass === "missing-key") {
+    const target = await findMissingKeyAiProvider();
+    if (target) {
+      await openProviderEditorById("ai", String(target.id || ""), undefined, session);
+      document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
+    }
+    return;
+  }
+  await openProviderEditorById("ai", "", undefined, session);
+}
+
+// 概览无字幕配置空态的「前往设置」：打开设置抽屉并定位语音转写分区
+// （字幕就绪后概览自动生成，无需续跑意图）。
+export async function openReaderTranscribeSettings(): Promise<void> {
+  openReaderSettingsMode();
+  renderReaderSettingsPanel();
+  focusSettingsNavSection("asr");
+}
+
+// 设置分区定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
+function focusSettingsNavSection(section: string): void {
+  const host = settingsHostRef;
+  if (!host || !host.dataset.biliscriptSettingsRendered) return;
+  host
+    .querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)
+    ?.click();
+}
+
+// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：defaultModel 精确匹配 →
+// 首个启用回落）：只对 requiresKey !== false 且未存 Key 的启用记录给编辑入口。
+async function findMissingKeyAiProvider(): Promise<ProviderRowItem | null> {
+  const providers = await loadAiProviders();
+  const enabled = providers.filter(
+    (p) => p && p.enabled !== false && String(p?.id || "").trim() !== ""
+  );
+  if (!enabled.length) {
+    return null;
+  }
+  const settings = await getSettings();
+  const preferredId = String(settings?.defaultModel || "").trim();
+  const candidates = [
+    ...(preferredId ? enabled.filter((p) => String(p.id) === preferredId) : []),
+    ...enabled
+  ];
+  return candidates.find((p) => p.requiresKey !== false && !p.hasSavedKey) || null;
 }
 
 // ===== 装载与保存 =====
@@ -984,7 +1054,12 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   }
 }
 
-async function openProviderEditorById(kind: ProviderEditorKind, providerId: string, presetId?: string): Promise<void> {
+async function openProviderEditorById(
+  kind: ProviderEditorKind,
+  providerId: string,
+  presetId?: string,
+  setupSession?: AiSetupSession
+): Promise<void> {
   const family = PROVIDER_FAMILY_UI[kind];
   const providers = await family.loadProviders();
   const item = providerId ? providers.find((p) => String(p?.id || "") === providerId) || null : null;
@@ -999,7 +1074,16 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
       presetId,
       presets: family.presets(),
       onSave: providerTransactions.upsertProvider,
-      onDelete: providerTransactions.deleteProvider
+      onDelete: providerTransactions.deleteProvider,
+      // 首配模式（票 01）：保存钮「保存并继续」+ AI 至少一个模型 + 会话回调
+      ...(setupSession
+        ? {
+            submitLabel: "保存并继续",
+            firstSetup: true,
+            onAfterSave: setupSession.onAfterSave,
+            onSessionEnd: setupSession.onSessionEnd
+          }
+        : {})
     });
   } catch (error) {
     const host = settingsHostRef;
