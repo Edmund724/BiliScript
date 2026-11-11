@@ -91,19 +91,26 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
+  // 热评拉取失败提示（字幕管线写入 state.clip.hotCommentsNotice）：概览的章节
+  // 目录来源之一没拿到，按职责在概览自己的状态条呈现；只在有产物的相位挂条，
+  // empty/generating 等相位已有各自的预期文案。
+  const hotNotice = String(state.clip.hotCommentsNotice || "").trim();
+  const hotNoticeStrip = hotNotice
+    ? `<div class="biliscript-reading-ov-strip"><span class="biliscript-reading-ov-strip-text">${escapeHtml(hotNotice)}</span></div>`
+    : "";
   switch (snapshot.phase) {
     case "empty":
       return buildEmptyStateHtml();
     case "generating":
       return buildGeneratingStrip(snapshot) + buildResultSectionsHtml(snapshot);
     case "partial":
-      return buildPartialStrip(snapshot) + buildResultSectionsHtml(snapshot);
+      return hotNoticeStrip + buildPartialStrip(snapshot) + buildResultSectionsHtml(snapshot);
     case "error":
       return buildErrorStrip(snapshot);
     case "cancelled":
       return buildCancelledStrip();
     case "ready":
-      return buildResultSectionsHtml(snapshot);
+      return hotNoticeStrip + buildResultSectionsHtml(snapshot);
     case "idle":
     default:
       return `

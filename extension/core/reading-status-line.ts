@@ -8,6 +8,9 @@
 //     只经 state.ui.statusText 供横幅消费；错误文案不受此抑制；
 //   - 其余操作反馈类文案写入即显示，5s 后清空并 hidden；
 //   - 空文案：立即清空并 hidden（空闲态整行收起，面板网格第 2 行 auto 塌为 0）。
+//   - 读屏镜像：可见行在 aria-hidden 的阅读视图内，对辅助技术不可达；有效文案
+//     同步到 document.body 下的 #biliscript-reading-status-live（视觉隐藏的
+//     role="status" live region），口径与可见行一致（抑制文案不同步）。
 //
 // 两个写入方（core/ui-status 的 setStatus/setMessage、reader/presentation 的
 // renderReadingStatus）共用本模块，避免各写一套显隐口径。
@@ -25,6 +28,7 @@
 // （常驻侧不产生 ASR 进度文案），只让常驻侧的状态行判定走「非转写中」分支。
 
 import { isReaderTranscribing } from "./reader-transcribing.js";
+import { ids } from "../shared/dom-ids.js";
 
 // 自动收起时长：错误类文案以外的状态文案在有下一件事发生前的最长停留时间。
 export const STATUS_LINE_AUTO_HIDE_MS = 5000;
@@ -88,6 +92,31 @@ function cancelAutoHide(node: StatusLineNode): void {
   }
 }
 
+// ===== 读屏镜像 live region =====
+//
+// 可见状态行在 #biliscript-reading-view 内，而该根节点常驻 aria-hidden="true"
+//（整个阅读面板不进无障碍树），行内的 role="status" 语义对读屏不可达。因此把
+// 一份同文案镜像写到 document.body 下的本节点（视觉隐藏、始终在无障碍树内），
+// aria-live="polite" 在文本变化时礼貌播报。同步口径与可见行完全一致：同一份
+// 抑制/转写判定后的有效文案，可见行不写它就不写（转写进度早退分支不触碰）。
+// 双实例（常驻包 + 懒加载区）共享同一 document：节点按 id 取或建，两侧写的是
+// 同一个 DOM 节点，与本模块无模块级可变状态的纪律一致。
+function syncStatusLiveRegion(text: string): void {
+  let node = document.getElementById(ids.readingStatusLive) as HTMLElement | null;
+  if (!node) {
+    node = document.createElement("p");
+    node.id = ids.readingStatusLive;
+    node.className = "biliscript-reading-status-live";
+    node.setAttribute("role", "status");
+    node.setAttribute("aria-live", "polite");
+    node.setAttribute("aria-atomic", "true");
+    document.body.appendChild(node);
+  }
+  if (node.textContent !== text) {
+    node.textContent = text;
+  }
+}
+
 // 节点由调用方解析（core/ui-status 走 getElementById 允许缺失，reader/presentation
 // 走 getReaderElement 缺失即抛错——两侧原行为都保留）。节点缺失时无可写对象，
 // 直接返回（状态本体仍由调用方写进 state）。
@@ -100,14 +129,16 @@ export function writeReadingStatusLine(node: HTMLElement | null, text: unknown):
   cancelAutoHide(line);
 
   // 报错文案与抓取字幕提示不落 header 行（下方字幕列表/空态已有对应展示，避免上下重复；
-  // 命中抑制时隐藏并清空状态行，不占位）
+  // 命中抑制时隐藏并清空状态行，不占位）；镜像区同步清空，不播报被抑制文案
   if (isSuppressedReadingStatusText(next)) {
     line.textContent = "";
     line.hidden = true;
+    syncStatusLiveRegion("");
     return;
   }
 
-  // 转写进度不落 header 行（横幅已显示同一进度）；错误文案不受此抑制
+  // 转写进度不落 header 行（横幅已显示同一进度）；错误文案不受此抑制。
+  // 早退＝可见行保持原状，镜像区同样不动（没有新的可见文案就无新播报）。
   if (next && isReaderTranscribing() && !isPersistentStatusText(next)) {
     return;
   }
@@ -115,6 +146,7 @@ export function writeReadingStatusLine(node: HTMLElement | null, text: unknown):
   if (line.textContent !== next) {
     line.textContent = next;
   }
+  syncStatusLiveRegion(next);
   if (!next) {
     line.hidden = true;
     return;
@@ -127,5 +159,7 @@ export function writeReadingStatusLine(node: HTMLElement | null, text: unknown):
     delete line.__biliscriptStatusHideTimer;
     line.textContent = "";
     line.hidden = true;
+    // 镜像与可见行同生命周期：可见文案收起即同步清空，不残留已消失内容
+    syncStatusLiveRegion("");
   }, STATUS_LINE_AUTO_HIDE_MS);
 }

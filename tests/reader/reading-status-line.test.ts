@@ -194,3 +194,58 @@ describe("面板 header 状态行的显示策略", () => {
     expect(statusNode().hidden).toBe(false);
   });
 });
+
+describe("读屏镜像 live region（#biliscript-reading-status-live）", () => {
+  function liveNode(): HTMLElement | null {
+    return document.getElementById(ids.readingStatusLive);
+  }
+
+  it("写入时惰性创建在 body 下：role=status + aria-live=polite，文案与可见行同步", () => {
+    expect(liveNode()).toBeNull();
+
+    presentation.renderReadingStatus("操作设置已生效。");
+
+    const node = liveNode();
+    expect(node).not.toBeNull();
+    expect(node!.parentElement).toBe(document.body);
+    expect(node!.getAttribute("role")).toBe("status");
+    expect(node!.getAttribute("aria-live")).toBe("polite");
+    expect(node!.textContent).toBe("操作设置已生效。");
+    expect(statusNode().textContent).toBe("操作设置已生效。");
+  });
+
+  it("5s 自动收起时镜像同步清空（不残留已消失文案）", () => {
+    presentation.renderReadingStatus("操作设置已生效。");
+    vi.advanceTimersByTime(5000);
+
+    expect(statusNode().textContent).toBe("");
+    expect(liveNode()!.textContent).toBe("");
+  });
+
+  it("抑制文案（字幕抓取/转写报错）不进镜像：可见行清空，镜像同步清空", () => {
+    presentation.renderReadingStatus("操作设置已生效。");
+    presentation.renderReadingStatus("抓取失败：HTTP 403");
+
+    expect(statusNode().textContent).toBe("");
+    expect(liveNode()!.textContent).toBe("");
+  });
+
+  it("转写中进度文案（词表外，如音频下载）不进镜像：可见行保持原状，镜像不同步被抑制的进度", () => {
+    presentation.renderReadingStatus("操作设置已生效。");
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+
+    // 音频下载进度不在 header 抑制词表内，走「转写中早退」分支：可见行与镜像
+    // 都保持上一条文案（进度只由字幕 tab 转写横幅消费）
+    uiStatus.setStatus("音频下载与解码中…");
+
+    expect(statusNode().textContent).toBe("操作设置已生效。");
+    expect(liveNode()!.textContent).toBe("操作设置已生效。");
+  });
+
+  it("常驻错误文案替换时镜像同步为最新文案", () => {
+    presentation.renderReadingStatus("播放器连接失败：网络中断");
+    presentation.renderReadingStatus("设置加载失败：存储不可用");
+
+    expect(liveNode()!.textContent).toBe("设置加载失败：存储不可用");
+  });
+});

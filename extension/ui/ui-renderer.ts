@@ -85,7 +85,7 @@ export function buildUiHtml(): string {
               </div>
             </header>
 
-            <p id="${ids.readingStatus}" class="biliscript-reading-status" hidden></p>
+            <p id="${ids.readingStatus}" class="biliscript-reading-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <div class="biliscript-reading-settings-subpage-header">

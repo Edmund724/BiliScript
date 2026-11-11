@@ -30,7 +30,6 @@ import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timesta
 import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
-import { setMessage } from "../core/ui-status.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
@@ -47,6 +46,9 @@ export interface ChatStreamRendererDeps {
   onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
+  // 消息操作反馈（导出失败等）：由装配方接到对话 tab 自己的通知通道
+  //（reader 侧 showConversationContextNotice），不借全局状态条——反馈留在对话上下文。
+  onNotice?: (message: string) => void;
 }
 
 export type ChatMessageSource = "live" | "replay";
@@ -1124,7 +1126,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     copyBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(getPasteReadyRaw ? getPasteReadyRaw() : "");
-        setMessage("回复已复制到剪贴板。");
+        // 就地反馈：按钮置换为对勾并把 aria-label 换成「已复制」（copy-feedback），
+        // 不重复写全局状态条（对话域反馈留在对话上下文）。
         flashCopySuccess(copyBtn, {
           originalSvg: READING_COPY_ICON,
           originalLabel: "复制回复"
@@ -1159,7 +1162,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       try {
         deps.onExport?.(historyIndex, getPasteReadyRaw ? getPasteReadyRaw() : "");
       } catch (error) {
-        setMessage(`导出失败：${getErrorMessage(error)}`);
+        deps.onNotice?.(`导出失败：${getErrorMessage(error)}`);
       }
     });
     actions.appendChild(exportBtn);
