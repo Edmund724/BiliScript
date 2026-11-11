@@ -52,18 +52,27 @@ export function formatChatSelectionLine(override: ChatSelectionOverride | null):
 
 /**
  * 字幕翻译「跟随 AI 默认平台」的跟随目标提示：ok 时给当前跟随的平台 + 模型，
- * 专属配置失效回落时标注；不可用时如实展示原因。
+ * 专属配置失效回落时说明回落并给回落目标；不可用时如实展示原因。
+ * 文案只讲控件没说的部分——控件值已经写着「跟随 AI 默认平台」。
  */
 export function formatSubtitleFollowHint(projection: SubtitleFollowProjection): string {
   if (projection.state === "unavailable") {
-    return `跟随 AI 默认平台暂不可用：${projection.error}`;
+    return `暂不可用：${projection.error}`;
   }
   const target = projection.model
     ? `${projection.providerName} · ${projection.model}`
     : projection.providerName;
   return projection.isFallback
-    ? `跟随 AI 默认平台：当前为 ${target}（专属配置已回落）`
-    : `跟随 AI 默认平台：当前为 ${target}`;
+    ? `专属模型已失效，当前 ${target}`
+    : `当前 ${target}`;
+}
+
+export type SubtitleFollowHintState = "follow" | "fallback" | "unavailable";
+
+/** 副行的视觉状态：回落 / 不可用挂琥珀圆点，正常跟随不挂。 */
+export function subtitleFollowHintState(projection: SubtitleFollowProjection): SubtitleFollowHintState {
+  if (projection.state === "unavailable") return "unavailable";
+  return projection.isFallback ? "fallback" : "follow";
 }
 
 /**

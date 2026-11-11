@@ -320,12 +320,16 @@ export function createSubtitleTranslateProviderHandler({
           loadKeys()
         ]);
         const resolved = resolveSubtitleTranslateProviderConfig(providers, keys, settings);
+        // isFallback 只报「专属配置存在但解析不到」的回落；没有专属配置本身就是
+        // 正常跟随默认平台（与 resolve-ai-provider 的显式默认判定同义）。
+        const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
+        const isFallback = preferredProviderId !== "" && resolved.isFallback;
         return {
           ok: true,
           provider: resolved.provider,
           apiKey: resolved.apiKey,
           model: resolved.model,
-          isFallback: resolved.isFallback
+          ...(isFallback ? { isFallback: true } : {})
         };
       })(),
       sendResponse,

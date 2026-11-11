@@ -151,12 +151,14 @@ export function buildSettingsHtml(): string {
       </div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
+          <div class="biliscript-set-row-copy">
+            <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
+            <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint biliscript-set-row-sub" hidden></p>
+          </div>
           <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
             <option value="">跟随 AI 默认平台</option>
           </select>
         </div>
-        <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint" hidden></p>
       </div>
 
     </section>

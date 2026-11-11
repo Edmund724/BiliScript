@@ -125,7 +125,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     expect(chatSummary(host).hidden).toBe(true);
     // 字幕翻译跟随提示：解析权威给出的真实跟随目标
     expect(followHint(host).hidden).toBe(false);
-    expect(followHint(host).textContent).toBe("跟随 AI 默认平台：当前为 DeepSeek 官方 · deepseek-chat");
+    expect(followHint(host).textContent).toBe("当前 DeepSeek 官方 · deepseek-chat");
   });
 
   it("悬空默认回落（禁用 / 删除）：摘要显示真实回落目标并标注，徽标落在回落平台上", async () => {
@@ -299,7 +299,25 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     const host = await mountPanel();
 
     await vi.waitFor(() => {
-      expect(followHint(host).textContent).toBe("跟随 AI 默认平台：当前为 DeepSeek 官方 · deepseek-chat（专属配置已回落）");
+      expect(followHint(host).textContent).toBe("专属模型已失效，当前 DeepSeek 官方 · deepseek-chat");
     });
+  });
+
+  it("选了专属字幕模型时不挂副行：控件值已说明目标，副行只服务「跟随默认」", async () => {
+    aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
+    settingsReply = { subtitleTranslateProviderId: "p1", subtitleTranslateModel: "deepseek-chat" };
+    resolveSubtitleReply = {
+      ok: true,
+      provider: { id: "p1", name: "DeepSeek 官方" },
+      model: "deepseek-chat",
+      isFallback: false
+    };
+    installBus();
+    const host = await mountPanel();
+
+    await vi.waitFor(() => {
+      expect(followHint(host).textContent).toBe("当前 DeepSeek 官方 · deepseek-chat");
+    });
+    expect(followHint(host).hidden).toBe(true);
   });
 });

@@ -276,6 +276,8 @@ export type ResolveSubtitleTranslateProviderResponse = {
   provider?: ProviderListEntry;
   apiKey?: string;
   model?: string;
+  // 只在「专属字幕翻译配置存在但解析不到（平台已删/禁用）」时带上；未指定专属
+  // 配置 = 正常跟随默认平台，不携带。
   isFallback?: boolean;
   error?: string;
 };

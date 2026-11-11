@@ -345,6 +345,44 @@
   gap: var(--biliscript-space-md);
 }
 
+/* 行内左列（标签 + 跟随目标副行）：字幕翻译在「跟随 AI 默认平台」时用它交代
+ * 实际生效的平台与模型。副行随内容折行，不挤占右侧控件宽度——同级下拉不参与
+ * 收缩（控件值截断比副行折行更难读）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 左列之后的控件不参与收缩（选择控件由组件表接管，设置表不引用其类名）：
+ * 副行按自己的可用宽度折行，控件值不截断。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy ~ * {
+  flex: 0 0 auto;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub {
+  font-size: var(--biliscript-font-size-xs);
+  color: var(--biliscript-reader-muted);
+  overflow-wrap: anywhere;
+  /* 折行时不留单词孤行（Chromium 117+）：长模型 ID 与错误原因常占两行 */
+  text-wrap: pretty;
+}
+
+/* 回落 / 不可用：文案自己说清状态，圆点只做同色系提示（三级灰之上不引入新字色）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="fallback"]::before,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="unavailable"]::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: var(--biliscript-radius-circle, 50%);
+  background: var(--biliscript-primitive-color-amber-500);
+  vertical-align: 1px;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row .biliscript-set-select {
   width: auto;
   min-width: 140px;

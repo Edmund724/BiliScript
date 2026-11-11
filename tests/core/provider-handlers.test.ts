@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createProviderMessageHandlers, createAsrRuntimeConfigHandler } from "../../extension/core/provider-handlers.js";
+import { createProviderMessageHandlers, createAsrRuntimeConfigHandler, createSubtitleTranslateProviderHandler } from "../../extension/core/provider-handlers.js";
 
 // 捕获（可能异步的）sendResponse：回包即 resolve，测试 await response 即可
 function makeChannel<T = unknown>() {
@@ -431,5 +431,40 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       ok: false,
       error: "还没有配置 AI 平台，请先在插件设置中添加并启用。"
     });
+  });
+});
+
+describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-provider）", () => {
+  const SUBTITLE_PROVIDERS = [
+    { id: "p1", name: "P1", enabled: true, models: ["m1"], hasSavedKey: true },
+    { id: "p2", name: "P2", enabled: true, models: ["m2"], hasSavedKey: true }
+  ];
+
+  function makeSubtitleDeps(settings: Record<string, unknown>) {
+    return {
+      getMergedSettings: vi.fn(async () => settings),
+      loadProviders: vi.fn(async () => SUBTITLE_PROVIDERS),
+      loadKeys: vi.fn(async () => ({ p1: "k1", p2: "k2" }))
+    };
+  }
+
+  it("未指定专属配置：正常跟随默认平台，不携带 isFallback", async () => {
+    const handler = createSubtitleTranslateProviderHandler(makeSubtitleDeps({ defaultModel: "p2" }));
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+
+    handler({}, {}, sendResponse);
+    const payload = await response;
+    expect(payload.provider.id).toBe("p2");
+    expect("isFallback" in payload).toBe(false);
+  });
+
+  it("专属平台已删除：回落到默认平台并自报 isFallback", async () => {
+    const handler = createSubtitleTranslateProviderHandler(
+      makeSubtitleDeps({ subtitleTranslateProviderId: "ghost", defaultModel: "p2" })
+    );
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+
+    handler({}, {}, sendResponse);
+    expect(await response).toMatchObject({ ok: true, isFallback: true, provider: { id: "p2" } });
   });
 });

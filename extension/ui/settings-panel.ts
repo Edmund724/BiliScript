@@ -56,6 +56,7 @@ import {
   formatAiDefaultSummaryLine,
   formatChatSelectionLine,
   formatSubtitleFollowHint,
+  subtitleFollowHintState,
   syncAiDefaultBadge
 } from "./ai-active-projection.js";
 import { AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE } from "../core/ai-provider-store.js";
@@ -804,8 +805,12 @@ async function refreshAiActiveProjection(
     elements.aiChatSelectionSummary.hidden = !chatLine;
     elements.aiChatSelectionSummary.textContent = chatLine;
     const followHint = formatSubtitleFollowHint(subtitleFollow);
-    elements.subtitleTranslateFollowHint.hidden = !followHint;
-    elements.subtitleTranslateFollowHint.textContent = followHint;
+    const followHintNode = elements.subtitleTranslateFollowHint;
+    followHintNode.textContent = followHint;
+    followHintNode.dataset.state = subtitleFollowHintState(subtitleFollow);
+    // 选了专属模型时副行无话可说：控件值本身就是答案
+    elements.subtitleTranslateFollowHint.hidden =
+      !followHint || (elements.subtitleTranslateModel?.value || "") !== "";
   } catch {
     // 投影刷新失败保留上一帧展示，不打扰设置主链
   }
@@ -1851,6 +1856,9 @@ function bindSettingsEvents(host: HTMLElement): void {
     void saveSettingField(elements, {
       subtitleTranslateProviderId: providerId,
       subtitleTranslateModel: model
+    }).then((saved) => {
+      // 副行只在跟随默认平台时有话可说：切换后按新配置重算，不展示陈旧目标
+      if (saved) void refreshAiActiveProjection(elements);
     });
   });
 
