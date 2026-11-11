@@ -101,6 +101,22 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
 你的 Agent 应该帮你确认保存路径并下载项目、指导你注册硅基流动和 ModelScope 账号、在浏览器中加载扩展文件夹、指出填写 API Key 的位置，并打开 B 站视频验证功能。注意：安装后请勿移动或删除该文件夹，且**不要把 API Key 发送给 Agent**，由你自己在设置页面粘贴。
 
+### 桌面 Agent 桥接（可选）
+
+需要让 Antigravity、Codex、Claude Code 等桌面 Agent 读取视频字幕、热评和关键帧时，再启用此功能：
+
+1. 打开 B 站视频右侧的文摘面板，进入「设置 → 桌面 Agent」，开启「允许本机桌面 Agent 读取 B 站标签页」。桥接默认关闭，只连接本机 `127.0.0.1`。
+2. 在需要使用技能的 Agent 项目目录运行以下命令，按提示选择 `biliscript` 技能与目标 Agent：
+
+   ```bash
+   npx skills add Edmund724/BiliScript
+   ```
+
+   如需对所有项目启用，可使用 `npx skills add Edmund724/BiliScript -g`。技能内置零依赖 CLI，安装后可在任意工作目录运行。
+3. 让 Agent 分析当前 B 站视频或提供 BV 号/视频链接。Agent 会按需获取字幕与热评、截取关键时间点画面并读取本地图片；未打开视频的无字幕转写仍使用你在扩展中配置的 ASR 平台。
+
+CLI 与扩展之间的数据不经过第三方服务器；后续分析产生的数据传输遵循所用 Agent 的模型与隐私设置。
+
 ## 配置与 API Key
 
 点击文摘面板右上角的齿轮按钮打开「设置」抽屉即可配置全部选项（即改即存）。BiliScript 不收款也不转售 API，请勿将 Key 发到对话或公开渠道中。
