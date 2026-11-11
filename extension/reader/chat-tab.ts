@@ -353,8 +353,9 @@ const feedback = createReaderChatFeedback({
   scrollToBottom: () => chatRuntime.scrollToBottom(),
   suggestions: suggestionsSlot,
   // script-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
-  // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）
-  onOpenSettings: () => requestUiCommand("open-settings")
+  // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）。
+  // 带目标时直达该分区的设置动作（票 04：ASR 配置类拦截 → ASR 平台编辑/开关）。
+  onOpenSettings: (settingsTarget) => requestUiCommand("open-settings", settingsTarget ? { target: settingsTarget } : undefined)
 });
 const {
   showConversationContextNotice,

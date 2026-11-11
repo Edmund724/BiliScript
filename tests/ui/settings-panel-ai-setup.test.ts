@@ -3,8 +3,10 @@
 // - 缺 Key（missing-key）：定位缺 Key 的启用记录（defaultModel 精确 → 首个启用回落），
 //   直接编辑该记录并聚焦 Key 输入框；
 // - 缺 Key 且调用方给定已选平台记录（票 03 的 AI 对话出口）：直达该记录；
-// - 找不到缺 Key 记录（列表在报错后被改动）：只打开设置抽屉，不弹编辑器；
-// - 无字幕空态「前往设置」：打开设置抽屉（语音转写分区）。
+// - 找不到缺 Key 记录（列表在报错后被改动）：只打开设置抽屉，不弹编辑器。
+//
+// 无字幕配置空态「前往设置」在票 04 升级为 ASR 设置直达（openReaderAsrSetup），
+// 由 tests/reader/asr-setup-resume.test.ts 覆盖。
 //
 // 手法：对齐 tests/ui/provider-editor-save.test.ts——真实 settings-panel + 消息总线桩。
 
@@ -168,16 +170,5 @@ describe("openReaderAiSetup：缺 Key → 编辑该记录并聚焦 Key", () => {
     expect(document.activeElement).toBe(
       dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")
     );
-  });
-});
-
-describe("openReaderTranscribeSettings：空态「前往设置」", () => {
-  it("打开设置抽屉（语音转写分区），不弹平台编辑器", async () => {
-    const { panel } = await mountPanel();
-    await panel.openReaderTranscribeSettings();
-    expect(document.querySelector(".provider-editor-dialog")).toBeNull();
-    const { state } = await import("../../extension/core/state.js");
-    expect(state.reader.readingSettingsExpanded).toBe(true);
-    expect(document.getElementById("biliscript-reading-settings-panel")?.hidden).toBe(false);
   });
 });

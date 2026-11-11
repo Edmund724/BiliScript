@@ -105,7 +105,7 @@ export interface CreateOverviewCoordinatorDeps {
     begin(intent: OverviewSetupResumeIntent): void;
     consume(): OverviewSetupResumeIntent | null;
   };
-  /** 无字幕配置空态「前往设置」的打开出口（装配方打开设置抽屉并定位转写分区） */
+  /** 无字幕配置空态「前往设置」的打开出口（装配方直达 ASR 平台编辑或自动转写开关，票 04） */
   openTranscribeSettings?: () => void;
   now(): number;
   setInterval: typeof setInterval;

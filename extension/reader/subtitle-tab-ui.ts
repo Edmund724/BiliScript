@@ -1034,6 +1034,13 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     withReader(null, (reader) => reader.noteManualReaderInteraction());
   });
   subtitleList.addEventListener("click", (event) => {
+    // 配置类无字幕空态「前往设置」（票 04）：与概览空态 / 对话拦截同一入口，
+    // 直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。
+    const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
+    if (actionNode instanceof HTMLElement && actionNode.dataset.subtitleAction === "asr-setup") {
+      void import("../ui/settings-panel.js").then(({ openReaderAsrSetup }) => openReaderAsrSetup());
+      return;
+    }
     withReader(null, (reader) => reader.onReadingSubtitleClick(event));
   });
 }
