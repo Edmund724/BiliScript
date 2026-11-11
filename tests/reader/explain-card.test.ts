@@ -533,6 +533,27 @@ describe("面板内解释卡片", () => {
     );
   });
 
+  it("工具循环 notice（搜索失败/额度用尽）渲染在卡片内，不写全局状态行", async () => {
+    aiMock.explainSelection.mockImplementationOnce(async (input: Record<string, unknown>) => {
+      (input.onNotice as ((notice: string) => void) | undefined)?.("联网搜索额度已用尽，本次仅按字幕回答。");
+      return "这是模型给出的解释。";
+    });
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")).not.toBeNull()
+    );
+    // 反馈留在卡片上下文：内容区呈现提示行
+    expect(explainCard().querySelector(".biliscript-reading-explain-card-notice")?.textContent).toBe(
+      "联网搜索额度已用尽，本次仅按字幕回答。"
+    );
+    // 全局状态行不写这条任务反馈（06 号票归属收口）
+    expect((document.getElementById(ids.readingStatus) as HTMLElement)?.textContent || "").not.toContain("额度");
+    expect(state.ui.messageText).not.toContain("额度");
+  });
+
   it("换选区重复打开：只留最后一张卡，过期回执不覆盖新内容", async () => {
     let resolveFirst: (text: string) => void = () => {};
     aiMock.explainSelection.mockImplementationOnce(

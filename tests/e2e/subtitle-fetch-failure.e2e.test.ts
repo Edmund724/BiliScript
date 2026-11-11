@@ -130,24 +130,27 @@ describe("① 风控 -352（真 x/v2/reply/main 报文）→ 出声，不静默�
     expect(calls).toEqual([FIXTURE.risk352._provenance.source]);
   });
 
-  it("refreshHotComments：真 -352 经真 fetch-json 跳板落到状态行（热评清空 + 病因文案）", async () => {
+  it("refreshHotComments：真 -352 经真 fetch-json 跳板落到 clip 失败字段（热评清空 + 病因文案）", async () => {
     const stub = stubChrome((url) => {
       if (url === FIXTURE.risk352._provenance.source) return FIXTURE.risk352;
       throw new Error(`unexpected fetch-json url: ${url}`);
     });
     core.clipState.setAid(String(AID));
     core.clipState.setHotComments([]);
+    core.clipState.setHotCommentsNotice("");
+    core.state.ui.setMessageText("");
 
     await subtitleCore.refreshHotComments();
 
     // 真 URL 经真 fetch-json 跳板发出（跳板回包是上面 stub 的真报文）
     expect(stub.sentUrls).toEqual([FIXTURE.risk352._provenance.source]);
     expect(core.clipState.hotComments).toEqual([]);
-    // 状态行文案的组装口径：refreshHotComments 用 getErrorMessage(error)，
-    // 于是可读病因后面还会跟一段码（当前状态：两者都带 -352）
-    expect(core.state.ui.messageText).toBe(
+    // 反馈归属（06 号票）：文案组装口径仍是 getErrorMessage（可读病因后跟一段码），
+    // 但落点从全局状态行迁到 clip.hotCommentsNotice——由概览 tab 的状态条呈现
+    expect(core.clipState.hotCommentsNotice).toBe(
       "热评没拿到（B 站风控校验失败（-352），拿不到热评目录 (code: -352)）：本次概览没有评论目录。"
     );
+    expect(core.state.ui.messageText).not.toContain("热评没拿到");
   });
 });
 
@@ -331,7 +334,7 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实报文对账
         `| aisubtitle-hdslb-403.json | ${cdn._provenance.source} | ${cdn.status} | ${cdn.contentType} | ${cdn.byteLength} | HTTP 403（HTML 正文不进文案） |`,
         "",
         "## 链路与归因",
-        `- 热评风控：真 \`{"code":-352,"message":"-352","ttl":1}\` → 真 fetchHotCommentsJson → \`${riskMessage}\` → 真 refreshHotComments 状态行 \`热评没拿到（${riskMessage} (code: ${risk.code})）：本次概览没有评论目录。\`（状态行用 getErrorMessage，可读病因后仍跟一段码）`,
+        `- 热评风控：真 \`{"code":-352,"message":"-352","ttl":1}\` → 真 fetchHotCommentsJson → \`${riskMessage}\` → 真 refreshHotComments 落 clip 失败字段 \`热评没拿到（${riskMessage} (code: ${risk.code})）：本次概览没有评论目录。\`（getErrorMessage 组装，可读病因后仍跟一段码；06 号票起由概览 tab 状态条呈现，不写全局状态行）`,
         `- 空字幕轨：真 code 0 / subtitles=[] / login_mid=${empty.data.login_mid} / need_login_subtitle=${empty.data.need_login_subtitle} → tracks=0、章节 ${emptyBundle.chapters.length} 条（${emptyBundle.chapters[0].title} … ${emptyBundle.chapters[emptyBundle.chapters.length - 1].title}）`,
         `- 两条来源都失败：真 -400 报文 → 请求顺序 主来源(wbi) → 次来源(v2)，最终归因 \`${fourMessage}\`（code -400，retryable=true）`,
         `- CDN 403：真 Tengine HTML（${cdn.byteLength} 字节）→ 传输叶抛 \`HTTP 403\`，HTML 不出现在文案里`,
@@ -341,8 +344,8 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实报文对账
         "- 字幕接口自身的 -352：本机对 player/v2、player/wbi/v2 多轮实测为 code 0 / -400，-352 只在 x/v2/reply/main 上复现，故风控用例落在合并热评链",
         "",
         "## 结论",
-        `- 风控（-352）不再静默折空数组，病因可读且状态行出声（真报文 + 真跳板）`,
-        `- 空轨与风控在同一条链上是两种结局：前者 tracks=[] 照常收章节，后者抛错 → 状态行常驻`,
+        `- 风控（-352）不再静默折空数组，病因可读且落 clip 失败字段（真报文 + 真跳板），概览 tab 状态条呈现`,
+        `- 空轨与风控在同一条链上是两种结局：前者 tracks=[] 照常收章节，后者抛错 → 概览 tab 状态条提示`,
         `- CDN 403 的归因只有状态码，238 字节 HTML 不泄漏到用户文案`,
         ""
       ].join("\n")

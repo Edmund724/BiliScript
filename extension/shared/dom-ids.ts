@@ -13,6 +13,10 @@ export const ids = {
   // 删除——文摘面板是唯一界面，状态/消息写入 #biliscript-reading-status。
   readingView: "biliscript-reading-view",
   readingStatus: "biliscript-reading-status",
+  // 状态行的读屏镜像 live region：阅读视图根节点常驻 aria-hidden="true"（整个面板
+  // 不进无障碍树），面板内的 role="status" 不会被朗读；本节点挂在 document.body
+  // 下、视觉隐藏，由 core/reading-status-line.js 与可见状态行同口径同步文本。
+  readingStatusLive: "biliscript-reading-status-live",
   readingCloseBtn: "biliscript-reading-close-btn",
   readingThemeSelect: "biliscript-reading-theme-select",
   readingSettingsBtn: "biliscript-reading-settings-btn",

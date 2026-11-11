@@ -25,7 +25,6 @@ import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
 import { resolveWebSearchRuntime } from "../search/search-runtime.js";
-import { setMessage } from "../core/ui-status.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
 import { setPendingExplainIntent } from "./explain-intent.js";
@@ -54,6 +53,8 @@ interface ExplainCardState {
   runId: number;
   /** 联网搜索进行中（loading 态文案区分「正在解释」与「正在联网搜索」） */
   searching: boolean;
+  /** 工具循环给出的提示（搜索失败原因 / 额度用尽）：渲染在卡片内容区，不借全局状态条 */
+  notice: string;
 }
 
 const card: ExplainCardState = {
@@ -67,7 +68,8 @@ const card: ExplainCardState = {
   error: "",
   controller: null,
   runId: 0,
-  searching: false
+  searching: false,
+  notice: ""
 };
 
 export interface ReaderExplainCardPayload {
@@ -112,6 +114,11 @@ function renderCard(): void {
           <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>
         `
         : `<div class="biliscript-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
+  // 工具提示（搜索失败原因 / 额度用尽）留在卡片里随答案一起呈现（回答不因搜索
+  // 失败中断）；空串不渲染节点。
+  const noticeHtml = card.notice
+    ? `<div class="biliscript-reading-explain-card-notice">${escapeHtml(card.notice)}</div>`
+    : "";
 
   root.innerHTML = `
     <div class="biliscript-reading-explain-card-mask" data-explain-card-action="close"></div>
@@ -121,7 +128,7 @@ function renderCard(): void {
         <button type="button" class="biliscript-reading-explain-card-close" data-explain-card-action="close" title="关闭" aria-label="关闭">×</button>
       </header>
       <div class="biliscript-reading-explain-card-quote">${escapeHtml(card.selection)}</div>
-      <div class="biliscript-reading-explain-card-content">${bodyHtml}</div>
+      <div class="biliscript-reading-explain-card-content">${bodyHtml}${noticeHtml}</div>
       <footer class="biliscript-reading-explain-card-foot">
         <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="ask-chat">去对话追问</button>
       </footer>
@@ -159,6 +166,7 @@ function startExplainRequest(): void {
   card.text = "";
   card.error = "";
   card.searching = false;
+  card.notice = "";
   renderCard();
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -189,8 +197,8 @@ function startExplainRequest(): void {
         body: getClipBody(),
         signal: controller?.signal,
         webSearch,
-        // 搜索中/完成切换 loading 文案；notice（搜索失败原因 / 额度用尽）走
-        // 阅读视图状态条——卡片本身无 notice 通道，回答不因搜索失败中断。
+        // 搜索中/完成切换 loading 文案；notice（搜索失败原因 / 额度用尽）留在
+        // 卡片内容区呈现（本模块的 notice 通道），回答不因搜索失败中断。
         onSearchStatus: (payload) => {
           if (runId !== card.runId) {
             return;
@@ -202,7 +210,8 @@ function startExplainRequest(): void {
         },
         onNotice: (notice) => {
           if (runId === card.runId) {
-            setMessage(notice);
+            card.notice = String(notice || "");
+            renderCard();
           }
         }
       });
@@ -260,6 +269,7 @@ export function closeReaderExplainCard(): void {
   card.text = "";
   card.error = "";
   card.searching = false;
+  card.notice = "";
   renderCard();
 }
 

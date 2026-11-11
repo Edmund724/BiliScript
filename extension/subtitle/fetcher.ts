@@ -150,6 +150,7 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   slot.clearAllForVideoSwitch({ keepFetchState });
   clipState.setChapters([]);
   clipState.setHotComments([]);
+  clipState.setHotCommentsNotice("");
   invalidateDerived();
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
   notifyReaderPresenter({ kind: "reset" });

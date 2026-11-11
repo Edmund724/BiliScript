@@ -344,6 +344,23 @@
   line-height: 1.4;
 }
 
+/* 状态行的读屏镜像 live region（core/reading-status-line.js 按 id 取或建，挂在
+ * document.body 下）：阅读视图根节点常驻 aria-hidden，面板内文案不进无障碍树，
+ * 镜像节点走经典 sr-only 配方——视觉隐藏但保留在无障碍树内，aria-live="polite"
+ * 在文案变化时礼貌播报（clip 双写覆盖新旧引擎）。 */
+.biliscript-reading-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
  * 对话工具键（历史对话 / 新会话）脱流绝对定位在行右侧，不占据弹性流，
  * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
@@ -1324,6 +1341,14 @@
   display: block;
   padding-bottom: 10px;
   color: var(--biliscript-reader-accent);
+}
+
+/* 工具循环提示（搜索失败原因 / 额度用尽）：注脚档灰字，留在卡片里随答案呈现 */
+.biliscript-reading-explain-card-notice {
+  padding-top: 10px;
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.5;
+  color: var(--biliscript-reader-muted);
 }
 
 /* loading 转圈：与概览/转写横幅同族的细环动画 */

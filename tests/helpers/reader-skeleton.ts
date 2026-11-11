@@ -89,6 +89,9 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
 
   const readingStatus = doc.createElement("p");
   readingStatus.id = ids.readingStatus;
+  readingStatus.setAttribute("role", "status");
+  readingStatus.setAttribute("aria-live", "polite");
+  readingStatus.setAttribute("aria-atomic", "true");
   scriptPanel.appendChild(readingStatus);
 
   const readingMeta = doc.createElement("div");

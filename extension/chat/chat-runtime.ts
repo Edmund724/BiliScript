@@ -366,6 +366,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       continueAssistant(historyIndex, node);
     },
     onExport: exportAssistant,
+    onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
     onSpeak: (button, text) => speech.toggle(button, text),
     onClear: () => speech.stop(),
     isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
