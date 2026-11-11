@@ -15,8 +15,9 @@
 //                                     联动共用同一投影点
 //   provider-editor-catalog.ts        AI 平台「模型目录」内联行（行模板 / 草稿增删 /
 //                                     空态 / 红字错误 / 行级连通测试）
-//   provider-editor-fetch-dialog.ts   「获取可用模型」勾选弹窗（骨架 / 搜索 / 全选
-//                                     三态 / 已添加置灰 / 失败原位重试）
+//   provider-editor-fetch-dialog.ts   「获取可用模型」内联子视图（骨架 / 搜索 /
+//                                     全选三态 / 已添加置灰 / 失败原位重试；
+//                                     票 09 起渲染在编辑器 Dialog 内，无第二张遮罩）
 //   provider-editor-modal.ts          Modal 本体（打开 / 关闭与 dirty 保护 / 模板
 //                                     布局 / 挂载与全局监听 / 事件委托接线 + 保存 /
 //                                     删除 / 测试连接三条动作）
