@@ -562,6 +562,12 @@
   cursor: grabbing;
 }
 
+.live-overlay-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .live-overlay-status-capsule {
   display: inline-flex;
   align-items: center;
@@ -718,29 +724,6 @@
   color: rgb(255 205 120);
   font-size: var(--biliscript-font-size-xs, 11px);
   line-height: 1.5;
-}
-
-.live-overlay-audio-settings-btn {
-  min-height: 30px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--live-overlay-control-radius);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: rgb(255 255 255 / 0.1);
-  color: var(--biliscript-live-glass-ink);
-  font: inherit;
-  font-size: var(--biliscript-font-size-xs, 11px);
-  text-align: left;
-  cursor: pointer;
-}
-
-.live-overlay-audio-settings-btn:hover {
-  background: rgb(255 255 255 / 0.18);
-}
-
-.live-overlay-audio-settings-btn:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
-  outline-offset: 2px;
 }
 
 .live-overlay-pop-item {

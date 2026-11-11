@@ -69,7 +69,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let shareAudioSwitchEl: HTMLButtonElement | null = null;
   let shareAudioStatusEl: HTMLElement | null = null;
   let voicePrioritySwitchEl: HTMLButtonElement | null = null;
-  let audioSettingsBtnEl: HTMLButtonElement | null = null;
+  let headerSettingsBtnEl: HTMLButtonElement | null = null;
   let minBtnEl: HTMLButtonElement | null = null;
   let closeBtnEl: HTMLButtonElement | null = null;
   let failureCardEl: HTMLElement | null = null;
@@ -256,9 +256,17 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     overlay.setAttribute("inert", "");
     overlay.innerHTML = `
       <div class="live-overlay-header">
-        <div class="live-overlay-status-capsule">
-          <span class="live-overlay-status-dot" aria-hidden="true"></span>
-          <span class="live-overlay-status-text">正在伴看</span>
+        <div class="live-overlay-header-left">
+          <div class="live-overlay-status-capsule">
+            <span class="live-overlay-status-dot" aria-hidden="true"></span>
+            <span class="live-overlay-status-text">正在伴看</span>
+          </div>
+          <button type="button" class="live-overlay-icon-btn live-overlay-header-settings-btn" title="伴看平台与密钥" aria-label="伴看平台与密钥">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
         </div>
         <div class="live-overlay-header-actions">
           <button type="button" class="live-overlay-icon-btn live-overlay-mic-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
@@ -308,7 +316,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
                 <span>语音优先</span>
                 <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先" title="语音优先"></button>
               </div>
-              <button type="button" class="live-overlay-audio-settings-btn">伴看平台与密钥</button>
             </div>
           </div>
           <button type="button" class="live-overlay-icon-btn live-overlay-min-btn" title="最小化伴看浮窗" aria-label="最小化伴看浮窗" aria-expanded="true" aria-controls="biliscript-fullscreen-live-overlay">
@@ -394,7 +401,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     shareAudioSwitchEl = overlay.querySelector(".live-overlay-share-switch");
     shareAudioStatusEl = overlay.querySelector(".live-overlay-audio-status");
     voicePrioritySwitchEl = overlay.querySelector(".live-overlay-priority-switch");
-    audioSettingsBtnEl = overlay.querySelector(".live-overlay-audio-settings-btn");
+    headerSettingsBtnEl = overlay.querySelector(".live-overlay-header-settings-btn");
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
     closeBtnEl = overlay.querySelector(".live-overlay-close-btn");
     failureCardEl = overlay.querySelector(".live-overlay-failure-card");
@@ -483,7 +490,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       }
     });
 
-    audioSettingsBtnEl?.addEventListener("click", (e) => {
+    headerSettingsBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
       audioPopoverHandle?.close(false);
       deps.onOpenLiveSettings?.("live");

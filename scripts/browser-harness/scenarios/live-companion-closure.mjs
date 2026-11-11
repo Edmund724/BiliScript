@@ -592,8 +592,7 @@ try {
   });
   if (results.fullscreenRequest.exceptionDetails) throw new Error(`全屏请求被拒绝：${JSON.stringify(results.fullscreenRequest.exceptionDetails)}`);
   await waitFor("真实全屏", () => page.cdp.evaluate(`Boolean(document.fullscreenElement)`));
-  await clickCenter(page, ".live-overlay-audio-btn");
-  await clickCenter(page, ".live-overlay-audio-settings-btn");
+  await clickCenter(page, ".live-overlay-header-settings-btn");
   await waitFor("全屏打开伴看设置", () => page.cdp.evaluate(`!document.fullscreenElement && document.getElementById("biliscript-reading-view")?.classList.contains("open") && document.querySelector(".live-provider-row")`));
   results.fullscreenSettings = await page.cdp.evaluate(`(() => ({
     fullscreen: Boolean(document.fullscreenElement),
@@ -701,8 +700,7 @@ try {
   check("V5c-text-model-does-not-open-panel-in-fullscreen", results.fullscreenDelegation.fullscreen && !results.fullscreenDelegation.readerOpen, results.fullscreenDelegation);
   await screenshot(page.cdp, path.join(OUT_DIR, "10-fullscreen-text-tool-no-panel.png"));
   await page.cdp.evaluate("document.exitFullscreen()");
-  await clickCenter(page, ".live-overlay-audio-btn");
-  await clickCenter(page, ".live-overlay-audio-settings-btn");
+  await clickCenter(page, ".live-overlay-header-settings-btn");
   await waitFor("刷新前恢复对话入口", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") && document.querySelector(".live-provider-row")`));
   await clickCenter(page, "#biliscript-reading-settings-btn");
   await clickCenter(page, "#biliscript-reading-tab-chat");
@@ -768,8 +766,7 @@ try {
   await clickCenter(page, ".biliscript-live-room-settings-close");
   await clickCenter(page, ".biliscript-live-room-toggle");
   await waitConnected(page);
-  await clickCenter(page, ".live-overlay-audio-btn");
-  await clickCenter(page, ".live-overlay-audio-settings-btn");
+  await clickCenter(page, ".live-overlay-header-settings-btn");
   await waitFor("已连接直播设置", () => page.cdp.evaluate(`document.getElementById("biliscript-live-room-settings")?.open === true && document.querySelectorAll(".live-provider-row").length === 2`));
   const socketsBeforeProviderSwitch = await socketSummary(offscreen);
   await clickCenter(page, '.live-provider-row[data-provider-id="gemini-fixture"] .live-provider-active-radio');

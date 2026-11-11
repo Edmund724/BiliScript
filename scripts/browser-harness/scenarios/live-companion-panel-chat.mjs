@@ -639,15 +639,14 @@ try {
   await clickCenter(".video-placeholder");
   await page.cdp.evaluate(`delete document.querySelector('.live-overlay-audio-popover').showPopover`);
 
-  await clickCenter(".live-overlay-audio-btn");
-  await clickCenter(".live-overlay-audio-settings-btn");
+  await clickCenter(".live-overlay-header-settings-btn");
   const settingsEntryState = await page.cdp.evaluate(`(() => ({
     targets: window.__liveSettingsTargets.slice(),
     hidden: document.querySelector('.live-overlay-audio-popover').hidden,
     liveState: window.__mockLiveController.getState()
   }))()`);
   check(
-    "C2i-audio-popover-opens-live-provider-settings",
+    "C2i-header-settings-btn-opens-live-provider-settings",
     settingsEntryState.targets.length === 1 && settingsEntryState.targets[0] === "live" && settingsEntryState.hidden && settingsEntryState.liveState === "connected",
     settingsEntryState
   );

@@ -340,7 +340,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
-  it("音频弹层提供伴看平台与密钥入口", () => {
+  it("浮窗左侧提供伴看平台与密钥设置按钮入口", () => {
     const onOpenLiveSettings = vi.fn();
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
@@ -349,12 +349,12 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show({ forceExpand: true });
     const root = overlay.getElement()!;
-    const settingsButton = root.querySelector<HTMLButtonElement>(".live-overlay-audio-settings-btn")!;
-    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    const settingsButton = root.querySelector<HTMLButtonElement>(".live-overlay-header-settings-btn")!;
+    expect(settingsButton).toBeTruthy();
+    expect(root.querySelector(".live-overlay-audio-popover .live-overlay-audio-settings-btn")).toBeNull();
     settingsButton.click();
 
     expect(onOpenLiveSettings).toHaveBeenCalledWith("live");
-    expect(document.querySelector<HTMLElement>(".live-overlay-audio-popover")?.hidden).toBe(true);
     overlay.dispose();
   });
 
