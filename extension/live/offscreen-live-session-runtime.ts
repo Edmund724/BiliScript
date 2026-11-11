@@ -4,7 +4,7 @@
 // 1. WebSocket 代际防串音守卫、握手定时器与基于会话恢复句柄（sessionId / resumption handle）的自动重连状态机
 // 2. 页面工具与内置 web_search 的统一生命周期（activeToolCalls、独立超时、轮次配额、打断取消）
 // 3. MossAudioPlayer 播放队列、打断协调、视频音量压低（duck_video）与发言状态（speaking_state）同步
-// 4. 发言/播放期上下文更新暂存（pendingVideoContext）与回合空闲自动下发
+// 4. 同片内容更新在发言/播放期暂存；换片立即作废旧轮次并下发最新上下文
 // 通过窄协议适配器接缝（LiveWireProtocolAdapter）分别接入 MOSS tagged-v1 与 Gemini BidiGenerateContent。
 
 import { serializeSearchResults } from "../ai/tool-loop.js";
@@ -249,6 +249,12 @@ type ActiveRuntimeToolCall =
       timer: ReturnType<typeof setTimeout>;
     };
 
+function videoContextIdentityKey(context: MossLiveSessionContext | null): string {
+  if (!context) return "";
+  if ("kind" in context) return `live-room:${context.roomId}`;
+  return `video:${context.bvid}:${context.cid}:${context.pageIndex}`;
+}
+
 export class OffscreenLiveSessionRuntime {
   protected ws: WebSocket | null = null;
   protected state: LiveSessionClientState = "idle";
@@ -260,6 +266,8 @@ export class OffscreenLiveSessionRuntime {
   protected readonly activeToolCalls = new Map<string, ActiveRuntimeToolCall>();
   protected readonly handledToolCallIds = new Set<string>();
   protected readonly webSearchCallCounts = new Map<string, number>();
+  protected readonly discardedTurnKeys = new Set<string>();
+  protected suppressAdapterTranscripts = false;
   protected wsUrl: string;
   protected readonly handshakeTimeoutMs: number;
   protected readonly pageToolTimeoutMs: number;
@@ -268,6 +276,7 @@ export class OffscreenLiveSessionRuntime {
   protected readonly options: OffscreenLiveSessionRuntimeOptions;
   protected readonly adapter: LiveWireProtocolAdapter;
   protected videoContext: MossLiveSessionContext | null;
+  protected videoIdentityKey = "";
   protected lastSentContextKey = "";
   protected pendingVideoContext: MossLiveSessionContext | null = null;
   protected hasPendingContext = false;
@@ -298,6 +307,7 @@ export class OffscreenLiveSessionRuntime {
     this.options = options;
     this.wsUrl = options.wsUrl || adapter.defaultWsUrl;
     this.videoContext = options.videoContext || null;
+    this.videoIdentityKey = videoContextIdentityKey(this.videoContext);
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS;
     this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS;
     this.overviewToolTimeoutMs =
@@ -615,7 +625,9 @@ export class OffscreenLiveSessionRuntime {
     this.hasPendingContext = false;
     this.pendingVideoContext = null;
     this.handledToolCallIds.clear();
+    this.discardedTurnKeys.clear();
     this.activeTurnKey = null;
+    this.videoIdentityKey = videoContextIdentityKey(this.videoContext);
     this.socketGeneration += 1;
     const currentGeneration = this.socketGeneration;
     this.adapter.onConnectReset(currentGeneration);
@@ -749,7 +761,13 @@ export class OffscreenLiveSessionRuntime {
         });
       },
       emitTranscript: (event, options) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.suppressAdapterTranscripts) return;
+        if (
+          (event.kind === "output.updated" ||
+            event.kind === "output.done" ||
+            event.kind === "response.ended") &&
+          this.discardedTurnKeys.has(this.getTurnKey(event.runId, event.turnId))
+        ) return;
         if (event.kind === "input.updated" || event.kind === "input.done") {
           if (options?.duckInput !== false) {
             this.inputDucked = true;
@@ -767,7 +785,9 @@ export class OffscreenLiveSessionRuntime {
         this.emit({ type: "transcript", event });
       },
       enqueueAudioContext: (chunkId, runId, turnId) => {
-        if (!isCurrent()) return false;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) {
+          return false;
+        }
         const accepted = this.audioPlayer.enqueueAudioContext(chunkId, runId, turnId, isCurrent);
         if (accepted) {
           this.activateTurn(runId, turnId);
@@ -779,19 +799,19 @@ export class OffscreenLiveSessionRuntime {
         this.audioPlayer.enqueueAudioFrame(pcmBuffer, isCurrent);
       },
       markResponseEnded: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.markResponseEnded(runId, turnId);
       },
       handleAudioDone: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.handleAudioDone(runId, turnId);
       },
       handleAudioStop: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.handleAudioStop(runId, turnId);
       },
       finishActiveTurn: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.finishActiveTurn(runId, turnId);
       },
       startDelegation: (delegation) => {
@@ -803,11 +823,11 @@ export class OffscreenLiveSessionRuntime {
         this.emit({ type: "delegation_cancelled", delegationId });
       },
       startPageToolCall: (rawCall, runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.startPageToolCall(rawCall, runId, turnId, generation);
       },
       startFunctionCall: (params) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(params.runId, params.turnId))) return;
         this.handleFunctionCall(params, generation);
       },
       cancelToolCallsByIds: (ids) => {
@@ -1187,11 +1207,23 @@ export class OffscreenLiveSessionRuntime {
   }
 
   updateVideoContext(context: MossLiveSessionContext | null): void {
+    const nextIdentityKey = videoContextIdentityKey(context);
+    const identityChanged = nextIdentityKey !== this.videoIdentityKey;
+    this.videoIdentityKey = nextIdentityKey;
     this.videoContext = context;
     this.adapter.onVideoContextUpdated?.(context);
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
     if (contextKey === this.lastSentContextKey) return;
+    if (identityChanged) {
+      this.hasPendingContext = false;
+      this.pendingVideoContext = null;
+      this.interrupt(true);
+      this.audioPlayer.reset();
+      this.webSearchCallCounts.clear();
+      this.flushVideoContext(context);
+      return;
+    }
     if (this.isSpeaking() || this.activeTurnKey !== null || this.audioPlayer.isPlaying()) {
       this.pendingVideoContext = context;
       this.hasPendingContext = true;
@@ -1216,19 +1248,29 @@ export class OffscreenLiveSessionRuntime {
     );
   }
 
-  interrupt(): void {
+  interrupt(discardInterruptedTranscripts = false): void {
     if (this.disposed || this.state !== "connected") return;
     this.cancelAllToolCalls();
 
     const activeTurnBeforeStop = this.activeTurnKey;
+    if (discardInterruptedTranscripts && activeTurnBeforeStop) {
+      this.discardedTurnKeys.add(activeTurnBeforeStop);
+    }
     const callbacks = this.createRuntimeCallbacks(this.socketGeneration);
-    const adapterInterruptedTurn = this.adapter.onBeforeInterrupt?.(callbacks) ?? null;
+    this.suppressAdapterTranscripts = discardInterruptedTranscripts;
+    let adapterInterruptedTurn: { runId: string; turnId: string } | null;
+    try {
+      adapterInterruptedTurn = this.adapter.onBeforeInterrupt?.(callbacks) ?? null;
+    } finally {
+      this.suppressAdapterTranscripts = false;
+    }
 
     const interruptedTurns = this.audioPlayer.interruptActiveTurns();
     const emittedTurnKeys = new Set<string>();
 
     for (const turn of interruptedTurns) {
       const key = this.getTurnKey(turn.runId, turn.turnId);
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
       emittedTurnKeys.add(key);
       this.emit({
         type: "transcript",
@@ -1242,6 +1284,7 @@ export class OffscreenLiveSessionRuntime {
 
     if (adapterInterruptedTurn) {
       const key = this.getTurnKey(adapterInterruptedTurn.runId, adapterInterruptedTurn.turnId);
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
       if (!emittedTurnKeys.has(key)) {
         emittedTurnKeys.add(key);
         this.emit({
@@ -1257,6 +1300,7 @@ export class OffscreenLiveSessionRuntime {
 
     const fallbackTurnKey = this.activeTurnKey || activeTurnBeforeStop;
     if (fallbackTurnKey && !emittedTurnKeys.has(fallbackTurnKey)) {
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(fallbackTurnKey);
       const [runId, turnId] = fallbackTurnKey.split(":");
       if (runId && turnId) {
         this.emit({

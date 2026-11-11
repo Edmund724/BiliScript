@@ -213,4 +213,36 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline);
     chat.closeChatSession();
   });
+
+  it("切 P 立即使字幕等待中的旧问题失效，新片 asr-done 不再发送旧问题", async () => {
+    seedReadyContext();
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const { ids } = await import("../../extension/reader/state.js");
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const chromeStub = window.chrome as unknown as { runtime: { connect: Sendstub } };
+
+    input.value = "旧分 P 的等待问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true
+    }));
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    expect(chromeStub.runtime.connect).not.toHaveBeenCalled();
+
+    dispatchClipChange(2);
+    state.clip.cid = "102";
+    state.clip.title = "第二分 P";
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "新分 P 字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(chromeStub.runtime.connect).not.toHaveBeenCalled();
+    chat.closeChatSession();
+  });
 });

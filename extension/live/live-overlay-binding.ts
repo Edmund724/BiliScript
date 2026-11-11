@@ -74,6 +74,7 @@ export type BoundLiveControllerCallbacks = Pick<
   LiveChatControllerDeps,
   | "onVadStateChange"
   | "onTranscript"
+  | "onVideoContextSwitch"
   | "onReconnecting"
   | "onStateChange"
   | "onVolumeChange"
@@ -183,6 +184,14 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     overlay?.updateTranscript(event);
   }
 
+  function handleVideoContextSwitch(context: import("./moss-live-protocol.js").MossLiveSessionContext | null): void {
+    if (context) {
+      overlay?.showVideoContextSwitch(context);
+    } else {
+      overlay?.clearMessages();
+    }
+  }
+
   function handleReconnecting(): void {
     overlay?.syncState(options.getLiveController()?.getState(), true);
   }
@@ -254,6 +263,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         handleVadChange(active);
       },
       onTranscript: handleTranscript,
+      onVideoContextSwitch: handleVideoContextSwitch,
       onReconnecting: (info) => {
         hooks?.onReconnecting?.(info);
         handleReconnecting();

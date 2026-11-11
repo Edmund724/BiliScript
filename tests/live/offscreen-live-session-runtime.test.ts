@@ -13,7 +13,8 @@ import { OffscreenGeminiLiveClient } from "../../extension/live/offscreen-gemini
 import { OffscreenMossLiveClient } from "../../extension/live/offscreen-moss-client.js";
 import type {
   MossLiveServerEvent,
-  MossLiveSessionContext
+  MossLiveSessionContext,
+  MossLiveTranscriptEvent
 } from "../../extension/live/moss-live-protocol.js";
 
 class FakeWebSocket {
@@ -187,12 +188,10 @@ describe("OffscreenLiveSessionRuntime + FakeWireAdapter seam contract", () => {
     });
     expect(runtime.isSpeaking()).toBe(true);
 
-    // 3. Context update arrives while speaking -> deferred until turn completes
+    // 3. Same-video overview refresh arrives while speaking -> deferred until turn completes
     const nextContext: MossLiveSessionContext = {
       ...sampleContext,
-      cid: "20",
-      pageIndex: 2,
-      pageTitle: "Part 2"
+      title: "架构加深测试（概览已更新）"
     };
     runtime.updateVideoContext(nextContext);
     expect(adapter.contextUpdates).toHaveLength(0);
@@ -298,9 +297,11 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
     expect(client.getReconnectAttempts()).toBe(0);
   });
 
-  it("defers MOSS context_update while AI is speaking and flushes when response ends", () => {
+  it("keeps the MOSS socket, interrupts the old turn, and drops its late output on a video switch", () => {
+    const transcripts: MossLiveTranscriptEvent[] = [];
     const client = new OffscreenMossLiveClient({
-      videoContext: sampleContext
+      videoContext: sampleContext,
+      onTranscript: (event) => transcripts.push(event)
     });
 
     client.connect();
@@ -311,7 +312,7 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
     ws.simulateMessage(
       JSON.stringify({
         action: "output.transcript.updated",
-        data: { text: "正在说话", run_id: "r1", turn_id: "t1" }
+        data: { text: "旧视频回答", run_id: "r1", turn_id: "t1" }
       })
     );
     expect(client.isSpeaking()).toBe(true);
@@ -324,18 +325,26 @@ describe("Unified runtime behavior across Gemini and MOSS", () => {
       pageTitle: "P2"
     };
     client.updateVideoContext(updatedContext);
-    // Deferred while speaking
-    expect(ws.sentData).toHaveLength(0);
 
-    // Flushed automatically once turn ends
-    ws.simulateMessage(
-      JSON.stringify({
-        action: "response.ended",
-        data: { status: "completed", run_id: "r1", turn_id: "t1" }
-      })
-    );
-    expect(ws.sentData).toHaveLength(1);
-    expect(JSON.parse(String(ws.sentData[0])).action).toBe("session.update");
-    expect(JSON.parse(String(ws.sentData[0])).session.instructions).toContain("CID：99");
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(client.getState()).toBe("connected");
+    expect(client.isSpeaking()).toBe(false);
+    const contextFrames = ws.jsonFrames().filter((frame) => frame.action === "session.update");
+    expect(contextFrames).toHaveLength(1);
+    expect(contextFrames[0].session.instructions).toContain("CID：99");
+
+    ws.simulateMessage(JSON.stringify({
+      action: "output.transcript.updated",
+      data: { text: "旧视频迟到回答", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "response.ended",
+      data: { status: "completed", run_id: "r1", turn_id: "t1" }
+    }));
+    expect(transcripts.map((event) => event.kind)).toEqual([
+      "output.updated",
+      "response.interrupted"
+    ]);
+    expect(ws.jsonFrames().filter((frame) => frame.action === "session.update")).toHaveLength(1);
   });
 });
