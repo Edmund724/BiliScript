@@ -142,6 +142,13 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(testrow.querySelector<HTMLButtonElement>(".provider-editor-test")!.title).toBe(
       "会真实发起一次搜索，占用一次平台额度"
     );
+    // 票 10：真实调用与可能消耗是常驻可见说明，不只藏在 title 里
+    const testButton = testrow.querySelector<HTMLButtonElement>(".provider-editor-test")!;
+    const hint = testrow.querySelector<HTMLElement>(".provider-editor-test-hint")!;
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toContain("真实发起一次搜索");
+    expect(hint.textContent).toContain("占用一次平台额度");
+    expect(testButton.getAttribute("aria-describedby")).toBe(hint.id);
   });
 
   it("free-quota 无 Key：「API Key」+ required；切回 keyless 摘 required（sync 与模板同源）", async () => {
@@ -286,6 +293,43 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
       apiKey: "sk-stored"
     });
     expect(statusNode(dialog).textContent).toBe("连接成功 · 1 条结果");
+    expect(sentTypes(sent)).not.toContain("save-settings");
+  });
+
+  it("测试读取当前未保存草稿的地址；成功只报结果，不自动保存", async () => {
+    const item = {
+      id: "search_exa",
+      presetId: "exa",
+      name: "Exa",
+      type: "exa",
+      baseUrl: "https://api.exa.ai",
+      enabled: true,
+      hasSavedKey: true
+    };
+    const { sent, host } = await mountPanel({
+      "search-providers-list": () => ({ ok: true, providers: [item] })
+    });
+    const row = host.querySelector<HTMLElement>(
+      '#searchProvidersList .search-provider-row:not([data-provider-id="__smart__"])'
+    )!;
+    const dialog = await openSearchEditor(host, row.querySelector(".provider-row-edit")!);
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      searchProviderKeys: { search_exa: "sk-stored" }
+    });
+    // 未保存草稿：地址改成另一个端点，测试必须用草稿值而不是已存记录
+    fillBaseUrl(dialog, "https://draft.exa.ai");
+    executeWebSearchMock.mockResolvedValueOnce({ results: [results[0]], platform: "Exa" });
+
+    await clickTest(dialog);
+
+    expect(executeWebSearchMock).toHaveBeenCalledTimes(1);
+    expect(executeWebSearchMock.mock.calls[0][0]).toMatchObject({
+      type: "exa",
+      baseUrl: "https://draft.exa.ai",
+      apiKey: "sk-stored"
+    });
+    expect(statusNode(dialog).textContent).toBe("连接成功 · 1 条结果");
+    expect(sentTypes(sent).filter((type) => type.endsWith("-providers-save"))).toEqual([]);
     expect(sentTypes(sent)).not.toContain("save-settings");
   });
 

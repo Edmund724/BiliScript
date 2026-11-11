@@ -1521,6 +1521,23 @@ describe("provider-editor：「获取可用模型」内联子视图与选择保�
     expect(subview.querySelector(".provider-editor-fetch-confirm")).toBeTruthy();
   });
 
+  it("打开子视图即移焦到子视图，Esc 只退回编辑器并把焦点还给「获取可用模型」", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
+    });
+    const { dialog } = await openFetchSubview(host);
+
+    // 焦点进入当前层（子视图返回键），不留在下层编辑器
+    expect(document.activeElement).toBe(document.querySelector(".provider-editor-fetch-back"));
+    // 子视图在 Dialog 内：编辑器的焦点陷阱仍约束整个层
+    expect(document.querySelector(".provider-editor-fetch-dialog")!.closest(".provider-editor-dialog")).toBe(dialog);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-fetch"));
+  });
+
   it("先选 A、过滤选 B：选择集跨搜索过滤保留，确认加入全量已选", async () => {
     const { host } = await mountPanel({
       "ai-providers-models": () => ({ ok: true, models: ["model-a", "model-b", "model-c"] })
@@ -1667,9 +1684,10 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
 
 // M9 校验态现代化：字段级错误态不再走手写 input-error 类，改为原生约束
 //（required / pattern）+ reader-settings-providers.css 的 :user-invalid/:user-valid
-// CSS 校验态——浏览器只在用户提交过值（blur）或尝试提交后才进入
-// :user-invalid，天然满足「仅在用户交互后展示错误」。这里锁定属性面：
-// 保存链报文语义与校验口径零改动（JS validators 仍是权威，上方用例覆盖）。
+// CSS 校验态；提交后的字段错误定位（aria-invalid + 字段文案 + 聚焦首个无效字段）
+// 收在 provider-editor-validation（tests/ui/provider-editor-form.test.ts 覆盖）。
+// 这里锁定原生约束属性面：保存链报文语义与校验口径零改动（JS validators 仍是
+// 权威，上方用例覆盖）。
 describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验态的属性面）", () => {
   it("新增 AI（custom 预设）：baseUrl required+pattern、Key required；模型目录行无原生必填（空目录合法 Q13）", async () => {
     const { host } = await mountPanel();
@@ -1718,19 +1736,18 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.required).toBe(true);
   });
 
-  it("可达性桥：blur/input 同步 aria-invalid 不抛错；jsdom 无 :user-invalid 判定时属性面保持干净", async () => {
+  it("未提交校验时输入 / blur 不挂 aria-invalid（字段错误态由提交后的校验维护）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
     const baseUrl = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
 
-    // 有效值 input + blur：桥照常运行（Chrome 上 matches(":user-invalid") 为 false
-    // → 摘属性；jsdom 恒 false，负向路径一致）
+    // 有效值 input + blur：未提交校验，不产生字段错误属性
     baseUrl.value = "https://api.example.com/v1";
     baseUrl.dispatchEvent(new Event("input", { bubbles: true }));
     baseUrl.dispatchEvent(new FocusEvent("blur"));
     expect(baseUrl.getAttribute("aria-invalid")).toBeNull();
 
-    // 非输入控件（dialog 本身、按钮）不进桥
+    // 非输入控件（dialog 本身、按钮）不参与字段错误
     expect(() => dialog.dispatchEvent(new FocusEvent("blur"))).not.toThrow();
     expect(() => dialog.querySelector(".provider-editor-save")!.dispatchEvent(new Event("input", { bubbles: true }))).not.toThrow();
     expect(dialog.querySelector(".provider-editor-save")!.getAttribute("aria-invalid")).toBeNull();

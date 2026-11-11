@@ -7,8 +7,11 @@
 //
 // 结构契约沿用 provider-editor Modal 的先例（reader/explain-card.ts 一脉）：
 // mask 与 dialog 是宿主直下的兄弟节点，点击经宿主委托分发；Esc 走 document
-// capture；焦点进对话框。语义差异：确认是轻量单帧弹层，不做 dirty 快照，
-// 遮罩点击 / Esc / 抽屉收起一律按「取消」结算。
+// capture；焦点进对话框并由 focus-scope 约束在层内。语义差异：确认是轻量单帧
+// 弹层，不做 dirty 快照，遮罩点击 / Esc / 抽屉收起一律按「取消」结算。
+//
+// 可访问性：可见标题经 aria-labelledby、说明经 aria-describedby 关联；默认焦点
+// 落在「取消」而不是破坏性的确认键。关闭/取消后焦点归还打开前仍有效的控件。
 //
 // 与 provider-editor 叠层关系：确认可能从编辑器 Modal（头部删除）之上打开，
 // 宿主 z-index 高于 provider-editor-host（50 > 40）；编辑器的文档级
@@ -18,9 +21,12 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
+import { createFocusScope, type FocusScope } from "./focus-scope.js";
 
 export interface ConfirmDialogOptions {
   message: string;
+  // 可见标题（缺省「请确认」）
+  title?: string;
   // 确认键文案（缺省「确定」）
   confirmText?: string;
   // 确认键警示着色（删除等破坏性动作）：红底白字，token 与
@@ -33,6 +39,7 @@ interface ConfirmState {
   open: boolean;
   host: HTMLElement | null;
   observer: MutationObserver | null;
+  focusScope: FocusScope | null;
   // 代际号：结算（resolve + 清场）只认最后一次打开——重复打开、抽屉收起、
   // 迟到点击都不会把新弹层误关或重复 resolve
   generation: number;
@@ -42,8 +49,12 @@ const state: ConfirmState = {
   open: false,
   host: null,
   observer: null,
+  focusScope: null,
   generation: 0
 };
+
+// 标题/说明的 id 序号：同一时刻只开一层，序号仍避免与上一次结算残留的节点撞 id
+let nextDialogId = 0;
 
 export function isConfirmDialogOpen(): boolean {
   return state.open;
@@ -62,6 +73,8 @@ function settle(generation: number, result: boolean): void {
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
   state.host?.remove();
   state.host = null;
+  state.focusScope?.dispose();
+  state.focusScope = null;
   resolvePending(result);
 }
 
@@ -106,10 +119,13 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   const host = document.createElement("div");
   host.className = "confirm-dialog-host";
   const confirmText = options.confirmText || "确定";
+  const title = options.title?.trim() || "请确认";
+  const dialogId = `confirm-dialog-${++nextDialogId}`;
   host.innerHTML = `
     <div class="confirm-dialog-mask" data-confirm-dialog-action="cancel"></div>
-    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(confirmText)}" tabindex="-1">
-      <p class="confirm-dialog-message">${escapeHtml(options.message)}</p>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="${dialogId}-title" aria-describedby="${dialogId}-message" tabindex="-1">
+      <h2 class="confirm-dialog-title" id="${dialogId}-title">${escapeHtml(title)}</h2>
+      <p class="confirm-dialog-message" id="${dialogId}-message">${escapeHtml(options.message)}</p>
       <footer class="confirm-dialog-foot">
         <button type="button" class="confirm-dialog-cancel" data-confirm-dialog-action="cancel">取消</button>
         <button type="button" class="confirm-dialog-confirm${options.danger ? " confirm-dialog-confirm-danger" : ""}" data-confirm-dialog-action="confirm">${escapeHtml(confirmText)}</button>
@@ -134,7 +150,16 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
     }
   });
 
-  host.querySelector<HTMLElement>(".confirm-dialog")?.focus({ preventScroll: true });
+  // 安全默认焦点：取消键（破坏性确认不以「删除 / 放弃」为默认动作）
+  const dialog = host.querySelector<HTMLElement>(".confirm-dialog");
+  const cancel = host.querySelector<HTMLElement>(".confirm-dialog-cancel");
+  if (dialog) {
+    state.focusScope = createFocusScope(dialog, {
+      initialFocus: cancel ?? dialog,
+      // 结算过程中 state.open 先归 false、随后才 dispose：以代际判定「仍是最上层」
+      isActive: () => state.generation === generation
+    });
+  }
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 外层命令收起设置时按取消结算（与 provider-editor 的强制关闭同判断，

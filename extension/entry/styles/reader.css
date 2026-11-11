@@ -1865,6 +1865,9 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
@@ -1876,9 +1879,20 @@
   outline: none;
 }
 
+/* 可见标题与说明：标题经 aria-labelledby、说明经 aria-describedby 与对话框关联 */
+#biliscript-reading-view .confirm-dialog-title {
+  margin: 0;
+  padding: 16px 16px 0;
+  font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--biliscript-reader-text);
+}
+
 #biliscript-reading-view .confirm-dialog-message {
   margin: 0;
-  padding: 16px 16px 12px;
+  padding: 8px 16px 12px;
   font-size: var(--biliscript-font-size-base);
   line-height: 1.5;
   color: var(--biliscript-reader-text);

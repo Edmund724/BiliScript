@@ -37,10 +37,15 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     document.body.innerHTML = "";
   });
 
-  it("打开即渲染：宿主挂 view 直下，mask + role=dialog + aria-modal，报文转义，danger 键类名", async () => {
+  it("打开即渲染：宿主挂 view 直下，mask + role=dialog + aria-modal，可见标题与描述关联，报文转义，danger 键类名", async () => {
     mountView();
     const { confirmDialog, isConfirmDialogOpen } = await loadDialog();
-    const pending = confirmDialog({ message: "确定要删除这个平台吗？", confirmText: "删除", danger: true });
+    const pending = confirmDialog({
+      title: "删除平台",
+      message: "确定要删除这个平台吗？",
+      confirmText: "删除",
+      danger: true
+    });
 
     expect(isConfirmDialogOpen()).toBe(true);
     const view = document.getElementById("biliscript-reading-view")!;
@@ -52,14 +57,28 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const dialog = host.querySelector(".confirm-dialog")!;
     expect(dialog.getAttribute("role")).toBe("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    expect(dialog.getAttribute("aria-label")).toBe("删除");
-    expect(dialog.textContent).toContain("确定要删除这个平台吗？");
+    // 可见标题与说明经 aria-labelledby / aria-describedby 关联到对话框
+    const title = host.querySelector<HTMLElement>(".confirm-dialog-title")!;
+    const message = host.querySelector<HTMLElement>(".confirm-dialog-message")!;
+    expect(title.textContent).toBe("删除平台");
+    expect(dialog.getAttribute("aria-labelledby")).toBe(title.id);
+    expect(dialog.getAttribute("aria-describedby")).toBe(message.id);
+    expect(message.textContent).toBe("确定要删除这个平台吗？");
     expect(host.querySelector(".confirm-dialog-confirm")!.textContent).toBe("删除");
     expect(host.querySelector(".confirm-dialog-confirm")!.classList.contains("confirm-dialog-confirm-danger")).toBe(true);
     expect(host.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
 
     // 报文 HTML 转义（防注入）
     fireClick(host.querySelector(".confirm-dialog-cancel")!);
+    await expect(pending).resolves.toBe(false);
+  });
+
+  it("未给标题时回退可见的「请确认」", async () => {
+    mountView();
+    const { confirmDialog } = await loadDialog();
+    const pending = confirmDialog({ message: "m" });
+    expect(document.querySelector(".confirm-dialog-title")!.textContent).toBe("请确认");
+    fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
   });
 
@@ -169,5 +188,62 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     fireClick(document.querySelector(".confirm-dialog-confirm")!);
     expect(documentClicks).toBe(0);
     await expect(pending).resolves.toBe(true);
+  });
+
+  it("安全默认焦点落在取消键；Tab / Shift+Tab 在层内环绕", async () => {
+    mountView();
+    const { confirmDialog } = await loadDialog();
+    const pending = confirmDialog({ message: "确定删除？", confirmText: "删除", danger: true });
+
+    const cancel = document.querySelector<HTMLElement>(".confirm-dialog-cancel")!;
+    const confirm = document.querySelector<HTMLElement>(".confirm-dialog-confirm")!;
+    // 破坏性确认不以「删除」为默认动作
+    expect(document.activeElement).toBe(cancel);
+
+    // 焦点在最后一个控件时 Tab 回到第一个
+    confirm.focus();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cancel);
+
+    // 焦点在第一个控件时 Shift+Tab 回到最后一个
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })
+    );
+    expect(document.activeElement).toBe(confirm);
+
+    fireClick(cancel);
+    await expect(pending).resolves.toBe(false);
+  });
+
+  it("关闭 / 取消后焦点归还仍有效的触发控件", async () => {
+    mountView();
+    const trigger = document.createElement("button");
+    trigger.textContent = "删除";
+    document.getElementById("biliscript-reading-view")!.appendChild(trigger);
+    trigger.focus();
+
+    const { confirmDialog } = await loadDialog();
+    const pending = confirmDialog({ message: "m" });
+    expect(document.activeElement).toBe(document.querySelector(".confirm-dialog-cancel"));
+
+    fireClick(document.querySelector(".confirm-dialog-confirm")!);
+    await expect(pending).resolves.toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("触发控件已从文档移除时不归还焦点（也不抛错）", async () => {
+    mountView();
+    const trigger = document.createElement("button");
+    document.getElementById("biliscript-reading-view")!.appendChild(trigger);
+    trigger.focus();
+
+    const { confirmDialog } = await loadDialog();
+    const pending = confirmDialog({ message: "m" });
+    trigger.remove();
+    expect(document.activeElement).toBe(document.querySelector(".confirm-dialog-cancel"));
+
+    fireClick(document.querySelector(".confirm-dialog-cancel")!);
+    await expect(pending).resolves.toBe(false);
+    expect(document.activeElement).not.toBe(trigger);
   });
 });

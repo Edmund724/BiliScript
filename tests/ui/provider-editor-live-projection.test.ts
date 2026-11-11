@@ -47,8 +47,13 @@ describe("Gemini Live 编辑器 Key 字段投影", () => {
     const fields = projectEditorFields(draft("gemini-live"), ctx);
     expect(fields.apiKey.hidden).toBe(true);
     expect(fields.apiKey.required).not.toBe(true);
-    expect(projectionBlocks(draft("gemini-live"), ctx).apiKey).toContain("hidden");
-    expect(projectionBlocks(draft("moss-live"), ctx).apiKey).not.toContain("hidden");
+    const fieldOf = (html: string): HTMLElement => {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = html;
+      return wrapper.firstElementChild as HTMLElement;
+    };
+    expect(fieldOf(projectionBlocks(draft("gemini-live"), ctx).apiKey).hidden).toBe(true);
+    expect(fieldOf(projectionBlocks(draft("moss-live"), ctx).apiKey).hidden).toBe(false);
   });
 });
 

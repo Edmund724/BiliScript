@@ -121,7 +121,11 @@ describe("upsertProvider：单点保存事务", () => {
 
     const result = await tx.upsertProvider("ai", { id: "", baseUrl: "https://api.example.com/v1" });
 
-    expect(result).toEqual({ ok: false, error: "未授权 https://api.example.com/*，保存已中止" });
+    expect(result).toEqual({
+      ok: false,
+      error: "未授权 https://api.example.com/*，保存已中止",
+      permissionDenied: true
+    });
     expect(families.ai.list).not.toHaveBeenCalled();
     expect(families.ai.save).not.toHaveBeenCalled();
     expect(deps.rerender).not.toHaveBeenCalled();

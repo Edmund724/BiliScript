@@ -35,8 +35,7 @@
   transform: translate(-50%, -50%);
   width: min(560px, calc(100% - 48px));
   max-height: calc(100% - 48px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   border-radius: var(--biliscript-radius-panel);
@@ -44,6 +43,15 @@
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
+}
+
+/* 语义化表单：字段区与底部动作同属一个 form（保存键 submit / Enter 隐式提交），
+ * 表头固定在弹层顶部，字段区在矮容器里独立滚动 */
+#biliscript-reading-view .provider-editor-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 #biliscript-reading-view .provider-editor-dialog:focus {
@@ -104,6 +112,9 @@
 
 #biliscript-reading-view .provider-editor-body {
   flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--biliscript-space-md);
@@ -150,11 +161,29 @@
   margin: 0;
 }
 
+/* 字段级错误（提交后校验的定位文案）：紧贴控件下方，不占据常态布局 */
+#biliscript-reading-view .provider-editor-field-error {
+  margin: 0;
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.4;
+  color: var(--biliscript-reader-accent);
+}
+
+#biliscript-reading-view .provider-editor-field-error[hidden] {
+  display: none;
+}
+
+/* 字段错误与控件同拍（aria-invalid 由 provider-editor-validation 在提交/修正时
+ * 挂摘）：边框与 :user-invalid 同一视觉语言 */
+#biliscript-reading-view .provider-editor-dialog input[aria-invalid="true"] {
+  border-color: var(--biliscript-reader-accent);
+}
+
 /* 原生约束校验态（:user-valid / :user-invalid，Baseline 2023-11）：API 地址
  * required+pattern、模型名 required、API Key 按 requiresKey/已存 Key 动态
- * required（provider-editor.wireDialog 挂摘）。浏览器仅在用户提交过值（blur）
- * 或尝试提交后才进入 :user-invalid，修正输入即自动恢复，无需 JS 摘除；
- * :user-valid 复用 Key 状态点的成功绿作正向反馈。选择器与上方基础样式同
+ * required（provider-editor-projection 挂摘）。表单以 novalidate 提交、字段错误
+ * 由 provider-editor-validation 在提交后落到 aria-invalid/字段文案；:user-invalid
+ * 保留 blur 交互后的即时视觉反馈，修正输入即自动恢复。选择器与上方基础样式同
  * 优先级、声明在后取胜；聚焦中的错误边框让位焦点光环（上方单源）。 */
 #biliscript-reading-view .provider-editor-dialog input[type="text"]:user-invalid,
 #biliscript-reading-view .provider-editor-dialog input[type="password"]:user-invalid {
@@ -174,9 +203,26 @@
 
 #biliscript-reading-view .provider-editor-testrow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--biliscript-space-sm);
   min-width: 0;
+}
+
+/* 测试行右侧状态与说明：搜索测试的「真实调用与可能消耗」是常驻可见文案，
+ * 状态行出现时叠在下方，不挤掉说明 */
+#biliscript-reading-view .provider-editor-test-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#biliscript-reading-view .provider-editor-test-hint {
+  margin: 0;
+  font-size: var(--biliscript-font-size-sm);
+  line-height: 1.4;
+  color: var(--biliscript-reader-faint);
 }
 
 #biliscript-reading-view .provider-editor-test {
@@ -274,6 +320,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--biliscript-space-sm);
   padding: var(--biliscript-space-10) var(--biliscript-space-lg) var(--biliscript-space-14);
   border-top: 1px solid var(--biliscript-reader-border);
@@ -373,14 +420,16 @@
 #biliscript-reading-view .provider-editor-model-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--biliscript-space-6);
   min-width: 0;
 }
 
 /* 输入框基础样式由 .provider-editor-dialog input[type="text"] 单源提供（32 高/
- * 8px 圆角），这里只补目录行的弹性占比 */
+ * 8px 圆角），这里只补目录行的弹性占比：窄面板（400px）下随 flex 基准折行，
+ * 动作区不被挤出容器 */
 #biliscript-reading-view .provider-editor-model-row .provider-editor-model-id {
-  flex: 1 1 auto;
+  flex: 1 1 160px;
   min-width: 0;
 }
 

@@ -113,10 +113,11 @@ function scopeOf(draft: EditorDraftView, ctx: ProjectionContext): ProjectionScop
   return { ctx, family: family.editor, preset: family.resolvePreset(ctx.presets, draft.presetId) };
 }
 
-function fieldBlock(label: string, control: string): string {
+function fieldBlock(label: string, control: string, controlId?: string, errorId?: string): string {
   return `<div class="provider-editor-field">
-          <label class="provider-editor-label">${label}</label>
+          <label class="provider-editor-label"${controlId ? ` for="${controlId}"` : ""}>${label}</label>
           ${control}
+          ${errorId ? `<p class="provider-editor-field-error" id="${errorId}" hidden></p>` : ""}
         </div>`;
 }
 
@@ -212,7 +213,8 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     html: (projection) =>
       fieldBlock(
         "名称",
-        `<input class="provider-editor-name" type="text" placeholder="${escapeHtml(projection.placeholder ?? "")}" value="${inputValue(projection)}" />`
+        `<input class="provider-editor-name" id="provider-editor-name" type="text" placeholder="${escapeHtml(projection.placeholder ?? "")}" value="${inputValue(projection)}" />`,
+        "provider-editor-name"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-name");
@@ -232,7 +234,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     html: (projection) =>
       fieldBlock(
         "API 地址",
-        `<input class="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="如 https://api.openai.com/v1" value="${inputValue(projection)}" />`
+        `<input class="provider-editor-baseurl" id="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="如 https://api.openai.com/v1" value="${inputValue(projection)}" />`,
+        "provider-editor-baseurl",
+        "provider-editor-error-baseurl"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
@@ -256,8 +260,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     },
     html: (projection) =>
       `<div class="provider-editor-field" ${projection.hidden ? "hidden" : ""}>
-          <label class="provider-editor-label">API Key</label>
-          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />
+          <label class="provider-editor-label" for="provider-editor-apikey">API Key</label>
+          <input class="provider-editor-apikey" id="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />
+          <p class="provider-editor-field-error" id="provider-editor-error-apikey" hidden></p>
         </div>`,
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
@@ -287,9 +292,12 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
         "模型",
         buildModelPickerField({
           inputClass: "provider-editor-model",
+          inputId: "provider-editor-model",
           placeholder: "模型名",
           value: projection.value ?? ""
-        })
+        }),
+        "provider-editor-model",
+        "provider-editor-error-model"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
