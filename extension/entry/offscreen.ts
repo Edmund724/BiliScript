@@ -24,6 +24,8 @@
 // 必已入集，故任一分支「装载中」期间其他任务的终态判定都会因端口计数 / 条件
 // 非空保留文档，不会被提前关闭。
 import { getErrorMessage } from "../shared/error-helpers.js";
+import { bgFetchJson } from "../bilibili/gateway-core.js";
+import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, logWarn, registerDebugGate, shouldDebugLog } from "../shared/logging.js";
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { createOffscreenLifetime } from "./offscreen-lifecycle.js";
@@ -404,6 +406,9 @@ chrome.runtime.onConnect.addListener((port) => {
           ...(searchRuntime ? { webSearch: searchRuntime } : {}),
           ...(msg.videoFrameToolEnabled === true
             ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
+            : {}),
+          ...(String((msg as ChatMsg).context?.aid || "").trim()
+            ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String((msg as ChatMsg).context?.aid), 20) }
             : {})
         },
         {

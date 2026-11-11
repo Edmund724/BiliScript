@@ -10,7 +10,7 @@
 
 import { buildMessages } from "./context.js";
 import { chatCompletion, validateProviderBasics } from "./completion.js";
-import { runToolLoop, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
+import { runToolLoop, type FetchHotCommentsFn, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
 import type { AiContext, AiProvider, CaptureCurrentVideoFrame, ImagePart, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
@@ -51,6 +51,7 @@ interface StreamChatInput {
   // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop.ts 的工具循环（对话 tab
   // toggle 开启且已配置搜索平台时由 offscreen 注入；Map-Reduce 轮由 ladder 剥离）。
   webSearch?: { maxToolCalls: number; executeSearch: (query: string) => Promise<ToolLoopSearchOutcome> };
+  fetchHotComments?: FetchHotCommentsFn;
 }
 
 /**
@@ -72,7 +73,7 @@ interface StreamChatInput {
  * - 仅 context-length 溢出以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
  */
-export async function streamChat({ provider, context, userPrompt, history, userImages, captureCurrentVideoFrame, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, userImages, captureCurrentVideoFrame, fetchHotComments, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   // 基础校验单点下沉 completion（arch-slim-3/09）：port 适配层 catch 后转回吐，
@@ -93,9 +94,9 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     // 图片输入（image-input 路线 B）：挂在本轮 user 消息上（无图时不带字段）。
     images: userImages,
     systemPrompt: context?.aiSystemPrompt,
-    // 联网轮保留历史中的 assistant(tool_calls)/tool 消息（OpenAI 协议合法）；
+    // 工具轮保留历史中的 assistant(tool_calls)/tool 消息（OpenAI 协议合法）；
     // 无 tools 轮整体丢弃（部分平台对无 tools 请求里的 tool 消息报 4xx）。
-    includeToolHistory: Boolean(webSearch)
+    includeToolHistory: Boolean(webSearch || fetchHotComments)
   });
 
   // 07 票 token 合帧：token 事件经窗口预算批传（削减 port 结构化克隆次数），
@@ -167,9 +168,9 @@ export async function streamChat({ provider, context, userPrompt, history, userI
       }
     };
 
-    // 一轮对话：无搜索/截帧单次调用；任一可用时走整条工具循环（maxTokens 透传给每轮）。
+    // 一轮对话：无可用工具时单次调用；任一可用时走整条工具循环（maxTokens 透传给每轮）。
     // 抽成函数只为截断重跑能整体重放，不改其余调用形状。
-    const runTurn = (maxTokens?: number) => webSearch || captureCurrentVideoFrame
+    const runTurn = (maxTokens?: number) => webSearch || captureCurrentVideoFrame || fetchHotComments
       // ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
       // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
       //（spec §2.5，tool 内容已截断；截帧图片不进持久化副本）。
@@ -189,6 +190,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             throw new Error("本轮未启用联网搜索");
           }),
           captureCurrentVideoFrame,
+          fetchHotComments,
           onNotice: (text) => {
             onActivity?.();
             flushTokens();

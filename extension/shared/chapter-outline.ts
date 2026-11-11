@@ -76,7 +76,7 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
 /**
  * 热门评论（HotComment[]）→ 可解析文本：message 正文 + 楼中楼续篇（subMessages）
  * 依次拼接，一行一条。续篇是置顶目录评论发在楼中楼里的第二段目录，只进目录解析；
- * 聊天展示仍只用 message（ai/context.ts 的评论块）。
+ * 聊天工具结果仍只用 message（ai/tool-loop.ts 的评论工具）。
  */
 export function hotCommentsText(hotComments: unknown): string {
   if (!Array.isArray(hotComments)) return "";

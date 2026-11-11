@@ -21,6 +21,7 @@ import { normalizeImageParts } from "./conversation.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { CaptureCurrentVideoFrame, ChatMessage, ImagePart } from "./types.js";
+import type { FetchHotCommentsFn } from "./tool-loop.js";
 
 export interface ChatContext {
   subtitleBody?: unknown[];
@@ -89,6 +90,7 @@ export interface StreamChatArgs {
   // 归约轮剥离 + notice，追问压缩与单次路径透传。
   webSearch?: WebSearchRuntime;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  fetchHotComments?: FetchHotCommentsFn;
 }
 
 export type StreamChatFn = (args: StreamChatArgs) => Promise<unknown>;
@@ -150,6 +152,7 @@ export interface RunLadderChatArgs {
   // 平台时注入；undefined = 本轮无联网（toggle 关 / 未配置 / 解析失败）。
   webSearch?: WebSearchRuntime;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  fetchHotComments?: FetchHotCommentsFn;
 }
 
 export interface RunLadderChatDeps {
@@ -181,7 +184,7 @@ export interface RunLadderChatDeps {
  * askCostGuard 依赖 offscreen 的 Promise 簿记，必须由 offscreen 注入。
  */
 export async function runLadderChat(
-  { msg, provider, port, signal, webSearch, captureCurrentVideoFrame }: RunLadderChatArgs,
+  { msg, provider, port, signal, webSearch, captureCurrentVideoFrame, fetchHotComments }: RunLadderChatArgs,
   deps: RunLadderChatDeps
 ): Promise<void> {
   const streamChat: StreamChatFn = deps.streamChat ?? (_streamChat as unknown as StreamChatFn);
@@ -231,7 +234,8 @@ export async function runLadderChat(
             onActivity,
             // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
             webSearch,
-            captureCurrentVideoFrame
+            captureCurrentVideoFrame,
+            fetchHotComments
           });
         } catch (e) {
           // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
@@ -304,7 +308,8 @@ export async function runLadderChat(
         signal,
         onActivity,
         webSearch,
-        captureCurrentVideoFrame
+        captureCurrentVideoFrame,
+        fetchHotComments
       });
     } catch (e) {
       if (!(e as { overflow?: boolean }).overflow) {

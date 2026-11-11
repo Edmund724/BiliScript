@@ -970,3 +970,95 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
   });
 });
 
+
+describe("热门评论工具", () => {
+  function useCommentToolRound() {
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length === 1
+        ? sseResponse([
+            sseData({ tool_calls: [{ index: 0, id: "comment_1", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }] }),
+            sseData({}, "tool_calls")
+          ])
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+  }
+
+  it("联网关闭也可独立调用：评论回填后续答，本轮不再提供评论工具", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    const fetchHotComments = vi.fn(async () => [
+      { uname: "观众甲", like: 99, message: "评论正文", subMessages: ["不进工具结果"] }
+    ]);
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments
+    }));
+
+    expect(fetchHotComments).toHaveBeenCalledTimes(1);
+    expect(capture.calls[0].tools).toEqual([
+      expect.objectContaining({ function: expect.objectContaining({ name: "fetch_hot_comments" }) })
+    ]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "comment_1",
+        content: JSON.stringify([{ uname: "观众甲", like: 99, message: "评论正文" }])
+      })
+    ]));
+    expect(capture.calls[1].tools).toBeUndefined();
+    expect(capture.statuses).toEqual([]);
+    expect(capture.notices).toEqual([]);
+  });
+
+  it("评论调用不占搜索配额", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: true },
+      maxToolCalls: 1,
+      fetchHotComments: async () => []
+    }));
+
+    expect(capture.calls[1].tools).toEqual([
+      expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })
+    ]);
+    expect(capture.notices).not.toContain("本轮的搜索次数已达上限，请基于已有结果作答");
+  });
+
+  it("拉取失败：错误回填工具消息并提示，回答不中断", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments: async () => { throw new Error("风控"); }
+    }));
+
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "comment_1", content: "获取热门评论失败：风控" })
+    ]));
+    expect(capture.notices).toContain("获取热门评论失败：风控");
+    expect(capture.toolTurns[0][1]).toMatchObject({ role: "tool", content: "获取热门评论失败：风控" });
+  });
+});
+
+describe("热门评论工具的平台降级", () => {
+  it("仅有评论工具时不支持 tools：提示获取评论不可用并摘除工具重试", async () => {
+    capture = makeCapture();
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length <= 3
+        ? ({ ok: false, status: 400, text: vi.fn(async () => '{"error":"tools not supported"}'), json: vi.fn() } as unknown as Response)
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments: async () => []
+    }));
+
+    expect(capture.notices).toContain("当前平台不支持工具调用，本轮未获取评论");
+    expect(capture.calls[3].tools).toBeUndefined();
+  });
+});
