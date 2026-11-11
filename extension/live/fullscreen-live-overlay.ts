@@ -266,6 +266,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
           <span class="live-overlay-status-text">正在伴看</span>
         </div>
         <div class="live-overlay-header-actions">
+          <button type="button" class="live-overlay-action-btn live-overlay-interpret-btn" aria-label="实时翻译" aria-pressed="false" aria-disabled="false" hidden>实时翻译</button>
           <button type="button" class="live-overlay-icon-btn live-overlay-mic-btn" title="麦克风静音" aria-label="麦克风静音" aria-pressed="false">
             <svg aria-hidden="true" focusable="false" class="live-overlay-icon-mic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
@@ -330,7 +331,6 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         </div>
       </div>
       <div class="live-overlay-body">
-        <button type="button" class="live-overlay-action-btn live-overlay-interpret-btn" aria-label="实时翻译" aria-pressed="false" aria-disabled="false" hidden>实时翻译</button>
         <div class="live-overlay-interpret-notice" role="status" hidden></div>
         <div class="live-overlay-failure-card" role="alert" hidden>
           <div class="live-overlay-failure-reason"></div>

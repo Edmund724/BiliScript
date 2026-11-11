@@ -693,8 +693,10 @@
 }
 
 .live-overlay-switch {
-  width: 32px;
-  height: 18px;
+  width: 40px;
+  height: 22px;
+  flex: none;
+  padding: 0;
   border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill, 999px));
   background: rgb(255 255 255 / 0.22);
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.2);
@@ -707,13 +709,14 @@
 .live-overlay-switch::after {
   content: "";
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  transform: translateY(-50%);
   transition: transform 0.2s ease;
 }
 
@@ -725,7 +728,7 @@
 
 .live-overlay-switch.is-active::after,
 .live-overlay-switch[aria-checked="true"]::after {
-  transform: translateX(14px);
+  transform: translate(18px, -50%);
 }
 
 .live-overlay-output-controls {
@@ -764,15 +767,11 @@
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 4px;
-  border-radius: var(--biliscript-radius-pill, 999px);
-  background: linear-gradient(
-    to right,
-    rgb(255 255 255 / 0.95) 0%,
-    rgb(255 255 255 / 0.95) var(--live-progress, 100%),
-    rgb(255 255 255 / 0.24) var(--live-progress, 100%),
-    rgb(255 255 255 / 0.24) 100%
-  );
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   outline: none;
   cursor: pointer;
   margin: 0;
@@ -781,14 +780,27 @@
 
 .live-overlay-volume-slider:focus-visible {
   outline: 2px solid rgb(255 255 255 / 0.95);
-  outline-offset: 4px;
+  outline-offset: 2px;
+}
+
+.live-overlay-volume-slider::-webkit-slider-runnable-track {
+  height: 16px;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  background: linear-gradient(
+    to right,
+    rgb(255 255 255 / 0.95) 0%,
+    rgb(255 255 255 / 0.95) var(--live-progress, 100%),
+    rgb(255 255 255 / 0.24) var(--live-progress, 100%),
+    rgb(255 255 255 / 0.24) 100%
+  );
 }
 
 .live-overlay-volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
+  margin-top: 0;
   border-radius: 50%;
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
@@ -800,9 +812,22 @@
   transform: scale(1.2);
 }
 
+.live-overlay-volume-slider::-moz-range-track {
+  height: 16px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  background: rgb(255 255 255 / 0.24);
+}
+
+.live-overlay-volume-slider::-moz-range-progress {
+  height: 16px;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  background: rgb(255 255 255 / 0.95);
+}
+
 .live-overlay-volume-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border: none;
   border-radius: 50%;
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
@@ -876,9 +901,10 @@
 }
 
 .live-overlay-interpret-btn {
-  align-self: flex-start;
-  margin: 10px 10px 0;
-  min-height: 28px;
+  flex: none;
+  min-height: 24px;
+  padding: 3px 8px;
+  white-space: nowrap;
 }
 
 .live-overlay-interpret-btn[hidden] {
