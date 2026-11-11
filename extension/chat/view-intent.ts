@@ -17,4 +17,11 @@ export interface ViewResetStateIntent {
   html: string;
 }
 
-export type ViewResetIntent = ViewResetStateIntent;
+// 配置类拦截屏（票 provider-onboarding-consistency/03）：发送前解析不到平台时不直写
+// 文案，只交这个标记——状态屏的文案与「前往设置」动作（直达新增平台编辑器）由组合根
+// 一处产出，与无平台空态同源。
+export interface ViewResetSetupIntent {
+  kind: "setup";
+}
+
+export type ViewResetIntent = ViewResetStateIntent | ViewResetSetupIntent;

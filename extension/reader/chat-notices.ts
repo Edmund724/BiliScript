@@ -29,15 +29,24 @@ export interface CreateReaderChatFeedbackDeps {
   scrollToBottom: () => void;
   // 建议区属主：本模块以 clear 撤除建议区（节点引用只归属主，本模块不持节点）
   suggestions: ChatSuggestionsSlot;
-  // 通知条「前往设置」链接的点击回调（打开侧边栏设置抽屉）
-  onOpenSettings: () => void;
+  // 通知条「前往设置」链接的点击回调（打开侧边栏设置抽屉；带目标时直达该分区
+  // 的设置动作——票 04：ASR 配置类拦截直达 ASR 平台编辑 / 自动转写开关）
+  onOpenSettings: (settingsTarget?: "asr") => void;
 }
 
 export interface ReaderChatFeedback {
   showConversationContextNotice: (
     message: string,
     autoHideMs?: number,
-    options?: { openSettingsAction?: boolean; spinner?: boolean }
+    options?: {
+      openSettingsAction?: boolean;
+      spinner?: boolean;
+      // 自定义动作链接（票 03：缺 Key 错误回合的「前往设置」直达平台编辑记录）。
+      // 与 openSettingsAction 同一种呈现（行内 accent 链接），动作由调用方给。
+      action?: { label: string; onClick: () => void };
+      // 前往设置的分区目标（票 04：ASR 配置类拦截直达 ASR 平台编辑 / 自动转写开关）
+      settingsTarget?: "asr";
+    }
   ) => void;
   removeConversationContextNotice: () => void;
   showConversationContextError: (message: string) => void;
@@ -54,7 +63,17 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
   function showConversationContextNotice(
     message: string,
     autoHideMs = 0,
-    { openSettingsAction = false, spinner = false }: { openSettingsAction?: boolean; spinner?: boolean } = {}
+    {
+      openSettingsAction = false,
+      spinner = false,
+      action,
+      settingsTarget
+    }: {
+      openSettingsAction?: boolean;
+      spinner?: boolean;
+      action?: { label: string; onClick: () => void };
+      settingsTarget?: "asr";
+    } = {}
   ): void {
     removeConversationContextNotice();
     const notice = document.createElement("div");
@@ -68,10 +87,16 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
       indicator.setAttribute("aria-hidden", "true");
       notice.insertBefore(indicator, notice.firstChild);
     }
-    if (openSettingsAction) {
+    // 动作链接：openSettingsAction 是「打开设置抽屉」的固定文案快捷形，action 是
+    // 调用方给动作的通用形（票 03：缺 Key 错误回合直达对应平台记录）。
+    const actionDescriptor = action
+      ?? (openSettingsAction
+        ? { label: "前往设置", onClick: () => onOpenSettings(settingsTarget) }
+        : null);
+    if (actionDescriptor) {
       const link = document.createElement("a");
       link.href = "#";
-      link.textContent = "前往设置";
+      link.textContent = actionDescriptor.label;
       link.addEventListener("click", (e) => {
         e.preventDefault();
         // stopPropagation 必须有：打开抽屉的点击若继续冒泡到 ui-renderer 的文档
@@ -79,7 +104,7 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
         // 立即关闭（与壳内 readingSettingsToggleBtn 的 stopPropagation 同一先例；
         // arch-slim-2/06 死绑定修复时同步补上，见 chat-tab.ts 容器委托同款）。
         e.stopPropagation();
-        onOpenSettings();
+        actionDescriptor.onClick();
       });
       notice.appendChild(document.createTextNode(" "));
       notice.appendChild(link);

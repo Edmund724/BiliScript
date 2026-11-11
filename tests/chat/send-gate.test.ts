@@ -190,6 +190,58 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
       expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
+
+    // 票 provider-onboarding-consistency/04：配置类 empty 允许重新进入抓取。
+    it.each(["no-asr-config", "asr-disabled", "asr-auth"] as const)(
+      "配置类无字幕收尾（%s）→ 重新起跑一轮抓取；仍未配置时照旧拦截，不虚构用户消息",
+      async (reason) => {
+        const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: reason });
+        chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
+        const h = makeHarness({ clip: () => emptyClip });
+        await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+        expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(["asr-empty", "asr-media", "asr-quota", "upower-exclusive", null] as const)(
+      "非配置类 / 未归类无字幕收尾（%s）→ 按原规则拦截，不重抓",
+      async (reason) => {
+        const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: reason });
+        chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);
+        const h = makeHarness({ clip: () => emptyClip });
+        await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+        expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
+      }
+    );
+
+    it("等待闸在配置类 empty 重抓的字幕就绪后继续放行（已有等待意图不被截断）", async () => {
+      // G3 重抓的同步前缀落 loading（生产由 refreshClip 写入），等待闸据此挂住；
+      // 轮询期间转写落账 → 放行，用户消息由调用方照常追加（本闸不造消息）。
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: "no-asr-config" })
+      );
+      let polls = 0;
+      const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: "no-asr-config" });
+      const h = makeHarness({
+        clip: () => emptyClip,
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls === 2) {
+            // 首轮轮询见到重抓已起跑：仍无字幕体，等待闸挂住。
+            chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
+          }
+          if (polls >= 3) {
+            const ready = snapshotFromClip(readyClip());
+            chatSessionStateForTests.liveContextData = ready;
+            chatSessionStateForTests.contextData = ready;
+          }
+          return true;
+        })
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
+      expect(polls).toBeGreaterThanOrEqual(3);
+    });
   });
 
   describe("G4 等待闸", () => {
@@ -300,7 +352,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         expect.stringContaining("语音转写开关已关闭"),
         0,
-        { openSettingsAction: true }
+        { openSettingsAction: true, settingsTarget: "asr" }
       );
       expect(h.mocks.requestViewReset).not.toHaveBeenCalled();
     });
@@ -315,7 +367,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-auth"),
         0,
-        { openSettingsAction: true }
+        { openSettingsAction: true, settingsTarget: "asr" }
       );
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         expect.stringContaining("当前视频没有字幕，无法总结。"),
@@ -333,7 +385,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-quota"),
         0,
-        { openSettingsAction: false }
+        { openSettingsAction: false, settingsTarget: "asr" }
       );
     });
 
@@ -346,7 +398,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", null),
         0,
-        { openSettingsAction: true }
+        { openSettingsAction: true, settingsTarget: "asr" }
       );
     });
 

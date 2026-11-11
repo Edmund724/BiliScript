@@ -64,6 +64,18 @@ import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slid
 import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+// ASR 配置类阻塞的设置目标解析（票 04）：无记录 / 缺 Key / 开关关闭三态。
+import { resolveAsrSetupPlan } from "../asr/asr-setup.js";
+// ASR 配置续跑（票 04）：页面内存一次性意图 + 续跑后重新进入既有字幕抓取链。
+import {
+  clearAsrSetupResumeIntent,
+  consumeAsrSetupResumeIntent,
+  currentPageVideoKey,
+  setAsrSetupResumeIntent
+} from "../reader/asr-setup-resume.js";
+import { requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
+import { logWarn } from "../shared/logging.js";
 import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 import {
   LIVE_VOICE_FALLBACK_NOTICE_TEXT,
@@ -231,6 +243,9 @@ interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly onApply?: (val: boolean, navSync: NavSync) => void;
+  // 落盘成功后的生效回调（票 04：自动转写开关打开并保存成功后重新进入字幕抓取）。
+  // 只有写盘成功才调用——onApply 在保存前触发，失败时也会跑，不能承担续跑。
+  readonly onSaved?: (val: boolean, navSync: NavSync) => void;
 }
 
 interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -389,7 +404,14 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getElement: (el) => el.asrAutoFallback,
     normalize: (val) => val !== false,
     patchState: false,
-    watchSync: true
+    watchSync: true,
+    // 票 04：从配置类阻塞直达开关的启用路径——打开并落盘成功后回到原任务，
+    // 重新进入既有字幕抓取链（无待续跑意图时续跑是空操作，普通开关切换无副作用）。
+    onSaved: (val) => {
+      if (val && resumeAsrSubtitleFetchAfterSetup()) {
+        closeReaderSettingsMode({ restoreFocus: true });
+      }
+    }
   },
   {
     kind: "toggle",
@@ -521,17 +543,24 @@ export interface AiSetupSession {
 // - "missing-key"：定位缺 Key 的启用记录 → 直接编辑该记录并聚焦 Key 输入框；
 //   定位不到（列表在报错后已被改动）则只打开设置抽屉。
 // 连通性测试不是必经步骤：保存只做本地校验 + 落盘。
+export interface AiSetupTarget {
+  // 缺 Key 时调用方已知的已选平台记录（AI 对话回合错误，票 03）：优先直达该
+  // 记录；缺省按解析策略定位（概览 / 解释链，票 01/02）。
+  providerId?: string;
+}
+
 export async function openReaderAiSetup(
   errorClass: OverviewSetupErrorClass,
-  session: AiSetupSession
+  session: AiSetupSession,
+  target: AiSetupTarget = {}
 ): Promise<void> {
   openReaderSettingsMode();
   renderReaderSettingsPanel();
   focusSettingsNavSection("llm");
   if (errorClass === "missing-key") {
-    const target = await findMissingKeyAiProvider();
-    if (target) {
-      await openProviderEditorById("ai", String(target.id || ""), undefined, session);
+    const record = await findMissingKeyAiProvider(target.providerId);
+    if (record) {
+      await openProviderEditorById("ai", String(record.id || ""), undefined, session);
       document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
     }
     return;
@@ -539,12 +568,73 @@ export async function openReaderAiSetup(
   await openProviderEditorById("ai", "", undefined, session);
 }
 
-// 概览无字幕配置空态的「前往设置」：打开设置抽屉并定位语音转写分区
-// （字幕就绪后概览自动生成，无需续跑意图）。
-export async function openReaderTranscribeSettings(): Promise<void> {
+// ===== ASR 配置类阻塞直达入口（票 provider-onboarding-consistency/04）=====
+
+// 配置完成后的续跑（开关落盘 / 编辑器保存共用）：取走一次性意图并校验——
+// 意图缺失（已消费 / 已取消）、换视频或换分 P（页面身份键失配）都不续跑；
+// 已在飞或字幕在手（别的抓取已接手）由 kick 的在手/在飞判定让位，不另起一轮。
+// 通过后重新进入既有字幕抓取链：refreshClip → 无字幕出口 → ASR 转写 → 字幕
+// 接受事务，不建第二条转写管线；浮空发起，保存链路不被整轮转写挂住。
+export function resumeAsrSubtitleFetchAfterSetup(): boolean {
+  const intent = consumeAsrSetupResumeIntent();
+  if (!intent) {
+    return false;
+  }
+  if (intent.videoKey !== currentPageVideoKey()) {
+    return false;
+  }
+  void kickSubtitleFetch(() => requestSubtitleRefresh(), {
+    skipIfInHandOrInFlight: true,
+    awaitRefresh: false,
+    onChainLoadFailed: (error) => logWarn("[BILISCRIPT] asr setup resume (summarize chain load) failed", { error }),
+    onRefreshFailed: (error) => logWarn("[BILISCRIPT] asr setup resume refresh failed", { error })
+  });
+  return true;
+}
+
+/**
+ * ASR 配置类阻塞的「前往设置」直达（字幕空态 / 概览空态 / 对话拦截共用）：
+ * - 自动转写关闭：打开设置抽屉并定位开关（启用路径），不代用户改设置；
+ * - 无 ASR 记录：直接打开新增编辑器；
+ * - 激活记录缺 Key：打开该记录的编辑器并聚焦 Key；
+ * - 其余配置类（域名未授权 / 模型不可用 / Key 失效）：打开激活记录的编辑器。
+ * 点击时刻重新读实时设置与平台列表（跨端设置变化后按新配置解析）；打开前记录
+ * 一次性续跑意图（页面内存单槽），保存成功或开关落盘成功后回到原任务续跑，
+ * 取消编辑 / 关闭抽屉作废意图。
+ */
+export async function openReaderAsrSetup(): Promise<void> {
   openReaderSettingsMode();
   renderReaderSettingsPanel();
+  // 首建分支要等样式表就绪才写 DOM：等同一就绪 promise（内部那次 await 先注册、
+  // 先于本处继续），随后的分区定位与开关聚焦才有宿主可寻。
+  await whenReaderSettingsStylesReady();
+  const host = settingsHostRef ?? document.getElementById(ids.readingSettingsHost);
+  if (!host) {
+    return;
+  }
+  const [settings, providers] = await Promise.all([getSettings(), loadAsrProviders()]);
+  const plan = resolveAsrSetupPlan({
+    asrAutoFallback: settings.asrAutoFallback,
+    activeAsrProviderId: settings.activeAsrProviderId,
+    providers
+  });
   focusSettingsNavSection("asr");
+  setAsrSetupResumeIntent({ videoKey: currentPageVideoKey(), kind: plan.kind });
+  if (plan.kind === "disabled") {
+    host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.asrAutoFallback}`)?.focus();
+    return;
+  }
+  await openProviderEditorById("asr", plan.providerId, undefined, {
+    onAfterSave: () => {
+      // 先续跑（消费意图）再退出设置抽屉：抽屉关闭的意图清除落到已消费的空槽。
+      resumeAsrSubtitleFetchAfterSetup();
+      closeReaderSettingsMode({ restoreFocus: true });
+    },
+    onSessionEnd: () => clearAsrSetupResumeIntent()
+  });
+  if (plan.kind === "missing-key") {
+    document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
+  }
 }
 
 // 设置分区定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
@@ -556,15 +646,24 @@ function focusSettingsNavSection(section: string): void {
     ?.click();
 }
 
-// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：defaultModel 精确匹配 →
-// 首个启用回落）：只对 requiresKey !== false 且未存 Key 的启用记录给编辑入口。
-async function findMissingKeyAiProvider(): Promise<ProviderRowItem | null> {
+// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：调用方给定的已选平台 →
+// defaultModel 精确匹配 → 首个启用回落）：只对 requiresKey !== false 且未存 Key 的
+// 启用记录给编辑入口。调用方给定记录时直达它——那是本回合实际请求的平台（票 03：
+// AI 对话缺 Key 回合），列表后续改动也不改变这条结论。
+async function findMissingKeyAiProvider(preferredProviderId = ""): Promise<ProviderRowItem | null> {
   const providers = await loadAiProviders();
   const enabled = providers.filter(
     (p) => p && p.enabled !== false && String(p?.id || "").trim() !== ""
   );
   if (!enabled.length) {
     return null;
+  }
+  const exactId = String(preferredProviderId || "").trim();
+  if (exactId) {
+    const exact = enabled.find((p) => String(p.id) === exactId);
+    if (exact) {
+      return exact;
+    }
   }
   const settings = await getSettings();
   const preferredId = String(settings?.defaultModel || "").trim();
@@ -1612,7 +1711,9 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
           state.patchSettings({ [binding.key]: val });
         }
         binding.onApply?.(val, navSync);
-        void saveSettingField(elements, { [binding.key]: val });
+        void saveSettingField(elements, { [binding.key]: val }).then((ok) => {
+          if (ok) binding.onSaved?.(val, navSync);
+        });
       });
       break;
     }

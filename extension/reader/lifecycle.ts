@@ -83,6 +83,8 @@ import {
 } from "./overview-setup-resume.js";
 // 解释卡首配续跑意图（票 02）：卡片「去设置」记录、保存成功回同一卡续跑、取消/关抽屉/关卡片/关视图作废。
 import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
+// ASR 配置续跑意图（票 04）：三个面的设置动作记录、配置落盘后续跑、关闭视图作废。
+import { clearAsrSetupResumeIntent } from "./asr-setup-resume.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
@@ -209,9 +211,11 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
     },
     consume: consumeOverviewSetupResumeIntent
   },
+  // 无字幕配置空态的「前往设置」（票 01 建立、票 04 升级为实际设置动作并续跑）：
+  // 直达 ASR 平台编辑 / 自动转写开关，配置完成后重新进入既有字幕抓取链。
   openTranscribeSettings: () => {
-    void import("../ui/settings-panel.js").then(({ openReaderTranscribeSettings }) => {
-      openReaderTranscribeSettings();
+    void import("../ui/settings-panel.js").then(({ openReaderAsrSetup }) => {
+      openReaderAsrSetup();
     });
   },
   now: () => Date.now(),
@@ -560,9 +564,10 @@ export function closeReadingView() {
   // 与待解释意图（不跨会话残留；下次打开按空态渲染）。
   clearReadingSubtitleSearch();
   clearPendingExplainIntent();
-  // 首配续跑意图不跨会话残留（票 01/02）：关视图即作废未消费意图。
+  // 首配续跑意图不跨会话残留（票 01/02/04）：关视图即作废未消费意图。
   clearOverviewSetupResumeIntent();
   clearExplainSetupResumeIntent();
+  clearAsrSetupResumeIntent();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal();

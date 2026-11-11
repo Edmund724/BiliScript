@@ -10,7 +10,7 @@ import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
-import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
+import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -31,7 +31,7 @@ export interface OverviewUiActions {
   cancel: () => void;
   /** 配置类错误「去设置」（票 01）：直达正确的平台编辑界面并记录续跑意图 */
   setup: (errorClass: OverviewSetupErrorClass) => void;
-  /** 无字幕配置空态「前往设置」：打开设置抽屉并定位语音转写分区 */
+  /** 无字幕配置空态「前往设置」：直达 ASR 平台编辑或自动转写开关（票 04） */
   openTranscribeSettings: () => void;
 }
 
@@ -158,9 +158,10 @@ function buildEmptyStateHtml(): string {
     const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
     title = notice.cause || title;
     copy = notice.remedyText || copy;
-    // 配置类无字幕空态（票 01）：补救动作是「去设置检查」时给明确设置入口，
-    // 直达语音转写分区；非配置类（充值/重试/无人声）不挂，不伪装成配置问题。
-    if (notice.remedy === "open-settings") {
+    // 配置类无字幕空态（票 01/04）：补救动作是「去设置检查」时给明确设置入口，
+    // 直达 ASR 平台编辑或自动转写开关；非配置类（充值/重试/无人声）不挂，
+    // 不伪装成配置问题。
+    if (requiresAsrSetup(state.clip.noSubtitleReason)) {
       settingsAction = `
         <button type="button" class="biliscript-reading-mini-btn" data-overview-action="open-transcribe-settings">前往设置</button>`;
     }
