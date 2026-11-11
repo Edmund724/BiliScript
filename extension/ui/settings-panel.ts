@@ -26,8 +26,6 @@ import {
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
   normalizeChatInputGlow,
-  normalizeLiveInterpretTargetLang,
-  normalizeLiveInterpretDisplayMode,
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidth,
   normalizeReaderFontSizeScale,
@@ -170,8 +168,6 @@ function collectElements(host: HTMLElement) {
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
     subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
-    liveInterpretTargetLang: byIdIn<HTMLSelectElement>(dom.liveInterpretTargetLang),
-    liveInterpretDisplayMode: byIdIn<HTMLSelectElement>(dom.liveInterpretDisplayMode),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -399,22 +395,6 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "liveLowBandwidth",
     getElement: (el) => el.liveLowBandwidth,
     normalize: (val) => val === true,
-    patchState: false,
-    watchSync: true
-  },
-  {
-    kind: "select",
-    key: "liveInterpretTargetLang",
-    getElement: (el) => el.liveInterpretTargetLang,
-    normalize: normalizeLiveInterpretTargetLang,
-    patchState: false,
-    watchSync: true
-  },
-  {
-    kind: "select",
-    key: "liveInterpretDisplayMode",
-    getElement: (el) => el.liveInterpretDisplayMode,
-    normalize: normalizeLiveInterpretDisplayMode,
     patchState: false,
     watchSync: true
   },

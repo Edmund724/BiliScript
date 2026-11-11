@@ -1,9 +1,5 @@
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
-import {
-  LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
-  LIVE_INTERPRET_TARGET_LANG_OPTIONS
-} from "../live/interpret-subtitle-preferences.js";
 // ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（script-only-ui，2026-09 拆分）。
 //
 // 自 settings-panel.ts 拆出（大文件拆分工单）：settings-panel.ts 只留流程编排
@@ -37,8 +33,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   addLiveProviderBtn: "addLiveProviderBtn",
   liveLowBandwidth: "liveLowBandwidth",
   subtitleTranslateModel: "subtitleTranslateModel",
-  liveInterpretTargetLang: "liveInterpretTargetLang",
-  liveInterpretDisplayMode: "liveInterpretDisplayMode",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -158,22 +152,6 @@ export function buildSettingsHtml(): string {
           </select>
         </div>
         <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint" hidden></p>
-        <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">翻译目标语言</label>
-          <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
-            ${LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => `
-              <option value="${option.value}">${option.label}</option>
-            `).join("")}
-          </select>
-        </div>
-        <div class="biliscript-set-row">
-          <label class="biliscript-set-label" for="${ids.liveInterpretDisplayMode}">字幕显示方式</label>
-          <select id="${ids.liveInterpretDisplayMode}" class="biliscript-set-select">
-            ${LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.map((option) => `
-              <option value="${option.value}">${option.label}</option>
-            `).join("")}
-          </select>
-        </div>
       </div>
 
     </section>
