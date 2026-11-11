@@ -89,9 +89,12 @@ export function buildSettingsHtml(): string {
   return `
     <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
       <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="live">实时伴看</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="prompt">提示词</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="ai-button">AI 按钮</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="system-prompt">系统提示词</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="initial-prompt">初始问题</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="agent">桌面 Agent</button>
@@ -107,8 +110,10 @@ export function buildSettingsHtml(): string {
         <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
         <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       </div>
+    </section>
 
-      <div id="${ids.liveSettingsHeader}" class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
+    <section class="biliscript-set-group" data-settings-section="live">
+      <div id="${ids.liveSettingsHeader}" class="biliscript-set-header-row">
         <div class="biliscript-set-h">实时伴看平台</div>
         <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
@@ -214,7 +219,7 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="ai-button">
       <div class="biliscript-set-h">AI 按钮</div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-check biliscript-toggle-row">
@@ -232,14 +237,14 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="system-prompt">
       <div class="biliscript-set-h">AI 对话 - 系统提示词</div>
       <div class="biliscript-set-card">
         <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="initial-prompt">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-quick-prompts">

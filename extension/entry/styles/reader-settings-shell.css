@@ -166,6 +166,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host {
   display: grid;
   gap: var(--biliscript-space-2xl);
+  padding-bottom: calc(100vh - 240px);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host * {
@@ -259,6 +260,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-group {
   display: grid;
   gap: var(--biliscript-space-sm);
+  scroll-margin-top: 56px;
 }
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row {
   display: flex;

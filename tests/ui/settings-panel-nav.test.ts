@@ -30,13 +30,13 @@ async function mountPanel(): Promise<HTMLElement> {
 }
 
 describe("设置抽屉顶部快速跳转导航条", () => {
-  it("渲染 7 个预期标签与对应 section 映射", async () => {
+  it("渲染 10 个预期标签与对应 section 映射", async () => {
     const host = await mountPanel();
     const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav");
     expect(nav).not.toBeNull();
 
     const items = Array.from(nav!.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(10);
 
     const labels = items.map((item) => ({
       section: item.dataset.section,
@@ -45,9 +45,12 @@ describe("设置抽屉顶部快速跳转导航条", () => {
 
     expect(labels).toEqual([
       { section: "llm", text: "语言模型" },
+      { section: "live", text: "实时伴看" },
       { section: "asr", text: "语音转写" },
       { section: "search", text: "搜索" },
-      { section: "prompt", text: "提示词" },
+      { section: "ai-button", text: "AI 按钮" },
+      { section: "system-prompt", text: "系统提示词" },
+      { section: "initial-prompt", text: "初始问题" },
       { section: "appearance", text: "外观" },
       { section: "export", text: "导出" },
       { section: "agent", text: "桌面 Agent" }
@@ -57,7 +60,7 @@ describe("设置抽屉顶部快速跳转导航条", () => {
     expect(items[0].classList.contains("is-active")).toBe(true);
 
     // 校验每个 section 均在宿主中存在
-    for (const key of ["llm", "asr", "search", "prompt", "appearance", "export", "agent"]) {
+    for (const key of labels.map((item) => item.section)) {
       const target = host.querySelector(`.biliscript-set-group[data-settings-section="${key}"]`);
       expect(target).not.toBeNull();
     }
@@ -101,14 +104,14 @@ describe("设置抽屉顶部快速跳转导航条", () => {
   });
   it("公开伴看设置入口定位到实时伴看配置", async () => {
     const host = await mountPanel();
-    const target = host.querySelector<HTMLElement>("#biliscript-live-settings")!;
+    const target = host.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="live"]')!;
     target.scrollIntoView = vi.fn();
     const panel = await import("../../extension/ui/settings-panel.js");
 
     await panel.openLiveSettings("live");
 
     expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(host.querySelector('.biliscript-settings-nav-item[data-section="llm"]')?.classList.contains("is-active")).toBe(true);
+    expect(host.querySelector('.biliscript-settings-nav-item[data-section="live"]')?.classList.contains("is-active")).toBe(true);
   });
 
   it("首次设置渲染期间的伴看定位不会丢失", async () => {
