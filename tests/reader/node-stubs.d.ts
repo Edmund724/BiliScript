@@ -43,11 +43,19 @@ declare module "node:child_process" {
     args: readonly string[],
     options: { cwd?: string; encoding: "utf8" }
   ): SpawnSyncResult;
+  export function execFile(
+    command: string,
+    args: readonly string[],
+    options: { env: Record<string, string | undefined> },
+    callback: (error: Error | null, stdout: string, stderr: string) => void
+  ): void;
 }
 
 declare const process: {
   cwd(): string;
   execPath: string;
+  env: Record<string, string | undefined>;
+  kill(pid: number, signal?: string | number): boolean;
   on(event: string, listener: (...args: unknown[]) => void): void;
   removeListener(event: string, listener: (...args: unknown[]) => void): void;
 };

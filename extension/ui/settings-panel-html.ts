@@ -11,12 +11,11 @@ import {
 //（分节、id、类名契约）与流程代码互不干扰，模板改动只落本文件。
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
-// 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 →
-// AI 对话 → 外观 → 导出 → 保存行）。
+// 抽屉内展示顺序。
 // id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
 // collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
-// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。6 个
+// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 // 布尔开关行（biliscript-toggle-row）的轨道/滑块样式走组件表
 // styles/toggle-switch.css（ADR-0019，随 ui/toggle-switch.ts 挂载），id 与
 // .checked 语义不变：装载/保存逻辑照读原生 input。
@@ -71,6 +70,9 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
+  enableAgentBridge: "enableAgentBridge",
+  agentBridgeInstall: "agentBridgeInstall",
+  copyAgentBridgeInstallBtn: "copyAgentBridgeInstallBtn",
   cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
   status: "biliscriptSettingsStatus",
   toggleSearchChainBtn: "toggleSearchChainBtn",
@@ -92,6 +94,7 @@ export function buildSettingsHtml(): string {
       <button type="button" class="biliscript-settings-nav-item" data-section="prompt">提示词</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="agent">桌面 Agent</button>
       <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
     </nav>
 
@@ -361,6 +364,23 @@ export function buildSettingsHtml(): string {
             <input id="${ids.cleanConversationsOlderThan30Days}" type="checkbox" class="biliscript-toggle-input" aria-label="自动清理 30 天以前的历史会话记录" />
             <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
           </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="biliscript-set-group" data-settings-section="agent">
+      <div class="biliscript-set-h">桌面 Agent 桥接</div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">允许本机桌面 Agent 读取 B 站标签页</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.enableAgentBridge}" type="checkbox" class="biliscript-toggle-input" aria-label="桌面 Agent 桥接" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div id="${ids.agentBridgeInstall}" class="biliscript-agent-bridge-install" hidden>
+          <code>npx skills add Edmund724/BiliScript</code>
+          <button id="${ids.copyAgentBridgeInstallBtn}" type="button" class="biliscript-agent-bridge-copy" aria-label="复制桌面 Agent 安装命令">复制</button>
         </div>
       </div>
     </section>

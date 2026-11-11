@@ -129,6 +129,9 @@ function collectElements(host: HTMLElement) {
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
     includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
     enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    enableAgentBridge: byIdIn<HTMLInputElement>(dom.enableAgentBridge),
+    agentBridgeInstall: byIdIn<HTMLElement>(dom.agentBridgeInstall),
+    copyAgentBridgeInstallBtn: byIdIn<HTMLButtonElement>(dom.copyAgentBridgeInstallBtn),
     cleanConversationsOlderThan30Days: byIdIn<HTMLInputElement>(dom.cleanConversationsOlderThan30Days),
     aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
     aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
@@ -296,6 +299,15 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "enableDebugLogs",
     getElement: (el) => el.enableDebugLogs,
     normalize: (val) => Boolean(val)
+  },
+  {
+    kind: "toggle",
+    key: "enableAgentBridge",
+    getElement: (el) => el.enableAgentBridge,
+    normalize: (val) => val === true,
+    patchState: false,
+    watchSync: true,
+    onApply: (val) => syncAgentBridgeInstall(val)
   },
   {
     kind: "toggle",
@@ -506,6 +518,11 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
   elements.status.dataset.error = isError ? "true" : "false";
 }
 
+function syncAgentBridgeInstall(enabled: boolean): void {
+  const install = settingsHostRef?.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.agentBridgeInstall}`);
+  if (install) install.hidden = !enabled;
+}
+
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
@@ -513,6 +530,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   for (const binding of SCALAR_FIELD_BINDINGS) {
     hydrateScalarField(binding, elements, settings[binding.key]);
   }
+  syncAgentBridgeInstall(settings.enableAgentBridge === true);
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
 
   // AI 配置
@@ -932,6 +950,7 @@ function buildDefaultPreferencePayload() {
     playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
+    enableAgentBridge: DEFAULT_SETTINGS.enableAgentBridge,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
     readerPalette: DEFAULT_SETTINGS.readerPalette,
     readerFontSizeScale: DEFAULT_SETTINGS.readerFontSizeScale,
@@ -1260,6 +1279,15 @@ function bindSettingsEvents(host: HTMLElement): void {
     bindScalarFieldEvents(binding, elements, navSync);
   }
 
+  elements.copyAgentBridgeInstallBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText("npx skills add Edmund724/BiliScript");
+      setStatus(elements, "安装命令已复制");
+    } catch {
+      setStatus(elements, "复制失败，请手动复制安装命令", true);
+    }
+  });
+
   const saveInitialQuickPrompts = () => {
     const prompts = collectInitialQuickPrompts(elements);
     state.patchSettings({ aiInitialQuickPrompts: prompts });
@@ -1353,6 +1381,9 @@ function bindSettingsEvents(host: HTMLElement): void {
         const change = changes[binding.key];
         if (change) {
           hydrateScalarField(binding, elements, change.newValue);
+          if (binding.key === "enableAgentBridge") {
+            syncAgentBridgeInstall(change.newValue === true);
+          }
         }
       }
     },

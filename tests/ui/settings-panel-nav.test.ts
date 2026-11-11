@@ -30,13 +30,13 @@ async function mountPanel(): Promise<HTMLElement> {
 }
 
 describe("设置抽屉顶部快速跳转导航条", () => {
-  it("渲染 6 个预期标签与对应 section 映射", async () => {
+  it("渲染 7 个预期标签与对应 section 映射", async () => {
     const host = await mountPanel();
     const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav");
     expect(nav).not.toBeNull();
 
     const items = Array.from(nav!.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(7);
 
     const labels = items.map((item) => ({
       section: item.dataset.section,
@@ -49,14 +49,15 @@ describe("设置抽屉顶部快速跳转导航条", () => {
       { section: "search", text: "搜索" },
       { section: "prompt", text: "提示词" },
       { section: "appearance", text: "外观" },
-      { section: "export", text: "导出" }
+      { section: "export", text: "导出" },
+      { section: "agent", text: "桌面 Agent" }
     ]);
 
     // 默认首项处于激活态
     expect(items[0].classList.contains("is-active")).toBe(true);
 
     // 校验每个 section 均在宿主中存在
-    for (const key of ["llm", "asr", "search", "prompt", "appearance", "export"]) {
+    for (const key of ["llm", "asr", "search", "prompt", "appearance", "export", "agent"]) {
       const target = host.querySelector(`.biliscript-set-group[data-settings-section="${key}"]`);
       expect(target).not.toBeNull();
     }

@@ -70,6 +70,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
 } = Object.freeze({
   downloadFormat: normalizeDownloadFormat,
   enablePlayerAiQuickAction: normalizeEnablePlayerAiQuickAction,
+  enableAgentBridge: booleanField(false),
   playerAiQuickPrompt: normalizePlayerAiQuickPrompt,
   readerTheme: normalizeReaderTheme,
   readerThemeUserSet: booleanField(false),

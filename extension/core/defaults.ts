@@ -41,6 +41,7 @@ export interface KnownSettings {
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
+  enableAgentBridge: boolean;
   readerTheme: string;
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
@@ -121,6 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
   playerAiQuickPrompt: "",
   includeTimestampInBody: true,
   enableDebugLogs: false,
+  enableAgentBridge: false,
   readerTheme: "light",
   readerThemeUserSet: false,
   readerPalette: "flyme",

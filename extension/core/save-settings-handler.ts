@@ -17,12 +17,15 @@ export interface SaveSettingsHandlerDeps {
   getSettingsSnapshot: () => Promise<{ webSearchEnabled?: boolean }>;
   /** 撤回钩子（search 域注入；判中才调用） */
   onSearchOptOut?: () => Promise<void>;
+  /** 落盘后的生效通知；同一 SW 写入不会触发 storage.onChanged。 */
+  onSettingsSaved?: () => Promise<void>;
 }
 
 export function createSaveSettingsHandler({
   saveSettingsWithInvalidate,
   getSettingsSnapshot,
-  onSearchOptOut
+  onSearchOptOut,
+  onSettingsSaved
 }: SaveSettingsHandlerDeps): (
   message: unknown,
   sender: unknown,
@@ -48,6 +51,7 @@ export function createSaveSettingsHandler({
           // 撤回主入口（关 pill）；平台删除撤回的次入口收在 search/search-provider-deletion.ts。
           await onSearchOptOut();
         }
+        await onSettingsSaved?.();
         return { ok: true as const };
       })(),
       sendResponse

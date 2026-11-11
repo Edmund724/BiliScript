@@ -71,9 +71,14 @@ declare namespace chrome {
       addListener(listener: (details: { reason: string }) => void): void;
     }
 
+    interface OnStartup {
+      addListener(listener: () => void): void;
+    }
+
     const onConnect: OnConnect;
     const onMessage: OnMessage;
     const onInstalled: OnInstalled;
+    const onStartup: OnStartup;
   }
 
   namespace action {
@@ -92,6 +97,7 @@ declare namespace chrome {
       id?: number;
       status?: string;
       url?: string;
+      title?: string;
     }
 
     interface CreateProperties {
@@ -109,13 +115,27 @@ declare namespace chrome {
     }
 
     function get(tabId: number): Promise<Tab>;
-    function query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<Tab[]>;
+    function query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[] }): Promise<Tab[]>;
     function create(createProperties: CreateProperties): Promise<Tab>;
     function update(tabId: number, updateProperties: UpdateProperties): Promise<Tab>;
     function reload(tabId: number): Promise<void>;
     function sendMessage(tabId: number, message: unknown, responseCallback?: (response: unknown) => void): void;
 
     const onUpdated: OnUpdatedEvent;
+  }
+
+  namespace alarms {
+    interface Alarm {
+      name: string;
+    }
+
+    interface OnAlarm {
+      addListener(listener: (alarm: Alarm) => void): void;
+    }
+
+    function create(name: string, alarmInfo: { periodInMinutes: number }): Promise<void>;
+    function clear(name: string): Promise<boolean>;
+    const onAlarm: OnAlarm;
   }
 
   namespace storage {

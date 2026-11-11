@@ -36,6 +36,7 @@ describe("manifest：ASR 音频 CDN 的最窄 host 权限（工单 04）", () =>
     // 锁定七家域），B 站站内四域保持原样
     expect(manifest.host_permissions).toEqual([
       "https://www.bilibili.com/*",
+      "ws://127.0.0.1/*",
       "https://api.bilibili.com/*",
       "https://*.hdslb.com/*",
       "https://*.bilivideo.com/*",

@@ -39,6 +39,8 @@ import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 // storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { logWarn } from "../shared/logging.js";
+import { createAgentBridge } from "../agent-bridge/background.js";
+import { AGENT_BRIDGE_ALARM } from "../agent-bridge/protocol.js";
 import {
   aiProviderStore
 } from "../core/ai-provider-store.js";
@@ -145,13 +147,18 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
   );
 }
 
+const agentBridge = createAgentBridge({
+  getEnabled: async () => (await getSettingsSnapshot()).enableAgentBridge === true
+});
+
 // save-settings 处理器（core/save-settings-handler.ts 工厂）：写入口（落盘 + 失效）
 // → 撤回判定 → 撤回钩子的编排收进 core 域；撤回判据与清缓存钩子住 search 域
 //（search-opt-out.ts，撤回是搜索域知识，spec §6.7 / §10 第 40 行），此处一行装配。
 const handleSaveSettings = createSaveSettingsHandler({
   saveSettingsWithInvalidate,
   getSettingsSnapshot,
-  onSearchOptOut: createSearchOptOutHook({ logWarn })
+  onSearchOptOut: createSearchOptOutHook({ logWarn }),
+  onSettingsSaved: agentBridge.sync
 });
 
 // script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
@@ -648,6 +655,13 @@ chrome.runtime.onConnect?.addListener?.((port) => {
     return;
   }
 });
+
+watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge"] });
+chrome.runtime.onStartup?.addListener(() => void agentBridge.sync());
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
+});
+void agentBridge.sync();
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
 // 用户开的调试日志在 SW 静默）。

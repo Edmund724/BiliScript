@@ -639,3 +639,33 @@
     transform: none;
   }
 }
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-install {
+  display: flex;
+  align-items: center;
+  gap: var(--biliscript-space-sm);
+  padding: 0 var(--biliscript-space-14) var(--biliscript-space-10);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-install[hidden] {
+  display: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-install code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-sm);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-copy {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  cursor: pointer;
+}

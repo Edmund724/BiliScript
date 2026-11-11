@@ -52,6 +52,7 @@ import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
+import { collectAgentBridgeTabSnapshot } from "../agent-bridge/content.js";
 
 import {
   isReaderMode,
@@ -171,6 +172,11 @@ function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResp
   return true;
 }
 
+function handleAgentBridgeSnapshot(_message: Msg<"agent-bridge-snapshot">, sendResponse: SendResponse): boolean {
+  sendResponse({ ok: true, snapshot: collectAgentBridgeTabSnapshot() });
+  return false;
+}
+
 // 编译期穷尽路由表（与 SW 侧 background.ts 的 messageHandlerTable 同款收敛，
 // arch-slim-3/04）：字面量表经 satisfies 对
 // { [K in ContentScriptMessageType]: ContentScriptHandler<K> } 校验——消息名
@@ -181,7 +187,8 @@ const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
   "reader-close": handleReaderClose,
-  "live-session-takeover": handleLiveSessionTakeover
+  "live-session-takeover": handleLiveSessionTakeover,
+  "agent-bridge-snapshot": handleAgentBridgeSnapshot
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 
 const contentMessageHandlers = new Map<
