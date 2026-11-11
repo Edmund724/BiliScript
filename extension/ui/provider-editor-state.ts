@@ -113,6 +113,12 @@ export interface ProviderEditorOpenOptions {
   onSave: ProviderEditorSave;
   // 编辑态的删除入口（Modal 头部警示按钮）；缺省 = 不渲染删除按钮
   onDelete?: ProviderEditorDelete;
+  // 首配模式（票 provider-onboarding-consistency/01，概览「去设置」直达流程）：
+  // 保存钮文案、AI 族强制至少一个模型、保存成功后与编辑器会话结束两个回调。
+  submitLabel?: string;
+  firstSetup?: boolean;
+  onAfterSave?: (() => void) | null;
+  onSessionEnd?: (() => void) | null;
 }
 
 // 会话控制字段：对外只读（写入走下面的意图级原语）。
@@ -127,6 +133,11 @@ export interface EditorState {
   readonly presets: readonly ProviderRowPreset[];
   readonly onSave: ProviderEditorSave;
   readonly onDelete: ProviderEditorDelete | null;
+  // 首配模式（票 01）：保存钮文案（投影读 open 参数，不入袋）、AI 至少一个模型、
+  // 保存成功后回调（先消费续跑意图再关 Modal）与会话结束回调（取消/删除收场清意图）
+  readonly firstSetup: boolean;
+  readonly onAfterSave: (() => void) | null;
+  readonly onSessionEnd: (() => void) | null;
   // 编辑草稿与打开时的基线（dirty = 逐字段对比，见 draftsEqual）
   readonly draft: EditorDraftView | null;
   readonly baselineDraft: EditorDraftView | null;
@@ -150,6 +161,9 @@ const bag: MutableEditorState = {
   presets: [],
   onSave: async () => ({ ok: false, error: "保存回调未注入" }),
   onDelete: null,
+  firstSetup: false,
+  onAfterSave: null,
+  onSessionEnd: null,
   draft: null,
   baselineDraft: null,
   generation: 0,
@@ -178,6 +192,9 @@ export interface EditorSessionInit {
   draft: EditorDraft;
   // 缺省 = cloneDraft(draft)（打开即基线）；显式 null = 无基线（手工挂载的测试）
   baselineDraft?: EditorDraftView | null;
+  firstSetup?: boolean;
+  onAfterSave?: (() => void) | null;
+  onSessionEnd?: (() => void) | null;
 }
 
 // 打开一次编辑会话：会话控制字段的唯一写入点。
@@ -191,23 +208,38 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.editingId = init.editingId ?? "";
   bag.openBaseUrl = init.openBaseUrl ?? "";
   bag.hasSavedKey = Boolean(init.hasSavedKey);
+  bag.firstSetup = init.firstSetup === true;
+  bag.onAfterSave = init.onAfterSave ?? null;
+  bag.onSessionEnd = init.onSessionEnd ?? null;
   bag.draft = init.draft;
   bag.baselineDraft = init.baselineDraft === undefined ? cloneDraft(init.draft) : init.baselineDraft;
   bag.voices = [];
   bag.voicesLoaded = false;
 }
 
-// 结束会话（幂等）：代际作废在飞回执、摘宿主与观察器、清草稿。文档级监听的
-// 摘除仍由 Modal 持有（监听挂在 Modal 的接线一侧）。
+// 结束会话（幂等）：代际作废在飞回执、摘宿主与观察器、清草稿。首配模式的会话
+// 结束回调最后结算（取消/删除/强制关闭路径由装配方作废未消费的首配续跑意图；
+// 保存成功路径此时意图已被消费，回调落到空槽）。
 export function endEditorSession(): void {
+  const onSessionEnd = bag.onSessionEnd;
   bag.generation += 1;
   bag.open = false;
+  bag.firstSetup = false;
+  bag.onAfterSave = null;
+  bag.onSessionEnd = null;
   sessionObserver.observer?.disconnect();
   sessionObserver.observer = null;
   bag.host?.remove();
   bag.host = null;
   bag.draft = null;
   bag.baselineDraft = null;
+  if (onSessionEnd) {
+    try {
+      onSessionEnd();
+    } catch {
+      // 装配方回调异常不得阻断 Modal 收场
+    }
+  }
 }
 
 // 草稿写入的唯一入口：会话未开/无草稿时静默忽略。

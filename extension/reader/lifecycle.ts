@@ -48,7 +48,7 @@ import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // 触达壳，壳未装载时命令静默丢弃，与原 DOM 缺失时 setter 空转同形。
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
-import { projectReaderSettingsMode } from "./settings-mode.js";
+import { projectReaderSettingsMode, closeReaderSettingsMode } from "./settings-mode.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -75,6 +75,12 @@ import {
   type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
+// 首配续跑意图（票 01）：概览「去设置」记录、保存成功后消费续跑、取消/关面板/关视图作废。
+import {
+  clearOverviewSetupResumeIntent,
+  consumeOverviewSetupResumeIntent,
+  setOverviewSetupResumeIntent
+} from "./overview-setup-resume.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
@@ -181,6 +187,31 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   loadAnalysis: () => import("../ai/analysis.js"),
   confirm: (options) => (state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true)),
   registerUiActions: (actions) => registerOverviewUiActions(actions),
+  // 首配续跑（票 01）：「去设置」记录页面内存意图并直达正确的平台编辑界面；
+  // 首配保存成功经 onAfterSave 消费意图、退出设置并在同一视频续跑一次概览；
+  // 取消编辑（onSessionEnd）/关闭设置抽屉/关闭阅读视图均作废意图。
+  setupResume: {
+    begin: (intent) => {
+      setOverviewSetupResumeIntent(intent);
+      void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
+        openReaderAiSetup(intent.errorClass, {
+          onAfterSave: () => {
+            // resumeAfterSetup 同步取走并校验意图，随后退出设置恢复原概览；
+            // 不重新激活 Tab、不写新的 Tab 偏好。
+            void overviewCoordinator.resumeAfterSetup();
+            closeReaderSettingsMode({ restoreFocus: true });
+          },
+          onSessionEnd: () => clearOverviewSetupResumeIntent()
+        });
+      });
+    },
+    consume: consumeOverviewSetupResumeIntent
+  },
+  openTranscribeSettings: () => {
+    void import("../ui/settings-panel.js").then(({ openReaderTranscribeSettings }) => {
+      openReaderTranscribeSettings();
+    });
+  },
   now: () => Date.now(),
   setInterval: (...args) => setInterval(...args),
   clearInterval: (...args) => clearInterval(...args)
@@ -527,6 +558,8 @@ export function closeReadingView() {
   // 与待解释意图（不跨会话残留；下次打开按空态渲染）。
   clearReadingSubtitleSearch();
   clearPendingExplainIntent();
+  // 首配续跑意图不跨会话残留（票 01）：关视图即作废未消费意图。
+  clearOverviewSetupResumeIntent();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal();

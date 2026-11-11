@@ -203,9 +203,14 @@ export function createAsrRuntimeConfigHandler({
 
 // ===== 「激活平台」单趟解析处理器（arch-slim-3/09，GLOSSARY.md 域词条）=====
 
-// 无可用平台的可读文案单源（原 ai/active-provider.ts 定义，随解析链收口搬入
-// 处理器——错误在解析期产生，文案与产生点同居）。
-export const NO_ACTIVE_PROVIDER_MESSAGE = "还没有配置 AI 平台，请先在插件设置中添加并启用。";
+// 解析期配置类错误的可读文案单源：常量定义在 core/overview-setup-error.ts
+// （SW 产生、content 侧分类两边共用的零依赖叶子，票 provider-onboarding-
+// consistency/01），此处 re-export 保持既有导入路径不变。
+export {
+  MISSING_PROVIDER_KEY_MESSAGE,
+  NO_ACTIVE_PROVIDER_MESSAGE
+} from "./overview-setup-error.js";
+import { MISSING_PROVIDER_KEY_MESSAGE, NO_ACTIVE_PROVIDER_MESSAGE } from "./overview-setup-error.js";
 
 export interface AiResolvedProviderHandlerDeps {
   getMergedSettings: () => Promise<{ defaultModel?: unknown }>;
@@ -262,7 +267,7 @@ export function createAiResolvedProviderHandler({
         const keys = (await loadKeys()) || {};
         const apiKey = String(keys[providerId] || "").trim();
         if (provider.requiresKey !== false && !apiKey) {
-          throw new Error("该平台 API Key 未配置");
+          throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
         }
         return { ok: true, provider, apiKey };
       })(),

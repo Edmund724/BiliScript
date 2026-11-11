@@ -1,5 +1,6 @@
 import { state } from "../core/state.js";
 import { getReaderActiveScriptTab, ids } from "./state.js";
+import { clearOverviewSetupResumeIntent } from "./overview-setup-resume.js";
 
 const TAB_BUTTON_IDS = {
   subtitle: ids.readingTabSubtitle,
@@ -56,6 +57,9 @@ export function closeReaderSettingsMode({ restoreFocus = true }: { restoreFocus?
   if (!state.reader.readingSettingsExpanded) return;
   state.reader.setSettingsExpanded(false);
   projectReaderSettingsMode();
+  // 首配续跑意图随设置抽屉关闭作废（票 01：关闭面板即失效）；首配保存成功的
+  // 消费路径先取走意图，这里的清除落到空槽。
+  clearOverviewSetupResumeIntent();
   if (restoreFocus) {
     const returnTarget = settingsReturnFocus?.isConnected ? settingsReturnFocus : null;
     focusWithoutScroll(returnTarget ?? document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
