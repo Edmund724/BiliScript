@@ -22,7 +22,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
     isLiveCompanionActive: ReturnType<typeof vi.fn>;
     syncPlayerInterpretQuickAction: ReturnType<typeof vi.fn>;
-    toggleInterpret: ReturnType<typeof vi.fn>;
+    getInterpretSessionState: ReturnType<typeof vi.fn>;
+    applyInterpretMenuChoice: ReturnType<typeof vi.fn>;
   };
   let mockOverlay: {
     show: ReturnType<typeof vi.fn>;
@@ -73,7 +74,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
       isLiveCompanionActive: vi.fn(() => false),
       syncPlayerInterpretQuickAction: vi.fn(),
-      toggleInterpret: vi.fn(async () => {})
+      getInterpretSessionState: vi.fn(() => "idle"),
+      applyInterpretMenuChoice: vi.fn(async () => {})
     };
 
     mockEnsureUiReady = vi.fn(async () => {});
@@ -178,7 +180,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
   });
 
-  it("点击实时翻译只切换同传，不启动伴看或创建伴看浮窗", async () => {
+  it("点击字幕按钮打开仿原生菜单，不启动伴看或创建伴看浮窗", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
@@ -187,9 +189,28 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     interpretButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(mockLiveSession.toggleInterpret).toHaveBeenCalledTimes(1);
     expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
     expect(mockLiveSession.ensureFullscreenOverlay).not.toHaveBeenCalled();
+    expect(mockLiveSession.applyInterpretMenuChoice).not.toHaveBeenCalled();
+
+    const menu = document.getElementById("biliscript-interpret-menu");
+    expect(menu).not.toBeNull();
+    expect(menu?.querySelector(".biliscript-interpret-menu-title")?.textContent).toBe("字幕");
+    expect(menu?.querySelector('[data-action="off"]')?.classList.contains("is-selected")).toBe(true);
+    expect(menu?.querySelectorAll(".biliscript-interpret-menu-langs [data-lang]")).toHaveLength(14);
+    expect(menu?.querySelector('[data-lang="ja"] .biliscript-interpret-menu-item-label')?.textContent).toBe("日本語");
+    expect(menu?.querySelector(".biliscript-interpret-menu-bilingual-label")?.textContent).toBe("双语字幕");
+
+    // 菜单内点语言 → 经 applyChoice 走会话侧；不启动伴看
+    (menu?.querySelector('[data-lang="en"]') as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(mockLiveSession.applyInterpretMenuChoice).toHaveBeenCalledWith({ kind: "translation", targetLang: "en" });
+    expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
+
+    // 再点按钮收起菜单
+    interpretButton.click();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("biliscript-interpret-menu")).toBeNull();
   });
 
   it("非全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {

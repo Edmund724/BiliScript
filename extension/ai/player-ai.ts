@@ -3,14 +3,16 @@
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 import {
+  applyInterpretMenuChoice,
   ensureFullscreenOverlay,
+  getInterpretSessionState,
   getLiveController,
   isLiveCompanionActive,
   startLiveCompanion,
   stopLiveCompanion,
-  syncPlayerInterpretQuickAction,
-  toggleInterpret
+  syncPlayerInterpretQuickAction
 } from "../live/live-companion-session.js";
+import { closeInterpretSubtitleMenu, toggleInterpretSubtitleMenu } from "../live/interpret-subtitle-menu.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -553,6 +555,7 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  closeInterpretSubtitleMenu();
   document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-interpret-quick-action")?.remove();
   document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
@@ -745,11 +748,23 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
   event.stopPropagation();
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
   if (!button || button.getAttribute("aria-disabled") === "true" || button.disabled) return;
-  button.disabled = true;
+  const wrap = button.parentElement;
+  if (!(wrap instanceof HTMLElement)) return;
+  button.setAttribute("aria-expanded", "true");
   try {
-    await toggleInterpret();
+    await toggleInterpretSubtitleMenu(wrap, {
+      getSessionState: getInterpretSessionState,
+      getPreferences: async () => {
+        const settings = await getSettings();
+        return {
+          targetLang: String(settings.liveInterpretTargetLang || "zh"),
+          displayMode: String(settings.liveInterpretDisplayMode || "auto")
+        };
+      },
+      applyChoice: applyInterpretMenuChoice
+    });
   } finally {
-    button.disabled = false;
+    button.setAttribute("aria-expanded", "false");
   }
 }
 

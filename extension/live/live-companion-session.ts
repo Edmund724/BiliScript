@@ -4,6 +4,7 @@
 
 import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import {
   setLiveCompanionStopHandler,
@@ -18,6 +19,11 @@ import {
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import type { FullscreenLiveOverlay, LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { createInterpretSubtitleOverlay } from "./interpret-subtitle-overlay.js";
+import {
+  closeInterpretSubtitleMenu,
+  syncInterpretSubtitleMenu,
+  type InterpretSubtitleMenuChoice
+} from "./interpret-subtitle-menu.js";
 import {
   createInterpretSessionController,
   type InterpretSessionController
@@ -71,6 +77,11 @@ export function syncPlayerInterpretQuickAction(): void {
   const shouldShow = shouldShowInterpret();
   const controller = shouldShow ? ensureInterpretController() : interpretController;
   syncPlayerInterpretQuickActionState(controller, shouldShow);
+  if (!shouldShow) {
+    closeInterpretSubtitleMenu();
+  } else {
+    void syncInterpretSubtitleMenu();
+  }
 }
 
 function ensureInterpretController(): InterpretSessionController {
@@ -99,6 +110,44 @@ function ensureInterpretController(): InterpretSessionController {
 
 export async function toggleInterpret(): Promise<void> {
   await ensureInterpretController().toggle();
+}
+
+// ===== 播放器「字幕」菜单接线（interpret-subtitle-menu 的 deps 实现）=====
+
+export function getInterpretSessionState(): "idle" | "connecting" | "connected" {
+  return interpretController?.getState() ?? "idle";
+}
+
+export async function applyInterpretMenuChoice(
+  choice: InterpretSubtitleMenuChoice
+): Promise<void> {
+  const controller = ensureInterpretController();
+  if (choice.kind === "off") {
+    await controller.stop();
+    return;
+  }
+
+  const prevLang = String(state.settings?.liveInterpretTargetLang || "zh");
+  const langChanged = choice.targetLang !== prevLang;
+  const patch = {
+    liveInterpretTargetLang: choice.targetLang,
+    liveInterpretDisplayMode: (choice.kind === "bilingual" ? "bilingual" : "translation") as
+      | "bilingual"
+      | "translation"
+  };
+  state.patchSettings(patch);
+  void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
+
+  const sessionState = controller.getState();
+  if (sessionState === "idle") {
+    // 选语言/开双语即开启会话；平台缺失时 start 内部提示可读错误
+    await controller.start();
+  } else if (langChanged) {
+    // 译文缓存按目标语言键命中，重启直接复用已翻分片
+    await controller.stop();
+    await controller.start();
+  }
+  // 同语言仅切显示模式：浮层按新设置即时重算，无需重启
 }
 
 const liveOverlayBinding = createLiveOverlayBinding({
@@ -266,6 +315,7 @@ export function disposeLiveCompanionSession(): void {
   liveController = null;
   interpretController?.dispose();
   interpretController = null;
+  closeInterpretSubtitleMenu();
   interpretSubtitleOverlay.clear();
   interpretSubtitleOverlay.dispose();
   liveOverlayBinding.dispose();

@@ -374,6 +374,152 @@
   outline-offset: 2px;
 }
 
+/* ===== 仿 B 站原生字幕菜单（interpret-subtitle-menu） ===== */
+/* 视觉基准：bpx 播放器字幕弹层——深灰半透明圆角面板、teal 选中项、
+   语言行 [AI] 徽标、右侧开关、双语态主/副字幕双列网格。 */
+
+.biliscript-interpret-menu {
+  background: rgb(31 31 31 / 0.95);
+  border-radius: 10px;
+  bottom: calc(100% + 12px);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
+  box-sizing: border-box;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.4;
+  max-height: min(60vh, 380px);
+  min-width: 200px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px 0;
+  position: absolute;
+  right: -8px;
+  z-index: 30;
+}
+
+.biliscript-interpret-menu-title {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 12px;
+  padding: 4px 16px 6px;
+}
+
+.biliscript-interpret-menu-item {
+  -webkit-appearance: none;
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font-family: inherit;
+  font-size: inherit;
+  gap: 6px;
+  line-height: inherit;
+  margin: 0;
+  padding: 8px 16px;
+  text-align: left;
+  width: 100%;
+}
+
+.biliscript-interpret-menu-item:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.biliscript-interpret-menu-item.is-selected .biliscript-interpret-menu-item-label {
+  color: var(--bpx-primary-color, #00a1d6);
+}
+
+.biliscript-interpret-menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.biliscript-interpret-menu-ai {
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 4px;
+  color: rgb(255 255 255 / 0.45);
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 0 3px;
+}
+
+.biliscript-interpret-menu-divider {
+  background: rgb(255 255 255 / 0.1);
+  height: 1px;
+  margin: 6px 0;
+}
+
+.biliscript-interpret-menu-bilingual-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 16px;
+}
+
+.biliscript-interpret-menu-bilingual-label {
+  color: #fff;
+}
+
+.biliscript-interpret-menu-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgb(255 255 255 / 0.25);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 20px;
+  margin: 0;
+  padding: 2px;
+  position: relative;
+  transition: background-color 0.15s ease-out;
+  width: 36px;
+}
+
+.biliscript-interpret-menu-switch > span {
+  background: #fff;
+  border-radius: 50%;
+  display: block;
+  height: 16px;
+  transform: translateX(0);
+  transition: transform 0.15s ease-out;
+  width: 16px;
+}
+
+.biliscript-interpret-menu-switch.is-on {
+  background: var(--bpx-primary-color, #00a1d6);
+}
+
+.biliscript-interpret-menu-switch.is-on > span {
+  transform: translateX(16px);
+}
+
+.biliscript-interpret-menu-grid {
+  display: flex;
+  padding-top: 2px;
+}
+
+.biliscript-interpret-menu-grid-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.biliscript-interpret-menu-grid-title {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 12px;
+  padding: 4px 16px 6px;
+}
+
+.biliscript-interpret-menu-grid-col .biliscript-interpret-menu-item {
+  padding: 6px 16px;
+}
+
 .biliscript-fullscreen-live-overlay {
   /* 液体玻璃材质令牌（全屏视频深色场景 + 实时视频密集色调兜底） */
   --biliscript-live-glass-tint-scale: 1;
