@@ -383,14 +383,24 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           ? "https://generativelanguage.googleapis.com"
           : "https://api.mosi.cn");
       activeTargetModel = active?.model || DEFAULT_LIVE_MODEL;
-      activeTargetProviderId = String(active?.id || "");
-      // 通话中改音色：设置改动经 liveProviders 存储监听回到这里，直接向 offscreen
-      // 下发 change_voice（服务端从下一轮回答开始使用）；未连接时只更新目标值。
+      const nextProviderId = String(active?.id || "");
+      const providerChanged = Boolean(
+        activeTargetProviderId &&
+        nextProviderId !== activeTargetProviderId &&
+        (state === "connecting" || state === "connected")
+      );
+      activeTargetProviderId = nextProviderId;
+      if (providerChanged) {
+        showNotice("伴看平台已切换，当前连接保持不变；重新连接后生效", 6000);
+      }
+      // 同平台通话中改音色：设置改动经 liveProviders 存储监听回到这里，向 offscreen
+      // 下发 change_voice（下一轮回答生效）；平台切换保留旧连接，仅更新下次连接目标。
       const nextVoiceId = String(active?.voiceId || "").trim();
       const voiceChanged = nextVoiceId !== activeTargetVoiceId;
       activeTargetVoiceId = nextVoiceId;
       if (
         voiceChanged &&
+        !providerChanged &&
         nextVoiceId &&
         state === "connected" &&
         activeTargetProviderType === "moss-live" &&
@@ -908,6 +918,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     videoCaptureConfig = resolveMossVideoConfig(prepResp.liveLowBandwidth === true);
     videoConfigErrorNotified = false;
     activeTargetProviderType = resolvedProviderType;
+    if (prepResp.provider?.id) {
+      activeTargetProviderId = String(prepResp.provider.id);
+    }
     if (prepResp.provider?.baseUrl) {
       activeTargetOrigin = prepResp.provider.baseUrl;
     }

@@ -21,6 +21,7 @@ import {
   type ViewportDragHandle,
   type ViewportDragOffset
 } from "./viewport-drag.js";
+import { bindAudioPopover, type AudioPopoverHandle } from "./audio-popover.js";
 
 export type LiveSettingsTarget = "live" | "gemini-key";
 
@@ -62,12 +63,15 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let micBtnEl: HTMLButtonElement | null = null;
   let audioBtnEl: HTMLButtonElement | null = null;
   let audioPopEl: HTMLElement | null = null;
+  let audioPopoverHandle: AudioPopoverHandle | null = null;
   let volumeSliderEl: HTMLInputElement | null = null;
   let volumeValueEl: HTMLElement | null = null;
   let speedSliderEl: HTMLInputElement | null = null;
   let speedValueEl: HTMLElement | null = null;
   let shareAudioSwitchEl: HTMLButtonElement | null = null;
+  let shareAudioStatusEl: HTMLElement | null = null;
   let voicePrioritySwitchEl: HTMLButtonElement | null = null;
+  let audioSettingsBtnEl: HTMLButtonElement | null = null;
   let minBtnEl: HTMLButtonElement | null = null;
   let closeBtnEl: HTMLButtonElement | null = null;
   let failureCardEl: HTMLElement | null = null;
@@ -277,14 +281,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
             </svg>
           </button>
           <div class="live-overlay-audio-anchor">
-            <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="音频设置" aria-label="音频设置">
+            <button type="button" class="live-overlay-icon-btn live-overlay-audio-btn" title="音频设置" aria-label="音频设置" aria-expanded="false" aria-controls="biliscript-live-audio-popover">
               <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
               </svg>
             </button>
-            <div class="live-overlay-audio-popover" hidden>
+            <div id="biliscript-live-audio-popover" class="live-overlay-audio-popover" popover="auto" hidden>
               <div class="live-overlay-output-controls">
                 <div class="live-overlay-pop-item live-overlay-pop-volume-item">
                   <span>伴看音量</span>
@@ -305,10 +309,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
                 <span>分享视频声音</span>
                 <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="分享视频声音" title="分享视频声音"></button>
               </div>
+              <div class="live-overlay-audio-status" role="status" hidden></div>
               <div class="live-overlay-pop-item">
                 <span>语音优先</span>
                 <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先" title="语音优先"></button>
               </div>
+              <button type="button" class="live-overlay-audio-settings-btn">伴看平台与密钥</button>
             </div>
           </div>
           <button type="button" class="live-overlay-icon-btn live-overlay-min-btn" title="最小化伴看浮窗" aria-label="最小化伴看浮窗" aria-expanded="true" aria-controls="biliscript-fullscreen-live-overlay">
@@ -393,7 +399,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     speedSliderEl = overlay.querySelector(".live-overlay-speed-slider");
     speedValueEl = overlay.querySelector(".live-overlay-speed-value");
     shareAudioSwitchEl = overlay.querySelector(".live-overlay-share-switch");
+    shareAudioStatusEl = overlay.querySelector(".live-overlay-audio-status");
     voicePrioritySwitchEl = overlay.querySelector(".live-overlay-priority-switch");
+    audioSettingsBtnEl = overlay.querySelector(".live-overlay-audio-settings-btn");
     minBtnEl = overlay.querySelector(".live-overlay-min-btn");
     closeBtnEl = overlay.querySelector(".live-overlay-close-btn");
     failureCardEl = overlay.querySelector(".live-overlay-failure-card");
@@ -471,37 +479,31 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       void deps.getInterpretController?.()?.toggle();
     });
 
-    audioBtnEl?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!audioPopEl) return;
-      const willOpen = audioPopEl.hidden;
-      audioPopEl.hidden = !willOpen;
-      if (rootEl) {
-        if (willOpen) {
-          rootEl.dataset.popoverOpen = "1";
-        } else {
-          delete rootEl.dataset.popoverOpen;
-        }
-      }
-      if (willOpen) {
-        syncAudioControls();
-      }
-    });
+    audioPopoverHandle?.dispose();
+    if (audioBtnEl && audioPopEl) {
+      audioPopoverHandle = bindAudioPopover({
+        button: audioBtnEl,
+        popover: audioPopEl,
+        getOverlayRoot: () => rootEl,
+        getMountHost,
+        onOpen: syncAudioControls
+      });
+    }
 
-    audioPopEl?.addEventListener("click", (e) => {
-      e.stopPropagation();
-    });
-
-    const onVolumeInput = (e: Event) => {
-      e.stopPropagation();
-      const target = e.target as HTMLInputElement;
+    const previewVolume = (target: HTMLInputElement): number => {
       const val = Math.max(0, Math.min(200, Math.round(Number(target.value) || 0)));
       syncVolumeDisplay(val);
       deps.getLiveController()?.setVolume(val / 100);
-      deps.onVolumeChange?.(val);
+      return val;
     };
-    volumeSliderEl?.addEventListener("input", onVolumeInput);
-    volumeSliderEl?.addEventListener("change", onVolumeInput);
+    volumeSliderEl?.addEventListener("input", (e) => {
+      e.stopPropagation();
+      previewVolume(e.target as HTMLInputElement);
+    });
+    volumeSliderEl?.addEventListener("change", (e) => {
+      e.stopPropagation();
+      deps.onVolumeChange?.(previewVolume(e.target as HTMLInputElement));
+    });
 
     const onSpeedInput = (e: Event) => {
       e.stopPropagation();
@@ -529,6 +531,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         controller.setVoicePriority(!controller.isVoicePriority());
         syncAudioControls();
       }
+    });
+
+    audioSettingsBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      audioPopoverHandle?.close(false);
+      deps.onOpenLiveSettings?.("live");
     });
 
     minBtnEl?.addEventListener("click", (e) => {
@@ -669,10 +677,16 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     syncVolumeDisplay(resolveCurrentVolume());
     syncSpeedDisplay(controller.getSpeed());
 
+    let missingAudioTrack = false;
     if (shareAudioSwitchEl) {
       const share = controller.isSharingVideoAudio();
       shareAudioSwitchEl.setAttribute("aria-checked", String(share));
       shareAudioSwitchEl.classList.toggle("is-active", share);
+      missingAudioTrack = share && controller.getVideoAudioStatus?.() === "未检测到音轨";
+    }
+    if (shareAudioStatusEl) {
+      shareAudioStatusEl.hidden = !missingAudioTrack;
+      shareAudioStatusEl.textContent = missingAudioTrack ? "未采到视频音轨；仍可语音伴看" : "";
     }
     if (voicePrioritySwitchEl) {
       const prio = controller.isVoicePriority();
@@ -707,7 +721,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         setElementHidden(rootEl, true);
         delete rootEl.dataset.popoverOpen;
       }
-      if (audioPopEl) audioPopEl.hidden = true;
+      audioPopoverHandle?.close(false);
     } else {
       if (rootEl) {
         setElementHidden(rootEl, false);
@@ -757,7 +771,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       delete rootEl.dataset.popoverOpen;
     }
     if (miniCapsuleEl) setElementHidden(miniCapsuleEl, true);
-    if (audioPopEl) audioPopEl.hidden = true;
+    audioPopoverHandle?.close(false);
     if (scrollBottomBtnEl) scrollBottomBtnEl.hidden = true;
     syncExpansionAria();
   }
@@ -952,6 +966,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
   function dispose(): void {
     disposed = true;
+    audioPopoverHandle?.dispose();
+    audioPopoverHandle = null;
     if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
     interpretNoticeTimer = null;
     interpretNoticeEl = null;

@@ -49,6 +49,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
         speed = val;
       }),
       isSharingVideoAudio: () => shareAudio,
+      getVideoAudioStatus: () => "已获取音轨",
       setShareVideoAudio: vi.fn((val: boolean) => {
         shareAudio = val;
       }),
@@ -215,36 +216,35 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     });
     overlay.show({ forceExpand: true });
 
-    // 1. 喇叭左侧独立的麦克风按钮切换静音
     const micBtn = overlay.getElement()?.querySelector(".live-overlay-mic-btn") as HTMLButtonElement;
-    expect(micBtn).not.toBeNull();
     expect(micBtn.getAttribute("aria-pressed")).toBe("false");
-
     micBtn.click();
     expect(mockController.toggleMute).toHaveBeenCalled();
     expect(micBtn.getAttribute("aria-pressed")).toBe("true");
 
-    // 2. 喇叭按钮点击弹出二级菜单
     const audioBtn = overlay.getElement()?.querySelector(".live-overlay-audio-btn") as HTMLButtonElement;
     const popover = overlay.getElement()?.querySelector(".live-overlay-audio-popover") as HTMLElement;
+    expect(audioBtn.getAttribute("aria-controls")).toBe(popover.id);
+    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
     expect(popover.hidden).toBe(true);
     audioBtn.click();
     expect(popover.hidden).toBe(false);
+    expect(audioBtn.getAttribute("aria-expanded")).toBe("true");
 
-    // 3. 二级菜单内音量滑轨调节
     const volumeSlider = popover.querySelector(".live-overlay-volume-slider") as HTMLInputElement;
     const volumeValue = popover.querySelector(".live-overlay-volume-value") as HTMLElement;
-    expect(volumeSlider).not.toBeNull();
     expect(volumeSlider.value).toBe("80");
     expect(volumeValue.textContent).toBe("80%");
 
     volumeSlider.value = "65";
     volumeSlider.dispatchEvent(new Event("input"));
     expect(mockController.setVolume).toHaveBeenCalledWith(0.65);
-    expect(onVolumeChange).toHaveBeenCalledWith(65);
+    expect(onVolumeChange).not.toHaveBeenCalled();
     expect(volumeValue.textContent).toBe("65%");
+    volumeSlider.dispatchEvent(new Event("change"));
+    expect(onVolumeChange).toHaveBeenCalledTimes(1);
+    expect(onVolumeChange).toHaveBeenCalledWith(65);
 
-    // 4. 原声分享与语音优先开关切换
     const shareSwitch = popover.querySelector(".live-overlay-share-switch") as HTMLButtonElement;
     shareSwitch.click();
     expect(mockController.setShareVideoAudio).toHaveBeenCalledWith(false);
@@ -252,6 +252,110 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const prioSwitch = popover.querySelector(".live-overlay-priority-switch") as HTMLButtonElement;
     prioSwitch.click();
     expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
+    overlay.dispose();
+  });
+
+  it("Esc 与外点只关闭音频弹层并回焦，不结束伴看", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    Object.defineProperty(popover, "showPopover", {
+      configurable: true,
+      value: vi.fn(() => {
+        throw new Error("native popover unavailable");
+      })
+    });
+    audioBtn.click();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(popover.hidden).toBe(true);
+    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(audioBtn);
+    expect(onStopLive).not.toHaveBeenCalled();
+
+    audioBtn.click();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(audioBtn);
+    expect(onStopLive).not.toHaveBeenCalled();
+    overlay.dispose();
+  });
+
+  it("fixed fallback 在下方空间不足时向上翻转并约束视口边界", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1000);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(400);
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    audioBtn.getBoundingClientRect = () => ({
+      left: 860, top: 300, right: 900, bottom: 340, width: 40, height: 40, x: 860, y: 300, toJSON: () => {}
+    });
+    popover.getBoundingClientRect = () => ({
+      left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0, toJSON: () => {}
+    });
+
+    audioBtn.click();
+
+    expect(popover.dataset.placement).toBe("top");
+    expect(popover.style.left).toBe("580px");
+    expect(popover.style.top).toBe("114px");
+    expect(popover.style.maxHeight).toBe("286px");
+    expect(popover.parentElement).toBe(document.body);
+    overlay.dispose();
+  });
+
+  it("真实无音轨时保留分享开关和语音伴看，仅显示状态提示", () => {
+    mockController.getVideoAudioStatus = () => "未检测到音轨";
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    const share = popover.querySelector<HTMLButtonElement>(".live-overlay-share-switch")!;
+    const priority = popover.querySelector<HTMLButtonElement>(".live-overlay-priority-switch")!;
+    const status = popover.querySelector<HTMLElement>(".live-overlay-audio-status")!;
+
+    expect(share.getAttribute("aria-checked")).toBe("true");
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toBe("未采到视频音轨；仍可语音伴看");
+    priority.click();
+    expect(mockController.setVoicePriority).toHaveBeenCalledWith(false);
+    expect(mockController.setShareVideoAudio).not.toHaveBeenCalled();
+    overlay.dispose();
+  });
+
+  it("音频弹层提供伴看平台与密钥入口", () => {
+    const onOpenLiveSettings = vi.fn();
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onOpenLiveSettings
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const settingsButton = root.querySelector<HTMLButtonElement>(".live-overlay-audio-settings-btn")!;
+    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    settingsButton.click();
+
+    expect(onOpenLiveSettings).toHaveBeenCalledWith("live");
+    expect(document.querySelector<HTMLElement>(".live-overlay-audio-popover")?.hidden).toBe(true);
+    overlay.dispose();
   });
 
   it("支持 200% 音量与五档吸附语速，并同步服务端调速", () => {

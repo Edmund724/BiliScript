@@ -14,6 +14,7 @@ import type {
 } from "../../extension/live/page-video-frame-capture.js";
 import type { MossVideoCaptureConfig } from "../../extension/live/moss-video-config.js";
 import { LIVE_VOICE_FALLBACK_NOTICE_TEXT } from "../../extension/live/live-voice-fallback-notice.js";
+import { createMemoryStorageArea } from "../helpers/memory-storage-area.js";
 import type {
   LiveProviderType,
   MossLiveToolCall,
@@ -242,6 +243,37 @@ describe("LiveChatController", () => {
     expect(liveButton.getAttribute("aria-busy")).toBe("false");
     expect(liveButton.title).toContain("开启实时伴看");
     expect(muteButton.hidden).toBe(true);
+  });
+
+  it("切换伴看平台保留当前连接，并提示重新连接后生效", async () => {
+    vi.stubGlobal("chrome", {
+      storage: {
+        sync: createMemoryStorageArea(),
+        local: createMemoryStorageArea()
+      }
+    });
+    await chrome.storage.sync.set({
+      liveProviders: [
+        { id: "moss-1", name: "平台一", type: "moss-live", baseUrl: "https://api.mosi.cn", voiceId: "voice-a" },
+        { id: "moss-2", name: "平台二", type: "moss-live", baseUrl: "https://api.mosi.cn", voiceId: "voice-b" }
+      ],
+      activeLiveProviderId: "moss-1"
+    });
+    const { controller, fakePort, connectPort, showNotice } = setupTest();
+    await controller.refreshTarget();
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    const messageCount = fakePort.postedMessages.length;
+
+    await chrome.storage.sync.set({ activeLiveProviderId: "moss-2" });
+    await controller.refreshTarget();
+
+    expect(controller.getState()).toBe("connected");
+    expect(fakePort.disconnected).toBe(false);
+    expect(connectPort).toHaveBeenCalledTimes(1);
+    expect(fakePort.postedMessages).toHaveLength(messageCount);
+    expect(showNotice).toHaveBeenCalledWith("伴看平台已切换，当前连接保持不变；重新连接后生效", 6000);
+    await controller.stop();
   });
 
   it("initiates permission request synchronously from start before any await tick", () => {

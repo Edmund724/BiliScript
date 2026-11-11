@@ -67,6 +67,7 @@ export interface LiveOverlayControllerHooks {
   onVadStateChange?: (active: boolean) => void;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
+  onVideoAudioStatusChange?: LiveChatControllerDeps["onVideoAudioStatusChange"];
 }
 
 export type BoundLiveControllerCallbacks = Pick<
@@ -79,6 +80,7 @@ export type BoundLiveControllerCallbacks = Pick<
   | "onSpeedChange"
   | "onVoicePriorityChange"
   | "onShareVideoAudioChange"
+  | "onVideoAudioStatusChange"
 >;
 
 export interface LiveOverlayBindingOptions {
@@ -265,7 +267,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         handleStateChange(liveState, error, failureKind);
       },
       onVolumeChange: (volumePercent) => {
-        handleVolumeChange(volumePercent);
+        options.onVolumeSync?.(volumePercent);
         overlay?.syncState();
       },
       onSpeedChange: (speed) => {
@@ -279,6 +281,10 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       onShareVideoAudioChange: (enabled) => {
         hooks?.onShareVideoAudioChange?.(enabled);
         handleShareVideoAudioChange(enabled);
+      },
+      onVideoAudioStatusChange: (status) => {
+        hooks?.onVideoAudioStatusChange?.(status);
+        overlay?.syncState();
       }
     };
   }

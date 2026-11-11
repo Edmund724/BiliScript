@@ -345,6 +345,40 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     binding.dispose();
   });
 
+  it("浮窗 change 只持久化一次，控制器音量回包只同步不重复保存", () => {
+    const sendMessage = vi.spyOn(chrome.runtime, "sendMessage");
+    const onVolumeSync = vi.fn();
+    const syncState = vi.fn();
+    let overlayDeps: any;
+    const binding = createLiveOverlayBinding({
+      getLiveController: () => null,
+      onVolumeSync,
+      createOverlay: ((deps: any) => {
+        overlayDeps = deps;
+        return { syncState };
+      }) as any
+    });
+    binding.ensureOverlay();
+
+    overlayDeps.onVolumeChange(65);
+    expect(state.settings?.liveVoiceVolume).toBe(65);
+    expect(onVolumeSync).toHaveBeenCalledWith(65);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: "save-settings",
+        settings: { liveVoiceVolume: 65 }
+      },
+      expect.any(Function)
+    );
+
+    sendMessage.mockClear();
+    binding.bindControllerCallbacks().onVolumeChange?.(80);
+    expect(onVolumeSync).toHaveBeenCalledWith(80);
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("把浮窗设置目标转发给视频页设置入口", () => {
     const onOpenLiveSettings = vi.fn();
     let overlayDeps: any;
