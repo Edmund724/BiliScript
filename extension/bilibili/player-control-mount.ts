@@ -8,11 +8,14 @@ const QUALITY_LABEL_PATTERN = /清晰度|4K|1080P|720P|480P|360P|超清|高清|�
 
 export type ControlBarPlacement =
   | { kind: "before"; parent: HTMLElement; reference: Element }
+  | { kind: "after"; parent: HTMLElement; reference: Element }
   | { kind: "prepend"; parent: HTMLElement }
   | { kind: "append"; parent: HTMLElement };
 
 export interface ResolveControlBarPlacementOptions {
   host?: ParentNode | null;
+  /** 首选锚点；倍速锚点未就绪时仍按清晰度与控制栏容器回退 */
+  anchor?: "quality" | "playbackRate";
   /** 优先匹配直播间现行控制栏扩展区 `.live-web-player-controller .right-area .ext-nodes` */
   preferLiveRoomExtNodes?: boolean;
   /** 控制栏右侧与清晰度控件均未就绪时，是否回退挂载到 host 根节点末尾 */
@@ -98,6 +101,7 @@ export function resolveControlBarPlacement(
 ): ControlBarPlacement | null {
   const {
     host = null,
+    anchor = "quality",
     preferLiveRoomExtNodes = false,
     fallbackToHost = false,
     allowDocumentFallback = true
@@ -107,6 +111,19 @@ export function resolveControlBarPlacement(
     const modernControls = host.querySelector<HTMLElement>(LIVE_ROOM_EXT_NODES_SELECTOR);
     if (modernControls) {
       return { kind: "prepend", parent: modernControls };
+    }
+  }
+
+  if (anchor === "playbackRate") {
+    const selector = ".bpx-player-ctrl-playbackrate:not([data-bilibili-3x])";
+    const playbackRateNode = host?.querySelector(selector) ||
+      (allowDocumentFallback ? document.querySelector(selector) : null);
+    if (playbackRateNode?.parentElement instanceof HTMLElement) {
+      return {
+        kind: "after",
+        parent: playbackRateNode.parentElement,
+        reference: playbackRateNode
+      };
     }
   }
 
@@ -141,6 +158,8 @@ export function isControlBarItemMounted(
   switch (placement.kind) {
     case "before":
       return node.parentElement === placement.parent && node.nextElementSibling === placement.reference;
+    case "after":
+      return node.parentElement === placement.parent && node.previousElementSibling === placement.reference;
     case "prepend":
     case "append":
       return node.parentElement === placement.parent;
@@ -152,6 +171,12 @@ export function applyControlBarPlacement(node: Node, placement: ControlBarPlacem
     case "before":
       if (node.parentElement !== placement.parent || node.nextSibling !== placement.reference) {
         placement.parent.insertBefore(node, placement.reference);
+        return true;
+      }
+      return false;
+    case "after":
+      if (node.parentElement !== placement.parent || node.previousSibling !== placement.reference) {
+        placement.parent.insertBefore(node, placement.reference.nextSibling);
         return true;
       }
       return false;

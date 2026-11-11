@@ -120,15 +120,23 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     vi.doUnmock("../../extension/core/runtime.js");
   });
 
-  it("实时伴看按钮独立挂载于底部控制栏清晰度控件左侧，不与 AI 快捷按钮共用 wrap", async () => {
+  it("实时翻译紧跟倍速，伴看独立挂载于清晰度左侧且不与 AI 快捷按钮共用 wrap", async () => {
     const controlWrap = document.createElement("div");
     controlWrap.className = "bpx-player-control-wrap";
     const controlBottomRight = document.createElement("div");
     controlBottomRight.className = "bpx-player-control-bottom-right";
+    const rateBtn = document.createElement("div");
+    rateBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-playbackrate";
+    rateBtn.textContent = "倍速";
+    const subtitleBtn = document.createElement("div");
+    subtitleBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-subtitle";
+    subtitleBtn.textContent = "字幕";
+    const volumeBtn = document.createElement("div");
+    volumeBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-volume";
     const qualityBtn = document.createElement("div");
     qualityBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-quality";
     qualityBtn.textContent = "1080P 高码率";
-    controlBottomRight.appendChild(qualityBtn);
+    controlBottomRight.append(rateBtn, subtitleBtn, volumeBtn, qualityBtn);
     controlWrap.appendChild(controlBottomRight);
     playerContainer.appendChild(controlWrap);
 
@@ -156,7 +164,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(aiWrap?.contains(interpretButton)).toBe(false);
 
     expect(interpretWrap?.contains(interpretButton)).toBe(true);
-    expect(interpretWrap?.nextElementSibling).toBe(liveWrap);
+    expect(rateBtn.nextElementSibling).toBe(interpretWrap);
+    expect(interpretWrap?.nextElementSibling).toBe(subtitleBtn);
     expect(liveWrap?.contains(liveButton)).toBe(true);
     expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");

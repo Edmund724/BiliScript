@@ -229,14 +229,15 @@
   z-index: 10;
 }
 
-/* 翻译与伴看共用对齐边距，避免伴看的负左边距覆盖左侧翻译文字 */
+/* 左邻 Hi-Res 带 20px 右外距，右邻清晰度无左外距；非全屏下左移 13px 使图标两侧留白相等 */
 .bpx-player-container:not([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
-  :is(.biliscript-player-interpret-quick-action-wrap, .biliscript-player-live-quick-action-wrap) {
+  .biliscript-player-live-quick-action-wrap {
   margin: 0 13px 0 -13px;
 }
 
+/* 全屏下 Hi-Res 右外距为 24px，多出的 4px 由左移量分担一半 */
 .bpx-player-container:is([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
-  :is(.biliscript-player-interpret-quick-action-wrap, .biliscript-player-live-quick-action-wrap) {
+  .biliscript-player-live-quick-action-wrap {
   margin: 0 15px 0 -15px;
 }
 

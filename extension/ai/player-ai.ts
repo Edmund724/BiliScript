@@ -116,10 +116,11 @@ function isPlayerInterpretQuickActionMountedStable(playerHost: HTMLElement): boo
   if (!interpretWrap || !interpretButton || !interpretWrap.isConnected || !interpretWrap.contains(interpretButton)) {
     return false;
   }
-  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
-  const placement = liveWrap?.isConnected && liveWrap.parentElement instanceof HTMLElement
-    ? { kind: "before" as const, parent: liveWrap.parentElement, reference: liveWrap }
-    : resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  const placement = resolveControlBarPlacement({
+    host: playerHost,
+    fallbackToHost: true,
+    anchor: "playbackRate"
+  });
   return isControlBarItemMounted(interpretWrap, placement);
 }
 
@@ -414,10 +415,11 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
     wrap.replaceChildren(button);
   }
 
-  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
-  const placement = liveWrap?.isConnected && liveWrap.parentElement instanceof HTMLElement
-    ? { kind: "before" as const, parent: liveWrap.parentElement, reference: liveWrap }
-    : resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  const placement = resolveControlBarPlacement({
+    host: playerHost,
+    fallbackToHost: true,
+    anchor: "playbackRate"
+  });
   if (placement) {
     applyControlBarPlacement(wrap, placement);
   }
