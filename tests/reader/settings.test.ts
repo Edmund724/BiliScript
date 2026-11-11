@@ -613,9 +613,10 @@ describe("主题：只剩明暗一轴", () => {
     expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(56);
     expect(widthBadge.textContent).toBe("540px");
     expect(widthReset.disabled).toBe(true);
+    // 重置同时清除显式自定义标记，恢复三种形态默认几何。
     expect(sentMessages).toContainEqual({
       type: "save-settings",
-      settings: { customPanelWidth: 540 }
+      settings: { customPanelWidth: 540, customPanelWidthEnabled: false }
     });
 
     // 单轮搜索次数上限滑块与重置键测试（默认 5，最小 1，最大 20）

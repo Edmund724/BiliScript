@@ -7,10 +7,12 @@
 
 /* ===== 文摘面板定位 =====
  * 贴栏态：script-host 挂载时写 left/top/width/height 四变量，面板按变量定位
- * （跟滚动，rAF 合帧）。浮层降级态（data-biliscript-script-float="1"）：不写变量，
- * 回落到 reader.css 的居中浮层基础样式（fixed 16px 边距 + 76vh）。
+ *（跟滚动，rAF 合帧）。浮层降级态（data-biliscript-script-float="1"）：不写定位
+ * 变量，回落到 reader.css 的居中浮层基础样式（fixed 16px 边距 + 76vh）；显式
+ * 自定义宽度由脚本补写 --biliscript-script-float-width，宽度规则用 min() 与
+ * 视口边距约束取窄。
  * 两态都必须可点：#biliscript-root 在 reader.css 无 pointer-events 约束
- * （pointer-events:none 只存在于 ready=0 壳上），面板自身
+ *（pointer-events:none 只存在于 ready=0 壳上），面板自身
  * pointer-events:auto 即整链可点，无需子元素逐层恢复。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view {
   position: fixed;
@@ -96,11 +98,13 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1000;
 }
 
-/* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位轻微缩放。 */
+/* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位轻微缩放。
+ * 宽度取「显式自定义宽（--biliscript-script-float-width，script-host 只在自定义
+ * 时写入）与视口边距约束（100vw - 32px）」的较小者，未自定义回落 760px 默认上限。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] {
   left: 50%;
   top: 50%;
-  width: min(760px, calc(100vw - 32px));
+  width: min(var(--biliscript-script-float-width, 760px), calc(100vw - 32px));
   right: auto;
   bottom: auto;
   height: min(76vh, 860px);

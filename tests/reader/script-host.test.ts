@@ -1,9 +1,9 @@
 // script-host 右栏定位器测试。
 //
-// 覆盖：锚点优先级命中与变量写入（贴栏宽度由 getTargetPanelWidth() 决定，
-// 默认 540px，贴视口右界；纵向钳进一屏）、隐藏副本跳过、播放器贴右缘降级、浮层降级
-// （属性而非变量）、窄窗浮层、2s 自查重锚、close 拆除与变量清除。
-//（script-only-ui：面板宽度档机制退役，贴栏宽度下限定死 380px。）
+// 覆盖：锚点优先级命中与变量写入（贴栏宽度为显式自定义值，无自定义默认 540px，
+// 贴视口右界；纵向钳进一屏）、隐藏副本跳过、播放器贴右缘降级（自定义宽度收缩、
+// 可用不足 300px 降浮层）、浮层降级（属性 + 可选 --biliscript-script-float-width）、
+// 窄窗浮层（999/1000 边界）、贴栏↔浮层双向切换、2s 自查重锚、close 拆除与变量清除。
 //
 // 注意：setup.ts 给 Element.prototype.getBoundingClientRect 打了「恒返回
 // 800x450」的默认补丁——不覆盖它会让锚点判定/降级分支全部走不到，测试假绿。
@@ -18,8 +18,13 @@ import { resetModuleState, setLocationUrl } from "../setup.js";
 import { READER_MODE_URL } from "../setup.js";
 
 type ScriptHost = typeof import("../../extension/reader/script-host.js");
+type CoreState = typeof import("../../extension/core/state.js");
 
 let scriptHost: ScriptHost;
+// 每用例动态 import 的 state（与 script-host 同一模块图）：resetModuleState 会
+// 清掉 __BILISCRIPT_STATE__ 共享槽，文件级静态 import 的 state 会指向旧槽对象，
+// patchSettings 写的和 script-host 读的不是同一份。
+let coreState: CoreState;
 
 // 右栏锚点六个选择器对应的可命中节点，按需在用例里往 body 挂。
 const ANCHOR_SELECTORS = [
@@ -85,8 +90,14 @@ function vars(el: HTMLElement): Record<string, string> {
   return result;
 }
 
+// 浮层形态的自定义宽度变量（仅显式自定义时写入）。
+function floatWidthVar(el: HTMLElement): string {
+  return el.style.getPropertyValue("--biliscript-script-float-width");
+}
+
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
+  coreState = await import("../../extension/core/state.js");
   scriptHost = await import("../../extension/reader/script-host.js");
 }
 
@@ -360,6 +371,150 @@ describe("script-host 降级链", () => {
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     // 贴栏恢复：默认宽 540px。
     expect(vars(el).width).toBe("540px");
+  });
+});
+
+describe("script-host 宽度偏好（05 号票：三种壳层形态）", () => {
+  it("贴栏形态：显式自定义 400/650 生效，未自定义回默认 540", async () => {
+    await loadModules();
+    mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 400 });
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1520px", width: "400px" });
+
+    runRafSynchronously();
+    coreState.state.patchSettings({ customPanelWidth: 650 });
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1270px", width: "650px" });
+
+    // 清除显式自定义标记：即便宽度值仍非默认，也回默认 540。
+    coreState.state.patchSettings({ customPanelWidthEnabled: false, customPanelWidth: 460 });
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1380px", width: "540px" });
+    vi.restoreAllMocks();
+  });
+
+  it("播放器降级：自定义宽度收缩为自定义值，未自定义占满可用宽度", async () => {
+    await loadModules();
+    // 播放器右缘 1000：left 1012，可用 908。
+    mountPlayerChain(makeRect(0, 80, 1000, 560));
+
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 400 });
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1012px", top: "80px", width: "400px" });
+
+    runRafSynchronously();
+    coreState.state.patchSettings({ customPanelWidth: 650 });
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView()).width).toBe("650px");
+
+    coreState.state.patchSettings({ customPanelWidthEnabled: false });
+    scriptHost.relayoutScriptHost();
+    expect(vars(readingView()).width).toBe("908px");
+    vi.restoreAllMocks();
+  });
+
+  it("播放器降级：自定义宽度不超过可用宽度（钳制）", async () => {
+    await loadModules();
+    // 播放器右缘 1500：left 1512，可用 408 < 自定义 650 → 钳到 408。
+    mountPlayerChain(makeRect(0, 80, 1500, 560));
+
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 650 });
+    scriptHost.openScriptHost();
+    expect(vars(readingView())).toMatchObject({ left: "1512px", width: "408px" });
+  });
+
+  it("播放器降级：可用宽度 300px 下限——可用 300 成立、298 降浮层", async () => {
+    await loadModules();
+    const { host } = mountPlayerChain(makeRect(0, 80, 1608, 560));
+    // 右缘 1608：left 1620，可用 300 ≥ 300 → 降级成立，宽 min(650, 300) = 300。
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 650 });
+    scriptHost.openScriptHost();
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe(null);
+    expect(vars(readingView()).width).toBe("300px");
+
+    // 右缘 1610：left 1622，可用 298 < 300 → 浮层。
+    runRafSynchronously();
+    host.getBoundingClientRect = () => makeRect(0, 80, 1610, 560) as DOMRect;
+    scriptHost.relayoutScriptHost();
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe("1");
+    expect(vars(readingView())).toEqual({ left: "", top: "", width: "", height: "" });
+    vi.restoreAllMocks();
+  });
+
+  it.each([[999, "1"], [1000, null]])(
+    "视口 %ipx（FLOAT_VIEWPORT_MIN_WIDTH=1000 边界）：浮层属性 %s",
+    async (innerWidth, floatAttr) => {
+      await loadModules();
+      window.innerWidth = innerWidth;
+      mountAnchor(".right-container-inner", makeRect(520, 80, 360, 2000));
+
+      scriptHost.openScriptHost();
+
+      expect(readingView().getAttribute("data-biliscript-script-float")).toBe(floatAttr);
+      if (floatAttr === null) {
+        expect(vars(readingView()).width).toBe("540px");
+      }
+    }
+  );
+
+  it("浮层形态：显式自定义宽度写 --biliscript-script-float-width，未自定义不写", async () => {
+    await loadModules();
+    window.innerWidth = 900;
+
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 460 });
+    scriptHost.openScriptHost();
+    const el = readingView();
+    expect(el.getAttribute("data-biliscript-script-float")).toBe("1");
+    expect(floatWidthVar(el)).toBe("460px");
+
+    runRafSynchronously();
+    coreState.state.patchSettings({ customPanelWidthEnabled: false });
+    scriptHost.relayoutScriptHost();
+    expect(floatWidthVar(readingView())).toBe("");
+    vi.restoreAllMocks();
+  });
+
+  it("贴栏 ↔ 浮层双向切换：定位变量与浮层宽度变量随形态清写", async () => {
+    await loadModules();
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 500 });
+    const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
+
+    scriptHost.openScriptHost();
+    expect(vars(readingView()).width).toBe("500px");
+    expect(floatWidthVar(readingView())).toBe("");
+
+    // 贴栏 → 浮层：清四变量、挂浮层属性、写浮层宽度变量。
+    runRafSynchronously();
+    window.innerWidth = 900;
+    anchor.getBoundingClientRect = () => makeRect(520, 80, 360, 2000) as DOMRect;
+    window.dispatchEvent(new Event("resize"));
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe("1");
+    expect(vars(readingView())).toEqual({ left: "", top: "", width: "", height: "" });
+    expect(floatWidthVar(readingView())).toBe("500px");
+
+    // 浮层 → 贴栏：清浮层属性与浮层宽度变量、恢复定位变量。
+    window.innerWidth = 1920;
+    anchor.getBoundingClientRect = () => makeRect(1520, 80, 360, 2000) as DOMRect;
+    window.dispatchEvent(new Event("resize"));
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe(null);
+    expect(vars(readingView())).toMatchObject({ left: "1420px", width: "500px" });
+    expect(floatWidthVar(readingView())).toBe("");
+    vi.restoreAllMocks();
+  });
+
+  it("close 清除浮层宽度变量与浮层属性", async () => {
+    await loadModules();
+    window.innerWidth = 900;
+    coreState.state.patchSettings({ customPanelWidthEnabled: true, customPanelWidth: 460 });
+    scriptHost.openScriptHost();
+    expect(floatWidthVar(readingView())).toBe("460px");
+
+    scriptHost.closeScriptHost();
+    const el = readingView();
+    expect(floatWidthVar(el)).toBe("");
+    expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
   });
 });
 
