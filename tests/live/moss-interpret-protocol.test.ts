@@ -37,15 +37,10 @@ describe("resolveMossInterpretWsUrl", () => {
 });
 
 describe("buildMossInterpretMediaConfigurePayload", () => {
-  it("declares server playback and 16kHz PCM S16LE mono uplink", () => {
+  it("declares server playback and uses the default 16kHz PCM16 mono uplink", () => {
     expect(buildMossInterpretMediaConfigurePayload()).toEqual({
       action: "media.configure",
-      playback: "server",
-      audio: {
-        format: "pcm_s16le",
-        sample_rate: 16000,
-        channels: 1
-      }
+      playback: "server"
     });
   });
 });

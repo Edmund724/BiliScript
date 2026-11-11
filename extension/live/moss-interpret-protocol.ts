@@ -44,20 +44,14 @@ export function resolveMossInterpretWsUrl(
   }
 }
 
-/** 同传握手第三步：playback=server，上行 PCM16 16 kHz 单声道 */
+/** 同传握手第三步：playback=server，上行使用默认 PCM16 16 kHz 单声道 */
 export function buildMossInterpretMediaConfigurePayload(): {
   action: "media.configure";
   playback: "server";
-  audio: { format: "pcm_s16le"; sample_rate: number; channels: number };
 } {
   return {
     action: "media.configure",
-    playback: "server",
-    audio: {
-      format: "pcm_s16le",
-      sample_rate: 16000,
-      channels: 1
-    }
+    playback: "server"
   };
 }
 

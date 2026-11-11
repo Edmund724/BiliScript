@@ -108,8 +108,7 @@ describe("OffscreenInterpretClient handshake", () => {
     });
     expect(JSON.parse(ws.sentData[2] as string)).toEqual({
       action: "media.configure",
-      playback: "server",
-      audio: { format: "pcm_s16le", sample_rate: 16000, channels: 1 }
+      playback: "server"
     });
     expect(client.getState()).toBe("connected");
     expect(client.getSessionId()).toBe("s-1");
