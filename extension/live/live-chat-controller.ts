@@ -115,6 +115,7 @@ export interface LiveChatControllerDeps {
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onVideoContextSwitch?: (context: MossLiveSessionContext | null) => void;
   getVideoContext?: () => MossLiveSessionContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
   subscribeVideoContextChanges?: (listener: () => void) => () => void;
@@ -551,6 +552,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let stopVideoContextWatch: (() => void) | null = null;
   let lastPostedContextJson: string | null = null;
   let lastDelegationVideoKey: string | null = null;
+  let currentVideoGeneration = 0;
 
   function readVideoContext(): MossLiveSessionContext | null {
     try {
@@ -721,25 +723,39 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     return { summary: summarizeLiveTextToolMarkdown(summary || markdown), markdown };
   }
 
-  function postPageToolResult(callId: string, result: unknown, generation: number): void {
-    if (generation !== currentGeneration || !activePort) return;
+  function postPageToolResult(
+    callId: string,
+    result: unknown,
+    generation: number,
+    videoGeneration: number
+  ): void {
+    if (
+      generation !== currentGeneration ||
+      videoGeneration !== currentVideoGeneration ||
+      !activePort
+    ) return;
     try {
       activePort.postMessage({ action: "tool_result", callId, result });
     } catch {}
   }
 
-  async function runPageTool(call: MossLiveToolCall, generation: number, retry = false): Promise<void> {
+  async function runPageTool(
+    call: MossLiveToolCall,
+    generation: number,
+    retry = false,
+    videoGeneration = currentVideoGeneration
+  ): Promise<void> {
     const isSummary = call.name === "summarize_video";
     const callId = call.callId;
     if (!isSummary) {
       try {
         const result = await resolveExecuteTool(call);
-        postPageToolResult(callId, result, generation);
+        postPageToolResult(callId, result, generation, videoGeneration);
       } catch (error) {
         postPageToolResult(callId, {
           ok: false,
           error: `页面工具执行失败：${(error as Error)?.message || String(error)}`
-        }, generation);
+        }, generation, videoGeneration);
       }
       return;
     }
@@ -747,7 +763,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (!retry && textToolRetries.has(callId)) return;
     const attempt = nextTextToolAttempt(callId);
     textToolRetries.set(callId, () => {
-      void runPageTool(call, generation, true);
+      void runPageTool(call, generation, true, videoGeneration);
     });
     applyTextToolRecord(attempt, {
       type: "started",
@@ -762,7 +778,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       const result = await resolveExecuteTool(call);
       if (textToolAttempts.get(callId) !== attempt) return;
-      postPageToolResult(callId, result, generation);
+      postPageToolResult(callId, result, generation, videoGeneration);
       const completed = overviewRecordResult(result);
       if (completed) {
         applyTextToolRecord(attempt, { type: "completed", callId, ...completed, endedAt: Date.now() });
@@ -775,7 +791,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch (error) {
       if (textToolAttempts.get(callId) !== attempt) return;
       const message = `页面工具执行失败：${(error as Error)?.message || String(error)}`;
-      postPageToolResult(callId, { ok: false, error: message }, generation);
+      postPageToolResult(callId, { ok: false, error: message }, generation, videoGeneration);
       applyTextToolRecord(attempt, { type: "failed", callId, error: message, endedAt: Date.now() });
     }
   }
@@ -787,9 +803,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       lastDelegationVideoKey !== null &&
       nextDelegationVideoKey !== lastDelegationVideoKey
     ) {
+      currentVideoGeneration += 1;
       backendTasks.cancelAllTasks();
-      pendingLongSummaryDelegations.clear();
+      clearLongSummaryControls();
       clearTextToolRecords();
+      deps.onVideoContextSwitch?.(context);
     }
     lastDelegationVideoKey = nextDelegationVideoKey;
     const nextJson = JSON.stringify(context);
@@ -811,7 +829,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const handleUrlChange = () => {
       if (generation !== currentGeneration) return;
       postVideoContext(null);
-      guardedSync();
     };
     window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
     const unsubscribe = subscribeVideoContextChanges?.(guardedSync) || (() => {});

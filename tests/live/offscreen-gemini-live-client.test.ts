@@ -603,12 +603,12 @@ describe("OffscreenGeminiLiveClient context update", () => {
     expect(text).toContain("0:00 开场：为什么需要实时");
   });
 
-  it("defers context_update while speaking/playing and flushes automatically when idle", () => {
-    const { client, audioContext } = createClient();
+  it("interrupts playback and immediately applies only the latest context on a video switch", () => {
+    const { client, audioContext, transcripts } = createClient();
     const ws = connect(client);
 
     ws.simulateMessage(serverContent({
-      outputTranscription: { text: "回答中" },
+      outputTranscription: { text: "旧视频回答中" },
       modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(2400) } }] }
     }));
     expect(client.isSpeaking()).toBe(true);
@@ -616,16 +616,22 @@ describe("OffscreenGeminiLiveClient context update", () => {
     ws.sentData.length = 0;
     const nextContext = { ...videoContext, pageIndex: 3 };
     client.handleAction({ action: "context_update", videoContext: nextContext });
-    // 当模型正在说话/播放时，不立即发送 clientContent，避免打断当前模型生成
-    expect(ws.sentData).toHaveLength(0);
+    const latestContext = { ...nextContext, cid: "300", title: "最新视频" };
+    client.handleAction({ action: "context_update", videoContext: latestContext });
 
-    // 回合结束且音频播放完毕
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(client.getState()).toBe("connected");
+    expect(audioContext.sources[0].stopped).toBe(true);
+    expect(client.isSpeaking()).toBe(false);
+    const contentFrames = ws.jsonFrames().filter((frame) => frame.clientContent);
+    expect(contentFrames).toHaveLength(2);
+    expect(contentFrames.at(-1).clientContent.turns[0].parts[0].text).toContain("CID：300");
+    expect(transcripts.some((event) =>
+      event.kind === "output.done" && event.text.includes("旧视频回答中")
+    )).toBe(false);
+
     ws.simulateMessage(serverContent({ turnComplete: true, interactionStatus: "IDLE" }));
-    audioContext.sources[0].finishPlayback();
-
-    // 变为空闲后，自动下发暂存的最新 context
-    expect(ws.sentData).toHaveLength(1);
-    expect(ws.jsonFrames()[0].clientContent.turns[0].parts[0].text).toContain("P3");
+    expect(ws.jsonFrames().filter((frame) => frame.clientContent)).toHaveLength(2);
   });
 });
 

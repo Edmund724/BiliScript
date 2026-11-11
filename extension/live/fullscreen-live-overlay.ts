@@ -13,7 +13,7 @@ import type { InterpretSessionController } from "./interpret-session-controller.
 import type { LiveChatController, LiveChatState } from "./live-chat-controller.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
-import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
+import type { MossLiveSessionContext, MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import { LIVE_VOICE_SPEED_STEPS, normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
 import {
   applyViewportOffset,
@@ -49,6 +49,7 @@ export interface FullscreenLiveOverlay {
   showInterpretNotice(message: string, autoHideMs?: number): void;
   updateVad(active: boolean): void;
   updateTranscript(event: MossLiveTranscriptEvent): void;
+  showVideoContextSwitch(context: MossLiveSessionContext): void;
   clearMessages(): void;
   getElement(): HTMLElement | null;
   getMiniCapsuleElement(): HTMLElement | null;
@@ -938,6 +939,24 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     transcriptMerger.resetActiveTurns?.();
   }
 
+  function showVideoContextSwitch(context: MossLiveSessionContext): void {
+    ensureMounted();
+    clearMessages();
+    const isRoom = "kind" in context;
+    const title = isRoom
+      ? context.title || `直播间 ${context.roomId}`
+      : context.pageTitle || context.title;
+    const target = !isRoom && context.pageCount > 1
+      ? `P${context.pageIndex}`
+      : "";
+    const message = `已切换到${target ? ` ${target}` : ""}${title ? `：${title}` : ""}`;
+    showInterpretNotice(message, 4000);
+    if (miniCapsuleStatusTextEl) {
+      miniCapsuleStatusTextEl.textContent = message;
+      syncMiniCapsuleName();
+    }
+  }
+
   function getElement(): HTMLElement | null {
     return rootEl;
   }
@@ -956,6 +975,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
           interpretNoticeEl.hidden = true;
           interpretNoticeEl.textContent = "";
         }
+        syncState();
       }, autoHideMs);
     }
   }
@@ -1009,6 +1029,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     showInterpretNotice,
     updateVad,
     updateTranscript,
+    showVideoContextSwitch,
     clearMessages,
     getElement,
     getMiniCapsuleElement: () => miniCapsuleEl,

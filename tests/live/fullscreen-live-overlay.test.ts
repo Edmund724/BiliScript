@@ -953,6 +953,65 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
+  it("换片清空转写并保留展开或迷你状态，快速连切只展示最新提示", () => {
+    vi.useFakeTimers();
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController
+    });
+    try {
+      overlay.show({ forceExpand: true });
+      overlay.updateTranscript({
+        kind: "output.done",
+        runId: "old-run",
+        turnId: "old-turn",
+        text: "旧视频回答"
+      });
+      overlay.showVideoContextSwitch({
+        url: "https://www.bilibili.com/video/BV1/?p=2",
+        bvid: "BV1",
+        cid: "202",
+        title: "视频标题",
+        pageIndex: 2,
+        pageCount: 3,
+        pageTitle: "第二分P",
+        chapters: []
+      });
+
+      const root = overlay.getElement()!;
+      const messages = root.querySelector(".live-overlay-messages")!;
+      const notice = root.querySelector(".live-overlay-interpret-notice") as HTMLElement;
+      expect(messages.children).toHaveLength(0);
+      expect(overlay.isMinimized()).toBe(false);
+      expect(notice.textContent).toBe("已切换到 P2：第二分P");
+
+      root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+      overlay.showVideoContextSwitch({
+        url: "https://www.bilibili.com/video/BV1/?p=3",
+        bvid: "BV1",
+        cid: "303",
+        title: "视频标题",
+        pageIndex: 3,
+        pageCount: 3,
+        pageTitle: "第三分P",
+        chapters: []
+      });
+      const capsule = overlay.getMiniCapsuleElement()!;
+      expect(overlay.isMinimized()).toBe(true);
+      expect(notice.textContent).toBe("已切换到 P3：第三分P");
+      expect(capsule.querySelector(".live-overlay-mini-status-text")?.textContent)
+        .toBe("已切换到 P3：第三分P");
+
+      vi.advanceTimersByTime(4000);
+      expect(notice.hidden).toBe(true);
+      expect(capsule.querySelector(".live-overlay-mini-status-text")?.textContent).toBe("正在伴看");
+      expect(overlay.isMinimized()).toBe(true);
+    } finally {
+      overlay.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("展开浮窗拖拽后吸附左侧，兼容点击不误挂断，胶囊继承位置", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,

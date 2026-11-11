@@ -869,11 +869,14 @@ describe("LiveChatController video context and page tools", () => {
     getTargetProviderType?: () => LiveProviderType;
     executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
     subscribeVideoContextChanges?: (listener: () => void) => () => void;
+    onVideoContextSwitch?: (context: import("../../extension/live/moss-live-protocol.js").MossLiveSessionContext | null) => void;
     videoBackendTaskManager?: LiveVideoBackendTaskManager;
     persistTextToolRecord?: (record: import("../../extension/live/live-text-tool-records.js").LiveTextToolRecord) => Promise<void> | void;
   }) {
     const liveButton = document.createElement("button");
     const fakePort = new FakePort();
+    let audioCapture: FakeAudioCapture | null = null;
+    let videoCapture: FakeVideoCapture | null = null;
     const controller = createLiveChatController({
       liveButton,
       connectPort: () => fakePort as any,
@@ -881,15 +884,28 @@ describe("LiveChatController video context and page tools", () => {
       sendRuntimeMessage: (async (msg: any) => msg.type === "live-session-prepare"
         ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
         : { ok: true }) as any,
-      startAudioCapture: async (options) => new FakeAudioCapture(options),
+      startAudioCapture: async (options) => {
+        audioCapture = new FakeAudioCapture(options);
+        return audioCapture;
+      },
+      startVideoCapture: (options) => {
+        videoCapture = new FakeVideoCapture(options);
+        return videoCapture;
+      },
       getVideoContext: overrides.getVideoContext,
       getTargetProviderType: overrides.getTargetProviderType,
       executeTool: overrides.executeTool,
       subscribeVideoContextChanges: overrides.subscribeVideoContextChanges,
+      onVideoContextSwitch: overrides.onVideoContextSwitch,
       videoBackendTaskManager: overrides.videoBackendTaskManager,
       persistTextToolRecord: overrides.persistTextToolRecord
     });
-    return { controller, fakePort };
+    return {
+      controller,
+      fakePort,
+      get audioCapture() { return audioCapture; },
+      get videoCapture() { return videoCapture; }
+    };
   }
 
   const initialContext: MossLiveVideoContext = {
@@ -927,7 +943,6 @@ describe("LiveChatController video context and page tools", () => {
     fakePort.simulateMessage({ type: "connected" });
     fakePort.postedMessages.length = 0;
 
-    context = null;
     window.dispatchEvent(new Event("biliscript:urlchange"));
     expect(fakePort.postedMessages).toEqual([
       { action: "context_update", videoContext: null }
@@ -1162,6 +1177,81 @@ describe("LiveChatController video context and page tools", () => {
     context = { ...initialContext, cid: "456", pageIndex: 2 };
     contextListener!();
     expect(cancelAllTasks).toHaveBeenCalledTimes(1);
+    await controller.stop();
+  });
+
+  it("drops late delegation and page tool results without reconnecting on a video switch", async () => {
+    let context: MossLiveVideoContext | null = initialContext;
+    let contextListener: (() => void) | null = null;
+    let finishDelegation: (() => void) | undefined;
+    let resolvePageTool: ((result: unknown) => void) | undefined;
+    const cancelAllTasks = vi.fn();
+    const onVideoContextSwitch = vi.fn();
+    const manager: LiveVideoBackendTaskManager = {
+      runTask: vi.fn<LiveVideoBackendTaskManager["runTask"]>((options) => new Promise((resolve) => {
+        finishDelegation = () => {
+          options.onSpokenResult("旧视频委派结果");
+          resolve(null);
+        };
+      })),
+      cancelTask: vi.fn(() => true),
+      cancelAllTasks
+    };
+    const executeTool = vi.fn(() => new Promise<unknown>((resolve) => {
+      resolvePageTool = resolve;
+    }));
+    const harness = setupContextTest({
+      getVideoContext: () => context,
+      subscribeVideoContextChanges: (listener) => {
+        contextListener = listener;
+        return () => {};
+      },
+      onVideoContextSwitch,
+      videoBackendTaskManager: manager,
+      executeTool
+    });
+    const { controller, fakePort } = harness;
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    cancelAllTasks.mockClear();
+
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: { delegationId: "old-delegation", objective: "总结旧视频", context: [] }
+    });
+    fakePort.simulateMessage({
+      type: "tool_call",
+      call: { callId: "old-tool", name: "search_video_subtitles", arguments: { query: "旧问题" } }
+    });
+    await vi.waitFor(() => {
+      expect(manager.runTask).toHaveBeenCalledTimes(1);
+      expect(executeTool).toHaveBeenCalledTimes(1);
+    });
+    expect(controller.getTextToolRecords()).toHaveLength(1);
+    fakePort.postedMessages.length = 0;
+
+    context = { ...initialContext, bvid: "BV1next000000", cid: "456", title: "新视频" };
+    contextListener!();
+
+    expect(cancelAllTasks).toHaveBeenCalledTimes(1);
+    expect(onVideoContextSwitch).toHaveBeenCalledWith(context);
+    expect(controller.getTextToolRecords()).toEqual([]);
+    expect(controller.getState()).toBe("connected");
+    expect(fakePort.disconnected).toBe(false);
+    expect(harness.audioCapture?.stopped).toBe(false);
+    expect(harness.videoCapture?.stopped).toBe(false);
+    expect(fakePort.postedMessages).toEqual([
+      { action: "context_update", videoContext: context }
+    ]);
+
+    finishDelegation!();
+    resolvePageTool!({ ok: true, items: ["旧视频工具结果"] });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fakePort.postedMessages).toEqual([
+      { action: "context_update", videoContext: context }
+    ]);
     await controller.stop();
   });
 
