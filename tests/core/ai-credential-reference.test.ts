@@ -239,7 +239,7 @@ describe("声明式规格、UI 字段显隐与行状态文案注入", () => {
       {
         id: "l1",
         presetId: "gemini-live",
-        statusNote: "请先在 AI 平台添加官方 Gemini 记录"
+        statusNote: "尚未配置官方 Gemini AI Key"
       }
     ]);
   });

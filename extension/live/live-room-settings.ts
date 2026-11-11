@@ -12,6 +12,10 @@ import {
   type LiveProviderSettings
 } from "../ui/live-provider-settings.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../ui/settings-panel-html.js";
+import {
+  getAiCredentialStatusText,
+  type AiCredentialStatus
+} from "../core/ai-credential-reference.js";
 
 export interface LiveRoomSettingsDeps {
   getState: () => LiveChatState;
@@ -49,6 +53,15 @@ function offerReconnect(current: LiveRoomSettingsSession, deps: LiveRoomSettings
   bar.hidden = false;
 }
 
+function syncGeminiCredential(current: LiveRoomSettingsSession, status: AiCredentialStatus | null): void {
+  if (session !== current) return;
+  const region = current.dialog.querySelector<HTMLElement>(".biliscript-live-room-gemini-credential");
+  const reason = current.dialog.querySelector<HTMLElement>(".biliscript-live-room-gemini-credential-reason");
+  if (!region || !reason) return;
+  region.hidden = !status || status === "ok";
+  reason.textContent = status && status !== "ok" ? getAiCredentialStatusText("gemini-live", status) : "";
+}
+
 function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElement {
   const dialog = document.createElement("dialog");
   const domIds = SETTINGS_PANEL_DOM_IDS;
@@ -69,6 +82,10 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
             </div>
             <div id="${domIds.liveProvidersList}" class="ai-providers-list"></div>
             <p id="${domIds.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+            <div class="biliscript-live-room-gemini-credential" hidden>
+              <span class="biliscript-live-room-gemini-credential-reason"></span>
+              <button type="button" class="biliscript-live-room-gemini-configure-btn">配置 Gemini Key</button>
+            </div>
             <p class="biliscript-live-room-settings-status biliscript-set-hint" role="status"></p>
             <div class="biliscript-live-room-settings-reconnect" hidden>
               <span class="biliscript-live-room-settings-reconnect-text"></span>
@@ -105,6 +122,10 @@ export async function openLiveRoomSettings(
         const active = session;
         if (active?.id === id) setStatus(active, message, isError);
       },
+      onGeminiCredentialStatus: (status) => {
+        const active = session;
+        if (active?.id === id) syncGeminiCredential(active, status);
+      },
       onSaved: (kind) => {
         const active = session;
         if (!active || active.id !== id) return;
@@ -137,6 +158,8 @@ export async function openLiveRoomSettings(
     });
     dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-settings-close")
       ?.addEventListener("click", () => closeLiveRoomSettings());
+    dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-gemini-configure-btn")
+      ?.addEventListener("click", () => void created.panel.open("gemini-key"));
     dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-settings-reconnect-btn")
       ?.addEventListener("click", async () => {
         if (session !== created) return;

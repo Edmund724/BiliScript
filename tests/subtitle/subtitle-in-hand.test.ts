@@ -1,5 +1,5 @@
-// subtitle/subtitle-in-hand.ts 直测：谓词只读 core/state 的 state.clip 三字段 +
-// extractBvid(location.href)，是「叶子事实」——面板兜底抓取（reader/lifecycle 的
+// subtitle/subtitle-in-hand.ts 直测：谓词只读 core/state 的 state.clip 与地址中的
+// bvid、页号，是「叶子事实」——面板兜底抓取（reader/lifecycle 的
 // maybeRefreshReaderSubtitleInBackground）与页面预抓取（entry/message-handler 的
 // ensureSubtitlePrefetch）共用的去重守卫，两侧同一份语义。
 //
@@ -57,6 +57,15 @@ describe("isSubtitleInHandOrInFlight：本视频字幕在手或在飞", () => {
   it("clip.bvid 与地址不一致（SPA 换片逃逸 URL 监听的残留态）→ false", () => {
     state.clip.setBvid("BV1stale00000");
     state.clip.setSubtitleBody([{ from: 0, to: 5, content: "上一个视频的字幕" }]);
+    state.clip.setSubtitleFetchState("ready");
+    expect(isSubtitleInHandOrInFlight()).toBe(false);
+  });
+
+  it("同 BV 切分 P 时不复用上一页字幕 → false", () => {
+    setLocationUrl(`${NORMAL_PAGE_URL}?p=2`);
+    state.clip.setBvid(CURRENT_BVID);
+    state.clip.setPageIndex(1);
+    state.clip.setSubtitleBody([{ from: 0, to: 5, content: "P1 字幕" }]);
     state.clip.setSubtitleFetchState("ready");
     expect(isSubtitleInHandOrInFlight()).toBe(false);
   });

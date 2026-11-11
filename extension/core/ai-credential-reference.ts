@@ -72,8 +72,8 @@ export const AI_CREDENTIAL_REFERENCE_SPECS: Readonly<
     officialHost: "generativelanguage.googleapis.com",
     rowStatusText: {
       ok: "已复用 AI 平台 Key",
-      "no-record": "请先在 AI 平台添加官方 Gemini 记录",
-      "no-key": "请先在 AI 平台添加官方 Gemini 记录",
+      "no-record": "尚未配置官方 Gemini AI Key",
+      "no-key": "官方 Gemini AI Key 缺失或引用已失效",
       unofficial: "AI 平台配置的并非 Gemini 官方接口地址"
     }
   }
@@ -173,7 +173,8 @@ export function annotateAiCredentialRows<T extends { presetId?: string; statusNo
   kind: string,
   items: T[],
   aiProviders: readonly AiCredentialRecordLike[] | null | undefined,
-  presets: readonly AiCredentialPresetLike[] = PRESETS
+  presets: readonly AiCredentialPresetLike[] = PRESETS,
+  statusOverrides: Partial<Record<AiCredentialReferenceTarget, AiCredentialStatus>> = {}
 ): T[] {
   const matchingSpecs = ALL_CREDENTIAL_SPECS.filter((spec) => spec.consumerKind === kind);
   if (matchingSpecs.length === 0 || items.length === 0) {
@@ -185,7 +186,8 @@ export function annotateAiCredentialRows<T extends { presetId?: string; statusNo
     if (!result.some((item) => String(item.presetId || "") === spec.consumerPresetId)) {
       continue;
     }
-    const { status } = resolveAiCredentialReference(spec.target, aiProviders, presets);
+    const status = statusOverrides[spec.target]
+      ?? resolveAiCredentialReference(spec.target, aiProviders, presets).status;
     const text = spec.rowStatusText[status];
     result = result.map((item) =>
       String(item.presetId || "") === spec.consumerPresetId ? { ...item, statusNote: text } : item

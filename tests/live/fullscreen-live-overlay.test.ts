@@ -130,7 +130,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       ["provider-unconfigured", "设置伴看", null, "settings"],
       ["key-missing", "填写 Key", "重试", "settings"],
       ["key-rejected", "检查 Key", "重试", "settings"],
-      ["gemini-credential", "设置 Gemini Key", "重试", "settings"],
+      ["gemini-credential", "配置 Gemini Key", "重试", "settings"],
       ["permission-denied", "设置伴看", "重新授权", "retry"],
       ["microphone", null, "重试", "retry"],
       ["network", null, "重试", "retry"]

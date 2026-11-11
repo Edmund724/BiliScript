@@ -1,5 +1,10 @@
 import { PRESETS } from "../core/presets.js";
-import { annotateAiCredentialRows, resolveAiCredentialReference } from "../core/ai-credential-reference.js";
+import {
+  annotateAiCredentialRows,
+  queryAiCredentialKey,
+  resolveAiCredentialReference,
+  type AiCredentialStatus
+} from "../core/ai-credential-reference.js";
 import {
   requestProviderOriginsViaBackground,
   permissionRevokeErrorMessage,
@@ -24,6 +29,7 @@ export interface LiveProviderSettingsOptions {
   host: HTMLElement;
   getEditorMountHost?: () => HTMLElement | null;
   onStatus: (message: string, isError?: boolean) => void;
+  onGeminiCredentialStatus?: (status: AiCredentialStatus | null) => void;
   onSaved?: (kind: "live" | "ai", providerId: string) => void;
 }
 
@@ -49,6 +55,8 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   let liveProviders: ProviderRowItem[] = [];
   let aiProviders: ProviderRowItem[] = [];
   let activeId = "";
+  let geminiCredentialStatus: AiCredentialStatus | null = null;
+  let credentialRequest = 0;
   let editorModule: EditorModule | null = null;
 
   const familyRows = createProviderFamilyRows({
@@ -109,10 +117,18 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   function renderLiveProviders(): void {
     if (disposed) return;
     const nextActiveId = resolveActiveLiveProviderId(liveProviders, activeId);
-    familyRows.live.render(listNode, emptyNode, annotateAiCredentialRows("live", liveProviders, aiProviders), {
-      presets: LIVE_PROVIDER_PRESETS,
-      activeId: nextActiveId
-    });
+    const active = liveProviders.find((provider) => String(provider.id || "") === nextActiveId);
+    const geminiActive = active?.type === "gemini-live" || active?.presetId === "gemini-live";
+    const statusOverrides = geminiActive && geminiCredentialStatus
+      ? { "gemini-live": geminiCredentialStatus }
+      : {};
+    familyRows.live.render(
+      listNode,
+      emptyNode,
+      annotateAiCredentialRows("live", liveProviders, aiProviders, PRESETS, statusOverrides),
+      { presets: LIVE_PROVIDER_PRESETS, activeId: nextActiveId }
+    );
+    options.onGeminiCredentialStatus?.(geminiActive ? geminiCredentialStatus : null);
     if (nextActiveId !== activeId) {
       activeId = nextActiveId;
       state.patchSettings({ activeLiveProviderId: nextActiveId });
@@ -124,6 +140,23 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
           if (!disposed) options.onStatus((error as Error).message || "激活平台保存失败", true);
         });
     }
+  }
+
+  async function refreshGeminiCredentialStatus(): Promise<void> {
+    const sessionGeneration = generation;
+    const nextActiveId = resolveActiveLiveProviderId(liveProviders, activeId);
+    const active = liveProviders.find((provider) => String(provider.id || "") === nextActiveId);
+    if (active?.type !== "gemini-live" && active?.presetId !== "gemini-live") {
+      credentialRequest += 1;
+      geminiCredentialStatus = null;
+      renderLiveProviders();
+      return;
+    }
+    const request = ++credentialRequest;
+    const { status } = await queryAiCredentialKey("gemini-live");
+    if (disposed || sessionGeneration !== generation || request !== credentialRequest) return;
+    geminiCredentialStatus = status;
+    renderLiveProviders();
   }
 
   const transactions = createProviderTransactions({
@@ -147,11 +180,12 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   async function saveProvider(kind: ProviderEditorKind, upsert: ProviderRowItem) {
     const result = await transactions.upsertProvider(kind, upsert);
     if (!disposed && result.ok && (kind === "live" || kind === "ai")) {
-      options.onSaved?.(kind, String(upsert.id || ""));
       if (kind === "ai") {
         liveProviders = await loadRows("live");
-        if (!disposed) renderLiveProviders();
       }
+      if (disposed) return result;
+      await refreshGeminiCredentialStatus();
+      if (!disposed) options.onSaved?.(kind, String(upsert.id || ""));
     }
     return result;
   }
@@ -162,11 +196,12 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   ) {
     const result = await transactions.deleteProvider(kind, target);
     if (!disposed && result.ok && (kind === "live" || kind === "ai")) {
-      options.onSaved?.(kind, target.id);
       if (kind === "ai") {
         liveProviders = await loadRows("live");
-        if (!disposed) renderLiveProviders();
       }
+      if (disposed) return result;
+      await refreshGeminiCredentialStatus();
+      if (!disposed) options.onSaved?.(kind, target.id);
     }
     return result;
   }
@@ -243,6 +278,7 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
         ? syncSettings.activeLiveProviderId
         : "";
       renderLiveProviders();
+      await refreshGeminiCredentialStatus();
     } catch (error) {
       if (!disposed) options.onStatus((error as Error).message || "伴看平台加载失败", true);
     }
@@ -266,6 +302,7 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     if (disposed) return;
     disposed = true;
     generation += 1;
+    credentialRequest += 1;
     closeConfirmDialog();
     editorModule?.closeProviderEditor(true);
     editorModule = null;

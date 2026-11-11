@@ -11,6 +11,9 @@ const liveProviders = [
   { id: "live_gemini", presetId: "gemini-live", type: "gemini-live", name: "Gemini", baseUrl: "https://generativelanguage.googleapis.com" }
 ];
 
+let aiProviders: Array<Record<string, unknown>> = [];
+let aiProviderKeys: Record<string, string> = {};
+
 function installDialogMethods() {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
@@ -36,11 +39,25 @@ function createDeps() {
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
+  aiProviders = [];
+  aiProviderKeys = {};
   installDialogMethods();
   vi.mocked(chrome.runtime.sendMessage).mockImplementation((message: any, callback?: (response: unknown) => void) => {
     const type = message?.type;
     if (type === "live-providers-list") callback?.({ ok: true, providers: liveProviders });
-    else if (type === "ai-providers-list") callback?.({ ok: true, providers: [] });
+    else if (type === "ai-providers-list") callback?.({ ok: true, providers: aiProviders });
+    else if (type === "get-ai-provider-key") callback?.({ ok: true, apiKey: aiProviderKeys[message.providerId] || "" });
+    else if (type === "ai-providers-save") {
+      const saved = message.providers.map((provider: Record<string, unknown>) => {
+        const id = String(provider.id || "");
+        const apiKey = String(provider.apiKey || "");
+        if (apiKey) aiProviderKeys[id] = apiKey;
+        const { apiKey: _apiKey, ...withoutKey } = provider;
+        return { ...withoutKey, hasSavedKey: Boolean(apiKey || aiProviderKeys[id]) };
+      });
+      aiProviders = saved;
+      callback?.({ ok: true, providers: saved });
+    }
     else if (type?.endsWith("-providers-list")) callback?.({ ok: true, providers: [] });
     else callback?.({ ok: true });
     return undefined;
@@ -178,6 +195,7 @@ describe("直播间伴看设置", () => {
   it("Gemini 凭据入口直接打开官方 Gemini AI 平台编辑器", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
+    await chrome.storage.sync.set({ activeLiveProviderId: "live_gemini" });
     await openLiveRoomSettings("gemini-key", () => host, createDeps());
     const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings");
     await vi.waitFor(() => {
@@ -185,6 +203,114 @@ describe("直播间伴看设置", () => {
     });
     expect(dialog?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value).toBe("gemini");
     expect(dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")).not.toBeNull();
+  });
+
+  it("取消 Gemini 配置后保留缺 Key 原因和再次配置入口", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await chrome.storage.sync.set({ activeLiveProviderId: "live_gemini" });
+    await openLiveRoomSettings("gemini-key", () => host, createDeps());
+    const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings");
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull());
+
+    dialog?.querySelector<HTMLButtonElement>(".provider-editor-cancel")?.click();
+
+    const credential = dialog?.querySelector<HTMLElement>(".biliscript-live-room-gemini-credential");
+    expect(credential?.hidden).toBe(false);
+    expect(credential?.textContent).toContain("尚未配置官方 Gemini AI Key");
+    expect(dialog?.querySelector(".provider-editor-dialog")).toBeNull();
+    expect(dialog?.open).toBe(true);
+
+    credential?.querySelector<HTMLButtonElement>(".biliscript-live-room-gemini-configure-btn")?.click();
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull());
+    expect(dialog?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value).toBe("gemini");
+  });
+
+  it("识别 hasSavedKey 元数据仍在但实际 Key 已失效的引用", async () => {
+    aiProviders = [{
+      id: "ai_gemini",
+      presetId: "gemini",
+      name: "Gemini",
+      baseUrl: "https://generativelanguage.googleapis.com",
+      hasSavedKey: true
+    }];
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await chrome.storage.sync.set({ activeLiveProviderId: "live_gemini" });
+    await openLiveRoomSettings("gemini-key", () => host, createDeps());
+    const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings");
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull());
+
+    dialog?.querySelector<HTMLButtonElement>(".provider-editor-cancel")?.click();
+
+    const credential = dialog?.querySelector<HTMLElement>(".biliscript-live-room-gemini-credential");
+    expect(credential?.hidden).toBe(false);
+    expect(credential?.textContent).toContain("官方 Gemini AI Key 缺失或引用已失效");
+    expect(dialog?.querySelector(".live-provider-row[data-provider-id='live_gemini']")?.textContent).toContain(
+      "官方 Gemini AI Key 缺失或引用已失效"
+    );
+  });
+
+  it("Gemini Key 保存失败时保留草稿且不泄露到状态文案", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await chrome.storage.sync.set({ activeLiveProviderId: "live_gemini" });
+    await openLiveRoomSettings("gemini-key", () => host, createDeps());
+    const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings");
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull());
+    const keyInput = dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey");
+    if (!keyInput) throw new Error("缺少 API Key 输入框");
+    keyInput.value = "AIza-draft-secret";
+    keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((message: any, callback?: (response: unknown) => void) => {
+      if (message?.type === "ai-providers-save") {
+        callback?.({ ok: false, error: "存储不可用" });
+        return undefined;
+      }
+      if (message?.type === "ai-providers-list") callback?.({ ok: true, providers: aiProviders });
+      else if (message?.type === "get-ai-provider-key") callback?.({ ok: true, apiKey: "" });
+      else callback?.({ ok: true, providers: liveProviders });
+      return undefined;
+    });
+
+    dialog?.querySelector<HTMLButtonElement>(".provider-editor-save")?.click();
+
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-status")?.textContent).toContain("存储不可用"));
+    expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull();
+    expect(keyInput.value).toBe("AIza-draft-secret");
+    expect(dialog?.querySelector(".provider-editor-status")?.textContent).not.toContain("AIza-draft-secret");
+    expect(dialog?.querySelector(".biliscript-live-room-settings-status")?.textContent).not.toContain("AIza-draft-secret");
+  });
+
+  it("Gemini Key 保存后刷新凭据状态并可重新连接", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    await chrome.storage.sync.set({ activeLiveProviderId: "live_gemini" });
+    const deps = createDeps();
+    await openLiveRoomSettings("gemini-key", () => host, deps);
+    const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings");
+    await vi.waitFor(() => expect(dialog?.querySelector(".provider-editor-dialog")).not.toBeNull());
+    const keyInput = dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey");
+    if (!keyInput) throw new Error("缺少 API Key 输入框");
+    keyInput.value = "AIza-saved-secret";
+    keyInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    dialog?.querySelector<HTMLButtonElement>(".provider-editor-save")?.click();
+
+    await vi.waitFor(() => {
+      expect(dialog?.querySelector(".provider-editor-dialog")).toBeNull();
+      expect(dialog?.querySelector<HTMLElement>(".biliscript-live-room-gemini-credential")?.hidden).toBe(true);
+      expect(dialog?.querySelector(".live-provider-row[data-provider-id='live_gemini']")?.textContent).toContain(
+        "已复用 AI 平台 Key"
+      );
+      expect(dialog?.querySelector<HTMLElement>(".biliscript-live-room-settings-reconnect")?.hidden).toBe(false);
+    });
+    expect(dialog?.textContent).not.toContain("AIza-saved-secret");
+    expect(deps.reconnect).not.toHaveBeenCalled();
+
+    dialog?.querySelector<HTMLButtonElement>(".biliscript-live-room-settings-reconnect-btn")?.click();
+    await vi.waitFor(() => expect(deps.reconnect).toHaveBeenCalledTimes(1));
+    expect(host.querySelector(".biliscript-live-room-settings")).toBeNull();
   });
 
   it("关闭后丢弃迟到的平台加载，不保留重连动作", async () => {

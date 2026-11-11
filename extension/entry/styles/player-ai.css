@@ -1287,6 +1287,7 @@
   color: var(--biliscript-reader-danger, rgb(248 113 113));
 }
 
+.biliscript-live-room-gemini-credential,
 .biliscript-live-room-settings-reconnect {
   display: flex;
   align-items: center;
@@ -1300,10 +1301,12 @@
   background: var(--biliscript-reader-surface-2, rgb(255 255 255 / 0.06));
 }
 
+.biliscript-live-room-gemini-credential[hidden],
 .biliscript-live-room-settings-reconnect[hidden] {
   display: none;
 }
 
+.biliscript-live-room-gemini-configure-btn,
 .biliscript-live-room-settings-reconnect-btn {
   flex: none;
   padding: 8px 14px;
@@ -1314,6 +1317,7 @@
   cursor: pointer;
 }
 
+.biliscript-live-room-gemini-configure-btn:disabled,
 .biliscript-live-room-settings-reconnect-btn:disabled {
   cursor: wait;
   opacity: 0.6;

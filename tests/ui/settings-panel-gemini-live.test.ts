@@ -142,7 +142,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
         return { ok: true, providers: aiProviders };
       }
     });
-    expect(liveSubtitle(host)).toBe("gemini-3.8-live · 请先在 AI 平台添加官方 Gemini 记录");
+    expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
 
     click(host.querySelector("#addAiProviderBtn"));
     await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
@@ -175,7 +175,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     click(document.querySelector(".confirm-dialog-confirm"));
 
     await vi.waitFor(() => {
-      expect(liveSubtitle(host)).toBe("gemini-3.8-live · 请先在 AI 平台添加官方 Gemini 记录");
+      expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
     });
   });
 

@@ -829,7 +829,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
               : kind === "key-rejected"
                 ? "检查 Key"
                 : kind === "gemini-credential"
-                  ? "设置 Gemini Key"
+                  ? "配置 Gemini Key"
                   : kind === "permission-denied"
                     ? "设置伴看"
                     : null;

@@ -118,7 +118,7 @@ describe("Gemini Live 模型探针", () => {
     await expect(listLiveModels({
       type: "gemini-live",
       baseUrl: "https://generativelanguage.googleapis.com"
-    })).resolves.toEqual({ ok: false, error: "请先在 AI 平台添加官方 Gemini 记录" });
+    })).resolves.toEqual({ ok: false, error: "尚未配置官方 Gemini AI Key" });
     expect(sent.some((message) => message.type === "provider-http")).toBe(false);
   });
 

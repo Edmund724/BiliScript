@@ -473,7 +473,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(missingProviderRes.ok).toBe(false);
-    expect(missingProviderRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+    expect(missingProviderRes.error).toBe("尚未配置官方 Gemini AI Key");
 
     const missingKeyRes = await tracker.prepare(
       "session-gemini-no-key",
@@ -495,7 +495,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(missingKeyRes.ok).toBe(false);
-    expect(missingKeyRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+    expect(missingKeyRes.error).toBe("官方 Gemini AI Key 缺失或引用已失效");
 
     const unofficialAiRes = await tracker.prepare(
       "session-gemini-unofficial-ai",
