@@ -81,6 +81,9 @@ import { sanitizeFileName } from "../shared/string-utils.js";
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ViewResetIntent } from "./view-intent.js";
+// 配置类回合错误（无平台 / 缺 Key）的分类单源：错误文案由 SW resolve-ai-provider
+// 产生，分类与概览/解释两条链共用同一零依赖叶子（票 03）。
+import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession, type ChatContinuationSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
@@ -133,6 +136,10 @@ export interface ChatRuntimeUi {
   // 执行体唯一住在组合根的 requestViewReset。
   requestViewReset: (intent: ViewResetIntent) => void;
   autosizeInput: () => void;
+  // 配置类回合错误（票 03）：缺 Key 的回合已受理（用户气泡已上屏），组合根据此在
+  // 错误回合上给「直达平台编辑」的动作并记录返回意图。只提示，不重发——是否发送
+  // 由用户再点一次。providerId = 本回合实际请求的平台记录。
+  onSetupRequired?: (errorClass: OverviewSetupErrorClass, providerId: string) => void;
 }
 
 export interface CreateChatRuntimeDeps {
@@ -270,6 +277,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     session: ChatContinuationSession;
   } | null = null;
   let activeUserPrompt = "";
+  // 本回合实际请求的平台记录 id（票 03）：配置类回合错误（缺 Key）到达时已无处
+  // 重新解析选中项（用户气泡已上屏、回合正在收尾），故受理时快照一份，供
+  // onSetupRequired 直达那条平台记录。与 activeUserPrompt 同生命周期清空。
+  let activeTurnProviderId = "";
   // 本代际用户消息的图片（image-input 04 号票）：发送受理时随 activeUserPrompt
   // 一起捕获，done/stopped 写回时挂在那条 user 消息上——图片从此进历史，
   // 追问/落盘才看得到（收口与 activeUserPrompt 同步清空，不串进下一条消息）。
@@ -461,7 +472,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (msg.code === "subtitle-body-missing") {
         lastAckedContextKey = null;
       }
+      // 配置类错误（票 03）：错误文案的单源分类器在 core/overview-setup-error。
+      // 先快照本回合的平台记录，再收尾（endStream 会清 activeTurnProviderId）。
+      const setupErrorClass = classifyOverviewSetupError(msg.error);
+      const setupProviderId = activeTurnProviderId;
       showAssistantError(activeTurn, msg.error || "未知错误");
+      // 收尾之后才通知组合根：endStream 的 clearStreamRuntimeState 会撤掉消息区
+      // 通知条，动作必须排在它之后才能留在屏上。已受理回合（用户气泡 / 部分回复 /
+      // 历史记录都在）不重发，只由组合根提供直达平台编辑的入口。
+      if (setupErrorClass) {
+        deps.ui.onSetupRequired?.(setupErrorClass, setupProviderId);
+      }
     } else if (msg.type === "notice") {
       // 截断提示（code:"truncated"）：不走 4 秒通知条——记在本代际上，done 收尾时
       // 渲染成 assistant 消息尾部的常驻徽标（文案由引擎给，宿主不复制一份）。
@@ -628,7 +649,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const providerId = deps.getProviderId();
       if (!providerId) {
-        deps.ui.requestViewReset({ kind: "state", html: "请先在设置页配置并启用一个 AI 平台。" });
+        // 配置类拦截屏（票 03）：状态屏的文案与「前往设置」动作由组合根产出
+        //（与无平台空态同源），这里只交标记。
+        deps.ui.requestViewReset({ kind: "setup" });
         return "blocked";
       }
 
@@ -670,6 +693,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       setStreamingUiState(true);
       activeUserPrompt = text;
       activeUserImages = images;
+      activeTurnProviderId = providerId;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
       if (!chatSessionState.currentConversationId) {
@@ -812,6 +836,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeContinuation = null;
     activeUserPrompt = "";
     activeUserImages = [];
+    activeTurnProviderId = "";
     if (activePort) {
       try { activePort.disconnect(); } catch {}
       activePort = null;
@@ -1112,6 +1137,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeTurn = null;
     activeUserPrompt = "";
     activeUserImages = [];
+    activeTurnProviderId = "";
     // 拆除类入口同样终结回合：复位受理窗口（resetStreamState 可能在 connectPort
     // await 窗口内被调——store reset / restartChat 路径；标志若不清，此后用户的
     // 新发送会被永久拦下），并兑现已武装的 settle（不留悬挂）。

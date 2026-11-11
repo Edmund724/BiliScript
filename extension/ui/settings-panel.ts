@@ -522,17 +522,24 @@ export interface AiSetupSession {
 // - "missing-key"：定位缺 Key 的启用记录 → 直接编辑该记录并聚焦 Key 输入框；
 //   定位不到（列表在报错后已被改动）则只打开设置抽屉。
 // 连通性测试不是必经步骤：保存只做本地校验 + 落盘。
+export interface AiSetupTarget {
+  // 缺 Key 时调用方已知的已选平台记录（AI 对话回合错误，票 03）：优先直达该
+  // 记录；缺省按解析策略定位（概览 / 解释链，票 01/02）。
+  providerId?: string;
+}
+
 export async function openReaderAiSetup(
   errorClass: OverviewSetupErrorClass,
-  session: AiSetupSession
+  session: AiSetupSession,
+  target: AiSetupTarget = {}
 ): Promise<void> {
   openReaderSettingsMode();
   renderReaderSettingsPanel();
   focusSettingsNavSection("llm");
   if (errorClass === "missing-key") {
-    const target = await findMissingKeyAiProvider();
-    if (target) {
-      await openProviderEditorById("ai", String(target.id || ""), undefined, session);
+    const record = await findMissingKeyAiProvider(target.providerId);
+    if (record) {
+      await openProviderEditorById("ai", String(record.id || ""), undefined, session);
       document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
     }
     return;
@@ -557,15 +564,24 @@ function focusSettingsNavSection(section: string): void {
     ?.click();
 }
 
-// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：defaultModel 精确匹配 →
-// 首个启用回落）：只对 requiresKey !== false 且未存 Key 的启用记录给编辑入口。
-async function findMissingKeyAiProvider(): Promise<ProviderRowItem | null> {
+// 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：调用方给定的已选平台 →
+// defaultModel 精确匹配 → 首个启用回落）：只对 requiresKey !== false 且未存 Key 的
+// 启用记录给编辑入口。调用方给定记录时直达它——那是本回合实际请求的平台（票 03：
+// AI 对话缺 Key 回合），列表后续改动也不改变这条结论。
+async function findMissingKeyAiProvider(preferredProviderId = ""): Promise<ProviderRowItem | null> {
   const providers = await loadAiProviders();
   const enabled = providers.filter(
     (p) => p && p.enabled !== false && String(p?.id || "").trim() !== ""
   );
   if (!enabled.length) {
     return null;
+  }
+  const exactId = String(preferredProviderId || "").trim();
+  if (exactId) {
+    const exact = enabled.find((p) => String(p.id) === exactId);
+    if (exact) {
+      return exact;
+    }
   }
   const settings = await getSettings();
   const preferredId = String(settings?.defaultModel || "").trim();
