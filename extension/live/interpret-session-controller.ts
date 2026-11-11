@@ -20,9 +20,9 @@ import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import {
   resolveSubtitleTranslateProvider,
-  translateSubtitleItems,
-  type SubtitleTranslateProviderResolution
+  translateSubtitleItems
 } from "../ai/subtitle-translate.js";
+import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 
 export type InterpretSessionState = "idle" | "connecting" | "connected";

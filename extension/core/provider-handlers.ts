@@ -32,7 +32,7 @@ import type {
   ResolveAiProviderResponse,
   ResolveSubtitleTranslateProviderResponse
 } from "../shared/messaging-protocol.js";
-import { resolveSubtitleTranslateProviderConfig } from "../ai/subtitle-translate.js";
+import { resolveSubtitleTranslateProviderConfig } from "../ai/subtitle-translate-config.js";
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;

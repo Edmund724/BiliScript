@@ -4,9 +4,9 @@ import {
   formatSubtitleNumberedLines,
   parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
-  resolveSubtitleTranslateProviderConfig,
   translateSubtitleItems
 } from "../../extension/ai/subtitle-translate.js";
+import { resolveSubtitleTranslateProviderConfig } from "../../extension/ai/subtitle-translate-config.js";
 import { NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/provider-handlers.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import type { ProviderListEntry } from "../../extension/shared/messaging-protocol.js";
