@@ -96,7 +96,7 @@ describe("OffscreenInterpretClient handshake", () => {
 
     ws.simulateOpen();
     expect(JSON.parse(ws.sentData[0] as string)).toEqual({
-      type: "attach_session",
+      action: "attach_session",
       memory_scope: "session",
       delegation: { type: "client" }
     });
@@ -126,7 +126,7 @@ describe("OffscreenInterpretClient handshake", () => {
     const ws = FakeWebSocket.instances[0];
     ws.simulateOpen();
     expect(JSON.parse(ws.sentData[0] as string)).toMatchObject({
-      type: "attach_session",
+      action: "attach_session",
       session_id: "s-resume"
     });
   });

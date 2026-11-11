@@ -136,7 +136,7 @@ export class OffscreenInterpretClient {
       this.ws.onopen = () => {
         if (this.disposed || this.socketGeneration !== generation) return;
         const payload: Record<string, unknown> = {
-          type: "attach_session",
+          action: "attach_session",
           memory_scope: "session",
           delegation: { type: "client" }
         };
