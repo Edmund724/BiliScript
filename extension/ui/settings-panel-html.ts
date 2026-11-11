@@ -79,6 +79,9 @@ export const SETTINGS_PANEL_DOM_IDS = {
   toggleSearchChainBtn: "toggleSearchChainBtn",
   searchChainContainer: "searchChainContainer",
   searchChainActiveSummary: "searchChainActiveSummary",
+  aiActiveDefaultSummary: "aiActiveDefaultSummary",
+  aiChatSelectionSummary: "aiChatSelectionSummary",
+  subtitleTranslateFollowHint: "subtitleTranslateFollowHint",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;
 
@@ -111,6 +114,8 @@ export function buildSettingsHtml(): string {
         <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
         <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       </div>
+      <p id="${ids.aiActiveDefaultSummary}" class="biliscript-set-hint"></p>
+      <p id="${ids.aiChatSelectionSummary}" class="biliscript-set-hint" hidden></p>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="live">
@@ -124,9 +129,10 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-row">
           <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
           <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
-            <option value="">跟随默认模型</option>
+            <option value="">跟随 AI 默认平台</option>
           </select>
         </div>
+        <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint" hidden></p>
         <div class="biliscript-set-row">
           <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">同传目标语言</label>
           <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">

@@ -14,6 +14,9 @@
 //
 // 模型选择：两条链都没有模型选择器，取对话 tab 的选中模型（chrome.storage.local
 // 的复合值，编解码单源在 shared/selected-provider.ts），不再固定用记录首个模型。
+// 模型规则的两个叶子（firstCatalogModel / selectedChatModelFor）同步导出给
+// ai/active-model-projection.ts（票 05 生效投影）——投影与真实请求复用同一套
+// 规则，不维护第二份模型回落逻辑。
 
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { SELECTED_PROVIDER_KEY, parseModelOptionValue } from "../shared/selected-provider.js";
@@ -30,18 +33,16 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
   if (!resp?.ok) {
     throw new Error(String(resp?.error || "解析 AI 平台配置失败"));
   }
-  const models = Array.isArray(resp.provider?.models) ? resp.provider.models : [];
-  const legacyModel = String(resp.provider?.model || "").trim();
   return {
     baseUrl: String(resp.provider?.baseUrl || "").trim(),
     apiKey: String(resp.apiKey || "").trim(),
     // 模型取对话 tab 的选中项（概览 / 选区解释没有模型选择器，与对话用同一个
     // 模型才谈得上「同一平台同一模型」）；无选中项或选中项属于别的平台时回落
     // 模型目录首项，再回落旧单模型记录的 model 字段。
-    model: (await selectedModelFor(String(resp.provider?.id || ""))) || String(models[0] ?? "").trim() || legacyModel,
+    model: (await selectedChatModelFor(String(resp.provider?.id || ""))) || firstCatalogModel(resp.provider),
     // presetId 穿线（provider 记录随带）：解释链下游 thinking-profiles 查表的
     // 主识别路径，反代 baseUrl 无 host 规则时是唯一线索。缺失归一为空串
-    //（resolver 端回落 host/模型名识别，不臆造平台）。
+    // （resolver 端回落 host/模型名识别，不臆造平台）。
     presetId: String(resp.provider?.presetId || ""),
     // 协议穿线（multi-protocol-ai）：completion 经 resolveAdapter 收敛到协议
     // 适配器；非法/缺失值由 resolveAdapter 兜底 openai，此处原样透传。
@@ -49,13 +50,20 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
   };
 }
 
-// 对话 tab 的选中模型：chrome.storage.local 的复合值「平台 id\u0001模型 id」
-//（写入方 chat/providers.ts 的 setSelectedProvider，编解码单源
-// shared/selected-provider.ts）。只在选中项确实指向本次解析出的平台时采信——
-// 本地复合值与 sync settings 的 defaultModel（裸平台 id）由同一次 change 写入、
-// 正常情况下同平台；不一致时宁可用记录首个模型，也不把别的平台的模型名发过来。
-// 读取失败（存储不可用）按「无选中项」处理：偏好读不到不该让概览 / 解释中断。
-async function selectedModelFor(providerId: string): Promise<string> {
+// 平台记录的首个可用模型：模型目录首项，回落旧单模型记录的 model 字段。
+// 概览 / 选区解释与生效投影（票 05）共用的模型回落单源。
+export function firstCatalogModel(provider: { models?: unknown; model?: unknown } | null | undefined): string {
+  const models = Array.isArray(provider?.models) ? provider.models : [];
+  return String(models[0] ?? "").trim() || String(provider?.model || "").trim();
+}
+
+// 对话 tab 的选中模型：chrome.storage.local 的复合值「平台 id 模型 id」（写入方
+// chat/providers.ts 的 setSelectedProvider，编解码单源 shared/selected-provider.ts）。
+// 只在选中项确实指向给定平台时采信——本地复合值与 sync settings 的 defaultModel
+//（裸平台 id）由同一次 change 写入、正常情况下同平台；不一致时宁可用记录首个
+// 模型，也不把别的平台的模型名发过来。读取失败（存储不可用）按「无选中项」处理：
+// 偏好读不到不该让概览 / 解释 / 生效投影中断。
+export async function selectedChatModelFor(providerId: string): Promise<string> {
   if (!providerId || typeof chrome === "undefined" || !chrome?.storage?.local) {
     return "";
   }
