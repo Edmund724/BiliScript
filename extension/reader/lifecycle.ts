@@ -75,12 +75,14 @@ import {
   type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
-// 首配续跑意图（票 01）：概览「去设置」记录、保存成功后消费续跑、取消/关面板/关视图作废。
+// 首配续跑意图（票 01/02）：概览「去设置」记录、保存成功后消费续跑、取消/关面板/关视图作废。
 import {
   clearOverviewSetupResumeIntent,
   consumeOverviewSetupResumeIntent,
   setOverviewSetupResumeIntent
 } from "./overview-setup-resume.js";
+// 解释卡首配续跑意图（票 02）：卡片「去设置」记录、保存成功回同一卡续跑、取消/关抽屉/关卡片/关视图作废。
+import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
@@ -558,8 +560,9 @@ export function closeReadingView() {
   // 与待解释意图（不跨会话残留；下次打开按空态渲染）。
   clearReadingSubtitleSearch();
   clearPendingExplainIntent();
-  // 首配续跑意图不跨会话残留（票 01）：关视图即作废未消费意图。
+  // 首配续跑意图不跨会话残留（票 01/02）：关视图即作废未消费意图。
   clearOverviewSetupResumeIntent();
+  clearExplainSetupResumeIntent();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal();

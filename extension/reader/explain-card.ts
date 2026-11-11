@@ -17,8 +17,15 @@
 //
 // 竞态：一次只开一张卡；重复打开（换选区再点）先 abort 上一请求，runId 守卫
 // 丢弃过期回执。关闭阅读视图（lifecycle.closeReadingView）也走 close。
+//
+// 首配续跑（票 provider-onboarding-consistency/02）：配置类错误（无平台/缺 Key，
+// 分类器复用 core/overview-setup-error——文案由 SW resolve-ai-provider 产生、两条
+// 链同源）的 error 态给「去设置」，直达平台编辑（无记录新增 / 缺 Key 聚焦 Key）；
+// 保存成功回到本卡续跑一次（runId + 视频身份 + 选区快照校验，一次性消费）；
+// 取消/关抽屉/换选区/换视频均作废。非配置类错误保持原重试语义。
 
 import { state } from "../core/state.js";
+import { classifyOverviewSetupError } from "../core/overview-setup-error.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
@@ -28,6 +35,12 @@ import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
 import { setPendingExplainIntent } from "./explain-intent.js";
+import {
+  clearExplainSetupResumeIntent,
+  consumeExplainSetupResumeIntent,
+  setExplainSetupResumeIntent
+} from "./explain-setup-resume.js";
+import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen } from "./settings-mode.js";
 import { activateScriptTab } from "./script-tab-activation.js";
 
 type ExplainCardPhase = "loading" | "ready" | "error";
@@ -100,6 +113,10 @@ function renderCard(): void {
   }
   root.hidden = false;
 
+  const setupClass = card.phase === "error" ? classifyOverviewSetupError(card.error) : null;
+  const setupButtonHtml = setupClass
+    ? `<button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="setup">去设置</button>`
+    : "";
   const bodyHtml =
     card.phase === "loading"
       ? `
@@ -111,7 +128,7 @@ function renderCard(): void {
       : card.phase === "error"
         ? `
           <div class="biliscript-reading-explain-card-state is-error">${escapeHtml(card.error || "解释失败")}</div>
-          <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>
+          ${setupButtonHtml}<button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>
         `
         : `<div class="biliscript-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
   // 工具提示（搜索失败原因 / 额度用尽）留在卡片里随答案一起呈现（回答不因搜索
@@ -144,11 +161,18 @@ function renderCard(): void {
 }
 
 // Esc 关闭：只在卡片开着期间挂文档级 keydown（与遮罩/× 同一关闭语义）。
+// 设置抽屉 / 平台编辑器 / 确认弹层叠在卡片上时 Esc 归逐层退出规则消化，卡片
+// 不抢——否则配置期间一次 Esc 同时关掉编辑器与卡片，首配续跑意图被误作废
+// （票 02：取消配置应保留原错误与再次进入设置的入口）。
 function onCardKeyDown(event: KeyboardEvent): void {
-  if (event.key === "Escape") {
-    event.stopPropagation();
-    closeReaderExplainCard();
+  if (event.key !== "Escape") {
+    return;
   }
+  if (state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) {
+    return;
+  }
+  event.stopPropagation();
+  closeReaderExplainCard();
 }
 
 function bindCardEsc(): void {
@@ -235,6 +259,70 @@ function startExplainRequest(): void {
   })();
 }
 
+// 首配「去设置」（票 02）：error 态的分类在渲染期已用同一分类器判过，点击时再判
+// 一次兜底（error 只会在新一轮请求后改写，但入口收敛在这里）；记录续跑意图
+// （选区/整句/时刻/下标 + 卡片代际号 + 视频身份快照）并直达正确的平台编辑界面
+// （无记录新增 / 缺 Key 聚焦 Key，出口在 ui/settings-panel 的 openReaderAiSetup）。
+function beginExplainSetup(): void {
+  if (!card.open) {
+    return;
+  }
+  const errorClass = classifyOverviewSetupError(card.error);
+  if (!errorClass) {
+    return;
+  }
+  setExplainSetupResumeIntent({
+    selection: card.selection,
+    line: card.line,
+    from: card.from,
+    index: card.index,
+    runId: card.runId,
+    bvid: String(state.clip.bvid || ""),
+    cid: String(state.clip.cid || ""),
+    createdAt: Date.now(),
+    errorClass
+  });
+  void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
+    openReaderAiSetup(errorClass, {
+      onAfterSave: () => {
+        // 先消费意图并续跑（同一卡片重发，用户可见 loading → 结果），再退出
+        // 设置抽屉；抽屉关闭的意图清除随后落到已消费的空槽。
+        resumeExplainAfterSetup();
+        closeReaderSettingsMode({ restoreFocus: true });
+      },
+      onSessionEnd: () => clearExplainSetupResumeIntent()
+    });
+  });
+}
+
+/**
+ * 首配保存成功后续跑（票 02）：取走意图并逐项校验——卡片代际号变化（换选区
+ * 重开 / 重试 / 关闭过）、视频身份变化（换视频 / 分 P）、卡片已关或选区整句快照
+ * 不一致均静默作废；通过才在同一卡片续跑一次（runId +1 让迟到旧回执作废）。
+ * 一次性消费：校验失败的意图已随 consume 丢弃，不会二次生效。
+ */
+export function resumeExplainAfterSetup(): boolean {
+  const intent = consumeExplainSetupResumeIntent();
+  if (!intent) {
+    return false;
+  }
+  if (!card.open) {
+    return false;
+  }
+  if (intent.runId !== card.runId) {
+    return false;
+  }
+  if (String(intent.bvid) !== String(state.clip.bvid || "") || String(intent.cid) !== String(state.clip.cid || "")) {
+    return false;
+  }
+  if (intent.selection !== card.selection || intent.line !== card.line) {
+    return false;
+  }
+  card.runId += 1;
+  startExplainRequest();
+  return true;
+}
+
 /**
  * 打开解释卡片并发起解释请求。
  * 重复打开（换了选区再点「解释」）：先中止上一请求，代际号 +1 让旧回执作废。
@@ -261,6 +349,8 @@ export function closeReaderExplainCard(): void {
   if (!card.open) {
     return;
   }
+  // 首配续跑意图随卡片关闭作废（票 02：关卡片即失效；保存成功路径已先消费）。
+  clearExplainSetupResumeIntent();
   unbindCardEsc();
   card.controller?.abort();
   card.controller = null;
@@ -275,7 +365,8 @@ export function closeReaderExplainCard(): void {
 
 /**
  * 卡片内点击委托（reader/explain-pop-ui.ts 挂在卡片容器上转发）：
- * close（遮罩 / ×）→ 关卡片；retry → 重发；ask-chat → 写待解释意图并切到对话 tab。
+ * close（遮罩 / ×）→ 关卡片；retry → 重发；setup（票 02，配置类 error）→ 记录
+ * 续跑意图并直达平台编辑；ask-chat → 写待解释意图并切到对话 tab。
  */
 export function onReaderExplainCardClick(event: MouseEvent): void {
   const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-explain-card-action]");
@@ -293,6 +384,10 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
       card.runId += 1;
       startExplainRequest();
     }
+    return;
+  }
+  if (action === "setup") {
+    beginExplainSetup();
     return;
   }
   if (action === "ask-chat") {
