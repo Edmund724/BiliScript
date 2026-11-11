@@ -19,4 +19,26 @@ describe("同声传译字幕设置归一化", () => {
     expect(normalizeSettings({ liveInterpretTargetLang: "en-US" }).liveInterpretTargetLang).toBe("zh");
     expect(normalizeSettings({ liveInterpretDisplayMode: "original" }).liveInterpretDisplayMode).toBe("auto");
   });
+
+  it("字幕翻译平台与模型偏好缺省为空串，非法值自动归一化", () => {
+    expect(DEFAULT_SETTINGS.subtitleTranslateProviderId).toBe("");
+    expect(DEFAULT_SETTINGS.subtitleTranslateModel).toBe("");
+
+    expect(normalizeSettings({}).subtitleTranslateProviderId).toBe("");
+    expect(normalizeSettings({}).subtitleTranslateModel).toBe("");
+
+    const custom = normalizeSettings({
+      subtitleTranslateProviderId: "  provider-custom  ",
+      subtitleTranslateModel: "  gpt-4o-mini  "
+    });
+    expect(custom.subtitleTranslateProviderId).toBe("provider-custom");
+    expect(custom.subtitleTranslateModel).toBe("gpt-4o-mini");
+
+    const fallback = normalizeSettings({
+      subtitleTranslateProviderId: 12345,
+      subtitleTranslateModel: null
+    });
+    expect(fallback.subtitleTranslateProviderId).toBe("");
+    expect(fallback.subtitleTranslateModel).toBe("");
+  });
 });

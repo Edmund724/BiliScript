@@ -80,6 +80,7 @@ import {
   createProviderMessageHandlers,
   createAsrRuntimeConfigHandler,
   createAiResolvedProviderHandler,
+  createSubtitleTranslateProviderHandler,
   withOkResponse
 } from "../core/provider-handlers.js";
 // offscreen 段缓存消息族 SW 端 handler（offscreen 文档无 chrome.storage，
@@ -348,6 +349,12 @@ const aiResolvedProviderHandler = createAiResolvedProviderHandler({
   loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
 });
 
+const subtitleTranslateProviderHandler = createSubtitleTranslateProviderHandler({
+  getMergedSettings: getSettingsSnapshot,
+  loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
+  loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
+});
+
 function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageSender, sendResponse: Reply<"ai-presets-list">): void {
   sendResponse({ ok: true, presets: PRESETS.slice() });
 }
@@ -554,6 +561,7 @@ const messageHandlerTable = {
   "ai-providers-delete": aiProviderHandlers.remove,
   "provider-http": handleProviderHttp,
   "resolve-ai-provider": aiResolvedProviderHandler,
+  "resolve-subtitle-translate-provider": subtitleTranslateProviderHandler,
   "asr-presets-list": handleAsrPresetsList,
   "asr-providers-list": asrProviderHandlers.list,
   "asr-providers-save": asrProviderHandlers.save,

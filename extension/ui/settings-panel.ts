@@ -42,7 +42,9 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { isProviderEditorOpen } from "./provider-editor.js";
 import { cleanExpiredConversations } from "../chat/conversation-store.js";
-import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
+import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectValue } from "./custom-select.js";
+import { escapeHtml } from "../shared/string-utils.js";
+import { buildModelOptionValue, parseModelOptionValue } from "../shared/selected-provider.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
@@ -142,6 +144,7 @@ function collectElements(host: HTMLElement) {
     liveVoiceFallbackHint: byIdIn<HTMLElement>(dom.liveVoiceFallbackHint),
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
+    subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
     liveInterpretTargetLang: byIdIn<HTMLSelectElement>(dom.liveInterpretTargetLang),
     liveInterpretDisplayMode: byIdIn<HTMLSelectElement>(dom.liveInterpretDisplayMode),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
@@ -532,6 +535,71 @@ function syncAgentBridgeInstall(enabled: boolean): void {
   if (install) install.hidden = !enabled;
 }
 
+function normalizeProviderModels(provider: { models?: unknown; model?: unknown }): string[] {
+  if (Array.isArray(provider?.models)) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of provider.models) {
+      const id = String(entry ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      result.push(id);
+    }
+    return result;
+  }
+  const legacy = String(provider?.model || "").trim();
+  return legacy ? [legacy] : [];
+}
+
+function renderSubtitleTranslateModelOptions(
+  selectEl: HTMLSelectElement | null,
+  aiProviders: ProviderRowItem[],
+  currentProviderId?: unknown,
+  currentModel?: unknown
+): void {
+  if (!selectEl) return;
+  const preferredProviderId = String(currentProviderId || "").trim();
+  const preferredModel = String(currentModel || "").trim();
+
+  const groups = (aiProviders || [])
+    .filter((p) => p && p.enabled !== false && String(p.id || "").trim() !== "")
+    .map((provider) => ({
+      provider,
+      models: normalizeProviderModels(provider)
+    }))
+    .filter((g) => g.models.length > 0);
+
+  let html = '<option value="">跟随默认模型</option>';
+  for (const group of groups) {
+    const providerId = String(group.provider.id || "");
+    const providerLabel = String(group.provider.name || group.provider.model || "自定义").trim() || "自定义";
+    const optionsHtml = group.models
+      .map((model) => {
+        const val = buildModelOptionValue(providerId, model);
+        return `<option value="${escapeHtml(val)}">${escapeHtml(model)}</option>`;
+      })
+      .join("");
+    html += `<optgroup label="${escapeHtml(providerLabel)}">${optionsHtml}</optgroup>`;
+  }
+  selectEl.innerHTML = html;
+
+  let selectedValue = "";
+  if (preferredProviderId && preferredModel) {
+    const targetVal = buildModelOptionValue(preferredProviderId, preferredModel);
+    selectEl.value = targetVal;
+    if (selectEl.value === targetVal) {
+      selectedValue = targetVal;
+    } else {
+      selectEl.value = "";
+    }
+  } else {
+    selectEl.value = "";
+  }
+  rebuildCustomSelectOptions(selectEl);
+  setCustomSelectValue(selectEl, selectedValue);
+  initCustomSelect(selectEl, "custom-select-wrapper");
+}
+
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
@@ -545,6 +613,12 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // AI 配置
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
+  renderSubtitleTranslateModelOptions(
+    elements.subtitleTranslateModel,
+    providers,
+    settings.subtitleTranslateProviderId,
+    settings.subtitleTranslateModel
+  );
 
   // 实时伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const liveProviders = await loadLiveProviders();
@@ -841,7 +915,17 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "ai-providers-delete", providerId }),
     generateId: () => familyRows.ai.controller.generateId(),
     presets: () => aiPresets,
-    rerender: (elements, providers) => familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers),
+    rerender: (elements, providers) => {
+      familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers);
+      void getSettings().then((settings) => {
+        renderSubtitleTranslateModelOptions(
+          elements.subtitleTranslateModel,
+          providers,
+          settings.subtitleTranslateProviderId,
+          settings.subtitleTranslateModel
+        );
+      });
+    },
     optionalHostPermission: true
   },
   asr: {
@@ -1383,6 +1467,15 @@ function bindSettingsEvents(host: HTMLElement): void {
   familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
   familyRows.live.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
+  elements.subtitleTranslateModel?.addEventListener("change", () => {
+    const val = elements.subtitleTranslateModel?.value || "";
+    const { providerId, model } = parseModelOptionValue(val);
+    void saveSettingField(elements, {
+      subtitleTranslateProviderId: providerId,
+      subtitleTranslateModel: model
+    });
+  });
+
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
 
   // 添加平台：直接进空白编辑 Modal
@@ -1403,8 +1496,24 @@ function bindSettingsEvents(host: HTMLElement): void {
             syncAgentBridgeInstall(change.newValue === true);
           }
         }
+        if (changes.subtitleTranslateProviderId || changes.subtitleTranslateModel) {
+          void Promise.all([loadAiProviders(), getSettings()]).then(([providers, settings]) => {
+            renderSubtitleTranslateModelOptions(
+              elements.subtitleTranslateModel,
+              providers,
+              settings.subtitleTranslateProviderId,
+              settings.subtitleTranslateModel
+            );
+          });
+        }
       }
     },
-    { sync: watchedSyncBindings.map((binding) => binding.key) }
+    {
+      sync: [
+        ...watchedSyncBindings.map((binding) => binding.key),
+        "subtitleTranslateProviderId",
+        "subtitleTranslateModel"
+      ]
+    }
   );
 }

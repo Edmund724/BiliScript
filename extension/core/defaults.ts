@@ -62,6 +62,8 @@ export interface KnownSettings {
   liveShareVideoAudio: boolean;
   liveGeminiNativeSearch: boolean;
   liveLowBandwidth: boolean;
+  subtitleTranslateProviderId: string;
+  subtitleTranslateModel: string;
   liveInterpretTargetLang: LiveInterpretTargetLang;
   liveInterpretDisplayMode: InterpretSubtitleDisplayMode;
   asrAutoFallback: boolean;
@@ -145,6 +147,8 @@ export const DEFAULT_SETTINGS: Settings = {
   liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
   liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
+  subtitleTranslateProviderId: "", // 专属字幕翻译 AI 平台 id，空串表示跟随全局默认平台
+  subtitleTranslateModel: "",      // 专属字幕翻译模型，空串表示跟随全局默认模型
   liveInterpretTargetLang: "zh",
   liveInterpretDisplayMode: "auto",
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示

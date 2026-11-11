@@ -37,6 +37,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "ai-providers-delete": "async",
   "provider-http": "async",
   "resolve-ai-provider": "async",
+  "resolve-subtitle-translate-provider": "async",
   "asr-providers-list": "async",
   "asr-providers-save": "async",
   "asr-providers-delete": "async",

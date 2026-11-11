@@ -153,6 +153,14 @@ export const normalizeLiveShareVideoAudio = booleanField(false);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeLiveLowBandwidth = booleanField(false);
 
+export function normalizeSubtitleTranslateProviderId(value: unknown): string {
+  return toString(value).trim();
+}
+
+export function normalizeSubtitleTranslateModel(value: unknown): string {
+  return toString(value).trim();
+}
+
 export function normalizeLiveInterpretTargetLang(value: unknown): LiveInterpretTargetLang {
   const normalized = toString(value).trim();
   return LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === normalized)?.value

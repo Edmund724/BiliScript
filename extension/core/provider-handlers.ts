@@ -29,8 +29,10 @@ import type {
   GetAsrRuntimeConfigResponse,
   MessageReplyDecision,
   ProviderListEntry,
-  ResolveAiProviderResponse
+  ResolveAiProviderResponse,
+  ResolveSubtitleTranslateProviderResponse
 } from "../shared/messaging-protocol.js";
+import { resolveSubtitleTranslateProviderConfig } from "../ai/subtitle-translate.js";
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;
@@ -263,6 +265,50 @@ export function createAiResolvedProviderHandler({
           throw new Error("该平台 API Key 未配置");
         }
         return { ok: true, provider, apiKey };
+      })(),
+      sendResponse,
+      (error) => (error as Error)?.message || String(error)
+    );
+  };
+}
+
+// ===== 字幕翻译平台解析处理器 =====
+
+export interface SubtitleTranslateProviderHandlerDeps {
+  getMergedSettings: () => Promise<{
+    subtitleTranslateProviderId?: unknown;
+    subtitleTranslateModel?: unknown;
+    defaultModel?: unknown;
+  }>;
+  loadProviders: () => Promise<ProviderListEntry[]>;
+  loadKeys: () => Promise<Record<string, string>>;
+}
+
+export function createSubtitleTranslateProviderHandler({
+  getMergedSettings,
+  loadProviders,
+  loadKeys
+}: SubtitleTranslateProviderHandlerDeps) {
+  return function handleResolveSubtitleTranslateProvider(
+    _message: unknown,
+    _sender: unknown,
+    sendResponse: (response: ResolveSubtitleTranslateProviderResponse) => void
+  ): void {
+    withOkResponse(
+      (async () => {
+        const [settings, providers, keys] = await Promise.all([
+          getMergedSettings(),
+          loadProviders(),
+          loadKeys()
+        ]);
+        const resolved = resolveSubtitleTranslateProviderConfig(providers, keys, settings);
+        return {
+          ok: true,
+          provider: resolved.provider,
+          apiKey: resolved.apiKey,
+          model: resolved.model,
+          isFallback: resolved.isFallback
+        };
       })(),
       sendResponse,
       (error) => (error as Error)?.message || String(error)

@@ -241,6 +241,20 @@ export type ResolveAiProviderResponse = {
   error?: string;
 };
 
+// ===== 字幕翻译平台解析 =====
+export type ResolveSubtitleTranslateProviderMessage = {
+  type: "resolve-subtitle-translate-provider";
+};
+
+export type ResolveSubtitleTranslateProviderResponse = {
+  ok: boolean;
+  provider?: ProviderListEntry;
+  apiKey?: string;
+  model?: string;
+  isFallback?: boolean;
+  error?: string;
+};
+
 // ===== offscreen 段缓存消息族 =====
 // 来源守卫：本族在 OFFSCREEN_ONLY_MESSAGE_TYPES 名单内（只接受 offscreen 文档发送）。
 // 平台事实（chrome.offscreen 官方文档）：offscreen 文档仅支持 chrome.runtime，
@@ -558,6 +572,7 @@ export type BackgroundMessage =
   | AiProvidersDeleteMessage
   | ProviderHttpMessage
   | ResolveAiProviderMessage
+  | ResolveSubtitleTranslateProviderMessage
   | AsrPresetsListMessage
   | AsrProvidersListMessage
   | AsrProvidersSaveMessage
@@ -898,6 +913,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "resolve-ai-provider": registerBackgroundMessage<
     ResolveAiProviderMessage,
     ResolveAiProviderResponse
+  >({
+    reply: "async"
+  }),
+  "resolve-subtitle-translate-provider": registerBackgroundMessage<
+    ResolveSubtitleTranslateProviderMessage,
+    ResolveSubtitleTranslateProviderResponse
   >({
     reply: "async"
   }),

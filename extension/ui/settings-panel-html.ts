@@ -34,6 +34,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
   liveLowBandwidth: "liveLowBandwidth",
+  subtitleTranslateModel: "subtitleTranslateModel",
   liveInterpretTargetLang: "liveInterpretTargetLang",
   liveInterpretDisplayMode: "liveInterpretDisplayMode",
   asrProvidersList: "asrProvidersList",
@@ -120,6 +121,12 @@ export function buildSettingsHtml(): string {
       <div class="biliscript-set-card biliscript-provider-group">
         <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
         <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+        <div class="biliscript-set-row">
+          <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
+          <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
+            <option value="">跟随默认模型</option>
+          </select>
+        </div>
         <div class="biliscript-set-row">
           <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">同传目标语言</label>
           <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
