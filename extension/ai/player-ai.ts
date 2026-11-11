@@ -403,7 +403,7 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
   if (!wrap) {
     wrap = document.createElement("div");
     wrap.id = "biliscript-player-interpret-quick-action-wrap";
-    wrap.className = "bpx-player-ctrl-btn biliscript-player-interpret-quick-action-wrap";
+    wrap.className = "bpx-player-ctrl-btn bpx-player-ctrl-subtitle biliscript-player-interpret-quick-action-wrap";
     wrap.setAttribute("data-biliscript-extension-node", "interpret-quick-action");
   }
   if (!button) {
