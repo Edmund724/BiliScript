@@ -18,6 +18,7 @@ import {
   getReadingSubtitlePlaceholderText
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import {
   SUBTITLE_FIRST_BATCH,
@@ -84,9 +85,16 @@ function projectReadingSubtitleList(): void {
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {
+    // 配置类无字幕空态（票 04）：补救动作是「去设置」时给实际设置入口——直达
+    // ASR 平台编辑或自动转写开关；非配置类（充值 / 重试 / 无人声）不挂，
+    // 不把不可配置的成因伪装成配置问题。
+    const setupAction =
+      state.clip.subtitleFetchState === "empty" && requiresAsrSetup(state.clip.noSubtitleReason)
+        ? `<button type="button" class="biliscript-reading-mini-btn" data-subtitle-action="asr-setup">前往设置</button>`
+        : "";
     subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
       getReadingSubtitlePlaceholderText()
-    )}</div>`;
+    )}${setupAction}</div>`;
   } else {
     const firstEnd = Math.min(subtitleItems.length, SUBTITLE_FIRST_BATCH);
     let firstHtml = "";

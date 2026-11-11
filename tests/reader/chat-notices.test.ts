@@ -133,6 +133,17 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(deps.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
+  it("openSettingsAction 带目标：点击回传设置分区（ASR 配置类拦截直达 ASR 设置，票 04）", () => {
+    const { feedback, messages, deps } = makeHarness();
+
+    feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true, settingsTarget: "asr" });
+
+    messages
+      .querySelector(".chat-context-notice a")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(deps.onOpenSettings).toHaveBeenCalledWith("asr");
+  });
+
   it("spinner：插入加载动画 span 在文案最前（aria-hidden 空元素，不改文本）", () => {
     const { feedback, messages } = makeHarness();
 

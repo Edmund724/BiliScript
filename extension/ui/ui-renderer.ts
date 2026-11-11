@@ -282,7 +282,8 @@ export function openReaderSettingsPanel(): void {
 //     + 对话分区表挂载，不写状态位、不落盘、不做二级激活（那些都在属主）；未知/
 //     缺失 payload 静默忽略，不动当前投影；
 //   - "open-settings"：打开侧边栏设置抽屉（chat-tab 空态「前往设置」与提示条
-//     onOpenSettings）。
+//     onOpenSettings）；带 target 时直达该分区的设置动作——"live"/"gemini-key"
+//     进伴看/Gemini 凭据编辑器，"asr" 进 ASR 平台编辑或自动转写开关（票 04）。
 // 旧命令 "set-tab" / "set-tab:chat" 已随标签激活收口 reader 属主退役（本处不再
 // 注册，残留发送方静默丢弃）。
 // 命令到达时壳必然已装载（本模块被装载才注册），但目标 DOM 缺失时各 setter
@@ -297,8 +298,15 @@ subscribeUiCommand((name, payload) => {
     return;
   }
   if (name === "open-settings") {
-    openReaderSettingsPanel();
     const target = (payload as { target?: unknown } | null)?.target;
+    if (target === "asr") {
+      // ASR 配置类阻塞直达（票 04）：入口自己打开抽屉并定位分区/编辑器。
+      void import("./settings-panel.js")
+        .then((mod) => mod.openReaderAsrSetup())
+        .catch(() => {});
+      return;
+    }
+    openReaderSettingsPanel();
     if (target === "live" || target === "gemini-key") {
       void import("./settings-panel.js")
         .then((mod) => mod.openLiveSettings(target))

@@ -32,7 +32,7 @@
 // 表），本模块也拿不到它——详情行是 reader 状态栏那个单行宿主的呈现设计。
 
 import type { NoSubtitleReason as ClipNoSubtitleReason } from "../core/state.js";
-import { buildAsrNoSubtitleMessage, getAsrFailureNotice } from "../core/asr-failure-notice.js";
+import { buildAsrNoSubtitleMessage, requiresAsrSetup } from "../core/asr-failure-notice.js";
 
 // 拦截信号不再是本模块导出的字符串哨兵：发送闸经 GateOutcome
 //（send-gate.ts 的 { pass: false, kind: "no-subtitle" }）显式返回，调用方按
@@ -49,6 +49,6 @@ export type NoSubtitleReason = ClipNoSubtitleReason | undefined;
 export function buildNoSubtitleNotice(reason: NoSubtitleReason): { message: string; openSettings: boolean } {
   return {
     message: buildAsrNoSubtitleMessage("sidepanel", reason ?? null),
-    openSettings: getAsrFailureNotice(reason ?? null).remedy === "open-settings"
+    openSettings: requiresAsrSetup(reason ?? null)
   };
 }

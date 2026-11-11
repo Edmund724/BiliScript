@@ -28,6 +28,7 @@
 import { chatSessionState, setAsrTranscribingActive } from "./chat-state.js";
 import { createSubtitleWaiter } from "./subtitle-wait.js";
 import { buildNoSubtitleNotice, type NoSubtitleReason } from "./no-subtitle.js";
+import { isConfigClassAsrReason } from "../core/asr-failure-notice.js";
 import {
   isNoSubtitleEmpty,
   isPending,
@@ -71,11 +72,11 @@ export interface CreateSendGateDeps {
   // 组合根的 requestViewReset）。
   requestViewReset: (intent: ViewResetIntent) => void;
   // 消息区通知两件（showContextNotice 第三参为 no-subtitle 的「前往设置」链接
-  // 开关与等待提示的加载动画开关）。
+  // 开关、目标设置分区与等待提示的加载动画开关）。
   showContextNotice: (
     message: string,
     durationMs: number,
-    opts?: { openSettingsAction?: boolean; spinner?: boolean }
+    opts?: { openSettingsAction?: boolean; spinner?: boolean; settingsTarget?: "asr" }
   ) => void;
   removeContextNotice: () => void;
   // 等待闸等待区间通知（可选，缺省不调）：true = 进了 subtitleWaiter.wait()，
@@ -224,6 +225,10 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   // 失败）且无字幕体时主动起跑一轮（error 重试一次），随后的 wait() 首轮轮询
   // 必见 loading，提示词被挂住直到抓取落定。loading 轮次上不起跑：那会用新代次
   // 顶掉在飞抓取，而等待闸本来就在等它。
+  // 配置类 empty（未配置 / 停用 / 缺 Key；票 04）同样允许重新起跑：用户经
+  // 设置动作修好配置后回到对话再发送，必须重新进入抓取才能拿到字幕——否则
+  // 永远停在上一轮的「无字幕」快照。非配置类 empty（无人声、音轨失败、额度、
+  // 限流）与未归类（null）仍按原规则拦截，不反复重抓。
   // 判定读 deps.clip（进程内权威状态）而非上下文快照：快照是「装配时刻的投影」
   // ——抓取发起前的快照不含刚落账的字幕，按快照判定会在「另一轮抓取刚好落账」
   // 时误判「还没抓」而多起一轮（顶成 STALE_RUN，终态文案丢失）。
@@ -238,7 +243,13 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       return true;
     }
     if (readiness.fetchState !== "idle" && readiness.fetchState !== "error") {
-      return true;
+      const configClassEmpty =
+        readiness.fetchState === "empty" &&
+        !readiness.hasBody &&
+        isConfigClassAsrReason(clip.noSubtitleReason);
+      if (!configClassEmpty) {
+        return true;
+      }
     }
     // 起跑动作留在组合根（ensure 总结链装载 + reader 刷新请求；失败 = 抓取
     // 没能起跑，调用方按上下文读取失败拦截）。
@@ -319,7 +330,9 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     });
     if (isNoSubtitleEmpty(finalReadiness)) {
       const notice = buildNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
-      deps.showContextNotice(notice.message, 0, { openSettingsAction: notice.openSettings });
+      // 链接直达 ASR 设置动作（票 04）：无记录新增 / 缺 Key 编辑并聚焦 / 开关关闭
+      // 定位开关，而不是只打开设置抽屉让用户自己找。
+      deps.showContextNotice(notice.message, 0, { openSettingsAction: notice.openSettings, settingsTarget: "asr" });
       return { pass: false, kind: "no-subtitle" };
     }
     // 抓取失败收尾（error 且字幕体为空）：与无字幕拦截同一道门——把空字幕发给
