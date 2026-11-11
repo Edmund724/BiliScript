@@ -703,7 +703,9 @@
   border: none;
   position: relative;
   cursor: pointer;
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow 0.2s ease;
 }
 
 .live-overlay-switch::after {
@@ -717,18 +719,24 @@
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   transform: translateY(-50%);
-  transition: transform 0.2s ease;
+  transition:
+    transform 0.24s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    scale 0.16s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 .live-overlay-switch.is-active,
 .live-overlay-switch[aria-checked="true"] {
-  background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
+  background: var(--toggle-track-bg-on, var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(96 165 250))));
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.28);
 }
 
 .live-overlay-switch.is-active::after,
 .live-overlay-switch[aria-checked="true"]::after {
   transform: translate(18px, -50%);
+}
+
+.live-overlay-switch:active::after {
+  scale: 0.92;
 }
 
 .live-overlay-output-controls {
@@ -805,11 +813,15 @@
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
   cursor: pointer;
-  transition: transform 0.12s ease;
+  transition: transform 0.18s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 .live-overlay-volume-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  transform: scale(1.08);
+}
+
+.live-overlay-volume-slider::-webkit-slider-thumb:active {
+  transform: scale(0.96);
 }
 
 .live-overlay-volume-slider::-moz-range-track {
@@ -833,6 +845,30 @@
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
   cursor: pointer;
+  transition: transform 0.18s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.live-overlay-volume-slider::-moz-range-thumb:hover {
+  transform: scale(1.08);
+}
+
+.live-overlay-volume-slider::-moz-range-thumb:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-overlay-switch,
+  .live-overlay-switch::after {
+    transition: none;
+  }
+
+  .live-overlay-volume-slider::-webkit-slider-thumb {
+    transition: none;
+  }
+
+  .live-overlay-volume-slider::-moz-range-thumb {
+    transition: none;
+  }
 }
 
 .live-overlay-body {
