@@ -193,6 +193,18 @@
   min-width: 0;
 }
 
+/* 设置面板行内下拉定制：右对齐向左展开以防搜索框和选项超出面板右侧截断，并保持控件底宽 140px */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row .custom-select-wrapper {
+  width: auto;
+  min-width: 140px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row .custom-select-dropdown {
+  left: auto;
+  right: 0;
+  transform-origin: top right;
+}
+
 #biliscript-reading-view .custom-select-trigger {
   width: 100%;
   height: 32px;
