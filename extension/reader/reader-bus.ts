@@ -78,7 +78,6 @@ interface ReaderSeamHandlerMap {
   tabIntent: TabIntentHandler;
   chatTabOutsideClick: ChatTabOutsideClickHandler;
   liveCompanionStop: SessionStopHandler;
-  interpretStop: SessionStopHandler;
   noteManualReaderInteraction: (...args: unknown[]) => unknown;
   syncReadingViewPlayback: (...args: unknown[]) => unknown;
   flushReadingSubtitleToIndex: (...args: unknown[]) => unknown;
@@ -100,7 +99,6 @@ export const READER_SEAM_METHODS = Object.freeze({
   tabIntent: { policy: "noop-warn", owner: "reader/script-tab-activation" },
   chatTabOutsideClick: { policy: "noop-warn", owner: "reader/chat-tab" },
   liveCompanionStop: { policy: "noop", owner: "live/live-companion-session" },
-  interpretStop: { policy: "noop", owner: "live/live-companion-session" },
   noteManualReaderInteraction: { policy: "throw", owner: "reader/lifecycle" },
   syncReadingViewPlayback: { policy: "throw", owner: "reader/lifecycle" },
   flushReadingSubtitleToIndex: { policy: "throw", owner: "reader/lifecycle" }
@@ -389,35 +387,19 @@ export function dispatchChatTabOutsideClick(event: MouseEvent): void {
 
 // ===== 跨标签接管停止通道（content → live-companion-session） =====
 
-// 接管通知按通道隔离：伴看、同传各一个槽，只停被接管的通道，不波及其他会话。
-// 两槽缺失按 no-op（接管到达的页面可能本就没起该通道会话），策略见
-// READER_SEAM_METHODS。
-
 export function setLiveCompanionStopHandler(handler: SessionStopHandler | null): void {
   setSeamHandler("liveCompanionStop", typeof handler === "function" ? handler : null);
 }
 
 export function requestLiveCompanionStop(): void {
-  requestSessionStop("liveCompanionStop");
-}
-
-export function setInterpretStopHandler(handler: SessionStopHandler | null): void {
-  setSeamHandler("interpretStop", typeof handler === "function" ? handler : null);
-}
-
-export function requestInterpretStop(): void {
-  requestSessionStop("interpretStop");
-}
-
-function requestSessionStop(method: "liveCompanionStop" | "interpretStop"): void {
-  const handler = resolveSeamHandler(method);
+  const handler = resolveSeamHandler("liveCompanionStop");
   if (!handler) {
     return;
   }
   try {
     handler();
   } catch (error) {
-    logWarn(`[BILISCRIPT] ${method} handler failed`, { error });
+    logWarn("[BILISCRIPT] liveCompanionStop handler failed", { error });
   }
 }
 

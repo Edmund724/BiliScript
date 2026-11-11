@@ -576,7 +576,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
   });
 });
 
-describe("LiveSessionTracker dual-channel rule sharing (companion + interpret)", () => {
+describe("LiveSessionTracker tab takeover and rule ownership", () => {
   function createFakeDeps(overrides: Partial<LiveSessionPrepareDeps> = {}): LiveSessionPrepareDeps {
     return {
       getSettings: async () => ({ activeLiveProviderId: "moss-1" }),
@@ -604,100 +604,50 @@ describe("LiveSessionTracker dual-channel rule sharing (companion + interpret)",
     };
   }
 
-  it("shares rule 9002 across channels; cleaning one channel keeps the rule until both are done", async () => {
+  it("stale cleanup never clears the newer session's rule", async () => {
     const tracker = new LiveSessionTracker();
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
     const deps = createFakeDeps({ setAuthRule, clearAuthRule });
+    await tracker.prepare("comp-1", deps);
 
-    const resC = await tracker.prepareFor("companion", "comp-1", deps);
-    const resI = await tracker.prepareFor("interpret", "interp-1", deps);
-    expect(resC.ok).toBe(true);
-    expect(resI.ok).toBe(true);
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-1");
-    expect(tracker.getActiveRuleOwner("interpret")).toBe("interp-1");
-
-    // 先关同传：伴看仍持有规则，不得清除
-    await tracker.cleanupFor("interpret", "interp-1", clearAuthRule);
+    await tracker.cleanup("comp-stale", clearAuthRule);
     expect(clearAuthRule).not.toHaveBeenCalled();
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-1");
-    expect(tracker.getActiveRuleOwner("interpret")).toBeNull();
+    expect(tracker.getActiveRuleOwner()).toBe("comp-1");
 
-    // 再关伴看：规则随最后一个持有者清除
-    await tracker.cleanupFor("companion", "comp-1", clearAuthRule);
+    await tracker.cleanup("comp-1", clearAuthRule);
     expect(clearAuthRule).toHaveBeenCalledTimes(1);
-    expect(tracker.getActiveRuleOwner("companion")).toBeNull();
+    expect(tracker.getActiveRuleOwner()).toBeNull();
   });
 
-  it("interpret prepare rollback after rule install never clears the companion-held rule", async () => {
-    const tracker = new LiveSessionTracker();
-    const setAuthRule = vi.fn(async () => {});
-    const clearAuthRule = vi.fn(async () => {});
-    await tracker.prepareFor("companion", "comp-1", createFakeDeps({ setAuthRule, clearAuthRule }));
-
-    const res = await tracker.prepareFor(
-      "interpret",
-      "interp-fail",
-      createFakeDeps({
-        setAuthRule,
-        clearAuthRule,
-        ensureOffscreen: async () => {
-          throw new Error("offscreen crash");
-        }
-      })
-    );
-    expect(res.ok).toBe(false);
-    expect(clearAuthRule).not.toHaveBeenCalled();
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-1");
-    expect(tracker.getActiveRuleOwner("interpret")).toBeNull();
-  });
-
-  it("stale cleanup in one channel never clears the other channel's rule", async () => {
-    const tracker = new LiveSessionTracker();
-    const setAuthRule = vi.fn(async () => {});
-    const clearAuthRule = vi.fn(async () => {});
-    const deps = createFakeDeps({ setAuthRule, clearAuthRule });
-    await tracker.prepareFor("companion", "comp-1", deps);
-    await tracker.prepareFor("interpret", "interp-1", deps);
-
-    await tracker.cleanupFor("companion", "comp-stale", clearAuthRule);
-    await tracker.cleanupFor("interpret", "interp-stale", clearAuthRule);
-    expect(clearAuthRule).not.toHaveBeenCalled();
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-1");
-    expect(tracker.getActiveRuleOwner("interpret")).toBe("interp-1");
-  });
-
-  it("regression: stale same-channel prepare expiry does not release the newer session's rule hold", async () => {
+  it("regression: stale prepare expiry does not release the newer session's rule hold", async () => {
     const tracker = new LiveSessionTracker();
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
     let resolveOffscreen1!: (v: boolean) => void;
-    const offscreenPromise1 = new Promise<boolean>((resolve) => {
+    const offscreenPromise1 = new Promise((resolve) => {
       resolveOffscreen1 = resolve;
     });
 
-    // Session 1 安装规则后卡在 ensureOffscreen；Session 2 同通道接管并完成
-    const prep1 = tracker.prepareFor(
-      "companion",
+    const prep1 = tracker.prepare(
       "comp-1",
       createFakeDeps({ setAuthRule, clearAuthRule, ensureOffscreen: () => offscreenPromise1 })
     );
     await vi.waitFor(() => {
-      expect(tracker.getActiveRuleOwner("companion")).toBe("comp-1");
+      expect(tracker.getActiveRuleOwner()).toBe("comp-1");
     });
-    const prep2 = await tracker.prepareFor("companion", "comp-2", createFakeDeps({ setAuthRule, clearAuthRule }));
+    const prep2 = await tracker.prepare("comp-2", createFakeDeps({ setAuthRule, clearAuthRule }));
     expect(prep2.ok).toBe(true);
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-2");
+    expect(tracker.getActiveRuleOwner()).toBe("comp-2");
 
-    // Session 1 恢复后发现已过期：不得释放 Session 2 持有的规则
     resolveOffscreen1(true);
     const res1 = await prep1;
     expect(res1.ok).toBe(false);
     expect(clearAuthRule).not.toHaveBeenCalled();
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-2");
+    expect(tracker.getActiveRuleOwner()).toBe("comp-2");
   });
 
-  it("tab takeover is per-channel: interpret prepare from another tab leaves the companion tab alone", async () => {
+  it("cross-tab prepare triggers tab takeover notification and cleans up previous tab", async () => {
     const tracker = new LiveSessionTracker();
     const setAuthRule = vi.fn(async () => {});
     const clearAuthRule = vi.fn(async () => {});
@@ -705,21 +655,14 @@ describe("LiveSessionTracker dual-channel rule sharing (companion + interpret)",
     const notifyTabTakeover = vi.fn(async () => {});
     const deps = createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive, notifyTabTakeover });
 
-    await tracker.prepareFor("companion", "comp-tab", deps, 101);
-    const resI = await tracker.prepareFor("interpret", "interp-tab", deps, 202);
+    await tracker.prepare("comp-tab-1", deps, 101);
+    expect(tracker.getOwnerTabId()).toBe(101);
+    expect(tracker.getActiveRuleOwner()).toBe("comp-tab-1");
 
-    expect(resI.ok).toBe(true);
-    expect(notifyTabTakeover).not.toHaveBeenCalled();
-    expect(tracker.getOwnerTabId("companion")).toBe(101);
-    expect(tracker.getOwnerTabId("interpret")).toBe(202);
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-tab");
-    expect(tracker.getActiveRuleOwner("interpret")).toBe("interp-tab");
-
-    // 同通道跨标签页仍然接管
-    const resI2 = await tracker.prepareFor("interpret", "interp-tab-2", deps, 303);
-    expect(resI2.ok).toBe(true);
-    expect(notifyTabTakeover).toHaveBeenCalledWith(202, "interpret");
-    expect(tracker.getOwnerTabId("interpret")).toBe(303);
-    expect(tracker.getActiveRuleOwner("companion")).toBe("comp-tab");
+    const res2 = await tracker.prepare("comp-tab-2", deps, 202);
+    expect(res2.ok).toBe(true);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
+    expect(tracker.getOwnerTabId()).toBe(202);
+    expect(tracker.getActiveRuleOwner()).toBe("comp-tab-2");
   });
 });

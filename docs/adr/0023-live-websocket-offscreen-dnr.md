@@ -16,4 +16,4 @@ MOSS-LIVE 实时语音伴看通过 `wss://` 全双工连接收发控制事件与
 
 - 架构评审（含 AI 代理）不得再提议将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script。
 - 凡依赖 DNR `modifyHeaders` 注入 WebSocket 握手头的平台，权限声明（`manifest.json` 的 `optional_host_permissions`）、手势链权限请求（`requestOrigins`）与会话预检（`LiveSessionTracker.prepare`）必须成对覆盖 `http(s)://` 与 `ws(s)://` 源。
-- MOSS-LIVE 握手规则固定使用 `MOSS_LIVE_WS_RULE_ID = 9002`（与 ASR 动态规则池 `32001..32999` 隔离），生命周期由 `LiveSessionTracker` 按会话代际单点托管，防乱序 prepare 与过期 cleanup 踩踏在途连接的鉴权规则。同声传译（`/v1/realtime/interpret`）复用同一条规则（同域名同 Key）：伴看与同传为两个独立通道，各自维护会话所有权，规则按通道共享持有，任一方 cleanup 只在另一方也无持有时才真正清除。
+- MOSS-LIVE 握手规则固定使用 `MOSS_LIVE_WS_RULE_ID = 9002`（与 ASR 动态规则池 `32001..32999` 隔离），生命周期由 `LiveSessionTracker` 按会话代际单点托管，防乱序 prepare 与过期 cleanup 踩踏在途连接的鉴权规则。由实时伴看单通道独占。

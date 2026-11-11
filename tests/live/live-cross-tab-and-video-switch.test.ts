@@ -152,13 +152,10 @@ describe("04: 跨标签页伴看自动接管", () => {
       isTabAlive: async () => true
     };
 
-    await tracker.prepareFor("companion", "companion-tab-101", deps, 101);
-    await tracker.prepareFor("companion", "companion-tab-202", deps, 202);
-    await tracker.prepareFor("interpret", "interpret-tab-101", deps, 101);
-    await tracker.prepareFor("interpret", "interpret-tab-202", deps, 202);
+    await tracker.prepare("companion-tab-101", deps, 101);
+    await tracker.prepare("companion-tab-202", deps, 202);
 
-    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover", channel: "companion" });
-    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover", channel: "interpret" });
+    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover" });
   });
 
   it("旧标签页收到接管通知时，停止音画采集并收起伴看状态条", async () => {

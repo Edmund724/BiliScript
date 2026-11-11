@@ -74,7 +74,6 @@ vi.mock("../../extension/bilibili/gateway.js", () => ({
 
 import { bindRuntimeEvents } from "../../extension/entry/message-handler.js";
 import {
-  setInterpretStopHandler,
   setLiveCompanionStopHandler
 } from "../../extension/reader/reader-bus.js";
 
@@ -247,67 +246,25 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
 
 });
 
-describe("live-session-takeover 按通道停止", () => {
+describe("live-session-takeover 跨标签页接管伴看停止", () => {
   afterEach(() => {
     setLiveCompanionStopHandler(null);
-    setInterpretStopHandler(null);
   });
 
-  it("缺省 channel：按伴看处理，若对话 tab 已装载则调用 stopLiveCompanion", async () => {
-    const { isReaderChatTabLoaded } = await import("../../extension/reader/lazy-chat-tab.js");
-    (isReaderChatTabLoaded as any).mockReturnValue(true);
-    const chat = makeChatStub();
-    ensureReaderChatTabMock.mockResolvedValue(chat);
-
-    const sendResponse = vi.fn();
-    const keepOpen = messageListener({ type: "live-session-takeover" }, {}, sendResponse);
-    expect(keepOpen).toBe(true);
-
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
-    expect(chat.stopLiveCompanion).toHaveBeenCalledTimes(1);
-  });
-
-  it("live-session-takeover channel=interpret：只请求停同传，不停伴看、不动对话 tab", async () => {
+  it("若对话 tab 已装载则调用 stopLiveCompanion 并执行伴看停止回调", async () => {
     const { isReaderChatTabLoaded } = await import("../../extension/reader/lazy-chat-tab.js");
     (isReaderChatTabLoaded as any).mockReturnValue(true);
     const chat = makeChatStub();
     ensureReaderChatTabMock.mockResolvedValue(chat);
     const companionStop = vi.fn();
-    const interpretStop = vi.fn();
     setLiveCompanionStopHandler(companionStop);
-    setInterpretStopHandler(interpretStop);
 
     const sendResponse = vi.fn();
-    messageListener({ type: "live-session-takeover", channel: "interpret" }, {}, sendResponse);
-
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
-    expect(interpretStop).toHaveBeenCalledTimes(1);
-    expect(companionStop).not.toHaveBeenCalled();
-    expect(chat.stopLiveCompanion).not.toHaveBeenCalled();
-
-    setLiveCompanionStopHandler(null);
-    setInterpretStopHandler(null);
-  });
-
-  it("live-session-takeover channel=companion：与缺省一致，保持旧行为停伴看", async () => {
-    const { isReaderChatTabLoaded } = await import("../../extension/reader/lazy-chat-tab.js");
-    (isReaderChatTabLoaded as any).mockReturnValue(true);
-    const chat = makeChatStub();
-    ensureReaderChatTabMock.mockResolvedValue(chat);
-    const companionStop = vi.fn();
-    const interpretStop = vi.fn();
-    setLiveCompanionStopHandler(companionStop);
-    setInterpretStopHandler(interpretStop);
-
-    const sendResponse = vi.fn();
-    messageListener({ type: "live-session-takeover", channel: "companion" }, {}, sendResponse);
+    const keepOpen = messageListener({ type: "live-session-takeover" }, {}, sendResponse);
+    expect(keepOpen).toBe(true);
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     expect(companionStop).toHaveBeenCalledTimes(1);
-    expect(interpretStop).not.toHaveBeenCalled();
     expect(chat.stopLiveCompanion).toHaveBeenCalledTimes(1);
-
-    setLiveCompanionStopHandler(null);
-    setInterpretStopHandler(null);
   });
 });

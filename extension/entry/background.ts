@@ -56,8 +56,7 @@ import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { liveProviderStore } from "../live/live-provider-store.js";
 import {
   liveSessionTracker,
-  clearMossLiveWsAuthRule,
-  type LiveSessionChannel
+  clearMossLiveWsAuthRule
 } from "../live/live-session-tracker.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
@@ -468,8 +467,7 @@ function handleLiveSessionPrepare(
   sendResponse: Reply<"live-session-prepare">
 ): void {
   withOkResponse(
-    liveSessionTracker.prepareFor(
-      resolveLiveSessionChannel(message?.channel),
+    liveSessionTracker.prepare(
       message?.sessionId || "",
       sender.tab?.id
     ),
@@ -483,17 +481,11 @@ function handleLiveSessionCleanup(
   sendResponse: Reply<"live-session-cleanup">
 ): void {
   withOkResponse(
-    liveSessionTracker.cleanupFor(
-      resolveLiveSessionChannel(message?.channel),
+    liveSessionTracker.cleanup(
       message?.sessionId
     ),
     sendResponse
   );
-}
-
-// 会话通道收窄：缺省/未知值一律为伴看通道（旧消息行为不变）
-function resolveLiveSessionChannel(channel?: string): LiveSessionChannel {
-  return channel === "interpret" ? "interpret" : "companion";
 }
 
 // ===== 通用 offscreen 任务通道 =====

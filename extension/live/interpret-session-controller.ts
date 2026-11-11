@@ -38,7 +38,6 @@ export interface InterpretSessionControllerDeps {
   getDisplayMode?: () => InterpretSubtitleDisplayMode;
   showNotice?: (message: string, autoHideMs?: number) => void;
   setSubtitle?: (original: string, translation: string) => void;
-  onTranscript?: (event: any) => void;
   clearSubtitles?: () => void;
   clearSubtitlesOnSeek?: () => void;
   onStateChange?: (state: InterpretSessionState) => void;

@@ -21,7 +21,6 @@ import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
-import type { LiveSessionChannel } from "../live/moss-live-protocol.js";
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
 import type { AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
@@ -67,8 +66,6 @@ export type ReaderRestoreResponse = { ok: boolean };
 
 export type LiveSessionTakeoverMessage = {
   type: "live-session-takeover";
-  /** 被接管的会话通道：接管只停止该通道的会话，另一通道保持运行 */
-  channel: LiveSessionChannel;
 };
 export type LiveSessionTakeoverResponse = { ok: boolean };
 
@@ -417,8 +414,6 @@ export type LiveProvidersDeleteResponse = {
 export type LiveSessionPrepareMessage = {
   type: "live-session-prepare";
   sessionId?: string;
-  /** 会话通道：伴看（缺省）或同传；两通道共享同一条 DNR 握手规则 */
-  channel?: LiveSessionChannel;
 };
 export type LiveSessionPrepareResponse = {
   ok: boolean;
@@ -432,8 +427,6 @@ export type LiveSessionCleanupMessage = {
   type: "live-session-cleanup";
   /** 被清理的会话 id：清理必须限定到具体会话，避免旧会话清掉接管后的新会话 */
   sessionId: string;
-  /** 会话通道：伴看（缺省）或同传 */
-  channel?: LiveSessionChannel;
 };
 export type LiveSessionCleanupResponse = {
   ok: boolean;
