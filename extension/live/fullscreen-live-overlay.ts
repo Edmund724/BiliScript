@@ -15,7 +15,12 @@ import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveOverlayTranscriptMerger } from "./live-transcript-merger.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import { LIVE_VOICE_SPEED_STEPS, normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
-import { bindViewportDrag, type ViewportDragHandle } from "./viewport-drag.js";
+import {
+  applyViewportOffset,
+  bindViewportDrag,
+  type ViewportDragHandle,
+  type ViewportDragOffset
+} from "./viewport-drag.js";
 
 export type LiveSettingsTarget = "live" | "gemini-key";
 
@@ -87,9 +92,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let restoreMiniAfterFailure = false;
   let lastFailureError: string | undefined;
   let lastFailureKind: LiveFailureKind | undefined;
-  let savedOffset: { right: number; top: number } | null = null;
+  let savedOffset: ViewportDragOffset | null = null;
   let headerDragHandle: ViewportDragHandle | null = null;
   let capsuleDragHandle: ViewportDragHandle | null = null;
+  let hostResizeObserver: ResizeObserver | null = null;
+  let observedHost: HTMLElement | null = null;
+  let mountMutationObserver: MutationObserver | null = null;
+  let mountSyncQueued = false;
+  let disposed = false;
 
   const SCROLL_THRESHOLD = 60;
   let isScrolledToBottom = true;
@@ -111,27 +121,60 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     return document.querySelector<HTMLElement>(".bpx-player-container") || document.body;
   }
 
-  function applyOffset(el: HTMLElement, offset: { right: number; top: number }): void {
+  function applyOffset(el: HTMLElement, offset: ViewportDragOffset, host = getMountHost()): ViewportDragOffset {
+    return applyViewportOffset(el, host, offset);
+  }
+
+  function observeHostResize(host: HTMLElement): void {
+    if (observedHost === host) return;
+    hostResizeObserver?.disconnect();
+    hostResizeObserver = null;
+    observedHost = host;
+    if (typeof ResizeObserver !== "undefined") {
+      hostResizeObserver = new ResizeObserver(scheduleMountSync);
+      hostResizeObserver.observe(host);
+    }
+  }
+
+  function syncMountedHost(): void {
+    if (disposed || !rootEl || typeof document === "undefined") return;
     const host = getMountHost();
-    const hostRect = host.getBoundingClientRect();
-    const rect = el.getBoundingClientRect();
-
-    let clampedRight = Math.max(0, offset.right);
-    let clampedTop = Math.max(0, offset.top);
-
-    if (hostRect.width > 0 && rect.width > 0) {
-      const maxRight = Math.max(0, hostRect.width - rect.width);
-      clampedRight = Math.min(clampedRight, maxRight);
+    if (!rootEl.isConnected && !host.isConnected) {
+      mountMutationObserver?.disconnect();
+      mountMutationObserver = null;
+      hostResizeObserver?.disconnect();
+      hostResizeObserver = null;
+      observedHost = null;
+      return;
     }
-    if (hostRect.height > 0 && rect.height > 0) {
-      const maxTop = Math.max(0, hostRect.height - rect.height);
-      clampedTop = Math.min(clampedTop, maxTop);
-    }
+    observeHostResize(host);
 
-    el.style.right = `${clampedRight}px`;
-    el.style.top = `${clampedTop}px`;
-    el.style.left = "auto";
-    el.style.bottom = "auto";
+    if (rootEl.parentElement !== host) host.appendChild(rootEl);
+    if (miniCapsuleEl && miniCapsuleEl.parentElement !== host) {
+      host.appendChild(miniCapsuleEl);
+    }
+    const positionedEl = isMin ? miniCapsuleEl : rootEl;
+    if (savedOffset && positionedEl) {
+      savedOffset = applyOffset(positionedEl, savedOffset, host);
+    }
+    if (!rootEl.hidden && !rootEl.classList.contains("is-hidden")) {
+      glassLens.sync(rootEl);
+    }
+  }
+
+  function scheduleMountSync(): void {
+    if (disposed || !rootEl || mountSyncQueued) return;
+    mountSyncQueued = true;
+    queueMicrotask(() => {
+      mountSyncQueued = false;
+      syncMountedHost();
+    });
+  }
+
+  function observeMountHost(): void {
+    if (mountMutationObserver || typeof MutationObserver === "undefined") return;
+    mountMutationObserver = new MutationObserver(scheduleMountSync);
+    mountMutationObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   function isVisible(): boolean {
@@ -183,13 +226,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
   function ensureMounted(): HTMLElement {
     const host = getMountHost();
-    if (rootEl && rootEl.isConnected) {
-      if (rootEl.parentElement !== host) {
-        host.appendChild(rootEl);
-      }
-      if (miniCapsuleEl && miniCapsuleEl.parentElement !== host) {
-        host.appendChild(miniCapsuleEl);
-      }
+    if (rootEl) {
+      observeMountHost();
+      syncMountedHost();
       return rootEl;
     }
 
@@ -204,6 +243,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         miniCapsuleMicTextEl = miniCapsuleEl.querySelector(".live-overlay-mini-mic-text");
       }
       bindDomReferences(rootEl);
+      observeMountHost();
+      observeHostResize(host);
       return rootEl;
     }
 
@@ -335,6 +376,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     bindEvents(overlay);
     bindCapsuleEvents(miniCapsule);
     glassLens.observeResize(overlay);
+    observeMountHost();
+    observeHostResize(host);
     return overlay;
   }
 
@@ -903,10 +946,23 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
+  document.addEventListener("fullscreenchange", scheduleMountSync);
+  document.addEventListener("webkitfullscreenchange", scheduleMountSync);
+  window.addEventListener("resize", scheduleMountSync);
+
   function dispose(): void {
+    disposed = true;
     if (interpretNoticeTimer !== null) clearTimeout(interpretNoticeTimer);
     interpretNoticeTimer = null;
     interpretNoticeEl = null;
+    document.removeEventListener("fullscreenchange", scheduleMountSync);
+    document.removeEventListener("webkitfullscreenchange", scheduleMountSync);
+    window.removeEventListener("resize", scheduleMountSync);
+    mountMutationObserver?.disconnect();
+    mountMutationObserver = null;
+    hostResizeObserver?.disconnect();
+    hostResizeObserver = null;
+    observedHost = null;
     headerDragHandle?.dispose();
     headerDragHandle = null;
     capsuleDragHandle?.dispose();
