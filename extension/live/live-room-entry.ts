@@ -16,6 +16,7 @@ import {
 } from "../bilibili/player-control-mount.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
+import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
@@ -40,9 +41,7 @@ const overlayBinding = createLiveOverlayBinding({
   getPlayerHost: findPlayerHost,
   getLiveController: () => controller,
   onOpenLiveSettings: (target) => {
-    void import("./live-room-settings.js")
-      .then((settings) => settings.openLiveRoomSettings(target, findPlayerHost))
-      .catch(() => showNotice("伴看设置加载失败，请重试"));
+    void openRoomSettings(target);
   }
 });
 
@@ -55,6 +54,22 @@ function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): vo
   notice.textContent = message;
   host.appendChild(notice);
   window.setTimeout(() => notice.remove(), autoHideMs);
+}
+
+async function openRoomSettings(target: LiveSettingsTarget): Promise<void> {
+  try {
+    const settings = await import("./live-room-settings.js");
+    await settings.openLiveRoomSettings(target, findPlayerHost);
+  } catch {
+    showNotice("伴看设置加载失败，请重试");
+  }
+}
+
+async function closeRoomSettings(): Promise<void> {
+  try {
+    const settings = await import("./live-room-settings.js");
+    settings.closeLiveRoomSettings();
+  } catch {}
 }
 
 function syncToggleButton(liveState: string): void {
@@ -110,7 +125,7 @@ function handleRoomChange(): void {
   const nextRoomId = parseLiveRoomId();
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
-  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
+  void closeRoomSettings();
   void controller?.stop();
   overlayBinding.clearMessages();
 }
@@ -174,7 +189,7 @@ export function stopLiveRoomCompanion(): void {
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.removeEventListener("navigatesuccess", handleRoomChange);
   window.removeEventListener("popstate", handleRoomChange);
-  void import("./live-room-settings.js").then((settings) => settings.closeLiveRoomSettings());
+  void closeRoomSettings();
   void controller?.stop();
   controller = null;
   toggleButton?.remove();

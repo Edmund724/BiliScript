@@ -4,15 +4,9 @@
 
 import { ids } from "../shared/dom-ids.js";
 import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
+import { getFullscreenHost } from "./fullscreen-host.js";
 
 let dialogEl: HTMLDialogElement | null = null;
-
-function getFullscreenHost(): HTMLElement | null {
-  const fullscreenElement =
-    document.fullscreenElement ||
-    (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
-  return fullscreenElement instanceof HTMLElement ? fullscreenElement : null;
-}
 
 function ensureDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElement {
   if (dialogEl?.isConnected) return dialogEl;

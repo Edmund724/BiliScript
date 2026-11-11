@@ -22,6 +22,7 @@ import {
   type ViewportDragOffset
 } from "./viewport-drag.js";
 import { bindAudioPopover, type AudioPopoverHandle } from "./audio-popover.js";
+import { getFullscreenHost } from "./fullscreen-host.js";
 
 export type LiveSettingsTarget = "live" | "gemini-key";
 
@@ -109,12 +110,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let isScrolledToBottom = true;
 
   function getMountHost(): HTMLElement {
-    const fullscreenElement =
-      document.fullscreenElement ||
-      (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
-    if (fullscreenElement instanceof HTMLElement) {
-      return fullscreenElement;
-    }
+    const fullscreenHost = getFullscreenHost();
+    if (fullscreenHost) return fullscreenHost;
     const playerHost = deps.getPlayerHost();
     if (playerHost) {
       const bpxContainer = playerHost.matches(".bpx-player-container")
@@ -157,6 +154,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (miniCapsuleEl && miniCapsuleEl.parentElement !== host) {
       host.appendChild(miniCapsuleEl);
     }
+    audioPopoverHandle?.syncHost();
     const positionedEl = isMin ? miniCapsuleEl : rootEl;
     if (savedOffset && positionedEl) {
       savedOffset = applyOffset(positionedEl, savedOffset, host);

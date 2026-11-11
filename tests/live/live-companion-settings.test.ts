@@ -27,4 +27,28 @@ describe("视频页伴看设置入口", () => {
       settingsTarget: "gemini-key"
     });
   });
+
+  it("浏览器全屏中先退出全屏，再打开可见的阅读设置", async () => {
+    const fullscreenHost = document.createElement("div");
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: fullscreenHost });
+    const exitFullscreen = vi.fn(async () => {
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+    });
+    Object.defineProperty(document, "exitFullscreen", { configurable: true, value: exitFullscreen });
+    const enterReaderShell = vi.fn(async () => {});
+    vi.doMock("../../extension/reader/lazy-shell.js", () => ({
+      ensureReaderShell: async () => ({ enterReaderShell })
+    }));
+    const session = await import("../../extension/live/live-companion-session.js");
+
+    await session.openLiveCompanionSettings("live");
+
+    expect(exitFullscreen).toHaveBeenCalledTimes(1);
+    expect(enterReaderShell).toHaveBeenCalledWith({
+      readerUrl: "",
+      intent: "open",
+      settingsTarget: "live"
+    });
+    expect(exitFullscreen.mock.invocationCallOrder[0]).toBeLessThan(enterReaderShell.mock.invocationCallOrder[0]);
+  });
 });

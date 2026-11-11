@@ -2,9 +2,10 @@
 // 伴看音频设置弹层：原生 Popover 提供 top layer 与 light dismiss；不支持时
 // 移到当前全屏宿主或 body，以 fixed 定位避开浮窗圆角和播放器 overflow 裁切。
 
+import { getFullscreenHost } from "./fullscreen-host.js";
+
 export interface AudioPopoverHandle {
-  isOpen(): boolean;
-  toggle(): void;
+  syncHost(): void;
   close(restoreFocus?: boolean): void;
   dispose(): void;
 }
@@ -49,11 +50,10 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     }
   }
 
-  function getFullscreenHost(): HTMLElement | null {
-    const fullscreenElement =
-      document.fullscreenElement ||
-      (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
-    return fullscreenElement instanceof HTMLElement ? fullscreenElement : null;
+  function syncFallbackHost(): void {
+    if (!open || nativeOpen) return;
+    const fallbackHost = getFullscreenHost() || (getMountHost().contains(button) ? document.body : getMountHost());
+    if (popover.parentElement !== fallbackHost) fallbackHost.appendChild(popover);
   }
 
   function position(): void {
@@ -118,10 +118,7 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
       } catch {}
     }
     nativeOpen = nativeShown;
-    if (!nativeShown) {
-      const fallbackHost = getFullscreenHost() || (getMountHost().contains(button) ? document.body : getMountHost());
-      if (popover.parentElement !== fallbackHost) fallbackHost.appendChild(popover);
-    }
+    syncFallbackHost();
     position();
   }
 
@@ -163,6 +160,7 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
   }
 
   function onViewportChange(): void {
+    syncFallbackHost();
     position();
   }
 
@@ -175,8 +173,7 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
   document.addEventListener("fullscreenchange", onViewportChange);
 
   return {
-    isOpen: () => open,
-    toggle,
+    syncHost: syncFallbackHost,
     close,
     dispose() {
       disposed = true;

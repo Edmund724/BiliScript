@@ -144,6 +144,9 @@ export function setLiveSessionHooks(hooks: LiveSessionConsumerHooks | null): voi
 }
 
 export async function openLiveCompanionSettings(target: LiveSettingsTarget): Promise<void> {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+  }
   const shell = await ensureReaderShell();
   await shell.enterReaderShell({ readerUrl: "", intent: "open", settingsTarget: target });
 }
