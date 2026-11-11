@@ -48,7 +48,14 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
         onMessage: { addListener: vi.fn() }
       },
       tabs: { onUpdated: { addListener: vi.fn() } },
-      action: { onClicked: { addListener: actionOnClickedAddListener } },
+      action: {
+        onClicked: { addListener: actionOnClickedAddListener },
+        // 工单 04：非支持页点击打徽标/改标题（stub 缺这些 API 时可选链跳过）。
+        setBadgeText: vi.fn(async () => {}),
+        setBadgeBackgroundColor: vi.fn(async () => {}),
+        setTitle: vi.fn(async () => {})
+      },
+      scripting: { executeScript: vi.fn(async () => []) },
       storage: {
         local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
         sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
