@@ -194,6 +194,9 @@
   padding: var(--biliscript-space-8) var(--biliscript-space-lg) var(--biliscript-space-8) var(--biliscript-space-md);
   display: flex;
   align-items: center;
+  /* 本层是宿主网格的直接子项：不给 0 下限，返回键 + 全部分节 tab 的
+   * max-content 会把单列 auto 轨道撑宽，面板随之横向可滚。 */
+  min-width: 0;
   gap: var(--biliscript-space-xs);
   z-index: 10;
   background: linear-gradient(
