@@ -410,7 +410,7 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
     button = document.createElement("button");
     button.id = "biliscript-player-interpret-quick-action";
     button.type = "button";
-    button.className = "biliscript-player-interpret-quick-action";
+    button.className = "bpx-player-ctrl-subtitle-result biliscript-player-interpret-quick-action";
     button.textContent = "字幕";
     button.title = "开启实时翻译";
     button.setAttribute("aria-label", "开启实时翻译");
