@@ -88,16 +88,19 @@ export function buildUiHtml(): string {
             <p id="${ids.readingStatus}" class="biliscript-reading-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
-              <div class="biliscript-reading-settings-subpage-header">
-                <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-settings-back-btn">← 返回</button>
-              </div>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
                    由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
                    页面本体已删除。顶部滚动/字幕/章节三开关已随三开关退役移除；
                    三开关退役时移入字幕 tab 工具条的字幕语言下拉也已删除
                    （2026-10 用户决议）。 -->
               <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
-                <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host"></div>
+                <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">
+                  <div class="biliscript-settings-nav-bar">
+                    <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-settings-back-btn" title="返回" aria-label="返回">
+                      ${READING_HEADER_ICONS.back}
+                    </button>
+                  </div>
+                </div>
               </section>
             </section>
 
@@ -361,6 +364,14 @@ export function bindUiEvents(): void {
   readingSettingsBackBtn.addEventListener("click", (event) => {
     if (consumeOverlayClick(event)) return;
     closeReaderSettingsMode();
+  });
+  readingView.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const backBtn = target?.closest<HTMLButtonElement>(`#${ids.readingSettingsBackBtn}`);
+    if (backBtn && backBtn !== readingSettingsBackBtn) {
+      if (consumeOverlayClick(event)) return;
+      closeReaderSettingsMode();
+    }
   });
   readingSettingsToggleBtn.addEventListener("click", (event) => {
     event.stopPropagation();

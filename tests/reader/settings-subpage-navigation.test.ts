@@ -84,13 +84,15 @@ afterEach(() => {
 });
 
 describe("设置子页导航", () => {
-  it("保留全局顶栏，设置内容使用独立返回行并投影齿轮与灰化状态", () => {
+  it("保留全局顶栏，设置内容包含返回图标按钮并投影齿轮与灰化状态", () => {
     const header = document.querySelector<HTMLElement>(".biliscript-reading-header")!;
     const back = element(ids.readingSettingsBackBtn);
     expect(header.querySelectorAll(".biliscript-reading-actions > button")).toHaveLength(3);
     expect(back.closest(".biliscript-reading-header")).toBeNull();
     expect(back.closest(".biliscript-reading-actions")).toBeNull();
-    expect(back.textContent).toBe("← 返回");
+    expect(back.getAttribute("aria-label")).toBe("返回");
+    expect(back.querySelector("svg")).not.toBeNull();
+    expect(back.textContent?.trim()).toBe("");
 
     openFromGear();
 

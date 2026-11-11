@@ -157,26 +157,8 @@
   opacity: 0.65;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-subpage-header {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  margin-bottom: var(--biliscript-space-sm);
-}
-
 #biliscript-reading-view .biliscript-reading-settings-back-btn {
-  min-height: 32px;
-  padding: 0 var(--biliscript-space-10) 0 0;
-  border: 0;
-  background: transparent;
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: var(--biliscript-font-size-base);
-  cursor: pointer;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-back-btn:hover {
-  color: var(--biliscript-reader-accent);
+  flex: 0 0 auto;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-back-btn:focus-visible {
@@ -204,19 +186,15 @@
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部快速跳转导航条（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化） */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+/* 设置抽屉顶部快速跳转导航条（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化；包含返回按钮与分节导航） */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar {
   position: sticky;
   top: -12px;
   margin: calc(-1 * var(--biliscript-space-md)) calc(-1 * var(--biliscript-space-lg)) 0 calc(-1 * var(--biliscript-space-lg));
-  padding: var(--biliscript-space-10) var(--biliscript-space-lg) var(--biliscript-space-10);
+  padding: var(--biliscript-space-8) var(--biliscript-space-lg) var(--biliscript-space-8) var(--biliscript-space-md);
   display: flex;
   align-items: center;
-  gap: var(--biliscript-space-lg);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  gap: var(--biliscript-space-xs);
   z-index: 10;
   background: linear-gradient(
     to bottom,
@@ -228,6 +206,20 @@
   backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px));
   border-radius: 0;
   border-bottom: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--biliscript-space-lg);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
@@ -263,7 +255,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
   position: absolute;
-  bottom: 10px;
+  bottom: 0;
   left: 0;
   height: 2.5px;
   border-radius: var(--biliscript-radius-pill);
@@ -281,6 +273,7 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar,
   #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
     background: var(--biliscript-reader-surface);
     -webkit-backdrop-filter: none;

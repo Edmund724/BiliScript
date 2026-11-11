@@ -35,7 +35,7 @@ import {
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
-import { openReaderSettingsMode } from "../reader/settings-mode.js";
+import { closeReaderSettingsMode, openReaderSettingsMode } from "../reader/settings-mode.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
@@ -127,6 +127,7 @@ function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>
     host.querySelector(`#${id}`) as T;
   return {
+    backBtn: byIdIn<HTMLButtonElement>(dom.readingSettingsBackBtn),
     settingsNav: byIdIn<HTMLElement>(dom.settingsNav),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
@@ -470,9 +471,13 @@ export function renderReaderSettingsPanel(): void {
       if (!host.isConnected || host.dataset.biliscriptSettingsRendered) {
         return;
       }
+      const shouldRestoreBackFocus = document.activeElement?.id === ids.readingSettingsBackBtn;
       host.innerHTML = buildSettingsHtml();
       applySectionContainment(host);
       bindSettingsEvents(host);
+      if (shouldRestoreBackFocus) {
+        document.getElementById(ids.readingSettingsBackBtn)?.focus({ preventScroll: true });
+      }
       host.dataset.biliscriptSettingsRendered = "1";
       void loadSettings(collectElements(host));
       const pendingTarget = pendingLiveSettingsTarget;
@@ -1579,6 +1584,10 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
   const navSync = bindSettingsNav(host);
+
+  elements.backBtn?.addEventListener("click", () => {
+    closeReaderSettingsMode();
+  });
 
   for (const binding of SCALAR_FIELD_BINDINGS) {
     bindScalarFieldEvents(binding, elements, navSync);
