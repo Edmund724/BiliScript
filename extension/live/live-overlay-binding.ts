@@ -71,7 +71,7 @@ export function syncPlayerInterpretQuickActionState(
     ? "正在连接实时翻译..."
     : interpretState === "connected"
       ? "关闭实时翻译"
-      : "开启实时翻译";
+      : "字幕";
   button.title = unavailable && !availability.ok ? availability.error : label;
   button.setAttribute("aria-label", label);
 }

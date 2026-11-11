@@ -34,9 +34,14 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(button.getAttribute("aria-description")).toBe(availability.error);
     expect(button.title).toBe(availability.error);
-    expect(button.getAttribute("aria-label")).toBe("开启实时翻译");
+    expect(button.getAttribute("aria-label")).toBe("字幕");
 
     availability = { ok: true } as any;
+    interpretState = "idle";
+    syncPlayerInterpretQuickActionState(controller, true);
+    expect(button.title).toBe("字幕");
+    expect(button.getAttribute("aria-label")).toBe("字幕");
+
     interpretState = "connecting";
     syncPlayerInterpretQuickActionState(controller, true);
     expect(button.getAttribute("aria-disabled")).toBe("false");

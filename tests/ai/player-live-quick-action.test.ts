@@ -167,6 +167,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");
     expect(interpretButton?.textContent).toBe("字幕");
+    expect(interpretButton?.title).toBe("字幕");
+    expect(interpretButton?.getAttribute("aria-label")).toBe("字幕");
 
     stopPlayerAiQuickAction();
     expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();
