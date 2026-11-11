@@ -157,26 +157,26 @@ flowchart TD
   * **跨族「凭据引用」折返跑**：当用户想配置 `Gemini Live`（实时伴看）或 `DeepSeek`（联网搜索）时，点开编辑弹窗会发现**没有 API Key 输入框**，只有一句说明要求“复用已启用的官方 Gemini / DeepSeek AI 模型平台（且请求地址必须精确匹配官方域名）”。如果用户还没配 AI 平台，或者 AI 平台填的是第三方中转地址，就会在此处卡住，被迫关掉弹窗去另一个列表折返配置。
 
 #### UF-03 【中危】播放器「AI 分析」快捷按钮带有隐式破坏性副作用（强制新建会话）
-* **代码位置**：[`player-ai.ts`](file:///d:/src/BiliScript/extension/ai/player-ai.ts#L140-L154)、[`content.ts`](file:///d:/src/BiliScript/extension/entry/content.ts#L1035-L1054)、[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L868-L885)
+* **代码位置**：[`player-ai.ts`](file:///d:/src/BiliScript/extension/ai/player-ai.ts#L707-L744)、[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts#L221-L289)、[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L896-L912)
 * **断点机制**：
   * 用户在视频页有多个看似相近的入口：视频下方粉色「文摘」按钮、浏览器扩展图标、播放器内「AI 分析」按钮。
-  * 点击前两者仅打开/聚焦文摘面板并停留在上次激活的 Tab；而点击播放器内的「AI 分析」按钮会调用 `runQuickActionPrompt`，**无条件执行 `await startNewConversation()`** 并立即发送默认提示词。
-  * 如果用户正在 `AI 对话` 中进行了一半的多轮探讨（甚至文摘面板本来就是打开的），不小心点了一下播放器上的「AI 分析」按钮，当前对话视图会被立即清空重置为新会话，原会话虽存入历史但没有任何确认提示，打断感极强。
+  * 点击前两者仅打开/聚焦文摘面板并停留在上次激活的 Tab；而点击播放器内的「AI 分析」按钮会调用 `runQuickActionPrompt`，**无条件执行 `await startNewConversation()`** 并尝试自动发送默认提示词（发送仍可能等待或被发送闸拦截）。
+  * 如果用户正在 `AI 对话` 中进行了一半的多轮探讨（甚至文摘面板本来就是打开的），不小心点了一下播放器上的「AI 分析」按钮，当前对话视图会被立即清空重置为新会话；在途回合会被直接断流，当前视图与部分内容无法原地保留，也没有任何确认提示。
 
 #### UF-04 【中危】关闭文摘面板即强制中断流式生成与视频页实时伴看
-* **代码位置**：[`content.ts`](file:///d:/src/BiliScript/extension/entry/content.ts#L655-L685)、[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L887-L905)
+* **代码位置**：[`lifecycle.ts`](file:///d:/src/BiliScript/extension/reader/lifecycle.ts#L493-L543)、[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts#L860-L889)
 * **断点机制**：
-  * 用户点击文摘面板右上角 `×`（或再次点击扩展图标收起面板）以恢复宽屏观看视频时，`exitReaderShell` 会调用 `closeReadingView()` → `chat.closeChatSession()`：
+  * 用户点击文摘面板右上角 `×` 以恢复宽屏观看视频时，`exitReaderShell` 会调用 `closeReadingView()` → `chat.closeChatSession()`：
     1. 正在生成的 AI 回复流被立即 `abort` 丢弃；
     2. 正在排队等待字幕的「发送闸」意图被直接清空；
     3. 视频页正在运行中的「实时伴看」（`liveController?.dispose()`）被直接挂断销毁！
   * 对比之下，开启实时伴看时并不强制要求打开文摘面板，但**一旦打开过文摘面板再将其关闭，就会顺带杀死播放器里的实时伴看**，前后生命周期逻辑自相矛盾。
 
 #### UF-05 【低危】非视频/非直播 B 站页面点击扩展图标“静默无响应”
-* **代码位置**：[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts#L168-L176)
+* **代码位置**：[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts#L632-L643)
 * **断点机制**：
-  * 当用户在 B 站首页（`www.bilibili.com`）、搜索结果页、UP 主空间或番剧页（`bilibili.com/bangumi/play/*`）点击浏览器工具栏上的 BiliScript 图标时，`if (!tabId || !isSupportedBilibiliPage(tab.url)) return;` 直接静默返回。
-  * 用户既打不开设置面板预先配置 API Key，也得不到任何“请在 B 站普通视频页或直播间使用”的轻量反馈，容易误以为扩展崩溃或安装失败。
+  * 当用户在 B 站首页（`www.bilibili.com`）、搜索结果页、UP 主空间或番剧页（`www.bilibili.com/bangumi/play/*`）点击浏览器工具栏上的 BiliScript 图标时，`if (!tabId || !isSupportedBilibiliPage(tab.url)) return;` 直接静默返回。
+  * 用户既打不开设置面板预先配置 API Key，也得不到任何“请在 B 站普通视频页或稍后再看页面使用”的轻量反馈，容易误以为扩展崩溃或安装失败。
 
 ---
 
@@ -192,7 +192,7 @@ flowchart TD
 | **P1** | **Session 4：模块 M5（AI 对话高频交互、模型面板与工具反馈）** | **IA-03**（新建/历史会话藏匿于更多菜单）<br/>**IA-04**（排版与音频设置散落 3 处） | - [ ] **提升高频会话操作可见性**：重新审视 `开启新会话` 与 `历史对话` 的层级位置，将其与低频排版滑块解耦<br/>- [ ] **优化「历史对话」整页接管体验**：解决打开历史记录后顶栏触发按钮消失、进出动画与返回心智割裂问题<br/>- [ ] **归拢排版与音频偏好设置**：梳理设置抽屉「外观与布局」与对话内快捷调节的职责边界<br/>- [ ] **走查「发送闸」、模型与思考强度面板、联网搜索首次授权卡（Opt-in）与历史视频帧工具状态反馈** | [`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts)<br/>[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts)<br/>[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts)<br/>[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts) |
 | **P2** | **Session 5：模块 M3 & M4（字幕精读、双语选轨、即席解释与概览金句）** | 跨 Tab「待解释意图」移交体验、双语选轨六态心智、概览分段失败重试体验 | - [ ] **走查主副双语选轨专用弹层**：验证单轨/多轨/双语开启/无副轨六种状态下的选项禁用与文案引导清晰度<br/>- [ ] **走查无字幕 ASR 语音转写横幅全状态机**：未配置/待转写/自动转写/转写中取消/失败重试的视觉反馈<br/>- [ ] **走查划词「解释」→ 解释卡 →「去对话追问」跨 Tab 移交**：验证从 `字幕` 切至 `AI 对话` 时的上下文衔接感与回退路径（想要回到刚才读到的字幕行是否顺畅）<br/>- [ ] **走查概览三源分章、分段部分失败重试与金句分享卡片 Modal** | [`subtitle-tab-ui.ts`](file:///d:/src/BiliScript/extension/reader/subtitle-tab-ui.ts)<br/>[`transcribe-banner.ts`](file:///d:/src/BiliScript/extension/reader/transcribe-banner.ts)<br/>[`explain-card.ts`](file:///d:/src/BiliScript/extension/reader/explain-card.ts)<br/>[`overview-ui.ts`](file:///d:/src/BiliScript/extension/reader/overview-ui.ts)<br/>[`quote-share-modal.ts`](file:///d:/src/BiliScript/extension/reader/quote-share-modal.ts) |
 
-Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。
+Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。
 
 
 ---
@@ -471,3 +471,171 @@ flowchart LR
 3. **切 P / 切视频**：保留 Live 传输与麦克风，只销毁旧内容轮次和委派任务，再发送新上下文。
 4. **首次启动呈现**：首次展开播放器内连接卡，之后记住用户的迷你态选择；需要处理的 failure 始终展开，不做四秒自动消失。
 5. **伴看文本模型记录**：面板打开时可见，不主动呼出面板；历史使用独立「伴看记录」条目，只保存文本模型调用，不保存语音转写。
+
+---
+
+## 六、Session 2 深度走查方案：壳层导航与唤起一致性（已裁定）
+
+> 范围：IA-01、UF-03、UF-05，以及贴栏/浮层、宽度与状态条职责。本节只记录代码复核结论和待实施交互方案，不代表业务代码已经修改。
+
+### 6.1 代码复核后的事实校正
+
+- 设置状态只有 `readingSettingsExpanded` 布尔位；`renderReaderPanels()` 只切换抽屉 `hidden` 与齿轮 `.is-active`，没有设置态顶栏投影、Esc 处理或焦点管理（`extension/reader/view-render.ts:109-123`）。
+- 当前外点判定是“不在设置抽屉或齿轮内”，因此点击面板顶栏、全局状态条等面板内区域也会退出设置；并非只有点击 B 站空白处才退出（`extension/ui/ui-renderer.ts:354-370`）。
+- 扩展图标是幂等打开/聚焦，不会在面板已打开时再次点击收起；页内「文摘」按钮在面板打开后会被摘除，也不是开合开关（`extension/entry/background.ts:632-643`、`extension/ui/script-button.ts:147-157`）。
+- 播放器「AI 分析」即使面板已经打开，也仍会经 `runQuickActionPrompt()` 无条件执行 `startNewConversation()`；若设置抽屉正开着，激活对话 Tab 后设置层仍然覆盖内容，拆除会话与发送却可继续发生（`extension/reader/chat-tab.ts:896-912`、`extension/reader/shell.ts:274-285`）。
+- 当前没有面板拖拽调宽手柄或 pointer 调宽实现。实际宽度入口只有「设置 → 外观与布局 → 文摘面板宽度」400–650px 滑杆；不能把“修复拖拽边界”写成既有功能回归（`extension/ui/settings-panel-html.ts:295-311`）。
+- 非视频/非直播的 `www.bilibili.com` 页面没有常驻 content script；但 manifest 已有该源 host 权限与 `scripting` 权限，因此无需新增权限即可在扩展图标点击后注入一次性可见反馈（`extension/manifest.json:8-20,50-67`）。
+
+### 6.2 IA-01：设置成为可退出的内容模式，保留稳定壳层顶栏
+
+#### 灰化顶栏与设置内返回
+
+设置只接管内容区，不替换整个面板顶栏。设置态保留顶栏原有按钮与顺序，并将整行轻微灰化，与下方设置内容形成层级；「← 返回」位于设置内容自己的左上角，不与右上角三个全局按钮同一行：
+
+```text
+常规态：UP主 / 分P                         主题  设置  × 关闭文摘面板
+设置态：UP主 / 分P                         主题  设置  × 关闭文摘面板   （整行轻微灰化）
+设置内容：← 返回
+          设置分区与表单项
+```
+
+- 设置内的「← 返回」只退出设置，回到进入前的 Tab。它是设置内容的局部导航，不再冒充整个文摘面板的返回键。
+- 设置态保留主题、齿轮与全局面板 `×`。齿轮增加 `aria-expanded` 与 `aria-controls` 并保持激活态；再次点击齿轮只退出设置。全局 `×` 仍关闭整个文摘面板，不增加确认框。
+- 点击灰化顶栏的非按钮区域也退出设置，让整行成为模式退出的可见 affordance。主题和 `×` 等实际按钮必须保留各自行为并阻止事件穿透到背景，不能因顶栏点击规则被改成只关闭设置。
+- 灰化只负责视觉分层，不能成为唯一状态提示；齿轮激活态、设置内容标题和内部返回键共同表达当前模式。
+- 打开后焦点到设置内「返回」；从错误卡深链进入时，例外地聚焦目标分区标题。通过返回键、齿轮、顶栏背景或 Esc 关闭后，焦点回本次打开的来源控件，失效则回落到原活动 Tab；宿主页外点关闭时不抢回焦点，避免覆盖用户刚点击的宿主页目标。焦点写入只发生在 open/close 动作，不放进会被其他渲染重复触发的 `renderReaderPanels()`。
+
+#### 返回锚点与状态保持
+
+- 进入设置不修改 `readingActiveScriptTab`；退出设置只关闭覆盖层，不重新调用 Tab 激活，不写一次新的 Tab 偏好，也不重新触发概览生成或对话恢复。
+- 三个 Tab 的 DOM 与滚动位置保持原样；返回后恢复进入前的 Tab、字幕/概览/对话滚动位置和输入草稿。设置抽屉自身的滚动位置在同一面板生命周期内也保留，深链定位仍可显式覆盖。
+- 设置分区锚点仍由现有吸顶导航负责；深链 `live` / `gemini-key` 先完成设置渲染再定位，不让“返回”与分区导航互相覆盖。
+- 任一内容 Tab 的程序化激活都意味着离开设置层。该不变式收在 Tab 激活属主，避免播放器 AI 入口在设置层后面不可见地发送。
+
+#### Esc、外点与叠层的统一规则
+
+| 输入 | 无更上层弹窗 | 有平台编辑器 / 拉取模型 / 确认框 |
+| --- | --- | --- |
+| 设置内「← 返回」、灰化顶栏非按钮区域或再次点击齿轮 | 只退出设置 | 不应绕过最上层；先按最上层自身规则结算 |
+| `Esc` | 只退出设置，保留文摘面板 | 一次只处理最上层；设置层不得同时收到本次 Esc |
+| 点击 `#biliscript-reading-view` 之外的宿主页 | 只退出设置，不关闭文摘面板 | 由最上层 capture 拦截并结算，设置层不外点关闭 |
+| 点击全局状态条或设置内容空白 | 不自动退出 | 不穿透弹窗 |
+| 顶栏主题键或全局 `×` | 分别执行切换主题或关闭整个文摘面板 | 不穿透弹窗 |
+
+层级优先级固定为“确认框 → 拉取模型 → 平台编辑器 → 自定义下拉/其他弹层 → 设置抽屉”。设置层的 Esc 监听只在 `readingSettingsExpanded` 时工作，先检查 `event.defaultPrevented`，并对已打开编辑器/确认框让位；实际退出时停止继续冒泡。现有自定义下拉处理 Esc 后只 `preventDefault()`、不停止冒泡，必须补上事件边界，否则会同时收起下拉和设置。保留 Modal 的 dirty 草稿确认，不因一次外点或 Esc 同时拆掉设置和编辑器。外点关闭不调用 `preventDefault()`，宿主页原有的播放、链接等点击行为不被扩展拦截。
+
+### 6.3 UF-03：五类入口各有明确意图，只有快捷动作会发送
+
+| 入口 | 当前行为 | 目标行为与防误触 |
+| --- | --- | --- |
+| 浏览器扩展图标 | 支持页注入/重试后发 `reader-enter`；恢复上次 Tab；重复点击不收起 | 保持幂等打开/聚焦，不新建会话、不发送；非支持 B 站页走 6.4 的可见反馈 |
+| 页内粉色「文摘」 | 面板关闭时可见；与图标共用打开事务；恢复上次 Tab | 保持“阅读字幕与文摘”的纯打开语义，不改 URL 以外的会话状态 |
+| 播放器「AI 分析」 | 强制进 AI 对话、强制新会话并发送；设置层可能仍覆盖对话 | 表达“用预设问题向当前视频提问”；先退出设置并进入对话，再按下表三态处理 |
+| `autoOpenReader` | 设置加载后自动打开；仅普通视频页，排除稍后再看与收藏/合集来源；不写阅读 URL 参数 | 保持非破坏、非发送；恢复上次 Tab，不与用户手动关闭争抢同一导航事务 |
+| `?biliscript_reader=1` | 支持页首载或 SPA 导航进入；恢复上次 Tab；关闭时移除参数 | 保持纯打开语义；不支持页面的该参数不伪造可用能力，也不自动跳转 |
+
+#### 「AI 分析」三态策略
+
+| 对话状态 | 点击后的行为 | 明确禁止 |
+| --- | --- | --- |
+| 空会话 / 首开：当前无有效会话消息且无在途回合 | 直接在当前空会话发送预设提示词，由既有发送闸读取/等待当前视频上下文；无需先做一次空的新会话拆除 | 重复初始化、重复发送 |
+| 已有当前视频的进行中对话，且不在在途回合 | **复用当前会话并直接发送**，用户消息与回答原位追加；不弹确认，因为该动作不再拆除会话 | `startNewConversation()`、清输入草稿/附件、切断既有上下文 |
+| 正在流式生成或回合仍在受理/发送闸窗口 | 只退出设置、定位 AI 对话并显示“当前回答仍在生成，完成后可再次点击 AI 分析。”；保留当前草稿 | 新建会话、停流、并发发送、覆盖输入框、默认排队到流结束后自动发送 |
+
+- 所有状态都在 `await activateScriptTab()` 完成初始化/恢复之后、真正发送之前判定；不能先 `startNewConversation()` 再检查状态。
+- 忙态判据使用覆盖受理窗口与流段的 `isTurnActive()`，不能只用较窄的 `isStreaming()`；否则发送闸或受理窗口仍可能被快捷动作穿过。
+- 若输入框已有草稿或图片附件，即使当前回合空闲也只定位并提示，不调用会覆盖输入内容的快捷发送；这是三态之外的输入保护守卫，不新增第四种任务状态。
+- 不在忙态自动排队：延迟扣费、迟到发送和用户忘记排队意图的代价高于再次点击。历史切换已有 `settleTurn()` 的主动停流语义，不应被复用为播放器按钮的隐式行为。关闭/换片后也不得复活被忽略的快捷意图。
+- 快捷动作在 chat 域增加单飞守卫，覆盖“进入事务 → Tab 激活 → 发送受理”的完整区间；现有播放器按钮的 `submitting` 只维持到 background 即答，不足以挡住其后的连点。
+- 成功反馈不能继续无条件写“已发送”。播放器侧只承诺“已定位 AI 对话”，实际发送结果由对话区呈现；忙态、无平台、无字幕或发送闸拦截都不得显示成功文案。
+
+### 6.4 UF-05：非支持页采用“tab 徽标保底 + `www` 页内说明”，不新开设置体系
+
+扩展图标点击后，所有无法打开文摘面板的当前标签页都设置 tab 级 action 徽标 `!`，标题改为「当前页不能打开文摘；请在 B 站视频或稍后再看页使用」，使首页、搜索、空间、番剧、直播及外部页面都至少有立即可见且不依赖页面 DOM 的反馈。标签页开始导航、或之后在支持页点击图标时，清徽标并恢复默认标题，无需定时器或 alarms。
+
+对现有 host 权限覆盖的 `www.bilibili.com` 非支持页，再经 `chrome.scripting.executeScript()` 注入一个顶部居中的轻量 `role="status"` 提示，让首页与番剧页无需悬停也能直接读到原因：
+
+> BiliScript 暂不支持此页面，请打开普通视频或稍后再看页面后再使用。
+
+- 提示停留约 6 秒，可重复点击重新显示；不自动导航、不引入 Popup、Options 页或 `notifications` 权限。
+- `search.bilibili.com`、`space.bilibili.com` 等不在现有 host 权限内，只使用徽标与标题，不为 toast 扩大站点权限。直播间的实际入口仍按 Session 1 的独立方案处理，本处文案不声称直播页能打开文摘面板。
+- `www` 注入失败时保留徽标与标题并记日志，不升级为系统通知；徽标是统一保底，不依赖 toast 成功。
+- 本 Session 只补“当前页为何没有打开”的反馈，不把扩展图标改造成跨站点能力管理入口。
+
+### 6.5 壳层自适应、宽度与状态条职责
+
+#### 贴栏 / 浮层与宽度边界
+
+- 代码没有名为 `docked` 的 DOM 状态：贴栏态是 `data-biliscript-script-float` 缺席，浮层态是该属性为 `1`。定位链保持“有效右栏锚点 → 播放器右缘可挤出至少 300px → 居中浮层”，宽屏阈值目前为 1000px（`extension/reader/script-host.ts:327-449`）。
+- 当前只有右栏锚点命中的贴栏分支消费 400–650px 自定义宽度；播放器右侧降级直接占满剩余宽度，浮层固定为 `min(760px, 100vw - 32px)`、高度 `min(76vh, 860px)`。因此后两种形态移动滑杆只有重排、没有宽度变化，属于确定缺陷（`extension/reader/script-host.ts:339-396`、`extension/entry/styles/reader-gate.css:100-116`）。
+- 目标口径是“用户主动改过宽度后，三种形态都尊重该偏好，但不改变未自定义时的默认几何”：贴栏使用 400–650px；播放器降级取 `min(自定义宽度, 可用宽度)`，可用宽度不足 300px 仍降浮层；浮层取 `min(自定义宽度, 100vw - 32px)`。未自定义时继续保持贴栏 540px、播放器占剩余空间、浮层 760px 上限。
+- 复用现有但未被定位器消费的 `customPanelWidthEnabled` 作为“用户已自定义”的内部标记：用户提交滑杆时置 true，恢复默认时置 false；不增加可见开关，也不要求存量数据迁移。这样可区分默认值与显式选择，避免浮层默认宽度被顺手改掉。
+- 本 Session 的 P0 不新增拖拽手柄。若后续立项，需单独定义贴栏左缘命中区、键盘等价操作、pointer capture/cancel、视口 clamp、松手持久化及浮层是否可调；不能只在 CSS 上加 `resize`。
+- 真机重点观察：1000px 阈值两侧、650px 最宽贴栏、窄窗浮层、设置态与常规态切换、全屏隐藏后恢复，以及 B 站右栏被替换后的 2 秒重锚；jsdom 几何通过不能替代这些场景。
+
+#### 全局状态条与 Tab 内嵌提示
+
+| 信息类型 | 唯一主宿主 | 规则 |
+| --- | --- | --- |
+| 壳层进入/退出、注入与跨入口定位结果 | `#biliscript-reading-status` | 设置打开时仍可承接真正壳层级错误；不重复 Tab 内已有进度 |
+| 字幕抓取、无字幕、ASR 进度/取消/失败 | 字幕空态与转写横幅 | 不上浮为全局重复行；复制字幕的短暂成功反馈沿用现有全局状态行约定 |
+| 概览生成、分段部分失败与重试 | 概览 Tab 内状态区 | 在设置或其他 Tab 打开时不把任务进度写进全局行 |
+| 对话发送闸、流式、工具调用与快捷动作忙态 | AI 对话 Tab 内对应区域 | 错误与下一步靠近对话；不得只写隐藏面板或全局行 |
+| 设置保存、校验、平台测试与权限结果 | 设置内 `.biliscript-set-status` 或编辑器状态区 | 不与全局状态条双写 |
+
+本 Session 不重写所有历史 writer，也不继续扩大正则文案分类。新增快捷动作忙态直接落对话区；非支持页反馈落 action 徽标与 `www` 宿主页 toast，不再借用一个不存在的 `#biliscript-reading-status`。状态行补 `role="status"` / `aria-live="polite"` 与长文案可读性即可，暂不改变既有复制反馈归属。
+
+### 6.6 可执行代码改动清单（获批后实施）
+
+#### 第一批：设置模式与逐层退出
+
+- `extension/shared/dom-ids.ts`、`extension/ui/ui-renderer.ts`：登记设置内返回键；集中实现 open/close、齿轮切换与 aria、灰化顶栏背景点击、焦点恢复、Esc 与真正的面板外点判定；注册 `close-settings` 壳命令。顶栏背景点击必须排除实际按钮，设置退出不得触发全局 `exitReaderShell()`。
+- `extension/reader/view-render.ts`：以 `readingSettingsExpanded` 为唯一状态源，一次投影抽屉、顶栏灰化与齿轮激活态、Tab 区及 aria/hidden；保留顶栏按钮，不在多个点击回调里分散写 DOM，也不在此写焦点。
+- `extension/reader/script-tab-activation.ts`：内容 Tab 激活前先请求关闭设置层，再执行既有状态位、持久化、投影与二级激活队列；返回设置前的 Tab 不经过此入口。
+- `extension/ui/settings-panel-html.ts`：在设置内容内部左上角增加独立「← 返回」行，保留吸顶分区导航，并为深链目标标题提供可编程焦点锚点；返回键不进入全局顶栏。
+- `extension/ui/settings-panel.ts`：深链滚动完成后聚焦目标标题；保存/校验状态仍留设置本地，不接管壳层返回。
+- `extension/ui/custom-select.ts`：下拉已消费 Esc 时停止冒泡，与设置层只退一层的规则对齐。
+- `extension/entry/styles/reader.css`、`reader-settings-shell.css`：补设置态顶栏灰化、背景点击 affordance、设置内返回行、焦点与窄容器适配；保留现有网格交接和减少动态规则。
+- `extension/reader/lifecycle.ts`：关闭整个面板时仍复位设置态；普通返回设置不得调用这里的面板销毁链。
+
+#### 第二批：快捷动作去破坏与防连点
+
+- `extension/reader/chat-tab.ts`：把 `runQuickActionPrompt()` 改为在激活/恢复后判定空会话、既有空闲会话、在途回合；空闲时直接发送，不再无条件 `startNewConversation()`；忙态或已有草稿/附件时只定位并提示；加入覆盖完整操作的单飞守卫。
+- `extension/reader/shell.ts`：保持进入事务串行，不再为快捷动作另造 Tab 写手；chat 档经既有激活属主满足“先离开设置”的不变式。
+- `extension/ai/player-ai.ts`：保留现有按钮点击锁，但把成功文案收窄为定位结果；不得把 background 的“命令已受理”当成“消息已发送”。
+- `extension/entry/background.ts`：快捷提示词解析与 `player-ai-quick-action` 路由保持不变，不在 SW 猜测 content 侧的会话/流式状态。
+
+#### 第三批：非支持页图标反馈
+
+- 新增窄模块 `extension/entry/action-feedback.ts`：封装 tab 级徽标/标题、导航或成功打开后的复位，以及 `www` 页一次性 toast；toast 使用 `textContent`，不新增依赖或权限。
+- `extension/entry/background.ts`：将不支持分支的静默 `return` 改为徽标保底，并仅对 `www.bilibili.com` 尝试页内说明；支持页先清反馈再走原 `triggerReaderModeInTab()`，非 `www` 页面不注入。
+- `extension/chrome-types.d.ts`：如现有 action 类型未覆盖 `setBadgeText` / `setBadgeBackgroundColor` / `setTitle`，补齐最小声明。
+- `extension/manifest.json`：无需改动；现有 `tabs`、`scripting` 与 `https://www.bilibili.com/*` 已覆盖方案。
+
+#### 第四批：状态与几何边界
+
+- `extension/ui/ui-renderer.ts`：全局状态行补状态语义与长文案无障碍名称；不把所有 Tab writer 迁入全局。
+- `extension/ui/settings-panel.ts`：用户提交宽度滑杆时同步写 `customPanelWidthEnabled: true`，恢复默认沿用现有 false 载荷；不新增可见开关。
+- `extension/reader/script-host.ts`：仅在已自定义时把目标宽度应用到播放器降级，并保留 300px 可用宽下限；未自定义几何不变。
+- `extension/entry/styles/reader-gate.css`：仅在已自定义时让浮层消费目标宽度并受 `100vw - 32px` 上限约束；未自定义仍使用 760px 上限。P0 不新增拖拽。
+
+### 6.7 验收清单
+
+- 更新 `tests/reader/settings.test.ts` / 壳层投影测试：设置态顶栏保留主题、齿轮和全局面板关闭键并呈现灰化层，设置内部左上角显示返回键；返回、再次点击齿轮、灰化顶栏背景、Esc、面板外点击均恢复原 Tab 与焦点；主题与全局 `×` 保持各自行为且不触发背景退出，状态条空白不误退，宿主页外点不抢焦点。
+- 更新 `tests/ui/custom-select-search.test.ts` 与普通下拉用例，以及编辑器/确认框叠层测试：Esc 只关下拉；编辑器、拉取模型、dirty 确认框存在时，一次 Esc/外点只结算最上层，设置与面板不同时关闭。
+- 更新 `tests/reader/chat-tab.test.ts`、`tests/entry/quick-action-tab-race.bug.test.ts`：空会话直接发送一次；既有空闲会话保留 id/历史并续发；流式与发送闸等待中不新建、不停流、不发送、不排队；已有草稿/图片不覆盖；设置打开时先退出设置；连点不重复发送，关闭/换片后旧意图不复活。
+- 更新 `tests/entry/toolbar-action-script.test.ts` / background 编排测试：支持页行为不变且清反馈；不支持页均有徽标/标题；`www` 首页与番剧尝试 toast，搜索/空间等源不注入；API 失败不静默，导航后无残留。
+- 更新 `tests/reader/script-host.test.ts`、`tests/ui/custom-panel-width.test.ts`：锁定 999/1000px、300px 播放器降级下限、400/650px 边界、贴栏↔浮层双向切换；分别验证未自定义默认几何与自定义后三形态生效，不把不存在的拖拽写成通过项。
+- 真机运行 `pnpm harness:browser`，至少覆盖：设置深链后 Esc/外点返回、灰化顶栏与按钮事件边界、流式中点 AI 分析、设置中点 AI 分析、连点、1000px 阈值与最宽面板、全屏往返，以及各 Tab 提示不串位。浏览器工具栏图标的首页/搜索/空间/番剧点击需有头人工验收，不能用页面 CDP 场景假装覆盖。
+
+### 6.8 已裁定的产品决策
+
+1. 设置只接管内容区；全局顶栏保留主题、齿轮和关闭面板按钮并轻微灰化，「← 返回」位于设置内容左上角，不与全局按钮同一行。
+2. 设置内返回、再次点击齿轮、点击灰化顶栏非按钮区域、`Esc` 与面板外点击均只退出设置；主题与全局 `×` 保留各自行为，叠层一次只结算最上层。
+3. 空会话与已有空闲会话都直接发送，不再先拆除；在途回合或已有草稿/附件时只定位不排队，不再隐式新建、停流或覆盖输入。
+4. 不支持页统一采用 action 徽标/标题，`www` 页补充一次性页内提示；不扩大 host 权限，也不借机新增 Popup 或独立设置页。
+5. P0 不新增拖拽调宽；用现有 enabled 标记让显式自定义宽度在三形态生效，同时保持未自定义时的默认几何不变。
+6. 全局状态条只保留壳层与既有跨域反馈；新增任务反馈回到触发它的 Tab/宿主，不做全量状态系统重写。
+
+执行工单为 `.scratch/tickets/reader-shell-consistency/issues/01-06`。
