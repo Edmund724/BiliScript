@@ -110,18 +110,25 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
   return isControlBarItemMounted(liveWrap, placement);
 }
 
+function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
+  const volumeNode = playerHost.querySelector(".bpx-player-ctrl-volume");
+  if (volumeNode?.parentElement instanceof HTMLElement) {
+    return {
+      kind: "before" as const,
+      parent: volumeNode.parentElement,
+      reference: volumeNode
+    };
+  }
+  return resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+}
+
 function isPlayerInterpretQuickActionMountedStable(playerHost: HTMLElement): boolean {
   const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
   const interpretButton = document.getElementById("biliscript-player-interpret-quick-action");
   if (!interpretWrap || !interpretButton || !interpretWrap.isConnected || !interpretWrap.contains(interpretButton)) {
     return false;
   }
-  const placement = resolveControlBarPlacement({
-    host: playerHost,
-    fallbackToHost: true,
-    anchor: "playbackRate"
-  });
-  return isControlBarItemMounted(interpretWrap, placement);
+  return isControlBarItemMounted(interpretWrap, resolvePlayerInterpretQuickActionPlacement(playerHost));
 }
 
 function isPlayerAiQuickActionMountedStable(): boolean {
@@ -404,7 +411,7 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
     button.id = "biliscript-player-interpret-quick-action";
     button.type = "button";
     button.className = "biliscript-player-interpret-quick-action";
-    button.textContent = "实时翻译";
+    button.textContent = "字幕";
     button.title = "开启实时翻译";
     button.setAttribute("aria-label", "开启实时翻译");
     button.setAttribute("aria-pressed", "false");
@@ -415,11 +422,7 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
     wrap.replaceChildren(button);
   }
 
-  const placement = resolveControlBarPlacement({
-    host: playerHost,
-    fallbackToHost: true,
-    anchor: "playbackRate"
-  });
+  const placement = resolvePlayerInterpretQuickActionPlacement(playerHost);
   if (placement) {
     applyControlBarPlacement(wrap, placement);
   }

@@ -120,7 +120,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     vi.doUnmock("../../extension/core/runtime.js");
   });
 
-  it("实时翻译紧跟倍速，伴看独立挂载于清晰度左侧且不与 AI 快捷按钮共用 wrap", async () => {
+  it("无 CC 字幕时同传按钮显示为字幕并位于音量左侧，伴看独立挂载于清晰度左侧", async () => {
     const controlWrap = document.createElement("div");
     controlWrap.className = "bpx-player-control-wrap";
     const controlBottomRight = document.createElement("div");
@@ -128,15 +128,12 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     const rateBtn = document.createElement("div");
     rateBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-playbackrate";
     rateBtn.textContent = "倍速";
-    const subtitleBtn = document.createElement("div");
-    subtitleBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-subtitle";
-    subtitleBtn.textContent = "字幕";
     const volumeBtn = document.createElement("div");
     volumeBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-volume";
     const qualityBtn = document.createElement("div");
     qualityBtn.className = "bpx-player-ctrl-btn bpx-player-ctrl-quality";
     qualityBtn.textContent = "1080P 高码率";
-    controlBottomRight.append(rateBtn, subtitleBtn, volumeBtn, qualityBtn);
+    controlBottomRight.append(rateBtn, volumeBtn, qualityBtn);
     controlWrap.appendChild(controlBottomRight);
     playerContainer.appendChild(controlWrap);
 
@@ -165,11 +162,11 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     expect(interpretWrap?.contains(interpretButton)).toBe(true);
     expect(rateBtn.nextElementSibling).toBe(interpretWrap);
-    expect(interpretWrap?.nextElementSibling).toBe(subtitleBtn);
+    expect(interpretWrap?.nextElementSibling).toBe(volumeBtn);
     expect(liveWrap?.contains(liveButton)).toBe(true);
     expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");
-    expect(interpretButton?.textContent).toBe("实时翻译");
+    expect(interpretButton?.textContent).toBe("字幕");
 
     stopPlayerAiQuickAction();
     expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();

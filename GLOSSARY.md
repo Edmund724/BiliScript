@@ -11,7 +11,7 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
 
 **同声传译字幕**:
-视频无 CC 字幕时由独立 MOSS 同传会话生成的播放器内实时字幕。浮窗「实时翻译」按钮只在无 CC 时显示，手动开关、不自动启动；页面侧控制器复用伴看的平台权限与 DNR 检查但固定使用 `interpret` 通道，暂停持续推静音且超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。
+视频无 CC 字幕时由独立 MOSS 同传会话生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；页面侧控制器复用伴看的平台权限与 DNR 检查但固定使用 `interpret` 通道，暂停持续推静音且超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。
 代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（同传目标语言）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语）
 _Avoid_: 把同传译文当作视频字幕轨，或复用副轨开关表示同传显示模式
 

@@ -57,31 +57,6 @@ describe("bilibili/player-control-mount 控制栏锚点解析与两段式局部�
     });
   });
 
-  it.each([
-    { label: "有字幕", nextClass: "bpx-player-ctrl-subtitle" },
-    { label: "无字幕", nextClass: "bpx-player-ctrl-volume" }
-  ])("倍速锚点：$label时插入项紧跟倍速并位于后续控件前", ({ nextClass }) => {
-    const host = document.createElement("div");
-    const bottomRight = document.createElement("div");
-    const rate = document.createElement("div");
-    const next = document.createElement("div");
-    const item = document.createElement("button");
-    bottomRight.className = "bpx-player-control-bottom-right";
-    rate.className = "bpx-player-ctrl-btn bpx-player-ctrl-playbackrate";
-    next.className = `bpx-player-ctrl-btn ${nextClass}`;
-    bottomRight.append(rate, next);
-    host.appendChild(bottomRight);
-    document.body.appendChild(host);
-
-    const placement = resolveControlBarPlacement({ host, anchor: "playbackRate" });
-    expect(placement).toEqual({ kind: "after", parent: bottomRight, reference: rate });
-    expect(applyControlBarPlacement(item, placement!)).toBe(true);
-    expect(rate.nextElementSibling).toBe(item);
-    expect(item.nextElementSibling).toBe(next);
-    expect(isControlBarItemMounted(item, placement)).toBe(true);
-    expect(applyControlBarPlacement(item, placement!)).toBe(false);
-  });
-
   it("applyControlBarPlacement 具备幂等性：已在目标位置时零 DOM 写操作", () => {
     const parent = document.createElement("div");
     const quality = document.createElement("div");
