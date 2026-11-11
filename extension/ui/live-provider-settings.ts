@@ -15,12 +15,12 @@ import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import { closeConfirmDialog } from "./confirm-dialog.js";import { createProviderFamilyRows } from "./provider-family.js";
 import {
-  enterGeminiCredentialEditor,
-  geminiLinkedCredential,
-  resolveGeminiCredentialPlan,
-  stashLiveEditorDraft,
-  type LiveEditorStash
-} from "./gemini-credential-link.js";
+  enterAiCredentialEditor,
+  linkedCredentialFor,
+  resolveAiCredentialPlan,
+  stashEditorDraft,
+  type AiEditorStash
+} from "./ai-credential-link.js";
 import type { EditorDraft, EditorDraftView } from "./provider-editor-state.js";
 import { SETTINGS_PANEL_DOM_IDS } from "./settings-panel-html.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
@@ -227,7 +227,7 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     // 票 07）；他族/他平台不渲染
     const linkedCredential = kind === "live" && item
       && (item.type === "gemini-live" || item.presetId === "gemini-live")
-      ? geminiLinkedCredential(resolveGeminiCredentialPlan(aiProviders), () => {
+      ? linkedCredentialFor("gemini-live", resolveAiCredentialPlan("gemini-live", aiProviders), () => {
           void enterGeminiCredentialFromLiveEditor();
         })
       : null;
@@ -256,22 +256,23 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   // 取消都会话结束后恢复原伴看草稿（dirty 基线一并带回）
   async function enterGeminiCredentialFromLiveEditor(): Promise<void> {
     if (disposed) return;
-    const stash = stashLiveEditorDraft("live");
+    const stash = stashEditorDraft("live");
     // 缓存编辑器模块：dispose 靠它强制关闭在飞会话（漏关会泄漏文档级监听）
-    editorModule = await enterGeminiCredentialEditor({
-      plan: resolveGeminiCredentialPlan(aiProviders),
+    editorModule = await enterAiCredentialEditor({
+      target: "gemini-live",
+      plan: resolveAiCredentialPlan("gemini-live", aiProviders),
       mountHost: options.getEditorMountHost?.() ?? null,
       aiPresets: PRESETS,
       onSave: saveProvider,
       onDelete: deleteProvider,
       stash,
-      reopenLiveEditor: (stashed, hint) => {
+      reopenConsumerEditor: (stashed, hint) => {
         void restoreLiveEditor(stashed, hint);
       }
     });
   }
 
-  async function restoreLiveEditor(stash: LiveEditorStash, hint: string | null): Promise<void> {
+  async function restoreLiveEditor(stash: AiEditorStash, hint: string | null): Promise<void> {
     if (disposed) return;
     const mount = options.getEditorMountHost?.();
     if (!mount?.isConnected) return;
@@ -354,8 +355,9 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     // target === "gemini-key"：四态直达凭据编辑器——无记录 / 非官方地址新建官方
     // Gemini 记录（不静默改写中转地址），缺 Key / 可用编辑实际引用记录并聚焦
     // Key；从横幅直达无伴看草稿可恢复，保存 / 取消即停在本编辑器
-    editorModule = await enterGeminiCredentialEditor({
-      plan: resolveGeminiCredentialPlan(aiProviders),
+    editorModule = await enterAiCredentialEditor({
+      target: "gemini-live",
+      plan: resolveAiCredentialPlan("gemini-live", aiProviders),
       mountHost: options.getEditorMountHost?.() ?? null,
       aiPresets: PRESETS,
       onSave: saveProvider,

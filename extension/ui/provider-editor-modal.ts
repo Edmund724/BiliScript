@@ -56,6 +56,7 @@ import {
   sessionObserver,
   state,
   type EditorDraft,
+  type LinkedCredentialAction,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
 } from "./provider-editor-state.js";
@@ -537,6 +538,19 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
   };
 }
 
+// 跨族凭据引用内联行（票 07/08）：消费族编辑器（伴看 Gemini Live / 搜索
+// DeepSeek）内展示四态状态文案与同层进入 AI 族编辑器的动作。
+function linkedCredentialHtml(linkedCredential: LinkedCredentialAction | null): string {
+  if (!linkedCredential) return "";
+  return `
+        <div class="provider-editor-linked-credential">
+          <span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText)}</span>
+          ${linkedCredential.actionLabel
+            ? `<button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
+            : ""}
+        </div>`;
+}
+
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const item = options.item || null;
   // 模板是 draft 的投影：字段片段一律来自投影片（字段的 DOM 形态与目标态规则
@@ -553,8 +567,8 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const isSearch = options.kind === "search";
   const models = draft.models;
   const title = editorTitle(options.kind, Boolean(item?.id));
-  // 跨族凭据引用内联行（票 07，伴看 Gemini 编辑器）：四态状态文案 + 同层动作，
-  // 纯会话态，随 endEditorSession 清空
+  // 跨族凭据引用内联行（票 07/08，伴看 Gemini Live / 搜索 DeepSeek 编辑器）：
+  // 四态状态文案 + 同层动作，纯会话态，随 endEditorSession 清空
   const linkedCredential = state.linkedCredential;
 
   return `
@@ -588,6 +602,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         ${blocks.protocolNotes}`
           : isSearch
             ? `
+        ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test" title="会真实发起一次搜索，占用一次平台额度">测试</button>
           <p class="provider-editor-status" hidden></p>
@@ -596,15 +611,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         ${blocks.model}
         ${blocks.voice}
         ${blocks.liveGeminiNativeSearch}
-        ${linkedCredential
-          ? `
-        <div class="provider-editor-linked-credential">
-          <span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText)}</span>
-          ${linkedCredential.actionLabel
-            ? `<button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
-            : ""}
-        </div>`
-          : ""}
+        ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>

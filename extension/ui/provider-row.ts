@@ -21,6 +21,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import type { SearchProviderAccess } from "../core/presets.js";
+import type { AiCredentialStatus } from "../core/ai-credential-reference.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 // 垃圾桶图标路径：固定属性行 / 笔记段落行 / 平台行共用同一份 path 定义。
@@ -63,6 +64,12 @@ export interface ProviderRowItem {
   hasSavedKey?: boolean;
   // 凭据引用状态：搜索族 DeepSeek 行覆写预设 note；实时族 Gemini Live 行追加到模型名后。
   statusNote?: string;
+  // 结构化凭据引用状态（消费族行：搜索 DeepSeek / 实时 Gemini Live）。与 statusNote
+  // 同源由 annotateAiCredentialRows 注入：行的 Key 指示点读它，不把消费族自己的
+  // hasSavedKey 当成应有自有 Key。
+  credentialStatus?: AiCredentialStatus;
+  // 实际命中的 AI 记录来源名（仅「可用」态；搜索行副行展示，避免多条候选时误判）
+  credentialSource?: string;
   // 平台协议（multi-protocol-ai）：编辑 Modal 预填/回写；宽松 string，合法性
   // 由编辑 Modal 经注册表词表收敛。
   protocol?: string;
@@ -308,10 +315,24 @@ export function createProviderRow({
       const model = displayModel(item, preset);
       // Key 状态点第三态（spec §6.1 判据 f(access, hasSavedKey)）：keyless 预设
       // 无 Key 也标「可用」（第三色由 CSS 复用 success 变量，不新增颜色）；
-      // free-quota 无 Key 恒 missing（与「无 Key 不进链」自洽）。
-      const keyState = hasSavedKey ? "saved" : preset?.access === "keyless" ? "keyless" : "missing";
-      const keyStateTitle =
-        keyState === "saved" ? "已保存 API Key" : keyState === "keyless" ? "免 Key 可用" : "未保存 API Key";
+      // free-quota 无 Key 恒 missing（与「无 Key 不进链」自洽）。凭据引用行
+      //（DeepSeek 搜索 / Gemini 伴看）没有自有 Key：状态由结构化引用状态驱动，
+      // 不再把消费族 hasSavedKey 当成应有自有 Key 而误报故障。
+      const credentialStatus = item.credentialStatus;
+      const keyState = credentialStatus
+        ? credentialStatus === "ok" ? "saved" : "missing"
+        : hasSavedKey
+          ? "saved"
+          : preset?.access === "keyless"
+            ? "keyless"
+            : "missing";
+      const keyStateTitle = credentialStatus
+        ? credentialStatus === "ok" ? "已复用 AI 平台 Key" : "AI 平台 Key 不可用"
+        : keyState === "saved"
+          ? "已保存 API Key"
+          : keyState === "keyless"
+            ? "免 Key 可用"
+            : "未保存 API Key";
       // 额度形态徽章（spec §6.2）：讲额度形态而非是否存在 Key——free-quota 有
       // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 已配 Key，
       // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
