@@ -100,16 +100,18 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-h">AI 模型平台</div>
         <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      </div>
 
       <div id="${ids.liveSettingsHeader}" class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
         <div class="biliscript-set-h">实时伴看平台</div>
         <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <div class="biliscript-set-card">
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
         <div class="biliscript-set-row">
           <label class="biliscript-set-label" for="${ids.liveInterpretTargetLang}">同传目标语言</label>
           <select id="${ids.liveInterpretTargetLang}" class="biliscript-set-select">
@@ -143,9 +145,9 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-h">语音转写平台</div>
         <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <div class="biliscript-set-card">
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
         <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
           <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
           <label class="biliscript-toggle-switch">
@@ -161,7 +163,7 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-h">搜索平台</div>
         <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div class="biliscript-set-card">
+      <div class="biliscript-set-card biliscript-provider-group">
         <div id="${ids.toggleSearchChainBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
           <span class="biliscript-set-label">搜索平台与回退链</span>
           <span class="biliscript-entry-summary">

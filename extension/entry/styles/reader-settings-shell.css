@@ -371,11 +371,11 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .search-chain-collapse-body {
-  padding: var(--biliscript-space-10) var(--biliscript-space-14);
-  background: var(--biliscript-reader-surface-2);
+  padding: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-sm);
+  gap: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .search-chain-collapse-body[hidden] {
@@ -387,6 +387,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--biliscript-space-sm);
+  padding: var(--biliscript-space-10) var(--biliscript-space-14);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .search-chain-actions-bar .add-property-btn {

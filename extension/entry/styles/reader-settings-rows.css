@@ -190,11 +190,16 @@
 #biliscript-reading-view .biliscript-reading-settings-host .asr-providers-list {
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-sm);
+  gap: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .ai-providers-list:empty {
+  display: none;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-providers-empty {
   margin: 0;
+  padding: var(--biliscript-space-10) var(--biliscript-space-14);
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
 }
@@ -207,11 +212,19 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: var(--biliscript-space-sm) var(--biliscript-space-10);
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
+  padding: var(--biliscript-space-sm) var(--biliscript-space-14);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .ai-providers-list > :not(:last-child) {
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host #aiProvidersList {
+  border-bottom: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-line {
@@ -398,10 +411,6 @@
 #biliscript-reading-view .biliscript-reading-settings-host .search-provider-active input[type="radio"],
 #biliscript-reading-view .biliscript-reading-settings-host .live-provider-active input[type="radio"] {
   margin: 0;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .asr-fallback-checkbox {
-  margin-top: var(--biliscript-space-xs);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn {
@@ -616,16 +625,6 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-webkit-slider-thumb:hover {
   transform: scale(1.15);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: var(--biliscript-radius-circle);
-  background: var(--biliscript-reader-accent);
-  border: 2px solid var(--biliscript-reader-surface);
-  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
-  cursor: pointer;
 }
 
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {
