@@ -907,6 +907,8 @@ try {
       alphaModel: alphaRow?.querySelector(".provider-row-model")?.textContent?.trim() || "",
       betaBadge: betaRow?.querySelector(".provider-row-badge")?.textContent?.trim() || "",
       followHint: document.getElementById("subtitleTranslateFollowHint")?.textContent?.trim() || "",
+      followHintHidden: document.getElementById("subtitleTranslateFollowHint")?.hidden === true,
+      followHintState: document.getElementById("subtitleTranslateFollowHint")?.dataset?.state || "",
       firstOption
     };
   })()`), { timeoutMs: 20000 });
@@ -922,8 +924,16 @@ try {
   );
   check(
     "B1.2-字幕翻译跟随 AI 默认平台",
-    aiProjection.firstOption === "跟随 AI 默认平台" && aiProjection.followHint.includes("跟随 AI 默认平台：当前为 AI Alpha · model-alpha"),
-    { firstOption: aiProjection.firstOption, followHint: aiProjection.followHint }
+    aiProjection.firstOption === "跟随 AI 默认平台" &&
+      aiProjection.followHintHidden === false &&
+      aiProjection.followHintState === "follow" &&
+      aiProjection.followHint === "当前 AI Alpha · model-alpha",
+    {
+      firstOption: aiProjection.firstOption,
+      followHint: aiProjection.followHint,
+      hidden: aiProjection.followHintHidden,
+      state: aiProjection.followHintState
+    }
   );
   check(
     "B1.3-对话另选单独成行且不改变默认",
