@@ -29,6 +29,8 @@ export interface ConfirmDialogOptions {
   title?: string;
   // 确认键文案（缺省「确定」）
   confirmText?: string;
+  // 取消键文案（缺省「取消」；授权类双动作给具体语义，如「本次不搜索」）
+  cancelText?: string;
   // 确认键警示着色（删除等破坏性动作）：红底白字，token 与
   // provider-editor-delete 同源的 --biliscript-reader-danger 系
   danger?: boolean;
@@ -119,6 +121,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   const host = document.createElement("div");
   host.className = "confirm-dialog-host";
   const confirmText = options.confirmText || "确定";
+  const cancelText = options.cancelText?.trim() || "取消";
   const title = options.title?.trim() || "请确认";
   const dialogId = `confirm-dialog-${++nextDialogId}`;
   host.innerHTML = `
@@ -127,7 +130,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
       <h2 class="confirm-dialog-title" id="${dialogId}-title">${escapeHtml(title)}</h2>
       <p class="confirm-dialog-message" id="${dialogId}-message">${escapeHtml(options.message)}</p>
       <footer class="confirm-dialog-foot">
-        <button type="button" class="confirm-dialog-cancel" data-confirm-dialog-action="cancel">取消</button>
+        <button type="button" class="confirm-dialog-cancel" data-confirm-dialog-action="cancel">${escapeHtml(cancelText)}</button>
         <button type="button" class="confirm-dialog-confirm${options.danger ? " confirm-dialog-confirm-danger" : ""}" data-confirm-dialog-action="confirm">${escapeHtml(confirmText)}</button>
       </footer>
     </section>`;

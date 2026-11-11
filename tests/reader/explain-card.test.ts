@@ -382,9 +382,17 @@ describe("面板内解释卡片", () => {
 
   // ===== opt-in 一次性说明闸（§6.7 / §10 第 58 行）=====
   // 开关开 + 位未置位 → 解析搜索运行时**之前**先弹说明（ui/confirm-dialog，阅读
-  // 视图宿主内）：同意 → 写位并继续；取消 → 本轮不联网（不传 webSearch），解释
-  // 照常发起、不写位（下次再问）。
-  function stubOptInChrome(acknowledged: boolean): Array<Record<string, unknown>> {
+  // 视图宿主内）：同意 → 写位并继续；拒绝 → 关闭联网偏好（不传 webSearch），解释
+  // 照常发起、不置授权位（重新开启才再问）。
+  function stubOptInChrome(
+    acknowledged: boolean,
+    chain: Array<Record<string, unknown>> | null = [
+      {
+        provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+        apiKey: ""
+      }
+    ]
+  ): Array<Record<string, unknown>> {
     const sent: Array<Record<string, unknown>> = [];
     vi.stubGlobal("chrome", {
       runtime: {
@@ -396,16 +404,7 @@ describe("面板内解释卡片", () => {
             msg?.type === "get-settings"
               ? { ok: true, settings: { webSearchEnabled: true, searchOptInNoticeAcknowledged: acknowledged } }
               : msg?.type === "resolve-search-provider"
-                ? {
-                    ok: true,
-                    chain: [
-                      {
-                        provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
-                        apiKey: ""
-                      }
-                    ],
-                    maxToolCalls: 2
-                  }
+                ? (chain ? { ok: true, chain, maxToolCalls: 2 } : { ok: true })
                 : { ok: true };
           if (typeof cb === "function") {
             cb(payload);
@@ -425,15 +424,20 @@ describe("面板内解释卡片", () => {
     explainBtn().click();
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     const dialog = document.querySelector<HTMLElement>(".confirm-dialog")!;
+    expect(dialog.querySelector(".confirm-dialog-title")!.textContent).toBe("允许联网搜索？");
     const message = dialog.querySelector(".confirm-dialog-message")!.textContent!;
     expect(message).toContain("联网搜索会把查询词发往内置的免 Key 服务");
     expect(message).toContain("关闭搜索开关可随时撤回");
     // 次入口（用户裁定③）：删记录停止该家接收查询
     expect(message).toContain("删除对应平台记录可停止向其发送查询");
-    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
-    expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");
-    // 说明弹出时尚未解析搜索运行时（闸在解析之前）
-    expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(false);
+    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
+    // 授权前只做一次链可用性探测（付费提示用：不带查询词、不执行搜索）；
+    // 搜索运行时仍在同意之后才组装
+    const probesBefore = sent.filter((m) => m.type === "resolve-search-provider");
+    expect(probesBefore).toHaveLength(1);
+    expect(probesBefore[0]).not.toHaveProperty("query");
+    expect(aiMock.explainSelection).not.toHaveBeenCalled();
 
     dialog.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
 
@@ -445,7 +449,7 @@ describe("面板内解释卡片", () => {
     vi.unstubAllGlobals();
   });
 
-  it("位未置位 + 开关开：取消 → 不带 webSearch、不写位，解释照常发起", async () => {
+  it("位未置位 + 开关开：拒绝 → 不带 webSearch、关闭联网偏好，解释照常发起", async () => {
     const sent = stubOptInChrome(false);
 
     selectInItem(1, "工具");
@@ -456,9 +460,35 @@ describe("面板内解释卡片", () => {
     await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
     const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: unknown };
     expect(args.webSearch).toBeUndefined();
-    // 位未置位（下次再问）、运行时未解析（本轮不外发查询词）
-    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
-    expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(false);
+    // 拒绝 = 关闭联网偏好（既有开关随存储变更同步），授权位不置位（重新开启才再问）
+    expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchEnabled: false } });
+    expect(
+      sent.some((m) => m.type === "save-settings" && (m.settings as Record<string, unknown>)?.searchOptInNoticeAcknowledged)
+    ).toBe(false);
+    // 运行时未解析：只有授权前的付费探测，本轮不外发查询词
+    expect(sent.filter((m) => m.type === "resolve-search-provider")).toHaveLength(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  // 授权与平台可用性分别反馈（票 11）：位已置位（不再询问）但当前链为空时，授权不并入
+  // 平台可用性文案——「未配置搜索平台」经卡片 notice 通道单独给出，解释照常完成。
+  it("授权通过但搜索链为空：平台可用性在卡片 notice 单独反馈，解释照常完成", async () => {
+    stubOptInChrome(true, null);
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+    const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: unknown };
+    expect(args.webSearch).toBeUndefined();
+    // ready 态（解释照常完成）同时保留平台可用性 notice
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")).not.toBeNull()
+    );
+    expect(explainCard().querySelector(".biliscript-reading-explain-card-notice")!.textContent).toBe(
+      "未配置搜索平台，本轮未联网"
+    );
 
     vi.unstubAllGlobals();
   });

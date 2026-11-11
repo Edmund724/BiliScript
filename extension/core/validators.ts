@@ -198,7 +198,7 @@ export const normalizeWebSearchEnabled = booleanField(false);
 // searchPresetsAutoActivated：安装/更新时免 Key 预设已自动补齐的旗标。
 export const normalizeSearchPresetsAutoActivated = booleanField(false);
 
-// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「同意并继续」置位）。
+// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「允许并继续」置位）。
 export const normalizeSearchOptInNoticeAcknowledged = booleanField(false);
 
 // 单轮搜索次数上限：整数，区间 1–20，越界夹取，非法值回落默认 5（spec §3.2）

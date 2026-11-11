@@ -86,7 +86,7 @@ export interface KnownSettings {
   // 记录（否则「删除即撤回」不成立）。
   searchPresetsAutoActivated: boolean;
   // searchOptInNoticeAcknowledged：联网搜索 opt-in 一次性说明已确认，只在用户点
-  // 「同意并继续」时置位。
+  // 「允许并继续」时置位。
   searchOptInNoticeAcknowledged: boolean;
   // ===== 双语字幕 =====
   bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关

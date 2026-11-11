@@ -759,8 +759,10 @@ const sessionTriggers = createReaderChatSessionTriggers({
   }),
   // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
   // 监听同语义；player-ai 信箱键的监听属摘除任务，不在 reader 消费）。
-  // 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区五键 + local 区
-  // aiProviderKeys，摘除即 unsubscribe。
+  // 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区六键 + local 区
+  // aiProviderKeys，摘除即 unsubscribe。webSearchEnabled 在列：搜索授权被拒后闸侧
+  // 关闭联网偏好（票 11），对话开关与内存态经这条既有外部变更路径同步，下一条消息
+  // 不再重复询问。
   storageWatcher: () => watchStorageKeys(() => {
     void refreshProvidersAndPrefsAfterExternalChange();
     void getLiveController()?.refreshTarget();
@@ -772,7 +774,8 @@ const sessionTriggers = createReaderChatSessionTriggers({
       "defaultModel",
       "aiThinkingLevel",
       "liveProviders",
-      "activeLiveProviderId"
+      "activeLiveProviderId",
+      "webSearchEnabled"
     ],
     local: ["aiProviderKeys"]
   }),

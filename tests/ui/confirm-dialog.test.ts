@@ -93,6 +93,21 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     await expect(pending).resolves.toBe(false);
   });
 
+  it("取消键文案可定制（授权类双动作给具体语义），缺省仍是「取消」", async () => {
+    mountView();
+    const { confirmDialog } = await loadDialog();
+    const pending = confirmDialog({
+      title: "联网搜索授权",
+      message: "m",
+      confirmText: "允许并继续",
+      cancelText: "本次不搜索"
+    });
+    expect(document.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
+    expect(document.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    fireClick(document.querySelector(".confirm-dialog-cancel")!);
+    await expect(pending).resolves.toBe(false);
+  });
+
   it("点确认键 resolve true 并清场", async () => {
     mountView();
     const { confirmDialog, isConfirmDialogOpen } = await loadDialog();

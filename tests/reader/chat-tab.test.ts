@@ -864,6 +864,39 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
 
     expect(Array.from(modelSelect.options).map((option) => option.value)).toContain("p2\u0001模型二");
   });
+
+  // 联网搜索授权被拒后闸侧关闭偏好（票 11）：既有对话开关与内存态经同一条
+  // 「外部设置变更 → 刷新」路径同步，下一条消息不再重复询问。
+  it("联网偏好外部变更（拒绝授权后关闭）→ 对话开关与内存态同步", async () => {
+    seedReadyContext();
+    const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
+    let webSearchEnabled = true;
+    chromeStub.runtime.sendMessage.mockImplementation(
+      (message: { type?: string }, callback?: (resp: unknown) => void) => {
+        const type = String(message?.type || "");
+        if (type === "ai-providers-list") {
+          callback?.({ ok: true, providers: providerList });
+        } else if (type === "get-settings") {
+          callback?.({ ok: true, settings: { webSearchEnabled } });
+        } else {
+          callback?.({ ok: true });
+        }
+        return undefined;
+      }
+    );
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const pill = document.getElementById(ids.readingChatWebSearchPill) as HTMLElement;
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+    expect(chatSessionState.webSearchEnabled).toBe(true);
+
+    webSearchEnabled = false;
+    fireStorageChange({ webSearchEnabled: { newValue: false, oldValue: true } }, "sync");
+
+    await waitFor(() => pill.getAttribute("aria-pressed") === "false");
+    expect(chatSessionState.webSearchEnabled).toBe(false);
+  });
 });
 
 describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + 内联引用）", () => {

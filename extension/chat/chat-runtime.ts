@@ -684,6 +684,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         deps.ui.autosizeInput();
       }
 
+      // 联网搜索首次授权闸（票 11）：同意 → 写授权位并带本轮；拒绝 → 闸侧关闭联网
+      // 偏好（既有开关经存储变更同步）、本轮不带搜索继续，不残留待决授权。
       const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
       const branchRecord = regeneration || continuation;
       const images = branchRecord
@@ -760,8 +762,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         conversationId: chatSessionState.currentConversationId,
         thinkingLevel: chatSessionState.aiThinkingLevel,
         // 联网搜索开关（spec §2.1）：全局记忆（chat header pill），offscreen 据此
-        // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：取消说明
-        // 时本条传 false（本轮不搜索），其余情况等于全局记忆。
+        // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：拒绝授权 /
+        // 偏好已关时本条传 false（本轮不搜索），其余情况等于全局记忆。
         webSearchEnabled,
         ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         context,

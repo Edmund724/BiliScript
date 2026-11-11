@@ -1782,35 +1782,61 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
 });
 
 // ==========================================================================
-// opt-in 一次性说明闸（spec §6.7 / §10 第 58 行）
+// opt-in 一次性说明闸（spec §6.7 / 票 11）
 // ==========================================================================
 // 判据 = 开关已开（chatSessionState.webSearchEnabled）且位未置位
 // （settings.searchOptInNoticeAcknowledged）：说明弹在 port.postMessage 之前。
-// 同意 → 写位并继续；取消 → 该条 ChatMsg.webSearchEnabled=false（消息照常发）；
-// 位已置位 → 不打扰；阅读视图未挂载 → confirmDialog 直接 false（fail-closed）。
-describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
-  // 覆盖 setup 层 chrome stub：get-settings 回开关态 + 位，其余回 ok；记录出向
-  // 消息以便断言 save-settings 写位。
-  function stubSettingsChrome(acknowledged: boolean): Array<Record<string, unknown>> {
+// 同意 → 写位并继续带搜索；拒绝 → 关闭联网偏好（save-settings{webSearchEnabled:false}）、
+// 该条 ChatMsg.webSearchEnabled=false（消息照常发）、下一条消息不再弹层；位已置位 →
+// 不打扰；授权写失败 → 本轮照常继续、不伪造授权位；阅读视图未挂载 → fail-closed
+//（本轮不搜索，不关闭偏好）。
+describe("opt-in 一次性说明闸（§6.7 / 票 11）", () => {
+  // 覆盖 setup 层 chrome stub：get-settings 回开关态 + 位（save-settings 成功后同步
+  // 桩内 settings，供「下一条消息不再询问」断言）；resolve-search-provider 回付费 /
+  // 免 Key 链；记录出向消息以便断言 save-settings 载荷。
+  interface StubOptions {
+    acknowledged?: boolean;
+    saveFails?: boolean;
+    chain?: Array<{ provider: Record<string, unknown>; apiKey: string }>;
+  }
+
+  function stubSettingsChrome(options: StubOptions = {}): Array<Record<string, unknown>> {
     const sent: Array<Record<string, unknown>> = [];
-    vi.stubGlobal("chrome", {
+    const settings = {
+      webSearchEnabled: true,
+      searchOptInNoticeAcknowledged: options.acknowledged === true
+    };
+    const chromeStub = {
       runtime: {
-        lastError: null,
+        lastError: null as { message?: string } | null,
         getURL: (path: string) => `chrome-extension://test/${path}`,
         sendMessage: (msg: Record<string, unknown>, cb?: (r: unknown) => void) => {
           sent.push(msg);
-          const payload =
-            msg?.type === "get-settings"
-              ? { ok: true, settings: { webSearchEnabled: true, searchOptInNoticeAcknowledged: acknowledged } }
-              : { ok: true };
-          if (typeof cb === "function") {
-            cb(payload);
+          if (msg?.type === "get-settings") {
+            cb?.({ ok: true, settings: { ...settings } });
             return undefined;
           }
-          return Promise.resolve(payload);
+          if (msg?.type === "resolve-search-provider") {
+            cb?.(options.chain ? { ok: true, chain: options.chain, maxToolCalls: 3 } : { ok: true });
+            return undefined;
+          }
+          if (msg?.type === "save-settings") {
+            if (options.saveFails) {
+              chromeStub.runtime.lastError = { message: "storage write failed" };
+              cb?.(undefined);
+              chromeStub.runtime.lastError = null;
+              return undefined;
+            }
+            Object.assign(settings, (msg.settings || {}) as Record<string, unknown>);
+            cb?.({ ok: true });
+            return undefined;
+          }
+          cb?.({ ok: true });
+          return undefined;
         }
       }
-    });
+    };
+    vi.stubGlobal("chrome", chromeStub);
     return sent;
   }
 
@@ -1818,12 +1844,24 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
   }
 
-  function chatMessageOf(deps: TestDeps): { action: string; webSearchEnabled: boolean } {
-    return deps.ports[0].port.postMessage.mock.calls[0][0] as { action: string; webSearchEnabled: boolean };
+  function dialog(): HTMLElement | null {
+    return document.querySelector<HTMLElement>(".confirm-dialog");
   }
 
-  it("存量开关开 + 位未置位 → 发送前弹说明；同意并继续 → 写位且该条 webSearchEnabled 仍为 true", async () => {
-    const sent = stubSettingsChrome(false);
+  function clickAction(action: "confirm" | "cancel"): void {
+    dialog()!.querySelector<HTMLButtonElement>(`[data-confirm-dialog-action="${action}"]`)!.click();
+  }
+
+  function chatMessageOf(deps: TestDeps, index = 0): { action: string; webSearchEnabled: boolean; prompt: string } {
+    return deps.ports[index].port.postMessage.mock.calls[0][0] as {
+      action: string;
+      webSearchEnabled: boolean;
+      prompt: string;
+    };
+  }
+
+  it("存量开关开 + 位未置位 → 发送前弹授权；允许并继续 → 写位且该条 webSearchEnabled 仍为 true", async () => {
+    const sent = stubSettingsChrome();
     // 存量用户：webSearchEnabled 直接为 true（不依赖「用户点过 pill」），同样先出说明
     chatSessionStateForTests.webSearchEnabled = true;
     mountReadingView();
@@ -1833,17 +1871,18 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const runtime = createChatRuntime(deps);
     const sending = runtime.sendTurn(deps.input.value);
 
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
-    // 说明未确认前无 chat 外发（闸在 port.postMessage 之前）
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    // 授权未确认前无 chat 外发（闸在 port.postMessage 之前）
     expect(deps.ports).toHaveLength(0);
-    const dialog = document.querySelector<HTMLElement>(".confirm-dialog")!;
-    expect(dialog.querySelector(".confirm-dialog-message")!.textContent).toBe(
-      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止向其发送查询。"
+    const box = dialog()!;
+    expect(box.querySelector(".confirm-dialog-title")!.textContent).toBe("允许联网搜索？");
+    expect(box.querySelector(".confirm-dialog-message")!.textContent).toContain(
+      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）"
     );
-    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
-    expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");
+    expect(box.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    expect(box.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
 
-    dialog.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    clickAction("confirm");
     await sending;
 
     expect(sent).toContainEqual({ type: "save-settings", settings: { searchOptInNoticeAcknowledged: true } });
@@ -1852,8 +1891,8 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(chatMsg.webSearchEnabled).toBe(true);
   });
 
-  it("位未置位 → 点取消：该条 ChatMsg.webSearchEnabled === false、位仍 false（下次再问），消息照常发出", async () => {
-    const sent = stubSettingsChrome(false);
+  it("拒绝：该条 webSearchEnabled=false、关闭联网偏好、消息照常发出；下一条消息不再弹层", async () => {
+    const sent = stubSettingsChrome();
     chatSessionStateForTests.webSearchEnabled = true;
     mountReadingView();
 
@@ -1862,26 +1901,96 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const runtime = createChatRuntime(deps);
     const sending = runtime.sendTurn(deps.input.value);
 
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
-    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    clickAction("cancel");
     await sending;
 
     expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
-    // 位未置位：既不写设置，下次发送仍会问
-    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+    // 拒绝 = 关闭联网偏好（同步既有开关 / 撤回主入口）；授权位不置位
+    expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchEnabled: false } });
+    expect(
+      sent.some((m) => m.type === "save-settings" && (m.settings as Record<string, unknown>)?.searchOptInNoticeAcknowledged)
+    ).toBe(false);
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("只问不搜");
+    expect(dialog()).toBeNull();
+
+    // 下一条消息：对话侧内存开关尚未同步（仍为 true），偏好已关 → 不重复询问
+    feed(runtime, { type: "done" });
+    await runtime.sendTurn("下一句");
+    expect(dialog()).toBeNull();
+    expect(chatMessageOf(deps, 1).webSearchEnabled).toBe(false);
   });
 
   it("位已置位 → 不弹层且该条 webSearchEnabled 为 true", async () => {
-    const sent = stubSettingsChrome(true);
+    const sent = stubSettingsChrome({ acknowledged: true });
     chatSessionStateForTests.webSearchEnabled = true;
     mountReadingView();
 
-    const { deps, session } = await makeRuntime("已同意过");
+    const { deps } = await makeRuntime("已同意过");
 
-    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(dialog()).toBeNull();
     expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
     expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+  });
+
+  it("付费链：授权文案提示会产生费用（不写成价格承诺）", async () => {
+    stubSettingsChrome({
+      chain: [
+        {
+          provider: {
+            id: "search_deepseek",
+            presetId: "deepseek",
+            name: "DeepSeek Search",
+            type: "deepseek",
+            baseUrl: "https://api.deepseek.com",
+            access: "paid"
+          },
+          apiKey: "sk-deepseek"
+        }
+      ]
+    });
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    deps.input.value = "会花钱吗";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendTurn(deps.input.value);
+
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    const message = dialog()!.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("使用付费平台会产生费用");
+    expect(message).toContain("具体计费方式以该平台为准");
+    expect(message).not.toMatch(/¥|\$\d|\d+\s*元|免费额度/);
+
+    clickAction("confirm");
+    await sending;
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
+  });
+
+  it("授权写失败：本轮照常带搜索继续，不伪造授权位；下一条消息仍会询问", async () => {
+    stubSettingsChrome({ saveFails: true });
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    deps.input.value = "写失败也要继续";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendTurn(deps.input.value);
+
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    clickAction("confirm");
+    await sending;
+    // 写失败不阻断主任务：该条仍带搜索
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("写失败也要继续");
+
+    // 授权位没写成功 → 下一条仍会询问（不假装已授权）
+    feed(runtime, { type: "done" });
+    const second = runtime.sendTurn("再问一句");
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    clickAction("cancel");
+    await second;
   });
 
   // A1 残余窗口（方案①：append 上移）：闸已放行即受理——用户消息上屏、输入框
@@ -1889,7 +1998,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
   // 会重建消息区，紧随的 append 插进回放中间（P2-1 同一失效形态；P2-1 只让位
   // 到 send-gate 放行，未覆盖弹层这段 await）。
   it("弹窗挂起（未 resolve）时用户消息已上屏、输入框已清：append 在 opt-in 弹层之前，但闸下游仍在其后", async () => {
-    stubSettingsChrome(false);
+    stubSettingsChrome();
     chatSessionStateForTests.webSearchEnabled = true;
     mountReadingView();
 
@@ -1898,7 +2007,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const runtime = createChatRuntime(deps);
     const sending = runtime.sendTurn(deps.input.value);
 
-    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
     // 受理即上屏：弹层未定下本条是否带搜索，但消息与输入框已归位
     expect(deps.messages.querySelector<HTMLElement>(".chat-msg-user")?.textContent).toBe("先上屏的问题");
     expect(deps.input.value).toBe("");
@@ -1908,23 +2017,46 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(deps.ui.setStreamingUiState).not.toHaveBeenCalled();
     expect(deps.messages.querySelector(".chat-msg-assistant")).toBeNull();
     // 弹层仍在等待用户裁决（上移没有把弹层挤掉）
-    expect(document.querySelector(".confirm-dialog")).not.toBeNull();
+    expect(dialog()).not.toBeNull();
 
-    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    clickAction("confirm");
     await sending;
-    // 上移不改取值：该条仍带搜索（同意分支，取值回归见上「同意并继续」用例）
+    // 上移不改取值：该条仍带搜索（同意分支，取值回归见上「允许并继续」用例）
     expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
   });
 
-  it("阅读视图未挂载 → confirmDialog 直接 false，按「本轮不搜索」走（fail-closed）", async () => {
-    stubSettingsChrome(false);
+  it("对话草稿恢复后的发送：拒绝授权后消息照常发出、草稿清空、主任务继续", async () => {
+    stubSettingsChrome();
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    // 首配返回路径恢复进输入框的草稿（票 03）：用户再点发送才入闸
+    deps.input.value = "恢复的草稿";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendTurn(deps.input.value);
+
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    clickAction("cancel");
+    await sending;
+
+    expect(chatMessageOf(deps).prompt).toBe("恢复的草稿");
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("恢复的草稿");
+    expect(deps.input.value).toBe("");
+    expect(deps.messages.querySelector(".chat-msg-assistant")).not.toBeNull();
+  });
+
+  it("阅读视图未挂载 → 本轮不搜索（fail-closed），且不关闭联网偏好", async () => {
+    const sent = stubSettingsChrome();
     chatSessionStateForTests.webSearchEnabled = true;
     // 无 #biliscript-reading-view：弹层无处可挂，未获同意即不外发
     const { deps } = await makeRuntime("未挂载");
 
-    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(dialog()).toBeNull();
     expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("未挂载");
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
   });
 });
 
