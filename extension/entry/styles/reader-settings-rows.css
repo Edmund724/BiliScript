@@ -500,6 +500,12 @@
   stroke: none;
 }
 
+/* 单平台模式（票 06）：排序只在智能回退链里生效，单选平台时把手隐藏——
+ * 「无效控件不露面」由 settings-panel 在列表上挂 search-chain-single-mode。 */
+#biliscript-reading-view .biliscript-reading-settings-host .search-chain-single-mode .provider-row-drag-handle {
+  display: none;
+}
+
 /* 拖拽态（spec §6.10）：被拖行浮起（半透明 + 底色提示）——目标位置由被拖行的
  * 实际落点表达，不另画指示线，视觉反馈从简。 */
 #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row-dragging {

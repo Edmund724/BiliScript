@@ -185,17 +185,18 @@ export function buildSettingsHtml(): string {
         <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
       <div class="biliscript-set-card biliscript-provider-group">
-        <div id="${ids.toggleSearchChainBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
+        <button id="${ids.toggleSearchChainBtn}" type="button" class="biliscript-set-row biliscript-entry-row" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
           <span class="biliscript-set-label">搜索平台与回退链</span>
           <span class="biliscript-entry-summary">
-            <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能模式</span>
+            <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能搜索 · 失败自动回退</span>
             <svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-        </div>
+        </button>
 
         <div id="${ids.searchChainContainer}" class="search-chain-collapse-body" hidden>
+          <p class="biliscript-set-hint search-chain-mode-note">智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。</p>
           <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
           <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
