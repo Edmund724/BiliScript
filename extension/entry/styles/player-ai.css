@@ -394,7 +394,26 @@
   padding: 6px 0;
   position: absolute;
   right: -8px;
+  scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+  scrollbar-width: thin;
   z-index: 30;
+}
+
+.biliscript-interpret-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.biliscript-interpret-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.biliscript-interpret-menu::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.25);
+  border-radius: 3px;
+}
+
+.biliscript-interpret-menu::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.4);
 }
 
 .biliscript-interpret-menu-title {
