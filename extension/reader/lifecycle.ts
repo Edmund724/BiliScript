@@ -48,6 +48,7 @@ import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // 触达壳，壳未装载时命令静默丢弃，与原 DOM 缺失时 setter 空转同形。
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
+import { projectReaderSettingsMode } from "./settings-mode.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -495,6 +496,7 @@ export function closeReadingView() {
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
   state.reader.setSettingsExpanded(false);
+  projectReaderSettingsMode();
   state.reader.setNextScrollBehavior("smooth");
   // Scroll deadlines moved to sync.js with the sync domain; reset them there
   // so a later manual interaction is never swallowed by stale deadlines.

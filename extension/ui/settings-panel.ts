@@ -466,6 +466,9 @@ export async function openLiveSettings(target: LiveSettingsTarget): Promise<void
   pendingLiveSettingsTarget = null;
   const section = target === "live" ? "live" : "llm";
   host.querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)?.click();
+  const sectionHeading = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
+  sectionHeading?.setAttribute("tabindex", "-1");
+  sectionHeading?.focus({ preventScroll: true });
   if (target === "live") return;
   const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
   const { record: gemini } = resolveAiCredentialReference("gemini-live", providers);

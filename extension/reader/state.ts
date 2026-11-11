@@ -67,6 +67,10 @@ export function setReaderActiveScriptTab(tab: ReaderScriptTab) {
   readingActiveScriptTab = tab;
 }
 
+export function getReaderActiveScriptTab(): ReaderScriptTab {
+  return readingActiveScriptTab;
+}
+
 // 字幕 tab body 可见性谓词（候选06）：判定输入只取状态位，与 CSS 三条隐藏通道
 // 一一对应——① 视图未开（#biliscript-reading-view 无 .open / ready=0）→
 // readingViewOpen；② 当前标签非字幕（reader.css 的 :not(.is-active) 与
@@ -75,8 +79,8 @@ export function setReaderActiveScriptTab(tab: ReaderScriptTab) {
 //
 // DOM 属性（body 的 is-active/aria-selected/hidden、抽屉的 hidden）只是投影，
 // 写手唯一（reader/script-tab-activation.ts 的 activateScriptTab 写状态位、
-// ui/ui-renderer.ts 的 setReaderScriptTab 只投影 DOM、reader/lifecycle.js 的
-// renderReaderPanels）；判定侧一律读本谓词，不反解 DOM class（CONTEXT「文摘面板」
+// ui/ui-renderer.ts 的 setReaderScriptTab 只投影 DOM、reader/settings-mode.js 投影
+// 设置模式）；判定侧一律读本谓词，不反解 DOM class（CONTEXT「文摘面板」
 // 词条的 Avoid 项）。sync 域 250ms tick 用它决定是否跳过字幕高亮/滚动段：壳未建
 // 时旧实现按可见处理，与状态默认值（标签 subtitle、抽屉未展开）等价。
 export function isReadingSubtitleBodyVisible(): boolean {

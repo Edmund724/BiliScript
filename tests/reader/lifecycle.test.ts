@@ -174,11 +174,14 @@ describe("reader 生命周期", () => {
     // 见「关闭后移动进度再重开」用例）：视频事件绑定随进入建立。
     const video = document.querySelector("video") as HTMLVideoElement;
     expect(syncRunning()).toBe(true);
+    state.reader.setSettingsExpanded(true);
 
     shell.closeReadingView();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(state.reader.readingViewOpen).toBe(false);
+    expect(state.reader.readingSettingsExpanded).toBe(false);
+    expect(document.getElementById(ids.readingSettingsPanel)?.hidden).toBe(true);
     expect(readingView.classList.contains("open")).toBe(false);
     expect(readingView.getAttribute("aria-hidden")).toBe("true");
     expect(readingView.getAttribute(READER_READY_ATTR)).toBe("0");

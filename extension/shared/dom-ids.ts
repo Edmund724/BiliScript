@@ -16,6 +16,7 @@ export const ids = {
   readingCloseBtn: "biliscript-reading-close-btn",
   readingThemeSelect: "biliscript-reading-theme-select",
   readingSettingsBtn: "biliscript-reading-settings-btn",
+  readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
   readingSettingsPanel: "biliscript-reading-settings-panel",
   readingSettingsHost: "biliscript-reading-settings-host",
   readingMeta: "biliscript-reading-meta",

@@ -14,6 +14,7 @@ import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 // 在 reader/lazy-reader 内部）。
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
+import { closeReaderSettingsMode, openReaderSettingsMode } from "../reader/settings-mode.js";
 // tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
 //（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
 // ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
@@ -75,7 +76,7 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingThemeSelect}" type="button" class="biliscript-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
                   ${themeView.icon}
                 </button>
-                <button id="${ids.readingSettingsBtn}" type="button" class="biliscript-reading-icon-btn" title="设置" aria-label="设置">
+                <button id="${ids.readingSettingsBtn}" type="button" class="biliscript-reading-icon-btn" title="设置" aria-label="设置" aria-pressed="false">
                   ${READING_HEADER_ICONS.settings}
                 </button>
                 <button id="${ids.readingCloseBtn}" type="button" class="biliscript-reading-icon-btn" title="退出" aria-label="退出阅读视图">
@@ -87,6 +88,9 @@ export function buildUiHtml(): string {
             <p id="${ids.readingStatus}" class="biliscript-reading-status" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
+              <div class="biliscript-reading-settings-subpage-header">
+                <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-settings-back-btn">← 返回</button>
+              </div>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
                    由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
                    页面本体已删除。顶部滚动/字幕/章节三开关已随三开关退役移除；
@@ -264,7 +268,7 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
 // 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
 // 在抽屉打开时装载设置面板。
 export function openReaderSettingsPanel(): void {
-  state.reader.setSettingsExpanded(true);
+  openReaderSettingsMode();
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
 
@@ -307,6 +311,8 @@ export function bindUiEvents(): void {
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
+  const readingSettingsBackBtn = byId(ids.readingSettingsBackBtn);
+  const readingHeader = readingView.querySelector<HTMLElement>(".biliscript-reading-header")!;
 
   // arch-slim-2/06 / batch2-04：三 tab 的专属绑定随模板同居各自域叶子（见文件头 import 注），
   // 壳的 bindUiEvents 只保留面板骨架交互 + 各叶子接线的一次性触发；字幕工具条相位与设置
@@ -345,10 +351,22 @@ export function bindUiEvents(): void {
       setTimeout(() => readingThemeSelect.classList.remove("is-active"), 300);
     });
   });
+  readingSettingsBackBtn.addEventListener("click", () => {
+    closeReaderSettingsMode();
+  });
   readingSettingsToggleBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    state.reader.setSettingsExpanded(!state.reader.readingSettingsExpanded);
-    withReader("reader panels render", (reader) => reader.renderReaderPanels());
+    if (state.reader.readingSettingsExpanded) {
+      closeReaderSettingsMode();
+    } else {
+      openReaderSettingsPanel();
+    }
+  });
+  readingHeader.addEventListener("click", (e) => {
+    if (!state.reader.readingSettingsExpanded) return;
+    if (e.target instanceof Element && e.target.closest("button")) return;
+    e.stopPropagation();
+    closeReaderSettingsMode();
   });
 
   // Click outside settings panel to close（单一文档级 click 委托：PR5 起同时
@@ -360,12 +378,11 @@ export function bindUiEvents(): void {
       if (!state.reader.readingSettingsExpanded) return;
       const settingsPanel = document.getElementById(ids.readingSettingsPanel);
       const settingsBtnEl = document.getElementById(ids.readingSettingsBtn);
-      if (!settingsPanel || !settingsBtnEl) {
+      if (!settingsPanel || !settingsBtnEl || readingHeader.contains(e.target as Node | null)) {
         return;
       }
       if (!settingsPanel.contains(e.target as Node | null) && !settingsBtnEl.contains(e.target as Node | null)) {
-        state.reader.setSettingsExpanded(false);
-        withReader(null, (reader) => reader.renderReaderPanels());
+        closeReaderSettingsMode();
       }
     });
     state.reader.readingDocumentClickBound = true;

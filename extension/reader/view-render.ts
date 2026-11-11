@@ -32,6 +32,7 @@ import {
 } from "./subtitle-item-dom.js";
 import { applyReadingViewPresentation } from "./presentation.js";
 import { ids } from "./state.js";
+import { projectReaderSettingsMode } from "./settings-mode.js";
 
 export interface ReaderViewProjection {
   readonly id: string;
@@ -110,11 +111,8 @@ function projectReadingSubtitleList(): void {
 // 原 options 页的全部设置项（宿主容器在 ui-renderer 模板内；模板与数据装载在
 // settings-panel 内，展开即刷新）。装载失败静默，渲染异常照旧上浮未处理拒绝。
 export function renderReaderPanels() {
-  const settingsPanel = getReaderElement(ids.readingSettingsPanel);
-  const settingsBtn = getReaderElement(ids.readingSettingsBtn);
-  settingsPanel.hidden = !state.reader.readingSettingsExpanded;
-  settingsBtn.classList.toggle("is-active", state.reader.readingSettingsExpanded);
-  if (!settingsPanel.hidden) {
+  projectReaderSettingsMode();
+  if (state.reader.readingSettingsExpanded) {
     void (async () => {
       const mod = await import("../ui/settings-panel.js").catch(() => null);
       mod?.renderReaderSettingsPanel();

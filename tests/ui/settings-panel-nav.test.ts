@@ -112,6 +112,9 @@ describe("设置抽屉顶部快速跳转导航条", () => {
 
     expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
     expect(host.querySelector('.biliscript-settings-nav-item[data-section="live"]')?.classList.contains("is-active")).toBe(true);
+    const heading = target.querySelector<HTMLElement>(".biliscript-set-h")!;
+    expect(heading.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(heading);
   });
 
   it("首次设置渲染期间的伴看定位不会丢失", async () => {

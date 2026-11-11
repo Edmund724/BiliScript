@@ -39,6 +39,7 @@ import { requestUiCommand, subscribeTabIntent } from "./reader-bus.js";
 import { saveReaderScriptTab } from "./script-tab-persistence.js";
 import { createSerialQueue } from "./serial-queue.js";
 import { setReaderActiveScriptTab, type ReaderScriptTab } from "./state.js";
+import { closeReaderSettingsMode } from "./settings-mode.js";
 // 二级激活对象都在 reader 域内：对话组合根走既有二级惰性缝（本模块不静态依赖
 // chat-tab 重域）；reader 域走既有 ensureReaderDomain 懒缝（与收口前 ui 侧
 // withReader 的等价路径，不再需要 ui 域中转）。
@@ -76,6 +77,7 @@ async function runActivation(
   tab: ReaderScriptTab,
   { consumeIntent, persist }: Required<ActivateScriptTabOptions>
 ): Promise<void> {
+  closeReaderSettingsMode();
   // ① 状态位（唯一真源）先落，DOM 三通道随后只是它的投影。
   setReaderActiveScriptTab(tab);
   // ② 写穿持久化（2026-10 用户决议：当前标签跨刷新/跨视频保留）。
