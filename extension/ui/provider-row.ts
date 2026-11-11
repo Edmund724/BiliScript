@@ -369,6 +369,7 @@ export function createProviderRow({
       //（chrome.permissions.remove 不需要用户手势）；钩子报错不阻断删除。
       row.querySelector(`.${removeClass}`)?.addEventListener("click", async () => {
         if (!(await confirmDialog({
+          title: "删除平台",
           message: "确定要删除这个平台吗？",
           confirmText: "删除",
           danger: true,

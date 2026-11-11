@@ -30,11 +30,15 @@ export function getFetchDialog(): HTMLElement | null {
   return state.host?.querySelector<HTMLElement>(".provider-editor-fetch-dialog") || null;
 }
 
-export function closeFetchDialog(): void {
-  state.host?.querySelector(".provider-editor-fetch-dialog")?.remove();
+export function closeFetchDialog(restoreFocus = true): void {
+  getFetchDialog()?.remove();
   fetchModelsCache = [];
   fetchSelected.clear();
   fetchFilter = "";
+  // 子视图关闭后归还焦点到「获取可用模型」触发键（编辑器已关时宿主已摘，无处可还）
+  if (restoreFocus && state.open) {
+    state.host?.querySelector<HTMLElement>(".provider-editor-fetch")?.focus({ preventScroll: true });
+  }
 }
 
 // 拉到的全量模型 id（子视图存活期有效）：搜索过滤与「已添加」置灰都基于它
@@ -50,7 +54,8 @@ let fetchGeneration = 0;
 export function renderFetchSkeleton(): void {
   const dialog = getDialog();
   if (!dialog) return;
-  closeFetchDialog();
+  // 重建子视图不先归还焦点：新骨架随后把焦点放回子视图自身
+  closeFetchDialog(false);
   dialog.insertAdjacentHTML("beforeend", `
     <section class="provider-editor-fetch-dialog" role="group" aria-label="获取可用模型">
       <header class="provider-editor-fetch-head">
@@ -264,6 +269,8 @@ export async function openFetchDialog(): Promise<void> {
   // 子视图代次（票 09）：重开/重试即在飞回执判死——迟到回执不得覆盖新子视图
   const generation = ++fetchGeneration;
   renderFetchSkeleton();
+  // 焦点进子视图（层内 Tab 约束由编辑器的 focus-scope 覆盖整个 Dialog）
+  getFetchDialog()?.querySelector<HTMLElement>(".provider-editor-fetch-back")?.focus({ preventScroll: true });
   // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或子视图已关/已重开
   // （代次不匹配）即丢弃，不再触发注定过期的模型请求。
   const session = captureSession(
@@ -275,7 +282,9 @@ export async function openFetchDialog(): Promise<void> {
     {
       ok: () => {},
       denied: (error) => {
-        renderFetchError(error || "未取得该平台域名权限，无法拉取模型列表");
+        renderFetchError(
+          `未拉取：${error || "未取得该平台域名权限，无法拉取模型列表"}。请重新授权后重试`
+        );
       }
     }
   );

@@ -88,11 +88,12 @@ export function normalizeDraftModels(models: readonly string[]): string[] {
 
 // 保存回调（settings-panel 注入）：现查-合并-落盘-重渲与权限申请收口在
 // settings-panel 的单点保存事务（provider-transaction.upsertProvider），本模块
-// 只传 upsert。返回 error 时 Modal 内状态行显示、不关。
+// 只传 upsert。返回 error 时 Modal 内状态行显示、不关；permissionDenied 标记
+// 「域名权限被拒导致未保存」，让 Modal 与落盘失败区分反馈。
 export type ProviderEditorSave = (
   kind: ProviderEditorKind,
   upsert: ProviderRowItem
-) => Promise<{ ok: boolean; error?: string }>;
+) => Promise<{ ok: boolean; error?: string; permissionDenied?: boolean }>;
 
 // 删除回调（settings-panel 注入，仅编辑态提供）：回收 orphan origin + 删除
 // 消息 + 列表重渲都收口在同一事务（provider-transaction.deleteProvider），本模块

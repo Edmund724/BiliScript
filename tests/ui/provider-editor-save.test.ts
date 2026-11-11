@@ -125,6 +125,7 @@ describe("Modal 保存：三族序列化走族声明（替源码切片断言）"
       saveType: "asr-providers-save",
       fill: (dialog) => {
         setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+        setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
         setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
       },
       expected: {

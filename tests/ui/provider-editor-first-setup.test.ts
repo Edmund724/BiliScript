@@ -171,7 +171,7 @@ describe("首配会话回调", () => {
     expect(onSessionEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("重复保存：两次落盘同一 upsert；首次保存已关 Modal，装配方出口只触发一次", async () => {
+  it("重复保存：合法提交在飞时忽略后一次，只落盘一次、装配方出口只触发一次", async () => {
     const onSave = vi.fn(async (_kind: string, _upsert: ProviderRowItem) => ({ ok: true }));
     const onAfterSave = vi.fn();
     const { save } = await import("../../extension/ui/provider-editor-modal.js");
@@ -180,11 +180,10 @@ describe("首配会话回调", () => {
     void save();
     void save();
     await vi.waitFor(() => {
-      expect(onSave).toHaveBeenCalledTimes(2);
+      expect(onSave).toHaveBeenCalledTimes(1);
     });
-    // 第二次保存的落盘仍在（事务幂等），但首次保存已收掉 Modal 与回调槽——
-    // 装配方出口（消费续跑意图）绝不重复触发。
+    // 首次保存收掉 Modal 与回调槽——装配方出口（消费续跑意图）绝不重复触发
     expect(onAfterSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][1]).toEqual(onSave.mock.calls[1][1]);
+    expect(dialog()).toBeNull();
   });
 });
