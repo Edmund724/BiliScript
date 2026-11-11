@@ -694,7 +694,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(allAssistantBubbles[1].classList.contains("is-streaming")).toBe(false);
   });
 
-  it("未拖动时贴右上角，拖动后以相对右上角偏移保存，容器尺寸变化（进出全屏）保持偏移", () => {
+  it("拖拽后吸附右侧，展开态继承锚点，容器缩放后重新钳制", async () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -715,21 +715,18 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       toJSON: () => {}
     });
 
-    // 1. 未拖动时，没有 inline left，依靠 CSS 贴右上角
     expect(capsule.style.left).toBe("");
 
-    // 2. 拖动胶囊向左 40px, 向下 30px (clientX: 950 -> 910, clientY: 20 -> 50)
     capsule.dispatchEvent(new PointerEvent("pointerdown", { clientX: 950, clientY: 20 }));
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: 910, clientY: 50 }));
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: 910, clientY: 50 }));
+    capsule.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
 
-    // 初始距离右边: 1000 - 984 = 16px. deltaX = -40, nextRight = 16 - (-40) = 56px.
-    // 初始距离顶边: 16px. deltaY = +30, nextTop = 16 + 30 = 46px.
-    expect(capsule.style.right).toBe("56px");
+    expect(capsule.style.right).toBe("16px");
     expect(capsule.style.top).toBe("46px");
     expect(capsule.style.left).toBe("auto");
+    expect(overlay.isMinimized()).toBe(true);
 
-    // 3. 点击胶囊展开，展开态也继承该右上角偏移
     const el = overlay.getElement()!;
     el.getBoundingClientRect = () => ({
       left: 624,
@@ -746,11 +743,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: 910, clientY: 50 }));
 
     expect(overlay.isMinimized()).toBe(false);
-    expect(el.style.right).toBe("56px");
+    expect(el.style.right).toBe("16px");
     expect(el.style.top).toBe("46px");
     expect(el.style.left).toBe("auto");
 
-    // 4. 模拟容器尺寸改变（如进入全屏：1000px -> 1920px）
     playerHost.getBoundingClientRect = () => ({
       left: 0,
       top: 0,
@@ -762,9 +758,10 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       y: 0,
       toJSON: () => {}
     });
+    window.dispatchEvent(new Event("resize"));
+    await Promise.resolve();
 
-    // 浮窗 inline style.right 仍为 56px，保持与右上角偏移，不使用像素 left
-    expect(el.style.right).toBe("56px");
+    expect(el.style.right).toBe("16px");
     expect(el.style.top).toBe("46px");
     expect(el.style.left).toBe("auto");
   });
@@ -849,6 +846,136 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(notice.hidden).toBe(false);
     expect(notice.getAttribute("role")).toBe("status");
     expect(notice.textContent).toContain("1013");
+    overlay.dispose();
+  });
+
+  it("展开浮窗拖拽后吸附左侧，兼容点击不误挂断，胶囊继承位置", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    root.getBoundingClientRect = () => ({
+      left: 664,
+      top: 16,
+      right: 984,
+      bottom: 416,
+      width: 320,
+      height: 400,
+      x: 664,
+      y: 16,
+      toJSON: () => {}
+    });
+    const header = root.querySelector<HTMLElement>(".live-overlay-header")!;
+
+    header.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 800, clientY: 20 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 200, clientY: 80 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 200, clientY: 80 }));
+    root.querySelector<HTMLButtonElement>(".live-overlay-close-btn")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+
+    expect(root.style.left).toBe("16px");
+    expect(root.style.right).toBe("auto");
+    expect(root.style.top).toBe("76px");
+    expect(overlay.isMinimized()).toBe(false);
+    expect(onStopLive).not.toHaveBeenCalled();
+
+    root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+    expect(overlay.isMinimized()).toBe(true);
+    expect(overlay.getMiniCapsuleElement()?.style.left).toBe("16px");
+    expect(overlay.getMiniCapsuleElement()?.style.top).toBe("76px");
+  });
+
+  it("浏览器全屏进出时迁移原浮窗与胶囊并保持展开状态", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
+    let fullscreenElement: HTMLElement | null = null;
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreenElement
+    });
+    const getLiveController = vi.fn(() => mockController as LiveChatController);
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController
+    });
+
+    try {
+      overlay.show({ forceExpand: true });
+      const root = overlay.getElement()!;
+      const capsule = overlay.getMiniCapsuleElement()!;
+      const fullscreenHost = document.createElement("div");
+      fullscreenHost.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        right: 1920,
+        bottom: 1080,
+        width: 1920,
+        height: 1080,
+        x: 0,
+        y: 0,
+        toJSON: () => {}
+      });
+      document.body.appendChild(fullscreenHost);
+      fullscreenElement = fullscreenHost;
+      const controllerCalls = getLiveController.mock.calls.length;
+      document.dispatchEvent(new Event("fullscreenchange"));
+      await Promise.resolve();
+
+      expect(root.parentElement).toBe(fullscreenHost);
+      expect(capsule.parentElement).toBe(fullscreenHost);
+      expect(overlay.getElement()).toBe(root);
+      expect(overlay.getMiniCapsuleElement()).toBe(capsule);
+      expect(overlay.isMinimized()).toBe(false);
+      expect(getLiveController).toHaveBeenCalledTimes(controllerCalls);
+
+      fullscreenElement = null;
+      document.dispatchEvent(new Event("fullscreenchange"));
+      await Promise.resolve();
+      expect(root.parentElement).toBe(playerHost);
+      expect(capsule.parentElement).toBe(playerHost);
+      expect(overlay.isMinimized()).toBe(false);
+    } finally {
+      overlay.dispose();
+      if (descriptor) {
+        Object.defineProperty(document, "fullscreenElement", descriptor);
+      } else {
+        delete (document as unknown as { fullscreenElement?: Element | null }).fullscreenElement;
+      }
+    }
+  });
+
+  it("播放器宿主替换时迁移原节点，不重建控制器或重置迷你状态", async () => {
+    let currentHost = playerHost;
+    const getLiveController = vi.fn(() => mockController as LiveChatController);
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => currentHost,
+      getLiveController
+    });
+    overlay.show();
+    const root = overlay.getElement()!;
+    const capsule = overlay.getMiniCapsuleElement()!;
+    const controllerCalls = getLiveController.mock.calls.length;
+    const replacementHost = document.createElement("div");
+    replacementHost.className = "bpx-player-container";
+    replacementHost.getBoundingClientRect = playerHost.getBoundingClientRect;
+    currentHost = replacementHost;
+    document.body.appendChild(replacementHost);
+    playerHost.remove();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(root.parentElement).toBe(replacementHost);
+    expect(capsule.parentElement).toBe(replacementHost);
+    expect(overlay.getElement()).toBe(root);
+    expect(overlay.getMiniCapsuleElement()).toBe(capsule);
+    expect(overlay.isMinimized()).toBe(true);
+    expect(getLiveController).toHaveBeenCalledTimes(controllerCalls);
+
+    capsule.click();
+    expect(overlay.isMinimized()).toBe(false);
+    expect(overlay.getElement()).toBe(root);
     overlay.dispose();
   });
 });
