@@ -41,9 +41,9 @@ describe("本地 Agent 设置", () => {
       if (!element) throw new Error("安装 Prompt 弹窗未打开");
       return element;
     });
-    expect(prompt.value).toContain("npx skills add Edmund724/BiliScript");
-    expect(prompt.value).toContain("scripts/biliscript.mjs");
-    expect(prompt.value).toContain("extensionOnline");
+    expect(prompt.value).toContain("irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex");
+    expect(prompt.value).toContain("去连接");
+    expect(prompt.value).toContain("完整错误");
     expect(prompt.value.length).toBeLessThan(300);
     expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     expect(sent).toContainEqual({ type: "agent-bridge-connect" });
@@ -129,6 +129,6 @@ describe("本地 Agent 设置", () => {
       if (!element) throw new Error("安装 Prompt 弹窗未打开");
       return element;
     });
-    expect(prompt.value).toContain("BILISCRIPT_BRIDGE_PORT=19000");
+    expect(prompt.value).toContain("$env:BILISCRIPT_BRIDGE_PORT='19000'; irm ");
   });
 });

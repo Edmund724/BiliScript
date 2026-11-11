@@ -5,13 +5,12 @@ import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 
 export function buildAgentBridgeInstallPrompt(address: string): string {
   const port = new URL(address).port;
-  const portStep = port === "18492"
+  const portPrefix = port === "18492"
     ? ""
-    : `（先在同一环境设置 BILISCRIPT_BRIDGE_PORT=${port}）`;
-  return `请帮我安装并启动 BiliScript 本地 Agent：
-1. 执行：npx skills add Edmund724/BiliScript
-2. 按已安装技能的 SKILL.md 启动本地 Bridge${portStep}。
-3. 运行 node "<技能目录>/scripts/biliscript.mjs" status，确认 extensionOnline 为 true，再提醒我回扩展点击「去连接」。若失败，请给出完整错误。`;
+    : `$env:BILISCRIPT_BRIDGE_PORT='${port}'; `;
+  return `请使用以下命令帮我安装并配置 BiliScript 本地 Agent：
+${portPrefix}irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex
+完成后提醒我回扩展点击「去连接」。若失败，请给出完整错误。`;
 }
 
 interface DialogState {

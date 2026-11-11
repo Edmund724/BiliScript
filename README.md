@@ -105,14 +105,16 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
 需要让 Antigravity、Codex、Claude Code 等本地 Agent 读取视频字幕、热评和关键帧时，再启用此功能：
 
-1. 打开 B 站视频右侧的文摘面板，进入「设置 → 本地 Agent」，点击「去连接」。桥接默认关闭，只连接本机 `127.0.0.1`；默认地址为 `ws://127.0.0.1:18492`，可在「连接地址」中测试、修改或恢复默认。连接失败时，可在弹窗中复制完整安装 Prompt 并发给自己的 Agent。
-2. 在需要使用技能的 Agent 项目目录运行以下命令，按提示选择 `biliscript` 技能与目标 Agent：
+1. 打开 B 站视频右侧的文摘面板，进入「设置 → 本地 Agent」，点击「去连接」。桥接默认关闭，只连接本机 `127.0.0.1`；默认地址为 `ws://127.0.0.1:18492`，可在「连接地址」中测试、修改或恢复默认。连接失败时，可在弹窗中复制一键安装指令并发给自己的 Agent。
+2. Windows 用户也可直接在 PowerShell 运行：
 
-   ```bash
-   npx skills add Edmund724/BiliScript
+   ```powershell
+   irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex
    ```
 
-   如需对所有项目启用，可使用 `npx skills add Edmund724/BiliScript -g`。技能内置零依赖 CLI，安装后可在任意工作目录运行。
+   脚本会免交互安装 Skill 和内置 CLI 到 `~/.agents/skills/biliscript`，启动本地 Bridge 并检查扩展连接；无需 `npx` 或 `git clone`。下载优先使用 GitHub ZIP，失败后自动改用 jsDelivr；失效的会话代理只会在安装进程内被绕开或替换，不修改系统代理设置。
+
+   其他系统或需要安装到 Claude Code 等其他 Agent 时，可手动运行 `npx -y skills add Edmund724/BiliScript -g -y`，再按技能说明启动 Bridge。
 3. 让 Agent 分析当前 B 站视频或提供 BV 号/视频链接。Agent 会按需获取字幕与热评、截取关键时间点画面并读取本地图片；未打开视频的无字幕转写仍使用你在扩展中配置的 ASR 平台。
 
 CLI 与扩展之间的数据不经过第三方服务器；后续分析产生的数据传输遵循所用 Agent 的模型与隐私设置。
