@@ -46,7 +46,20 @@ import { isProviderEditorOpen } from "./provider-editor.js";
 import { cleanExpiredConversations } from "../chat/conversation-store.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectValue } from "./custom-select.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { buildModelOptionValue, parseModelOptionValue } from "../shared/selected-provider.js";
+import { buildModelOptionValue, parseModelOptionValue, SELECTED_PROVIDER_KEY } from "../shared/selected-provider.js";
+import {
+  readChatSelectedModel,
+  resolveAiActiveModelProjection,
+  resolveSubtitleFollowProjection,
+  type AiActiveModelProjection
+} from "../ai/active-model-projection.js";
+import {
+  formatAiDefaultSummaryLine,
+  formatChatSelectionLine,
+  formatSubtitleFollowHint,
+  syncAiDefaultBadge
+} from "./ai-active-projection.js";
+import { AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE } from "../core/ai-provider-store.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
@@ -168,6 +181,9 @@ function collectElements(host: HTMLElement) {
     toggleSearchChainBtn: byIdIn<HTMLElement>(dom.toggleSearchChainBtn),
     searchChainContainer: byIdIn<HTMLElement>(dom.searchChainContainer),
     searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
+    aiActiveDefaultSummary: byIdIn<HTMLElement>(dom.aiActiveDefaultSummary),
+    aiChatSelectionSummary: byIdIn<HTMLElement>(dom.aiChatSelectionSummary),
+    subtitleTranslateFollowHint: byIdIn<HTMLElement>(dom.subtitleTranslateFollowHint),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
   };
@@ -639,7 +655,7 @@ function renderSubtitleTranslateModelOptions(
     }))
     .filter((g) => g.models.length > 0);
 
-  let html = '<option value="">跟随默认模型</option>';
+  let html = '<option value="">跟随 AI 默认平台</option>';
   for (const group of groups) {
     const providerId = String(group.provider.id || "");
     const providerLabel = String(group.provider.name || group.provider.model || "自定义").trim() || "自定义";
@@ -670,6 +686,64 @@ function renderSubtitleTranslateModelOptions(
   initCustomSelect(selectEl, "custom-select-wrapper");
 }
 
+// ===== 生效投影刷新（票 05）=====
+// 概览/解释缺省摘要、对话另选提示、默认行徽标与字幕跟随提示共用一次刷新：
+// 数据全部来自 ai/active-model-projection.ts（与真实请求同一解析链），本函数
+// 只做展示落盘。任何失败静默——投影是展示增强，不阻断设置面板主链。
+// providers 为调用方已查到的列表（loadSettings / AI 族重渲路径直接复用，不再
+// 多发一轮 ai-providers-list）；缺省（跨端 storage 刷新路径）才现查。
+async function refreshAiActiveProjection(
+  elements: SettingsElements,
+  knownProviders?: ProviderRowItem[]
+): Promise<void> {
+  try {
+    const [projection, subtitleFollow, providers] = await Promise.all([
+      resolveAiActiveModelProjection(),
+      resolveSubtitleFollowProjection(),
+      knownProviders ? Promise.resolve(knownProviders) : loadAiProviders()
+    ]);
+    elements.aiActiveDefaultSummary.textContent = formatAiDefaultSummaryLine(projection);
+    syncAiDefaultBadge(
+      elements.aiProvidersList,
+      projection.state === "ok" ? String(projection.provider.id || "") : "",
+      projection.state === "ok" ? projection.model : ""
+    );
+    const chatLine = formatChatSelectionLine(await resolveChatOverride(projection, providers));
+    elements.aiChatSelectionSummary.hidden = !chatLine;
+    elements.aiChatSelectionSummary.textContent = chatLine;
+    const followHint = formatSubtitleFollowHint(subtitleFollow);
+    elements.subtitleTranslateFollowHint.hidden = !followHint;
+    elements.subtitleTranslateFollowHint.textContent = followHint;
+  } catch {
+    // 投影刷新失败保留上一帧展示，不打扰设置主链
+  }
+}
+
+// 对话另选判定：对话 tab 的 storage 选中项解析到「启用平台 + 目录内模型」，且
+// 与生效投影不同（平台或模型任一不同）才算另选——选中项悬空 / 指向禁用平台时
+// 对话自己会回落，不算另选。名称解析与翻译模型下拉的标签口径一致。
+async function resolveChatOverride(
+  projection: AiActiveModelProjection,
+  providers: ProviderRowItem[]
+): Promise<{ providerId: string; name: string; model: string } | null> {
+  if (projection.state !== "ok") return null;
+  const selected = await readChatSelectedModel();
+  const selectedProviderId = String(selected.providerId || "").trim();
+  const selectedModel = String(selected.model || "").trim();
+  if (!selectedProviderId || !selectedModel) return null;
+  if (
+    selectedProviderId === String(projection.provider.id || "") &&
+    selectedModel === projection.model
+  ) {
+    return null;
+  }
+  const provider = (providers || []).find((item) => String(item?.id || "") === selectedProviderId);
+  if (!provider || provider.enabled === false) return null;
+  if (!normalizeProviderModels(provider).includes(selectedModel)) return null;
+  const name = String(provider.name || provider.model || "自定义").trim() || "自定义";
+  return { providerId: selectedProviderId, name, model: selectedModel };
+}
+
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
@@ -689,6 +763,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
     settings.subtitleTranslateProviderId,
     settings.subtitleTranslateModel
   );
+  void refreshAiActiveProjection(elements, providers);
 
   // 实时伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const liveProviders = await loadLiveProviders();
@@ -995,6 +1070,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
           settings.subtitleTranslateModel
         );
       });
+      void refreshAiActiveProjection(elements, providers);
     },
     optionalHostPermission: true
   },
@@ -1598,6 +1674,20 @@ function bindSettingsEvents(host: HTMLElement): void {
         "subtitleTranslateProviderId",
         "subtitleTranslateModel"
       ]
+    }
+  );
+
+  // 生效投影跨端同步（票 05）：默认平台记录（settings.defaultModel）、平台列表 /
+  // 密钥存储（aiProviders / aiProviderKeys，他端增删改启停）与对话选中项
+  // （biliscript_ai_selected_provider）任一变更加发一次投影刷新——摘要、默认
+  // 徽标与字幕跟随提示随之更新，不展示陈旧状态。
+  watchStorageKeys(
+    () => {
+      void refreshAiActiveProjection(collectElements(host));
+    },
+    {
+      sync: ["defaultModel", AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE],
+      local: [SELECTED_PROVIDER_KEY]
     }
   );
 }

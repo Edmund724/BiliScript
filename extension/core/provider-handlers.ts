@@ -221,7 +221,9 @@ export interface AiResolvedProviderHandlerDeps {
 }
 
 // 解析策略双档：providerId 给定 = 精确匹配（offscreen 聊天链，找不到即报错）；
-// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释）。
+// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释）。回落
+// 发生时响应带 isFallback: true（票 05 生效投影展示真实回落，判定在解析权威
+// 这一侧产出，消费方不重复实现回落逻辑）。
 // requiresKey !== false 且密钥缺失在解析期即拒绝——content 侧此前不校验、会
 // 拖到 HTTP 期才失败，两调用方统一收紧（arch-slim-3/09 行为裁决）。回包
 // provider 为平台记录（含 hasSavedKey、不含明文 Key），apiKey 单列。
@@ -250,6 +252,7 @@ export function createAiResolvedProviderHandler({
             && String(item.id || "").trim() !== ""
         );
         let provider: ProviderListEntry | null = null;
+        let isFallback = false;
         if (requestedId) {
           provider = enabled.find((item) => String(item.id) === requestedId) || null;
           if (!provider) {
@@ -262,6 +265,10 @@ export function createAiResolvedProviderHandler({
           if (!provider) {
             throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
           }
+          // 回落事实由解析权威自报（设置面板生效投影直接展示，见协议
+          // ResolveAiProviderResponse.isFallback）：显式默认记录存在且解析结果
+          // 不是它 = 真实回落；无显式默认时首项即缺省，不算回落。
+          isFallback = preferredId !== "" && String(provider.id) !== preferredId;
         }
         const providerId = String(provider.id);
         const keys = (await loadKeys()) || {};
@@ -269,7 +276,13 @@ export function createAiResolvedProviderHandler({
         if (provider.requiresKey !== false && !apiKey) {
           throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
         }
-        return { ok: true, provider, apiKey };
+        return {
+          ok: true,
+          provider,
+          apiKey,
+          // 回落标记只在确为回落时携带（缺省不携带），存量消费方回包形状不变。
+          ...(isFallback ? { isFallback: true } : {})
+        };
       })(),
       sendResponse,
       (error) => (error as Error)?.message || String(error)

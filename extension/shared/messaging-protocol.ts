@@ -231,10 +231,13 @@ export type ResolveAiProviderMessage = {
 };
 // 响应锚点：core/provider-handlers.ts createAiResolvedProviderHandler——
 // provider 为平台记录（不含明文 Key，与列表条目同形），apiKey 单列回传。
+// isFallback 仅在缺省档「显式默认不可用、已回落到别的启用平台」时带上（缺省
+// 不携带）——设置面板的生效投影（票 05）据此标注真实回落，不另写回落判定。
 export type ResolveAiProviderResponse = {
   ok: boolean;
   provider?: ProviderListEntry;
   apiKey?: string;
+  isFallback?: boolean;
   error?: string;
 };
 

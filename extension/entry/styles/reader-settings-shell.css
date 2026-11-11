@@ -464,6 +464,11 @@
   color: var(--biliscript-reader-faint);
 }
 
+/* 生效投影摘要组（票 05）：缺省摘要与对话另选提示上下相邻时的间距 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-hint + .biliscript-set-hint {
+  margin-top: var(--biliscript-space-4);
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row {
   display: grid;
   gap: var(--biliscript-space-6);

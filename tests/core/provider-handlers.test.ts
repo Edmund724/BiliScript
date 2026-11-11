@@ -334,6 +334,48 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     expect((await fallbackChannel.response).provider.id).toBe("p1");
   });
 
+  it("缺省档回落自报 isFallback：显式默认命中不携带，悬空默认回落带 true（票 05 投影标注真实回落）", async () => {
+    const matchedDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "p1" }))
+    });
+    const matchedHandler = createAiResolvedProviderHandler(matchedDeps);
+    const matchedChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    matchedHandler({}, {}, matchedChannel.sendResponse);
+    const matchedPayload = await matchedChannel.response;
+    expect(matchedPayload.ok).toBe(true);
+    expect("isFallback" in matchedPayload).toBe(false);
+
+    const fallbackDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "ghost" }))
+    });
+    const fallbackHandler = createAiResolvedProviderHandler(fallbackDeps);
+    const fallbackChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    fallbackHandler({}, {}, fallbackChannel.sendResponse);
+    expect(await fallbackChannel.response).toMatchObject({ ok: true, isFallback: true });
+
+    // 无显式默认（defaultModel 为空）：首项即缺省，不算回落
+    const noExplicitDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "" }))
+    });
+    const noExplicitHandler = createAiResolvedProviderHandler(noExplicitDeps);
+    const noExplicitChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    noExplicitHandler({}, {}, noExplicitChannel.sendResponse);
+    const noExplicitPayload = await noExplicitChannel.response;
+    expect(noExplicitPayload.ok).toBe(true);
+    expect("isFallback" in noExplicitPayload).toBe(false);
+  });
+
+  it("providerId 精确匹配档不携带 isFallback（无回落语义）", async () => {
+    const deps = makeResolvedDeps();
+    const handler = createAiResolvedProviderHandler(deps);
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+
+    handler({ providerId: "p2" }, {}, sendResponse);
+    const payload = await response;
+    expect(payload.ok).toBe(true);
+    expect("isFallback" in payload).toBe(false);
+  });
+
   it("无启用平台 → { ok: false, error: NO_ACTIVE_PROVIDER_MESSAGE }", async () => {
     const deps = makeResolvedDeps({ loadProviders: vi.fn(async () => []) });
     const handler = createAiResolvedProviderHandler(deps);

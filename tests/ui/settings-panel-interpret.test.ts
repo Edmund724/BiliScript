@@ -98,7 +98,7 @@ describe("设置面板同声传译字幕", () => {
 
     const select = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
     expect(select.options[0]?.value).toBe("");
-    expect(select.options[0]?.textContent).toBe("跟随默认模型");
+    expect(select.options[0]?.textContent).toBe("跟随 AI 默认平台");
 
     const optgroups = Array.from(select.querySelectorAll("optgroup"));
     expect(optgroups).toHaveLength(2);
