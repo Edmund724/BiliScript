@@ -26,6 +26,7 @@ export interface ConfirmDialogOptions {
   // 确认键警示着色（删除等破坏性动作）：红底白字，token 与
   // provider-editor-delete 同源的 --biliscript-reader-danger 系
   danger?: boolean;
+  mountHost?: HTMLElement;
 }
 
 interface ConfirmState {
@@ -73,7 +74,7 @@ let resolvePending: (result: boolean) => void = () => {};
 // 联动结算）。点在 view 内（mask/按钮）正常放行，由宿主委托结算。
 function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
-  const view = document.getElementById(ids.readingView);
+  const view = state.host?.parentElement || document.getElementById(ids.readingView);
   if (view && event.target instanceof Node && view.contains(event.target)) {
     return;
   }
@@ -83,7 +84,12 @@ function onDocumentClickCapture(event: MouseEvent): void {
 
 function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
+  event.preventDefault();
   event.stopPropagation();
+  settle(state.generation, false);
+}
+
+export function closeConfirmDialog(): void {
   settle(state.generation, false);
 }
 
@@ -92,7 +98,7 @@ function onDocumentKeyDownCapture(event: KeyboardEvent): void {
 export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   // 重复打开：先作废旧弹层（按取消结算），新弹层接管
   settle(state.generation, false);
-  const view = document.getElementById(ids.readingView);
+  const view = options.mountHost || document.getElementById(ids.readingView);
   if (!view) {
     // 阅读视图不在（设置 UI 未挂载）：没有可弹的界面，按取消结算
     return Promise.resolve(false);

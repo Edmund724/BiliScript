@@ -16,7 +16,6 @@ import {
 } from "../bilibili/player-control-mount.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
-import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
@@ -32,16 +31,48 @@ let toggleButton: HTMLButtonElement | null = null;
 let containerObserverHandle: PlayerContainerObserverHandle | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
 let currentRoomId = "";
+let settingsRequestId = 0;
+let settingsModule: typeof import("./live-room-settings.js") | null = null;
 
 function findPlayerHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
+}
+
+function closeLiveRoomSettings(): void {
+  settingsRequestId += 1;
+  settingsModule?.closeLiveRoomSettings();
+}
+
+async function reconnectLive(roomId: string): Promise<boolean> {
+  const currentController = controller;
+  if (!currentController || roomId !== currentRoomId) return false;
+  await currentController.refreshTarget();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  await currentController.stop();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  return currentController.start();
 }
 
 const overlayBinding = createLiveOverlayBinding({
   getPlayerHost: findPlayerHost,
   getLiveController: () => controller,
   onOpenLiveSettings: (target) => {
-    void openRoomSettings(target);
+    const requestId = ++settingsRequestId;
+    const roomId = currentRoomId;
+    void import("./live-room-settings.js")
+      .then(async (settings) => {
+        if (requestId !== settingsRequestId || roomId !== currentRoomId) return;
+        settingsModule = settings;
+        await settings.openLiveRoomSettings(target, findPlayerHost, {
+          getState: () => controller?.getState() ?? "idle",
+          reconnect: () => reconnectLive(roomId)
+        });
+      })
+      .catch(() => {
+        if (requestId === settingsRequestId && roomId === currentRoomId) {
+          showNotice("伴看设置加载失败，请重试");
+        }
+      });
   }
 });
 
@@ -54,22 +85,6 @@ function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): vo
   notice.textContent = message;
   host.appendChild(notice);
   window.setTimeout(() => notice.remove(), autoHideMs);
-}
-
-async function openRoomSettings(target: LiveSettingsTarget): Promise<void> {
-  try {
-    const settings = await import("./live-room-settings.js");
-    await settings.openLiveRoomSettings(target, findPlayerHost);
-  } catch {
-    showNotice("伴看设置加载失败，请重试");
-  }
-}
-
-async function closeRoomSettings(): Promise<void> {
-  try {
-    const settings = await import("./live-room-settings.js");
-    settings.closeLiveRoomSettings();
-  } catch {}
 }
 
 function syncToggleButton(liveState: string): void {
@@ -125,7 +140,7 @@ function handleRoomChange(): void {
   const nextRoomId = parseLiveRoomId();
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
-  void closeRoomSettings();
+  closeLiveRoomSettings();
   void controller?.stop();
   overlayBinding.clearMessages();
 }
@@ -156,7 +171,7 @@ export async function startLiveRoomCompanion(): Promise<void> {
       onStateChange: syncToggleButton
     })
   });
-  void controller.refreshTarget();
+  await controller.refreshTarget();
   unsubscribeStorageWatcher = watchStorageKeys(
     () => {
       void controller?.refreshTarget();
@@ -189,7 +204,7 @@ export function stopLiveRoomCompanion(): void {
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.removeEventListener("navigatesuccess", handleRoomChange);
   window.removeEventListener("popstate", handleRoomChange);
-  void closeRoomSettings();
+  closeLiveRoomSettings();
   void controller?.stop();
   controller = null;
   toggleButton?.remove();

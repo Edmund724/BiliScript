@@ -1185,20 +1185,68 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--biliscript-reader-hover, rgb(255 255 255 / 0.12));
-  color: inherit;
-  font-size: var(--biliscript-font-size-xl);
+  background: rgb(23 24 26 / 0.08);
+  color: rgb(23 24 26);
+  font-size: var(--biliscript-font-size-2xl, 22px);
   line-height: 1;
   cursor: pointer;
 }
 
 .biliscript-live-room-settings-view {
+  position: relative;
   height: 100%;
   min-height: 0;
 }
 
-.biliscript-live-room-settings-view .biliscript-reading-settings-panel {
+#biliscript-live-room-settings #biliscript-reading-settings-panel {
   height: 100%;
   max-height: none;
   overflow-y: auto;
+  opacity: 1;
+  transition: none;
+}
+
+#biliscript-live-room-settings .biliscript-set-header-row {
+  padding-right: 44px;
+}
+
+.biliscript-live-room-settings-status {
+  min-height: 20px;
+  margin: 12px 0 0;
+}
+
+.biliscript-live-room-settings-status[data-error="true"] {
+  color: var(--biliscript-reader-danger, rgb(248 113 113));
+}
+
+.biliscript-live-room-settings-reconnect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--biliscript-reader-border, rgb(255 255 255 / 0.16));
+  border-radius: var(--biliscript-radius-card, 10px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface-2, rgb(255 255 255 / 0.06));
+}
+
+.biliscript-live-room-settings-reconnect[hidden] {
+  display: none;
+}
+
+.biliscript-live-room-settings-reconnect-btn {
+  flex: none;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill, 999px);
+  background: var(--biliscript-reader-accent, rgb(96 165 250));
+  color: var(--biliscript-reader-on-accent, rgb(15 23 42));
+  cursor: pointer;
+}
+
+.biliscript-live-room-settings-reconnect-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }

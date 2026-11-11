@@ -354,6 +354,7 @@ export interface FamilyRowsBinding {
 export interface CreateFamilyRowsDeps {
   // 行「编辑」按钮回调（settings-panel 注入：打开 provider-editor Modal）
   onRowEdit: (kind: ProviderEditorKind, providerId: string) => void;
+  getConfirmMountHost?: () => HTMLElement | null;
 }
 
 export type ProviderFamilyRows = Record<ProviderEditorKind, FamilyRowsBinding>;
@@ -376,6 +377,7 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         buildTailFields: activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),
+        getConfirmMountHost: deps.getConfirmMountHost,
         buildDeleteMessage: decl.buildDeleteMessage
       });
       const render: FamilyRowsBinding["render"] = (listNode, emptyNode, items, options) =>
