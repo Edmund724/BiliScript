@@ -91,6 +91,18 @@ import {
   toggleBilingualSubtitles
 } from "./secondary-subtitle.js";
 import type { SecondaryColumnView, SecondaryEnsureOutcome } from "./secondary-subtitle.js";
+// 伪轨视频的译文副轨（票 asr-panel-translation）：本叶子只做场景判定、选项行投影与
+// 动作转发；调度/缓存/写槽在链层（subtitle/asr-translation），在飞与进度的事实住
+// reader/asr-translation。
+import {
+  cancelAsrTranslation,
+  ensureAsrTranslation,
+  hasAsrPseudoTrack,
+  resolveAsrTranslationView,
+  selectAsrTranslationLanguage
+} from "./asr-translation.js";
+import type { AsrTranslationView } from "./asr-translation.js";
+import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../live/interpret-subtitle-preferences.js";
 // 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
 //（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
 // change 处理器（主列 finally / 副列 settled 与同轨防呆的同步收尾）。
@@ -260,6 +272,10 @@ export interface SubtitleToolbarFacts {
   switchInFlight: string | null;
   // 副列六态模型（secondary-subtitle.ts 的判定叶产出）
   secondaryColumn: SecondaryColumnView;
+  // 伪轨视频（自配平台转写）：副列的选项来源换成译文目标语言，开关改为「译文副行」
+  asrScenario: boolean;
+  // 译文副轨的面板事实（reader/asr-translation 的同步投影）
+  asrTranslation: AsrTranslationView;
 }
 
 // 唯一取数点：主列三态与双语卡片所需的全部事实。
@@ -279,7 +295,9 @@ export function selectSubtitleToolbarFacts(switchInFlight: string | null = null)
       preferenceLang: state.settings.secondarySubtitleLang,
       slotState: state.clip.secondarySubtitle.state,
       loadInFlight: isSecondarySubtitleLoadInFlight()
-    })
+    }),
+    asrScenario: isAsrTranslationScenario(tracks),
+    asrTranslation: resolveAsrTranslationView()
   };
 }
 
@@ -567,6 +585,10 @@ const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
 // 本叶子只出这两条自己的 DOM 文案：重试行与单轨提示。
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
+// 副列列首标题：CC 视频列的是第二条轨，伪轨视频列的是译文目标语言（票
+// asr-panel-translation）。骨架节点不变，只换文案。
+const SUB_HEAD_TEXT_TRACK = "副字幕";
+const SUB_HEAD_TEXT_TRANSLATION = "译文";
 
 // 副列在飞值不再自持：装载事务的登记在 reader/secondary-subtitle.ts（唯一一份），
 // 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见
@@ -580,10 +602,24 @@ function loadableSecondaryTracks(tracks: SubtitleTrack[]): SubtitleTrack[] {
   return tracks.filter((track) => String(track.subtitleUrl || "").trim().length > 0);
 }
 
+// 伪轨视频的译文场景（票 asr-panel-translation）：伪轨在场**且**本视频没有第二条可装载
+// 真轨。混合来源（真轨 ≥ 2 + 伪轨）仍走轨列表——那是「切轨」的活儿，译文副列只在
+// 「配不出第二路轨」时接管副列。
+function isAsrTranslationScenario(tracks: SubtitleTrack[]): boolean {
+  return hasAsrPseudoTrack(tracks) && loadableSecondaryTracks(tracks).length < 2;
+}
+
+// 事件处理器读「当前」轨列（投影每拍自己取数；处理器在动作发生的那一刻才读）。
+function currentTracks(): SubtitleTrack[] {
+  return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+}
+
 // 本视频能不能配对（Q7）：可装载轨 < 2 ⇒ 开关禁用。零轨（抓取前 / 空态）同样禁用，
 // 此时列表区由主列的哨兵说明，不再叠一行说明。
+// 伪轨视频是唯一的例外（票 asr-panel-translation）：第二条「路」是同一原文段的译文，
+// 副列列的是译文目标语言，配对不需要第二条真轨。判据仍是伪轨身份，不按轨数。
 function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {
-  return loadableSecondaryTracks(tracks).length < 2;
+  return loadableSecondaryTracks(tracks).length < 2 && !isAsrTranslationScenario(tracks);
 }
 
 // 目标轨与「为什么没有目标」都由 reader/secondary-subtitle.ts 的 resolveSecondaryTarget
@@ -602,6 +638,7 @@ interface BilingualCardNodes {
   hint: HTMLElement;
   mainList: HTMLElement;
   subCol: HTMLElement;
+  subHead: HTMLElement;
   retry: HTMLButtonElement;
   secondaryHost: HTMLElement;
   secondarySelect: HTMLSelectElement;
@@ -670,7 +707,7 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   const subCol = document.createElement("div");
   subCol.className = "biliscript-bilingual-col";
   subCol.dataset.col = "sub";
-  const subHead = buildColumnHead("副字幕");
+  const subHead = buildColumnHead(SUB_HEAD_TEXT_TRACK);
   // 失败态的重试行（02 号票 Q6：重试入口唯一在副列，只重抓这一条副轨）。
   const retry = document.createElement("button");
   retry.type = "button";
@@ -732,6 +769,7 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
     hint,
     mainList,
     subCol,
+    subHead,
     retry,
     secondaryHost,
     secondarySelect,
@@ -755,6 +793,7 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   const tracks = facts.tracks;
   const dual = facts.bilingual && !facts.switchDisabled;
   const model = facts.secondaryColumn;
+  const translation = facts.asrTranslation;
   // 槽位声明（第四条外部入口，2026-10 深化）：卡片根、选项行落点与 trigger 徽标一次
   // 声明给组件——组件换整批选项只摘它自己产出的 <li>，卡片骨架全程留在浮层里（列滚动
   // 位置因此不被销毁），徽标在 trigger 里的落点（值区之后、箭头之前）与它接的
@@ -769,16 +808,30 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   nodes.mainHead.hidden = !dual;
   nodes.hint.hidden = dual || tracks.length === 0 || !facts.switchDisabled;
   nodes.subCol.hidden = !dual;
-  nodes.retry.hidden = !(dual && model.retry);
+  nodes.subHead.textContent = facts.asrScenario ? SUB_HEAD_TEXT_TRANSLATION : SUB_HEAD_TEXT_TRACK;
   // 说明行与语言列表**同时**在场（2026-10-06 图外回访）：说明行只服务 ①② 两套空态，
   // 它解释「为什么这一列现在没有装载中的副轨」，不顶掉用户改选的那份列表。
-  nodes.empty.hidden = !dual || !model.note;
-  if (dual && model.note) {
-    nodes.empty.textContent = model.note;
+  // 译文场景：说明行承担进度与部分失败（列投影的 note），按钮承担启动/重试动作。
+  const noteText = facts.asrScenario ? translation.note : model.note;
+  const retryVisible = facts.asrScenario
+    ? Boolean(translation.action)
+    : model.retry;
+  nodes.retry.hidden = !(dual && retryVisible);
+  nodes.empty.hidden = !dual || !noteText;
+  if (dual && noteText) {
+    nodes.empty.textContent = noteText;
+  }
+  if (facts.asrScenario) {
+    nodes.retry.textContent = translation.action?.label ?? SECONDARY_RETRY_TEXT;
+    nodes.retry.disabled = translation.inFlight;
+  } else {
+    nodes.retry.textContent = SECONDARY_RETRY_TEXT;
+    nodes.retry.disabled = false;
   }
   // 页脚状态提示（③ 主副同轨）：同一次投影收口——双语关（收起态）一律清空并隐藏，
   // 免得旧文案留在收起态里，也免得「页脚只有双语字幕 + 开关」这条硬约束被残文破坏。
-  const footerNoteText = dual ? model.footerNote : "";
+  // 译文场景不出页脚提示（进度与失败都在副列说明行/按钮上）。
+  const footerNoteText = dual && !facts.asrScenario ? model.footerNote : "";
   nodes.footerNote.hidden = !footerNoteText;
   nodes.footerNote.textContent = footerNoteText;
   nodes.secondaryHost.hidden = !dual;
@@ -787,7 +840,16 @@ function projectBilingualPicker(facts: SubtitleToolbarFacts, context?: SubtitleT
   // 三套空态（① 没选过 / ② 本视频没有该语言 / ③ 主副同轨）没有目标轨 ⇒ 值空、列表里
   // 没有选中行，而语言行照铺——副列的语言行数因此不再等于「列表在场」这一事实，
   // 跨列断言改按选项集读。
-  if (dual) {
+  // 译文场景（票 asr-panel-translation）：值源换成译文目标语言（同一列，换选项来源），
+  // 在飞期间整列禁用——一次只有一个目标语言在翻译。
+  if (dual && facts.asrScenario) {
+    writeTranslationOptions(nodes.secondarySelect, translation.lang);
+    setCustomSelectValue(nodes.secondarySelect, translation.lang);
+    setCustomSelectState(nodes.secondarySelect, {
+      disabled: translation.inFlight,
+      busy: translation.inFlight
+    });
+  } else if (dual) {
     writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
     setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
     // 状态一律无条件写全一次：在飞折进 model.busy（在飞登记 + 槽 loading 两条信号），
@@ -827,6 +889,23 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
   rebuildCustomSelectOptions(select);
 }
 
+// 译文场景的副列选项行（票 asr-panel-translation）：与轨行同一形状——value = 目标
+// 语言词表值、data-id = 副轨槽身份 `translate-<lang>`、data-lang = 同一串，选中判据是
+// 「语言相等」。词表只有一份（live/interpret-subtitle-preferences），与播放器「字幕」
+// 浮层的语言列表同源，故两处显示的语言名不会各写一套。
+function writeTranslationOptions(select: HTMLSelectElement | null, selectedLang: string): void {
+  if (!select) {
+    return;
+  }
+  select.innerHTML = LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => {
+    const selected = option.value === selectedLang ? " selected" : "";
+    return `<option value="${escapeHtml(option.value)}" data-lang="${escapeHtml(option.value)}" data-id="${escapeHtml(
+      `translate-${option.value}`
+    )}"${selected}>${escapeHtml(option.label)}</option>`;
+  }).join("");
+  rebuildCustomSelectOptions(select);
+}
+
 // 副轨装载事务的 DOM 投影（开关打开 / 副列改选 / 重试共用一条入口）。判定与装载全在
 // reader/secondary-subtitle.ts（目标解析、三重守卫、在飞登记、ensureSummarizeChain →
 // loadSecondarySubtitle）；本叶子只管两拍投影：
@@ -859,12 +938,25 @@ function projectSecondaryLoad(outcome: SecondaryEnsureOutcome): void {
 
 // 页脚双语开关与副列改选/重试：状态迁移、同轨防呆、持久化与列表重渲通知均收在
 // reader/secondary-subtitle.ts，本叶子只承接 DOM 事件并投影本控件状态与进场动画。
+// 伪轨视频（票 asr-panel-translation）走同一条开关：开关打开 = 显式动作 ⇒ 立刻按当前
+// 目标语言开始/补齐译文；关掉 = 停止显示并中止在飞翻译（已落盘分片保留）。
 function handleBilingualSwitchClick(event: Event): void {
   const toggle = event.currentTarget as HTMLButtonElement | null;
   if (toggle?.disabled) {
     return;
   }
+  const asrScenario = isAsrTranslationScenario(currentTracks());
   const outcome = toggleBilingualSubtitles();
+  if (asrScenario) {
+    if (state.settings.bilingualSubtitles === true) {
+      void ensureAsrTranslation("translate");
+    } else {
+      cancelAsrTranslation();
+    }
+    const nodes = ensureBilingualCard();
+    (nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker)();
+    return;
+  }
   if (outcome.kind === "started") {
     projectSecondaryLoad(outcome);
     return;
@@ -875,6 +967,11 @@ function handleBilingualSwitchClick(event: Event): void {
 }
 
 function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
+  // 译文场景：副列的值是目标语言词表值，不是轨 URL——改选即换目标语言并开始补齐。
+  if (isAsrTranslationScenario(currentTracks())) {
+    selectAsrTranslationLanguage(select.value);
+    return;
+  }
   const nodes = ensureBilingualCard();
   const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
   const option = select.options[select.selectedIndex];
@@ -903,6 +1000,11 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
 }
 
 function handleSecondaryRetryClick(): void {
+  // 译文场景的按钮三态：开始生成译文 / 补齐失败分片 / 重试，都走同一条补齐入口。
+  if (isAsrTranslationScenario(currentTracks())) {
+    void ensureAsrTranslation("translate");
+    return;
+  }
   projectSecondaryLoad(retrySecondarySubtitleLoad());
 }
 

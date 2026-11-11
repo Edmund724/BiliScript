@@ -75,6 +75,10 @@ const lazyTargets = [
   { name: "shell", source: "reader/shell.ts" },
   { name: "fetcher", source: "subtitle/fetcher.ts" },
   { name: "ui", source: "subtitle/ui.ts" },
+  // 伪轨视频的译文批量器（票 asr-panel-translation）：只经 subtitle/lazy 的动态边
+  // 触达。必须列在这里——未登记的动态 import 在轮 A（splitting:false）会被内联进
+  // 常驻图，连带它的 commit→subtitle/core→bilibili/gateway 静态边一起进主包。
+  { name: "asr-translation", source: "subtitle/asr-translation.ts" },
   { name: "gateway", source: "bilibili/gateway.ts" },
   { name: "agent-bridge-subtitles", source: "agent-bridge/content-subtitles.ts" },
   { name: "agent-bridge-frame", source: "agent-bridge/frame.ts" },

@@ -11,8 +11,8 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
 
 **实时字幕翻译**:
-视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。
-代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（翻译目标语言）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语）
+视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。译文目标语言与 `id_translate-<lang>` 缓存与阅读面板的译文副轨共用（见「字幕」的伪轨译文一段）。
+代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（翻译目标语言，阅读面板的副列译文也读它）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语，只作用于播放器浮层）
 _Avoid_: 同声传译、同传；把译文当作视频字幕轨，或复用副轨开关表示译文显示模式
 
 **直播间伴看**:
@@ -43,8 +43,8 @@ _Avoid_: Part、页、集数
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
-同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)`——缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮的唯一一份，出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
+同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。伪轨视频（无 CC、只有 `id=asr` 且 `subtitleUrl` 为空的伪轨）的双列卡照旧复用：主列是这条伪轨，副列列的是译文目标语言（14 种，词表与播放器「字幕」浮层同一份），副行是同一原文段的 LLM 译文——译文不是轨、不进 `clip.subtitles`，只进副轨槽；双语开关对这类视频可用（判据是伪轨身份，不是轨数），复制/导出/AI 上下文仍只吃主轨原文。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/asr-translation.js`（伪轨译文的面板侧在飞、进度与列模型：`hasAsrPseudoTrack` / `resolveAsrTranslationView` / `ensureAsrTranslation` / `cancelAsrTranslation` / `selectAsrTranslationLanguage`；零请求的缓存挂载与显式动作启动都经它）/ `subtitle/asr-translation.js`（伪轨译文的批量器：60 秒分片计划、缓存覆盖判定、逐片翻译与逐片合入副轨槽、整份落盘；零产出才落槽 error，部分失败保持 ready 并留补齐入口；主轨被新一次转写替换时经 `clearTranslatedSubtitleCache` 清掉旧译文）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)`——缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮的唯一一份，出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
 _Avoid_: 转录、transcript、把副轨说成「第二条字幕」或「第三路轨」（两行是一条字幕条目）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:

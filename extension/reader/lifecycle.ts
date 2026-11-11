@@ -21,6 +21,9 @@ import { logWarn } from "../shared/logging.js";
 // 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
 // 打开 / 跨上下文收敛、副列改选、副列重试）的唯一落点，判定与在飞登记都在那里。
 import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
+// 伪轨视频的译文副轨（票 asr-panel-translation）：这里只起「零请求的缓存挂载」——
+// 主轨就绪即按当前目标语言查一次缓存，命中就挂上，缺片留给用户显式动作（不自动花钱）。
+import { ensureAsrTranslation } from "./asr-translation.js";
 
 // 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
@@ -367,6 +370,10 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   // （Q1：开关开着就立刻并行抓，不依赖面板可见性，通知路径独有）。
   if (ensureSecondarySubtitle) {
     ensureSecondarySubtitleLoaded();
+    // 伪轨视频的译文副轨：同一拍查缓存（零请求），全命中直接出副行。
+    if (state.settings.bilingualSubtitles === true) {
+      void ensureAsrTranslation("cache-only");
+    }
   }
 }
 
@@ -492,6 +499,10 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   // 打开前就已落定（页面预抓取，不再有 subtitle-ready）时，这是唯一的起跑点。
   warmUpReaderQuickPrompts();
   ensureSecondarySubtitleLoaded();
+  // 伪轨视频的译文副轨：面板打开时查一次缓存（零请求），命中即挂载。
+  if (state.settings.bilingualSubtitles === true) {
+    void ensureAsrTranslation("cache-only");
+  }
 }
 
 function openReaderViewShell(
