@@ -408,6 +408,9 @@
   --biliscript-live-glass-ink: rgb(255 255 255 / 0.94);
   --biliscript-live-glass-ink-secondary: rgb(235 235 245 / 0.64);
   --biliscript-live-glass-ink-blend: plus-lighter;
+  --live-overlay-surface-radius: var(--biliscript-radius-14, var(--biliscript-primitive-radius-14, 14px));
+  --live-overlay-surface-inset: 8px;
+  --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
 
   position: absolute;
   top: 16px;
@@ -421,7 +424,7 @@
   backdrop-filter: var(--biliscript-live-glass-filter);
   -webkit-backdrop-filter: var(--biliscript-live-glass-filter);
   border: none;
-  border-radius: var(--biliscript-radius-14, var(--biliscript-primitive-radius-14, 14px));
+  border-radius: var(--live-overlay-surface-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-live-glass-rim);
   color: var(--biliscript-live-glass-ink);
@@ -545,7 +548,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: var(--live-overlay-surface-inset);
   background: transparent;
   border-bottom: 1px solid rgb(255 255 255 / 0.08);
   cursor: grab;
@@ -621,7 +624,7 @@
   opacity: 0.72;
   mix-blend-mode: var(--biliscript-live-glass-ink-blend);
   padding: 4px;
-  border-radius: var(--biliscript-radius-6, var(--biliscript-primitive-radius-6, 6px));
+  border-radius: var(--live-overlay-control-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   cursor: pointer;
   display: flex;
@@ -671,6 +674,10 @@
 }
 
 .live-overlay-audio-popover {
+  --live-overlay-surface-radius: var(--biliscript-radius-12, var(--biliscript-primitive-radius-12, 12px));
+  --live-overlay-surface-inset: 6px;
+  --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
+
   position: fixed;
   inset: auto;
   margin: 0;
@@ -684,9 +691,9 @@
   backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   -webkit-backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   border: none;
-  border-radius: var(--biliscript-radius-10, var(--biliscript-primitive-radius-10, 10px));
+  border-radius: var(--live-overlay-surface-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  padding: 8px 10px;
+  padding: var(--live-overlay-surface-inset);
   box-shadow:
     inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.36),
     inset -1.5px -1.5px 1px -1px rgb(255 255 255 / 0.16),
@@ -717,7 +724,7 @@
   min-height: 30px;
   padding: 5px 8px;
   border: 0;
-  border-radius: var(--biliscript-radius-8, 8px);
+  border-radius: var(--live-overlay-control-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: rgb(255 255 255 / 0.1);
   color: var(--biliscript-live-glass-ink);
@@ -902,12 +909,16 @@
 }
 
 .live-overlay-failure-card {
+  --live-overlay-surface-radius: var(--biliscript-radius-12, var(--biliscript-primitive-radius-12, 12px));
+  --live-overlay-surface-inset: 6px;
+  --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
+
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 10px 10px 0;
-  padding: 10px 12px;
-  border-radius: var(--biliscript-radius-10, var(--biliscript-primitive-radius-10, 10px));
+  padding: var(--live-overlay-surface-inset);
+  border-radius: var(--live-overlay-surface-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.18);
   box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.35);
@@ -933,7 +944,7 @@
 .live-overlay-action-btn {
   appearance: none;
   border: none;
-  border-radius: var(--biliscript-radius-6, var(--biliscript-primitive-radius-6, 6px));
+  border-radius: var(--live-overlay-control-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: 4px 10px;
   font-size: var(--biliscript-font-size-xs, 11px);
@@ -1083,7 +1094,7 @@
 
 .biliscript-fullscreen-live-overlay :where(button):focus-visible,
 .biliscript-fullscreen-live-mini-capsule:focus-visible {
-  outline: 2px solid rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248));
+  outline: 2px solid rgb(255 255 255 / 0.95);
   outline-offset: 2px;
 }
 
