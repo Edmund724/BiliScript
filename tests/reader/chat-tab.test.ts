@@ -1530,12 +1530,13 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
   });
 });
 
-describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）", () => {
-  it("后建链接经 #readingChatRoot 容器委托打开设置抽屉", async () => {
+describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归 + 票 03 直达）", () => {
+  it("后建链接经 #readingChatRoot 容器委托直达新增 AI 平台编辑器", async () => {
     // 无平台：ai-providers-list 返回空列表 → renderInitialState 走「还没有配置
     // AI 平台」分支，「前往设置」链接由 resetConversationView 用 innerHTML 后建。
     // 历史缺陷：ui-renderer 曾在壳构建时 getElementById 直绑——绑定时点早于
     // 元素诞生，监听器永远挂不上，无平台空态点「前往设置」无任何效果。
+    // 票 03：点击不再只开设置抽屉，而是直达新增 AI 平台编辑器（首配「保存并继续」）。
     const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
     chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
       if (String(message?.type || "") === "ai-providers-list") {
@@ -1556,11 +1557,17 @@ describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）"
     expect(settingsPanel.hidden).toBe(true);
     expect(state.reader.readingSettingsExpanded).toBe(false);
 
-    // 容器委托命中（冒泡到 #readingChatRoot）：展开设置并渲染面板
+    // 容器委托命中（冒泡到 #readingChatRoot）：展开设置并直达新增平台编辑器
+    // （编辑器 chunk 动态装载，全量套件并发下放宽等待上限）。
     link!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector(".provider-editor-dialog") !== null, { timeoutMs: 5000 });
     expect(state.reader.readingSettingsExpanded).toBe(true);
-    // renderReaderPanels 经 ui/reader-gate 异步装载 reader 域后写 hidden
-    await waitFor(() => !settingsPanel.hidden);
+    expect(
+      document.querySelector(".provider-editor-dialog .provider-editor-title")?.textContent
+    ).toBe("添加AI 平台");
+    // 收尾：关编辑器（首配会话回调由本文件不关心的装配方持有）
+    const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+    closeProviderEditor(true);
   });
 });
 

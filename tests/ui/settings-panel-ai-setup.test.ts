@@ -2,6 +2,7 @@
 // - 无记录（no-provider）：直接打开新增 AI 平台编辑器，保存钮「保存并继续」（首配模式）；
 // - 缺 Key（missing-key）：定位缺 Key 的启用记录（defaultModel 精确 → 首个启用回落），
 //   直接编辑该记录并聚焦 Key 输入框；
+// - 缺 Key 且调用方给定已选平台记录（票 03 的 AI 对话出口）：直达该记录；
 // - 找不到缺 Key 记录（列表在报错后被改动）：只打开设置抽屉，不弹编辑器；
 // - 无字幕空态「前往设置」：打开设置抽屉（语音转写分区）。
 //
@@ -148,6 +149,25 @@ describe("openReaderAiSetup：缺 Key → 编辑该记录并聚焦 Key", () => {
     expect(document.querySelector(".provider-editor-dialog")).toBeNull();
     const { state } = await import("../../extension/core/state.js");
     expect(state.reader.readingSettingsExpanded).toBe(true);
+  });
+
+  // 票 03：AI 对话缺 Key 的回合错误已知是哪条已选平台——调用方给定记录时直达它，
+  // 不被 defaultModel 或列表顺序改指到别的记录。
+  it("调用方给定已选平台记录：直达该记录而不是 defaultModel 指向的那条", async () => {
+    const preferred = { ...MISSING_KEY_PROVIDER, id: "prov-2", name: "已选平台" };
+    const { panel } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [MISSING_KEY_PROVIDER, preferred] }),
+      "get-settings": () => ({ ok: true, settings: { defaultModel: "prov-1" } })
+    });
+    await panel.openReaderAiSetup("missing-key", SESSION, { providerId: "prov-2" });
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(".provider-editor-title")?.textContent).toBe("编辑AI 平台");
+    expect(dialog?.querySelector<HTMLInputElement>(".provider-editor-name")?.value).toBe("已选平台");
+    // 直达记录仍聚焦 Key 输入框
+    expect(document.activeElement).toBe(
+      dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")
+    );
   });
 });
 
