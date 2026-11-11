@@ -31,7 +31,7 @@ export type ReaderEnterMessage = {
   type: "reader-enter";
   readerUrl?: string;
   // 快捷对话负载（可省）：带 chat = 进入阅读模式并在进入事务内激活对话 tab，
-  // prompt 非空时自动发送快捷提示词（消费端 entry/message-handler.ts →
+  // prompt 非空时按会话状态发送快捷提示词（消费端 entry/message-handler.ts →
   // reader/shell.ts chat 档）。
   chat?: { prompt?: string };
 };

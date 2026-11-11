@@ -192,6 +192,21 @@ afterEach(() => {
 });
 
 describe("player-ai 启停守卫", () => {
+  it("快捷命令受理后只反馈已定位，不宣称提示词已发送", async () => {
+    makePlayerDom();
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    const button = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
+
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotasks();
+
+    expect(state.ui.messageText).toBe("已定位 AI 对话。");
+    expect(button.disabled).toBe(false);
+  });
+
   it("设置关闭 → 不挂 observer、不绑 window layout 监听", async () => {
     const windowAddSpy = vi.spyOn(window, "addEventListener");
     const { state } = await loadContentScript({ enablePlayerAiQuickAction: false });

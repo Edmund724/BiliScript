@@ -226,8 +226,8 @@ function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _send
   );
 }
 
-// 「进/聚焦阅读模式 + 定位对话 tab + 自动发送快捷提示词」的统一编排
-//（arch-slim-3/04 收口）：单条带 chat 负载的 reader-enter 命令直达 content 侧
+// 「进/聚焦阅读模式 + 定位对话 tab + 按会话状态发送快捷提示词」的统一编排：
+// 单条带 chat 负载的 reader-enter 命令直达 content 侧
 //（进入事务内激活对话 tab），不再即答后二次直发——双消息直发的进入/对话竞态
 // 在消息序上收口。触发失败回可读文案。
 const readerTriggerFailedText = "阅读模式触发失败，请刷新浏览器网页重试";
@@ -266,7 +266,7 @@ async function triggerReaderChatInTab(
 
 // player-ai 悬浮按钮语义反转（工单 08 决议 2）：不再打开 AI 侧边栏/写 storage
 // 信箱（biliscript_player_ai_quick_action_v1 已退役），改为「进入/聚焦阅读模式 +
-// 定位对话 tab + 自动发送快捷提示词」——单条带 chat 负载的 reader-enter 走
+// 定位对话 tab + 按会话状态发送快捷提示词」——单条带 chat 负载的 reader-enter 走
 // triggerReaderModeInTab 链（空 readerUrl = 已在阅读模式内，只聚焦），
 // 提示词组装后由 content 侧进入事务内的对话 seam runQuickActionPrompt 消费。
 function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sender: MessageSender, sendResponse: Reply<"player-ai-quick-action">): MessageReplyDecision {

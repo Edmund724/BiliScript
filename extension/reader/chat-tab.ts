@@ -706,6 +706,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
         return;
       }
       clipSignature = nextSignature;
+      quickActionGeneration += 1;
       sendGate.cancel();
       conversationStore.detachForRestart();
       scheduleLiveContextSync();
@@ -858,6 +859,7 @@ export function stopChatSpeech(): void {
 }
 
 export function closeChatSession(): void {
+  quickActionGeneration += 1;
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
@@ -889,26 +891,50 @@ export function closeChatSession(): void {
 }
 
 // ============================================================
-// player-ai 快捷动作消费 seam（工单 08 决议：阅读模式内点击 = 定位/聚焦对话
-// tab + 自动发送快捷提示词；PR4b 概览「生成完整笔记」按钮同 seam 直发）
+// player-ai 快捷动作消费 seam：定位/聚焦对话 tab，空闲且无草稿时在当前会话
+// 发送提示词；忙碌或已有输入时只定位。PR4b 概览「生成完整笔记」按钮同 seam。
 // ============================================================
 
+let quickActionInFlight: Promise<boolean> | null = null;
+let quickActionGeneration = 0;
+
 export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
-  // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）：切 tab + 写状态位/持久化 +
-  // 对话组合根激活统一由标签激活属主执行（reader/script-tab-activation），
-  // consumeIntent:false 透传——与快捷发送互不踩踏，不消费待解释意图。属主的
-  // promise 在其激活（含装载/恢复）落定后才 resolve，本函数后续的发送流程因此
-  // 天然等到装载落定，无需再单独 await ensureChatTabActivated（收口前的
-  // fire-and-forget 壳命令 + 显式补 await 的双写已退役）。
-  await activateScriptTab("chat", { consumeIntent: false });
-  const text = String(prompt || "").trim();
-  if (!text) {
-    composer.autosizeInput();
-    els.input?.focus?.();
+  if (quickActionInFlight) {
     return false;
   }
-  await startNewConversation();
-  return composer.sendViaInputBox(text);
+  const generation = quickActionGeneration;
+  quickActionInFlight = (async () => {
+    // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）：切 tab + 写状态位/持久化 +
+    // 对话组合根激活统一由标签激活属主执行（reader/script-tab-activation），
+    // consumeIntent:false 透传——与快捷发送互不踩踏，不消费待解释意图。属主的
+    // promise 在其激活（含装载/恢复）落定后才 resolve，本函数后续的发送流程因此
+    // 天然等到装载落定，无需再单独 await ensureChatTabActivated。
+    await activateScriptTab("chat", { consumeIntent: false });
+    if (generation !== quickActionGeneration || sessionClosed) {
+      return false;
+    }
+    const text = String(prompt || "").trim();
+    if (!text) {
+      composer.autosizeInput();
+      els.input?.focus?.();
+      return false;
+    }
+    if (chatRuntime.isTurnActive()) {
+      showConversationContextNotice("当前对话正在生成或发送，请稍后再试。", 4000);
+      els.input?.focus?.();
+      return false;
+    }
+    if (els.input.value || inputImages.count() > 0) {
+      els.input?.focus?.();
+      return false;
+    }
+    return composer.sendViaInputBox(text);
+  })();
+  try {
+    return await quickActionInFlight;
+  } finally {
+    quickActionInFlight = null;
+  }
 }
 
 // ============================================================

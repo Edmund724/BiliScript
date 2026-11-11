@@ -33,10 +33,9 @@ export interface ReaderChatTabDomain {
   // 会话收尾（closeReadingView 清理清单调用）：断流收口（工单 08 决议：关闭
   // 即断流，重开从会话历史恢复；不做后台续跑）+ 摘全局触发源 + 关 popover。
   closeChatSession(): void;
-  // player-ai 快捷动作消费 seam（工单 08 决议语义）：定位/聚焦对话 tab +
-  // startNewConversation + 输入框填快捷提示词 + 自动发送。返回是否受理成功
-  //（= chat-tab sendTurn 的 SendVerdict === "accepted"：仅 accepted → true，
-  // ignored/blocked → false；不再按输入框是否清空反推）。
+  // player-ai 快捷动作消费 seam：定位/聚焦对话 tab；仅在当前会话空闲且没有
+  // 草稿/附件时发送提示词，已有会话原位续问。返回是否受理成功（accepted → true，
+  // 仅定位、ignored/blocked → false）。
   runQuickActionPrompt(prompt: string): Promise<boolean>;
   // 跨标签页接管：停止实时伴看（停止旧音画采集并收起伴看状态条）
   stopLiveCompanion(): void;

@@ -14,9 +14,8 @@
 //   不再放行（不做后台续跑）；重开从会话历史恢复（恢复路径重渲 + 触发源重挂）；
 // - 外点关闭单委托：popovers 的 handleDocumentClick 经 reader-bus 转发槽并入
 //   ui-renderer 的单一文档级委托（点外关闭、点内不关），不双监听；
-// - player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）：runQuickActionPrompt =
-//   定位对话 tab + startNewConversation + 填提示词 + 自动发送；不消费待解释
-//   意图（互不踩踏）。
+// - player-ai 快捷动作无损续问：空闲空会话/已有会话直接发送，忙碌或已有输入时
+//   仅定位；连点单飞，关闭/换片使旧意图失效；不消费待解释意图。
 // - 滚底按钮（DeepSeek Harness 同款）：显隐跟随机动（同一近底判据）、点一下
 //   回底、回底动画途中的跟随闸与用户干预放闸、清场放闸。
 //
@@ -757,7 +756,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     expect(ports).toHaveLength(1);
   });
 
-  it("发送闸轮询在飞时关闭并重开：迟到就绪不得复活旧发送意图", async () => {
+  it("发送闸等待时关闭并重开：迟到就绪不得复活旧快捷意图", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -767,30 +766,15 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
 
-    gatewayMock.getCurrentAid.mockReturnValue(7100);
-    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
-    let releasePoll!: () => void;
-    gatewayMock.fetchHotComments.mockImplementation(async () => {
-      if (gatewayMock.fetchHotComments.mock.calls.length === baseline + 2) {
-        await new Promise<void>((resolve) => {
-          releasePoll = resolve;
-        });
-      }
-      return [];
-    });
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sending = chat.runQuickActionPrompt("等待字幕时发送");
     await waitFor(() => input.placeholder === "正在抓取字幕…");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    chatState.chatSessionStateForTests.liveContextData!.signature = "stale-before-poll";
-    statusBus.publishSubtitleStatusPhase("asr-done");
-    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= baseline + 2);
 
     chat.closeChatSession();
     await chat.ensureChatTabActivated();
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "迟到的字幕" }];
-    releasePoll();
+    statusBus.publishSubtitleStatusPhase("asr-done");
 
     await expect(sending).resolves.toBe(false);
     expect(ports).toHaveLength(0);
@@ -809,7 +793,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
       bvid: "BV1test000000",
       cid: "102"
     }
-  ])("$label 使在飞等待的旧发送意图失效", async ({ url, bvid, cid }) => {
+  ])("$label 使在飞等待的旧快捷意图失效", async ({ url, bvid, cid }) => {
     state.clip.title = "旧视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -819,24 +803,9 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
 
-    gatewayMock.getCurrentAid.mockReturnValue(7100);
-    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
-    let releasePoll!: () => void;
-    gatewayMock.fetchHotComments.mockImplementation(async () => {
-      if (gatewayMock.fetchHotComments.mock.calls.length === baseline + 2) {
-        await new Promise<void>((resolve) => {
-          releasePoll = resolve;
-        });
-      }
-      return [];
-    });
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sending = chat.runQuickActionPrompt("只在旧视频等待时发送");
     await waitFor(() => input.placeholder === "正在抓取字幕…");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    chatState.chatSessionStateForTests.liveContextData!.signature = "stale-before-poll";
-    statusBus.publishSubtitleStatusPhase("asr-done");
-    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= baseline + 2);
 
     state.clip.bvid = bvid;
     state.clip.cid = cid;
@@ -845,7 +814,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     window.dispatchEvent(new Event("biliscript:urlchange"));
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "新内容字幕" }];
-    releasePoll();
+    statusBus.publishSubtitleStatusPhase("asr-done");
 
     await expect(sending).resolves.toBe(false);
     expect(ports).toHaveLength(0);
@@ -988,28 +957,129 @@ describe("历史对话整页（返回键关闭）", () => {
   });
 });
 
-describe("player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）", () => {
-  it("runQuickActionPrompt：定位对话 tab + 自动发送快捷提示词", async () => {
+describe("player-ai 快捷动作 seam（无损续问）", () => {
+  it("首开空会话直接发送；覆盖激活与受理的连点只发一次", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
 
-    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+    const first = chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+    const repeated = chat.runQuickActionPrompt("连点不应重复发送");
 
-    expect(accepted).toBe(true);
+    await expect(first).resolves.toBe(true);
+    await expect(repeated).resolves.toBe(false);
     const tabBodyChat = document.getElementById(ids.readingTabBodyChat) as HTMLElement;
     expect(tabBodyChat.classList.contains("is-active")).toBe(true);
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
-    // 受理判据是上面的返回值 accepted；输入框清空只是受理副作用。
     expect(input.value).toBe("");
     expect(ports).toHaveLength(1);
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
   });
 
+  it("当前视频已有空闲对话：保留会话与上下文，新问答原位追加", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.runQuickActionPrompt("第一问");
+    const conversationId = chatSessionState.currentConversationId;
+    const contextKey = chatSessionState.currentContextKey;
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+
+    await chat.runQuickActionPrompt("第二问");
+
+    expect(chatSessionState.currentConversationId).toBe(conversationId);
+    expect(chatSessionState.currentContextKey).toBe(contextKey);
+    expect(ports).toHaveLength(2);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("第二问");
+    (ports[1] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    expect(chatSessionState.chatHistory.filter((message) => message.role === "user").map((message) => message.content)).toEqual([
+      "第一问",
+      "第二问"
+    ]);
+  });
+
+  it("设置中唤起且有草稿：退出设置并定位，草稿原样保留且不发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "尚未发送的草稿";
+    const settingsMode = await import("../../extension/reader/settings-mode.js");
+    settingsMode.openReaderSettingsMode();
+
+    const accepted = await chat.runQuickActionPrompt("不得覆盖草稿");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("尚未发送的草稿");
+    expect(state.reader.readingSettingsExpanded).toBe(false);
+    expect((document.getElementById(ids.readingTabBodyChat) as HTMLElement).classList.contains("is-active")).toBe(true);
+    expect(ports).toHaveLength(0);
+  });
+
+  it("流式生成中：只定位并提示稍后再试，不停止或并发发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.runQuickActionPrompt("正在生成的第一问");
+
+    const accepted = await chat.runQuickActionPrompt("不得并发发送");
+
+    expect(accepted).toBe(false);
+    expect(ports).toHaveLength(1);
+    expect(ports[0].disconnect).not.toHaveBeenCalled();
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("请稍后再试");
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+  });
+
+  it("已有回合等待发送闸：不覆盖输入、不排队，就绪后仍只发原回合", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "用户已发送的问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+
+    const accepted = await chat.runQuickActionPrompt("不得自动排队");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("用户已发送的问题");
+    expect(ports).toHaveLength(0);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("请稍后再试");
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("用户已发送的问题");
+  });
+
+  it("快捷发送自身等待闸时连点：单飞保护贯穿受理，全程只发首个提示词", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+
+    const first = chat.runQuickActionPrompt("只发送这个提示词");
+    const repeated = chat.runQuickActionPrompt("连点提示词");
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    expect(ports).toHaveLength(0);
+
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+
+    await expect(first).resolves.toBe(true);
+    await expect(repeated).resolves.toBe(false);
+    expect(ports).toHaveLength(1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("只发送这个提示词");
+  });
+
   it("runQuickActionPrompt 被无字幕闸拦下：返回 false、无 port、输入框保留（受理结论来自返回值）", async () => {
-    // 无字幕收尾（empty 且字幕体为空）：发送闸 G6 拦截，sendMessage 返回 blocked
-    // → sendViaInputBox 折算 false。旧实现靠「输入框是否被清空」推断，本用例把
-    // 判据钉在返回值上：即使输入框残留，结论也只由 SendVerdict 决定。
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";

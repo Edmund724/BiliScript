@@ -102,7 +102,7 @@ type ContentScriptHandler<K extends ContentScriptMessageType> = (
 // 进阅读壳（工单 arch-slim/02）：reading-view 消息只做意图路由，八步无闪变
 // 时序与 restore 失同步自愈都在 reader/shell.ts 唯一实现；意图从消息负载推导
 //——reader-restore → restore；reader-enter 无 chat 负载 → open，带 chat 负载
-// → chat（进入事务内激活对话 tab，prompt 非空时自动发送快捷提示词）。
+// → chat（进入事务内激活对话 tab，prompt 非空时按会话状态发送快捷提示词）。
 // arch-slim-2/09：shell 改经 lazy-shell 动态装载后，回包时点从「同步即答」
 // 平移为「shell 模块装载完成后、进入事务发起前即答」——即答语义写死为
 // 「命令已受理入队，不代表进入完成」：发响应不等待事务完成；装载失败才有

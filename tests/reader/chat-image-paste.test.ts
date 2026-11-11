@@ -327,6 +327,24 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
   });
 
+  it("快捷动作遇到草稿与图片附件：只定位，不覆盖、不发送、不消费附件", async () => {
+    await activateChat();
+    const chat = await lazyChat.ensureReaderChatTab();
+    const input = inputEl();
+    const strip = imageStrip();
+    dispatchPaste(input, [imageItem()]);
+    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    input.value = "草稿与图片都保留";
+
+    const accepted = await chat.runQuickActionPrompt("不得发送快捷提示词");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("草稿与图片都保留");
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(strip.hidden).toBe(false);
+    expect(ports).toHaveLength(0);
+  });
+
   it("会话已激活时新会话清场：附件随输入框一起清空", async () => {
     await activateChat();
     const input = inputEl();

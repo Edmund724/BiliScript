@@ -53,7 +53,7 @@ export type ReaderShellIntent = "open" | "restore" | "chat";
 export interface EnterReaderShellOptions {
   readerUrl: string;
   intent: ReaderShellIntent;
-  /** chat 档专用：非空 = 激活对话 tab 后自动发送快捷提示词；空 = 只定位/聚焦 */
+  /** chat 档专用：非空 = 激活对话 tab 后按会话状态发送快捷提示词；空 = 只定位/聚焦 */
   prompt?: string;
   settingsTarget?: LiveSettingsTarget;
 }
@@ -272,7 +272,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined
     });
     if (intent === "chat") {
-      // 进入事务收敛后激活对话 tab（带 prompt 时另自动发送快捷提示词）。两条
+      // 进入事务收敛后激活对话 tab（带 prompt 时另按会话状态发送快捷提示词）。两条
       // 分支都经标签激活属主收口（runQuickActionPrompt 内部同样调它）：状态位/
       // 持久化 + DOM 投影 + 对话组合根激活一处落地。
       if (prompt) {

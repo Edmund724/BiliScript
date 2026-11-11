@@ -722,17 +722,14 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     if (!state.settings?.enablePlayerAiQuickAction) {
       throw new Error("AI 按钮未开启");
     }
-    // 工单 08 决议 2（语义反转）：按钮常驻。阅读模式外点击 = background 触发
-    // 进入阅读模式；阅读模式内点击 = 直接定位对话 tab。两条路径都由 background
-    // 以单条带 chat 负载的 reader-enter 携快捷提示词，content 侧经对话 seam
-    // （runQuickActionPrompt）消费：定位对话 tab + 新会话 + 填提示词 + 自动发送。
-    // 响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）；resp?. 保留对
-    // 「无监听器时回包为 undefined」的运行时防御。
+    // 阅读模式外点击 = background 触发进入阅读模式；阅读模式内点击 = 直接定位
+    // 对话 tab。两条路径都携快捷提示词，由对话 seam 按当前会话状态决定发送或仅定位。
+    // 回包只表示命令已受理；发送结果与失败原因由对话区呈现。
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");
     }
-    setMessage("已定位 AI 对话并发送快捷提示词。");
+    setMessage("已定位 AI 对话。");
   } catch (error) {
     setMessage(`AI 快捷操作失败：${getErrorMessage(error)}`);
   } finally {
