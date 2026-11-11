@@ -45,6 +45,7 @@ import {
   beginEditorSession,
   applyEditorVoices,
   captureSession,
+  cloneDraft,
   draftsEqual,
   editDraft,
   endEditorSession,
@@ -553,6 +554,9 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const isSearch = options.kind === "search";
   const models = draft.models;
   const title = editorTitle(options.kind, Boolean(item?.id));
+  // 跨族凭据引用内联行（票 07，伴看 Gemini 编辑器）：四态状态文案 + 同层动作，
+  // 纯会话态，随 endEditorSession 清空
+  const linkedCredential = state.linkedCredential;
 
   return `
     <div class="provider-editor-mask" data-provider-editor-action="close"></div>
@@ -593,13 +597,22 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         ${blocks.model}
         ${blocks.voice}
         ${blocks.liveGeminiNativeSearch}
+        ${linkedCredential
+          ? `
+        <div class="provider-editor-linked-credential">
+          <span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText)}</span>
+          ${linkedCredential.actionLabel
+            ? `<button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
+            : ""}
+        </div>`
+          : ""}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>
         </div>`}
       </div>
       <footer class="provider-editor-foot">
-        <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">取消</button>
+        <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">${escapeHtml(options.cancelLabel?.trim() || "取消")}</button>
         <button type="button" class="provider-editor-save" data-provider-editor-action="save">${escapeHtml(options.submitLabel?.trim() || "保存")}</button>
       </footer>
     </section>
@@ -672,6 +685,12 @@ export function wireDialog(): void {
     else if (action === "save") void save();
     else if (action === "test") void runTest();
     else if (action === "delete") void deleteActive();
+    else if (action === "linked-credential") {
+      // 跨族凭据动作（票 07）：装配方负责同层切换编辑器；异常不得阻断收场
+      try {
+        state.linkedCredential?.onAction?.();
+      } catch {}
+    }
     else if (action === "add-model") addModelRow();
     else if (action === "remove-model") removeModelRow(target.closest<HTMLElement>(".provider-editor-model-row"));
     else if (action === "test-model") void runModelTest(target.closest<HTMLElement>(".provider-editor-model-row"), isDirty());
@@ -926,7 +945,11 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
     firstSetup: options.firstSetup === true,
     onAfterSave: options.onAfterSave ?? null,
     onSessionEnd: options.onSessionEnd ?? null,
-    draft: buildInitialDraft(options)
+    linkedCredential: options.linkedCredential ?? null,
+    // 恢复草稿（票 07）：跨族凭据往返后显式带回原草稿与 dirty 基线；缺省由
+    // 编辑目标/预设推导初稿、打开即基线
+    draft: options.initialDraft ? cloneDraft(options.initialDraft) : buildInitialDraft(options),
+    ...(options.baselineDraft !== undefined ? { baselineDraft: options.baselineDraft } : {})
   });
   host.innerHTML = buildDialogHtml(options);
   // 投影水合：模板已按同一份字段表渲染，这里再走一遍 apply，把「投影规则」

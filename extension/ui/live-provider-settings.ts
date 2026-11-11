@@ -2,7 +2,6 @@ import { PRESETS } from "../core/presets.js";
 import {
   annotateAiCredentialRows,
   queryAiCredentialKey,
-  resolveAiCredentialReference,
   type AiCredentialStatus
 } from "../core/ai-credential-reference.js";
 import {
@@ -14,8 +13,15 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { state } from "../core/state.js";
 import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
-import { closeConfirmDialog } from "./confirm-dialog.js";
-import { createProviderFamilyRows } from "./provider-family.js";
+import { closeConfirmDialog } from "./confirm-dialog.js";import { createProviderFamilyRows } from "./provider-family.js";
+import {
+  enterGeminiCredentialEditor,
+  geminiLinkedCredential,
+  resolveGeminiCredentialPlan,
+  stashLiveEditorDraft,
+  type LiveEditorStash
+} from "./gemini-credential-link.js";
+import type { EditorDraft, EditorDraftView } from "./provider-editor-state.js";
 import { SETTINGS_PANEL_DOM_IDS } from "./settings-panel-html.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowItem } from "./provider-row.js";
@@ -206,12 +212,25 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     return result;
   }
 
-  async function openProviderEditorById(kind: ProviderEditorKind, providerId: string, presetId?: string): Promise<void> {
+  async function openProviderEditorById(
+    kind: ProviderEditorKind,
+    providerId: string,
+    presetId?: string,
+    restore?: { initialDraft: EditorDraft; baselineDraft: EditorDraftView | null }
+  ): Promise<void> {
     const sessionGeneration = generation;
     const providers = await loadRows(kind);
     if (disposed || sessionGeneration !== generation) return;
     const item = providerId ? providers.find((provider) => String(provider.id || "") === providerId) || null : null;
     if (providerId && !item) return;
+    // 伴看 Gemini 编辑器：内联凭据引用行（四态文案 + 同层进入 AI 族编辑器动作，
+    // 票 07）；他族/他平台不渲染
+    const linkedCredential = kind === "live" && item
+      && (item.type === "gemini-live" || item.presetId === "gemini-live")
+      ? geminiLinkedCredential(resolveGeminiCredentialPlan(aiProviders), () => {
+          void enterGeminiCredentialFromLiveEditor();
+        })
+      : null;
     try {
       const editor = editorModule || await import("./provider-editor.js");
       if (disposed || sessionGeneration !== generation) return;
@@ -223,11 +242,53 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
         presets: kind === "live" ? LIVE_PROVIDER_PRESETS : PRESETS,
         mountHost: options.getEditorMountHost?.() || undefined,
         onSave: saveProvider,
-        onDelete: deleteProvider
+        onDelete: deleteProvider,
+        ...(linkedCredential ? { linkedCredential } : {}),
+        ...(restore ? { initialDraft: restore.initialDraft, baselineDraft: restore.baselineDraft } : {})
       });
     } catch (error) {
       if (!disposed) options.onStatus((error as Error).message || "编辑器加载失败", true);
     }
+  }
+
+  // 伴看编辑器内联凭据动作：暂存伴看草稿 → 同层打开 AI 族凭据编辑器（复用同一
+  // 宿主，openProviderEditor 幂等作废旧会话，不增加可见 Modal 层）；保存成功或
+  // 取消都会话结束后恢复原伴看草稿（dirty 基线一并带回）
+  async function enterGeminiCredentialFromLiveEditor(): Promise<void> {
+    if (disposed) return;
+    const stash = stashLiveEditorDraft("live");
+    // 缓存编辑器模块：dispose 靠它强制关闭在飞会话（漏关会泄漏文档级监听）
+    editorModule = await enterGeminiCredentialEditor({
+      plan: resolveGeminiCredentialPlan(aiProviders),
+      mountHost: options.getEditorMountHost?.() ?? null,
+      aiPresets: PRESETS,
+      onSave: saveProvider,
+      onDelete: deleteProvider,
+      stash,
+      reopenLiveEditor: (stashed, hint) => {
+        void restoreLiveEditor(stashed, hint);
+      }
+    });
+  }
+
+  async function restoreLiveEditor(stash: LiveEditorStash, hint: string | null): Promise<void> {
+    if (disposed) return;
+    const mount = options.getEditorMountHost?.();
+    if (!mount?.isConnected) return;
+    // 重新装载两行并重查引用：行状态文案随新引用刷新，恢复后的编辑器内联行
+    // 按新四态给动作
+    const [nextLiveProviders, nextAiProviders] = await Promise.all([loadRows("live"), loadRows("ai")]);
+    if (disposed) return;
+    liveProviders = nextLiveProviders;
+    aiProviders = nextAiProviders;
+    renderLiveProviders();
+    await refreshGeminiCredentialStatus();
+    if (disposed) return;
+    await openProviderEditorById("live", stash.editingId, undefined, {
+      initialDraft: stash.draft,
+      baselineDraft: stash.baseline
+    });
+    if (!disposed && hint) options.onStatus(hint);
   }
 
   familyRows.live.controller.setBeforeDeleteHandler(async (providerId, baseUrl) => {
@@ -290,12 +351,16 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    const { record: gemini } = resolveAiCredentialReference("gemini-live", aiProviders);
-    await openProviderEditorById("ai", String(gemini?.id || ""), gemini ? undefined : "gemini");
-    if (!disposed) {
-      options.getEditorMountHost?.()?.querySelector<HTMLInputElement>(".provider-editor-apikey")
-        ?.focus({ preventScroll: true });
-    }
+    // target === "gemini-key"：四态直达凭据编辑器——无记录 / 非官方地址新建官方
+    // Gemini 记录（不静默改写中转地址），缺 Key / 可用编辑实际引用记录并聚焦
+    // Key；从横幅直达无伴看草稿可恢复，保存 / 取消即停在本编辑器
+    editorModule = await enterGeminiCredentialEditor({
+      plan: resolveGeminiCredentialPlan(aiProviders),
+      mountHost: options.getEditorMountHost?.() ?? null,
+      aiPresets: PRESETS,
+      onSave: saveProvider,
+      onDelete: deleteProvider
+    });
   }
 
   function dispose(): void {

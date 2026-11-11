@@ -75,7 +75,16 @@ import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
 // 跨族凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
 // 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
-import { annotateAiCredentialRows, resolveAiCredentialReference } from "../core/ai-credential-reference.js";
+import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
+// 伴看 Gemini 凭据同层往返编排（票 07）：编辑器内联凭据行 + 暂存/恢复伴看草稿。
+import {
+  enterGeminiCredentialEditor,
+  geminiLinkedCredential,
+  resolveGeminiCredentialPlan,
+  stashLiveEditorDraft,
+  type LiveEditorStash
+} from "./gemini-credential-link.js";
+import type { EditorDraft, EditorDraftView } from "./provider-editor-state.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
 // 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
 import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
@@ -499,10 +508,16 @@ export async function openLiveSettings(target: LiveSettingsTarget): Promise<void
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });
   if (target === "live") return;
+  // target === "gemini-key"：四态直达凭据编辑器——无记录 / 非官方地址新建官方
+  // Gemini 记录（不静默改写中转地址），缺 Key / 可用编辑实际引用记录并聚焦 Key；
+  // 经横幅/会话故障直达，无伴看草稿可恢复，保存 / 取消即停在本编辑器
   const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
-  const { record: gemini } = resolveAiCredentialReference("gemini-live", providers);
-  await openProviderEditorById("ai", String(gemini?.id || ""), gemini ? undefined : "gemini");
-  document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
+  await enterGeminiCredentialEditor({
+    plan: resolveGeminiCredentialPlan(providers),
+    aiPresets: aiPresets,
+    onSave: providerTransactions.upsertProvider,
+    onDelete: providerTransactions.deleteProvider
+  });
 }
 
 // ===== 概览首配直达入口（票 provider-onboarding-consistency/01）=====
@@ -1177,7 +1192,8 @@ async function openProviderEditorById(
   kind: ProviderEditorKind,
   providerId: string,
   presetId?: string,
-  setupSession?: AiSetupSession
+  setupSession?: AiSetupSession,
+  restore?: { initialDraft: EditorDraft; baselineDraft: EditorDraftView | null }
 ): Promise<void> {
   const family = PROVIDER_FAMILY_UI[kind];
   const providers = await family.loadProviders();
@@ -1185,6 +1201,14 @@ async function openProviderEditorById(
   if (providerId && !item) {
     return;
   }
+  // 伴看 Gemini 编辑器：内联凭据引用行（四态文案 + 同层进入 AI 族编辑器动作，
+  // 票 07）；他族/他平台不渲染
+  const linkedCredential = kind === "live" && item
+    && (item.type === "gemini-live" || item.presetId === "gemini-live")
+    ? geminiLinkedCredential(resolveGeminiCredentialPlan(await loadAiProviders()), () => {
+        void enterGeminiCredentialFromLiveEditor();
+      })
+    : null;
   try {
     const { openProviderEditor } = await import("./provider-editor.js");
     openProviderEditor({
@@ -1202,7 +1226,9 @@ async function openProviderEditorById(
             onAfterSave: setupSession.onAfterSave,
             onSessionEnd: setupSession.onSessionEnd
           }
-        : {})
+        : {}),
+      ...(linkedCredential ? { linkedCredential } : {}),
+      ...(restore ? { initialDraft: restore.initialDraft, baselineDraft: restore.baselineDraft } : {})
     });
   } catch (error) {
     const host = settingsHostRef;
@@ -1210,6 +1236,41 @@ async function openProviderEditorById(
       setStatus(collectElements(host), (error as Error).message || "编辑器加载失败", true);
     }
   }
+}
+
+// 伴看编辑器内联凭据动作（票 07）：暂存伴看草稿 → 同层打开 AI 族凭据编辑器
+// （复用同一宿主，不增加可见 Modal 层）；保存成功或取消都会话结束后恢复原伴看
+// 草稿（dirty 基线一并带回），保存成功另提示仍需显式保存伴看记录
+async function enterGeminiCredentialFromLiveEditor(): Promise<void> {
+  const stash = stashLiveEditorDraft("live");
+  const aiProviders = await loadAiProviders();
+  await enterGeminiCredentialEditor({
+    plan: resolveGeminiCredentialPlan(aiProviders),
+    aiPresets: aiPresets,
+    onSave: providerTransactions.upsertProvider,
+    onDelete: providerTransactions.deleteProvider,
+    stash,
+    reopenLiveEditor: (stashed, hint) => {
+      void restoreLiveEditorAfterCredential(stashed, hint);
+    }
+  });
+}
+
+async function restoreLiveEditorAfterCredential(stash: LiveEditorStash, hint: string | null): Promise<void> {
+  const host = settingsHostRef;
+  if (!host) return;
+  // 抽屉收起的强制关闭路径不恢复：草稿随既有规则丢弃，不得在抽屉外重开编辑器
+  if (document.getElementById(ids.readingSettingsPanel)?.hidden) return;
+  // 重新装载两行：伴看行状态文案随新引用刷新（rerenderLiveProviders 经 annotate
+  // 现查 AI 族列表）
+  const [liveProviders, aiProviders] = await Promise.all([loadLiveProviders(), loadAiProviders()]);
+  const elements = collectElements(host);
+  rerenderLiveProviders(elements, liveProviders, aiProviders);
+  if (hint) setStatus(elements, hint);
+  await openProviderEditorById("live", stash.editingId, undefined, undefined, {
+    initialDraft: stash.draft,
+    baselineDraft: stash.baseline
+  });
 }
 
 function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
