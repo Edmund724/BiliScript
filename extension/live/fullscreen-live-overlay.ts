@@ -566,12 +566,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   }
 
   function resolveCurrentVolume(): number {
-    if (deps.getVolume) {
-      return Math.round(Math.max(0, Math.min(200, deps.getVolume())));
-    }
     const c = deps.getLiveController();
     if (c?.getVolume) {
       return Math.round(Math.max(0, Math.min(2, c.getVolume())) * 100);
+    }
+    if (deps.getVolume) {
+      return Math.round(Math.max(0, Math.min(200, deps.getVolume())));
     }
     return 100;
   }

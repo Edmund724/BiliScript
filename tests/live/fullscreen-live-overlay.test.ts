@@ -358,6 +358,32 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
+  it("拖动预览后同步音量回包，不回退到旧设置值", () => {
+    const onVolumeChange = vi.fn();
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      getVolume: () => 80,
+      onVolumeChange
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!.click();
+    const slider = popover.querySelector<HTMLInputElement>(".live-overlay-volume-slider:not(.live-overlay-speed-slider)")!;
+    const value = popover.querySelector<HTMLElement>(".live-overlay-volume-value:not(.live-overlay-speed-value)")!;
+
+    slider.value = "65";
+    slider.dispatchEvent(new Event("input"));
+    overlay.syncState();
+
+    expect(slider.value).toBe("65");
+    expect(value.textContent).toBe("65%");
+    slider.dispatchEvent(new Event("change"));
+    expect(onVolumeChange).toHaveBeenCalledWith(65);
+    overlay.dispose();
+  });
+
   it("支持 200% 音量与五档吸附语速，并同步服务端调速", () => {
     const onSpeedChange = vi.fn();
     const overlay = createFullscreenLiveOverlay({
