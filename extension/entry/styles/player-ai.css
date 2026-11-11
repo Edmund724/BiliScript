@@ -881,16 +881,6 @@
   transform: scale(0.96);
 }
 
-.live-overlay-volume-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border: none;
-  border-radius: 50%;
-  background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-  cursor: pointer;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .live-overlay-switch,
   .live-overlay-switch::after {

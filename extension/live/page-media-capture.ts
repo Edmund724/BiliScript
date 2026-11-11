@@ -170,9 +170,7 @@ function createDefaultPageAudioContext(): PageAudioContextLike | null {
 
 function defaultCaptureVideoStream(video: HTMLVideoElement): MediaStream | null {
   try {
-    const fn =
-      (video as unknown as { captureStream?: () => MediaStream }).captureStream ||
-      (video as unknown as { mozCaptureStream?: () => MediaStream }).mozCaptureStream;
+    const fn = (video as unknown as { captureStream?: () => MediaStream }).captureStream;
     return typeof fn === "function" ? fn.call(video) : null;
   } catch {
     return null;

@@ -2915,16 +2915,6 @@
   transform: scale(1.15);
 }
 
-#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--biliscript-radius-circle);
-  background: var(--biliscript-reader-accent);
-  border: 2px solid var(--biliscript-reader-surface);
-  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
-  cursor: pointer;
-}
-
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-labels {
   display: flex;
   justify-content: space-between;
