@@ -29,6 +29,7 @@ import {
 } from "./live-chat-controller.js";
 import {
   createLiveOverlayBinding,
+  syncPlayerInterpretQuickActionState,
   type LiveOverlayBinding,
   type LiveOverlayControllerHooks
 } from "./live-overlay-binding.js";
@@ -66,8 +67,10 @@ const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
   getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto"
 });
 
-function syncInterpretButton(): void {
-  liveOverlayBinding.getOverlay()?.syncState();
+export function syncPlayerInterpretQuickAction(): void {
+  const shouldShow = shouldShowInterpret();
+  const controller = shouldShow ? ensureInterpretController() : interpretController;
+  syncPlayerInterpretQuickActionState(controller, shouldShow);
 }
 
 function ensureInterpretController(): InterpretSessionController {
@@ -78,14 +81,14 @@ function ensureInterpretController(): InterpretSessionController {
         if (sessionHooks?.showNotice) {
           sessionHooks.showNotice(message, autoHideMs);
         } else {
-          liveOverlayBinding.getOverlay()?.showInterpretNotice(message, autoHideMs);
+          interpretSubtitleOverlay.showNotice(message, autoHideMs);
         }
       },
       onTranscript: interpretSubtitleOverlay.handleTranscript,
       clearSubtitles: interpretSubtitleOverlay.clear,
       clearSubtitlesOnSeek: interpretSubtitleOverlay.clearForSeek,
-      onStateChange: syncInterpretButton,
-      onAvailabilityChange: syncInterpretButton
+      onStateChange: syncPlayerInterpretQuickAction,
+      onAvailabilityChange: syncPlayerInterpretQuickAction
     });
     bindLifecycleListeners();
     void interpretController.refreshAvailability();
@@ -93,11 +96,13 @@ function ensureInterpretController(): InterpretSessionController {
   return interpretController;
 }
 
+export async function toggleInterpret(): Promise<void> {
+  await ensureInterpretController().toggle();
+}
+
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost,
   getLiveController: () => liveController,
-  getInterpretController: ensureInterpretController,
-  shouldShowInterpret,
   onOpenLiveSettings: (target) => {
     void openLiveCompanionSettings(target);
   }
@@ -117,7 +122,7 @@ function bindLifecycleListeners(): void {
   if (!unsubscribeInterpretPresenter) {
     unsubscribeInterpretPresenter = subscribeReaderPresenter((event) => {
       if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-        syncInterpretButton();
+        syncPlayerInterpretQuickAction();
       }
     });
   }

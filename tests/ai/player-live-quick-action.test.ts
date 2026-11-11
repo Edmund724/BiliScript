@@ -21,6 +21,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
     getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
     isLiveCompanionActive: ReturnType<typeof vi.fn>;
+    syncPlayerInterpretQuickAction: ReturnType<typeof vi.fn>;
+    toggleInterpret: ReturnType<typeof vi.fn>;
   };
   let mockOverlay: {
     show: ReturnType<typeof vi.fn>;
@@ -69,7 +71,9 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       getLiveController: vi.fn(() => null),
       ensureFullscreenOverlay: vi.fn(() => mockOverlay),
       getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
-      isLiveCompanionActive: vi.fn(() => false)
+      isLiveCompanionActive: vi.fn(() => false),
+      syncPlayerInterpretQuickAction: vi.fn(),
+      toggleInterpret: vi.fn(async () => {})
     };
 
     mockEnsureUiReady = vi.fn(async () => {});
@@ -136,24 +140,48 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     const aiButton = document.getElementById("biliscript-player-ai-quick-action");
     const liveButton = document.getElementById("biliscript-player-live-quick-action");
     const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+    const interpretButton = document.getElementById("biliscript-player-interpret-quick-action");
+    const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
     const aiWrap = playerContainer.querySelector(".biliscript-player-ai-wrap");
 
     expect(aiButton).not.toBeNull();
     expect(liveButton).not.toBeNull();
     expect(liveWrap).not.toBeNull();
+    expect(interpretButton).not.toBeNull();
+    expect(interpretWrap).not.toBeNull();
     expect(aiWrap).not.toBeNull();
 
     expect(aiWrap?.children[0]).toBe(aiButton);
     expect(aiWrap?.contains(liveButton)).toBe(false);
+    expect(aiWrap?.contains(interpretButton)).toBe(false);
 
+    expect(interpretWrap?.contains(interpretButton)).toBe(true);
+    expect(interpretWrap?.nextElementSibling).toBe(liveWrap);
     expect(liveWrap?.contains(liveButton)).toBe(true);
     expect(liveWrap?.nextElementSibling).toBe(qualityBtn);
     expect(liveButton?.getAttribute("aria-label")).toBe("实时伴看");
+    expect(interpretButton?.textContent).toBe("实时翻译");
 
     stopPlayerAiQuickAction();
+    expect(document.getElementById("biliscript-player-interpret-quick-action")).toBeNull();
+    expect(document.getElementById("biliscript-player-interpret-quick-action-wrap")).toBeNull();
     expect(document.getElementById("biliscript-player-live-quick-action")).toBeNull();
     expect(document.getElementById("biliscript-player-live-quick-action-wrap")).toBeNull();
     expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
+  });
+
+  it("点击实时翻译只切换同传，不启动伴看或创建伴看浮窗", async () => {
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    const interpretButton = document.getElementById("biliscript-player-interpret-quick-action") as HTMLButtonElement;
+    interpretButton.click();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(mockLiveSession.toggleInterpret).toHaveBeenCalledTimes(1);
+    expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
+    expect(mockLiveSession.ensureFullscreenOverlay).not.toHaveBeenCalled();
   });
 
   it("非全屏下点击伴看按钮：直接启动独立伴看会话，不打开文摘面板，也不初始化 AI 对话 tab", async () => {
@@ -333,28 +361,36 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     expect(document.body.hasAttribute("data-biliscript-live-active")).toBe(false);
   });
 
-  it("同传按钮跟随真实 CC 字幕状态：无 CC 或仅 ASR 时显示，有 CC 时隐藏", async () => {
+  it("控制栏同传按钮跟随真实 CC 字幕状态，且不创建伴看浮窗", async () => {
     const session = await import("../../extension/live/live-companion-session.js");
     const { state } = await import("../../extension/core/state.js");
     const { notifyReaderPresenter } = await import("../../extension/reader/reader-bus.js");
+    const wrap = document.createElement("div");
+    wrap.id = "biliscript-player-interpret-quick-action-wrap";
+    const button = document.createElement("button");
+    button.id = "biliscript-player-interpret-quick-action";
+    wrap.appendChild(button);
+    document.body.appendChild(wrap);
     session.ensureLiveController();
-    session.getLiveOverlayBinding().handleStateChange("connected");
 
-    const button = document.querySelector(".live-overlay-interpret-btn") as HTMLButtonElement;
+    session.syncPlayerInterpretQuickAction();
     expect(button.hidden).toBe(true);
 
     state.clip.setSubtitleFetchState("empty");
     notifyReaderPresenter({ kind: "subtitle-ready" });
     expect(button.hidden).toBe(false);
+    expect(wrap.hidden).toBe(false);
 
     state.clip.setSubtitles([{ id: "cc-1", lan: "zh-CN", subtitleUrl: "https://example.com/cc.json" }]);
     state.clip.setSubtitleFetchState("ready");
     notifyReaderPresenter({ kind: "subtitle-ready" });
     expect(button.hidden).toBe(true);
+    expect(wrap.hidden).toBe(true);
 
     state.clip.setSubtitles([{ id: "asr-1", lan: "asr-zh", subtitleUrl: "" }]);
     notifyReaderPresenter({ kind: "subtitle-ready" });
     expect(button.hidden).toBe(false);
+    expect(session.getFullscreenLiveOverlay()).toBeNull();
     window.dispatchEvent(new Event("pagehide"));
   });
 });

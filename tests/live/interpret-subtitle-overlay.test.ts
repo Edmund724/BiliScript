@@ -127,6 +127,25 @@ describe("同声传译字幕浮层", () => {
     overlay.dispose();
   });
 
+  it("独立同传提示无需伴看浮窗，自动消失后可再次显示", () => {
+    vi.useFakeTimers();
+    const overlay = createOverlay();
+    overlay.showNotice("同传连接失败", 1000);
+
+    let notice = playerHost.querySelector<HTMLElement>(".biliscript-interpret-notice");
+    expect(notice?.textContent).toBe("同传连接失败");
+    expect(notice?.getAttribute("role")).toBe("status");
+    expect(document.getElementById("biliscript-fullscreen-live-overlay")).toBeNull();
+
+    vi.advanceTimersByTime(1000);
+    expect(playerHost.querySelector(".biliscript-interpret-notice")).toBeNull();
+    overlay.showNotice("实时翻译已关闭", 0);
+    notice = playerHost.querySelector<HTMLElement>(".biliscript-interpret-notice");
+    expect(notice?.textContent).toBe("实时翻译已关闭");
+    overlay.dispose();
+    expect(playerHost.querySelector(".biliscript-interpret-notice")).toBeNull();
+  });
+
   it("clear 立即清空当前字幕，之后可继续显示新快照", () => {
     const overlay = createOverlay("bilingual");
     overlay.handleTranscript({ kind: "input.updated", turn: "turn-1", text: "旧原文" });

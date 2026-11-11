@@ -18,6 +18,7 @@ export interface InterpretSubtitleOverlay {
   handleTranscript(event: MossInterpretTranscriptEvent): void;
   clear(): void;
   clearForSeek(): void;
+  showNotice(message: string, autoHideMs?: number): void;
   getElement(): HTMLElement | null;
   dispose(): void;
 }
@@ -28,6 +29,8 @@ export function createInterpretSubtitleOverlay(
   let rootEl: HTMLElement | null = null;
   let originalEl: HTMLElement | null = null;
   let translationEl: HTMLElement | null = null;
+  let noticeEl: HTMLElement | null = null;
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null;
   let sourceTurn = "";
   let sourceText = "";
   const outputs = new Map<string, string>();
@@ -166,13 +169,39 @@ export function createInterpretSubtitleOverlay(
     }
   }
 
+  function showNotice(message: string, autoHideMs = 6000): void {
+    const host = getMountHost();
+    if (!host) return;
+    if (noticeTimer !== null) clearTimeout(noticeTimer);
+    noticeTimer = null;
+    if (!noticeEl) {
+      noticeEl = document.createElement("div");
+      noticeEl.className = "biliscript-interpret-notice";
+      noticeEl.setAttribute("data-biliscript-extension-node", "interpret-notice");
+      noticeEl.setAttribute("role", "status");
+    }
+    if (noticeEl.parentElement !== host) host.appendChild(noticeEl);
+    noticeEl.textContent = message;
+    if (autoHideMs > 0) {
+      noticeTimer = setTimeout(() => {
+        noticeTimer = null;
+        noticeEl?.remove();
+        noticeEl = null;
+      }, autoHideMs);
+    }
+  }
+
   function dispose(): void {
     cancelFade();
+    if (noticeTimer !== null) clearTimeout(noticeTimer);
+    noticeTimer = null;
+    noticeEl?.remove();
+    noticeEl = null;
     rootEl?.remove();
     rootEl = null;
     originalEl = null;
     translationEl = null;
   }
 
-  return { handleTranscript, clear, clearForSeek, getElement: () => rootEl, dispose };
+  return { handleTranscript, clear, clearForSeek, showNotice, getElement: () => rootEl, dispose };
 }

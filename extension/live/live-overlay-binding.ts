@@ -4,7 +4,7 @@
 // 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
 // 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
 // 3. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
-// 4. 视频页同传控制器与 CC 显隐判定向浮窗的透传
+// 4. 视频页同传快捷按钮的连接状态与可用性同步
 
 import { state } from "../core/state.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -22,6 +22,7 @@ import type {
 } from "./live-chat-controller.js";
 import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
+import type { InterpretSessionController } from "./interpret-session-controller.js";
 
 export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR =
   ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap, #live-player, .live-player-mounter, #live-player-ctnr";
@@ -39,6 +40,40 @@ export function syncPlayerLiveQuickActionState(active: boolean): void {
     btn.title = label;
     btn.setAttribute("aria-label", label);
   }
+}
+
+export function syncPlayerInterpretQuickActionState(
+  controller: InterpretSessionController | null,
+  shouldShow: boolean
+): void {
+  const button = document.getElementById("biliscript-player-interpret-quick-action");
+  const wrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+  if (!(button instanceof HTMLButtonElement) || !wrap) return;
+  wrap.hidden = !shouldShow;
+  button.hidden = !shouldShow;
+  if (!shouldShow || !controller) return;
+
+  const interpretState = controller.getState();
+  const availability = controller.getAvailability();
+  const active = interpretState === "connecting" || interpretState === "connected";
+  const unavailable = !availability.ok && !active;
+  button.classList.toggle("is-active", interpretState === "connected");
+  button.classList.toggle("is-connecting", interpretState === "connecting");
+  button.setAttribute("aria-pressed", String(interpretState === "connected"));
+  button.setAttribute("aria-busy", String(interpretState === "connecting"));
+  button.setAttribute("aria-disabled", String(unavailable));
+  if (!availability.ok) {
+    button.setAttribute("aria-description", availability.error);
+  } else {
+    button.removeAttribute("aria-description");
+  }
+  const label = interpretState === "connecting"
+    ? "正在连接实时翻译..."
+    : interpretState === "connected"
+      ? "关闭实时翻译"
+      : "开启实时翻译";
+  button.title = unavailable && !availability.ok ? availability.error : label;
+  button.setAttribute("aria-label", label);
 }
 
 export function findDefaultLiveOverlayHost(): HTMLElement | null {
@@ -87,8 +122,6 @@ export type BoundLiveControllerCallbacks = Pick<
 export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
-  getInterpretController?: FullscreenLiveOverlayDeps["getInterpretController"];
-  shouldShowInterpret?: FullscreenLiveOverlayDeps["shouldShowInterpret"];
   shouldAutoShow?: () => boolean;
   onBeforeAutoShow?: () => void;
   onVoicePrioritySync?: (enabled: boolean) => void;
@@ -142,8 +175,6 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       overlay = createOverlayFn({
         getPlayerHost,
         getLiveController: options.getLiveController,
-        getInterpretController: options.getInterpretController,
-        shouldShowInterpret: options.shouldShowInterpret,
         getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
         onVolumeChange: handleVolumeChange,
         onSpeedChange: handleSpeedChange,
@@ -212,9 +243,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
       }
     } else {
       overlay?.syncState(liveState, false, undefined);
-      const interpretState = options.getInterpretController?.()?.getState();
-      const interpretActive = interpretState === "connecting" || interpretState === "connected";
-      if (!interpretActive && !retryInProgress) overlay?.hide();
+      if (!retryInProgress) overlay?.hide();
     }
     lastLiveState = liveState;
   }

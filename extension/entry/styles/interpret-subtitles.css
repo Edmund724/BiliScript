@@ -49,6 +49,24 @@
   display: none !important;
 }
 
+.biliscript-interpret-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  z-index: 45;
+  box-sizing: border-box;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.78);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .biliscript-interpret-subtitle-overlay {
     transition: none;

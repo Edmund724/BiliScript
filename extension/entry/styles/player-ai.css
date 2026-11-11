@@ -196,7 +196,7 @@
 }
 
 
-/* ===== 全屏实时伴看浮窗与播放器伴看快捷按钮 ===== */
+/* ===== 全屏实时伴看浮窗与播放器伴看/翻译快捷按钮 ===== */
 
 @property --biliscript-live-glass-tint-scale {
   syntax: "<number>";
@@ -313,6 +313,63 @@
 #biliscript-player-live-quick-action.is-active:hover {
   color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   opacity: 1;
+}
+
+.biliscript-player-interpret-quick-action-wrap {
+  margin: 0;
+  padding: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.biliscript-player-interpret-quick-action-wrap[hidden],
+#biliscript-player-interpret-quick-action[hidden] {
+  display: none !important;
+}
+
+#biliscript-player-interpret-quick-action {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+  color: var(--biliscript-primitive-color-white);
+  cursor: pointer;
+  display: block;
+  font-size: var(--biliscript-font-size-sm-md, 13px);
+  line-height: 22px;
+  margin: 0;
+  min-height: 24px;
+  min-width: 64px;
+  opacity: 0.9;
+  padding: 0 8px;
+  white-space: nowrap;
+  transition: color 0.15s ease-out, opacity 0.15s ease-out;
+}
+
+#biliscript-player-interpret-quick-action:hover {
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  opacity: 1;
+}
+
+#biliscript-player-interpret-quick-action.is-active,
+#biliscript-player-interpret-quick-action.is-connecting {
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  opacity: 1;
+}
+
+#biliscript-player-interpret-quick-action[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+#biliscript-player-interpret-quick-action:disabled {
+  cursor: wait;
+}
+
+#biliscript-player-interpret-quick-action:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
 }
 
 .biliscript-fullscreen-live-overlay {
@@ -908,31 +965,6 @@
 
 .live-overlay-action-btn[data-primary-action="true"]:hover {
   background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 59, 130, 246), 0.58);
-}
-
-.live-overlay-interpret-btn {
-  flex: none;
-  min-height: 24px;
-  padding: 3px 8px;
-  white-space: nowrap;
-}
-
-.live-overlay-interpret-btn[hidden] {
-  display: none;
-}
-
-.live-overlay-interpret-btn.is-active,
-.live-overlay-interpret-btn.is-connecting {
-  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 59, 130, 246), 0.42);
-}
-
-.live-overlay-interpret-btn[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.live-overlay-interpret-btn[aria-disabled="true"]:hover {
-  background: rgb(255 255 255 / 0.14);
 }
 
 .live-overlay-interpret-notice {

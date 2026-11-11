@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createLiveOverlayBinding } from "../../extension/live/live-overlay-binding.js";
+import {
+  createLiveOverlayBinding,
+  syncPlayerInterpretQuickActionState
+} from "../../extension/live/live-overlay-binding.js";
 import { state } from "../../extension/core/state.js";
 
 beforeEach(() => {
@@ -9,6 +12,44 @@ beforeEach(() => {
 });
 
 describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () => {
+  it("控制栏同传按钮同步显隐、连接状态与配置不可用原因", () => {
+    const wrap = document.createElement("div");
+    wrap.id = "biliscript-player-interpret-quick-action-wrap";
+    const button = document.createElement("button");
+    button.id = "biliscript-player-interpret-quick-action";
+    wrap.appendChild(button);
+    document.body.appendChild(wrap);
+    let interpretState = "idle";
+    let availability = { ok: false, error: "未配置 MOSS-LIVE 密钥" };
+    const controller = {
+      getState: () => interpretState,
+      getAvailability: () => availability
+    } as any;
+
+    syncPlayerInterpretQuickActionState(controller, false);
+    expect(wrap.hidden).toBe(true);
+    expect(button.hidden).toBe(true);
+
+    syncPlayerInterpretQuickActionState(controller, true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.getAttribute("aria-description")).toBe(availability.error);
+    expect(button.title).toBe(availability.error);
+    expect(button.getAttribute("aria-label")).toBe("开启实时翻译");
+
+    availability = { ok: true } as any;
+    interpretState = "connecting";
+    syncPlayerInterpretQuickActionState(controller, true);
+    expect(button.getAttribute("aria-disabled")).toBe("false");
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.classList.contains("is-connecting")).toBe(true);
+
+    interpretState = "connected";
+    syncPlayerInterpretQuickActionState(controller, true);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("aria-label")).toBe("关闭实时翻译");
+    expect(button.classList.contains("is-active")).toBe(true);
+  });
+
   it("懒创建浮窗并同步状态、VAD、转写与停止伴看", () => {
     const host = document.createElement("div");
     host.className = "bpx-player-container";
@@ -397,28 +438,20 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(onOpenLiveSettings).toHaveBeenCalledWith("gemini-key");
   });
 
-  it("伴看停止不隐藏仍在运行的同传入口", () => {
+  it("伴看停止只关闭伴看浮窗，不承担同传生命周期", () => {
     const host = document.createElement("div");
     host.className = "bpx-player-container";
     document.body.appendChild(host);
-    let interpretState: "idle" | "connected" = "connected";
     const binding = createLiveOverlayBinding({
       getPlayerHost: () => host,
-      getLiveController: () => null,
-      getInterpretController: () => ({
-        getState: () => interpretState,
-        getAvailability: () => ({ ok: true })
-      }) as any,
-      shouldShowInterpret: () => true
+      getLiveController: () => null
     });
 
     binding.handleStateChange("connected");
     binding.handleStateChange("idle");
 
-    expect(binding.getOverlay()?.isVisible()).toBe(true);
-    const interpretButton = binding.getOverlay()?.getElement()?.querySelector<HTMLElement>(".live-overlay-interpret-btn");
-    expect(interpretButton?.hidden).toBe(false);
-    interpretState = "idle";
+    expect(binding.getOverlay()?.isVisible()).toBe(false);
+    expect(binding.getOverlay()?.getElement()?.querySelector(".live-overlay-interpret-btn")).toBeNull();
     binding.dispose();
   });
 });

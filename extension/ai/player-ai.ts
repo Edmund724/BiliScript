@@ -7,7 +7,9 @@ import {
   getLiveController,
   isLiveCompanionActive,
   startLiveCompanion,
-  stopLiveCompanion
+  stopLiveCompanion,
+  syncPlayerInterpretQuickAction,
+  toggleInterpret
 } from "../live/live-companion-session.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
@@ -108,6 +110,19 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
   return isControlBarItemMounted(liveWrap, placement);
 }
 
+function isPlayerInterpretQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+  const interpretButton = document.getElementById("biliscript-player-interpret-quick-action");
+  if (!interpretWrap || !interpretButton || !interpretWrap.isConnected || !interpretWrap.contains(interpretButton)) {
+    return false;
+  }
+  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  const placement = liveWrap?.isConnected && liveWrap.parentElement instanceof HTMLElement
+    ? { kind: "before" as const, parent: liveWrap.parentElement, reference: liveWrap }
+    : resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  return isControlBarItemMounted(interpretWrap, placement);
+}
+
 function isPlayerAiQuickActionMountedStable(): boolean {
   const wrap = playerAiQuickActionMountedWrap;
   const host = playerAiQuickActionMountedHost;
@@ -115,7 +130,7 @@ function isPlayerAiQuickActionMountedStable(): boolean {
   if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
     return false;
   }
-  if (!isPlayerLiveQuickActionMountedStable(host)) {
+  if (!isPlayerLiveQuickActionMountedStable(host) || !isPlayerInterpretQuickActionMountedStable(host)) {
     return false;
   }
   return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
@@ -371,6 +386,44 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
   }
 }
 
+function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
+  const existing = document.getElementById("biliscript-player-interpret-quick-action");
+  let button = existing instanceof HTMLButtonElement ? existing : null;
+  const existingWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+  let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "biliscript-player-interpret-quick-action-wrap";
+    wrap.className = "bpx-player-ctrl-btn biliscript-player-interpret-quick-action-wrap";
+    wrap.setAttribute("data-biliscript-extension-node", "interpret-quick-action");
+  }
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "biliscript-player-interpret-quick-action";
+    button.type = "button";
+    button.className = "biliscript-player-interpret-quick-action";
+    button.textContent = "实时翻译";
+    button.title = "开启实时翻译";
+    button.setAttribute("aria-label", "开启实时翻译");
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-disabled", "false");
+    button.addEventListener("click", handlePlayerInterpretQuickActionClick, true);
+  }
+  if (button.parentElement !== wrap) {
+    wrap.replaceChildren(button);
+  }
+
+  const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
+  const placement = liveWrap?.isConnected && liveWrap.parentElement instanceof HTMLElement
+    ? { kind: "before" as const, parent: liveWrap.parentElement, reference: liveWrap }
+    : resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+  if (placement) {
+    applyControlBarPlacement(wrap, placement);
+  }
+  syncPlayerInterpretQuickAction();
+}
+
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
@@ -403,6 +456,7 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   syncPlayerAiQuickActionVisuals(button);
 
   mountPlayerLiveQuickAction(playerHost);
+  mountPlayerInterpretQuickAction(playerHost);
 
   // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
   playerAiQuickActionMountedWrap = wrap;
@@ -494,6 +548,8 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
+  document.getElementById("biliscript-player-interpret-quick-action")?.remove();
   document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-live-quick-action")?.remove();
   document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
@@ -679,6 +735,19 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     if (button) {
       button.disabled = false;
     }
+  }
+}
+
+async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise<void> {
+  event.preventDefault();
+  event.stopPropagation();
+  const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  if (!button || button.getAttribute("aria-disabled") === "true" || button.disabled) return;
+  button.disabled = true;
+  try {
+    await toggleInterpret();
+  } finally {
+    button.disabled = false;
   }
 }
 
