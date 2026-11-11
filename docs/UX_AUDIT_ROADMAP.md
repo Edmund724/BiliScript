@@ -192,7 +192,7 @@ flowchart TD
 | **P1** | **Session 4：模块 M5（AI 对话高频交互、模型面板与工具反馈）** | **IA-03**（新建/历史会话藏匿于更多菜单）<br/>**IA-04**（排版与音频设置散落 3 处） | - [ ] **提升高频会话操作可见性**：重新审视 `开启新会话` 与 `历史对话` 的层级位置，将其与低频排版滑块解耦<br/>- [ ] **优化「历史对话」整页接管体验**：解决打开历史记录后顶栏触发按钮消失、进出动画与返回心智割裂问题<br/>- [ ] **归拢排版与音频偏好设置**：梳理设置抽屉「外观与布局」与对话内快捷调节的职责边界<br/>- [ ] **走查「发送闸」、模型与思考强度面板、联网搜索首次授权卡（Opt-in）与历史视频帧工具状态反馈** | [`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts)<br/>[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts)<br/>[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts)<br/>[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts) |
 | **P2** | **Session 5：模块 M3 & M4（字幕精读、双语选轨、即席解释与概览金句）** | 跨 Tab「待解释意图」移交体验、双语选轨六态心智、概览分段失败重试体验 | - [ ] **走查主副双语选轨专用弹层**：验证单轨/多轨/双语开启/无副轨六种状态下的选项禁用与文案引导清晰度<br/>- [ ] **走查无字幕 ASR 语音转写横幅全状态机**：未配置/待转写/自动转写/转写中取消/失败重试的视觉反馈<br/>- [ ] **走查划词「解释」→ 解释卡 →「去对话追问」跨 Tab 移交**：验证从 `字幕` 切至 `AI 对话` 时的上下文衔接感与回退路径（想要回到刚才读到的字幕行是否顺畅）<br/>- [ ] **走查概览三源分章、分段部分失败重试与金句分享卡片 Modal** | [`subtitle-tab-ui.ts`](file:///d:/src/BiliScript/extension/reader/subtitle-tab-ui.ts)<br/>[`transcribe-banner.ts`](file:///d:/src/BiliScript/extension/reader/transcribe-banner.ts)<br/>[`explain-card.ts`](file:///d:/src/BiliScript/extension/reader/explain-card.ts)<br/>[`overview-ui.ts`](file:///d:/src/BiliScript/extension/reader/overview-ui.ts)<br/>[`quote-share-modal.ts`](file:///d:/src/BiliScript/extension/reader/quote-share-modal.ts) |
 
-Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。
+Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。Session 3 的详细方案见第七节（待审批，未实施）。
 
 
 ---
@@ -639,3 +639,200 @@ flowchart LR
 6. 全局状态条只保留壳层与既有跨域反馈；新增任务反馈回到触发它的 Tab/宿主，不做全量状态系统重写。
 
 执行工单为 `.scratch/tickets/reader-shell-consistency/issues/01-06`。
+
+---
+
+## 七、Session 3 深度走查方案：首配冷启动、四族平台与凭据引用（待审批）
+
+> 范围：UF-02、IA-05，以及概览 / AI 对话 / 解释 / 语音转写的 0→1 首配续跑。本节只记录代码复核结论与待实施交互方案，不代表业务代码已经修改。
+
+### 7.1 代码复核后的事实校正
+
+- **设置没有弄丢原 Tab，真正缺的是“配置完成后的任务续跑”。** `openReaderSettingsPanel()` 只展开设置覆盖层，不改 `readingActiveScriptTab`；但概览和解释没有 storage 恢复链，ASR 的 `empty` 终态也不会因配好平台自动失效。用户即使知道如何返回，也仍要自行重试，ASR 甚至可能重试无效（`extension/ui/ui-renderer.ts:270-273`、`extension/reader/overview-coordinator.ts:351-360`、`extension/chat/send-gate.ts:230-242`）。
+- **概览与解释的“未配置”提示没有「前往设置」。** 两者只提供必然再次失败的「重试」；概览无字幕空态也只把 ASR remedy 渲染为纯文本（`extension/reader/overview-ui.ts:149-160,209-216`、`extension/reader/explain-card.ts:111-115`）。
+- **AI 对话只有空态入口基本闭环。** 配好平台后 storage watcher 能把空态刷成欢迎态；但已选平台缺 Key 时，port 错误会成为普通错误泡，没有设置动作。发送闸的 ASR notice 虽有「前往设置」，配置后重发仍可能被同一个 `empty + no-asr-config` 再次拦截（`extension/reader/chat-notices.ts:54-92`、`extension/chat/chat-runtime.ts:457-464,629-632`）。
+- **AI 的“默认”与对话的“当前模型”不是同一层。** 概览 / 解释缺省走 `defaultModel → 首个启用平台`；对话给定 providerId 后精确匹配。设置里的 AI 行既不显示默认徽标，也不显示模型名，唯一写入 `defaultModel` 的入口在对话底栏（`extension/core/provider-handlers.ts:223-273`、`extension/ai/active-provider.ts:28-58`、`extension/ui/provider-family.ts:118-125`）。
+- **搜索不是 `<details>`，而是自制 disclosure。** 折叠体内有智能虚拟行、平台 radio、排序与恢复默认；付费开关和次数上限在体外。悬空 activeId 实际按智能链解析，摘要却显示「单个平台」，是确定的状态投影错误（`extension/ui/settings-panel-html.ts:176-227`、`extension/ui/settings-panel.ts:715-727`、`extension/core/search-mode.ts:13-27`）。
+- **凭据引用的四态判定与 Key 单向读取已经收口，不应重写。** 缺口在动作层：Gemini Live 在直播间已有「配置 Gemini Key」范式，但视频页消费 Modal 与 DeepSeek Search 没有同等闭环；AI 保存后的列表重渲只刷新 Live，没有同步刷新 DeepSeek 搜索行（`extension/core/ai-credential-reference.ts:51-80,126-170`、`extension/ui/settings-panel.ts:469-488,975-984`）。
+- **DeepSeek 的红点表达了错误的对象。** 消费行没有自有 Key 是设计如此，当前却由 `hasSavedKey=false` 显示「未保存 API Key」；应展示引用是否可用，而不是假装它应该有自己的 Key（`extension/ui/provider-row.ts:308-318`）。
+- **多层弹窗的 Esc / 外点让位基本正确，不应推倒重来。** 确认框、下拉、拉取模型、编辑器已有 capture 让位与 dirty 确认；真正缺的是焦点圈禁/归还、确认框矮容器滚动，以及拉取模型仍占一层遮罩（`extension/ui/provider-editor-modal.ts:198-236,609-630`、`extension/ui/confirm-dialog.ts:54-90`）。
+- **拉取模型有确定的数据丢失缺陷。** 搜索过滤会重建整个列表，已勾选项没有会话级 Set；先选 A、再过滤选 B，确认时只剩当前 DOM 中的 B（`extension/ui/provider-editor-fetch-dialog.ts:60-64,79-123,207-216`）。
+- **权限手势链已有测试约束，必须保留。** 点击到 `requestProviderOriginsViaBackground` 之间零先行 await，SW 在首个异步间隙前调用 `chrome.permissions.request`；拒绝时编辑器保留草稿。优化文案和重试不能在这条链前插入异步步骤（`extension/ui/provider-editor-modal.ts:362-367`、`extension/ui/provider-editor-fetch-dialog.ts:166-203`、`extension/entry/background.ts:192-206`）。
+- **搜索 Opt-in 不是“配置搜索平台”。** 它只决定查询词能否外发；拒绝后主任务会无搜索继续，但开关仍开着，下次发送还可能再次询问。通用确认框只有「同意并继续 / 取消」，也没有可见标题说明正在授权什么（`extension/search/opt-in-notice.ts:15-43`、`extension/chat/chat-runtime.ts:656-668`）。
+
+### 7.2 新用户 0→1：一次性「设置并继续」任务意图
+
+#### 目标漏斗
+
+| 来源 | 当前主要断点 | 目标最短路径 | 配置完成后的动作 |
+| --- | --- | --- | --- |
+| 概览 | 错误条只有重试；回 Tab 不自动生成 | 「前往设置」→ 直接打开首个 AI 编辑器 → 平台 / Key / 模型 →「保存并继续」 | 退出设置，在同一视频自动续跑一次概览 |
+| AI 对话·空态 | 配好后仍要自行退出设置 | 空态「配置 AI 平台」→ 同一编辑器 →「保存并继续」 | 回到对话并聚焦输入框；不自动生成、不自动发消息 |
+| AI 对话·发送前未配置 | 配置链与草稿恢复没有统一意图；缺 Key 错误泡无动作 | 保留未受理草稿 → 设置并继续 | 草稿回到输入框，提示「平台已就绪，请确认发送」；由用户再次点击发送 |
+| 解释 | 卡片只有重试；选区上下文可能丢失 | 「前往设置」→ 同一 AI 编辑器 →「保存并继续」 | 回到原解释卡，保留 selection / line / from，自动续跑一次 |
+| 语音转写 | 多处 remedy 是纯文本；`empty` 终态让重发失效 | 「配置语音转写」→ 直接打开 ASR 编辑器 → Key / 模型 →「保存并继续」 | 重新进入既有字幕装载链并启动转写；已有发送闸等待则继续等字幕后发送 |
+
+规则如下：
+
+1. 未配置提示的主动作必须携带 `{section, providerId?, presetId?, resume}`，不能只打开设置首页。无记录时直接打开对应族的新增编辑器；有记录但缺 Key 时直接编辑该记录并聚焦 Key；不再要求用户先点一次「+ 添加平台」。
+2. AI 预设不替用户做商业选择：新增编辑器聚焦平台预设控件；ASR 可沿用现有默认预设。首个 AI 平台的引导态必须至少有 **一个可用模型** 才允许「保存并继续」，缺模型时聚焦模型输入并显示字段错误；普通编辑是否继续允许空目录不在本批顺手改变。
+3. 「保存并继续」只在引导态出现，普通编辑仍为「保存」。连通性测试是可选诊断，不设为首配必经步骤；保存成功本身就完成权限与持久化事务。
+4. 续跑意图只存在当前页面内存，包含来源、视频 `bvid+cid`、原任务代次和一次性状态；换视频 / 分P、用户取消、显式编辑原文、关闭面板或已经续跑后即作废。不得落 storage，也不得让之后每次平台保存都触发旧任务。
+5. 返回是关闭设置覆盖层，不重新激活 Tab、不新建会话、不写新的 Tab 偏好。概览与解释只在原错误仍对应“无平台 / 缺 Key”时续跑；网络、额度、限流错误不自动重试。
+6. AI 对话不自动重发已经产生用户气泡、部分回复或历史记录的错误回合；只恢复尚未受理的草稿。这样配置动作不会变成一次用户没有再次确认的付费请求。
+7. ASR 续跑复用既有「字幕抓取 / 无字幕出口 / 转写 / 字幕接受」事务与在飞守卫，不另起一条转写管线。发送闸重发时，配置类 `empty` 原因允许重新进入抓取；非配置类空字幕仍按原规则拦截。
+
+#### 统一提示与恢复文案
+
+- 无 AI 平台：`还没有配置 AI 平台。`，主动作「配置 AI 平台」；已有平台缺 Key：`当前平台还没有 API Key。`，主动作「填写 Key」。
+- 无 ASR 平台沿用 `getAsrFailureNotice` 的病因与补救单源，只把 `remedy=open-settings` 真正投影为按钮，不再复制一套错误分类。
+- 配置成功反馈留在原任务上下文：概览直接进生成条；解释直接进 loading；对话显示「平台已就绪，请确认发送」；转写显示既有进度横幅。设置底部状态行不再承担远端任务结果。
+
+### 7.3 UF-02：统一“谁正在生效”，保留四种真实语义
+
+#### 四族共同规则
+
+每个分区先回答「现在用什么」，再提供「管理记录」。共同行结构为：状态点 + 平台名 + 生效标记 + 模型 / 凭据状态 + 管理动作；启用开关只表达能否参与解析，不再冒充“当前使用”。
+
+| 族 | 生效语义 | 设置内应看到的内容 |
+| --- | --- | --- |
+| AI 模型 | 默认平台供概览 / 解释等缺省链使用；对话可精确另选 | 默认行显示「默认」徽标与模型名；分区摘要显示「概览 / 解释：平台 · 模型」。对话另选时追加「对话：平台 · 模型（在对话底栏切换）」 |
+| 实时伴看 | 唯一激活平台 | radio 改为明确的「使用」，选中行同时显示「使用中」；Gemini 行显示模型与引用状态 |
+| 语音转写 | 唯一激活平台，另有自动转写开关 | 与 Live 相同的「使用 / 使用中」；自动转写开关不被误认为平台激活 |
+| 搜索 | 智能有序回退，或单平台无回退 | 摘要直接显示「智能搜索」或「仅平台名 · 失败不回退」；单平台行不借「链首」术语 |
+
+AI 默认摘要必须复用解析单源：从 handler / active-provider 中提取不暴露 Key 的纯选择助手，同时供实际请求与 UI 投影使用；不得在 `settings-panel.ts` 重写一份 `defaultModel → 首个启用` 和模型回落。默认平台被禁用、删除或 Key 缺失时，摘要显示真实回落或不可用状态，不继续展示旧模型。
+
+「翻译模型」改为「字幕翻译模型」，默认项改为「跟随 AI 默认平台」；它是 AI 消费偏好，不应让用户以为会在 Gemini Live 模型列表里选择。
+
+#### 搜索区降密与模式投影
+
+折叠触发器改为原生 `<button>`，名称用「搜索方式」，摘要在折叠态也足以回答当前行为：
+
+- 智能：`智能搜索 · 按顺序尝试`；有悬空旧选择时仍显示智能，不再误报「单个平台」。
+- 单选：`仅 DeepSeek · 失败不回退`；付费平台追加「可能计费」，不另造「智能（含付费）」虚拟模式。
+- 展开后第一组是模式：「智能搜索」虚拟行说明改为「按顺序尝试可用平台；失败时尝试下一家」。单平台 radio 的可见说明为「只使用该平台，失败不回退」，关键后果不能只放 hover `title`。
+- 只有智能模式显示拖拽把手、「恢复默认顺序」和「允许智能搜索使用付费平台」。切到单平台后这些控件隐藏，因为它们对当前请求完全无效；切回智能恢复原排序与付费偏好，不清设置。
+- 「单轮搜索次数上限」继续常驻折叠体外：它同时约束智能和单平台，不是回退链专属参数。
+- 不向界面引入「零成本组」「链首平台」这些实现术语。免 Key、免费额度、付费继续由行徽章表达；智能行说明可写「免 Key 平台直接参与，免费额度平台需先保存 Key」，避免把“免费额度”误解成无需配置。
+- 智能列表首项不需要额外「链首」徽标；列表顺序、拖拽把手与「按顺序尝试」已足够表达。单平台模式不显示排序，避免暗示还有下一家。
+
+### 7.4 UF-02：跨族凭据引用改为同层联动事务
+
+#### 四态动作表
+
+| 引用状态 | 消费侧说明 | 主动作 | 动作结果 |
+| --- | --- | --- | --- |
+| `no-record` | `DeepSeek 搜索使用官方 DeepSeek AI 平台的 Key。` / Gemini 对应文案 | 「配置 DeepSeek Key」/「配置 Gemini Key」 | 同层打开预置官方 AI 平台编辑器，聚焦 Key |
+| `no-key` | `已找到官方 AI 平台，但还没有保存 Key。` | 「填写 Key」 | 同层编辑解析到的精确记录，聚焦 Key |
+| `unofficial` | `现有 AI 平台使用中转地址；此功能只支持官方接口。` | 「添加官方平台」 | 新建独立官方 AI 记录；不静默改写现有中转平台的地址 |
+| `ok` | `使用 AI 平台「名称」的 Key` | 无需常驻动作 | 显示真实来源名称，不显示或复制 Key |
+
+`unofficial` 不提供一键覆盖现有 baseUrl：该记录可能正服务概览和对话，改地址是有副作用的 AI 配置变更。新建官方记录后，由既有「第一条启用且官方」规则解析；若已有多条，界面显示实际命中的来源，避免用户以为新记录一定生效。
+
+#### 同层切换，不增加第五层弹窗
+
+- Gemini Live / DeepSeek 编辑器及列表状态行都提供上表动作。点击后，**同一个编辑器宿主**从消费记录切换到 AI 记录，标题显示「配置 DeepSeek Key」或「配置 Gemini Key」，并提供「返回搜索平台 / 返回伴看平台」。
+- 切换前保存消费编辑器的内存 draft 与返回上下文，但不写消费族存储。AI 保存成功或取消后都返回原消费编辑器并恢复 draft；AI 保存成功时重新查询引用状态，显示「Key 已就绪，保存后生效」。消费记录仍由自己的「保存 / 保存并继续」显式落盘。
+- 该返回上下文不是新的可见 Modal 栈，也不是 dirty 放弃；换视频或关闭整个面板时销毁。AI 编辑器自身的未保存修改仍有 dirty 保护。
+- Key 始终只写 `aiProviderKeys`；`searchProviderKeys` / `liveProviderKeys` 不新增写入路径，运行期仍只经 `resolveAiCredentialKey` / `queryAiCredentialKey` 读取。
+- AI 新增、编辑、删除后，同次事务同时刷新 Live 与 Search 两类行，不能让 DeepSeek 状态停留在打开 AI 编辑器之前。
+- 行状态改由结构化 `credentialTarget / credentialStatus` 驱动：`ok` 显示正常，`no-record/no-key/unofficial` 显示需要处理；不再用消费记录自己的 `hasSavedKey` 推出红点。状态文案只作展示，不作逻辑判据。
+
+### 7.5 IA-05：编辑器降层、权限、测试与校验
+
+#### 层级与焦点
+
+目标层级收敛为 `文摘面板 → 设置抽屉 → 平台编辑器 →（仅必要时）确认框`：
+
+1. 「获取可用模型」改为平台编辑器内的子视图，共用同一个对话框与宿主，不再生成第二张 mask。头部为「← 返回平台编辑 / 选择模型」，底部为「取消 / 添加所选（N）」；Esc 在子视图只返回编辑器，确认框存在时仍只结算确认框。
+2. 拉取选择使用会话级 `selected: Set<string>`：过滤只改变可见项，不删除选择；确认添加 Set 全集。全选只作用于当前可见且未添加项，按钮计数显示全量已选数，并提示「另有 N 项已选」以避免隐藏选择造成误解。
+3. 本批保留现有自定义 overlay 与 capture 让位，不趁机混写另一套原生 dialog 事件模型。必须补外区 `inert`、编辑器内焦点圈禁与关闭后的焦点归还；子视图切换聚焦标题或搜索框，确认框取消后回编辑器触发按钮。
+4. 确认框增加可见标题、`aria-labelledby` / `aria-describedby`、最大高度与内部滚动；破坏性确认初始焦点放「取消」。长文案、400px 窄面板与矮视口都不能让按钮溢出。
+5. 外层设置关闭请求不得绕过 dirty 编辑器；只有整个阅读视图销毁或换片才允许强制清理。继续遵守 Session 2 的“一次 Esc / 外点只结算最上层”。
+
+#### 动态域名权限
+
+- 点击测试、拉取或保存时，先同步显示「浏览器将请求访问 `host`」再在同一手势链发起申请；不得为展示提示而先 await。
+- 拒绝后保留所有 draft，状态区显示「未获得 `host` 访问权限，尚未保存 / 尚未测试」，提供「重新授权」。保存拒绝意味着记录未落盘，不能显示部分成功。
+- 多 origin 仍合并为一次浏览器请求；Live 的 HTTP + WebSocket 权限与模型列表双端点规则继续由原解析器负责。
+- 测试和保存共用同一权限错误形状，但状态文案区分动作结果；已成功授权后再次点击不重复提示。
+
+#### 连通性测试与状态反馈
+
+- AI 维持逐模型测试，ASR / Live 用「测试连接」，搜索用「测试搜索」；搜索按钮旁可见说明「会发起 1 次真实搜索，可能消耗额度」，不能只放 hover title。
+- 测试始终读取当前 draft，未保存时用「正在测试未保存的配置」短状态；成功只证明这次探针成功，不自动保存、不改变默认平台。
+- 状态区使用一个稳定的 `role="status"` / `aria-live="polite"` 容器；错误文本与修复动作靠近触发控件。连续点击只保留最新代次回执，旧测试不得覆盖新输入的结果。
+- 搜索测试区分「连接成功 · N 条结果」「未返回结果」「Key 无效或无权限」「额度已用尽」，沿用现有分类，不把空结果写成成功。
+
+#### 表单校验
+
+- 编辑器控件收进一个语义化 `<form>`，保存使用 submit；保留 `:user-invalid`，不要在初次打开或每次按键时提前报错。
+- 业务校验返回 `{field, message}`，写入对应字段的错误节点并以 `aria-describedby` 关联；保存失败聚焦首个无效字段。输入修正时只清已解决错误，不用整行状态代替字段定位。
+- 首配引导的“至少一个模型”、URL 合法、Key 必填与 ASR / Live 模型必填都在提交时统一检查；保存按钮在校验前保持可点，在合法提交后防连点。
+- 搜索折叠触发器、编辑器按钮、删除与测试都使用原生按钮及包含可见文本的无障碍名称；状态点不能只用颜色表达。
+
+### 7.6 搜索首次授权：与平台配置解耦，拒绝后不反复追问
+
+- 确认框显示标题「允许联网搜索？」，正文说明查询词会发往当前可能参与的平台；同意键「允许并继续」，次键「本次不搜索」。若当前链可能命中付费平台，正文额外明确「使用付费平台会产生费用」。
+- 同意仍只持久化 `searchOptInNoticeAcknowledged:true`；写失败不阻断本轮，但不得伪造已持久化反馈。
+- 拒绝后本轮继续无搜索的概览解释或对话，不把用户消息留在半受理状态；同时将 `webSearchEnabled:false` 落盘，并由现有 storage watcher 同步对话开关，避免每发一条消息都再次弹窗。之后用户重新打开开关才再次询问。
+- 授权与“是否有可用搜索平台”分别反馈：免 Key 平台使新用户无需先配置即可搜索；凭据缺失、额度或网络问题仍走搜索链的既有 notice，不拿授权弹窗代替平台修复。
+
+### 7.7 可执行代码改动清单（获批后实施）
+
+#### 第一批：任务深链与首配续跑
+
+- `extension/shared/messaging-protocol.ts`、`extension/ui/ui-renderer.ts`、`extension/reader/settings-mode.ts`：扩展 `open-settings` 载荷为分区、精确 provider / preset 与一次性 resume 意图；打开设置后先完成水合再定位，不把 resume 持久化。
+- 新增窄的 `extension/ui/provider-setup-intent.ts`：持有当前页面的一次性来源、视频身份、任务代次和消费状态；提供创建、校验、消费、作废，不读写业务状态袋。
+- `extension/ui/settings-panel.ts`：无记录直接开编辑器，缺 Key 精确编辑并聚焦；引导态保存按钮改为「保存并继续」，先检查 AI 模型就绪，再消费一次意图并退出设置。
+- `extension/reader/overview-ui.ts`、`overview-coordinator.ts`：配置类错误与 ASR 空态增加设置动作；仅对匹配的原错误代次续跑，允许 error 被显式续跑，不改变 ready / partial / cancelled 的缓存规则。
+- `extension/reader/explain-card.ts`：错误卡增加设置动作，保留选区上下文与原 runId 归属；返回后续跑一次，换选区或关闭卡片即作废。
+- `extension/reader/chat-notices.ts`、`extension/chat/chat-runtime.ts`、`extension/reader/chat-tab.ts`：统一配置类 notice / 空态 / 错误泡的设置动作；恢复未受理草稿，不自动重发已受理回合，不错误清空输入与附件。
+- `extension/reader/init-essentials.ts`、`extension/chat/send-gate.ts`、`extension/asr/fallback.ts`：配置类 `empty` 可重新进入既有字幕链；复用在飞守卫，转写完成后由原发送闸继续，不新增第二条 ASR 管线。
+
+#### 第二批：生效投影与搜索降密
+
+- `extension/core/provider-handlers.ts`、`extension/ai/active-provider.ts`：提取可供请求和 UI 共用的无 Key 默认选择投影，保持概览 / 解释 / 对话的精确匹配与回落语义不变。
+- `extension/ui/provider-family.ts`、`provider-row.ts`、`settings-panel.ts`：AI 行显示默认徽标与模型，分区显示真实默认 / 对话另选摘要；Live / ASR 统一使用状态；所有投影随保存、启停、删除和 storage 变化刷新。
+- `extension/ui/settings-panel-html.ts`、`settings-panel.ts`：搜索触发器改原生按钮；修正悬空摘要；模式相关控件按智能 / 单选显隐，付费开关归入智能模式，次数上限保持常驻；补齐单选无回退与免 Key / 免费额度说明。
+- `extension/ui/settings-panel-html.ts`、`settings-panel.ts`：字幕翻译模型改名并明确跟随 AI 默认平台，不迁移存储键。
+
+#### 第三批：跨族同层凭据事务
+
+- `extension/core/ai-credential-reference.ts`：保留四态与官方 host 判定，给行投影补充结构化 target / status / 来源 id / 来源名称；文案不成为逻辑判据。
+- `extension/ui/provider-editor-state.ts`、`provider-editor-modal.ts`、`provider-editor-projection.ts`：增加同层 AI 配置返回上下文、消费 draft 快照、引用状态卡与状态相关 CTA；恢复时不丢 draft，不把 Key 写入消费族。
+- `extension/ui/settings-panel.ts`：把 `openLiveSettings("gemini-key")` 的专用目标泛化为 AI 凭据深链，覆盖 Gemini 与 DeepSeek；AI 事务后同时重渲 Live 和 Search。
+- `extension/ui/provider-row.ts`：引用行按引用状态显示中性 / 可用 / 需处理，不再显示「未保存自己的 API Key」红点。
+- `extension/live/live-provider-store.ts`、`extension/search/resolve-search-provider-handler.ts`：只校验现有单向读取仍被复用，不新增另一套凭据解析。
+
+#### 第四批：编辑器降层、权限与授权细节
+
+- `extension/ui/provider-editor-fetch-dialog.ts`、`provider-editor-modal.ts`：拉取模型改成编辑器内子视图；用 Set 保留过滤前选择，修正全选和总数；重接 Esc / 返回 / dirty，不再增加遮罩层。
+- `extension/ui/provider-editor-modal.ts`、`provider-editor-state.ts`、`confirm-dialog.ts`：补焦点圈禁、inert、焦点归还、确认框标题与安全默认焦点；外层关闭遵守 dirty 守卫。
+- `extension/ui/provider-editor-modal.ts`、`provider-editor-catalog.ts`、`provider-transaction.ts`、`core/host-permissions.ts`：统一权限状态与重试文案，保留零先行 await 和多 origin 单次申请；保存与测试结果不混淆。
+- `extension/ui/provider-editor-modal.ts`、`provider-editor-projection.ts`、`core/validators.ts`：语义化 form、字段级错误、首错聚焦与首配模型就绪校验；保留 `:user-invalid` 与 aria 同步。
+- `extension/search/opt-in-notice.ts`、`extension/chat/chat-runtime.ts`、`extension/reader/explain-card.ts`：授权标题与双动作、付费提示、拒绝后关闭联网偏好并继续主任务；不引入配置前置。
+- `extension/entry/styles/reader-settings-providers.css`、`reader.css`：编辑器子视图、焦点、字段错误、确认框滚动、窄面板与减少动态适配；不新增颜色体系。
+
+### 7.8 验收清单
+
+- **四条首配端到端**：分别从无平台进入概览、对话、解释、ASR，验证直接到正确编辑器、保存后回到原来源；概览 / 解释 / ASR 只续跑一次，对话不自动发送。换视频、取消、关闭面板后旧意图均不复活。
+- **配置变体**：已有平台缺 Key、defaultModel 悬空、默认平台被禁用、AI 空模型、权限拒绝后重试、保存失败保留 draft；所有分支都有明确下一步，不出现假成功。
+- **四族投影**：概览 / 解释实际请求平台与设置默认摘要一致；对话精确另选不篡改默认；Live / ASR 激活与启用开关含义分离；删除激活项后按现有规则回落。
+- **搜索状态机**：智能 / 单选、悬空 id、免 Key / 免费额度 / 付费、拖拽与恢复默认、单选无回退、付费开关仅影响智能、次数上限两种模式都生效；折叠摘要始终与真实链一致。
+- **凭据四态**：Gemini Live 与 DeepSeek 分别覆盖无记录、缺 Key、非官方地址、可用；同层往返保留消费 draft，AI 保存后两族行即时刷新；检查存储确保 Key 只进 `aiProviderKeys`。
+- **编辑器回归**：勾选 A → 过滤 → 勾选 B 后 A+B 都添加；Esc / 外点逐层退出；dirty 不被设置外点绕过；Tab 不逃出 Modal，关闭后焦点归还；400px 宽与矮视口无按钮溢出。
+- **权限与测试**：真实浏览器验证首次授权、拒绝、重新授权、多 origin、HTTP+WebSocket；测试不回写存储，过期回执不覆盖新输入，搜索测试明确真实调用与结果分类。
+- **Opt-in**：同意只记一次；拒绝后本轮无搜索继续、开关同步关闭且下一条不重复弹；付费可能参与时有费用提示；无搜索平台故障不阻塞 AI 主任务。
+- 自动化更新 `tests/reader`、`tests/chat`、`tests/ui`、`tests/core` 中对应既有用例；真机运行 `pnpm harness:browser` 覆盖权限弹窗、焦点、真实 DOM 几何和四族跨设置存储联动，不能用 jsdom 冒充这些能力。
+
+### 7.9 待审批的产品决策
+
+1. 首配采用「设置并继续」一次性任务意图：概览 / 解释 / ASR 自动续跑，对话只恢复草稿并由用户确认发送；不做全局 storage 自动重试。
+2. 无记录的设置深链直接打开对应编辑器；首个 AI 平台必须有一个模型才算就绪，连通性测试不作为必经步骤。
+3. AI 设置显示默认平台与模型，同时尊重对话精确另选；四族统一“当前生效”表达，但不把搜索智能链与单平台无回退合并。
+4. 搜索单平台模式隐藏无效的排序和付费控件；次数上限保持两模式常驻；不向用户暴露「零成本组 / 链首平台」术语。
+5. 凭据联动使用同层编辑器往返并保留消费 draft；非官方地址优先新建独立官方 AI 记录，不静默改写中转平台；Key 仍单向只读引用。
+6. 拉取模型降为编辑器内子视图，删除 / dirty 才保留确认叠层；本批不整体重写 overlay 技术栈，但补焦点、inert、校验与矮容器滚动。
+7. 搜索授权拒绝后关闭联网开关并继续无搜索主任务，避免下次发送重复追问；授权与平台可用性继续分开反馈。
