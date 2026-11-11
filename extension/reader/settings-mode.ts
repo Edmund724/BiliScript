@@ -40,11 +40,25 @@ export function openReaderSettingsMode(): void {
   focusWithoutScroll(document.getElementById(ids.readingSettingsBackBtn));
 }
 
-export function closeReaderSettingsMode(): void {
+export function hasReaderSettingsDropdownOpen(): boolean {
+  return document.querySelector(
+    ".custom-select-dropdown:not([hidden]), .ai-provider-model-dropdown:not([hidden])"
+  ) !== null;
+}
+
+export function hasReaderSettingsOverlayOpen(): boolean {
+  return hasReaderSettingsDropdownOpen() || document.querySelector(
+    ".provider-editor-host, .confirm-dialog-host"
+  ) !== null;
+}
+
+export function closeReaderSettingsMode({ restoreFocus = true }: { restoreFocus?: boolean } = {}): void {
   if (!state.reader.readingSettingsExpanded) return;
   state.reader.setSettingsExpanded(false);
   projectReaderSettingsMode();
-  const returnTarget = settingsReturnFocus?.isConnected ? settingsReturnFocus : null;
-  focusWithoutScroll(returnTarget ?? document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
+  if (restoreFocus) {
+    const returnTarget = settingsReturnFocus?.isConnected ? settingsReturnFocus : null;
+    focusWithoutScroll(returnTarget ?? document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
+  }
   settingsReturnFocus = null;
 }

@@ -507,7 +507,7 @@ describe("pipeline 时间戳合成与偏移合并", () => {
     expect(onProgress).toHaveBeenCalledWith("语音识别中 1 片…");
   });
 
-  it("无 segments（降级路径）：整片一条粗粒度字幕 {from,to,content}", async () => {
+  it("无 segments（降级路径）：单句无标点整片一条粗粒度字幕 {from,to,content}", async () => {
     const body = await pipeline.runAsrPipeline({
       bvid: "BV1test",
       cid: "101",
@@ -518,6 +518,23 @@ describe("pipeline 时间戳合成与偏移合并", () => {
     });
 
     expect(body).toEqual([{ from: 0, to: 600, content: "整片文本" }]);
+  });
+
+  it("无 segments 多句纯文本：按标点与换行切分并按字符权重线性插值，连续不重叠", async () => {
+    // 片长 60s，startSec=100
+    // 两句长度各 4 字符（"这是第一句。" 和 "这是第二句！"）
+    const body = await pipeline.runAsrPipeline({
+      bvid: "BV1test",
+      cid: "101",
+      onProgress: vi.fn(),
+      chunkHost: makeSynthTaskHost([
+        { startSec: 100, durationSec: 60, result: { text: "这是第一句。这是第二句！" } }
+      ])
+    });
+
+    expect(body).toHaveLength(2);
+    expect(body[0]).toEqual({ from: 100, to: 130, content: "这是第一句。" });
+    expect(body[1]).toEqual({ from: 130, to: 160, content: "这是第二句！" });
   });
 
   it("to 不超过片末边界（segments 越界被截断）", async () => {
@@ -710,5 +727,213 @@ describe("pipeline onAttemptOutcome（整轮重试判定用失败面）", () => 
     expect("failedKind" in outcome).toBe(false);
     expect("failedStatus" in outcome).toBe(false);
     expect("failedDetail" in outcome).toBe(false);
+  });
+});
+
+describe("工单 01：ASR 60 秒分片计划与待处理分片上限 100", () => {
+  it("OpenAI 兼容语音转写分片计划片长为 60 秒", async () => {
+    const { buildChunkPlan } = await import("../../extension/asr/chunker.js");
+    expect(buildChunkPlan("openai-transcriptions")).toEqual({ chunkSeconds: 60 });
+  });
+
+  it("待处理分片上限 ASR_MAX_PENDING_CHUNKS 为 100", async () => {
+    const { ASR_MAX_PENDING_CHUNKS } = await import("../../extension/asr/protocol.js");
+    expect(ASR_MAX_PENDING_CHUNKS).toBe(100);
+  });
+});
+
+describe("工单 01：纯文本分句与过短碎句合并 (splitTextIntoSentences)", () => {
+  it("按中文句末标点（。！？）正常切分", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    const res = splitTextIntoSentences("这是第一句话。这是第二句吗？这是第三句！");
+    expect(res).toEqual(["这是第一句话。", "这是第二句吗？", "这是第三句！"]);
+  });
+
+  it("按英文句末标点（. ! ?）切分并保留小数（如 3.14）不切断", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    const res = splitTextIntoSentences("The value is 3.14. Is that right? Yes!");
+    expect(res).toEqual(["The value is 3.14.", "Is that right?", "Yes!"]);
+  });
+
+  it("按换行符（\\n / \\r\\n）切分，自动剔除空行", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    const res = splitTextIntoSentences("第一行内容\r\n\n第二行内容\n第三行内容");
+    expect(res).toEqual(["第一行内容", "第二行内容", "第三行内容"]);
+  });
+
+  it("包含句末引号、括号等包裹符号时保持在原句尾部", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    const res = splitTextIntoSentences("他说：“太精彩了！”\n真的吗？");
+    expect(res).toEqual(["他说：“太精彩了！”", "真的吗？"]);
+  });
+
+  it("合并过短碎句（句首短句合入下一句、句尾/句中短句合入前一句）", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    // 句首 "好。"（2字符）与后续完整句合并
+    expect(splitTextIntoSentences("好。今天我们开始讲第一章。")).toEqual(["好。今天我们开始讲第一章。"]);
+    // 句尾 "好。" 与前句合并
+    expect(splitTextIntoSentences("今天我们开始讲第一章。好。")).toEqual(["今天我们开始讲第一章。好。"]);
+    // 句中 "对。" 与前句合并
+    expect(splitTextIntoSentences("今天讲第一章。对。明天讲第二章。")).toEqual([
+      "今天讲第一章。对。",
+      "明天讲第二章。"
+    ]);
+  });
+
+  it("全句仅有一句超短单句时保留不丢弃", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    expect(splitTextIntoSentences("好。")).toEqual(["好。"]);
+    expect(splitTextIntoSentences("OK")).toEqual(["OK"]);
+  });
+
+  it("空文本或纯空白字符串返回空数组", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    expect(splitTextIntoSentences("")).toEqual([]);
+    expect(splitTextIntoSentences("   \n\t  ")).toEqual([]);
+  });
+});
+
+describe("工单 01：纯文本线性插值 (interpolateSentenceTimestamps)", () => {
+  it("单句占满整个 [startSec, startSec + durationSec] 区间", async () => {
+    const { interpolateSentenceTimestamps } = await import("../../extension/asr/pipeline.js");
+    const res = interpolateSentenceTimestamps({
+      sentences: ["单句完整内容。"],
+      startSec: 10,
+      durationSec: 60
+    });
+    expect(res).toEqual([{ from: 10, to: 70, content: "单句完整内容。" }]);
+  });
+
+  it("多句按字符长度严格按比例线性分配，首尾对齐且连续不重叠", async () => {
+    const { interpolateSentenceTimestamps } = await import("../../extension/asr/pipeline.js");
+    // 句1长度 10，句2长度 20，总长 30；总时长 60s
+    // 句1 应分得 20s (10/30 * 60)，句2 应分得 40s (20/30 * 60)
+    const sentences = ["一二三四五六七八九十", "一二三四五六七八九十一二三四五六七八九十"];
+    const res = interpolateSentenceTimestamps({
+      sentences,
+      startSec: 100,
+      durationSec: 60
+    });
+    expect(res).toHaveLength(2);
+    expect(res[0]).toEqual({ from: 100, to: 120, content: sentences[0] });
+    expect(res[1]).toEqual({ from: 120, to: 160, content: sentences[1] });
+    expect(res[0].to).toBe(res[1].from);
+  });
+
+  it("durationSec <= 0 边界处理返回起点相同的时间戳，不抛出异常", async () => {
+    const { interpolateSentenceTimestamps } = await import("../../extension/asr/pipeline.js");
+    const res = interpolateSentenceTimestamps({
+      sentences: ["第一句", "第二句"],
+      startSec: 50,
+      durationSec: 0
+    });
+    expect(res).toEqual([
+      { from: 50, to: 50, content: "第一句" },
+      { from: 50, to: 50, content: "第二句" }
+    ]);
+  });
+
+  it("空句子列表返回空数组", async () => {
+    const { interpolateSentenceTimestamps } = await import("../../extension/asr/pipeline.js");
+    expect(interpolateSentenceTimestamps({ sentences: [], startSec: 0, durationSec: 60 })).toEqual([]);
+  });
+});
+
+describe("工单 01：synthesizeChunk 与多分片合并排序", () => {
+  it("有效 segments 保留原有的句级相对秒偏移与片末截断行为", async () => {
+    const { synthesizeChunk } = await import("../../extension/asr/pipeline.js");
+    const res = synthesizeChunk({
+      startSec: 60,
+      durationSec: 60,
+      result: {
+        text: "片文本",
+        segments: [
+          { start: 1, end: 5, text: "句一" },
+          { start: 50, end: 999, text: "越界句" }
+        ]
+      }
+    });
+    expect(res).toEqual([
+      { from: 61, to: 65, content: "句一" },
+      { from: 110, to: 120, content: "越界句" }
+    ]);
+  });
+
+  it("segments 包含空白文本时自动跳过", async () => {
+    const { synthesizeChunk } = await import("../../extension/asr/pipeline.js");
+    const res = synthesizeChunk({
+      startSec: 0,
+      durationSec: 60,
+      result: {
+        text: "片文本",
+        segments: [
+          { start: 0, end: 1, text: "  " },
+          { start: 2, end: 3, text: "有效句" }
+        ]
+      }
+    });
+    expect(res).toEqual([{ from: 2, to: 3, content: "有效句" }]);
+  });
+
+  it("多分片合并严格按 from 升序排列，乱序输入的片段正确归并", async () => {
+    const { mergeChunkResults } = await import("../../extension/asr/pipeline.js");
+    const records = [
+      {
+        index: 2,
+        startSec: 120,
+        durationSec: 60,
+        result: { text: "第三片内容。" }
+      },
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        result: { text: "第一片第一句。第一片第二句。" }
+      },
+      {
+        index: 1,
+        startSec: 60,
+        durationSec: 60,
+        result: {
+          text: "第二片",
+          segments: [{ start: 5, end: 10, text: "第二片独立句" }]
+        }
+      }
+    ];
+
+    const merged = mergeChunkResults(records);
+    expect(merged.length).toBeGreaterThanOrEqual(4);
+    for (let i = 1; i < merged.length; i++) {
+      expect(merged[i].from).toBeGreaterThanOrEqual(merged[i - 1].from);
+    }
+    expect(merged[0].content).toBe("第一片第一句。");
+    expect(merged[merged.length - 1].content).toBe("第三片内容。");
+  });
+
+  it("空白片段不产生空字幕条目", async () => {
+    const { mergeChunkResults } = await import("../../extension/asr/pipeline.js");
+    const records = [
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        result: { text: "   \n\t " }
+      },
+      {
+        index: 1,
+        startSec: 60,
+        durationSec: 60,
+        result: { text: "有效单句。" }
+      },
+      {
+        index: 2,
+        startSec: 120,
+        durationSec: 60,
+        result: null
+      }
+    ];
+
+    const merged = mergeChunkResults(records);
+    expect(merged).toEqual([{ from: 60, to: 120, content: "有效单句。" }]);
   });
 });

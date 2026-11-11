@@ -27,6 +27,7 @@ import type { ProviderRowElement, ProviderRowShowStatus } from "./provider-row.j
 const modelDropdownDismissal = createOutsideClickDismissal({
   wrapperSelector: ".ai-provider-model-wrapper",
   openDropdownSelector: ".ai-provider-model-dropdown:not([hidden])",
+  triggerSelector: ".ai-provider-model-toggle",
   closeAll: () => closeAllModelDropdowns()
 });
 

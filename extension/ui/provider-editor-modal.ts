@@ -37,6 +37,7 @@ import { initCustomSelect } from "./custom-select.js";
 import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
+import { hasReaderSettingsDropdownOpen } from "../reader/settings-mode.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
@@ -603,15 +604,11 @@ export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
   return host;
 }
 
-// 面板外点击（capture 阶段拦截）：只关 Modal 不关抽屉——ui-renderer 的抽屉
-// 外点关闭是 document bubble 委托，capture 阶段 stopPropagation 后不再触发
-//（一次点击只关一层）。面板内点击（含遮罩）在此放行，Modal 内下拉由组件自身
-// 的 capture 监听收起。
+// 编辑器只结算当前最上层：确认框或下拉展开时让位；自身处理外点时在 capture
+// 阶段截断，设置与宿主的后续委托不会把同一次点击再结算一遍。
 export function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
-  // 确认弹层（删除二次确认）叠在本 Modal 之上时整体让位：同一批事件由
-  // confirm-dialog 的 capture 监听承接，避免一次外点/Esc 把两层一起关掉
-  if (isConfirmDialogOpen()) return;
+  if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
   const view = state.host?.parentElement || document.getElementById(ids.readingView);
   if (view && event.target instanceof Node && view.contains(event.target)) {
     return;
@@ -622,11 +619,9 @@ export function onDocumentClickCapture(event: MouseEvent): void {
 
 export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
-  // 确认弹层打开期间让位（同 onDocumentClickCapture）：Esc 逐层退出，先关确认
-  if (isConfirmDialogOpen()) return;
+  if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
   event.preventDefault();
   event.stopPropagation();
-  // 弹窗开着先关弹窗（拍板 Q5：Esc 逐层退出），否则关编辑器
   if (getFetchDialog()) {
     closeFetchDialog();
     return;
@@ -922,8 +917,8 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   primeEditorVoices();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
-  // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
-  // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
+  // 外层命令收起设置时强制关闭（含 dirty 改动），confirm 无意义；普通外点与
+  // Esc 已在当前弹层结算，不会进入这条联动。自治监听 hidden 属性变化。
   observeSettingsPanelHidden(() => closeProviderEditor(true), sessionObserver);
   // 只读模型元数据（model-catalog/04）：只有目录族的 Modal 用得上，打开后才动态
   // import 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗

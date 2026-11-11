@@ -25,7 +25,8 @@ let customSelectSeq = 0;
 // - syncDisplay：仅按现值重派生显示（setCustomSelectValue 外部写值入口消费）。
 // - state：禁用/忙碌状态写到壳（setCustomSelectState 的壳内实现）。
 // - slots：按声明把调用方的节点就位（setCustomSelectSlots 的壳内实现）。
-// 未初始化的 select 查不到，四条路径都退化为「空操作 / 裸写原生 select」。
+// - dismiss：Esc 收拢时重置搜索并归焦 trigger（捕获期弹层控制器的壳内实现）。
+// 未初始化的 select 查不到，五条路径都退化为「空操作 / 裸写原生 select」。
 const shellOps = new WeakMap<
   HTMLSelectElement,
   {
@@ -33,6 +34,7 @@ const shellOps = new WeakMap<
     syncDisplay: () => void;
     state: (next: CustomSelectState) => void;
     slots: (next: CustomSelectSlots) => void;
+    dismiss: () => void;
   }
 >();
 
@@ -132,7 +134,9 @@ export function closeAllCustomSelects(except?: HTMLElement): void {
 export interface OutsideClickDismissalConfig {
   wrapperSelector: string;
   openDropdownSelector: string;
+  triggerSelector: string;
   closeAll: () => void;
+  closeOnEscape?: (dropdown: HTMLElement) => void;
 }
 
 export interface OutsideClickDismissalController {
@@ -142,13 +146,15 @@ export interface OutsideClickDismissalController {
 
 const nativeHiddenDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "hidden");
 
-// 下拉弹层自持的捕获期外点收起控制器：仅在至少一枚弹层展开期间挂载 document
-// capture click 监听，全部收起后立即卸载（常态全关时 document 零点击监听）；
-// capture 阶段先于 Modal 等宿主的 bubble stopPropagation 触发，宿主无需重复代理。
+// 下拉弹层自持的捕获期 Esc / 外点收起控制器：仅在至少一枚弹层展开期间挂载
+// document capture 监听，全部收起后立即卸载。捕获期只结算下拉并截断事件，
+// 底层编辑器、设置与宿主的 bubble 委托不会跟着处理同一次输入。
 export function createOutsideClickDismissal({
   wrapperSelector,
   openDropdownSelector,
-  closeAll
+  triggerSelector,
+  closeAll,
+  closeOnEscape
 }: OutsideClickDismissalConfig): OutsideClickDismissalController {
   const observedDropdowns = new WeakSet<HTMLElement>();
   const openDropdowns = new Set<HTMLElement>();
@@ -163,18 +169,46 @@ export function createOutsideClickDismissal({
     const hasOpen = openDropdowns.size > 0 || document.querySelector(openDropdownSelector) !== null;
     if (hasOpen && !listening) {
       document.addEventListener("click", onDocumentClickCapture, true);
+      document.addEventListener("keydown", onDocumentKeyDownCapture, true);
       listening = true;
     } else if (!hasOpen && listening) {
       document.removeEventListener("click", onDocumentClickCapture, true);
+      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
       listening = false;
     }
   };
 
   const onDocumentClickCapture = (event: MouseEvent): void => {
-    if (!(event.target instanceof Element) || !event.target.closest(wrapperSelector)) {
+    if (document.querySelector(openDropdownSelector) === null) {
+      sync();
+      return;
+    }
+    if (event.target instanceof Element && event.target.closest(wrapperSelector)) return;
+    event.stopImmediatePropagation();
+    closeAll();
+    sync();
+  };
+
+  const onDocumentKeyDownCapture = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    const dropdown = document.querySelector<HTMLElement>(openDropdownSelector);
+    if (!dropdown) {
+      sync();
+      return;
+    }
+    const trigger = dropdown.closest(wrapperSelector)?.querySelector<HTMLElement>(triggerSelector) ?? null;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (closeOnEscape) {
+      closeOnEscape(dropdown);
+    } else {
       closeAll();
     }
     sync();
+    trigger?.focus({ preventScroll: true });
+    if (document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
   };
 
   const observeDropdown = (dropdown: HTMLElement): void => {
@@ -214,7 +248,17 @@ export function createOutsideClickDismissal({
 const customSelectDismissal = createOutsideClickDismissal({
   wrapperSelector: ".custom-select-wrapper",
   openDropdownSelector: ".custom-select-dropdown:not([hidden])",
-  closeAll: () => closeAllCustomSelects()
+  triggerSelector: ".custom-select-trigger",
+  closeAll: () => closeAllCustomSelects(),
+  closeOnEscape: (dropdown) => {
+    const select = dropdown.closest(".custom-select-wrapper")?.querySelector<HTMLSelectElement>("select");
+    const dismiss = select ? shellOps.get(select)?.dismiss : undefined;
+    if (dismiss) {
+      dismiss();
+    } else {
+      closeAllCustomSelects();
+    }
+  }
 });
 
 export interface SearchableOptionListConfig {
@@ -684,9 +728,8 @@ export function initCustomSelect(
     }
   };
 
-  // 壳内操作登记（组件内部唯一登记点）：setCustomSelectValue / rebuildCustomSelectOptions /
-  // setCustomSelectState / setCustomSelectSlots 都从这里取壳内部件，「壳不重建」由四者
-  // 共用同一批 optionNodes / trigger / dropdown 保证。
+  // 壳内操作登记（组件内部唯一登记点）：外部写值、换项、状态、槽位与 Esc 关闭
+  // 都从这里取壳内部件，「壳不重建」由它们共用闭包状态保证。
   shellOps.set(select, {
     rebuild: refreshOptionNodes,
     syncDisplay: syncDisplayFromValue,
@@ -694,7 +737,8 @@ export function initCustomSelect(
     slots: (next) => {
       slots = next;
       applySlots();
-    }
+    },
+    dismiss: () => closeList(true)
   });
 
   // 展开时收掉同族其它下拉

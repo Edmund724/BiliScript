@@ -14,7 +14,7 @@ import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 // 在 reader/lazy-reader 内部）。
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
-import { closeReaderSettingsMode, openReaderSettingsMode } from "../reader/settings-mode.js";
+import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode } from "../reader/settings-mode.js";
 // tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
 //（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
 // ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
@@ -338,10 +338,17 @@ export function bindUiEvents(): void {
   // 重域，交互时经 ensureReaderDomain 装载后调用（视图开着 ⇒ 域几乎必然已装载
   // ，ensure 命中缓存 promise）。关闭按钮：退出事务统一走阅读壳（工单
   // arch-slim/02），与 reader-close 消息路径同一实现。
-  readingCloseBtn.addEventListener("click", () => {
+  const consumeOverlayClick = (event: Event): boolean => {
+    if (!state.reader.readingSettingsExpanded || !hasReaderSettingsOverlayOpen()) return false;
+    event.stopPropagation();
+    return true;
+  };
+  readingCloseBtn.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
     exitReaderShell().catch((error) => logWarn("[BILISCRIPT] close reading view failed", error));
   });
-  readingThemeSelect.addEventListener("click", () => {
+  readingThemeSelect.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
     // 明暗两态循环 light ↔ dark（按钮只管明暗轴；主题族在设置抽屉手选，
     // 档位文案/图标映射见 ui/theme-button.ts）。
     const next = state.reader.readingTheme === "dark" ? "light" : "dark";
@@ -351,39 +358,44 @@ export function bindUiEvents(): void {
       setTimeout(() => readingThemeSelect.classList.remove("is-active"), 300);
     });
   });
-  readingSettingsBackBtn.addEventListener("click", () => {
+  readingSettingsBackBtn.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
     closeReaderSettingsMode();
   });
-  readingSettingsToggleBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
+  readingSettingsToggleBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (consumeOverlayClick(event)) return;
     if (state.reader.readingSettingsExpanded) {
       closeReaderSettingsMode();
     } else {
       openReaderSettingsPanel();
     }
   });
-  readingHeader.addEventListener("click", (e) => {
+  readingHeader.addEventListener("click", (event) => {
     if (!state.reader.readingSettingsExpanded) return;
-    if (e.target instanceof Element && e.target.closest("button")) return;
-    e.stopPropagation();
+    if (consumeOverlayClick(event)) return;
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    event.stopPropagation();
     closeReaderSettingsMode();
   });
 
-  // Click outside settings panel to close（单一文档级 click 委托：PR5 起同时
-  // 承接对话 tab popovers 的外点关闭——reader-bus 的转发槽注册，不另挂第二
-  // 个 document 监听，避免双委托互踩。转发必须放在 settingsExpanded 早退之前）。
+  // 设置外点与 Esc 共用一次性文档委托；对话 tab popovers 的外点仍经 reader-bus
+  // 转发。只有整个文摘面板之外的宿主页点击才退出设置，且不取消宿主行为或抢回焦点。
   if (!state.reader.readingDocumentClickBound) {
-    document.addEventListener("click", (e) => {
-      dispatchChatTabOutsideClick(e);
-      if (!state.reader.readingSettingsExpanded) return;
-      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
-      const settingsBtnEl = document.getElementById(ids.readingSettingsBtn);
-      if (!settingsPanel || !settingsBtnEl || readingHeader.contains(e.target as Node | null)) {
-        return;
+    document.addEventListener("click", (event) => {
+      dispatchChatTabOutsideClick(event);
+      if (!state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) return;
+      const scriptPanel = document.getElementById(ids.readingScriptPanel);
+      if (!scriptPanel || readingHeader.contains(event.target as Node | null)) return;
+      if (!scriptPanel.contains(event.target as Node | null)) {
+        closeReaderSettingsMode({ restoreFocus: false });
       }
-      if (!settingsPanel.contains(e.target as Node | null) && !settingsBtnEl.contains(e.target as Node | null)) {
-        closeReaderSettingsMode();
-      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeReaderSettingsMode();
     });
     state.reader.readingDocumentClickBound = true;
   }

@@ -19,12 +19,136 @@ import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
 
+// 中英文句末标点（。！？!? 以及非数字后小数点的 .）与换行符正则
+const SENTENCE_DELIMITER_RE = /(?:[。！？!?]+|\.+(?!\d))["'”’」』）\)]*|\r?\n+/g;
+
+function joinWithOptionalSpace(a: string, b: string): string {
+  if (!a) return b;
+  if (!b) return a;
+  const lastChar = a[a.length - 1];
+  const firstChar = b[0];
+  if (/[a-zA-Z0-9.!?]/.test(lastChar) && /[a-zA-Z0-9]/.test(firstChar)) {
+    return `${a} ${b}`;
+  }
+  return `${a}${b}`;
+}
+
+// 合并过短碎句（默认长度 < 4 字符，如单字或纯语气助词加标点）
+export function mergeShortSentences(sentences: string[], minChars = 4): string[] {
+  if (sentences.length <= 1 || minChars <= 0) {
+    return sentences;
+  }
+  const merged: string[] = [];
+
+  for (const s of sentences) {
+    if (merged.length === 0) {
+      merged.push(s);
+    } else if (s.length < minChars) {
+      // 当前句过短：合入前一句
+      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+    } else if (merged[merged.length - 1].length < minChars) {
+      // 前一句（首句）过短：把当前句合入前一句
+      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+    } else {
+      merged.push(s);
+    }
+  }
+
+  return merged;
+}
+
+// 按中英文句末标点与换行切分句子，并合并过短碎句
+export function splitTextIntoSentences(text: string, minChars = 4): string[] {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const rawSentences: string[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = SENTENCE_DELIMITER_RE.exec(trimmed)) !== null) {
+    const end = match.index + match[0].length;
+    const piece = trimmed.slice(lastIndex, end).trim();
+    if (piece) {
+      rawSentences.push(piece);
+    }
+    lastIndex = end;
+  }
+  const remaining = trimmed.slice(lastIndex).trim();
+  if (remaining) {
+    rawSentences.push(remaining);
+  }
+
+  if (rawSentences.length <= 1 || minChars <= 0) {
+    return rawSentences;
+  }
+
+  return mergeShortSentences(rawSentences, minChars);
+}
+
+// 纯文本按字符长度比例在 [startSec, startSec + durationSec] 线性插值分配 {from, to}
+export function interpolateSentenceTimestamps({
+  sentences,
+  startSec,
+  durationSec
+}: {
+  sentences: string[];
+  startSec: number;
+  durationSec: number;
+}): SubtitleItem[] {
+  if (!sentences || sentences.length === 0) {
+    return [];
+  }
+  const start = Number(startSec) || 0;
+  const dur = Number(durationSec) || 0;
+
+  if (sentences.length === 1) {
+    return [{
+      from: start,
+      to: dur > 0 ? start + dur : start,
+      content: sentences[0]
+    }];
+  }
+
+  if (!(dur > 0)) {
+    return sentences.map((content) => ({
+      from: start,
+      to: start,
+      content
+    }));
+  }
+
+  const weights = sentences.map((s) => Math.max(1, s.length));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+  const out: SubtitleItem[] = [];
+  let currentFrom = start;
+  let accumulatedWeight = 0;
+
+  for (let i = 0; i < sentences.length; i++) {
+    accumulatedWeight += weights[i];
+    const currentTo = (i === sentences.length - 1)
+      ? start + dur
+      : start + (dur * accumulatedWeight) / totalWeight;
+
+    out.push({
+      from: currentFrom,
+      to: currentTo,
+      content: sentences[i]
+    });
+    currentFrom = currentTo;
+  }
+
+  return out;
+}
+
 // 把单片的转写结果合成 {from,to,content}[]：
-//   有 segments → 每条 = startSec + seg.start/end；
-//   无 → 整片一条粗粒度字幕 {from:startSec, to:startSec+durationSec}。
-// to 不超过片末边界（chunk.durationSec 由 offscreen 按实际解码时长交付，
-// 此处兜底取入参 durationSec）；content trim。
-function synthesizeChunk({ startSec, durationSec, result }: {
+//   有有效 segments → 每条 = startSec + seg.start/end，to 不超过片末边界；
+//   无 segments → 按句末标点与换行切分句子并合并碎句，按字符长度在起止时间窗内线性插值。
+// 空白片段返回 []。
+export function synthesizeChunk({ startSec, durationSec, result }: {
   startSec: number;
   durationSec: number;
   result: AsrChunkResult | null;
@@ -47,10 +171,11 @@ function synthesizeChunk({ startSec, durationSec, result }: {
   } else {
     const text = String(result?.text || "").trim();
     if (text) {
-      out.push({
-        from: Number(startSec),
-        to: chunkDur > 0 ? Number(startSec) + chunkDur : Number(startSec) + Number(durationSec),
-        content: text
+      const sentences = splitTextIntoSentences(text);
+      return interpolateSentenceTimestamps({
+        sentences,
+        startSec: Number(startSec) || 0,
+        durationSec: chunkDur > 0 ? chunkDur : Number(durationSec) || 0
       });
     }
   }
@@ -61,7 +186,7 @@ function synthesizeChunk({ startSec, durationSec, result }: {
 // "未识别到语音内容"）。chunkResults 为按片 index 对齐的单片记录
 // [{ index, startSec, durationSec, result }]（offscreen 桥 done 后已排序）；
 // 转写失败片 / 解码失败段不在其中（offscreen 引擎跳过并计数），不参与合并。
-function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
+export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
   const merged: SubtitleItem[] = [];
   for (const record of chunkResults) {
     if (!record?.result) {
