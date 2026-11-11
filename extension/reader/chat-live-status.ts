@@ -27,7 +27,7 @@ export interface ChatLiveStatus {
 type LiveStatusAction = "start" | "cancel" | "restore" | "retry" | "settings" | "stop";
 
 const ACTIONS: Record<string, LiveStatusAction[]> = {
-  idle: ["start", "settings"],
+  idle: [],
   connecting: ["cancel"],
   connected: ["restore", "stop"],
   reconnecting: ["restore", "cancel"],
@@ -65,16 +65,27 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
   });
 
   function render(reconnecting: boolean): void {
-    if (!root || !text || !open) return;
+    if (!root || !text) return;
     const viewState = currentState === "connecting" && reconnecting ? "reconnecting" : currentState;
     root.dataset.state = viewState;
-    if (viewState === "idle") text.textContent = "伴看未开启";
-    else if (viewState === "connecting") text.textContent = "正在连接伴看…";
-    else if (viewState === "connected") text.textContent = "伴看已连接";
-    else if (viewState === "reconnecting") text.textContent = "伴看连接中断，正在重连…";
-    else text.textContent = currentError?.trim() ? `伴看连接失败：${currentError}` : "伴看连接失败";
+    const isIdle = viewState === "idle";
+    const shouldShow = open && !isIdle;
+    root.hidden = !shouldShow;
+    if (!open) return;
 
-    const visibleActions = ACTIONS[viewState];
+    if (isIdle) {
+      text.textContent = "";
+    } else if (viewState === "connecting") {
+      text.textContent = "正在连接伴看…";
+    } else if (viewState === "connected") {
+      text.textContent = "伴看已连接";
+    } else if (viewState === "reconnecting") {
+      text.textContent = "伴看连接中断，正在重连…";
+    } else {
+      text.textContent = currentError?.trim() ? `伴看连接失败：${currentError}` : "伴看连接失败";
+    }
+
+    const visibleActions = ACTIONS[viewState] ?? [];
     buttons.forEach((button, action) => {
       button.hidden = !visibleActions.includes(action);
     });
@@ -97,9 +108,12 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
 
   function setOpen(nextOpen: boolean): void {
     open = nextOpen;
-    if (root) root.hidden = !open;
     textRecords.setOpen(open);
-    if (open) sync();
+    if (!open) {
+      if (root) root.hidden = true;
+    } else {
+      sync();
+    }
   }
 
   return { setOpen, sync };

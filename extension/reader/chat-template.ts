@@ -55,11 +55,11 @@ export function buildChatTabBodyHtml(): string {
         <section id="${ids.readingChatLiveStatus}" class="chat-live-status" aria-label="实时伴看状态" data-state="idle" hidden>
           <span class="chat-live-status-text" role="status" aria-atomic="true"></span>
           <div class="chat-live-status-actions">
-            <button type="button" data-live-status-action="start">开启</button>
+            <button type="button" data-live-status-action="start" hidden>开启</button>
             <button type="button" data-live-status-action="cancel" hidden>取消</button>
             <button type="button" data-live-status-action="restore" hidden>显示浮窗</button>
             <button type="button" data-live-status-action="retry" hidden>重试</button>
-            <button type="button" data-live-status-action="settings">伴看设置</button>
+            <button type="button" data-live-status-action="settings" hidden>伴看设置</button>
             <button type="button" data-live-status-action="stop" hidden>结束</button>
           </div>
           <div class="chat-live-tool-records" hidden></div>
