@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
@@ -85,24 +83,35 @@ describe("设置抽屉顶部快速跳转导航条", () => {
     expect(llmBtn.classList.contains("is-active")).toBe(false);
   });
 
-  it("导航条持有滑动指示器，点击项时动态更新指示器 transform 与 width", async () => {
+  it("横向可滚时滚动或指针进入才显形滚动条", async () => {
     const host = await mountPanel();
     const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav")!;
-    const indicator = nav.querySelector<HTMLElement>(".biliscript-settings-nav-indicator");
-    expect(indicator).not.toBeNull();
 
-    // 初始位置已就绪
-    expect(indicator!.style.transform).toContain("translateX");
-    expect(indicator!.style.width).toMatch(/\d+px/);
-    const initialTransform = indicator!.style.transform;
+    // 活动态只靠字重与字色，不再渲染滑动下划线
+    expect(nav.querySelector(".biliscript-settings-nav-indicator")).toBeNull();
 
-    // 点击搜索项，指示器平滑滑动到新位
-    const searchBtn = nav.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="search"]')!;
-    searchBtn.click();
+    const setMetrics = (scrollWidth: number, clientWidth: number) => {
+      Object.defineProperty(nav, "scrollWidth", { value: scrollWidth, configurable: true });
+      Object.defineProperty(nav, "clientWidth", { value: clientWidth, configurable: true });
+    };
 
-    expect(indicator!.style.transform).toContain("translateX");
-    expect(indicator!.style.width).toMatch(/\d+px/);
+    // 静止态不占视觉：没有横向溢出就没有拇指
+    setMetrics(300, 300);
+    expect(nav.classList.contains("is-scrollbar-visible")).toBe(false);
+
+    setMetrics(600, 300);
+    nav.dispatchEvent(new Event("scroll"));
+    expect(nav.classList.contains("is-scrollbar-visible")).toBe(true);
+
+    nav.dispatchEvent(new Event("pointerenter"));
+    expect(nav.classList.contains("is-scrollbar-visible")).toBe(true);
+
+    // 面板变宽放得下后拇指收起
+    setMetrics(300, 300);
+    nav.dispatchEvent(new Event("scroll"));
+    expect(nav.classList.contains("is-scrollbar-visible")).toBe(false);
   });
+
   it("公开伴看设置入口定位到实时伴看配置", async () => {
     const host = await mountPanel();
     const target = host.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="live"]')!;
@@ -144,12 +153,5 @@ describe("设置抽屉顶部快速跳转导航条", () => {
         delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
       }
     }
-  });
-
-  it("CSS 契约：导航指示器不声明无效或常驻 will-change（清理 width 无效合成层提示）", () => {
-    const css = readFileSync(join(process.cwd(), "extension/entry/styles/reader-settings-shell.css"), "utf8");
-    const ruleMatch = css.match(/\.biliscript-settings-nav-indicator\s*\{[^}]*\}/);
-    expect(ruleMatch).not.toBeNull();
-    expect(ruleMatch![0]).not.toMatch(/will-change/);
   });
 });

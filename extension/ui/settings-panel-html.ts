@@ -109,7 +109,6 @@ export function buildSettingsHtml(): string {
         <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
         <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
         <button type="button" class="biliscript-settings-nav-item" data-section="agent">本地 Agent</button>
-        <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
       </nav>
     </div>
 

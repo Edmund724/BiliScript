@@ -125,7 +125,6 @@ let asrPresets: AsrProviderPreset[] = [];
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
 let pendingLiveSettingsTarget: LiveSettingsTarget | null = null;
-let navSyncRef: { updateActiveIndicator: (smooth?: boolean) => void } | null = null;
 
 // ===== 分区渲染隔离 =====
 // .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
@@ -218,7 +217,6 @@ function collectElements(host: HTMLElement) {
 }
 
 type SettingsElements = ReturnType<typeof collectElements>;
-type NavSync = { updateActiveIndicator: (smooth?: boolean) => void };
 
 // ===== 标量设置项声明式绑定 =====
 // 每个标量设置项声明控件类型、DOM 引用键、归一化与即时预览副作用；
@@ -232,7 +230,7 @@ interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly normalize: (value: unknown) => Settings[K] & string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
-  readonly onApply?: (val: Settings[K] & string, navSync: NavSync) => void;
+  readonly onApply?: (val: Settings[K] & string) => void;
 }
 
 interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -242,10 +240,10 @@ interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly normalize: (value: unknown) => boolean;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
-  readonly onApply?: (val: boolean, navSync: NavSync) => void;
+  readonly onApply?: (val: boolean) => void;
   // 落盘成功后的生效回调（票 04：自动转写开关打开并保存成功后重新进入字幕抓取）。
   // 只有写盘成功才调用——onApply 在保存前触发，失败时也会跑，不能承担续跑。
-  readonly onSaved?: (val: boolean, navSync: NavSync) => void;
+  readonly onSaved?: (val: boolean) => void;
 }
 
 interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -265,7 +263,7 @@ interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   // 重置键的附加清除键：提供后重置走完整替代路径（主键回默认值 + 附加键 +
   // patch + 落盘），替代默认的「主键默认值 + onCommit」。
   readonly resetExtras?: () => Record<string, unknown>;
-  readonly onPreview?: (val: number, navSync: NavSync) => void;
+  readonly onPreview?: (val: number) => void;
 }
 
 interface DebouncedTextFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
@@ -309,9 +307,8 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     defaultValue: DEFAULT_SETTINGS.readerFontSizeScale,
     normalize: normalizeReaderFontSizeScale,
     format: (val) => `${val}%`,
-    onPreview: (_val, navSync) => {
+    onPreview: () => {
       applyReadingViewTypography();
-      navSync.updateActiveIndicator(false);
     }
   },
   {
@@ -325,9 +322,8 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     format: (width) => `${width}px`,
     commitExtras: () => ({ customPanelWidthEnabled: true }),
     resetExtras: () => ({ customPanelWidthEnabled: false }),
-    onPreview: (_width, navSync) => {
+    onPreview: () => {
       relayoutScriptHost();
-      navSync.updateActiveIndicator(false);
     }
   },
   {
@@ -894,7 +890,6 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
   syncSearchModeControls(elements);
   syncSearchChainActiveSummary(elements);
-  navSyncRef?.updateActiveIndicator(false);
 }
 
 // 面板当前生效的用户拖拽顺序（记录 id 数组；空 = 无自定义顺序，按内置默认序渲染）。
@@ -1541,84 +1536,72 @@ function debounce<T extends (...args: unknown[]) => void>(
 
 // ===== 事件绑定（模板渲染后一次性接线） =====
 
-function bindSettingsNav(host: HTMLElement): NavSync {
+function bindSettingsNav(host: HTMLElement): void {
   const nav = host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.settingsNav}`);
-  if (!nav) {
-    const noop = { updateActiveIndicator: () => {} };
-    navSyncRef = noop;
-    return noop;
-  }
+  if (!nav) return;
 
   const navItems = Array.from(nav.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-  const indicator = nav.querySelector<HTMLElement>(".biliscript-settings-nav-indicator");
   const groups = Array.from(host.querySelectorAll<HTMLElement>(".biliscript-set-group[data-settings-section]"));
 
-  function updateIndicator(activeBtn: HTMLButtonElement, smooth = true): void {
-    if (!indicator) return;
-    const rawWidth = activeBtn.offsetWidth;
-    const btnWidth = rawWidth > 0 ? rawWidth : Math.max(24, (activeBtn.textContent?.trim().length ?? 2) * 14 + 8);
-    const btnLeft = activeBtn.offsetLeft;
-    const targetWidth = Math.max(18, btnWidth - 8);
-    const targetLeft = btnLeft + (btnWidth - targetWidth) / 2;
-    if (!smooth) {
-      indicator.style.transition = "none";
+  // 横向滚动条按需现身：静止态导航底部不留第二条线，指针进入导航条或正在横向滚动时
+  // 才显形。显隐只能切类——Chromium 不刷新 scrollbar 伪元素上由宿主 :hover 触发的样式。
+  const hasOverflow = (): boolean => nav.scrollWidth - nav.clientWidth > 1;
+  const setScrollbarVisible = (visible: boolean): void => {
+    nav.classList.toggle("is-scrollbar-visible", visible);
+  };
+  let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelScrollbarHide = (): void => {
+    if (scrollbarHideTimer) {
+      clearTimeout(scrollbarHideTimer);
+      scrollbarHideTimer = null;
     }
-    indicator.style.transform = `translateX(${targetLeft}px)`;
-    indicator.style.width = `${targetWidth}px`;
-    if (!smooth) {
-      void indicator.offsetWidth;
-      indicator.style.transition = "";
-    }
-  }
+  };
+  const scheduleScrollbarHide = (delayMs: number): void => {
+    cancelScrollbarHide();
+    scrollbarHideTimer = setTimeout(() => {
+      scrollbarHideTimer = null;
+      setScrollbarVisible(false);
+    }, delayMs);
+  };
 
-  function getActiveBtn(): HTMLButtonElement | null {
-    return navItems.find((btn) => btn.classList.contains("is-active")) ?? navItems[0] ?? null;
-  }
-
-  function updateActiveIndicator(smooth = true): void {
-    const activeBtn = getActiveBtn();
-    if (activeBtn) {
-      updateIndicator(activeBtn, smooth);
-    }
-  }
-
-  const navSync = { updateActiveIndicator };
-  navSyncRef = navSync;
-
-  if (typeof ResizeObserver !== "undefined") {
-    const resizeObserver = new ResizeObserver(() => {
-      updateActiveIndicator(false);
-    });
-    navItems.forEach((btn) => resizeObserver.observe(btn));
-    resizeObserver.observe(nav);
-  }
-
-  window.addEventListener("resize", () => {
-    updateActiveIndicator(false);
+  nav.addEventListener("pointerenter", () => {
+    if (!hasOverflow()) return;
+    cancelScrollbarHide();
+    setScrollbarVisible(true);
   });
+  nav.addEventListener("pointerleave", () => {
+    if (hasOverflow()) scheduleScrollbarHide(360);
+  });
+  nav.addEventListener(
+    "scroll",
+    () => {
+      if (!hasOverflow()) {
+        setScrollbarVisible(false);
+        return;
+      }
+      setScrollbarVisible(true);
+      scheduleScrollbarHide(900);
+    },
+    { passive: true }
+  );
+  if (typeof ResizeObserver !== "undefined") {
+    // 面板宽度或字号变化后可能从可滚变成放得下，残留的拇指要收掉。
+    new ResizeObserver(() => {
+      if (hasOverflow()) return;
+      cancelScrollbarHide();
+      setScrollbarVisible(false);
+    }).observe(nav);
+  }
 
-  function setActive(sectionKey: string, smoothIndicator = true): void {
+  function setActive(sectionKey: string): void {
     let activeBtn: HTMLButtonElement | null = null;
     navItems.forEach((btn) => {
       const match = btn.dataset.section === sectionKey;
       btn.classList.toggle("is-active", match);
       if (match) activeBtn = btn;
     });
-    if (activeBtn) {
-      updateIndicator(activeBtn, smoothIndicator);
-      if (typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
-        (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-      }
-    }
-  }
-
-  const initialActive = nav.querySelector<HTMLButtonElement>(".biliscript-settings-nav-item.is-active") ?? navItems[0];
-  if (initialActive) {
-    updateIndicator(initialActive, false);
-    if (initialActive.offsetWidth === 0 && typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(() => {
-        updateIndicator(initialActive, false);
-      });
+    if (activeBtn && typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
+      (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
     }
   }
 
@@ -1633,7 +1616,7 @@ function bindSettingsNav(host: HTMLElement): NavSync {
     const target = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${sectionKey}"]`);
     if (target) {
       userClickLock = true;
-      setActive(sectionKey, true);
+      setActive(sectionKey);
       if (typeof target.scrollIntoView === "function") {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
@@ -1645,11 +1628,11 @@ function bindSettingsNav(host: HTMLElement): NavSync {
   });
 
   if (typeof IntersectionObserver === "undefined") {
-    return navSync;
+    return;
   }
 
   const scrollContainer = host.closest<HTMLElement>("#biliscript-reading-settings-panel") ?? host.parentElement;
-  if (!scrollContainer) return navSync;
+  if (!scrollContainer) return;
 
   const intersectingKeys = new Map<HTMLElement, number>();
   const observer = new IntersectionObserver(
@@ -1685,10 +1668,9 @@ function bindSettingsNav(host: HTMLElement): NavSync {
   );
 
   groups.forEach((group) => observer.observe(group));
-  return navSync;
 }
 
-function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsElements, navSync: NavSync): void {
+function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsElements): void {
   switch (binding.kind) {
     case "select": {
       const el = binding.getElement(elements);
@@ -1697,7 +1679,7 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
-        binding.onApply?.(val, navSync);
+        binding.onApply?.(val);
         void saveSettingField(elements, { [binding.key]: val });
       });
       break;
@@ -1710,9 +1692,9 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
-        binding.onApply?.(val, navSync);
+        binding.onApply?.(val);
         void saveSettingField(elements, { [binding.key]: val }).then((ok) => {
-          if (ok) binding.onSaved?.(val, navSync);
+          if (ok) binding.onSaved?.(val);
         });
       });
       break;
@@ -1730,7 +1712,7 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
               if (binding.patchState !== false) {
                 state.patchSettings({ [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
               }
-              binding.onPreview!(val, navSync);
+              binding.onPreview!(val);
             }
           : undefined,
         onCommit: (val) => {
@@ -1767,14 +1749,14 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
 
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
-  const navSync = bindSettingsNav(host);
+  bindSettingsNav(host);
 
   elements.backBtn?.addEventListener("click", () => {
     closeReaderSettingsMode();
   });
 
   for (const binding of SCALAR_FIELD_BINDINGS) {
-    bindScalarFieldEvents(binding, elements, navSync);
+    bindScalarFieldEvents(binding, elements);
   }
 
   agentBridgeSettings = bindAgentBridgeSettings(host, elements, (text, isError) => setStatus(elements, text, isError));

@@ -74,14 +74,13 @@
   }
 }
 
-/* 设置域滚动容器共用一套细滚动条（设置抽屉 / 分节导航条 / 模型下拉 / 提供商
- * 编辑对话框 / 拉取列表 / 自定义下拉弹层 / 提示词 textarea——选择器跨 settings
- * 三表与 custom-select 组件表，统一收在本表）：与 reader.css 面板容器同一语言，
- * 只走 ::-webkit-scrollbar，不设标准 scrollbar-color/width（Chrome 121+ 会因此
- * 跳过 webkit 定制、回退 Windows 原生粗灰条带上下三角箭头）；thumb 吃
+/* 设置域滚动容器共用一套细滚动条（设置抽屉 / 模型下拉 / 提供商编辑对话框 /
+ * 拉取列表 / 自定义下拉弹层 / 提示词 textarea——选择器跨 settings 三表与
+ * custom-select 组件表，统一收在本表）：与 reader.css 面板容器同一语言，只走
+ * ::-webkit-scrollbar，不设标准 scrollbar-color/width（Chrome 121+ 会因此跳过
+ * webkit 定制、回退 Windows 原生粗灰条带上下三角箭头）；thumb 吃
  * --biliscript-reader-* 令牌，主题自动跟随。 */
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar,
@@ -92,7 +91,6 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar-track,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-track,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-track,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-track,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-track,
@@ -102,7 +100,6 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar-thumb,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-thumb,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-thumb,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-thumb,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-thumb,
@@ -115,7 +112,6 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar-thumb:hover,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-thumb:hover,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-thumb:hover,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-thumb:hover,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-thumb:hover,
@@ -127,7 +123,6 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar-button,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-button,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-button,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-button,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-button,
@@ -218,7 +213,6 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
-  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -230,48 +224,66 @@
   padding: 0;
 }
 
+/* 导航横向滚动条按需现身（settings-panel 切 .is-scrollbar-visible）：静止态导航底部
+ * 只有文字，不与活动项抢同一条线；指针进入导航条或正在横向滚动时 6px 胶囊拇指显形，
+ * 停手后收回。触发条件不能写在宿主 :hover 上——Chromium 不刷新 scrollbar 伪元素的
+ * 悬停链路，只能由事件切类。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
+  width: 8px;
+  height: 6px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 两端内收的一行胶囊：不铺满导航全宽，读起来是位置指示而非第二条下划线。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 0;
+  border-left: var(--biliscript-space-2xl) solid transparent;
+  border-right: var(--biliscript-space-2xl) solid transparent;
+  border-radius: var(--biliscript-radius-pill);
+  background-clip: content-box;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav.is-scrollbar-visible::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-faint);
+  border: 0;
+  border-left: var(--biliscript-space-2xl) solid transparent;
+  border-right: var(--biliscript-space-2xl) solid transparent;
+  border-radius: var(--biliscript-radius-pill);
+  background-clip: content-box;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item {
-  position: relative;
   flex: 0 0 auto;
   border: none;
   background: none;
-  padding: var(--biliscript-space-xs) 2px var(--biliscript-space-6);
+  padding: var(--biliscript-space-xs) 2px;
   font-size: var(--pill-font-size, var(--biliscript-font-size-sm));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   color: var(--biliscript-reader-muted);
-  transition: color 0.15s ease-out, font-weight 0.15s ease-out;
+  transition: color 0.15s ease-out;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item:hover {
   color: var(--biliscript-reader-text);
 }
 
+/* 活动态只走字重 + 强调色：导航底部不再有下划线，与按需现身的滚动条不重叠。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active {
-  color: var(--biliscript-reader-text);
-  font-family: var(--biliscript-reader-font-sans-medium);
+  color: var(--biliscript-reader-accent);
   font-weight: 600;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2.5px;
-  border-radius: var(--biliscript-radius-pill);
-  background: var(--biliscript-reader-accent);
-  pointer-events: none;
-  z-index: 1;
-  transform: translateX(0);
-  transition: transform 260ms cubic-bezier(0.2, 0, 0, 1), width 260ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
-    transition: none;
-  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
