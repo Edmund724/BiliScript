@@ -2583,8 +2583,8 @@
   margin-right: 5px;
 }
 
-/* 折叠态（建卡默认）：整卡正文（步骤行 + 来源列表）收进头部一行，只由
- * CSS 隐藏——DOM 保留，展开是纯类切换、不重建。 */
+/* 折叠态（建卡默认）：整卡正文（步骤行、帧列表与来源列表）收进头部一行，
+ * 只由 CSS 隐藏——DOM 保留，展开是纯类切换、不重建。 */
 .biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-steps,
 .biliscript-reading-chat .chat-search-card-collapsed .chat-search-sources {
   display: none;
@@ -2648,6 +2648,36 @@
 .biliscript-reading-chat .chat-search-step-note {
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
+}
+
+.biliscript-reading-chat .chat-video-frame-results {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--biliscript-reader-border);
+}
+
+.biliscript-reading-chat .chat-video-frame-item {
+  display: grid;
+  gap: 4px;
+  width: 96px;
+}
+
+.biliscript-reading-chat .chat-video-frame-item .chat-image-open {
+  height: auto;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+}
+
+.biliscript-reading-chat .chat-video-frame-time {
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-sm);
+  text-align: center;
 }
 
 /* 来源列表（时间线卡底部，虚线分隔）：纵向 = 序号 + 标题（两行截断），整行可点
@@ -2731,6 +2761,7 @@
 
 #biliscript-reading-view .biliscript-reading-chat .chat-search-card-head:focus-visible,
 .biliscript-reading-chat .chat-search-source-row:focus-visible,
+.biliscript-reading-chat .chat-video-frame-item .chat-image-open:focus-visible,
 .biliscript-reading-chat .chat-cite:focus-visible {
   outline: 2px solid var(--biliscript-reader-accent);
   outline-offset: 2px;

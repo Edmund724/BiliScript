@@ -521,3 +521,151 @@ describe("搜索终态、播报与键盘可用性", () => {
     expect(flipped.style.top).toBe("644px");
   });
 });
+
+
+describe("历史视频帧工具可见闭环", () => {
+  const TOOL = "capture_video_frame_at_time" as const;
+  const FRAMES = [10, 12, 14].map((currentTime, index) => ({
+    image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+    currentTime
+  }));
+
+  function searching(callId = "frame-1") {
+    return { type: "tool-status", status: "searching", tool: TOOL, query: "0:12", callId, targetTime: 12 } satisfies ChatPortMessage;
+  }
+
+  it("进行中显示目标时间；成功显示数量、实际帧时间并可打开画面", async () => {
+    const { deps, runtime } = await makeRuntime("看看 12 秒附近");
+    feed(runtime, searching());
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.querySelector(".chat-search-card-label")!.textContent).toBe("视频画面");
+    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("00:12 附近");
+    expect(card.querySelector(".chat-search-step-query")!.textContent).toBe("正在回看 00:12 附近画面…");
+    expect(card.querySelector(".is-running")).not.toBeNull();
+
+    feed(runtime, {
+      type: "tool-status",
+      status: "done",
+      tool: TOOL,
+      query: "0:12",
+      callId: "frame-1",
+      targetTime: 12,
+      resultCount: 3,
+      expectedCount: 3,
+      frames: FRAMES
+    });
+    expect(card.dataset.status).toBe("done");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("3 张画面");
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 张");
+    expect([...card.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:12", "00:14"]);
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 3 张画面");
+
+    const firstFrame = card.querySelector<HTMLButtonElement>(".chat-video-frame-item .chat-image-open")!;
+    expect(firstFrame.getAttribute("aria-label")).toBe("查看 00:10 的实际画面");
+    firstFrame.click();
+    expect(document.querySelector<HTMLImageElement>(".chat-image-viewer-image")?.src).toBe("data:image/jpeg;base64,Rk9S");
+  });
+
+  it("部分成功明确缺失数量，只展示实际取到的帧", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, searching());
+    feed(runtime, {
+      type: "tool-status",
+      status: "done",
+      tool: TOOL,
+      query: "0:12",
+      callId: "frame-1",
+      targetTime: 12,
+      resultCount: 2,
+      expectedCount: 3,
+      frames: [FRAMES[0], FRAMES[2]]
+    });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("2 张，缺失 1 张");
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
+    expect([...card.querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10", "00:14"]);
+  });
+
+  it("全部失败显示文字降级，后续文字回答与终态卡片共存", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, searching());
+    feed(runtime, { type: "tool-status", status: "failed", tool: TOOL, query: "0:12", callId: "frame-1", targetTime: 12 });
+    feed(runtime, { type: "token", data: "依据字幕继续回答" });
+    feed(runtime, { type: "done" });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.dataset.status).toBe("failed");
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("未取到画面，已按文字继续");
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("未取到画面，已按文字继续");
+    expect(card.querySelector(".chat-search-announcer")!.getAttribute("role")).toBe("alert");
+    expect(deps.messages.querySelector(".chat-msg-assistant-body")!.textContent).toContain("依据字幕继续回答");
+  });
+
+  it.each(["finish", "stop", "fail", "discard"] as const)("%s 统一收口并锁定旧回合，迟到回包不更新", async (terminal) => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+    const turn = runtime.messageArea.appendAssistantMessage({ source: "live" });
+    turn.applySearchStatus(searching());
+
+    if (terminal === "finish") turn.finish();
+    else if (terminal === "stop") turn.stop("用户停止");
+    else if (terminal === "fail") turn.fail("错误：端口断开");
+    else turn.discard();
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const expectedStatus = terminal === "fail" ? "failed" : "cancelled";
+    expect(card.dataset.status).toBe(expectedStatus);
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(terminal === "fail" ? "未取到画面" : "已取消");
+    expect(card.querySelector(".is-running")).toBeNull();
+
+    turn.applySearchStatus({
+      type: "tool-status",
+      status: "done",
+      tool: TOOL,
+      query: "0:12",
+      callId: "frame-1",
+      targetTime: 12,
+      resultCount: 3,
+      expectedCount: 3,
+      frames: FRAMES
+    });
+    expect(card.dataset.status).toBe(expectedStatus);
+    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(terminal === "fail" ? "未取到画面" : "已取消");
+  });
+
+  it("关闭会话或换片的 reset 显示已取消，迟到事件不重开旧回合", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, searching());
+    runtime.resetStreamState();
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.dataset.status).toBe("cancelled");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
+    feed(runtime, { type: "tool-status", status: "done", tool: TOOL, query: "0:12", callId: "frame-1", targetTime: 12, frames: FRAMES });
+    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+    expect(card.dataset.status).toBe("cancelled");
+  });
+
+  it("同卡搜索与多次截帧按调用隔离计数和实际帧列表", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", tool: "web_search", query: "背景资料", callId: "search-1" });
+    feed(runtime, { type: "tool-status", status: "done", tool: "web_search", query: "背景资料", callId: "search-1", resultCount: 1, sources: [SOURCES[0]] });
+    feed(runtime, searching("frame-1"));
+    feed(runtime, { type: "tool-status", status: "done", tool: TOOL, query: "0:12", callId: "frame-1", targetTime: 12, resultCount: 1, expectedCount: 3, frames: [FRAMES[0]] });
+    feed(runtime, { type: "tool-status", status: "searching", tool: TOOL, query: "0:30", callId: "frame-2", targetTime: 30 });
+    feed(runtime, { type: "tool-status", status: "done", tool: TOOL, query: "0:30", callId: "frame-2", targetTime: 30, resultCount: 2, expectedCount: 3, frames: [FRAMES[1], FRAMES[2]] });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const steps = card.querySelectorAll<HTMLElement>(".chat-search-step");
+    expect(steps).toHaveLength(3);
+    expect(steps[0].querySelector(".chat-search-step-note")!.textContent).toBe("1 条");
+    expect(steps[0].querySelector(".chat-video-frame-results")).toBeNull();
+    expect(steps[1].querySelector(".chat-search-step-note")!.textContent).toBe("1 张，缺失 2 张");
+    expect([...steps[1].querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:10"]);
+    expect(steps[2].querySelector(".chat-search-step-note")!.textContent).toBe("2 张，缺失 1 张");
+    expect([...steps[2].querySelectorAll(".chat-video-frame-time")].map((el) => el.textContent)).toEqual(["00:12", "00:14"]);
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("2 张画面");
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("已获取 2 张画面，缺失 1 张");
+  });
+});

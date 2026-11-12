@@ -2188,3 +2188,98 @@ describe("消息操作：重新生成与导出", () => {
     }
   });
 });
+
+
+describe("历史截帧的回合生命周期与慢响应守卫", () => {
+  const searching = {
+    type: "tool-status",
+    status: "searching",
+    tool: "capture_video_frame_at_time",
+    query: "0:12",
+    callId: "history-1",
+    targetTime: 12
+  } satisfies ChatPortMessage;
+
+  it.each(["stopped", "disconnect"] as const)("%s 将截帧收口为已取消，迟到状态不更新旧卡片", async (terminal) => {
+    const { deps, runtime, session } = await makeRuntime();
+    session.listeners.message[0](searching);
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+
+    if (terminal === "stopped") {
+      session.listeners.message[0]({ type: "stopped", reason: "已停止生成" });
+    } else {
+      session.listeners.disconnect[0]();
+    }
+    expect(card.dataset.status).toBe("cancelled");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
+    expect(card.querySelector(".is-running")).toBeNull();
+    const settledText = card.textContent;
+
+    session.listeners.message[0]({
+      type: "tool-status",
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history-1",
+      targetTime: 12,
+      resultCount: 1,
+      expectedCount: 3,
+      frames: [{ image: { mime: "image/jpeg", data: "/9j/" }, currentTime: 12 }]
+    });
+    expect(card.textContent).toBe(settledText);
+    expect(card.querySelectorAll(".chat-video-frame-item")).toHaveLength(0);
+  });
+
+  it("截帧活动覆盖 15 秒阈值与 45 秒等待时不误报模型响应较慢", async () => {
+    vi.useFakeTimers();
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, searching);
+
+    vi.advanceTimersByTime(45000);
+    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    expect(deps.messages.querySelector(".chat-search-step-query")!.textContent).toBe("正在回看 00:12 附近画面…");
+  });
+
+  it("最后一个工具终态后重新武装慢响应提示，首 token 正常撤下", async () => {
+    vi.useFakeTimers();
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, searching);
+    vi.advanceTimersByTime(45000);
+    feed(runtime, {
+      type: "tool-status",
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history-1",
+      targetTime: 12,
+      resultCount: 1,
+      expectedCount: 3,
+      frames: [{ image: { mime: "image/jpeg", data: "/9j/" }, currentTime: 12 }]
+    });
+
+    vi.advanceTimersByTime(14999);
+    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    vi.advanceTimersByTime(1);
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
+    feed(runtime, { type: "token", data: "继续回答" });
+    expect(deps.ui.removeConversationContextNotice).toHaveBeenCalled();
+  });
+
+  it("旧端口在新回合后的迟到消息与断连不影响新回合", async () => {
+    const { deps, runtime, session } = await makeRuntime("第一问");
+    session.listeners.message[0](searching);
+    runtime.resetStreamState();
+    deps.input.value = "第二问";
+    await runtime.sendTurn(deps.input.value);
+    const next = deps.ports[1];
+    next.listeners.message[0]({ type: "token", data: "新回答" });
+
+    session.listeners.message[0]({ type: "token", data: "旧回答" });
+    session.listeners.disconnect[0]();
+
+    expect(runtime.isStreaming()).toBe(true);
+    next.listeners.message[0]({ type: "done" });
+    expect(deps.messages.textContent).toContain("新回答");
+    expect(deps.messages.textContent).not.toContain("旧回答");
+  });
+});

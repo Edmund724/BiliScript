@@ -336,6 +336,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // port 断连、字幕体缺失错误之后），必然全量携带。
   let lastAckedContextKey: string | null = null;
   const pendingVideoFrames = new Map<string, AbortController>();
+  const activeToolCalls = new Set<string>();
 
   // ---- 回合生命周期（./turn-lifecycle.ts，GLOSSARY.md 词条「发送闸」「历史回放」）----
   // 一个回合「受理开始 → 终态落定」的时序与结算唯一实现点：在途判据（受理窗口
@@ -470,6 +471,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     } else if (msg.type === "stream-reset") {
       // 读流中断重试（offscreen 重新从头生成）：已吐 token 撤不回且新流不保证
       // 前缀一致，清空本条消息缓冲整体重放，避免两代流拼接成重复文本。
+      activeToolCalls.clear();
       activeTurn?.reset();
     } else if (msg.type === "done") {
       finalizeAssistant(activeTurn);
@@ -502,8 +504,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         deps.ui.showConversationContextNotice(msg.data, 4000);
       }
     } else if (msg.type === "tool-status") {
-      // 联网搜索工具状态（spec §4）：驱动搜索时间线卡（步骤行 / 结果数 /
-      // 平台耗时 / 来源 chip 行），插在用户消息与回答之间。
+      const activityId = msg.callId || `${msg.tool || "web_search"}:${msg.query}`;
+      if (msg.status === "searching") {
+        activeToolCalls.add(activityId);
+        clearStreamSlowNoticeTimer();
+        deps.ui.removeConversationContextNotice();
+      } else {
+        activeToolCalls.delete(activityId);
+        if (!activeToolCalls.size && activePort && !streamFirstTokenReceived) {
+          armStreamSlowNoticeTimer();
+        }
+      }
       activeTurn?.applySearchStatus(msg);
     } else if (msg.type === "tool-turn") {
       // 工具轮持久化副本（spec §2.5）：缓存，done/stopped 时随一问一答写回。
@@ -726,6 +737,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       activeConversationId = chatSessionState.currentConversationId;
       activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
+      activeToolCalls.clear();
       startStreamSlowNoticeTimer();
       if (preserveSnapshotNotice) {
         deps.ui.showConversationContextNotice("已发送原文，保留了后来修改的草稿与图片", 4000);
@@ -741,11 +753,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activePort = port;
 
       port.onMessage.addListener((msg) => {
+        if (activePort !== port) return;
         dispatchChatPortMessage(msg as ChatPortMessage, port);
       });
 
       port.onDisconnect.addListener(() => {
+        if (activePort !== port) return;
         abortAllVideoFrames();
+        activeTurn?.discard();
+        activeToolCalls.clear();
         activePort = null;
         lastAckedContextKey = null;
         if (activeRegeneration) {
@@ -852,7 +868,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // endStream — 流生命周期收口（done / stopped / error 三条终态路径唯一实现）
   // =========================================================================
   // 收口时序（原步骤①取消挂起帧已内收至 finish / fail / stop 意图方法内部自动处理）：
-  //   ① clearStreamRuntimeState          清慢响应计时器 / 首 token 标志 / 上下文 notice；
+  //   ① clearStreamRuntimeState          清慢响应计时器 / 上下文 notice；
   //   ② renderStep(streamTurn)           终态各自的 DOM / 持久化收尾（内部自动取消挂起帧）；
   //   ③ 断开并清空 activePort；
   //   ④ setStreamingUiState(false)；
@@ -868,6 +884,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserPrompt = "";
     activeUserImages = [];
     activeTurnProviderId = "";
+    activeToolCalls.clear();
     if (activePort) {
       try { activePort.disconnect(); } catch {}
       activePort = null;
@@ -1073,14 +1090,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   // startStreamSlowNoticeTimer
   // =========================================================================
-  function startStreamSlowNoticeTimer(): void {
-    clearStreamRuntimeState();
+  function clearStreamSlowNoticeTimer(): void {
+    if (streamSlowNoticeTimer) {
+      window.clearTimeout(streamSlowNoticeTimer);
+      streamSlowNoticeTimer = 0;
+    }
+  }
+
+  function armStreamSlowNoticeTimer(): void {
+    clearStreamSlowNoticeTimer();
     streamSlowNoticeTimer = window.setTimeout(() => {
-      if (!activePort || streamFirstTokenReceived) {
+      if (!activePort || streamFirstTokenReceived || activeToolCalls.size > 0) {
         return;
       }
       deps.ui.showConversationContextNotice("模型响应较慢，可能正在思考，请稍候…", 0);
     }, STREAM_SLOW_NOTICE_MS);
+  }
+
+  function startStreamSlowNoticeTimer(): void {
+    clearStreamRuntimeState();
+    armStreamSlowNoticeTimer();
   }
 
   // =========================================================================
@@ -1110,13 +1139,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 1. 「只清一次」失效——done/stopped/error 收尾后（clear 被调、标志被复位），
   //    同一节点上到达的收尾 reasoning/token 事件（竞态）会让
   //    handleFirstStreamToken 再次执行、撤下下一条消息的上下文 notice；
-  // 2. 慢响应提示的重新武装职责归位到受理体（发送前置 false），
-  //    clear 只管"当前代际内"的清计时器语义。
+  // 2. 慢响应提示在发送时与最后一个工具终态重新武装，clear 只清计时器。
   function clearStreamRuntimeState(): void {
-    if (streamSlowNoticeTimer) {
-      window.clearTimeout(streamSlowNoticeTimer);
-      streamSlowNoticeTimer = 0;
-    }
+    clearStreamSlowNoticeTimer();
     deps.ui.removeConversationContextNotice();
   }
 
@@ -1173,6 +1198,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserPrompt = "";
     activeUserImages = [];
     activeTurnProviderId = "";
+    activeToolCalls.clear();
     // 拆除类入口同样终结回合：复位受理窗口（resetStreamState 可能在 connectPort
     // await 窗口内被调——store reset / restartChat 路径；标志若不清，此后用户的
     // 新发送会被永久拦下），并兑现已武装的 settle（不留悬挂）。

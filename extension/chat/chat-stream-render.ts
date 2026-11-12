@@ -31,6 +31,7 @@ import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, RE
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
+import { formatClock } from "../shared/clock-text.js";
 import type { ImagePart } from "../ai/types.js";
 import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
@@ -98,7 +99,7 @@ export interface ChatAssistantTurn {
   stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
-  /** 联网搜索 tool-status → 时间线卡（插在本节点之前）。 */
+  /** 工具 tool-status → 时间线卡（插在本节点之前）。 */
   applySearchStatus: (msg: ChatToolStatusEvent) => void;
   /** 回放：把该回合的静态时间线卡插在本节点之前（回放只表达顺序）。 */
   attachSearchTimelineCard: (turn: HistorySearchTurn) => void;
@@ -702,36 +703,38 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     scheduleTokenFlush(node);
   }
   // =========================================================================
-  // 联网搜索时间线卡（spec §4，变体 B + 内联引用）
+  // 工具活动时间线卡（搜索含 spec §4 内联引用）
   // =========================================================================
   // tool-status 事件驱动的独立卡片，插在用户消息与回答（assistant 节点）之间：
-  // 头部 = 左置 chevron +「联网搜索」+ 最近一条查询词 + 右端状态（进行中
-  // 「搜索中…」，失败「搜索失败」，完成「N 条来源」）；每步一行 = 弹点 + 查询词
-  // + 结果数；完成后底部（虚线分隔）追加来源列表（序号 + 标题，整行点击新标签
-  // 打开 URL、悬停出预览卡）。状态按 assistant 节点隔离（WeakMap，与 token 流
-  // 累加器同契约：随占位节点建立、跨消息天然隔离，stream-reset 整卡清除重放）。
+  // 头部 = 左置 chevron + 工具类别 + 最近一条查询词或目标时间 + 右端状态；
+  // 每步一行 = 弹点 + 活动描述 + 结果。搜索完成后底部追加来源列表（整行点击
+  // 新标签打开 URL、悬停出预览卡）；历史截帧完成后在对应步骤内追加可查看的
+  // 实际帧。状态按 assistant 节点隔离（WeakMap，与 token 流累加器同契约：
+  // 随占位节点建立、跨消息天然隔离，stream-reset 整卡清除重放）。
   //
-  // 默认折叠（用户决议：卡片常驻展开太占空间）：头部一行即全部可见面，
-  // 整卡正文（步骤行 + 来源列表）收在折叠类后由 CSS 隐藏，点击头部展开回看。
+  // 搜索卡默认折叠，截帧卡为展示进行中与实际帧默认展开；点击头部切换折叠态。
   // 记忆只在本次会话内、按卡隔离（展开后后续 tool-status 事件不折回）；不落盘，
-  // 新卡 / 历史回放 / stream-reset 重建一律回到默认折叠。
+  // 新卡 / 历史回放 / stream-reset 重建一律回到各自默认折叠态。
   //
   // 来源编号跨搜索累计（到达顺序），与正文 [n] 内联引用、tool-loop 描述里的
   // 编号契约对齐（spec §4/§5）。悬停预览卡与列表行/cite 点击的新标签打开走
   // window.open（reader 对话 tab 在 content script 上下文，无 chrome.tabs）。
 
   type SearchActivityStatus = "searching" | "done" | "failed" | "cancelled";
+  type ToolActivityKind = "web_search" | "capture_video_frame_at_time";
 
   interface SearchStepState {
     row: HTMLElement;
     callId?: string;
+    kind: ToolActivityKind;
     status: SearchActivityStatus;
+    frameCount: number;
+    expectedFrameCount: number;
   }
 
   // 按节点隔离的时间线卡状态（键 = assistant 占位节点）。
   interface SearchCardState {
     card: HTMLElement;
-    // 头部「最近一条查询词」（每条 tool-status 事件刷新）。
     queryEl: HTMLElement;
     statusEl: HTMLElement;
     stepsEl: HTMLElement;
@@ -745,6 +748,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   const searchCardStates = new WeakMap<HTMLElement, SearchCardState>();
+
+  function isVideoFrameStatus(msg: ChatToolStatusEvent): boolean {
+    return msg.tool === "capture_video_frame_at_time";
+  }
+
+  function formatVideoFrameTime(seconds: unknown): string {
+    const formatted = formatClock(seconds, { hours: "auto" });
+    return formatted.includes(":") && formatted.split(":").length === 2
+      ? formatted.padStart(5, "0")
+      : formatted;
+  }
 
   // 预览不随滚动重定位；滚动即收走，Esc 收起当前预览。
   deps.messages.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
@@ -824,11 +838,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     anchor.addEventListener("blur", () => hideSourcePreview(deps.messages));
   }
 
-  // 卡骨架共享构建器（live 与回放同构，spec §4）：头部建卡即折叠态，头部用
-  // <button> 取按钮语义与 Enter/Space 激活；独立 announcer 只承载搜索终态。
+  // 卡骨架由搜索与历史截帧共用；独立 announcer 只承载工具终态。
   function createSearchCardShell(
     statusText: string,
-    statusValue: SearchActivityStatus = "searching"
+    statusValue: SearchActivityStatus = "searching",
+    labelText = "联网搜索"
   ): { card: HTMLElement; queryEl: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement; announcerEl: HTMLElement } {
     const card = document.createElement("div");
     card.className = "chat-search-card chat-search-card-collapsed";
@@ -843,7 +857,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
     const label = document.createElement("span");
     label.className = "chat-search-card-label";
-    label.textContent = "联网搜索";
+    label.textContent = labelText;
     const query = document.createElement("span");
     query.className = "chat-search-card-query";
     const status = document.createElement("span");
@@ -861,7 +875,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return { card, queryEl: query, statusEl: status, stepsEl: steps, announcerEl: announcer };
   }
 
-  // 步骤行共享构建器：running=true 为「搜索中…」进行中形态（live 路径），
+  // 步骤行共享构建器：running=true 为进行中形态（live 路径），
   // false 为终态行（回放路径，noteText 记结果数）。
   function createSearchStepRow(query: string, noteText: string, running: boolean): HTMLElement {
     const row = document.createElement("div");
@@ -878,28 +892,53 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return row;
   }
 
-  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement): SearchCardState {
-    const { card, queryEl, statusEl, stepsEl, announcerEl } = createSearchCardShell("搜索中…");
+  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement, msg: ChatToolStatusEvent): SearchCardState {
+    const videoFrame = isVideoFrameStatus(msg);
+    const { card, queryEl, statusEl, stepsEl, announcerEl } = createSearchCardShell(
+      videoFrame ? "截取中…" : "搜索中…",
+      "searching",
+      videoFrame ? "视频画面" : "联网搜索"
+    );
+    if (videoFrame) {
+      card.classList.remove("chat-search-card-collapsed");
+      card.querySelector(".chat-search-card-head")?.setAttribute("aria-expanded", "true");
+    }
     messages.insertBefore(card, assistantNode);
-    return { card, queryEl, statusEl, stepsEl, announcerEl, steps: [], status: "searching", sourcesWrap: null, sources: [] };
+    return {
+      card,
+      queryEl,
+      statusEl,
+      stepsEl,
+      announcerEl,
+      steps: [],
+      status: "searching",
+      sourcesWrap: null,
+      sources: []
+    };
   }
 
-  function createSearchStep(state: SearchCardState, query: string, callId?: string): SearchStepState {
+  function createSearchStep(state: SearchCardState, query: string, callId: string | undefined, kind: ToolActivityKind): SearchStepState {
     const existing = callId ? state.steps.find((step) => step.callId === callId) : undefined;
     if (existing) {
       return existing;
     }
-    const row = createSearchStepRow(query, "搜索中…", true);
+    const row = createSearchStepRow(query, kind === "capture_video_frame_at_time" ? "截取中…" : "搜索中…", true);
     state.stepsEl.appendChild(row);
-    const step = { row, callId, status: "searching" as const };
+    const step = { row, callId, kind, status: "searching" as const, frameCount: 0, expectedFrameCount: 3 };
     state.steps.push(step);
     return step;
   }
 
-  function announceSearchTerminal(state: SearchCardState, status: Exclude<SearchActivityStatus, "searching">): void {
+  function announceSearchTerminal(state: SearchCardState, step: SearchStepState, status: Exclude<SearchActivityStatus, "searching">): void {
+    const videoFrame = step.kind === "capture_video_frame_at_time";
+    const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
     const text = status === "done"
-      ? `搜索完成，共 ${state.sources.length} 条来源`
-      : status === "failed" ? "搜索失败" : "搜索已取消";
+      ? videoFrame
+        ? `已获取 ${step.frameCount} 张画面${missing ? `，缺失 ${missing} 张` : ""}`
+        : `搜索完成，共 ${state.sources.length} 条来源`
+      : status === "failed"
+        ? videoFrame ? "未取到画面，已按文字继续" : "搜索失败"
+        : videoFrame ? "画面截取已取消" : "搜索已取消";
     state.announcerEl.setAttribute("role", status === "failed" ? "alert" : "status");
     state.announcerEl.setAttribute("aria-live", status === "failed" ? "assertive" : "polite");
     state.announcerEl.textContent = text;
@@ -917,13 +956,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
-  function setSearchCardStatus(state: SearchCardState, status: SearchActivityStatus): void {
+  function setSearchCardStatus(state: SearchCardState, step: SearchStepState, status: SearchActivityStatus): void {
     state.status = status;
     state.card.dataset.status = status;
+    const videoFrame = step.kind === "capture_video_frame_at_time";
     state.statusEl.textContent = status === "searching"
-      ? "搜索中…"
-      : status === "failed" ? "搜索失败"
-        : status === "cancelled" ? "已取消" : `${state.sources.length} 条来源`;
+      ? videoFrame ? "截取中…" : "搜索中…"
+      : status === "failed"
+        ? videoFrame ? "未取到画面" : "搜索失败"
+        : status === "cancelled"
+          ? "已取消"
+          : videoFrame ? `${step.frameCount} 张画面` : `${state.sources.length} 条来源`;
   }
 
   // 来源列表（虚线分隔 + 限高内滚）：每行 = 序号 + 标题（两行截断，title 属性给
@@ -982,11 +1025,36 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
 
+  function appendVideoFrameList(step: SearchStepState, msg: ChatToolStatusEvent): void {
+    const frames = Array.isArray(msg.frames) ? msg.frames.slice(0, 3) : [];
+    step.frameCount = typeof msg.resultCount === "number" ? msg.resultCount : frames.length;
+    step.expectedFrameCount = msg.expectedCount ?? 3;
+    if (!frames.length) {
+      return;
+    }
+    const list = document.createElement("div");
+    list.className = "chat-video-frame-results";
+    step.row.appendChild(list);
+    for (const frame of frames) {
+      const time = formatVideoFrameTime(frame.currentTime);
+      const item = document.createElement("div");
+      item.className = "chat-video-frame-item";
+      const button = createChatImageViewButton(frame.image, imageViewer, `视频在 ${time} 的实际画面`);
+      button.setAttribute("aria-label", `查看 ${time} 的实际画面`);
+      button.title = `查看 ${time} 的实际画面`;
+      const caption = document.createElement("span");
+      caption.className = "chat-video-frame-time";
+      caption.textContent = time;
+      item.append(button, caption);
+      list.appendChild(item);
+    }
+  }
+
   const settledSearchTurns = new WeakSet<HTMLElement>();
 
   /**
    * applySearchStatus — tool-status 事件驱动时间线卡（live 流路径）。
-   * callId 存在时按调用收口；无 callId 的旧事件沿用最近一条进行中步骤。
+   * callId 存在时按调用收口；无 callId 的旧事件沿用最近一条同类别进行中步骤。
    */
   function applySearchStatusToNode(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
     if (!node || !node.parentNode || settledSearchTurns.has(node)) {
@@ -994,27 +1062,40 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     let state = searchCardStates.get(node);
     if (!state) {
-      state = createSearchCard(deps.messages, node);
+      state = createSearchCard(deps.messages, node, msg);
       searchCardStates.set(node, state);
     }
-    state.queryEl.textContent = String(msg.query || "");
+    const videoFrame = isVideoFrameStatus(msg);
+    const kind: ToolActivityKind = videoFrame ? "capture_video_frame_at_time" : "web_search";
+    const label = state.card.querySelector(".chat-search-card-label");
+    if (label) {
+      label.textContent = videoFrame ? "视频画面" : "联网搜索";
+    }
+    const target = videoFrame ? formatVideoFrameTime(msg.targetTime) : "";
+    state.queryEl.textContent = videoFrame ? `${target} 附近` : String(msg.query || "");
     if (msg.status === "searching") {
-      const step = createSearchStep(state, String(msg.query || ""), msg.callId);
+      const stepText = videoFrame ? `正在回看 ${target} 附近画面…` : String(msg.query || "");
+      const step = createSearchStep(state, stepText, msg.callId, kind);
       if (step.status !== "searching") {
         return;
       }
-      setSearchCardStatus(state, "searching");
+      setSearchCardStatus(state, step, "searching");
       state.announcerEl.textContent = "";
       return;
     }
     const step = msg.callId
       ? state.steps.find((candidate) => candidate.callId === msg.callId)
-      : [...state.steps].reverse().find((candidate) => candidate.status === "searching");
+      : [...state.steps].reverse().find((candidate) => candidate.kind === kind && candidate.status === "searching");
     if (!step || step.status !== "searching") {
       return;
     }
     if (msg.status === "failed" || msg.status === "cancelled") {
-      settleSearchStep(step, msg.status, msg.status === "failed" ? "搜索失败" : "已取消");
+      const failureText = videoFrame ? "未取到画面，已按文字继续" : "搜索失败";
+      settleSearchStep(step, msg.status, msg.status === "failed" ? failureText : "已取消");
+    } else if (videoFrame) {
+      appendVideoFrameList(step, msg);
+      const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
+      settleSearchStep(step, "done", `${step.frameCount} 张${missing ? `，缺失 ${missing} 张` : ""}`);
     } else {
       const platform = String(msg.platform || "").trim();
       settleSearchStep(step, "done", typeof msg.resultCount === "number"
@@ -1024,10 +1105,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         appendSourceList(state, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
       }
     }
-    const hasRunning = state.steps.some((candidate) => candidate.status === "searching");
-    setSearchCardStatus(state, hasRunning ? "searching" : msg.status);
-    if (!hasRunning) {
-      announceSearchTerminal(state, msg.status);
+    const running = state.steps.filter((candidate) => candidate.status === "searching");
+    setSearchCardStatus(state, running[running.length - 1] ?? step, running.length ? "searching" : msg.status);
+    if (!running.length) {
+      announceSearchTerminal(state, step, msg.status);
     }
   }
 
@@ -1046,10 +1127,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       return;
     }
     for (const step of running) {
-      settleSearchStep(step, status, status === "failed" ? "搜索失败" : "已取消");
+      const failureText = step.kind === "capture_video_frame_at_time" ? "未取到画面，已按文字继续" : "搜索失败";
+      settleSearchStep(step, status, status === "failed" ? failureText : "已取消");
     }
-    setSearchCardStatus(state, status);
-    announceSearchTerminal(state, status);
+    const latest = running[running.length - 1];
+    setSearchCardStatus(state, latest, status);
+    announceSearchTerminal(state, latest, status);
   }
 
   // 终态收口取本回合累计来源（finalize / stopped 传给 renderAssistantMessage

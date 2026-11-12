@@ -568,6 +568,22 @@ if (liveGemini && !geminiApiKey) {
         check("后续请求按时间顺序包含三张分别标注的 JPEG", images.length === 3 && images.every((image, index) => image.caption.includes(`第 ${index + 1} 张，实际截图时间 ${expectedTimes[index]}`)) && images.every((image) => image.bytes.length > 1000), images.map((image) => ({ caption: image.caption, bytes: image.bytes.length })));
         check("对话依据字幕与画面完成", evidence.answer.includes("已结合字幕与历史画面作答"), evidence.answer.slice(-500));
       }
+      const frameUi = await page.cdp.evaluate(`(() => {
+        const cards = document.querySelectorAll(".chat-search-card");
+        const card = cards[cards.length - 1];
+        return {
+          status: card?.getAttribute("data-status"),
+          text: card?.textContent || "",
+          times: Array.from(card?.querySelectorAll(".chat-video-frame-time") || []).map((node) => node.textContent),
+          buttons: card?.querySelectorAll(".chat-video-frame-item .chat-image-open").length || 0
+        };
+      })()`);
+      check("历史截帧卡显示实际数量与帧时间", frameUi.status === "done" && frameUi.text.includes("3 张画面") && frameUi.buttons === 3, frameUi);
+      await page.cdp.evaluate("document.querySelector('.chat-video-frame-item .chat-image-open')?.click()");
+      await waitFor("实际帧查看弹层", () => page.cdp.evaluate("document.querySelector('.chat-image-viewer-image')?.src.startsWith('data:image/jpeg;base64,')"));
+      await screenshot(page.cdp, path.join(OUT_DIR, "historical-frame-viewer.png"));
+      check("实际帧可打开查看", true);
+      await page.cdp.evaluate("document.querySelector('.chat-image-viewer-close')?.click()");
       check("用户播放器未被移动或改变播放声音状态", JSON.stringify(evidence.player.before) === JSON.stringify(evidence.player.after) && evidence.player.events.seekEvents === 0 && evidence.player.events.playEvents === 0, evidence.player);
       check("隐藏视频已清理", evidence.player.hiddenRemaining === 0, evidence.player.hiddenRemaining);
 
@@ -585,11 +601,24 @@ if (liveGemini && !geminiApiKey) {
         await observePlayer(page, false);
         const stopRequestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
         await setStubBehavior(offscreen, 2300);
-        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 2000");
+        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 18000");
         await askQuestion(page, "请说明 2300 秒附近的画面。");
+        await waitFor("截帧进行状态", () => page.cdp.evaluate("document.getElementById('biliscript-reading-chat-messages')?.textContent.includes('正在回看 38:20 附近画面…')"));
+        await sleep(16000);
+        const longWaitUi = await page.cdp.evaluate(`(() => ({
+          running: document.getElementById("biliscript-reading-chat-messages")?.textContent.includes("正在回看 38:20 附近画面…"),
+          slowNotice: document.getElementById("biliscript-reading-view")?.textContent.includes("模型响应较慢")
+        }))()`);
+        check("长等待显示截帧进度且不误报模型响应较慢", longWaitUi.running && !longWaitUi.slowNotice, longWaitUi);
         await waitFor("停止前隐藏视频在飞", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 1"), { timeoutMs: 30000, intervalMs: 50 });
         await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
         await waitFor("停止后回合与隐藏媒体收尾", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0 && !document.getElementById('biliscript-reading-chat-send-btn').classList.contains('is-stop')"), { timeoutMs: 15000, intervalMs: 100 });
+        const cancelled = await page.cdp.evaluate(`(() => {
+          const cards = document.querySelectorAll(".chat-search-card");
+          const card = cards[cards.length - 1];
+          return card?.getAttribute("data-status") === "cancelled" && card?.textContent.includes("已取消");
+        })()`);
+        check("停止后截帧卡显示已取消", cancelled);
         await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 0");
         const stopPlayer = await readPlayerEvidence(page);
         const stoppedRequests = await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + stopRequestStart + ")");

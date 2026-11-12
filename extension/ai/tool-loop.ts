@@ -17,7 +17,7 @@
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
-import type { CaptureCurrentVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
@@ -117,8 +117,12 @@ export type FetchHotCommentsFn = () => Promise<ToolLoopHotComment[]>;
 export interface ToolStatusPayload {
   status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  tool?: "web_search" | "capture_video_frame_at_time";
   callId?: string;
+  targetTime?: number;
   resultCount?: number;
+  expectedCount?: number;
+  frames?: CapturedVideoFrame[];
   platform?: string;
   // 搜索结果（done 时携带，spec §4）：时间线卡 chip 行与内联引用的数据源。
   sources?: NormalizedSearchResult[];
@@ -318,12 +322,25 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
         if (captureCurrentVideoFrame && !captureUsed) {
           captureUsed = true;
+          let historicalTargetTime: number | undefined;
+          let historicalStatusStarted = false;
           try {
             const targetTime = isHistoricalFrame
               ? Number((JSON.parse(call.function.arguments) as { targetTime?: unknown }).targetTime)
               : undefined;
             if (isHistoricalFrame && (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0)) {
               throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
+            }
+            if (isHistoricalFrame) {
+              historicalTargetTime = targetTime;
+              historicalStatusStarted = true;
+              onToolStatus?.({
+                status: "searching",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: formatClock(targetTime, { hours: "auto" }),
+                callId: call.id,
+                targetTime
+              });
             }
             const captureResult = isHistoricalFrame
               ? await captureCurrentVideoFrame(targetTime)
@@ -341,6 +358,18 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
                   : `目标时间点 ${target} 附近仅成功截取 ${frames.length} 张画面，实际时间依次为 ${times.join("、")}；其余 ${3 - frames.length} 张截取失败。`
                 : `已截取视频在 ${times[0]} 的画面（目标时间点 ${target}）。`
               : `已截取视频在 ${times[0]} 的画面。`;
+            if (isHistoricalFrame) {
+              onToolStatus?.({
+                status: "done",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: target,
+                callId: call.id,
+                targetTime: historicalTargetTime,
+                resultCount: frames.length,
+                expectedCount: Array.isArray(captureResult) ? 3 : 1,
+                frames
+              });
+            }
             frames.forEach((frame, index) => {
               const time = times[index];
               frameMessages.push({
@@ -359,6 +388,15 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
             }
             const reason = String((e as { message?: unknown })?.message ?? e);
             toolContent = `截取视频画面失败：${reason}`;
+            if (historicalStatusStarted) {
+              onToolStatus?.({
+                status: "failed",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: formatClock(historicalTargetTime, { hours: "auto" }),
+                callId: call.id,
+                targetTime: historicalTargetTime
+              });
+            }
             onNotice?.(toolContent);
           }
         }

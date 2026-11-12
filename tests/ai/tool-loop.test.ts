@@ -1063,3 +1063,137 @@ describe("热门评论工具的平台降级", () => {
     expect(capture.calls[3].tools).toBeUndefined();
   });
 });
+
+
+describe("历史截帧 tool-status 可见闭环", () => {
+  function useHistoricalStatusRound(targetTime = 12) {
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length === 1
+        ? sseResponse([
+            sseData({ tool_calls: [{ index: 0, id: "history_status", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime }) } }] }),
+            sseData({}, "tool_calls")
+          ])
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+  }
+
+  function statusFrame(currentTime: number) {
+    return { image: { mime: "image/jpeg", data: `RlJBTUU=${currentTime}` }, currentTime };
+  }
+
+  it("执行前先回报目标时间与调用身份，成功后回报实际三帧", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    let resolveCapture!: (frames: ReturnType<typeof statusFrame>[]) => void;
+    const captureCurrentVideoFrame = vi.fn(() => new Promise<ReturnType<typeof statusFrame>[]>((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const running = runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalledWith(12));
+    expect(capture.statuses).toEqual([{
+      status: "searching",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history_status",
+      targetTime: 12
+    }]);
+
+    const frames = [10, 12, 14].map(statusFrame);
+    resolveCapture(frames);
+    await running;
+    expect(capture.statuses[1]).toEqual({
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history_status",
+      targetTime: 12,
+      resultCount: 3,
+      expectedCount: 3,
+      frames
+    });
+    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("部分成功：done 携带实际两帧与预期三帧，模型请求只含成功图片", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    const frames = [10, 14].map(statusFrame);
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => frames
+    }));
+
+    expect(capture.statuses[1]).toMatchObject({
+      status: "done",
+      callId: "history_status",
+      targetTime: 12,
+      resultCount: 2,
+      expectedCount: 3,
+      frames
+    });
+    expect(JSON.stringify(capture.calls[1].messages).match(/"type":"image_url"/g)).toHaveLength(2);
+  });
+
+  it("全部失败：failed 终态与既有诊断通知随行，后续文字回答不中断", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => []
+    }));
+
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching", "failed"]);
+    expect(capture.statuses[1]).toMatchObject({
+      tool: "capture_video_frame_at_time",
+      callId: "history_status",
+      targetTime: 12
+    });
+    expect(capture.notices).toEqual(["截取视频画面失败：三个时间点均未截取成功"]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", content: "截取视频画面失败：三个时间点均未截取成功" })
+    ]));
+  });
+
+  it("45 秒总超时错误收口为 failed，仍发起后续文字回答", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => {
+        throw new Error("历史帧截取超时（45000 毫秒）");
+      }
+    }));
+
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching", "failed"]);
+    expect(capture.notices).toEqual(["截取视频画面失败：历史帧截取超时（45000 毫秒）"]);
+    expect(capture.calls).toHaveLength(2);
+    expect(capture.calls[1].messages.some((message) => message.role === "tool" && message.content.includes("45000"))).toBe(true);
+  });
+
+  it("取消上抛中止语义，不把取消伪装成 failed，也不发起后续请求", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    const controller = new AbortController();
+    let rejectCapture!: (error: Error) => void;
+    const captureCurrentVideoFrame = vi.fn(() => new Promise<never>((_, reject) => {
+      rejectCapture = reject;
+    }));
+    const running = runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false, signal: controller.signal },
+      captureCurrentVideoFrame
+    }));
+    const rejection = expect(running).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalled());
+
+    controller.abort();
+    rejectCapture(new DOMException("历史帧截取已中止", "AbortError"));
+    await rejection;
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching"]);
+    expect(capture.calls).toHaveLength(1);
+  });
+});

@@ -71,14 +71,19 @@ export interface ChatTokenBatchEvent {
 // 时间线卡 chip 行与正文内联引用（悬停预览 / 新标签打开）的数据源；形状单源
 // 在 chat/search-sources.ts（回放重建共用同一类型）。
 import type { ChatSearchSource } from "./search-sources.js";
+import type { CapturedVideoFrame } from "../ai/types.js";
 export type ChatToolStatusSource = ChatSearchSource;
 
 export interface ChatToolStatusEvent {
   type: "tool-status";
   status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  tool?: "web_search" | "capture_video_frame_at_time";
   callId?: string;
+  targetTime?: number;
   resultCount?: number;
+  expectedCount?: number;
+  frames?: CapturedVideoFrame[];
   platform?: string;
   sources?: ChatToolStatusSource[];
   // 付费平台可见性（GLOSSARY「付费平台」，done 时携带，ai/tool-loop.ts 注入）：
