@@ -348,6 +348,7 @@ const suggestionsSlot = createChatSuggestionsSlot({
 // notices 模块闭包私有状态；定时器用 window（测试可注入 fake）。
 const feedback = createReaderChatFeedback({
   messages: els.messages,
+  inputCard: els.input.closest(".chat-input-card"),
   setTimer: (fn, ms) => window.setTimeout(fn, ms),
   clearTimer: (handle) => window.clearTimeout(handle),
   scrollToBottom: () => chatRuntime.scrollToBottom(),
@@ -367,14 +368,10 @@ const {
   getMessagesBottomOffset
 } = feedback;
 
-// 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
-// 删除；拒绝提示走消息区通知条（与上下文提示同一出口，自动隐藏）。流式闸问
-// 回合生命周期的一条判据（isTurnActive：受理窗口 ∪ 流段）——发送流程从受理到
-// 落定的整段窗口里都不收新图。消费点两处：chat-runtime 发送受理
-//（deps.takeInputImages）与 restartChat 清场。
+// 流式生成中不收新图；字幕等待属于受理窗口，仍可粘贴，新增图片由原回合快照排除。
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
-  isStreaming: () => chatRuntime.isTurnActive(),
+  isStreaming: () => chatRuntime.isStreaming(),
   onReject: (message) => showConversationContextNotice(message, 4000)
 });
 
@@ -396,7 +393,9 @@ const composer = createReaderChatComposer({
       chatRuntime.stopActiveStream();
     }
   },
-  onPasteImage: (e) => inputImages.handlePaste(e)
+  onPasteImage: (e) => inputImages.handlePaste(e),
+  onCancelSubtitleWait: () => sendGate.cancel(),
+  onNotice: showConversationContextNotice
 });
 
 const explainIntentConsumption = createExplainIntentConsumption({
@@ -498,18 +497,14 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   pageBvid: () => extractBvid(location.href),
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
-  // 等待闸开关信号：等待期间发送键禁用 + placeholder 换等待文案（见
-  // setSubtitleWaitUi）。
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
   getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
   // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
   // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
   getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
-  // 图片附件（image-input 02 号票）：发送受理时消费附件区（读取并清空），随本条
-  // chat 消息的 images 字段下发。发图门控（05 号票）挂在这一步：受理点才是「图在
-  // 手 + 模型已定」的唯一时刻（被前置闸拦下的发送不会提示）。
-  takeInputImages: () => {
-    const images = inputImages.takeImages();
+  getInputImages: () => inputImages.getImages(),
+  takeInputImages: (snapshot) => {
+    const images = inputImages.takeImages(snapshot);
     imageSupportGate.check(images);
     return images;
   },
@@ -909,7 +904,7 @@ export function closeChatSession(): void {
   // 挂起中的 subtitle-wait 立即失效：在飞轮询也同步作废，迟到结果不能在
   // 重开后复活旧发送意图。
   sendGate.cancel();
-  // 等待态同步收口，重开时发送键不会带着「正在抓取字幕…」禁用下去。
+  // 同步隐藏等待卡并恢复发送键。
   composer.setSubtitleWaitUi(false);
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();

@@ -22,6 +22,7 @@ import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 
 export interface CreateReaderChatFeedbackDeps {
   messages: HTMLElement;
+  inputCard?: HTMLElement | null;
   setTimer: (fn: () => void, ms: number) => number;
   clearTimer: (handle: number) => void;
   // showConversationContextError 追加居中错误块后滚动到底（chatRuntime 的
@@ -46,6 +47,7 @@ export interface ReaderChatFeedback {
       action?: { label: string; onClick: () => void };
       // 前往设置的分区目标（票 04：ASR 配置类拦截直达 ASR 平台编辑 / 自动转写开关）
       settingsTarget?: "asr";
+      placement?: "input";
     }
   ) => void;
   removeConversationContextNotice: () => void;
@@ -56,7 +58,7 @@ export interface ReaderChatFeedback {
   getMessagesBottomOffset: () => number;
 }
 
-export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
+export function createReaderChatFeedback({ messages, inputCard, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
   // 通知条自动消失定时器（闭包私有单例；0 = 无挂起定时器）
   let contextNoticeTimer = 0;
 
@@ -67,49 +69,44 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
       openSettingsAction = false,
       spinner = false,
       action,
-      settingsTarget
+      settingsTarget,
+      placement
     }: {
       openSettingsAction?: boolean;
       spinner?: boolean;
       action?: { label: string; onClick: () => void };
       settingsTarget?: "asr";
+      placement?: "input";
     } = {}
   ): void {
     removeConversationContextNotice();
     const notice = document.createElement("div");
     notice.className = "chat-context-notice";
+    notice.setAttribute("role", placement === "input" ? "alert" : "status");
     notice.textContent = String(message || "").trim();
-    // 加载动画插在文案最前（空的 span，文案仍由 textContent 提供）：抓取等待时
-    // 通知条不再是一条静止文字。
     if (spinner) {
       const indicator = document.createElement("span");
       indicator.className = "chat-notice-spinner";
       indicator.setAttribute("aria-hidden", "true");
       notice.insertBefore(indicator, notice.firstChild);
     }
-    // 动作链接：openSettingsAction 是「打开设置抽屉」的固定文案快捷形，action 是
-    // 调用方给动作的通用形（票 03：缺 Key 错误回合直达对应平台记录）。
-    const actionDescriptor = action
-      ?? (openSettingsAction
-        ? { label: "前往设置", onClick: () => onOpenSettings(settingsTarget) }
-        : null);
-    if (actionDescriptor) {
+    const actions = [
+      ...(action ? [action] : []),
+      ...(openSettingsAction ? [{ label: "前往设置", onClick: () => onOpenSettings(settingsTarget) }] : [])
+    ];
+    for (const descriptor of actions) {
       const link = document.createElement("a");
       link.href = "#";
-      link.textContent = actionDescriptor.label;
-      link.addEventListener("click", (e) => {
-        e.preventDefault();
-        // stopPropagation 必须有：打开抽屉的点击若继续冒泡到 ui-renderer 的文档
-        // 级 click 委托，会被「settingsExpanded 已开 + 点在面板外」判定当成外点
-        // 立即关闭（与壳内 readingSettingsToggleBtn 的 stopPropagation 同一先例；
-        // arch-slim-2/06 死绑定修复时同步补上，见 chat-tab.ts 容器委托同款）。
-        e.stopPropagation();
-        actionDescriptor.onClick();
+      link.textContent = descriptor.label;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        descriptor.onClick();
       });
       notice.appendChild(document.createTextNode(" "));
       notice.appendChild(link);
     }
-    messages.prepend(notice);
+    (placement === "input" && inputCard ? inputCard : messages).prepend(notice);
     if (autoHideMs > 0) {
       contextNoticeTimer = setTimer(() => {
         removeConversationContextNotice();
@@ -123,6 +120,7 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
       contextNoticeTimer = 0;
     }
     messages.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
+    inputCard?.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
   }
 
   function showConversationContextError(message: string): void {

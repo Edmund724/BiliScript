@@ -2,8 +2,8 @@
 // 预览 + 单个删除 + 发送时消费）。
 //
 // 职责：剪贴板粘贴的 image/* 项 → 压缩（./image-compress.js 的 03 号票规格）→
-// 缩略图条目；张数 / 单条总量的上限判定与拒绝文案；发送受理时的消费
-//（takeImages 读取并清空）与在途压缩的世代作废（迟到结果不回填已清空的附件区）。
+// 缩略图条目；张数 / 单条总量的上限判定与拒绝文案；发送时按受理快照消费，
+// 保留等待期间新增的图片及其在途压缩。
 //
 // 边界：
 //   - 只做粘贴入口（文件选择器 / 拖拽 / 视频帧截取都不做，spec 非目标）；
@@ -42,7 +42,7 @@ export interface ChatInputImagesDeps {
   strip: HTMLElement | null;
   // 压缩管线（缺省 image-compress 的真实实现；测试注入替身）
   compress?: (blob: Blob) => Promise<CompressedImage>;
-  // 回答生成中（流式/在途发送）判定：此期间不接受新图片
+  // 流式生成中不接受新图片；字幕等待期间仍可粘贴。
   isStreaming?: () => boolean;
   // 用户可见反馈出口（拒绝原因 → 文案，展示由调用方决定）
   onReject: (message: string) => void;
@@ -52,7 +52,8 @@ export interface ChatInputImages {
   handlePaste(event: PasteEventLike): void;
   removeAt(index: number): void;
   clear(): void;
-  takeImages(): ImagePart[];
+  getImages(): ImagePart[];
+  takeImages(snapshot?: ImagePart[]): ImagePart[];
   count(): number;
 }
 
@@ -95,9 +96,8 @@ function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File
 export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImages {
   const compress = deps.compress || createImageCompressor().compress;
   let attachments: CompressedImage[] = [];
-  // 附件区世代号：clear / takeImages（发送受理）即自增；在途压缩完成后据此判定
-  // 本轮结果是否仍归属当前附件区（迟到结果不回填——否则发送清空的附件区会被
-  // 上一次粘贴的压缩结果重新填上，与「发送后清空」相矛盾）。
+  // clear 与无快照的 takeImages 递增附件区世代号，作废此前在途压缩；按快照
+  // 消费不递增，等待期间新粘贴的图片可以正常落位。
   let generation = 0;
   // 在途压缩计数：并发粘贴时张数上限要算上还没落位的那些。
   let pending = 0;
@@ -197,10 +197,20 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     render();
   }
 
-  // 发送受理即消费：读出 ImagePart 列表并清空附件区（发送后清空是 02 号票的
-  // 行为细节；读与清同一次调用，避免「读了没清」或「清了没发」两种半态）。
-  function takeImages(): ImagePart[] {
-    const parts = attachments.map((item) => item.part);
+  function getImages(): ImagePart[] {
+    return attachments.map((item) => item.part);
+  }
+
+  // 有快照时只移除快照内的附件，等待期间新增的图片留在附件区；无快照保留
+  // 原有的读清一体行为，供非等待路径与测试夹具使用。
+  function takeImages(snapshot?: ImagePart[]): ImagePart[] {
+    if (snapshot) {
+      const consumed = new Set(snapshot);
+      attachments = attachments.filter((item) => !consumed.has(item.part));
+      render();
+      return snapshot;
+    }
+    const parts = getImages();
     clear();
     return parts;
   }
@@ -209,6 +219,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     handlePaste,
     removeAt,
     clear,
+    getImages,
     takeImages,
     count: () => attachments.length
   };

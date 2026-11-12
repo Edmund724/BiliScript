@@ -79,6 +79,11 @@ export function buildChatTabBodyHtml(): string {
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
+            <div class="chat-subtitle-wait" role="status" aria-live="polite" hidden>
+              <span class="chat-notice-spinner" aria-hidden="true"></span>
+              <span class="chat-subtitle-wait-text">正在等待字幕，完成后自动发送</span>
+              <button type="button" class="chat-subtitle-wait-cancel">取消</button>
+            </div>
             <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
                  单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
             <div id="${ids.readingChatImageStrip}" class="chat-image-strip" hidden></div>

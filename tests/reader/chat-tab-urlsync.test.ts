@@ -231,7 +231,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
       bubbles: true,
       cancelable: true
     }));
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
     expect(chromeStub.runtime.connect).not.toHaveBeenCalled();
 
     dispatchClipChange(2);
