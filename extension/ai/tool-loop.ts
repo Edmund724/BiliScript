@@ -115,8 +115,9 @@ export interface ToolLoopHotComment {
 export type FetchHotCommentsFn = () => Promise<ToolLoopHotComment[]>;
 
 export interface ToolStatusPayload {
-  status: "searching" | "done" | "failed";
+  status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  callId?: string;
   resultCount?: number;
   platform?: string;
   // 搜索结果（done 时携带，spec §4）：时间线卡 chip 行与内联引用的数据源。
@@ -385,7 +386,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       }
 
       const query = parseToolArgs(call.function.arguments).query;
-      onToolStatus?.({ status: "searching", query });
+      onToolStatus?.({ status: "searching", query, callId: call.id });
       let toolContent: string;
       try {
         const outcome = await executeSearch(query);
@@ -402,6 +403,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         onToolStatus?.({
           status: "done",
           query,
+          callId: call.id,
           resultCount: outcome.results.length,
           platform: outcome.platform,
           sources: outcome.results,
@@ -415,7 +417,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         }
         const reason = String((e as { message?: unknown })?.message ?? e);
         toolContent = `搜索失败：${reason}`;
-        onToolStatus?.({ status: "failed", query });
+        onToolStatus?.({ status: "failed", query, callId: call.id });
         // 终态文案（spec §6.4）：额度类错误的 message 已是终态句（链的
         // SEARCH_QUOTA_MESSAGE，带 searchFailureClass: "quota"），套前缀会二包；
         // 其余类（含鉴权）维持既有「联网搜索失败：<原因>」形态。

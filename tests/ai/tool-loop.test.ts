@@ -156,8 +156,8 @@ describe("runToolLoop 工具调用循环", () => {
     ]));
     expect(capture.calls[1].tools).toEqual([expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })]);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "done", query: "bilibili ai", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "done", query: "bilibili ai", callId: "call_1", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
     ]);
     expect(capture.notices).toEqual([]);
     // 持久化副本：assistant + tool 两条
@@ -169,7 +169,7 @@ describe("runToolLoop 工具调用循环", () => {
   it("跨 chunk 分片聚合：id/name/arguments 按 index 拼接为一条 tool call", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
-    expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai" });
+    expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai", callId: "call_1" });
   });
 
   it("本轮次数达上限：摘除 tools + system 次数提示注入 + notice，后续轮无工具", async () => {
@@ -199,8 +199,8 @@ describe("runToolLoop 工具调用循环", () => {
       expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: "搜索失败：HTTP 503" })
     ]));
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
     expect(capture.notices).toContain("联网搜索失败：HTTP 503");
     // 失败不计入配额语义本轮仍继续：二次调用照常带 tools
@@ -465,10 +465,11 @@ describe("回退链 × 工具链接缝", () => {
 
     expect(capture.notices).toEqual([]);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
       {
         status: "done",
         query: "bilibili ai",
+        callId: "call_1",
         resultCount: 1,
         platform: "Tavily",
         sources: [CHAIN_RESULT]
@@ -493,8 +494,8 @@ describe("回退链 × 工具链接缝", () => {
     // 「联网搜索失败：<原因>」形态，不落到额度终态句。
     expect(capture.notices[0]).not.toBe(SEARCH_QUOTA_MESSAGE);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
   });
 
@@ -531,8 +532,8 @@ describe("回退链 × 工具链接缝", () => {
     const toolMessage = capture.calls[1].messages.find((m) => m.role === "tool")!;
     expect(toolMessage.content).toBe(`搜索失败：${SEARCH_QUOTA_MESSAGE}`);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
   });
 

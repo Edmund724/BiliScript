@@ -75,8 +75,9 @@ export type ChatToolStatusSource = ChatSearchSource;
 
 export interface ChatToolStatusEvent {
   type: "tool-status";
-  status: "searching" | "done" | "failed";
+  status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  callId?: string;
   resultCount?: number;
   platform?: string;
   sources?: ChatToolStatusSource[];
