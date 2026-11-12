@@ -11,6 +11,7 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
@@ -112,13 +113,14 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 五代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
+  // 六代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
   if (
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 ||
-    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 ||
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6
   ) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
