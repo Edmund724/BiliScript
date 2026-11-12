@@ -346,3 +346,178 @@ describe("时间线卡与流式渲染共存", () => {
     expect(card.contains(assistant.querySelector(".chat-thinking"))).toBe(false);
   });
 });
+
+
+describe("搜索终态、播报与键盘可用性", () => {
+  it("done：头部累计数与步骤本次数各自计量，独立状态区只播报一次，重复事件不重复累计", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 2, sources: SOURCES });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const announcer = card.querySelector<HTMLElement>(".chat-search-announcer")!;
+    expect(card.dataset.status).toBe("done");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("2 条来源");
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("2 条");
+    expect(announcer.getAttribute("role")).toBe("status");
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    expect(announcer.textContent).toBe("搜索完成，共 2 条来源");
+    expect(deps.messages.getAttribute("aria-live")).toBeNull();
+    expect(deps.messages.getAttribute("role")).toBeNull();
+
+    const observer = new MutationObserver(() => {});
+    observer.observe(announcer, { childList: true, characterData: true, subtree: true });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 2, sources: SOURCES });
+    expect(observer.takeRecords()).toHaveLength(0);
+    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(2);
+    observer.disconnect();
+  });
+
+  it("cancelled：只收口对应调用并播报一次，不残留进行中样式", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "cancelled", query: "q1", callId: "call-1" });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.dataset.status).toBe("cancelled");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("已取消");
+    expect(card.querySelector(".chat-search-step")!.classList.contains("is-cancelled")).toBe(true);
+    expect(card.querySelector(".is-running")).toBeNull();
+    expect(card.textContent).not.toContain("搜索中…");
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe("搜索已取消");
+  });
+
+  it("callId 乱序终态不误收口其他步骤；全部结束后头部才离开搜索中", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "searching", query: "q2", callId: "call-2" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 1, sources: [SOURCES[0]] });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const steps = card.querySelectorAll<HTMLElement>(".chat-search-step");
+    expect(steps[0].querySelector(".chat-search-step-note")!.textContent).toBe("1 条");
+    expect(steps[1].classList.contains("is-running")).toBe(true);
+    expect(card.dataset.status).toBe("searching");
+
+    feed(runtime, { type: "tool-status", status: "cancelled", query: "q2", callId: "call-2" });
+    expect(steps[1].classList.contains("is-cancelled")).toBe(true);
+    expect(card.dataset.status).toBe("cancelled");
+    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(1);
+  });
+
+  it("failed：错误使用 alert，保留诊断通知并继续主任务", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "failed", query: "q1", callId: "call-1" });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const announcer = card.querySelector<HTMLElement>(".chat-search-announcer")!;
+    expect(card.dataset.status).toBe("failed");
+    expect(announcer.getAttribute("role")).toBe("alert");
+    expect(announcer.getAttribute("aria-live")).toBe("assertive");
+    expect(announcer.textContent).toBe("搜索失败");
+    expect(runtime.isStreaming()).toBe(true);
+
+    feed(runtime, { type: "notice", data: "联网搜索失败：HTTP 503" });
+    feed(runtime, { type: "token", data: "基于已有信息继续回答" });
+    feed(runtime, { type: "done" });
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("联网搜索失败：HTTP 503", 4000);
+    expect(deps.messages.querySelector(".chat-msg-assistant-body")!.textContent).toContain("基于已有信息继续回答");
+    expect(card.dataset.status).toBe("failed");
+  });
+
+  it.each([
+    ["finish", "cancelled", "已取消"],
+    ["stop", "cancelled", "已取消"],
+    ["fail", "failed", "搜索失败"],
+    ["discard", "cancelled", "已取消"]
+  ] as const)("%s 统一收口在途搜索，终态后迟到事件不重开", async (terminal, status, text) => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+    const turn = runtime.messageArea.appendAssistantMessage({ source: "live" });
+    turn.applySearchStatus({ type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+
+    if (terminal === "finish") turn.finish();
+    else if (terminal === "stop") turn.stop("用户停止");
+    else if (terminal === "fail") turn.fail("错误：网络中断");
+    else turn.discard();
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    expect(card.dataset.status).toBe(status);
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe(text);
+    expect(card.querySelector(".is-running")).toBeNull();
+    expect(card.textContent).not.toContain("搜索中…");
+    expect(card.querySelector(".chat-search-announcer")!.textContent).toBe(status === "failed" ? "搜索失败" : "搜索已取消");
+
+    turn.applySearchStatus({ type: "tool-status", status: "searching", query: "late", callId: "call-2" });
+    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(1);
+    expect(card.dataset.status).toBe(status);
+  });
+
+  it("来源行聚焦出预览，Esc 与 blur 收起；按钮保留原生键盘激活", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 1, sources: [SOURCES[0]] });
+    const row = deps.messages.querySelector<HTMLButtonElement>(".chat-search-source-row")!;
+
+    expect(row.tagName).toBe("BUTTON");
+    row.dispatchEvent(new FocusEvent("focus"));
+    expect(deps.messages.querySelector(".chat-search-preview")).not.toBeNull();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
+    row.dispatchEvent(new FocusEvent("focus"));
+    row.dispatchEvent(new FocusEvent("blur"));
+    expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
+  });
+
+  it("正文引用可聚焦，Enter/Space 打开来源，Esc 与 blur 管理预览", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 2, sources: SOURCES });
+    feed(runtime, { type: "token", data: "进展见 [1]；调度见 [2]。" });
+    feed(runtime, { type: "done" });
+    const opened = vi.fn();
+    vi.stubGlobal("open", opened);
+    const cite = deps.messages.querySelector<HTMLElement>("sup.chat-cite")!;
+
+    expect(cite.tabIndex).toBe(0);
+    expect(cite.getAttribute("role")).toBe("button");
+    cite.dispatchEvent(new FocusEvent("focus"));
+    expect(deps.messages.querySelector(".chat-search-preview")).not.toBeNull();
+    cite.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    cite.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(opened).toHaveBeenCalledTimes(2);
+    expect(opened).toHaveBeenCalledWith("https://arxiv.org/a", "_blank", "noopener");
+    cite.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
+    cite.dispatchEvent(new FocusEvent("focus"));
+    cite.dispatchEvent(new FocusEvent("blur"));
+    expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
+  });
+
+  it("已滚动消息区中的预览计入 scrollTop，底部不足时翻到锚点上方且不被裁切", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1", callId: "call-1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", callId: "call-1", resultCount: 1, sources: [SOURCES[0]] });
+    const row = deps.messages.querySelector<HTMLElement>(".chat-search-source-row")!;
+    let anchorTop = 200;
+    deps.messages.scrollTop = 500;
+    Object.defineProperty(deps.messages, "clientHeight", { configurable: true, value: 300 });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this === deps.messages) return new DOMRect(0, 100, 400, 300);
+      if (this === row) return new DOMRect(20, anchorTop, 300, 20);
+      if (this.hasAttribute("data-chat-search-preview")) return new DOMRect(0, 0, 320, 100);
+      return new DOMRect();
+    });
+
+    row.dispatchEvent(new FocusEvent("focus"));
+    const preview = deps.messages.querySelector<HTMLElement>(".chat-search-preview")!;
+    expect(preview.style.top).toBe("626px");
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    anchorTop = 350;
+    row.dispatchEvent(new FocusEvent("focus"));
+    const flipped = deps.messages.querySelector<HTMLElement>(".chat-search-preview")!;
+    expect(flipped.style.top).toBe("644px");
+  });
+});

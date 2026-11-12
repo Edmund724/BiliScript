@@ -2103,6 +2103,7 @@ describe("消息操作：重新生成与导出", () => {
     await regenerateAt(deps, 0);
 
     feed(runtime, { type: "tool-status", status: "searching", query: "新搜索" });
+    expect(deps.messages.querySelector(".chat-search-card")?.getAttribute("data-status")).toBe("searching");
     feed(runtime, { type: "token", data: "失败的新回答" });
     feed(runtime, { type: "error", error: "网络中断" });
 
