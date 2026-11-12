@@ -54,6 +54,7 @@ function makeHarness() {
     moreBtn,
     moreMenu,
     renderHistoryList: vi.fn(),
+    settlePendingDeletion: vi.fn(),
     renderModelPanel: vi.fn()
   };
   const popovers = createReaderChatPopovers(deps);
@@ -73,7 +74,7 @@ describe("toggleHistoryPopover", () => {
 
     expect(historyPopover.hidden).toBe(false);
     expect(modelPanel.hidden).toBe(true);
-    expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
+    expect(deps.renderHistoryList).toHaveBeenCalledWith({ revealCurrent: true });
     expect(historyBtn.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(historyBackBtn);
   });
@@ -95,6 +96,15 @@ describe("toggleHistoryPopover", () => {
 
     expect(historyPopover.hidden).toBe(true);
     expect(document.activeElement).toBe(conversationInput);
+  });
+
+  it("退出历史结算撤销；重复关闭不重复结算", () => {
+    const { popovers, deps } = makeHarness();
+
+    popovers.hideHistoryPopover({ focus: "none" });
+    popovers.hideHistoryPopover({ focus: "none" });
+
+    expect(deps.settlePendingDeletion).toHaveBeenCalledTimes(1);
   });
 
   it("事件对象被 stopPropagation（不冒泡触发文档级关闭）", () => {

@@ -158,6 +158,15 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
     if (replayGeneration !== generation) {
       return;
     }
+    // 先让出主线程，再等一个渲染帧，让 content-visibility 的估算占位高
+    // 换成真实高度后再读取 scrollHeight；过期回放不得在帧回调后滚旧会话。
+    await yieldToMainThread();
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+    if (replayGeneration !== generation) {
+      return;
+    }
     deps.renderer.setAutoScroll(true);
     // instant（同发送路径，见 chat-stream-render scrollToBottom 注释）：回放
     // 渲染的历史消息全部带 c-v 块，平滑动画扫过时估算块逐块弹回真实高，视口

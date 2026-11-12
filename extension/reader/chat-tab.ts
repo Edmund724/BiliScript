@@ -469,9 +469,13 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     onSetupRequired: showChatSetupAction
   },
   onConversationChanged: (change) => {
+    if (change.historyCleared) {
+      // 清空已完成：未撤销的删除随之作废，撤销计时器必须在此结算。
+      lists.settlePendingDeletion();
+    }
     lists.renderHistoryList();
     if (change.historyCleared) {
-      popovers.hideHistoryPopover();
+      els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus();
     }
     if (change.resetView) {
       renderInitialState();
@@ -555,19 +559,18 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
 const { loadContextState } = contextLoad;
 
 // 历史项点击的切换接缝（C′：先体面停流落盘、再切换）：在途回合（受理窗口 ∪
-// 流段，chatRuntime.isTurnActive 一条判据）时先 await chatRuntime.settleTurn()——
-// 它发停流并在 stopped/done/error 终态落定后兑现，而终态路径内的
-// commitAssistantTurn 会把在途一问一答（含 partial 正文）写回**原**会话并落盘；
-// 落定后才 applyById 切换。不进 conversation-store（store 不碰 runtime 的分层
-// 不动），也不动 replay（回放仍不感知在途流——等待保持单向，见 ./replay.ts 头注）。
-// 不在途时零延迟零行为差：这里不留 await，applyById 在同一 tick 内完成
-//（characterization 钉在 tests/reader/chat-tab.test.ts）。
-async function openConversationById(id: string): Promise<void> {
+// 流段，chatRuntime.isTurnActive 一条判据）时先由 chatRuntime.settleTurn() 发停流，
+// 并在 stopped/done/error 终态落定后兑现，而终态路径内的 commitAssistantTurn 会把
+// 在途一问一答（含 partial 正文）写回**原**会话并落盘；落定后才 applyById 切换。
+// 不进 conversation-store（store 不碰 runtime 的分层不动），也不动 replay。
+// 不在途时返回 void，applyById 与退出历史在同一 tick 内完成。
+function openConversationById(id: string): Promise<void> | void {
   chatRuntime.stopSpeech();
-  if (chatRuntime.isTurnActive()) {
-    await chatRuntime.settleTurn();
+  if (!chatRuntime.isTurnActive()) {
+    conversationStore.applyById(id);
+    return;
   }
-  conversationStore.applyById(id);
+  return chatRuntime.settleTurn().then(() => conversationStore.applyById(id));
 }
 
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
@@ -575,10 +578,11 @@ async function openConversationById(id: string): Promise<void> {
 const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
-  applyById: (id) => {
-    void openConversationById(id);
-  },
+  applyById: openConversationById,
   deleteById: (id) => conversationStore.deleteById(id),
+  isTurnActive: () => chatRuntime.isTurnActive(),
+  confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
+  startNewConversation,
   suggestions: suggestionsSlot,
   hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
@@ -594,7 +598,8 @@ const popovers = createReaderChatPopovers({
   historyExitFocusEl: els.moreBtn,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
-  renderHistoryList: () => lists.renderHistoryList(),
+  renderHistoryList: (options) => lists.renderHistoryList(options),
+  settlePendingDeletion: () => lists.settlePendingDeletion(),
   renderModelPanel: () => modelPanel.renderPanel()
 });
 
@@ -742,6 +747,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
       clearChatSetupResumeIntent();
       chatSetupViewHold = false;
       sendGate.cancel();
+      lists.settlePendingDeletion();
       conversationStore.detachForRestart();
       scheduleLiveContextSync();
     };
@@ -920,6 +926,7 @@ export function closeChatSession(): void {
   sendGate.cancel();
   // 同步隐藏等待卡并恢复发送键。
   composer.setSubtitleWaitUi(false);
+  lists.settlePendingDeletion();
   popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();
   removeConversationContextNotice();
@@ -1398,7 +1405,7 @@ function updateChatLayoutState(): void {
 }
 
 // 新建会话只在确认后拆除旧视图；草稿、附件与在途回合的风险合并在一次确认中。
-async function startNewConversation(): Promise<void> {
+async function startNewConversation(): Promise<boolean> {
   const turnActive = chatRuntime.isTurnActive();
   const hasDraft = Boolean(els.input.value);
   const imageCount = inputImages.count();
@@ -1412,7 +1419,7 @@ async function startNewConversation(): Promise<void> {
       message: `新建会话会${risks.join("，")}。`,
       confirmText: "新建会话"
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
   }
   clearChatSetupResumeIntent();
   chatSetupViewHold = false;
@@ -1431,6 +1438,7 @@ async function startNewConversation(): Promise<void> {
   }
   restartChat({ keepContext: true });
   renderInitialState();
+  return true;
 }
 
 // ============================================================

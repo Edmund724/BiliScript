@@ -1520,11 +1520,25 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     firePort(ports[0], { type: "token", data: "部分正文" });
     await waitFor(() => messages.textContent!.includes("部分正文"));
 
+    const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
+    document.getElementById(ids.readingChatMoreBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(false);
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      messages.scrollTop = Number(options.top || 0);
+    });
+    Object.defineProperty(messages, "scrollHeight", { configurable: true, get: () => 640 });
+    Object.defineProperty(messages, "scrollTo", { configurable: true, value: scrollTo });
+
     clickHistoryOpen(historyList, "conv-b");
     await waitFor(() => stopRequests(ports[0]).length === 1);
-    // 停流尚未落定：不切换（仍在 A，A 的流式内容还在屏上）
+    // 停流尚未落定：历史保持，目标行忙碌；重复点击不再次提交。
     expect(chatSessionState.currentConversationId).toBe("conv-a");
     expect(messages.textContent).toContain("原会话的新问题");
+    expect(historyPage.hidden).toBe(false);
+    expect(historyList.querySelector(".chat-history-item[data-id=conv-b]")?.textContent).toContain("正在保存当前回答…");
+    clickHistoryOpen(historyList, "conv-b");
+    expect(stopRequests(ports[0])).toHaveLength(1);
 
     // stopped 终态：endStream 六步 + commitAssistantTurn 在身份未换前写回 A
     firePort(ports[0], { type: "stopped", reason: "已停止生成" });
@@ -1552,10 +1566,14 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     expect(writes[writes.length - 1].find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
       .toContain("部分正文");
 
-    // 切换后回放的是目标会话 B
-    await waitFor(() => messages.textContent!.includes("B 的历史答案"));
+    // 切换后回放的是目标会话 B，落定后才退出历史、滚到底部并聚焦输入框。
+    await waitFor(() => messages.textContent!.includes("B 的历史答案") && scrollTo.mock.calls.length > 0);
     expect(messages.textContent).not.toContain("部分正文");
     expect(messages.textContent).not.toContain("原会话的新问题");
+    expect(historyPage.hidden).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 640, behavior: "instant" });
+    expect(messages.scrollTop).toBe(640);
+    expect(document.activeElement).toBe(input);
   });
 
   it("[characterization] 不在途点历史项：同一 tick 内切换、不发 stop（零延迟零行为差）", async () => {
@@ -1600,6 +1618,9 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     const removeBtn = historyList.querySelector(`.chat-history-remove[data-id="${currentId}"]`);
     expect(removeBtn).not.toBe(null);
     removeBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => Boolean(document.querySelector(".confirm-dialog-confirm")));
+    expect(document.querySelector(".confirm-dialog-message")?.textContent).toContain("正在生成的回答将被丢弃");
+    (document.querySelector(".confirm-dialog-confirm") as HTMLButtonElement).click();
     await waitFor(() => chatSessionState.currentConversationId === "");
 
     // 无 stop 请求（settle 未被触发）；断流走 resetStreamState 的 disconnect

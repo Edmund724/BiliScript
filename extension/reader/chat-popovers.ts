@@ -14,7 +14,8 @@ export interface CreateReaderChatPopoversDeps {
   historyExitFocusEl?: HTMLElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
-  renderHistoryList: () => void;
+  renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
+  settlePendingDeletion: () => void;
   renderModelPanel: () => void;
 }
 
@@ -42,10 +43,13 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     deps.historyBtn.setAttribute("aria-expanded", String(!hidden));
     if (!hidden) {
       focusWithoutScroll(deps.historyBackBtn);
-    } else if (wasOpen && focus === "trigger") {
-      focusWithoutScroll(deps.historyExitFocusEl ?? deps.historyBtn);
-    } else if (wasOpen && focus === "input") {
-      focusWithoutScroll(deps.conversationInput);
+    } else {
+      if (wasOpen) deps.settlePendingDeletion();
+      if (wasOpen && focus === "trigger") {
+        focusWithoutScroll(deps.historyExitFocusEl ?? deps.historyBtn);
+      } else if (wasOpen && focus === "input") {
+        focusWithoutScroll(deps.conversationInput);
+      }
     }
   }
 
@@ -81,7 +85,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     const willShow = historyPopover.hidden;
     hideOthers(historyPopover);
     setHistoryHidden(!willShow, willShow ? "none" : "trigger");
-    if (willShow) deps.renderHistoryList();
+    if (willShow) deps.renderHistoryList({ revealCurrent: true });
   }
 
   function hideHistoryPopover({ focus = "trigger" }: { focus?: HistoryExitFocus } = {}): void {
