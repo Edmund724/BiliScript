@@ -379,7 +379,9 @@ const {
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
   isStreaming: () => chatRuntime.isStreaming(),
-  onReject: (message) => showConversationContextNotice(message, 4000)
+  onReject: (message) => showConversationContextNotice(message, 4000),
+  onPendingChange: () => composer.updateSendBtnState(),
+  focusInput: () => els.input.focus()
 });
 
 // 对话输入与发送区深 module（arch-review-batch4/01 号票）：收敛输入框常驻监听、
@@ -402,7 +404,9 @@ const composer = createReaderChatComposer({
   },
   onPasteImage: (e) => inputImages.handlePaste(e),
   onCancelSubtitleWait: () => sendGate.cancel(),
-  onNotice: showConversationContextNotice
+  onNotice: showConversationContextNotice,
+  isImageProcessing: () => inputImages.isPending(),
+  hasInputImages: () => inputImages.count() > 0
 });
 
 const explainIntentConsumption = createExplainIntentConsumption({
@@ -1097,8 +1101,7 @@ function bindEvents(): void {
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换，
   // 对齐 batched-render 头注的容器委托先例）：
   //   1. 引用卡取消：[data-chat-intent-action="cancel"] 点击；
-  //   2. 图片附件删除：[data-chat-image-remove] 点击（附件条目由
-  //      chat/chat-input-images.ts 重建，容器委托对每次重建的键都生效）；
+  //   2. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；
   //   3. 无平台空态 / 发送前拦截状态屏的「前往设置」：[id=readingChatOpenSettings]
   //      点击 → 直达新增 AI 平台编辑器（票 03；原先只打开设置抽屉，用户在抽屉里
   //      还得自己找平台分区）。链接由 renderInitialState / requestViewReset 用
@@ -1114,6 +1117,11 @@ function bindEvents(): void {
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
     if (removeBtn) {
       inputImages.removeAt(Number(removeBtn.dataset.chatImageRemove));
+      return;
+    }
+    const previewBtn = target?.closest<HTMLElement>("[data-chat-image-preview]");
+    if (previewBtn) {
+      inputImages.previewAt(Number(previewBtn.dataset.chatImagePreview));
       return;
     }
     if (target?.closest<HTMLElement>(`[id="${ids.readingChatOpenSettings}"]`)) {

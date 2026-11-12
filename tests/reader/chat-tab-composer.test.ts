@@ -140,3 +140,75 @@ describe("createReaderChatComposer send/stop button logic", () => {
     expect(chatRuntime.sendTurn).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("图片发送守卫", () => {
+  it("图片处理中：发送键禁用并说明原因，Enter 不发送且给出同样反馈", () => {
+    const onNotice = vi.fn();
+    const { input, sendBtn, chatRuntime } = setupComposer({
+      isImageProcessing: () => true,
+      hasInputImages: () => true,
+      onNotice
+    });
+    input.value = "分析这张图";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.title).toBe("图片处理中…");
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith("图片处理中…", 3000);
+  });
+
+  it("处理完成后重新同步：发送键恢复并可发出文字与附件所在回合", () => {
+    let processing = true;
+    const { input, sendBtn, composer, chatRuntime } = setupComposer({
+      isImageProcessing: () => processing,
+      hasInputImages: () => true
+    });
+    input.value = "分析这张图";
+    composer.updateSendBtnState();
+    expect(sendBtn.disabled).toBe(true);
+
+    processing = false;
+    composer.updateSendBtnState();
+    sendBtn.click();
+
+    expect(sendBtn.disabled).toBe(false);
+    expect(chatRuntime.sendTurn).toHaveBeenCalledWith("分析这张图");
+  });
+
+  it("只有图片没有正文：Enter 明确提示需随文字发送，不进入运行时", () => {
+    const onNotice = vi.fn();
+    const { input, sendBtn, chatRuntime } = setupComposer({
+      hasInputImages: () => true,
+      onNotice
+    });
+    input.value = "   ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.title).toBe("图片需随文字一起发送");
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith("图片需随文字一起发送", 3000);
+  });
+
+  it("自动发送入口同样不能在图片处理中越过守卫", async () => {
+    const onNotice = vi.fn();
+    const { composer, chatRuntime } = setupComposer({
+      isImageProcessing: () => true,
+      hasInputImages: () => true,
+      onNotice
+    });
+
+    await expect(composer.sendViaInputBox("分析这张图")).resolves.toBe(false);
+
+    expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenCalledWith("图片处理中…", 3000);
+  });
+});
