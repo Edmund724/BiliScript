@@ -29,13 +29,15 @@ export interface ConfirmDialogOptions {
   title?: string;
   // 确认键文案（缺省「确定」）
   confirmText?: string;
-  // 取消键文案（缺省「取消」；授权类双动作给具体语义，如「本次不搜索」）
+  // 取消键文案（缺省「取消」；授权类双动作给具体语义，如「关闭联网搜索」）
   cancelText?: string;
   // 确认键警示着色（删除等破坏性动作）：红底白字，token 与
   // provider-editor-delete 同源的 --biliscript-reader-danger 系
   danger?: boolean;
   mountHost?: HTMLElement;
 }
+
+export type ConfirmDialogResult = "confirmed" | "cancelled" | "view-destroyed";
 
 interface ConfirmState {
   open: boolean;
@@ -57,6 +59,7 @@ const state: ConfirmState = {
 
 // 标题/说明的 id 序号：同一时刻只开一层，序号仍避免与上一次结算残留的节点撞 id
 let nextDialogId = 0;
+let viewGeneration = 0;
 
 export function isConfirmDialogOpen(): boolean {
   return state.open;
@@ -64,7 +67,7 @@ export function isConfirmDialogOpen(): boolean {
 
 // ===== 结算（幂等：generation 比对，重复调用只第一次生效） =====
 
-function settle(generation: number, result: boolean): void {
+function settle(generation: number, result: ConfirmDialogResult): void {
   if (generation !== state.generation || !state.open) {
     return;
   }
@@ -80,7 +83,7 @@ function settle(generation: number, result: boolean): void {
   resolvePending(result);
 }
 
-let resolvePending: (result: boolean) => void = () => {};
+let resolvePending: (result: ConfirmDialogResult) => void = () => {};
 
 // ===== 全局监听 =====
 
@@ -94,29 +97,42 @@ function onDocumentClickCapture(event: MouseEvent): void {
     return;
   }
   event.stopPropagation();
-  settle(state.generation, false);
+  settle(state.generation, "cancelled");
 }
 
 function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
   event.preventDefault();
   event.stopPropagation();
-  settle(state.generation, false);
+  settle(state.generation, "cancelled");
 }
 
 export function closeConfirmDialog(): void {
-  settle(state.generation, false);
+  settle(state.generation, "cancelled");
+}
+
+export function getConfirmDialogViewGeneration(): number {
+  return viewGeneration;
+}
+
+export function dismissConfirmDialog(): void {
+  settle(state.generation, "view-destroyed");
+  viewGeneration += 1;
 }
 
 // ===== 打开 =====
 
-export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
+export async function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
+  return await confirmDialogWithResult(options) === "confirmed";
+}
+
+export function confirmDialogWithResult(options: ConfirmDialogOptions): Promise<ConfirmDialogResult> {
   // 重复打开：先作废旧弹层（按取消结算），新弹层接管
-  settle(state.generation, false);
+  settle(state.generation, "cancelled");
   const view = options.mountHost || document.getElementById(ids.readingView);
   if (!view) {
     // 阅读视图不在（设置 UI 未挂载）：没有可弹的界面，按取消结算
-    return Promise.resolve(false);
+    return Promise.resolve("cancelled");
   }
   const host = document.createElement("div");
   host.className = "confirm-dialog-host";
@@ -147,9 +163,9 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
     event.stopPropagation();
     const action = (event.target as HTMLElement).closest<HTMLElement>("[data-confirm-dialog-action]")?.dataset.confirmDialogAction;
     if (action === "confirm") {
-      settle(generation, true);
+      settle(generation, "confirmed");
     } else if (action === "cancel") {
-      settle(generation, false);
+      settle(generation, "cancelled");
     }
   });
 
@@ -166,11 +182,11 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 外层命令收起设置时按取消结算（与 provider-editor 的强制关闭同判断，
-  // 但确认没有可丢的草稿，直接 resolve(false)）。代次在此捕获，回调里
+  // 但确认没有可丢的草稿，直接按取消结算）。代次在此捕获，回调里
   // 结算的是本弹层的代次而非观察器触发时的当前值。
-  observeSettingsPanelHidden(() => settle(generation, false), state);
+  observeSettingsPanelHidden(() => settle(generation, "cancelled"), state);
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<ConfirmDialogResult>((resolve) => {
     resolvePending = resolve;
   });
 }

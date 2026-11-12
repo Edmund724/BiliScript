@@ -93,7 +93,7 @@ afterEach(() => {
 });
 
 describe("ensureWebSearchOptIn：授权弹层内容", () => {
-  it("明确标题 + 查询词外发说明 + 「允许并继续 / 本次不搜索」双动作", async () => {
+  it("明确标题 + 查询词外发说明 + 「允许并继续 / 关闭联网搜索」双动作", async () => {
     const { sent } = stubChrome();
     mountReadingView();
     const { ensureWebSearchOptIn } = await loadOptIn();
@@ -107,7 +107,7 @@ describe("ensureWebSearchOptIn：授权弹层内容", () => {
     expect(message).toContain("联网搜索会把查询词发往内置的免 Key 服务");
     expect(message).toContain("你配置过 Key 的搜索平台");
     expect(box.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
-    expect(box.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    expect(box.querySelector(".confirm-dialog-cancel")!.textContent).toBe("关闭联网搜索");
     // 同意前只做本地链可用性探测（不执行搜索、不带查询词）
     expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(true);
     expect(sent.some((m) => m.type === "search-cache")).toBe(false);
@@ -356,5 +356,52 @@ describe("ensureWebSearchOptIn：无界面 fail-closed", () => {
     expect(dialog()).toBeNull();
     expect(sent.some((m) => m.type === "save-settings")).toBe(false);
     expect(settings.webSearchEnabled).toBe(true);
+  });
+});
+
+describe("resolveWebSearchOptIn：视图销毁", () => {
+  it("等待授权时销毁：只 dismiss，不写授权位或联网偏好", async () => {
+    const { sent, settings } = stubChrome();
+    mountReadingView();
+    const { resolveWebSearchOptIn } = await loadOptIn();
+    const { dismissConfirmDialog } = await import("../../extension/ui/confirm-dialog.js");
+
+    const pending = resolveWebSearchOptIn();
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    dismissConfirmDialog();
+
+    await expect(pending).resolves.toBe("view-destroyed");
+    expect(dialog()).toBeNull();
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+    expect(settings).toEqual({ webSearchEnabled: true, searchOptInNoticeAcknowledged: false });
+  });
+
+  it("付费探测期间关闭并重开：旧授权不落成新视图的幽灵弹层", async () => {
+    const { sent } = stubChrome();
+    mountReadingView();
+    const chromeStub = globalThis.chrome as unknown as {
+      runtime: { sendMessage: (msg: Record<string, unknown>, cb?: (r: unknown) => void) => void };
+    };
+    const baseSend = chromeStub.runtime.sendMessage;
+    let releaseProbe!: () => void;
+    chromeStub.runtime.sendMessage = (msg, cb) => {
+      if (msg.type === "resolve-search-provider") {
+        releaseProbe = () => baseSend(msg, cb);
+        return;
+      }
+      baseSend(msg, cb);
+    };
+    const { resolveWebSearchOptIn } = await loadOptIn();
+    const { dismissConfirmDialog } = await import("../../extension/ui/confirm-dialog.js");
+
+    const pending = resolveWebSearchOptIn();
+    await vi.waitFor(() => expect(releaseProbe).toBeTypeOf("function"));
+    dismissConfirmDialog();
+    mountReadingView();
+    releaseProbe();
+
+    await expect(pending).resolves.toBe("view-destroyed");
+    expect(dialog()).toBeNull();
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
   });
 });

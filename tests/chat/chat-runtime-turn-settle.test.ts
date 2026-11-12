@@ -373,6 +373,114 @@ describe("settleTurn（在途回合结算）", () => {
   });
 });
 
+describe("联网搜索授权与视图销毁", () => {
+  function stubSearchSettings() {
+    const sent: Array<Record<string, unknown>> = [];
+    const settings = { webSearchEnabled: true, searchOptInNoticeAcknowledged: false };
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: Record<string, unknown>, cb?: (response: unknown) => void) => {
+          sent.push(msg);
+          if (msg.type === "get-settings") {
+            cb?.({ ok: true, settings: { ...settings } });
+          } else if (msg.type === "resolve-search-provider") {
+            cb?.({ ok: true });
+          } else if (msg.type === "save-settings") {
+            Object.assign(settings, msg.settings);
+            cb?.({ ok: true });
+          } else {
+            cb?.({ ok: true });
+          }
+        }
+      }
+    });
+    chatSessionStateForTests.webSearchEnabled = true;
+    return { sent, settings };
+  }
+
+  function mountChatView(deps: TestDeps): void {
+    const view = document.createElement("div");
+    view.id = "biliscript-reading-view";
+    view.appendChild(deps.messages);
+    document.body.appendChild(view);
+  }
+
+  it("授权只在字幕闸通过后发生，且同意前不上屏、不建端口", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    let releaseGate!: (value: { pass: true }) => void;
+    deps.ensureCurrentContextForSend = vi.fn(() => new Promise((resolve) => { releaseGate = resolve; }));
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+
+    const sending = runtime.sendTurn("问题");
+    await flushMicrotasks();
+    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+
+    releaseGate({ pass: true });
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
+    expect(deps.ports).toHaveLength(0);
+
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    await expect(sending).resolves.toBe("accepted");
+    expect(deps.messages.querySelector(".chat-msg-user")).not.toBeNull();
+    expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ webSearchEnabled: true }));
+    expect(sent).toContainEqual({ type: "save-settings", settings: { searchOptInNoticeAcknowledged: true } });
+    expect(sent.some((m) => m.type === "save-settings" && "webSearchEnabled" in (m.settings as object))).toBe(false);
+  });
+
+  it("拒绝后本轮无搜索继续，并在输入区提示如何重新开启", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+
+    const sending = runtime.sendTurn("问题");
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
+
+    await expect(sending).resolves.toBe("accepted");
+    expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ webSearchEnabled: false }));
+    expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchEnabled: false } });
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(
+      "已关闭联网搜索，可在输入区重新开启",
+      4000,
+      { placement: "input" }
+    );
+  });
+
+  it("授权中销毁：取消回合、不写视图或偏好，重开后发送不被 ignored", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+    const { dismissConfirmDialog } = await import("../../extension/ui/confirm-dialog.js");
+
+    const sending = runtime.sendTurn("问题");
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    dismissConfirmDialog();
+    runtime.resetStreamState();
+
+    await expect(sending).resolves.toBe("blocked");
+    expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
+    expect(deps.ports).toHaveLength(0);
+    expect(runtime.isTurnActive()).toBe(false);
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+
+    chatSessionStateForTests.webSearchEnabled = false;
+    deps.input.value = "重开后的问题";
+    await expect(runtime.sendTurn("重开后的问题")).resolves.toBe("accepted");
+    expect(deps.ports).toHaveLength(1);
+  });
+});
+
 describe("W3 现状 characterization（动机证据，非新行为）", () => {
   // 钉住现状的内部事实：会话身份已被 applyById 换掉后，在途流继续把 token 写进
   // 脱离 DOM 的旧节点，终态写回又被 store 身份守卫拦下——一次历史点击 =
