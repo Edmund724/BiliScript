@@ -165,8 +165,10 @@ async function installModelChannel(cdp) {
       return;
     }
 
-    const isToolConversation = body.tools || body.messages?.some((message) => message.role === "tool");
-    const hasToolResult = body.messages?.some((message) => message.role === "tool");
+    const messages = body.messages || [];
+    const lastTextUserIndex = messages.findLastIndex((message) => message.role === "user" && typeof message.content === "string");
+    const isToolConversation = body.tools || messages.some((message) => message.role === "tool");
+    const hasToolResult = messages.some((message, index) => message.role === "tool" && index > lastTextUserIndex);
     const behavior = await cdp.evaluate("globalThis.__historicalFrameBehavior");
     const content = body.messages?.[0]?.content?.includes("3 个")
       ? '["视频讲了什么？","有哪些关键结论？","如何应用这些结论？"]'
@@ -330,7 +332,7 @@ async function runStubQuestion(page, offscreen, targetTime, mode = "success") {
     const answer = await waitQuestionAnswer(page, mode === "failure" ? "未获取画面" : "已结合字幕与历史画面作答");
     const requests = (await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + requestStart + ")"))
       .filter((body) => body.tools || body.messages?.some((message) => message.role === "tool"));
-    return { answer, requests, followup: requests.find((body) => body.messages?.some((message) => message.role === "tool")) };
+    return { answer, requests, followup: requests[1] };
   } catch (error) {
     evidence.lifecycleDiagnostics = {
       targetTime,
@@ -583,13 +585,15 @@ if (liveGemini && !geminiApiKey) {
         await observePlayer(page, false);
         const stopRequestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
         await setStubBehavior(offscreen, 2300);
+        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 2000");
         await askQuestion(page, "请说明 2300 秒附近的画面。");
         await waitFor("停止前隐藏视频在飞", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 1"), { timeoutMs: 30000, intervalMs: 50 });
         await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-send-btn').click()");
         await waitFor("停止后回合与隐藏媒体收尾", () => page.cdp.evaluate("document.querySelectorAll('video[data-biliscript-historical-frame]').length === 0 && !document.getElementById('biliscript-reading-chat-send-btn').classList.contains('is-stop')"), { timeoutMs: 15000, intervalMs: 100 });
+        await worker.evaluate("globalThis.__historicalPlayurlDelayMs = 0");
         const stopPlayer = await readPlayerEvidence(page);
         const stoppedRequests = await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + stopRequestStart + ")");
-        check("停止回答中止取帧且不向模型补入迟到画面", playerUnaffected(stopPlayer, false) && !stoppedRequests.some((body) => body.messages?.some((message) => message.role === "tool")), { player: stopPlayer, requests: stoppedRequests.map(sanitizeRequest) });
+        check("停止回答中止取帧且不向模型补入迟到画面", playerUnaffected(stopPlayer, false) && stoppedRequests.length === 1, { player: stopPlayer, requests: stoppedRequests.map(sanitizeRequest) });
 
         const switchRequestStart = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
         await setStubBehavior(offscreen, 2300);
@@ -608,7 +612,7 @@ if (liveGemini && !geminiApiKey) {
         const playurls = await worker.evaluate("globalThis.__historicalPlayurlRequests || []");
         const switchedRequests = (await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + switchRequestStart + ")"))
           .filter((body) => body.tools || body.messages?.some((message) => message.role === "tool"));
-        const part2ToolText = part2Result.followup?.messages?.find((message) => message.role === "tool")?.content || "";
+        const part2ToolText = part2Result.followup?.messages?.findLast((message) => message.role === "tool")?.content || "";
         await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-part2.png"));
         check("SPA 换分P后新取帧使用新 cid", new URL(playurls.at(-1)).searchParams.get("cid") === part2Sample.cid, playurls.slice(-3));
         check("旧回合结果不进入换P后的上下文", part2ToolText.includes("目标时间点 2:00") && !switchedRequests.some((body) => body.messages?.some((message) => typeof message.content === "string" && message.content.includes("目标时间点 38:20"))), switchedRequests.map(sanitizeRequest));
@@ -618,7 +622,7 @@ if (liveGemini && !geminiApiKey) {
         await worker.evaluate("globalThis.__historicalFailPlayurl = true");
         const failureResult = await runStubQuestion(page, offscreen, 120, "failure");
         const failurePlayer = await readPlayerEvidence(page);
-        const failureToolText = failureResult.followup?.messages?.find((message) => message.role === "tool")?.content || "";
+        const failureToolText = failureResult.followup?.messages?.findLast((message) => message.role === "tool")?.content || "";
         check("取帧失败以可读工具结果降级且不伪造画面", failureToolText.includes("受控历史帧接口失败") && extractImages(failureResult.followup).length === 0 && failureResult.answer.includes("未获取画面") && !failureResult.answer.includes("已结合"), { answer: failureResult.answer, requests: failureResult.requests.map(sanitizeRequest) });
         check("取帧失败仍清理媒体且不影响播放器", playerUnaffected(failurePlayer, false), failurePlayer);
 
