@@ -1823,7 +1823,7 @@
   border-radius: 50%;
   background: rgb(0 0 0 / 45%);
   color: white;
-  font-size: 24px;
+  font-size: var(--biliscript-font-size-2xl);
   line-height: 1;
   cursor: pointer;
 }
@@ -1902,7 +1902,7 @@
   border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-surface);
   color: var(--biliscript-reader-text);
-  font-size: 22px;
+  font-size: var(--biliscript-font-size-2xl);
   line-height: 1;
   cursor: pointer;
 }
