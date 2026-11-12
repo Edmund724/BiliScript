@@ -114,6 +114,8 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
    脚本会免交互安装 Skill 和内置 CLI 到 `~/.agents/skills/biliscript`，启动本地 Bridge 并检查扩展连接；无需 `npx` 或 `git clone`。下载优先使用 GitHub ZIP，失败后自动改用 jsDelivr；失效的会话代理只会在安装进程内被绕开或替换，不修改系统代理设置。
 
+   后续升级时重新运行上述命令即可。脚本会覆盖安装 Skill 和 CLI，自动结束旧 Bridge、启动新版并检查扩展连接，无需手动结束进程。
+
    其他系统或需要安装到 Claude Code 等其他 Agent 时，可手动运行 `npx -y skills add Edmund724/BiliScript -g -y`，再按技能说明启动 Bridge。
 3. 让 Agent 分析当前 B 站视频或提供 BV 号/视频链接。Agent 会按需获取字幕与热评、截取关键时间点画面并读取本地图片；未打开视频的无字幕转写仍使用你在扩展中配置的 ASR 平台。
 

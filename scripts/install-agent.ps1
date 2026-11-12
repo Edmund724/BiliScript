@@ -71,6 +71,19 @@ function Save-RemoteFile([string]$Uri, [string]$Destination) {
     Invoke-WebRequest -Uri $Uri -OutFile $Destination -UseBasicParsing -TimeoutSec 60
 }
 
+function Get-BridgeStatus([string]$NodePath, [string]$CliPath) {
+    $statusText = (& $NodePath $CliPath status 2>&1 | Out-String).Trim()
+    $statusExitCode = $LASTEXITCODE
+    if ($statusExitCode -ne 0) {
+        throw "CLI status 失败（退出码 $statusExitCode）：$statusText"
+    }
+    try {
+        return $statusText | ConvertFrom-Json
+    } catch {
+        throw "CLI status 返回了无效 JSON：$statusText"
+    }
+}
+
 $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $node) {
     throw "未检测到 Node.js。请先安装 Node.js 22.20 或更高版本，再重新运行此命令。"
@@ -126,18 +139,26 @@ try {
 
     $cli = Join-Path $target "scripts/biliscript.mjs"
     Write-Host "BiliScript Skill 与 CLI 已安装到：$target"
-    Write-Host "正在启动本地 Bridge 并检查扩展连接…"
-    $statusText = (& $node.Source $cli status 2>&1 | Out-String).Trim()
-    $statusExitCode = $LASTEXITCODE
-    Write-Output $statusText
-    if ($statusExitCode -ne 0) {
-        throw "CLI status 失败（退出码 $statusExitCode）：$statusText"
+    Write-Host "正在重启本地 Bridge 以应用更新并检查扩展连接…"
+    $previousStatus = Get-BridgeStatus $node.Source $cli
+    $previousDaemonPid = [int]$previousStatus.daemonPid
+    if ($previousDaemonPid -le 0) {
+        throw "CLI status 未返回有效的 daemonPid"
     }
+    Stop-Process -Id $previousDaemonPid -Force
     try {
-        $status = $statusText | ConvertFrom-Json
+        Wait-Process -Id $previousDaemonPid -Timeout 10 -ErrorAction Stop
     } catch {
-        throw "CLI status 返回了无效 JSON：$statusText"
+        if (Get-Process -Id $previousDaemonPid -ErrorAction SilentlyContinue) {
+            throw "旧 Bridge（PID $previousDaemonPid）未在 10 秒内退出：$($_.Exception.Message)"
+        }
     }
+
+    $status = Get-BridgeStatus $node.Source $cli
+    if ([int]$status.daemonPid -eq $previousDaemonPid) {
+        throw "Bridge 重启失败：新进程 PID 仍为 $previousDaemonPid"
+    }
+    $status | ConvertTo-Json -Compress | Write-Output
     if ($status.extensionOnline -eq $true) {
         Write-Host "本地 Agent 已就绪，扩展连接正常。"
     } else {
