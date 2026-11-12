@@ -340,18 +340,21 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     expect(ports).toHaveLength(0);
   });
 
-  it("会话已激活时新会话清场：附件随输入框一起清空", async () => {
+  it("会话已激活时确认新会话：附件随输入框一起清空", async () => {
     await activateChat();
     const input = inputEl();
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
     await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
-    // 输入框里的草稿与附件同属「本轮未发出的输入」：新会话（用户语义的清场）
-    // 两者一起清——本断言把「清输入」半边也钉进同一用例（此前只钉了附件）。
     input.value = "草稿一句";
 
     const newChatBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
     newChatBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(document.querySelectorAll(".confirm-dialog-host")).toHaveLength(1);
+    expect(strip.hidden).toBe(false);
+    expect(input.value).toBe("草稿一句");
+
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
 
     await waitFor(() => strip.hidden === true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);

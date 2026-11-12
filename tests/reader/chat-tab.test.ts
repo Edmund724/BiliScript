@@ -67,6 +67,15 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
   bgFetchJson: gatewayCoreMock.bgFetchJson,
   isBiliUrl: gatewayCoreMock.isBiliUrl
 }));
+vi.mock("../../extension/chat/image-compress.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/chat/image-compress.js")>();
+  return {
+    ...actual,
+    createImageCompressor: () => ({
+      compress: async () => ({ part: { mime: "image/webp", data: "aA==" }, bytes: 1 })
+    })
+  };
+});
 
 let state: TestState;
 let ids: typeof import("../../extension/reader/state.js").ids;
@@ -208,15 +217,20 @@ describe("组合根装配与懒加载边界", () => {
     expect(modelSelect.value).toBe("p1\u0001模型一");
     // - 上下文装载（进程内直读 state.clip）→ 主上下文落到视频标题（标题不再上屏）
     expect(chatSessionState.contextData?.title).toContain("测试视频");
-    // - 工具键（历史对话 / 新会话）在壳标签行右侧（头部归并，契约见
-    //   chat-tools-in-tabs-row.test.ts）
-    const tools = document.querySelector(".biliscript-reading-tabs-tools");
-    expect(Array.from(tools!.children).map((node) => (node as HTMLElement).id)).toEqual([
+    const tools = document.querySelector(".biliscript-reading-tabs-tools")!;
+    expect(Array.from(tools.children).map((node) => (node as HTMLElement).id)).toEqual([
+      ids.readingChatNewBtn,
+      ids.readingChatHistoryBtn,
       ids.readingChatMoreBtn,
       ids.readingChatMoreMenu
     ]);
-    expect(document.getElementById(ids.readingChatNewBtn)).not.toBe(null);
-    expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
+    expect(document.querySelectorAll(".biliscript-reading-tab")).toHaveLength(3);
+    expect(document.getElementById(ids.readingChatNewBtn)?.getAttribute("aria-label")).toBe("新建会话");
+    expect(document.getElementById(ids.readingChatHistoryBtn)?.getAttribute("aria-label")).toBe("历史记录");
+    expect(document.getElementById(ids.readingChatMoreBtn)?.getAttribute("aria-label")).toBe("显示设置");
+    expect(document.getElementById(ids.readingChatMoreMenu)?.querySelector(`#${ids.readingChatNewBtn}`)).toBeNull();
+    expect(document.getElementById(ids.readingChatMoreMenu)?.querySelector(`#${ids.readingChatHistoryBtn}`)).toBeNull();
+    expect(document.getElementById(ids.readingChatDisplaySettingsBtn)?.textContent).toBe("更多显示设置");
     expect(document.getElementById(ids.readingChatLineHeight)).not.toBe(null);
     expect(document.getElementById(ids.readingChatParagraphSpacing)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSpeechVolumeInput)).not.toBe(null);
@@ -972,35 +986,31 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
 });
 
 describe("外点关闭单委托（reader-bus 转发槽并入 ui-renderer 文档级委托）", () => {
-  it("点外关闭 popover、点内不关；重复激活不双挂监听", async () => {
+  it("点外关闭、点内不关；退出后焦点回历史入口，重复激活不双挂监听", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    await chat.ensureChatTabActivated(); // 重复激活不重复注册（注册槽覆盖语义）
-
-    // 文档级 click 委托已由 ensureUiReady 首建时绑定（含对话 tab 外点转发）
+    await chat.ensureChatTabActivated();
 
     const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
     const historyPopover = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
-    // dispatchEvent 恰好一次（setup 的 click 补丁会双触发，toggle 会开又关）
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(false);
 
-    // 点击 popover 内部（冒泡到 document）：不关闭
     const historyList = document.getElementById(ids.readingChatHistoryList) as HTMLElement;
     historyList.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(false);
 
-    // 点击外部（冒泡到 document 的单一委托）：关闭
     const outside = document.createElement("div");
     document.body.appendChild(outside);
     outside.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(true);
+    expect(document.activeElement).toBe(historyBtn);
   });
 });
 
-describe("历史对话整页（返回键关闭）", () => {
-  it("点返回键收起整页：hidden 回到 true，对话内容随之恢复显示", async () => {
+describe("历史内容模式", () => {
+  it("打开聚焦返回键；返回与 Esc 都恢复 hidden 并聚焦历史入口", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -1011,9 +1021,135 @@ describe("历史对话整页（返回键关闭）", () => {
 
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(false);
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(backBtn);
 
     backBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(true);
+    expect(document.activeElement).toBe(historyBtn);
+
+    historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(true);
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(historyBtn);
+  });
+
+  it("设置深链先退出历史，再发既有 open-settings/appearance 壳命令", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
+    const commands: Array<{ name: string; payload: unknown; historyHidden: boolean }> = [];
+    readerBus.subscribeUiCommand((name, payload) => {
+      commands.push({ name, payload, historyHidden: historyPage.hidden === true });
+    });
+
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document.getElementById(ids.readingChatDisplaySettingsBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(historyPage.hidden).toBe(true);
+    expect((document.getElementById(ids.readingChatMoreMenu) as HTMLElement).hidden).toBe(true);
+    expect(commands).toEqual([{ name: "open-settings", payload: { target: "appearance" }, historyHidden: true }]);
+  });
+});
+
+describe("新建会话风险确认", () => {
+  function clickOnce(element: Element): void {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  function pasteImage(input: HTMLTextAreaElement): void {
+    const file = new File(["image"], "draft.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] }
+    });
+    input.dispatchEvent(event);
+  }
+
+  async function activateEmptyChat() {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    return chat;
+  }
+
+  it("草稿与图片合并为一次确认；取消零副作用，确认后才清理", async () => {
+    await activateEmptyChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const imageStrip = document.getElementById(ids.readingChatImageStrip) as HTMLElement;
+    const newBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    input.value = "不能丢失的草稿";
+    pasteImage(input);
+    await waitFor(() => imageStrip.querySelectorAll(".chat-image-item").length === 1);
+    applyConversationIdentity({ id: "conv-keep" });
+    const messagesBefore = messages.innerHTML;
+    const sendMessage = (window.chrome as unknown as { runtime: { sendMessage: Sendstub } }).runtime.sendMessage;
+    const messageCallsBefore = sendMessage.mock.calls.length;
+
+    clickOnce(newBtn);
+
+    expect(document.querySelectorAll(".confirm-dialog-host")).toHaveLength(1);
+    const message = document.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("清空未发送的草稿");
+    expect(message).toContain("移除 1 张已添加的图片");
+    expect(message).not.toContain("中断正在生成");
+    clickOnce(document.querySelector(".confirm-dialog-cancel")!);
+    await waitFor(() => document.querySelector(".confirm-dialog-host") === null);
+    expect(input.value).toBe("不能丢失的草稿");
+    expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(messages.innerHTML).toBe(messagesBefore);
+    expect(chatSessionState.currentConversationId).toBe("conv-keep");
+    expect(sendMessage.mock.calls.length).toBe(messageCallsBefore);
+
+    clickOnce(newBtn);
+    clickOnce(document.querySelector(".confirm-dialog-confirm")!);
+    await waitFor(() => input.value === "" && imageStrip.hidden === true);
+    expect(chatSessionState.currentConversationId).toBe("");
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+  });
+
+  it("在途回合确认如实说明中断；Esc 取消不断流、不改草稿或会话", async () => {
+    await activateEmptyChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "正在发送的问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1);
+    const conversationId = chatSessionState.currentConversationId;
+    input.value = "流式期间的新草稿";
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+
+    const message = document.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("中断正在生成的回复");
+    expect(message).toContain("清空未发送的草稿");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector(".confirm-dialog-host") === null);
+    expect(ports[0].disconnect).not.toHaveBeenCalled();
+    expect(input.value).toBe("流式期间的新草稿");
+    expect(chatSessionState.currentConversationId).toBe(conversationId);
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+    clickOnce(document.querySelector(".confirm-dialog-confirm")!);
+    await waitFor(() => ports[0].disconnect.mock.calls.length === 1);
+    expect(input.value).toBe("");
+    expect(chatSessionState.currentConversationId).toBe("");
+  });
+
+  it("无草稿、图片或在途回合时不弹确认，直接新建", async () => {
+    await activateEmptyChat();
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const marker = document.createElement("div");
+    marker.className = "chat-msg";
+    messages.appendChild(marker);
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+    await waitFor(() => !marker.isConnected);
   });
 });
 
@@ -1431,11 +1567,15 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     expect(chatSessionState.currentConversationId).toBe("conv-a");
 
     const { historyList } = els();
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     clickHistoryOpen(historyList, "conv-b");
 
     // 无在途回合：settle 立即兑现，applyById 不留一拍（与旧实现逐点一致）
     expect(chatSessionState.currentConversationId).toBe("conv-b");
     expect(ports).toHaveLength(0);
+    expect(document.activeElement).toBe(document.getElementById(ids.readingChatInput));
   });
 
   it("拆除类入口（流式中删除当前会话）：走既有断连路径、不发 stop（不触发 settle）", async () => {

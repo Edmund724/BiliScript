@@ -492,6 +492,38 @@ describe("主题：只剩明暗一轴", () => {
     expect(saveSettingsPayload).not.toHaveProperty("readerThemeFamily");
   });
 
+  it("外观深链：首次装载后切换外观分区并聚焦分区标题", async () => {
+    state.reader.setViewOpen(true);
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "get-settings") {
+        callback?.({ ok: true, settings: { readerPalette: "editorial" } });
+        return undefined;
+      }
+      if (message?.type === "ai-presets-list" || message?.type === "asr-presets-list") {
+        callback?.({ ok: false });
+        return undefined;
+      }
+      if (message?.type?.endsWith("-providers-list")) {
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    await panel.openAppearanceSettings();
+
+    const host = document.getElementById(ids.readingSettingsHost)!;
+    await vi.waitFor(() => {
+      expect(host.dataset.biliscriptSettingsRendered).toBe("1");
+    });
+    const nav = host.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="appearance"]')!;
+    const heading = host.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="appearance"] .biliscript-set-h')!;
+    expect(nav.classList.contains("is-active")).toBe(true);
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("设置抽屉：色板存量值非法时装载归一回落 flyme", async () => {
     state.reader.setViewOpen(true);
 

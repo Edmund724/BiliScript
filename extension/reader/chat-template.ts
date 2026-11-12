@@ -12,14 +12,9 @@
 // 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden）。
 // 06 号票增量：档位 chip 由 3 档静态按钮改为 7 档静态占位（激活后由
 // reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
-// 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
-// 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
-// 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
-// 意图卡/转写行/伴看状态区/消息区/输入卡一起 display:none，与设置抽屉接管面板第
-// 3–4 行同一套纯属性反应；类名沿用 chat-history-popover（历史包袱，语义已是
-// 整页而非 popover）。
-// 「历史对话 / 新会话」两键已并入壳的标签行（ui-renderer.ts 的
-// .biliscript-reading-tabs-tools），对话 tab 内不再有工具条行。
+// 历史是对话区的内容模式：它是对话根的第一个子元素，同一 [hidden] 投影同时隐藏
+// 标签行与后续对话内容；类名沿用 chat-history-popover，但不新增 Tab 或开关状态。
+// 新建会话、历史与显示设置三键位于壳标签行，对话 tab 内不再有工具条行。
 
 import { ids } from "./state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";

@@ -76,6 +76,7 @@ export const ids = {
   readingChatSpeechVolumeResetBtn: "biliscript-reading-chat-speech-volume-reset-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
+  readingChatDisplaySettingsBtn: "biliscript-reading-chat-display-settings-btn",
   readingChatLineHeight: "biliscript-reading-chat-line-height",
   readingChatLineHeightValue: "biliscript-reading-chat-line-height-value",
   readingChatLineHeightResetBtn: "biliscript-reading-chat-line-height-reset-btn",

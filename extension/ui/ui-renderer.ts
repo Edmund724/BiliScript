@@ -104,12 +104,7 @@ export function buildUiHtml(): string {
               </section>
             </section>
 
-            <!-- 标签行（方案对比 .scratch/chat-top-layout 选定「头部归并」）：分段控件 +
-                 对话工具键（历史对话 / 新会话）同一行——原对话 tab 内的 .chat-header
-                 工具条整行退役，省出的纵高让给消息区。两键是壳节点（id 不变，对话组合
-                 根照常 byId 接线），外观直接复用面板 header 的无框幽灵键
-                 （.biliscript-reading-icon-btn），不依赖按需装载的对话分区样式；
-                 只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。 -->
+            <!-- 对话会话动作与显示设置直接位于标签行；历史模式打开时整行由同一 hidden 投影隐藏。 -->
             <div class="biliscript-reading-tabs-row">
               <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签" data-active-tab="subtitle">
                 <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
@@ -117,32 +112,24 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
               </div>
               <div class="biliscript-reading-tabs-tools">
-                <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">
-                  <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true">
-                    <circle cx="12" cy="5" r="1.75"></circle>
-                    <circle cx="12" cy="12" r="1.75"></circle>
-                    <circle cx="12" cy="19" r="1.75"></circle>
+                <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-icon-btn" title="新建会话" aria-label="新建会话">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                    <path d="M5.87 16.44A8.2 8.2 0 1 1 10.73 19.86L3.11 19.86 5.87 16.44Z"></path>
+                    <path d="M12.7 8.7v6.4"></path>
+                    <path d="M9.5 11.9h6.4"></path>
                   </svg>
                 </button>
+                <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-icon-btn" title="历史记录" aria-label="历史记录" aria-controls="${ids.readingChatHistoryPopover}" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                    <path d="M12 7v5l4 2"></path>
+                  </svg>
+                </button>
+                <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-chat-display-btn" title="显示设置" aria-label="显示设置" aria-haspopup="menu" aria-controls="${ids.readingChatMoreMenu}" aria-expanded="false">
+                  <span aria-hidden="true">Aa</span>
+                </button>
                 <div id="${ids.readingChatMoreMenu}" class="biliscript-reading-chat-more-menu" hidden>
-                  <div class="biliscript-reading-chat-more-actions">
-                    <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-chat-more-item">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                        <path d="M5.87 16.44A8.2 8.2 0 1 1 10.73 19.86L3.11 19.86 5.87 16.44Z"></path>
-                        <path d="M12.7 8.7v6.4"></path>
-                        <path d="M9.5 11.9h6.4"></path>
-                      </svg>
-                      <span>开启新会话</span>
-                    </button>
-                    <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-chat-more-item">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                        <path d="M3 3v5h5"></path>
-                        <path d="M12 7v5l4 2"></path>
-                      </svg>
-                      <span>历史对话</span>
-                    </button>
-                  </div>
                   <div class="biliscript-reading-chat-more-typography">
                     <div class="biliscript-slider-row">
                       <div class="biliscript-slider-header">
@@ -183,6 +170,7 @@ export function buildUiHtml(): string {
                       <input id="${ids.readingChatSpeechVolumeInput}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
                     </div>
                   </div>
+                  <button id="${ids.readingChatDisplaySettingsBtn}" type="button" class="biliscript-reading-chat-more-item">更多显示设置</button>
                 </div>
               </div>
             </div>
@@ -281,9 +269,8 @@ export function openReaderSettingsPanel(): void {
 //     的 activateScriptTab 在写状态位/持久化之后发本命令）——本命令只做 DOM 三通道
 //     + 对话分区表挂载，不写状态位、不落盘、不做二级激活（那些都在属主）；未知/
 //     缺失 payload 静默忽略，不动当前投影；
-//   - "open-settings"：打开侧边栏设置抽屉（chat-tab 空态「前往设置」与提示条
-//     onOpenSettings）；带 target 时直达该分区的设置动作——"live"/"gemini-key"
-//     进伴看/Gemini 凭据编辑器，"asr" 进 ASR 平台编辑或自动转写开关（票 04）。
+//   - "open-settings"：打开侧边栏设置抽屉；target 可直达外观、伴看、Gemini
+//     凭据或 ASR 配置。
 // 旧命令 "set-tab" / "set-tab:chat" 已随标签激活收口 reader 属主退役（本处不再
 // 注册，残留发送方静默丢弃）。
 // 命令到达时壳必然已装载（本模块被装载才注册），但目标 DOM 缺失时各 setter
@@ -310,6 +297,10 @@ subscribeUiCommand((name, payload) => {
     if (target === "live" || target === "gemini-key") {
       void import("./settings-panel.js")
         .then((mod) => mod.openLiveSettings(target))
+        .catch(() => {});
+    } else if (target === "appearance") {
+      void import("./settings-panel.js")
+        .then((mod) => mod.openAppearanceSettings())
         .catch(() => {});
     }
   }
