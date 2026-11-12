@@ -48,6 +48,8 @@ export interface ReaderChatComposerDeps {
   onNotice?: (message: string, autoHideMs?: number) => void;
   isImageProcessing?: () => boolean;
   hasInputImages?: () => boolean;
+  getLiveState?: () => "idle" | "connecting" | "connected" | "failure";
+  onStartLive?: () => void;
 }
 
 export interface ReaderChatComposer {
@@ -78,6 +80,12 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   function updateSendBtnState(): void {
     const isStreaming = sendBtn.classList.contains("is-stop");
     const hasText = Boolean(input.value.trim());
+    const hasImages = deps.hasInputImages?.() ?? false;
+    const imageProcessing = deps.isImageProcessing?.() ?? false;
+    const liveState = deps.getLiveState?.() ?? "idle";
+
+    sendBtn.classList.remove("is-live", "is-connecting");
+    sendBtn.removeAttribute("aria-busy");
 
     if (isStreaming) {
       sendBtn.disabled = stopInFlight;
@@ -86,8 +94,25 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       return;
     }
 
+    if (!hasText && !hasImages && !imageProcessing && liveState === "connecting") {
+      sendBtn.classList.add("is-connecting");
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("aria-busy", "true");
+      sendBtn.setAttribute("aria-label", "正在连接伴看…");
+      sendBtn.setAttribute("title", "正在连接伴看…");
+      return;
+    }
+
+    if (!hasText && !hasImages && !imageProcessing && liveState === "idle" && deps.onStartLive) {
+      sendBtn.classList.add("is-live");
+      sendBtn.disabled = subtitleWaitActive;
+      sendBtn.setAttribute("aria-label", "开启实时伴看");
+      sendBtn.setAttribute("title", "开启实时伴看");
+      return;
+    }
+
     sendBtn.setAttribute("aria-label", "发送");
-    if (deps.isImageProcessing?.()) {
+    if (imageProcessing) {
       sendBtn.disabled = true;
       sendBtn.setAttribute("title", IMAGE_PROCESSING_NOTICE);
     } else if (hasText) {
@@ -95,7 +120,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       sendBtn.setAttribute("title", "发送");
     } else {
       sendBtn.disabled = true;
-      if (deps.hasInputImages?.()) {
+      if (hasImages) {
         sendBtn.setAttribute("title", IMAGE_TEXT_REQUIRED_NOTICE);
       } else {
         sendBtn.removeAttribute("title");
@@ -248,10 +273,14 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     input.addEventListener("focus", autosizeInput);
     input.addEventListener("blur", autosizeInput);
 
-    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）。
+    // 同一按钮按当前形态路由；空输入的 Enter 仍只走发送芯，不会误开伴看。
     sendBtn.addEventListener("click", () => {
       if (sendBtn.classList.contains("is-stop")) {
         chatRuntime.stopActiveStream();
+        return;
+      }
+      if (sendBtn.classList.contains("is-live")) {
+        deps.onStartLive?.();
         return;
       }
       void sendFromUi();

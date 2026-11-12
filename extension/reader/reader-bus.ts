@@ -68,7 +68,7 @@ type SettingsPersistHandler = () => void;
 type UiCommandHandler = (name: string, payload?: unknown) => void;
 type TabIntentHandler = (tab: ReaderScriptTab) => void;
 type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
-type SessionStopHandler = () => void;
+type SessionStopHandler = (reason?: "takeover") => void;
 
 // 单 handler 槽的签名表：方法名 → 回调签名。新增槽在此加一行。
 interface ReaderSeamHandlerMap {
@@ -391,13 +391,13 @@ export function setLiveCompanionStopHandler(handler: SessionStopHandler | null):
   setSeamHandler("liveCompanionStop", typeof handler === "function" ? handler : null);
 }
 
-export function requestLiveCompanionStop(): void {
+export function requestLiveCompanionStop(reason?: "takeover"): void {
   const handler = resolveSeamHandler("liveCompanionStop");
   if (!handler) {
     return;
   }
   try {
-    handler();
+    handler(reason);
   } catch (error) {
     logWarn("[BILISCRIPT] liveCompanionStop handler failed", { error });
   }

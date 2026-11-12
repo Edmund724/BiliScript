@@ -13,7 +13,7 @@ const TAB_BUTTON_IDS = {
 
 let settingsReturnFocus: HTMLElement | null = null;
 
-function focusWithoutScroll(element: HTMLElement | null): void {
+export function focusWithoutScroll(element: HTMLElement | null): void {
   element?.focus({ preventScroll: true });
 }
 

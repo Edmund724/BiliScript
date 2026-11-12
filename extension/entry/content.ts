@@ -45,7 +45,7 @@ import { registerContentCapabilities } from "../reader/reader-bus.js";
 
 import { bindRuntimeEvents, bindUrlChangeHandler, startSubtitlePrefetch } from "./message-handler.js";
 // S3 分层：阅读表随阅读模式挂载（进入/退出事务的挂摘在 reader/shell.ts 阅读壳
-// 内；此处 handle 启动直开路径与非阅读页的预清理——先于设置水合同步翻好门控）
+// 内；此处处理启动直开路径与非阅读页的预清理，门控等待样式就绪后翻转）
 import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
@@ -95,12 +95,11 @@ function init(): void {
 
   const shouldEnterReaderMode = isReaderMode();
   if (shouldEnterReaderMode) {
-    // S3：先挂阅读表再翻 data-biliscript-reader-mode 属性——属性门控是样式生效开关，
-    // 表提前挂（哪怕 link 尚未加载完）不会误伤普通页面；属性翻转瞬间阅读样式
-    // 已注入，无闪变窗口。
-    ensureReaderStyles();
-    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
-    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    // 属性门控是阅读样式生效开关，必须等全部 link 就绪后再翻转。
+    void ensureReaderStyles().then(() => {
+      document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+      document.body.setAttribute("data-biliscript-reader-mode", "1");
+    });
   } else {
     removeReaderStyles();
     clearReaderModePageState();
@@ -182,7 +181,7 @@ function init(): void {
       }
       const isAutoOpen = Boolean(settings.autoOpenReader && isAutoOpenEligible(location.href));
       if (shouldEnterReaderMode || isAutoOpen) {
-        ensureReaderStyles();
+        await ensureReaderStyles();
         document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
         document.body.setAttribute("data-biliscript-reader-mode", "1");
         // 候选03：阅读模式直达链接才惰性装载 UI 壳 + reader 呈现层，再进入重域。

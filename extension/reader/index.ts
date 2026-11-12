@@ -23,9 +23,9 @@
 // ===== lifecycle.js（reader shell）：组装根——生命周期 + 实例持有 + reader-bus 通知处理体 =====
 
 // 进入阅读模式
-export { enterReaderMode } from "./lifecycle.js";
+export { enterReaderMode, focusReadingView } from "./lifecycle.js";
 // 退出阅读模式（先启动收回，再关闭阅读视图并清理页面状态）
-export { beginClosingReadingView, closeReadingView } from "./lifecycle.js";
+export { beginClosingReadingView, closeReadingView, restoreReadingViewFocus } from "./lifecycle.js";
 // 渲染阅读视图主体：渲染驱动（base 投影 + 会话态投影）由 lifecycle 装配，
 // 投影知识在 ./view-render.ts。
 export { renderReadingView } from "./lifecycle.js";

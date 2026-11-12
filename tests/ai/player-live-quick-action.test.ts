@@ -377,10 +377,25 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     expect(stopSpy).not.toHaveBeenCalled();
     expect(overlay?.isVisible()).toBe(true);
 
-    // 2.5 即使 AI 对话未加载或已关闭，跨标签页接管请求（reader-bus requestLiveCompanionStop）仍可停止独立伴看
+    // 2.5 即使 AI 对话未加载或已关闭，跨标签页接管仍可停止独立伴看，并在播放器宿主提示
+    stopSpy.mockImplementation(async () => {
+      session.getLiveOverlayBinding().handleStateChange("idle");
+    });
     const { requestLiveCompanionStop } = await import("../../extension/reader/reader-bus.js");
-    requestLiveCompanionStop();
+    requestLiveCompanionStop("takeover");
     expect(stopSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      const notice = document.querySelector(".bpx-player-container .biliscript-interpret-notice");
+      expect(notice?.textContent).toBe("伴看已切换到另一个标签页");
+    });
+    expect(overlay?.isVisible()).toBe(false);
+
+    // 普通显式结束不附加接管提示
+    document.querySelector(".biliscript-interpret-notice")?.remove();
+    session.stopLiveCompanion();
+    await vi.waitFor(() => expect(stopSpy).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(document.querySelector(".biliscript-interpret-notice")).toBeNull();
 
     // 3. 页面关闭（pagehide）：清理伴看连接、移除浮窗 DOM 并取消遗留工具任务
     window.dispatchEvent(new Event("pagehide"));

@@ -265,15 +265,15 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     const sendResponse = vi.fn();
     m.dispatch({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, sendResponse);
 
-    // 即答语义：命令已受理入队即回 ok，不代表进入完成
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await vi.waitFor(() => expect(order).toContain("enter-start"));
-    // 进入事务被 gate 卡住 ⇒ 对话激活只能排尾，此时还没触碰对话 tab
+    // 进入事务被 gate 卡住：不能提前回成功，对话激活也只能排尾
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
 
     // 放行 enterReaderMode 尾段：tab 恢复落地、进入事务收敛
     releaseEnter();
     await vi.waitFor(() => expect(order).toContain("restore-tab"));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
 
     // 事务收敛后 chat 档才激活对话 tab：用户最终停在 AI 对话 tab（恢复的概览
     // 意图先经属主队列落定，随后对话意图覆盖它——最终状态 = 最后意图）

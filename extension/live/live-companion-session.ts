@@ -163,8 +163,8 @@ function onWindowPageHide(): void {
 }
 
 function bindLifecycleListeners(): void {
-  setLiveCompanionStopHandler(() => {
-    stopLiveCompanion();
+  setLiveCompanionStopHandler((reason) => {
+    stopLiveCompanion(reason);
   });
   if (!unsubscribeInterpretPresenter) {
     unsubscribeInterpretPresenter = subscribeReaderPresenter((event) => {
@@ -294,8 +294,17 @@ export function restoreLiveCompanionOverlay(): void {
   liveOverlayBinding.ensureOverlay().restore();
 }
 
-export function stopLiveCompanion(): void {
-  void liveController?.stop();
+export function stopLiveCompanion(reason?: "takeover"): void {
+  const controller = liveController;
+  if (!controller) return;
+  const stopping = controller.stop();
+  if (reason === "takeover") {
+    void stopping.then(() => {
+      if (liveController === controller) {
+        interpretSubtitleOverlay.showNotice("伴看已切换到另一个标签页");
+      }
+    });
+  }
 }
 
 export function disposeLiveCompanionSession(): void {

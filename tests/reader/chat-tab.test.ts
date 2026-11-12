@@ -1207,6 +1207,29 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     expect(input.value).toBe("尚未发送的草稿");
     expect(state.reader.readingSettingsExpanded).toBe(false);
     expect((document.getElementById(ids.readingTabBodyChat) as HTMLElement).classList.contains("is-active")).toBe(true);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
+    expect(ports).toHaveLength(0);
+  });
+
+  it("已有图片草稿：只定位并提示保留，图片不丢失且不发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const file = new File(["image"], "draft.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] }
+    });
+    input.dispatchEvent(event);
+    const imageStrip = document.getElementById(ids.readingChatImageStrip) as HTMLElement;
+    await waitFor(() => imageStrip.querySelectorAll(".chat-image-item").length === 1);
+
+    const accepted = await chat.runQuickActionPrompt("不得覆盖图片草稿");
+
+    expect(accepted).toBe(false);
+    expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
     expect(ports).toHaveLength(0);
   });
 

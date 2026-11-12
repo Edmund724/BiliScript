@@ -230,7 +230,7 @@ async function attachOffscreen(browser) {
 async function installLiveSocketStub(offscreen) {
   await offscreen.evaluate(`(() => {
     const sockets = [];
-    const state = { failNext: false, sockets };
+    const state = { failNext: false, openDelay: 10, sockets };
     class FixtureWebSocket {
       static CONNECTING = 0;
       static OPEN = 1;
@@ -255,7 +255,7 @@ async function installLiveSocketStub(offscreen) {
           }
           this.readyState = 1;
           this.onopen?.({});
-        }, 10);
+        }, state.openDelay);
       }
       send(data) {
         if (this.readyState !== 1 || this.closed) throw new Error("fixture socket is not open");
@@ -360,13 +360,17 @@ async function installMediaTracking(page) {
     if (!loaded) return { __biliscriptContentScriptLoaded: false };
     if (!globalThis.__fixtureMedia) {
       const records = [];
+      const tracks = [];
       const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
       if (original) {
+        globalThis.__fixtureMediaGetUserMediaCalls = 0;
         navigator.mediaDevices.getUserMedia = async (...args) => {
+          globalThis.__fixtureMediaGetUserMediaCalls += 1;
           const stream = await original(...args);
           for (const track of stream.getTracks()) {
             const record = { kind: track.kind, id: track.id, stopped: false, readyState: track.readyState };
             records.push(record);
+            tracks.push(track);
             const stop = track.stop.bind(track);
             track.stop = (...stopArgs) => {
               record.stopped = true;
@@ -382,9 +386,11 @@ async function installMediaTracking(page) {
         };
       }
       globalThis.__fixtureMedia = records;
+      globalThis.__fixtureMediaTracks = tracks;
     }
     return {
       __biliscriptContentScriptLoaded: true,
+      getUserMediaCalls: globalThis.__fixtureMediaGetUserMediaCalls || 0,
       media: globalThis.__fixtureMedia.map((record) => ({ ...record }))
     };
   })()`;
@@ -394,6 +400,7 @@ async function installMediaTracking(page) {
 async function readMediaTracking(page) {
   return evaluateInContentScript(page, `(() => ({
     __biliscriptContentScriptLoaded: Boolean(globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__),
+    getUserMediaCalls: globalThis.__fixtureMediaGetUserMediaCalls || 0,
     media: (globalThis.__fixtureMedia || []).map((record) => ({ ...record }))
   }))()`);
 }
@@ -407,6 +414,11 @@ async function fillField(page, selector, text) {
   })()`);
   await page.cdp.send("Input.insertText", { text });
   await sleep(120);
+}
+
+async function pressKey(page, key, code, vk) {
+  await page.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key, ...(key === "Enter" ? { text: "\r" } : {}) });
+  await page.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key });
 }
 
 async function waitConnected(page) {
@@ -504,16 +516,89 @@ try {
   await waitFor("视频页扩展按钮", () => page.cdp.evaluate("Boolean(document.getElementById('biliscript-player-live-quick-action') && document.getElementById('biliscript-player-ai-quick-action'))"), { timeoutMs: 45000 });
   results.initialMediaTracking = await installMediaTracking(page);
   await page.cdp.evaluate("document.querySelector('video')?.pause()");
-  await clickCenter(page, "#biliscript-player-live-quick-action");
+  await evaluateInContentScript(page, `(() => {
+    history.pushState({}, "", ${JSON.stringify(`${VIDEO_URL}&biliscript_reader=1`)});
+    return { __biliscriptContentScriptLoaded: true, href: location.href };
+  })()`);
+  await waitFor("输入框伴看入口就绪", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") && Boolean(document.getElementById("biliscript-reading-chat-input"))`), { timeoutMs: 45000 });
+  await clickCenter(page, "#biliscript-reading-tab-chat");
+  const composerIdle = await waitFor("idle 空草稿麦克风", () => page.cdp.evaluate(`(() => {
+    const input = document.getElementById("biliscript-reading-chat-input");
+    const button = document.getElementById("biliscript-reading-chat-send-btn");
+    const status = document.getElementById("biliscript-reading-chat-live-status");
+    const rect = button?.getBoundingClientRect();
+    const icon = button?.querySelector(".chat-live-icon");
+    if (!input || !button || !rect || !icon) return null;
+    return {
+      draft: input.value,
+      live: button.classList.contains("is-live"),
+      label: button.getAttribute("aria-label"),
+      disabled: button.disabled,
+      tabIndex: button.tabIndex,
+      rect: { width: rect.width, height: rect.height },
+      micDisplay: getComputedStyle(icon).display,
+      idleStatusHidden: status?.hidden === true,
+      legacyStartAction: Boolean(document.querySelector('[data-live-status-action="start"]'))
+    };
+  })()`).then((value) => value?.live && value.rect.width > 0 && value.rect.height > 0 ? value : null), { timeoutMs: 45000 });
+  await screenshot(page.cdp, path.join(OUT_DIR, "01-composer-idle-mic.png"));
+  const socketsBeforeDraft = (await socketSummary(offscreen)).length;
+  const composerDraftText = "伴看入口切换保留草稿";
+  await fillField(page, "#biliscript-reading-chat-input", composerDraftText);
+  const composerDraft = await page.cdp.evaluate(`(() => ({
+    draft: document.getElementById("biliscript-reading-chat-input")?.value,
+    live: document.getElementById("biliscript-reading-chat-send-btn")?.classList.contains("is-live"),
+    label: document.getElementById("biliscript-reading-chat-send-btn")?.getAttribute("aria-label"),
+    livePressed: document.getElementById("biliscript-player-live-quick-action")?.getAttribute("aria-pressed")
+  }))()`);
+  results.composerLiveEntry = { idle: composerIdle, draft: composerDraft, socketDeltaWhileDraft: (await socketSummary(offscreen)).length - socketsBeforeDraft };
+  check(
+    "V1a-composer-idle-mic-and-draft-switch",
+    composerIdle.draft === "" && composerIdle.label === "开启实时伴看" && !composerIdle.disabled && composerIdle.tabIndex === 0 && composerIdle.micDisplay !== "none" && composerIdle.idleStatusHidden && !composerIdle.legacyStartAction &&
+      composerDraft.draft === composerDraftText && !composerDraft.live && composerDraft.label === "发送" && composerDraft.livePressed === "false" && results.composerLiveEntry.socketDeltaWhileDraft === 0,
+    results.composerLiveEntry
+  );
+
+  await fillField(page, "#biliscript-reading-chat-input", "");
+  await offscreen.evaluate("globalThis.__fixtureLive.openDelay = 1000");
+  await page.cdp.evaluate(`document.getElementById("biliscript-reading-chat-send-btn").focus()`);
+  await pressKey(page, "Enter", "Enter", 13);
+  const composerConnecting = await waitFor("输入框伴看 connecting 防连点", () => page.cdp.evaluate(`(() => {
+    const button = document.getElementById("biliscript-reading-chat-send-btn");
+    return button?.classList.contains("is-connecting") && button.disabled && button.getAttribute("aria-busy") === "true" ? {
+      live: button.classList.contains("is-live"),
+      connecting: true,
+      disabled: button.disabled,
+      busy: button.getAttribute("aria-busy"),
+      label: button.getAttribute("aria-label")
+    } : null;
+  })()`), { timeoutMs: 5000, intervalMs: 20 });
+  await waitFor("首次键盘启动已请求媒体", async () => (await readMediaTracking(page)).getUserMediaCalls === 1, { timeoutMs: 5000, intervalMs: 20 });
+  const mediaCallsAtConnecting = (await readMediaTracking(page)).getUserMediaCalls;
+  await pressKey(page, "Enter", "Enter", 13);
+  await sleep(150);
+  const mediaCallsAfterSecondEnter = (await readMediaTracking(page)).getUserMediaCalls;
+  await screenshot(page.cdp, path.join(OUT_DIR, "01b-composer-connecting.png"));
+  await offscreen.evaluate("globalThis.__fixtureLive.openDelay = 10");
   await waitConnected(page);
-  results.closedPanelStart = await page.cdp.evaluate(`(() => ({
+  const composerConnected = await page.cdp.evaluate(`(() => ({
     readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true,
-    chatInputExists: Boolean(document.getElementById("biliscript-reading-chat-input")),
+    draft: document.getElementById("biliscript-reading-chat-input")?.value,
+    live: document.getElementById("biliscript-reading-chat-send-btn")?.classList.contains("is-live"),
+    busy: document.getElementById("biliscript-reading-chat-send-btn")?.getAttribute("aria-busy"),
     overlayVisible: Boolean(document.getElementById("biliscript-fullscreen-live-overlay") && !document.getElementById("biliscript-fullscreen-live-overlay").hidden),
     livePressed: document.getElementById("biliscript-player-live-quick-action")?.getAttribute("aria-pressed")
   }))()`);
-  check("V1-panel-closed-start-and-first-expand", !results.closedPanelStart.readerOpen && !results.closedPanelStart.chatInputExists && results.closedPanelStart.overlayVisible && results.closedPanelStart.livePressed === "true", results.closedPanelStart);
-  await screenshot(page.cdp, path.join(OUT_DIR, "01-panel-closed-connected.png"));
+  results.composerLiveEntry.connecting = composerConnecting;
+  results.composerLiveEntry.connected = composerConnected;
+  results.composerLiveEntry.getUserMediaCalls = { atConnecting: mediaCallsAtConnecting, afterSecondEnter: mediaCallsAfterSecondEnter };
+  check(
+    "V1b-composer-keyboard-start-and-connecting-guard",
+    !composerConnecting.live && composerConnecting.label === "正在连接伴看…" && mediaCallsAtConnecting === 1 && mediaCallsAfterSecondEnter === mediaCallsAtConnecting &&
+      composerConnected.readerOpen && composerConnected.draft === "" && !composerConnected.live && composerConnected.busy === null && composerConnected.overlayVisible && composerConnected.livePressed === "true",
+    results.composerLiveEntry
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "01c-composer-connected.png"));
 
   await clickCenter(page, ".live-overlay-close-btn");
   await waitFor("停止伴看", () => page.cdp.evaluate(`document.getElementById("biliscript-player-live-quick-action")?.getAttribute("aria-pressed") === "false"`));
@@ -623,6 +708,71 @@ try {
   results.microphoneRetry = { media: await readMediaTracking(page), failureKind: await page.cdp.evaluate(`document.querySelector(".live-overlay-failure-card")?.dataset.failureKind || null`) };
   check("V4b-microphone-denied-and-retry", results.microphoneRetry.media.media.some((track) => track.kind === "audio" && !track.stopped), results.microphoneRetry);
 
+  const mediaBeforeEnded = await readMediaTracking(page);
+  const socketsBeforeEnded = await socketSummary(offscreen);
+  const endedTrackIndex = mediaBeforeEnded.media.length - 1;
+  await page.cdp.evaluate(`document.querySelector("video").volume = 0.8`);
+  await offscreen.evaluate(`globalThis.__fixtureLive.sockets.at(-1).emit({ type: "speaking_state", speaking: true })`);
+  const duckedBeforeEnded = await waitFor("AI 发言压低真实视频音量", () => page.cdp.evaluate(`(() => {
+    const video = document.querySelector("video");
+    return video && video.volume < 0.8 ? { volume: video.volume } : null;
+  })()`));
+  results.microphoneEndedTrigger = await evaluateInContentScript(page, `(() => {
+    const track = globalThis.__fixtureMediaTracks?.[${endedTrackIndex}];
+    if (!track) return { __biliscriptContentScriptLoaded: true, dispatched: false };
+    track.dispatchEvent(new Event("ended"));
+    return { __biliscriptContentScriptLoaded: true, dispatched: true, kind: track.kind };
+  })()`);
+  const microphoneFailure = await waitFor("麦克风 ended 失败卡与音量恢复", () => page.cdp.evaluate(`(() => {
+    const card = document.querySelector(".live-overlay-failure-card");
+    const video = document.querySelector("video");
+    if (card?.dataset.failureKind !== "microphone" || card.hidden || !card.textContent.includes("麦克风连接已中断") || Math.abs(video.volume - 0.8) > 0.001) return null;
+    return { kind: card.dataset.failureKind, text: card.textContent.trim(), volume: video.volume };
+  })()`), { timeoutMs: 15000 });
+  const mediaAfterEnded = await readMediaTracking(page);
+  const socketsAfterEnded = await socketSummary(offscreen);
+  results.microphoneEnded = {
+    device: "fake media device",
+    event: "synthetic MediaStreamTrack ended dispatch",
+    physicalDeviceTested: false,
+    trigger: results.microphoneEndedTrigger,
+    duckedBeforeEnded,
+    failure: microphoneFailure,
+    endedTrack: mediaAfterEnded.media[endedTrackIndex] || null,
+    socket: socketsAfterEnded[socketsBeforeEnded.length - 1] || null
+  };
+  check(
+    "M1-E1-fake-track-ended-shows-failure-and-restores-volume",
+    results.microphoneEndedTrigger.dispatched && results.microphoneEndedTrigger.kind === "audio" && duckedBeforeEnded.volume < 0.8 &&
+      mediaAfterEnded.media[endedTrackIndex]?.ended === true && mediaAfterEnded.media[endedTrackIndex]?.stopped === true &&
+      socketsAfterEnded[socketsBeforeEnded.length - 1]?.closed === true && Math.abs(microphoneFailure.volume - 0.8) <= 0.001,
+    results.microphoneEnded
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "07b-microphone-ended-failure.png"));
+
+  await clickCenter(page, ".live-overlay-retry-btn");
+  await waitConnected(page);
+  const mediaAfterEndedRetry = await readMediaTracking(page);
+  const socketsAfterEndedRetry = await socketSummary(offscreen);
+  const endedRetry = await page.cdp.evaluate(`(() => ({
+    failureVisible: document.querySelector(".live-overlay-failure-card")?.hidden === false,
+    volume: document.querySelector("video")?.volume
+  }))()`);
+  results.microphoneEnded.retry = {
+    track: mediaAfterEndedRetry.media.at(-1) || null,
+    trackCountDelta: mediaAfterEndedRetry.media.length - mediaAfterEnded.media.length,
+    socket: socketsAfterEndedRetry.at(-1) || null,
+    ...endedRetry
+  };
+  check(
+    "M1-E2-microphone-ended-retry-creates-live-track",
+    results.microphoneEnded.retry.track?.kind === "audio" && results.microphoneEnded.retry.track?.stopped === false &&
+      results.microphoneEnded.retry.trackCountDelta > 0 && results.microphoneEnded.retry.socket?.closed === false &&
+      !endedRetry.failureVisible && Math.abs(endedRetry.volume - 0.8) <= 0.001,
+    results.microphoneEnded.retry
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "07c-microphone-ended-retried.png"));
+
   const beforePartSwitch = {
     sockets: await socketSummary(offscreen),
     media: await readMediaTracking(page),
@@ -675,6 +825,10 @@ try {
   await screenshot(page.cdp, path.join(OUT_DIR, "09-open-panel-text-tool.png"));
 
   await clickCenter(page, "#biliscript-reading-close-btn");
+  await waitFor("面板退出收尾完成", () => page.cdp.evaluate(`(() => {
+    const view = document.getElementById("biliscript-reading-view");
+    return view && !view.classList.contains("open") && !view.classList.contains("closing");
+  })()`));
   await offscreen.evaluate(`globalThis.__fixtureLive.sockets.at(-1).emit({ type: "session.delegation.created", data: { delegation: { id: "closure-closed-1" }, objective: "检索分 P 字幕并回答：第二条论据是什么", context: [] } })`);
   await waitFor("面板关闭后台调用完成", () => worker.evaluate(`chrome.storage.local.get("biliscript_ai_conversations_v1").then((value) => (value.biliscript_ai_conversations_v1 || []).some((entry) => entry.kind === "live-text-tool" && entry.records?.some((record) => record.callId === "closure-closed-1" && record.status === "completed")))`), { timeoutMs: 45000 });
   results.closedPanelDelegation = await page.cdp.evaluate(`(() => ({

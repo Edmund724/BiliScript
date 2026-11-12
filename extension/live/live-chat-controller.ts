@@ -947,6 +947,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     // 3. 请求麦克风授权并启动 16kHz 单声道 20ms PCM 采集
     let captureSession: PageAudioCaptureSession;
+    let microphoneFailed = false;
     try {
       captureSession = await startAudioCapture({
         initialMuted: false,
@@ -962,6 +963,23 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           if (generation !== currentGeneration) return;
           currentVideoAudioStatus = status;
           onVideoAudioStatusChange?.(status);
+        },
+        onMicrophoneError: (error) => {
+          if (
+            microphoneFailed ||
+            generation !== currentGeneration ||
+            (state !== "connecting" && state !== "connected")
+          ) {
+            return;
+          }
+          microphoneFailed = true;
+          const errorMsg = error.message || "麦克风连接已中断，请检查设备或浏览器权限后重试";
+          stopActiveMedia();
+          failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+          updateUi("failure", errorMsg, "microphone");
+          showNotice(errorMsg);
+          disconnectPort();
+          void cleanupSessionRule(sessionId);
         },
         onPcmFrame: (pcmBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) {
@@ -988,9 +1006,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       return false;
     }
 
-    if (generation !== currentGeneration) {
+    if (generation !== currentGeneration || microphoneFailed) {
       captureSession.stop();
-      void cleanupSessionRule(sessionId);
+      if (generation !== currentGeneration) {
+        void cleanupSessionRule(sessionId);
+      }
       return false;
     }
     activeAudioCapture = captureSession;

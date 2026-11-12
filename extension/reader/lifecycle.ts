@@ -38,7 +38,7 @@ import {
 import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js";
 
 // LAYOUT (state) functions this module drives:
-import { ids } from "./state.js";
+import { getReaderActiveScriptTab, ids } from "./state.js";
 // B 形态右栏 文摘面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
 // 只剩 video-bind + script-host。
 import { openScriptHost, closeScriptHost, waitForScriptAnchor } from "./script-host.js";
@@ -51,7 +51,7 @@ import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // 触达壳，壳未装载时命令静默丢弃，与原 DOM 缺失时 setter 空转同形。
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
-import { projectReaderSettingsMode, closeReaderSettingsMode } from "./settings-mode.js";
+import { projectReaderSettingsMode, closeReaderSettingsMode, focusWithoutScroll } from "./settings-mode.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -458,8 +458,73 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent) {
   receive(event);
 }
 
+const READER_TAB_BUTTON_IDS = {
+  subtitle: ids.readingTabSubtitle,
+  overview: ids.readingTabOverview,
+  chat: ids.readingTabChat
+} as const;
+
+let readerReturnFocus: HTMLElement | null = null;
+let restoreReaderFocusOnClose = false;
+let readerFocusRestorePending = false;
+
+export function focusReadingView(): void {
+  const tabId = READER_TAB_BUTTON_IDS[getReaderActiveScriptTab()];
+  focusWithoutScroll(document.getElementById(tabId) ?? document.getElementById(ids.readingCloseBtn));
+}
+
+function captureReaderReturnFocus(readingView: HTMLElement): void {
+  const active = document.activeElement;
+  readerFocusRestorePending = false;
+  restoreReaderFocusOnClose = false;
+  readerReturnFocus = active instanceof HTMLElement &&
+    active !== document.body &&
+    active !== document.documentElement &&
+    !readingView.contains(active)
+    ? active
+    : null;
+}
+
+function isReaderFocusTargetAvailable(target: HTMLElement | null, readingView: HTMLElement): target is HTMLElement {
+  return Boolean(
+    target?.isConnected &&
+    !readingView.contains(target) &&
+    !target.closest("[hidden], [aria-hidden='true']") &&
+    !(target instanceof HTMLButtonElement && target.disabled)
+  );
+}
+
+export function restoreReadingViewFocus(): void {
+  if (!readerFocusRestorePending) return;
+  readerFocusRestorePending = false;
+  const returnFocus = readerReturnFocus;
+  readerReturnFocus = null;
+  if (state.reader.readingViewOpen) return;
+  const readingView = getReaderElement(ids.readingView);
+  const active = document.activeElement;
+  if (active instanceof Node && active !== document.body && active !== document.documentElement && !readingView.contains(active)) {
+    return;
+  }
+  const scriptButton = document.getElementById("biliscript-script-button");
+  const target = isReaderFocusTargetAvailable(returnFocus, readingView)
+    ? returnFocus
+    : isReaderFocusTargetAvailable(scriptButton, readingView)
+      ? scriptButton
+      : null;
+  if (target) {
+    focusWithoutScroll(target);
+    return;
+  }
+  const root = document.getElementById(ids.root);
+  if (root) {
+    root.tabIndex = -1;
+    focusWithoutScroll(root);
+  }
+}
+
 export async function enterReaderMode(mode: "open" | "restore" = "open") {
   const readingView = getReaderElement(ids.readingView);
+  captureReaderReturnFocus(readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
   transitionReaderShell("open");
   document.body.setAttribute("data-biliscript-reading-active", "1");
@@ -522,6 +587,7 @@ function openReaderViewShell(
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
   setReadingViewReady(true);
+  focusReadingView();
 }
 
 // syncReaderModeAfterMount / settleReaderModePresentation 已随整页接管退役
@@ -533,6 +599,7 @@ function openReaderViewShell(
 export function beginClosingReadingView(): boolean {
   const readingView = getReaderElement(ids.readingView);
   const wasOpen = readingView.classList.contains("open");
+  restoreReaderFocusOnClose = readingView.contains(document.activeElement);
   readingView.classList.remove("open");
   readingView.classList.add("closing");
   readingView.setAttribute("aria-hidden", "true");
@@ -540,6 +607,12 @@ export function beginClosingReadingView(): boolean {
 }
 
 export function closeReadingView() {
+  const readingView = getReaderElement(ids.readingView);
+  readerFocusRestorePending = restoreReaderFocusOnClose || readingView.contains(document.activeElement);
+  restoreReaderFocusOnClose = false;
+  if (!readerFocusRestorePending) {
+    readerReturnFocus = null;
+  }
   // 收尾清理在收回过渡结束后执行；直关与 restore 失整收敛也复用此入口。
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
@@ -550,7 +623,6 @@ export function closeReadingView() {
   // so a later manual interaction is never swallowed by stale deadlines.
   resetManualScrollPause();
   setProgrammaticScrollUntil(0);
-  const readingView = getReaderElement(ids.readingView);
   readingView.classList.remove("open", "closing", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute(READER_READY_ATTR, "0");

@@ -122,6 +122,10 @@ function actionButton(action: string): HTMLButtonElement {
   return statusElement().querySelector<HTMLButtonElement>(`[data-live-status-action="${action}"]`) as HTMLButtonElement;
 }
 
+function composerButton(): HTMLButtonElement {
+  return document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
+}
+
 function visibleActions(): string[] {
   return [...statusElement().querySelectorAll<HTMLButtonElement>("[data-live-status-action]")]
     .filter((button) => !button.hidden)
@@ -195,7 +199,7 @@ afterEach(async () => {
 });
 
 describe("AI 对话实时伴看状态区", () => {
-  it("未开启时隐藏，开启后状态有明确文案和动作，普通连接中不使用 assertive，并生成走查工件", async () => {
+  it("idle 隐藏顶部入口并显示输入框麦克风，后续状态反馈保持且生成走查工件", async () => {
     expect(statusElement().hidden).toBe(true);
     await activateChat();
     const statusText = statusElement().querySelector<HTMLElement>(".chat-live-status-text") as HTMLElement;
@@ -212,6 +216,9 @@ describe("AI 对话实时伴看状态区", () => {
     expect(liveHarness.controller.start).not.toHaveBeenCalled();
     expect(statusText.textContent).toBe("");
     expect(visibleActions()).toEqual([]);
+    expect(actionButton("start")).toBeNull();
+    expect(composerButton().classList.contains("is-live")).toBe(true);
+    expect(composerButton().disabled).toBe(false);
     record("未开启");
 
     liveHarness.emit("connecting");
@@ -219,12 +226,17 @@ describe("AI 对话实时伴看状态区", () => {
     expect(statusText.textContent).toBe("正在连接伴看…");
     expect(visibleActions()).toEqual(["cancel"]);
     expect(statusText.getAttribute("aria-live")).not.toBe("assertive");
+    expect(composerButton().classList.contains("is-connecting")).toBe(true);
+    expect(composerButton().getAttribute("aria-busy")).toBe("true");
+    expect(composerButton().disabled).toBe(true);
     record("连接中");
 
     liveHarness.emit("connected");
     expect(statusElement().hidden).toBe(false);
     expect(statusText.textContent).toBe("伴看已连接");
     expect(visibleActions()).toEqual(["restore", "stop"]);
+    expect(composerButton().classList.contains("is-live")).toBe(false);
+    expect(composerButton().classList.contains("is-connecting")).toBe(false);
     record("已连接");
 
     liveHarness.emit("connecting", "第 1 次重连", undefined, true);
@@ -232,18 +244,24 @@ describe("AI 对话实时伴看状态区", () => {
     expect(statusElement().dataset.state).toBe("reconnecting");
     expect(statusText.textContent).toBe("伴看连接中断，正在重连…");
     expect(visibleActions()).toEqual(["cancel", "restore"]);
+    expect(composerButton().getAttribute("aria-busy")).toBe("true");
+    expect(composerButton().disabled).toBe(true);
     record("重连中");
 
     liveHarness.emit("failure", "网络握手超时", "network");
     expect(statusElement().hidden).toBe(false);
     expect(statusText.textContent).toBe("伴看连接失败：网络握手超时");
     expect(visibleActions()).toEqual(["retry", "settings", "stop"]);
+    expect(composerButton().classList.contains("is-live")).toBe(false);
+    expect(composerButton().getAttribute("aria-busy")).toBeNull();
     record("失败");
 
     liveHarness.emit("idle");
     expect(statusElement().hidden).toBe(true);
     expect(statusText.textContent).toBe("");
     expect(visibleActions()).toEqual([]);
+    expect(composerButton().classList.contains("is-live")).toBe(true);
+    expect(composerButton().disabled).toBe(false);
     record("已结束");
 
     for (const button of statusElement().querySelectorAll("button")) {
@@ -286,17 +304,23 @@ describe("AI 对话实时伴看状态区", () => {
     expect(liveHarness.controller.start).not.toHaveBeenCalled();
   });
 
-  it("只有开启和失败重试进入启动链，取消与重试都先完整停止旧 Live", async () => {
+  it("输入框麦克风与失败重试进入同一启动链，连接中防连点，取消与重试都先完整停止旧 Live", async () => {
     await activateChat();
     expect(liveHarness.controller.start).not.toHaveBeenCalled();
 
-    actionButton("start").click();
+    composerButton().focus();
+    expect(document.activeElement).toBe(composerButton());
+    composerButton().click();
     await vi.waitFor(() => expect(liveHarness.controller.start).toHaveBeenCalledTimes(1));
     expect(statusElement().dataset.state).toBe("connecting");
+    expect(composerButton().disabled).toBe(true);
+    composerButton().click();
+    expect(liveHarness.controller.start).toHaveBeenCalledTimes(1);
 
     actionButton("cancel").click();
     await vi.waitFor(() => expect(liveHarness.controller.stop).toHaveBeenCalledTimes(1));
     expect(statusElement().dataset.state).toBe("idle");
+    expect(composerButton().classList.contains("is-live")).toBe(true);
 
     liveHarness.emit("failure", "网络失败", "network");
     actionButton("retry").click();

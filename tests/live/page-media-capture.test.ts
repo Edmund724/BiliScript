@@ -16,6 +16,20 @@ import { decodePcmS16LEToFloat32, MOSS_UPSTREAM_FRAME_BYTES, MOSS_UPSTREAM_SAMPL
 class FakeMediaStreamTrack {
   enabled = true;
   stopped = false;
+  private endedListeners = new Set<() => void>();
+
+  addEventListener(type: string, listener: () => void) {
+    if (type === "ended") this.endedListeners.add(listener);
+  }
+
+  removeEventListener(type: string, listener: () => void) {
+    if (type === "ended") this.endedListeners.delete(listener);
+  }
+
+  end() {
+    for (const listener of [...this.endedListeners]) listener();
+  }
+
   stop() {
     this.stopped = true;
   }
@@ -217,6 +231,49 @@ describe("createPageAudioCapture", () => {
     // Late audio callback produces no frames
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
     expect(frames).toHaveLength(0);
+  });
+
+  it("reports an ended microphone track once and releases capture resources", async () => {
+    const fakeStream = new FakeMediaStream();
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const onMicrophoneError = vi.fn();
+    const frames: Uint8Array[] = [];
+
+    const capture = await createPageAudioCapture({
+      onPcmFrame: (pcmBytes) => frames.push(pcmBytes),
+      onMicrophoneError,
+      getUserMedia: async () => fakeStream as unknown as MediaStream,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    fakeStream.tracks[0].end();
+    fakeStream.tracks[0].end();
+
+    expect(onMicrophoneError).toHaveBeenCalledTimes(1);
+    expect(onMicrophoneError.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(fakeAudioCtx.closed).toBe(true);
+    expect(fakeAudioCtx.sourceConnected).toBe(false);
+    expect(fakeAudioCtx.processorConnected).toBe(false);
+    fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
+    expect(frames).toHaveLength(0);
+    capture.stop();
+    expect(onMicrophoneError).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report microphone failure when stop removes ended listeners", async () => {
+    const fakeStream = new FakeMediaStream();
+    const onMicrophoneError = vi.fn();
+    const capture = await createPageAudioCapture({
+      onPcmFrame: () => {},
+      onMicrophoneError,
+      getUserMedia: async () => fakeStream as unknown as MediaStream,
+      createAudioContext: () => new FakeCaptureAudioContext(16000)
+    });
+
+    capture.stop();
+    fakeStream.tracks[0].end();
+
+    expect(onMicrophoneError).not.toHaveBeenCalled();
   });
 
   it("surfaces clear actionable Chinese errors on permission denial or missing mic device", async () => {

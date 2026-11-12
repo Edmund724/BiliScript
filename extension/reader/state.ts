@@ -135,13 +135,13 @@ export function setProgrammaticScrollUntil(until: number) {
 // 启动必需的三件套：clearReaderModePageState（清阅读模式页面标记）、
 // enforceNormalPageStateIfNeeded（非阅读页状态收敛）、bindNormalPageStateGuard
 // （MutationObserver 守卫）。它们全是「DOM 属性读写 + observer 注册」的轻操作，
-// 依赖只有 core/state.js、bilibili/video-id-shared.js（isReaderMode）与
+// 依赖只有 core/state.js、bilibili/video-id-shared.js（URL 判据）与
 // ./presentation-fields.js（纯常量表）——均为常驻轻模块，不触碰 LAYOUT/SYNC/
 // LIFECYCLE 的任何重符号，因此整体下沉为常驻，content.js init 无需为它们
 // 动态装载 reader 域。
 
 import { uiState } from "../core/state.js";
-import { isReaderMode } from "../bilibili/video-id-shared.js";
+import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { READER_GUARD_CLEAR_ATTRS, READER_GUARD_FILTER } from "./presentation-fields.js";
 
 export function clearReaderModePageState() {
@@ -154,7 +154,7 @@ export function clearReaderModePageState() {
 }
 
 function shouldForceNormalPageState(url = location.href) {
-  return !isReaderMode(url) && !state.reader.readingViewOpen;
+  return !isSupportedVideoPage(url) || (!isReaderMode(url) && !state.reader.readingViewOpen);
 }
 
 export function enforceNormalPageStateIfNeeded(url = location.href) {

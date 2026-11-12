@@ -8,7 +8,7 @@
 // 任何外部付费服务。
 import path from "node:path";
 import { rm } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   CDP,
   DEFAULT_DIST,
@@ -49,6 +49,11 @@ const fixtureRoot = path.join(REPO_ROOT, "tests/fixtures/bilibili/bilingual-walk
 const bundles = JSON.parse(readFileSync(path.join(fixtureRoot, "bundles.json"), "utf8"));
 const bodies = JSON.parse(readFileSync(path.join(fixtureRoot, "bodies.json"), "utf8"));
 const subtitleBody = bodies[`${BVID}-zh`];
+const stateChunkFile = readdirSync(path.join(DEFAULT_DIST, "entry", "chunks")).find((file) => /^state-.*\.mjs$/.test(file));
+if (!stateChunkFile) throw new Error("找不到内容脚本 state chunk");
+
+const READER_STYLE_FILES = ["tokens-primitive.css", "reader.css", "reader-gate.css"];
+const readerStyleGate = { armed: false, pending: new Map(), seen: [] };
 
 const checks = [];
 const results = {};
@@ -77,6 +82,7 @@ video{width:100%;height:100%;background:#050505}
 .quality{width:70px;height:36px;color:white;background:#333;border:0}
 </style></head><body>
 <div id="playerWrap"><div id="bilibili-player"><div class="bpx-player-container player"><div class="bpx-player-video-wrap"><video preload="none"></video></div><div class="bpx-player-control-bottom-right controls"><button class="bpx-player-ctrl-quality quality" aria-label="清晰度 1080P">1080P</button></div></div></div></div>
+<div id="arc_toolbar_report" style="margin-left:24px"><div class="video-toolbar-left"></div></div>
 </body></html>`;
 }
 
@@ -308,9 +314,15 @@ function installOffscreenFixtures(cdp) {
 
 function installDocumentFixture(pageCdp) {
   return pageCdp.send("Fetch.enable", {
-    patterns: [{ urlPattern: "https://www.bilibili.com/video/*", requestStage: "Request" }]
+    patterns: [{ urlPattern: "*", requestStage: "Request" }]
   }).then(() => {
     pageCdp.on("Fetch.requestPaused", async (params) => {
+      const url = params.request?.url || "";
+      if (readerStyleGate.armed && READER_STYLE_FILES.some((file) => url.endsWith(`/entry/styles/${file}`))) {
+        readerStyleGate.pending.set(params.requestId, url);
+        readerStyleGate.seen.push(url);
+        return;
+      }
       try {
         if (params.resourceType === "Document") {
           await pageCdp.send("Fetch.fulfillRequest", {
@@ -327,6 +339,22 @@ function installDocumentFixture(pageCdp) {
   });
 }
 
+function armReaderStyleGate() {
+  readerStyleGate.armed = true;
+  readerStyleGate.pending.clear();
+  readerStyleGate.seen = [];
+}
+
+async function releaseReaderStyleGate(pageCdp) {
+  readerStyleGate.armed = false;
+  const pending = [...readerStyleGate.pending.keys()];
+  readerStyleGate.pending.clear();
+  for (const requestId of pending) {
+    await pageCdp.send("Fetch.continueRequest", { requestId });
+  }
+  return pending.length;
+}
+
 async function attachOffscreen(browserInstance) {
   const target = await waitFor("offscreen target", async () => {
     const response = await fetch(`http://127.0.0.1:${browserInstance.port}/json/list`);
@@ -337,6 +365,52 @@ async function attachOffscreen(browserInstance) {
   cdps.push(cdp);
   await cdp.send("Runtime.enable");
   return cdp;
+}
+
+function watchContentScriptContexts(page) {
+  const contexts = new Set();
+  page.cdp.on("Runtime.executionContextCreated", ({ context }) => {
+    if (context.auxData?.isDefault === false) contexts.add(context.id);
+  });
+  page.cdp.on("Runtime.executionContextDestroyed", ({ executionContextId }) => contexts.delete(executionContextId));
+  page.cdp.on("Runtime.executionContextsCleared", () => contexts.clear());
+  page.contentScriptContexts = contexts;
+}
+
+async function evaluateInContentScript(page, expression) {
+  return waitFor("内容脚本隔离世界", async () => {
+    for (const contextId of page.contentScriptContexts || []) {
+      const result = await page.cdp.send("Runtime.evaluate", {
+        expression,
+        contextId,
+        awaitPromise: true,
+        returnByValue: true,
+        allowUnsafeEvalBlockedByCSP: true
+      }).catch(() => null);
+      if (result?.result?.value?.__biliscriptContentScriptLoaded) return result.result.value;
+    }
+    return null;
+  }, { timeoutMs: 45000 });
+}
+
+async function readM1ClipSnapshot(page) {
+  return evaluateInContentScript(page, `(async () => {
+    const module = await import(chrome.runtime.getURL("entry/chunks/${stateChunkFile}"));
+    const subtitles = module.state.clip.subtitleBody;
+    const previous = subtitles.length > 0 ? globalThis.__m1SubtitleRef || null : null;
+    if (!previous && subtitles.length > 0) globalThis.__m1SubtitleRef = subtitles;
+    return {
+      __biliscriptContentScriptLoaded: true,
+      href: location.href,
+      currentUrl: module.state.clip.currentUrl,
+      signature: module.state.clip.currentClipSignature,
+      fetchRunId: module.state.clip.fetchRunId,
+      title: module.state.clip.title,
+      subtitleCount: subtitles.length,
+      firstSubtitle: subtitles[0]?.content || "",
+      subtitleSameRef: previous ? previous === subtitles : null
+    };
+  })()`);
 }
 
 // ===== 真实输入 =====
@@ -375,6 +449,56 @@ async function fillField(pageCdp, selector, text) {
   })()`);
   await pageCdp.send("Input.insertText", { text });
   await sleep(60);
+}
+
+async function pressKey(pageCdp, key, code, vk) {
+  await pageCdp.send("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key, ...(key === "Enter" ? { text: "\r" } : {}) });
+  await pageCdp.send("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, code, key });
+}
+
+async function waitReaderClosed(pageCdp) {
+  return waitFor("阅读壳关闭", () => pageCdp.evaluate(`(() => {
+    const view = document.getElementById("biliscript-reading-view");
+    return !view || (!view.classList.contains("open") && !view.classList.contains("closing"));
+  })()`), { timeoutMs: 15000 });
+}
+
+async function setM1Viewport(pageCdp, width, height = 900) {
+  await pageCdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+  await pageCdp.evaluate("window.dispatchEvent(new Event('resize'))");
+  await sleep(120);
+}
+
+async function readM1Geometry(pageCdp) {
+  return pageCdp.evaluate(`(() => {
+    const view = document.getElementById("biliscript-reading-view");
+    const player = document.querySelector(".bpx-player-container");
+    const rect = view?.getBoundingClientRect();
+    const playerRect = player?.getBoundingClientRect();
+    return {
+      viewport: { width: innerWidth, height: innerHeight, clientWidth: document.documentElement.clientWidth },
+      rect: rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height } : null,
+      floating: view?.getAttribute("data-biliscript-script-float") === "1",
+      widthVar: view?.style.getPropertyValue("--biliscript-script-width") || "",
+      floatWidthVar: view?.style.getPropertyValue("--biliscript-script-float-width") || "",
+      player: playerRect ? { left: playerRect.left, right: playerRect.right, width: playerRect.width } : null,
+      anchor: Boolean(document.querySelector(".right-container-inner"))
+    };
+  })()`);
+}
+
+async function setM1PanelWidth(pageCdp, width) {
+  if (!(await pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true`))) {
+    await clickCenter(pageCdp, "#biliscript-reading-settings-btn");
+    await waitFor("M1 设置打开", () => pageCdp.evaluate(`Boolean(document.getElementById("customPanelWidth"))`));
+  }
+  await pageCdp.evaluate(`(() => {
+    const slider = document.getElementById("customPanelWidth");
+    slider.value = ${JSON.stringify(String(width))};
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+  })()`);
+  await waitFor("M1 自定义宽度保存", () => worker.evaluate(`chrome.storage.sync.get(["customPanelWidth", "customPanelWidthEnabled"]).then((value) => value.customPanelWidth === ${width} && value.customPanelWidthEnabled === true)`));
 }
 
 // 选区解释入口：用 Range + selectionchange 构造真实选区（README 说明文本拖选在
@@ -485,8 +609,12 @@ async function activateTab(pageCdp, tabId) {
 
 async function openReader(pageCdp) {
   await hoverPlayer(pageCdp);
-  await clickCenter(pageCdp, "#biliscript-player-ai-quick-action");
-  await waitFor("阅读视图打开", () => pageCdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") === true && Boolean(document.getElementById("biliscript-reading-chat-input"))`), { timeoutMs: 45000 });
+  await clickExpect(
+    pageCdp,
+    "#biliscript-player-ai-quick-action",
+    () => pageCdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") === true && Boolean(document.getElementById("biliscript-reading-chat-input"))`),
+    "阅读视图打开"
+  );
 }
 
 async function waitOverviewError(pageCdp) {
@@ -514,6 +642,7 @@ try {
   page = await attachPage(browser);
   activePage = page;
   cdps.push(page.cdp);
+  watchContentScriptContexts(page);
   pageWatchers.push(watchPage(page.cdp));
   await installDocumentFixture(page.cdp);
 
@@ -542,6 +671,50 @@ try {
   })()`);
   offscreen = await attachOffscreen(browser);
   await installOffscreenFixtures(offscreen);
+
+  // M1-A：冷缓存与三张阅读 CSS 被真实网络请求扣住时，URL 直达 / autoOpen 都不得提前翻门控。
+  results.m1StyleEntries = [];
+  await page.cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
+  for (const entry of [
+    { id: "direct", checkName: "M1-A1-URL直达", url: `${VIDEO_URL}&biliscript_reader=1`, autoOpen: false },
+    { id: "auto-open", checkName: "M1-A2-autoOpen", url: VIDEO_URL, autoOpen: true }
+  ]) {
+    await worker.evaluate(`chrome.storage.sync.set({ autoOpenReader: ${entry.autoOpen} })`);
+    armReaderStyleGate();
+    await page.cdp.send("Page.navigate", { url: entry.url });
+    await waitFor(`${entry.id} 三张阅读 CSS 均已扣住`, () => readerStyleGate.pending.size === 3, { timeoutMs: 15000, intervalMs: 50 });
+    const before = await page.cdp.evaluate(`(() => ({
+      htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
+      bodyGate: document.body?.getAttribute("data-biliscript-reader-mode") || null,
+      readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true,
+      links: Array.from(document.querySelectorAll("link[data-biliscript-style]")).filter((link) => ${JSON.stringify(READER_STYLE_FILES)}.some((file) => link.href.endsWith("/entry/styles/" + file))).map((link) => ({ href: link.href, loaded: Boolean(link.sheet) }))
+    }))()`);
+    const beforeOk = before.htmlGate === null && before.bodyGate === null && !before.readerOpen && before.links.length === 3 && before.links.every((link) => !link.loaded);
+    check(`${entry.checkName}-三张CSS加载前不提前门控`, beforeOk, { before, held: [...readerStyleGate.pending.values()] });
+    const released = await releaseReaderStyleGate(page.cdp);
+    await waitFor(`${entry.id} 阅读视图打开`, () => page.cdp.evaluate(`(() => {
+      const view = document.getElementById("biliscript-reading-view");
+      return view?.classList.contains("open") && document.documentElement.getAttribute("data-biliscript-reader-mode") === "1" && document.body.getAttribute("data-biliscript-reader-mode") === "1";
+    })()`), { timeoutMs: 45000 });
+    const after = await page.cdp.evaluate(`(() => {
+      const view = document.getElementById("biliscript-reading-view");
+      const rect = view.getBoundingClientRect();
+      return {
+        htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
+        bodyGate: document.body.getAttribute("data-biliscript-reader-mode"),
+        readerOpen: view.classList.contains("open"),
+        display: getComputedStyle(view).display,
+        rect: { width: rect.width, height: rect.height, left: rect.left, top: rect.top },
+        links: Array.from(document.querySelectorAll("link[data-biliscript-style]")).filter((link) => ${JSON.stringify(READER_STYLE_FILES)}.some((file) => link.href.endsWith("/entry/styles/" + file))).map((link) => ({ href: link.href, loaded: Boolean(link.sheet) }))
+      };
+    })()`);
+    const afterOk = after.htmlGate === "1" && after.bodyGate === "1" && after.readerOpen && after.display === "block" && after.rect.width > 0 && after.rect.height > 0 && after.links.length === 3 && after.links.every((link) => link.loaded);
+    check(`${entry.checkName}-三张CSS加载后正常进入`, afterOk, { released, after });
+    results.m1StyleEntries.push({ id: entry.id, cacheDisabled: true, before, released, after });
+    await screenshot(page.cdp, path.join(OUT_DIR, `15-m1-${entry.id}-ready.png`));
+  }
+  await page.cdp.send("Network.setCacheDisabled", { cacheDisabled: false });
+  await worker.evaluate(`chrome.storage.sync.set({ autoOpenReader: false })`);
 
   // ============================================================
   // A1 概览：未配置 → 保存并继续 → 一次性续跑
@@ -979,6 +1152,330 @@ try {
     results.asrTranscribed
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "09-asr-transcribed.png"));
+
+  // ============================================================
+  // M1-B：SPA 进入阅读模式复用已抓字幕，离开视频页完整退出
+  // ============================================================
+  await worker.evaluate(`chrome.storage.sync.set({
+    autoOpenReader: false,
+    asrAutoFallback: false,
+    aiProviders: [{ id: "m1-ai", presetId: "custom", name: "M1 AI", baseUrl: "${AI_BASE_URL}", models: ["m1-model"], requiresKey: false, enabled: true, protocol: "openai" }],
+    activeAiProviderId: "m1-ai",
+    defaultModel: "m1-model"
+  })`);
+  await page.cdp.send("Page.navigate", { url: VIDEO_URL });
+  await waitFor("M1-B 视频页按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-script-button"))`), { timeoutMs: 45000 });
+  const spaBefore = await waitFor("M1-B 字幕预取完成", async () => {
+    const snapshot = await readM1ClipSnapshot(page);
+    return snapshot.subtitleCount > 0 ? snapshot : null;
+  }, { timeoutMs: 60000 });
+  spaBefore.domSubtitleCount = await page.cdp.evaluate(`document.querySelectorAll('#biliscript-reading-subtitle .biliscript-reading-item').length`);
+  results.m1SpaTrigger = await evaluateInContentScript(page, `(() => {
+    history.pushState({}, "", ${JSON.stringify(`${VIDEO_URL}&biliscript_reader=1`)});
+    return { __biliscriptContentScriptLoaded: true, href: location.href };
+  })()`);
+  await waitFor("M1-B SPA 阅读视图打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") === true`), { timeoutMs: 45000 });
+  const spaAfter = await readM1ClipSnapshot(page);
+  spaAfter.domSubtitleCount = await page.cdp.evaluate(`document.querySelectorAll('#biliscript-reading-subtitle .biliscript-reading-item').length`);
+  results.m1Spa = { before: spaBefore, after: spaAfter };
+  check(
+    "M1-B1-SPA进入不重复抓取且保留字幕引用",
+    spaAfter.fetchRunId === spaBefore.fetchRunId &&
+      spaAfter.signature === spaBefore.signature &&
+      spaAfter.title === spaBefore.title &&
+      spaAfter.subtitleCount === spaBefore.subtitleCount &&
+      spaAfter.firstSubtitle === spaBefore.firstSubtitle &&
+      spaAfter.subtitleSameRef === true &&
+      spaAfter.domSubtitleCount > 0 &&
+      spaAfter.domSubtitleCount >= spaBefore.domSubtitleCount,
+    results.m1Spa
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "16-m1-spa-preserved.png"));
+  await evaluateInContentScript(page, `(() => {
+    history.pushState({}, "", "https://www.bilibili.com/read/cv123/?biliscript_reader=1");
+    return { __biliscriptContentScriptLoaded: true, href: location.href };
+  })()`);
+  await waitReaderClosed(page.cdp);
+  const spaExit = await page.cdp.evaluate(`(() => ({
+    href: location.href,
+    htmlGate: document.documentElement.getAttribute("data-biliscript-reader-mode"),
+    bodyGate: document.body.getAttribute("data-biliscript-reader-mode")
+  }))()`);
+  results.m1Spa.exit = spaExit;
+  check(
+    "M1-B2-SPA离开视频页关闭并清除门控",
+    spaExit.href === "https://www.bilibili.com/read/cv123/" && spaExit.htmlGate === null && spaExit.bodyGate === null,
+    spaExit
+  );
+
+  // ============================================================
+  // M1-C：键盘进入、关闭焦点恢复与外部点击不抢焦
+  // ============================================================
+  await page.cdp.send("Page.navigate", { url: VIDEO_URL });
+  await waitFor("M1-C 页内阅读按钮", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-script-button"))`), { timeoutMs: 45000 });
+  await page.cdp.evaluate(`(() => {
+    const button = document.getElementById("biliscript-script-button");
+    window.__m1OldScriptButton = button;
+    button.focus();
+  })()`);
+  await pressKey(page.cdp, "Enter", "Enter", 13);
+  const keyboardOpen = await waitFor("M1-C 键盘打开与焦点", () => page.cdp.evaluate(`(() => {
+    const view = document.getElementById("biliscript-reading-view");
+    const activeTab = document.querySelector("#biliscript-reading-view [role='tab'].is-active");
+    if (!view?.classList.contains("open") || !activeTab) return null;
+    return { activeId: document.activeElement?.id || "", tabId: activeTab.id };
+  })()`), { timeoutMs: 45000 });
+  results.m1Focus = { keyboardOpen };
+  check("M1-C1-Enter打开并聚焦当前Tab", keyboardOpen.activeId === keyboardOpen.tabId, keyboardOpen);
+
+  await activateTab(page.cdp, "biliscript-reading-tab-overview");
+  await clickCenter(page.cdp, "#biliscript-reading-close-btn");
+  await waitReaderClosed(page.cdp);
+  const closeFocus = await waitFor("M1-C 关闭后焦点回新按钮", () => page.cdp.evaluate(`(() => {
+    const button = document.getElementById("biliscript-script-button");
+    if (!button || document.activeElement !== button) return null;
+    return { activeId: document.activeElement.id, buttonReplaced: button !== window.__m1OldScriptButton };
+  })()`), { timeoutMs: 15000 });
+  results.m1Focus.closeFocus = closeFocus;
+  check("M1-C2-关闭恢复焦点且按钮已重建", closeFocus.activeId === "biliscript-script-button" && closeFocus.buttonReplaced, closeFocus);
+  await screenshot(page.cdp, path.join(OUT_DIR, "17-m1-focus-returned.png"));
+
+  await pressKey(page.cdp, "Enter", "Enter", 13);
+  const reopenFocus = await waitFor("M1-C 再次键盘打开", () => page.cdp.evaluate(`(() => {
+    const view = document.getElementById("biliscript-reading-view");
+    return view?.classList.contains("open") ? { activeId: document.activeElement?.id || "" } : null;
+  })()`), { timeoutMs: 45000 });
+  results.m1Focus.reopenFocus = reopenFocus;
+  check("M1-C3-重开聚焦概览Tab", reopenFocus.activeId === "biliscript-reading-tab-overview", reopenFocus);
+
+  await page.cdp.evaluate(`(() => {
+    const outside = document.createElement("button");
+    outside.id = "m1-outside";
+    outside.type = "button";
+    outside.textContent = "页面焦点夹具";
+    outside.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:2147483647;width:120px;height:40px";
+    document.body.appendChild(outside);
+  })()`);
+  await clickCenter(page.cdp, "#biliscript-reading-close-btn");
+  await clickCenter(page.cdp, "#m1-outside");
+  await waitReaderClosed(page.cdp);
+  await sleep(200);
+  const outsideFocus = await page.cdp.evaluate(`(() => ({
+    activeId: document.activeElement?.id || "",
+    readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true
+  }))()`);
+  results.m1Focus.outsideFocus = outsideFocus;
+  check("M1-C4-退出过渡后外部点击不抢焦", outsideFocus.activeId === "m1-outside" && !outsideFocus.readerOpen, outsideFocus);
+
+  // ============================================================
+  // M1-D：AI 快捷入口保留文字 / 图片草稿且不自动发送
+  // ============================================================
+  await page.cdp.evaluate(`document.getElementById("biliscript-script-button")?.focus()`);
+  await pressKey(page.cdp, "Enter", "Enter", 13);
+  await waitFor("M1-D 页内按钮打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-view")?.classList.contains("open") === true`), { timeoutMs: 45000 });
+  await activateTab(page.cdp, "biliscript-reading-tab-chat");
+  await waitFor("M1-D 对话输入就绪", () => page.cdp.evaluate(`Boolean(document.getElementById("biliscript-reading-chat-input"))`), { timeoutMs: 45000 });
+  const textDraft = "M1 未发送文字草稿";
+  await fillField(page.cdp, "#biliscript-reading-chat-input", textDraft);
+  const textBefore = {
+    completions: completions().length,
+    userMessages: await page.cdp.evaluate(`document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length`)
+  };
+  await clickCenter(page.cdp, "#biliscript-reading-close-btn");
+  await waitReaderClosed(page.cdp);
+  await openReader(page.cdp);
+  await waitFor("M1-D 文字草稿保护提示", () => page.cdp.evaluate(`Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 15000 });
+  await sleep(500);
+  const textAfter = await page.cdp.evaluate(`(() => ({
+    draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
+    notice: Array.from(document.querySelectorAll(".chat-context-notice")).map((node) => node.textContent).join("\\n"),
+    userMessages: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
+    images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length
+  }))()`);
+  results.m1TextDraft = { before: textBefore, after: textAfter, completionDelta: completions().length - textBefore.completions };
+  check(
+    "M1-D1-文字草稿保留且不自动发送",
+    textAfter.draft === textDraft &&
+      textAfter.notice.includes("已保留未发送草稿，本次未自动发送。") &&
+      textAfter.userMessages === textBefore.userMessages &&
+      completions().length === textBefore.completions &&
+      textAfter.images === 0,
+    results.m1TextDraft
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "18-m1-text-draft-preserved.png"));
+  await waitFor("M1-D 文字提示消失", () => page.cdp.evaluate(`!Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 10000 });
+  await fillField(page.cdp, "#biliscript-reading-chat-input", "");
+
+  const version = await (await fetch(`http://127.0.0.1:${browser.port}/json/version`)).json();
+  const browserCdp = await CDP.connect(version.webSocketDebuggerUrl);
+  cdps.push(browserCdp);
+  await browserCdp.send("Browser.grantPermissions", { permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"], origin: "https://www.bilibili.com" });
+  await clickCenter(page.cdp, "#biliscript-reading-chat-input");
+  const clipboardWrite = await page.cdp.send("Runtime.evaluate", {
+    expression: `(async () => {
+      const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (char) => char.charCodeAt(0));
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })]);
+      return true;
+    })()`,
+    userGesture: true,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  if (clipboardWrite.exceptionDetails || clipboardWrite.result?.value !== true) throw new Error(`写入真实剪贴板失败：${JSON.stringify(clipboardWrite)}`);
+  await page.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "v", code: "KeyV", windowsVirtualKeyCode: 86, nativeVirtualKeyCode: 86, modifiers: 2 });
+  await page.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "v", code: "KeyV", windowsVirtualKeyCode: 86, nativeVirtualKeyCode: 86, modifiers: 2 });
+  const pastedImage = await waitFor("M1-D 真实 Ctrl+V 图片处理完成", () => page.cdp.evaluate(`(() => {
+    const strip = document.getElementById("biliscript-reading-chat-image-strip");
+    const items = strip?.querySelectorAll(".chat-image-item") || [];
+    return items.length === 1 && strip.getAttribute("aria-busy") !== "true" && strip.querySelector(".chat-image-preview") ? { count: items.length, busy: strip.getAttribute("aria-busy") } : null;
+  })()`), { timeoutMs: 20000 });
+  const imageBefore = {
+    completions: completions().length,
+    userMessages: await page.cdp.evaluate(`document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length`),
+    pastedImage
+  };
+  await clickCenter(page.cdp, "#biliscript-reading-close-btn");
+  await waitReaderClosed(page.cdp);
+  await openReader(page.cdp);
+  await waitFor("M1-D 图片草稿保护提示", () => page.cdp.evaluate(`Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 15000 });
+  await sleep(500);
+  const imageAfter = await page.cdp.evaluate(`(() => ({
+    draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
+    notice: Array.from(document.querySelectorAll(".chat-context-notice")).map((node) => node.textContent).join("\\n"),
+    userMessages: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
+    images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length,
+    imageBusy: document.getElementById("biliscript-reading-chat-image-strip")?.getAttribute("aria-busy") || null
+  }))()`);
+  results.m1ImageDraft = { before: imageBefore, after: imageAfter, completionDelta: completions().length - imageBefore.completions, clipboard: "Browser.grantPermissions + navigator.clipboard.write + CDP Ctrl+V" };
+  check(
+    "M1-D2-图片草稿保留且不自动发送",
+    imageAfter.draft === "" &&
+      imageAfter.notice.includes("已保留未发送草稿，本次未自动发送。") &&
+      imageAfter.userMessages === imageBefore.userMessages &&
+      completions().length === imageBefore.completions &&
+      imageAfter.images === 1 &&
+      imageAfter.imageBusy === "false",
+    results.m1ImageDraft
+  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "19-m1-image-draft-preserved.png"));
+
+  // ============================================================
+  // M1-F：设置退出焦点与真实几何阈值 / 降级
+  // ============================================================
+  await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
+  await waitFor("M1-F 设置打开", () => page.cdp.evaluate(`Boolean(document.getElementById("customPanelWidth"))`));
+  await pressKey(page.cdp, "Escape", "Escape", 27);
+  await waitSettingsClosed(page.cdp);
+  const settingsEscape = await page.cdp.evaluate(`(() => ({
+    readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true,
+    activeId: document.activeElement?.id || ""
+  }))()`);
+  results.m1SettingsEscape = settingsEscape;
+  check("M1-F1-Esc只关设置并还焦齿轮", settingsEscape.readerOpen && settingsEscape.activeId === "biliscript-reading-settings-btn", settingsEscape);
+
+  await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
+  await waitFor("M1-F 设置再次打开", () => page.cdp.evaluate(`Boolean(document.getElementById("customPanelWidth"))`));
+  await clickCenter(page.cdp, "#m1-outside");
+  await waitSettingsClosed(page.cdp);
+  const settingsOutside = await page.cdp.evaluate(`(() => ({
+    readerOpen: document.getElementById("biliscript-reading-view")?.classList.contains("open") === true,
+    activeId: document.activeElement?.id || ""
+  }))()`);
+  results.m1SettingsOutside = settingsOutside;
+  check("M1-F2-外点只关设置且不抢焦", settingsOutside.readerOpen && settingsOutside.activeId === "m1-outside", settingsOutside);
+
+  results.m1Geometry = {};
+  await setM1Viewport(page.cdp, 1600);
+  await page.cdp.evaluate(`(() => {
+    document.querySelector(".right-container-inner")?.remove();
+    const anchor = document.createElement("div");
+    anchor.className = "right-container-inner";
+    anchor.style.cssText = "position:fixed;right:0;top:24px;width:320px;height:700px;pointer-events:none";
+    document.body.appendChild(anchor);
+    window.dispatchEvent(new Event("resize"));
+  })()`);
+  const pinned = [];
+  for (const width of [400, 650]) {
+    await setM1PanelWidth(page.cdp, width);
+    const geometry = await waitFor(`M1-F 贴栏 ${width}`, async () => {
+      const value = await readM1Geometry(page.cdp);
+      return !value.floating && value.anchor && Math.abs(value.rect.width - width) <= 1 && Math.abs(value.rect.right - value.viewport.clientWidth) <= 1 ? value : null;
+    });
+    pinned.push({ requested: width, ...geometry });
+  }
+  results.m1Geometry.pinned = pinned;
+  check("M1-F3-贴栏自定义宽度400与650生效", pinned.every((entry) => Math.abs(entry.rect.width - entry.requested) <= 1 && !entry.floating), pinned);
+  await screenshot(page.cdp, path.join(OUT_DIR, "20-m1-pinned-650.png"));
+
+  await setM1Viewport(page.cdp, 999);
+  const at999 = await waitFor("M1-F 999 浮层", async () => {
+    const value = await readM1Geometry(page.cdp);
+    return value.floating && value.anchor ? value : null;
+  });
+  await setM1Viewport(page.cdp, 1000);
+  const at1000 = await waitFor("M1-F 1000 贴栏", async () => {
+    const value = await readM1Geometry(page.cdp);
+    return !value.floating && value.anchor ? value : null;
+  });
+  results.m1Geometry.viewportThreshold = { at999, at1000 };
+  check("M1-F4-999浮层与1000贴栏阈值", at999.floating && !at1000.floating, results.m1Geometry.viewportThreshold);
+  await screenshot(page.cdp, path.join(OUT_DIR, "21-m1-1000-pinned.png"));
+
+  await page.cdp.evaluate(`document.querySelector(".right-container-inner")?.remove()`);
+  await setM1Viewport(page.cdp, 1000);
+  await page.cdp.evaluate(`(() => {
+    const player = document.querySelector(".bpx-player-container");
+    player.style.boxSizing = "border-box";
+    player.style.width = "665px";
+    window.dispatchEvent(new Event("resize"));
+  })()`);
+  const available299 = await waitFor("M1-F 可用299浮层", async () => {
+    const value = await readM1Geometry(page.cdp);
+    return value.floating && !value.anchor && Math.abs(value.viewport.clientWidth - (value.player.right + 12) - 299) <= 1 ? value : null;
+  });
+  await page.cdp.evaluate(`(() => {
+    document.querySelector(".bpx-player-container").style.width = "664px";
+    window.dispatchEvent(new Event("resize"));
+  })()`);
+  const available300 = await waitFor("M1-F 可用300贴播放器", async () => {
+    const value = await readM1Geometry(page.cdp);
+    return !value.floating && Math.abs(value.rect.width - 300) <= 1 && Math.abs(value.rect.left - (value.player.right + 12)) <= 1 ? value : null;
+  });
+  results.m1Geometry.playerBoundary = { available299, available300 };
+  check("M1-F5-播放器右侧299浮层与300贴边", available299.floating && !available300.floating && Math.abs(available300.rect.width - 300) <= 1, results.m1Geometry.playerBoundary);
+  await screenshot(page.cdp, path.join(OUT_DIR, "22-m1-player-300.png"));
+
+  await setM1Viewport(page.cdp, 1400);
+  await page.cdp.evaluate(`(() => {
+    document.querySelector(".bpx-player-container").style.width = "400px";
+    window.dispatchEvent(new Event("resize"));
+  })()`);
+  const playerFallback = [];
+  for (const width of [400, 650]) {
+    await setM1PanelWidth(page.cdp, width);
+    const geometry = await waitFor(`M1-F 播放器降级 ${width}`, async () => {
+      const value = await readM1Geometry(page.cdp);
+      return !value.floating && !value.anchor && Math.abs(value.rect.width - width) <= 1 && Math.abs(value.rect.left - (value.player.right + 12)) <= 1 ? value : null;
+    });
+    playerFallback.push({ requested: width, ...geometry });
+  }
+  results.m1Geometry.playerFallback = playerFallback;
+  check("M1-F6-播放器降级自定义宽度400与650生效", playerFallback.every((entry) => Math.abs(entry.rect.width - entry.requested) <= 1 && !entry.floating), playerFallback);
+
+  await setM1Viewport(page.cdp, 999);
+  const floating = [];
+  for (const width of [400, 650]) {
+    await setM1PanelWidth(page.cdp, width);
+    const geometry = await waitFor(`M1-F 浮层 ${width}`, async () => {
+      const value = await readM1Geometry(page.cdp);
+      return value.floating && Math.abs(value.rect.width - width) <= 1 ? value : null;
+    });
+    floating.push({ requested: width, ...geometry });
+  }
+  results.m1Geometry.floating = floating;
+  check("M1-F7-浮层自定义宽度400与650生效", floating.every((entry) => Math.abs(entry.rect.width - entry.requested) <= 1 && entry.floating), floating);
+  await screenshot(page.cdp, path.join(OUT_DIR, "23-m1-999-float-650.png"));
+  await setM1Viewport(page.cdp, 1600);
 
   // ============================================================
   // 结果

@@ -671,6 +671,13 @@ chrome.action?.onClicked?.addListener(
         await clearUnsupportedPageFeedback(tabId);
       } else {
         logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+        await Promise.allSettled([
+          chrome.action?.setBadgeText?.({ tabId, text: "!" }),
+          chrome.action?.setTitle?.({
+            tabId,
+            title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
+          })
+        ]);
       }
       return;
     }

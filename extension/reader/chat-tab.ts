@@ -281,9 +281,6 @@ const liveStatus = createChatLiveStatus({
   onContinueTextToolRecord: (callId) => {
     getLiveController()?.dismissTextToolRecord?.(callId);
   },
-  onStart: () => {
-    void startLiveCompanion();
-  },
   onRetry: () => {
     void retryLiveCompanion();
   },
@@ -303,10 +300,17 @@ function bindLiveConsumerHooks(): void {
         chatRuntime.stopActiveStream();
       }
     },
-    onStateChange: (liveState, error, failureKind) => liveStatus.sync(liveState, error, failureKind),
-    onReconnecting: () => liveStatus.sync()
+    onStateChange: (liveState, error, failureKind) => {
+      liveStatus.sync(liveState, error, failureKind);
+      composer.updateSendBtnState();
+    },
+    onReconnecting: () => {
+      liveStatus.sync();
+      composer.updateSendBtnState();
+    }
   });
   liveStatus.setOpen(true);
+  composer.updateSendBtnState();
 }
 
 
@@ -406,7 +410,11 @@ const composer = createReaderChatComposer({
   onCancelSubtitleWait: () => sendGate.cancel(),
   onNotice: showConversationContextNotice,
   isImageProcessing: () => inputImages.isPending(),
-  hasInputImages: () => inputImages.count() > 0
+  hasInputImages: () => inputImages.count() > 0,
+  getLiveState: () => getLiveController()?.getState() ?? "idle",
+  onStartLive: () => {
+    void startLiveCompanion();
+  }
 });
 
 const explainIntentConsumption = createExplainIntentConsumption({
@@ -965,6 +973,7 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       return false;
     }
     if (els.input.value || inputImages.count() > 0) {
+      showConversationContextNotice("已保留未发送草稿，本次未自动发送。", 4000);
       els.input?.focus?.();
       return false;
     }

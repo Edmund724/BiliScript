@@ -722,6 +722,8 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
 
   playerAiState.setSubmitting(true);
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  const buttonWrap = button?.parentElement;
+  const buttonHost = buttonWrap?.parentElement;
   if (button) {
     button.disabled = true;
   }
@@ -732,15 +734,23 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
       throw new Error("AI 按钮未开启");
     }
     // 阅读模式外点击 = background 触发进入阅读模式；阅读模式内点击 = 直接定位
-    // 对话 tab。两条路径都携快捷提示词，由对话 seam 按当前会话状态决定发送或仅定位。
-    // 回包只表示命令已受理；发送结果与失败原因由对话区呈现。
+    // 对话 tab。回包等待进入与定位完成，不把命令受理当作定位成功。
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");
     }
     setMessage("已定位 AI 对话。");
   } catch (error) {
-    setMessage(`AI 快捷操作失败：${getErrorMessage(error)}`);
+    const message = `AI 快捷操作失败：${getErrorMessage(error)}`;
+    setMessage(message);
+    if (button && buttonWrap && !button.isConnected && buttonHost?.isConnected) {
+      buttonHost.appendChild(buttonWrap);
+    }
+    if (button?.isConnected) {
+      button.textContent = "AI 打开失败";
+      button.title = message;
+      button.setAttribute("aria-label", message);
+    }
   } finally {
     playerAiState.setSubmitting(false);
     if (button) {

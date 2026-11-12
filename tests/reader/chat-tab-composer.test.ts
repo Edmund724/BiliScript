@@ -20,10 +20,17 @@ function setupComposer(overrides: Partial<Parameters<typeof createReaderChatComp
     isTurnActive: vi.fn(() => false),
     stopActiveStream: vi.fn()
   };
+  let liveState: "idle" | "connecting" | "connected" | "failure" = "idle";
+  const onStartLive = vi.fn(() => {
+    liveState = "connecting";
+    composer.updateSendBtnState();
+  });
 
   const composer = createReaderChatComposer({
     els: { input, sendBtn },
     chatRuntime,
+    getLiveState: () => liveState,
+    onStartLive,
     ...overrides
   });
 
@@ -34,30 +41,50 @@ function setupComposer(overrides: Partial<Parameters<typeof createReaderChatComp
     input,
     sendBtn,
     chatRuntime,
-    composer
+    composer,
+    onStartLive,
+    setLiveState: (state: typeof liveState) => {
+      liveState = state;
+      composer.updateSendBtnState();
+    }
   };
 }
 
 describe("createReaderChatComposer send/stop button logic", () => {
-  it("空闲且输入框为空：发送键禁用，aria-label 为发送，无伴看相关状态类", () => {
-    const { input, sendBtn } = setupComposer();
+  it("idle 空草稿：同一按钮显示可聚焦的麦克风，点击启动并在 connecting 防连点", () => {
+    const { input, sendBtn, onStartLive } = setupComposer();
 
     expect(input.value).toBe("");
-    expect(sendBtn.classList.contains("is-live")).toBe(false);
+    expect(sendBtn.classList.contains("is-live")).toBe(true);
     expect(sendBtn.classList.contains("is-stop")).toBe(false);
-    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
+    expect(sendBtn.getAttribute("aria-label")).toBe("开启实时伴看");
+    expect(sendBtn.title).toBe("开启实时伴看");
+    expect(sendBtn.disabled).toBe(false);
+    expect(sendBtn.tabIndex).toBe(0);
+
+    sendBtn.focus();
+    expect(document.activeElement).toBe(sendBtn);
+    sendBtn.click();
+    expect(onStartLive).toHaveBeenCalledTimes(1);
+    expect(sendBtn.classList.contains("is-connecting")).toBe(true);
+    expect(sendBtn.getAttribute("aria-busy")).toBe("true");
+    expect(sendBtn.getAttribute("aria-label")).toBe("正在连接伴看…");
     expect(sendBtn.disabled).toBe(true);
+
+    sendBtn.click();
+    expect(onStartLive).toHaveBeenCalledTimes(1);
   });
 
-  it("输入框为空时按 Enter：不触发发送", () => {
-    const { input, chatRuntime } = setupComposer();
+  it("输入框为空时按 Enter：不触发发送也不启动伴看", () => {
+    const { input, chatRuntime, onStartLive } = setupComposer();
 
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
+    expect(onStartLive).not.toHaveBeenCalled();
   });
 
-  it("输入框有文字时：发送键可用，点击触发 sendTurn", () => {
-    const { input, sendBtn, chatRuntime } = setupComposer();
+  it("输入框有文字时：切回发送键，点击触发 sendTurn 而不启动伴看", () => {
+    const { input, sendBtn, chatRuntime, onStartLive } = setupComposer();
 
     input.value = "你好，请解释这段视频";
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -68,6 +95,33 @@ describe("createReaderChatComposer send/stop button logic", () => {
 
     sendBtn.click();
     expect(chatRuntime.sendTurn).toHaveBeenCalledWith("你好，请解释这段视频");
+    expect(onStartLive).not.toHaveBeenCalled();
+  });
+
+  it("connected 与 failure 不显示启动键，回 idle 才恢复；状态切换不清草稿", () => {
+    const { input, sendBtn, setLiveState } = setupComposer();
+    input.value = "保留这段草稿";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    setLiveState("connected");
+    expect(sendBtn.classList.contains("is-live")).toBe(false);
+    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
+    expect(sendBtn.disabled).toBe(false);
+    expect(input.value).toBe("保留这段草稿");
+
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(sendBtn.classList.contains("is-live")).toBe(false);
+    expect(sendBtn.disabled).toBe(true);
+
+    setLiveState("failure");
+    expect(sendBtn.classList.contains("is-live")).toBe(false);
+    expect(sendBtn.getAttribute("aria-busy")).toBeNull();
+    expect(sendBtn.disabled).toBe(true);
+
+    setLiveState("idle");
+    expect(sendBtn.classList.contains("is-live")).toBe(true);
+    expect(sendBtn.disabled).toBe(false);
   });
 
   it("流式输出期间：发送键切为停止键形态，点击调用 stopActiveStream", () => {
@@ -86,10 +140,10 @@ describe("createReaderChatComposer send/stop button logic", () => {
 
     composer.setStreamingUiState(false);
     expect(sendBtn.classList.contains("is-stop")).toBe(false);
-    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
+    expect(sendBtn.getAttribute("aria-label")).toBe("开启实时伴看");
   });
 
-  it("停止请求立即显示正在停止并防连点，终态后恢复发送键", () => {
+  it("停止请求立即显示正在停止并防连点，终态后恢复空草稿麦克风", () => {
     const harness = setupComposer();
     const { sendBtn, composer, chatRuntime } = harness;
     chatRuntime.stopActiveStream.mockImplementation(() => composer.setStreamingUiState(true, { stopping: true }));
@@ -103,8 +157,8 @@ describe("createReaderChatComposer send/stop button logic", () => {
     expect(chatRuntime.stopActiveStream).toHaveBeenCalledTimes(1);
 
     composer.setStreamingUiState(false);
-    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
-    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.getAttribute("aria-label")).toBe("开启实时伴看");
+    expect(sendBtn.disabled).toBe(false);
   });
 
   it("字幕等待期间：显示可取消等待卡，输入框与占位符不变", () => {
@@ -207,6 +261,8 @@ describe("图片发送守卫", () => {
     input.value = "   ";
     input.dispatchEvent(new Event("input", { bubbles: true }));
 
+    expect(sendBtn.classList.contains("is-live")).toBe(false);
+    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
     expect(sendBtn.disabled).toBe(true);
     expect(sendBtn.title).toBe("图片需随文字一起发送");
 

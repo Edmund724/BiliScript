@@ -42,6 +42,7 @@ import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 // bindRuntimeEvents 时注册进 shared 的原语槽——本模块只依赖 shared 叶子，
 // 不建 ui → entry 的静态边。
 import { dispatchContentScriptMessage } from "../shared/messaging.js";
+import type { ReaderEnterResponse } from "../shared/messaging-protocol.js";
 import { isReaderViewOpen } from "../reader/state.js";
 // 阅读壳（工单 arch-slim/02）：失同步判定收口为壳的唯一完好性自查
 //（restore 档自愈与本守卫共用同一 predicate，不再本地手抄）。
@@ -497,10 +498,27 @@ function handleScriptButtonClick(event: MouseEvent): void {
   if (isReaderViewOpen() || isReaderMode()) {
     return;
   }
-  dispatchContentScriptMessage(
+  const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  const showFailure = (error?: unknown) => {
+    if (!button?.isConnected) return;
+    const detail = typeof error === "string" ? error.trim() : "";
+    const message = detail ? `文摘面板打开失败：${detail}` : "文摘面板打开失败，请刷新浏览器网页重试";
+    button.textContent = "文摘打开失败";
+    button.title = message;
+    button.setAttribute("aria-label", message);
+  };
+  const dispatched = dispatchContentScriptMessage(
     { type: "reader-enter", readerUrl: buildReaderModeUrl(location.href) },
-    () => {}
+    (response) => {
+      const result = response as ReaderEnterResponse | undefined;
+      if (!result?.ok) {
+        showFailure(result?.error);
+      }
+    }
   );
+  if (!dispatched) {
+    showFailure();
+  }
 }
 
 // ===== 启动（模块求值末尾） =====
