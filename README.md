@@ -121,6 +121,18 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
 CLI 与扩展之间的数据不经过第三方服务器；后续分析产生的数据传输遵循所用 Agent 的模型与隐私设置。
 
+卸载本地 Agent 时，先在扩展的「设置 → 本地 Agent」点击「断开」，再在 PowerShell 执行以下命令（适用于默认安装目录和端口）：
+
+```powershell
+$cli = "$HOME\.agents\skills\biliscript\scripts\biliscript.mjs"
+$status = node $cli status | ConvertFrom-Json
+Stop-Process -Id $status.daemonPid -Force
+Remove-Item "$HOME\.agents\skills\biliscript" -Recurse -Force
+Remove-Item "$env:TEMP\biliscript-bridge-18492.token" -Force -ErrorAction SilentlyContinue
+```
+
+这会停止 Bridge，删除 Skill、CLI 和本机桥接凭据；若自定义过安装目录或端口，请替换对应路径和凭据文件名。
+
 ## 配置与 API Key
 
 点击文摘面板右上角的齿轮按钮打开「设置」抽屉即可配置全部选项（即改即存）。BiliScript 不收款也不转售 API，请勿将 Key 发到对话或公开渠道中。
