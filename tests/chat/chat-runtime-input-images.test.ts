@@ -148,6 +148,7 @@ describe("等待期间的发送快照", () => {
     await expect(sending).resolves.toBe("accepted");
 
     expect(firstPosted(ports)).toMatchObject({ prompt: "原始问题", images: [IMAGE] });
+    expect(deps.messages.querySelector(".chat-msg-user .chat-image-thumb")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
     expect(takeInputImages).toHaveBeenCalledWith([IMAGE]);
     expect(input.value).toBe("等待期间的新草稿");
     expect(attachments).toEqual([laterImage]);

@@ -190,7 +190,6 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       const renderer = createChatStreamRenderer({
         messages,
         getTimestampNavDeps: () => ({}),
-        normalizeMarkdownForSectionPaste,
         onContinue,
         onRegenerate
       });
@@ -309,7 +308,7 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       expect(onContinue).toHaveBeenCalledWith(1, assistantEl);
     });
 
-    it("中断且有部分正文（stopped=true, content='部分'）的消息：回放呈现折叠态思考框、部分正文、停止徽标与双操作按钮", async () => {
+    it("中断且有部分正文：回放呈现折叠思考框、停止徽标与完整消息操作", async () => {
       const { messages, replay } = setupReplayHarness();
       appendChatHistory(
         { role: "user", content: "请写一段话" },
@@ -336,12 +335,11 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       const bodyEl = assistantEl.querySelector(".chat-msg-assistant-body");
       expect(bodyEl?.innerHTML).toBe(renderMarkdown("这是写了一半的话"));
 
-      // 停止徽标与双按钮
       expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止生成");
       const actionBtns = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-      expect(actionBtns).toHaveLength(2);
-      expect(actionBtns[0].getAttribute("aria-label")).toBe("重新生成");
-      expect(actionBtns[1].getAttribute("aria-label")).toBe("继续生成");
+      expect([...actionBtns].map((button) => button.getAttribute("aria-label"))).toEqual([
+        "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+      ]);
     });
   });
 

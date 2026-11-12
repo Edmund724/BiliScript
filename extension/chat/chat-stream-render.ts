@@ -31,19 +31,20 @@ import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, RE
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
+import type { ImagePart } from "../ai/types.js";
+import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
 // chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染与消息操作回调。
 export interface ChatStreamRendererDeps {
   messages: HTMLElement;
-  normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   smoothStream?: boolean;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
-  onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
+  onSpeak?: (messageId: string, button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
   // 消息操作反馈（导出失败等）：由装配方接到对话 tab 自己的通知通道
@@ -66,7 +67,7 @@ export interface ChatContinuationSession {
 }
 
 export interface ChatMessageArea {
-  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string }) => void;
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string; images?: ImagePart[] }) => void;
   appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
   beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
   beginContinuation: (node: HTMLDivElement, opts?: { initialRaw?: string; thinking?: string }) => ChatContinuationSession;
@@ -154,6 +155,8 @@ interface ThinkingDisplayState {
  * 消费，不外露。
  */
 export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStreamRenderer {
+  const imageViewer = createChatImageViewer();
+  let nextMessageId = 0;
 
   // 自动滚动标志（原 sidepanel 模块级 shouldAutoScrollMessages，归位到本闭包）：
   // scroll 监听与恢复点经 setAutoScroll 写入，token flush / finalize /
@@ -186,13 +189,29 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string, images: ImagePart[] = []): void {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
-    if (messageId) {
-      node.setAttribute("data-message-id", messageId);
+    node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
+    const body = document.createElement("div");
+    body.className = "chat-msg-user-body";
+    body.textContent = text;
+    node.appendChild(body);
+    if (images.length) {
+      const imageStrip = document.createElement("div");
+      imageStrip.className = "chat-image-strip chat-msg-user-images";
+      images.forEach((image) => {
+        const item = document.createElement("div");
+        item.className = "chat-image-item";
+        item.appendChild(createChatImageViewButton(image, imageViewer, "已发送的图片"));
+        imageStrip.appendChild(item);
+      });
+      node.appendChild(imageStrip);
     }
-    node.textContent = text;
+    const actions = document.createElement("div");
+    actions.className = "chat-msg-actions";
+    actions.appendChild(createCopyButton("复制消息", () => text));
+    node.appendChild(actions);
     deps.messages.appendChild(node);
     // 只有发送路径（live）接管自动滚动并强制滚底；回放（replay）静默追加。
     if (source === "live") {
@@ -232,7 +251,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       const replayed = document.createElement("div");
       replayed.className = "chat-msg chat-msg-assistant";
       if (runId) replayed.setAttribute("data-run-id", runId);
-      if (messageId) replayed.setAttribute("data-message-id", messageId);
+      replayed.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
       deps.messages.appendChild(replayed);
       return replayed;
     }
@@ -253,7 +272,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 才能落到真实底部。
     node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
     if (runId) node.setAttribute("data-run-id", runId);
-    if (messageId) node.setAttribute("data-message-id", messageId);
+    node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
     // 流式 token 累加器（原 dataset.raw）随占位节点初始化/重置，
     // 保证第二条消息不会串上上一条的流式文本。
     resetTokenStreamState(node);
@@ -1075,7 +1094,32 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     button.className = `chat-msg-action-btn ${className}`;
     button.setAttribute("aria-label", label);
     button.setAttribute("title", label);
-    button.innerHTML = icon;
+    button.innerHTML = icon.trim();
+    return button;
+  }
+
+  function createCopyButton(label: string, getRaw: () => string): HTMLButtonElement {
+    const button = createActionButton("chat-msg-copy-btn", label, READING_COPY_ICON);
+    button.disabled = !getRaw().trim();
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(getRaw());
+        flashCopySuccess(button, { originalSvg: READING_COPY_ICON, originalLabel: label });
+      } catch {
+        deps.onNotice?.("复制失败，请检查浏览器剪贴板权限后重试");
+      }
+    });
+    return button;
+  }
+
+  function createContinueButton(node: HTMLDivElement, historyIndex?: number): HTMLButtonElement {
+    const button = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
+    button.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+    button.addEventListener("click", () => {
+      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+        deps.onContinue?.(historyIndex, node);
+      }
+    });
     return button;
   }
 
@@ -1085,14 +1129,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       stopped = false,
       historyIndex,
       content,
-      getPasteReadyRaw,
       hasSpeakableContent = false,
       cleanedRaw = ""
     }: {
       stopped?: boolean;
       historyIndex?: number;
       content?: HTMLElement;
-      getPasteReadyRaw?: () => string;
       hasSpeakableContent?: boolean;
       cleanedRaw?: string;
     } = {}
@@ -1108,50 +1150,26 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
     });
 
-    if (stopped) {
-      actions.appendChild(regenerateBtn);
-
-      const continueBtn = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
-      continueBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
-      continueBtn.addEventListener("click", () => {
-        if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
-          deps.onContinue?.(historyIndex, node);
-        }
-      });
-      actions.appendChild(continueBtn);
+    if (stopped && !content) {
+      actions.append(regenerateBtn, createContinueButton(node, historyIndex));
       return actions;
     }
 
-    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
-    copyBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(getPasteReadyRaw ? getPasteReadyRaw() : "");
-        // 就地反馈：按钮置换为对勾并把 aria-label 换成「已复制」（copy-feedback），
-        // 不重复写全局状态条（对话域反馈留在对话上下文）。
-        flashCopySuccess(copyBtn, {
-          originalSvg: READING_COPY_ICON,
-          originalLabel: "复制回复"
-        });
-      } catch {
-        copyBtn.disabled = true;
-        window.setTimeout(() => {
-          copyBtn.disabled = false;
-        }, 500);
-      }
-    });
-    actions.appendChild(copyBtn);
+    actions.appendChild(createCopyButton("复制回复", () => cleanedRaw));
 
     const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
     speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
     speakBtn.setAttribute("aria-pressed", "false");
     speakBtn.addEventListener("click", () => {
       if (content) {
-        void deps.onSpeak?.(speakBtn, content);
+        void deps.onSpeak?.(node.dataset.messageId || "", speakBtn, content);
       }
     });
-    actions.appendChild(speakBtn);
+    actions.append(speakBtn, regenerateBtn);
 
-    actions.appendChild(regenerateBtn);
+    if (stopped) {
+      actions.appendChild(createContinueButton(node, historyIndex));
+    }
 
     const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
     exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
@@ -1160,7 +1178,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         return;
       }
       try {
-        deps.onExport?.(historyIndex, getPasteReadyRaw ? getPasteReadyRaw() : "");
+        deps.onExport?.(historyIndex, cleanedRaw);
       } catch (error) {
         deps.onNotice?.(`导出失败：${getErrorMessage(error)}`);
       }
@@ -1196,13 +1214,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       node.appendChild(thinkingEl);
     }
     const cleanedRaw = stripThinkBlocks(raw);
-    let cachedPasteReadyRaw: string | null = null;
-    function getPasteReadyRaw(): string {
-      if (cachedPasteReadyRaw === null) {
-        cachedPasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
-      }
-      return cachedPasteReadyRaw;
-    }
 
     const content = document.createElement("div");
     content.className = "chat-msg-assistant-body markdown-body";
@@ -1219,7 +1230,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       stopped,
       historyIndex,
       content,
-      getPasteReadyRaw,
       hasSpeakableContent,
       cleanedRaw
     });
@@ -1255,6 +1265,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
     let accumulatedThinking = opts?.initialThinking || "";
+    let terminalHistoryIndex: number | undefined;
 
     function flushPendingThinking(): void {
       const state = getTokenStreamState(node);
@@ -1329,6 +1340,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
     // 回放显式传来源（含空数组），不触发这条消费副作用。
     function finish({ raw, thinking, stopped = false, userPrompt = "", sources, historyIndex }: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
+      terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
@@ -1382,6 +1394,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 挂停止态：自动取消挂起的流式渲染帧；
     // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
     function stop(reason: string, { userPrompt = "", historyIndex }: { userPrompt?: string; historyIndex?: number } = {}): { raw: string; body: boolean } {
+      terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
       const text = getStreamRaw(node);
@@ -1442,6 +1455,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     function markTruncated(text: string): void {
+      const actions = node.querySelector(".chat-msg-actions");
+      if (actions && !actions.querySelector(".chat-msg-continue-btn")) {
+        actions.insertBefore(createContinueButton(node, terminalHistoryIndex), actions.querySelector(".chat-msg-export-btn"));
+      }
       appendBadge(node, "chat-msg-truncated", text);
     }
 
@@ -1571,7 +1588,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     resetTokenStreamState(node);
 
-    node.querySelectorAll(".chat-msg-stopped").forEach((el) => el.remove());
+    node.querySelectorAll(".chat-msg-stopped, .chat-msg-truncated").forEach((el) => el.remove());
     node.querySelectorAll(".chat-msg-actions").forEach((el) => el.remove());
 
     const existingThinking = Array.from(node.querySelectorAll<HTMLDivElement>(".chat-thinking"));
@@ -1642,8 +1659,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   const messageArea: ChatMessageArea = {
-    appendUserMessage(text, { source = "live", messageId } = {}) {
-      appendUserMessageNode(text, source, messageId);
+    appendUserMessage(text, { source = "live", messageId, images = [] } = {}) {
+      appendUserMessageNode(text, source, messageId, images);
     },
     appendAssistantMessage({ source = "live", runId, messageId } = {}) {
       return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
@@ -1657,6 +1674,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     },
     clear() {
       deps.onClear?.();
+      imageViewer.close();
       deps.messages.innerHTML = "";
     }
   };

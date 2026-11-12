@@ -388,7 +388,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     },
     onExport: exportAssistant,
     onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
-    onSpeak: (button, text) => speech.toggle(button, text),
+    onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
     isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
   });
@@ -691,7 +691,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const continuation = activeContinuation;
       let preserveSnapshotNotice = false;
       if (!regeneration && !continuation) {
-        messageArea.appendUserMessage(text, { source: "live" });
+        messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
         preserveSnapshotNotice = deps.input.value !== inputSnapshot;
         if (!preserveSnapshotNotice) {
           deps.input.value = "";
@@ -1040,6 +1040,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 受理体在 postMessage 之后经 turn.flushDeferredStop 补发。不登记即静默丢失，
   // settle 悬到整段流自然结束。
   function stopActiveStream(): void {
+    if (!turn.isActive()) {
+      return;
+    }
+    setStreamingUiState(true, { stopping: true });
     turn.stop();
   }
 

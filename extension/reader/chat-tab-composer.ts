@@ -81,8 +81,8 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
 
     if (isStreaming) {
       sendBtn.disabled = stopInFlight;
-      sendBtn.setAttribute("aria-label", "停止");
-      sendBtn.setAttribute("title", "停止生成");
+      sendBtn.setAttribute("aria-label", stopInFlight ? "正在停止…" : "停止");
+      sendBtn.setAttribute("title", stopInFlight ? "正在停止…" : "停止生成");
       return;
     }
 

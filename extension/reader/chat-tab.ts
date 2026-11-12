@@ -563,6 +563,7 @@ const { loadContextState } = contextLoad;
 // 不在途时零延迟零行为差：这里不留 await，applyById 在同一 tick 内完成
 //（characterization 钉在 tests/reader/chat-tab.test.ts）。
 async function openConversationById(id: string): Promise<void> {
+  chatRuntime.stopSpeech();
   if (chatRuntime.isTurnActive()) {
     await chatRuntime.settleTurn();
   }

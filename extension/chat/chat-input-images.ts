@@ -2,6 +2,7 @@
 // 保留等待期间新增的图片及其在途压缩。
 
 import type { ImagePart } from "../ai/types.js";
+import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import {
   IMAGE_MAX_BYTES,
   IMAGE_MAX_COUNT,
@@ -87,7 +88,10 @@ function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File
 
 export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImages {
   const compress = deps.compress || createImageCompressor().compress;
+  const viewer = createChatImageViewer();
   let attachments: Attachment[] = [];
+  // clear 与无快照的 takeImages 递增附件区世代号，作废此前在途压缩；按快照
+  // 消费不递增，等待期间新粘贴的图片可以正常落位。
   let generation = 0;
   let nextId = 1;
   let pendingUi = false;
@@ -118,7 +122,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
       return;
     }
     const candidates = deps.strip
-      ? Array.from(deps.strip.querySelectorAll<HTMLButtonElement>("[data-chat-image-preview]"))
+      ? Array.from(deps.strip.querySelectorAll<HTMLButtonElement>(".chat-image-preview"))
       : [];
     const trigger = candidates.find((node) => Number(node.dataset.chatImageId) === id);
     if (trigger) {
@@ -141,19 +145,12 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
       node.className = "chat-image-item";
       node.dataset.chatImageId = String(item.id);
       if (item.compressed) {
-        const preview = document.createElement("button");
-        preview.type = "button";
-        preview.className = "chat-image-preview";
-        preview.dataset.chatImagePreview = String(index);
-        preview.dataset.chatImageId = String(item.id);
-        preview.setAttribute("aria-label", `预览第 ${index + 1} 张图片`);
-        preview.title = "预览图片";
-        const thumb = document.createElement("img");
-        thumb.className = "chat-image-thumb";
-        thumb.src = `data:${item.compressed.part.mime};base64,${item.compressed.part.data}`;
-        thumb.alt = `第 ${index + 1} 张粘贴图片`;
-        preview.appendChild(thumb);
-        node.appendChild(preview);
+        const open = createChatImageViewButton(item.compressed.part, viewer, `第 ${index + 1} 张粘贴图片`);
+        open.classList.add("chat-image-preview");
+        open.dataset.chatImageId = String(item.id);
+        open.setAttribute("aria-label", `预览第 ${index + 1} 张图片`);
+        open.title = "预览图片";
+        node.appendChild(open);
       } else {
         const skeleton = document.createElement("span");
         skeleton.className = "chat-image-skeleton";
@@ -283,6 +280,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
   }
 
   function clear(): void {
+    viewer.close();
     generation += 1;
     closePreview(false);
     attachments = [];
@@ -294,6 +292,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     if (!Number.isInteger(index) || index < 0 || index >= attachments.length) {
       return;
     }
+    viewer.close();
     const [removed] = attachments.splice(index, 1);
     if (activePreview?.id === removed.id) {
       closePreview(false);

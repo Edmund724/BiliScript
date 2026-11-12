@@ -107,6 +107,42 @@ describe("消息操作反馈归属（06 号票）", () => {
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
   });
 
+  it("复制保留原 Markdown，用户消息也复制原文而不升级标题", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+    await runtime.sendTurn("# 用户标题");
+    runtime.handleChatPortMessage({ type: "token", data: "## 回答标题\n\n**粗体**" });
+    runtime.handleChatPortMessage({ type: "done" });
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+
+    const assistant = deps.messages.querySelector(".chat-msg-assistant")!;
+    assistant.querySelector<HTMLButtonElement>(".chat-msg-copy-btn")!.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("## 回答标题\n\n**粗体**"));
+
+    const user = deps.messages.querySelector(".chat-msg-user")!;
+    user.querySelector<HTMLButtonElement>(".chat-msg-copy-btn")!.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("# 用户标题"));
+  });
+
+  it("复制失败：经对话通知通道提示检查权限，可重试", async () => {
+    const deps = makeDeps();
+    const { node } = await makeFinishedAssistant(deps);
+    const writeText = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+
+    const copyBtn = node.querySelector<HTMLButtonElement>(".chat-msg-copy-btn")!;
+    copyBtn.click();
+
+    await vi.waitFor(() => expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(
+      "复制失败，请检查浏览器剪贴板权限后重试",
+      4000
+    ));
+    expect(copyBtn.disabled).toBe(false);
+  });
+
   it("导出 Markdown 失败：onNotice 落到对话 tab 通知通道，文案带病因", async () => {
     const deps = makeDeps();
     const { node } = await makeFinishedAssistant(deps);
