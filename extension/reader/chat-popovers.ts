@@ -1,12 +1,15 @@
-// reader/chat-popovers.ts — 对话 tab 历史整页、模型面板与更多操作菜单的开合、
-// 互斥与文档级外点关闭（任一打开先关其余层，Esc 全关，外点全关）。
+// 历史内容模式、模型面板与显示设置弹层共用 hidden 投影；同一事件只结算最上层。
 import { ids } from "./state.js";
+
+export type HistoryExitFocus = "trigger" | "input" | "none";
 
 export interface CreateReaderChatPopoversDeps {
   historyPopover: HTMLElement;
   modelPanel: HTMLElement;
   historyBtn: HTMLElement;
   modelChipBtn: HTMLElement;
+  historyBackBtn?: HTMLElement | null;
+  conversationInput?: HTMLElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
   renderHistoryList: () => void;
@@ -15,7 +18,7 @@ export interface CreateReaderChatPopoversDeps {
 
 export interface ReaderChatPopovers {
   toggleHistoryPopover: (event?: Event) => void;
-  hideHistoryPopover: () => void;
+  hideHistoryPopover: (options?: { focus?: HistoryExitFocus }) => void;
   toggleModelPanel: (event?: Event) => void;
   hideModelPanel: () => void;
   toggleMoreMenu: (event?: Event) => void;
@@ -27,33 +30,36 @@ export interface ReaderChatPopovers {
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
   const { historyPopover, modelPanel, moreBtn, moreMenu } = deps;
 
-  // 互斥基准：任一打开前先关其他层（同一时刻至多一层开着）。
-  function hideOthers(except: HTMLElement): void {
-    for (const popover of [historyPopover, modelPanel, moreMenu]) {
-      if (!popover || popover === except) {
-        continue;
-      }
-      if (popover === modelPanel) {
-        setModelPanelHidden(true);
-      } else if (popover === moreMenu) {
-        setMoreMenuHidden(true);
-      } else {
-        popover.hidden = true;
-      }
+  function focusWithoutScroll(element: HTMLElement | null | undefined): void {
+    element?.focus({ preventScroll: true });
+  }
+
+  function setHistoryHidden(hidden: boolean, focus: HistoryExitFocus = "none"): void {
+    const wasOpen = !historyPopover.hidden;
+    historyPopover.hidden = hidden;
+    deps.historyBtn.setAttribute("aria-expanded", String(!hidden));
+    if (!hidden) {
+      focusWithoutScroll(deps.historyBackBtn);
+    } else if (wasOpen && focus === "trigger") {
+      focusWithoutScroll(deps.historyBtn);
+    } else if (wasOpen && focus === "input") {
+      focusWithoutScroll(deps.conversationInput);
     }
   }
 
-  // 模型面板开合同步 chip 箭头方向：面板在 chip 上方弹出，开 = chevron 朝上
-  //（.is-open），关 = 朝下。
+  function hideOthers(except: HTMLElement): void {
+    if (historyPopover !== except) setHistoryHidden(true);
+    if (modelPanel !== except) setModelPanelHidden(true);
+    if (moreMenu && moreMenu !== except) setMoreMenuHidden(true);
+  }
+
   function setModelPanelHidden(hidden: boolean): void {
     modelPanel.hidden = hidden;
     deps.modelChipBtn.classList.toggle("is-open", !hidden);
   }
 
   function setMoreMenuHidden(hidden: boolean): void {
-    if (moreMenu) {
-      moreMenu.hidden = hidden;
-    }
+    if (moreMenu) moreMenu.hidden = hidden;
     if (moreBtn) {
       moreBtn.setAttribute("aria-expanded", String(!hidden));
       moreBtn.classList.toggle("is-active", !hidden);
@@ -62,16 +68,14 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
 
   function toggleHistoryPopover(event?: Event): void {
     event?.stopPropagation();
-    hideOthers(historyPopover);
     const willShow = historyPopover.hidden;
-    historyPopover.hidden = !willShow;
-    if (willShow) {
-      deps.renderHistoryList();
-    }
+    hideOthers(historyPopover);
+    setHistoryHidden(!willShow, willShow ? "none" : "trigger");
+    if (willShow) deps.renderHistoryList();
   }
 
-  function hideHistoryPopover(): void {
-    historyPopover.hidden = true;
+  function hideHistoryPopover({ focus = "trigger" }: { focus?: HistoryExitFocus } = {}): void {
+    setHistoryHidden(true, focus);
   }
 
   function toggleModelPanel(event?: Event): void {
@@ -79,9 +83,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     hideOthers(modelPanel);
     const willShow = modelPanel.hidden;
     setModelPanelHidden(!willShow);
-    if (willShow) {
-      deps.renderModelPanel();
-    }
+    if (willShow) deps.renderModelPanel();
   }
 
   function hideModelPanel(): void {
@@ -90,52 +92,49 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
 
   function toggleMoreMenu(event?: Event): void {
     event?.stopPropagation();
-    if (!moreMenu) {
-      return;
-    }
+    if (!moreMenu) return;
     hideOthers(moreMenu);
-    const willShow = moreMenu.hidden;
-    setMoreMenuHidden(!willShow);
+    setMoreMenuHidden(!moreMenu.hidden);
   }
 
   function hideMoreMenu(): void {
     setMoreMenuHidden(true);
   }
 
-  // 外点关闭
   function handleDocumentClick(event: MouseEvent): void {
-    const isMoreOpen = Boolean(moreMenu && !moreMenu.hidden);
-    if (historyPopover.hidden && modelPanel.hidden && !isMoreOpen) {
-      return;
-    }
-    if (!(event.target instanceof Element)) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!historyPopover.hidden) {
+      if (target?.closest(`#${ids.readingChatHistoryPopover}, #${ids.readingChatHistoryBtn}`)) return;
       hideHistoryPopover();
+      return;
+    }
+    if (!modelPanel.hidden) {
+      if (target?.closest(`#${ids.readingChatModelPanel}, #${ids.readingChatModelChip}`)) return;
       hideModelPanel();
+      return;
+    }
+    if (moreMenu && !moreMenu.hidden) {
+      if (target?.closest(`#${ids.readingChatMoreMenu}, #${ids.readingChatMoreBtn}`)) return;
       hideMoreMenu();
-      return;
     }
-    if (event.target.closest(`#${ids.readingChatHistoryPopover}`) || event.target.closest(`#${ids.readingChatHistoryBtn}`)) {
-      return;
-    }
-    if (event.target.closest(`#${ids.readingChatModelPanel}`) || event.target.closest(`#${ids.readingChatModelChip}`)) {
-      return;
-    }
-    if (event.target.closest(`#${ids.readingChatMoreMenu}`) || event.target.closest(`#${ids.readingChatMoreBtn}`)) {
-      return;
-    }
-    hideHistoryPopover();
-    hideModelPanel();
-    hideMoreMenu();
   }
 
-  // Esc 全关
   function handleEscapeKey(event: KeyboardEvent): void {
-    if (event.key !== "Escape") {
+    if (event.key !== "Escape") return;
+    if (!historyPopover.hidden) {
+      event.preventDefault();
+      hideHistoryPopover();
       return;
     }
-    hideHistoryPopover();
-    hideModelPanel();
-    hideMoreMenu();
+    if (!modelPanel.hidden) {
+      event.preventDefault();
+      hideModelPanel();
+      return;
+    }
+    if (moreMenu && !moreMenu.hidden) {
+      event.preventDefault();
+      hideMoreMenu();
+    }
   }
 
   return {

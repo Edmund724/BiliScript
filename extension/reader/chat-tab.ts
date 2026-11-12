@@ -70,6 +70,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -203,6 +204,7 @@ const els = {
   historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
   moreBtn: document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement | null,
   moreMenu: document.getElementById(ids.readingChatMoreMenu) as HTMLElement | null,
+  displaySettingsBtn: document.getElementById(ids.readingChatDisplaySettingsBtn) as HTMLButtonElement | null,
   lineHeightSlider: document.getElementById(ids.readingChatLineHeight) as HTMLInputElement | null,
   lineHeightValue: document.getElementById(ids.readingChatLineHeightValue) as HTMLElement | null,
   lineHeightResetBtn: document.getElementById(ids.readingChatLineHeightResetBtn) as HTMLButtonElement | null,
@@ -261,6 +263,12 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 
+function openChatSettings(target?: "asr" | "appearance"): void {
+  popovers.hideHistoryPopover({ focus: "none" });
+  popovers.hideMoreMenu();
+  requestUiCommand("open-settings", target ? { target } : undefined);
+}
+
 const liveStatus = createChatLiveStatus({
   root: els.liveStatus,
   getState: () => getLiveController()?.getState() ?? "idle",
@@ -282,6 +290,7 @@ const liveStatus = createChatLiveStatus({
   onStop: stopLiveCompanion,
   onRestore: restoreLiveCompanionOverlay,
   onOpenSettings: (target) => {
+    popovers.hideHistoryPopover({ focus: "none" });
     void openLiveCompanionSettings(target);
   }
 });
@@ -352,10 +361,8 @@ const feedback = createReaderChatFeedback({
   clearTimer: (handle) => window.clearTimeout(handle),
   scrollToBottom: () => chatRuntime.scrollToBottom(),
   suggestions: suggestionsSlot,
-  // script-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
-  // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）。
-  // 带目标时直达该分区的设置动作（票 04：ASR 配置类拦截 → ASR 平台编辑/开关）。
-  onOpenSettings: (settingsTarget) => requestUiCommand("open-settings", settingsTarget ? { target: settingsTarget } : undefined)
+  // 所有对话侧设置入口先退出历史，再经既有壳命令打开目标分区。
+  onOpenSettings: (settingsTarget) => openChatSettings(settingsTarget)
 });
 const {
   showConversationContextNotice,
@@ -573,17 +580,17 @@ const lists = createReaderChatLists({
   },
   deleteById: (id) => conversationStore.deleteById(id),
   suggestions: suggestionsSlot,
-  hideHistoryPopover: () => popovers.hideHistoryPopover()
+  hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
 
-// 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 reader-bus 的转发槽并入
-// ui-renderer 的单一 document click 委托（会话触发源组装处随激活注册 / 随收尾
-// 摘除）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
+// 历史内容模式与两个弹层共用 hidden 投影；外点与 Esc 只结算最上层。
 const popovers = createReaderChatPopovers({
   historyPopover: els.historyPopover,
   modelPanel: els.modelPanel,
   historyBtn: els.historyBtn,
   modelChipBtn: els.modelChip,
+  historyBackBtn: els.historyBackBtn,
+  conversationInput: els.input,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
   renderHistoryList: () => lists.renderHistoryList(),
@@ -911,7 +918,7 @@ export function closeChatSession(): void {
   sendGate.cancel();
   // 等待态同步收口，重开时发送键不会带着「正在抓取字幕…」禁用下去。
   composer.setSubtitleWaitUi(false);
-  popovers.hideHistoryPopover();
+  popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();
   removeConversationContextNotice();
   sendGate.refreshAsrNotice();
@@ -1038,11 +1045,13 @@ function bindEvents(): void {
     popovers.toggleMoreMenu(event);
   });
   els.newChatBtn?.addEventListener("click", () => {
-    popovers.hideMoreMenu();
     void startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
     popovers.toggleHistoryPopover(event);
+  });
+  els.displaySettingsBtn?.addEventListener("click", () => {
+    openChatSettings("appearance");
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
@@ -1382,13 +1391,26 @@ function updateChatLayoutState(): void {
   }
 }
 
-// 【整段迁移自 sidepanel.ts】开启新会话：隐藏 popover → 强刷静默取上下文 →
-// live 快照落地主上下文 → restartChat(keepContext) → 初始态渲染。
+// 新建会话只在确认后拆除旧视图；草稿、附件与在途回合的风险合并在一次确认中。
 async function startNewConversation(): Promise<void> {
-  // 新会话：首配返回意图与视图守卫一并作废（票 03）。
+  const turnActive = chatRuntime.isTurnActive();
+  const hasDraft = Boolean(els.input.value);
+  const imageCount = inputImages.count();
+  if (turnActive || hasDraft || imageCount > 0) {
+    const risks: string[] = [];
+    if (turnActive) risks.push("中断正在生成的回复");
+    if (hasDraft) risks.push("清空未发送的草稿");
+    if (imageCount > 0) risks.push(`移除 ${imageCount} 张已添加的图片`);
+    const confirmed = await confirmDialog({
+      title: "新建会话",
+      message: `新建会话会${risks.join("，")}。`,
+      confirmText: "新建会话"
+    });
+    if (!confirmed) return;
+  }
   clearChatSetupResumeIntent();
   chatSetupViewHold = false;
-  popovers.hideHistoryPopover();
+  popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();
   await loadContextState({ forceRefresh: true, silent: true });
   // 组合根绕过点（有意，不经 plan.action 分支）：live 快照非空即落到主上下文。

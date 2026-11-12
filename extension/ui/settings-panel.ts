@@ -125,7 +125,7 @@ let asrPresets: AsrProviderPreset[] = [];
 // 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
-let pendingLiveSettingsTarget: LiveSettingsTarget | null = null;
+let pendingSettingsTarget: LiveSettingsTarget | "appearance" | null = null;
 
 // ===== 分区渲染隔离 =====
 // .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
@@ -489,33 +489,40 @@ export function renderReaderSettingsPanel(): void {
       }
       host.dataset.biliscriptSettingsRendered = "1";
       void loadSettings(collectElements(host));
-      const pendingTarget = pendingLiveSettingsTarget;
-      pendingLiveSettingsTarget = null;
-      if (pendingTarget) void openLiveSettings(pendingTarget);
+      const pendingTarget = pendingSettingsTarget;
+      pendingSettingsTarget = null;
+      if (pendingTarget) void openSettingsTarget(pendingTarget);
     })();
     return;
   }
   void loadSettings(collectElements(host));
 }
 
-export async function openLiveSettings(target: LiveSettingsTarget): Promise<void> {
+export function openLiveSettings(target: LiveSettingsTarget): Promise<void> {
+  return openSettingsTarget(target);
+}
+
+export function openAppearanceSettings(): Promise<void> {
+  return openSettingsTarget("appearance");
+}
+
+async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Promise<void> {
   const host = settingsHostRef ?? document.getElementById(ids.readingSettingsHost);
   if (!host) return;
-  pendingLiveSettingsTarget = target;
+  pendingSettingsTarget = target;
   if (!host.dataset.biliscriptSettingsRendered) {
     renderReaderSettingsPanel();
     return;
   }
-  pendingLiveSettingsTarget = null;
-  const section = target === "live" ? "live" : "llm";
+  pendingSettingsTarget = null;
+  const section = target === "appearance" ? "appearance" : target === "live" ? "live" : "llm";
   host.querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)?.click();
   const sectionHeading = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });
-  if (target === "live") return;
-  // target === "gemini-key"：四态直达凭据编辑器——无记录 / 非官方地址新建官方
-  // Gemini 记录（不静默改写中转地址），缺 Key / 可用编辑实际引用记录并聚焦 Key；
-  // 经横幅/会话故障直达，无伴看草稿可恢复，保存 / 取消即停在本编辑器
+  if (target !== "gemini-key") return;
+  // 四态直达 Gemini Live 凭据编辑器：无记录 / 非官方地址新建官方 Gemini 记录，
+  // 缺 Key / 可用编辑实际引用记录并聚焦 Key。
   const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
   await enterAiCredentialEditor({
     target: "gemini-live",

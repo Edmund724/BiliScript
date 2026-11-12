@@ -24,7 +24,8 @@ import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
 const settingsPanelMocks = vi.hoisted(() => ({
   renderReaderSettingsPanel: vi.fn(),
-  openLiveSettings: vi.fn()
+  openLiveSettings: vi.fn(),
+  openAppearanceSettings: vi.fn()
 }));
 
 vi.mock("../../extension/ui/settings-panel.js", () => settingsPanelMocks);
@@ -171,6 +172,13 @@ describe("壳命令 open-settings", () => {
 
     expect(m.state.reader.readingSettingsExpanded).toBe(true);
     await vi.waitFor(() => expect(settingsPanelMocks.openLiveSettings).toHaveBeenCalledWith("gemini-key"));
+  });
+
+  it("更多显示设置深链到外观分区", async () => {
+    m.requestUiCommand("open-settings", { target: "appearance" });
+
+    expect(m.state.reader.readingSettingsExpanded).toBe(true);
+    await vi.waitFor(() => expect(settingsPanelMocks.openAppearanceSettings).toHaveBeenCalledTimes(1));
   });
 });
 
