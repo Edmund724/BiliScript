@@ -174,7 +174,7 @@ describe("桌面 Agent CLI 端到端", () => {
     });
   });
 
-  it("并发截帧逐条转发且复用同一个 Daemon", async () => {
+  it("并发截帧并发转发且复用同一个 Daemon", async () => {
     const previous = extension?.onMessage;
     let active = 0;
     let maxActive = 0;
@@ -210,7 +210,7 @@ describe("桌面 Agent CLI 端到端", () => {
       const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
         runCli("frame", ["--bvid", "BV1test000000", "--time", "10", "--out", join(scratch, `concurrent-${index}`)])
       ));
-      expect(maxActive).toBe(1);
+      expect(maxActive).toBeGreaterThan(1);
       expect(results.every((result) => result.ok === true)).toBe(true);
       expect(new Set(results.map((result) => result.daemonPid))).toEqual(new Set([daemonPid]));
     } finally {

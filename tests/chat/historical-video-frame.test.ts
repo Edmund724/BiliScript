@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { captureHistoricalVideoFrame } from "../../extension/chat/historical-video-frame.js";
+import {
+  captureHistoricalVideoFrame,
+  createHistoricalVideoFrameSession
+} from "../../extension/chat/historical-video-frame.js";
 
 function makeVideo(duration = 120) {
   const video = document.createElement("video");
@@ -78,6 +81,37 @@ describe("隐藏视频历史帧截取", () => {
     expect(context.drawImage).toHaveBeenCalledWith(media.video, 0, 0, 640, 360);
     expect(media.video.isConnected).toBe(false);
     expect(media.video.getAttribute("src")).toBeNull();
+    expect(media.video.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话内连续取帧复用视频，关闭时才清理媒体", async () => {
+    const media = makeVideo();
+    const { canvas } = makeCanvas();
+    const transport = vi.fn(async () => ({
+      code: 0,
+      data: { durl: [{ url: "https://upos.example.com/video.mp4" }] }
+    }));
+    const createVideo = vi.fn(() => media.video);
+    const session = createHistoricalVideoFrameSession(
+      { bvid: "BV1history", cid: "101" },
+      { transport, createVideo, createCanvas: () => canvas }
+    );
+    try {
+      const first = session.capture(90);
+      await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+      media.metadataReady();
+      media.canPlay();
+      await first;
+      expect(media.video.isConnected).toBe(true);
+
+      await session.capture(30);
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(createVideo).toHaveBeenCalledTimes(1);
+      expect(media.seeks).toEqual([88, 90, 92, 28, 30, 32]);
+    } finally {
+      session.close();
+    }
+    expect(media.video.isConnected).toBe(false);
     expect(media.video.pause).toHaveBeenCalledTimes(1);
   });
 

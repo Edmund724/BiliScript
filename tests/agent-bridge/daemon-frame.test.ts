@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("Agent Bridge Daemon 截帧生命周期", () => {
-  it("扩展不回包时超时释放，在飞槽位可接收下一次截帧", async () => {
+  it("扩展不回包时超时返回，后续截帧仍可执行", async () => {
     const port = 24000 + Math.floor(Math.random() * 1000);
     const server = await startDaemon({ port, frameTimeoutMs: 50 });
     const extension = await connectWebSocket({
