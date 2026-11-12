@@ -42,6 +42,8 @@ describe("本地 Agent 设置", () => {
       return element;
     });
     expect(prompt.value).toContain("irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex");
+    expect(prompt.value).toContain("非沙箱");
+    expect(prompt.value).toContain("本机 PowerShell");
     expect(prompt.value).toContain("去连接");
     expect(prompt.value).toContain("完整错误");
     expect(prompt.value.length).toBeLessThan(300);

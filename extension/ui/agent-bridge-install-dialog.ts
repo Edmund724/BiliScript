@@ -8,7 +8,8 @@ export function buildAgentBridgeInstallPrompt(address: string): string {
   const portPrefix = port === "18492"
     ? ""
     : `$env:BILISCRIPT_BRIDGE_PORT='${port}'; `;
-  return `请使用以下命令帮我安装并配置 BiliScript 本地 Agent：
+  return `请使用以下命令帮我安装并配置 BiliScript 本地 Agent。
+必须在运行浏览器的 Windows 宿主机（非沙箱、非容器、非 WSL）中执行。若你无法访问该环境，请让我自行在本机 PowerShell 执行，不要在其他环境中启动 Bridge：
 ${portPrefix}irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex
 完成后提醒我回扩展点击「去连接」。若失败，请给出完整错误。`;
 }
