@@ -105,7 +105,7 @@ import {
 } from "./overview-ui.js";
 import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
-import { confirmDialog } from "../ui/confirm-dialog.js";
+import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
@@ -579,6 +579,8 @@ export function closeReadingView() {
   clearOverviewSetupResumeIntent();
   clearExplainSetupResumeIntent();
   clearAsrSetupResumeIntent();
+  // 视图销毁只撤销确认框；搜索授权据此取消回合，不按用户拒绝写偏好。
+  dismissConfirmDialog();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal();

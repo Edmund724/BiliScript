@@ -30,7 +30,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
-import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
+import { resolveWebSearchOptIn } from "../search/opt-in-notice.js";
 import { resolveWebSearchRuntime, type WebSearchRuntime } from "../search/search-runtime.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
@@ -202,15 +202,17 @@ function startExplainRequest(): void {
       // explainSelection 按需动态装载（ai/explain 不再常驻 reader chunk），
       // 装载失败与请求失败同走 error 态。
       const { explainSelection } = await import("../ai/explain.js");
-      // 联网搜索（spec §2.1：选区解释链同样可用）：经 search/opt-in-notice.ts 的
-      // ensureWebSearchOptIn 在解析搜索运行时之前完成开关判定与首次授权（spec §6.7 /
-      // 票 11）——未获同意不外发查询词；用户本次拒绝时闸侧已关闭联网偏好，本卡按
-      // 无搜索继续解释。授权通过但当前链为空（未配置 / 全冷却）时，平台可用性反馈与
-      // 授权分开：落在本卡的 notice 通道（下方），解释照常进行——搜索是增强，缺失不
-      // 阻塞解释。中止复用本卡 abort controller，关闭/重试可断在途搜索。
-      const optIn = await ensureWebSearchOptIn();
+      // 联网搜索（spec §2.1：选区解释链同样可用）：经 search/opt-in-notice.ts 在
+      // 解析搜索运行时之前完成开关判定与首次授权——未获同意不外发查询词；用户拒绝时
+      // 闸侧已关闭联网偏好，本卡按无搜索继续解释。授权通过但当前链为空（未配置 /
+      // 全冷却）时，平台可用性反馈与授权分开：落在本卡的 notice 通道（下方），解释
+      // 照常进行。视图销毁或卡片代际失效时直接取消，不再发起生成。
+      const optIn = await resolveWebSearchOptIn();
+      if (optIn === "view-destroyed" || runId !== card.runId) {
+        return;
+      }
       let webSearch: WebSearchRuntime | undefined;
-      if (optIn) {
+      if (optIn === "granted") {
         const resolved = await resolveWebSearchRuntime(controller?.signal ?? null);
         webSearch = resolved.runtime;
         if (!webSearch && resolved.notice && runId === card.runId) {

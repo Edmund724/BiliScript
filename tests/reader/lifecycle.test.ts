@@ -175,9 +175,15 @@ describe("reader 生命周期", () => {
     const video = document.querySelector("video") as HTMLVideoElement;
     expect(syncRunning()).toBe(true);
     state.reader.setSettingsExpanded(true);
+    const { confirmDialogWithResult, isConfirmDialogOpen } = await import("../../extension/ui/confirm-dialog.js");
+    const pendingConfirmation = confirmDialogWithResult({ message: "等待授权" });
+    expect(isConfirmDialogOpen()).toBe(true);
 
     shell.closeReadingView();
 
+    await expect(pendingConfirmation).resolves.toBe("view-destroyed");
+    expect(isConfirmDialogOpen()).toBe(false);
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(state.reader.readingViewOpen).toBe(false);
     expect(state.reader.readingSettingsExpanded).toBe(false);

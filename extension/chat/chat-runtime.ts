@@ -64,7 +64,7 @@ import { generateConversationId } from "../ai/conversation.js";
 // 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
-import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
+import { resolveWebSearchOptIn, SEARCH_OPT_IN_DECLINED_NOTICE } from "../search/opt-in-notice.js";
 import type { ConversationStore } from "./conversation-store.js";
 import {
   appendChatHistory,
@@ -689,6 +689,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const regeneration = activeRegeneration;
       const continuation = activeContinuation;
+      // 授权在字幕闸通过后、用户气泡上屏前完成；视图销毁不是用户拒绝，直接取消回合。
+      const optIn = await resolveWebSearchOptIn(chatSessionState.webSearchEnabled);
+      if (optIn === "view-destroyed") {
+        return "blocked";
+      }
+      const webSearchEnabled = optIn === "granted";
       let preserveSnapshotNotice = false;
       if (!regeneration && !continuation) {
         messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
@@ -699,9 +705,6 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         deps.ui.autosizeInput();
       }
 
-      // 联网搜索首次授权闸（票 11）：同意 → 写授权位并带本轮；拒绝 → 闸侧关闭联网
-      // 偏好（既有开关经存储变更同步）、本轮不带搜索继续，不残留待决授权。
-      const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
       const branchRecord = regeneration || continuation;
       const images = branchRecord
         ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
@@ -726,6 +729,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       startStreamSlowNoticeTimer();
       if (preserveSnapshotNotice) {
         deps.ui.showConversationContextNotice("已发送原文，保留了后来修改的草稿与图片", 4000);
+      }
+      if (optIn === "declined") {
+        deps.ui.showConversationContextNotice(SEARCH_OPT_IN_DECLINED_NOTICE, 4000, { placement: "input" });
       }
       streamFirstTokenReceived = false;
 

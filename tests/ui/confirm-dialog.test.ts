@@ -100,10 +100,10 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
       title: "联网搜索授权",
       message: "m",
       confirmText: "允许并继续",
-      cancelText: "本次不搜索"
+      cancelText: "关闭联网搜索"
     });
     expect(document.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
-    expect(document.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    expect(document.querySelector(".confirm-dialog-cancel")!.textContent).toBe("关闭联网搜索");
     fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
   });
@@ -260,5 +260,31 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
     expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("视图销毁按 view-destroyed 结算并释放事件捕获；重开可新建弹层", async () => {
+    mountView();
+    const { confirmDialogWithResult, dismissConfirmDialog, isConfirmDialogOpen } = await loadDialog();
+    const pending = confirmDialogWithResult({ message: "m" });
+
+    dismissConfirmDialog();
+    await expect(pending).resolves.toBe("view-destroyed");
+    expect(isConfirmDialogOpen()).toBe(false);
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(false);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    const documentClick = vi.fn();
+    document.addEventListener("click", documentClick);
+    fireClick(outside);
+    expect(documentClick).toHaveBeenCalledTimes(1);
+
+    mountView();
+    const reopened = confirmDialogWithResult({ message: "重开" });
+    fireClick(document.querySelector(".confirm-dialog-confirm")!);
+    await expect(reopened).resolves.toBe("confirmed");
   });
 });

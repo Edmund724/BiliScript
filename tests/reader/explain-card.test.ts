@@ -430,7 +430,7 @@ describe("面板内解释卡片", () => {
     expect(message).toContain("关闭搜索开关可随时撤回");
     // 次入口（用户裁定③）：删记录停止该家接收查询
     expect(message).toContain("删除对应平台记录可停止向其发送查询");
-    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("本次不搜索");
+    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("关闭联网搜索");
     expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("允许并继续");
     // 授权前只做一次链可用性探测（付费提示用：不带查询词、不执行搜索）；
     // 搜索运行时仍在同意之后才组装
@@ -468,6 +468,24 @@ describe("面板内解释卡片", () => {
     // 运行时未解析：只有授权前的付费探测，本轮不外发查询词
     expect(sent.filter((m) => m.type === "resolve-search-provider")).toHaveLength(1);
 
+    vi.unstubAllGlobals();
+  });
+
+  it("授权中关闭阅读视图：不写偏好，也不继续发起解释生成", async () => {
+    const sent = stubOptInChrome(false);
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    reader.closeReadingView();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(reader.isReaderExplainCardOpen()).toBe(false);
+    expect(aiMock.explainSelection).not.toHaveBeenCalled();
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
     vi.unstubAllGlobals();
   });
 
