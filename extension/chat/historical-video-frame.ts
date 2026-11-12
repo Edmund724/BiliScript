@@ -1,10 +1,21 @@
-import { buildPlayurlUrl } from "../asr/audio-source.js";
 import { contentFetchJson, type JsonTransport } from "../bilibili/gateway.js";
 import {
   capturePageVideoFrame,
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameSnapshot
 } from "../live/page-video-frame-capture.js";
+
+function buildHistoricalPlayurlUrl(bvid: string, cid: string): string {
+  return (
+    "https://api.bilibili.com/x/player/playurl" +
+    `?bvid=${encodeURIComponent(bvid)}` +
+    `&cid=${encodeURIComponent(cid)}` +
+    "&qn=16" +
+    "&fnval=1" +
+    "&platform=html5" +
+    "&high_quality=1"
+  );
+}
 
 const MEDIA_TIMEOUT_MS = 45000;
 const SEEK_TOLERANCE_SECONDS = 0.15;
@@ -116,7 +127,7 @@ export async function captureHistoricalVideoFrame(
   const run = async (): Promise<HistoricalVideoFrameSnapshot[]> => {
     try {
       const transport = options.transport ?? contentFetchJson;
-      const payload = await transport(buildPlayurlUrl(bvid, cid)) as PlayurlResponse | null;
+      const payload = await transport(buildHistoricalPlayurlUrl(bvid, cid)) as PlayurlResponse | null;
       if (controller.signal.aborted) throw abortError();
       if (payload?.code !== 0) {
         throw new Error(payload?.message || "无法获取视频流地址");

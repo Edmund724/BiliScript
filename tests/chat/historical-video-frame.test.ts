@@ -81,6 +81,28 @@ describe("隐藏视频历史帧截取", () => {
     expect(media.video.pause).toHaveBeenCalledTimes(1);
   });
 
+  it("DASH 请求不返回 MP4 时改用显式 MP4 请求截帧", async () => {
+    const media = makeVideo();
+    const { canvas } = makeCanvas();
+    media.canPlay();
+    const transport = vi.fn(async (url: string) => {
+      if (new URL(url).searchParams.get("fnval") === "16") {
+        return { code: 0, data: { dash: { video: [] } } };
+      }
+      return { code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } };
+    });
+
+    const frames = await captureHistoricalVideoFrame(
+      { bvid: "BV1history", cid: "101", targetTime: 90 },
+      { transport, createVideo: () => media.video, createCanvas: () => canvas }
+    );
+
+    const request = new URL(transport.mock.calls[0][0]);
+    expect(request.searchParams.get("qn")).toBe("16");
+    expect(request.searchParams.get("fnval")).toBe("1");
+    expect(frames.map((frame) => frame.targetTime)).toEqual([88, 90, 92]);
+  });
+
   it("视频首尾边界内的前中后时间点被截断到有效范围", async () => {
     async function seekTimesAt(targetTime: number) {
       const media = makeVideo(10);
