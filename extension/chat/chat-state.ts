@@ -79,6 +79,8 @@ export interface ChatSessionMessage {
   content: string;
   // 图片输入（image-input 路线 B）：与 ai/types 的 ChatMessage.images 同形。
   images?: ImagePart[];
+  // 本条用户消息发送时的视频/分P键；重新生成据此找回原上下文。
+  contextKey?: string;
   tool_calls?: unknown;
   tool_call_id?: string;
   thinking?: string;

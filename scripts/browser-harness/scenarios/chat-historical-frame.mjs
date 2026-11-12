@@ -140,6 +140,51 @@ async function installSubtitleFixtures(worker) {
   });
 }
 
+// 内容脚本侧的 pinned 补水走直连 fetch（bgFetchJson 在 MV3 内容脚本里不是后台
+// 转发），不经过 SW 的 fixture 拦截：必须同样把「原视频」的轨列表与字幕正文
+// 换成 fixture，否则真实视频的「无字幕」会让跨视频重生成在补水阶段就被拦下。
+async function installPageSubtitleFixtures(cdp) {
+  await cdp.send("Fetch.enable", {
+    patterns: [
+      { urlPattern: "*://api.bilibili.com/x/player/wbi/v2*", requestStage: "Request" },
+      { urlPattern: "*://api.bilibili.com/x/player/v2*", requestStage: "Request" },
+      { urlPattern: "*://aisubtitle.hdslb.com/*walkthrough-fixture/*", requestStage: "Request" }
+    ]
+  });
+  cdp.on("Fetch.requestPaused", async (params) => {
+    const requestUrl = params.request?.url || "";
+    const method = String(params.request?.method || "GET").toUpperCase();
+    let payload = null;
+    if (method === "GET" && /x\/player\/(?:wbi\/)?v2/.test(requestUrl)) {
+      const bvid = new URL(requestUrl).searchParams.get("bvid") || "";
+      // 只替换原视频的轨列表；当前页自己的播放器请求照常走真网。
+      if (bvid === sample.bvid) payload = bundles[bvid];
+    } else if (method === "GET") {
+      const match = /walkthrough-fixture\/([A-Za-z0-9-]+)\.json$/.exec(requestUrl);
+      if (match && bodies[match[1]]) payload = bodies[match[1]];
+    }
+    try {
+      if (payload) {
+        // 内容脚本的 fetch 仍受页面 CORS 约束（带凭据时不接受通配源）。
+        const origin = String(params.request?.headers?.Origin || "https://www.bilibili.com");
+        await cdp.send("Fetch.fulfillRequest", {
+          requestId: params.requestId,
+          responseCode: 200,
+          responseHeaders: [
+            { name: "content-type", value: "application/json" },
+            { name: "access-control-allow-origin", value: origin },
+            { name: "access-control-allow-credentials", value: "true" },
+            { name: "vary", value: "Origin" }
+          ],
+          body: Buffer.from(JSON.stringify(payload), "utf8").toString("base64")
+        });
+      } else {
+        await cdp.send("Fetch.continueRequest", { requestId: params.requestId });
+      }
+    } catch {}
+  });
+}
+
 async function attachOffscreen(browser) {
   const target = await waitFor("offscreen target", async () => {
     const response = await fetch(`http://127.0.0.1:${browser.port}/json/list`);
@@ -170,17 +215,21 @@ async function installModelChannel(cdp) {
     const isToolConversation = body.tools || messages.some((message) => message.role === "tool");
     const hasToolResult = messages.some((message, index) => message.role === "tool" && index > lastTextUserIndex);
     const behavior = await cdp.evaluate("globalThis.__historicalFrameBehavior");
-    const content = body.messages?.[0]?.content?.includes("3 个")
-      ? '["视频讲了什么？","有哪些关键结论？","如何应用这些结论？"]'
-      : '{"summary":"受控回放概览","chapters":[],"keyQuotes":[]}';
+    // 重生成验收只验上下文与请求形状，模型直接给纯文本，不再自主发起截帧。
+    const regenerationMode = behavior.mode === "regeneration";
+    const content = regenerationMode
+      ? "跨视频重生成完成"
+      : body.messages?.[0]?.content?.includes("3 个")
+        ? '["视频讲了什么？","有哪些关键结论？","如何应用这些结论？"]'
+        : '{"summary":"受控回放概览","chapters":[],"keyQuotes":[]}';
     const finalContent = behavior.mode === "failure" ? "未获取画面，仅依据字幕作答" : "已结合字幕与历史画面作答";
-    const chunks = isToolConversation && !hasToolResult
+    const chunks = !regenerationMode && isToolConversation && !hasToolResult
       ? [
           { choices: [{ delta: { tool_calls: [{ index: 0, id: "history_e2e", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime: behavior.targetTime }) } }] }, finish_reason: null }] },
           { choices: [{ delta: {}, finish_reason: "tool_calls" }] }
         ]
       : [
-          { choices: [{ delta: { content: isToolConversation ? finalContent : content }, finish_reason: null }] },
+          { choices: [{ delta: { content: isToolConversation && !regenerationMode ? finalContent : content }, finish_reason: null }] },
           { choices: [{ delta: {}, finish_reason: "stop" }] }
         ];
     const stream = chunks.map((chunk) => "data: " + JSON.stringify(chunk) + "\n\n").join("") + "data: [DONE]\n\n";
@@ -348,6 +397,65 @@ async function runStubQuestion(page, offscreen, targetTime, mode = "success") {
     await screenshot(page.cdp, path.join(OUT_DIR, "lifecycle-failure.png")).catch(() => {});
     throw error;
   }
+}
+
+async function runRegenerationContextAcceptance(page, offscreen) {
+  await openChatPage(page, `https://www.bilibili.com/video/${longSample.bvid}/?p=1`);
+  await installPageSubtitleFixtures(page.cdp);
+  // 换视频不会自动恢复别处的会话（restoreLatest 只认当前上下文匹配），
+  // 跨视频重生成的真实入口是历史列表：applyById 把原会话连同原上下文 pin 回来。
+  await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-more-btn').click()");
+  await page.cdp.evaluate("document.getElementById('biliscript-reading-chat-history-btn').click()");
+  await waitFor("历史对话列表", () => page.cdp.evaluate("document.querySelectorAll('.chat-history-open').length > 0"), { timeoutMs: 20000, intervalMs: 200 });
+  const historyCount = await page.cdp.evaluate("document.querySelectorAll('.chat-history-open').length");
+  check("历史列表可回到原视频会话", historyCount === 1, { historyCount });
+  await page.cdp.evaluate("document.querySelector('.chat-history-open').click()");
+  // 上下文补水完成才点重生成：占位上下文期间按钮会走「原上下文不可用」拦截。
+  await waitFor("跨视频恢复原回答", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    const pending = Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("正在加载原视频上下文"));
+    return messages?.textContent.includes("已结合字幕与历史画面作答") && messages.querySelectorAll(".chat-msg-user").length === 1 && !!messages.querySelector(".chat-msg-regenerate-btn") && !pending;
+  })()`), { timeoutMs: 30000, intervalMs: 200 });
+  // 历史恢复后建议区还会再发一轮建议生成请求：请求基线取点击前的计数。
+  await sleep(1200);
+  const baseline = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
+  await setStubBehavior(offscreen, 120, "regeneration");
+  await page.cdp.evaluate("document.querySelector('.chat-msg-regenerate-btn').click()");
+  await waitFor("跨视频重生成确认", () => page.cdp.evaluate("document.querySelector('.confirm-dialog-message')?.textContent.includes('当前页面与原消息的视频或分P不一致')"));
+  await screenshot(page.cdp, path.join(OUT_DIR, "regeneration-context-confirm.png"));
+  check("跨视频重生成先显示原上下文确认", await page.cdp.evaluate("document.querySelector('.confirm-dialog-confirm')?.textContent === '继续生成'"));
+
+  await page.cdp.evaluate("document.querySelector('.confirm-dialog-cancel').click()");
+  await waitFor("取消重生成后恢复原回答", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    return !document.querySelector(".confirm-dialog-host") && messages?.textContent.includes("已结合字幕与历史画面作答") && !document.getElementById("biliscript-reading-chat-send-btn")?.classList.contains("is-stop");
+  })()`));
+  await sleep(400);
+  const afterCancel = await offscreen.evaluate("globalThis.__historicalFrameRequests.length");
+  const cancelUi = await page.cdp.evaluate(`(() => ({
+    users: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
+    answer: document.querySelector("#biliscript-reading-chat-messages .chat-msg-assistant")?.textContent || ""
+  }))()`);
+  check("取消跨视频重生成不发请求且不重复用户气泡", afterCancel === baseline && cancelUi.users === 1 && cancelUi.answer.includes("已结合字幕与历史画面作答"), { afterCancel, baseline, ...cancelUi });
+
+  await page.cdp.evaluate("document.querySelector('.chat-msg-regenerate-btn').click()");
+  await waitFor("再次打开跨视频确认", () => page.cdp.evaluate("!!document.querySelector('.confirm-dialog-confirm')"));
+  await page.cdp.evaluate("document.querySelector('.confirm-dialog-confirm').click()");
+  await waitFor("确认后完成重生成", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    return !document.querySelector(".confirm-dialog-host") && messages?.textContent.includes("跨视频重生成完成") && !document.getElementById("biliscript-reading-chat-send-btn")?.classList.contains("is-stop");
+  })()`), { timeoutMs: 30000, intervalMs: 200 });
+  const regenerationRequests = await offscreen.evaluate("globalThis.__historicalFrameRequests.slice(" + baseline + ")");
+  const request = regenerationRequests.at(-1);
+  const systemText = request?.messages?.find((message) => message.role === "system")?.content || "";
+  const regenerationTools = toolNames(request);
+  const finalUi = await page.cdp.evaluate(`(() => ({
+    users: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
+    answer: document.querySelector("#biliscript-reading-chat-messages .chat-msg-assistant")?.textContent || ""
+  }))()`);
+  evidence.regeneration = { request: sanitizeRequest(request), finalUi };
+  check("确认后仍用原视频字幕且禁用当前页截帧", regenerationRequests.length === 1 && !regenerationTools.includes("capture_current_video_frame") && !regenerationTools.includes("capture_video_frame_at_time") && systemText.includes("中文第1段：AI 与幻觉的讨论") && !systemText.includes("长视频末尾字幕") && request.messages.at(-1)?.content === prompt, sanitizeRequest(request));
+  check("确认重生成不重复用户气泡并正常收口", finalUi.users === 1 && finalUi.answer.includes("跨视频重生成完成"), finalUi);
 }
 
 async function observePlayer(page, playing) {
@@ -588,6 +696,7 @@ if (liveGemini && !geminiApiKey) {
       check("隐藏视频已清理", evidence.player.hiddenRemaining === 0, evidence.player.hiddenRemaining);
 
       if (!liveGemini) {
+        await runRegenerationContextAcceptance(page, offscreen);
         const longUrl = `https://www.bilibili.com/video/${longSample.bvid}/?p=1`;
         await openChatPage(page, longUrl);
         await observePlayer(page, true);

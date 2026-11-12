@@ -60,6 +60,7 @@ interface ConversationMessage {
   role: string;
   content: string;
   images?: ImagePart[];
+  contextKey?: string;
   tool_calls?: unknown[];
   tool_call_id?: string;
   thinking?: string;
@@ -138,11 +139,14 @@ export function normalizeConversations(value: unknown): Array<NormalizedConversa
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown; images?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
+            .map((msg: { role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
               const base: ConversationMessage = { role: String(msg.role), content: String(msg.content) };
               const images = normalizeImageParts(msg.images);
               if (images) {
                 base.images = images;
+              }
+              if (typeof msg.contextKey === "string" && msg.contextKey.trim()) {
+                base.contextKey = msg.contextKey;
               }
               if (typeof msg.thinking === "string" && msg.thinking.trim()) {
                 base.thinking = msg.thinking;

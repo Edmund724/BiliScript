@@ -29,7 +29,8 @@ interface PortMessage {
   query?: string;
   resultCount?: number;
   platform?: string;
-  messages?: Array<{ role: string; content?: string }>;
+  generation?: number;
+  messages?: Array<{ role: string; content?: string; tool_calls?: unknown[] }>;
 }
 
 function makePort() {
@@ -443,6 +444,46 @@ describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
     expect(firstBody.tools).toEqual([expect.anything()]);
     const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(secondBody.messages.some((m: { role: string }) => m.role === "tool")).toBe(true);
+  });
+
+  it("空正文整轮重跑：第二代不带旧工具消息，事件按 generation 隔离", async () => {
+    const secondToolRound = [
+      sseDataFinish({ tool_calls: [{ index: 0, id: "call_2", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
+      sseDataFinish({}, "tool_calls")
+    ];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse(TOOL_ROUND))
+      .mockResolvedValueOnce(sseResponse([sseDataFinish({}, "length")]))
+      .mockResolvedValueOnce(sseResponse(secondToolRound))
+      .mockResolvedValueOnce(sseResponse(FINAL_ROUND));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: {},
+      userPrompt: "问",
+      history: [],
+      port,
+      webSearch: {
+        maxToolCalls: 5,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body));
+    expect(bodies[1].messages.some((message: { role: string }) => message.role === "tool")).toBe(true);
+    expect(bodies[2].messages).toEqual(bodies[0].messages);
+    expect(bodies[2].messages.some((message: { role: string; tool_calls?: unknown[] }) => message.role === "tool" || message.tool_calls)).toBe(false);
+    expect(bodies[2].max_tokens).toBe(65536);
+    const finalAssistant = bodies[3].messages.find((message: { role: string; tool_calls?: Array<{ id: string }> }) => message.tool_calls);
+    expect(finalAssistant.tool_calls[0].id).toBe("call_2");
+    expect(bodies[3].messages.some((message: { tool_calls?: Array<{ id: string }> }) => message.tool_calls?.[0]?.id === "call_1")).toBe(false);
+    expect(port.messages.filter((message) => message.type === "tool-status").map((message) => message.generation)).toEqual([0, 0, 1, 1]);
+    expect(port.messages.filter((message) => message.type === "tool-turn").map((message) => message.generation)).toEqual([0, 1]);
+    expect(port.messages.find((message) => message.type === "stream-reset")).toEqual({ type: "stream-reset", generation: 1 });
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
   });
 
   it("无 webSearch：行为回归（不解析工具、事件序列与旧实现一致）", async () => {

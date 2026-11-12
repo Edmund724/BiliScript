@@ -214,13 +214,13 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "这张图里是什么", images: [IMAGE] },
+      { role: "user", content: "这张图里是什么", images: [IMAGE], contextKey: "video:BV1test" },
       { role: "assistant", content: "是截图" }
     ]);
     expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
   });
 
-  it("无图发送 → done：user 消息不带 images 字段（历史线格式与改动前一致）", async () => {
+  it("无图发送 → done：user 消息不带 images 字段，contextKey 独立保存", async () => {
     const { deps, input } = makeDeps({ takeInputImages: () => [] });
     input.value = "总结一下";
     const runtime = createChatRuntime(deps);
@@ -230,7 +230,7 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "总结一下" },
+      { role: "user", content: "总结一下", contextKey: "video:BV1test" },
       { role: "assistant", content: "好" }
     ]);
     expect("images" in chatSessionState.chatHistory[0]).toBe(false);
@@ -252,9 +252,9 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "第一轮带图", images: [IMAGE] },
+      { role: "user", content: "第一轮带图", images: [IMAGE], contextKey: "video:BV1test" },
       { role: "assistant", content: "答一" },
-      { role: "user", content: "第二轮纯文本" },
+      { role: "user", content: "第二轮纯文本", contextKey: "video:BV1test" },
       { role: "assistant", content: "答二" }
     ]);
   });

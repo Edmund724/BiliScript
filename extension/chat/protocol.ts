@@ -43,6 +43,9 @@ interface ChatReceipt {
 // error 事件的线上形状：引擎只承诺 error 文案，字幕体缺失路径额外带 code。
 type PortErrorEvent = StreamErrorEvent & { code?: string };
 
+// 工具循环整轮重试的代际号。旧读流没有工具事件时保持原线格式。
+type PortStreamResetEvent = StreamResetEvent & { generation?: number };
+
 // notice 事件的线上形状：引擎只承诺文案；截断提示（引擎侧 finishReason=length）
 // 额外带 code: "truncated"，宿主据此渲染成 assistant 消息尾部的常驻徽标，而不是
 // 走「4 秒自动消失的通知条」。
@@ -80,6 +83,8 @@ export interface ChatToolStatusEvent {
   query: string;
   tool?: "web_search" | "capture_video_frame_at_time";
   callId?: string;
+  // 同一 port 内的工具循环代际；stream-reset 之后只接收最新一代。
+  generation?: number;
   targetTime?: number;
   resultCount?: number;
   expectedCount?: number;
@@ -109,6 +114,7 @@ export interface ChatVideoFrameCancelEvent {
 export interface ChatToolTurnEvent {
   type: "tool-turn";
   messages: ChatMessage[];
+  generation?: number;
 }
 
 // offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + 07 票
@@ -119,7 +125,7 @@ export type ChatPortMessage =
   | (ChatTokenBatchEvent & ChatReceipt)
   | (StreamReasoningEvent & ChatReceipt)
   | (PortNoticeEvent & ChatReceipt)
-  | (StreamResetEvent & ChatReceipt)
+  | (PortStreamResetEvent & ChatReceipt)
   | (ChatToolTurnEvent & ChatReceipt)
   | (ChatToolStatusEvent & ChatReceipt)
   | (ChatVideoFrameRequestEvent & ChatReceipt)

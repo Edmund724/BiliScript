@@ -97,6 +97,9 @@ function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   if (images) {
     base.images = images;
   }
+  if (typeof item.contextKey === "string" && item.contextKey.trim()) {
+    base.contextKey = item.contextKey;
+  }
   if (typeof item.thinking === "string" && item.thinking.trim()) {
     base.thinking = item.thinking;
   }

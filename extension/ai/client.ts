@@ -119,6 +119,18 @@ export async function streamChat({ provider, context, userPrompt, history, userI
   // 本代是否压根没吐出正文（只判空，故不留正文副本）：截断重跑的唯一触发条件的
   // 另一半。空白 token 不算正文（同 analysis 的 trim 口径）。
   let emittedNoText = true;
+  const hasToolLoop = Boolean(webSearch || captureCurrentVideoFrame || fetchHotComments);
+  let toolGeneration = 0;
+  const emitStreamReset = () => {
+    // 先吐出旧流尾巴，再切换工具代际并通知宿主整体重放。
+    onActivity?.();
+    flushTokens();
+    toolGeneration += 1;
+    port.postMessage({
+      type: "stream-reset",
+      ...(hasToolLoop ? { generation: toolGeneration } : {})
+    } satisfies ChatPortMessage);
+  };
 
   try {
     // 逐轮共用的流事件适配（单次与工具循环同款）：流式活动重挂空闲超时、
@@ -141,13 +153,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
         }
         port.postMessage(event);
       },
-      onStreamReset: () => {
-        // 读流中断重试：先吐出旧流尾巴（不丢 token），再通知渲染层清空本条
-        // 消息缓冲，从头接收重试流。
-        onActivity?.();
-        flushTokens();
-        port.postMessage({ type: "stream-reset" } satisfies ChatPortMessage);
-      },
+      onStreamReset: emitStreamReset,
       onRetry: ({ attempt, maxRetries, kind, error }: { attempt: number; maxRetries: number; kind: string; error: Error }) => {
         if (kind === "stream") {
           // 读流中断重试保持旧现状：不额外打扰用户。
@@ -169,8 +175,8 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     };
 
     // 一轮对话：无可用工具时单次调用；任一可用时走整条工具循环（maxTokens 透传给每轮）。
-    // 抽成函数只为截断重跑能整体重放，不改其余调用形状。
-    const runTurn = (maxTokens?: number) => webSearch || captureCurrentVideoFrame || fetchHotComments
+    // 整轮重跑从基础消息的浅拷贝开始，避免上一代工具轮留在下一代请求里。
+    const runTurn = (maxTokens?: number) => hasToolLoop
       // ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
       // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
       //（spec §2.5，tool 内容已截断；截帧图片不进持久化副本）。
@@ -184,7 +190,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             includeWebSearchTool: Boolean(webSearch),
             ...streamCallbacks
           },
-          messages,
+          messages: messages.slice(),
           maxToolCalls: webSearch?.maxToolCalls ?? 1,
           executeSearch: webSearch?.executeSearch ?? (async () => {
             throw new Error("本轮未启用联网搜索");
@@ -199,10 +205,10 @@ export async function streamChat({ provider, context, userPrompt, history, userI
           onToolStatus: (payload: ToolStatusPayload) => {
             onActivity?.();
             flushTokens();
-            port.postMessage({ type: "tool-status", ...payload } satisfies ChatPortMessage);
+            port.postMessage({ type: "tool-status", ...payload, generation: toolGeneration } satisfies ChatPortMessage);
           },
           onToolTurn: (toolMessages) => {
-            port.postMessage({ type: "tool-turn", messages: toolMessages } satisfies ChatPortMessage);
+            port.postMessage({ type: "tool-turn", messages: toolMessages, generation: toolGeneration } satisfies ChatPortMessage);
           }
         })
       : chatCompletion({
@@ -221,8 +227,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     // 缓冲整体重放（与读流中断重试同款信号），只重跑一次——预算已翻倍，再空就是
     // 模型确实给不出正文，交给收口处的截断徽标如实提示。
     if (isEmptyTextRetryable({ finishReason: lastFinishReason, hasBody: !emittedNoText })) {
-      flushTokens();
-      port.postMessage({ type: "stream-reset" } satisfies ChatPortMessage);
+      emitStreamReset();
       lastFinishReason = null;
       await runTurn(retryBudget());
     }
