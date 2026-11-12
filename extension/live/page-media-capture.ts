@@ -63,6 +63,7 @@ export interface PageAudioCaptureOptions {
   vadReleaseMs?: number;
   onVideoAudioStatusChange?: (status: VideoAudioTrackStatus) => void;
   onVadStateChange?: (active: boolean) => void;
+  onMicrophoneError?: (error: Error) => void;
   getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   createAudioContext?: () => PageAudioContextLike | null;
   getVideoElement?: () => HTMLVideoElement | null;
@@ -424,8 +425,18 @@ export async function createPageAudioCapture(
     options.onPcmFrame(pcmBytes);
   });
 
-  for (const track of micStream.getAudioTracks()) {
+  function handleMicrophoneEnded(): void {
+    if (stopped) return;
+    stop();
+    try {
+      options.onMicrophoneError?.(new Error("麦克风连接已中断，请检查设备或浏览器权限后重试"));
+    } catch {}
+  }
+
+  const micAudioTracks = micStream.getAudioTracks();
+  for (const track of micAudioTracks) {
     track.enabled = !muted;
+    track.addEventListener("ended", handleMicrophoneEnded);
   }
 
   // 节点拓扑：
@@ -548,6 +559,9 @@ export async function createPageAudioCapture(
     try {
       silentGain.disconnect();
     } catch {}
+    for (const track of micAudioTracks) {
+      track.removeEventListener("ended", handleMicrophoneEnded);
+    }
     for (const track of micStream.getTracks()) {
       try {
         track.stop();

@@ -10,9 +10,8 @@
 // 写法与 message-handler-seek.test.js 同款：重依赖全部 vi.mock，state 走真实
 // 模块，单纪元；对话 seam 经 reader/lazy-chat-tab mock（组合根本体由
 // tests/reader/chat-tab.test.ts 覆盖）。
-// （arch-slim-2/09：message-handler 自 core/ 归位 entry/，shell 静态边改动态
-// ——reader-enter 的回包时点从同步即答平移为 shell 装载完成后（事务仍不等待
-// 完成），相关断言改 waitFor。）
+// （arch-slim-2/09：message-handler 自 core/ 归位 entry/，shell 静态边改动态；
+// reader-enter 等待进入事务完成后回包，相关断言走 waitFor。）
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,7 +132,7 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
     );
 
     expect(keepOpen).toBe(true);
-    // arch-slim-2/09：shell 动态装载完成后再即答（事务仍不等待）。
+    // 进入事务完成后才回成功。
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await vi.waitFor(() => expect(chat.runQuickActionPrompt).toHaveBeenCalledTimes(1));
     expect(chat.runQuickActionPrompt).toHaveBeenCalledWith("总结");
@@ -168,7 +167,7 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
     expect(ensureReaderChatTabMock).not.toHaveBeenCalled();
   });
 
-  it("即答语义：命令已受理入队即回 ok，不等进入事务完成", async () => {
+  it("完成语义：进入事务未完成时不回 ok，完成后才回成功", async () => {
     let releaseEnter: () => void = () => {};
     const enterGate = new Promise<void>((resolve) => {
       releaseEnter = resolve;
@@ -182,9 +181,10 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
     const sendResponse = vi.fn();
     messageListener({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, {}, sendResponse);
 
-    // 进入事务（enterReaderMode）被 gate 卡住，回包已先行发出
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    await vi.waitFor(() => expect(ensureReaderDomain).toHaveBeenCalledTimes(1));
+    expect(sendResponse).not.toHaveBeenCalled();
     releaseEnter();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
   });
 });
 
@@ -217,6 +217,7 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
 
   it("reader-enter：空 readerUrl 且视图已开 → 保持纯聚焦语义，不改写 URL", async () => {
     isReaderViewOpen.mockReturnValue(true);
+    ensureReaderDomain.mockResolvedValue({ focusReadingView: vi.fn() });
     const { replaceReaderModeUrl } = await import("../../extension/bilibili/reader-url.js");
 
     const sendResponse = vi.fn();
@@ -226,7 +227,7 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(replaceReaderModeUrl).not.toHaveBeenCalled();
-    expect(ensureReaderDomain).not.toHaveBeenCalled();
+    expect(ensureReaderDomain).toHaveBeenCalledTimes(1);
   });
 
   it("reader-enter + chat：空 readerUrl 且视图未开 → 兜底改写后 enterReaderMode + runQuickActionPrompt", async () => {
@@ -264,7 +265,7 @@ describe("live-session-takeover 跨标签页接管伴看停止", () => {
     expect(keepOpen).toBe(true);
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
-    expect(companionStop).toHaveBeenCalledTimes(1);
+    expect(companionStop).toHaveBeenCalledWith("takeover");
     expect(chat.stopLiveCompanion).toHaveBeenCalledTimes(1);
   });
 });

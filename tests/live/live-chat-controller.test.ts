@@ -724,6 +724,38 @@ describe("LiveChatController", () => {
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
   });
 
+  it("surfaces runtime microphone failure, stops capture, and restores ducking only once", async () => {
+    let capturedOptions: any = null;
+    let fakeCapture: any = null;
+    const onStateChange = vi.fn();
+    const { controller, fakePort, showNotice, sendRuntimeMessage } = setupTest({
+      onStateChange,
+      startAudioCapture: async (options) => {
+        capturedOptions = options;
+        fakeCapture = new FakeAudioCapture(options);
+        return fakeCapture;
+      }
+    });
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    capturedOptions?.onVadStateChange?.(true);
+    expect(controller.isDucked()).toBe(true);
+
+    const error = new Error("麦克风连接已中断，请检查设备或浏览器权限后重试");
+    (capturedOptions as any)?.onMicrophoneError?.(error);
+    (capturedOptions as any)?.onMicrophoneError?.(error);
+
+    expect(controller.getState()).toBe("failure");
+    expect(controller.isDucked()).toBe(false);
+    expect(fakeCapture?.stopped).toBe(true);
+    expect(fakePort.disconnected).toBe(true);
+    expect(showNotice).toHaveBeenCalledWith(error.message);
+    expect(onStateChange).toHaveBeenCalledWith("failure", error.message, "microphone");
+    expect(onStateChange.mock.calls.filter(([state]) => state === "failure")).toHaveLength(1);
+    expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
+  });
+
   it("classifies rejected provider credentials without echoing the key into feedback", async () => {
     const onStateChange = vi.fn();
     const { controller, fakePort, showNotice } = setupTest({ onStateChange });

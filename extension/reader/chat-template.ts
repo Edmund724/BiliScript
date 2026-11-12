@@ -51,7 +51,6 @@ export function buildChatTabBodyHtml(): string {
         <section id="${ids.readingChatLiveStatus}" class="chat-live-status" aria-label="实时伴看状态" data-state="idle" hidden>
           <span class="chat-live-status-text" role="status" aria-atomic="true"></span>
           <div class="chat-live-status-actions">
-            <button type="button" data-live-status-action="start" hidden>开启</button>
             <button type="button" data-live-status-action="cancel" hidden>取消</button>
             <button type="button" data-live-status-action="restore" hidden>显示浮窗</button>
             <button type="button" data-live-status-action="retry" hidden>重试</button>
@@ -137,8 +136,8 @@ export function buildChatTabBodyHtml(): string {
                   </div>
                 </div>
               </div>
-              <!-- 主操作键：输入有文字时发送；流式中停止 -->
-              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" aria-label="发送" title="发送" disabled>
+              <!-- 主操作键：idle 空草稿时开启伴看；有正文或贴图时发送；流式中停止 -->
+              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn is-live" aria-label="开启实时伴看" title="开启实时伴看">
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>
@@ -147,6 +146,14 @@ export function buildChatTabBodyHtml(): string {
                      直径的 ~35% 取（viewBox 17/24），圆角 rx=4，与设计稿同比例。 -->
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
+                </svg>
+                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+                <svg class="chat-spinner-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 16" stroke-linecap="round"></circle>
                 </svg>
               </button>
             </div>

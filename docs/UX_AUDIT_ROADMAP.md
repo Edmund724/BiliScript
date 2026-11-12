@@ -186,11 +186,17 @@ flowchart TD
 
 | 优先级 | 走查场次与目标模块 | 核心解决的宏观问题 | 会话深度走查 Todo 清单 | 核心涉及代码范围 |
 | :--- | :--- | :--- | :--- | :--- |
-| **P0** | **Session 1：模块 M5 & M1（跨端实时伴看闭环与入口对齐）** | **UF-01**（直播间无设置死胡同）<br/>**IA-02**（视频页伴看盲区报错与单入口）<br/>**UF-04**（关面板误杀伴看与流） | - [ ] **打通直播间配置死胡同**：评估在直播间提供轻量设置唤起路径（或扩展 Popup/独立 Options 页/按需挂载设置宿主）<br/>- [ ] **修复视频页伴看盲区报错**：面板关闭时点击播放器「实时伴看」若未配置/失败，须在播放器内给出可见反馈或自动展开面板定位至提示/设置<br/>- [ ] **补齐面板内伴看入口与音频设置寻路**：评估在 `AI 对话` 内提供伴看状态感知与开关，解耦“关闭文摘面板”与“销毁播放器伴看会话”的强绑定 | [`live-room-entry.ts`](file:///d:/src/BiliScript/extension/live/live-room-entry.ts)<br/>[`live-overlay-binding.ts`](file:///d:/src/BiliScript/extension/live/live-overlay-binding.ts)<br/>[`fullscreen-live-overlay.ts`](file:///d:/src/BiliScript/extension/live/fullscreen-live-overlay.ts)<br/>[`content.ts`](file:///d:/src/BiliScript/extension/entry/content.ts) |
-| **P0** | **Session 2：模块 M1（文摘面板壳层导航与唤起一致性）** | **IA-01**（设置抽屉无返回按钮易误关面板）<br/>**UF-03**（播放器 AI 按钮强制重置会话）<br/>**UF-05**（非支持页点击扩展图标静默无响应） | - [ ] **重构设置抽屉顶栏导航**：为设置抽屉增加明确的「← 返回」出口，消除误触右上角 `×` 关闭整个文摘面板的陷阱<br/>- [ ] **收敛 5 大入口行为预期**：消除播放器「AI 分析」按钮在已有活跃会话时的静默清空副作用（增加保护或复用判断）<br/>- [ ] **补齐非视频页点击扩展图标反馈**：评估在非视频页点击扩展图标时的引导提示或独立设置入口 | [`ui-renderer.ts`](file:///d:/src/BiliScript/extension/ui/ui-renderer.ts)<br/>[`settings-panel.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel.ts)<br/>[`player-ai.ts`](file:///d:/src/BiliScript/extension/ai/player-ai.ts)<br/>[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts) |
+| **P0** | **Session 1：模块 M5 & M1（跨端实时伴看闭环与入口对齐）** | **UF-01**（直播间无设置死胡同）<br/>**IA-02**（视频页伴看盲区报错与单入口）<br/>**UF-04**（关面板误杀伴看与流） | - [x] **打通直播间配置死胡同**：评估在直播间提供轻量设置唤起路径（或扩展 Popup/独立 Options 页/按需挂载设置宿主）<br/>- [x] **修复视频页伴看盲区报错**：面板关闭时点击播放器「实时伴看」若未配置/失败，须在播放器内给出可见反馈或自动展开面板定位至提示/设置<br/>- [x] **补齐面板内伴看入口与音频设置寻路**：评估在 `AI 对话` 内提供伴看状态感知与开关，解耦“关闭文摘面板”与“销毁播放器伴看会话”的强绑定 | [`live-room-entry.ts`](file:///d:/src/BiliScript/extension/live/live-room-entry.ts)<br/>[`live-overlay-binding.ts`](file:///d:/src/BiliScript/extension/live/live-overlay-binding.ts)<br/>[`fullscreen-live-overlay.ts`](file:///d:/src/BiliScript/extension/live/fullscreen-live-overlay.ts)<br/>[`content.ts`](file:///d:/src/BiliScript/extension/entry/content.ts) |
+| **P0** | **Session 2：模块 M1（文摘面板壳层导航与唤起一致性）** | **IA-01**（设置抽屉无返回按钮易误关面板）<br/>**UF-03**（播放器 AI 按钮强制重置会话）<br/>**UF-05**（非支持页点击扩展图标静默无响应） | - [x] **重构设置抽屉顶栏导航**：为设置抽屉增加明确的「← 返回」出口，消除误触右上角 `×` 关闭整个文摘面板的陷阱<br/>- [x] **收敛 5 大入口行为预期**：消除播放器「AI 分析」按钮在已有活跃会话时的静默清空副作用（增加保护或复用判断）<br/>- [x] **补齐非视频页点击扩展图标反馈**：评估在非视频页点击扩展图标时的引导提示或独立设置入口 | [`ui-renderer.ts`](file:///d:/src/BiliScript/extension/ui/ui-renderer.ts)<br/>[`settings-panel.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel.ts)<br/>[`player-ai.ts`](file:///d:/src/BiliScript/extension/ai/player-ai.ts)<br/>[`background.ts`](file:///d:/src/BiliScript/extension/entry/background.ts) |
 | **P1** | **Session 3：模块 M2（首次配置冷启动与四族平台减负）** | **UF-02**（四族平台配置模型割裂与「凭据引用」折返跑）<br/>**IA-05**（4 层弹窗叠放负担） | - [ ] **走查新用户 0→1 首配路径**：从空状态拦截卡片点击「前往设置」到完成首个 AI 模型可用性的最短路径优化<br/>- [ ] **统一四族平台选择与激活反馈**：明确 AI 模型平台在 `概览`/`解释`/`对话` 中的默认生效指示，降低跨列表认知差<br/>- [ ] **消除「凭据引用」折返跑**：当用户在 `Gemini Live` / `DeepSeek Search` 遇到未配置主 AI 平台或域名不匹配时，提供一键跳转创建或内联配置引导<br/>- [ ] **审视搜索回退链（「零成本组」/「链首平台」）与多层 Modal 交互细节** | [`settings-panel-html.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel-html.ts)<br/>[`provider-editor-modal.ts`](file:///d:/src/BiliScript/extension/ui/provider-editor-modal.ts)<br/>[`chat-notices.ts`](file:///d:/src/BiliScript/extension/reader/chat-notices.ts) |
 | **P1** | **Session 4：模块 M5（AI 对话高频交互、模型面板与工具反馈）** | **IA-03**（新建/历史会话藏匿于更多菜单）<br/>**IA-04**（排版与音频设置散落 3 处） | - [ ] **提升高频会话操作可见性**：将 `开启新会话` 与 `历史对话` 外置，与排版/朗读偏好解耦<br/>- [ ] **优化「历史对话」整页接管体验**：统一双入口、进出动画、焦点归还、当前项定位与删除撤销<br/>- [ ] **归拢排版与音频偏好设置**：设置抽屉承接完整持久偏好，场景内保留同源快捷调节<br/>- [ ] **走查「发送闸」与多模态输入**：保护等待期草稿、在途图片与授权弹层结算<br/>- [ ] **走查模型与工具反馈**：联动模型/思考强度，补齐历史视频帧、来源引用与消息操作终态 | [`chat-template.ts`](file:///d:/src/BiliScript/extension/reader/chat-template.ts)<br/>[`chat-tab.ts`](file:///d:/src/BiliScript/extension/reader/chat-tab.ts)<br/>[`chat-popovers.ts`](file:///d:/src/BiliScript/extension/reader/chat-popovers.ts)<br/>[`chat-model-panel.ts`](file:///d:/src/BiliScript/extension/reader/chat-model-panel.ts)<br/>[`chat-runtime.ts`](file:///d:/src/BiliScript/extension/chat/chat-runtime.ts)<br/>[`chat-stream-render.ts`](file:///d:/src/BiliScript/extension/chat/chat-stream-render.ts)<br/>[`settings-panel-html.ts`](file:///d:/src/BiliScript/extension/ui/settings-panel-html.ts) |
 | **P2** | **Session 5：模块 M3 & M4（字幕精读、双语选轨、即席解释与概览金句）** | 跨 Tab「待解释意图」移交体验、双语选轨六态心智、概览分段失败重试体验 | - [ ] **走查主副双语选轨专用弹层**：验证单轨/多轨/双语开启/无副轨六种状态下的选项禁用与文案引导清晰度<br/>- [ ] **走查无字幕 ASR 语音转写横幅全状态机**：未配置/待转写/自动转写/转写中取消/失败重试的视觉反馈<br/>- [ ] **走查划词「解释」→ 解释卡 →「去对话追问」跨 Tab 移交**：验证从 `字幕` 切至 `AI 对话` 时的上下文衔接感与回退路径（想要回到刚才读到的字幕行是否顺畅）<br/>- [ ] **走查概览三源分章、分段部分失败重试与金句分享卡片 Modal** | [`subtitle-tab-ui.ts`](file:///d:/src/BiliScript/extension/reader/subtitle-tab-ui.ts)<br/>[`transcribe-banner.ts`](file:///d:/src/BiliScript/extension/reader/transcribe-banner.ts)<br/>[`explain-card.ts`](file:///d:/src/BiliScript/extension/reader/explain-card.ts)<br/>[`overview-ui.ts`](file:///d:/src/BiliScript/extension/reader/overview-ui.ts)<br/>[`quote-share-modal.ts`](file:///d:/src/BiliScript/extension/reader/quote-share-modal.ts) |
+
+**M1 完成状态（Session 1 / Session 2）**：三路审查完成，无 P0；9 个原 P1 与用户指定的 idle 入口呈现调整均已完成。
+
+- 合并回归：280 个测试文件，3975 通过、11 跳过、0 失败；typecheck/build 通过。最新输入框语音入口相关 reader/chat/live 2028 项测试通过，typecheck/build 通过。
+- 真实 Edge 验收：[provider-onboarding-acceptance 40/40](../.scratch/browser-harness/scenarios/provider-onboarding-acceptance/evidence.json)、[live-companion-closure 19/19](../.scratch/browser-harness/scenarios/live-companion-closure/evidence.json)，共 59/59。
+- 剩余边界：物理拔麦未测；真实 Edge fake track 合成 `ended` 已验。P2/P3 15 条已记录在 [UX Audit Backlog](UX_AUDIT_BACKLOG.md)，本轮不实施。
 
 Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-companion-closure/issues/01-13`。Session 2 的详细方案见第六节。Session 3 的详细方案见第七节（待审批，未实施）。Session 4 的详细方案见第八节（待审批，未实施）。
 
@@ -199,7 +205,7 @@ Session 1 的详细方案见第五节；执行工单为 `.scratch/tickets/live-c
 
 ## 五、Session 1 深度走查方案：跨端实时伴看闭环与生命周期解耦（已裁定）
 
-> 范围：UF-01、IA-02、UF-04 与伴看浮窗微观体验。本节是交互与实现方案，不代表业务代码已经修改。
+> 范围：UF-01、IA-02、UF-04 与伴看浮窗微观体验。本节记录交互与实现方案；对应改动已完成，验收状态见第四节。
 
 ### 5.1 代码复核结论与设计总原则
 
@@ -291,19 +297,21 @@ flowchart LR
 
 所有 Live 启动错误和工具状态统一走播放器反馈层；面板打开时可以由 AI 对话状态条同步连接状态，但不再把唯一反馈写进消息区。`player-ai.ts` 最外层异常也不能只写隐藏的全局阅读状态行。
 
-#### B. AI 对话 Tab 增加稳定伴看状态条
+#### B. AI 对话 Tab 伴看入口与稳定状态反馈
 
 在 `chat-template.ts` 的历史整页之后、待解释卡之前新增 `#biliscript-reading-chat-live`。它是独立区域，**不得放入 `#biliscript-reading-chat-messages`**，否则历史回放、空态清场和上下文重建会把状态条抹掉。
 
 | 连接状态 | 状态条内容 | 操作 |
 | --- | --- | --- |
-| idle | 实时伴看 | 开启 |
+| idle | —（隐藏） | 输入框空草稿主按钮显示麦克风 |
 | connecting | 正在连接伴看… | 取消 |
 | connected | 正在伴看 | 显示浮窗；结束 |
 | reconnecting | 连接中断，正在重连 | 显示浮窗；结束 |
 | failure | 伴看未连接 | 重试；设置 |
 
-“显示浮窗”只恢复浮窗，不重启连接、不停止文本流。只有从非活跃状态真正点击“开启”时才进入启动链。显式“结束”只结束 Live，不删除文本会话。
+idle 时顶部伴看状态条隐藏。输入框没有文字且未贴图时，主按钮动态显示麦克风；出现文字或贴图后恢复发送。仅在 idle 点击该麦克风进入启动链。connecting / reconnecting 时输入框主按钮保持 busy 与 disabled，启动链使用单飞守卫防连点；connected / reconnecting / failure 的顶部反馈保持。
+
+“显示浮窗”只恢复浮窗，不重启连接、不停止文本流。显式“结束”只结束 Live，不删除文本会话。
 
 为避免状态条和控制器继续互相倒置，建议把视频页 Live 控制器、浮窗与 Live 工具桥从 `chat-tab.ts` 的 `bindEvents()` 中抽成独立的 `reader/live-companion-session.ts`：播放器按钮和 AI 对话状态条都消费同一个会话单例。启动伴看不再需要初始化对话壳、历史会话、消息区或发送闸，但不能因此丢掉文本模型工具链：`summarize_video` 仍需经概览协调器调用文本模型，新的会话装配点必须提供一个窄的 Live 文本工具宿主（文本 provider + 概览来源），并按需懒加载。控制器不再因 `chat-tab.ts` 的 `requireShell()` 而被壳 DOM 绑架。
 
@@ -476,7 +484,7 @@ flowchart LR
 
 ## 六、Session 2 深度走查方案：壳层导航与唤起一致性（已裁定）
 
-> 范围：IA-01、UF-03、UF-05，以及贴栏/浮层、宽度与状态条职责。本节只记录代码复核结论和待实施交互方案，不代表业务代码已经修改。
+> 范围：IA-01、UF-03、UF-05，以及贴栏/浮层、宽度与状态条职责。本节记录代码复核结论与交互方案；对应改动已完成，验收状态见第四节。
 
 ### 6.1 代码复核后的事实校正
 

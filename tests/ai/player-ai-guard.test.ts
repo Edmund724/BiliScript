@@ -192,18 +192,64 @@ afterEach(() => {
 });
 
 describe("player-ai 启停守卫", () => {
-  it("快捷命令受理后只反馈已定位，不宣称提示词已发送", async () => {
+  it("定位完成前不提前显示已定位，完成回包后才反馈成功", async () => {
     makePlayerDom();
     const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
     const button = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
+    let finishQuickAction: (() => void) | undefined;
+    const sendMessage = chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>;
+    sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "player-ai-quick-action") {
+        finishQuickAction = () => callback?.({ ok: true });
+      } else {
+        callback?.({ ok: true });
+      }
+    });
 
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await flushMicrotasks();
 
+    expect(finishQuickAction).toBeDefined();
+    expect(state.ui.messageText).not.toBe("已定位 AI 对话。");
+    expect(button.disabled).toBe(true);
+
+    finishQuickAction!();
+    await flushMicrotasks();
     expect(state.ui.messageText).toBe("已定位 AI 对话。");
+    expect(button.disabled).toBe(false);
+  });
+
+  it("进入前摘除按钮后失败：在原播放器宿主恢复入口并显示失败", async () => {
+    makePlayerDom();
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    const button = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
+    let failQuickAction: (() => void) | undefined;
+    const sendMessage = chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>;
+    sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "player-ai-quick-action") {
+        failQuickAction = () => callback?.({ ok: false, error: "enter failed" });
+      } else {
+        callback?.({ ok: true });
+      }
+    });
+
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotasks();
+    button.parentElement?.remove();
+    expect(button.isConnected).toBe(false);
+    failQuickAction!();
+    await flushMicrotasks();
+
+    expect(button.isConnected).toBe(true);
+    expect(button.textContent).toBe("AI 打开失败");
+    expect(button.title).toBe("AI 快捷操作失败：enter failed");
+    expect(state.ui.messageText).toBe("AI 快捷操作失败：enter failed");
     expect(button.disabled).toBe(false);
   });
 

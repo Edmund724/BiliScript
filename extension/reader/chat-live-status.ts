@@ -10,7 +10,6 @@ export interface ChatLiveStatusDeps {
   isReconnecting: () => boolean;
   getTextToolRecords?: () => LiveTextToolRecord[];
   subscribeTextToolRecords?: (listener: () => void) => () => void;
-  onStart: () => void;
   onRetry: () => void;
   onStop: () => void;
   onRestore: () => void;
@@ -24,7 +23,7 @@ export interface ChatLiveStatus {
   sync(state?: LiveChatState, error?: string, failureKind?: LiveFailureKind): void;
 }
 
-type LiveStatusAction = "start" | "cancel" | "restore" | "retry" | "settings" | "stop";
+type LiveStatusAction = "cancel" | "restore" | "retry" | "settings" | "stop";
 
 const ACTIONS: Record<string, LiveStatusAction[]> = {
   idle: [],
@@ -54,8 +53,7 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
     const action = button.dataset.liveStatusAction as LiveStatusAction;
     buttons.set(action, button);
     button.addEventListener("click", () => {
-      if (action === "start") deps.onStart();
-      else if (action === "retry") deps.onRetry();
+      if (action === "retry") deps.onRetry();
       else if (action === "stop" || action === "cancel") deps.onStop();
       else if (action === "restore") deps.onRestore();
       else if (action === "settings") {
@@ -69,8 +67,7 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
     const viewState = currentState === "connecting" && reconnecting ? "reconnecting" : currentState;
     root.dataset.state = viewState;
     const isIdle = viewState === "idle";
-    const shouldShow = open && !isIdle;
-    root.hidden = !shouldShow;
+    root.hidden = !open || isIdle;
     if (!open) return;
 
     if (isIdle) {

@@ -7,19 +7,19 @@
 // 文的两个自订阅不在此列（见 reader/chat-tab.ts 的会话触发源组装）。
 //
 // 顺序不变量：
-//  1. 同步段（handleUrlChange 返回前完成）：读地址 → 算签名 → 与已落账签名比对，
-//     相同即直接返回（零步骤、不发完成边）→ 写地址与签名 → 递增 fetchRunId →
+//  1. 同步段（handleUrlChange 返回前完成）：读地址 → 算签名 → 与已落账签名比对。
+//     签名相同的普通地址直接返回；签名相同且支持页 reader 地址只进入阅读壳，不写身份、
+//     不递增 fetchRunId、不重置 clip。签名变化才写地址与签名 → 递增 fetchRunId →
 //     恢复普通页状态。
 //  2. 递增必须同步先行于本函数派生的任何异步工作（reset 步骤与新视频 refreshClip
 //     都在各自的动态装载链之后才执行）。放进 reset 步骤会让装载次序决定成败：
 //     新视频的 refreshClip 可能先起跑，再被迟到的递增误杀，自动刷新静默失效。
 //  3. 异步段按原启动次序、不 await 地启动：reset 步骤 → player-ai 按钮同步 →
-//     三档互斥的 reader 分支。三档恰起步一个：视图未开且地址是阅读模式 → 进入
-//     阅读壳；视图已开或正要进入 → 刷新阅读字幕；其余（普通页换片）→ 字幕预抓取。
-//     前两档不再起预抓取，只有普通页档起。
+//     页面/reader 分支。非支持页退出已打开的阅读壳，不刷新或预抓取；支持页在视图未开且
+//     地址是阅读模式时进壳，视图已开或正要进入时刷新阅读字幕，其余普通页换片起预抓取。
 //
 // 完成边（subscribeSettled）：本次换片启动的步骤全部 settle 后恰发布一次（订阅者
-// 异常被吞，不外溢到事务）；签名未变则不发布。它表达「本次换片的编排已派发且其
+// 异常被吞，不外溢到事务）；签名未变且不进入阅读壳则不发布。它表达「本次换片的编排已派发且其
 // 步骤已 settle」，**不含**字幕体落定：抓取落定由 subtitle/commit 的 subtitle-ready
 // 通知另行发布（走 reader 的 presenter 总线），对话 tab 直接订阅它做弱档对账——
 // 换片瞬间的 URL 变化可能早于 clip 重置，那次装配只能收口成未就绪快照，落定通知
@@ -42,6 +42,7 @@ export interface ClipSwitchTransactionDeps {
   enforceNormalPageStateIfNeeded(url: string): void;
   isReaderViewOpen(): boolean;
   isReaderMode(url: string): boolean;
+  isSupportedVideoPage(url: string): boolean;
   shouldAutoOpen?(url: string): boolean;
   isPlayerAiLoaded(): boolean;
   ensureUiReady(): Promise<void>;
@@ -49,6 +50,7 @@ export interface ClipSwitchTransactionDeps {
   syncPlayerAiQuickAction(): void | Promise<void>;
   enterReaderShellOnUrlNavigation(url: string): void | Promise<void>;
   refreshReaderClip(): void | Promise<void>;
+  exitReaderShell(): void | Promise<void>;
   startSubtitlePrefetch(): void;
   logWarn(message: string, detail?: unknown): void;
 }
@@ -78,6 +80,21 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
     const nextUrl = deps.readUrl();
     const nextSignature = deps.computeSignature();
     if (nextSignature === deps.readSignature()) {
+      if (
+        !deps.isReaderMode(nextUrl) ||
+        !deps.isSupportedVideoPage(nextUrl) ||
+        deps.isReaderViewOpen()
+      ) {
+        return;
+      }
+      const entering = (async () => {
+        try {
+          await deps.enterReaderShellOnUrlNavigation(nextUrl);
+        } catch (error) {
+          deps.logWarn("[BILISCRIPT] reading shell load failed", error);
+        }
+      })();
+      void Promise.allSettled([entering]).then(publishSettled);
       return;
     }
 
@@ -85,7 +102,10 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
     deps.writeRunId(deps.readRunId() + 1);
     deps.enforceNormalPageStateIfNeeded(nextUrl);
 
-    const shouldEnter = deps.isReaderMode(nextUrl) || Boolean(deps.shouldAutoOpen?.(nextUrl));
+    const isSupported = deps.isSupportedVideoPage(nextUrl);
+    const shouldEnter = isSupported && (
+      deps.isReaderMode(nextUrl) || Boolean(deps.shouldAutoOpen?.(nextUrl))
+    );
     const started: Array<Promise<void>> = [];
 
     // reset 步骤：UI 壳只在阅读视图已开或本次正要进入时才需要（reset 的重渲与
@@ -127,8 +147,15 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
       );
     }
 
-    // 三档互斥分支（恰起步一个）。
-    if (!deps.isReaderViewOpen() && shouldEnter) {
+    if (!isSupported) {
+      if (deps.isReaderViewOpen()) {
+        started.push(
+          (async () => {
+            await deps.exitReaderShell();
+          })()
+        );
+      }
+    } else if (!deps.isReaderViewOpen() && shouldEnter) {
       started.push(
         (async () => {
           try {

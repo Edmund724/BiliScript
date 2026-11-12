@@ -2006,9 +2006,7 @@
   transform: rotate(180deg);
 }
 
-/* 发送键：空闲 = ↑（accent 圆键，空输入禁用置灰）；流式中同键变停止键
- * （.is-stop 换方块图标），点击走同一条 abort 链；伴看说话期间同样变停止键
- * （.is-live-interrupt，伴看控制器驱动），点击路由到伴看打断。 */
+/* 主操作键：idle 空草稿 = 麦克风；有正文或贴图 = ↑；流式中 = 停止方块。 */
 .biliscript-reading-chat .chat-send-btn {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2029,6 +2027,11 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
+.biliscript-reading-chat .chat-send-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 .biliscript-reading-chat .chat-send-btn:disabled {
   cursor: default;
   opacity: 0.45;
@@ -2044,7 +2047,9 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-send-btn .chat-stop-icon {
+.biliscript-reading-chat .chat-send-btn .chat-stop-icon,
+.biliscript-reading-chat .chat-send-btn .chat-live-icon,
+.biliscript-reading-chat .chat-send-btn .chat-spinner-icon {
   display: none;
 }
 
@@ -2055,12 +2060,25 @@
   stroke: none;
 }
 
-.biliscript-reading-chat .chat-send-btn.is-stop .chat-send-icon {
+.biliscript-reading-chat .chat-send-btn.is-stop .chat-send-icon,
+.biliscript-reading-chat .chat-send-btn.is-live .chat-send-icon,
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-send-icon {
   display: none;
 }
 
-.biliscript-reading-chat .chat-send-btn.is-stop .chat-stop-icon {
+.biliscript-reading-chat .chat-send-btn.is-stop .chat-stop-icon,
+.biliscript-reading-chat .chat-send-btn.is-live .chat-live-icon,
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-spinner-icon {
   display: block;
+}
+
+.biliscript-reading-chat .chat-send-btn.is-connecting .chat-spinner-icon {
+  animation: biliscript-live-spin 1s linear infinite;
+}
+
+@keyframes biliscript-live-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 

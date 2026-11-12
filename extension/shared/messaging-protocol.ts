@@ -35,10 +35,9 @@ export type ReaderEnterMessage = {
   chat?: { prompt?: string };
 };
 
-// 响应锚点：entry/message-handler.ts reader-enter 处理器——命令已受理入队即答
-// { ok: true }，不代表进入完成；shell 装载失败回 { ok: false, error }
-//（arch-slim-2/09 shell 静态边改动态）。
-export type ReaderEnterResponse = { ok: boolean };
+// 响应锚点：entry/message-handler.ts reader-enter 处理器——进入事务完成后回
+// { ok: true }；shell 装载或进入失败回 { ok: false, error }。
+export type ReaderEnterResponse = { ok: boolean; error?: string };
 
 // 退出阅读模式（SW 侧 triggerReaderModeCloseInTab 的重试发送；面板关闭按钮走
 // 页内直调 reader 域，不经消息）。消费端（entry/message-handler.ts）收敛地址栏
@@ -60,9 +59,9 @@ export type ReaderRestoreMessage = {
   readerUrl?: string;
 };
 
-// 响应锚点：entry/message-handler.ts reader-restore 处理器——同 reader-enter 的
-// 即答语义，恒 { ok: true }。
-export type ReaderRestoreResponse = { ok: boolean };
+// 响应锚点：entry/message-handler.ts reader-restore 处理器——同 reader-enter，
+// 恢复事务完成后回成功，失败带可读 error。
+export type ReaderRestoreResponse = { ok: boolean; error?: string };
 
 export type LiveSessionTakeoverMessage = {
   type: "live-session-takeover";

@@ -81,7 +81,8 @@ describe("entering 中收到 close：退出事务顺延", () => {
       closeReadingView: vi.fn(() => {
         stateModule.transitionReaderShell("closed");
         order.push("close");
-      })
+      }),
+      restoreReadingViewFocus: vi.fn()
     });
 
     const enterPromise = shell.enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" });
@@ -169,7 +170,7 @@ describe("失败回退（不能卡在过渡态）", () => {
 
     await expect(
       shell.enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" })
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow("enter boom");
 
     expect(stateModule.getReaderShellState()).toBe("closed");
     expect(warnSpy.mock.calls.some((call: unknown[]) => String(call[0]).includes("rolled back to closed"))).toBe(true);

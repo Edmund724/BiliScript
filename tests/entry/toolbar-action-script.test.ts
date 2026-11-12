@@ -140,6 +140,25 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
       vi.useRealTimers();
     }
   });
+
+  it("内容脚本注入恢复失败：重试耗尽后在扩展图标上留下可见失败反馈", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessageToTab).mockRejectedValue(new Error("Could not establish connection. Receiving end does not exist."));
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValue(new Error("Cannot inject"));
+
+      onClickedListener({ id: 7, url: VIDEO_URL });
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: "!" });
+      expect(chrome.action.setTitle).toHaveBeenCalledWith({
+        tabId: 7,
+        title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ===== 等价性：工具栏载荷与页内 文摘按钮走同一进入事务 =====
@@ -232,5 +251,21 @@ describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
     expect(options.readerUrl).toBe(buildReaderModeUrl(NORMAL_PAGE_URL));
     expect(options.intent).toBe("open");
     expect(options.prompt).toBeUndefined();
+  });
+
+  it("enterReaderMode 失败：页内按钮自身显示失败，不只写隐藏阅读状态行", async () => {
+    document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
+    shellMocks.enterReaderShell.mockRejectedValueOnce(new Error("enter failed"));
+    const handler = await import("../../extension/entry/message-handler.js");
+    handler.bindRuntimeEvents();
+    const lazy = await import("../../extension/ui/lazy-script-button.js");
+    await lazy.loadScriptButton();
+    const button = document.getElementById("biliscript-script-button") as HTMLButtonElement;
+
+    button.click();
+
+    await vi.waitFor(() => expect(button.textContent).toBe("文摘打开失败"));
+    expect(button.title).toBe("文摘面板打开失败：enter failed");
+    expect(document.getElementById("biliscript-reading-status")).toBeNull();
   });
 });
