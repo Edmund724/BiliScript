@@ -1719,9 +1719,7 @@
   text-align: left;
 }
 
-/* 图片附件区（image-input 02 号票）：输入卡片顶部一行缩略图，每张右上角一个
- * 删除键；无附件时 [hidden] 不占位（display:flex 会盖掉 hidden 的默认隐藏，
- * 故显式补一条）。 */
+/* 图片附件区：粘贴即显示同尺寸占位，完成后原位替换为可预览缩略图。 */
 .biliscript-reading-chat .chat-image-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1734,8 +1732,24 @@
 
 .biliscript-reading-chat .chat-image-item {
   position: relative;
+  flex: 0 0 52px;
   width: 52px;
   height: 52px;
+}
+
+.biliscript-reading-chat .chat-image-preview,
+.biliscript-reading-chat .chat-image-skeleton {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--chat-input-inner-radius, max(0px, calc(var(--chat-input-radius, var(--biliscript-radius-panel)) - 11px)));
+  background: var(--biliscript-reader-surface-2);
+}
+
+.biliscript-reading-chat .chat-image-preview {
+  cursor: zoom-in;
 }
 
 .biliscript-reading-chat .chat-image-thumb {
@@ -1744,21 +1758,29 @@
   height: 100%;
   object-fit: cover;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--chat-input-inner-radius, max(0px, calc(var(--chat-input-radius, var(--biliscript-radius-panel)) - 11px)));
+  border-radius: inherit;
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
 }
 
-/* 删除键：缩略图右上角外沿的小圆键（角标压在图上，形状与发送键的圆键母题一致）。 */
+.biliscript-reading-chat .chat-image-skeleton {
+  border: 1px solid var(--biliscript-reader-border);
+  animation: biliscript-chat-image-pending 1s ease-in-out infinite alternate;
+}
+
+@keyframes biliscript-chat-image-pending {
+  to { opacity: 0.45; }
+}
+
 .biliscript-reading-chat .chat-image-remove {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: -8px;
+  right: -8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-pill);
@@ -1776,6 +1798,61 @@
 
 .biliscript-reading-chat .chat-image-remove:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-image-preview:focus-visible,
+.biliscript-reading-chat .chat-image-remove:focus-visible,
+.biliscript-reading-chat .chat-image-lightbox-close:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
+.biliscript-reading-chat .chat-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.biliscript-reading-chat .chat-image-lightbox-dialog {
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.biliscript-reading-chat .chat-image-lightbox-image {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  object-fit: contain;
+  border-radius: var(--biliscript-radius-panel);
+}
+
+.biliscript-reading-chat .chat-image-lightbox-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-surface);
+  color: var(--biliscript-reader-text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-chat .chat-image-skeleton {
+    animation: none;
+  }
 }
 
 /* 底部控件行：联网搜索 pill 在左，模型 chip 锚点与发送键在右（锚点 margin-left:auto

@@ -1,17 +1,5 @@
-// chat-input-images.ts — 输入区图片附件（image-input 02 号票：粘贴入口 + 缩略图
-// 预览 + 单个删除 + 发送时消费）。
-//
-// 职责：剪贴板粘贴的 image/* 项 → 压缩（./image-compress.js 的 03 号票规格）→
-// 缩略图条目；张数 / 单条总量的上限判定与拒绝文案；发送时按受理快照消费，
+// 输入区图片附件：粘贴时同步占位，压缩后原位填充；发送按快照消费，
 // 保留等待期间新增的图片及其在途压缩。
-//
-// 边界：
-//   - 只做粘贴入口（文件选择器 / 拖拽 / 视频帧截取都不做，spec 非目标）；
-//   - 纯文本与其它非图片剪贴板内容**不拦截**（不 preventDefault），既有粘贴行为
-//     逐字不变；
-//   - 附件只在会话内存中，不落 chrome.storage（04 号票的落盘策略另票实现）；
-//   - 事件注册在组合根（reader/chat-tab.ts 的 bindEvents：paste 与容器委托
-//     的删除键），本模块只给方法——与 chat-lists / chat-popovers 同款分工。
 
 import type { ImagePart } from "../ai/types.js";
 import {
@@ -24,8 +12,6 @@ import {
   type ImageRejectReason
 } from "./image-compress.js";
 
-// 剪贴板事件的窄视图（chat-runtime 的 ChatPort 窄视图同款：结构子集，真实
-// ClipboardEvent / DataTransferItemList 天然同构，测试可直接传字面量）。
 export interface PasteClipboardItem {
   kind?: string;
   type?: string;
@@ -38,26 +24,26 @@ export interface PasteEventLike {
 }
 
 export interface ChatInputImagesDeps {
-  // 附件区容器（模板 .chat-image-strip；缺失时逻辑照跑，仅不渲染）
   strip: HTMLElement | null;
-  // 压缩管线（缺省 image-compress 的真实实现；测试注入替身）
   compress?: (blob: Blob) => Promise<CompressedImage>;
   // 流式生成中不接受新图片；字幕等待期间仍可粘贴。
   isStreaming?: () => boolean;
-  // 用户可见反馈出口（拒绝原因 → 文案，展示由调用方决定）
   onReject: (message: string) => void;
+  onPendingChange?: (pending: boolean) => void;
+  focusInput?: () => void;
 }
 
 export interface ChatInputImages {
   handlePaste(event: PasteEventLike): void;
+  previewAt(index: number): void;
   removeAt(index: number): void;
   clear(): void;
   getImages(): ImagePart[];
   takeImages(snapshot?: ImagePart[]): ImagePart[];
   count(): number;
+  isPending(): boolean;
 }
 
-// 拒绝文案（03 号票上限；数值取自 image-compress 的常量，不另写一份）。
 const MB = 1024 * 1024;
 const REJECT_MESSAGES: Record<ImageRejectReason, string> = {
   "too-many": `一条消息最多 ${IMAGE_MAX_COUNT} 张图片`,
@@ -67,11 +53,18 @@ const REJECT_MESSAGES: Record<ImageRejectReason, string> = {
   "encode-failed": "图片处理失败，请换一张图片重试"
 };
 
-// 流式中加图被拒（02 号票行为细节：发送中不允许再加图）。
 export const IMAGE_STREAMING_REJECT_MESSAGE = "正在生成回答，暂不支持添加图片";
 
-const REMOVE_LABEL = "删除图片";
-const THUMB_ALT = "粘贴的图片";
+interface Attachment {
+  id: number;
+  compressed: CompressedImage | null;
+}
+
+interface ActivePreview {
+  id: number;
+  overlay: HTMLElement;
+  onKeyDown: (event: KeyboardEvent) => void;
+}
 
 function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File[] {
   const items = clipboardData?.items;
@@ -81,7 +74,6 @@ function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File
   const files: File[] = [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
-    // 仅 file 类且 MIME 为 image/* 的项算图片；文本项（kind=string）不在此列。
     if (!item || item.kind !== "file" || !/^image\//i.test(String(item.type || ""))) {
       continue;
     }
@@ -95,12 +87,46 @@ function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File
 
 export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImages {
   const compress = deps.compress || createImageCompressor().compress;
-  let attachments: CompressedImage[] = [];
-  // clear 与无快照的 takeImages 递增附件区世代号，作废此前在途压缩；按快照
-  // 消费不递增，等待期间新粘贴的图片可以正常落位。
+  let attachments: Attachment[] = [];
   let generation = 0;
-  // 在途压缩计数：并发粘贴时张数上限要算上还没落位的那些。
-  let pending = 0;
+  let nextId = 1;
+  let pendingUi = false;
+  let activePreview: ActivePreview | null = null;
+
+  function isPending(): boolean {
+    return attachments.some((item) => item.compressed === null);
+  }
+
+  function syncPending(): void {
+    const pending = isPending();
+    if (pending === pendingUi) {
+      return;
+    }
+    pendingUi = pending;
+    deps.onPendingChange?.(pending);
+  }
+
+  function closePreview(restoreFocus = true): void {
+    if (!activePreview) {
+      return;
+    }
+    const { id, overlay, onKeyDown } = activePreview;
+    activePreview = null;
+    document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+    if (!restoreFocus) {
+      return;
+    }
+    const candidates = deps.strip
+      ? Array.from(deps.strip.querySelectorAll<HTMLButtonElement>("[data-chat-image-preview]"))
+      : [];
+    const trigger = candidates.find((node) => Number(node.dataset.chatImageId) === id);
+    if (trigger) {
+      trigger.focus();
+    } else {
+      deps.focusInput?.();
+    }
+  }
 
   function render(): void {
     const strip = deps.strip;
@@ -109,105 +135,197 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     }
     strip.innerHTML = "";
     strip.hidden = attachments.length === 0;
+    strip.setAttribute("aria-busy", String(isPending()));
     attachments.forEach((item, index) => {
       const node = document.createElement("div");
       node.className = "chat-image-item";
-      const thumb = document.createElement("img");
-      thumb.className = "chat-image-thumb";
-      thumb.src = `data:${item.part.mime};base64,${item.part.data}`;
-      thumb.alt = THUMB_ALT;
+      node.dataset.chatImageId = String(item.id);
+      if (item.compressed) {
+        const preview = document.createElement("button");
+        preview.type = "button";
+        preview.className = "chat-image-preview";
+        preview.dataset.chatImagePreview = String(index);
+        preview.dataset.chatImageId = String(item.id);
+        preview.setAttribute("aria-label", `预览第 ${index + 1} 张图片`);
+        preview.title = "预览图片";
+        const thumb = document.createElement("img");
+        thumb.className = "chat-image-thumb";
+        thumb.src = `data:${item.compressed.part.mime};base64,${item.compressed.part.data}`;
+        thumb.alt = `第 ${index + 1} 张粘贴图片`;
+        preview.appendChild(thumb);
+        node.appendChild(preview);
+      } else {
+        const skeleton = document.createElement("span");
+        skeleton.className = "chat-image-skeleton";
+        skeleton.setAttribute("role", "img");
+        skeleton.setAttribute("aria-label", `第 ${index + 1} 张图片处理中`);
+        node.appendChild(skeleton);
+      }
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "chat-image-remove";
       remove.dataset.chatImageRemove = String(index);
-      remove.title = REMOVE_LABEL;
-      remove.setAttribute("aria-label", REMOVE_LABEL);
+      remove.dataset.chatImageId = String(item.id);
+      remove.title = `删除第 ${index + 1} 张图片`;
+      remove.setAttribute("aria-label", remove.title);
       remove.textContent = "×";
-      node.append(thumb, remove);
+      node.appendChild(remove);
       strip.appendChild(node);
     });
   }
 
-  function reject(reason: ImageRejectReason): void {
-    deps.onReject(REJECT_MESSAGES[reason]);
+  function rejectAt(position: number, reason: ImageRejectReason): void {
+    deps.onReject(`第 ${position} 张图片：${REJECT_MESSAGES[reason]}`);
   }
 
-  async function acceptFiles(files: File[]): Promise<void> {
-    for (const file of files) {
-      if (attachments.length + pending >= IMAGE_MAX_COUNT) {
-        deps.onReject(REJECT_MESSAGES["too-many"]);
+  async function compressEntry(entry: Attachment, file: File, currentGeneration: number): Promise<void> {
+    try {
+      const compressed = await compress(file);
+      if (currentGeneration !== generation || !attachments.includes(entry)) {
         return;
       }
-      const current = generation;
-      pending += 1;
-      try {
-        const compressed = await compress(file);
-        // 附件区已被消费（发送受理）/清空：本轮结果作废，不回填。
-        if (current !== generation) {
-          return;
-        }
-        const total = attachments.reduce((sum, item) => sum + item.bytes, 0) + compressed.bytes;
-        if (total > IMAGE_MAX_TOTAL_BYTES) {
-          reject("total-too-large");
-          continue;
-        }
-        attachments.push(compressed);
+      const total = attachments.reduce((sum, item) => sum + (item.compressed?.bytes ?? 0), 0) + compressed.bytes;
+      if (total > IMAGE_MAX_TOTAL_BYTES) {
+        const index = attachments.indexOf(entry);
+        attachments.splice(index, 1);
         render();
-      } catch (error) {
-        // 单张超限（compress 内判定）与解码/编码失败都走这里：一律给可见提示，
-        // 绝不静默丢。一张失败不影响同批其余图片继续处理。
-        if (error instanceof ImageRejectError) {
-          reject(error.reason);
-        } else {
-          reject("encode-failed");
-        }
-      } finally {
-        pending -= 1;
+        rejectAt(index + 1, "total-too-large");
+        return;
       }
+      entry.compressed = compressed;
+      render();
+    } catch (error) {
+      if (currentGeneration !== generation || !attachments.includes(entry)) {
+        return;
+      }
+      const index = attachments.indexOf(entry);
+      attachments.splice(index, 1);
+      render();
+      rejectAt(index + 1, error instanceof ImageRejectError ? error.reason : "encode-failed");
+    } finally {
+      syncPending();
+    }
+  }
+
+  function acceptFiles(files: File[]): void {
+    const firstPosition = attachments.length + 1;
+    const available = Math.max(0, IMAGE_MAX_COUNT - attachments.length);
+    const accepted = files.slice(0, available).map((file) => {
+      const entry: Attachment = { id: nextId++, compressed: null };
+      attachments.push(entry);
+      return { entry, file, generation };
+    });
+    render();
+    syncPending();
+    for (let index = available; index < files.length; index += 1) {
+      rejectAt(firstPosition + index, "too-many");
+    }
+    for (const item of accepted) {
+      void compressEntry(item.entry, item.file, item.generation);
     }
   }
 
   function handlePaste(event: PasteEventLike): void {
     const files = collectImageFiles(event.clipboardData);
     if (!files.length) {
-      // 纯文本 / 非图片：不拦截，默认粘贴行为不变。
       return;
     }
-    // 含 image/*：拦截（不让浏览器把图片当文件拖进 textarea 的既有效果），
-    // 再按流式闸 / 上限逐张收。
     event.preventDefault();
     if (deps.isStreaming?.()) {
       deps.onReject(IMAGE_STREAMING_REJECT_MESSAGE);
       return;
     }
-    void acceptFiles(files);
+    acceptFiles(files);
+  }
+
+  function previewAt(index: number): void {
+    const entry = attachments[index];
+    if (!entry?.compressed) {
+      return;
+    }
+    closePreview(false);
+    const overlay = document.createElement("div");
+    overlay.className = "chat-image-lightbox";
+    const dialog = document.createElement("div");
+    dialog.className = "chat-image-lightbox-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", `第 ${index + 1} 张图片预览`);
+    const image = document.createElement("img");
+    image.className = "chat-image-lightbox-image";
+    image.src = `data:${entry.compressed.part.mime};base64,${entry.compressed.part.data}`;
+    image.alt = `第 ${index + 1} 张粘贴图片的大图预览`;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "chat-image-lightbox-close";
+    close.setAttribute("aria-label", "关闭图片预览");
+    close.title = "关闭";
+    close.textContent = "×";
+    dialog.append(image, close);
+    overlay.appendChild(dialog);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePreview();
+      }
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        closePreview();
+      }
+    });
+    close.addEventListener("click", () => closePreview());
+    document.addEventListener("keydown", onKeyDown);
+    activePreview = { id: entry.id, overlay, onKeyDown };
+    const host = deps.strip?.closest<HTMLElement>(".biliscript-reading-chat") ?? document.body;
+    host.appendChild(overlay);
+    close.focus();
   }
 
   function clear(): void {
     generation += 1;
+    closePreview(false);
     attachments = [];
     render();
+    syncPending();
   }
 
   function removeAt(index: number): void {
     if (!Number.isInteger(index) || index < 0 || index >= attachments.length) {
       return;
     }
-    attachments.splice(index, 1);
+    const [removed] = attachments.splice(index, 1);
+    if (activePreview?.id === removed.id) {
+      closePreview(false);
+    }
     render();
+    syncPending();
+    const items = deps.strip?.querySelectorAll<HTMLElement>(".chat-image-item");
+    const adjacent = items?.[Math.min(index, items.length - 1)];
+    const focusTarget = adjacent?.querySelector<HTMLButtonElement>(".chat-image-preview, .chat-image-remove");
+    if (focusTarget) {
+      focusTarget.focus();
+    } else {
+      deps.focusInput?.();
+    }
   }
 
   function getImages(): ImagePart[] {
-    return attachments.map((item) => item.part);
+    return attachments.flatMap((item) => item.compressed ? [item.compressed.part] : []);
   }
 
-  // 有快照时只移除快照内的附件，等待期间新增的图片留在附件区；无快照保留
-  // 原有的读清一体行为，供非等待路径与测试夹具使用。
   function takeImages(snapshot?: ImagePart[]): ImagePart[] {
     if (snapshot) {
       const consumed = new Set(snapshot);
-      attachments = attachments.filter((item) => !consumed.has(item.part));
+      const removedIds = new Set(
+        attachments.filter((item) => item.compressed && consumed.has(item.compressed.part)).map((item) => item.id)
+      );
+      if (activePreview && removedIds.has(activePreview.id)) {
+        closePreview(false);
+      }
+      attachments = attachments.filter((item) => !removedIds.has(item.id));
       render();
+      syncPending();
       return snapshot;
     }
     const parts = getImages();
@@ -217,10 +335,12 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
 
   return {
     handlePaste,
+    previewAt,
     removeAt,
     clear,
     getImages,
     takeImages,
-    count: () => attachments.length
+    count: () => attachments.length,
+    isPending
   };
 }

@@ -24,6 +24,8 @@ import type { SendVerdict } from "../chat/turn-lifecycle.js";
 // 高度落回 CSS 自然高，行为不变。
 export const INPUT_MAX_HEIGHT = 320;
 export const SUBTITLE_WAIT_NOTICE = "正在等待字幕，完成后自动发送";
+export const IMAGE_PROCESSING_NOTICE = "图片处理中…";
+export const IMAGE_TEXT_REQUIRED_NOTICE = "图片需随文字一起发送";
 
 export interface ReaderChatComposerEls {
   input: HTMLTextAreaElement;
@@ -44,6 +46,8 @@ export interface ReaderChatComposerDeps {
   onPasteImage?: (event: ClipboardEvent) => void;
   onCancelSubtitleWait?: () => void;
   onNotice?: (message: string, autoHideMs?: number) => void;
+  isImageProcessing?: () => boolean;
+  hasInputImages?: () => boolean;
 }
 
 export interface ReaderChatComposer {
@@ -66,7 +70,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   const waitText = waitCard?.querySelector<HTMLElement>(".chat-subtitle-wait-text") ?? null;
   const waitCancel = waitCard?.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel") ?? null;
 
-  // 发送键禁用态：流式中（停止键形态）仅「停止中」禁用；空闲时空输入禁用置灰。
+  // 流式中发送键变为停止键；空闲时图片处理中与无正文均不可发送。
   let stopInFlight = false;
   let subtitleWaitActive = false;
   let cancelRequested = false;
@@ -82,14 +86,20 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       return;
     }
 
-    if (hasText) {
+    sendBtn.setAttribute("aria-label", "发送");
+    if (deps.isImageProcessing?.()) {
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("title", IMAGE_PROCESSING_NOTICE);
+    } else if (hasText) {
       sendBtn.disabled = subtitleWaitActive;
-      sendBtn.setAttribute("aria-label", "发送");
       sendBtn.setAttribute("title", "发送");
     } else {
       sendBtn.disabled = true;
-      sendBtn.setAttribute("aria-label", "发送");
-      sendBtn.removeAttribute("title");
+      if (deps.hasInputImages?.()) {
+        sendBtn.setAttribute("title", IMAGE_TEXT_REQUIRED_NOTICE);
+      } else {
+        sendBtn.removeAttribute("title");
+      }
     }
   }
 
@@ -155,9 +165,24 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   // 调用方（解释意图）把它消费掉而消息从未发出（时间轴只有一条空档）。回放让位
   // 不再手抄：等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await
   // replayInFlight）。
+  function imageSendBlockReason(text: string): string | null {
+    if (deps.isImageProcessing?.()) {
+      return IMAGE_PROCESSING_NOTICE;
+    }
+    if (!text.trim() && deps.hasInputImages?.()) {
+      return IMAGE_TEXT_REQUIRED_NOTICE;
+    }
+    return null;
+  }
+
   async function sendViaInputBox(text: string): Promise<boolean> {
     input.value = text;
     autosizeInput();
+    const blockReason = imageSendBlockReason(text);
+    if (blockReason) {
+      deps.onNotice?.(blockReason, 3000);
+      return false;
+    }
     // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
     const verdict = await chatRuntime.sendTurn(text);
     return verdict === "accepted";
@@ -181,6 +206,14 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   // 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
   // await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
   async function sendFromUi(): Promise<void> {
+    const blockReason = imageSendBlockReason(input.value);
+    if (blockReason) {
+      deps.onNotice?.(blockReason, 3000);
+      return;
+    }
+    if (!input.value.trim()) {
+      return;
+    }
     const verdict = await chatRuntime.sendTurn(input.value);
     if (verdict === "ignored" && subtitleWaitActive) {
       deps.onNotice?.(SUBTITLE_WAIT_NOTICE, 3000);
@@ -197,10 +230,6 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-        if (!input.value.trim()) {
-          e.preventDefault();
-          return;
-        }
         e.preventDefault();
         void sendFromUi();
       }
