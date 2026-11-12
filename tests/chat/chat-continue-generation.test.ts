@@ -314,9 +314,9 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     // 验证 DOM 维持中断态并保留合并正文
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("再次中断");
     const actions = assistantEl.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-    expect(actions).toHaveLength(2);
-    expect(actions[0].getAttribute("aria-label")).toBe("重新生成");
-    expect(actions[1].getAttribute("aria-label")).toBe("继续生成");
+    expect([...actions].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+    ]);
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("第一步 -> 第二步");
   });
 
@@ -393,6 +393,6 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     // DOM 恢复中断态
     expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("初始停止");
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("原部分正文");
-    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(2);
+    expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(5);
   });
 });

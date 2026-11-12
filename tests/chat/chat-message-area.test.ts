@@ -114,6 +114,25 @@ describe("消息区句柄：装配形状与来源语义", () => {
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
   });
 
+  it("用户消息显示已发送图片，查看器 Esc 关闭并归还缩略图焦点", () => {
+    const deps = makeDeps();
+    document.body.appendChild(deps.messages);
+    const area = areaOf(createChatRuntime(deps));
+    area.appendUserMessage("看图", {
+      source: "replay",
+      images: [{ mime: "image/webp", data: "QUJD" }]
+    });
+    const open = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-user .chat-image-open")!;
+
+    expect(open.querySelector(".chat-image-thumb")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    open.click();
+    expect(document.querySelector(".chat-image-viewer-image")).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+    expect(document.querySelector(".chat-image-viewer")).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+
   it("助手节点形状只有一个主人：live 带流式豁免类 + 光标，replay 不带；live 摘除上一条豁免", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
@@ -304,8 +323,13 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
       "导出 Markdown"
     ]);
 
+    expect(node.querySelector(".chat-msg-continue-btn")).toBeNull();
     turn.markTruncated("回答被截断（达到模型输出上限）");
     expect(deps.messages.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
+    expect(node.querySelector(".chat-msg-continue-btn")).not.toBeNull();
+    expect([...node.querySelectorAll(".chat-msg-action-btn")].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+    ]);
     // 位置：操作行之后（与既有 done 收尾时序一致）
     expect(deps.messages.querySelector(".chat-msg-truncated")?.previousElementSibling?.className).toBe("chat-msg-actions");
     expect(deps.messages.querySelector(".chat-msg-truncated")).toBe(node.lastElementChild);
@@ -346,6 +370,27 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
 
     area.clear();
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话拆除 resetStreamState 停止朗读并恢复按钮", async () => {
+    const deps = makeDeps();
+    const speak = vi.fn();
+    const stop = vi.fn();
+    deps.speechEngine = {
+      getVoices: async () => [{ voiceName: "本地中文", lang: "zh-CN", remote: false }],
+      speak,
+      stop
+    };
+    const runtime = createChatRuntime(deps);
+    areaOf(runtime).appendAssistantMessage({ source: "live" }).finish({ raw: "回答" });
+    const button = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-speak-btn")!;
+    button.click();
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
+
+    runtime.resetStreamState();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(button.getAttribute("aria-label")).toBe("朗读回答");
   });
 
   it("fail：清空节点内容，只留错误占位（文案原样，不渲染正文）", () => {

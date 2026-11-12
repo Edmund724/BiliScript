@@ -146,6 +146,25 @@ describe("粘贴入口（仅 image/* 拦截）", () => {
   });
 });
 
+describe("附件图片查看", () => {
+  it("缩略图打开共享查看器，Esc 关闭并把焦点还给原按钮", async () => {
+    const { images, strip } = makeRuntime();
+    document.body.appendChild(strip);
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+    await flush();
+    const open = strip.querySelector<HTMLButtonElement>(".chat-image-open")!;
+
+    open.click();
+    expect(document.querySelector(".chat-image-viewer-image")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    expect(document.activeElement).toBe(document.querySelector(".chat-image-viewer-close"));
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+    expect(document.querySelector(".chat-image-viewer")).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+});
+
 describe("单个删除与清空", () => {
   it("删除后计数归零，附件区回到 hidden", async () => {
     const { images, strip } = makeRuntime();

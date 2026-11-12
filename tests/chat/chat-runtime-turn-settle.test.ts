@@ -184,6 +184,23 @@ describe("isTurnActive（在途回合判据）", () => {
   });
 });
 
+describe("stopActiveStream 停止中状态", () => {
+  it("点击停止立即进入停止中，stopped 终态后退出流式", async () => {
+    const { deps, runtime, session } = await makeRuntime("问题");
+    deps.ui.setStreamingUiState.mockClear();
+
+    runtime.stopActiveStream();
+
+    expect(deps.ui.setStreamingUiState).toHaveBeenCalledWith(true, { stopping: true });
+    expect(postedActions(session)).toEqual(["chat", "stop"]);
+    expect(runtime.isTurnActive()).toBe(true);
+
+    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    expect(deps.ui.setStreamingUiState).toHaveBeenLastCalledWith(false, { stopping: false });
+    expect(runtime.isTurnActive()).toBe(false);
+  });
+});
+
 describe("settleTurn（在途回合结算）", () => {
   it("不在途：立即兑现、不发 stop、不碰 port", async () => {
     const deps = makeDeps();

@@ -14,6 +14,7 @@
 //     的删除键），本模块只给方法——与 chat-lists / chat-popovers 同款分工。
 
 import type { ImagePart } from "../ai/types.js";
+import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import {
   IMAGE_MAX_BYTES,
   IMAGE_MAX_COUNT,
@@ -95,6 +96,7 @@ function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File
 
 export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImages {
   const compress = deps.compress || createImageCompressor().compress;
+  const viewer = createChatImageViewer();
   let attachments: CompressedImage[] = [];
   // clear 与无快照的 takeImages 递增附件区世代号，作废此前在途压缩；按快照
   // 消费不递增，等待期间新粘贴的图片可以正常落位。
@@ -112,10 +114,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     attachments.forEach((item, index) => {
       const node = document.createElement("div");
       node.className = "chat-image-item";
-      const thumb = document.createElement("img");
-      thumb.className = "chat-image-thumb";
-      thumb.src = `data:${item.part.mime};base64,${item.part.data}`;
-      thumb.alt = THUMB_ALT;
+      const open = createChatImageViewButton(item.part, viewer, THUMB_ALT);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "chat-image-remove";
@@ -123,7 +122,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
       remove.title = REMOVE_LABEL;
       remove.setAttribute("aria-label", REMOVE_LABEL);
       remove.textContent = "×";
-      node.append(thumb, remove);
+      node.append(open, remove);
       strip.appendChild(node);
     });
   }
@@ -184,6 +183,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
   }
 
   function clear(): void {
+    viewer.close();
     generation += 1;
     attachments = [];
     render();
@@ -193,6 +193,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     if (!Number.isInteger(index) || index < 0 || index >= attachments.length) {
       return;
     }
+    viewer.close();
     attachments.splice(index, 1);
     render();
   }

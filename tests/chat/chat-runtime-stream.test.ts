@@ -788,7 +788,8 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
     expect(node.querySelector(".chat-msg-assistant-body")?.innerHTML).toBe(renderMarkdown("半句"));
     expect(node.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
-    // 截断只加一行说明，不改落库数据（正文照常写回）
+    expect(node.querySelector(".chat-msg-continue-btn")).not.toBeNull();
+    // 截断只加一行说明与继续入口，不改落库数据（正文照常写回）
     expect(chatSessionState.chatHistory).toEqual([
       { role: "user", content: "总结一下" },
       { role: "assistant", content: "半句" }
@@ -814,6 +815,7 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     feed(runtime, { type: "done" });
 
     expect(node2.querySelector(".chat-msg-truncated")).toBeNull();
+    expect(node2.querySelector(".chat-msg-continue-btn")).toBeNull();
   });
 
   it("cost-guard：面板内确认弹层确认 → 回执 ok:true；取消/缺省文案 → ok:false，流不终止", async () => {

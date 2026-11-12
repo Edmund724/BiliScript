@@ -149,6 +149,18 @@ describe("createConversationReplay（历史回放事务）", () => {
     expect(scrollToBottom).toHaveBeenCalledWith(true, { instant: true });
   });
 
+  it("用户消息图片随历史回放交给消息区句柄", async () => {
+    const { deps, messageArea } = makeDeps();
+    const images = [{ mime: "image/webp", data: "QUJD" }];
+    seedHistory({ role: "user", content: "看图", images });
+    const replay = createConversationReplay(deps);
+
+    replay.render();
+    await flushTurn();
+
+    expect(messageArea.appendUserMessage).toHaveBeenCalledWith("看图", { source: "replay", images });
+  });
+
   it("搜索回合对位：tool 消息本体不渲染，时间线卡经回合句柄插在回答之前（finish 先于挂卡）", async () => {
     const { deps, turns } = makeDeps();
     const sources = [{ title: "A", url: "https://a.com", snippet: "sa" }];

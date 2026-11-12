@@ -89,6 +89,24 @@ describe("createReaderChatComposer send/stop button logic", () => {
     expect(sendBtn.getAttribute("aria-label")).toBe("发送");
   });
 
+  it("停止请求立即显示正在停止并防连点，终态后恢复发送键", () => {
+    const harness = setupComposer();
+    const { sendBtn, composer, chatRuntime } = harness;
+    chatRuntime.stopActiveStream.mockImplementation(() => composer.setStreamingUiState(true, { stopping: true }));
+    composer.setStreamingUiState(true);
+
+    sendBtn.click();
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.getAttribute("aria-label")).toBe("正在停止…");
+    expect(sendBtn.getAttribute("title")).toBe("正在停止…");
+    sendBtn.click();
+    expect(chatRuntime.stopActiveStream).toHaveBeenCalledTimes(1);
+
+    composer.setStreamingUiState(false);
+    expect(sendBtn.getAttribute("aria-label")).toBe("发送");
+    expect(sendBtn.disabled).toBe(true);
+  });
+
   it("字幕等待期间：显示可取消等待卡，输入框与占位符不变", () => {
     const { input, sendBtn, composer } = setupComposer();
 

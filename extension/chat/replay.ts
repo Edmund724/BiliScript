@@ -120,7 +120,10 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
       }
       const message = history[index];
       if (message.role === "user") {
-        deps.renderer.messageArea.appendUserMessage(message.content, { source: "replay" });
+        deps.renderer.messageArea.appendUserMessage(message.content, {
+          source: "replay",
+          ...(message.images?.length ? { images: message.images } : {})
+        });
       } else if (message.role === "tool" || (Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())) {
         // 工具轮消息（spec §2.5）：查询与结果由回合回答消息上的搜索时间线卡
         // 承载，消息本体不渲染（assistant(tool_calls) 无正文，tool 是 JSON）；
