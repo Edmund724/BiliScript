@@ -331,6 +331,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-chat .chat-thinking-fill,
+  .biliscript-reading-chat .chat-thinking-ultra-gradient,
+  .biliscript-reading-chat .chat-thinking-energy {
+    transition: none;
+  }
   .biliscript-reading-chat .chat-thinking-energy {
     animation: none;
   }
@@ -1785,11 +1790,6 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.biliscript-reading-chat .chat-model-chip:disabled {
-  cursor: default;
-  color: var(--biliscript-reader-muted);
-}
-
 /* 模型名 span：溢出截断只作用于此（ellipsis）；档位 span 与 chevron 恒完整，
  * 不进截断流。chip 整体宽度由 model-select-width 按内容决定（hug content，
  * 上限 420 防极端长名）。 */
@@ -2051,6 +2051,31 @@
   font-size: var(--biliscript-font-size-base);
 }
 
+.biliscript-reading-chat .chat-model-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+}
+
+.biliscript-reading-chat .chat-model-empty-settings {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--biliscript-radius-sm);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-model-empty-settings:hover,
+.biliscript-reading-chat .chat-model-empty-settings:focus-visible {
+  background: var(--biliscript-reader-accent-soft);
+}
+
 /* 模型 + 思考档位面板：上部分组模型列表（滚动），底部固定思考档位行 + 提示行。 */
 .biliscript-reading-chat .chat-model-list {
   display: flex;
@@ -2089,6 +2114,11 @@
 
 .biliscript-reading-chat .chat-model-option:hover {
   background: var(--biliscript-reader-surface-2);
+}
+
+.biliscript-reading-chat .chat-model-option:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: -2px;
 }
 
 /* 选中行：极浅主题色 tint 底 + 主题文字色（克制，不整行填充主题色）。 */

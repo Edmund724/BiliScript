@@ -9,8 +9,8 @@
 // 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
 // 不参与截断）。
 //
-// 面板结构：上部分组模型列表（滚动，点选模型写值源并立即关面板）；底部固定区
-// 内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与胶囊滑轨
+// 面板结构：上部分组模型列表（滚动，点选模型写值源、原位更新勾选并保持面板打开）；
+// 底部固定区内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与胶囊滑轨
 // （真实档位数 ≥ 2，含 Off/On 开关型与多档型）/ 单档胶囊（真实档位数 = 1）/
 // 仅标题行（真实档位数 = 0，ADR-0015 零档行照旧显示）。调整思考强度或点 ↻ 重置
 // 只更新档位并保持面板打开。
@@ -60,6 +60,7 @@ export interface CreateReaderChatModelPanelDeps {
   thinkingHint?: HTMLElement | null;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hidePanel: () => void;
+  openSettings: () => void;
   // 档位落盘出口（组合根接 providers 的 setThinkingLevel + 视图重判）：入参是**未归一的
   // 外部值**——本模块传的是档位条目的 dataset 值（DOM 来的脏值也可能到，宽容面见
   // ai/thinking-levels.ts 的 ThinkingLevelInput），归一化在下游落盘入口做一次。
@@ -99,6 +100,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 显示名（chip 的档位 span 与思考强度行右侧共用）。由 renderThinkingPicker 写入；
   // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
   let chipLevelLabel: string | null = null;
+  let committedView: ThinkingView | null = null;
   // 当前已挂载的档位结构签名（同一模型切档时复用 DOM 节点：保持 CSS 过渡动画连续、
   // 保持焦点不丢失，且点击事件冒泡到 document 时 target 仍在 panel 内不被误判为外点）。
   let renderedStructureKey = "";
@@ -113,7 +115,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
 
   function syncUltraBurst(nextAtMax: boolean): void {
-    if (nextAtMax && !wasAtMax) {
+    if (nextAtMax && !wasAtMax && !prefersReducedMotion()) {
       isBursting = true;
       if (burstTimer !== null) {
         clearTimeout(burstTimer);
@@ -123,7 +125,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         isBursting = false;
         thinkingToggle.querySelector(".chat-thinking-track")?.classList.remove("is-ultra-burst");
       }, ULTRA_BURST_MS);
-    } else if (!nextAtMax) {
+    } else if (!nextAtMax || prefersReducedMotion()) {
       if (burstTimer !== null) {
         clearTimeout(burstTimer);
         burstTimer = null;
@@ -149,13 +151,13 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
   // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
   // 标题同源），中点「·」分隔；optgroup 缺失/label 空则只显示模型名。
-  // 未配置平台（select 禁用）时 chip 同步禁用，只给占位文案（档位无意义）。
+  // 未配置平台时 chip 仍可打开空态面板，只清空无意义的档位文案。
   // 平台名·模型名与档位分写两个 span：CSS 只对模型名 span 做溢出截断，档位恒完整。
   function renderChip(): void {
+    chip.disabled = false;
     if (modelSelect.disabled) {
       chipModel.textContent = "未配置平台";
       chipLevel.textContent = "";
-      chip.disabled = true;
       updateModelSelectWidth({ chip, chipModel, chipLevel });
       return;
     }
@@ -166,13 +168,31 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     // 显示名优先用档位条派生的那一个（开关型模型是 On）——菜单里写 On、chip 写 High
     // 是自相矛盾的（用户裁定）；未派生过时回落标签表。
     chipLevel.textContent = chipLevelLabel ?? thinkingLevelValueLabel(chatSessionState.aiThinkingLevel);
-    chip.disabled = false;
     updateModelSelectWidth({ chip, chipModel, chipLevel });
   }
 
-  // 面板列表：按 select optgroup 分组渲染（平台名 = 组标题），当前选中项打勾。
-  // 值源不变：点选项 = 写 value + 派生 change（组合根的 change 监听负责持久化、
-  // 宽度重算与提示重判），随后关面板。
+  function syncSelectedModel(): void {
+    panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option").forEach((btn) => {
+      const selected = btn.dataset.value === modelSelect.value;
+      btn.classList.toggle("is-selected", selected);
+      btn.setAttribute("aria-current", selected ? "true" : "false");
+      if (selected) {
+        if (!btn.querySelector(".chat-model-check")) {
+          btn.insertAdjacentHTML("beforeend", '<span class="chat-model-check" aria-hidden="true">✓</span>');
+        }
+      } else {
+        btn.querySelector(".chat-model-check")?.remove();
+      }
+    });
+  }
+
+  function focusModelOption(btn: HTMLButtonElement): void {
+    btn.scrollIntoView?.({ block: "nearest" });
+    btn.focus({ preventScroll: true });
+  }
+
+  // 面板列表：按 select optgroup 分组渲染（平台名 = 组标题），当前选中项打勾并接管焦点。
+  // 点选项只写 value + 派生 change，再原位更新勾选；组合根仍负责持久化与思考视图重判。
   //
   // 宽度：打开时按 chip 可见宽快照写内联（[240, 320] 夹取见 chat/model-select-width
   // 的 measureModelPanelWidth）——面板从 chip 上方呼出、宽度与「模型名显示区域」
@@ -181,8 +201,16 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
     panelList.hidden = false;
     if (modelSelect.disabled) {
-      panelList.innerHTML = '<span class="chat-model-empty">未配置平台</span>';
+      panelList.innerHTML =
+        '<div class="chat-model-empty"><span>未配置平台</span>' +
+        '<button type="button" class="chat-model-empty-settings">前往设置</button></div>';
       thinkingRow.hidden = true;
+      const settingsBtn = panelList.querySelector<HTMLButtonElement>(".chat-model-empty-settings");
+      settingsBtn?.addEventListener("click", () => {
+        deps.hidePanel();
+        deps.openSettings();
+      });
+      settingsBtn?.focus({ preventScroll: true });
       return;
     }
     thinkingRow.hidden = false;
@@ -194,7 +222,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         const value = option.getAttribute("value") || "";
         const isSelected = value === current;
         parts.push(
-          `<button type="button" class="chat-model-option${isSelected ? " is-selected" : ""}" data-value="${escapeHtml(value)}">` +
+          `<button type="button" class="chat-model-option${isSelected ? " is-selected" : ""}"` +
+            ` data-value="${escapeHtml(value)}" aria-current="${isSelected ? "true" : "false"}">` +
             `<span class="chat-model-option-name">${escapeHtml(displayModelName(option.textContent || ""))}</span>` +
             (isSelected ? '<span class="chat-model-check" aria-hidden="true">✓</span>' : "") +
             "</button>"
@@ -209,10 +238,47 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
           modelSelect.value = value;
           modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
         }
-        deps.hidePanel();
+        syncSelectedModel();
+        btn.focus({ preventScroll: true });
       });
     });
+    const selected = panelList.querySelector<HTMLButtonElement>(".chat-model-option.is-selected");
+    if (selected) {
+      focusModelOption(selected);
+    }
   }
+
+  panelList.addEventListener("keydown", (event) => {
+    const options = Array.from(panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option"));
+    if (options.length === 0) {
+      return;
+    }
+    const active = document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest<HTMLButtonElement>(".chat-model-option")
+      : null;
+    const activeIndex = active ? options.indexOf(active) : -1;
+    const selectedIndex = options.findIndex((btn) => btn.classList.contains("is-selected"));
+    const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, selectedIndex);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      nextIndex = Math.min(options.length - 1, currentIndex + 1);
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      nextIndex = Math.max(0, currentIndex - 1);
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = options.length - 1;
+    } else if ((event.key === "Enter" || event.key === " ") && activeIndex >= 0) {
+      event.preventDefault();
+      options[activeIndex].click();
+      return;
+    }
+    if (nextIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    focusModelOption(options[nextIndex]);
+  });
 
   function commitButton(btn: HTMLElement | null | undefined): void {
     if (!btn) {
@@ -231,6 +297,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // **点击判据是另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点实发档也写偏好（用户显式
   // 接受本次 clamp），只有「已经是偏好落在的那一项」才不重复写。调整思考档位不关闭面板。
   function renderThinkingPicker(view: ThinkingView): void {
+    committedView = view;
     const entries = view.entries;
     chipLevelLabel = view.label;
     thinkingRowValue.textContent = view.label;
@@ -284,7 +351,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
             .map((entry, idx) => {
               const stopPct = (idx / (n - 1)) * 100;
               return (
-                `<button type="button" class="chat-thinking-btn chat-thinking-tick"` +
+                `<button type="button" class="chat-thinking-btn chat-thinking-tick" tabindex="-1" aria-hidden="true"` +
                 ` style="left:${stopPct}%" data-index="${idx}"` +
                 ` data-level="${escapeHtml(entry.level)}"` +
                 ` title="${escapeHtml(entry.label)}">` +
@@ -326,6 +393,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         btn.dataset.writes = entry.writesPreference ? "true" : "false";
         btn.setAttribute("aria-current", entry.effective ? "true" : "false");
         if (btn.classList.contains("chat-thinking-reset")) {
+          btn.disabled = !entry.writesPreference;
           btn.setAttribute("aria-disabled", entry.writesPreference ? "false" : "true");
         }
       });
@@ -590,6 +658,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       cachedRangeRect = null;
       track!.classList.remove("is-dragging");
       if (!commit) {
+        if (committedView) {
+          renderThinkingPicker(committedView);
+        }
         return;
       }
       suppressNextClick = true;
@@ -601,21 +672,6 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
 
     track.addEventListener("pointerup", () => finishDrag(true));
     track.addEventListener("pointercancel", () => finishDrag(false));
-
-    track.addEventListener(
-      "wheel",
-      (e: WheelEvent) => {
-        if (e.deltaY === 0) {
-          return;
-        }
-        e.preventDefault();
-        const n = currentTierEntries.length;
-        const step = e.deltaY < 0 ? 1 : -1;
-        const nextIdx = currentActiveIndex < 0 ? 0 : Math.max(0, Math.min(n - 1, currentActiveIndex + step));
-        commitButton(tickButtons[nextIdx]);
-      },
-      { passive: false }
-    );
 
     track.addEventListener("keydown", (e: KeyboardEvent) => {
       const n = currentTierEntries.length;
