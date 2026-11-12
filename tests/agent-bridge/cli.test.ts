@@ -174,6 +174,50 @@ describe("桌面 Agent CLI 端到端", () => {
     });
   });
 
+  it("并发截帧逐条转发且复用同一个 Daemon", async () => {
+    const previous = extension?.onMessage;
+    let active = 0;
+    let maxActive = 0;
+    if (extension) {
+      extension.onMessage = (message: { type?: string; id?: string; command?: string }) => {
+        if (message.type !== "request") return;
+        if (message.command !== "frame") {
+          previous?.(message as never);
+          return;
+        }
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        setTimeout(() => {
+          active -= 1;
+          extension?.sendJSON({
+            type: "response",
+            id: message.id,
+            ok: true,
+            result: {
+              bvid: "BV1test000000",
+              cid: "123456",
+              frames: [8, 10, 12].map((time) => ({
+                data: "/9j/2Q==",
+                targetTime: time,
+                currentTime: time
+              }))
+            }
+          });
+        }, 30);
+      };
+    }
+    try {
+      const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+        runCli("frame", ["--bvid", "BV1test000000", "--time", "10", "--out", join(scratch, `concurrent-${index}`)])
+      ));
+      expect(maxActive).toBe(1);
+      expect(results.every((result) => result.ok === true)).toBe(true);
+      expect(new Set(results.map((result) => result.daemonPid))).toEqual(new Set([daemonPid]));
+    } finally {
+      if (extension) extension.onMessage = previous;
+    }
+  });
+
   it("扩展业务错误不会触发 Daemon 重启或重复执行", async () => {
     const previous = extension?.onMessage;
     extensionRequests.length = 0;

@@ -60,6 +60,8 @@ node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] --t
 
 未打开的视频必须提供 `--time`。CLI 会把 JPEG 写入 `--out` 指定目录；省略时使用系统临时目录。命令输出每张图片的绝对路径、`targetTime` 和实际 `currentTime`。
 
+截帧由 Bridge 串行执行，一次只发起一个 `frame` 命令并等待结束，不要并行截取多个时间点。单个在飞请求 50 秒无回包会超时；失败后可重试，不需要通过并发请求试探恢复。
+
 使用 Agent 自己的图片读取工具打开返回的 `frames[].path`，再进行视觉分析。不要从 JSON 推测画面内容，也不要把图片路径当作已读图片。结合 `currentTime` 说明实际画面时刻，并将视觉观察与字幕、评论交叉验证。
 
 ## 结果与错误处理

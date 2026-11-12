@@ -151,7 +151,6 @@ export async function captureHistoricalVideoFrame(
       if (Number.isFinite(video.duration) && targetTime > video.duration) {
         throw new Error(`目标时间点 ${targetTime} 秒超出视频时长 ${video.duration} 秒`);
       }
-      await waitForVideo(video, "canplay", () => video!.readyState >= 2, timeoutMs, controller.signal);
       const frames: HistoricalVideoFrameSnapshot[] = [];
       const duration = Number.isFinite(video.duration) ? Math.max(0, video.duration) : Number.POSITIVE_INFINITY;
       const frameTimes = [targetTime - 2, targetTime, targetTime + 2]

@@ -339,13 +339,15 @@ function daemonStatus(command, extension) {
   };
 }
 
-export async function startDaemon({ port = configuredPort(), token = ensureToken(port) } = {}) {
+export async function startDaemon({ port = configuredPort(), token = ensureToken(port), frameTimeoutMs = 50000 } = {}) {
   const idleMs = Number(process.env.BILISCRIPT_BRIDGE_IDLE_MS || DEFAULT_IDLE_MS);
   let extension = null;
   let lastActivity = Date.now();
   let sequence = 0;
+  let activeFrameRequestId = null;
   const clients = new Set();
   const pendingTabs = new Map();
+  const frameQueue = [];
   const server = http.createServer((request, response) => {
     response.writeHead(426, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ ok: false, error: "WebSocket upgrade required" }));
@@ -358,10 +360,39 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
 
   const failPendingFor = (client, error) => {
     for (const [requestId, pending] of pendingTabs) {
-      if (pending.client !== client) continue;
+      if (pending.client !== client || (pending.command === "frame" && activeFrameRequestId === requestId)) continue;
       clearTimeout(pending.timer);
       pendingTabs.delete(requestId);
       respondToCli(client, pending.clientRequestId, { ok: false, error });
+    }
+  };
+
+  const pumpFrames = () => {
+    while (!activeFrameRequestId && frameQueue.length > 0) {
+      const { client, message } = frameQueue.shift();
+      if (!clients.has(client)) continue;
+      if (!extension) {
+        respondToCli(client, message.id, { ok: false, error: "扩展未连接，请在扩展的「设置 → 本地 Agent」点击「去连接」" });
+        continue;
+      }
+      const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
+      const timer = setTimeout(() => {
+        if (!pendingTabs.has(requestId)) return;
+        pendingTabs.delete(requestId);
+        activeFrameRequestId = null;
+        respondToCli(client, message.id, { ok: false, error: `视频截帧超时（${frameTimeoutMs} 毫秒）` });
+        pumpFrames();
+      }, frameTimeoutMs);
+      activeFrameRequestId = requestId;
+      pendingTabs.set(requestId, { client, clientRequestId: message.id, command: "frame", timer });
+      try {
+        extension.sendJSON({ type: "request", id: requestId, command: "frame", ...(message.options ? { options: message.options } : {}) });
+      } catch (error) {
+        clearTimeout(timer);
+        pendingTabs.delete(requestId);
+        activeFrameRequestId = null;
+        respondToCli(client, message.id, { ok: false, error: String(error?.message || error || "截帧请求发送失败") });
+      }
     }
   };
 
@@ -397,19 +428,24 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
         if (!pending) return;
         if (pending.timer) clearTimeout(pending.timer);
         pendingTabs.delete(message.id);
+        const completedFrame = activeFrameRequestId === message.id;
+        if (completedFrame) activeFrameRequestId = null;
         lastActivity = Date.now();
         respondToCli(pending.client, pending.clientRequestId, message.ok
           ? { ok: true, result: { ...daemonStatus(pending.command, extension), ...message.result } }
           : { ok: false, error: String(message.error || "扩展执行桥接命令失败") });
+        if (completedFrame) pumpFrames();
       };
       peer.onClose = () => {
         if (extension !== peer) return;
         extension = null;
+        activeFrameRequestId = null;
         for (const [requestId, pending] of pendingTabs) {
           if (pending.timer) clearTimeout(pending.timer);
           pendingTabs.delete(requestId);
           respondToCli(pending.client, pending.clientRequestId, { ok: false, error: "扩展连接已断开" });
         }
+        pumpFrames();
       };
       return;
     }
@@ -417,6 +453,9 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
     clients.add(peer);
     peer.onClose = () => {
       clients.delete(peer);
+      for (let index = frameQueue.length - 1; index >= 0; index -= 1) {
+        if (frameQueue[index].client === peer) frameQueue.splice(index, 1);
+      }
       failPendingFor(peer, "CLI 连接已断开");
     };
     peer.onMessage = (message) => {
@@ -439,6 +478,11 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
         }
         return;
       }
+      if (command === "frame") {
+        frameQueue.push({ client: peer, message });
+        pumpFrames();
+        return;
+      }
       const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
       const timer = command === "tabs" ? setTimeout(() => {
         pendingTabs.delete(requestId);
@@ -451,7 +495,7 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
 
   const heartbeat = setInterval(() => extension?.ping(), 20000);
   const idleTimer = setInterval(() => {
-    if (pendingTabs.size > 0 || Date.now() - lastActivity < idleMs) return;
+    if (pendingTabs.size > 0 || frameQueue.length > 0 || Date.now() - lastActivity < idleMs) return;
     clearInterval(heartbeat);
     clearInterval(idleTimer);
     for (const client of clients) client.close();

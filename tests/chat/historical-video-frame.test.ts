@@ -81,6 +81,29 @@ describe("隐藏视频历史帧截取", () => {
     expect(media.video.pause).toHaveBeenCalledTimes(1);
   });
 
+  it("元数据就绪后直接 seek 首个目标，不等待起始位置缓冲", async () => {
+    const media = makeVideo();
+    const { canvas } = makeCanvas();
+    const pending = captureHistoricalVideoFrame(
+      { bvid: "BV1history", cid: "101", targetTime: 90 },
+      {
+        transport: async () => ({ code: 0, data: { durl: [{ url: "https://upos.example.com/video.mp4" }] } }),
+        createVideo: () => media.video,
+        createCanvas: () => canvas
+      }
+    );
+    await vi.waitFor(() => expect(media.video.isConnected).toBe(true));
+    media.metadataReady();
+    try {
+      await vi.waitFor(() => expect(media.seeks).toEqual([88]));
+    } finally {
+      media.canPlay();
+    }
+
+    const frames = await pending;
+    expect(frames.map((frame) => frame.targetTime)).toEqual([88, 90, 92]);
+  });
+
   it("DASH 请求不返回 MP4 时改用显式 MP4 请求截帧", async () => {
     const media = makeVideo();
     const { canvas } = makeCanvas();
