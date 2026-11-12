@@ -101,8 +101,9 @@ function makeDeps(): {
 }
 
 async function flushTurn(): Promise<void> {
-  // 让出点走 window.setTimeout 0（jsdom 无 scheduler.yield）：冲一个宏任务。
+  // 让出点走 window.setTimeout 0（jsdom 无 scheduler.yield），末次滚底再等一帧。
   await new Promise((resolve) => window.setTimeout(resolve, 0));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
 describe("createConversationReplay（历史回放事务）", () => {
@@ -125,6 +126,8 @@ describe("createConversationReplay（历史回放事务）", () => {
     const replay = createConversationReplay(deps);
 
     replay.render();
+    expect(setAutoScroll).not.toHaveBeenCalled();
+    expect(scrollToBottom).not.toHaveBeenCalled();
     await flushTurn();
 
     // 顺序（消息区句柄表达）：清场 → 用户 → 助手（收尾）→ 用户 → 助手（收尾）
@@ -147,6 +150,19 @@ describe("createConversationReplay（历史回放事务）", () => {
     expect(setAutoScroll).toHaveBeenCalledWith(true);
     expect(scrollToBottom).toHaveBeenCalledTimes(1);
     expect(scrollToBottom).toHaveBeenCalledWith(true, { instant: true });
+  });
+
+  it("末次让出期间作废：不重置自动滚动，也不执行过期滚底", async () => {
+    const { deps, setAutoScroll, scrollToBottom } = makeDeps();
+    seedHistory({ role: "user", content: "问" }, { role: "assistant", content: "答" });
+    const replay = createConversationReplay(deps);
+
+    replay.render();
+    replay.invalidate();
+    await flushTurn();
+
+    expect(setAutoScroll).not.toHaveBeenCalled();
+    expect(scrollToBottom).not.toHaveBeenCalled();
   });
 
   it("用户消息图片随历史回放交给消息区句柄", async () => {
@@ -247,6 +263,7 @@ describe("createConversationReplay（历史回放事务）", () => {
     replay.render();
     expect(messageArea.appendUserMessage).toHaveBeenCalledTimes(1);
 
+    await flushTurn();
     await flushTurn();
 
     expect(messageArea.appendUserMessage).toHaveBeenCalledTimes(2);

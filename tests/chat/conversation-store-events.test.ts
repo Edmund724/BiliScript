@@ -79,6 +79,7 @@ function makeConversation(id: string, { contextKey = "", url = URL_A, pageIndex 
 function makeStorage() {
   const data = new Map<string, unknown>();
   return {
+    data,
     get: vi.fn<(keys: string[]) => Promise<Record<string, unknown>>>(async (keys) =>
       Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
     ),
@@ -573,5 +574,47 @@ describe("hydratePinned 的 change / notice 时序", () => {
       ["notice", { kind: "clear" }],
       ["notice", { kind: "error", message: "历史对话缺少原视频信息，无法继续。" }]
     ]);
+  });
+});
+
+
+describe("删除撤销的存储、顺序与当前身份（工单 05）", () => {
+  it("非当前会话撤销：存储与原顺序恢复，当前身份不变，撤销仅生效一次", async () => {
+    const { store, storage } = makeHarness();
+    const conversations = [makeConversation("c1"), makeConversation("c2"), makeConversation("c3")];
+    setSavedConversations(conversations);
+    applyConversationIdentity({ id: "c1" });
+    await storage.set({ biliscript_ai_conversations_v1: conversations });
+    storage.set.mockClear();
+
+    const deletion = await store.deleteById("c2");
+    expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c3"]);
+    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c3"]);
+
+    await deletion!.undo();
+    expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c2", "c3"]);
+    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c2", "c3"]);
+    expect(chatSessionState.currentConversationId).toBe("c1");
+    const writesAfterUndo = storage.set.mock.calls.length;
+    await deletion!.undo();
+    expect(storage.set.mock.calls.length).toBe(writesAfterUndo);
+  });
+
+  it("当前会话撤销：存储、顺序、当前身份与消息历史一并恢复", async () => {
+    const { store, storage } = makeHarness();
+    const conversations = [makeConversation("c1"), makeConversation("c2")];
+    setSavedConversations(conversations);
+    await storage.set({ biliscript_ai_conversations_v1: conversations });
+    store.applyById("c1");
+
+    const deletion = await store.deleteById("c1");
+    expect(chatSessionState.currentConversationId).toBe("");
+    expect(chatSessionState.chatHistory).toEqual([]);
+
+    await deletion!.undo();
+    expect(chatSessionState.currentConversationId).toBe("c1");
+    expect(chatSessionState.chatHistory.map((message) => message.content)).toEqual(["hi", "hello"]);
+    expect(chatSessionState.savedConversations.map((item) => item.id)).toEqual(["c1", "c2"]);
+    expect((storage.data.get("biliscript_ai_conversations_v1") as Array<{ id: string }>).map((item) => item.id)).toEqual(["c1", "c2"]);
   });
 });

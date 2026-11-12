@@ -2327,10 +2327,8 @@
   background: var(--biliscript-reader-accent-soft);
 }
 
-/* 无界平列表条目：无底、无边，状态用整行 wash 表达（hover = fill-hover；
- * 当前会话 = surface-2；同视频 = accent-soft），wash 带 8px 圆角
- *（2026-12 用户裁定「hover 上去应该是圆角」）。
- * padding-right 让 × 键与文字让开贴右缘的滚动条槽（thin 实测约 12px）。 */
+/* 无界平列表条目：整行都可打开，独立删除键除外。当前项以左侧标记和文字徽标
+ * 提供高于同视频 wash 的视觉权重；忙碌行保留位置并显示保存进度。 */
 .biliscript-reading-chat .chat-history-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
@@ -2340,6 +2338,7 @@
   border-radius: var(--biliscript-radius-sm);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   max-width: 100%;
+  cursor: pointer;
 }
 
 .biliscript-reading-chat .chat-history-item:hover {
@@ -2348,10 +2347,19 @@
 
 .biliscript-reading-chat .chat-history-item.is-active {
   background: var(--biliscript-reader-surface-2);
+  box-shadow: inset 2px 0 var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-history-item.is-live-match {
   background: var(--biliscript-reader-accent-soft);
+}
+
+.biliscript-reading-chat .chat-history-item.is-switching {
+  cursor: progress;
+}
+
+.biliscript-reading-chat .chat-history-item.is-switching .chat-history-open {
+  cursor: progress;
 }
 
 .biliscript-reading-chat .chat-history-open {
@@ -2361,7 +2369,7 @@
   background: transparent;
   text-align: left;
   color: var(--biliscript-reader-text);
-  cursor: pointer;
+  cursor: inherit;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2405,6 +2413,10 @@
   text-overflow: ellipsis;
 }
 
+.biliscript-reading-chat .chat-history-item.is-switching .chat-history-meta {
+  color: var(--biliscript-reader-accent);
+}
+
 .biliscript-reading-chat .chat-history-remove {
   width: 24px;
   height: 24px;
@@ -2416,6 +2428,10 @@
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
   transition: transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-history-remove[aria-disabled="true"] {
+  cursor: progress;
 }
 
 .biliscript-reading-chat .chat-history-remove:active {
@@ -2431,6 +2447,55 @@
   flex: 0 0 auto;
   color: var(--biliscript-reader-accent);
   font-size: var(--biliscript-font-size-xs);
+}
+
+.biliscript-reading-chat .chat-history-current {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent-ink);
+  font-size: var(--biliscript-font-size-xs);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.biliscript-reading-chat .chat-history-empty-state,
+.biliscript-reading-chat .chat-history-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.biliscript-reading-chat .chat-history-undo {
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
+  background: var(--biliscript-reader-surface);
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-base);
+}
+
+.biliscript-reading-chat .chat-history-start-new,
+.biliscript-reading-chat .chat-history-undo-button {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--biliscript-radius-sm);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-history-start-new:hover,
+.biliscript-reading-chat .chat-history-start-new:focus-visible,
+.biliscript-reading-chat .chat-history-undo-button:hover,
+.biliscript-reading-chat .chat-history-undo-button:focus-visible {
+  background: var(--biliscript-reader-accent-soft);
 }
 
 .biliscript-reading-chat .chat-live-history-detail {

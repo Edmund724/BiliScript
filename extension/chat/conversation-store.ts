@@ -202,12 +202,17 @@ export interface CreateConversationStoreDeps {
 // 另有工单 D 授权的公开窄方法 detachForRestart（「拆除会话」出口四）。
 // opt-backlog-2026-09/05：私有 hydratePages 进一步收敛为 hydrateConversationPage
 // （单条，只服务 restoreLatest 命中项；loadAll 不再批量发起分页补水）。
+export interface ConversationDeletion {
+  id: string;
+  undo: () => Promise<void>;
+}
+
 export interface ConversationStore {
   loadAll: () => Promise<void>;
   isCurrent: (id: string) => boolean;
   persistCurrent: () => Promise<void>;
   applyById: (id: string) => void;
-  deleteById: (id: string) => Promise<void>;
+  deleteById: (id: string) => Promise<ConversationDeletion | null>;
   clearAll: () => Promise<void>;
   restoreLatest: () => Promise<boolean>;
   detachForRestart: () => void;
@@ -576,8 +581,13 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
   }
 
-  async function deleteById(id: string): Promise<void> {
-    const wasCurrent = id && id === chatSessionState.currentConversationId;
+  async function deleteById(id: string): Promise<ConversationDeletion | null> {
+    const index = saved().findIndex((item) => item.id === id);
+    if (index < 0) {
+      return null;
+    }
+    const conversation = saved()[index];
+    const wasCurrent = id === chatSessionState.currentConversationId;
     if (wasCurrent) {
       // 拆除当前会话（出口二 = detachCurrent 原语）：断流先于落盘——同步发出，
       // 亦即先于下方 commitSaved 与 await save（原编排同位次序）。
@@ -589,12 +599,36 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       await updateConversationHistory(storage, (current) => current.filter((item) => item.id !== id));
     }
     emitChange({});
-    if (!wasCurrent) {
-      return;
+    if (wasCurrent) {
+      // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
+      repopulateLive();
+      emitChange({ resetView: true });
     }
-    // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
-    repopulateLive();
-    emitChange({ resetView: true });
+
+    let consumed = false;
+    return {
+      id,
+      undo: async () => {
+        if (consumed) {
+          return;
+        }
+        consumed = true;
+        const restored = saved().filter((item) => item.id !== id);
+        restored.splice(Math.min(index, restored.length), 0, conversation);
+        commitSaved(restored);
+        if (storage) {
+          await updateConversationHistory(storage, (current) => {
+            const next = current.filter((item) => item.id !== id);
+            next.splice(Math.min(index, next.length), 0, conversation as StoredConversation);
+            return next;
+          });
+        }
+        emitChange({});
+        if (wasCurrent) {
+          applyById(id);
+        }
+      }
+    };
   }
 
   async function clearAll(): Promise<void> {
@@ -613,8 +647,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     emitChange({});
     repopulateLive();
-    // 原编排：save 后收起 popover → live 回填 → renderInitialState；
-    // 合成一次发火（历史列表已随 save 的 change 重渲，此处各面幂等）。
     emitChange({ historyCleared: true, resetView: true });
   }
 

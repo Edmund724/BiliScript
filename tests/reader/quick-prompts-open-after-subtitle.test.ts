@@ -105,7 +105,10 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
       historyList: document.createElement("div"),
       historyClearBtn: document.createElement("button"),
       applyById: () => {},
-      deleteById: async () => {},
+      deleteById: async () => null,
+      isTurnActive: () => false,
+      confirmDeleteCurrent: async () => true,
+      startNewConversation: async () => true,
       suggestions: slot,
       hideHistoryPopover: () => {}
     });
