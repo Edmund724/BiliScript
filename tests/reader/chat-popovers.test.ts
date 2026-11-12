@@ -109,7 +109,7 @@ describe("toggleHistoryPopover", () => {
 });
 
 describe("toggleModelPanel", () => {
-  it("开模型面板：刷新面板列表，chip 箭头翻转（is-open），并关历史", () => {
+  it("开模型面板：刷新列表、同步 chip 箭头与 popup ARIA，并关历史", () => {
     const { popovers, deps, historyPopover, modelPanel, modelChipBtn } = makeHarness();
     historyPopover.hidden = true;
     modelPanel.hidden = true;
@@ -120,30 +120,40 @@ describe("toggleModelPanel", () => {
     expect(historyPopover.hidden).toBe(true);
     expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
     expect(modelChipBtn.classList.contains("is-open")).toBe(true);
+    expect(modelChipBtn.getAttribute("aria-haspopup")).toBe("true");
+    expect(modelChipBtn.getAttribute("aria-controls")).toBe(modelPanel.id);
+    expect(modelChipBtn.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("可见时再 toggle：关闭（不重复刷新），chip 箭头复位（is-open 移除）", () => {
+  it("可见时再 toggle：关闭（不重复刷新），箭头复位且焦点回 chip", () => {
     const { popovers, deps, modelPanel, modelChipBtn } = makeHarness();
     modelPanel.hidden = true;
     popovers.toggleModelPanel();
+    const inside = document.createElement("button");
+    modelPanel.appendChild(inside);
+    inside.focus();
 
     popovers.toggleModelPanel();
 
     expect(modelPanel.hidden).toBe(true);
     expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
     expect(modelChipBtn.classList.contains("is-open")).toBe(false);
+    expect(modelChipBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(modelChipBtn);
   });
 
-  it("互斥：开历史 popover 关模型面板时，chip 箭头同步复位", () => {
-    const { popovers, historyPopover, modelPanel, modelChipBtn } = makeHarness();
+  it("互斥：开历史 popover 关模型面板时不把焦点抢回 chip", () => {
+    const { popovers, historyPopover, modelPanel, modelChipBtn, historyBackBtn } = makeHarness();
     historyPopover.hidden = true;
     modelPanel.hidden = true;
     popovers.toggleModelPanel();
+    modelChipBtn.focus();
 
     popovers.toggleHistoryPopover();
 
     expect(modelPanel.hidden).toBe(true);
     expect(modelChipBtn.classList.contains("is-open")).toBe(false);
+    expect(document.activeElement).toBe(historyBackBtn);
   });
 });
 
@@ -186,6 +196,7 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
     const { popovers, historyPopover, modelPanel, moreMenu, historyBtn } = makeHarness();
     const outside = document.createElement("div");
     document.body.appendChild(outside);
+    outside.focus();
 
     popovers.handleDocumentClick({ target: outside } as unknown as MouseEvent);
 
@@ -206,8 +217,8 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
 });
 
 describe("handleEscapeKey（Esc 逐层结算）", () => {
-  it("每次 Escape 只关闭当前最上层", () => {
-    const { popovers, historyPopover, modelPanel, moreMenu } = makeHarness();
+  it("每次 Escape 只关闭当前最上层，模型面板关闭时焦点回 chip", () => {
+    const { popovers, historyPopover, modelPanel, moreMenu, modelChipBtn } = makeHarness();
 
     popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(historyPopover.hidden).toBe(true);
@@ -216,6 +227,7 @@ describe("handleEscapeKey（Esc 逐层结算）", () => {
 
     popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(modelPanel.hidden).toBe(true);
+    expect(document.activeElement).toBe(modelChipBtn);
     expect(moreMenu.hidden).toBe(false);
 
     popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));

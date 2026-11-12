@@ -104,6 +104,7 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
       thinkingRowValue,
       thinkingHint,
       hidePanel,
+      openSettings: vi.fn(),
       pickLevel
     });
     return {

@@ -113,7 +113,7 @@ export function buildChatTabBodyHtml(): string {
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->
               <div class="chat-model-anchor">
-                <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
+                <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位" aria-haspopup="true" aria-controls="${ids.readingChatModelPanel}" aria-expanded="false">
                   <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
                   <span class="chat-model-chip-model">未配置平台</span>
                   <span class="chat-model-chip-level">Off</span>

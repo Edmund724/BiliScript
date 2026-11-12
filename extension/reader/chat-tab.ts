@@ -609,6 +609,7 @@ const modelPanel = createReaderChatModelPanel({
   // （面板 renderThinkingPicker 收整份视图值一次画完）。
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   hidePanel: () => popovers.hideModelPanel(),
+  openSettings: () => requestUiCommand("open-settings"),
   // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
   pickLevel: (level) => pickThinkingLevel(level)
 });
@@ -689,7 +690,7 @@ function refreshThinkingUi(): void {
 // 即收提示，切回 Off 再现）；chip 的档位文案、滑块选中态与提示行都随重判重渲。
 // **一次切换只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
 // renderThinkingPicker 内部的事），chip 的渲染路径收敛为 refreshThinkingUi 一条。
-// 调整思考档位不关面板（点选上方模型项才关面板）。
+// 调整思考档位或切换模型都不关面板。
 // 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
 // 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
 // 归一化在落盘入口做一次。
@@ -1084,9 +1085,8 @@ function bindEvents(): void {
     // 内部画它，一次 change 只渲一遍。
     refreshThinkingUi();
   });
-  // 档位条目的点击接线已随二级菜单下沉到 reader/chat-model-panel.ts（条目现渲，
-  // 静态 NodeList 不存在了）：面板点中条目 → pickLevel（下面的 pickThinkingLevel）
-  // → 关面板。原「7 个静态按钮逐个 addEventListener」的接线随之退役。
+  // 档位条目的点击接线在 reader/chat-model-panel.ts（条目现渲，静态 NodeList 不存在）：
+  // 面板点中条目 → pickLevel（下面的 pickThinkingLevel）→ 重判并原位刷新，面板保持打开。
   // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
   if (els.webSearchPill) {
     els.webSearchPill.addEventListener("click", () => {

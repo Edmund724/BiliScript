@@ -10,8 +10,7 @@
 //      parseModelOptionValue(select.value) 与 chatSessionState.providers 的
 //      baseUrl/presetId/model，stream 恒 true（激活前档位页为空 / 一级行 hidden 即其黑盒佐证）；
 //      档位条目、一级行、chip 显示名与提示行都随之落 DOM；
-//   ② 端到端走查（点 chip 开面板 → 换页 → 选档 → 落盘 → 关面板 → 重开回模型页）与二级
-//      菜单背后既有的持久化链。
+//   ② 端到端走查（点 chip 开面板 → 选档 → 落盘 → 换模型仍保持打开）与既有持久化链。
 //
 // 2026-10 深化后的分工（提示行归属变了，改本文件前先读这一段）：
 // - 提示行（工单 03「关不掉」/ 05 号票 clamp 说明）的**文案与显隐**已移入
@@ -31,8 +30,8 @@
 //   点勾住的那一项即把该档写成偏好、偏好不迁移（换回原模型不回落）；走查产出可复现工件；
 // - 06 号票：档位条目 = 模型可用集（只现渲存在的档位、不置灰；零档行只剩 Default；无上游
 //   平台仍三档）；模型切换即重渲条目；点条目走既有持久化链；
-// - 二级菜单端到端走查（票据 chat-thinking-submenu/04）：开面板 → 换页 → 选档 → 落盘 +
-//   chip 更新 + 关面板 → 重开回模型页；产出工件；
+// - 模型面板端到端走查：开面板 → 选档 → 落盘 + chip 更新 → 换模型仍打开，
+//   当前行焦点/勾选与 clamp 后的思考区同步；产出工件；
 // - D1=A2 补声明走查（upstream-glm52-toggle：glm-5.2 的 Off 由平台开关形状决定）；
 // - default（不干预）档走查（thinking-default-level：出厂默认与零档行）。
 //
@@ -597,12 +596,15 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
 // ============================================================
 // 内联思考强度滑块端到端走查：真实模板 + 真实组合根，
-// 全链只走 DOM 事件——开面板（点 chip）→ 模型列表与底部思考强度滑块同屏可见 →
-// 选档（点刻度 / 点 ↻ 重置）→ 落盘 + chip 更新 + 面板保持打开 → 点模型项才关面板。
+// 全链只走 DOM 事件——开面板（点 chip）→ 选档 → 换模型，面板始终打开，
+// 当前行焦点、勾选、胶囊、档位与提示随最后一步一起落定。
 // ============================================================
 describe("内联思考强度滑块端到端走查", () => {
-  it("开面板 → 模型列表与底部思考滑块同屏 → 选档落盘 + chip 更新 + 面板保持打开 → 点模型项关面板", async () => {
-    providersPayload = [provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" })];
+  it("开面板 → 选档落盘 → 换模型保持打开并按新模型重算思考区", async () => {
+    providersPayload = [
+      provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" }),
+      provider({ id: "p2", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL, presetId: "qwen" })
+    ];
 
     await activateChatTab();
 
@@ -631,18 +633,20 @@ describe("内联思考强度滑块端到端走查", () => {
       );
     }
 
-    // 0. 激活后：面板关着，档位区已按模型现渲（default/off/low/high/max，默认 Default）。
     expect(panel.hidden).toBe(true);
+    expect(chip.getAttribute("aria-haspopup")).toBe("true");
+    expect(chip.getAttribute("aria-controls")).toBe(ids.readingChatModelPanel);
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
     snap("0 激活后");
 
-    // 1. 点 chip 开面板：模型列表与底部思考强度区同屏显示。
     click(chip);
     expect(panel.hidden).toBe(false);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
     expect(list.hidden).toBe(false);
     expect(row.hidden).toBe(false);
+    expect(document.activeElement).toBe(list.querySelector(".chat-model-option.is-selected"));
     snap("1 点 chip 开面板");
 
-    // 2. 点 Max：写偏好（storage + save-settings 同值）+ chip 更新 + 面板保持打开。
     storageSet.mockClear();
     clickThinking("max");
     expect(chatSessionState.aiThinkingLevel).toBe("max");
@@ -653,11 +657,19 @@ describe("内联思考强度滑块端到端走查", () => {
     expect(requireThinkingBtn("max").classList.contains("is-active")).toBe(true);
     snap("2 点 Max 选档（面板保持打开）");
 
-    // 3. 点模型项：面板立即关闭。
-    const firstModelOption = list.querySelector<HTMLButtonElement>(".chat-model-option") as HTMLButtonElement;
-    click(firstModelOption);
-    expect(panel.hidden).toBe(true);
-    snap("3 点模型项关面板");
+    const nextModelOption = list.querySelectorAll<HTMLButtonElement>(".chat-model-option")[1];
+    click(nextModelOption);
+    expect(panel.hidden).toBe(false);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(getModelSelect().value).toBe(modelOptionValue("p2", "qwen3.8-max"));
+    expect(document.activeElement).toBe(nextModelOption);
+    expect(list.querySelector(".chat-model-option.is-selected")).toBe(nextModelOption);
+    expect(chipLevel.textContent).toBe("Xhigh");
+    expect((document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement).textContent).toBe("Xhigh");
+    expect(effectiveThinkingLevels()).toEqual(["xhigh"]);
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe("当前模型不支持思考强度 max，已使用 xhigh");
+    snap("3 换模型（保持打开并 clamp 到 xhigh）");
 
     expect(steps).toHaveLength(4);
   });

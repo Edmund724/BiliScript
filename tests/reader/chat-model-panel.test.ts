@@ -10,17 +10,17 @@
 //
 // - renderChip：文案 = 平台名·选中模型名 + 思考档位显示名（档位条派生过就用它的
 //   显示名——开关型模型是 On；未派生时回落标签表）；optgroup label 缺失时只显示
-//   模型名；select 禁用（未配置平台）→ chip 同步禁用并回落占位文案；集合站的
+//   模型名；select 禁用（未配置平台）→ chip 仍可打开空态并回落占位文案；集合站的
 //   org 前缀（`deepseek-ai/`）只在显示层剥掉（chip 与弹层条目同口径，2026-10-06），
 //   option 文本与值源照旧完整；
-// - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
-//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；
+// - renderPanel：按 optgroup 分组渲染、打开时聚焦当前项；点击/键盘选项写值源并派生
+//   change，原位换勾且保持面板与焦点稳定；空态提供「前往设置」；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
 //   变化不重算，重开才更新）；
 // - renderThinkingPicker：**整份视图值一次画完**——首项 Default 渲染为右上角 ↻ 重置键，
 //   真实档位按数量分三态（≥2 档胶囊滑轨、=1 档单档胶囊、0 档仅保留标题行）；
 //   标题行右侧 = 视图显示名；chip 的档位 span 同步；底部提示行按 `view.hint` 写文案与显隐；
-//   调整思考档位（点刻度 / 拖拽 / 滚轮 / 方向键 / 点 ↻）调 `pickLevel` 但**不关面板**；
+//   点刻度/拖拽/方向键调 `pickLevel`，普通滚轮不改档，pointercancel 恢复已提交值；
 //   所有非零档填充带 `.is-sparkle`（流动星点），仅档位数 ≥ 3 且处于最高档时加 `.is-max`（紫色渐变）。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +89,7 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
   panel.append(panelList, panelFoot);
   document.body.append(chip, panel);
   const hidePanel = vi.fn();
+  const openSettings = vi.fn();
   const pickLevel = vi.fn();
   const modelPanel = createReaderChatModelPanel({
     modelSelect: select,
@@ -102,6 +103,7 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     thinkingRowValue,
     ...(hintMode === "element" ? { thinkingHint } : hintMode === "null" ? { thinkingHint: null } : {}),
     hidePanel,
+    openSettings,
     pickLevel
   });
   return {
@@ -116,6 +118,7 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     thinkingRowValue,
     thinkingHint: hintMode === "element" ? thinkingHint : null,
     hidePanel,
+    openSettings,
     pickLevel,
     modelPanel
   };
@@ -213,7 +216,7 @@ describe("renderChip", () => {
     expect(chipLevel.textContent).toBe("On");
   });
 
-  it("select 禁用（未配置平台）：chip 同步禁用，模型名回落占位、档位清空", () => {
+  it("select 禁用（未配置平台）：chip 仍可打开空态，模型名回落占位、档位清空", () => {
     const select = document.createElement("select");
     select.disabled = true;
     const { chip, chipModel, chipLevel, modelPanel } = makeHarness(select);
@@ -222,12 +225,12 @@ describe("renderChip", () => {
 
     expect(chipModel.textContent).toBe("未配置平台");
     expect(chipLevel.textContent).toBe("");
-    expect(chip.disabled).toBe(true);
+    expect(chip.disabled).toBe(false);
   });
 });
 
 describe("renderPanel", () => {
-  it("按 optgroup 分组渲染，当前选中项 is-selected 且带 ✓", () => {
+  it("按 optgroup 分组渲染，当前选中项 is-selected、带 ✓ 并接管焦点", () => {
     const { panelList, modelPanel } = makeHarness();
 
     modelPanel.renderPanel();
@@ -239,10 +242,12 @@ describe("renderPanel", () => {
     const selected = panelList.querySelectorAll(".chat-model-option.is-selected");
     expect(selected).toHaveLength(1);
     expect(selected[0].getAttribute("data-value")).toBe(`p1${SEP}m1b`);
+    expect(selected[0].getAttribute("aria-current")).toBe("true");
     expect(selected[0].querySelector(".chat-model-check")).not.toBe(null);
+    expect(document.activeElement).toBe(selected[0]);
   });
 
-  it("点击选项：写值源 + 派生 change + 关面板", () => {
+  it("点击选项：写值源 + 派生 change，原位换勾且焦点与面板保持稳定", () => {
     const { select, panelList, hidePanel, modelPanel } = makeHarness();
     const onChange = vi.fn();
     select.addEventListener("change", onChange);
@@ -253,30 +258,71 @@ describe("renderPanel", () => {
 
     expect(select.value).toBe(`p2${SEP}m2`);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(hidePanel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(target);
+    expect(panelList.querySelector(".chat-model-option.is-selected")).toBe(target);
+    expect(target.querySelector(".chat-model-check")).not.toBe(null);
+    expect(panelList.querySelectorAll(".chat-model-check")).toHaveLength(1);
   });
 
-  it("点击当前已选项：不改值但仍关面板", () => {
+  it("点击当前已选项：不重复派生 change，不关面板", () => {
     const { select, panelList, hidePanel, modelPanel } = makeHarness();
+    const onChange = vi.fn();
+    select.addEventListener("change", onChange);
 
     modelPanel.renderPanel();
     const current = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p1${SEP}m1b"]`) as HTMLButtonElement;
     click(current);
 
     expect(select.value).toBe(`p1${SEP}m1b`);
-    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(hidePanel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(current);
   });
 
-  it("select 禁用（未配置平台）：列表渲染空态文案，思考强度行隐藏", () => {
+  it("方向键/Home/End 移动焦点，Enter/Space 选中且不重建当前行", () => {
+    const { select, panelList, hidePanel, modelPanel } = makeHarness();
+    modelPanel.renderPanel();
+    const options = Array.from(panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option"));
+    const key = (value: string) => (document.activeElement as HTMLElement).dispatchEvent(
+      new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })
+    );
+
+    expect(document.activeElement).toBe(options[1]);
+    key("ArrowDown");
+    expect(document.activeElement).toBe(options[2]);
+    key("Home");
+    expect(document.activeElement).toBe(options[0]);
+    key("End");
+    expect(document.activeElement).toBe(options[2]);
+    key("ArrowUp");
+    expect(document.activeElement).toBe(options[1]);
+    key("ArrowDown");
+    key("Enter");
+    expect(select.value).toBe(`p2${SEP}m2`);
+    expect(document.activeElement).toBe(options[2]);
+    key("Home");
+    key(" ");
+    expect(select.value).toBe(`p1${SEP}m1a`);
+    expect(document.activeElement).toBe(options[0]);
+    expect(hidePanel).not.toHaveBeenCalled();
+  });
+
+  it("select 禁用（未配置平台）：空态提供前往设置并隐藏思考强度行", () => {
     const select = document.createElement("select");
     select.disabled = true;
-    const { panelList, thinkingRow, modelPanel } = makeHarness(select);
+    const { panelList, thinkingRow, hidePanel, openSettings, modelPanel } = makeHarness(select);
 
     modelPanel.renderPanel();
 
+    const settingsBtn = panelList.querySelector<HTMLButtonElement>(".chat-model-empty-settings");
     expect(panelList.querySelector(".chat-model-empty")).not.toBe(null);
     expect(panelList.querySelectorAll(".chat-model-option")).toHaveLength(0);
     expect(thinkingRow.hidden).toBe(true);
+    expect(document.activeElement).toBe(settingsBtn);
+    click(settingsBtn as HTMLButtonElement);
+    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(openSettings).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -447,7 +493,36 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(track.classList.contains("is-ultra-burst")).toBe(true);
   });
 
-  it("滑轨支持指针拖拽（实时预览 + 磁吸释放落盘）、滚轮步进与键盘方向键步进", () => {
+  it("Default：aria-valuetext 不冒充实发档，重置键原生 disabled，刻度不进 Tab 顺序", () => {
+    const { thinkingToggle, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Default",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "default", effectiveLevel: "default" })
+      })
+    );
+
+    const reset = thinkingToggle.querySelector<HTMLButtonElement>(".chat-thinking-reset")!;
+    expect(reset.disabled).toBe(true);
+    expect(reset.getAttribute("aria-disabled")).toBe("true");
+    expect(thinkingToggle.querySelector(".chat-thinking-track")?.getAttribute("aria-valuetext")).toBe("Default");
+    for (const tick of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-tick")) {
+      expect(tick.tabIndex).toBe(-1);
+      expect(tick.getAttribute("aria-hidden")).toBe("true");
+    }
+    click(reset);
+    expect(pickLevel).not.toHaveBeenCalled();
+
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "High",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" })
+      })
+    );
+    expect(reset.disabled).toBe(false);
+  });
+
+  it("滑轨支持指针拖拽（实时预览 + 磁吸释放落盘）与键盘方向键，普通滚轮不改档位", () => {
     const { thinkingToggle, thinkingRowValue, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker(
       view({
@@ -460,22 +535,50 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
     range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
 
-    // 1. 指针按下并拖到 2/3 处（对应 high，index=2）：实时预览标题行文案，释放后调 pickLevel("high")。
     track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
     track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 200 }));
     expect(thinkingRowValue.textContent).toBe("High");
     track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 200 }));
     expect(pickLevel).toHaveBeenLastCalledWith("high");
 
-    // 2. 滚轮向上（deltaY < 0）：从当前实发 off（index=0）步进到 low（index=1）。
     pickLevel.mockClear();
-    track.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 }));
-    expect(pickLevel).toHaveBeenCalledWith("low");
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 });
+    track.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(pickLevel).not.toHaveBeenCalled();
 
-    // 3. 键盘 ArrowRight：从当前实发 off（index=0）步进到 low（index=1）。
-    pickLevel.mockClear();
     track.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowRight" }));
     expect(pickLevel).toHaveBeenCalledWith("low");
+    track.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Home" }));
+    expect(pickLevel).toHaveBeenCalledTimes(1);
+    track.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "End" }));
+    expect(pickLevel).toHaveBeenLastCalledWith("max");
+  });
+
+  it("pointercancel 回最后提交值：预览文案、滑块、填充与拖拽态都恢复且不落盘", () => {
+    const { thinkingToggle, thinkingRowValue, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
+    const fill = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
+    track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 200 }));
+    expect(thinkingRowValue.textContent).toBe("High");
+    track.dispatchEvent(new MouseEvent("pointercancel", { bubbles: true, clientX: 200 }));
+
+    expect(pickLevel).not.toHaveBeenCalled();
+    expect(thinkingRowValue.textContent).toBe("Off");
+    expect(thumb.style.left).toBe("0%");
+    expect(fill.style.width).toBe("0px");
+    expect(track.classList.contains("is-dragging")).toBe(false);
   });
 
   it("空条目：一个按钮都不渲染（fail-closed，面板只剩提示行）", () => {

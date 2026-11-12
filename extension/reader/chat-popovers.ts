@@ -53,9 +53,17 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (moreMenu && moreMenu !== except) setMoreMenuHidden(true);
   }
 
-  function setModelPanelHidden(hidden: boolean): void {
+  // 模型面板开合同步 chip 箭头与展开语义；toggle/Esc 主动关闭时把焦点还给 chip，互斥与外点不抢焦点。
+  function setModelPanelHidden(hidden: boolean, restoreFocus = false): void {
+    const wasOpen = !modelPanel.hidden;
     modelPanel.hidden = hidden;
     deps.modelChipBtn.classList.toggle("is-open", !hidden);
+    deps.modelChipBtn.setAttribute("aria-haspopup", "true");
+    deps.modelChipBtn.setAttribute("aria-controls", modelPanel.id);
+    deps.modelChipBtn.setAttribute("aria-expanded", String(!hidden));
+    if (hidden && wasOpen && restoreFocus) {
+      deps.modelChipBtn.focus({ preventScroll: true });
+    }
   }
 
   function setMoreMenuHidden(hidden: boolean): void {
@@ -82,12 +90,12 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     event?.stopPropagation();
     hideOthers(modelPanel);
     const willShow = modelPanel.hidden;
-    setModelPanelHidden(!willShow);
+    setModelPanelHidden(!willShow, !willShow);
     if (willShow) deps.renderModelPanel();
   }
 
   function hideModelPanel(): void {
-    setModelPanelHidden(true);
+    setModelPanelHidden(true, true);
   }
 
   function toggleMoreMenu(event?: Event): void {
@@ -110,7 +118,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     }
     if (!modelPanel.hidden) {
       if (target?.closest(`#${ids.readingChatModelPanel}, #${ids.readingChatModelChip}`)) return;
-      hideModelPanel();
+      setModelPanelHidden(true);
       return;
     }
     if (moreMenu && !moreMenu.hidden) {
