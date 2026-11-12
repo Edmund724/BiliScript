@@ -309,12 +309,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
               </div>
               <div class="live-overlay-pop-item">
                 <span>分享视频声音</span>
-                <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="分享视频声音" title="分享视频声音"></button>
+                <button type="button" role="switch" class="live-overlay-switch live-overlay-share-switch" aria-label="分享视频声音" aria-description="让 AI 同时听到视频原声与你的麦克风声音" title="让 AI 同时听到视频原声与你的麦克风声音"></button>
               </div>
               <div class="live-overlay-audio-status" role="status" hidden></div>
               <div class="live-overlay-pop-item">
                 <span>语音优先</span>
-                <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先" title="语音优先"></button>
+                <button type="button" role="switch" class="live-overlay-switch live-overlay-priority-switch" aria-label="语音优先" aria-description="你说话或 AI 播报时降低视频音量，结束后恢复" title="你说话或 AI 播报时降低视频音量，结束后恢复"></button>
               </div>
             </div>
           </div>

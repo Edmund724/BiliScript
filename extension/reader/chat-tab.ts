@@ -336,6 +336,7 @@ function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }:
 // 子模块直接 import 读写。以下为纯局部单例。
 let initialized = false;
 let initInFlight: Promise<void> | null = null;
+let syncMoreMenuSlidersFromState = (): void => {};
 // 会话收尾标志（closeChatSession 置位、激活路径复位）：闸住关闭后仍会兑现的
 // 发送流程（subtitle-wait 等待中的 pollContext 与 connectPort），落实「关闭即
 // 断流、不做后台续跑」。
@@ -768,26 +769,45 @@ const sessionTriggers = createReaderChatSessionTriggers({
   }),
   // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
   // 监听同语义；player-ai 信箱键的监听属摘除任务，不在 reader 消费）。
-  // 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区六键 + local 区
-  // aiProviderKeys，摘除即 unsubscribe。webSearchEnabled 在列：搜索授权被拒后闸侧
-  // 关闭联网偏好（票 11），对话开关与内存态经这条既有外部变更路径同步，下一条消息
-  // 不再重复询问。
-  storageWatcher: () => watchStorageKeys(() => {
-    void refreshProvidersAndPrefsAfterExternalChange();
-    void getLiveController()?.refreshTarget();
-  }, {
-    sync: [
-      "aiProviders",
-      "aiSystemPrompt",
-      "aiInitialQuickPrompts",
-      "defaultModel",
-      "aiThinkingLevel",
-      "liveProviders",
-      "activeLiveProviderId",
-      "webSearchEnabled"
-    ],
-    local: ["aiProviderKeys"]
-  }),
+  // webSearchEnabled 在列：搜索授权被拒后闸侧关闭联网偏好（票 11），下一条消息
+  // 不再重复询问。三项对话呈现偏好同步更新 Aa 滑块，排版两项同时即时预览。
+  storageWatcher: () => {
+    const unwatchProviders = watchStorageKeys(() => {
+      void refreshProvidersAndPrefsAfterExternalChange();
+      void getLiveController()?.refreshTarget();
+    }, {
+      sync: [
+        "aiProviders",
+        "aiSystemPrompt",
+        "aiInitialQuickPrompts",
+        "defaultModel",
+        "aiThinkingLevel",
+        "liveProviders",
+        "activeLiveProviderId",
+        "webSearchEnabled"
+      ],
+      local: ["aiProviderKeys"]
+    });
+    const unwatchPresentation = watchStorageKeys((changes) => {
+      if (changes.chatLineHeight) {
+        state.patchSettings({ chatLineHeight: normalizeChatLineHeight(changes.chatLineHeight.newValue) });
+      }
+      if (changes.chatParagraphSpacing) {
+        state.patchSettings({ chatParagraphSpacing: normalizeChatParagraphSpacing(changes.chatParagraphSpacing.newValue) });
+      }
+      if (changes.speechVoiceVolume) {
+        state.patchSettings({ speechVoiceVolume: normalizeSpeechVoiceVolume(changes.speechVoiceVolume.newValue) });
+      }
+      syncMoreMenuSlidersFromState();
+      if (changes.chatLineHeight || changes.chatParagraphSpacing) applyReadingViewTypography();
+    }, {
+      sync: ["chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume"]
+    });
+    return () => {
+      unwatchPresentation();
+      unwatchProviders();
+    };
+  },
   // 预热落定 → 重渲建议区：字幕就绪后后台生成的问题到位时，建议区若正显示兜底
   // 三条（用户手速快，刚进对话 tab 就撞上预热还在飞），就地换成逐视频生成的结果。
   // 有会话历史时 renderSuggestions 自身会走空表分支，这里不必另判。
@@ -1036,7 +1056,7 @@ function bindEvents(): void {
     }
   });
 
-  const syncMoreMenuSlidersFromState = () => {
+  syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
     paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
     speechVolumeSlider.setValue(state.settings?.speechVoiceVolume);

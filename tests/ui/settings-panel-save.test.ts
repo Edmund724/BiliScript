@@ -303,6 +303,101 @@ describe("设置抽屉模板：笔记导出区块已删除", () => {
   });
 });
 
+describe("对话与伴看偏好同源读写", () => {
+  it("外观与实时伴看区按既有默认值渲染七项，音频开关只有帮助提示", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+
+    for (const key of [
+      "chatLineHeight",
+      "chatParagraphSpacing",
+      "speechVoiceVolume",
+      "liveVoiceVolume",
+      "liveVoiceSpeed"
+    ] as const) {
+      expect(host.querySelector<HTMLInputElement>(`#${key}`)?.value).toBe(String(DEFAULT_SETTINGS[key]));
+      expect(host.querySelector<HTMLButtonElement>(`#${key}ResetBtn`)?.disabled).toBe(true);
+    }
+    expect(host.querySelector<HTMLInputElement>("#liveShareVideoAudio")?.checked).toBe(false);
+    expect(host.querySelector<HTMLInputElement>("#liveVoicePriority")?.checked).toBe(true);
+    expect(host.querySelector('label[for="speechVoiceVolume"]')?.textContent).toBe("对话朗读音量");
+    expect(host.querySelector('label[for="liveVoiceVolume"]')?.textContent).toBe("伴看音量");
+    for (const id of ["liveShareVideoAudio", "liveVoicePriority"]) {
+      const row = host.querySelector(`#${id}`)?.closest(".biliscript-toggle-row");
+      expect(row?.querySelector(".biliscript-set-hint, .biliscript-set-row-sub")).toBeNull();
+      expect(row?.getAttribute("title")).toBeTruthy();
+    }
+  });
+
+  it("五个滑块即时预览、提交原键并能单项恢复默认，两个开关立即保存", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+    const { state } = await import("../../extension/core/state.js");
+    const cases = [
+      ["chatLineHeight", 185],
+      ["chatParagraphSpacing", 18],
+      ["speechVoiceVolume", 45],
+      ["liveVoiceVolume", 65],
+      ["liveVoiceSpeed", 1.25]
+    ] as const;
+
+    for (const [key, value] of cases) {
+      const input = host.querySelector<HTMLInputElement>(`#${key}`)!;
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(input.value).toBe(String(value));
+      expect(state.settings?.[key]).toBe(value);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await vi.waitFor(() => {
+        expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === value)).toBe(true);
+      });
+
+      host.querySelector<HTMLButtonElement>(`#${key}ResetBtn`)!.click();
+      expect(input.value).toBe(String(DEFAULT_SETTINGS[key]));
+      expect(state.settings?.[key]).toBe(DEFAULT_SETTINGS[key]);
+      await vi.waitFor(() => {
+        expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === DEFAULT_SETTINGS[key])).toBe(true);
+      });
+    }
+
+    for (const [key, value] of [["liveShareVideoAudio", true], ["liveVoicePriority", false]] as const) {
+      const input = host.querySelector<HTMLInputElement>(`#${key}`)!;
+      input.checked = value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(state.settings?.[key]).toBe(value);
+      await vi.waitFor(() => {
+        expect(sent.some((message) => message.type === "save-settings" && message.settings?.[key] === value)).toBe(true);
+      });
+    }
+  });
+
+  it("跨标签页外部变更即时刷新七项控件", async () => {
+    const listeners: Array<(changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void> = [];
+    vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((listener) => {
+      listeners.push(listener);
+    });
+    installMessageBus();
+    const host = await mountPanel();
+    const changes = {
+      chatLineHeight: { oldValue: 160, newValue: 200 },
+      chatParagraphSpacing: { oldValue: 12, newValue: 20 },
+      speechVoiceVolume: { oldValue: 100, newValue: 30 },
+      liveVoiceVolume: { oldValue: 100, newValue: 150 },
+      liveVoiceSpeed: { oldValue: 1, newValue: 0.75 },
+      liveShareVideoAudio: { oldValue: false, newValue: true },
+      liveVoicePriority: { oldValue: true, newValue: false }
+    };
+
+    for (const listener of listeners) listener(changes, "sync");
+
+    for (const [key, change] of Object.entries(changes)) {
+      const input = host.querySelector<HTMLInputElement>(`#${key}`)!;
+      if (input.type === "checkbox") expect(input.checked).toBe(change.newValue);
+      else expect(input.value).toBe(String(change.newValue));
+    }
+  });
+});
+
 // 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层（不用原生 confirm）：
 // 弹层宿主挂在 #biliscript-reading-view 直下，mountPanel 需包上阅读视图；结算方式是
 // 点击弹层内的确认/取消按钮。
@@ -319,6 +414,25 @@ describe("恢复默认偏好按钮", () => {
   it("面板内确认弹层：点「恢复默认」后把偏好键面写回默认值，平台域键不参与", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
+    const { state } = await import("../../extension/core/state.js");
+    const preferenceKeys = [
+      "chatLineHeight",
+      "chatParagraphSpacing",
+      "speechVoiceVolume",
+      "liveVoiceVolume",
+      "liveVoiceSpeed",
+      "liveShareVideoAudio",
+      "liveVoicePriority"
+    ] as const;
+    state.patchSettings({
+      chatLineHeight: 190,
+      chatParagraphSpacing: 20,
+      speechVoiceVolume: 45,
+      liveVoiceVolume: 65,
+      liveVoiceSpeed: 1.25,
+      liveShareVideoAudio: true,
+      liveVoicePriority: false
+    });
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
     const confirmBtn = await openResetDialog();
@@ -340,6 +454,11 @@ describe("恢复默认偏好按钮", () => {
     // 偏好键面：aiSystemPrompt/playerAiQuickPrompt 落当前默认文本，快捷提示词/开关也在载荷里
     expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(resetPayload.enablePlayerAiQuickAction).toBe(DEFAULT_SETTINGS.enablePlayerAiQuickAction);
+    for (const key of preferenceKeys) {
+      expect(resetPayload[key]).toBe(DEFAULT_SETTINGS[key]);
+    }
+    expect(resetPayload.readerTheme).toBe(DEFAULT_SETTINGS.readerTheme);
+    expect(resetPayload).not.toHaveProperty("liveLowBandwidth");
     // 平台域配置（模型选择 / ASR 标量）与迁移旗标不参与重置
     expect(resetPayload).not.toHaveProperty("defaultModel");
     expect(resetPayload).not.toHaveProperty("activeAsrProviderId");
@@ -361,6 +480,9 @@ describe("恢复默认偏好按钮", () => {
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toContain("已恢复默认设置");
     });
+    for (const key of preferenceKeys) {
+      expect(state.settings?.[key]).toBe(DEFAULT_SETTINGS[key]);
+    }
   });
 
   // 对账（C5）：重置载荷同样必须落在 settings 键面内。readerTheme 是唯一不来自

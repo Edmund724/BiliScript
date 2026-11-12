@@ -117,9 +117,14 @@ _Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（�
 _Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 
 **文摘排版**:
-文摘面板的阅读排版设置项：字体大小缩放位于设置抽屉「外观与布局」分区，全局作用于三大标签页内容文本（字幕、概览、AI 对话）与设置抽屉内容文字；对话行高与对话段落间距位于「AI 对话」标签页的更多操作二级菜单中，仅作用于「AI 对话」消息区。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键。
+文摘面板的阅读排版设置项：字体大小缩放位于设置抽屉「外观与布局」分区，全局作用于三大标签页内容文本（字幕、概览、AI 对话）与设置抽屉内容文字；对话行高与对话段落间距同时位于「外观与布局」的「AI 对话」子组和「AI 对话」标签页的更多操作二级菜单中，仅作用于「AI 对话」消息区，Aa 的「更多显示设置」直达该子组。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键；设置抽屉底部的「恢复默认偏好」也覆盖这三项。
 代码名：`readerFontSizeScale` / `chatLineHeight` / `chatParagraphSpacing` / `--biliscript-reader-font-scale` / `--biliscript-chat-line-height` / `--biliscript-chat-paragraph-spacing`
 _Avoid_: 把字体缩放扩展到外壳固定骨架（如面板顶部 Header、底部状态栏）、用总开关包裹排版滑块
+
+**对话朗读与伴看音频**:
+对话朗读音量（`speechVoiceVolume`，默认 100%）同时位于设置抽屉「外观与布局 · AI 对话」和 Aa 更多操作菜单；伴看音量（`liveVoiceVolume`，默认 100%）、伴看语速（`liveVoiceSpeed`，默认 1×）、分享视频声音（`liveShareVideoAudio`，默认关）与语音优先（`liveVoicePriority`，默认开）同时位于设置抽屉「实时伴看」和伴看浮窗音频弹层。两处读写同一设置键，伴看会话与浮窗经 live 域叶子同步应用同页及跨标签页变更；滑块即时预览、提交时落盘，开关立即落盘。三个音量/语速滑块各配 ↻ 单项重置，「恢复默认偏好」覆盖这里的五项音频偏好及两项对话排版偏好；`readerTheme` 仍随全局偏好重置，`liveLowBandwidth` 等平台与采集配置不参与。
+代码名：`live/live-audio-settings.ts` / `applyLiveAudioSettings` / `persistLiveAudioSettings` / `watchLiveAudioSettings` / `speechVoiceVolume` / `liveVoiceVolume` / `liveVoiceSpeed` / `liveShareVideoAudio` / `liveVoicePriority`
+_Avoid_: 把对话朗读音量与伴看音量混称、为浮窗或抽屉另建会话级音频偏好副本、给两个音频开关增加常驻次级说明
 
 ### 面板控件
 
@@ -144,7 +149,7 @@ _Avoid_: 三处各存一份复制图标字面量、各配一套尺寸/描边
 _Avoid_: 用 surface-2 换底充当悬停反馈（层级差太弱）、只做 hover 不做键盘焦点
 
 **重置键**:
-把某项配置（思考强度 Default 档位、排版滑块）恢复至出厂默认值的无框纯图标键：静止态透明，处于默认档位或中点时呈置灰不可点击态；偏离默认值时激活，点击立即恢复默认值、触发即时预览并保存。图标统一使用纯矢量旋转箭头（rotate-ccw）。
+把某项配置（思考强度 Default 档位、排版/音频滑块）恢复至出厂默认值的无框纯图标键：静止态透明，处于默认档位或中点时呈置灰不可点击态；偏离默认值时激活，点击立即恢复默认值、触发即时预览并保存。图标统一使用纯矢量旋转箭头（rotate-ccw）。
 代码名：`.biliscript-slider-reset-btn` / `.chat-thinking-btn[data-level="default"]` / `READING_RESET_ICON`
 _Avoid_: 把重置做成带框文字键、偏离默认值时不更新禁用与激活态
 

@@ -56,6 +56,24 @@ export const SETTINGS_PANEL_DOM_IDS = {
   readerFontSizeScale: "readerFontSizeScale",
   readerFontSizeScaleValue: "readerFontSizeScaleValue",
   readerFontSizeScaleResetBtn: "readerFontSizeScaleResetBtn",
+  chatPreferencesHeading: "chatPreferencesHeading",
+  chatLineHeight: "chatLineHeight",
+  chatLineHeightValue: "chatLineHeightValue",
+  chatLineHeightResetBtn: "chatLineHeightResetBtn",
+  chatParagraphSpacing: "chatParagraphSpacing",
+  chatParagraphSpacingValue: "chatParagraphSpacingValue",
+  chatParagraphSpacingResetBtn: "chatParagraphSpacingResetBtn",
+  speechVoiceVolume: "speechVoiceVolume",
+  speechVoiceVolumeValue: "speechVoiceVolumeValue",
+  speechVoiceVolumeResetBtn: "speechVoiceVolumeResetBtn",
+  liveVoiceVolume: "liveVoiceVolume",
+  liveVoiceVolumeValue: "liveVoiceVolumeValue",
+  liveVoiceVolumeResetBtn: "liveVoiceVolumeResetBtn",
+  liveVoiceSpeed: "liveVoiceSpeed",
+  liveVoiceSpeedValue: "liveVoiceSpeedValue",
+  liveVoiceSpeedResetBtn: "liveVoiceSpeedResetBtn",
+  liveShareVideoAudio: "liveShareVideoAudio",
+  liveVoicePriority: "liveVoicePriority",
 
   customPanelWidthContainer: "customPanelWidthContainer",
   customPanelWidth: "customPanelWidth",
@@ -137,6 +155,38 @@ export function buildSettingsHtml(): string {
           <span class="biliscript-toggle-text">低带宽画面采集</span>
           <label class="biliscript-toggle-switch">
             <input id="${ids.liveLowBandwidth}" type="checkbox" class="biliscript-toggle-input" aria-label="低带宽画面采集" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row biliscript-slider-row">
+          <label class="biliscript-set-label" for="${ids.liveVoiceVolume}">伴看音量</label>
+          <div class="biliscript-slider-control">
+            <input id="${ids.liveVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="200" step="1" value="100" style="--range-progress: 50%;" />
+            <span id="${ids.liveVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
+            <button id="${ids.liveVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看音量 (100%)" aria-label="恢复默认伴看音量">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <div class="biliscript-set-row biliscript-slider-row">
+          <label class="biliscript-set-label" for="${ids.liveVoiceSpeed}">伴看语速</label>
+          <div class="biliscript-slider-control">
+            <input id="${ids.liveVoiceSpeed}" type="range" class="biliscript-range-input" min="0.5" max="1.5" step="0.25" value="1" style="--range-progress: 50%;" />
+            <span id="${ids.liveVoiceSpeedValue}" class="biliscript-slider-badge">1×</span>
+            <button id="${ids.liveVoiceSpeedResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看语速 (1×)" aria-label="恢复默认伴看语速">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <div class="biliscript-set-check biliscript-toggle-row" title="让 AI 同时听到视频原声与你的麦克风声音">
+          <span class="biliscript-toggle-text">分享视频声音</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveShareVideoAudio}" type="checkbox" class="biliscript-toggle-input" aria-label="分享视频声音" aria-description="让 AI 同时听到视频原声与你的麦克风声音" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="biliscript-set-check biliscript-toggle-row" title="你说话或 AI 播报时降低视频音量，结束后恢复">
+          <span class="biliscript-toggle-text">语音优先</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveVoicePriority}" type="checkbox" class="biliscript-toggle-input" aria-label="语音优先" aria-description="你说话或 AI 播报时降低视频音量，结束后恢复" />
             <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
           </label>
         </div>
@@ -307,7 +357,41 @@ export function buildSettingsHtml(): string {
             <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
           </div>
         </div>
+      </div>
 
+      <div data-settings-subgroup="chat" aria-labelledby="${ids.chatPreferencesHeading}">
+        <div class="biliscript-set-header-row">
+          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-label">AI 对话</div>
+        </div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.chatLineHeight}">对话行高</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.chatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" style="--range-progress: 50%;" />
+              <span id="${ids.chatLineHeightValue}" class="biliscript-slider-badge">160%</span>
+              <button id="${ids.chatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话行高 (160%)" aria-label="恢复默认对话行高">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.chatParagraphSpacing}">对话段落间距</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.chatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" style="--range-progress: 50%;" />
+              <span id="${ids.chatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
+              <button id="${ids.chatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话段落间距 (12px)" aria-label="恢复默认对话段落间距">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.speechVoiceVolume}">对话朗读音量</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.speechVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
+              <span id="${ids.speechVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
+              <button id="${ids.speechVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话朗读音量 (100%)" aria-label="恢复默认对话朗读音量">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="biliscript-set-card">
         <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
           <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
           <div class="biliscript-slider-control">
