@@ -31,7 +31,8 @@ beforeEach(async () => {
 
 function makeHarness() {
   const messages = document.createElement("div");
-  document.body.appendChild(messages);
+  const inputCard = document.createElement("div");
+  document.body.append(messages, inputCard);
   interface InjectedTimer {
     id: number;
     fn: () => void;
@@ -48,6 +49,7 @@ function makeHarness() {
   };
   const deps = {
     messages,
+    inputCard,
     setTimer: vi.fn((fn: () => void, ms: number) => {
       const handle: InjectedTimer = { id: ++timerSeq, fn, ms, cleared: false };
       timers.push(handle);
@@ -68,7 +70,7 @@ function makeHarness() {
   const fireTimers = () => {
     [...timers].forEach((timer) => timer.fn());
   };
-  return { messages, deps, feedback, timers, fireTimers, suggestions };
+  return { messages, inputCard, deps, feedback, timers, fireTimers, suggestions };
 }
 
 describe("showConversationContextNotice / removeConversationContextNotice", () => {
@@ -178,6 +180,31 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
 
     const notice = messages.querySelector(".chat-context-notice")!;
     expect(notice.querySelector(".chat-notice-spinner")).toBeNull();
+  });
+
+  it("输入区拦截卡：同时渲染自定义动作与前往设置，点击分别执行", () => {
+    const { feedback, messages, inputCard, deps } = makeHarness();
+    const onRetry = vi.fn();
+
+    feedback.showConversationContextNotice("当前视频无字幕", 0, {
+      placement: "input",
+      action: { label: "重新抓取", onClick: onRetry },
+      openSettingsAction: true,
+      settingsTarget: "asr"
+    });
+
+    const notice = inputCard.querySelector<HTMLElement>(".chat-context-notice")!;
+    expect(messages.querySelector(".chat-context-notice")).toBeNull();
+    expect(notice.getAttribute("role")).toBe("alert");
+    const links = notice.querySelectorAll("a");
+    expect([...links].map((link) => link.textContent)).toEqual(["重新抓取", "前往设置"]);
+    links[0].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    links[1].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(deps.onOpenSettings).toHaveBeenCalledWith("asr");
+
+    feedback.removeConversationContextNotice();
+    expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
   });
 });
 

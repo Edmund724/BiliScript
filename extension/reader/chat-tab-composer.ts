@@ -23,6 +23,7 @@ import type { SendVerdict } from "../chat/turn-lifecycle.js";
 // 不再叠加 4px 内边距。无布局的 jsdom 下 scrollHeight 恒 0，跳过写行内高，
 // 高度落回 CSS 自然高，行为不变。
 export const INPUT_MAX_HEIGHT = 320;
+export const SUBTITLE_WAIT_NOTICE = "正在等待字幕，完成后自动发送";
 
 export interface ReaderChatComposerEls {
   input: HTMLTextAreaElement;
@@ -41,7 +42,8 @@ export interface ReaderChatComposerDeps {
   sendBtn?: HTMLButtonElement;
   chatRuntime: ReaderChatComposerRuntime;
   onPasteImage?: (event: ClipboardEvent) => void;
-  sendGate?: unknown;
+  onCancelSubtitleWait?: () => void;
+  onNotice?: (message: string, autoHideMs?: number) => void;
 }
 
 export interface ReaderChatComposer {
@@ -59,20 +61,15 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   const input = deps.els?.input ?? deps.input!;
   const sendBtn = deps.els?.sendBtn ?? deps.sendBtn!;
   const { chatRuntime, onPasteImage } = deps;
-
-  // 输入框 placeholder 的默认串（模板的静态属性，见 reader/chat-template.ts）：
-  // 实例初始化时捕获一次原值，字幕抓取等待期间换成等待文案、结束即还原此值——
-  // 不在代码里另抄一份字面量，模板改动自动跟随。
-  const defaultPlaceholder = input.placeholder;
+  const inputCard = input.closest(".chat-input-card");
+  const waitCard = inputCard?.querySelector<HTMLElement>(".chat-subtitle-wait") ?? null;
+  const waitText = waitCard?.querySelector<HTMLElement>(".chat-subtitle-wait-text") ?? null;
+  const waitCancel = waitCard?.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel") ?? null;
 
   // 发送键禁用态：流式中（停止键形态）仅「停止中」禁用；空闲时空输入禁用置灰。
   let stopInFlight = false;
-
-  // 字幕抓取等待态（发送闸经 deps.onWaitingChange 推送）：等待期间发送键禁用 +
-  // 输入框 placeholder 换成等待文案——发送键亮着却点了静默无反应（等待可能几秒）
-  // 正是要消除的观感。输入框本身保持可编辑：等待期间可继续输入/改提示词（本轮
-  // 已受理的文本在回车那一刻定下，本轮之后照常清空）。
   let subtitleWaitActive = false;
+  let cancelRequested = false;
 
   function updateSendBtnState(): void {
     const isStreaming = sendBtn.classList.contains("is-stop");
@@ -98,7 +95,18 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
 
   function setSubtitleWaitUi(active: boolean): void {
     subtitleWaitActive = active;
-    input.placeholder = active ? "正在抓取字幕…" : defaultPlaceholder;
+    if (waitCard) {
+      waitCard.hidden = !active;
+    }
+    if (active && waitText) {
+      waitText.textContent = SUBTITLE_WAIT_NOTICE;
+    }
+    if (!active && cancelRequested) {
+      cancelRequested = false;
+      deps.onNotice?.("已取消等待，草稿与图片已保留", 3000);
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
     updateSendBtnState();
   }
 
@@ -173,10 +181,20 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   // 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
   // await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
   async function sendFromUi(): Promise<void> {
-    await chatRuntime.sendTurn(input.value);
+    const verdict = await chatRuntime.sendTurn(input.value);
+    if (verdict === "ignored" && subtitleWaitActive) {
+      deps.onNotice?.(SUBTITLE_WAIT_NOTICE, 3000);
+    }
   }
 
   function bind(): void {
+    waitCancel?.addEventListener("click", () => {
+      if (!subtitleWaitActive) {
+        return;
+      }
+      cancelRequested = true;
+      deps.onCancelSubtitleWait?.();
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         if (!input.value.trim()) {

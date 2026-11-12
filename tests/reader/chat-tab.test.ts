@@ -391,9 +391,7 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
 
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    await waitFor(() =>
-      Boolean((document.getElementById(ids.readingChatMessages) as HTMLElement).querySelector(".chat-context-notice"))
-    );
+    await waitFor(() => Boolean(document.querySelector(".chat-input-card .chat-context-notice")));
     expect(ports).toHaveLength(0); // 发送被拦截
     const intentCard = document.getElementById(ids.readingChatIntent) as HTMLElement;
     expect(intentCard.hidden).toBe(false);
@@ -429,7 +427,7 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     // 用户先按回车：受理停在 subtitle-wait（受理窗口内，端口未建、未上屏）
     input.value = "闸中问题";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
     expect(ports).toHaveLength(0);
 
     // 窗口内再激活（走意图消费路径）：不消费意图、不误报受理
@@ -500,10 +498,7 @@ describe("subtitle-wait kick 总线接线", () => {
     await activation;
   });
 
-  it("抓取等待中转入转写相位：消息区抓取通知立即清理，不闪两条同屏提示", async () => {
-    // 抓取中（loading + 空字幕体）等待闸落一条「正在抓取字幕…」消息区通知；
-    // 随后无字幕出口进入转写相位——若不清掉那条抓取通知，它会与转写状态行
-    // 同屏显示（用户报障：一闪两条重复且不正确的提示），直到下一轮 4s 轮询。
+  it("抓取等待中转入转写相位：等待卡保留并显示转写状态行", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -516,11 +511,11 @@ describe("subtitle-wait kick 总线接线", () => {
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     const asrNotice = document.getElementById(ids.readingChatAsrNotice) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect(asrNotice.hidden).toBe(true);
 
-    // 转写相位广播（同步分发）：抓取通知立即消失，只留转写状态行
+    // 转写相位广播（同步分发）：等待卡继续显示，状态行转入转写文案
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(asrNotice.hidden).toBe(false);
@@ -533,10 +528,7 @@ describe("subtitle-wait kick 总线接线", () => {
     await activation;
   });
 
-  // 等待期间的观感：发送键亮着但点了静默无反应（等待可长达数秒）——等待态下
-  // 发送键禁用 + 输入框 placeholder 换成等待文案，等待结束（放行/拦截/读失败/
-  // 会话关闭四条出口）恢复默认。输入框本身保持可编辑。
-  it("抓取等待期间：发送键禁用、placeholder 换等待文案；放行后恢复默认并可用", async () => {
+  it("抓取等待期间：等待卡、重复发送反馈与新草稿保留；放行后发送状态成对复位", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -548,40 +540,37 @@ describe("subtitle-wait kick 总线接线", () => {
 
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
-    // 默认 placeholder 来自模板静态属性（chat-template.ts）
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const waitCard = document.querySelector<HTMLElement>(".chat-subtitle-wait")!;
     const defaultPlaceholder = input.placeholder;
-    expect(defaultPlaceholder).toBe("回车发送，Shift+Enter 换行");
 
     input.value = "闸中问题";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 
-    // 等待态：placeholder 换文案、发送键禁用（空闲分支，非停止键形态）
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => waitCard.hidden === false);
     expect(sendBtn.disabled).toBe(true);
     expect(sendBtn.classList.contains("is-stop")).toBe(false);
-
-    // 输入框保持可编辑：等待期间照常输入，不该被禁用，也不该把发送键放回可用
     expect(input.disabled).toBe(false);
+    expect(input.placeholder).toBe(defaultPlaceholder);
+
     input.value = "等待中补的内容";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(input.placeholder).toBe("正在抓取字幕…");
     expect(sendBtn.disabled).toBe(true);
 
-    // 等待中再按回车：回合在途被双发闸判 ignored，不重复受理、等待态不变
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => Boolean(messages.textContent?.includes("正在等待字幕，完成后自动发送")));
     expect(ports).toHaveLength(0);
-    expect(input.placeholder).toBe("正在抓取字幕…");
+    expect(waitCard.hidden).toBe(false);
 
-    // 抓取落定 → 放行（发出的是首次回车受理的那条文本；等待中的续写不参与本轮）
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     statusBus.publishSubtitleStatusPhase("asr-done");
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
     expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("闸中问题");
-    await waitFor(() => input.placeholder === defaultPlaceholder);
+    await waitFor(() => waitCard.hidden === true);
+    expect(input.value).toBe("等待中补的内容");
+    expect(messages.textContent).toContain("已发送原文，保留了后来修改的草稿与图片");
 
-    // 回合落定（流式结束）后回到空闲：输入内容即可发送，等待态不残留禁用
     (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
     await waitFor(() => !sendBtn.classList.contains("is-stop"));
     input.value = "下一问";
@@ -590,7 +579,45 @@ describe("subtitle-wait kick 总线接线", () => {
     expect(input.placeholder).toBe(defaultPlaceholder);
   });
 
-  it("有字幕视频抓取中等待：消息区显示抓取文案，不误报音频转写", async () => {
+  it("等待卡可取消：原回合不发送且保留草稿，字幕就绪后可重新发送", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const waitCard = document.querySelector<HTMLElement>(".chat-subtitle-wait")!;
+    const cancel = waitCard.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel")!;
+
+    input.value = "取消前的问题";
+    input.setSelectionRange(2, 2);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => waitCard.hidden === false);
+
+    cancel.click();
+    await waitFor(() => waitCard.hidden === true);
+    expect(ports).toHaveLength(0);
+    expect(input.value).toBe("取消前的问题");
+    expect(messages.textContent).toContain("已取消等待，草稿与图片已保留");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("取消前的问题");
+    expect(input.value).toBe("");
+  });
+
+  it("有字幕视频抓取中等待：输入区显示等待卡，不误报音频转写", async () => {
     // 抓取中：subtitleFetchState loading + 字幕体为空，相位 idle（非转写）
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
@@ -603,10 +630,10 @@ describe("subtitle-wait kick 总线接线", () => {
     // 不 await 激活：发送卡在等待中，activate 到放行才落定（同上例时序）
     const activation = chat.ensureChatTabActivated();
 
-    // 等待提示走消息区抓取文案；转写状态行不亮（无字幕/转写只属转写场景）
+    // 输入区显示等待卡；转写状态行不亮（无字幕/转写只属转写场景）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect((document.getElementById(ids.readingChatAsrNotice) as HTMLElement).hidden).toBe(true);
 
     // 抓取完成 → 轮询放行（无相位广播可 kick，等一轮 4s 轮询），通知清理
@@ -645,10 +672,10 @@ describe("发送前主动起跑字幕抓取（抓取未起跑的 idle 窗口不�
 
     // 发送路径主动起跑（本套件里 spy 是 reader-bus 的首个 handler）
     await waitFor(() => refreshSpy.mock.calls.length === 1);
-    // 抓取挂起期间提示词不发：未开 port，等待提示走消息区抓取文案
+    // 抓取挂起期间提示词不发：未开 port，输入区显示等待卡
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect(ports).toHaveLength(0);
 
     // 抓取落定 → kick 补轮放行（不必真等一轮 4s 轮询）
@@ -768,7 +795,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
 
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sending = chat.runQuickActionPrompt("等待字幕时发送");
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
 
     chat.closeChatSession();
     await chat.ensureChatTabActivated();
@@ -805,7 +832,7 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
 
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sending = chat.runQuickActionPrompt("只在旧视频等待时发送");
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
 
     state.clip.bvid = bvid;
     state.clip.cid = cid;
@@ -1073,7 +1100,7 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     input.value = "用户已发送的问题";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
 
     const accepted = await chat.runQuickActionPrompt("不得自动排队");
 
@@ -1099,7 +1126,7 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
 
     const first = chat.runQuickActionPrompt("只发送这个提示词");
     const repeated = chat.runQuickActionPrompt("连点提示词");
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
     expect(ports).toHaveLength(0);
 
     state.clip.subtitleFetchState = "ready";

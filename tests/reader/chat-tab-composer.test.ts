@@ -5,6 +5,15 @@ function setupComposer(overrides: Partial<Parameters<typeof createReaderChatComp
   const input = document.createElement("textarea");
   input.placeholder = "回车发送，Shift+Enter 换行";
   const sendBtn = document.createElement("button");
+  const card = document.createElement("div");
+  card.className = "chat-input-card";
+  card.innerHTML = `
+    <div class="chat-subtitle-wait" hidden>
+      <span class="chat-subtitle-wait-text"></span>
+      <button type="button" class="chat-subtitle-wait-cancel">取消</button>
+    </div>`;
+  card.append(input, sendBtn);
+  document.body.appendChild(card);
 
   const chatRuntime = {
     sendTurn: vi.fn(async () => "ok"),
@@ -80,19 +89,54 @@ describe("createReaderChatComposer send/stop button logic", () => {
     expect(sendBtn.getAttribute("aria-label")).toBe("发送");
   });
 
-  it("字幕等待期间：发送键禁用且占位符显示等待文案", () => {
+  it("字幕等待期间：显示可取消等待卡，输入框与占位符不变", () => {
     const { input, sendBtn, composer } = setupComposer();
 
     input.value = "有输入内容";
     composer.updateSendBtnState();
-    expect(sendBtn.disabled).toBe(false);
-
     composer.setSubtitleWaitUi(true);
+
+    const card = input.closest(".chat-input-card")!.querySelector<HTMLElement>(".chat-subtitle-wait")!;
+    expect(card.hidden).toBe(false);
+    expect(card.textContent).toContain("正在等待字幕，完成后自动发送");
     expect(sendBtn.disabled).toBe(true);
-    expect(input.placeholder).toBe("正在抓取字幕…");
+    expect(input.disabled).toBe(false);
+    expect(input.placeholder).toBe("回车发送，Shift+Enter 换行");
 
     composer.setSubtitleWaitUi(false);
+    expect(card.hidden).toBe(true);
     expect(sendBtn.disabled).toBe(false);
-    expect(input.placeholder).toBe("回车发送，Shift+Enter 换行");
+  });
+
+  it("取消等待：调用既有 cancel 收口，显示短回执并把焦点移到草稿末尾", () => {
+    let composer!: ReturnType<typeof createReaderChatComposer>;
+    const onCancelSubtitleWait = vi.fn(() => composer.setSubtitleWaitUi(false));
+    const onNotice = vi.fn();
+    const harness = setupComposer({ onCancelSubtitleWait, onNotice });
+    composer = harness.composer;
+    harness.input.value = "保留草稿";
+    composer.setSubtitleWaitUi(true);
+
+    harness.input.closest(".chat-input-card")!.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel")!.click();
+
+    expect(onCancelSubtitleWait).toHaveBeenCalledTimes(1);
+    expect(onNotice).toHaveBeenCalledWith("已取消等待，草稿与图片已保留", 3000);
+    expect(harness.input.value).toBe("保留草稿");
+    expect(document.activeElement).toBe(harness.input);
+    expect(harness.input.selectionStart).toBe(harness.input.value.length);
+  });
+
+  it("等待中重复发送：ignored 转为明确反馈，不覆盖原等待卡", async () => {
+    const onNotice = vi.fn();
+    const { input, composer, chatRuntime } = setupComposer({ onNotice });
+    chatRuntime.sendTurn.mockResolvedValue("ignored");
+    input.value = "重复发送";
+    composer.setSubtitleWaitUi(true);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(onNotice).toHaveBeenCalledWith("正在等待字幕，完成后自动发送", 3000));
+    expect(input.closest(".chat-input-card")!.querySelector<HTMLElement>(".chat-subtitle-wait")!.hidden).toBe(false);
+    expect(chatRuntime.sendTurn).toHaveBeenCalledTimes(1);
   });
 });

@@ -1672,6 +1672,48 @@
   box-shadow: var(--chat-input-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 
+.biliscript-reading-chat .chat-subtitle-wait {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.35;
+}
+
+.biliscript-reading-chat .chat-subtitle-wait[hidden] {
+  display: none;
+}
+
+.biliscript-reading-chat .chat-subtitle-wait .chat-notice-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--biliscript-reader-accent);
+  border-top-color: transparent;
+  border-radius: var(--biliscript-radius-circle);
+  animation: biliscript-notice-spin 0.8s linear infinite;
+}
+
+.biliscript-reading-chat .chat-subtitle-wait-text {
+  flex: 1;
+}
+
+.biliscript-reading-chat .chat-subtitle-wait-cancel {
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--biliscript-reader-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-input-card > .chat-context-notice {
+  position: static;
+  margin: 0;
+  text-align: left;
+}
+
 /* 图片附件区（image-input 02 号票）：输入卡片顶部一行缩略图，每张右上角一个
  * 删除键；无附件时 [hidden] 不占位（display:flex 会盖掉 hidden 的默认隐藏，
  * 故显式补一条）。 */

@@ -359,7 +359,8 @@ describe("sendMessage 建流与协议入口", () => {
     await expect(send1).resolves.toBe("accepted");
     expect(deps.ports).toHaveLength(1);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
-    expect(deps.input.value).toBe("");
+    expect(deps.input.value).toBe("第二条");
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
   });
 
   it("空文本 sendMessage：verdict=ignored，输入框保持空、无 port", async () => {

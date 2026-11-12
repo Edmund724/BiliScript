@@ -127,7 +127,17 @@ export interface ChatRuntimeStore {
 // 见 ./view-intent.ts 头注，其余方法名不变）
 export interface ChatRuntimeUi {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
-  showConversationContextNotice: (message: string, autoHideMs?: number, options?: { openSettingsAction?: boolean }) => void;
+  showConversationContextNotice: (
+    message: string,
+    autoHideMs?: number,
+    options?: {
+      openSettingsAction?: boolean;
+      spinner?: boolean;
+      settingsTarget?: "asr";
+      placement?: "input";
+      action?: { label: string; onClick: () => void };
+    }
+  ) => void;
   removeConversationContextNotice: () => void;
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
@@ -151,18 +161,18 @@ export interface CreateChatRuntimeDeps {
   // ---- UI 门面 ----
   ui: ChatRuntimeUi;
   // ---- context/transport helpers (AI domain, chat local) ----
-  // 发送闸出口：{pass:true} 放行；{pass:false,kind} 拦截（read-failed 已清场 /
-  // no-subtitle 无字幕，notice 已显示）。
+  // 发送闸出口：{pass:true} 放行；{pass:false,kind} 拦截或取消。拦截通知由闸侧
+  // 显示，所有非放行结果都保留文本与图片。
   ensureCurrentContextForSend: () => Promise<GateOutcome>;
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog）：chat 模型选择器一模型一选项后随
   // port 消息下发，offscreen 以它覆盖解析平台的目录首项。可选——未注入的
   // 旧组合根（测试）不发该字段，offscreen 回落平台目录首项。
   getSelectedModel?: () => string;
-  // 图片输入（image-input 路线 B）：发送受理时消费附件区（读取并清空缩略图），随
-  // 本条 chat 消息的 images 字段下发。未注入（旧组合根/测试）时不带该字段——
-  // 无图消息的线格式逐字节不变。
-  takeInputImages?: () => ImagePart[];
+  // 图片在受理开始时只读快照，闸通过后按快照消费；等待期间新增的图片不随原
+  // 回合发出。未注入快照入口的旧组合根仍在闸后全量消费，保持既有测试/宿主兼容。
+  getInputImages?: () => ImagePart[];
+  takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
@@ -655,10 +665,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         return "blocked";
       }
 
+      const branched = activeRegeneration !== null || activeContinuation !== null;
+      const inputSnapshot = deps.input.value;
+      const imageSnapshot = branched ? null : deps.getInputImages?.() ?? null;
       const outcome = await deps.ensureCurrentContextForSend();
-      // 非 pass 一律在此提前返回：read-failed（上下文读取失败，已由闸侧清场）
-      // 与 no-subtitle（无字幕拦截，notice 已由闸侧显示）都不追加用户消息、
-      // 不落 chatHistory、不发起 port。
+      // 取消、读取失败与空上下文拦截都不追加消息、不消费文本或图片快照。
       if (!outcome.pass) {
         return "blocked";
       }
@@ -678,9 +689,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const regeneration = activeRegeneration;
       const continuation = activeContinuation;
+      let preserveSnapshotNotice = false;
       if (!regeneration && !continuation) {
         messageArea.appendUserMessage(text, { source: "live" });
-        deps.input.value = "";
+        preserveSnapshotNotice = deps.input.value !== inputSnapshot;
+        if (!preserveSnapshotNotice) {
+          deps.input.value = "";
+        }
         deps.ui.autosizeInput();
       }
 
@@ -690,7 +705,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const branchRecord = regeneration || continuation;
       const images = branchRecord
         ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
-        : deps.takeInputImages?.() ?? [];
+        : imageSnapshot
+          ? deps.takeInputImages?.(imageSnapshot) ?? []
+          : deps.takeInputImages?.() ?? [];
+      if (!branchRecord) {
+        preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
+      }
 
       setStreamingUiState(true);
       activeUserPrompt = text;
@@ -704,6 +724,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeConversationId = chatSessionState.currentConversationId;
       activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
       startStreamSlowNoticeTimer();
+      if (preserveSnapshotNotice) {
+        deps.ui.showConversationContextNotice("已发送原文，保留了后来修改的草稿与图片", 4000);
+      }
       streamFirstTokenReceived = false;
 
       // connectPort 现为 async（发送前先 ensure offscreen 文档，文档死亡后

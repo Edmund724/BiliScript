@@ -290,10 +290,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
   });
 
-  // 受理窗口（发送流程在途、端口未建、用户消息尚未上屏）：旧判据
-  // isStreaming() || hasPendingUserPrompt() 在这段窗口判「空闲」，图片会被收进附件区；
-  // 判据收成 isTurnActive（受理窗口 ∪ 流段）后，整段「受理 → 落定」窗口一致拒绝。
-  it("受理窗口内（闸 await 中）粘贴图片：同样拒绝，不产出附件项", async () => {
+  it("字幕等待期间粘贴图片：真实压缩后保留，不并入已受理的原回合", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -307,24 +304,22 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     input.value = "闸中问题";
     sendEnter();
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(ports).toHaveLength(0); // 仍在受理窗口内：端口未建、未上屏
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(ports).toHaveLength(0);
 
     dispatchPaste(input, [imageItem()]);
+    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
 
-    // 拒绝是同步的（流式闸在压缩之前）：提示立即换成拒绝文案，附件区保持空
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在生成回答");
-    expect(strip.hidden).toBe(true);
-    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
-
-    // 收尾：转写完成 → kick 放行挂起的那条发送（不留挂起的等待轮询）
     const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     statusBus.publishSubtitleStatusPhase("asr-done");
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+
+    const posted = ports[0].postMessage.mock.calls[0][0] as { images?: unknown[] };
+    expect(posted.images).toBeUndefined();
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(messages.textContent).toContain("已发送原文，保留了后来修改的草稿与图片");
   });
 
   it("快捷动作遇到草稿与图片附件：只定位，不覆盖、不发送、不消费附件", async () => {
@@ -417,8 +412,7 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     state.clip.subtitleBody = [];
     input.value = "这张图里是什么";
     sendEnter();
-    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    await waitFor(() => Boolean(document.querySelector(".chat-input-card .chat-context-notice")));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // 被拦下 = 未受理：不发起 port、附件留在附件区、输入框文本保留

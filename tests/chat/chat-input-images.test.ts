@@ -378,3 +378,44 @@ describe("takeImages（发送受理的读清一体）", () => {
     expect(images.count()).toBe(0);
   });
 });
+
+
+describe("发送快照消费", () => {
+  it("takeImages(snapshot) 只消费快照，后来粘贴的图片保留", async () => {
+    const compress = vi
+      .fn()
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "OLD" }, bytes: 1 })
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "NEW" }, bytes: 1 });
+    const { images } = makeRuntime({ compress });
+    images.handlePaste(makePasteEvent([fileItem(makeFile("old.png"))]));
+    await flush();
+    const snapshot = images.getImages();
+    images.handlePaste(makePasteEvent([fileItem(makeFile("new.png"))]));
+    await flush();
+
+    expect(images.takeImages(snapshot)).toEqual(snapshot);
+    expect(images.getImages()).toEqual([{ mime: "image/webp", data: "NEW" }]);
+    expect(images.count()).toBe(1);
+  });
+
+  it("按快照消费不作废等待期间开始的新图片压缩", async () => {
+    let release!: (value: CompressedImage) => void;
+    const compress = vi
+      .fn()
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "OLD" }, bytes: 1 })
+      .mockImplementationOnce(() => new Promise<CompressedImage>((resolve) => {
+        release = resolve;
+      }));
+    const { images } = makeRuntime({ compress });
+    images.handlePaste(makePasteEvent([fileItem(makeFile("old.png"))]));
+    await flush();
+    const snapshot = images.getImages();
+
+    images.handlePaste(makePasteEvent([fileItem(makeFile("new.png"))]));
+    images.takeImages(snapshot);
+    release({ part: { mime: "image/webp", data: "NEW" }, bytes: 1 });
+    await flush();
+
+    expect(images.getImages()).toEqual([{ mime: "image/webp", data: "NEW" }]);
+  });
+});

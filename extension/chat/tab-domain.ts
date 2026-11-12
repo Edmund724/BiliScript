@@ -23,7 +23,7 @@
 //     组合根实现）+ store 能力事件三件（渲染编排反转：store 编排时机，组合根
 //     订阅结果）+ contextLoad 的三个渲染编排回调（renderHistoryList /
 //     renderInitialState / restartChat）+ 视图意图通道
-//     requestViewReset（contextLoad / sendGate 消费，view-intent.ts 词表）
+//     requestViewReset（contextLoad / runtime 消费，view-intent.ts 词表）
 //     + 建议区两件能力（render / clear：contextLoad 的对账重渲与 replay 的
 //     消息区重建清引用消费；建议区节点属主在组合根，本域不持节点）；
 //   - storage：store 存档读写（测试可注入，缺省 chrome.storage.local）；
@@ -32,10 +32,10 @@
 //   - 发送闸编排：isSessionClosed / isReaderTranscribing / asrNotice /
 //     pageBvid / startSubtitleFetch / subscribeStatusPhase（发送闸消费的
 //     页面级读侧与通知面，组合根闭包注入）+ onWaitingChange（可选：字幕等待
-//     开始/结束开关信号，组合根据此改发送键禁用态与输入框 placeholder）；
+//     开始/结束开关信号，组合根据此控制输入区等待卡与发送键禁用态）；
 //   - runtime 传输/AI 回调：getProviderId /
-//     getSelectedModel（multi-model-catalog 起，可选）/ takeInputImages
-//     （image-input 02 号票起，可选：发送受理时消费图片附件区）/
+//     getSelectedModel（multi-model-catalog 起，可选）/ getInputImages /
+//     takeInputImages（可选：受理时快照、闸通过后按快照消费图片附件区）/
 //     getTimestampNavDeps / normalizeMarkdownForSectionPaste / connectPort
 //    （闭包连着组合根的页面级状态与 DOM，留在 chat-tab）。
 //
@@ -93,7 +93,7 @@ export interface CreateChatTabDomainDeps {
   renderHistoryList: () => void;
   renderInitialState: () => void;
   restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
-  // ---- 视图意图通道（contextLoad / sendGate 消费；执行体唯一住在组合根）----
+  // ---- 视图意图通道（contextLoad / runtime 消费；执行体唯一住在组合根）----
   requestViewReset: (intent: ViewResetIntent) => void;
   // ---- 建议区（属主在组合根：reader/chat-suggestions-slot）----
   // 本域只经这两件表达意图，不持建议区节点：对账重渲（contextLoad）与消息区
@@ -122,18 +122,16 @@ export interface CreateChatTabDomainDeps {
   startSubtitleFetch: () => Promise<boolean>;
   // 字幕状态总线订阅具名入口。
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
-  // 字幕等待闸的开关信号（可选；组合根接 chat-tab 的 setSubtitleWaitUi）：
-  // 等待开始时 true、所有出口（放行/拦截/读失败/会话关闭导致的失败）后 false。
-  // 等待期间发送键禁用 + 输入框 placeholder 换成等待文案——等待期间发送键亮着
-  // 却点了静默无反应，正是本信号缺失时的观感（等待可长达数秒）。
+  // 确认 pending 后打开等待卡；放行、取消、拦截与读取失败后成对复位。
+  // 等待期间发送键禁用，输入框保持可编辑。
   onWaitingChange?: (waiting: boolean) => void;
   // ---- chat-runtime 传输/AI 回调（组合根闭包）----
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
   getSelectedModel?: () => string;
-  // 图片附件（image-input 02 号票，可选）：发送受理时消费附件区，随 chat 消息的
-  // images 字段下发（组合根接 reader/chat-tab.ts 的 inputImages.takeImages）。
-  takeInputImages?: () => ImagePart[];
+  // 图片在受理开始时只读快照，闸通过后按快照消费，等待期新增图片留下。
+  getInputImages?: () => ImagePart[];
+  takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
@@ -199,7 +197,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   const sendGate = createSendGate({
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     hydratePinned: (opts) => store.hydratePinned(opts),
-    requestViewReset: deps.requestViewReset,
     showContextNotice: deps.ui.showConversationContextNotice,
     removeContextNotice: deps.ui.removeConversationContextNotice,
     replayInFlight: () => replay?.inFlight ?? null,
@@ -228,6 +225,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     ensureCurrentContextForSend: () => sendGate.ensureContextForSend(),
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
+    getInputImages: deps.getInputImages,
     takeInputImages: deps.takeInputImages,
     canUseVideoFrameTool: deps.canUseVideoFrameTool,
     captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
