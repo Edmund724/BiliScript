@@ -300,6 +300,9 @@
   gap: var(--biliscript-space-sm);
   scroll-margin-top: 56px;
 }
+#biliscript-reading-view .biliscript-reading-settings-host [data-settings-subgroup] {
+  scroll-margin-top: 56px;
+}
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row {
   display: flex;
   align-items: center;
@@ -506,6 +509,14 @@
   font-size: var(--biliscript-font-size-lg);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
+  color: var(--biliscript-reader-text);
+  margin: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-subgroup-h {
+  font-size: var(--biliscript-font-size-base);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
   color: var(--biliscript-reader-text);
   margin: 0;
 }

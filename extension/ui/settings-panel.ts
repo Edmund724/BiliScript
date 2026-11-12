@@ -639,8 +639,9 @@ async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Pr
   const sectionHeading = target === "appearance"
     ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
     : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
-  if (target === "appearance" && typeof sectionHeading?.scrollIntoView === "function") {
-    sectionHeading.scrollIntoView({ behavior: "auto", block: "start" });
+  if (target === "appearance") {
+    const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup]") ?? sectionHeading;
+    scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
   }
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });

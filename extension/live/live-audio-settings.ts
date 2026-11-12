@@ -1,3 +1,6 @@
+// 伴看音频偏好的 live 域叶子：读写既有 settings 键，并把同页与跨标签页变更
+// 应用到 LiveChatController 与浮窗。设置抽屉、伴看会话、直播间与浮窗共用此入口。
+
 import { state } from "../core/state.js";
 import type { Settings } from "../core/defaults.js";
 import {

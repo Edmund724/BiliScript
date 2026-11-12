@@ -79,7 +79,7 @@ try {
     </style></head><body><main>
       <div id="player-container" class="bpx-player-container"></div>
       <div id="biliscript-reading-view" class="open" data-theme="dark" data-palette="flyme">
-        <div id="biliscript-reading-settings-panel"><div id="biliscript-reading-settings-host"></div></div>
+        <div id="biliscript-reading-settings-panel"><div id="biliscript-reading-settings-host" class="biliscript-reading-settings-host"></div></div>
       </div>
     </main></body></html>`
   });
@@ -191,11 +191,12 @@ try {
     const heading = document.getElementById('chatPreferencesHeading');
     const rect = heading.getBoundingClientRect();
     const panelRect = panel.getBoundingClientRect();
+    const navRect = document.querySelector('.biliscript-settings-nav-bar').getBoundingClientRect();
     return {
       focused: document.activeElement === heading,
       subgroup: heading.closest('[data-settings-subgroup]')?.dataset.settingsSubgroup,
       scrollTop: panel.scrollTop,
-      visible: rect.top >= panelRect.top && rect.bottom <= panelRect.bottom,
+      visible: rect.top >= panelRect.top && rect.top >= navRect.bottom && rect.bottom <= panelRect.bottom,
       activeNav: document.querySelector('.biliscript-settings-nav-item[data-section="appearance"]')?.classList.contains('is-active')
     };
   })()`);

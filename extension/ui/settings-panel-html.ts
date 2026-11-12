@@ -361,7 +361,7 @@ export function buildSettingsHtml(): string {
 
       <div data-settings-subgroup="chat" aria-labelledby="${ids.chatPreferencesHeading}">
         <div class="biliscript-set-header-row">
-          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-label">AI 对话</div>
+          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-subgroup-h">AI 对话</div>
         </div>
         <div class="biliscript-set-card">
           <div class="biliscript-set-row biliscript-slider-row">

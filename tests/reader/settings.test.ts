@@ -509,6 +509,7 @@ describe("主题：只剩明暗一轴", () => {
       return undefined;
     });
 
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView");
     const panel = await import("../../extension/ui/settings-panel.js");
     await panel.openAppearanceSettings();
 
@@ -518,8 +519,11 @@ describe("主题：只剩明暗一轴", () => {
     });
     const nav = host.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="appearance"]')!;
     const heading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
+    const subgroup = heading.closest("[data-settings-subgroup]")!;
     expect(nav.classList.contains("is-active")).toBe(true);
-    expect(heading.closest("[data-settings-subgroup]")?.getAttribute("data-settings-subgroup")).toBe("chat");
+    expect(subgroup.getAttribute("data-settings-subgroup")).toBe("chat");
+    // 深链滚动的是子组容器：56px scroll-margin 才能避开吸顶导航，标题保持可见。
+    expect(scrollSpy.mock.instances).toContain(subgroup);
     expect(document.activeElement).toBe(heading);
   });
 
