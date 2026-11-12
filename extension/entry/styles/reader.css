@@ -361,8 +361,9 @@
   white-space: nowrap;
 }
 
-/* 分段控件居中；新建会话、历史与显示设置作为三个一级图标键固定在右侧，
- * 窄面板也不折回菜单。 */
+/* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
+ * 对话工具键（更多操作）脱流绝对定位在行右侧，不占据弹性流，
+ * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
 .biliscript-reading-tabs-row {
   position: relative;
   grid-row: 3;
@@ -379,21 +380,9 @@
   top: 50%;
   transform: translateY(-50%);
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   gap: 2px;
   z-index: 20;
-}
-
-.biliscript-reading-tabs-tools > .biliscript-reading-icon-btn {
-  flex-shrink: 0;
-}
-
-.biliscript-reading-chat-display-btn {
-  font-size: var(--biliscript-font-size-base);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  white-space: nowrap;
 }
 
 /* 对话工具键只在 AI 对话 tab 激活时出现（键语义属对话域；:has 与

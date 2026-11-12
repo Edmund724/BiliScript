@@ -219,17 +219,15 @@ describe("组合根装配与懒加载边界", () => {
     expect(chatSessionState.contextData?.title).toContain("测试视频");
     const tools = document.querySelector(".biliscript-reading-tabs-tools")!;
     expect(Array.from(tools.children).map((node) => (node as HTMLElement).id)).toEqual([
-      ids.readingChatNewBtn,
-      ids.readingChatHistoryBtn,
       ids.readingChatMoreBtn,
       ids.readingChatMoreMenu
     ]);
     expect(document.querySelectorAll(".biliscript-reading-tab")).toHaveLength(3);
-    expect(document.getElementById(ids.readingChatNewBtn)?.getAttribute("aria-label")).toBe("新建会话");
-    expect(document.getElementById(ids.readingChatHistoryBtn)?.getAttribute("aria-label")).toBe("历史记录");
-    expect(document.getElementById(ids.readingChatMoreBtn)?.getAttribute("aria-label")).toBe("显示设置");
-    expect(document.getElementById(ids.readingChatMoreMenu)?.querySelector(`#${ids.readingChatNewBtn}`)).toBeNull();
-    expect(document.getElementById(ids.readingChatMoreMenu)?.querySelector(`#${ids.readingChatHistoryBtn}`)).toBeNull();
+    expect(document.getElementById(ids.readingChatMoreBtn)?.getAttribute("aria-label")).toBe("更多操作");
+    const moreMenu = document.getElementById(ids.readingChatMoreMenu)!;
+    expect(moreMenu.querySelector(`#${ids.readingChatNewBtn}`)?.textContent).toContain("开启新会话");
+    expect(moreMenu.querySelector(`#${ids.readingChatHistoryBtn}`)?.textContent).toContain("历史对话");
+    expect(moreMenu.querySelector(".biliscript-reading-chat-more-actions")).not.toBeNull();
     expect(document.getElementById(ids.readingChatDisplaySettingsBtn)?.textContent).toBe("更多显示设置");
     expect(document.getElementById(ids.readingChatLineHeight)).not.toBe(null);
     expect(document.getElementById(ids.readingChatParagraphSpacing)).not.toBe(null);
@@ -986,7 +984,7 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
 });
 
 describe("外点关闭单委托（reader-bus 转发槽并入 ui-renderer 文档级委托）", () => {
-  it("点外关闭、点内不关；退出后焦点回历史入口，重复激活不双挂监听", async () => {
+  it("点外关闭、点内不关；退出后焦点回 ⋮ 触发键，重复激活不双挂监听", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -1005,12 +1003,12 @@ describe("外点关闭单委托（reader-bus 转发槽并入 ui-renderer 文档�
     document.body.appendChild(outside);
     outside.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(true);
-    expect(document.activeElement).toBe(historyBtn);
+    expect(document.activeElement).toBe(document.getElementById(ids.readingChatMoreBtn));
   });
 });
 
 describe("历史内容模式", () => {
-  it("打开聚焦返回键；返回与 Esc 都恢复 hidden 并聚焦历史入口", async () => {
+  it("打开聚焦返回键；返回与 Esc 都恢复 hidden 并聚焦 ⋮ 触发键", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -1018,6 +1016,7 @@ describe("历史内容模式", () => {
     const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
     const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
     const backBtn = document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement;
+    const moreBtn = document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement;
 
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(false);
@@ -1026,13 +1025,13 @@ describe("历史内容模式", () => {
 
     backBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(true);
-    expect(document.activeElement).toBe(historyBtn);
+    expect(document.activeElement).toBe(moreBtn);
 
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(true);
     expect(historyBtn.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(historyBtn);
+    expect(document.activeElement).toBe(moreBtn);
   });
 
   it("设置深链先退出历史，再发既有 open-settings/appearance 壳命令", async () => {

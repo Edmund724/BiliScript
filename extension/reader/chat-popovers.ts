@@ -10,6 +10,8 @@ export interface CreateReaderChatPopoversDeps {
   modelChipBtn: HTMLElement;
   historyBackBtn?: HTMLElement | null;
   conversationInput?: HTMLElement | null;
+  // 历史入口在菜单内时，关闭后菜单按钮已不可聚焦，焦点改落到该元素（⋮ 触发键）。
+  historyExitFocusEl?: HTMLElement | null;
   moreBtn?: HTMLElement | null;
   moreMenu?: HTMLElement | null;
   renderHistoryList: () => void;
@@ -41,7 +43,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (!hidden) {
       focusWithoutScroll(deps.historyBackBtn);
     } else if (wasOpen && focus === "trigger") {
-      focusWithoutScroll(deps.historyBtn);
+      focusWithoutScroll(deps.historyExitFocusEl ?? deps.historyBtn);
     } else if (wasOpen && focus === "input") {
       focusWithoutScroll(deps.conversationInput);
     }

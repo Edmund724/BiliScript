@@ -14,7 +14,8 @@
 // reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
 // 历史是对话区的内容模式：它是对话根的第一个子元素，同一 [hidden] 投影同时隐藏
 // 标签行与后续对话内容；类名沿用 chat-history-popover，但不新增 Tab 或开关状态。
-// 新建会话、历史与显示设置三键位于壳标签行，对话 tab 内不再有工具条行。
+// 会话动作（新建会话 / 历史对话）收在壳标签行 ⋮ 菜单内，排版与朗读同菜单调；
+// 「更多显示设置」深链经 open-settings/appearance 直达外观分区。
 
 import { ids } from "./state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";

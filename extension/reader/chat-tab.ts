@@ -586,6 +586,7 @@ const popovers = createReaderChatPopovers({
   modelChipBtn: els.modelChip,
   historyBackBtn: els.historyBackBtn,
   conversationInput: els.input,
+  historyExitFocusEl: els.moreBtn,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
   renderHistoryList: () => lists.renderHistoryList(),
@@ -1041,6 +1042,7 @@ function bindEvents(): void {
     popovers.toggleMoreMenu(event);
   });
   els.newChatBtn?.addEventListener("click", () => {
+    popovers.hideMoreMenu();
     void startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
