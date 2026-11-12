@@ -234,7 +234,7 @@ describe("组合根装配与懒加载边界", () => {
     expect(document.getElementById(ids.readingChatSpeechVolumeInput)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSpeechVolumeResetBtn)).not.toBe(null);
     const volumeLabel = document.querySelector(`label[for="${ids.readingChatSpeechVolumeInput}"]`);
-    expect(volumeLabel?.textContent).toBe("朗读音量");
+    expect(volumeLabel?.textContent).toBe("对话朗读音量");
     // - 初始态：无会话历史 → 空消息区 + 建议区（无居中错误）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);
@@ -1051,6 +1051,30 @@ describe("历史内容模式", () => {
     expect(historyPage.hidden).toBe(true);
     expect((document.getElementById(ids.readingChatMoreMenu) as HTMLElement).hidden).toBe(true);
     expect(commands).toEqual([{ name: "open-settings", payload: { target: "appearance" }, historyHidden: true }]);
+  });
+
+  it("外部偏好变更即时同步 Aa 三项滑块并预览对话排版", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    fireStorageChange({
+      chatLineHeight: { oldValue: 160, newValue: 185 },
+      chatParagraphSpacing: { oldValue: 12, newValue: 18 },
+      speechVoiceVolume: { oldValue: 100, newValue: 45 }
+    }, "sync");
+
+    expect(document.getElementById(ids.readingChatLineHeight)).toHaveProperty("value", "185");
+    expect(document.getElementById(ids.readingChatParagraphSpacing)).toHaveProperty("value", "18");
+    expect(document.getElementById(ids.readingChatSpeechVolumeInput)).toHaveProperty("value", "45");
+    expect(state.settings).toMatchObject({
+      chatLineHeight: 185,
+      chatParagraphSpacing: 18,
+      speechVoiceVolume: 45
+    });
+    const view = document.getElementById("biliscript-reading-view")!;
+    expect(view.style.getPropertyValue("--biliscript-chat-line-height")).toBe("1.85");
+    expect(view.style.getPropertyValue("--biliscript-chat-paragraph-spacing")).toBe("18px");
   });
 });
 

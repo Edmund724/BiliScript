@@ -182,6 +182,7 @@ export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.fre
   "readerFontSizeScale",
   "chatLineHeight",
   "chatParagraphSpacing",
+  "speechVoiceVolume",
   "chatInputGlow"
 ]);
 

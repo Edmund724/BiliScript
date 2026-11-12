@@ -16,6 +16,7 @@ import {
 } from "../bilibili/player-control-mount.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
+import { watchLiveAudioSettings } from "./live-audio-settings.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
@@ -30,6 +31,7 @@ let controller: LiveChatController | null = null;
 let toggleButton: HTMLButtonElement | null = null;
 let containerObserverHandle: PlayerContainerObserverHandle | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
+let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
 let currentRoomId = "";
 let settingsRequestId = 0;
 let settingsModule: typeof import("./live-room-settings.js") | null = null;
@@ -181,6 +183,10 @@ export async function startLiveRoomCompanion(): Promise<void> {
       local: ["liveProviderKeys"]
     }
   );
+  unsubscribeAudioSettingsWatcher = watchLiveAudioSettings(
+    () => controller,
+    () => overlayBinding.getOverlay()?.syncState()
+  );
 
   mountToggleButton();
   containerObserverHandle = observePlayerContainer({
@@ -199,6 +205,8 @@ export function stopLiveRoomCompanion(): void {
   started = false;
   unsubscribeStorageWatcher?.();
   unsubscribeStorageWatcher = null;
+  unsubscribeAudioSettingsWatcher?.();
+  unsubscribeAudioSettingsWatcher = null;
   containerObserverHandle?.disconnect();
   containerObserverHandle = null;
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;

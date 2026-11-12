@@ -40,6 +40,7 @@ import {
 } from "./live-overlay-binding.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { persistLiveTextToolRecord } from "./live-text-tool-history-storage.js";
+import { watchLiveAudioSettings } from "./live-audio-settings.js";
 
 export interface LiveSessionConsumerHooks {
   showNotice?: (message: string, autoHideMs?: number) => void;
@@ -52,6 +53,7 @@ let liveController: LiveChatController | null = null;
 let interpretController: InterpretSessionController | null = null;
 let sessionHooks: LiveSessionConsumerHooks | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
+let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
 let unsubscribeInterpretPresenter: (() => void) | null = null;
 let pageHideBound = false;
 
@@ -185,6 +187,12 @@ function bindLifecycleListeners(): void {
       }
     );
   }
+  if (!unsubscribeAudioSettingsWatcher) {
+    unsubscribeAudioSettingsWatcher = watchLiveAudioSettings(
+      () => liveController,
+      () => liveOverlayBinding.getOverlay()?.syncState()
+    );
+  }
   if (!pageHideBound && typeof window !== "undefined") {
     window.addEventListener("pagehide", onWindowPageHide);
     pageHideBound = true;
@@ -303,6 +311,8 @@ export function disposeLiveCompanionSession(): void {
     unsubscribeStorageWatcher();
     unsubscribeStorageWatcher = null;
   }
+  unsubscribeAudioSettingsWatcher?.();
+  unsubscribeAudioSettingsWatcher = null;
   if (pageHideBound && typeof window !== "undefined") {
     window.removeEventListener("pagehide", onWindowPageHide);
     pageHideBound = false;

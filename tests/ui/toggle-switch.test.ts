@@ -28,6 +28,8 @@ const TOGGLE_IDS = [
   "cleanConversationsOlderThan30Days",
   "enableDebugLogs",
   "chatInputGlow",
+  "liveShareVideoAudio",
+  "liveVoicePriority",
   "liveLowBandwidth"
 ] as const;
 

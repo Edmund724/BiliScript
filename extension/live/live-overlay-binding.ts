@@ -3,12 +3,11 @@
 // 统一管理：
 // 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
 // 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
-// 3. 伴看音频偏好（音量、语音优先、分享视频原声）单点持久化（persistLiveAudioSettings）
+// 3. 伴看音频偏好（音量、语速、语音优先、分享视频原声）经 live-audio-settings 叶子持久化与跨端同步
 // 4. 视频页字幕翻译快捷按钮的连接状态与可用性同步
 
 import { state } from "../core/state.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
-import type { Settings } from "../core/defaults.js";
+import { persistLiveAudioSettings } from "./live-audio-settings.js";
 import {
   createFullscreenLiveOverlay,
   type FullscreenLiveOverlay,
@@ -79,21 +78,6 @@ export function syncPlayerInterpretQuickActionState(
 export function findDefaultLiveOverlayHost(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   return document.querySelector<HTMLElement>(DEFAULT_LIVE_OVERLAY_HOST_SELECTOR);
-}
-
-export interface LiveAudioSettingsPatch {
-  liveVoiceVolume?: number;
-  liveVoiceSpeed?: number;
-  liveVoicePriority?: boolean;
-  liveShareVideoAudio?: boolean;
-}
-
-export function persistLiveAudioSettings(patch: LiveAudioSettingsPatch): void {
-  state.patchSettings(patch as Partial<Settings>);
-  void sendRuntimeMessage({
-    type: "save-settings",
-    settings: patch
-  }).catch(() => null);
 }
 
 export interface LiveOverlayControllerHooks {
@@ -167,7 +151,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
 
   function handleSpeedChange(speed: number): void {
     options.onSpeedSync?.(speed);
-    persistLiveAudioSettings({ liveVoiceSpeed: speed });
+    if (state.settings?.liveVoiceSpeed !== speed) {
+      persistLiveAudioSettings({ liveVoiceSpeed: speed });
+    }
   }
 
   function ensureOverlay(): FullscreenLiveOverlay {
@@ -250,12 +236,16 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
 
   function handleVoicePriorityChange(enabled: boolean): void {
     options.onVoicePrioritySync?.(enabled);
-    persistLiveAudioSettings({ liveVoicePriority: enabled });
+    if (state.settings?.liveVoicePriority !== enabled) {
+      persistLiveAudioSettings({ liveVoicePriority: enabled });
+    }
   }
 
   function handleShareVideoAudioChange(enabled: boolean): void {
     options.onShareVideoAudioSync?.(enabled);
-    persistLiveAudioSettings({ liveShareVideoAudio: enabled });
+    if (state.settings?.liveShareVideoAudio !== enabled) {
+      persistLiveAudioSettings({ liveShareVideoAudio: enabled });
+    }
   }
 
   async function startOrRestoreCompanion(): Promise<boolean> {

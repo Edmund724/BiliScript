@@ -29,6 +29,13 @@ import {
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidth,
   normalizeReaderFontSizeScale,
+  normalizeChatLineHeight,
+  normalizeChatParagraphSpacing,
+  normalizeSpeechVoiceVolume,
+  normalizeLiveVoiceVolume,
+  normalizeLiveVoiceSpeed,
+  normalizeLiveVoicePriority,
+  normalizeLiveShareVideoAudio
 } from "../core/validators.js";
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
@@ -78,6 +85,12 @@ import { requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
 import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
+import {
+  applyLiveAudioSettings,
+  persistLiveAudioSettings,
+  type LiveAudioSettingsPatch
+} from "../live/live-audio-settings.js";
+import type { SaveSettingsResponse } from "../shared/messaging-protocol.js";
 import {
   LIVE_VOICE_FALLBACK_NOTICE_TEXT,
   takeLiveVoiceFallbackNotice
@@ -159,6 +172,24 @@ function collectElements(host: HTMLElement) {
     readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
     readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
     readerFontSizeScaleResetBtn: byIdIn<HTMLButtonElement>(dom.readerFontSizeScaleResetBtn),
+    chatPreferencesHeading: byIdIn<HTMLElement>(dom.chatPreferencesHeading),
+    chatLineHeight: byIdIn<HTMLInputElement>(dom.chatLineHeight),
+    chatLineHeightValue: byIdIn<HTMLElement>(dom.chatLineHeightValue),
+    chatLineHeightResetBtn: byIdIn<HTMLButtonElement>(dom.chatLineHeightResetBtn),
+    chatParagraphSpacing: byIdIn<HTMLInputElement>(dom.chatParagraphSpacing),
+    chatParagraphSpacingValue: byIdIn<HTMLElement>(dom.chatParagraphSpacingValue),
+    chatParagraphSpacingResetBtn: byIdIn<HTMLButtonElement>(dom.chatParagraphSpacingResetBtn),
+    speechVoiceVolume: byIdIn<HTMLInputElement>(dom.speechVoiceVolume),
+    speechVoiceVolumeValue: byIdIn<HTMLElement>(dom.speechVoiceVolumeValue),
+    speechVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.speechVoiceVolumeResetBtn),
+    liveVoiceVolume: byIdIn<HTMLInputElement>(dom.liveVoiceVolume),
+    liveVoiceVolumeValue: byIdIn<HTMLElement>(dom.liveVoiceVolumeValue),
+    liveVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceVolumeResetBtn),
+    liveVoiceSpeed: byIdIn<HTMLInputElement>(dom.liveVoiceSpeed),
+    liveVoiceSpeedValue: byIdIn<HTMLElement>(dom.liveVoiceSpeedValue),
+    liveVoiceSpeedResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceSpeedResetBtn),
+    liveShareVideoAudio: byIdIn<HTMLInputElement>(dom.liveShareVideoAudio),
+    liveVoicePriority: byIdIn<HTMLInputElement>(dom.liveVoicePriority),
     customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
@@ -234,6 +265,11 @@ interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly onApply?: (val: Settings[K] & string) => void;
 }
 
+type ScalarFieldPersist = (patch: Record<string, unknown>) => Promise<SaveSettingsResponse>;
+
+const persistLiveAudioField: ScalarFieldPersist = (patch) =>
+  persistLiveAudioSettings(patch as LiveAudioSettingsPatch);
+
 interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly kind: "toggle";
   readonly key: K;
@@ -241,6 +277,7 @@ interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly normalize: (value: unknown) => boolean;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
+  readonly persist?: ScalarFieldPersist;
   readonly onApply?: (val: boolean) => void;
   // 落盘成功后的生效回调（票 04：自动转写开关打开并保存成功后重新进入字幕抓取）。
   // 只有写盘成功才调用——onApply 在保存前触发，失败时也会跑，不能承担续跑。
@@ -258,6 +295,7 @@ interface SliderFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly format?: (val: number) => string;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
+  readonly persist?: ScalarFieldPersist;
   // 滑块提交/预览时随主键一并 patch 与落盘的附加键（如宽度滑块置位
   // customPanelWidthEnabled 显式自定义标记）。
   readonly commitExtras?: () => Record<string, unknown>;
@@ -311,6 +349,41 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     onPreview: () => {
       applyReadingViewTypography();
     }
+  },
+  {
+    kind: "slider",
+    key: "chatLineHeight",
+    getElement: (el) => el.chatLineHeight,
+    getBadge: (el) => el.chatLineHeightValue,
+    getResetBtn: (el) => el.chatLineHeightResetBtn,
+    defaultValue: DEFAULT_SETTINGS.chatLineHeight,
+    normalize: normalizeChatLineHeight,
+    format: (val) => `${val}%`,
+    watchSync: true,
+    onPreview: () => applyReadingViewTypography()
+  },
+  {
+    kind: "slider",
+    key: "chatParagraphSpacing",
+    getElement: (el) => el.chatParagraphSpacing,
+    getBadge: (el) => el.chatParagraphSpacingValue,
+    getResetBtn: (el) => el.chatParagraphSpacingResetBtn,
+    defaultValue: DEFAULT_SETTINGS.chatParagraphSpacing,
+    normalize: normalizeChatParagraphSpacing,
+    format: (val) => `${val}px`,
+    watchSync: true,
+    onPreview: () => applyReadingViewTypography()
+  },
+  {
+    kind: "slider",
+    key: "speechVoiceVolume",
+    getElement: (el) => el.speechVoiceVolume,
+    getBadge: (el) => el.speechVoiceVolumeValue,
+    getResetBtn: (el) => el.speechVoiceVolumeResetBtn,
+    defaultValue: DEFAULT_SETTINGS.speechVoiceVolume,
+    normalize: normalizeSpeechVoiceVolume,
+    format: (val) => `${val}%`,
+    watchSync: true
   },
   {
     kind: "slider",
@@ -409,6 +482,52 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
         closeReaderSettingsMode({ restoreFocus: true });
       }
     }
+  },
+  {
+    kind: "slider",
+    key: "liveVoiceVolume",
+    getElement: (el) => el.liveVoiceVolume,
+    getBadge: (el) => el.liveVoiceVolumeValue,
+    getResetBtn: (el) => el.liveVoiceVolumeResetBtn,
+    defaultValue: DEFAULT_SETTINGS.liveVoiceVolume,
+    normalize: normalizeLiveVoiceVolume,
+    format: (val) => `${val}%`,
+    patchState: false,
+    watchSync: true,
+    persist: persistLiveAudioField,
+    onPreview: (val) => applyLiveAudioSettings({ liveVoiceVolume: val })
+  },
+  {
+    kind: "slider",
+    key: "liveVoiceSpeed",
+    getElement: (el) => el.liveVoiceSpeed,
+    getBadge: (el) => el.liveVoiceSpeedValue,
+    getResetBtn: (el) => el.liveVoiceSpeedResetBtn,
+    defaultValue: DEFAULT_SETTINGS.liveVoiceSpeed,
+    normalize: (value) => normalizeLiveVoiceSpeed(typeof value === "string" ? Number(value) : value),
+    format: (val) => `${val}×`,
+    patchState: false,
+    watchSync: true,
+    persist: persistLiveAudioField,
+    onPreview: (val) => applyLiveAudioSettings({ liveVoiceSpeed: val })
+  },
+  {
+    kind: "toggle",
+    key: "liveShareVideoAudio",
+    getElement: (el) => el.liveShareVideoAudio,
+    normalize: normalizeLiveShareVideoAudio,
+    patchState: false,
+    watchSync: true,
+    persist: persistLiveAudioField
+  },
+  {
+    kind: "toggle",
+    key: "liveVoicePriority",
+    getElement: (el) => el.liveVoicePriority,
+    normalize: normalizeLiveVoicePriority,
+    patchState: false,
+    watchSync: true,
+    persist: persistLiveAudioField
   },
   {
     kind: "toggle",
@@ -517,7 +636,13 @@ async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Pr
   pendingSettingsTarget = null;
   const section = target === "appearance" ? "appearance" : target === "live" ? "live" : "llm";
   host.querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)?.click();
-  const sectionHeading = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
+  const sectionHeading = target === "appearance"
+    ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
+    : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
+  if (target === "appearance") {
+    const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup]") ?? sectionHeading;
+    scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
+  }
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });
   if (target !== "gemini-key") return;
@@ -1446,6 +1571,11 @@ function buildDefaultPreferencePayload() {
     readerFontSizeScale: DEFAULT_SETTINGS.readerFontSizeScale,
     chatLineHeight: DEFAULT_SETTINGS.chatLineHeight,
     chatParagraphSpacing: DEFAULT_SETTINGS.chatParagraphSpacing,
+    speechVoiceVolume: DEFAULT_SETTINGS.speechVoiceVolume,
+    liveVoiceVolume: DEFAULT_SETTINGS.liveVoiceVolume,
+    liveVoiceSpeed: DEFAULT_SETTINGS.liveVoiceSpeed,
+    liveShareVideoAudio: DEFAULT_SETTINGS.liveShareVideoAudio,
+    liveVoicePriority: DEFAULT_SETTINGS.liveVoicePriority,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     aiInitialQuickPrompts: [],
     bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
@@ -1469,11 +1599,20 @@ async function resetPreferences(elements: SettingsElements): Promise<void> {
   }
   setBusy(elements, true);
   try {
-    const resp = await sendRuntimeMessage({ type: "save-settings", settings: buildDefaultPreferencePayload() });
+    const payload = buildDefaultPreferencePayload();
+    const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
     if (!resp?.ok) {
       setStatus(elements, resp?.error || "重置失败", true);
       return;
     }
+    state.patchSettings(payload);
+    applyReadingViewTypography();
+    applyLiveAudioSettings({
+      liveVoiceVolume: payload.liveVoiceVolume,
+      liveVoiceSpeed: payload.liveVoiceSpeed,
+      liveShareVideoAudio: payload.liveShareVideoAudio,
+      liveVoicePriority: payload.liveVoicePriority
+    });
     await loadSettings(elements);
     setStatus(elements, "已恢复默认设置");
   } catch (error) {
@@ -1487,10 +1626,13 @@ let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function saveSettingField(
   elements: SettingsElements,
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
+  persist?: ScalarFieldPersist
 ): Promise<boolean> {
   try {
-    const resp = await sendRuntimeMessage({ type: "save-settings", settings: patch });
+    const resp = persist
+      ? await persist(patch)
+      : await sendRuntimeMessage({ type: "save-settings", settings: patch });
     if (!resp?.ok) {
       setStatus(elements, resp?.error || "保存失败", true);
       return false;
@@ -1705,7 +1847,7 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
           state.patchSettings({ [binding.key]: val });
         }
         binding.onApply?.(val);
-        void saveSettingField(elements, { [binding.key]: val }).then((ok) => {
+        void saveSettingField(elements, { [binding.key]: val }, binding.persist).then((ok) => {
           if (ok) binding.onSaved?.(val);
         });
       });
@@ -1719,16 +1861,18 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         defaultValue: binding.defaultValue,
         normalize: binding.normalize,
         format: binding.format,
-        onPreview: binding.onPreview
-          ? (val) => {
-              if (binding.patchState !== false) {
-                state.patchSettings({ [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
-              }
-              binding.onPreview!(val);
-            }
-          : undefined,
+        onPreview: (val) => {
+          if (binding.patchState !== false) {
+            state.patchSettings({ [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
+          }
+          binding.onPreview?.(val);
+        },
         onCommit: (val) => {
-          void saveSettingField(elements, { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
+          void saveSettingField(
+            elements,
+            { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) },
+            binding.persist
+          );
         },
         onReset: binding.resetExtras
           ? (val) => {
@@ -1736,7 +1880,7 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
               if (binding.patchState !== false) {
                 state.patchSettings(patch);
               }
-              void saveSettingField(elements, patch);
+              void saveSettingField(elements, patch, binding.persist);
             }
           : undefined
       });
