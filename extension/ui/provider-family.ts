@@ -52,6 +52,8 @@ export interface EditorUpsertFields {
   // 协议下拉收敛值（usesProtocol 族；他族忽略）
   protocol: AiProtocol;
   liveGeminiNativeSearch?: boolean;
+  // MOSS-LIVE 音色（仅 live 族的 MOSS 平台落盘；Gemini 忽略）
+  voiceId?: string;
 }
 
 export interface FamilyEditorDeclaration {
@@ -206,7 +208,7 @@ const ASR_FAMILY: FamilyRowDeclaration = {
 // 单一真源）——判据表达式只写在这一处，模板 required / 切预设 sync / 占位符 /
 // 行状态点与徽章全部同源。
 // paid（DeepSeek 凭据引用）不按「必填」处理：搜索侧没有自有 Key 输入框，Key 经
-// 凭据引用取 AI 族（isKeyRequired=false），行状态三态文案由 core/ai-credential-reference
+// 凭据引用取 AI 族（isKeyRequired=false），行状态四态文案由 core/ai-credential-reference
 // 经 statusNote 覆写副行。
 function searchKeyRequired(preset: ProviderRowPreset | null): boolean {
   return (preset as SearchProviderPreset | null)?.access === "free-quota";
@@ -232,8 +234,12 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || null,
   displayName: (item, preset) => String(item.name || preset?.name || "自定义"),
   // 副行：预设 note（如豆包「每月 500 次免费」）；DeepSeek 行由 settings-panel
-  // 注入 statusNote（凭据引用三态文案），在场时优先于预设 note。
-  displayModel: (item, preset) => String(item.statusNote ?? (preset as SearchProviderPreset | null)?.note ?? ""),
+  // 注入 statusNote（凭据引用四态文案）与实际命中来源，在场时优先于预设 note。
+  displayModel: (item, preset) => {
+    const note = String(item.statusNote ?? (preset as SearchProviderPreset | null)?.note ?? "");
+    const source = String(item.credentialSource || "");
+    return [note, source].filter(Boolean).join(" · ");
+  },
   activeRadio: {
     classPrefix: "search",
     title: "选用该平台联网搜索",
@@ -305,19 +311,24 @@ const LIVE_FAMILY: FamilyRowDeclaration = {
     usesProtocol: false,
     supportsPlatformTest: true,
     resolvePermissionOrigins: resolveMossLivePermissionOrigins,
-    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model, liveGeminiNativeSearch }) => ({
-      upsert: {
-        id,
-        presetId: preset?.id || "moss-live",
-        name: name || preset?.name || "MOSS Live",
-        type: preset?.type || "moss-live",
-        baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
-        model: model || preset?.model || "moss-live-1.0",
-        apiKey,
-        hasSavedKey,
-        ...(preset?.id === "gemini-live" ? { liveGeminiNativeSearch: liveGeminiNativeSearch === true } : {})
-      }
-    })
+    serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model, liveGeminiNativeSearch, voiceId }) => {
+      const gemini = preset?.type === "gemini-live" || preset?.id === "gemini-live";
+      const trimmedVoiceId = String(voiceId || "").trim();
+      return {
+        upsert: {
+          id,
+          presetId: preset?.id || "moss-live",
+          name: name || preset?.name || "MOSS Live",
+          type: preset?.type || "moss-live",
+          baseUrl: baseUrl || preset?.baseUrl || "https://api.mosi.cn",
+          model: model || preset?.model || "moss-live-1.0",
+          apiKey,
+          hasSavedKey,
+          ...(gemini ? { liveGeminiNativeSearch: liveGeminiNativeSearch === true } : {}),
+          ...(!gemini && trimmedVoiceId ? { voiceId: trimmedVoiceId } : {})
+        }
+      };
+    }
   }
 };
 
@@ -347,6 +358,7 @@ export interface FamilyRowsBinding {
 export interface CreateFamilyRowsDeps {
   // 行「编辑」按钮回调（settings-panel 注入：打开 provider-editor Modal）
   onRowEdit: (kind: ProviderEditorKind, providerId: string) => void;
+  getConfirmMountHost?: () => HTMLElement | null;
 }
 
 export type ProviderFamilyRows = Record<ProviderEditorKind, FamilyRowsBinding>;
@@ -369,6 +381,7 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         buildTailFields: activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),
+        getConfirmMountHost: deps.getConfirmMountHost,
         buildDeleteMessage: decl.buildDeleteMessage
       });
       const render: FamilyRowsBinding["render"] = (listNode, emptyNode, items, options) =>

@@ -136,7 +136,7 @@
 /* ===== 设置展开态接管面板（2026-09 用户决议）=====
  * 设置抽屉一开即独占面板：摘掉抽屉自身的圆角阴影与高度上限让它贴满面板壳，
  * 隐藏底部 字幕/概览/AI 对话 标签条与三个 tab body（含内容，避免残留行）。
- * 纯属性反应：[hidden] 由 renderReaderPanels 单点切换，无新状态类。
+ * 显隐与顶栏设置态由 reader/settings-mode 统一投影。
  * 关闭抽屉即整体回落三 tab 形态（抽屉的网格落位在两态通用规则里，见上）。 */
 #biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) {
   max-height: none;
@@ -153,6 +153,19 @@
   padding-top: 0;
 }
 
+#biliscript-reading-view .biliscript-reading-script-panel[data-biliscript-settings-open="1"] .biliscript-reading-header {
+  opacity: 0.65;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-back-btn {
+  flex: 0 0 auto;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-back-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) ~ .biliscript-reading-tabs-row,
 #biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) ~ .biliscript-reading-tab-body {
   display: none;
@@ -166,25 +179,26 @@
 #biliscript-reading-view .biliscript-reading-settings-host {
   display: grid;
   gap: var(--biliscript-space-2xl);
+  /* 底部只留一节间距：按视口预留空白会让滚到底整屏空，末尾分区贴住下沿即可。 */
+  padding-bottom: var(--biliscript-space-2xl);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host * {
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部快速跳转导航条（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化） */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+/* 设置抽屉顶部快速跳转导航条（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化；包含返回按钮与分节导航） */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar {
   position: sticky;
   top: -12px;
   margin: calc(-1 * var(--biliscript-space-md)) calc(-1 * var(--biliscript-space-lg)) 0 calc(-1 * var(--biliscript-space-lg));
-  padding: var(--biliscript-space-10) var(--biliscript-space-lg) var(--biliscript-space-10);
+  padding: var(--biliscript-space-8) var(--biliscript-space-lg) var(--biliscript-space-8) var(--biliscript-space-md);
   display: flex;
   align-items: center;
-  gap: var(--biliscript-space-lg);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  /* 本层是宿主网格的直接子项：不给 0 下限，返回键 + 全部分节 tab 的
+   * max-content 会把单列 auto 轨道撑宽，面板随之横向可滚。 */
+  min-width: 0;
+  gap: var(--biliscript-space-xs);
   z-index: 10;
   background: linear-gradient(
     to bottom,
@@ -198,57 +212,82 @@
   border-bottom: none;
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--biliscript-space-lg);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0;
+}
+
+/* 导航横向滚动条按需现身（settings-panel 切 .is-scrollbar-visible）：静止态导航底部
+ * 只有文字，不与活动项抢同一条线；指针进入导航条或正在横向滚动时 6px 胶囊拇指显形，
+ * 停手后收回。触发条件不能写在宿主 :hover 上——Chromium 不刷新 scrollbar 伪元素的
+ * 悬停链路，只能由事件切类。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
+  width: 8px;
+  height: 6px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
 }
 
+/* 两端内收的一行胶囊：不铺满导航全宽，读起来是位置指示而非第二条下划线。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 0;
+  border-left: var(--biliscript-space-2xl) solid transparent;
+  border-right: var(--biliscript-space-2xl) solid transparent;
+  border-radius: var(--biliscript-radius-pill);
+  background-clip: content-box;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav.is-scrollbar-visible::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-faint);
+  border: 0;
+  border-left: var(--biliscript-space-2xl) solid transparent;
+  border-right: var(--biliscript-space-2xl) solid transparent;
+  border-radius: var(--biliscript-radius-pill);
+  background-clip: content-box;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item {
-  position: relative;
   flex: 0 0 auto;
   border: none;
   background: none;
-  padding: var(--biliscript-space-xs) 2px var(--biliscript-space-6);
+  padding: var(--biliscript-space-xs) 2px;
   font-size: var(--pill-font-size, var(--biliscript-font-size-sm));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   color: var(--biliscript-reader-muted);
-  transition: color 0.15s ease-out, font-weight 0.15s ease-out;
+  transition: color 0.15s ease-out;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item:hover {
   color: var(--biliscript-reader-text);
 }
 
+/* 活动态只走字重 + 强调色：导航底部不再有下划线，与按需现身的滚动条不重叠。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active {
-  color: var(--biliscript-reader-text);
-  font-family: var(--biliscript-reader-font-sans-medium);
+  color: var(--biliscript-reader-accent);
   font-weight: 600;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
-  position: absolute;
-  bottom: 10px;
-  left: 0;
-  height: 2.5px;
-  border-radius: var(--biliscript-radius-pill);
-  background: var(--biliscript-reader-accent);
-  pointer-events: none;
-  z-index: 1;
-  transform: translateX(0);
-  transition: transform 260ms cubic-bezier(0.2, 0, 0, 1), width 260ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
-    transition: none;
-  }
-}
-
 @media (prefers-reduced-transparency: reduce) {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar,
   #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
     background: var(--biliscript-reader-surface);
     -webkit-backdrop-filter: none;
@@ -259,6 +298,10 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-group {
   display: grid;
   gap: var(--biliscript-space-sm);
+  scroll-margin-top: 56px;
+}
+#biliscript-reading-view .biliscript-reading-settings-host [data-settings-subgroup] {
+  scroll-margin-top: 56px;
 }
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-header-row {
   display: flex;
@@ -305,8 +348,45 @@
   gap: var(--biliscript-space-md);
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row .biliscript-set-select,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row .custom-select {
+/* 行内左列（标签 + 跟随目标副行）：字幕翻译在「跟随 AI 默认平台」时用它交代
+ * 实际生效的平台与模型。副行随内容折行，不挤占右侧控件宽度——同级下拉不参与
+ * 收缩（控件值截断比副行折行更难读）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 左列之后的控件不参与收缩（选择控件由组件表接管，设置表不引用其类名）：
+ * 副行按自己的可用宽度折行，控件值不截断。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row > .biliscript-set-row-copy ~ * {
+  flex: 0 0 auto;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub {
+  font-size: var(--biliscript-font-size-xs);
+  color: var(--biliscript-reader-muted);
+  overflow-wrap: anywhere;
+  /* 折行时不留单词孤行（Chromium 117+）：长模型 ID 与错误原因常占两行 */
+  text-wrap: pretty;
+}
+
+/* 回落 / 不可用：文案自己说清状态，圆点只做同色系提示（三级灰之上不引入新字色）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="fallback"]::before,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card .biliscript-set-row-sub[data-state="unavailable"]::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: var(--biliscript-radius-circle, 50%);
+  background: var(--biliscript-primitive-color-amber-500);
+  vertical-align: 1px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row .biliscript-set-select {
   width: auto;
   min-width: 140px;
 }
@@ -345,6 +425,14 @@
   background: var(--biliscript-reader-surface-2);
 }
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row {
+  /* 原生 button 复位：行外观与原来 div 一致（票 06：可键盘聚焦的原生按钮语义）。
+     内边距由 .biliscript-set-card > .biliscript-set-row 规则提供，此处不复写。 */
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -371,11 +459,11 @@
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .search-chain-collapse-body {
-  padding: var(--biliscript-space-10) var(--biliscript-space-14);
-  background: var(--biliscript-reader-surface-2);
+  padding: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-sm);
+  gap: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .search-chain-collapse-body[hidden] {
@@ -387,6 +475,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--biliscript-space-sm);
+  padding: var(--biliscript-space-10) var(--biliscript-space-14);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .search-chain-actions-bar .add-property-btn {
@@ -424,11 +513,24 @@
   margin: 0;
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-subgroup-h {
+  font-size: var(--biliscript-font-size-base);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
+  color: var(--biliscript-reader-text);
+  margin: 0;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-hint {
   margin: 0;
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.5;
   color: var(--biliscript-reader-faint);
+}
+
+/* 生效投影摘要组（票 05）：缺省摘要与对话另选提示上下相邻时的间距 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-hint + .biliscript-set-hint {
+  margin-top: var(--biliscript-space-4);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row {

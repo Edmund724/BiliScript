@@ -26,6 +26,9 @@ export const SETTINGS_PANEL_BUS_REPLIES: RuntimeReplies = {
   "asr-providers-list": () => ({ ok: true, providers: [] }),
   "search-providers-list": () => ({ ok: true, providers: [] }),
   "live-providers-list": () => ({ ok: true, providers: [] }),
+  "agent-bridge-status": () => ({ ok: true, connected: false }),
+  "agent-bridge-connect": () => ({ ok: true, connected: false }),
+  "agent-bridge-test": () => ({ ok: true, connected: false }),
   "save-settings": () => ({ ok: true })
 };
 

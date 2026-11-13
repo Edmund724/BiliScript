@@ -1,20 +1,14 @@
 // tests/reader/chat-popovers.test.ts
-// createReaderChatPopovers（对话 tab 历史/模型面板两个弹层的开合互斥 +
-// 文档级外点关闭 + Esc 关闭）行为契约。PR5 自 tests/sidepanel/sidepanel-popovers.test.ts
-// 随重建迁移：判定断言保真；外点关闭的 id 选择器换 reader 的 readingChat* id，且
-// handleDocumentClick 不再自挂 document 监听——经 reader-bus 的转发槽并入
-// ui-renderer 的单一文档级委托（见 chat-tab 组合根测试的外点单委托用例）。
-// 发送框重构起新增第二个弹层（模型 + 思考档位面板）：开合与互斥入口
-// toggleModelPanel/hideModelPanel，Esc 全关走 handleEscapeKey（组合根的 window
-// keydown 监听调用）。
+// createReaderChatPopovers：历史内容模式、模型面板与显示设置菜单的
+// 开合互斥、逐层外点/Esc 结算及焦点恢复行为契约。文档级外点经 reader-bus
+// 转发槽并入 ui-renderer 的单一文档级委托。
 //
 // 覆盖：
-// - toggleHistoryPopover：开（刷新历史列表）、关模型面板、再 toggle 关、
-//   stopPropagation；
+// - toggleHistoryPopover：刷新历史列表、关模型面板、同步 aria-expanded、
+//   打开聚焦返回键，关闭聚焦历史入口；
 // - toggleModelPanel：开（刷新面板列表）、关历史、再 toggle 关；
-// - handleDocumentClick：两个都关时 no-op；点击弹层/触发按钮内部不关；点击外部
-//   全关；非 Element target 全关；
-// - handleEscapeKey：Escape 全关，其余键 no-op。
+// - handleDocumentClick：只结算最上层；点击弹层/触发按钮内部不关；
+// - handleEscapeKey：Escape 逐层关闭，确认框打开时不穿透，其余键 no-op。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -34,6 +28,11 @@ function makeHarness() {
   document.body.appendChild(container);
   const historyPopover = document.createElement("div");
   historyPopover.id = ids.readingChatHistoryPopover;
+  const historyBackBtn = document.createElement("button");
+  historyBackBtn.id = ids.readingChatHistoryBackBtn;
+  historyPopover.appendChild(historyBackBtn);
+  const conversationInput = document.createElement("textarea");
+  conversationInput.id = ids.readingChatInput;
   const modelPanel = document.createElement("div");
   modelPanel.id = ids.readingChatModelPanel;
   const historyBtn = document.createElement("button");
@@ -44,27 +43,30 @@ function makeHarness() {
   moreBtn.id = ids.readingChatMoreBtn;
   const moreMenu = document.createElement("div");
   moreMenu.id = ids.readingChatMoreMenu;
-  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu);
+  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu, conversationInput);
   const deps = {
     historyPopover,
     modelPanel,
     historyBtn,
     modelChipBtn,
+    historyBackBtn,
+    conversationInput,
     moreBtn,
     moreMenu,
     renderHistoryList: vi.fn(),
+    settlePendingDeletion: vi.fn(),
     renderModelPanel: vi.fn()
   };
   const popovers = createReaderChatPopovers(deps);
   historyPopover.hidden = false;
   modelPanel.hidden = false;
   moreMenu.hidden = false;
-  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu };
+  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn, historyBackBtn, conversationInput, moreBtn, moreMenu };
 }
 
 describe("toggleHistoryPopover", () => {
-  it("开历史 popover：刷新历史列表，并关模型面板", () => {
-    const { popovers, deps, historyPopover, modelPanel } = makeHarness();
+  it("开历史：刷新列表、关模型面板、聚焦返回键并同步 aria-expanded", () => {
+    const { popovers, deps, historyPopover, modelPanel, historyBtn, historyBackBtn } = makeHarness();
     historyPopover.hidden = true;
     modelPanel.hidden = true;
 
@@ -72,15 +74,37 @@ describe("toggleHistoryPopover", () => {
 
     expect(historyPopover.hidden).toBe(false);
     expect(modelPanel.hidden).toBe(true);
-    expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
+    expect(deps.renderHistoryList).toHaveBeenCalledWith({ revealCurrent: true });
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(historyBackBtn);
   });
 
-  it("可见时再 toggle：关闭", () => {
-    const { popovers, historyPopover } = makeHarness();
+  it("可见时再 toggle：关闭并把焦点还给历史入口", () => {
+    const { popovers, historyPopover, historyBtn } = makeHarness();
 
     popovers.toggleHistoryPopover();
 
     expect(historyPopover.hidden).toBe(true);
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(historyBtn);
+  });
+
+  it("选定会话后的退出直接聚焦输入框", () => {
+    const { popovers, historyPopover, conversationInput } = makeHarness();
+
+    popovers.hideHistoryPopover({ focus: "input" });
+
+    expect(historyPopover.hidden).toBe(true);
+    expect(document.activeElement).toBe(conversationInput);
+  });
+
+  it("退出历史结算撤销；重复关闭不重复结算", () => {
+    const { popovers, deps } = makeHarness();
+
+    popovers.hideHistoryPopover({ focus: "none" });
+    popovers.hideHistoryPopover({ focus: "none" });
+
+    expect(deps.settlePendingDeletion).toHaveBeenCalledTimes(1);
   });
 
   it("事件对象被 stopPropagation（不冒泡触发文档级关闭）", () => {
@@ -95,7 +119,7 @@ describe("toggleHistoryPopover", () => {
 });
 
 describe("toggleModelPanel", () => {
-  it("开模型面板：刷新面板列表，chip 箭头翻转（is-open），并关历史", () => {
+  it("开模型面板：刷新列表、同步 chip 箭头与 popup ARIA，并关历史", () => {
     const { popovers, deps, historyPopover, modelPanel, modelChipBtn } = makeHarness();
     historyPopover.hidden = true;
     modelPanel.hidden = true;
@@ -106,30 +130,40 @@ describe("toggleModelPanel", () => {
     expect(historyPopover.hidden).toBe(true);
     expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
     expect(modelChipBtn.classList.contains("is-open")).toBe(true);
+    expect(modelChipBtn.getAttribute("aria-haspopup")).toBe("true");
+    expect(modelChipBtn.getAttribute("aria-controls")).toBe(modelPanel.id);
+    expect(modelChipBtn.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("可见时再 toggle：关闭（不重复刷新），chip 箭头复位（is-open 移除）", () => {
+  it("可见时再 toggle：关闭（不重复刷新），箭头复位且焦点回 chip", () => {
     const { popovers, deps, modelPanel, modelChipBtn } = makeHarness();
     modelPanel.hidden = true;
     popovers.toggleModelPanel();
+    const inside = document.createElement("button");
+    modelPanel.appendChild(inside);
+    inside.focus();
 
     popovers.toggleModelPanel();
 
     expect(modelPanel.hidden).toBe(true);
     expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
     expect(modelChipBtn.classList.contains("is-open")).toBe(false);
+    expect(modelChipBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(modelChipBtn);
   });
 
-  it("互斥：开历史 popover 关模型面板时，chip 箭头同步复位", () => {
-    const { popovers, historyPopover, modelPanel, modelChipBtn } = makeHarness();
+  it("互斥：开历史 popover 关模型面板时不把焦点抢回 chip", () => {
+    const { popovers, historyPopover, modelPanel, modelChipBtn, historyBackBtn } = makeHarness();
     historyPopover.hidden = true;
     modelPanel.hidden = true;
     popovers.toggleModelPanel();
+    modelChipBtn.focus();
 
     popovers.toggleHistoryPopover();
 
     expect(modelPanel.hidden).toBe(true);
     expect(modelChipBtn.classList.contains("is-open")).toBe(false);
+    expect(document.activeElement).toBe(historyBackBtn);
   });
 });
 
@@ -168,35 +202,65 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
     expect(modelPanel.hidden).toBe(false);
   });
 
-  it("点击外部：两个弹层都关闭", () => {
-    const { popovers, historyPopover, modelPanel } = makeHarness();
+  it("点击外部：只关闭最上层历史并归还焦点，下层不在同一事件结算", () => {
+    const { popovers, historyPopover, modelPanel, moreMenu, historyBtn } = makeHarness();
     const outside = document.createElement("div");
     document.body.appendChild(outside);
+    outside.focus();
 
     popovers.handleDocumentClick({ target: outside } as unknown as MouseEvent);
 
     expect(historyPopover.hidden).toBe(true);
-    expect(modelPanel.hidden).toBe(true);
+    expect(modelPanel.hidden).toBe(false);
+    expect(moreMenu.hidden).toBe(false);
+    expect(document.activeElement).toBe(historyBtn);
   });
 
-  it("非 Element target（如 document/text node）：全关", () => {
+  it("非 Element target 同样只关闭最上层", () => {
     const { popovers, historyPopover, modelPanel } = makeHarness();
 
     popovers.handleDocumentClick({ target: document } as unknown as MouseEvent);
 
     expect(historyPopover.hidden).toBe(true);
-    expect(modelPanel.hidden).toBe(true);
+    expect(modelPanel.hidden).toBe(false);
   });
 });
 
-describe("handleEscapeKey（Esc 全关）", () => {
-  it("Escape：两个弹层都关闭", () => {
-    const { popovers, historyPopover, modelPanel } = makeHarness();
+describe("handleEscapeKey（Esc 逐层结算）", () => {
+  it("每次 Escape 只关闭当前最上层，模型面板关闭时焦点回 chip", () => {
+    const { popovers, historyPopover, modelPanel, moreMenu, modelChipBtn } = makeHarness();
 
     popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));
-
     expect(historyPopover.hidden).toBe(true);
+    expect(modelPanel.hidden).toBe(false);
+    expect(moreMenu.hidden).toBe(false);
+
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(modelPanel.hidden).toBe(true);
+    expect(document.activeElement).toBe(modelChipBtn);
+    expect(moreMenu.hidden).toBe(false);
+
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(moreMenu.hidden).toBe(true);
+  });
+
+  it("确认框的 Escape 不穿透到历史；确认结算后下一次才退出历史", async () => {
+    document.body.innerHTML = `<div id="${ids.readingView}"><section id="${ids.readingSettingsPanel}"></section></div>`;
+    const { popovers, historyPopover } = makeHarness();
+    const handler = (event: KeyboardEvent) => popovers.handleEscapeKey(event);
+    window.addEventListener("keydown", handler);
+    try {
+      const { confirmDialog } = await import("../../extension/ui/confirm-dialog.js");
+      const pending = confirmDialog({ message: "确认清空" });
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await expect(pending).resolves.toBe(false);
+      expect(historyPopover.hidden).toBe(false);
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      expect(historyPopover.hidden).toBe(true);
+    } finally {
+      window.removeEventListener("keydown", handler);
+    }
   });
 
   it("非 Escape 键：no-op", () => {

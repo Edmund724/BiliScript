@@ -180,6 +180,31 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     };
   }
 
+  it("classifies an unconfigured live provider at the prepare boundary", async () => {
+    const tracker = new LiveSessionTracker();
+
+    const result = await tracker.prepare(
+      "session-without-provider",
+      createFakeDeps({ loadProviders: async () => [] })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureKind: "provider-unconfigured"
+    });
+  });
+
+  it("classifies a missing provider-owned API key at the prepare boundary", async () => {
+    const tracker = new LiveSessionTracker();
+
+    const result = await tracker.prepare(
+      "session-without-key",
+      createFakeDeps({ loadKeys: async () => ({}) })
+    );
+
+    expect(result).toMatchObject({ ok: false, failureKind: "key-missing" });
+  });
+
   it("stop -> immediate restart with out-of-order prepare/permission completion: old prepare does not finish as active owner and does not overwrite rule", async () => {
     const tracker = new LiveSessionTracker();
     let resolvePerm1!: (v: boolean) => void;
@@ -288,6 +313,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(res.ok).toBe(false);
+    expect(res.failureKind).toBe("permission-denied");
     expect(res.error).toContain("未授予平台域名权限");
     expect(setAuthRule).not.toHaveBeenCalled();
   });
@@ -314,7 +340,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       202
     );
     expect(res2.ok).toBe(true);
-    expect(notifyTabTakeover).toHaveBeenCalledWith(101);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
     expect(setAuthRule).toHaveBeenCalledTimes(2);
@@ -447,7 +473,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(missingProviderRes.ok).toBe(false);
-    expect(missingProviderRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+    expect(missingProviderRes.error).toBe("尚未配置官方 Gemini AI Key");
 
     const missingKeyRes = await tracker.prepare(
       "session-gemini-no-key",
@@ -469,7 +495,7 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
       })
     );
     expect(missingKeyRes.ok).toBe(false);
-    expect(missingKeyRes.error).toBe("请先在 AI 平台添加官方 Gemini 记录");
+    expect(missingKeyRes.error).toBe("官方 Gemini AI Key 缺失或引用已失效");
 
     const unofficialAiRes = await tracker.prepare(
       "session-gemini-unofficial-ai",
@@ -519,5 +545,124 @@ describe("LiveSessionTracker ownership and race condition defense", () => {
     );
     expect(unofficialLiveRes.ok).toBe(false);
     expect(unofficialLiveRes.error).toBe("AI 平台配置的并非 Gemini 官方接口地址");
+  });
+
+  it("classifies Gemini credential setup and endpoint failures separately from provider-owned keys", async () => {
+    const tracker = new LiveSessionTracker();
+    const provider = {
+      id: "gemini-live-1",
+      presetId: "gemini-live",
+      name: "Gemini Live",
+      type: "gemini-live" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-3.1-flash-live-preview",
+      enabled: true,
+      hasSavedKey: false
+    };
+
+    const missingCredential = await tracker.prepare(
+      "session-gemini-credential",
+      createFakeDeps({ loadProviders: async () => [provider], loadAiProviders: async () => [] })
+    );
+    const unofficialEndpoint = await tracker.prepare(
+      "session-gemini-endpoint",
+      createFakeDeps({
+        loadProviders: async () => [{ ...provider, baseUrl: "https://proxy.example.com" }]
+      })
+    );
+
+    expect(missingCredential).toMatchObject({ ok: false, failureKind: "gemini-credential" });
+    expect(unofficialEndpoint).toMatchObject({ ok: false, failureKind: "gemini-credential" });
+  });
+});
+
+describe("LiveSessionTracker tab takeover and rule ownership", () => {
+  function createFakeDeps(overrides: Partial<LiveSessionPrepareDeps> = {}): LiveSessionPrepareDeps {
+    return {
+      getSettings: async () => ({ activeLiveProviderId: "moss-1" }),
+      loadProviders: async () => [
+        {
+          id: "moss-1",
+          presetId: "moss-live",
+          name: "MOSS",
+          type: "moss-live",
+          baseUrl: "https://api.mosi.cn",
+          model: "moss-live-1.0",
+          enabled: true,
+          hasSavedKey: true
+        }
+      ],
+      loadKeys: async () => ({ "moss-1": "test-key" }),
+      loadAiProviders: async () => [],
+      loadAiKeys: async () => ({}),
+      hasPermission: async () => true,
+      setAuthRule: vi.fn(async () => {}),
+      clearAuthRule: vi.fn(async () => {}),
+      ensureOffscreen: vi.fn(async () => true),
+      resolveActiveId: (providers) => providers[0]?.id || "",
+      ...overrides
+    };
+  }
+
+  it("stale cleanup never clears the newer session's rule", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const clearAuthRule = vi.fn(async () => {});
+    const deps = createFakeDeps({ setAuthRule, clearAuthRule });
+    await tracker.prepare("comp-1", deps);
+
+    await tracker.cleanup("comp-stale", clearAuthRule);
+    expect(clearAuthRule).not.toHaveBeenCalled();
+    expect(tracker.getActiveRuleOwner()).toBe("comp-1");
+
+    await tracker.cleanup("comp-1", clearAuthRule);
+    expect(clearAuthRule).toHaveBeenCalledTimes(1);
+    expect(tracker.getActiveRuleOwner()).toBeNull();
+  });
+
+  it("regression: stale prepare expiry does not release the newer session's rule hold", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const clearAuthRule = vi.fn(async () => {});
+    let resolveOffscreen1!: (v: boolean) => void;
+    const offscreenPromise1 = new Promise((resolve) => {
+      resolveOffscreen1 = resolve;
+    });
+
+    const prep1 = tracker.prepare(
+      "comp-1",
+      createFakeDeps({ setAuthRule, clearAuthRule, ensureOffscreen: () => offscreenPromise1 })
+    );
+    await vi.waitFor(() => {
+      expect(tracker.getActiveRuleOwner()).toBe("comp-1");
+    });
+    const prep2 = await tracker.prepare("comp-2", createFakeDeps({ setAuthRule, clearAuthRule }));
+    expect(prep2.ok).toBe(true);
+    expect(tracker.getActiveRuleOwner()).toBe("comp-2");
+
+    resolveOffscreen1(true);
+    const res1 = await prep1;
+    expect(res1.ok).toBe(false);
+    expect(clearAuthRule).not.toHaveBeenCalled();
+    expect(tracker.getActiveRuleOwner()).toBe("comp-2");
+  });
+
+  it("cross-tab prepare triggers tab takeover notification and cleans up previous tab", async () => {
+    const tracker = new LiveSessionTracker();
+    const setAuthRule = vi.fn(async () => {});
+    const clearAuthRule = vi.fn(async () => {});
+    const isTabAlive = vi.fn(async () => true);
+    const notifyTabTakeover = vi.fn(async () => {});
+    const deps = createFakeDeps({ setAuthRule, clearAuthRule, isTabAlive, notifyTabTakeover });
+
+    await tracker.prepare("comp-tab-1", deps, 101);
+    expect(tracker.getOwnerTabId()).toBe(101);
+    expect(tracker.getActiveRuleOwner()).toBe("comp-tab-1");
+
+    const res2 = await tracker.prepare("comp-tab-2", deps, 202);
+    expect(res2.ok).toBe(true);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
+    expect(tracker.getOwnerTabId()).toBe(202);
+    expect(tracker.getActiveRuleOwner()).toBe("comp-tab-2");
   });
 });

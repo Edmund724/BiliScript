@@ -188,6 +188,11 @@ type ClipBusinessState = {
   secondarySubtitle: SecondarySubtitle;
   chapters: ChapterItem[];
   hotComments: unknown[];
+  // 热评拉取失败留给概览 tab 的提示文案（空串 = 无/已恢复）。热评的消费方是
+  // 概览（章节目录来源之一），失败反馈按职责归位到概览 tab 的状态条渲染
+  // （reader/overview-ui.ts），不写全局状态行；与 hotComments 同生命周期——
+  // 拉取成功清空、换视频（resetClipState）复位。
+  hotCommentsNotice: string;
   markdown: string;
   srt: string;
   txt: string;
@@ -229,6 +234,7 @@ type ClipSetters = {
   clearSecondarySubtitle(): void;
   setChapters(value: ChapterItem[]): void;
   setHotComments(value: unknown[]): void;
+  setHotCommentsNotice(value: string): void;
   setMarkdown(value: string): void;
   setSrt(value: string): void;
   setTxt(value: string): void;
@@ -282,6 +288,7 @@ const localClipState: ClipStateWritable = {
   secondarySubtitle: emptySecondarySubtitle(),
   chapters: [],
   hotComments: [],
+  hotCommentsNotice: "",
   markdown: "",
   srt: "",
   txt: "",
@@ -322,6 +329,7 @@ const localClipState: ClipStateWritable = {
   },
   setChapters(value) { this.chapters = value; },
   setHotComments(value) { this.hotComments = value; },
+  setHotCommentsNotice(value) { this.hotCommentsNotice = value; },
   setMarkdown(value) { this.markdown = value; },
   setSrt(value) { this.srt = value; },
   setTxt(value) { this.txt = value; },

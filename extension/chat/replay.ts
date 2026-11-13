@@ -120,7 +120,10 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
       }
       const message = history[index];
       if (message.role === "user") {
-        deps.renderer.messageArea.appendUserMessage(message.content, { source: "replay" });
+        deps.renderer.messageArea.appendUserMessage(message.content, {
+          source: "replay",
+          ...(message.images?.length ? { images: message.images } : {})
+        });
       } else if (message.role === "tool" || (Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())) {
         // 工具轮消息（spec §2.5）：查询与结果由回合回答消息上的搜索时间线卡
         // 承载，消息本体不渲染（assistant(tool_calls) 无正文，tool 是 JSON）；
@@ -152,6 +155,15 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
         deadline = performance.now() + REPLAY_FRAME_BUDGET_MS;
       }
     }
+    if (replayGeneration !== generation) {
+      return;
+    }
+    // 先让出主线程，再等一个渲染帧，让 content-visibility 的估算占位高
+    // 换成真实高度后再读取 scrollHeight；过期回放不得在帧回调后滚旧会话。
+    await yieldToMainThread();
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
     if (replayGeneration !== generation) {
       return;
     }

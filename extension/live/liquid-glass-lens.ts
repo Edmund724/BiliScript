@@ -18,7 +18,7 @@ export function supportsBackdropSvgLens(): boolean {
     return false;
   }
   const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
-  if (/Firefox\/|jsdom\//i.test(ua)) {
+  if (/jsdom\//i.test(ua)) {
     return false;
   }
   if (window.matchMedia?.("(prefers-reduced-transparency: reduce)")?.matches) {

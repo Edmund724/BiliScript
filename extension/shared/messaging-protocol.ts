@@ -16,12 +16,13 @@
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderAccess, SearchProviderPreset } from "../core/presets.js";
-import type { AiProvider, ImagePart } from "../ai/types.js";
+import type { AiProvider, CapturedVideoFrame, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
+import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -29,15 +30,14 @@ export type ReaderEnterMessage = {
   type: "reader-enter";
   readerUrl?: string;
   // 快捷对话负载（可省）：带 chat = 进入阅读模式并在进入事务内激活对话 tab，
-  // prompt 非空时自动发送快捷提示词（消费端 entry/message-handler.ts →
+  // prompt 非空时按会话状态发送快捷提示词（消费端 entry/message-handler.ts →
   // reader/shell.ts chat 档）。
   chat?: { prompt?: string };
 };
 
-// 响应锚点：entry/message-handler.ts reader-enter 处理器——命令已受理入队即答
-// { ok: true }，不代表进入完成；shell 装载失败回 { ok: false, error }
-//（arch-slim-2/09 shell 静态边改动态）。
-export type ReaderEnterResponse = { ok: boolean };
+// 响应锚点：entry/message-handler.ts reader-enter 处理器——进入事务完成后回
+// { ok: true }；shell 装载或进入失败回 { ok: false, error }。
+export type ReaderEnterResponse = { ok: boolean; error?: string };
 
 // 退出阅读模式（SW 侧 triggerReaderModeCloseInTab 的重试发送；面板关闭按钮走
 // 页内直调 reader 域，不经消息）。消费端（entry/message-handler.ts）收敛地址栏
@@ -59,20 +59,47 @@ export type ReaderRestoreMessage = {
   readerUrl?: string;
 };
 
-// 响应锚点：entry/message-handler.ts reader-restore 处理器——同 reader-enter 的
-// 即答语义，恒 { ok: true }。
-export type ReaderRestoreResponse = { ok: boolean };
+// 响应锚点：entry/message-handler.ts reader-restore 处理器——同 reader-enter，
+// 恢复事务完成后回成功，失败带可读 error。
+export type ReaderRestoreResponse = { ok: boolean; error?: string };
 
 export type LiveSessionTakeoverMessage = {
   type: "live-session-takeover";
 };
 export type LiveSessionTakeoverResponse = { ok: boolean };
 
+export type AgentBridgeSnapshotMessage = { type: "agent-bridge-snapshot" };
+export type AgentBridgeSnapshotResponse = {
+  ok: boolean;
+  snapshot?: Omit<AgentBridgeTabSnapshot, "tabId">;
+  error?: string;
+};
+export type AgentBridgeSubtitlesMessage = { type: "agent-bridge-subtitles" };
+export type AgentBridgeSubtitlesResponse = {
+  ok: boolean;
+  result?: AgentBridgeContentSubtitlesResult;
+  error?: string;
+};
+export type AgentBridgeFrameMessage = {
+  type: "agent-bridge-frame";
+  bvid: string;
+  cid: string;
+  targetTime?: number;
+};
+export type AgentBridgeFrameResponse = {
+  ok: boolean;
+  result?: AgentBridgeFramesResult;
+  error?: string;
+};
+
 export type ContentScriptMessage =
   | ReaderEnterMessage
   | ReaderCloseMessage
   | ReaderRestoreMessage
-  | LiveSessionTakeoverMessage;
+  | LiveSessionTakeoverMessage
+  | AgentBridgeSnapshotMessage
+  | AgentBridgeSubtitlesMessage
+  | AgentBridgeFrameMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
 
@@ -89,6 +116,12 @@ export type GetSettingsResponse = {
 export type SaveSettingsMessage = { type: "save-settings"; settings?: unknown };
 // 响应锚点：core/save-settings-handler.ts 工厂产物 handleSaveSettings——落盘成功仅 { ok: true }。
 export type SaveSettingsResponse = { ok: boolean; error?: string };
+export type AgentBridgeStatusMessage = { type: "agent-bridge-status" };
+export type AgentBridgeStatusResponse = { ok: boolean; connected?: boolean; error?: string };
+export type AgentBridgeConnectMessage = { type: "agent-bridge-connect" };
+export type AgentBridgeConnectResponse = { ok: boolean; connected?: boolean; error?: string };
+export type AgentBridgeTestMessage = { type: "agent-bridge-test"; url?: unknown };
+export type AgentBridgeTestResponse = { ok: boolean; connected?: boolean; error?: string };
 // script-only-ui：content script 语境没有 chrome.permissions API（仅扩展自有
 // 页面/SW 可用），侧边栏设置面板保存时的 host 权限申请改走此消息由 SW 代为
 // 申请。用户手势经一次 runtime 消息传导；SW 处理器必须在调用
@@ -222,10 +255,29 @@ export type ResolveAiProviderMessage = {
 };
 // 响应锚点：core/provider-handlers.ts createAiResolvedProviderHandler——
 // provider 为平台记录（不含明文 Key，与列表条目同形），apiKey 单列回传。
+// isFallback 仅在缺省档「显式默认不可用、已回落到别的启用平台」时带上（缺省
+// 不携带）——设置面板的生效投影（票 05）据此标注真实回落，不另写回落判定。
 export type ResolveAiProviderResponse = {
   ok: boolean;
   provider?: ProviderListEntry;
   apiKey?: string;
+  isFallback?: boolean;
+  error?: string;
+};
+
+// ===== 字幕翻译平台解析 =====
+export type ResolveSubtitleTranslateProviderMessage = {
+  type: "resolve-subtitle-translate-provider";
+};
+
+export type ResolveSubtitleTranslateProviderResponse = {
+  ok: boolean;
+  provider?: ProviderListEntry;
+  apiKey?: string;
+  model?: string;
+  // 只在「专属字幕翻译配置存在但解析不到（平台已删/禁用）」时带上；未指定专属
+  // 配置 = 正常跟随默认平台，不携带。
+  isFallback?: boolean;
   error?: string;
 };
 
@@ -396,12 +448,14 @@ export type LiveSessionPrepareResponse = {
   ok: boolean;
   provider?: LiveProviderListEntry;
   liveGeminiNativeSearch?: boolean;
+  liveLowBandwidth?: boolean;
   sessionId?: string;
   error?: string;
 };
 export type LiveSessionCleanupMessage = {
   type: "live-session-cleanup";
-  sessionId?: string;
+  /** 被清理的会话 id：清理必须限定到具体会话，避免旧会话清掉接管后的新会话 */
+  sessionId: string;
 };
 export type LiveSessionCleanupResponse = {
   ok: boolean;
@@ -528,6 +582,9 @@ export type GetDebugLogGateResponse = {
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
+  | AgentBridgeStatusMessage
+  | AgentBridgeConnectMessage
+  | AgentBridgeTestMessage
   | RequestProviderOriginsMessage
   | CheckProviderOriginMessage
   | EnsureOffscreenChatMessage
@@ -540,6 +597,7 @@ export type BackgroundMessage =
   | AiProvidersDeleteMessage
   | ProviderHttpMessage
   | ResolveAiProviderMessage
+  | ResolveSubtitleTranslateProviderMessage
   | AsrPresetsListMessage
   | AsrProvidersListMessage
   | AsrProvidersSaveMessage
@@ -607,6 +665,7 @@ export type OffscreenVideoFrameResultMessage = {
   requestId: string;
   image?: ImagePart;
   currentTime?: number;
+  frames?: CapturedVideoFrame[];
   error?: string;
 };
 
@@ -825,6 +884,15 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
       message.settings == null
       || (typeof message.settings === "object" && !Array.isArray(message.settings))
   }),
+  "agent-bridge-status": registerBackgroundMessage<AgentBridgeStatusMessage, AgentBridgeStatusResponse>({
+    reply: "async"
+  }),
+  "agent-bridge-connect": registerBackgroundMessage<AgentBridgeConnectMessage, AgentBridgeConnectResponse>({
+    reply: "async"
+  }),
+  "agent-bridge-test": registerBackgroundMessage<AgentBridgeTestMessage, AgentBridgeTestResponse>({
+    reply: "async"
+  }),
   "request-provider-origins": registerBackgroundMessage<
     RequestProviderOriginsMessage,
     RequestProviderOriginsResponse
@@ -879,6 +947,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "resolve-ai-provider": registerBackgroundMessage<
     ResolveAiProviderMessage,
     ResolveAiProviderResponse
+  >({
+    reply: "async"
+  }),
+  "resolve-subtitle-translate-provider": registerBackgroundMessage<
+    ResolveSubtitleTranslateProviderMessage,
+    ResolveSubtitleTranslateProviderResponse
   >({
     reply: "async"
   }),
@@ -1025,6 +1099,10 @@ export type BackgroundResponseOf<K extends BackgroundMessageType> =
 export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends ReaderCloseMessage ? ReaderCloseResponse
   : M extends ReaderRestoreMessage ? ReaderRestoreResponse
+  : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
+  : M extends AgentBridgeSnapshotMessage ? AgentBridgeSnapshotResponse
+  : M extends AgentBridgeSubtitlesMessage ? AgentBridgeSubtitlesResponse
+  : M extends AgentBridgeFrameMessage ? AgentBridgeFrameResponse
   : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
   : never;
 

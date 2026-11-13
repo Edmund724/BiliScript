@@ -99,6 +99,41 @@ export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: As
   }
 }
 
+// 译文副轨的缓存身份（票 asr-panel-translation）：轨 id 形如 `translate-<目标语言>`
+// （与播放器浮层同键，命中同一份已落盘译文）。前缀由组键同根派生，不手抄拼写。
+const TRANSLATED_TRACK_ID_PREFIX = "translate-";
+
+/**
+ * 译文副轨失效清理：主轨被新一次转写替换后，同一目标语言键下的旧译文属于旧原文，
+ * 必须整体作废（键形不含原文身份，这是兼容面，不动）。与 clearStaleAsrSubtitleCache
+ * 同形：枚举走分键索引，失败 logWarn 并返回 []，不抛异常。
+ */
+export async function clearTranslatedSubtitleCache({
+  bvid,
+  cid
+}: {
+  bvid: string;
+  cid: string;
+}): Promise<string[]> {
+  try {
+    const keyPrefix = `${CACHE_KEY_PREFIX}${bvid}_${cid}_id_${TRANSLATED_TRACK_ID_PREFIX}`;
+    const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, bvid, keyPrefix);
+    const all = indexKeys
+      ? await chrome.storage.local.get(indexKeys)
+      : await chrome.storage.local.get(null);
+    const staleKeys = Object.keys(all || {}).filter(
+      (key) => typeof key === "string" && key.startsWith(keyPrefix)
+    );
+    if (staleKeys.length > 0) {
+      await chrome.storage.local.remove(staleKeys);
+    }
+    return staleKeys;
+  } catch (error) {
+    logWarn("[BILISCRIPT] failed to clear translated subtitle cache entries", { bvid, cid, error });
+    return [];
+  }
+}
+
 export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
   try {
     await chrome.storage.local.remove(cacheKey);

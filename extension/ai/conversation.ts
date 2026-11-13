@@ -3,7 +3,14 @@
 // 作为经典脚本加载，不依赖任何外部状态或 Chrome API。
 
 import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
-import type { AiContext, ChapterItem, HotComment, ImagePart } from "./types.js";
+import type { AiContext } from "./types.js";
+export type { AiContext };
+import type { ChapterItem, HotComment, ImagePart } from "./types.js";
+import {
+  isLiveTextToolHistoryEntry,
+  normalizeLiveTextToolHistoryEntry,
+  type LiveTextToolHistoryEntry
+} from "../live/live-text-tool-history.js";
 
 export const MAX_SAVED_CONVERSATIONS = 60;
 
@@ -53,6 +60,7 @@ interface ConversationMessage {
   role: string;
   content: string;
   images?: ImagePart[];
+  contextKey?: string;
   tool_calls?: unknown[];
   tool_call_id?: string;
   thinking?: string;
@@ -116,22 +124,29 @@ interface NormalizedConversation {
   updatedAt: number;
   contextRef: AiContext;
   messages: ConversationMessage[];
+  [key: string]: unknown;
 }
 
-export function normalizeConversations(value: unknown): NormalizedConversation[] {
+export function normalizeConversations(value: unknown): Array<NormalizedConversation | LiveTextToolHistoryEntry> {
   if (!Array.isArray(value)) {
     return [];
   }
   return value
     .map((item) => {
+      if (isLiveTextToolHistoryEntry(item)) {
+        return normalizeLiveTextToolHistoryEntry(item);
+      }
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown; images?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
+            .map((msg: { role?: unknown; content?: unknown; images?: unknown; contextKey?: unknown; tool_calls?: unknown; tool_call_id?: unknown; thinking?: unknown; stopped?: unknown }) => {
               const base: ConversationMessage = { role: String(msg.role), content: String(msg.content) };
               const images = normalizeImageParts(msg.images);
               if (images) {
                 base.images = images;
+              }
+              if (typeof msg.contextKey === "string" && msg.contextKey.trim()) {
+                base.contextKey = msg.contextKey;
               }
               if (typeof msg.thinking === "string" && msg.thinking.trim()) {
                 base.thinking = msg.thinking;
@@ -170,7 +185,7 @@ export function normalizeConversations(value: unknown): NormalizedConversation[]
         messages
       };
     })
-    .filter((item): item is NormalizedConversation => Boolean(item))
+    .filter((item): item is NormalizedConversation | LiveTextToolHistoryEntry => Boolean(item))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, MAX_SAVED_CONVERSATIONS);
 }
@@ -310,11 +325,11 @@ export function formatConversationTimestamp(value: unknown): string {
 // ============ 匹配 / 比较 ============
 
 export function doesConversationMatchCurrentContext(
-  conversation: { contextKey?: unknown; contextRef?: unknown; contextUrl?: unknown } | null | undefined,
+  conversation: { kind?: unknown; contextKey?: unknown; contextRef?: unknown; contextUrl?: unknown } | null | undefined,
   currentRef: AiContext | null | undefined,
   targetContextKey = ""
 ): boolean {
-  if (!conversation) {
+  if (!conversation || isLiveTextToolHistoryEntry(conversation)) {
     return false;
   }
   const normalizedConversationKey = resolveConversationStorageKey(

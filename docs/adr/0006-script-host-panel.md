@@ -49,3 +49,7 @@
 ## 修订（2026-09-12：readerContentWidth 档位机制退役）
 
 「锚点链与降级链」与「后果」中的 `readerContentWidth` 档位陈述已被代码推翻：档位机制（narrow 340 / standard 380 / wide 440 + float 强制浮层档，含设置项）已整体删除——script-only-ui 排版定稿后贴栏宽度下限写死 380px（`script-host.ts` 的 `PANEL_TARGET_WIDTH = 380`），不再读任何设置；浮层仅由降级链（窄窗 < 1000px / 锚点全落空且无播放器）进入，`readerContentWidth="float"` 档位不复存在。正文历史部分保留不动。
+
+## 修订（2026-11-11：三种壳层形态的宽度偏好，工单 05）
+
+贴栏宽度再次改为读设置：`customPanelWidth`（400–650px，设置面板滑块，默认 540px），由显式自定义标记 `customPanelWidthEnabled` 门控——滑块改动置位、重置键清除，未自定义保持默认几何（贴栏 540 / 播放器降级占满可用宽 / 浮层 760px 上限）。自定义宽度在三种形态都生效：贴栏直接作目标宽；播放器降级收缩为 `min(自定义, 可用宽)`（可用宽不足 300px 仍降浮层）；浮层另写 `--biliscript-script-float-width`，CSS 用 `min(var(--biliscript-script-float-width, 760px), calc(100vw - 32px))` 与视口边距约束取窄。存量用户（旧版滑块直写宽度、无开关键）由读路径按「宽度非默认 = 已自定义」推导补齐，不落盘、无迁移旗标。正文历史部分保留不动。

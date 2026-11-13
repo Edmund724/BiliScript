@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => ({
   isPlayerAiLoaded: vi.fn(),
   ensureReaderDomain: vi.fn(),
   ensureReaderChatTab: vi.fn(),
-  replaceReaderModeUrl: vi.fn()
+  replaceReaderModeUrl: vi.fn(),
+  requestUiCommand: vi.fn()
 }));
 
 vi.mock("../../extension/ui/lazy-ui.js", () => ({
@@ -41,6 +42,10 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
 vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
   ensureReaderChatTab: mocks.ensureReaderChatTab,
   isReaderChatTabLoaded: vi.fn(() => false)
+}));
+vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../extension/reader/reader-bus.js")>(),
+  requestUiCommand: mocks.requestUiCommand
 }));
 // arch-slim-2/03：reader-url 单源后 shell.ts 也消费 buildReaderModeUrl——
 // 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
@@ -59,6 +64,7 @@ import {
   isReaderShellIntact
 } from "../../extension/reader/shell.js";
 import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js";
+import { READER_CLOSED_EVENT } from "../../extension/shared/self-heal.js";
 import { state } from "../../extension/core/state.js";
 import { playerAiState } from "../../extension/ai/player-ai-state.js";
 import { ensureReaderStyles, removeReaderStyles } from "../../extension/shared/style-injector.js";
@@ -77,11 +83,13 @@ const {
 function makeReaderStub() {
   return {
     enterReaderMode: vi.fn(async () => {}),
+    focusReadingView: vi.fn(),
     beginClosingReadingView: vi.fn(() => false),
     closeReadingView: vi.fn(() => {
       state.reader.setViewOpen(false);
       state.reader.setViewReady(false);
-    })
+    }),
+    restoreReadingViewFocus: vi.fn()
   };
 }
 
@@ -196,6 +204,16 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     expect(replaceOrder).toBeLessThan(enterOrder);
   });
 
+  it("伴看设置意图在进入后携带定位目标打开设置", async () => {
+    await enterReaderShell({
+      readerUrl: READER_MODE_URL,
+      intent: "open",
+      settingsTarget: "gemini-key"
+    });
+
+    expect(mocks.requestUiCommand).toHaveBeenCalledWith("open-settings", { target: "gemini-key" });
+  });
+
   it("阅读样式表全部加载完成后才进入 reader 域", async () => {
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
@@ -236,14 +254,15 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     expect(replaceReaderModeUrl).not.toHaveBeenCalled();
     expectReaderStylesMounted(false);
     expect(reader.enterReaderMode).not.toHaveBeenCalled();
+    expect(reader.focusReadingView).toHaveBeenCalledTimes(1);
   });
 
-  it("enterReaderMode 失败 → 不向上抛（调用方已即答，只记日志口径）", async () => {
+  it("enterReaderMode 失败 → 向上拒绝，让实际触发入口收到失败", async () => {
     const reader = makeReaderStub();
     reader.enterReaderMode.mockRejectedValue(new Error("boom"));
     ensureReaderDomain.mockResolvedValue(reader);
 
-    await expect(enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" })).resolves.toBeUndefined();
+    await expect(enterReaderShell({ readerUrl: READER_MODE_URL, intent: "open" })).rejects.toThrow("boom");
   });
 });
 
@@ -388,7 +407,9 @@ describe("enterReaderShellOnUrlNavigation：URL 跳转编排入口", () => {
     ensureReaderDomain.mockResolvedValue(reader);
     const onEnterFailed = vi.fn();
 
-    await enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL, onEnterFailed });
+    await expect(
+      enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL, onEnterFailed })
+    ).rejects.toBe(failure);
 
     expect(onEnterFailed).toHaveBeenCalledWith(failure);
   });
@@ -424,6 +445,21 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     // URL 收敛先于关闭（与原处理器「先收敛地址栏」的时序一致）
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
+  });
+
+  it("补回页内按钮的关闭事件后再归还焦点", async () => {
+    const reader = makeReaderStub();
+    ensureReaderDomain.mockResolvedValue(reader);
+    const onClosed = vi.fn();
+    window.addEventListener(READER_CLOSED_EVENT, onClosed, { once: true });
+
+    await exitReaderShell();
+
+    expect(onClosed).toHaveBeenCalledTimes(1);
+    expect(reader.restoreReadingViewFocus).toHaveBeenCalledTimes(1);
+    expect(onClosed.mock.invocationCallOrder[0]).toBeLessThan(
+      reader.restoreReadingViewFocus.mock.invocationCallOrder[0]
+    );
   });
 
   it("收回过渡等待缩放结束后再收尾摘表", async () => {

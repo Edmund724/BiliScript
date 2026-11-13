@@ -81,6 +81,13 @@ function makeFacts(overrides: Partial<SubtitleToolbarFacts> = {}): SubtitleToolb
     selectedTrackId: "",
     switchInFlight: null,
     secondaryColumn: emptyColumn(),
+    asrScenario: false,
+    asrTranslation: {
+      lang: "zh",
+      inFlight: false,
+      note: "",
+      action: null
+    },
     ...overrides
   };
 }

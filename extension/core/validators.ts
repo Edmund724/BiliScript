@@ -11,6 +11,7 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V3,
@@ -20,6 +21,12 @@ import {
   DEFAULT_SETTINGS,
   type Settings
 } from "./defaults.js";
+import {
+  LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type InterpretSubtitleDisplayMode,
+  type LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
 
 // ===== Shared scalar helpers =====
 export function toString(value: unknown): string {
@@ -67,6 +74,24 @@ export function normalizeDownloadFormat(value: unknown): string {
   return value === "txt" ? "txt" : "srt";
 }
 
+export function parseAgentBridgeUrl(value: unknown): string | null {
+  const input = toString(value).trim();
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    if (url.protocol !== "ws:" || !loopback || !url.port) return null;
+    if (url.username || url.password || (url.pathname && url.pathname !== "/") || url.search || url.hash) return null;
+    return input.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAgentBridgeUrl(value: unknown): string {
+  return parseAgentBridgeUrl(value) ?? DEFAULT_SETTINGS.agentBridgeUrl;
+}
+
 export const normalizeEnablePlayerAiQuickAction = booleanField(false);
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {
@@ -88,13 +113,14 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 五代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
+  // 六代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
   if (
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 ||
-    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V5 ||
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V6
   ) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
@@ -130,10 +156,11 @@ export function normalizeDefaultModel(value: unknown): string {
 // 也从同一叶取词表）；函数名保留 core 侧的历史 import 面。
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
-// ===== 联网搜索 normalizers =====
+// ===== 语音输出 normalizers =====
+export { normalizeLiveVoiceSpeed } from "../live/live-voice-speed.js";
 export const normalizeLiveVoiceVolume = clampedIntField(
   0,
-  100,
+  200,
   DEFAULT_SETTINGS.liveVoiceVolume
 );
 export const normalizeSpeechVoiceVolume = clampedIntField(
@@ -144,6 +171,28 @@ export const normalizeSpeechVoiceVolume = clampedIntField(
 export const normalizeLiveVoicePriority = booleanField(true);
 export const normalizeLiveShareVideoAudio = booleanField(false);
 export const normalizeLiveGeminiNativeSearch = booleanField(false);
+export const normalizeLiveLowBandwidth = booleanField(false);
+
+export function normalizeSubtitleTranslateProviderId(value: unknown): string {
+  return toString(value).trim();
+}
+
+export function normalizeSubtitleTranslateModel(value: unknown): string {
+  return toString(value).trim();
+}
+
+export function normalizeLiveInterpretTargetLang(value: unknown): LiveInterpretTargetLang {
+  const normalized = toString(value).trim();
+  return LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === normalized)?.value
+    ?? DEFAULT_SETTINGS.liveInterpretTargetLang;
+}
+
+export function normalizeLiveInterpretDisplayMode(value: unknown): InterpretSubtitleDisplayMode {
+  const normalized = toString(value).trim();
+  return LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.find((option) => option.value === normalized)?.value
+    ?? DEFAULT_SETTINGS.liveInterpretDisplayMode;
+}
+
 export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与
@@ -151,7 +200,7 @@ export const normalizeWebSearchEnabled = booleanField(false);
 // searchPresetsAutoActivated：安装/更新时免 Key 预设已自动补齐的旗标。
 export const normalizeSearchPresetsAutoActivated = booleanField(false);
 
-// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「同意并继续」置位）。
+// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「允许并继续」置位）。
 export const normalizeSearchOptInNoticeAcknowledged = booleanField(false);
 
 // 单轮搜索次数上限：整数，区间 1–20，越界夹取，非法值回落默认 5（spec §3.2）

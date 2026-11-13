@@ -25,6 +25,7 @@ function isIgnoredReaderVideoCandidate(video: Element | null | undefined): boole
   }
   const host = findReaderPlayerHost(video);
   const blockedSelector = [
+    "[data-biliscript-historical-frame]",
     ".bpx-player-mini-warp",
     ".bpx-player-mini-close",
     ".bpx-player-ending-panel",

@@ -12,14 +12,10 @@
 // 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden）。
 // 06 号票增量：档位 chip 由 3 档静态按钮改为 7 档静态占位（激活后由
 // reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
-// 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
-// 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
-// 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
-// 意图卡/转写行/消息区/输入卡一起 display:none，与设置抽屉接管面板第
-// 3–4 行同一套纯属性反应；类名沿用 chat-history-popover（历史包袱，语义已是
-// 整页而非 popover）。
-// 「历史对话 / 新会话」两键已并入壳的标签行（ui-renderer.ts 的
-// .biliscript-reading-tabs-tools），对话 tab 内不再有工具条行。
+// 历史是对话区的内容模式：它是对话根的第一个子元素，同一 [hidden] 投影同时隐藏
+// 标签行与后续对话内容；类名沿用 chat-history-popover，但不新增 Tab 或开关状态。
+// 会话动作（新建会话 / 历史对话）收在壳标签行 ⋮ 菜单内，排版与朗读同菜单调；
+// 「更多显示设置」深链经 open-settings/appearance 直达外观分区。
 
 import { ids } from "./state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
@@ -35,7 +31,7 @@ export function buildChatTabBodyHtml(): string {
                 <path d="m15 18-6-6 6-6"></path>
               </svg>
             </button>
-            <span class="chat-history-popover-title">历史对话</span>
+            <span class="chat-history-popover-title">历史记录</span>
             <button id="${ids.readingChatHistoryClearBtn}" type="button" class="chat-history-clear-btn">清空全部</button>
           </div>
           <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
@@ -52,6 +48,17 @@ export function buildChatTabBodyHtml(): string {
 
         <!-- 转写状态行：默认基础句；等待发送期间文案由 chat-tab.ts 切换（唯一提示，不另起消息区通知） -->
         <div id="${ids.readingChatAsrNotice}" class="chat-asr-notice" hidden>当前视频无字幕，正在进行语音转写…</div>
+        <section id="${ids.readingChatLiveStatus}" class="chat-live-status" aria-label="实时伴看状态" data-state="idle" hidden>
+          <span class="chat-live-status-text" role="status" aria-atomic="true"></span>
+          <div class="chat-live-status-actions">
+            <button type="button" data-live-status-action="cancel" hidden>取消</button>
+            <button type="button" data-live-status-action="restore" hidden>显示浮窗</button>
+            <button type="button" data-live-status-action="retry" hidden>重试</button>
+            <button type="button" data-live-status-action="settings" hidden>伴看设置</button>
+            <button type="button" data-live-status-action="stop" hidden>结束</button>
+          </div>
+          <div class="chat-live-tool-records" hidden></div>
+        </section>
         <main class="chat-messages" id="${ids.readingChatMessages}">
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
@@ -67,6 +74,11 @@ export function buildChatTabBodyHtml(): string {
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
+            <div class="chat-subtitle-wait" role="status" aria-live="polite" hidden>
+              <span class="chat-notice-spinner" aria-hidden="true"></span>
+              <span class="chat-subtitle-wait-text">正在等待字幕，完成后自动发送</span>
+              <button type="button" class="chat-subtitle-wait-cancel">取消</button>
+            </div>
             <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
                  单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
             <div id="${ids.readingChatImageStrip}" class="chat-image-strip" hidden></div>
@@ -101,7 +113,7 @@ export function buildChatTabBodyHtml(): string {
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
                    输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->
               <div class="chat-model-anchor">
-                <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
+                <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位" aria-haspopup="true" aria-controls="${ids.readingChatModelPanel}" aria-expanded="false">
                   <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
                   <span class="chat-model-chip-model">未配置平台</span>
                   <span class="chat-model-chip-level">Off</span>
@@ -124,8 +136,8 @@ export function buildChatTabBodyHtml(): string {
                   </div>
                 </div>
               </div>
-              <!-- 主操作键：输入有文字时发送；流式中停止 -->
-              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" aria-label="发送" title="发送" disabled>
+              <!-- 主操作键：idle 空草稿时开启伴看；有正文或贴图时发送；流式中停止 -->
+              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn is-live" aria-label="开启实时伴看" title="开启实时伴看">
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>
@@ -134,6 +146,14 @@ export function buildChatTabBodyHtml(): string {
                      直径的 ~35% 取（viewBox 17/24），圆角 rx=4，与设计稿同比例。 -->
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
+                </svg>
+                <svg class="chat-live-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+                <svg class="chat-spinner-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 16" stroke-linecap="round"></circle>
                 </svg>
               </button>
             </div>

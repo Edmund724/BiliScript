@@ -50,17 +50,25 @@ function fakeCompress(bytes = 1024, data = "QUJD"): Mock<CompressFn> {
   }));
 }
 
-function makeRuntime(overrides: { compress?: Mock<CompressFn>; isStreaming?: () => boolean } = {}) {
+function makeRuntime(overrides: {
+  compress?: Mock<CompressFn>;
+  isStreaming?: () => boolean;
+  onPendingChange?: (pending: boolean) => void;
+  focusInput?: () => void;
+} = {}) {
   const strip = document.createElement("div");
   strip.className = "chat-image-strip";
   strip.hidden = true;
+  document.body.appendChild(strip);
   const onReject = vi.fn((_message: string) => {});
   const compress = overrides.compress ?? fakeCompress();
   const images = createChatInputImages({
     strip,
     compress,
     isStreaming: overrides.isStreaming,
-    onReject
+    onReject,
+    onPendingChange: overrides.onPendingChange,
+    focusInput: overrides.focusInput
   });
   return { images, strip, onReject, compress };
 }
@@ -146,6 +154,25 @@ describe("粘贴入口（仅 image/* 拦截）", () => {
   });
 });
 
+describe("附件图片查看", () => {
+  it("缩略图打开共享查看器，Esc 关闭并把焦点还给原按钮", async () => {
+    const { images, strip } = makeRuntime();
+    document.body.appendChild(strip);
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+    await flush();
+    const open = strip.querySelector<HTMLButtonElement>(".chat-image-open")!;
+
+    open.click();
+    expect(document.querySelector(".chat-image-viewer-image")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    expect(document.activeElement).toBe(document.querySelector(".chat-image-viewer-close"));
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+    expect(document.querySelector(".chat-image-viewer")).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+});
+
 describe("单个删除与清空", () => {
   it("删除后计数归零，附件区回到 hidden", async () => {
     const { images, strip } = makeRuntime();
@@ -212,7 +239,7 @@ describe("上限拒绝与提示", () => {
     await flush();
 
     expect(images.count()).toBe(4);
-    expect(onReject).toHaveBeenCalledWith("一条消息最多 4 张图片");
+    expect(onReject).toHaveBeenCalledWith("第 5 张图片：一条消息最多 4 张图片");
   });
 
   it("同一次粘贴内含 5 张：只收前 4 张，第 5 张提示拒绝", async () => {
@@ -223,7 +250,7 @@ describe("上限拒绝与提示", () => {
     await flush();
 
     expect(images.count()).toBe(4);
-    expect(onReject).toHaveBeenCalledWith("一条消息最多 4 张图片");
+    expect(onReject).toHaveBeenCalledWith("第 5 张图片：一条消息最多 4 张图片");
   });
 
   it("单条合计超过 4MB：超出的那张被拒并提示（先收下的保留）", async () => {
@@ -235,7 +262,7 @@ describe("上限拒绝与提示", () => {
     }
 
     expect(images.count()).toBe(2); // 2MB + 2MB ≤ 4MB；第三张 6MB > 4MB
-    expect(onReject).toHaveBeenCalledWith("图片合计超过 4MB，无法发送");
+    expect(onReject).toHaveBeenCalledWith("第 3 张图片：图片合计超过 4MB，无法发送");
   });
 
   it("压缩器判定单张超限（single-too-large）→ 提示且不落项", async () => {
@@ -249,7 +276,7 @@ describe("上限拒绝与提示", () => {
     await flush();
 
     expect(images.count()).toBe(0);
-    expect(onReject).toHaveBeenCalledWith("图片压缩后仍超过 1MB，无法发送");
+    expect(onReject).toHaveBeenCalledWith("第 1 张图片：图片压缩后仍超过 1MB，无法发送");
   });
 
   it("解码失败 → 可见提示（不静默丢）", async () => {
@@ -263,7 +290,7 @@ describe("上限拒绝与提示", () => {
     await flush();
 
     expect(images.count()).toBe(0);
-    expect(onReject).toHaveBeenCalledWith("图片解码失败，请换一张图片重试");
+    expect(onReject).toHaveBeenCalledWith("第 1 张图片：图片解码失败，请换一张图片重试");
   });
 
   it("非归类异常（压缩替身抛出普通错误）→ 统一按处理失败提示", async () => {
@@ -277,7 +304,7 @@ describe("上限拒绝与提示", () => {
     await flush();
 
     expect(images.count()).toBe(0);
-    expect(onReject).toHaveBeenCalledWith("图片处理失败，请换一张图片重试");
+    expect(onReject).toHaveBeenCalledWith("第 1 张图片：图片处理失败，请换一张图片重试");
   });
 
   it("同一批里一张失败不影响其余图片继续入库", async () => {
@@ -293,6 +320,7 @@ describe("上限拒绝与提示", () => {
 
     expect(images.count()).toBe(1);
     expect(onReject).toHaveBeenCalledTimes(1);
+    expect(onReject).toHaveBeenCalledWith("第 1 张图片：图片解码失败，请换一张图片重试");
   });
 });
 
@@ -376,5 +404,192 @@ describe("takeImages（发送受理的读清一体）", () => {
     await flush();
 
     expect(images.count()).toBe(0);
+  });
+});
+
+
+describe("发送快照消费", () => {
+  it("takeImages(snapshot) 只消费快照，后来粘贴的图片保留", async () => {
+    const compress = vi
+      .fn()
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "OLD" }, bytes: 1 })
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "NEW" }, bytes: 1 });
+    const { images } = makeRuntime({ compress });
+    images.handlePaste(makePasteEvent([fileItem(makeFile("old.png"))]));
+    await flush();
+    const snapshot = images.getImages();
+    images.handlePaste(makePasteEvent([fileItem(makeFile("new.png"))]));
+    await flush();
+
+    expect(images.takeImages(snapshot)).toEqual(snapshot);
+    expect(images.getImages()).toEqual([{ mime: "image/webp", data: "NEW" }]);
+    expect(images.count()).toBe(1);
+  });
+
+  it("按快照消费不作废等待期间开始的新图片压缩", async () => {
+    let release!: (value: CompressedImage) => void;
+    const compress = vi
+      .fn()
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "OLD" }, bytes: 1 })
+      .mockImplementationOnce(() => new Promise<CompressedImage>((resolve) => {
+        release = resolve;
+      }));
+    const { images } = makeRuntime({ compress });
+    images.handlePaste(makePasteEvent([fileItem(makeFile("old.png"))]));
+    await flush();
+    const snapshot = images.getImages();
+
+    images.handlePaste(makePasteEvent([fileItem(makeFile("new.png"))]));
+    images.takeImages(snapshot);
+    release({ part: { mime: "image/webp", data: "NEW" }, bytes: 1 });
+    await flush();
+
+    expect(images.getImages()).toEqual([{ mime: "image/webp", data: "NEW" }]);
+  });
+});
+
+
+describe("压缩占位、时序与顺序", () => {
+  it("粘贴即占位，后完成的图片不会抢先到前面", async () => {
+    let releaseFirst!: (value: CompressedImage) => void;
+    let releaseSecond!: (value: CompressedImage) => void;
+    const onPendingChange = vi.fn();
+    const compress = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<CompressedImage>((resolve) => {
+        releaseFirst = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise<CompressedImage>((resolve) => {
+        releaseSecond = resolve;
+      }));
+    const { images, strip } = makeRuntime({ compress, onPendingChange });
+
+    images.handlePaste(makePasteEvent([fileItem(makeFile("a.png")), fileItem(makeFile("b.png"))]));
+
+    expect(compress).toHaveBeenCalledTimes(2);
+    expect(images.count()).toBe(2);
+    expect(images.isPending()).toBe(true);
+    expect(strip.querySelectorAll(".chat-image-skeleton")).toHaveLength(2);
+    expect(strip.getAttribute("aria-busy")).toBe("true");
+    expect(onPendingChange).toHaveBeenLastCalledWith(true);
+
+    releaseSecond({ part: { mime: "image/webp", data: "BBB" }, bytes: 1 });
+    await flush();
+
+    const items = strip.querySelectorAll(".chat-image-item");
+    expect(items[0].querySelector(".chat-image-skeleton")).not.toBeNull();
+    expect(items[1].querySelector(".chat-image-thumb")?.getAttribute("src")).toBe("data:image/webp;base64,BBB");
+    expect(images.isPending()).toBe(true);
+
+    releaseFirst({ part: { mime: "image/webp", data: "AAA" }, bytes: 1 });
+    await flush();
+
+    expect(
+      [...strip.querySelectorAll(".chat-image-thumb")].map((node) => node.getAttribute("src"))
+    ).toEqual(["data:image/webp;base64,AAA", "data:image/webp;base64,BBB"]);
+    expect(images.isPending()).toBe(false);
+    expect(strip.getAttribute("aria-busy")).toBe("false");
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("删除在途占位后，迟到的压缩结果不回填", async () => {
+    let release!: (value: CompressedImage) => void;
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    const compress = vi.fn(() => new Promise<CompressedImage>((resolve) => {
+      release = resolve;
+    }));
+    const { images, strip } = makeRuntime({ compress, focusInput: () => input.focus() });
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+
+    images.removeAt(0);
+    release({ part: { mime: "image/webp", data: "LATE" }, bytes: 1 });
+    await flush();
+
+    expect(images.count()).toBe(0);
+    expect(images.isPending()).toBe(false);
+    expect(strip.hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("删除与预览的焦点", () => {
+  it("删除键带序号；删除中间项后焦点到相邻图片", async () => {
+    const compress = vi
+      .fn()
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "AAA" }, bytes: 1 })
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "BBB" }, bytes: 1 })
+      .mockResolvedValueOnce({ part: { mime: "image/webp", data: "CCC" }, bytes: 1 });
+    const { images, strip } = makeRuntime({ compress });
+    images.handlePaste(makePasteEvent([
+      fileItem(makeFile("a.png")),
+      fileItem(makeFile("b.png")),
+      fileItem(makeFile("c.png"))
+    ]));
+    await flush();
+
+    const removeButtons = strip.querySelectorAll<HTMLButtonElement>(".chat-image-remove");
+    expect([...removeButtons].map((node) => node.getAttribute("aria-label"))).toEqual([
+      "删除第 1 张图片",
+      "删除第 2 张图片",
+      "删除第 3 张图片"
+    ]);
+    removeButtons[1].focus();
+    images.removeAt(1);
+
+    const focused = document.activeElement as HTMLButtonElement;
+    expect(focused.classList.contains("chat-image-preview")).toBe(true);
+    expect(focused.getAttribute("aria-label")).toBe("预览第 2 张图片");
+    expect(focused.querySelector("img")?.getAttribute("src")).toBe("data:image/webp;base64,CCC");
+  });
+
+  it("删除最后一张后焦点归还输入框", async () => {
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    const { images } = makeRuntime({ focusInput: () => input.focus() });
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+    await flush();
+
+    images.removeAt(0);
+
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("Esc 关闭大图并归还缩略图焦点", async () => {
+    const { images, strip } = makeRuntime();
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+    await flush();
+    const trigger = strip.querySelector<HTMLButtonElement>(".chat-image-preview")!;
+    trigger.focus();
+
+    images.previewAt(0);
+
+    const overlay = document.querySelector<HTMLElement>(".chat-image-lightbox")!;
+    expect(overlay.querySelector("[role='dialog']")?.getAttribute("aria-modal")).toBe("true");
+    expect(overlay.querySelector(".chat-image-lightbox-image")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    expect(document.activeElement).toBe(overlay.querySelector(".chat-image-lightbox-close"));
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+    expect(document.querySelector(".chat-image-lightbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("点击预览外部关闭并归还焦点，点击图片本身不关闭", async () => {
+    const { images, strip } = makeRuntime();
+    images.handlePaste(makePasteEvent([fileItem(makeFile())]));
+    await flush();
+    const trigger = strip.querySelector<HTMLButtonElement>(".chat-image-preview")!;
+    trigger.focus();
+    images.previewAt(0);
+    const overlay = document.querySelector<HTMLElement>(".chat-image-lightbox")!;
+
+    overlay.querySelector<HTMLImageElement>(".chat-image-lightbox-image")!.click();
+    expect(document.querySelector(".chat-image-lightbox")).not.toBeNull();
+
+    overlay.click();
+
+    expect(document.querySelector(".chat-image-lightbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

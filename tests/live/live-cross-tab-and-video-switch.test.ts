@@ -105,7 +105,7 @@ describe("04: 跨标签页伴看自动接管", () => {
 
     const fakeDeps = {
       getSettings: async () => ({ activeLiveProviderId: "p1" }),
-      loadProviders: async () => [{ id: "p1", name: "MOSS", type: "moss-live" as const, baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }],
+      loadProviders: async () => [{ id: "p1", name: "MOSS", type: "moss-live" as const, presetId: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }],
       loadKeys: async () => ({ p1: "key1" }),
       hasPermission: async () => true,
       setAuthRule,
@@ -126,11 +126,36 @@ describe("04: 跨标签页伴看自动接管", () => {
     const res2 = await tracker.prepare("session-tab-202", fakeDeps, 202);
     expect(res2.ok).toBe(true);
     // 旧标签页收到接管通知
-    expect(notifyTabTakeover).toHaveBeenCalledWith(101);
+    expect(notifyTabTakeover).toHaveBeenCalledWith(101, "companion");
     // 所有权转移至标签页 202
     expect(tracker.getOwnerTabId()).toBe(202);
     expect(tracker.getActiveRuleOwner()).toBe("session-tab-202");
     expect(setAuthRule).toHaveBeenCalledTimes(2);
+  });
+
+  it("默认接管通知经 chrome.tabs 发送并携带被接管的会话通道", async () => {
+    const tracker = new LiveSessionTracker();
+    const sendMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("chrome", { tabs: { sendMessage } });
+
+    const deps = {
+      getSettings: async () => ({ activeLiveProviderId: "p1" }),
+      loadProviders: async () => [
+        { id: "p1", name: "MOSS", type: "moss-live" as const, presetId: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-1", enabled: true, hasSavedKey: true }
+      ],
+      loadKeys: async () => ({ p1: "key1" }),
+      hasPermission: async () => true,
+      setAuthRule: vi.fn(async () => {}),
+      clearAuthRule: vi.fn(async () => {}),
+      ensureOffscreen: async () => {},
+      resolveActiveId: () => "p1",
+      isTabAlive: async () => true
+    };
+
+    await tracker.prepare("companion-tab-101", deps, 101);
+    await tracker.prepare("companion-tab-202", deps, 202);
+
+    expect(sendMessage).toHaveBeenCalledWith(101, { type: "live-session-takeover" });
   });
 
   it("旧标签页收到接管通知时，停止音画采集并收起伴看状态条", async () => {
@@ -157,7 +182,8 @@ describe("04: 跨标签页伴看自动接管", () => {
         isVoiceRecentlyActive: () => true
       }),
       startVideoCapture: () => ({
-        stop: () => { videoStopped = true; }
+        stop: () => { videoStopped = true; },
+        configure: () => {}
       }),
       onStateChange: (state) => {
         liveState = state;
@@ -245,7 +271,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
         isMicVadActive: () => false,
         isVoiceRecentlyActive: () => true
       }),
-      startVideoCapture: () => ({ stop: () => {} }),
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} }),
       getVideoContext: () => latestContext,
       subscribeVideoContextChanges: (listener) => {
         (window as any).__notifyContextChange = listener;
@@ -300,7 +326,7 @@ describe("04: 同一标签页内换片/分P会话隔离与底层连接保留", (
 
     const store = createConversationStore({
       loadContextState: async () => true,
-      resolveAiConversationRef: async () => null,
+      resolveAiConversationRef: async () => ({}),
       onConversationChanged: () => {},
       onStreamInterrupted: () => {},
       onContextNotice: () => {},

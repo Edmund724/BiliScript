@@ -13,9 +13,14 @@ export const ids = {
   // 删除——文摘面板是唯一界面，状态/消息写入 #biliscript-reading-status。
   readingView: "biliscript-reading-view",
   readingStatus: "biliscript-reading-status",
+  // 状态行的读屏镜像 live region：阅读视图根节点常驻 aria-hidden="true"（整个面板
+  // 不进无障碍树），面板内的 role="status" 不会被朗读；本节点挂在 document.body
+  // 下、视觉隐藏，由 core/reading-status-line.js 与可见状态行同口径同步文本。
+  readingStatusLive: "biliscript-reading-status-live",
   readingCloseBtn: "biliscript-reading-close-btn",
   readingThemeSelect: "biliscript-reading-theme-select",
   readingSettingsBtn: "biliscript-reading-settings-btn",
+  readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
   readingSettingsPanel: "biliscript-reading-settings-panel",
   readingSettingsHost: "biliscript-reading-settings-host",
   readingMeta: "biliscript-reading-meta",
@@ -71,6 +76,7 @@ export const ids = {
   readingChatSpeechVolumeResetBtn: "biliscript-reading-chat-speech-volume-reset-btn",
   readingChatMoreBtn: "biliscript-reading-chat-more-btn",
   readingChatMoreMenu: "biliscript-reading-chat-more-menu",
+  readingChatDisplaySettingsBtn: "biliscript-reading-chat-display-settings-btn",
   readingChatLineHeight: "biliscript-reading-chat-line-height",
   readingChatLineHeightValue: "biliscript-reading-chat-line-height-value",
   readingChatLineHeightResetBtn: "biliscript-reading-chat-line-height-reset-btn",
@@ -81,6 +87,7 @@ export const ids = {
   readingChatNewBtn: "biliscript-reading-chat-new-btn",
   readingChatOpenSettings: "biliscript-reading-chat-open-settings",
   readingChatAsrNotice: "biliscript-reading-chat-asr-notice",
+  readingChatLiveStatus: "biliscript-reading-chat-live-status",
   readingChatMessages: "biliscript-reading-chat-messages",
   readingChatSuggestions: "biliscript-reading-chat-suggestions",
   // 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。挂在

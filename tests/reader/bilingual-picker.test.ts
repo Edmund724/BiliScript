@@ -606,8 +606,10 @@ describe("副列的三套空态 + 单轨禁用", () => {
     expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
   });
 
-  it("单轨禁用：开关禁用 + 说明进列表区、页脚只留「双语字幕 + 开关」，不出双列", () => {
-    loadTracks([ASR_TRACK], "asr");
+  it("单轨禁用（真轨，非伪轨）：开关禁用 + 说明进列表区、页脚只留「双语字幕 + 开关」，不出双列", () => {
+    // 有 CC 但只有一条轨的视频不进译文场景（票 asr-panel-translation 的范围裁决）：
+    // 判据是伪轨身份，不是轨数。
+    loadTracks([SAMPLE_TRACKS[0]], "zh-CN");
     setBilingual(true, "en-US");
     shell.renderReadingView();
 

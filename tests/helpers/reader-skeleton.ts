@@ -87,8 +87,15 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   scriptPanel.className = "biliscript-reading-script-panel";
   readingView.appendChild(scriptPanel);
 
+  const readingHeader = doc.createElement("header");
+  readingHeader.className = "biliscript-reading-header";
+  scriptPanel.appendChild(readingHeader);
+
   const readingStatus = doc.createElement("p");
   readingStatus.id = ids.readingStatus;
+  readingStatus.setAttribute("role", "status");
+  readingStatus.setAttribute("aria-live", "polite");
+  readingStatus.setAttribute("aria-atomic", "true");
   scriptPanel.appendChild(readingStatus);
 
   const readingMeta = doc.createElement("div");
@@ -97,6 +104,9 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
 
   const readingSettingsPanel = doc.createElement("div");
   readingSettingsPanel.id = ids.readingSettingsPanel;
+  const readingSettingsBackBtn = doc.createElement("button");
+  readingSettingsBackBtn.id = ids.readingSettingsBackBtn;
+  readingSettingsPanel.appendChild(readingSettingsBackBtn);
   scriptPanel.appendChild(readingSettingsPanel);
 
   const tabSubtitle = doc.createElement("button");

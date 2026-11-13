@@ -244,11 +244,11 @@ let adts: typeof import("../../extension/asr/adts.js");
 let chunker: typeof import("../../extension/asr/chunker.js");
 let streamChunker: typeof import("../../extension/asr/stream-chunker.js");
 let pipeline: typeof import("../../extension/asr/pipeline.js");
-let gateway: typeof import("../../extension/bilibili/gateway.js");
+let contentTransport: typeof import("../../extension/bilibili/content-transport.js");
 
-// runAsrPipeline 的取音轨走 gateway.contentFetchJson（audio-source 的真实默认 transport）；
-// 只替换这一个传输口，其余 gateway 导出保持真身（URL 构造、选轨都在真模块里）。
-vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
+// runAsrPipeline 的取音轨走 content-transport.contentFetchJson（audio-source 的真实默认 transport）；
+// 只替换这一个传输口，URL 构造与选轨仍在真模块里。
+vi.mock("../../extension/bilibili/content-transport.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };
 });
@@ -259,7 +259,7 @@ beforeEach(async () => {
   chunker = await import("../../extension/asr/chunker.js");
   streamChunker = await import("../../extension/asr/stream-chunker.js");
   pipeline = await import("../../extension/asr/pipeline.js");
-  gateway = await import("../../extension/bilibili/gateway.js");
+  contentTransport = await import("../../extension/bilibili/content-transport.js");
 });
 
 afterEach(() => {
@@ -410,13 +410,12 @@ async function buildChainLayout(chunkSeconds = WALKTHROUGH_CHUNK_SECONDS): Promi
 }
 
 describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切片与全量切片对账）", () => {
-  it("生产片长下整段一片；自选 45s 片长下多片边界连续无缝、末片收尾", async () => {
+  it("生产片长下 60s 分片多片；自选 45s 片长下多片边界连续无缝、末片收尾", async () => {
     const layout = await buildChainLayout();
     const productionPlan = chunker.buildChunkPlan("openai-transcriptions");
-    expect(productionPlan).toEqual({ chunkSeconds: 300 });
-    // 真时长不足生产片长：这就是走查另取自选片长的原因
-    expect(layout.decodedDurationSec).toBeLessThan(productionPlan.chunkSeconds);
-    expect(chunker.decideChunks(layout.decodedDurationSec, productionPlan)).toHaveLength(1);
+    expect(productionPlan).toEqual({ chunkSeconds: 60 });
+    expect(layout.decodedDurationSec).toBeGreaterThan(productionPlan.chunkSeconds);
+    expect(chunker.decideChunks(layout.decodedDurationSec, productionPlan)).toHaveLength(3);
 
     const expected = chunker.decideChunks(layout.decodedDurationSec, { chunkSeconds: WALKTHROUGH_CHUNK_SECONDS });
     expect(layout.chunks.length).toBe(expected.length);
@@ -480,7 +479,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
     const selected = tracks.reduce((min, track) => (track.bandwidth < min.bandwidth ? track : min), tracks[0]);
 
     // 真 playurl 响应驱动真 audio-source 选轨（页面 transport 只按 URL 路由）
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async (url: string) => {
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async (url: string) => {
       if (url.includes("/x/player/playurl")) return PLAYURL_DASH;
       throw new Error(`unexpected url: ${url}`);
     });
@@ -554,7 +553,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
 
   it("转写失败片不参与合并，空结果诊断带真片数与失败计数", async () => {
     const layout = await buildChainLayout();
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async () => PLAYURL_DASH);
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async () => PLAYURL_DASH);
     const [first, second, third] = layout.chunks;
 
     const diagnostics: string[] = [];
@@ -583,7 +582,7 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
   });
 
   it("生产 playurl URL（platform=html5）无 dash 音轨：管线在取音轨处停下并报可读原因", async () => {
-    vi.mocked(gateway.contentFetchJson).mockImplementation(async (url: string) => {
+    vi.mocked(contentTransport.contentFetchJson).mockImplementation(async (url: string) => {
       expect(url).toContain("platform=html5");
       return PLAYURL_HTML5;
     });
@@ -722,7 +721,7 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账
         `- 真音频时长：${layout.audioDurationSec.toFixed(6)}s（${layout.frames} 帧 × 1024 采样 ÷ 48000）`,
         `- 生产片长：${chunker.buildChunkPlan("openai-transcriptions").chunkSeconds}s → ${
           chunker.decideChunks(layout.decodedDurationSec, chunker.buildChunkPlan("openai-transcriptions")).length
-        } 片（真时长不足一片）`,
+        } 片`,
         `- 走查自选片长：${WALKTHROUGH_CHUNK_SECONDS}s`,
         `- 解码采样数（由真帧数推出）：${layout.decodedSamples}（${layout.sampleCounts.join(" + ")}）`,
         `- 解码时长：${layout.decodedDurationSec.toFixed(6)}s`,

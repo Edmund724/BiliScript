@@ -30,23 +30,27 @@ import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timesta
 import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
-import { setMessage } from "../core/ui-status.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
+import { formatClock } from "../shared/clock-text.js";
+import type { ImagePart } from "../ai/types.js";
+import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
 // chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染与消息操作回调。
 export interface ChatStreamRendererDeps {
   messages: HTMLElement;
-  normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   smoothStream?: boolean;
   onRegenerate?: (historyIndex: number, node: HTMLDivElement) => void;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
   onExport?: (historyIndex: number, raw: string) => void;
-  onSpeak?: (button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
+  onSpeak?: (messageId: string, button: HTMLButtonElement, content: HTMLElement) => Promise<void> | void;
   onClear?: () => void;
   isRegenerationDisabled?: () => boolean;
+  // 消息操作反馈（导出失败等）：由装配方接到对话 tab 自己的通知通道
+  //（reader 侧 showConversationContextNotice），不借全局状态条——反馈留在对话上下文。
+  onNotice?: (message: string) => void;
 }
 
 export type ChatMessageSource = "live" | "replay";
@@ -64,7 +68,7 @@ export interface ChatContinuationSession {
 }
 
 export interface ChatMessageArea {
-  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string }) => void;
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string; images?: ImagePart[] }) => void;
   appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
   beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
   beginContinuation: (node: HTMLDivElement, opts?: { initialRaw?: string; thinking?: string }) => ChatContinuationSession;
@@ -95,7 +99,7 @@ export interface ChatAssistantTurn {
   stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
-  /** 联网搜索 tool-status → 时间线卡（插在本节点之前）。 */
+  /** 工具 tool-status → 时间线卡（插在本节点之前）。 */
   applySearchStatus: (msg: ChatToolStatusEvent) => void;
   /** 回放：把该回合的静态时间线卡插在本节点之前（回放只表达顺序）。 */
   attachSearchTimelineCard: (turn: HistorySearchTurn) => void;
@@ -152,6 +156,8 @@ interface ThinkingDisplayState {
  * 消费，不外露。
  */
 export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStreamRenderer {
+  const imageViewer = createChatImageViewer();
+  let nextMessageId = 0;
 
   // 自动滚动标志（原 sidepanel 模块级 shouldAutoScrollMessages，归位到本闭包）：
   // scroll 监听与恢复点经 setAutoScroll 写入，token flush / finalize /
@@ -184,13 +190,29 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string, images: ImagePart[] = []): void {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
-    if (messageId) {
-      node.setAttribute("data-message-id", messageId);
+    node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
+    const body = document.createElement("div");
+    body.className = "chat-msg-user-body";
+    body.textContent = text;
+    node.appendChild(body);
+    if (images.length) {
+      const imageStrip = document.createElement("div");
+      imageStrip.className = "chat-image-strip chat-msg-user-images";
+      images.forEach((image) => {
+        const item = document.createElement("div");
+        item.className = "chat-image-item";
+        item.appendChild(createChatImageViewButton(image, imageViewer, "已发送的图片"));
+        imageStrip.appendChild(item);
+      });
+      node.appendChild(imageStrip);
     }
-    node.textContent = text;
+    const actions = document.createElement("div");
+    actions.className = "chat-msg-actions";
+    actions.appendChild(createCopyButton("复制消息", () => text));
+    node.appendChild(actions);
     deps.messages.appendChild(node);
     // 只有发送路径（live）接管自动滚动并强制滚底；回放（replay）静默追加。
     if (source === "live") {
@@ -230,7 +252,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       const replayed = document.createElement("div");
       replayed.className = "chat-msg chat-msg-assistant";
       if (runId) replayed.setAttribute("data-run-id", runId);
-      if (messageId) replayed.setAttribute("data-message-id", messageId);
+      replayed.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
       deps.messages.appendChild(replayed);
       return replayed;
     }
@@ -251,7 +273,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 才能落到真实底部。
     node.className = "chat-msg chat-msg-assistant chat-msg-streaming";
     if (runId) node.setAttribute("data-run-id", runId);
-    if (messageId) node.setAttribute("data-message-id", messageId);
+    node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
     // 流式 token 累加器（原 dataset.raw）随占位节点初始化/重置，
     // 保证第二条消息不会串上上一条的流式文本。
     resetTokenStreamState(node);
@@ -681,31 +703,44 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     scheduleTokenFlush(node);
   }
   // =========================================================================
-  // 联网搜索时间线卡（spec §4，变体 B + 内联引用）
+  // 工具活动时间线卡（搜索含 spec §4 内联引用）
   // =========================================================================
   // tool-status 事件驱动的独立卡片，插在用户消息与回答（assistant 节点）之间：
-  // 头部 = 左置 chevron +「联网搜索」+ 最近一条查询词 + 右端状态（进行中
-  // 「搜索中…」，失败「搜索失败」，完成「N 条来源」）；每步一行 = 弹点 + 查询词
-  // + 结果数；完成后底部（虚线分隔）追加来源列表（序号 + 标题，整行点击新标签
-  // 打开 URL、悬停出预览卡）。状态按 assistant 节点隔离（WeakMap，与 token 流
-  // 累加器同契约：随占位节点建立、跨消息天然隔离，stream-reset 整卡清除重放）。
+  // 头部 = 左置 chevron + 工具类别 + 最近一条查询词或目标时间 + 右端状态；
+  // 每步一行 = 弹点 + 活动描述 + 结果。搜索完成后底部追加来源列表（整行点击
+  // 新标签打开 URL、悬停出预览卡）；历史截帧完成后在对应步骤内追加可查看的
+  // 实际帧。状态按 assistant 节点隔离（WeakMap，与 token 流累加器同契约：
+  // 随占位节点建立、跨消息天然隔离，stream-reset 整卡清除重放）。
   //
-  // 默认折叠（用户决议：卡片常驻展开太占空间）：头部一行即全部可见面，
-  // 整卡正文（步骤行 + 来源列表）收在折叠类后由 CSS 隐藏，点击头部展开回看。
+  // 搜索卡默认折叠，截帧卡为展示进行中与实际帧默认展开；点击头部切换折叠态。
   // 记忆只在本次会话内、按卡隔离（展开后后续 tool-status 事件不折回）；不落盘，
-  // 新卡 / 历史回放 / stream-reset 重建一律回到默认折叠。
+  // 新卡 / 历史回放 / stream-reset 重建一律回到各自默认折叠态。
   //
   // 来源编号跨搜索累计（到达顺序），与正文 [n] 内联引用、tool-loop 描述里的
   // 编号契约对齐（spec §4/§5）。悬停预览卡与列表行/cite 点击的新标签打开走
   // window.open（reader 对话 tab 在 content script 上下文，无 chrome.tabs）。
 
+  type SearchActivityStatus = "searching" | "done" | "failed" | "cancelled";
+  type ToolActivityKind = "web_search" | "capture_video_frame_at_time";
+
+  interface SearchStepState {
+    row: HTMLElement;
+    callId?: string;
+    kind: ToolActivityKind;
+    status: SearchActivityStatus;
+    frameCount: number;
+    expectedFrameCount: number;
+  }
+
   // 按节点隔离的时间线卡状态（键 = assistant 占位节点）。
   interface SearchCardState {
     card: HTMLElement;
-    // 头部「最近一条查询词」（每条 tool-status 事件刷新）。
     queryEl: HTMLElement;
     statusEl: HTMLElement;
     stepsEl: HTMLElement;
+    announcerEl: HTMLElement;
+    steps: SearchStepState[];
+    status: SearchActivityStatus;
     // 来源列表容器（首个带 sources 的 done 到达时创建；限高内滚）。
     sourcesWrap: HTMLElement | null;
     // 跨搜索累计的来源（编号顺序 = 到达顺序）。
@@ -714,9 +749,27 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
   const searchCardStates = new WeakMap<HTMLElement, SearchCardState>();
 
-  // 消息区滚动即收走悬停预览卡（showSourcePreview 写死的定位不随滚动更新，
-  // 滚动后卡片与锚点脱开，直接收走；passive 不阻塞滚动合帧）。
+  function isVideoFrameStatus(msg: ChatToolStatusEvent): boolean {
+    return msg.tool === "capture_video_frame_at_time";
+  }
+
+  function formatVideoFrameTime(seconds: unknown): string {
+    const formatted = formatClock(seconds, { hours: "auto" });
+    return formatted.includes(":") && formatted.split(":").length === 2
+      ? formatted.padStart(5, "0")
+      : formatted;
+  }
+
+  // 预览不随滚动重定位；滚动即收走，Esc 收起当前预览。
   deps.messages.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
+  deps.messages.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !deps.messages.querySelector("[data-chat-search-preview]")) {
+      return;
+    }
+    hideSourcePreview(deps.messages);
+    event.preventDefault();
+    event.stopPropagation();
+  });
 
   // 新标签打开 URL（来源列表行 / 内联引用共用的收口；url 非法时静默忽略）。
   function openSourceUrl(url: string): void {
@@ -727,9 +780,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     window.open(target, "_blank", "noopener");
   }
 
-  // 来源悬停预览卡（spec §4：标题 + 域名 + 内容摘录）。shared 定位父容器 =
-  // 消息滚动区（reader-chat.css 对 .chat-messages 设 position:relative），
-  // 锚点下方左对齐，左右钳制在容器内；同一时刻至多一张（data-chat-search-preview）。
+  // 预览坐标使用消息区内容坐标；底部空间不足时翻到锚点上方，并钳制在视口内。
   function showSourcePreview(container: HTMLElement, anchor: Element, source: ChatSearchSource): void {
     hideSourcePreview(container);
     let domain = "";
@@ -758,27 +809,44 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const anchorRect = anchor.getBoundingClientRect();
     const boxRect = container.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
+    const minLeft = container.scrollLeft + 4;
     const left = Math.min(
-      Math.max(anchorRect.left - boxRect.left - 40, 4),
-      Math.max(boxRect.width - cardRect.width - 4, 4)
+      Math.max(anchorRect.left - boxRect.left + container.scrollLeft - 40, minLeft),
+      Math.max(container.scrollLeft + boxRect.width - cardRect.width - 4, minLeft)
     );
+    const belowTop = anchorRect.bottom - boxRect.top + container.scrollTop + 6;
+    const aboveTop = anchorRect.top - boxRect.top + container.scrollTop - cardRect.height - 6;
+    const belowFits = anchorRect.bottom + 6 + cardRect.height <= boxRect.bottom;
+    const aboveFits = anchorRect.top - 6 - cardRect.height >= boxRect.top;
+    const preferAbove = !belowFits && (aboveFits || anchorRect.top - boxRect.top > boxRect.bottom - anchorRect.bottom);
+    const minTop = container.scrollTop + 4;
+    const viewportHeight = container.clientHeight || boxRect.height;
+    const maxTop = Math.max(container.scrollTop + viewportHeight - cardRect.height - 4, minTop);
+    const top = Math.min(Math.max(preferAbove ? aboveTop : belowTop, minTop), maxTop);
     card.style.left = `${left}px`;
-    card.style.top = `${anchorRect.bottom - boxRect.top + 6}px`;
+    card.style.top = `${top}px`;
   }
 
   function hideSourcePreview(container: HTMLElement): void {
     container.querySelectorAll("[data-chat-search-preview]").forEach((el) => el.remove());
   }
 
-  // 卡骨架共享构建器（live 与回放同构，spec §4）：头部（左置 chevron +「联网
-  // 搜索」+ 最近一条查询词 + 右端状态）+ 步骤容器。头部建卡即折叠态：整卡正文
-  // 只由 CSS 隐藏，展开是纯类切换、不重建 DOM。头部用 <button> 取按钮语义与
-  // Enter/Space 激活（不另造键盘处理），aria-expanded 与折叠类同步。
+  function bindSourcePreview(anchor: HTMLElement, source: ChatSearchSource): void {
+    anchor.addEventListener("mouseenter", () => showSourcePreview(deps.messages, anchor, source));
+    anchor.addEventListener("mouseleave", () => hideSourcePreview(deps.messages));
+    anchor.addEventListener("focus", () => showSourcePreview(deps.messages, anchor, source));
+    anchor.addEventListener("blur", () => hideSourcePreview(deps.messages));
+  }
+
+  // 卡骨架由搜索与历史截帧共用；独立 announcer 只承载工具终态。
   function createSearchCardShell(
-    statusText: string
-  ): { card: HTMLElement; queryEl: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement } {
+    statusText: string,
+    statusValue: SearchActivityStatus = "searching",
+    labelText = "联网搜索"
+  ): { card: HTMLElement; queryEl: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement; announcerEl: HTMLElement } {
     const card = document.createElement("div");
     card.className = "chat-search-card chat-search-card-collapsed";
+    card.dataset.status = statusValue;
     const head = document.createElement("button");
     head.type = "button";
     head.className = "chat-search-card-head";
@@ -789,8 +857,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
     const label = document.createElement("span");
     label.className = "chat-search-card-label";
-    label.textContent = "联网搜索";
-    // 查询词（最近一条）：空串时整段连分隔点一起收起（CSS :empty）。
+    label.textContent = labelText;
     const query = document.createElement("span");
     query.className = "chat-search-card-query";
     const status = document.createElement("span");
@@ -799,11 +866,16 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     head.append(createChevronSpan("chat-search-card-chevron"), label, query, status);
     const steps = document.createElement("div");
     steps.className = "chat-search-card-steps";
-    card.append(head, steps);
-    return { card, queryEl: query, statusEl: status, stepsEl: steps };
+    const announcer = document.createElement("div");
+    announcer.className = "chat-search-announcer";
+    announcer.setAttribute("role", "status");
+    announcer.setAttribute("aria-live", "polite");
+    announcer.setAttribute("aria-atomic", "true");
+    card.append(head, steps, announcer);
+    return { card, queryEl: query, statusEl: status, stepsEl: steps, announcerEl: announcer };
   }
 
-  // 步骤行共享构建器：running=true 为「搜索中…」进行中形态（live 路径），
+  // 步骤行共享构建器：running=true 为进行中形态（live 路径），
   // false 为终态行（回放路径，noteText 记结果数）。
   function createSearchStepRow(query: string, noteText: string, running: boolean): HTMLElement {
     const row = document.createElement("div");
@@ -820,20 +892,85 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return row;
   }
 
-  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement): SearchCardState {
-    const { card, queryEl, statusEl, stepsEl } = createSearchCardShell("搜索中…");
+  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement, msg: ChatToolStatusEvent): SearchCardState {
+    const videoFrame = isVideoFrameStatus(msg);
+    const { card, queryEl, statusEl, stepsEl, announcerEl } = createSearchCardShell(
+      videoFrame ? "截取中…" : "搜索中…",
+      "searching",
+      videoFrame ? "视频画面" : "联网搜索"
+    );
+    if (videoFrame) {
+      card.classList.remove("chat-search-card-collapsed");
+      card.querySelector(".chat-search-card-head")?.setAttribute("aria-expanded", "true");
+    }
     messages.insertBefore(card, assistantNode);
-    return { card, queryEl, statusEl, stepsEl, sourcesWrap: null, sources: [] };
+    return {
+      card,
+      queryEl,
+      statusEl,
+      stepsEl,
+      announcerEl,
+      steps: [],
+      status: "searching",
+      sourcesWrap: null,
+      sources: []
+    };
   }
 
-  function createSearchStep(stepsEl: HTMLElement, query: string): HTMLElement {
-    const row = createSearchStepRow(query, "搜索中…", true);
-    stepsEl.appendChild(row);
-    return row;
+  function createSearchStep(state: SearchCardState, query: string, callId: string | undefined, kind: ToolActivityKind): SearchStepState {
+    const existing = callId ? state.steps.find((step) => step.callId === callId) : undefined;
+    if (existing) {
+      return existing;
+    }
+    const row = createSearchStepRow(query, kind === "capture_video_frame_at_time" ? "截取中…" : "搜索中…", true);
+    state.stepsEl.appendChild(row);
+    const step = { row, callId, kind, status: "searching" as const, frameCount: 0, expectedFrameCount: 3 };
+    state.steps.push(step);
+    return step;
+  }
+
+  function announceSearchTerminal(state: SearchCardState, step: SearchStepState, status: Exclude<SearchActivityStatus, "searching">): void {
+    const videoFrame = step.kind === "capture_video_frame_at_time";
+    const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
+    const text = status === "done"
+      ? videoFrame
+        ? `已获取 ${step.frameCount} 张画面${missing ? `，缺失 ${missing} 张` : ""}`
+        : `搜索完成，共 ${state.sources.length} 条来源`
+      : status === "failed"
+        ? videoFrame ? "未取到画面，已按文字继续" : "搜索失败"
+        : videoFrame ? "画面截取已取消" : "搜索已取消";
+    state.announcerEl.setAttribute("role", status === "failed" ? "alert" : "status");
+    state.announcerEl.setAttribute("aria-live", status === "failed" ? "assertive" : "polite");
+    state.announcerEl.textContent = text;
+  }
+
+  function settleSearchStep(step: SearchStepState, status: Exclude<SearchActivityStatus, "searching">, noteText: string): void {
+    step.status = status;
+    step.row.classList.remove("is-running", "is-failed", "is-cancelled");
+    if (status === "failed" || status === "cancelled") {
+      step.row.classList.add(status === "failed" ? "is-failed" : "is-cancelled");
+    }
+    const note = step.row.querySelector(".chat-search-step-note");
+    if (note) {
+      note.textContent = noteText;
+    }
+  }
+
+  function setSearchCardStatus(state: SearchCardState, step: SearchStepState, status: SearchActivityStatus): void {
+    state.status = status;
+    state.card.dataset.status = status;
+    const videoFrame = step.kind === "capture_video_frame_at_time";
+    state.statusEl.textContent = status === "searching"
+      ? videoFrame ? "截取中…" : "搜索中…"
+      : status === "failed"
+        ? videoFrame ? "未取到画面" : "搜索失败"
+        : status === "cancelled"
+          ? "已取消"
+          : videoFrame ? `${step.frameCount} 张画面` : `${state.sources.length} 条来源`;
   }
 
   // 来源列表（虚线分隔 + 限高内滚）：每行 = 序号 + 标题（两行截断，title 属性给
-  // 完整 URL），整行点击新标签打开、悬停出预览卡。序号跨搜索累计（与正文 [n]
+  // 完整 URL），整行点击新标签打开、悬停或聚焦出预览卡。序号跨搜索累计（与正文 [n]
   // 内联引用同一套编号）。容器只建一次，后续 done 追加。
   // opts.paid = 本批来源来自付费平台（GLOSSARY「付费平台」）：行尾挂「付费」徽标，
   // 标注随 state.sources 累计（回放路径无此字段，自然不带徽标）；opts.notice =
@@ -850,7 +987,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     if (!state.sourcesWrap) {
       state.sourcesWrap = document.createElement("div");
       state.sourcesWrap.className = "chat-search-sources";
-      // 列表自身内滚不冒泡到消息区：滚动即收走预览卡（与消息区滚动同款纪律）。
       state.sourcesWrap.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
       state.card.appendChild(state.sourcesWrap);
     }
@@ -884,68 +1020,119 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       row.addEventListener("click", () => {
         openSourceUrl(source.url);
       });
-      row.addEventListener("mouseenter", () => {
-        showSourcePreview(deps.messages, row, source);
-      });
-      row.addEventListener("mouseleave", () => {
-        hideSourcePreview(deps.messages);
-      });
+      bindSourcePreview(row, source);
       state.sourcesWrap.appendChild(row);
     }
   }
 
+  function appendVideoFrameList(step: SearchStepState, msg: ChatToolStatusEvent): void {
+    const frames = Array.isArray(msg.frames) ? msg.frames.slice(0, 3) : [];
+    step.frameCount = typeof msg.resultCount === "number" ? msg.resultCount : frames.length;
+    step.expectedFrameCount = msg.expectedCount ?? 3;
+    if (!frames.length) {
+      return;
+    }
+    const list = document.createElement("div");
+    list.className = "chat-video-frame-results";
+    step.row.appendChild(list);
+    for (const frame of frames) {
+      const time = formatVideoFrameTime(frame.currentTime);
+      const item = document.createElement("div");
+      item.className = "chat-video-frame-item";
+      const button = createChatImageViewButton(frame.image, imageViewer, `视频在 ${time} 的实际画面`);
+      button.setAttribute("aria-label", `查看 ${time} 的实际画面`);
+      button.title = `查看 ${time} 的实际画面`;
+      const caption = document.createElement("span");
+      caption.className = "chat-video-frame-time";
+      caption.textContent = time;
+      item.append(button, caption);
+      list.appendChild(item);
+    }
+  }
+
+  const settledSearchTurns = new WeakSet<HTMLElement>();
+
   /**
    * applySearchStatus — tool-status 事件驱动时间线卡（live 流路径）。
-   * 首个事件建卡（插在 assistant 节点之前），头部查询词随事件刷成最近一条、
-   * searching 追加步骤行、done 补结果数与来源列表、failed 标记失败行；头部
-   * 右端状态随最近事件推进（进行中「搜索中…」/ 失败「搜索失败」/ 完成「N 条来源」）。
+   * callId 存在时按调用收口；无 callId 的旧事件沿用最近一条同类别进行中步骤。
    */
   function applySearchStatusToNode(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
-    if (!node || !node.parentNode) {
+    if (!node || !node.parentNode || settledSearchTurns.has(node)) {
       return;
     }
     let state = searchCardStates.get(node);
     if (!state) {
-      state = createSearchCard(deps.messages, node);
+      state = createSearchCard(deps.messages, node, msg);
       searchCardStates.set(node, state);
     }
-    state.queryEl.textContent = String(msg.query || "");
+    const videoFrame = isVideoFrameStatus(msg);
+    const kind: ToolActivityKind = videoFrame ? "capture_video_frame_at_time" : "web_search";
+    const label = state.card.querySelector(".chat-search-card-label");
+    if (label) {
+      label.textContent = videoFrame ? "视频画面" : "联网搜索";
+    }
+    const target = videoFrame ? formatVideoFrameTime(msg.targetTime) : "";
+    state.queryEl.textContent = videoFrame ? `${target} 附近` : String(msg.query || "");
     if (msg.status === "searching") {
-      state.statusEl.textContent = "搜索中…";
-      createSearchStep(state.stepsEl, String(msg.query || ""));
+      const stepText = videoFrame ? `正在回看 ${target} 附近画面…` : String(msg.query || "");
+      const step = createSearchStep(state, stepText, msg.callId, kind);
+      if (step.status !== "searching") {
+        return;
+      }
+      setSearchCardStatus(state, step, "searching");
+      state.announcerEl.textContent = "";
       return;
     }
-    // 收口最近一条 searching 步骤行（事件顺序保证属于本次查询）。
-    const runningRow = state.stepsEl.querySelector(".chat-search-step.is-running:last-of-type");
-    if (msg.status === "failed") {
-      if (runningRow) {
-        runningRow.classList.remove("is-running");
-        runningRow.classList.add("is-failed");
-        const note = runningRow.querySelector(".chat-search-step-note");
-        if (note) {
-          note.textContent = "搜索失败";
-        }
-      }
-      state.statusEl.textContent = "搜索失败";
+    const step = msg.callId
+      ? state.steps.find((candidate) => candidate.callId === msg.callId)
+      : [...state.steps].reverse().find((candidate) => candidate.kind === kind && candidate.status === "searching");
+    if (!step || step.status !== "searching") {
       return;
     }
-    // done：步骤行补「N 条 · <实际引擎>」+ 头部来源数 + 来源列表。平台名来自
-    // tool-status.platform（命中缓存时 runtime 已把它换成缓存记录的那家），
-    // 缺省时退回纯条数；头部「N 条来源」保持只讲条数。
-    if (runningRow) {
-      runningRow.classList.remove("is-running");
-      const note = runningRow.querySelector(".chat-search-step-note");
-      if (note) {
-        const platform = String(msg.platform || "").trim();
-        note.textContent = typeof msg.resultCount === "number"
-          ? `${msg.resultCount} 条${platform ? ` · ${platform}` : ""}`
-          : "";
+    if (msg.status === "failed" || msg.status === "cancelled") {
+      const failureText = videoFrame ? "未取到画面，已按文字继续" : "搜索失败";
+      settleSearchStep(step, msg.status, msg.status === "failed" ? failureText : "已取消");
+    } else if (videoFrame) {
+      appendVideoFrameList(step, msg);
+      const missing = Math.max(0, step.expectedFrameCount - step.frameCount);
+      settleSearchStep(step, "done", `${step.frameCount} 张${missing ? `，缺失 ${missing} 张` : ""}`);
+    } else {
+      const platform = String(msg.platform || "").trim();
+      settleSearchStep(step, "done", typeof msg.resultCount === "number"
+        ? `${msg.resultCount} 条${platform ? ` · ${platform}` : ""}`
+        : "");
+      if (Array.isArray(msg.sources) && (msg.sources.length || msg.paidFallbackNotice)) {
+        appendSourceList(state, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
       }
     }
-    if (Array.isArray(msg.sources) && (msg.sources.length || msg.paidFallbackNotice)) {
-      appendSourceList(state, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
+    const running = state.steps.filter((candidate) => candidate.status === "searching");
+    setSearchCardStatus(state, running[running.length - 1] ?? step, running.length ? "searching" : msg.status);
+    if (!running.length) {
+      announceSearchTerminal(state, step, msg.status);
     }
-    state.statusEl.textContent = `${state.sources.length} 条来源`;
+  }
+
+  function settleSearchCard(node: HTMLDivElement | null, status: "failed" | "cancelled"): void {
+    if (!node) {
+      return;
+    }
+    settledSearchTurns.add(node);
+    hideSourcePreview(deps.messages);
+    const state = searchCardStates.get(node);
+    if (!state) {
+      return;
+    }
+    const running = state.steps.filter((step) => step.status === "searching");
+    if (!running.length) {
+      return;
+    }
+    for (const step of running) {
+      const failureText = step.kind === "capture_video_frame_at_time" ? "未取到画面，已按文字继续" : "搜索失败";
+      settleSearchStep(step, status, status === "failed" ? failureText : "已取消");
+    }
+    const latest = running[running.length - 1];
+    setSearchCardStatus(state, latest, status);
+    announceSearchTerminal(state, latest, status);
   }
 
   // 终态收口取本回合累计来源（finalize / stopped 传给 renderAssistantMessage
@@ -965,6 +1152,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       return;
     }
     searchCardStates.delete(node);
+    settledSearchTurns.delete(node);
     const previous = node.previousElementSibling;
     if (previous?.classList.contains("chat-search-card")) {
       previous.remove();
@@ -980,12 +1168,22 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
    * 状态记来源条数；列表行点击与悬停引用同 openSourceUrl / showSourcePreview。
    */
   function buildSearchTimelineCard(turn: HistorySearchTurn): HTMLElement {
-    const { card, queryEl, stepsEl } = createSearchCardShell(`${turn.sources.length} 条来源`);
+    const { card, queryEl, stepsEl, announcerEl } = createSearchCardShell(`${turn.sources.length} 条来源`, "done");
     queryEl.textContent = turn.queries[turn.queries.length - 1] ?? "";
     turn.queries.forEach((query, i) => {
       stepsEl.appendChild(createSearchStepRow(query, `${turn.resultCounts[i] ?? 0} 条`, false));
     });
-    const replayState: SearchCardState = { card, queryEl, statusEl: card.querySelector(".chat-search-card-status")!, stepsEl, sourcesWrap: null, sources: [] };
+    const replayState: SearchCardState = {
+      card,
+      queryEl,
+      statusEl: card.querySelector(".chat-search-card-status")!,
+      stepsEl,
+      announcerEl,
+      steps: [],
+      status: "done",
+      sourcesWrap: null,
+      sources: []
+    };
     appendSourceList(replayState, turn.sources);
     return card;
   }
@@ -994,7 +1192,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // renderSearchCitations — 正文 [n] → 内联引用（spec §4）
   // =========================================================================
   // 流结束后（renderAssistantMessage）把正文文本节点里的 [n] 换成上标引用：
-  // 点击新标签打开来源 URL；悬停出预览卡（标题 + 域名 + 摘录 200 字符）。
+  // 点击或 Enter/Space 打开来源 URL；悬停或聚焦出预览卡（标题 + 域名 + 摘录 200 字符）。
   // 只处理不在 a / code / pre / button / sup 内的文本节点（时间戳 linkify
   // 同款 walker 纪律），编号越界（模型编造 / 历史截断）按纯文本保留。
 
@@ -1004,7 +1202,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     if (!sources.length) {
       return;
     }
-    const container = deps.messages;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const textNodes: Text[] = [];
     while (walker.nextNode()) {
@@ -1042,17 +1239,22 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         } else {
           const cite = document.createElement("sup");
           cite.className = "chat-cite";
+          cite.tabIndex = 0;
+          cite.setAttribute("role", "button");
+          cite.setAttribute("aria-label", `打开来源 ${index}：${source.title || source.url}`);
           cite.setAttribute("data-cite-url", source.url);
           cite.textContent = marker;
           cite.addEventListener("click", () => {
             openSourceUrl(source.url);
           });
-          cite.addEventListener("mouseenter", () => {
-            showSourcePreview(container, cite, source);
+          cite.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+              return;
+            }
+            event.preventDefault();
+            openSourceUrl(source.url);
           });
-          cite.addEventListener("mouseleave", () => {
-            hideSourcePreview(container);
-          });
+          bindSourcePreview(cite, source);
           fragment.append(cite);
         }
         lastIndex = match.index + marker.length;
@@ -1073,7 +1275,32 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     button.className = `chat-msg-action-btn ${className}`;
     button.setAttribute("aria-label", label);
     button.setAttribute("title", label);
-    button.innerHTML = icon;
+    button.innerHTML = icon.trim();
+    return button;
+  }
+
+  function createCopyButton(label: string, getRaw: () => string): HTMLButtonElement {
+    const button = createActionButton("chat-msg-copy-btn", label, READING_COPY_ICON);
+    button.disabled = !getRaw().trim();
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(getRaw());
+        flashCopySuccess(button, { originalSvg: READING_COPY_ICON, originalLabel: label });
+      } catch {
+        deps.onNotice?.("复制失败，请检查浏览器剪贴板权限后重试");
+      }
+    });
+    return button;
+  }
+
+  function createContinueButton(node: HTMLDivElement, historyIndex?: number): HTMLButtonElement {
+    const button = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
+    button.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
+    button.addEventListener("click", () => {
+      if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
+        deps.onContinue?.(historyIndex, node);
+      }
+    });
     return button;
   }
 
@@ -1083,14 +1310,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       stopped = false,
       historyIndex,
       content,
-      getPasteReadyRaw,
       hasSpeakableContent = false,
       cleanedRaw = ""
     }: {
       stopped?: boolean;
       historyIndex?: number;
       content?: HTMLElement;
-      getPasteReadyRaw?: () => string;
       hasSpeakableContent?: boolean;
       cleanedRaw?: string;
     } = {}
@@ -1106,49 +1331,26 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
     });
 
-    if (stopped) {
-      actions.appendChild(regenerateBtn);
-
-      const continueBtn = createActionButton("chat-msg-continue-btn", "继续生成", READING_PLAY_ICON);
-      continueBtn.disabled = historyIndex === undefined || Boolean(deps.isRegenerationDisabled?.());
-      continueBtn.addEventListener("click", () => {
-        if (historyIndex !== undefined && !deps.isRegenerationDisabled?.()) {
-          deps.onContinue?.(historyIndex, node);
-        }
-      });
-      actions.appendChild(continueBtn);
+    if (stopped && !content) {
+      actions.append(regenerateBtn, createContinueButton(node, historyIndex));
       return actions;
     }
 
-    const copyBtn = createActionButton("chat-msg-copy-btn", "复制回复", READING_COPY_ICON);
-    copyBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(getPasteReadyRaw ? getPasteReadyRaw() : "");
-        setMessage("回复已复制到剪贴板。");
-        flashCopySuccess(copyBtn, {
-          originalSvg: READING_COPY_ICON,
-          originalLabel: "复制回复"
-        });
-      } catch {
-        copyBtn.disabled = true;
-        window.setTimeout(() => {
-          copyBtn.disabled = false;
-        }, 500);
-      }
-    });
-    actions.appendChild(copyBtn);
+    actions.appendChild(createCopyButton("复制回复", () => cleanedRaw));
 
     const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
     speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
     speakBtn.setAttribute("aria-pressed", "false");
     speakBtn.addEventListener("click", () => {
       if (content) {
-        void deps.onSpeak?.(speakBtn, content);
+        void deps.onSpeak?.(node.dataset.messageId || "", speakBtn, content);
       }
     });
-    actions.appendChild(speakBtn);
+    actions.append(speakBtn, regenerateBtn);
 
-    actions.appendChild(regenerateBtn);
+    if (stopped) {
+      actions.appendChild(createContinueButton(node, historyIndex));
+    }
 
     const exportBtn = createActionButton("chat-msg-export-btn", "导出 Markdown", READING_DOWNLOAD_ICON);
     exportBtn.disabled = historyIndex === undefined || !cleanedRaw.trim();
@@ -1157,9 +1359,9 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         return;
       }
       try {
-        deps.onExport?.(historyIndex, getPasteReadyRaw ? getPasteReadyRaw() : "");
+        deps.onExport?.(historyIndex, cleanedRaw);
       } catch (error) {
-        setMessage(`导出失败：${getErrorMessage(error)}`);
+        deps.onNotice?.(`导出失败：${getErrorMessage(error)}`);
       }
     });
     actions.appendChild(exportBtn);
@@ -1193,13 +1395,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       node.appendChild(thinkingEl);
     }
     const cleanedRaw = stripThinkBlocks(raw);
-    let cachedPasteReadyRaw: string | null = null;
-    function getPasteReadyRaw(): string {
-      if (cachedPasteReadyRaw === null) {
-        cachedPasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
-      }
-      return cachedPasteReadyRaw;
-    }
 
     const content = document.createElement("div");
     content.className = "chat-msg-assistant-body markdown-body";
@@ -1216,7 +1411,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       stopped,
       historyIndex,
       content,
-      getPasteReadyRaw,
       hasSpeakableContent,
       cleanedRaw
     });
@@ -1252,6 +1446,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     let thinkingNode: HTMLDivElement | null = null;
     let thinkingEnded = false;
     let accumulatedThinking = opts?.initialThinking || "";
+    let terminalHistoryIndex: number | undefined;
 
     function flushPendingThinking(): void {
       const state = getTokenStreamState(node);
@@ -1326,8 +1521,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
     // 回放显式传来源（含空数组），不触发这条消费副作用。
     function finish({ raw, thinking, stopped = false, userPrompt = "", sources, historyIndex }: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number } = {}): string {
+      terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
+      settleSearchCard(node, "cancelled");
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
       const finalThinking = typeof thinking === "string" && thinking.trim() ? thinking : accumulatedThinking;
       if (stopped) {
@@ -1368,6 +1565,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     function fail(text: string): void {
       flushPendingThinking();
       cancelTokenFlush();
+      settleSearchCard(node, "failed");
       const state = getTokenStreamState(node);
       for (const thinking of state.allThinking) {
         cancelThinkingFrame(thinking);
@@ -1379,8 +1577,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 挂停止态：自动取消挂起的流式渲染帧；
     // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
     function stop(reason: string, { userPrompt = "", historyIndex }: { userPrompt?: string; historyIndex?: number } = {}): { raw: string; body: boolean } {
+      terminalHistoryIndex = historyIndex;
       flushPendingThinking();
       cancelTokenFlush();
+      settleSearchCard(node, "cancelled");
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
@@ -1439,6 +1639,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     function markTruncated(text: string): void {
+      const actions = node.querySelector(".chat-msg-actions");
+      if (actions && !actions.querySelector(".chat-msg-continue-btn")) {
+        actions.insertBefore(createContinueButton(node, terminalHistoryIndex), actions.querySelector(".chat-msg-export-btn"));
+      }
       appendBadge(node, "chat-msg-truncated", text);
     }
 
@@ -1455,6 +1659,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 丢弃在途回合（拆除清场）：取消挂起渲染帧并释放累加器，不破坏节点已有 DOM。
     function discard(): void {
       cancelTokenFlush();
+      settleSearchCard(node, "cancelled");
       const state = getTokenStreamState(node);
       for (const thinking of state.allThinking) {
         cancelThinkingFrame(thinking);
@@ -1487,6 +1692,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const previous = node.previousElementSibling;
     const originalSearchCard = previous?.classList.contains("chat-search-card") ? previous : null;
     originalSearchCard?.remove();
+    searchCardStates.delete(node);
+    settledSearchTurns.delete(node);
     const following: HTMLElement[] = [];
     let next = node.nextElementSibling;
     while (next) {
@@ -1560,6 +1767,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   ): ChatContinuationSession {
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalChildren = Array.from(node.childNodes);
+    settledSearchTurns.delete(node);
 
     cancelTokenFlush();
     const oldState = getTokenStreamState(node);
@@ -1568,7 +1776,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     resetTokenStreamState(node);
 
-    node.querySelectorAll(".chat-msg-stopped").forEach((el) => el.remove());
+    node.querySelectorAll(".chat-msg-stopped, .chat-msg-truncated").forEach((el) => el.remove());
     node.querySelectorAll(".chat-msg-actions").forEach((el) => el.remove());
 
     const existingThinking = Array.from(node.querySelectorAll<HTMLDivElement>(".chat-thinking"));
@@ -1639,8 +1847,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   const messageArea: ChatMessageArea = {
-    appendUserMessage(text, { source = "live", messageId } = {}) {
-      appendUserMessageNode(text, source, messageId);
+    appendUserMessage(text, { source = "live", messageId, images = [] } = {}) {
+      appendUserMessageNode(text, source, messageId, images);
     },
     appendAssistantMessage({ source = "live", runId, messageId } = {}) {
       return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
@@ -1654,6 +1862,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     },
     clear() {
       deps.onClear?.();
+      imageViewer.close();
       deps.messages.innerHTML = "";
     }
   };

@@ -1482,6 +1482,187 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
   });
 });
 
+// 票 09「模型拉取内联与选择保留」：子视图无第二张遮罩、选择集跨过滤保留、
+// 全选三态只作用可见未添加项、确认计数含隐藏已选并说明、重复确认不造重复行。
+describe("provider-editor：「获取可用模型」内联子视图与选择保留（票 09）", () => {
+  async function openFetchSubview(host: HTMLElement) {
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item").length).toBeGreaterThan(0);
+    });
+    return { dialog, subview: document.querySelector<HTMLElement>(".provider-editor-fetch-dialog")! };
+  }
+
+  function checkOf(model: string): HTMLInputElement {
+    return document.querySelector<HTMLInputElement>(`.provider-editor-fetch-check[value="${model}"]`)!;
+  }
+
+  function setSearch(value: string) {
+    const search = document.querySelector<HTMLInputElement>(".provider-editor-fetch-search")!;
+    search.value = value;
+    search.dispatchEvent(new Event("input"));
+  }
+
+  it("内联子视图：渲染在编辑器 Dialog 内且无第二张遮罩", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
+    });
+    const { dialog, subview } = await openFetchSubview(host);
+
+    expect(subview).toBeTruthy();
+    expect(subview.closest(".provider-editor-dialog")).toBe(dialog);
+    expect(document.querySelector(".provider-editor-fetch-mask")).toBeNull();
+    // 子视图动作齐备：返回（头部）、取消与「添加所选」（底部）
+    expect(subview.querySelector(".provider-editor-fetch-back")!.textContent).toContain("返回");
+    expect(subview.querySelector(".provider-editor-fetch-cancel")).toBeTruthy();
+    expect(subview.querySelector(".provider-editor-fetch-confirm")).toBeTruthy();
+  });
+
+  it("打开子视图即移焦到子视图，Esc 只退回编辑器并把焦点还给「获取可用模型」", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
+    });
+    const { dialog } = await openFetchSubview(host);
+
+    // 焦点进入当前层（子视图返回键），不留在下层编辑器
+    expect(document.activeElement).toBe(document.querySelector(".provider-editor-fetch-back"));
+    // 子视图在 Dialog 内：编辑器的焦点陷阱仍约束整个层
+    expect(document.querySelector(".provider-editor-fetch-dialog")!.closest(".provider-editor-dialog")).toBe(dialog);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-fetch"));
+  });
+
+  it("先选 A、过滤选 B：选择集跨搜索过滤保留，确认加入全量已选", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["model-a", "model-b", "model-c"] })
+    });
+    const { dialog } = await openFetchSubview(host);
+
+    // 先选 A
+    fireClick(checkOf("model-a"));
+    expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (1)");
+    // 过滤到只剩 B，勾选 B——A 的选择在过滤与重渲后保留
+    setSearch("model-b");
+    expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
+    fireClick(checkOf("model-b"));
+    expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (2)");
+    // 清掉过滤：A、B 均回填勾选
+    setSearch("");
+    expect(checkOf("model-a").checked).toBe(true);
+    expect(checkOf("model-b").checked).toBe(true);
+    expect(checkOf("model-c").checked).toBe(false);
+
+    fireClick(document.querySelector(".provider-editor-fetch-confirm"));
+    expect(
+      Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["model-a", "model-b"]);
+  });
+
+  it("全选三态：部分勾选为 indeterminate；全选只作用于当前可见且未添加项", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o", "o1-mini"] })
+    });
+    await openFetchSubview(host);
+    const all = document.querySelector<HTMLInputElement>(".provider-editor-fetch-all")!;
+
+    // 过滤到 2 项，勾选 1 项：全选为半选态
+    setSearch("gpt");
+    fireClick(checkOf("gpt-4o"));
+    expect(all.indeterminate).toBe(true);
+    expect(all.checked).toBe(false);
+
+    // 点全选：只勾当前可见 2 项（隐藏的 o1-mini 不受影响）
+    fireClick(all);
+    expect(all.checked).toBe(true);
+    expect(all.indeterminate).toBe(false);
+    expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(2);
+
+    // 再点全选：可见项整体去勾
+    fireClick(all);
+    expect(all.checked).toBe(false);
+    expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(0);
+    expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.disabled).toBe(true);
+  });
+
+  it("确认计数包含隐藏已选项，并说明不可见选择数量", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["model-a", "model-b", "model-c"] })
+    });
+    await openFetchSubview(host);
+
+    fireClick(checkOf("model-a"));
+    setSearch("model-b");
+    fireClick(checkOf("model-b"));
+
+    const note = document.querySelector<HTMLElement>(".provider-editor-fetch-note")!;
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toBe("另有 1 项已选不在当前筛选结果中");
+    expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.textContent).toBe("添加所选 (2)");
+
+    // 过滤词扩大可见面：不可见数量归零，说明隐藏
+    setSearch("model-");
+    expect(document.querySelector<HTMLElement>(".provider-editor-fetch-note")!.hidden).toBe(true);
+  });
+
+  it("已添加模型保持禁用标识，重复确认不会制造重复目录项", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o"] })
+    });
+    const { dialog } = await openFetchSubview(host);
+
+    // 第一次确认：全选 → 追加 2 行
+    fireClick(document.querySelector(".provider-editor-fetch-all"));
+    fireClick(document.querySelector(".provider-editor-fetch-confirm"));
+    expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(2);
+
+    // 重开子视图：已添加项禁用标注「已添加」，确认钮不数它们
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
+    });
+    const addedCheck = checkOf("gpt-4o-mini");
+    expect(addedCheck.disabled).toBe(true);
+    expect(addedCheck.closest(".provider-editor-fetch-item")!.textContent).toContain("已添加");
+    expect(document.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm")!.disabled).toBe(true);
+
+    // 勾目录外项再确认：已添加项不会被重复追加
+    fireClick(checkOf("gpt-4o"));
+    fireClick(document.querySelector(".provider-editor-fetch-confirm"));
+    expect(
+      Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["gpt-4o-mini", "gpt-4o"]);
+  });
+
+  it("返回与取消只退回平台编辑器：草稿保留、dirty 保护不触发", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
+    });
+    const { dialog } = await openFetchSubview(host);
+
+    // 头部「返回」：子视图消失、编辑器仍在、草稿字段原样
+    fireClick(document.querySelector(".provider-editor-fetch-back"));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
+    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("https://token.sensenova.cn/v1");
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+
+    // 底部「取消」同款语义
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
+    });
+    fireClick(document.querySelector(".provider-editor-fetch-cancel"));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
+  });
+});
+
 describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-picker，ASR 侧保留）", () => {
   it("ASR：点箭头 → 先申请权限再调 listAsrModels", async () => {
     const { listAsrModels } = await import("../../extension/asr/provider-models.js");
@@ -1503,9 +1684,10 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
 
 // M9 校验态现代化：字段级错误态不再走手写 input-error 类，改为原生约束
 //（required / pattern）+ reader-settings-providers.css 的 :user-invalid/:user-valid
-// CSS 校验态——浏览器只在用户提交过值（blur）或尝试提交后才进入
-// :user-invalid，天然满足「仅在用户交互后展示错误」。这里锁定属性面：
-// 保存链报文语义与校验口径零改动（JS validators 仍是权威，上方用例覆盖）。
+// CSS 校验态；提交后的字段错误定位（aria-invalid + 字段文案 + 聚焦首个无效字段）
+// 收在 provider-editor-validation（tests/ui/provider-editor-form.test.ts 覆盖）。
+// 这里锁定原生约束属性面：保存链报文语义与校验口径零改动（JS validators 仍是
+// 权威，上方用例覆盖）。
 describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验态的属性面）", () => {
   it("新增 AI（custom 预设）：baseUrl required+pattern、Key required；模型目录行无原生必填（空目录合法 Q13）", async () => {
     const { host } = await mountPanel();
@@ -1554,19 +1736,18 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.required).toBe(true);
   });
 
-  it("可达性桥：blur/input 同步 aria-invalid 不抛错；jsdom 无 :user-invalid 判定时属性面保持干净", async () => {
+  it("未提交校验时输入 / blur 不挂 aria-invalid（字段错误态由提交后的校验维护）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
     const baseUrl = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
 
-    // 有效值 input + blur：桥照常运行（Chrome 上 matches(":user-invalid") 为 false
-    // → 摘属性；jsdom 恒 false，负向路径一致）
+    // 有效值 input + blur：未提交校验，不产生字段错误属性
     baseUrl.value = "https://api.example.com/v1";
     baseUrl.dispatchEvent(new Event("input", { bubbles: true }));
     baseUrl.dispatchEvent(new FocusEvent("blur"));
     expect(baseUrl.getAttribute("aria-invalid")).toBeNull();
 
-    // 非输入控件（dialog 本身、按钮）不进桥
+    // 非输入控件（dialog 本身、按钮）不参与字段错误
     expect(() => dialog.dispatchEvent(new FocusEvent("blur"))).not.toThrow();
     expect(() => dialog.querySelector(".provider-editor-save")!.dispatchEvent(new Event("input", { bubbles: true }))).not.toThrow();
     expect(dialog.querySelector(".provider-editor-save")!.getAttribute("aria-invalid")).toBeNull();

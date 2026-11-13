@@ -71,18 +71,44 @@ declare namespace chrome {
       addListener(listener: (details: { reason: string }) => void): void;
     }
 
+    interface OnStartup {
+      addListener(listener: () => void): void;
+    }
+
     const onConnect: OnConnect;
     const onMessage: OnMessage;
     const onInstalled: OnInstalled;
+    const onStartup: OnStartup;
   }
 
   namespace action {
     // 工具栏 action（manifest.action，无 default_popup）：点击事件在
     // entry/background.ts 顶层同步注册（MV3：SW 重启后监听器须在首个事件前
-    // 就位）。本仓库只用 onClicked，不扩展未使用的表面。
+    // 就位）。徽标/标题表面供非支持页可见反馈（工单 04，
+    // extension/entry/unsupported-page-feedback.ts）。不扩展未使用的表面。
     interface OnClickedEvent {
       addListener(listener: (tab: tabs.Tab) => void): void;
     }
+
+    interface BadgeTextDetails {
+      tabId?: number;
+      text: string;
+    }
+
+    interface BadgeBackgroundColorDetails {
+      tabId?: number;
+      color: string | [number, number, number, number];
+    }
+
+    interface TitleDetails {
+      tabId?: number;
+      // 空字符串清除标题并回落 manifest.action.default_title（Chrome 语义）。
+      title: string;
+    }
+
+    function setBadgeText(details: BadgeTextDetails): Promise<void>;
+    function setBadgeBackgroundColor(details: BadgeBackgroundColorDetails): Promise<void>;
+    function setTitle(details: TitleDetails): Promise<void>;
 
     const onClicked: OnClickedEvent;
   }
@@ -92,6 +118,7 @@ declare namespace chrome {
       id?: number;
       status?: string;
       url?: string;
+      title?: string;
     }
 
     interface CreateProperties {
@@ -109,13 +136,27 @@ declare namespace chrome {
     }
 
     function get(tabId: number): Promise<Tab>;
-    function query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<Tab[]>;
+    function query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[] }): Promise<Tab[]>;
     function create(createProperties: CreateProperties): Promise<Tab>;
     function update(tabId: number, updateProperties: UpdateProperties): Promise<Tab>;
     function reload(tabId: number): Promise<void>;
     function sendMessage(tabId: number, message: unknown, responseCallback?: (response: unknown) => void): void;
 
     const onUpdated: OnUpdatedEvent;
+  }
+
+  namespace alarms {
+    interface Alarm {
+      name: string;
+    }
+
+    interface OnAlarm {
+      addListener(listener: (alarm: Alarm) => void): void;
+    }
+
+    function create(name: string, alarmInfo: { periodInMinutes: number }): Promise<void>;
+    function clear(name: string): Promise<boolean>;
+    const onAlarm: OnAlarm;
   }
 
   namespace storage {
@@ -163,6 +204,9 @@ declare namespace chrome {
 
     function executeScript(injection: { target: InjectionTarget; files: string[] }): Promise<InjectionResult[]>;
     function executeScript(injection: { target: InjectionTarget; func: () => unknown }): Promise<InjectionResult[]>;
+    // func + args：非支持页页内提示的轻量注入（工单 04），func 被序列化进目标页，
+    // 不得闭包引用模块作用域（闭包引用在序列化后失效）。
+    function executeScript(injection: { target: InjectionTarget; func: (...args: never[]) => unknown; args?: unknown[] }): Promise<InjectionResult[]>;
     function insertCSS(injection: { target: InjectionTarget; files: string[] }): Promise<void>;
   }
 
@@ -214,6 +258,7 @@ declare namespace chrome {
     interface RuleAction {
       type: string;
       requestHeaders?: ModifyHeaderInfo[];
+      responseHeaders?: ModifyHeaderInfo[];
     }
 
     interface RuleCondition {

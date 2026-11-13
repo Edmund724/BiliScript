@@ -1,0 +1,23 @@
+{
+  "note": "票 13（凭据、编辑器与授权真机验收）的可提交数据：假 Key、AI 平台模型列表、搜索平台应答。全部是 fixture，不是真实凭据；场景只读，并按各自形状自检。",
+  "fakeKeys": {
+    "chat": "fixture-chat-key-not-real",
+    "liveRoundTrip": "fixture-live-roundtrip-key-not-real",
+    "searchRoundTrip": "fixture-search-roundtrip-key-not-real",
+    "aiFixtureHost": "fixture-ai-host-key-not-real",
+    "liveFixtureHost": "fixture-live-host-key-not-real"
+  },
+  "aiModels": ["fixture-model-alpha", "fixture-model-beta", "fixture-model-gamma"],
+  "searchAnySearch": {
+    "data": {
+      "results": [
+        {
+          "title": "票13验收搜索结果",
+          "url": "https://example.com/fixture-search-result",
+          "snippet": "离线 fixture 摘要"
+        }
+      ]
+    }
+  },
+  "searchTavilyFailure": { "detail": "fixture tavily failure" }
+}

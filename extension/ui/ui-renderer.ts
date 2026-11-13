@@ -14,6 +14,7 @@ import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 // 在 reader/lazy-reader 内部）。
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
+import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode } from "../reader/settings-mode.js";
 // tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
 //（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
 // ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
@@ -75,7 +76,7 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingThemeSelect}" type="button" class="biliscript-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
                   ${themeView.icon}
                 </button>
-                <button id="${ids.readingSettingsBtn}" type="button" class="biliscript-reading-icon-btn" title="设置" aria-label="设置">
+                <button id="${ids.readingSettingsBtn}" type="button" class="biliscript-reading-icon-btn" title="设置" aria-label="设置" aria-pressed="false">
                   ${READING_HEADER_ICONS.settings}
                 </button>
                 <button id="${ids.readingCloseBtn}" type="button" class="biliscript-reading-icon-btn" title="退出" aria-label="退出阅读视图">
@@ -84,7 +85,7 @@ export function buildUiHtml(): string {
               </div>
             </header>
 
-            <p id="${ids.readingStatus}" class="biliscript-reading-status" hidden></p>
+            <p id="${ids.readingStatus}" class="biliscript-reading-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
@@ -93,16 +94,24 @@ export function buildUiHtml(): string {
                    三开关退役时移入字幕 tab 工具条的字幕语言下拉也已删除
                    （2026-10 用户决议）。 -->
               <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
-                <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host"></div>
+                <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">
+                  <div class="biliscript-settings-nav-bar">
+                    <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-settings-back-btn" title="返回" aria-label="返回">
+                      ${READING_HEADER_ICONS.back}
+                    </button>
+                  </div>
+                </div>
               </section>
             </section>
 
             <!-- 标签行（方案对比 .scratch/chat-top-layout 选定「头部归并」）：分段控件 +
-                 对话工具键（历史对话 / 新会话）同一行——原对话 tab 内的 .chat-header
-                 工具条整行退役，省出的纵高让给消息区。两键是壳节点（id 不变，对话组合
+                 对话工具键（更多操作）同一行——原对话 tab 内的 .chat-header
+                 工具条整行退役，省出的纵高让给消息区。键是壳节点（id 不变，对话组合
                  根照常 byId 接线），外观直接复用面板 header 的无框幽灵键
                  （.biliscript-reading-icon-btn），不依赖按需装载的对话分区样式；
-                 只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。 -->
+                 只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。
+                 新建会话 / 历史对话收在更多操作菜单内；历史模式打开时整行由同一
+                 hidden 投影隐藏。 -->
             <div class="biliscript-reading-tabs-row">
               <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签" data-active-tab="subtitle">
                 <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
@@ -167,15 +176,16 @@ export function buildUiHtml(): string {
                     </div>
                     <div id="${ids.readingChatSpeechVolume}" class="biliscript-slider-row">
                       <div class="biliscript-slider-header">
-                        <label class="biliscript-set-label" for="${ids.readingChatSpeechVolumeInput}">朗读音量</label>
+                        <label class="biliscript-set-label" for="${ids.readingChatSpeechVolumeInput}">对话朗读音量</label>
                         <div class="biliscript-slider-header-actions">
                           <span id="${ids.readingChatSpeechVolumeValue}" class="biliscript-slider-badge">100%</span>
-                          <button id="${ids.readingChatSpeechVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认音量 (100%)" aria-label="恢复默认音量">${READING_RESET_ICON}</button>
+                          <button id="${ids.readingChatSpeechVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话朗读音量 (100%)" aria-label="恢复默认对话朗读音量">${READING_RESET_ICON}</button>
                         </div>
                       </div>
                       <input id="${ids.readingChatSpeechVolumeInput}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
                     </div>
                   </div>
+                  <button id="${ids.readingChatDisplaySettingsBtn}" type="button" class="biliscript-reading-chat-more-item">更多显示设置</button>
                 </div>
               </div>
             </div>
@@ -264,7 +274,7 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
 // 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
 // 在抽屉打开时装载设置面板。
 export function openReaderSettingsPanel(): void {
-  state.reader.setSettingsExpanded(true);
+  openReaderSettingsMode();
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
 
@@ -274,8 +284,8 @@ export function openReaderSettingsPanel(): void {
 //     的 activateScriptTab 在写状态位/持久化之后发本命令）——本命令只做 DOM 三通道
 //     + 对话分区表挂载，不写状态位、不落盘、不做二级激活（那些都在属主）；未知/
 //     缺失 payload 静默忽略，不动当前投影；
-//   - "open-settings"：打开侧边栏设置抽屉（chat-tab 空态「前往设置」与提示条
-//     onOpenSettings）。
+//   - "open-settings"：打开侧边栏设置抽屉；target 可直达外观、伴看、Gemini
+//     凭据或 ASR 配置。
 // 旧命令 "set-tab" / "set-tab:chat" 已随标签激活收口 reader 属主退役（本处不再
 // 注册，残留发送方静默丢弃）。
 // 命令到达时壳必然已装载（本模块被装载才注册），但目标 DOM 缺失时各 setter
@@ -290,7 +300,24 @@ subscribeUiCommand((name, payload) => {
     return;
   }
   if (name === "open-settings") {
+    const target = (payload as { target?: unknown } | null)?.target;
+    if (target === "asr") {
+      // ASR 配置类阻塞直达（票 04）：入口自己打开抽屉并定位分区/编辑器。
+      void import("./settings-panel.js")
+        .then((mod) => mod.openReaderAsrSetup())
+        .catch(() => {});
+      return;
+    }
     openReaderSettingsPanel();
+    if (target === "live" || target === "gemini-key") {
+      void import("./settings-panel.js")
+        .then((mod) => mod.openLiveSettings(target))
+        .catch(() => {});
+    } else if (target === "appearance") {
+      void import("./settings-panel.js")
+        .then((mod) => mod.openAppearanceSettings())
+        .catch(() => {});
+    }
   }
 });
 
@@ -301,6 +328,8 @@ export function bindUiEvents(): void {
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
+  const readingSettingsBackBtn = byId(ids.readingSettingsBackBtn);
+  const readingHeader = readingView.querySelector<HTMLElement>(".biliscript-reading-header")!;
 
   // arch-slim-2/06 / batch2-04：三 tab 的专属绑定随模板同居各自域叶子（见文件头 import 注），
   // 壳的 bindUiEvents 只保留面板骨架交互 + 各叶子接线的一次性触发；字幕工具条相位与设置
@@ -326,10 +355,17 @@ export function bindUiEvents(): void {
   // 重域，交互时经 ensureReaderDomain 装载后调用（视图开着 ⇒ 域几乎必然已装载
   // ，ensure 命中缓存 promise）。关闭按钮：退出事务统一走阅读壳（工单
   // arch-slim/02），与 reader-close 消息路径同一实现。
-  readingCloseBtn.addEventListener("click", () => {
+  const consumeOverlayClick = (event: Event): boolean => {
+    if (!state.reader.readingSettingsExpanded || !hasReaderSettingsOverlayOpen()) return false;
+    event.stopPropagation();
+    return true;
+  };
+  readingCloseBtn.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
     exitReaderShell().catch((error) => logWarn("[BILISCRIPT] close reading view failed", error));
   });
-  readingThemeSelect.addEventListener("click", () => {
+  readingThemeSelect.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
     // 明暗两态循环 light ↔ dark（按钮只管明暗轴；主题族在设置抽屉手选，
     // 档位文案/图标映射见 ui/theme-button.ts）。
     const next = state.reader.readingTheme === "dark" ? "light" : "dark";
@@ -339,28 +375,52 @@ export function bindUiEvents(): void {
       setTimeout(() => readingThemeSelect.classList.remove("is-active"), 300);
     });
   });
-  readingSettingsToggleBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    state.reader.setSettingsExpanded(!state.reader.readingSettingsExpanded);
-    withReader("reader panels render", (reader) => reader.renderReaderPanels());
+  readingSettingsBackBtn.addEventListener("click", (event) => {
+    if (consumeOverlayClick(event)) return;
+    closeReaderSettingsMode();
+  });
+  readingView.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const backBtn = target?.closest<HTMLButtonElement>(`#${ids.readingSettingsBackBtn}`);
+    if (backBtn && backBtn !== readingSettingsBackBtn) {
+      if (consumeOverlayClick(event)) return;
+      closeReaderSettingsMode();
+    }
+  });
+  readingSettingsToggleBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (consumeOverlayClick(event)) return;
+    if (state.reader.readingSettingsExpanded) {
+      closeReaderSettingsMode();
+    } else {
+      openReaderSettingsPanel();
+    }
+  });
+  readingHeader.addEventListener("click", (event) => {
+    if (!state.reader.readingSettingsExpanded) return;
+    if (consumeOverlayClick(event)) return;
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    event.stopPropagation();
+    closeReaderSettingsMode();
   });
 
-  // Click outside settings panel to close（单一文档级 click 委托：PR5 起同时
-  // 承接对话 tab popovers 的外点关闭——reader-bus 的转发槽注册，不另挂第二
-  // 个 document 监听，避免双委托互踩。转发必须放在 settingsExpanded 早退之前）。
+  // 设置外点与 Esc 共用一次性文档委托；对话 tab popovers 的外点仍经 reader-bus
+  // 转发。只有整个文摘面板之外的宿主页点击才退出设置，且不取消宿主行为或抢回焦点。
   if (!state.reader.readingDocumentClickBound) {
-    document.addEventListener("click", (e) => {
-      dispatchChatTabOutsideClick(e);
-      if (!state.reader.readingSettingsExpanded) return;
-      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
-      const settingsBtnEl = document.getElementById(ids.readingSettingsBtn);
-      if (!settingsPanel || !settingsBtnEl) {
-        return;
+    document.addEventListener("click", (event) => {
+      dispatchChatTabOutsideClick(event);
+      if (!state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) return;
+      const scriptPanel = document.getElementById(ids.readingScriptPanel);
+      if (!scriptPanel || readingHeader.contains(event.target as Node | null)) return;
+      if (!scriptPanel.contains(event.target as Node | null)) {
+        closeReaderSettingsMode({ restoreFocus: false });
       }
-      if (!settingsPanel.contains(e.target as Node | null) && !settingsBtnEl.contains(e.target as Node | null)) {
-        state.reader.setSettingsExpanded(false);
-        withReader(null, (reader) => reader.renderReaderPanels());
-      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeReaderSettingsMode();
     });
     state.reader.readingDocumentClickBound = true;
   }

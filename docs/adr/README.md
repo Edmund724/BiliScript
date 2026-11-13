@@ -30,6 +30,7 @@
 | [0022](0022-reader-domain-wide-type-and-dual-access.md) | reader 域入口保留宽类型面与双访问通道 | 有效 | gate 供常驻/壳侧动态访问，域内同步直 import；不收窄 ReaderDomain，不改字符串分发 |
 | [0023](0023-live-websocket-offscreen-dnr.md) | 实时伴看 WebSocket 承载于 offscreen 文档，配 DNR 注入握手头与 ws/wss 权限 | 有效 | 规避 SW WebSocket 绕过 DNR（crbug/40815149）与无 AudioContext 限制；DNR 同时覆写 Authorization 与 Origin，权限成对覆盖 http(s)/ws(s) |
 | [0024](0024-live-room-overlay-only.md) | 直播间实时伴看只挂浮窗，不加载文摘面板 | 有效 | 房间号为会话身份；入口为独立懒加载 chunk；与 ADR-0006 的面板路线并存、互不依赖 |
+| [0025](0025-asr-pseudo-track-translation-second-path.md) | 伪轨视频的双语第二路是译文，走独立的批量翻译链 | 有效 | 判据为伪轨身份而非轨数；译文只进副轨槽、不进轨列表；目标语言与 `id_translate-<lang>` 缓存与实时字幕翻译共用；整片 60 秒分片批量、片级容错、显式动作才花钱 |
 | [0026](0026-live-companion-overlay-only.md) | 视频页实时伴看只用浮窗，面板不再承载伴看 | 有效 | 把 ADR-0024 的浮窗模式扩到视频页；伴看与面板 AI 对话互不写入；浮窗默认胶囊并贴右上角 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。

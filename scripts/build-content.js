@@ -75,7 +75,13 @@ const lazyTargets = [
   { name: "shell", source: "reader/shell.ts" },
   { name: "fetcher", source: "subtitle/fetcher.ts" },
   { name: "ui", source: "subtitle/ui.ts" },
+  // 伪轨视频的译文批量器（票 asr-panel-translation）：只经 subtitle/lazy 的动态边
+  // 触达。必须列在这里——未登记的动态 import 在轮 A（splitting:false）会被内联进
+  // 常驻图，连带它的 commit→subtitle/core→bilibili/gateway 静态边一起进主包。
+  { name: "asr-translation", source: "subtitle/asr-translation.ts" },
   { name: "gateway", source: "bilibili/gateway.ts" },
+  { name: "agent-bridge-subtitles", source: "agent-bridge/content-subtitles.ts" },
+  { name: "agent-bridge-frame", source: "agent-bridge/frame.ts" },
   // bilibili/video-probe.ts 不再列懒加载目标：ADR-0017 修订后常驻预抓取链静态
   // 依赖它的 waitForVideoMetadata（元数据等待出装配根），列为懒加载目标会让轮 A
   // 把该静态边 external 成 chunks/ 引用，直接命中「主包不得静态引用 chunks/」守卫。
@@ -588,6 +594,7 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
   { source: "reader/lazy-reader.ts", mutable: true }, // 同上
   { source: "reader/lazy-chat-tab.ts", mutable: true }, // 同上
+  { source: "reader/lazy-shell.ts", mutable: true }, // 同上
   { source: "subtitle/lazy.ts", mutable: true }, // 同上
   { source: "ui/lazy-ui.ts", mutable: true }, // 同上
   // —— 纯模块（无模块级可变状态，mutable: false，无头注标记）——

@@ -23,6 +23,9 @@ import type { SendVerdict } from "../chat/turn-lifecycle.js";
 // 不再叠加 4px 内边距。无布局的 jsdom 下 scrollHeight 恒 0，跳过写行内高，
 // 高度落回 CSS 自然高，行为不变。
 export const INPUT_MAX_HEIGHT = 320;
+export const SUBTITLE_WAIT_NOTICE = "正在等待字幕，完成后自动发送";
+export const IMAGE_PROCESSING_NOTICE = "图片处理中…";
+export const IMAGE_TEXT_REQUIRED_NOTICE = "图片需随文字一起发送";
 
 export interface ReaderChatComposerEls {
   input: HTMLTextAreaElement;
@@ -41,7 +44,12 @@ export interface ReaderChatComposerDeps {
   sendBtn?: HTMLButtonElement;
   chatRuntime: ReaderChatComposerRuntime;
   onPasteImage?: (event: ClipboardEvent) => void;
-  sendGate?: unknown;
+  onCancelSubtitleWait?: () => void;
+  onNotice?: (message: string, autoHideMs?: number) => void;
+  isImageProcessing?: () => boolean;
+  hasInputImages?: () => boolean;
+  getLiveState?: () => "idle" | "connecting" | "connected" | "failure";
+  onStartLive?: () => void;
 }
 
 export interface ReaderChatComposer {
@@ -59,46 +67,81 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   const input = deps.els?.input ?? deps.input!;
   const sendBtn = deps.els?.sendBtn ?? deps.sendBtn!;
   const { chatRuntime, onPasteImage } = deps;
+  const inputCard = input.closest(".chat-input-card");
+  const waitCard = inputCard?.querySelector<HTMLElement>(".chat-subtitle-wait") ?? null;
+  const waitText = waitCard?.querySelector<HTMLElement>(".chat-subtitle-wait-text") ?? null;
+  const waitCancel = waitCard?.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel") ?? null;
 
-  // 输入框 placeholder 的默认串（模板的静态属性，见 reader/chat-template.ts）：
-  // 实例初始化时捕获一次原值，字幕抓取等待期间换成等待文案、结束即还原此值——
-  // 不在代码里另抄一份字面量，模板改动自动跟随。
-  const defaultPlaceholder = input.placeholder;
-
-  // 发送键禁用态：流式中（停止键形态）仅「停止中」禁用；空闲时空输入禁用置灰。
+  // 流式中发送键变为停止键；空闲时图片处理中与无正文均不可发送。
   let stopInFlight = false;
-
-  // 字幕抓取等待态（发送闸经 deps.onWaitingChange 推送）：等待期间发送键禁用 +
-  // 输入框 placeholder 换成等待文案——发送键亮着却点了静默无反应（等待可能几秒）
-  // 正是要消除的观感。输入框本身保持可编辑：等待期间可继续输入/改提示词（本轮
-  // 已受理的文本在回车那一刻定下，本轮之后照常清空）。
   let subtitleWaitActive = false;
+  let cancelRequested = false;
 
   function updateSendBtnState(): void {
     const isStreaming = sendBtn.classList.contains("is-stop");
     const hasText = Boolean(input.value.trim());
+    const hasImages = deps.hasInputImages?.() ?? false;
+    const imageProcessing = deps.isImageProcessing?.() ?? false;
+    const liveState = deps.getLiveState?.() ?? "idle";
+
+    sendBtn.classList.remove("is-live", "is-connecting");
+    sendBtn.removeAttribute("aria-busy");
 
     if (isStreaming) {
       sendBtn.disabled = stopInFlight;
-      sendBtn.setAttribute("aria-label", "停止");
-      sendBtn.setAttribute("title", "停止生成");
+      sendBtn.setAttribute("aria-label", stopInFlight ? "正在停止…" : "停止");
+      sendBtn.setAttribute("title", stopInFlight ? "正在停止…" : "停止生成");
       return;
     }
 
-    if (hasText) {
+    if (!hasText && !hasImages && !imageProcessing && liveState === "connecting") {
+      sendBtn.classList.add("is-connecting");
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("aria-busy", "true");
+      sendBtn.setAttribute("aria-label", "正在连接伴看…");
+      sendBtn.setAttribute("title", "正在连接伴看…");
+      return;
+    }
+
+    if (!hasText && !hasImages && !imageProcessing && liveState === "idle" && deps.onStartLive) {
+      sendBtn.classList.add("is-live");
       sendBtn.disabled = subtitleWaitActive;
-      sendBtn.setAttribute("aria-label", "发送");
+      sendBtn.setAttribute("aria-label", "开启实时伴看");
+      sendBtn.setAttribute("title", "开启实时伴看");
+      return;
+    }
+
+    sendBtn.setAttribute("aria-label", "发送");
+    if (imageProcessing) {
+      sendBtn.disabled = true;
+      sendBtn.setAttribute("title", IMAGE_PROCESSING_NOTICE);
+    } else if (hasText) {
+      sendBtn.disabled = subtitleWaitActive;
       sendBtn.setAttribute("title", "发送");
     } else {
       sendBtn.disabled = true;
-      sendBtn.setAttribute("aria-label", "发送");
-      sendBtn.removeAttribute("title");
+      if (hasImages) {
+        sendBtn.setAttribute("title", IMAGE_TEXT_REQUIRED_NOTICE);
+      } else {
+        sendBtn.removeAttribute("title");
+      }
     }
   }
 
   function setSubtitleWaitUi(active: boolean): void {
     subtitleWaitActive = active;
-    input.placeholder = active ? "正在抓取字幕…" : defaultPlaceholder;
+    if (waitCard) {
+      waitCard.hidden = !active;
+    }
+    if (active && waitText) {
+      waitText.textContent = SUBTITLE_WAIT_NOTICE;
+    }
+    if (!active && cancelRequested) {
+      cancelRequested = false;
+      deps.onNotice?.("已取消等待，草稿与图片已保留", 3000);
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
     updateSendBtnState();
   }
 
@@ -147,9 +190,24 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   // 调用方（解释意图）把它消费掉而消息从未发出（时间轴只有一条空档）。回放让位
   // 不再手抄：等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await
   // replayInFlight）。
+  function imageSendBlockReason(text: string): string | null {
+    if (deps.isImageProcessing?.()) {
+      return IMAGE_PROCESSING_NOTICE;
+    }
+    if (!text.trim() && deps.hasInputImages?.()) {
+      return IMAGE_TEXT_REQUIRED_NOTICE;
+    }
+    return null;
+  }
+
   async function sendViaInputBox(text: string): Promise<boolean> {
     input.value = text;
     autosizeInput();
+    const blockReason = imageSendBlockReason(text);
+    if (blockReason) {
+      deps.onNotice?.(blockReason, 3000);
+      return false;
+    }
     // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
     const verdict = await chatRuntime.sendTurn(text);
     return verdict === "accepted";
@@ -173,16 +231,30 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
   // 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
   // await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
   async function sendFromUi(): Promise<void> {
-    await chatRuntime.sendTurn(input.value);
+    const blockReason = imageSendBlockReason(input.value);
+    if (blockReason) {
+      deps.onNotice?.(blockReason, 3000);
+      return;
+    }
+    if (!input.value.trim()) {
+      return;
+    }
+    const verdict = await chatRuntime.sendTurn(input.value);
+    if (verdict === "ignored" && subtitleWaitActive) {
+      deps.onNotice?.(SUBTITLE_WAIT_NOTICE, 3000);
+    }
   }
 
   function bind(): void {
+    waitCancel?.addEventListener("click", () => {
+      if (!subtitleWaitActive) {
+        return;
+      }
+      cancelRequested = true;
+      deps.onCancelSubtitleWait?.();
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-        if (!input.value.trim()) {
-          e.preventDefault();
-          return;
-        }
         e.preventDefault();
         void sendFromUi();
       }
@@ -201,10 +273,14 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     input.addEventListener("focus", autosizeInput);
     input.addEventListener("blur", autosizeInput);
 
-    // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）。
+    // 同一按钮按当前形态路由；空输入的 Enter 仍只走发送芯，不会误开伴看。
     sendBtn.addEventListener("click", () => {
       if (sendBtn.classList.contains("is-stop")) {
         chatRuntime.stopActiveStream();
+        return;
+      }
+      if (sendBtn.classList.contains("is-live")) {
+        deps.onStartLive?.();
         return;
       }
       void sendFromUi();

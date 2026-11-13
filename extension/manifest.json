@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "2.7.0",
+  "version": "2.7.2",
   "default_locale": "zh_CN",
   "minimum_chrome_version": "120",
   "description": "__MSG_appDesc__",
   "permissions": [
     "storage",
     "unlimitedStorage",
+    "tabs",
+    "alarms",
     "scripting",
     "offscreen",
     "tts",
@@ -15,6 +17,7 @@
   ],
   "host_permissions": [
     "https://www.bilibili.com/*",
+    "ws://127.0.0.1/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
     "https://*.bilivideo.com/*",

@@ -43,6 +43,9 @@ interface ChatReceipt {
 // error 事件的线上形状：引擎只承诺 error 文案，字幕体缺失路径额外带 code。
 type PortErrorEvent = StreamErrorEvent & { code?: string };
 
+// 工具循环整轮重试的代际号。旧读流没有工具事件时保持原线格式。
+type PortStreamResetEvent = StreamResetEvent & { generation?: number };
+
 // notice 事件的线上形状：引擎只承诺文案；截断提示（引擎侧 finishReason=length）
 // 额外带 code: "truncated"，宿主据此渲染成 assistant 消息尾部的常驻徽标，而不是
 // 走「4 秒自动消失的通知条」。
@@ -71,13 +74,21 @@ export interface ChatTokenBatchEvent {
 // 时间线卡 chip 行与正文内联引用（悬停预览 / 新标签打开）的数据源；形状单源
 // 在 chat/search-sources.ts（回放重建共用同一类型）。
 import type { ChatSearchSource } from "./search-sources.js";
+import type { CapturedVideoFrame } from "../ai/types.js";
 export type ChatToolStatusSource = ChatSearchSource;
 
 export interface ChatToolStatusEvent {
   type: "tool-status";
-  status: "searching" | "done" | "failed";
+  status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  tool?: "web_search" | "capture_video_frame_at_time";
+  callId?: string;
+  // 同一 port 内的工具循环代际；stream-reset 之后只接收最新一代。
+  generation?: number;
+  targetTime?: number;
   resultCount?: number;
+  expectedCount?: number;
+  frames?: CapturedVideoFrame[];
   platform?: string;
   sources?: ChatToolStatusSource[];
   // 付费平台可见性（GLOSSARY「付费平台」，done 时携带，ai/tool-loop.ts 注入）：
@@ -90,6 +101,11 @@ export interface ChatToolStatusEvent {
 export interface ChatVideoFrameRequestEvent {
   type: "video-frame-request";
   requestId: string;
+  targetTime?: number;
+}
+export interface ChatVideoFrameCancelEvent {
+  type: "video-frame-cancel";
+  requestId: string;
 }
 
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，
@@ -98,6 +114,7 @@ export interface ChatVideoFrameRequestEvent {
 export interface ChatToolTurnEvent {
   type: "tool-turn";
   messages: ChatMessage[];
+  generation?: number;
 }
 
 // offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + 07 票
@@ -108,10 +125,11 @@ export type ChatPortMessage =
   | (ChatTokenBatchEvent & ChatReceipt)
   | (StreamReasoningEvent & ChatReceipt)
   | (PortNoticeEvent & ChatReceipt)
-  | (StreamResetEvent & ChatReceipt)
+  | (PortStreamResetEvent & ChatReceipt)
   | (ChatToolTurnEvent & ChatReceipt)
   | (ChatToolStatusEvent & ChatReceipt)
   | (ChatVideoFrameRequestEvent & ChatReceipt)
+  | (ChatVideoFrameCancelEvent & ChatReceipt)
   | (StreamDoneEvent & ChatReceipt)
   | (StreamStoppedEvent & ChatReceipt)
   | (PortErrorEvent & ChatReceipt)

@@ -176,9 +176,13 @@ export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.fre
   "playerAiQuickPrompt",
   "bilingualSubtitles",
   "secondarySubtitleLang",
+  // 伪轨视频的译文目标语言与播放器「字幕」浮层共用（票 asr-panel-translation）：
+  // 另一标签页改了目标语言，面板副列的高亮与下一步动作要跟上。
+  "liveInterpretTargetLang",
   "readerFontSizeScale",
   "chatLineHeight",
   "chatParagraphSpacing",
+  "speechVoiceVolume",
   "chatInputGlow"
 ]);
 

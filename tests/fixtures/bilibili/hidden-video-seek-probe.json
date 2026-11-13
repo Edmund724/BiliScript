@@ -1,0 +1,19 @@
+{
+  "note": "隐藏视频 seek 真机探针的默认输入。普通视频身份来自 bilingual-walkthrough/meta.json；长视频身份与时长来自 bv1q9he6seyx-view.json。目标时间点均为历史位置，远离首帧。",
+  "samples": [
+    {
+      "label": "normal",
+      "bvid": "BV1mAam6tEL8",
+      "cid": "42393338874",
+      "duration": 461,
+      "targetTime": 40.69
+    },
+    {
+      "label": "long",
+      "bvid": "BV1q9He6SEyX",
+      "cid": "42428139464",
+      "duration": 4006,
+      "targetTime": 2100
+    }
+  ]
+}

@@ -15,6 +15,8 @@ import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiProvider } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import type { SubtitleBodyItem } from "../core/state.js";
+import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
+import type { OverviewSetupResumeIntent } from "./overview-setup-resume.js";
 import { getErrorMessage, isAbortedMarkerError, isCancelledError } from "../shared/error-helpers.js";
 import {
   renderReadingOverview,
@@ -58,6 +60,11 @@ export interface ReaderOverviewCoordinator {
   render(): void;
   /** 概览 tab 切换入口（收敛渲染 + 未生成时自动触发） */
   ensureTab(): void;
+  /**
+   * 消费首配续跑意图（票 01）：意图在、概览身份键与任务代次均未变时续跑一次
+   * （forceRefresh），返回是否续跑；其余情况静默作废。装配方在首配保存成功后调用。
+   */
+  resumeAfterSetup(): Promise<boolean>;
 }
 
 interface OverviewClipSource {
@@ -89,6 +96,17 @@ export interface CreateOverviewCoordinatorDeps {
   confirm(options: ConfirmDialogOptions): Promise<boolean>;
   /** 注册 UI 点击分派对应的协调动作 */
   registerUiActions(actions: OverviewUiActions): void;
+  /**
+   * 首配续跑意图支持（票 01）：概览「去设置」动作经 begin 记录意图（装配方落页面
+   * 内存并打开对应平台编辑界面），首配保存成功后协调器经 consume 取走校验。
+   * 缺省 = 不支持（伴看侧无头协调器等非阅读视图装配）。
+   */
+  setupResume?: {
+    begin(intent: OverviewSetupResumeIntent): void;
+    consume(): OverviewSetupResumeIntent | null;
+  };
+  /** 无字幕配置空态「前往设置」的打开出口（装配方直达 ASR 平台编辑或自动转写开关，票 04） */
+  openTranscribeSettings?: () => void;
   now(): number;
   setInterval: typeof setInterval;
   clearInterval: typeof clearInterval;
@@ -129,6 +147,9 @@ export function createOverviewCoordinator(
   let inflightAbort: ReaderOverviewInflightAbort | null = null;
   let waitTicker: ReturnType<typeof setInterval> | null = null;
   let cancelRequested = false;
+  // 任务代次（票 01 首配续跑校验）：每次概览任务实际起跑递增一次。意图记录时的
+  // 代次与续跑时不一致 = 设置期间概览又起过新一轮，旧续跑意图作废。
+  let taskEpoch = 0;
   // 伴看等外部消费方的变更订阅：只在相位/产物/错误变化时扇出，进度文案不进签名
   // （每秒变化会把会话指令刷成噪声）。签名去重让 cancel/reset 的重复写点天然幂等。
   const changeListeners = new Set<() => void>();
@@ -368,6 +389,7 @@ export function createOverviewCoordinator(
       inflightAbort = slot;
     }
     cancelRequested = false;
+    taskEpoch += 1;
     overview.generatedFor = clipKey;
     overview.aiChapters = currentChapterSource().kind === "auto";
     overview.phase = "generating";
@@ -500,6 +522,32 @@ export function createOverviewCoordinator(
     void triggerReaderOverviewGeneration();
   }
 
+  // 首配续跑（票 01）：取走意图并逐项校验——意图缺失/已消费、无字幕空态、
+  // 概览身份键变化（换视频/分P/换轨）、任务代次变化（设置期间起过新一轮）均
+  // 静默作废；通过才 forceRefresh 续跑一次（error 相位同 key 会被去重挡回，
+  // 必须强刷）。校验失败的意图已随 consume 丢弃，不会二次生效。
+  async function resumeOverviewAfterSetup(): Promise<boolean> {
+    const gate = deps.setupResume;
+    if (!gate) {
+      return false;
+    }
+    const intent = gate.consume();
+    if (!intent) {
+      return false;
+    }
+    if (getClipBody().length === 0) {
+      return false;
+    }
+    if (String(intent.overviewKey || "") !== currentOverviewKey()) {
+      return false;
+    }
+    if (Number(intent.taskEpoch) !== taskEpoch) {
+      return false;
+    }
+    await triggerReaderOverviewGeneration({ forceRefresh: true });
+    return true;
+  }
+
   // 注册 UI 点击分派对应的协调动作（单向依赖：呈现不 import 协调器，由协调器挂接）
   deps.registerUiActions({
     retry: () => {
@@ -507,6 +555,19 @@ export function createOverviewCoordinator(
     },
     cancel: () => {
       cancelReaderOverview();
+    },
+    setup: (errorClass: OverviewSetupErrorClass) => {
+      // 记录首配续跑意图（identity/代次在任务起跑前快照），打开正确平台编辑界面
+      // 的出站由装配方在 begin 里完成。
+      deps.setupResume?.begin({
+        overviewKey: currentOverviewKey(),
+        taskEpoch,
+        createdAt: deps.now(),
+        errorClass
+      });
+    },
+    openTranscribeSettings: () => {
+      deps.openTranscribeSettings?.();
     }
   });
 
@@ -518,6 +579,7 @@ export function createOverviewCoordinator(
     getPhase: getReaderOverviewPhase,
     getSnapshot: getReaderOverviewSnapshot,
     render: renderReadingOverviewNow,
-    ensureTab: ensureReaderOverviewTab
+    ensureTab: ensureReaderOverviewTab,
+    resumeAfterSetup: resumeOverviewAfterSetup
   };
 }

@@ -141,3 +141,26 @@ describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
     }
   });
 });
+
+// 译文副轨失效：译文键不含原文身份（`id_translate-<lang>` 是已落盘缓存的兼容面），
+// 新一版转写落盘后同一目标语言会命中旧原文的译文——必须整体作废。
+describe("clearTranslatedSubtitleCache：新转写落盘后旧译文整体作废", () => {
+  it("删除同视频的 translate-* 键，保留平台轨 / ASR 变体 / 其它视频", async () => {
+    const translatedEn = cacheKey("BV1t", "3", { kind: "track", trackId: "translate-en" });
+    const translatedJa = cacheKey("BV1t", "3", { kind: "track", trackId: "translate-ja" });
+    const asrKey = cacheKey("BV1t", "3", asrIdentity("provider", "model", "auto"));
+    const platformTrack = cacheKey("BV1t", "3", { kind: "track", trackId: "88" });
+    const otherVideo = cacheKey("BV1u", "4", { kind: "track", trackId: "translate-en" });
+
+    for (const key of [translatedEn, translatedJa, asrKey, platformTrack, otherVideo]) {
+      storage.seedCacheEntry(key, BODY, 1);
+    }
+
+    const removed = await cache.clearTranslatedSubtitleCache({ bvid: "BV1t", cid: "3" });
+
+    expect(removed.sort()).toEqual([translatedEn, translatedJa].sort());
+    expect(storage.map.has(asrKey)).toBe(true);
+    expect(storage.map.has(platformTrack)).toBe(true);
+    expect(storage.map.has(otherVideo)).toBe(true);
+  });
+});

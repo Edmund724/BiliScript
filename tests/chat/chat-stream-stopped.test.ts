@@ -120,7 +120,7 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     expect(deps.onContinue).toHaveBeenCalledWith(0, node);
   });
 
-  it("有部分正文时中断：正文渲染，思考折叠，操作栏仅保留重新生成与继续生成", () => {
+  it("有部分正文时中断：正文渲染，思考折叠，保留复制、朗读、重试、继续与导出", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -146,20 +146,17 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     // 停止徽标
     expect(node.querySelector(".chat-msg-stopped")?.textContent).toBe("网络异常");
 
-    // 操作栏仅含重新生成与继续生成
     const actionBtns = node.querySelectorAll<HTMLButtonElement>(".chat-msg-action-btn");
-    expect(actionBtns).toHaveLength(2);
-    expect(actionBtns[0].classList.contains("chat-msg-regenerate-btn")).toBe(true);
-    expect(actionBtns[1].classList.contains("chat-msg-continue-btn")).toBe(true);
-
-    expect(node.querySelector(".chat-msg-copy-btn")).toBeNull();
-    expect(node.querySelector(".chat-msg-speak-btn")).toBeNull();
-    expect(node.querySelector(".chat-msg-export-btn")).toBeNull();
+    expect([...actionBtns].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制回复", "朗读回答", "重新生成", "继续生成", "导出 Markdown"
+    ]);
+    expect(actionBtns[0].disabled).toBe(false);
+    expect(actionBtns[1].disabled).toBe(false);
+    expect(actionBtns[4].disabled).toBe(false);
   });
 
   it("正常完成生成：保留复制、朗读、重新生成、导出全部4个按钮，不出现继续生成按钮", () => {
     const deps = makeDeps();
-    deps.onSpeak = vi.fn();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
     const turn = area.appendAssistantMessage({ source: "live" });

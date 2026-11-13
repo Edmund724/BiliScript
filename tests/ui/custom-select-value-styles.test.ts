@@ -364,3 +364,27 @@ describe("弹层横向溢出（选项行盒子宽于弹层内容盒）", () => {
     );
   });
 });
+
+describe("设置抽屉行内下拉菜单（右对齐向左展开防截断与定宽底线）", () => {
+  const markup =
+    '<div class="biliscript-reading-settings-host">' +
+    '<div class="biliscript-set-card"><div class="biliscript-set-row">' +
+    '<label for="liveInterpretTargetLang">翻译目标语言</label>' +
+    '<select id="liveInterpretTargetLang"><option value="zh">中文</option></select>' +
+    '</div></div></div>';
+
+  it("computed：设置行内的 custom-select-wrapper 拥有 min-width 140px，dropdown 为 right: 0 且 left: auto", async () => {
+    injectComponentStyles();
+    const select = mountSelect(markup, "liveInterpretTargetLang");
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+
+    expect(window.getComputedStyle(wrapper).minWidth).toBe("140px");
+    expect(window.getComputedStyle(dropdown).right).toBe("0px");
+    expect(window.getComputedStyle(dropdown).left).toBe("auto");
+    expect(window.getComputedStyle(dropdown).transformOrigin).toMatch(/top right|100% 0%/);
+  });
+});

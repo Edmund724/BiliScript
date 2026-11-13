@@ -1,10 +1,9 @@
 // offscreen.js — 隐藏后台页面，负责 SSE 流式请求，避免 Side Panel 被冻结。
-// 同时是 "asr-decode" 端口的接线层：ASR 音频「下载 → 解码 → 切片 → 转写」
-// 全链路在 ./offscreen-asr.js（service worker 无 AudioContext，解码 + 重采样
-// 在本 context 用 OfflineAudioContext 完成；转写引擎与适配器也加载在本
-// context——音频字节与 API Key 都不出 offscreen，跨 port 只回传转写文本结果）。
-// 本文件只保留端口接线与分发、聊天通道、空闲超时，以及自关闭动作的注入
-//（三通道存活簿记与终态判决在 ./offscreen-lifecycle.js）。
+// 同时承载 ASR 音频「下载 → 解码 → 切片 → 转写」与 Agent 后台历史截帧：
+// 音频解码在本 context 用 OfflineAudioContext 完成，截帧使用独立隐藏视频；
+// 音频字节与 API Key 不出 offscreen，跨通道只回传文本或 JPEG。
+// 本文件保留端口接线与分发、聊天通道、空闲超时、Agent 截帧消息入口，以及
+// 自关闭动作的注入（三通道存活簿记与终态判决在 ./offscreen-lifecycle.js）。
 //
 // 候选04：两族任务链按需动态装载。AI 半边（../ai/ladder.js → map-reduce →
 // … → notes/render 渲染器）与 ASR 半边（./offscreen-asr.js → engine /
@@ -24,6 +23,8 @@
 // 必已入集，故任一分支「装载中」期间其他任务的终态判定都会因端口计数 / 条件
 // 非空保留文档，不会被提前关闭。
 import { getErrorMessage } from "../shared/error-helpers.js";
+import { bgFetchJson } from "../bilibili/gateway-core.js";
+import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, logWarn, registerDebugGate, shouldDebugLog } from "../shared/logging.js";
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { createOffscreenLifetime } from "./offscreen-lifecycle.js";
@@ -58,6 +59,7 @@ import { attachMossLivePort } from "../live/offscreen-moss-port.js";
 import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
 import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
+import type { AgentBridgeOffscreenFrameMessage } from "../agent-bridge/protocol.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 
@@ -80,6 +82,20 @@ try {
   // 无 onMessage 的极端 stub 环境：门维持缺省关
 }
 
+chrome.runtime.onMessage?.addListener((rawMessage: unknown, _sender, sendResponse) => {
+  if ((rawMessage as { type?: unknown } | null)?.type !== "agent-bridge-offscreen-frame") return false;
+  const message = rawMessage as AgentBridgeOffscreenFrameMessage;
+  void (async () => {
+    try {
+      const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
+      sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+});
+
 void (async () => {
   try {
     const resp = await sendRuntimeMessage({ type: "get-debug-log-gate" });
@@ -94,11 +110,13 @@ void (async () => {
 let currentChatGeneration = 0;
 let activeGeneration = 0;
 let activeAbortController: AbortController | null = null;
+let activeChatPort: PostMessagePort | null = null;
 let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } | null = null;
 let pendingVideoFrame: {
   requestId: string;
   generation: number;
-  resolve: (frame: CapturedVideoFrame) => void;
+  port: PostMessagePort;
+  resolve: (frame: CapturedVideoFrame | CapturedVideoFrame[]) => void;
   reject: (error: Error) => void;
 } | null = null;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -162,10 +180,8 @@ function armIdleTimeout(generation: number, abortController: AbortController, po
   clearIdleTimeout(generation);
   idleTimeoutGeneration = generation;
   idleTimeoutId = setTimeout(function () {
-    if (generation === activeGeneration && abortController && !abortController.signal.aborted) {
-      abortController.abort();
-      // 超时中断只 abort：原始段缓冲的落盘已收口到 map-reduce 写会话的收尾
-      // close（本次 abort 令编排走 abort 收束，close 随该轮 finally 落盘）
+    if (generation === activeGeneration && !abortController.signal.aborted) {
+      abortActiveRequest();
       port.postMessage({
         type: "error",
         error: "请求超时（90 秒未返回任何数据），已自动中断"
@@ -260,6 +276,10 @@ chrome.runtime.onConnect.addListener((port) => {
           pending.reject(new Error("截图请求已过期"));
         } else if (msg.error) {
           pending.reject(new Error(msg.error));
+        } else if (Array.isArray(msg.frames) && msg.frames.every((frame) => (
+          frame.image?.mime && frame.image.data && Number.isFinite(frame.currentTime)
+        ))) {
+          pending.resolve(msg.frames);
         } else if (msg.image?.mime && msg.image.data && Number.isFinite(msg.currentTime)) {
           pending.resolve({ image: msg.image, currentTime: msg.currentTime! });
         } else {
@@ -290,6 +310,7 @@ chrome.runtime.onConnect.addListener((port) => {
     const requestController = new AbortController();
     activeAbortController = requestController;
     activeGeneration = generation;
+    activeChatPort = port;
 
     try {
       // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
@@ -377,7 +398,10 @@ chrome.runtime.onConnect.addListener((port) => {
           // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
           ...(searchRuntime ? { webSearch: searchRuntime } : {}),
           ...(msg.videoFrameToolEnabled === true
-            ? { captureCurrentVideoFrame: () => requestVideoFrame(ackedPort, generation) }
+            ? { captureCurrentVideoFrame: (targetTime?: number) => requestVideoFrame(ackedPort, generation, targetTime) }
+            : {}),
+          ...(String((msg as ChatMsg).context?.aid || "").trim()
+            ? { fetchHotComments: () => fetchHotCommentsJson(bgFetchJson, String((msg as ChatMsg).context?.aid), 20) }
             : {})
         },
         {
@@ -403,6 +427,10 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   port.onDisconnect.addListener(() => {
+    // 换片断流后新回合可能已经接管；旧端口的迟到断连不得中止新回合。
+    if (activeChatPort !== port) {
+      return;
+    }
     if (pendingCostGuard) {
       const resolve = pendingCostGuard.resolve;
       pendingCostGuard = null;
@@ -463,15 +491,17 @@ function abortActiveRequest() {
     resolve(false);
   }
   if (pendingVideoFrame) {
-    const { reject } = pendingVideoFrame;
+    const pending = pendingVideoFrame;
     pendingVideoFrame = null;
-    reject(new Error("截图请求已中止"));
+    safePostMessage(pending.port, { type: "video-frame-cancel", requestId: pending.requestId });
+    pending.reject(new Error("截图请求已中止"));
   }
   if (activeAbortController && !activeAbortController.signal.aborted) {
     activeAbortController.abort();
   }
   activeAbortController = null;
   activeGeneration = 0;
+  activeChatPort = null;
   clearIdleTimeout();
 }
 
@@ -498,6 +528,7 @@ function clearActiveRequestState(generation?: number) {
   }
   activeAbortController = null;
   activeGeneration = 0;
+  activeChatPort = null;
 }
 
 // 向侧边栏弹成本护栏确认，等待其回复 { action: "cost-guard-confirm", ok: boolean }。
@@ -509,16 +540,20 @@ function askCostGuard(port: PostMessagePort, message: string, generation: number
   });
 }
 
-function requestVideoFrame(port: PostMessagePort, generation: number): Promise<CapturedVideoFrame> {
+function requestVideoFrame(port: PostMessagePort, generation: number, targetTime?: number): Promise<CapturedVideoFrame | CapturedVideoFrame[]> {
   return new Promise((resolve, reject) => {
     if (generation !== activeGeneration || activeAbortController?.signal.aborted || pendingVideoFrame) {
       reject(new Error("当前无法发起截图请求"));
       return;
     }
     const requestId = `video-frame-${generation}-${Date.now()}`;
-    pendingVideoFrame = { requestId, generation, resolve, reject };
+    pendingVideoFrame = { requestId, generation, port, resolve, reject };
     try {
-      port.postMessage({ type: "video-frame-request", requestId });
+      port.postMessage({
+        type: "video-frame-request",
+        requestId,
+        ...(targetTime !== undefined ? { targetTime } : {})
+      });
     } catch (error) {
       pendingVideoFrame = null;
       reject(error instanceof Error ? error : new Error(String(error)));

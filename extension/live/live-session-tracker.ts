@@ -19,6 +19,7 @@ import {
   resolveMossLivePermissionOrigins,
   type LiveProviderType
 } from "./moss-live-protocol.js";
+import type { LiveSessionTakeoverMessage } from "../shared/messaging-protocol.js";
 
 // ===== 伴看会话鉴权规则（固定 ruleId: 9002，独立于 ASR 动态区间 32001..32100） =====
 
@@ -108,17 +109,29 @@ export async function setMossLiveWsAuthRule(
  * 清除 MOSS-LIVE 专属会话规则（仅移除 9002，不触碰其他规则）。
  */
 export async function clearMossLiveWsAuthRule(): Promise<void> {
+  if (
+    typeof chrome === "undefined" ||
+    !chrome.declarativeNetRequest ||
+    typeof chrome.declarativeNetRequest.updateSessionRules !== "function"
+  ) {
+    return;
+  }
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [MOSS_LIVE_WS_RULE_ID]
   });
 }
 
-export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
+// ===== 会话生命周期与并发守卫 =====
 
+export type LiveProviderListEntry = LiveProvider & { hasSavedKey: boolean };
 export type AiProviderCredentialCandidate = AiCredentialRecordLike;
 
 export interface LiveSessionPrepareDeps {
-  getSettings: () => Promise<{ activeLiveProviderId?: string; liveGeminiNativeSearch?: boolean }>;
+  getSettings: () => Promise<{
+    activeLiveProviderId?: string;
+    liveGeminiNativeSearch?: boolean;
+    liveLowBandwidth?: boolean;
+  }>;
   loadProviders: () => Promise<LiveProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;
   loadAiProviders?: () => Promise<readonly AiProviderCredentialCandidate[]>;
@@ -129,15 +142,27 @@ export interface LiveSessionPrepareDeps {
   ensureOffscreen: () => Promise<unknown>;
   resolveActiveId: (providers: LiveProvider[], activeId?: string) => string;
   isTabAlive?: (tabId: number) => Promise<boolean>;
-  notifyTabTakeover?: (tabId: number) => Promise<void>;
+  notifyTabTakeover?: (tabId: number, channel?: string) => Promise<void>;
 }
+
+export type LiveFailureKind =
+  | "provider-unconfigured"
+  | "key-missing"
+  | "key-rejected"
+  | "gemini-credential"
+  | "permission-denied"
+  | "microphone"
+  | "network"
+  | "unknown";
 
 export interface LiveSessionPrepareResult {
   ok: boolean;
   provider?: LiveProviderListEntry;
   sessionId?: string;
   liveGeminiNativeSearch?: boolean;
+  liveLowBandwidth?: boolean;
   error?: string;
+  failureKind?: LiveFailureKind;
 }
 
 export interface LiveSessionCleanupResult {
@@ -157,12 +182,13 @@ async function isTabAliveByChromeTabs(tabId: number): Promise<boolean> {
   }
 }
 
-async function notifyTabTakeoverByChromeTabs(tabId: number): Promise<void> {
+async function notifyTabTakeoverByChromeTabs(tabId: number, _channel = "companion"): Promise<void> {
   if (typeof chrome === "undefined" || typeof chrome.tabs?.sendMessage !== "function") {
     return;
   }
+  const message: LiveSessionTakeoverMessage = { type: "live-session-takeover" };
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "live-session-takeover" });
+    await chrome.tabs.sendMessage(tabId, message);
   } catch {
     // 忽略旧标签页可能已关闭或未就绪的异常
   }
@@ -185,6 +211,10 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
   };
 }
 
+/**
+ * 实时伴看会话所有权追踪：单通道独占 WebSocket 鉴权规则（ruleId: 9002）。
+ * 跨标签页开启新会话时接管并关闭旧会话，生命周期由会话代际单点托管。
+ */
 export class LiveSessionTracker {
   private latestRequestedOwner: string | null = null;
   private activeRuleOwner: string | null = null;
@@ -221,8 +251,7 @@ export class LiveSessionTracker {
       const conflictingTabId = this.ownerTabId;
       const alive = await deps.isTabAlive(conflictingTabId);
       if (alive) {
-        // 用户切换到另一个视频标签页并开启实时伴看时，自动通知并关闭前一个视频标签页的伴看
-        void deps.notifyTabTakeover(conflictingTabId).catch(() => {});
+        void deps.notifyTabTakeover(conflictingTabId, "companion").catch(() => {});
       }
       if (this.ownerTabId === conflictingTabId) {
         await this.cleanupByTab(conflictingTabId, deps.clearAuthRule);
@@ -241,6 +270,16 @@ export class LiveSessionTracker {
       }
     };
 
+    const releaseRuleHoldIfOwned = async () => {
+      if (this.activeRuleOwner !== targetSessionId) return;
+      this.activeRuleOwner = null;
+      try {
+        await deps.clearAuthRule();
+      } catch {
+        // 忽略回滚错误
+      }
+    };
+
     let ruleInstalledForSession = false;
     try {
       const settings = await deps.getSettings();
@@ -249,7 +288,11 @@ export class LiveSessionTracker {
       const activeProvider = providers.find((p) => p.id === activeId);
       if (!activeProvider) {
         clearCurrentTabOwnershipIfUnchanged();
-        return { ok: false, error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key" };
+        return {
+          ok: false,
+          failureKind: "provider-unconfigured",
+          error: "未配置 MOSS-LIVE 平台，请先在设置中添加平台并填写 API Key"
+        };
       }
 
       const isGeminiLive =
@@ -258,7 +301,11 @@ export class LiveSessionTracker {
       if (isGeminiLive) {
         if (!isOfficialAiCredentialEndpoint("gemini-live", activeProvider.baseUrl)) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: getAiCredentialStatusText("gemini-live", "unofficial") };
+          return {
+            ok: false,
+            failureKind: "gemini-credential",
+            error: getAiCredentialStatusText("gemini-live", "unofficial")
+          };
         }
         const [aiProviders, aiKeys] = await Promise.all([
           deps.loadAiProviders(),
@@ -267,7 +314,11 @@ export class LiveSessionTracker {
         const cred = resolveAiCredentialKey("gemini-live", aiProviders, aiKeys);
         if (!cred.key) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: getAiCredentialStatusText("gemini-live", cred.status) };
+          return {
+            ok: false,
+            failureKind: "gemini-credential",
+            error: getAiCredentialStatusText("gemini-live", cred.status)
+          };
         }
         apiKey = cred.key;
       } else {
@@ -275,7 +326,11 @@ export class LiveSessionTracker {
         apiKey = String(keys[activeId] || "").trim();
         if (!apiKey) {
           clearCurrentTabOwnershipIfUnchanged();
-          return { ok: false, error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key" };
+          return {
+            ok: false,
+            failureKind: "key-missing",
+            error: "未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key"
+          };
         }
       }
 
@@ -292,7 +347,11 @@ export class LiveSessionTracker {
       const hasPerm = hasHttpPerm && hasWsPerm;
       if (!hasPerm) {
         clearCurrentTabOwnershipIfUnchanged();
-        return { ok: false, error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限` };
+        return {
+          ok: false,
+          failureKind: "permission-denied",
+          error: `未授予平台域名权限（${baseUrl}），请在设置中重新保存该平台以授予权限`
+        };
       }
 
       // 检查在权限校验与配置读取期间是否已被更新的会话请求取代
@@ -308,12 +367,7 @@ export class LiveSessionTracker {
 
       // 再次核对所有权：确保在确保 offscreen 期间未被更新的 prepare 取代
       if (this.latestRequestedOwner !== targetSessionId) {
-        if (this.activeRuleOwner === targetSessionId) {
-          this.activeRuleOwner = null;
-          try {
-            await deps.clearAuthRule();
-          } catch {}
-        }
+        await releaseRuleHoldIfOwned();
         return { ok: false, error: "会话准备已过期" };
       }
 
@@ -325,17 +379,15 @@ export class LiveSessionTracker {
           ? { liveGeminiNativeSearch: activeProvider.liveGeminiNativeSearch }
           : typeof settings.liveGeminiNativeSearch === "boolean"
             ? { liveGeminiNativeSearch: settings.liveGeminiNativeSearch }
-            : {})
+            : {}),
+        ...(typeof settings.liveLowBandwidth === "boolean"
+          ? { liveLowBandwidth: settings.liveLowBandwidth }
+          : {})
       };
     } catch (error) {
       clearCurrentTabOwnershipIfUnchanged();
-      if (ruleInstalledForSession && this.activeRuleOwner === targetSessionId) {
-        this.activeRuleOwner = null;
-        try {
-          await deps.clearAuthRule();
-        } catch {
-          // 忽略回滚错误
-        }
+      if (ruleInstalledForSession) {
+        await releaseRuleHoldIfOwned();
       }
       return { ok: false, error: (error as Error)?.message || String(error) };
     }
@@ -349,11 +401,9 @@ export class LiveSessionTracker {
     try {
       if (targetSessionId) {
         if (this.latestRequestedOwner && this.latestRequestedOwner !== targetSessionId) {
-          // 存在更新的准备请求，旧会话的 cleanup 不得清理新会话规则
           return { ok: true };
         }
         if (this.activeRuleOwner && this.activeRuleOwner !== targetSessionId) {
-          // 活跃规则属于其他会话，旧会话的 cleanup 不得清理新会话规则
           return { ok: true };
         }
       }

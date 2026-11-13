@@ -8,7 +8,7 @@
 //   provider-editor-state  ← 状态袋 + 会话写入/结算原语（owner 2，零运行时依赖）
 //   provider-editor-projection ← 字段投影表：DOM 形态 + 目标态规则（owner 1）
 //   provider-editor-catalog ← AI 模型目录（行模板 / 增删 / 空态 / 行级测试）
-//   provider-editor-fetch-dialog ← 「获取可用模型」勾选弹窗
+//   provider-editor-fetch-dialog ← 「获取可用模型」内联子视图（票 09 起，无第二张遮罩）
 //   provider-editor-modal（本文件）→ 以上各片
 //   provider-editor.ts → 本文件（对外导出壳，导入路径零变化）
 //
@@ -20,7 +20,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
-import { listLiveModels, testLiveConnection } from "../live/live-provider-store.js";
+import { listLiveModels, listLiveVoices, testLiveConnection } from "../live/live-provider-store.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
@@ -37,21 +37,26 @@ import { initCustomSelect } from "./custom-select.js";
 import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
+import { hasReaderSettingsDropdownOpen } from "../reader/settings-mode.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
   beginEditorSession,
+  applyEditorVoices,
   captureSession,
+  cloneDraft,
   draftsEqual,
   editDraft,
   endEditorSession,
   getDialog,
+  markEditorVoicesLoaded,
   normalizeDraftModels,
   runIfCurrent,
   sessionObserver,
   state,
   type EditorDraft,
+  type LinkedCredentialAction,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
 } from "./provider-editor-state.js";
@@ -75,9 +80,18 @@ import {
   closeFetchDialog,
   confirmFetchSelection,
   getFetchDialog,
-  openFetchDialog,
-  syncFetchSelectionState
+  openFetchDialog
 } from "./provider-editor-fetch-dialog.js";
+import { createFocusScope, type FocusScope } from "./focus-scope.js";
+import {
+  beginEditorValidation,
+  focusEditorField,
+  isEditorValidationAttempted,
+  revalidateEditorField,
+  renderEditorFieldIssues,
+  resetEditorValidation,
+  validateEditorFields
+} from "./provider-editor-validation.js";
 
 // 单模型输入族（modelSource === "input"：asr / live）的运行时 I/O 动作表：
 // 纯声明留在 provider-family.ts，带网络/port 副作用的探针与模型枚举留在本懒加载片。
@@ -112,9 +126,52 @@ const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamily
   }
 };
 
+// 本层焦点约束（打开时捕获触发控件，关闭/取消归还；确认框打开期间让位）
+let focusScope: FocusScope | null = null;
+// 合法提交的在飞标记（重复点击 / Enter 连发只落盘一次）
+let saveInFlight = false;
+// 状态行当前是否在展示字段校验汇总：输入修正时据此只更新/清掉已解决的校验错误
+let validationStatusActive = false;
+
+// ===== 音色列表（MOSS-LIVE 编辑器下拉）=====
+// 只在打开 Modal 时取一次（失败也记为已尝试），选项来自 /v1/audio/voices 分页
+// 全量；凭证与模型列表同源（草稿 Key 优先，其次该 provider 的已存 Key）。
+function isMossLivePreset(preset: { id?: string; type?: string } | null | undefined): boolean {
+  return preset?.type === "moss-live" || preset?.id === "moss-live";
+}
+
+function primeEditorVoices(): void {
+  if (state.kind !== "live" || state.voicesLoaded) return;
+  const draft = state.draft;
+  if (!draft) return;
+  const preset = PROVIDER_FAMILY_ROWS.live.resolvePreset(state.presets, draft.presetId);
+  if (!isMossLivePreset(preset)) return;
+  const baseUrl = draft.baseUrl.trim();
+  const apiKey = draft.apiKey.trim();
+  // 新增平台尚未填 Key 时无从鉴权：下拉只留「默认音色」，不发起请求
+  if (!baseUrl || (!apiKey && !state.hasSavedKey)) return;
+  void runIfCurrent(
+    () => listLiveVoices({ baseUrl, apiKey, providerId: state.editingId }),
+    {
+      ok: (result) => {
+        if (!result.ok) {
+          markEditorVoicesLoaded();
+          return;
+        }
+        applyEditorVoices(result.voices);
+        renderProjection();
+      },
+      fail: () => {
+        markEditorVoicesLoaded();
+      }
+    }
+  );
+}
+
 // 状态行写入口（ASR 平台级测试 / 测试模型下拉与保存共用；错误态着色走
 // data-error，与平铺行 .ai-provider-status 的 CSS 契约同款）
 export function showStatus(text: string, isError = false): void {
+  validationStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
   if (!statusNode) return;
   statusNode.hidden = false;
@@ -122,11 +179,37 @@ export function showStatus(text: string, isError = false): void {
   statusNode.dataset.error = isError ? "true" : "false";
 }
 
-export function statusIsError(): boolean {
-  return getDialog()?.querySelector<HTMLElement>(".provider-editor-status")?.dataset.error === "true";
+// 字段校验汇总：与普通状态行共用节点，但标记来源以便输入修正时只更新这份汇总。
+function showValidationStatus(text: string): void {
+  showStatus(text, true);
+  validationStatusActive = true;
+}
+
+// 校验态下输入修正后重算汇总行：只剩已解决错误时清空，仍有未解决项时换成首个。
+function syncValidationStatus(): void {
+  if (!validationStatusActive) return;
+  const issues = validateEditorFields();
+  if (issues.length > 0) {
+    showValidationStatus(issues[0].message);
+    return;
+  }
+  clearStatus();
+}
+
+// 预设 / 协议切换等联动改了 required 或联动值：校验态下重算全部字段与汇总行。
+function applyValidationState(): void {
+  if (!isEditorValidationAttempted()) return;
+  const issues = validateEditorFields();
+  renderEditorFieldIssues(issues);
+  if (issues.length > 0) {
+    showValidationStatus(issues[0].message);
+    return;
+  }
+  clearStatus();
 }
 
 export function clearStatus(): void {
+  validationStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
   if (!statusNode) return;
   statusNode.hidden = true;
@@ -168,6 +251,10 @@ export function closeProviderEditor(force = false): void {
   }
   document.removeEventListener("click", onDocumentClickCapture, true);
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
+  // 焦点归还仍有效的触发控件；在飞保存标记随会话作废（重开不被旧会话卡住）
+  focusScope?.dispose();
+  focusScope = null;
+  saveInFlight = false;
   // 会话控制字段的唯一写入点在状态片（代际作废 + 摘宿主/观察器 + 清草稿）
   endEditorSession();
 }
@@ -187,9 +274,11 @@ export function requestClose(): void {
 // 文档级监听按 isConfirmDialogOpen 让位，Esc/外点由弹层承接
 export async function confirmDiscardChanges(): Promise<void> {
   const ok = await confirmDialog({
+    title: "放弃更改",
     message: "未保存的更改将丢失，确定关闭？",
     confirmText: "放弃更改",
-    danger: true
+    danger: true,
+    mountHost: state.host?.parentElement || undefined
   });
   if (ok) {
     closeProviderEditor(true);
@@ -214,17 +303,31 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     models: normalizeDraftModels(draft.models),
     model: draft.model.trim(),
     liveGeminiNativeSearch: draft.liveGeminiNativeSearch === true,
+    voiceId: String(draft.voiceId || "").trim(),
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
     protocol: normalizeProtocolValue(draft.protocol)
   });
 }
 
 export async function save(): Promise<void> {
+  // 合法提交在飞时忽略重复提交（双击保存 / 表单连发）：一次提交只落盘一次
+  if (saveInFlight) return;
+  // 提交时才进入校验态（保留交互后校验）：首配缺模型、URL、Key 与单模型字段
+  // 全部定位到具体控件并聚焦首个无效字段
+  beginEditorValidation();
+  const issues = validateEditorFields();
+  renderEditorFieldIssues(issues);
+  if (issues.length > 0) {
+    showValidationStatus(issues[0].message);
+    focusEditorField(issues[0].field);
+    return;
+  }
   const { upsert, validationError } = collectUpsert();
   if (validationError) {
     showStatus(validationError, true);
     return;
   }
+  saveInFlight = true;
   setBusy(true);
   showStatus("正在保存...");
   // 会话结算（owner 2）：落盘回执落定时 Modal 已关/已重开即静默丢弃，否则
@@ -234,14 +337,31 @@ export async function save(): Promise<void> {
     {
       ok: (result) => {
         if (result.ok) {
+          // 首配续跑：先通知装配方（消费意图/退出设置），再关 Modal——
+          // 装配方回调里关设置会强制关闭本 Modal，随后的 close 幂等收空。
+          const afterSave = state.onAfterSave;
+          if (afterSave) {
+            try {
+              afterSave();
+            } catch {
+              // 装配方回调异常不得阻断保存收场
+            }
+          }
           closeProviderEditor(true);
           return;
         }
+        saveInFlight = false;
         setBusy(false);
-        showStatus(result.error || "保存失败", true);
+        showStatus(
+          result.permissionDenied
+            ? `未保存：${result.error || "未取得该平台域名权限，保存已中止"}。请重新授权后重试`
+            : result.error || "保存失败",
+          true
+        );
       },
       // void save() 会吞 rejection——任何异常都必须落到状态行，不允许无反馈
       fail: (error) => {
+        saveInFlight = false;
         setBusy(false);
         showStatus(`保存失败：${(error as Error).message || "未知错误"}`, true);
       }
@@ -256,7 +376,13 @@ export async function deleteActive(): Promise<void> {
   if (!state.editingId || !onDelete) return;
   // 面板内二次确认（ui/confirm-dialog.js）：原生 confirm 绘制在浏览器窗口中央，
   // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听整体让位
-  if (!(await confirmDialog({ message: "确定要删除这个平台吗？删除后需要重新配置。", confirmText: "删除", danger: true }))) {
+  if (!(await confirmDialog({
+    title: "删除平台",
+    message: "确定要删除这个平台吗？删除后需要重新配置。",
+    confirmText: "删除",
+    danger: true,
+    mountHost: state.host?.parentElement || undefined
+  }))) {
     return;
   }
   setBusy(true);
@@ -339,7 +465,10 @@ export async function runTest(): Promise<void> {
         showStatus("正在测试...");
       },
       denied: (error) => {
-        showStatus(error || "未取得该平台域名权限，无法测试连接", true);
+        showStatus(
+          `未测试：${error || "未取得该平台域名权限，无法测试连接"}。请重新授权后重试`,
+          true
+        );
       },
       ok: (resp) => {
         setBusy(false);
@@ -454,7 +583,7 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
   const family = PROVIDER_FAMILY_ROWS[options.kind];
   // 新增默认按族取 defaultPresetId（AI custom / ASR 硅基流动 / 搜索 tavily）；
   // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
-  const presetId = String(item?.presetId || family.editor.defaultPresetId(options.presets));
+  const presetId = String(item?.presetId || options.presetId || family.editor.defaultPresetId(options.presets));
   const preset = family.resolvePreset(options.presets, presetId);
   const isAi = options.kind === "ai";
   const protocol = normalizeProtocolValue(item ? item.protocol : presetProtocol(preset));
@@ -471,8 +600,22 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
     // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
     models: isAi && Array.isArray(item?.models) ? item.models.map(String) : [],
     model: isAi ? "" : String(item?.model ?? preset?.model ?? ""),
-    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false
+    liveGeminiNativeSearch: options.kind === "live" ? item?.liveGeminiNativeSearch === true : false,
+    voiceId: options.kind === "live" ? String(item?.voiceId || "") : ""
   };
+}
+
+// 跨族凭据引用内联行（票 07/08）：消费族编辑器（伴看 Gemini Live / 搜索
+// DeepSeek）内展示四态状态文案与同层进入 AI 族编辑器的动作。
+function linkedCredentialHtml(linkedCredential: LinkedCredentialAction | null): string {
+  if (!linkedCredential) return "";
+  return `
+        <div class="provider-editor-linked-credential">
+          <span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText)}</span>
+          ${linkedCredential.actionLabel
+            ? `<button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
+            : ""}
+        </div>`;
 }
 
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
@@ -484,12 +627,16 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const blocks = projectionBlocks(draft, {
     kind: options.kind,
     presets: options.presets,
-    hasSavedKey: Boolean(item?.hasSavedKey)
+    hasSavedKey: Boolean(item?.hasSavedKey),
+    voices: state.voices
   });
   const isAi = options.kind === "ai";
   const isSearch = options.kind === "search";
   const models = draft.models;
   const title = editorTitle(options.kind, Boolean(item?.id));
+  // 跨族凭据引用内联行（票 07/08，伴看 Gemini Live / 搜索 DeepSeek 编辑器）：
+  // 四态状态文案 + 同层动作，纯会话态，随 endEditorSession 清空
+  const linkedCredential = state.linkedCredential;
 
   return `
     <div class="provider-editor-mask" data-provider-editor-action="close"></div>
@@ -498,14 +645,15 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         <span class="provider-editor-title">${escapeHtml(title)}</span>
         ${item?.id && options.onDelete ? `<button type="button" class="provider-editor-delete" data-provider-editor-action="delete" title="删除该平台">删除</button>` : ""}
       </header>
-      <div class="provider-editor-body">
-        ${blocks.preset}
-        ${isAi ? `\n        ${blocks.protocol}` : ""}
-        ${blocks.name}
-        ${blocks.baseUrl}
-        ${blocks.apiKey}
-        ${isAi
-          ? `
+      <form class="provider-editor-form" novalidate>
+        <div class="provider-editor-body">
+          ${blocks.preset}
+          ${isAi ? `\n        ${blocks.protocol}` : ""}
+          ${blocks.name}
+          ${blocks.baseUrl}
+          ${blocks.apiKey}
+          ${isAi
+            ? `
         <div class="provider-editor-field provider-editor-catalog">
           <div class="provider-editor-catalog-head">
             <label class="provider-editor-label">模型</label>
@@ -517,38 +665,44 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           ${blocks.catalogEmpty}
           <p class="provider-editor-catalog-error" hidden></p>
           <button type="button" class="provider-editor-model-add" data-provider-editor-action="add-model">+ 添加模型</button>
+          <p class="provider-editor-field-error" id="provider-editor-error-models" hidden></p>
         </div>
         <p class="provider-editor-status" hidden></p>
         ${blocks.protocolNotes}`
-          : isSearch
-            ? `
+            : isSearch
+              ? `
+        ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
-          <button type="button" class="provider-editor-test" data-provider-editor-action="test" title="会真实发起一次搜索，占用一次平台额度">测试</button>
-          <p class="provider-editor-status" hidden></p>
+          <button type="button" class="provider-editor-test" data-provider-editor-action="test" title="会真实发起一次搜索，占用一次平台额度" aria-describedby="provider-editor-test-hint">测试</button>
+          <div class="provider-editor-test-column">
+            <p class="provider-editor-status" hidden></p>
+            <p class="provider-editor-test-hint" id="provider-editor-test-hint">会真实发起一次搜索，占用一次平台额度</p>
+          </div>
         </div>`
-            : `
+              : `
         ${blocks.model}
+        ${blocks.voice}
         ${blocks.liveGeminiNativeSearch}
+        ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>
         </div>`}
-      </div>
-      <footer class="provider-editor-foot">
-        <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">取消</button>
-        <button type="button" class="provider-editor-save" data-provider-editor-action="save">保存</button>
-      </footer>
+        </div>
+        <footer class="provider-editor-foot">
+          <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">${escapeHtml(options.cancelLabel?.trim() || "取消")}</button>
+          <button type="submit" class="provider-editor-save" data-provider-editor-action="save">${escapeHtml(options.submitLabel?.trim() || "保存")}</button>
+        </footer>
+      </form>
     </section>
   `;
 }
 
 // ===== 挂载与全局监听 =====
 
-// 挂载宿主：#biliscript-reading-view 直下（面板内弹层的最大合理范围，不在设置抽屉
-// 滚动容器内——mask 不随内容滚动）。阅读视图重建时宿主随根节点一起消失，
-// open 入口的幂等重置兜底状态残留。
-export function ensureHost(): HTMLElement | null {
-  const view = document.getElementById(ids.readingView);
+// 默认挂在视频页阅读视图；直播间传入自己的 dialog 内宿主。
+export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
+  const view = mountHost || document.getElementById(ids.readingView);
   if (!view) {
     return null;
   }
@@ -558,16 +712,12 @@ export function ensureHost(): HTMLElement | null {
   return host;
 }
 
-// 面板外点击（capture 阶段拦截）：只关 Modal 不关抽屉——ui-renderer 的抽屉
-// 外点关闭是 document bubble 委托，capture 阶段 stopPropagation 后不再触发
-//（一次点击只关一层）。面板内点击（含遮罩）在此放行，Modal 内下拉由组件自身
-// 的 capture 监听收起。
+// 编辑器只结算当前最上层：确认框或下拉展开时让位；自身处理外点时在 capture
+// 阶段截断，设置与宿主的后续委托不会把同一次点击再结算一遍。
 export function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
-  // 确认弹层（删除二次确认）叠在本 Modal 之上时整体让位：同一批事件由
-  // confirm-dialog 的 capture 监听承接，避免一次外点/Esc 把两层一起关掉
-  if (isConfirmDialogOpen()) return;
-  const view = document.getElementById(ids.readingView);
+  if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
+  const view = state.host?.parentElement || document.getElementById(ids.readingView);
   if (view && event.target instanceof Node && view.contains(event.target)) {
     return;
   }
@@ -577,10 +727,9 @@ export function onDocumentClickCapture(event: MouseEvent): void {
 
 export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
-  // 确认弹层打开期间让位（同 onDocumentClickCapture）：Esc 逐层退出，先关确认
-  if (isConfirmDialogOpen()) return;
+  if (isConfirmDialogOpen() || hasReaderSettingsDropdownOpen()) return;
+  event.preventDefault();
   event.stopPropagation();
-  // 弹窗开着先关弹窗（拍板 Q5：Esc 逐层退出），否则关编辑器
   if (getFetchDialog()) {
     closeFetchDialog();
     return;
@@ -612,29 +761,45 @@ export function wireDialog(): void {
     // 用户验证过的同源路径）；异常兜底在各 handler 内部落状态行
     const action = target.closest<HTMLElement>("[data-provider-editor-action]")?.dataset.providerEditorAction;
     if (action === "close") requestClose();
-    else if (action === "save") void save();
+    else if (action === "save") {
+      // 保存键是表单的 submit 控件：点击路径在这里统一走一次提交，并取消浏览器的
+      // 原生提交默认动作（否则 click 与 submit 会各结算一次）
+      event.preventDefault();
+      void save();
+    }
     else if (action === "test") void runTest();
     else if (action === "delete") void deleteActive();
-    else if (action === "add-model") addModelRow();
-    else if (action === "remove-model") removeModelRow(target.closest<HTMLElement>(".provider-editor-model-row"));
+    else if (action === "linked-credential") {
+      // 跨族凭据动作（票 07）：装配方负责同层切换编辑器；异常不得阻断收场
+      try {
+        state.linkedCredential?.onAction?.();
+      } catch {}
+    }
+    else if (action === "add-model") {
+      addModelRow();
+      revalidateEditorField("models");
+    }
+    else if (action === "remove-model") {
+      removeModelRow(target.closest<HTMLElement>(".provider-editor-model-row"));
+      revalidateEditorField("models");
+    }
     else if (action === "test-model") void runModelTest(target.closest<HTMLElement>(".provider-editor-model-row"), isDirty());
     else if (action === "fetch-models") void openFetchDialog();
     else if (action === "close-fetch") closeFetchDialog();
-    else if (action === "confirm-fetch") confirmFetchSelection();
-    else if (action === "retry-fetch") void openFetchDialog();
-    // 「获取可用模型」弹窗内勾选：全选点击把目录外可选项整体勾/去勾（jsdom
-    // 与浏览器都先完成 checkbox 自身切换，再进此委托），随后同步三态与计数
-    if (target.closest(".provider-editor-fetch-dialog")) {
-      const all = target.closest<HTMLInputElement>(".provider-editor-fetch-all");
-      if (all) {
-        getFetchDialog()
-          ?.querySelectorAll<HTMLInputElement>(".provider-editor-fetch-check:not(:disabled)")
-          .forEach((check) => {
-            check.checked = all.checked;
-          });
-      }
-      syncFetchSelectionState();
+    else if (action === "confirm-fetch") {
+      confirmFetchSelection();
+      revalidateEditorField("models");
     }
+    else if (action === "retry-fetch") void openFetchDialog();
+    // 「获取可用模型」子视图内的勾选（全选三态 / 选择集）由子视图自持委托
+    // （provider-editor-fetch-dialog 片），此处只结算动作按钮
+  });
+
+  // 语义化表单提交（保存键 submit / 输入框内 Enter 隐式提交）：校验、聚焦首个
+  // 无效字段与重复提交拦截都走 save() 的同一条路径。
+  dialog.querySelector<HTMLFormElement>(".provider-editor-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void save();
   });
 
   const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset");
@@ -688,9 +853,17 @@ export function wireDialog(): void {
     // 一次重投影覆盖全部字段：协议 trigger 显示 / Key 占位与 required / 名称
     // 占位 / baseUrl / 模型，不再逐字段手写
     renderProjection();
-    clearStatus();
+    // 预设切换改变 required（如免 Key 预设）与联动值：校验态下重算字段错误；
+    // 未进入校验态时只清状态行（既有预设切换语义）
+    if (isEditorValidationAttempted()) {
+      applyValidationState();
+    } else {
+      clearStatus();
+    }
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
     refreshModelCatalogMeta();
+    // 切到 MOSS-LIVE 时按本次会话首次取音色列表（已取过则 no-op）
+    primeEditorVoices();
   });
   if (presetSelect) {
     // AI / ASR 一律接管（ADR-0007）：原生 select 的弹层由浏览器绘制，圆角与
@@ -721,15 +894,17 @@ export function wireDialog(): void {
         });
       }
       renderProjection();
+      // 切协议可能联动改 baseUrl（protocolBaseUrls 端点）：校验态下重算字段错误
+      applyValidationState();
       // 切协议可能联动改 baseUrl（protocolBaseUrls 端点），元数据跟着重算
       refreshModelCatalogMeta();
     });
   }
 
   // 输入即写 draft（候选 4 片 3：draft 是真源，input 事件是文本字段的唯一写
-  // 通道）并清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS
-  // 随原生约束自动摘除，无需 JS 介入。选择器、draft 键与「是否清错」都由投影片
-  // 的字段表声明（DRAFT_INPUTS），这里只做一次统一接线。
+  // 通道）。字段级校验在提交过校验之后才随修正重算：只清掉被修正且已解决的
+  // 字段错误，未解决项与普通状态行（保存失败、权限被拒）保持原样。
+  // 选择器与 draft 键由投影片的字段表声明（DRAFT_INPUTS），这里只做一次统一接线。
   // ASR 单模型输入只回写 draft（状态行由 model-picker 自持）；其下拉选值已在
   // model-picker 内补派 input 事件。
   const geminiSearchInput = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
@@ -742,15 +917,28 @@ export function wireDialog(): void {
     });
   }
 
+  // 音色下拉（仅 MOSS-LIVE 渲染）：选值写 draft，保存时按 provider 落盘
+  const voiceSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice");
+  if (voiceSelect) {
+    initCustomSelect(voiceSelect, "custom-select-wrapper provider-editor-voice-wrapper");
+    voiceSelect.addEventListener("change", () => {
+      editDraft((draft) => {
+        draft.voiceId = voiceSelect.value;
+      });
+      clearStatus();
+    });
+  }
+
   for (const field of DRAFT_INPUTS) {
     const input = dialog.querySelector<HTMLInputElement>(field.selector);
     input?.addEventListener("input", () => {
       editDraft((draft) => {
         draft[field.key] = input.value;
       });
-      if (field.clearStatus && statusIsError()) {
-        clearStatus();
+      if (field.key !== "name") {
+        revalidateEditorField(field.key);
       }
+      syncValidationStatus();
     });
   }
   // AI 目录行：行动态增删，输入事件按当前行序整列回写 draft.models（行 DOM
@@ -773,29 +961,6 @@ export function wireDialog(): void {
   dialog
     .querySelector<HTMLElement>(".provider-editor-model-list")
     ?.addEventListener("input", () => refreshModelCatalogMeta());
-
-  // 可达性桥（accessible-error-announcement）：:user-invalid（视觉态）与
-  // aria-invalid（程序态）同拍——浏览器判定进入/退出 :user-invalid 的时刻
-  //（blur 提交值 / input 修正值）同步属性，AT 与视觉在同一时刻拿到「无效」。
-  // blur 不冒泡走 capture；jsdom 无 :user-invalid 判定（matches 恒 false），
-  // 正向路径无法在测试网仿真，浏览器（Chrome 119+，Baseline 2023-11）按标准工作。
-  const syncAriaInvalid = (event: Event): void => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || !target.matches("input, textarea, select")) {
-      return;
-    }
-    try {
-      if (target.matches(":user-invalid")) {
-        target.setAttribute("aria-invalid", "true");
-      } else {
-        target.removeAttribute("aria-invalid");
-      }
-    } catch {
-      // 老内核不识别 :user-invalid（matches 抛 SyntaxError）：属性面保持不动
-    }
-  };
-  dialog.addEventListener("blur", syncAriaInvalid, true);
-  dialog.addEventListener("input", syncAriaInvalid);
 
   // 单模型输入族（ASR / Live）侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）
   const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
@@ -830,14 +995,12 @@ export function wireDialog(): void {
       hasSavedKey: () => Boolean(state.hasSavedKey)
     });
   }
-
-  dialog.focus({ preventScroll: true });
 }
 
 export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   // 幂等重置：重复打开（编辑 A 中改开 B）先作废旧 Modal 的在飞回执与监听
   closeProviderEditor(true);
-  const host = ensureHost();
+  const host = ensureHost(options.mountHost);
   if (!host) {
     return;
   }
@@ -852,17 +1015,36 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
     editingId: String(options.item?.id || ""),
     openBaseUrl: String(options.item?.baseUrl || ""),
     hasSavedKey: Boolean(options.item?.hasSavedKey),
-    draft: buildInitialDraft(options)
+    firstSetup: options.firstSetup === true,
+    onAfterSave: options.onAfterSave ?? null,
+    onSessionEnd: options.onSessionEnd ?? null,
+    linkedCredential: options.linkedCredential ?? null,
+    // 恢复草稿（票 07）：跨族凭据往返后显式带回原草稿与 dirty 基线；缺省由
+    // 编辑目标/预设推导初稿、打开即基线
+    draft: options.initialDraft ? cloneDraft(options.initialDraft) : buildInitialDraft(options),
+    ...(options.baselineDraft !== undefined ? { baselineDraft: options.baselineDraft } : {})
   });
   host.innerHTML = buildDialogHtml(options);
   // 投影水合：模板已按同一份字段表渲染，这里再走一遍 apply，把「投影规则」
   //（含 required 挂摘、Key 占位符等）统一落到 DOM，随后联动只调 renderProjection
   renderProjection();
   wireDialog();
+  // 新会话的首次提交前不展示字段错误
+  resetEditorValidation();
+  // 焦点约束：打开即入 Dialog（Tab 在层内环绕），关闭/取消后归还仍有效的触发
+  // 控件；确认框打开期间本层让位（一次输入只结算最上层）
+  const dialog = getDialog();
+  if (dialog) {
+    focusScope = createFocusScope(dialog, {
+      initialFocus: dialog,
+      isActive: () => !isConfirmDialogOpen()
+    });
+  }
+  primeEditorVoices();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
-  // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
-  // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
+  // 外层命令收起设置时强制关闭（含 dirty 改动），confirm 无意义；普通外点与
+  // Esc 已在当前弹层结算，不会进入这条联动。自治监听 hidden 属性变化。
   observeSettingsPanelHidden(() => closeProviderEditor(true), sessionObserver);
   // 只读模型元数据（model-catalog/04）：只有目录族的 Modal 用得上，打开后才动态
   // import 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗

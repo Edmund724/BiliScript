@@ -262,7 +262,7 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
 const HOST_PERMISSION_SW_IMPORTERS: Record<string, string> = {
   "core/provider-http.ts": "SW 代发接收端（handleProviderHttpRequest）",
   "entry/background.ts": "SW 的 check-provider-origin 代查 / request-provider-origins 代申请",
-  "live/live-session-tracker.ts": "SW 侧 Live 会话准备（liveSessionTracker.prepare 双 origin 权限预检）"
+  "live/live-session-tracker.ts": "SW 侧 Live 会话准备（liveSessionTracker.prepareFor 双 origin 权限预检）"
 };
 
 describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用", () => {

@@ -2,9 +2,9 @@ import { state, clipState } from "../core/state.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
-import { setMessage } from "../core/ui-status.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
+import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { normalizeChapters } from "./chapters.js";
 import { createSecondaryLineResolver } from "./alignment.js";
 import {
@@ -331,14 +331,22 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
   if (shouldFetchComments) {
     try {
       clipState.setHotComments(await fetchHotComments(20));
+      clipState.setHotCommentsNotice("");
+      // 热评补拉成功可能发生在概览已渲染之后（复制 Markdown 的派生刷新路径），
+      // 投影一次让概览的状态条提示按新状态收掉。
+      notifyReaderPresenter({ kind: "rerender" });
     } catch (error) {
       clipState.setHotComments([]);
       logWarn("[BILISCRIPT] failed to fetch hot comments", error);
-      // 状态行出声：热评拉不到 = 没有评论目录 = 概览退回 AI 自由分章，用户得知道
-      // 为什么。文案不写死「失败」——严重度交给具体病因（core/reading-status-line
-      // 按词表决定是否常驻）：-352 风控/网络失败带「失败」→ 常驻；评论被关闭
-      // （-404）这类「本来就没有评论」的正常态 → 5s 自动收起。
-      setMessage(`热评没拿到（${getErrorMessage(error)}）：本次概览没有评论目录。`);
+      // 热评的消费方是概览（章节目录来源之一），失败提示按职责归位到
+      // state.clip.hotCommentsNotice，由概览 tab 的状态条呈现（不写全局状态行，
+      // 避免任务反馈串位）；文案不写死「失败」——概览条常驻展示，严重度交给
+      // 具体病因（-352 风控/网络 vs -404 评论关闭）。概览可能已渲染（派生刷新
+      // 路径），投影一次让提示即时出现。
+      clipState.setHotCommentsNotice(
+        `热评没拿到（${getErrorMessage(error)}）：本次概览没有评论目录。`
+      );
+      notifyReaderPresenter({ kind: "rerender" });
     }
   }
 }

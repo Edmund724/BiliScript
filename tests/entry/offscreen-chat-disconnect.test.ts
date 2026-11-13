@@ -75,8 +75,8 @@ function makeChatPort() {
   };
 }
 
-function connectChat() {
-  expect(host.onConnectListeners).toHaveLength(1);
+function connectChat({ previousPorts = 0 }: { previousPorts?: number } = {}) {
+  expect(host.onConnectListeners).toHaveLength(previousPorts + 1);
   const session = makeChatPort();
   host.onConnectListeners.at(-1)!(session.port as unknown as chrome.runtime.Port);
   return {
@@ -150,6 +150,62 @@ describe("offscreen 聊天通道断连容错", () => {
     }));
   });
 
+  it("历史帧调用把目标时间随请求发到宿主，并解析有序三帧回执", async () => {
+    let capturedFrames: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: (targetTime?: number) => Promise<unknown> }) => {
+      capturedFrames = await captureCurrentVideoFrame(90);
+    });
+    await importOffscreen();
+    const session = connectChat();
+
+    session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "video-frame-request",
+      requestId: expect.any(String),
+      targetTime: 90
+    })));
+    const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
+    const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+    const frames = [88, 90, 92].map((currentTime, index) => ({
+      image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+      currentTime
+    }));
+
+    session.send({
+      action: "video-frame-result",
+      requestId: request.requestId,
+      frames
+    });
+    await vi.waitFor(() => expect(capturedFrames).toEqual(frames));
+  });
+
+  it("停止回答会取消页面侧在飞取帧并结束等待", async () => {
+    let captureError: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: { captureCurrentVideoFrame: () => Promise<unknown> }) => {
+      try {
+        await captureCurrentVideoFrame();
+      } catch (error) {
+        captureError = error;
+      }
+    });
+    await importOffscreen();
+    const session = connectChat();
+
+    session.send({ ...CHAT_MSG, videoFrameToolEnabled: true });
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "video-frame-request" })));
+    const calls = session.port.postMessage.mock.calls as unknown as Array<[{ type: string; requestId: string }]>;
+    const request = calls.find(([message]) => message.type === "video-frame-request")![0];
+
+    session.send({ action: "stop" });
+
+    await vi.waitFor(() => expect(captureError).toEqual(new Error("截图请求已中止")));
+    expect(session.port.postMessage).toHaveBeenCalledWith({
+      type: "video-frame-cancel",
+      requestId: request.requestId,
+      cachedContextKey: CONTEXT_KEY
+    });
+  });
+
   it("截帧等待中断连会 reject 并收尾，不产生 unhandled rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
@@ -176,6 +232,27 @@ describe("offscreen 聊天通道断连容错", () => {
     } finally {
       process.removeListener("unhandledRejection", onUnhandled);
     }
+  });
+
+  it("旧端口迟到断连不会中止已接管的新回合", async () => {
+    const signals: AbortSignal[] = [];
+    runLadderChatMock.mockImplementation(async ({ signal }: { signal: AbortSignal }) => {
+      signals.push(signal);
+      await new Promise(() => {});
+    });
+    await importOffscreen();
+    const first = connectChat();
+    first.send(CHAT_MSG);
+    await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(1));
+
+    const second = connectChat();
+    second.send(CHAT_MSG);
+    await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(2));
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    first.fireDisconnect();
+    expect(signals[1].aborted).toBe(false);
   });
 
   it("断连后 ladder 抛错：catch 通道的错误回报被吞，无 unhandled rejection", async () => {

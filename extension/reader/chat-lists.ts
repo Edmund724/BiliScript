@@ -26,15 +26,21 @@ import { chatSessionState } from "../chat/chat-state.js";
 import { extractBvid } from "../bilibili/video-id-shared.js";
 import { state } from "../core/state.js";
 import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
+import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import { renderLiveTextToolRecordHtml } from "./chat-live-text-records.js";
+import { hydrateMarkdownContent } from "../ui/markdown.js";
+import type { ConversationDeletion } from "../chat/conversation-store.js";
 
 export interface CreateReaderChatListsDeps {
   historyList: HTMLElement;
   historyClearBtn: HTMLButtonElement | null;
-  // 会话动作（conversation-store 实例的窄接口）
-  // applyById 由组合根包一层 C′ 接缝：在途回合先由 chat-runtime 体面停流落盘
-  //（settleTurn）再切换，故其兑现晚于本次点击——不在途时同一 tick 内完成。
-  applyById: (id: string) => void;
-  deleteById: (id: string) => Promise<void>;
+  // applyById 只在在途回合需要 settleTurn 时返回 Promise；空闲切换保持同步完成。
+  applyById: (id: string) => Promise<void> | void;
+  deleteById: (id: string) => Promise<ConversationDeletion | null>;
+  isTurnActive: () => boolean;
+  confirmDeleteCurrent: (message: string) => boolean | Promise<boolean>;
+  // true = 新会话已建立（可以退出历史并聚焦输入框）；false = 确认被取消。
+  startNewConversation: () => Promise<boolean> | boolean;
   // 建议区属主（render / isPresent）：列表只提交内容，节点在场与否由属主回答
   suggestions: ChatSuggestionsSlot;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
@@ -43,7 +49,8 @@ export interface CreateReaderChatListsDeps {
 
 export interface ReaderChatLists {
   renderSuggestions: () => void;
-  renderHistoryList: () => void;
+  renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
+  settlePendingDeletion: () => void;
 }
 
 // 空态欢迎区图标与建议 chip 的 DOM 均在建议区属主（./chat-suggestions-slot）里。
@@ -96,17 +103,221 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     );
   }
 
-  function renderHistoryList(): void {
-    if (!historyList) {
+  // 历史事务（跨重渲存活）：切换单飞（pendingSwitchId，settleTurn 落定后才退出
+  // 历史页）；删除撤销（pendingDeletion，一次性 6 秒计时）；settlePendingDeletion
+  // 是离开历史、换视频、关闭面板与新建会话共用的结算口。
+  let openLiveHistoryId: string | null = null;
+  // 取消返回（伴看详情 → 历史列表）恢复进入详情前的列表滚动位置。
+  let liveHistoryReturnScrollTop = 0;
+  let pendingSwitchId: string | null = null;
+  let pendingDeletion: { id: string; undo: () => Promise<void>; timer: number } | null = null;
+  // 删除请求序号：连续删除时只有最后一次的落定结果能占用撤销条与焦点，
+  // 先发后至的旧删除不得覆盖。
+  let deletionSeq = 0;
+  // 上次渲染时的当前会话：身份晚于首次渲染落定时，重渲同样要定位到当前项。
+  let lastCurrentId = "";
+
+  function focusHistoryOpen(id: string): void {
+    historyList.querySelectorAll<HTMLButtonElement>(".chat-history-open").forEach((button) => {
+      if (button.dataset.id === id) button.focus({ preventScroll: true });
+    });
+  }
+
+  function settlePendingDeletion(): void {
+    // 事务边界：在途删除的续体随之作废（落定后不再复活撤销条/抢焦点）。
+    deletionSeq += 1;
+    if (!pendingDeletion) {
       return;
     }
+    window.clearTimeout(pendingDeletion.timer);
+    pendingDeletion = null;
+    renderHistoryList();
+  }
+
+  function undoHtml(): string {
+    if (!pendingDeletion) {
+      return "";
+    }
+    return `<div class="chat-history-undo" role="status">
+      <span>已删除历史记录</span>
+      <button type="button" class="chat-history-undo-button">撤销</button>
+    </div>`;
+  }
+
+  function openConversation(id: string): void {
+    if (pendingSwitchId) {
+      return;
+    }
+    const conversation = chatSessionState.savedConversations.find((item) => item.id === id);
+    if (isLiveTextToolHistoryEntry(conversation)) {
+      liveHistoryReturnScrollTop = historyList.scrollTop;
+      openLiveHistoryId = id;
+      renderHistoryList();
+      historyList.scrollTop = 0;
+      historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus();
+      return;
+    }
+    if (!conversation) {
+      return;
+    }
+    openLiveHistoryId = null;
+    pendingSwitchId = id;
+    const switching = deps.applyById(id);
+    if (!switching) {
+      pendingSwitchId = null;
+      renderHistoryList();
+      deps.hideHistoryPopover();
+      return;
+    }
+    renderHistoryList();
+    // 重渲换了节点：把键盘焦点留在正在保存的目标行（aria-disabled 仍可聚焦），
+    // 落定后才交给 hideHistoryPopover 转到输入框。
+    focusHistoryOpen(id);
+    switching.then(
+      () => {
+        if (pendingSwitchId !== id) return;
+        pendingSwitchId = null;
+        renderHistoryList();
+        deps.hideHistoryPopover();
+      },
+      () => {
+        if (pendingSwitchId !== id) return;
+        pendingSwitchId = null;
+        renderHistoryList();
+        focusHistoryOpen(id);
+      }
+    );
+  }
+
+  async function deleteConversation(id: string): Promise<void> {
+    if (pendingSwitchId) {
+      return;
+    }
+    if (id === chatSessionState.currentConversationId && deps.isTurnActive()) {
+      const confirmed = await deps.confirmDeleteCurrent("正在生成的回答将被丢弃。确定删除当前会话吗？");
+      if (!confirmed) {
+        return;
+      }
+    }
+    const ids = chatSessionState.savedConversations.map((item) => item.id);
+    const index = ids.indexOf(id);
+    if (index < 0) {
+      return;
+    }
+    const nextFocusId = ids[index + 1] ?? ids[index - 1] ?? "";
+    openLiveHistoryId = null;
+    settlePendingDeletion();
+    const seq = ++deletionSeq;
+    const deletion = await deps.deleteById(id);
+    if (!deletion || seq !== deletionSeq) {
+      return;
+    }
+    const record = {
+      id,
+      undo: deletion.undo,
+      timer: 0
+    };
+    record.timer = window.setTimeout(() => {
+      if (pendingDeletion !== record) return;
+      pendingDeletion = null;
+      renderHistoryList();
+    }, 6000);
+    pendingDeletion = record;
+    renderHistoryList();
+    if (nextFocusId) {
+      focusHistoryOpen(nextFocusId);
+    } else {
+      historyList.querySelector<HTMLButtonElement>(".chat-history-undo-button, .chat-history-start-new")?.focus();
+    }
+  }
+
+  function bindHistoryActions(): void {
+    historyList.querySelectorAll<HTMLElement>(".chat-history-item").forEach((item) => {
+      item.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest(".chat-history-remove")) return;
+        event.stopPropagation();
+        openConversation(String(item.dataset.id || ""));
+      });
+    });
+    historyList.querySelectorAll(".chat-history-remove").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void deleteConversation(String((button as HTMLElement).dataset.id || ""));
+      });
+    });
+    historyList.querySelector<HTMLButtonElement>(".chat-history-undo-button")?.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (pendingSwitchId) return;
+      const record = pendingDeletion;
+      if (!record) return;
+      window.clearTimeout(record.timer);
+      pendingDeletion = null;
+      (event.currentTarget as HTMLButtonElement).disabled = true;
+      // 撤销从伴看详情里也可见：恢复后回列表，把焦点还给被恢复的条目。
+      openLiveHistoryId = null;
+      await record.undo();
+      renderHistoryList();
+      focusHistoryOpen(record.id);
+    });
+    historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      settlePendingDeletion();
+      if ((await deps.startNewConversation()) === false) {
+        return;
+      }
+      deps.hideHistoryPopover();
+    });
+  }
+
+  function renderHistoryList({ revealCurrent = false }: { revealCurrent?: boolean } = {}): void {
+    const currentId = chatSessionState.currentConversationId || "";
+    const currentAppeared = Boolean(currentId) && currentId !== lastCurrentId;
+    lastCurrentId = currentId;
     if (historyClearBtn) {
       historyClearBtn.hidden = chatSessionState.savedConversations.length === 0;
     }
+    if (pendingSwitchId) {
+      historyList.setAttribute("aria-busy", "true");
+    } else {
+      historyList.removeAttribute("aria-busy");
+    }
     if (!chatSessionState.savedConversations.length) {
-      historyList.innerHTML = '<span class="chat-history-empty">还没有历史对话</span>';
+      openLiveHistoryId = null;
+      historyList.innerHTML = `<div class="chat-history-empty-state">
+        <span class="chat-history-empty">还没有历史记录</span>
+        <button type="button" class="chat-history-start-new">开始新会话</button>
+      </div>${undoHtml()}`;
+      bindHistoryActions();
       return;
     }
+
+    const selected = chatSessionState.savedConversations.find((item) => item.id === openLiveHistoryId);
+    if (isLiveTextToolHistoryEntry(selected)) {
+      const metaText = `${formatConversationTimestamp(selected.updatedAt || selected.createdAt)} · ${selected.records.length} 条记录`;
+      historyList.innerHTML = `
+        <section class="chat-live-history-detail" aria-label="伴看记录">
+          <button type="button" class="chat-live-history-back">返回历史列表</button>
+          <div class="chat-live-history-heading">
+            <span class="chat-live-history-title">${escapeHtml(selected.title)}</span>
+            <span class="chat-live-history-meta">${escapeHtml(metaText)}</span>
+          </div>
+          <div class="chat-live-history-records">
+            ${selected.records.map((record) => renderLiveTextToolRecordHtml(record, { readOnly: true })).join("")}
+          </div>
+        </section>${undoHtml()}`;
+      hydrateMarkdownContent(historyList);
+      historyList.querySelector(".chat-live-history-back")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const returnId = openLiveHistoryId;
+        openLiveHistoryId = null;
+        renderHistoryList();
+        historyList.scrollTop = liveHistoryReturnScrollTop;
+        if (returnId) focusHistoryOpen(returnId);
+      });
+      bindHistoryActions();
+      return;
+    }
+    openLiveHistoryId = null;
 
     const liveVideoRef = chatSessionState.liveContextData?.isVideoContext ? chatSessionState.liveContextData : null;
     const canHighlightLiveMatches = Boolean(
@@ -118,45 +329,39 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
 
     historyList.innerHTML = chatSessionState.savedConversations
       .map((conversation) => {
-        const isActive = conversation.id === chatSessionState.currentConversationId;
+        const liveEntry = isLiveTextToolHistoryEntry(conversation) ? conversation : null;
+        const isActive = !liveEntry && conversation.id === chatSessionState.currentConversationId;
         const isLiveMatch = Boolean(
+          !liveEntry &&
           !isActive &&
           canHighlightLiveMatches &&
           doesConversationMatchCurrentContext(conversation, liveVideoRef, chatSessionState.liveContextKey)
         );
-        const metaText = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
+        const isSwitching = conversation.id === pendingSwitchId;
+        const timestamp = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
+        const metaText = isSwitching ? "正在保存当前回答…" : liveEntry ? `${timestamp} · ${liveEntry.records.length} 条记录` : timestamp;
         const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
         return `
-          <div class="chat-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""}" data-id="${escapeHtml(conversation.id)}">
-            <button type="button" class="chat-history-open" data-id="${escapeHtml(conversation.id)}">
+          <div class="chat-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""} ${isSwitching ? "is-switching" : ""}" data-id="${escapeHtml(conversation.id)}" ${isSwitching ? 'aria-busy="true"' : ""}>
+            <button type="button" class="chat-history-open" data-id="${escapeHtml(conversation.id)}" ${isActive ? 'aria-current="true"' : ""} ${pendingSwitchId ? 'aria-disabled="true"' : ""}>
               <span class="chat-history-title" title="${escapeHtml(conversation.title)}">
+                ${isActive ? '<span class="chat-history-current">当前</span>' : ""}
+                ${liveEntry ? '<span class="chat-history-kind">伴看记录</span>' : ""}
                 <span class="chat-history-title-main">${escapeHtml(titleDisplay.main)}</span>
                 ${titleDisplay.suffix ? `<span class="chat-history-title-suffix">${escapeHtml(titleDisplay.suffix)}</span>` : ""}
               </span>
               <span class="chat-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
             </button>
-            <button type="button" class="chat-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话">×</button>
+            <button type="button" class="chat-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="${liveEntry ? "删除伴看记录" : "删除历史对话"}" ${pendingSwitchId ? 'aria-disabled="true"' : ""}>×</button>
           </div>
         `;
       })
-      .join("");
-
-    historyList.querySelectorAll(".chat-history-open").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = String(btn.getAttribute("data-id") || "");
-        deps.applyById(id);
-        deps.hideHistoryPopover();
-      });
-    });
-
-    historyList.querySelectorAll(".chat-history-remove").forEach((btn) => {
-      btn.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        const id = String(btn.getAttribute("data-id") || "");
-        await deps.deleteById(id);
-      });
-    });
+      .join("") + undoHtml();
+    bindHistoryActions();
+    if (revealCurrent || currentAppeared) {
+      historyList.querySelector<HTMLElement>(".chat-history-item.is-active .chat-history-open")?.scrollIntoView({ block: "nearest" });
+    }
   }
 
-  return { renderSuggestions, renderHistoryList };
+  return { renderSuggestions, renderHistoryList, settlePendingDeletion };
 }

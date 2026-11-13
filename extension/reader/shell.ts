@@ -45,14 +45,17 @@ import { READER_CLOSED_EVENT } from "../shared/self-heal.js";
 import { getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
 import { READER_READY_ATTR } from "./presentation-fields.js";
+import { requestUiCommand } from "./reader-bus.js";
+import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 
 export type ReaderShellIntent = "open" | "restore" | "chat";
 
 export interface EnterReaderShellOptions {
   readerUrl: string;
   intent: ReaderShellIntent;
-  /** chat 档专用：非空 = 激活对话 tab 后自动发送快捷提示词；空 = 只定位/聚焦 */
+  /** chat 档专用：非空 = 激活对话 tab 后按会话状态发送快捷提示词；空 = 只定位/聚焦 */
   prompt?: string;
+  settingsTarget?: LiveSettingsTarget;
 }
 
 // 空 readerUrl 的语义是「已在阅读模式内，只聚焦/激活」。但 background 的
@@ -140,6 +143,7 @@ function runReaderShellEnterTransaction(
       logWarnAlways("[BILISCRIPT] reading shell enter transaction failed, state rolled back to closed", error);
     }
     onEnterFailed(error);
+    throw error;
   });
 }
 
@@ -166,12 +170,16 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     // 进入（点击路径的本地动态装载对用户无感）。
     const reader = await ensureReaderDomain();
     await reader.enterReaderMode(options.intent === "restore" ? "restore" : "open");
+  } else if (options.intent === "open") {
+    const reader = await ensureReaderDomain();
+    reader.focusReadingView();
   }
 }
 
 interface ReaderExitDomain {
   beginClosingReadingView: () => boolean;
   closeReadingView: () => void;
+  restoreReadingViewFocus: () => void;
 }
 
 function waitForReaderExitTransition(readingView: HTMLElement): Promise<void> {
@@ -230,15 +238,14 @@ async function removePlayerAiQuickButtonQuietly(): Promise<void> {
   }
 }
 
-// 进入事务（三档意图）。返回的 promise 在事务收敛后 resolve（含失败——失败
-// 已按档位口径记日志，不再向上抛，调用方的响应时序不受影响）；消息处理器
-// 即答语义与收口前一致（sendResponse 不等待事务完成）。
+// 进入事务（三档意图）。返回的 promise 在事务收敛后落定；失败按档位记日志并
+// 继续向上拒绝，消息处理器据此回传真实结果，实际触发入口负责可见反馈。
 export function enterReaderShell(options: EnterReaderShellOptions): Promise<void> {
   const { intent } = options;
   // 消息载荷的收敛口径沿用收口前处理器：readerUrl / prompt 先 trim（空白视为空）
   const readerUrl = String(options.readerUrl || "").trim();
   const prompt = String(options.prompt || "").trim();
-  // 各档失败的日志口径沿用收口前处理器文案（debug 日志，消费方无感知差异）
+  // 各档失败保留原日志文案，同时由事务骨架向上拒绝。
   const onFailed = (error: unknown): void => {
     logWarn(
       intent === "open"
@@ -269,7 +276,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined
     });
     if (intent === "chat") {
-      // 进入事务收敛后激活对话 tab（带 prompt 时另自动发送快捷提示词）。两条
+      // 进入事务收敛后激活对话 tab（带 prompt 时另按会话状态发送快捷提示词）。两条
       // 分支都经标签激活属主收口（runQuickActionPrompt 内部同样调它）：状态位/
       // 持久化 + DOM 投影 + 对话组合根激活一处落地。
       if (prompt) {
@@ -279,6 +286,9 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       } else {
         await activateScriptTab("chat", { consumeIntent: false });
       }
+    }
+    if (options.settingsTarget) {
+      requestUiCommand("open-settings", { target: options.settingsTarget });
     }
   }, onFailed);
 }
@@ -344,6 +354,7 @@ export function exitReaderShell(): Promise<void> {
     // closeReadingView 抛错）不走这里，失同步场景仍由 script-button 的自查
     // reader-restore 链兜底。
     window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
+    reader.restoreReadingViewFocus();
   }).catch((error) => {
     // 退出事务失败回退：exiting 回 open（视图仍在开着），不能卡在 exiting。
     // 失败继续向上抛——消息路径按结果回包、关闭按钮链自行接（与收口前一致）。

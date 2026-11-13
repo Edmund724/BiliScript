@@ -184,6 +184,23 @@ describe("isTurnActive（在途回合判据）", () => {
   });
 });
 
+describe("stopActiveStream 停止中状态", () => {
+  it("点击停止立即进入停止中，stopped 终态后退出流式", async () => {
+    const { deps, runtime, session } = await makeRuntime("问题");
+    deps.ui.setStreamingUiState.mockClear();
+
+    runtime.stopActiveStream();
+
+    expect(deps.ui.setStreamingUiState).toHaveBeenCalledWith(true, { stopping: true });
+    expect(postedActions(session)).toEqual(["chat", "stop"]);
+    expect(runtime.isTurnActive()).toBe(true);
+
+    runtime.handleChatPortMessage({ type: "stopped", reason: "已停止生成" });
+    expect(deps.ui.setStreamingUiState).toHaveBeenLastCalledWith(false, { stopping: false });
+    expect(runtime.isTurnActive()).toBe(false);
+  });
+});
+
 describe("settleTurn（在途回合结算）", () => {
   it("不在途：立即兑现、不发 stop、不碰 port", async () => {
     const deps = makeDeps();
@@ -370,6 +387,114 @@ describe("settleTurn（在途回合结算）", () => {
 
     expect(settled.settled).toBe(true);
     expect(runtime.isTurnActive()).toBe(false);
+  });
+});
+
+describe("联网搜索授权与视图销毁", () => {
+  function stubSearchSettings() {
+    const sent: Array<Record<string, unknown>> = [];
+    const settings = { webSearchEnabled: true, searchOptInNoticeAcknowledged: false };
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: Record<string, unknown>, cb?: (response: unknown) => void) => {
+          sent.push(msg);
+          if (msg.type === "get-settings") {
+            cb?.({ ok: true, settings: { ...settings } });
+          } else if (msg.type === "resolve-search-provider") {
+            cb?.({ ok: true });
+          } else if (msg.type === "save-settings") {
+            Object.assign(settings, msg.settings);
+            cb?.({ ok: true });
+          } else {
+            cb?.({ ok: true });
+          }
+        }
+      }
+    });
+    chatSessionStateForTests.webSearchEnabled = true;
+    return { sent, settings };
+  }
+
+  function mountChatView(deps: TestDeps): void {
+    const view = document.createElement("div");
+    view.id = "biliscript-reading-view";
+    view.appendChild(deps.messages);
+    document.body.appendChild(view);
+  }
+
+  it("授权只在字幕闸通过后发生，且同意前不上屏、不建端口", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    let releaseGate!: (value: { pass: true }) => void;
+    deps.ensureCurrentContextForSend = vi.fn(() => new Promise((resolve) => { releaseGate = resolve; }));
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+
+    const sending = runtime.sendTurn("问题");
+    await flushMicrotasks();
+    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+
+    releaseGate({ pass: true });
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
+    expect(deps.ports).toHaveLength(0);
+
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    await expect(sending).resolves.toBe("accepted");
+    expect(deps.messages.querySelector(".chat-msg-user")).not.toBeNull();
+    expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ webSearchEnabled: true }));
+    expect(sent).toContainEqual({ type: "save-settings", settings: { searchOptInNoticeAcknowledged: true } });
+    expect(sent.some((m) => m.type === "save-settings" && "webSearchEnabled" in (m.settings as object))).toBe(false);
+  });
+
+  it("拒绝后本轮无搜索继续，并在输入区提示如何重新开启", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+
+    const sending = runtime.sendTurn("问题");
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
+
+    await expect(sending).resolves.toBe("accepted");
+    expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ webSearchEnabled: false }));
+    expect(sent).toContainEqual({ type: "save-settings", settings: { webSearchEnabled: false } });
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(
+      "已关闭联网搜索，可在输入区重新开启",
+      4000,
+      { placement: "input" }
+    );
+  });
+
+  it("授权中销毁：取消回合、不写视图或偏好，重开后发送不被 ignored", async () => {
+    const deps = makeDeps();
+    mountChatView(deps);
+    const { sent } = stubSearchSettings();
+    deps.input.value = "问题";
+    const runtime = createChatRuntime(deps);
+    const { dismissConfirmDialog } = await import("../../extension/ui/confirm-dialog.js");
+
+    const sending = runtime.sendTurn("问题");
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    dismissConfirmDialog();
+    runtime.resetStreamState();
+
+    await expect(sending).resolves.toBe("blocked");
+    expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
+    expect(deps.ports).toHaveLength(0);
+    expect(runtime.isTurnActive()).toBe(false);
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+
+    chatSessionStateForTests.webSearchEnabled = false;
+    deps.input.value = "重开后的问题";
+    await expect(runtime.sendTurn("重开后的问题")).resolves.toBe("accepted");
+    expect(deps.ports).toHaveLength(1);
   });
 });
 

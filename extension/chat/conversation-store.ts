@@ -45,6 +45,14 @@ import {
   MAX_SAVED_CONVERSATIONS
 } from "../ai/conversation.js";
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
+import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
+import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
+import {
+  HISTORY_STORAGE_KEY,
+  readConversationHistory,
+  updateConversationHistory,
+  type StoredConversation
+} from "./conversation-storage.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import {
@@ -73,6 +81,8 @@ export interface Conversation {
   updatedAt: number;
   contextRef: AiContext;
   messages: ChatSessionMessage[];
+  kind?: "live-text-tool";
+  records?: LiveTextToolRecord[];
   // 反向赋值用：store 写入状态袋的存档镜像按宽形态（ChatSessionSavedConversation
   // 的索引签名）声明，见 chat-state.ts。
   [key: string]: unknown;
@@ -86,6 +96,9 @@ function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
   const images = normalizeImageParts(item.images);
   if (images) {
     base.images = images;
+  }
+  if (typeof item.contextKey === "string" && item.contextKey.trim()) {
+    base.contextKey = item.contextKey;
   }
   if (typeof item.thinking === "string" && item.thinking.trim()) {
     base.thinking = item.thinking;
@@ -178,7 +191,7 @@ export interface CreateConversationStoreDeps {
   storage?: StorageArea;
   syncStorage?: StorageArea;
   isCleanEnabled?: () => Promise<boolean> | boolean;
-  // 清空全部历史对话前的确认通道（惯用法同 chat-runtime 的 confirmCostGuard）。
+  // 清空全部历史记录前的确认通道（惯用法同 chat-runtime 的 confirmCostGuard）。
   // 可选注入，缺省面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也
   // 合法（Node 测试注入桩函数），clearAll 统一 await 归一。
   confirmClearAll?: (message: string) => boolean | Promise<boolean>;
@@ -189,12 +202,17 @@ export interface CreateConversationStoreDeps {
 // 另有工单 D 授权的公开窄方法 detachForRestart（「拆除会话」出口四）。
 // opt-backlog-2026-09/05：私有 hydratePages 进一步收敛为 hydrateConversationPage
 // （单条，只服务 restoreLatest 命中项；loadAll 不再批量发起分页补水）。
+export interface ConversationDeletion {
+  id: string;
+  undo: () => Promise<void>;
+}
+
 export interface ConversationStore {
   loadAll: () => Promise<void>;
   isCurrent: (id: string) => boolean;
   persistCurrent: () => Promise<void>;
   applyById: (id: string) => void;
-  deleteById: (id: string) => Promise<void>;
+  deleteById: (id: string) => Promise<ConversationDeletion | null>;
   clearAll: () => Promise<void>;
   restoreLatest: () => Promise<boolean>;
   detachForRestart: () => void;
@@ -229,7 +247,7 @@ export function needsConversationPageHydration(conversation: Conversation | null
 
 // 存档存储键与容量上限（工单 05 收窄：原 deps 可选键收进模块常量——唯一生产
 // 宿主组合根传的正是这两个值，测试无一覆盖）。
-export const CONVERSATIONS_STORAGE_KEY = "biliscript_ai_conversations_v1";
+export const CONVERSATIONS_STORAGE_KEY = HISTORY_STORAGE_KEY;
 export const CONVERSATION_RETENTION_MS = 30 * 86400 * 1000;
 
 export function getConversationTimestamp(conversation: {
@@ -295,16 +313,18 @@ export async function cleanExpiredConversations(
   if (!targetStorage) {
     return { prunedCount: 0, kept: [] };
   }
-  const data = await targetStorage.get([CONVERSATIONS_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
-  const raw = data?.[CONVERSATIONS_STORAGE_KEY];
-  const list = normalizeConversations(raw) as Conversation[];
-  const { kept, pruned, prunedCount } = filterExpiredConversations(list, now, retentionMs);
-  if (prunedCount > 0) {
-    await targetStorage.set({ [CONVERSATIONS_STORAGE_KEY]: kept });
-    const prunedIds = new Set(pruned.map((c) => c.id));
-    if (Array.isArray(chatSessionState.savedConversations) && chatSessionState.savedConversations.length > 0) {
-      setSavedConversations(kept);
-    }
+  const list = await readConversationHistory(targetStorage) as Conversation[];
+  const initial = filterExpiredConversations(list, now, retentionMs);
+  let kept = initial.kept;
+  let prunedCount = initial.prunedCount;
+  if (initial.prunedCount > 0) {
+    let prunedIds = new Set(initial.pruned.map((conversation) => conversation.id));
+    kept = await updateConversationHistory(targetStorage, (current) => {
+      const filtered = filterExpiredConversations(current, now, retentionMs);
+      prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
+      prunedCount = filtered.prunedCount;
+      return filtered.kept;
+    }) as Conversation[];
     if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
       detachConversationIdentity();
       applyLiveContextToMain();
@@ -389,19 +409,17 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   async function loadAll(): Promise<void> {
-    const data = await storage
-      ?.get([conversationsStorageKey])
-      .catch(() => ({}) as Record<string, unknown>);
-    let normalized = normalizeConversations(data?.[conversationsStorageKey]) as Conversation[];
+    let normalized = storage ? await readConversationHistory(storage) as Conversation[] : [];
     const isCleanEnabled = await checkCleanOlderThan30DaysEnabled();
     if (isCleanEnabled) {
-      const { kept, pruned, prunedCount } = filterExpiredConversations(normalized);
-      if (prunedCount > 0) {
-        normalized = kept;
-        await storage?.set({
-          [conversationsStorageKey]: kept.slice(0, maxSavedConversations)
-        });
-        const prunedIds = new Set(pruned.map((c) => c.id));
+      const initial = filterExpiredConversations(normalized);
+      if (initial.prunedCount > 0) {
+        let prunedIds = new Set(initial.pruned.map((conversation) => conversation.id));
+        normalized = storage ? await updateConversationHistory(storage, (current) => {
+          const filtered = filterExpiredConversations(current);
+          prunedIds = new Set(filtered.pruned.map((conversation) => conversation.id));
+          return filtered.kept;
+        }) as Conversation[] : initial.kept;
         if (chatSessionState.currentConversationId && prunedIds.has(chatSessionState.currentConversationId)) {
           detachCurrent();
           repopulateLive();
@@ -473,9 +491,13 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   async function saveConversations(): Promise<void> {
-    await storage?.set({
-      [conversationsStorageKey]: saved().slice(0, maxSavedConversations)
-    });
+    const ordinary = saved().filter((item) => !isLiveTextToolHistoryEntry(item)).slice(0, maxSavedConversations);
+    if (storage) {
+      await updateConversationHistory(storage, (current) => [
+        ...ordinary,
+        ...current.filter(isLiveTextToolHistoryEntry)
+      ] as StoredConversation[]);
+    }
     emitChange({});
   }
 
@@ -546,7 +568,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
 
   function applyById(id: string): void {
     const conversation = saved().find((item) => item.id === id);
-    if (!conversation) {
+    if (!conversation || isLiveTextToolHistoryEntry(conversation)) {
       return;
     }
     // 单次 change 声明全部呈现面（反转前为 apply 的列表刷新、随后
@@ -559,8 +581,13 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
   }
 
-  async function deleteById(id: string): Promise<void> {
-    const wasCurrent = id && id === chatSessionState.currentConversationId;
+  async function deleteById(id: string): Promise<ConversationDeletion | null> {
+    const index = saved().findIndex((item) => item.id === id);
+    if (index < 0) {
+      return null;
+    }
+    const conversation = saved()[index];
+    const wasCurrent = id === chatSessionState.currentConversationId;
     if (wasCurrent) {
       // 拆除当前会话（出口二 = detachCurrent 原语）：断流先于落盘——同步发出，
       // 亦即先于下方 commitSaved 与 await save（原编排同位次序）。
@@ -568,30 +595,58 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
     const next = saved().filter((item) => item.id !== id);
     commitSaved(next);
-    await saveConversations();
-    if (!wasCurrent) {
-      return;
+    if (storage) {
+      await updateConversationHistory(storage, (current) => current.filter((item) => item.id !== id));
     }
-    // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
-    repopulateLive();
-    emitChange({ resetView: true });
+    emitChange({});
+    if (wasCurrent) {
+      // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
+      repopulateLive();
+      emitChange({ resetView: true });
+    }
+
+    let consumed = false;
+    return {
+      id,
+      undo: async () => {
+        if (consumed) {
+          return;
+        }
+        consumed = true;
+        const restored = saved().filter((item) => item.id !== id);
+        restored.splice(Math.min(index, restored.length), 0, conversation);
+        commitSaved(restored);
+        if (storage) {
+          await updateConversationHistory(storage, (current) => {
+            const next = current.filter((item) => item.id !== id);
+            next.splice(Math.min(index, next.length), 0, conversation as StoredConversation);
+            return next;
+          });
+        }
+        emitChange({});
+        if (wasCurrent) {
+          applyById(id);
+        }
+      }
+    };
   }
 
   async function clearAll(): Promise<void> {
     if (!saved().length) {
       return;
     }
-    if (!(await confirmClearAll("确定要清空全部历史对话吗？"))) {
+    if (!(await confirmClearAll("确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"))) {
       return;
     }
     commitSaved([]);
     // 拆除当前会话（出口三 = detachCurrent 原语）：commitSaved([])（内存）→
     // detach → await save 的次序保持（断流先于落盘）。
     detachCurrent();
-    await saveConversations();
+    if (storage) {
+      await updateConversationHistory(storage, () => []);
+    }
+    emitChange({});
     repopulateLive();
-    // 原编排：save 后收起 popover → live 回填 → renderInitialState；
-    // 合成一次发火（历史列表已随 save 的 change 重渲，此处各面幂等）。
     emitChange({ historyCleared: true, resetView: true });
   }
 

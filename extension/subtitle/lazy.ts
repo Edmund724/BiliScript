@@ -31,6 +31,11 @@
 // 缓存是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 
 import { createLazyLoader } from "../shared/lazy-import.js";
+// 类型专用导入（编译期擦除，不把译文批量器拉进链的静态图）。
+import type {
+  AsrTranslationArgs,
+  AsrTranslationResult
+} from "./asr-translation.js";
 
 export interface SummarizeChain {
   refreshClip(): Promise<void>;
@@ -51,6 +56,9 @@ export interface SummarizeChain {
     forceRefresh?: boolean
   ): Promise<void>;
   resetClipState(options?: { keepFetchState?: boolean }): void;
+  // 伪轨视频的译文副轨（票 asr-panel-translation）：缓存覆盖判定 + 逐片翻译 +
+  // 逐片合入副轨槽。只写副轨槽与 `id_translate-<lang>` 缓存，不碰主轨任何字段。
+  ensureAsrTranslation(args: AsrTranslationArgs): Promise<AsrTranslationResult>;
   // PR3：阅读模式字幕 tab「复制」——复制字幕纯文本（transcript，buildTxt 管线）
   copySubtitleTranscript(): Promise<boolean>;
   downloadSubtitle(): Promise<void>;
@@ -60,14 +68,25 @@ async function loadSummarizeChain(): Promise<SummarizeChain> {
   // fetcher（抓取编排 + resetClipState）与 ui（复制/下载回调）
   // 同属链层，一次 ensure 全部就位；两文件间本就互相引用（ui → fetcher），
   // 并行装载只是把等待重叠。
-  const [fetcher, chainUi] = await Promise.all([import("./fetcher.js"), import("./ui.js")]);
+  const [fetcher, chainUi, asrTranslation] = await Promise.all([
+    import("./fetcher.js"),
+    import("./ui.js"),
+    // 译文批量器（伪轨视频的双语第二路）：自带 ai/subtitle-translate 的动态边，
+    // 只在阅读面板真的开始翻译时被求值。
+    import("./asr-translation.js")
+  ]);
   // 顶层副作用迁移（原 fetcher.js 模块求值时的 subscribeSubtitleRefresh(refreshClip)）：
   // 该注册依赖「fetcher 总在启动时装载」的假设。链改为按需装载后，注册时机
   // 与装载绑定——ensure 成功路径上执行一次（subscribeSubtitleRefresh 自带
   // 去重，重复调用安全）。
   (fetcher as { initSummarizeChain(): void }).initSummarizeChain();
-  // 合并成单一 chain 门面：两模块导出无重名（fetcher=抓取编排，ui=payload/交互）。
-  return { ...fetcher, ...chainUi } as SummarizeChain;
+  // 合并成单一 chain 门面：三模块导出无重名（fetcher=抓取编排，ui=payload/交互，
+  // asr-translation=伪轨译文批量器）。
+  return {
+    ...fetcher,
+    ...chainUi,
+    ensureAsrTranslation: asrTranslation.ensureAsrSecondarySubtitle
+  } as SummarizeChain;
 }
 
 const chainLoader = createLazyLoader(loadSummarizeChain);

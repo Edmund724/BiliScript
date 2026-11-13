@@ -165,7 +165,12 @@ describe("行删除路径：回收并集只含 optional 族", () => {
       expect(countOf(sent, "asr-providers-list")).toBeGreaterThan(asrBefore);
       expect(countOf(sent, "live-providers-list")).toBeGreaterThan(liveBefore);
     });
-    expect(countOf(sent, "search-providers-list"), "搜索族是静态 host 权限，不得被拉进回收并集").toBe(searchBefore);
+    // 回收并集在删除消息之前结算：此前的搜索族读取数 = 原基线（静态 host 权限，
+    // 不参与回收）；删除后的那一次是引用行同事务刷新（票 08：AI 删除后搜索行
+    // 与伴看行一起按新 AI 快照重渲）。
+    const deleteIndex = sent.findIndex((message) => message.type === "ai-providers-delete");
+    expect(countOf(sent.slice(0, deleteIndex), "search-providers-list")).toBe(searchBefore);
+    expect(countOf(sent, "search-providers-list")).toBe(searchBefore + 1);
   });
 
   it("确认删除 live 行：同样现查 optional 族存活并集并回收孤立 origin", async () => {

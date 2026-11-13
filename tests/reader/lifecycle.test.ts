@@ -121,6 +121,72 @@ describe("reader 生命周期", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   });
 
+  it("页内文摘按钮打开：按钮摘除后聚焦当前标签，关闭归还到新补回的按钮", async () => {
+    state.clip.bvid = "BV1test000000";
+    const source = document.createElement("button");
+    source.id = "biliscript-script-button";
+    document.body.appendChild(source);
+    source.focus();
+    const activeTab = document.getElementById(ids.readingTabSubtitle) as HTMLButtonElement;
+    const focusSpy = vi.spyOn(activeTab, "focus");
+
+    const entering = shell.enterReaderMode();
+    source.remove();
+    await entering;
+
+    expect(document.activeElement).toBe(activeTab);
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+    const replacement = document.createElement("button");
+    replacement.id = "biliscript-script-button";
+    shell.closeReadingView();
+    document.body.appendChild(replacement);
+    shell.restoreReadingViewFocus();
+
+    expect(document.activeElement).toBe(replacement);
+  });
+
+  it("有效触发来源仍在场：关闭后以防滚动方式归还；外点后不抢焦", async () => {
+    state.clip.bvid = "BV1test000000";
+    const source = document.createElement("button");
+    document.body.appendChild(source);
+    source.focus();
+    const returnFocusSpy = vi.spyOn(source, "focus");
+
+    await shell.enterReaderMode();
+    shell.closeReadingView();
+    shell.restoreReadingViewFocus();
+
+    expect(document.activeElement).toBe(source);
+    expect(returnFocusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+    source.focus();
+    await shell.enterReaderMode();
+    shell.beginClosingReadingView();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    shell.closeReadingView();
+    shell.restoreReadingViewFocus();
+
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("URL 等无可靠来源：打开聚焦当前标签，无新按钮时关闭聚焦安全宿主", async () => {
+    state.clip.bvid = "BV1test000000";
+    expect(document.activeElement).toBe(document.body);
+
+    await shell.enterReaderMode();
+
+    expect(document.activeElement).toBe(document.getElementById(ids.readingTabSubtitle));
+    shell.closeReadingView();
+    shell.restoreReadingViewFocus();
+
+    const root = document.getElementById(ids.root) as HTMLElement;
+    expect(document.activeElement).toBe(root);
+    expect(root.tabIndex).toBe(-1);
+  });
+
   it("关闭后移动进度再重开（字幕已缓存）：进入即定位到新进度并启动同步", async () => {
     // 用户报障形态：关闭 script → 拖动进度 → 重开 script。重开时字幕命中缓存、
     // 不再触发 subtitle-ready，进入路径必须自己启动同步并把滚动定位到当前进度。
@@ -174,11 +240,20 @@ describe("reader 生命周期", () => {
     // 见「关闭后移动进度再重开」用例）：视频事件绑定随进入建立。
     const video = document.querySelector("video") as HTMLVideoElement;
     expect(syncRunning()).toBe(true);
+    state.reader.setSettingsExpanded(true);
+    const { confirmDialogWithResult, isConfirmDialogOpen } = await import("../../extension/ui/confirm-dialog.js");
+    const pendingConfirmation = confirmDialogWithResult({ message: "等待授权" });
+    expect(isConfirmDialogOpen()).toBe(true);
 
     shell.closeReadingView();
 
+    await expect(pendingConfirmation).resolves.toBe("view-destroyed");
+    expect(isConfirmDialogOpen()).toBe(false);
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(state.reader.readingViewOpen).toBe(false);
+    expect(state.reader.readingSettingsExpanded).toBe(false);
+    expect(document.getElementById(ids.readingSettingsPanel)?.hidden).toBe(true);
     expect(readingView.classList.contains("open")).toBe(false);
     expect(readingView.getAttribute("aria-hidden")).toBe("true");
     expect(readingView.getAttribute(READER_READY_ATTR)).toBe("0");

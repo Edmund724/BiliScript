@@ -30,6 +30,9 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   // async：处理器持有回包通道（可能同步也可能异步回包），入口恒返回 true
   "get-settings": "async",
   "save-settings": "async",
+  "agent-bridge-status": "async",
+  "agent-bridge-connect": "async",
+  "agent-bridge-test": "async",
   "check-provider-origin": "async",
   "ensure-offscreen-chat": "async",
   "ai-providers-list": "async",
@@ -37,6 +40,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "ai-providers-delete": "async",
   "provider-http": "async",
   "resolve-ai-provider": "async",
+  "resolve-subtitle-translate-provider": "async",
   "asr-providers-list": "async",
   "asr-providers-save": "async",
   "asr-providers-delete": "async",

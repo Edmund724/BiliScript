@@ -344,8 +344,25 @@
   line-height: 1.4;
 }
 
+/* 状态行的读屏镜像 live region（core/reading-status-line.js 按 id 取或建，挂在
+ * document.body 下）：阅读视图根节点常驻 aria-hidden，面板内文案不进无障碍树，
+ * 镜像节点走经典 sr-only 配方——视觉隐藏但保留在无障碍树内，aria-live="polite"
+ * 在文案变化时礼貌播报（clip 双写覆盖新旧引擎）。 */
+.biliscript-reading-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
- * 对话工具键（历史对话 / 新会话）脱流绝对定位在行右侧，不占据弹性流，
+ * 对话工具键（更多操作）脱流绝对定位在行右侧，不占据弹性流，
  * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
 .biliscript-reading-tabs-row {
   position: relative;
@@ -1326,6 +1343,14 @@
   color: var(--biliscript-reader-accent);
 }
 
+/* 工具循环提示（搜索失败原因 / 额度用尽）：注脚档灰字，留在卡片里随答案呈现 */
+.biliscript-reading-explain-card-notice {
+  padding-top: 10px;
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.5;
+  color: var(--biliscript-reader-muted);
+}
+
 /* loading 转圈：与概览/转写横幅同族的细环动画 */
 .biliscript-reading-explain-card-dot {
   width: 12px;
@@ -1840,6 +1865,9 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
@@ -1851,9 +1879,20 @@
   outline: none;
 }
 
+/* 可见标题与说明：标题经 aria-labelledby、说明经 aria-describedby 与对话框关联 */
+#biliscript-reading-view .confirm-dialog-title {
+  margin: 0;
+  padding: 16px 16px 0;
+  font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--biliscript-reader-text);
+}
+
 #biliscript-reading-view .confirm-dialog-message {
   margin: 0;
-  padding: 16px 16px 12px;
+  padding: 8px 16px 12px;
   font-size: var(--biliscript-font-size-base);
   line-height: 1.5;
   color: var(--biliscript-reader-text);

@@ -14,9 +14,8 @@
 //   不再放行（不做后台续跑）；重开从会话历史恢复（恢复路径重渲 + 触发源重挂）；
 // - 外点关闭单委托：popovers 的 handleDocumentClick 经 reader-bus 转发槽并入
 //   ui-renderer 的单一文档级委托（点外关闭、点内不关），不双监听；
-// - player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）：runQuickActionPrompt =
-//   定位对话 tab + startNewConversation + 填提示词 + 自动发送；不消费待解释
-//   意图（互不踩踏）。
+// - player-ai 快捷动作无损续问：空闲空会话/已有会话直接发送，忙碌或已有输入时
+//   仅定位；连点单飞，关闭/换片使旧意图失效；不消费待解释意图。
 // - 滚底按钮（DeepSeek Harness 同款）：显隐跟随机动（同一近底判据）、点一下
 //   回底、回底动画途中的跟随闸与用户干预放闸、清场放闸。
 //
@@ -68,6 +67,15 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
   bgFetchJson: gatewayCoreMock.bgFetchJson,
   isBiliUrl: gatewayCoreMock.isBiliUrl
 }));
+vi.mock("../../extension/chat/image-compress.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/chat/image-compress.js")>();
+  return {
+    ...actual,
+    createImageCompressor: () => ({
+      compress: async () => ({ part: { mime: "image/webp", data: "aA==" }, bytes: 1 })
+    })
+  };
+});
 
 let state: TestState;
 let ids: typeof import("../../extension/reader/state.js").ids;
@@ -209,21 +217,24 @@ describe("组合根装配与懒加载边界", () => {
     expect(modelSelect.value).toBe("p1\u0001模型一");
     // - 上下文装载（进程内直读 state.clip）→ 主上下文落到视频标题（标题不再上屏）
     expect(chatSessionState.contextData?.title).toContain("测试视频");
-    // - 工具键（历史对话 / 新会话）在壳标签行右侧（头部归并，契约见
-    //   chat-tools-in-tabs-row.test.ts）
-    const tools = document.querySelector(".biliscript-reading-tabs-tools");
-    expect(Array.from(tools!.children).map((node) => (node as HTMLElement).id)).toEqual([
+    const tools = document.querySelector(".biliscript-reading-tabs-tools")!;
+    expect(Array.from(tools.children).map((node) => (node as HTMLElement).id)).toEqual([
       ids.readingChatMoreBtn,
       ids.readingChatMoreMenu
     ]);
-    expect(document.getElementById(ids.readingChatNewBtn)).not.toBe(null);
-    expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
+    expect(document.querySelectorAll(".biliscript-reading-tab")).toHaveLength(3);
+    expect(document.getElementById(ids.readingChatMoreBtn)?.getAttribute("aria-label")).toBe("更多操作");
+    const moreMenu = document.getElementById(ids.readingChatMoreMenu)!;
+    expect(moreMenu.querySelector(`#${ids.readingChatNewBtn}`)?.textContent).toContain("开启新会话");
+    expect(moreMenu.querySelector(`#${ids.readingChatHistoryBtn}`)?.textContent).toContain("历史对话");
+    expect(moreMenu.querySelector(".biliscript-reading-chat-more-actions")).not.toBeNull();
+    expect(document.getElementById(ids.readingChatDisplaySettingsBtn)?.textContent).toBe("更多显示设置");
     expect(document.getElementById(ids.readingChatLineHeight)).not.toBe(null);
     expect(document.getElementById(ids.readingChatParagraphSpacing)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSpeechVolumeInput)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSpeechVolumeResetBtn)).not.toBe(null);
     const volumeLabel = document.querySelector(`label[for="${ids.readingChatSpeechVolumeInput}"]`);
-    expect(volumeLabel?.textContent).toBe("朗读音量");
+    expect(volumeLabel?.textContent).toBe("对话朗读音量");
     // - 初始态：无会话历史 → 空消息区 + 建议区（无居中错误）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);
@@ -392,9 +403,7 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
 
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    await waitFor(() =>
-      Boolean((document.getElementById(ids.readingChatMessages) as HTMLElement).querySelector(".chat-context-notice"))
-    );
+    await waitFor(() => Boolean(document.querySelector(".chat-input-card .chat-context-notice")));
     expect(ports).toHaveLength(0); // 发送被拦截
     const intentCard = document.getElementById(ids.readingChatIntent) as HTMLElement;
     expect(intentCard.hidden).toBe(false);
@@ -430,7 +439,7 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     // 用户先按回车：受理停在 subtitle-wait（受理窗口内，端口未建、未上屏）
     input.value = "闸中问题";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
     expect(ports).toHaveLength(0);
 
     // 窗口内再激活（走意图消费路径）：不消费意图、不误报受理
@@ -501,10 +510,7 @@ describe("subtitle-wait kick 总线接线", () => {
     await activation;
   });
 
-  it("抓取等待中转入转写相位：消息区抓取通知立即清理，不闪两条同屏提示", async () => {
-    // 抓取中（loading + 空字幕体）等待闸落一条「正在抓取字幕…」消息区通知；
-    // 随后无字幕出口进入转写相位——若不清掉那条抓取通知，它会与转写状态行
-    // 同屏显示（用户报障：一闪两条重复且不正确的提示），直到下一轮 4s 轮询。
+  it("抓取等待中转入转写相位：等待卡保留并显示转写状态行", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -517,11 +523,11 @@ describe("subtitle-wait kick 总线接线", () => {
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     const asrNotice = document.getElementById(ids.readingChatAsrNotice) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect(asrNotice.hidden).toBe(true);
 
-    // 转写相位广播（同步分发）：抓取通知立即消失，只留转写状态行
+    // 转写相位广播（同步分发）：等待卡继续显示，状态行转入转写文案
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(asrNotice.hidden).toBe(false);
@@ -534,10 +540,7 @@ describe("subtitle-wait kick 总线接线", () => {
     await activation;
   });
 
-  // 等待期间的观感：发送键亮着但点了静默无反应（等待可长达数秒）——等待态下
-  // 发送键禁用 + 输入框 placeholder 换成等待文案，等待结束（放行/拦截/读失败/
-  // 会话关闭四条出口）恢复默认。输入框本身保持可编辑。
-  it("抓取等待期间：发送键禁用、placeholder 换等待文案；放行后恢复默认并可用", async () => {
+  it("抓取等待期间：等待卡、重复发送反馈与新草稿保留；放行后发送状态成对复位", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -549,40 +552,37 @@ describe("subtitle-wait kick 总线接线", () => {
 
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
-    // 默认 placeholder 来自模板静态属性（chat-template.ts）
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const waitCard = document.querySelector<HTMLElement>(".chat-subtitle-wait")!;
     const defaultPlaceholder = input.placeholder;
-    expect(defaultPlaceholder).toBe("回车发送，Shift+Enter 换行");
 
     input.value = "闸中问题";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 
-    // 等待态：placeholder 换文案、发送键禁用（空闲分支，非停止键形态）
-    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    await waitFor(() => waitCard.hidden === false);
     expect(sendBtn.disabled).toBe(true);
     expect(sendBtn.classList.contains("is-stop")).toBe(false);
-
-    // 输入框保持可编辑：等待期间照常输入，不该被禁用，也不该把发送键放回可用
     expect(input.disabled).toBe(false);
+    expect(input.placeholder).toBe(defaultPlaceholder);
+
     input.value = "等待中补的内容";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(input.placeholder).toBe("正在抓取字幕…");
     expect(sendBtn.disabled).toBe(true);
 
-    // 等待中再按回车：回合在途被双发闸判 ignored，不重复受理、等待态不变
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => Boolean(messages.textContent?.includes("正在等待字幕，完成后自动发送")));
     expect(ports).toHaveLength(0);
-    expect(input.placeholder).toBe("正在抓取字幕…");
+    expect(waitCard.hidden).toBe(false);
 
-    // 抓取落定 → 放行（发出的是首次回车受理的那条文本；等待中的续写不参与本轮）
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     statusBus.publishSubtitleStatusPhase("asr-done");
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
     expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("闸中问题");
-    await waitFor(() => input.placeholder === defaultPlaceholder);
+    await waitFor(() => waitCard.hidden === true);
+    expect(input.value).toBe("等待中补的内容");
+    expect(messages.textContent).toContain("已发送原文，保留了后来修改的草稿与图片");
 
-    // 回合落定（流式结束）后回到空闲：输入内容即可发送，等待态不残留禁用
     (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
     await waitFor(() => !sendBtn.classList.contains("is-stop"));
     input.value = "下一问";
@@ -591,7 +591,45 @@ describe("subtitle-wait kick 总线接线", () => {
     expect(input.placeholder).toBe(defaultPlaceholder);
   });
 
-  it("有字幕视频抓取中等待：消息区显示抓取文案，不误报音频转写", async () => {
+  it("等待卡可取消：原回合不发送且保留草稿，字幕就绪后可重新发送", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const waitCard = document.querySelector<HTMLElement>(".chat-subtitle-wait")!;
+    const cancel = waitCard.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel")!;
+
+    input.value = "取消前的问题";
+    input.setSelectionRange(2, 2);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => waitCard.hidden === false);
+
+    cancel.click();
+    await waitFor(() => waitCard.hidden === true);
+    expect(ports).toHaveLength(0);
+    expect(input.value).toBe("取消前的问题");
+    expect(messages.textContent).toContain("已取消等待，草稿与图片已保留");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("取消前的问题");
+    expect(input.value).toBe("");
+  });
+
+  it("有字幕视频抓取中等待：输入区显示等待卡，不误报音频转写", async () => {
     // 抓取中：subtitleFetchState loading + 字幕体为空，相位 idle（非转写）
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
@@ -604,10 +642,10 @@ describe("subtitle-wait kick 总线接线", () => {
     // 不 await 激活：发送卡在等待中，activate 到放行才落定（同上例时序）
     const activation = chat.ensureChatTabActivated();
 
-    // 等待提示走消息区抓取文案；转写状态行不亮（无字幕/转写只属转写场景）
+    // 输入区显示等待卡；转写状态行不亮（无字幕/转写只属转写场景）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect((document.getElementById(ids.readingChatAsrNotice) as HTMLElement).hidden).toBe(true);
 
     // 抓取完成 → 轮询放行（无相位广播可 kick，等一轮 4s 轮询），通知清理
@@ -646,10 +684,10 @@ describe("发送前主动起跑字幕抓取（抓取未起跑的 idle 窗口不�
 
     // 发送路径主动起跑（本套件里 spy 是 reader-bus 的首个 handler）
     await waitFor(() => refreshSpy.mock.calls.length === 1);
-    // 抓取挂起期间提示词不发：未开 port，等待提示走消息区抓取文案
+    // 抓取挂起期间提示词不发：未开 port，输入区显示等待卡
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在抓取字幕");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(document.querySelector(".chat-subtitle-wait")?.textContent).toContain("正在等待字幕");
     expect(ports).toHaveLength(0);
 
     // 抓取落定 → kick 补轮放行（不必真等一轮 4s 轮询）
@@ -757,6 +795,71 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     expect(ports).toHaveLength(1);
   });
 
+  it("发送闸等待时关闭并重开：迟到就绪不得复活旧快捷意图", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.aid = "7100";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const sending = chat.runQuickActionPrompt("等待字幕时发送");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+
+    chat.closeChatSession();
+    await chat.ensureChatTabActivated();
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "迟到的字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+
+    await expect(sending).resolves.toBe(false);
+    expect(ports).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      label: "换视频",
+      url: "https://www.bilibili.com/video/BV1next000000/",
+      bvid: "BV1next000000",
+      cid: "201"
+    },
+    {
+      label: "换分P",
+      url: "https://www.bilibili.com/video/BV1test000000/?p=2",
+      bvid: "BV1test000000",
+      cid: "102"
+    }
+  ])("$label 使在飞等待的旧快捷意图失效", async ({ url, bvid, cid }) => {
+    state.clip.title = "旧视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.aid = "7100";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const sending = chat.runQuickActionPrompt("只在旧视频等待时发送");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+
+    state.clip.bvid = bvid;
+    state.clip.cid = cid;
+    state.clip.title = "新内容";
+    setLocationUrl(url);
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "新内容字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+
+    await expect(sending).resolves.toBe(false);
+    expect(ports).toHaveLength(0);
+    chat.closeChatSession();
+  });
+
   it("重开（重新激活）：从会话历史恢复视图并重挂触发源", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
@@ -799,6 +902,39 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     await chat.ensureChatTabActivated();
 
     expect(Array.from(modelSelect.options).map((option) => option.value)).toContain("p2\u0001模型二");
+  });
+
+  // 联网搜索授权被拒后闸侧关闭偏好（票 11）：既有对话开关与内存态经同一条
+  // 「外部设置变更 → 刷新」路径同步，下一条消息不再重复询问。
+  it("联网偏好外部变更（拒绝授权后关闭）→ 对话开关与内存态同步", async () => {
+    seedReadyContext();
+    const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
+    let webSearchEnabled = true;
+    chromeStub.runtime.sendMessage.mockImplementation(
+      (message: { type?: string }, callback?: (resp: unknown) => void) => {
+        const type = String(message?.type || "");
+        if (type === "ai-providers-list") {
+          callback?.({ ok: true, providers: providerList });
+        } else if (type === "get-settings") {
+          callback?.({ ok: true, settings: { webSearchEnabled } });
+        } else {
+          callback?.({ ok: true });
+        }
+        return undefined;
+      }
+    );
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const pill = document.getElementById(ids.readingChatWebSearchPill) as HTMLElement;
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+    expect(chatSessionState.webSearchEnabled).toBe(true);
+
+    webSearchEnabled = false;
+    fireStorageChange({ webSearchEnabled: { newValue: false, oldValue: true } }, "sync");
+
+    await waitFor(() => pill.getAttribute("aria-pressed") === "false");
+    expect(chatSessionState.webSearchEnabled).toBe(false);
   });
 });
 
@@ -848,35 +984,31 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
 });
 
 describe("外点关闭单委托（reader-bus 转发槽并入 ui-renderer 文档级委托）", () => {
-  it("点外关闭 popover、点内不关；重复激活不双挂监听", async () => {
+  it("点外关闭、点内不关；退出后焦点回 ⋮ 触发键，重复激活不双挂监听", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
-    await chat.ensureChatTabActivated(); // 重复激活不重复注册（注册槽覆盖语义）
-
-    // 文档级 click 委托已由 ensureUiReady 首建时绑定（含对话 tab 外点转发）
+    await chat.ensureChatTabActivated();
 
     const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
     const historyPopover = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
-    // dispatchEvent 恰好一次（setup 的 click 补丁会双触发，toggle 会开又关）
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(false);
 
-    // 点击 popover 内部（冒泡到 document）：不关闭
     const historyList = document.getElementById(ids.readingChatHistoryList) as HTMLElement;
     historyList.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(false);
 
-    // 点击外部（冒泡到 document 的单一委托）：关闭
     const outside = document.createElement("div");
     document.body.appendChild(outside);
     outside.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPopover.hidden).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById(ids.readingChatMoreBtn));
   });
 });
 
-describe("历史对话整页（返回键关闭）", () => {
-  it("点返回键收起整页：hidden 回到 true，对话内容随之恢复显示", async () => {
+describe("历史内容模式", () => {
+  it("打开聚焦返回键；返回与 Esc 都恢复 hidden 并聚焦 ⋮ 触发键", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -884,37 +1016,312 @@ describe("历史对话整页（返回键关闭）", () => {
     const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
     const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
     const backBtn = document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement;
+    const moreBtn = document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement;
 
     historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(false);
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(backBtn);
 
     backBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(historyPage.hidden).toBe(true);
+    expect(document.activeElement).toBe(moreBtn);
+
+    historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(true);
+    expect(historyBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(moreBtn);
+  });
+
+  it("设置深链先退出历史，再发既有 open-settings/appearance 壳命令", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
+    const commands: Array<{ name: string; payload: unknown; historyHidden: boolean }> = [];
+    readerBus.subscribeUiCommand((name, payload) => {
+      commands.push({ name, payload, historyHidden: historyPage.hidden === true });
+    });
+
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document.getElementById(ids.readingChatDisplaySettingsBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(historyPage.hidden).toBe(true);
+    expect((document.getElementById(ids.readingChatMoreMenu) as HTMLElement).hidden).toBe(true);
+    expect(commands).toEqual([{ name: "open-settings", payload: { target: "appearance" }, historyHidden: true }]);
+  });
+
+  it("外部偏好变更即时同步 Aa 三项滑块并预览对话排版", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    fireStorageChange({
+      chatLineHeight: { oldValue: 160, newValue: 185 },
+      chatParagraphSpacing: { oldValue: 12, newValue: 18 },
+      speechVoiceVolume: { oldValue: 100, newValue: 45 }
+    }, "sync");
+
+    expect(document.getElementById(ids.readingChatLineHeight)).toHaveProperty("value", "185");
+    expect(document.getElementById(ids.readingChatParagraphSpacing)).toHaveProperty("value", "18");
+    expect(document.getElementById(ids.readingChatSpeechVolumeInput)).toHaveProperty("value", "45");
+    expect(state.settings).toMatchObject({
+      chatLineHeight: 185,
+      chatParagraphSpacing: 18,
+      speechVoiceVolume: 45
+    });
+    const view = document.getElementById("biliscript-reading-view")!;
+    expect(view.style.getPropertyValue("--biliscript-chat-line-height")).toBe("1.85");
+    expect(view.style.getPropertyValue("--biliscript-chat-paragraph-spacing")).toBe("18px");
   });
 });
 
-describe("player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）", () => {
-  it("runQuickActionPrompt：定位对话 tab + 自动发送快捷提示词", async () => {
+describe("新建会话风险确认", () => {
+  function clickOnce(element: Element): void {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  function pasteImage(input: HTMLTextAreaElement): void {
+    const file = new File(["image"], "draft.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] }
+    });
+    input.dispatchEvent(event);
+  }
+
+  async function activateEmptyChat() {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    return chat;
+  }
+
+  it("草稿与图片合并为一次确认；取消零副作用，确认后才清理", async () => {
+    await activateEmptyChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const imageStrip = document.getElementById(ids.readingChatImageStrip) as HTMLElement;
+    const newBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    input.value = "不能丢失的草稿";
+    pasteImage(input);
+    await waitFor(() => imageStrip.querySelectorAll(".chat-image-item").length === 1);
+    applyConversationIdentity({ id: "conv-keep" });
+    const messagesBefore = messages.innerHTML;
+    const sendMessage = (window.chrome as unknown as { runtime: { sendMessage: Sendstub } }).runtime.sendMessage;
+    const messageCallsBefore = sendMessage.mock.calls.length;
+
+    clickOnce(newBtn);
+
+    expect(document.querySelectorAll(".confirm-dialog-host")).toHaveLength(1);
+    const message = document.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("清空未发送的草稿");
+    expect(message).toContain("移除 1 张已添加的图片");
+    expect(message).not.toContain("中断正在生成");
+    clickOnce(document.querySelector(".confirm-dialog-cancel")!);
+    await waitFor(() => document.querySelector(".confirm-dialog-host") === null);
+    expect(input.value).toBe("不能丢失的草稿");
+    expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(messages.innerHTML).toBe(messagesBefore);
+    expect(chatSessionState.currentConversationId).toBe("conv-keep");
+    expect(sendMessage.mock.calls.length).toBe(messageCallsBefore);
+
+    clickOnce(newBtn);
+    clickOnce(document.querySelector(".confirm-dialog-confirm")!);
+    await waitFor(() => input.value === "" && imageStrip.hidden === true);
+    expect(chatSessionState.currentConversationId).toBe("");
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+  });
+
+  it("在途回合确认如实说明中断；Esc 取消不断流、不改草稿或会话", async () => {
+    await activateEmptyChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "正在发送的问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1);
+    const conversationId = chatSessionState.currentConversationId;
+    input.value = "流式期间的新草稿";
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+
+    const message = document.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("中断正在生成的回复");
+    expect(message).toContain("清空未发送的草稿");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector(".confirm-dialog-host") === null);
+    expect(ports[0].disconnect).not.toHaveBeenCalled();
+    expect(input.value).toBe("流式期间的新草稿");
+    expect(chatSessionState.currentConversationId).toBe(conversationId);
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+    clickOnce(document.querySelector(".confirm-dialog-confirm")!);
+    await waitFor(() => ports[0].disconnect.mock.calls.length === 1);
+    expect(input.value).toBe("");
+    expect(chatSessionState.currentConversationId).toBe("");
+  });
+
+  it("无草稿、图片或在途回合时不弹确认，直接新建", async () => {
+    await activateEmptyChat();
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const marker = document.createElement("div");
+    marker.className = "chat-msg";
+    messages.appendChild(marker);
+
+    clickOnce(document.getElementById(ids.readingChatNewBtn)!);
+
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+    await waitFor(() => !marker.isConnected);
+  });
+});
+
+describe("player-ai 快捷动作 seam（无损续问）", () => {
+  it("首开空会话直接发送；覆盖激活与受理的连点只发一次", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
 
-    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+    const first = chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+    const repeated = chat.runQuickActionPrompt("连点不应重复发送");
 
-    expect(accepted).toBe(true);
+    await expect(first).resolves.toBe(true);
+    await expect(repeated).resolves.toBe(false);
     const tabBodyChat = document.getElementById(ids.readingTabBodyChat) as HTMLElement;
     expect(tabBodyChat.classList.contains("is-active")).toBe(true);
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
-    // 受理判据是上面的返回值 accepted；输入框清空只是受理副作用。
     expect(input.value).toBe("");
     expect(ports).toHaveLength(1);
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
   });
 
+  it("当前视频已有空闲对话：保留会话与上下文，新问答原位追加", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.runQuickActionPrompt("第一问");
+    const conversationId = chatSessionState.currentConversationId;
+    const contextKey = chatSessionState.currentContextKey;
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+
+    await chat.runQuickActionPrompt("第二问");
+
+    expect(chatSessionState.currentConversationId).toBe(conversationId);
+    expect(chatSessionState.currentContextKey).toBe(contextKey);
+    expect(ports).toHaveLength(2);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("第二问");
+    (ports[1] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    expect(chatSessionState.chatHistory.filter((message) => message.role === "user").map((message) => message.content)).toEqual([
+      "第一问",
+      "第二问"
+    ]);
+  });
+
+  it("设置中唤起且有草稿：退出设置并定位，草稿原样保留且不发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "尚未发送的草稿";
+    const settingsMode = await import("../../extension/reader/settings-mode.js");
+    settingsMode.openReaderSettingsMode();
+
+    const accepted = await chat.runQuickActionPrompt("不得覆盖草稿");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("尚未发送的草稿");
+    expect(state.reader.readingSettingsExpanded).toBe(false);
+    expect((document.getElementById(ids.readingTabBodyChat) as HTMLElement).classList.contains("is-active")).toBe(true);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
+    expect(ports).toHaveLength(0);
+  });
+
+  it("已有图片草稿：只定位并提示保留，图片不丢失且不发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const file = new File(["image"], "draft.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] }
+    });
+    input.dispatchEvent(event);
+    const imageStrip = document.getElementById(ids.readingChatImageStrip) as HTMLElement;
+    await waitFor(() => imageStrip.querySelectorAll(".chat-image-item").length === 1);
+
+    const accepted = await chat.runQuickActionPrompt("不得覆盖图片草稿");
+
+    expect(accepted).toBe(false);
+    expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
+    expect(ports).toHaveLength(0);
+  });
+
+  it("流式生成中：只定位并提示稍后再试，不停止或并发发送", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.runQuickActionPrompt("正在生成的第一问");
+
+    const accepted = await chat.runQuickActionPrompt("不得并发发送");
+
+    expect(accepted).toBe(false);
+    expect(ports).toHaveLength(1);
+    expect(ports[0].disconnect).not.toHaveBeenCalled();
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("请稍后再试");
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+  });
+
+  it("已有回合等待发送闸：不覆盖输入、不排队，就绪后仍只发原回合", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "用户已发送的问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+
+    const accepted = await chat.runQuickActionPrompt("不得自动排队");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("用户已发送的问题");
+    expect(ports).toHaveLength(0);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("请稍后再试");
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("用户已发送的问题");
+  });
+
+  it("快捷发送自身等待闸时连点：单飞保护贯穿受理，全程只发首个提示词", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+    const chat = await lazyChat.ensureReaderChatTab();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+
+    const first = chat.runQuickActionPrompt("只发送这个提示词");
+    const repeated = chat.runQuickActionPrompt("连点提示词");
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(ports).toHaveLength(0);
+
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+
+    await expect(first).resolves.toBe(true);
+    await expect(repeated).resolves.toBe(false);
+    expect(ports).toHaveLength(1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("只发送这个提示词");
+  });
+
   it("runQuickActionPrompt 被无字幕闸拦下：返回 false、无 port、输入框保留（受理结论来自返回值）", async () => {
-    // 无字幕收尾（empty 且字幕体为空）：发送闸 G6 拦截，sendMessage 返回 blocked
-    // → sendViaInputBox 折算 false。旧实现靠「输入框是否被清空」推断，本用例把
-    // 判据钉在返回值上：即使输入框残留，结论也只由 SendVerdict 决定。
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -1160,11 +1567,25 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     firePort(ports[0], { type: "token", data: "部分正文" });
     await waitFor(() => messages.textContent!.includes("部分正文"));
 
+    const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
+    document.getElementById(ids.readingChatMoreBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(false);
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      messages.scrollTop = Number(options.top || 0);
+    });
+    Object.defineProperty(messages, "scrollHeight", { configurable: true, get: () => 640 });
+    Object.defineProperty(messages, "scrollTo", { configurable: true, value: scrollTo });
+
     clickHistoryOpen(historyList, "conv-b");
     await waitFor(() => stopRequests(ports[0]).length === 1);
-    // 停流尚未落定：不切换（仍在 A，A 的流式内容还在屏上）
+    // 停流尚未落定：历史保持，目标行忙碌；重复点击不再次提交。
     expect(chatSessionState.currentConversationId).toBe("conv-a");
     expect(messages.textContent).toContain("原会话的新问题");
+    expect(historyPage.hidden).toBe(false);
+    expect(historyList.querySelector(".chat-history-item[data-id=conv-b]")?.textContent).toContain("正在保存当前回答…");
+    clickHistoryOpen(historyList, "conv-b");
+    expect(stopRequests(ports[0])).toHaveLength(1);
 
     // stopped 终态：endStream 六步 + commitAssistantTurn 在身份未换前写回 A
     firePort(ports[0], { type: "stopped", reason: "已停止生成" });
@@ -1192,10 +1613,14 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     expect(writes[writes.length - 1].find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
       .toContain("部分正文");
 
-    // 切换后回放的是目标会话 B
-    await waitFor(() => messages.textContent!.includes("B 的历史答案"));
+    // 切换后回放的是目标会话 B，落定后才退出历史、滚到底部并聚焦输入框。
+    await waitFor(() => messages.textContent!.includes("B 的历史答案") && scrollTo.mock.calls.length > 0);
     expect(messages.textContent).not.toContain("部分正文");
     expect(messages.textContent).not.toContain("原会话的新问题");
+    expect(historyPage.hidden).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 640, behavior: "instant" });
+    expect(messages.scrollTop).toBe(640);
+    expect(document.activeElement).toBe(input);
   });
 
   it("[characterization] 不在途点历史项：同一 tick 内切换、不发 stop（零延迟零行为差）", async () => {
@@ -1206,11 +1631,15 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     expect(chatSessionState.currentConversationId).toBe("conv-a");
 
     const { historyList } = els();
+    document.getElementById(ids.readingChatHistoryBtn)!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     clickHistoryOpen(historyList, "conv-b");
 
     // 无在途回合：settle 立即兑现，applyById 不留一拍（与旧实现逐点一致）
     expect(chatSessionState.currentConversationId).toBe("conv-b");
     expect(ports).toHaveLength(0);
+    expect(document.activeElement).toBe(document.getElementById(ids.readingChatInput));
   });
 
   it("拆除类入口（流式中删除当前会话）：走既有断连路径、不发 stop（不触发 settle）", async () => {
@@ -1236,6 +1665,9 @@ describe("在途回合点历史项（C′：先体面停流落盘、再切换）
     const removeBtn = historyList.querySelector(`.chat-history-remove[data-id="${currentId}"]`);
     expect(removeBtn).not.toBe(null);
     removeBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => Boolean(document.querySelector(".confirm-dialog-confirm")));
+    expect(document.querySelector(".confirm-dialog-message")?.textContent).toContain("正在生成的回答将被丢弃");
+    (document.querySelector(".confirm-dialog-confirm") as HTMLButtonElement).click();
     await waitFor(() => chatSessionState.currentConversationId === "");
 
     // 无 stop 请求（settle 未被触发）；断流走 resetStreamState 的 disconnect
@@ -1365,12 +1797,13 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
   });
 });
 
-describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）", () => {
-  it("后建链接经 #readingChatRoot 容器委托打开设置抽屉", async () => {
+describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归 + 票 03 直达）", () => {
+  it("后建链接经 #readingChatRoot 容器委托直达新增 AI 平台编辑器", async () => {
     // 无平台：ai-providers-list 返回空列表 → renderInitialState 走「还没有配置
     // AI 平台」分支，「前往设置」链接由 resetConversationView 用 innerHTML 后建。
     // 历史缺陷：ui-renderer 曾在壳构建时 getElementById 直绑——绑定时点早于
     // 元素诞生，监听器永远挂不上，无平台空态点「前往设置」无任何效果。
+    // 票 03：点击不再只开设置抽屉，而是直达新增 AI 平台编辑器（首配「保存并继续」）。
     const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
     chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
       if (String(message?.type || "") === "ai-providers-list") {
@@ -1391,11 +1824,17 @@ describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）"
     expect(settingsPanel.hidden).toBe(true);
     expect(state.reader.readingSettingsExpanded).toBe(false);
 
-    // 容器委托命中（冒泡到 #readingChatRoot）：展开设置并渲染面板
+    // 容器委托命中（冒泡到 #readingChatRoot）：展开设置并直达新增平台编辑器
+    // （编辑器 chunk 动态装载，全量套件并发下放宽等待上限）。
     link!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector(".provider-editor-dialog") !== null, { timeoutMs: 5000 });
     expect(state.reader.readingSettingsExpanded).toBe(true);
-    // renderReaderPanels 经 ui/reader-gate 异步装载 reader 域后写 hidden
-    await waitFor(() => !settingsPanel.hidden);
+    expect(
+      document.querySelector(".provider-editor-dialog .provider-editor-title")?.textContent
+    ).toBe("添加AI 平台");
+    // 收尾：关编辑器（首配会话回调由本文件不关心的装配方持有）
+    const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+    closeProviderEditor(true);
   });
 });
 

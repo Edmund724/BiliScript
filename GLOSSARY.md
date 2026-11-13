@@ -14,6 +14,11 @@ _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互�
 实时伴看的唯一界面，全屏与非全屏都默认以胶囊出现，点击展开；默认贴播放器右上角，可拖动，进出全屏后仍贴右上角。
 _Avoid_: 伴看面板、全屏浮窗（不再限于全屏）
 
+**实时字幕翻译**:
+视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。译文目标语言与 `id_translate-<lang>` 缓存与阅读面板的译文副轨共用（见「字幕」的伪轨译文一段）。
+代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（翻译目标语言，阅读面板的副列译文也读它）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语，只作用于播放器浮层）
+_Avoid_: 同声传译、同传；把译文当作视频字幕轨，或复用副轨开关表示译文显示模式
+
 **直播间伴看**:
 在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂伴看浮窗与播放器内的开关按钮，不出现文摘面板。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。
 代码名：`live/live-room-entry.ts` / `live/live-room-bridge.ts` / `MossLiveRoomContext` / `isLiveRoomPage` / `parseLiveRoomId`
@@ -42,8 +47,8 @@ _Avoid_: Part、页、集数
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
-同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)`——缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮的唯一一份，出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
+同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。伪轨视频（无 CC、只有 `id=asr` 且 `subtitleUrl` 为空的伪轨）的双列卡照旧复用：主列是这条伪轨，副列列的是译文目标语言（14 种，词表与播放器「字幕」浮层同一份），副行是同一原文段的 LLM 译文——译文不是轨、不进 `clip.subtitles`，只进副轨槽；双语开关对这类视频可用（判据是伪轨身份，不是轨数），复制/导出/AI 上下文仍只吃主轨原文。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/asr-translation.js`（伪轨译文的面板侧在飞、进度与列模型：`hasAsrPseudoTrack` / `resolveAsrTranslationView` / `ensureAsrTranslation` / `cancelAsrTranslation` / `selectAsrTranslationLanguage`；零请求的缓存挂载与显式动作启动都经它）/ `subtitle/asr-translation.js`（伪轨译文的批量器：60 秒分片计划、缓存覆盖判定、逐片翻译与逐片合入副轨槽、整份落盘；零产出才落槽 error，部分失败保持 ready 并留补齐入口；主轨被新一次转写替换时经 `clearTranslatedSubtitleCache` 清掉旧译文）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)`——缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮的唯一一份，出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
 _Avoid_: 转录、transcript、把副轨说成「第二条字幕」或「第三路轨」（两行是一条字幕条目）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:
@@ -116,9 +121,14 @@ _Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（�
 _Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 
 **文摘排版**:
-文摘面板的阅读排版设置项：字体大小缩放位于设置抽屉「外观与布局」分区，全局作用于三大标签页内容文本（字幕、概览、AI 对话）与设置抽屉内容文字；对话行高与对话段落间距位于「AI 对话」标签页的更多操作二级菜单中，仅作用于「AI 对话」消息区。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键。
+文摘面板的阅读排版设置项：字体大小缩放位于设置抽屉「外观与布局」分区，全局作用于三大标签页内容文本（字幕、概览、AI 对话）与设置抽屉内容文字；对话行高与对话段落间距同时位于「外观与布局」的「AI 对话」子组和「AI 对话」标签页的更多操作二级菜单中，仅作用于「AI 对话」消息区，Aa 的「更多显示设置」直达该子组。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键；设置抽屉底部的「恢复默认偏好」也覆盖这三项。
 代码名：`readerFontSizeScale` / `chatLineHeight` / `chatParagraphSpacing` / `--biliscript-reader-font-scale` / `--biliscript-chat-line-height` / `--biliscript-chat-paragraph-spacing`
 _Avoid_: 把字体缩放扩展到外壳固定骨架（如面板顶部 Header、底部状态栏）、用总开关包裹排版滑块
+
+**对话朗读与伴看音频**:
+对话朗读音量（`speechVoiceVolume`，默认 100%）同时位于设置抽屉「外观与布局 · AI 对话」和 Aa 更多操作菜单；伴看音量（`liveVoiceVolume`，默认 100%）、伴看语速（`liveVoiceSpeed`，默认 1×）、分享视频声音（`liveShareVideoAudio`，默认关）与语音优先（`liveVoicePriority`，默认开）同时位于设置抽屉「实时伴看」和伴看浮窗音频弹层。两处读写同一设置键，伴看会话与浮窗经 live 域叶子同步应用同页及跨标签页变更；滑块即时预览、提交时落盘，开关立即落盘。三个音量/语速滑块各配 ↻ 单项重置，「恢复默认偏好」覆盖这里的五项音频偏好及两项对话排版偏好；`readerTheme` 仍随全局偏好重置，`liveLowBandwidth` 等平台与采集配置不参与。
+代码名：`live/live-audio-settings.ts` / `applyLiveAudioSettings` / `persistLiveAudioSettings` / `watchLiveAudioSettings` / `speechVoiceVolume` / `liveVoiceVolume` / `liveVoiceSpeed` / `liveShareVideoAudio` / `liveVoicePriority`
+_Avoid_: 把对话朗读音量与伴看音量混称、为浮窗或抽屉另建会话级音频偏好副本、给两个音频开关增加常驻次级说明
 
 ### 面板控件
 
@@ -143,7 +153,7 @@ _Avoid_: 三处各存一份复制图标字面量、各配一套尺寸/描边
 _Avoid_: 用 surface-2 换底充当悬停反馈（层级差太弱）、只做 hover 不做键盘焦点
 
 **重置键**:
-把某项配置（思考强度 Default 档位、排版滑块）恢复至出厂默认值的无框纯图标键：静止态透明，处于默认档位或中点时呈置灰不可点击态；偏离默认值时激活，点击立即恢复默认值、触发即时预览并保存。图标统一使用纯矢量旋转箭头（rotate-ccw）。
+把某项配置（思考强度 Default 档位、排版/音频滑块）恢复至出厂默认值的无框纯图标键：静止态透明，处于默认档位或中点时呈置灰不可点击态；偏离默认值时激活，点击立即恢复默认值、触发即时预览并保存。图标统一使用纯矢量旋转箭头（rotate-ccw）。
 代码名：`.biliscript-slider-reset-btn` / `.chat-thinking-btn[data-level="default"]` / `READING_RESET_ICON`
 _Avoid_: 把重置做成带框文字键、偏离默认值时不更新禁用与激活态
 
@@ -265,8 +275,8 @@ _Avoid_: 把 Key 复制进 `searchProviderKeys` 或 `liveProviderKeys`（双写�
 _Avoid_: `includes("deepseek")` 或 `includes("googleapis")` 子串匹配、跟随 AI 记录的自定义反代 baseUrl 发搜索或伴看请求
 
 **工具循环**:
-AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.ts）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
-代码名：`runToolLoop` / `WEB_SEARCH_TOOL` / `webSearchTool`（ai/tool-loop.ts）/ `executeWebSearch`（search/search-executor.ts）/ `resolveWebSearchRuntime`（search/search-runtime.ts）/ `resolve-search-provider`（background handler）/ `tool-status` / `tool-turn`（chat/protocol.ts port 事件）
+AI 对话链与选区解释链共用的工具执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条搜索 tool call 计入 `webSearchMaxToolCalls` 配额；AI 对话另提供当前帧与指定 `targetTime` 历史帧工具，每次用户提问最多成功或失败执行一次截帧、最多补充三张图片，历史帧由独立隐藏视频加载并依次 seek 到目标前 2 秒、目标、目标后 2 秒（边界截断到 `[0, duration]`），单帧失败保留其他成功帧并说明缺失，全部失败按文字降级；图片按实际时间顺序只进入本轮后续模型请求，逐张标注实际截图时间与目标时间；停止回答、端口断开、关闭会话与 SPA 换片/分P（BV 或分P 归属签名变化）都会中止在飞取帧并丢弃迟到结果，整次取帧受 45 秒总超时约束（超时返回可读工具错误）；旧端口迟到的断连不得中止已接管的新回合；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.ts）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
+代码名：`runToolLoop` / `WEB_SEARCH_TOOL` / `webSearchTool` / `CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME`（ai/tool-loop.ts）/ `captureHistoricalVideoFrame`（chat/historical-video-frame.ts，含 `signal` 与 45 秒总超时）/ `activeChatPort`（entry/offscreen.ts，断连归属守卫）/ `video-frame-request.targetTime` / `video-frame-cancel.requestId`（chat/protocol.ts port 字段）/ `video-frame-result.frames`（shared/messaging-protocol.ts 历史三帧回执）/ `executeWebSearch`（search/search-executor.ts）/ `resolveWebSearchRuntime`（search/search-runtime.ts）/ `resolve-search-provider`（background handler）/ `tool-status` / `tool-turn`（chat/protocol.ts port 事件）
 _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全文进历史
 
 **设置快照**:
@@ -339,7 +349,7 @@ _Avoid_: 清会话、重置对话、手抄拆除序列
 _Avoid_: 在效果壳重判流式守卫、按计划字段而非 action 反推是否进主上下文、给计划加无消费方的字段（`clearTabUrl` / `applyToMainContext` 已因零消费删除）
 
 **发送闸**:
-发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendTurn` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。等待方向单向：发送等回放让位，回放不等任何东西；回合终结的两个维度的标志必须成对收口——`sendInFlight` 与 `activePort`（`isTurnActive()` 的判据）在 blocked 提前返回、异常与终态三条出口都复位，否则此后发送被入口判 ignored（静默发不出去）。
+发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendTurn` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。关闭面板或视频/分P签名变化经 `cancel()` 同步取消在飞等待并作废迟到轮询，旧发送意图不得在重开或新内容上复活。等待方向单向：发送等回放让位，回放不等任何东西；回合终结的两个维度的标志必须成对收口——`sendInFlight` 与 `activePort`（`isTurnActive()` 的判据）在 blocked 提前返回、异常与终态三条出口都复位，否则此后发送被入口判 ignored（静默发不出去）。
 代码名：`extension/chat/send-gate.ts`（`createSendGate` / `GateOutcome`）/ `ensureCurrentContextForSend`（chat-runtime 的 deps 缝，发送闸对编排壳的唯一出口）/ `SendVerdict`（`extension/chat/turn-lifecycle.ts` 的 `createTurnLifecycle` / `TurnLifecycle` / `TURN_SETTLE_FALLBACK_MS`——回合生命周期深 module；chat-runtime 的受理入口 `sendTurn`）
 _Avoid_: 发送前检查、发送前置条件散落各调用点、按输入框是否清空反推受理
 

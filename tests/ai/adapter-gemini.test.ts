@@ -1001,7 +1001,8 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
         name: "web_search",
         args: { query: "problem" },
         id: "call_tool_1"
-      }
+      },
+      thoughtSignature: "sig_turn_123"
     });
   });
 

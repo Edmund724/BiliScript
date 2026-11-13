@@ -21,6 +21,9 @@ import { logWarn } from "../shared/logging.js";
 // 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
 // 打开 / 跨上下文收敛、副列改选、副列重试）的唯一落点，判定与在飞登记都在那里。
 import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
+// 伪轨视频的译文副轨（票 asr-panel-translation）：这里只起「零请求的缓存挂载」——
+// 主轨就绪即按当前目标语言查一次缓存，命中就挂上，缺片留给用户显式动作（不自动花钱）。
+import { ensureAsrTranslation } from "./asr-translation.js";
 
 // 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
@@ -35,7 +38,7 @@ import {
 import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js";
 
 // LAYOUT (state) functions this module drives:
-import { ids } from "./state.js";
+import { getReaderActiveScriptTab, ids } from "./state.js";
 // B 形态右栏 文摘面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
 // 只剩 video-bind + script-host。
 import { openScriptHost, closeScriptHost, waitForScriptAnchor } from "./script-host.js";
@@ -48,6 +51,7 @@ import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // 触达壳，壳未装载时命令静默丢弃，与原 DOM 缺失时 setter 空转同形。
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
 import { activateScriptTab } from "./script-tab-activation.js";
+import { projectReaderSettingsMode, closeReaderSettingsMode, focusWithoutScroll } from "./settings-mode.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -74,6 +78,16 @@ import {
   type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
+// 首配续跑意图（票 01/02）：概览「去设置」记录、保存成功后消费续跑、取消/关面板/关视图作废。
+import {
+  clearOverviewSetupResumeIntent,
+  consumeOverviewSetupResumeIntent,
+  setOverviewSetupResumeIntent
+} from "./overview-setup-resume.js";
+// 解释卡首配续跑意图（票 02）：卡片「去设置」记录、保存成功回同一卡续跑、取消/关抽屉/关卡片/关视图作废。
+import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
+// ASR 配置续跑意图（票 04）：三个面的设置动作记录、配置落盘后续跑、关闭视图作废。
+import { clearAsrSetupResumeIntent } from "./asr-setup-resume.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
@@ -91,7 +105,7 @@ import {
 } from "./overview-ui.js";
 import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
-import { confirmDialog } from "../ui/confirm-dialog.js";
+import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
@@ -178,8 +192,35 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   isReadingViewOpen: () => state.reader.readingViewOpen,
   resolveProvider: () => resolveActiveProvider(),
   loadAnalysis: () => import("../ai/analysis.js"),
-  confirm: (options) => confirmDialog(options),
+  confirm: (options) => (state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true)),
   registerUiActions: (actions) => registerOverviewUiActions(actions),
+  // 首配续跑（票 01）：「去设置」记录页面内存意图并直达正确的平台编辑界面；
+  // 首配保存成功经 onAfterSave 消费意图、退出设置并在同一视频续跑一次概览；
+  // 取消编辑（onSessionEnd）/关闭设置抽屉/关闭阅读视图均作废意图。
+  setupResume: {
+    begin: (intent) => {
+      setOverviewSetupResumeIntent(intent);
+      void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
+        openReaderAiSetup(intent.errorClass, {
+          onAfterSave: () => {
+            // resumeAfterSetup 同步取走并校验意图，随后退出设置恢复原概览；
+            // 不重新激活 Tab、不写新的 Tab 偏好。
+            void overviewCoordinator.resumeAfterSetup();
+            closeReaderSettingsMode({ restoreFocus: true });
+          },
+          onSessionEnd: () => clearOverviewSetupResumeIntent()
+        });
+      });
+    },
+    consume: consumeOverviewSetupResumeIntent
+  },
+  // 无字幕配置空态的「前往设置」（票 01 建立、票 04 升级为实际设置动作并续跑）：
+  // 直达 ASR 平台编辑 / 自动转写开关，配置完成后重新进入既有字幕抓取链。
+  openTranscribeSettings: () => {
+    void import("../ui/settings-panel.js").then(({ openReaderAsrSetup }) => {
+      openReaderAsrSetup();
+    });
+  },
   now: () => Date.now(),
   setInterval: (...args) => setInterval(...args),
   clearInterval: (...args) => clearInterval(...args)
@@ -194,7 +235,8 @@ registerReaderOverviewSource({
   ensureOverview: async (options) => {
     await overviewCoordinator.trigger(options);
     return overviewCoordinator.getSnapshot();
-  }
+  },
+  cancel: () => overviewCoordinator.cancel()
 });
 
 export const triggerReaderOverviewGeneration = (
@@ -328,6 +370,10 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   // （Q1：开关开着就立刻并行抓，不依赖面板可见性，通知路径独有）。
   if (ensureSecondarySubtitle) {
     ensureSecondarySubtitleLoaded();
+    // 伪轨视频的译文副轨：同一拍查缓存（零请求），全命中直接出副行。
+    if (state.settings.bilingualSubtitles === true) {
+      void ensureAsrTranslation("cache-only");
+    }
   }
 }
 
@@ -412,8 +458,73 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent) {
   receive(event);
 }
 
+const READER_TAB_BUTTON_IDS = {
+  subtitle: ids.readingTabSubtitle,
+  overview: ids.readingTabOverview,
+  chat: ids.readingTabChat
+} as const;
+
+let readerReturnFocus: HTMLElement | null = null;
+let restoreReaderFocusOnClose = false;
+let readerFocusRestorePending = false;
+
+export function focusReadingView(): void {
+  const tabId = READER_TAB_BUTTON_IDS[getReaderActiveScriptTab()];
+  focusWithoutScroll(document.getElementById(tabId) ?? document.getElementById(ids.readingCloseBtn));
+}
+
+function captureReaderReturnFocus(readingView: HTMLElement): void {
+  const active = document.activeElement;
+  readerFocusRestorePending = false;
+  restoreReaderFocusOnClose = false;
+  readerReturnFocus = active instanceof HTMLElement &&
+    active !== document.body &&
+    active !== document.documentElement &&
+    !readingView.contains(active)
+    ? active
+    : null;
+}
+
+function isReaderFocusTargetAvailable(target: HTMLElement | null, readingView: HTMLElement): target is HTMLElement {
+  return Boolean(
+    target?.isConnected &&
+    !readingView.contains(target) &&
+    !target.closest("[hidden], [aria-hidden='true']") &&
+    !(target instanceof HTMLButtonElement && target.disabled)
+  );
+}
+
+export function restoreReadingViewFocus(): void {
+  if (!readerFocusRestorePending) return;
+  readerFocusRestorePending = false;
+  const returnFocus = readerReturnFocus;
+  readerReturnFocus = null;
+  if (state.reader.readingViewOpen) return;
+  const readingView = getReaderElement(ids.readingView);
+  const active = document.activeElement;
+  if (active instanceof Node && active !== document.body && active !== document.documentElement && !readingView.contains(active)) {
+    return;
+  }
+  const scriptButton = document.getElementById("biliscript-script-button");
+  const target = isReaderFocusTargetAvailable(returnFocus, readingView)
+    ? returnFocus
+    : isReaderFocusTargetAvailable(scriptButton, readingView)
+      ? scriptButton
+      : null;
+  if (target) {
+    focusWithoutScroll(target);
+    return;
+  }
+  const root = document.getElementById(ids.root);
+  if (root) {
+    root.tabIndex = -1;
+    focusWithoutScroll(root);
+  }
+}
+
 export async function enterReaderMode(mode: "open" | "restore" = "open") {
   const readingView = getReaderElement(ids.readingView);
+  captureReaderReturnFocus(readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
   transitionReaderShell("open");
   document.body.setAttribute("data-biliscript-reading-active", "1");
@@ -453,6 +564,10 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   // 打开前就已落定（页面预抓取，不再有 subtitle-ready）时，这是唯一的起跑点。
   warmUpReaderQuickPrompts();
   ensureSecondarySubtitleLoaded();
+  // 伪轨视频的译文副轨：面板打开时查一次缓存（零请求），命中即挂载。
+  if (state.settings.bilingualSubtitles === true) {
+    void ensureAsrTranslation("cache-only");
+  }
 }
 
 function openReaderViewShell(
@@ -472,6 +587,7 @@ function openReaderViewShell(
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
   setReadingViewReady(true);
+  focusReadingView();
 }
 
 // syncReaderModeAfterMount / settleReaderModePresentation 已随整页接管退役
@@ -483,6 +599,7 @@ function openReaderViewShell(
 export function beginClosingReadingView(): boolean {
   const readingView = getReaderElement(ids.readingView);
   const wasOpen = readingView.classList.contains("open");
+  restoreReaderFocusOnClose = readingView.contains(document.activeElement);
   readingView.classList.remove("open");
   readingView.classList.add("closing");
   readingView.setAttribute("aria-hidden", "true");
@@ -490,16 +607,22 @@ export function beginClosingReadingView(): boolean {
 }
 
 export function closeReadingView() {
+  const readingView = getReaderElement(ids.readingView);
+  readerFocusRestorePending = restoreReaderFocusOnClose || readingView.contains(document.activeElement);
+  restoreReaderFocusOnClose = false;
+  if (!readerFocusRestorePending) {
+    readerReturnFocus = null;
+  }
   // 收尾清理在收回过渡结束后执行；直关与 restore 失整收敛也复用此入口。
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
   state.reader.setSettingsExpanded(false);
+  projectReaderSettingsMode();
   state.reader.setNextScrollBehavior("smooth");
   // Scroll deadlines moved to sync.js with the sync domain; reset them there
   // so a later manual interaction is never swallowed by stale deadlines.
   resetManualScrollPause();
   setProgrammaticScrollUntil(0);
-  const readingView = getReaderElement(ids.readingView);
   readingView.classList.remove("open", "closing", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute(READER_READY_ATTR, "0");
@@ -524,6 +647,12 @@ export function closeReadingView() {
   // 与待解释意图（不跨会话残留；下次打开按空态渲染）。
   clearReadingSubtitleSearch();
   clearPendingExplainIntent();
+  // 首配续跑意图不跨会话残留（票 01/02/04）：关视图即作废未消费意图。
+  clearOverviewSetupResumeIntent();
+  clearExplainSetupResumeIntent();
+  clearAsrSetupResumeIntent();
+  // 视图销毁只撤销确认框；搜索授权据此取消回合，不按用户拒绝写偏好。
+  dismissConfirmDialog();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal();

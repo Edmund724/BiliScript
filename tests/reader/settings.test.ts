@@ -1,10 +1,8 @@
-// 设置变更测试：主题（明暗）与外观色板
+// 设置变更测试：主题（明暗）、外观色板与对话排版/朗读偏好
 // 通过 hydrateReaderStateFromSettings 与 updateReaderPreferences 驱动，
 // 校验 data-attribute 在阅读视图、documentElement、body 三处的应用。
-//（script-only-ui：排版档位机制退役，字号/字距/行距/面板宽度不再可调，
-// 相关字段与 data-attribute 一并移除；三开关退役后章节/字幕可见性设置项
-// 与 data-attribute 也随之删除。排版设置剩明暗 theme 与色板 palette 两轴，
-// 两轴正交：header 按钮只动明暗，设置抽屉色板选择只动色板。）
+// 明暗与色板正交：header 按钮只动明暗，设置抽屉色板选择只动色板；
+// 对话行高、段落间距和朗读音量由设置抽屉与 Aa 菜单同源读写。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -492,6 +490,43 @@ describe("主题：只剩明暗一轴", () => {
     expect(saveSettingsPayload).not.toHaveProperty("readerThemeFamily");
   });
 
+  it("外观深链：首次装载后切换外观分区并聚焦 AI 对话子组标题", async () => {
+    state.reader.setViewOpen(true);
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "get-settings") {
+        callback?.({ ok: true, settings: { readerPalette: "editorial" } });
+        return undefined;
+      }
+      if (message?.type === "ai-presets-list" || message?.type === "asr-presets-list") {
+        callback?.({ ok: false });
+        return undefined;
+      }
+      if (message?.type?.endsWith("-providers-list")) {
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView");
+    const panel = await import("../../extension/ui/settings-panel.js");
+    await panel.openAppearanceSettings();
+
+    const host = document.getElementById(ids.readingSettingsHost)!;
+    await vi.waitFor(() => {
+      expect(host.dataset.biliscriptSettingsRendered).toBe("1");
+    });
+    const nav = host.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="appearance"]')!;
+    const heading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
+    const subgroup = heading.closest("[data-settings-subgroup]")!;
+    expect(nav.classList.contains("is-active")).toBe(true);
+    expect(subgroup.getAttribute("data-settings-subgroup")).toBe("chat");
+    // 深链滚动的是子组容器：56px scroll-margin 才能避开吸顶导航，标题保持可见。
+    expect(scrollSpy.mock.instances).toContain(subgroup);
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("设置抽屉：色板存量值非法时装载归一回落 flyme", async () => {
     state.reader.setViewOpen(true);
 
@@ -539,7 +574,8 @@ describe("主题：只剩明暗一轴", () => {
           settings: {
             readerFontSizeScale: 110,
             chatLineHeight: 180,
-            chatParagraphSpacing: 16
+            chatParagraphSpacing: 16,
+            speechVoiceVolume: 70
           }
         });
         return undefined;
@@ -566,9 +602,11 @@ describe("主题：只剩明暗一轴", () => {
     const fontBadge = document.getElementById("readerFontSizeScaleValue") as HTMLElement;
     const fontReset = document.getElementById("readerFontSizeScaleResetBtn") as HTMLButtonElement;
 
-    // 对话行高与对话段落间距已移至 AI 对话二级菜单，设置抽屉中不再渲染
-    expect(document.getElementById("chatLineHeight")).toBe(null);
-    expect(document.getElementById("chatParagraphSpacing")).toBe(null);
+    const chatSubgroup = document.querySelector('[data-settings-subgroup="chat"]')!;
+    expect(chatSubgroup.querySelector<HTMLInputElement>("#chatLineHeight")?.value).toBe("180");
+    expect(chatSubgroup.querySelector<HTMLInputElement>("#chatParagraphSpacing")?.value).toBe("16");
+    expect(chatSubgroup.querySelector<HTMLInputElement>("#speechVoiceVolume")?.value).toBe("70");
+    expect(chatSubgroup.querySelector('label[for="speechVoiceVolume"]')?.textContent).toBe("对话朗读音量");
 
     expect(fontSlider).toBeTruthy();
     expect(fontSlider.value).toBe("110");
@@ -613,9 +651,10 @@ describe("主题：只剩明暗一轴", () => {
     expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(56);
     expect(widthBadge.textContent).toBe("540px");
     expect(widthReset.disabled).toBe(true);
+    // 重置同时清除显式自定义标记，恢复三种形态默认几何。
     expect(sentMessages).toContainEqual({
       type: "save-settings",
-      settings: { customPanelWidth: 540 }
+      settings: { customPanelWidth: 540, customPanelWidthEnabled: false }
     });
 
     // 单轮搜索次数上限滑块与重置键测试（默认 5，最小 1，最大 20）

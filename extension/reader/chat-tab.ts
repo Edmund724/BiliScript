@@ -59,7 +59,7 @@
 
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
-import { extractBvid } from "../bilibili/video-id-shared.js";
+import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 // 思考档位的显示视图（一级行 · chip 条目 · 提示文案）：一次解析（偏好 + 上下文）的产出，
 // 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
 // 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
@@ -70,6 +70,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -106,6 +107,20 @@ import { createExplainIntentConsumption } from "./explain-intent-consumption.js"
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
+// AI 对话首配返回意图（票 provider-onboarding-consistency/03）：页面内存单槽，
+// 取消 / 换视频 / 换会话 / 关设置抽屉 / 关对话会话即失效。
+import {
+  clearChatSetupResumeIntent,
+  consumeChatSetupResumeIntent,
+  peekChatSetupResumeIntent,
+  setChatSetupResumeIntent,
+  type ChatSetupMode
+} from "./chat-setup-resume.js";
+// 保存成功后的返回事务要退出设置抽屉（关闭路径同时作废三张首配意图）。
+import { closeReaderSettingsMode } from "./settings-mode.js";
+// 配置类错误的两个类目（无平台 / 缺 Key）：分类器在 chat-runtime 用同一叶子判定，
+// 本文件只消费类目参数。
+import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 // 会话级触发源对象（「属会话 vs 常驻」的声明与摘挂闭合处）与建议区属主
 //（建议区节点的唯一归属，其余模块只调它的方法）。
 import { createReaderChatSessionTriggers } from "./chat-session-triggers.js";
@@ -141,21 +156,33 @@ import { logWarn } from "../shared/logging.js";
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { ids } from "./state.js";
-import { normalizeLiveVoiceVolume } from "../core/validators.js";
-import { createLiveChatController, type LiveChatController } from "../live/live-chat-controller.js";
-import type { FullscreenLiveOverlay } from "../live/fullscreen-live-overlay.js";
-import { createLiveOverlayBinding } from "../live/live-overlay-binding.js";
-import { createLiveToolsBridge } from "../live/live-tools-bridge.js";
+import {
+  ensureFullscreenOverlay,
+  ensureLiveController,
+  getFullscreenLiveOverlay,
+  getLiveController,
+  isLiveCompanionActive,
+  openLiveCompanionSettings,
+  restoreLiveCompanionOverlay,
+  retryLiveCompanion,
+  setLiveSessionHooks,
+  startLiveCompanion,
+  stopLiveCompanion
+} from "../live/live-companion-session.js";
+import { createChatLiveStatus } from "./chat-live-status.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
-// 概览快照来源槽（lifecycle 登记）：实时伴看的全片上下文经此取用。
-import {
-  ensureReaderOverviewSource,
-  getReaderOverviewSource,
-  subscribeReaderOverviewSource
-} from "./live-overview-source.js";
+import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
+
+export {
+  ensureFullscreenOverlay,
+  getFullscreenLiveOverlay,
+  getLiveController,
+  startLiveCompanion,
+  stopLiveCompanion
+};
 
 ensureReaderChatStyles();
 
@@ -177,6 +204,7 @@ const els = {
   historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
   moreBtn: document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement | null,
   moreMenu: document.getElementById(ids.readingChatMoreMenu) as HTMLElement | null,
+  displaySettingsBtn: document.getElementById(ids.readingChatDisplaySettingsBtn) as HTMLButtonElement | null,
   lineHeightSlider: document.getElementById(ids.readingChatLineHeight) as HTMLInputElement | null,
   lineHeightValue: document.getElementById(ids.readingChatLineHeightValue) as HTMLElement | null,
   lineHeightResetBtn: document.getElementById(ids.readingChatLineHeightResetBtn) as HTMLButtonElement | null,
@@ -197,6 +225,7 @@ const els = {
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
+  liveStatus: document.getElementById(ids.readingChatLiveStatus) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null,
   speechVolume: document.getElementById(ids.readingChatSpeechVolume) as HTMLElement | null,
   speechVolumeInput: document.getElementById(ids.readingChatSpeechVolumeInput) as HTMLInputElement | null,
@@ -233,20 +262,55 @@ function requireShell(): void {
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
-let liveController: LiveChatController | null = null;
-let preservingLiveSessionOnContextSwitch = false;
 
-const liveOverlayBinding = createLiveOverlayBinding({
-  getPlayerHost: () => document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap"),
-  getLiveController: () => liveController
-});
-
-export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
-  return liveOverlayBinding.getOverlay();
+function openChatSettings(target?: "asr" | "appearance"): void {
+  popovers.hideHistoryPopover({ focus: "none" });
+  popovers.hideMoreMenu();
+  requestUiCommand("open-settings", target ? { target } : undefined);
 }
 
-export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
-  return liveOverlayBinding.ensureOverlay();
+const liveStatus = createChatLiveStatus({
+  root: els.liveStatus,
+  getState: () => getLiveController()?.getState() ?? "idle",
+  isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
+  getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
+  subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
+  onRetryTextToolRecord: (callId) => {
+    getLiveController()?.retryTextToolRecord?.(callId);
+  },
+  onContinueTextToolRecord: (callId) => {
+    getLiveController()?.dismissTextToolRecord?.(callId);
+  },
+  onRetry: () => {
+    void retryLiveCompanion();
+  },
+  onStop: stopLiveCompanion,
+  onRestore: restoreLiveCompanionOverlay,
+  onOpenSettings: (target) => {
+    popovers.hideHistoryPopover({ focus: "none" });
+    void openLiveCompanionSettings(target);
+  }
+});
+
+function bindLiveConsumerHooks(): void {
+  setLiveSessionHooks({
+    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
+    onBeforeStart: () => {
+      if (chatRuntime.isTurnActive()) {
+        chatRuntime.stopActiveStream();
+      }
+    },
+    onStateChange: (liveState, error, failureKind) => {
+      liveStatus.sync(liveState, error, failureKind);
+      composer.updateSendBtnState();
+    },
+    onReconnecting: () => {
+      liveStatus.sync();
+      composer.updateSendBtnState();
+    }
+  });
+  liveStatus.setOpen(true);
+  composer.updateSendBtnState();
 }
 
 
@@ -276,6 +340,7 @@ function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }:
 // 子模块直接 import 读写。以下为纯局部单例。
 let initialized = false;
 let initInFlight: Promise<void> | null = null;
+let syncMoreMenuSlidersFromState = (): void => {};
 // 会话收尾标志（closeChatSession 置位、激活路径复位）：闸住关闭后仍会兑现的
 // 发送流程（subtitle-wait 等待中的 pollContext 与 connectPort），落实「关闭即
 // 断流、不做后台续跑」。
@@ -297,13 +362,13 @@ const suggestionsSlot = createChatSuggestionsSlot({
 // notices 模块闭包私有状态；定时器用 window（测试可注入 fake）。
 const feedback = createReaderChatFeedback({
   messages: els.messages,
+  inputCard: els.input.closest(".chat-input-card"),
   setTimer: (fn, ms) => window.setTimeout(fn, ms),
   clearTimer: (handle) => window.clearTimeout(handle),
   scrollToBottom: () => chatRuntime.scrollToBottom(),
   suggestions: suggestionsSlot,
-  // script-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
-  // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）
-  onOpenSettings: () => requestUiCommand("open-settings")
+  // 所有对话侧设置入口先退出历史，再经既有壳命令打开目标分区。
+  onOpenSettings: (settingsTarget) => openChatSettings(settingsTarget)
 });
 const {
   showConversationContextNotice,
@@ -315,15 +380,13 @@ const {
   getMessagesBottomOffset
 } = feedback;
 
-// 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
-// 删除；拒绝提示走消息区通知条（与上下文提示同一出口，自动隐藏）。流式闸问
-// 回合生命周期的一条判据（isTurnActive：受理窗口 ∪ 流段）——发送流程从受理到
-// 落定的整段窗口里都不收新图。消费点两处：chat-runtime 发送受理
-//（deps.takeInputImages）与 restartChat 清场。
+// 流式生成中不收新图；字幕等待属于受理窗口，仍可粘贴，新增图片由原回合快照排除。
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
-  isStreaming: () => chatRuntime.isTurnActive(),
-  onReject: (message) => showConversationContextNotice(message, 4000)
+  isStreaming: () => chatRuntime.isStreaming(),
+  onReject: (message) => showConversationContextNotice(message, 4000),
+  onPendingChange: () => composer.updateSendBtnState(),
+  focusInput: () => els.input.focus()
 });
 
 // 对话输入与发送区深 module（arch-review-batch4/01 号票）：收敛输入框常驻监听、
@@ -334,13 +397,25 @@ const composer = createReaderChatComposer({
     sendBtn: els.sendBtn
   },
   chatRuntime: {
-    sendTurn: (text) => chatRuntime.sendTurn(text),
+    sendTurn: (text) => {
+      // 用户自己按下了发送：首配返回的视图守卫到此为止（视图重建恢复常规）。
+      chatSetupViewHold = false;
+      return chatRuntime.sendTurn(text);
+    },
     isTurnActive: () => chatRuntime.isTurnActive(),
     stopActiveStream: () => {
       chatRuntime.stopActiveStream();
     }
   },
-  onPasteImage: (e) => inputImages.handlePaste(e)
+  onPasteImage: (e) => inputImages.handlePaste(e),
+  onCancelSubtitleWait: () => sendGate.cancel(),
+  onNotice: showConversationContextNotice,
+  isImageProcessing: () => inputImages.isPending(),
+  hasInputImages: () => inputImages.count() > 0,
+  getLiveState: () => getLiveController()?.getState() ?? "idle",
+  onStartLive: () => {
+    void startLiveCompanion();
+  }
 });
 
 const explainIntentConsumption = createExplainIntentConsumption({
@@ -397,12 +472,19 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     removeCenteredState,
     removeSuggestions,
     requestViewReset,
-    autosizeInput: composer.autosizeInput
+    autosizeInput: composer.autosizeInput,
+    // 缺 Key 回合错误（票 03）：已受理的错误回合只给「前往设置」直达对应平台记录，
+    // 不重发本回合。
+    onSetupRequired: showChatSetupAction
   },
   onConversationChanged: (change) => {
+    if (change.historyCleared) {
+      // 清空已完成：未撤销的删除随之作废，撤销计时器必须在此结算。
+      lists.settlePendingDeletion();
+    }
     lists.renderHistoryList();
     if (change.historyCleared) {
-      popovers.hideHistoryPopover();
+      els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus();
     }
     if (change.resetView) {
       renderInitialState();
@@ -439,28 +521,31 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   pageBvid: () => extractBvid(location.href),
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
-  // 等待闸开关信号：等待期间发送键禁用 + placeholder 换等待文案（见
-  // setSubtitleWaitUi）。
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
   getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
   // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
   // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
   getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
-  // 图片附件（image-input 02 号票）：发送受理时消费附件区（读取并清空），随本条
-  // chat 消息的 images 字段下发。发图门控（05 号票）挂在这一步：受理点才是「图在
-  // 手 + 模型已定」的唯一时刻（被前置闸拦下的发送不会提示）。
-  takeInputImages: () => {
-    const images = inputImages.takeImages();
+  getInputImages: () => inputImages.getImages(),
+  takeInputImages: (snapshot) => {
+    const images = inputImages.takeImages(snapshot);
     imageSupportGate.check(images);
     return images;
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
-  captureCurrentVideoFrame: async () => {
-    const frame = await capturePageVideoFrame();
-    return {
+  captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
+    if (targetTime === undefined) {
+      const frame = await capturePageVideoFrame();
+      return {
+        image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
+        currentTime: frame.currentTime
+      };
+    }
+    const frames = await captureHistoricalVideoFrame({ bvid: state.clip.bvid, cid: state.clip.cid, targetTime }, { signal });
+    return frames.map((frame) => ({
       image: { mime: "image/jpeg", data: encodeBase64Bytes(frame.jpegBytes) },
       currentTime: frame.currentTime
-    };
+    }));
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
@@ -483,18 +568,18 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
 const { loadContextState } = contextLoad;
 
 // 历史项点击的切换接缝（C′：先体面停流落盘、再切换）：在途回合（受理窗口 ∪
-// 流段，chatRuntime.isTurnActive 一条判据）时先 await chatRuntime.settleTurn()——
-// 它发停流并在 stopped/done/error 终态落定后兑现，而终态路径内的
-// commitAssistantTurn 会把在途一问一答（含 partial 正文）写回**原**会话并落盘；
-// 落定后才 applyById 切换。不进 conversation-store（store 不碰 runtime 的分层
-// 不动），也不动 replay（回放仍不感知在途流——等待保持单向，见 ./replay.ts 头注）。
-// 不在途时零延迟零行为差：这里不留 await，applyById 在同一 tick 内完成
-//（characterization 钉在 tests/reader/chat-tab.test.ts）。
-async function openConversationById(id: string): Promise<void> {
-  if (chatRuntime.isTurnActive()) {
-    await chatRuntime.settleTurn();
+// 流段，chatRuntime.isTurnActive 一条判据）时先由 chatRuntime.settleTurn() 发停流，
+// 并在 stopped/done/error 终态落定后兑现，而终态路径内的 commitAssistantTurn 会把
+// 在途一问一答（含 partial 正文）写回**原**会话并落盘；落定后才 applyById 切换。
+// 不进 conversation-store（store 不碰 runtime 的分层不动），也不动 replay。
+// 不在途时返回 void，applyById 与退出历史在同一 tick 内完成。
+function openConversationById(id: string): Promise<void> | void {
+  chatRuntime.stopSpeech();
+  if (!chatRuntime.isTurnActive()) {
+    conversationStore.applyById(id);
+    return;
   }
-  conversationStore.applyById(id);
+  return chatRuntime.settleTurn().then(() => conversationStore.applyById(id));
 }
 
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
@@ -502,25 +587,28 @@ async function openConversationById(id: string): Promise<void> {
 const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
-  applyById: (id) => {
-    void openConversationById(id);
-  },
+  applyById: openConversationById,
   deleteById: (id) => conversationStore.deleteById(id),
+  isTurnActive: () => chatRuntime.isTurnActive(),
+  confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
+  startNewConversation,
   suggestions: suggestionsSlot,
-  hideHistoryPopover: () => popovers.hideHistoryPopover()
+  hideHistoryPopover: () => popovers.hideHistoryPopover({ focus: "input" })
 });
 
-// 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 reader-bus 的转发槽并入
-// ui-renderer 的单一 document click 委托（会话触发源组装处随激活注册 / 随收尾
-// 摘除）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
+// 历史内容模式与两个弹层共用 hidden 投影；外点与 Esc 只结算最上层。
 const popovers = createReaderChatPopovers({
   historyPopover: els.historyPopover,
   modelPanel: els.modelPanel,
   historyBtn: els.historyBtn,
   modelChipBtn: els.modelChip,
+  historyBackBtn: els.historyBackBtn,
+  conversationInput: els.input,
+  historyExitFocusEl: els.moreBtn,
   moreBtn: els.moreBtn,
   moreMenu: els.moreMenu,
-  renderHistoryList: () => lists.renderHistoryList(),
+  renderHistoryList: (options) => lists.renderHistoryList(options),
+  settlePendingDeletion: () => lists.settlePendingDeletion(),
   renderModelPanel: () => modelPanel.renderPanel()
 });
 
@@ -541,6 +629,7 @@ const modelPanel = createReaderChatModelPanel({
   // （面板 renderThinkingPicker 收整份视图值一次画完）。
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   hidePanel: () => popovers.hideModelPanel(),
+  openSettings: () => requestUiCommand("open-settings"),
   // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
   pickLevel: (level) => pickThinkingLevel(level)
 });
@@ -621,7 +710,7 @@ function refreshThinkingUi(): void {
 // 即收提示，切回 Off 再现）；chip 的档位文案、滑块选中态与提示行都随重判重渲。
 // **一次切换只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
 // renderThinkingPicker 内部的事），chip 的渲染路径收敛为 refreshThinkingUi 一条。
-// 调整思考档位不关面板（点选上方模型项才关面板）。
+// 调整思考档位或切换模型都不关面板。
 // 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
 // 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
 // 归一化在落盘入口做一次。
@@ -648,9 +737,29 @@ const sessionTriggers = createReaderChatSessionTriggers({
     sendGate.bindStatusBus();
     return () => sendGate.unbindStatusBus();
   },
-  // ① URL 变化 → 强刷快档（见上方 scheduleLiveContextSync 的 120ms 防抖槽）。
+  // ① URL 变化 → 真换片（BV/分P 签名变化）时先经「拆除会话」事务断流
+  //（detachForRestart 同步发出 onStreamInterrupted，取消在飞取帧并复位
+  // 流式 UI），再走强刷快档（见上方 scheduleLiveContextSync 的 120ms 防抖
+  // 槽）；同片内部 replaceState 只刷新上下文，不打断在途回合。流式期间
+  // context-policy 会以 BLOCKED_STREAMING 冻结上下文切换，因此断流必须
+  // 先于本轮回合同步发生，不能等 120ms 后的 loadContextState。
   urlChange: () => {
-    const handler = () => scheduleLiveContextSync();
+    let clipSignature = computeCurrentClipSignature();
+    const handler = () => {
+      const nextSignature = computeCurrentClipSignature();
+      if (nextSignature === clipSignature) {
+        return;
+      }
+      clipSignature = nextSignature;
+      quickActionGeneration += 1;
+      // 换视频/分P：首配返回意图与视图守卫作废（票 03），返回时不把用户拽回旧内容。
+      clearChatSetupResumeIntent();
+      chatSetupViewHold = false;
+      sendGate.cancel();
+      lists.settlePendingDeletion();
+      conversationStore.detachForRestart();
+      scheduleLiveContextSync();
+    };
     window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
     return () => window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
   },
@@ -674,23 +783,45 @@ const sessionTriggers = createReaderChatSessionTriggers({
   }),
   // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
   // 监听同语义；player-ai 信箱键的监听属摘除任务，不在 reader 消费）。
-  // 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区五键 + local 区
-  // aiProviderKeys，摘除即 unsubscribe。
-  storageWatcher: () => watchStorageKeys(() => {
-    void refreshProvidersAndPrefsAfterExternalChange();
-    void liveController?.refreshTarget();
-  }, {
-    sync: [
-      "aiProviders",
-      "aiSystemPrompt",
-      "aiInitialQuickPrompts",
-      "defaultModel",
-      "aiThinkingLevel",
-      "liveProviders",
-      "activeLiveProviderId"
-    ],
-    local: ["aiProviderKeys"]
-  }),
+  // webSearchEnabled 在列：搜索授权被拒后闸侧关闭联网偏好（票 11），下一条消息
+  // 不再重复询问。三项对话呈现偏好同步更新 Aa 滑块，排版两项同时即时预览。
+  storageWatcher: () => {
+    const unwatchProviders = watchStorageKeys(() => {
+      void refreshProvidersAndPrefsAfterExternalChange();
+      void getLiveController()?.refreshTarget();
+    }, {
+      sync: [
+        "aiProviders",
+        "aiSystemPrompt",
+        "aiInitialQuickPrompts",
+        "defaultModel",
+        "aiThinkingLevel",
+        "liveProviders",
+        "activeLiveProviderId",
+        "webSearchEnabled"
+      ],
+      local: ["aiProviderKeys"]
+    });
+    const unwatchPresentation = watchStorageKeys((changes) => {
+      if (changes.chatLineHeight) {
+        state.patchSettings({ chatLineHeight: normalizeChatLineHeight(changes.chatLineHeight.newValue) });
+      }
+      if (changes.chatParagraphSpacing) {
+        state.patchSettings({ chatParagraphSpacing: normalizeChatParagraphSpacing(changes.chatParagraphSpacing.newValue) });
+      }
+      if (changes.speechVoiceVolume) {
+        state.patchSettings({ speechVoiceVolume: normalizeSpeechVoiceVolume(changes.speechVoiceVolume.newValue) });
+      }
+      syncMoreMenuSlidersFromState();
+      if (changes.chatLineHeight || changes.chatParagraphSpacing) applyReadingViewTypography();
+    }, {
+      sync: ["chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume"]
+    });
+    return () => {
+      unwatchPresentation();
+      unwatchProviders();
+    };
+  },
   // 预热落定 → 重渲建议区：字幕就绪后后台生成的问题到位时，建议区若正显示兜底
   // 三条（用户手速快，刚进对话 tab 就撞上预热还在飞），就地换成逐视频生成的结果。
   // 有会话历史时 renderSuggestions 自身会走空表分支，这里不必另判。
@@ -738,7 +869,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     }),
     conversationStore.loadAll(),
     loadContextState(),
-    liveController?.refreshTarget() ?? Promise.resolve()
+    getLiveController()?.refreshTarget() ?? Promise.resolve()
   ]);
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
@@ -759,8 +890,9 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
   // 都由这一次重判画出来，不再另调 renderChip）。
+  bindLiveConsumerHooks();
   await loadProvidersAndPrefs().catch(() => null);
-  void liveController?.refreshTarget();
+  void getLiveController()?.refreshTarget();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -797,44 +929,33 @@ export function stopChatSpeech(): void {
   chatRuntime.stopSpeech();
 }
 
-export function stopLiveCompanion(): void {
-  void liveController?.stop();
-}
-
-export async function startLiveCompanion(): Promise<boolean> {
-  if (chatRuntime.isTurnActive()) {
-    chatRuntime.stopActiveStream();
-  }
-  return liveOverlayBinding.startOrRestoreCompanion();
-}
-
-export function getLiveController(): LiveChatController | null {
-  return liveController;
-}
-
 export function closeChatSession(): void {
+  quickActionGeneration += 1;
+  // 首配返回意图与视图守卫不跨会话残留（票 03）。
+  clearChatSetupResumeIntent();
+  chatSetupViewHold = false;
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
     urlChangeSyncTimer = 0;
   }
+  liveStatus.setOpen(false);
+  setLiveSessionHooks(null);
   if (!initialized) {
     return;
   }
   sessionClosed = true;
-  liveController?.dispose();
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();
   composer.setStreamingUiState(false);
   scrollFollow.reset();
-  // 挂起中的 subtitle-wait 立即失效（pollContext 的 closed 闸 → wait 兑现
-  // false → 发送流程提前返回并清等待提示）。
-  sendGate.kickSubtitleWait();
-  // 等待态收口：kick 只在其后无在途轮询时才立刻兑现（tick 的去重闸会吞掉这次
-  // kick），那条「等待结束 → false」的推送因此可能滞后一轮轮询才到；本行保证
-  // 会话关闭即不残留等待态，重开时发送键不会带着「正在抓取字幕…」禁用下去。
+  // 挂起中的 subtitle-wait 立即失效：在飞轮询也同步作废，迟到结果不能在
+  // 重开后复活旧发送意图。
+  sendGate.cancel();
+  // 同步隐藏等待卡并恢复发送键。
   composer.setSubtitleWaitUi(false);
-  popovers.hideHistoryPopover();
+  lists.settlePendingDeletion();
+  popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();
   removeConversationContextNotice();
   sendGate.refreshAsrNotice();
@@ -845,26 +966,51 @@ export function closeChatSession(): void {
 }
 
 // ============================================================
-// player-ai 快捷动作消费 seam（工单 08 决议：阅读模式内点击 = 定位/聚焦对话
-// tab + 自动发送快捷提示词；PR4b 概览「生成完整笔记」按钮同 seam 直发）
+// player-ai 快捷动作消费 seam：定位/聚焦对话 tab，空闲且无草稿时在当前会话
+// 发送提示词；忙碌或已有输入时只定位。PR4b 概览「生成完整笔记」按钮同 seam。
 // ============================================================
 
+let quickActionInFlight: Promise<boolean> | null = null;
+let quickActionGeneration = 0;
+
 export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
-  // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）：切 tab + 写状态位/持久化 +
-  // 对话组合根激活统一由标签激活属主执行（reader/script-tab-activation），
-  // consumeIntent:false 透传——与快捷发送互不踩踏，不消费待解释意图。属主的
-  // promise 在其激活（含装载/恢复）落定后才 resolve，本函数后续的发送流程因此
-  // 天然等到装载落定，无需再单独 await ensureChatTabActivated（收口前的
-  // fire-and-forget 壳命令 + 显式补 await 的双写已退役）。
-  await activateScriptTab("chat", { consumeIntent: false });
-  const text = String(prompt || "").trim();
-  if (!text) {
-    composer.autosizeInput();
-    els.input?.focus?.();
+  if (quickActionInFlight) {
     return false;
   }
-  await startNewConversation();
-  return composer.sendViaInputBox(text);
+  const generation = quickActionGeneration;
+  quickActionInFlight = (async () => {
+    // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）：切 tab + 写状态位/持久化 +
+    // 对话组合根激活统一由标签激活属主执行（reader/script-tab-activation），
+    // consumeIntent:false 透传——与快捷发送互不踩踏，不消费待解释意图。属主的
+    // promise 在其激活（含装载/恢复）落定后才 resolve，本函数后续的发送流程因此
+    // 天然等到装载落定，无需再单独 await ensureChatTabActivated。
+    await activateScriptTab("chat", { consumeIntent: false });
+    if (generation !== quickActionGeneration || sessionClosed) {
+      return false;
+    }
+    const text = String(prompt || "").trim();
+    if (!text) {
+      composer.autosizeInput();
+      els.input?.focus?.();
+      return false;
+    }
+    if (chatRuntime.isTurnActive()) {
+      showConversationContextNotice("当前对话正在生成或发送，请稍后再试。", 4000);
+      els.input?.focus?.();
+      return false;
+    }
+    if (els.input.value || inputImages.count() > 0) {
+      showConversationContextNotice("已保留未发送草稿，本次未自动发送。", 4000);
+      els.input?.focus?.();
+      return false;
+    }
+    return composer.sendViaInputBox(text);
+  })();
+  try {
+    return await quickActionInFlight;
+  } finally {
+    quickActionInFlight = null;
+  }
 }
 
 // ============================================================
@@ -926,7 +1072,7 @@ function bindEvents(): void {
     }
   });
 
-  const syncMoreMenuSlidersFromState = () => {
+  syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
     paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
     speechVolumeSlider.setValue(state.settings?.speechVoiceVolume);
@@ -943,6 +1089,9 @@ function bindEvents(): void {
   els.historyBtn?.addEventListener("click", (event) => {
     popovers.toggleHistoryPopover(event);
   });
+  els.displaySettingsBtn?.addEventListener("click", () => {
+    openChatSettings("appearance");
+  });
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
   });
@@ -952,34 +1101,8 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  // 伴看上下文装配：视频身份 + 章节来自 clip，全片概览来自 reader 协调器快照。
-  // 两路变更都只触发一次上下文重投影，控制器按 JSON 去重后下发。
-  const liveToolsBridge = createLiveToolsBridge({
-    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-    getOverview: () => getReaderOverviewSource(),
-    ensureOverview: (options) => ensureReaderOverviewSource(options)
-  });
-  liveController = createLiveChatController({
-    initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
-    initialVoicePriority: state.settings?.liveVoicePriority !== false,
-    initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-    ...liveOverlayBinding.bindControllerCallbacks(),
-    showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
-    getVideoContext: liveToolsBridge.getVideoContext,
-    executeTool: liveToolsBridge.executeTool,
-    subscribeVideoContextChanges: (listener) => {
-      const unsubscribePresenter = subscribeReaderPresenter((event) => {
-        if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-          listener();
-        }
-      });
-      const unsubscribeOverview = subscribeReaderOverviewSource(listener);
-      return () => {
-        unsubscribePresenter();
-        unsubscribeOverview();
-      };
-    }
-  });
+  ensureLiveController();
+  bindLiveConsumerHooks();
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
@@ -1005,9 +1128,8 @@ function bindEvents(): void {
     // 内部画它，一次 change 只渲一遍。
     refreshThinkingUi();
   });
-  // 档位条目的点击接线已随二级菜单下沉到 reader/chat-model-panel.ts（条目现渲，
-  // 静态 NodeList 不存在了）：面板点中条目 → pickLevel（下面的 pickThinkingLevel）
-  // → 关面板。原「7 个静态按钮逐个 addEventListener」的接线随之退役。
+  // 档位条目的点击接线在 reader/chat-model-panel.ts（条目现渲，静态 NodeList 不存在）：
+  // 面板点中条目 → pickLevel（下面的 pickThinkingLevel）→ 重判并原位刷新，面板保持打开。
   // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
   if (els.webSearchPill) {
     els.webSearchPill.addEventListener("click", () => {
@@ -1018,13 +1140,12 @@ function bindEvents(): void {
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换，
   // 对齐 batched-render 头注的容器委托先例）：
   //   1. 引用卡取消：[data-chat-intent-action="cancel"] 点击；
-  //   2. 图片附件删除：[data-chat-image-remove] 点击（附件条目由
-  //      chat/chat-input-images.ts 重建，容器委托对每次重建的键都生效）；
-  //   3. 无平台空态「前往设置」：[id=readingChatOpenSettings] 点击 → 打开侧边栏
-  //      设置抽屉（arch-slim-2/06 死绑定修复——该链接由 renderInitialState →
-  //      resetConversationView 用 innerHTML 后建，原先 ui-renderer 在壳构建时
-  //      getElementById 直绑，绑定时点早于元素诞生、监听器永远挂不上；容器
-  //      委托对每次重建的链接都生效。href="#" 的默认跳转一并 preventDefault）。
+  //   2. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；
+  //   3. 无平台空态 / 发送前拦截状态屏的「前往设置」：[id=readingChatOpenSettings]
+  //      点击 → 直达新增 AI 平台编辑器（票 03；原先只打开设置抽屉，用户在抽屉里
+  //      还得自己找平台分区）。链接由 renderInitialState / requestViewReset 用
+  //      innerHTML 后建，容器委托对每次重建的链接都生效。href="#" 的默认跳转一并
+  //      preventDefault。
   els.root.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
     const intentBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
@@ -1037,13 +1158,18 @@ function bindEvents(): void {
       inputImages.removeAt(Number(removeBtn.dataset.chatImageRemove));
       return;
     }
+    const previewBtn = target?.closest<HTMLElement>("[data-chat-image-preview]");
+    if (previewBtn) {
+      inputImages.previewAt(Number(previewBtn.dataset.chatImagePreview));
+      return;
+    }
     if (target?.closest<HTMLElement>(`[id="${ids.readingChatOpenSettings}"]`)) {
       // stopPropagation 必须有：打开抽屉的点击若继续冒泡到 ui-renderer 的文档级
       // click 委托，会被「settingsExpanded 已开 + 点在面板外」判定当成外点立即
       // 关闭（与壳内 readingSettingsToggleBtn 的 stopPropagation 同一先例）。
       event.preventDefault();
       event.stopPropagation();
-      requestUiCommand("open-settings");
+      beginChatSetup("no-provider", { mode: "blocked" });
     }
   });
 }
@@ -1057,8 +1183,7 @@ function onWindowResize(): void {
 export const INPUT_MAX_HEIGHT = 320;
 
 function isLiveSessionActive(): boolean {
-  const s = liveController?.getState();
-  return s === "connecting" || s === "connected";
+  return isLiveCompanionActive();
 }
 
 function isConversationViewActive(): boolean {
@@ -1079,7 +1204,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
   // 防止上下文对账把已上屏的实时问答重建掉。
   lists.renderHistoryList();
-  if (isConversationViewActive()) {
+  if (isConversationViewActive() || chatSetupViewHold || peekChatSetupResumeIntent()) {
     return;
   }
   renderInitialState();
@@ -1098,13 +1223,7 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
   if (sessionClosed) {
     return;
   }
-  preservingLiveSessionOnContextSwitch = isLiveSessionActive();
-  let ok = false;
-  try {
-    ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  } finally {
-    preservingLiveSessionOnContextSwitch = false;
-  }
+  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
   if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
@@ -1128,7 +1247,7 @@ export function renderInitialState(): void {
     return;
   }
   if (!chatSessionState.providers.length) {
-    resetConversationView(`还没有配置 AI 平台，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`);
+    resetConversationView(noProviderStateHtml());
     return;
   }
   if (chatSessionState.chatHistory.length) {
@@ -1175,7 +1294,135 @@ function resetConversationView(stateHtml = ""): void {
 // 消费方不感知 replay，历史上的 replay→resetView→invalidate 回环已随 replay
 // 空历史死分支一并摘除。
 function requestViewReset(intent: ViewResetIntent): void {
-  resetConversationView(intent.kind === "state" ? intent.html : "");
+  // 配置类拦截屏（票 03）：无平台状态屏与空态同源——同一句文案、同一个「前往设置」
+  // 动作（直达新增平台编辑器）；发送被拦下的草稿与附件区在此不受影响。
+  if (intent.kind === "setup") {
+    resetConversationView(noProviderStateHtml());
+    return;
+  }
+  resetConversationView(intent.html);
+}
+
+// ============================================================
+// AI 对话首配直达与返回（票 provider-onboarding-consistency/03）
+// ============================================================
+
+// 无平台状态屏（空态与「发送前无平台」共用一份）：配置动作直达平台编辑记录。
+function noProviderStateHtml(): string {
+  return `还没有配置 AI 平台，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
+}
+
+// 返回对话后的提示（票 03）：只提示，不代发——是否发送始终由用户再点一次。
+const CHAT_SETUP_READY_NOTICE = "平台已就绪，请确认发送。";
+// 缺 Key 回合错误的行内提示与动作（「前往设置」与空态同一措辞）。
+const CHAT_SETUP_MISSING_KEY_NOTICE = "该平台 API Key 未配置，配置后请重新发送。";
+const CHAT_SETUP_ACTION_LABEL = "前往设置";
+
+// 首配返回视图守卫（只在内存）：平台保存会触发 storage 变更 → 平台/偏好重取，
+// 而错误回合（用户气泡 + 错误占位）尚未写进 chatHistory——那一刻重建消息区会把
+// 刚发生的一问一答一起清掉。守卫期间平台与历史列表照刷，消息区归返回事务
+//（blocked 模式由 resume 重渲初始态；error 模式保持原样），直到用户下次发送、
+// 新会话、换视频或关闭会话恢复常规重建。
+let chatSetupViewHold = false;
+
+interface BeginChatSetupOptions {
+  // 缺 Key 时已选平台的记录 id（直达该记录并聚焦 Key）；无记录时为空。
+  providerId?: string;
+  // 来源：受理前拦截（blocked）或已受理错误回合（error）；缺省按当前历史推断。
+  mode?: ChatSetupMode;
+}
+
+/**
+ * 首配直达（票 03）：记录返回意图并打开正确的平台编辑记录。
+ * - 无平台（空态 / 发送前拦截）→ 新增 AI 平台编辑器（首配「保存并继续」）；
+ * - 缺 Key（已选平台）→ 编辑该记录并聚焦 Key。
+ * 保存成功由 resumeChatAfterSetup 回到对话；取消 / 关抽屉 / 换视频 / 换会话即作废。
+ */
+function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", mode }: BeginChatSetupOptions = {}): void {
+  const targetProviderId = String(providerId || "").trim();
+  // 来源按当前视图推断：消息区已有对话（用户气泡 / 历史）→ 已受理错误回合，
+  // 返回时不重渲消息区；否则是受理前拦截，返回时清掉状态屏回到初始态。
+  const setupMode: ChatSetupMode = mode ?? (chatSessionState.chatHistory.length ? "error" : "blocked");
+  chatSetupViewHold = true;
+  setChatSetupResumeIntent({
+    errorClass,
+    providerId: targetProviderId,
+    mode: setupMode,
+    contextKey: String(chatSessionState.currentContextKey || ""),
+    conversationId: String(chatSessionState.currentConversationId || ""),
+    createdAt: Date.now()
+  });
+  void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
+    openReaderAiSetup(
+      errorClass,
+      {
+        onAfterSave: () => resumeChatAfterSetup(),
+        // 取消编辑（含 Esc / 外点 / 删除记录）：未消费意图即作废；视图守卫一并解除，
+        // 平台刷新恢复常规重建。保存成功路径的意图已被消费，守卫继续交给返回事务
+        //（error 模式要挡住保存触发的那次平台刷新对错误回合的拆除）。
+        onSessionEnd: () => {
+          const canceled = peekChatSetupResumeIntent() !== null;
+          clearChatSetupResumeIntent();
+          if (canceled) {
+            chatSetupViewHold = false;
+          }
+        }
+      },
+      targetProviderId ? { providerId: targetProviderId } : undefined
+    );
+  });
+}
+
+/**
+ * 保存成功后的返回（票 03）：消费意图并校验身份——会话已关闭、视图未初始化、
+ * 换视频/分P（contextKey 变）或换会话（conversationId 变）都静默作废，不在新位置
+ * 做事。通过则退出设置抽屉、重取平台与偏好、聚焦输入区并提示「平台已就绪，请确认
+ * 发送」；**不发送**、不新建会话、不清输入、不拆历史（blocked 模式才把无平台状态屏
+ * 重渲回初始态）。一次性消费：重复保存回调落到空槽，不会二次提示。
+ */
+function resumeChatAfterSetup(): void {
+  const intent = consumeChatSetupResumeIntent();
+  if (!intent) {
+    return;
+  }
+  if (
+    sessionClosed
+    || !initialized
+    || intent.contextKey !== String(chatSessionState.currentContextKey || "")
+    || intent.conversationId !== String(chatSessionState.currentConversationId || "")
+  ) {
+    chatSetupViewHold = false;
+    return;
+  }
+  // 先关抽屉再做事：关闭路径会作废未消费的首配意图（本意图已消费，落到空槽）。
+  // restoreFocus:false——返回后的焦点目标是对话输入区，不是设置入口；这里先聚焦
+  // 一次（保存回执返回后立即可输入），重取平台/重渲初始态之后再收一次尾。
+  closeReaderSettingsMode({ restoreFocus: false });
+  composer.autosizeInput();
+  els.input?.focus?.();
+  void (async () => {
+    // 新平台 / 新 Key 已落盘：重取平台列表与偏好，模型选择器与档位区随之就位。
+    await loadProvidersAndPrefs().catch(() => null);
+    refreshThinkingUi();
+    if (intent.mode === "blocked") {
+      // 受理前拦截停在无平台状态屏：清掉状态屏回到初始态；输入框草稿与附件区不动。
+      renderInitialState();
+      chatSetupViewHold = false;
+    }
+    composer.autosizeInput();
+    els.input?.focus?.();
+    showConversationContextNotice(CHAT_SETUP_READY_NOTICE, 0);
+  })();
+}
+
+// 缺 Key 回合错误（已受理）的行内动作：只给「前往设置」，不重发本回合。
+function showChatSetupAction(errorClass: OverviewSetupErrorClass, providerId: string): void {
+  showConversationContextNotice(CHAT_SETUP_MISSING_KEY_NOTICE, 0, {
+    action: {
+      label: CHAT_SETUP_ACTION_LABEL,
+      onClick: () => beginChatSetup(errorClass, { providerId, mode: "error" })
+    }
+  });
 }
 
 // 【整段迁移自 sidepanel.ts】布局状态：输入框高度只随内容走（autosizeInput），
@@ -1186,10 +1433,26 @@ function updateChatLayoutState(): void {
   }
 }
 
-// 【整段迁移自 sidepanel.ts】开启新会话：隐藏 popover → 强刷静默取上下文 →
-// live 快照落地主上下文 → restartChat(keepContext) → 初始态渲染。
-async function startNewConversation(): Promise<void> {
-  popovers.hideHistoryPopover();
+// 新建会话只在确认后拆除旧视图；草稿、附件与在途回合的风险合并在一次确认中。
+async function startNewConversation(): Promise<boolean> {
+  const turnActive = chatRuntime.isTurnActive();
+  const hasDraft = Boolean(els.input.value);
+  const imageCount = inputImages.count();
+  if (turnActive || hasDraft || imageCount > 0) {
+    const risks: string[] = [];
+    if (turnActive) risks.push("中断正在生成的回复");
+    if (hasDraft) risks.push("清空未发送的草稿");
+    if (imageCount > 0) risks.push(`移除 ${imageCount} 张已添加的图片`);
+    const confirmed = await confirmDialog({
+      title: "新建会话",
+      message: `新建会话会${risks.join("，")}。`,
+      confirmText: "新建会话"
+    });
+    if (!confirmed) return false;
+  }
+  clearChatSetupResumeIntent();
+  chatSetupViewHold = false;
+  popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();
   await loadContextState({ forceRefresh: true, silent: true });
   // 组合根绕过点（有意，不经 plan.action 分支）：live 快照非空即落到主上下文。
@@ -1204,6 +1467,7 @@ async function startNewConversation(): Promise<void> {
   }
   restartChat({ keepContext: true });
   renderInitialState();
+  return true;
 }
 
 // ============================================================

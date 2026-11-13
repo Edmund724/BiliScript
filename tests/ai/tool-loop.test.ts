@@ -1,4 +1,4 @@
-// ai/tool-loop.ts 联网搜索与当前视频截帧工具循环测试（spec §2.3）。
+// ai/tool-loop.ts 联网搜索与视频截帧工具循环测试（spec §2.3）。
 // 假 fetch 全覆盖（completion.test 同款 sseResponse），覆盖：
 // 1. 单轮 tool_calls → 搜索/截帧 → 二次调用续跑（tool 消息回填 / tool-status /
 //    tool-turn 副本 / 图片消息线格式）；
@@ -6,7 +6,7 @@
 // 3. 搜索/截帧失败降级：tool 错误消息 + notice，回答不中断；
 // 4. 平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次；
 // 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断；
-// 6. 当前帧截图每轮最多一次，无联网搜索时也可独立使用。
+// 6. 当前帧与历史帧共享每轮一次的截帧预算，无联网搜索时也可独立使用。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   runToolLoop,
@@ -156,8 +156,8 @@ describe("runToolLoop 工具调用循环", () => {
     ]));
     expect(capture.calls[1].tools).toEqual([expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })]);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "done", query: "bilibili ai", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "done", query: "bilibili ai", callId: "call_1", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
     ]);
     expect(capture.notices).toEqual([]);
     // 持久化副本：assistant + tool 两条
@@ -169,7 +169,7 @@ describe("runToolLoop 工具调用循环", () => {
   it("跨 chunk 分片聚合：id/name/arguments 按 index 拼接为一条 tool call", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
-    expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai" });
+    expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai", callId: "call_1" });
   });
 
   it("本轮次数达上限：摘除 tools + system 次数提示注入 + notice，后续轮无工具", async () => {
@@ -199,8 +199,8 @@ describe("runToolLoop 工具调用循环", () => {
       expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: "搜索失败：HTTP 503" })
     ]));
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
     expect(capture.notices).toContain("联网搜索失败：HTTP 503");
     // 失败不计入配额语义本轮仍继续：二次调用照常带 tools
@@ -465,10 +465,11 @@ describe("回退链 × 工具链接缝", () => {
 
     expect(capture.notices).toEqual([]);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
       {
         status: "done",
         query: "bilibili ai",
+        callId: "call_1",
         resultCount: 1,
         platform: "Tavily",
         sources: [CHAIN_RESULT]
@@ -493,8 +494,8 @@ describe("回退链 × 工具链接缝", () => {
     // 「联网搜索失败：<原因>」形态，不落到额度终态句。
     expect(capture.notices[0]).not.toBe(SEARCH_QUOTA_MESSAGE);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
   });
 
@@ -531,8 +532,8 @@ describe("回退链 × 工具链接缝", () => {
     const toolMessage = capture.calls[1].messages.find((m) => m.role === "tool")!;
     expect(toolMessage.content).toBe(`搜索失败：${SEARCH_QUOTA_MESSAGE}`);
     expect(capture.statuses).toEqual([
-      { status: "searching", query: "bilibili ai" },
-      { status: "failed", query: "bilibili ai" }
+      { status: "searching", query: "bilibili ai", callId: "call_1" },
+      { status: "failed", query: "bilibili ai", callId: "call_1" }
     ]);
   });
 
@@ -603,7 +604,10 @@ describe("当前视频截帧工具", () => {
     }));
 
     expect(capture.calls).toHaveLength(2);
-    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["capture_current_video_frame"]);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
     expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "tool", tool_call_id: "frame_1", content: "已截取视频在 2:31 的画面。" }),
       expect.objectContaining({
@@ -615,8 +619,121 @@ describe("当前视频截帧工具", () => {
       })
     ]));
     expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith();
     expect(capture.toolTurns[0]).toHaveLength(2);
     expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("历史帧工具传入目标秒数，后续消息标注实际截图时间并携带图片", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_1", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn(async (targetTime?: number) => ({
+      image: { mime: "image/jpeg", data: "SElTVE9SWQ==" },
+      currentTime: targetTime === 90 ? 88.25 : 0
+    }));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(captureCurrentVideoFrame).toHaveBeenCalledWith(90);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "history_1", content: "已截取视频在 1:28 的画面（目标时间点 1:30）。" }),
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("实际截图时间 1:28；目标时间点 1:30") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,SElTVE9SWQ==" } }
+        ]
+      })
+    ]));
+  });
+
+  it("历史帧工具把前中后三帧按时间顺序写入后续请求并逐张标注", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_3", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn(async () => [88, 90, 92].map((currentTime, index) => ({
+      image: { mime: "image/jpeg", data: ["Rk9S", "Q0VO", "QUZU"][index] },
+      currentTime
+    })));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    const followup = capture.calls[1].messages;
+    expect(followup.at(-4)).toEqual(expect.objectContaining({
+      role: "tool",
+      tool_call_id: "history_3",
+      content: "已截取目标时间点 1:30 附近的前、中、后三帧，实际时间依次为 1:28、1:30、1:32。"
+    }));
+    expect(followup.slice(-3)).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("第 1 张，实际截图时间 1:28") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } }
+        ]
+      }),
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("第 2 张，实际截图时间 1:30") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,Q0VO" } }
+        ]
+      }),
+      expect.objectContaining({
+        role: "user",
+        content: [
+          { type: "text", text: expect.stringContaining("第 3 张，实际截图时间 1:32") },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
+        ]
+      })
+    ]);
+    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("部分历史帧失败时只发送成功图片，并向模型说明缺失数量", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_partial", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => [88, 92].map((currentTime, index) => ({
+        image: { mime: "image/jpeg", data: ["Rk9S", "QUZU"][index] },
+        currentTime
+      }))
+    }));
+
+    const followup = capture.calls[1].messages;
+    expect(followup.at(-3)).toEqual(expect.objectContaining({
+      role: "tool",
+      content: "目标时间点 1:30 附近仅成功截取 2 张画面，实际时间依次为 1:28、1:32；其余 1 张截取失败。"
+    }));
+    expect(followup.slice(-2)).toEqual([
+      expect.objectContaining({ content: expect.arrayContaining([
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,Rk9S" } }
+      ]) }),
+      expect.objectContaining({ content: expect.arrayContaining([
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUZU" } }
+      ]) })
+    ]);
+    expect(JSON.stringify(followup)).not.toContain("undefined");
   });
 
   it("每轮最多截图一次：后续请求不再提供工具，重复调用只回填提示", async () => {
@@ -645,6 +762,84 @@ describe("当前视频截帧工具", () => {
     ]));
   });
 
+  it("同批并发截帧调用共享三帧预算，只有首个调用实际执行", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [
+        { index: 0, id: "history_concurrent", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } },
+        { index: 1, id: "current_concurrent", type: "function", function: { name: "capture_current_video_frame", arguments: "{}" } }
+      ] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn(async () => [88, 90, 92].map((currentTime) => ({
+      image: { mime: "image/jpeg", data: "RlJBTUU=" },
+      currentTime
+    })));
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    const followup = capture.calls[1].messages;
+    expect(captureCurrentVideoFrame).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(followup).match(/"type":"image_url"/g)).toHaveLength(3);
+    expect(followup).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "current_concurrent",
+        content: "本轮已调用过视频截图工具，请基于已有画面作答。"
+      })
+    ]));
+  });
+
+  it("历史帧参数无效时不取帧，回填可读错误并继续文字回答", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_bad", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":-1}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+    const captureCurrentVideoFrame = vi.fn();
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "history_bad",
+        content: "截取视频画面失败：targetTime 必须是大于或等于 0 的有限秒数"
+      })
+    ]));
+    expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
+  });
+
+  it("历史三帧全部失败时不追加图片，回填文字降级并继续回答", async () => {
+    capture = makeCapture();
+    useCaptureRounds([[
+      sseData({ tool_calls: [{ index: 0, id: "history_empty", type: "function", function: { name: "capture_video_frame_at_time", arguments: '{"targetTime":90}' } }] }),
+      sseData({}, "tool_calls")
+    ]]);
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => []
+    }));
+
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "history_empty",
+        content: "截取视频画面失败：三个时间点均未截取成功"
+      })
+    ]));
+    expect(JSON.stringify(capture.calls[1].messages)).not.toContain("image_url");
+    expect(capture.notices).toEqual(["截取视频画面失败：三个时间点均未截取成功"]);
+  });
+
   it("截图失败降级为 tool 错误与 notice，不追加图片，回答继续", async () => {
     capture = makeCapture();
     useCaptureRounds([captureRound("frame_1")]);
@@ -662,7 +857,7 @@ describe("当前视频截帧工具", () => {
     expect(capture.notices).toEqual(["截取视频画面失败：当前没有可截取的视频画面"]);
   });
 
-  it("联网搜索与截帧能力同时注入时，两个工具都随首请求提供", async () => {
+  it("联网搜索与截帧能力同时注入时，搜索与两种截帧工具都随首请求提供", async () => {
     capture = makeCapture();
     const captureCurrentVideoFrame = vi.fn();
 
@@ -672,7 +867,11 @@ describe("当前视频截帧工具", () => {
       captureCurrentVideoFrame
     }));
 
-    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual(["web_search", "capture_current_video_frame"]);
+    expect(capture.calls[0].tools?.map((tool) => tool.function.name)).toEqual([
+      "web_search",
+      "capture_current_video_frame",
+      "capture_video_frame_at_time"
+    ]);
     expect(captureCurrentVideoFrame).not.toHaveBeenCalled();
   });
 });
@@ -700,7 +899,8 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
                         name: "web_search",
                         args: { query: "gemini vitest" },
                         id: "call_gemini_1"
-                      }
+                      },
+                      thoughtSignature: "sig_gemini_tool"
                     }
                   ]
                 },
@@ -763,9 +963,237 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
     expect(r2Contents).toHaveLength(3);
     expect(r2Contents[0].role).toBe("user");
     expect(r2Contents[1].role).toBe("model");
-    expect(r2Contents[1].parts[0].functionCall.name).toBe("web_search");
+    const functionCallPart = r2Contents[1].parts.find((part: any) => part.functionCall);
+    expect(functionCallPart.functionCall.name).toBe("web_search");
+    expect(functionCallPart.thoughtSignature).toBe("sig_gemini_tool");
     expect(r2Contents[2].role).toBe("user");
     expect(r2Contents[2].parts[0].functionResponse.name).toBe("web_search");
   });
 });
 
+
+describe("热门评论工具", () => {
+  function useCommentToolRound() {
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length === 1
+        ? sseResponse([
+            sseData({ tool_calls: [{ index: 0, id: "comment_1", type: "function", function: { name: "fetch_hot_comments", arguments: "{}" } }] }),
+            sseData({}, "tool_calls")
+          ])
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+  }
+
+  it("联网关闭也可独立调用：评论回填后续答，本轮不再提供评论工具", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    const fetchHotComments = vi.fn(async () => [
+      { uname: "观众甲", like: 99, message: "评论正文", subMessages: ["不进工具结果"] }
+    ]);
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments
+    }));
+
+    expect(fetchHotComments).toHaveBeenCalledTimes(1);
+    expect(capture.calls[0].tools).toEqual([
+      expect.objectContaining({ function: expect.objectContaining({ name: "fetch_hot_comments" }) })
+    ]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "comment_1",
+        content: JSON.stringify([{ uname: "观众甲", like: 99, message: "评论正文" }])
+      })
+    ]));
+    expect(capture.calls[1].tools).toBeUndefined();
+    expect(capture.statuses).toEqual([]);
+    expect(capture.notices).toEqual([]);
+  });
+
+  it("评论调用不占搜索配额", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: true },
+      maxToolCalls: 1,
+      fetchHotComments: async () => []
+    }));
+
+    expect(capture.calls[1].tools).toEqual([
+      expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })
+    ]);
+    expect(capture.notices).not.toContain("本轮的搜索次数已达上限，请基于已有结果作答");
+  });
+
+  it("拉取失败：错误回填工具消息并提示，回答不中断", async () => {
+    capture = makeCapture();
+    useCommentToolRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments: async () => { throw new Error("风控"); }
+    }));
+
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "comment_1", content: "获取热门评论失败：风控" })
+    ]));
+    expect(capture.notices).toContain("获取热门评论失败：风控");
+    expect(capture.toolTurns[0][1]).toMatchObject({ role: "tool", content: "获取热门评论失败：风控" });
+  });
+});
+
+describe("热门评论工具的平台降级", () => {
+  it("仅有评论工具时不支持 tools：提示获取评论不可用并摘除工具重试", async () => {
+    capture = makeCapture();
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length <= 3
+        ? ({ ok: false, status: 400, text: vi.fn(async () => '{"error":"tools not supported"}'), json: vi.fn() } as unknown as Response)
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      fetchHotComments: async () => []
+    }));
+
+    expect(capture.notices).toContain("当前平台不支持工具调用，本轮未获取评论");
+    expect(capture.calls[3].tools).toBeUndefined();
+  });
+});
+
+
+describe("历史截帧 tool-status 可见闭环", () => {
+  function useHistoricalStatusRound(targetTime = 12) {
+    capture.fetchImpl.mockImplementation(async (_url, init) => {
+      capture.calls.push(JSON.parse(init!.body as string));
+      return capture.calls.length === 1
+        ? sseResponse([
+            sseData({ tool_calls: [{ index: 0, id: "history_status", type: "function", function: { name: "capture_video_frame_at_time", arguments: JSON.stringify({ targetTime }) } }] }),
+            sseData({}, "tool_calls")
+          ])
+        : sseResponse(FINAL_ROUND_CHUNKS);
+    });
+  }
+
+  function statusFrame(currentTime: number) {
+    return { image: { mime: "image/jpeg", data: `RlJBTUU=${currentTime}` }, currentTime };
+  }
+
+  it("执行前先回报目标时间与调用身份，成功后回报实际三帧", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    let resolveCapture!: (frames: ReturnType<typeof statusFrame>[]) => void;
+    const captureCurrentVideoFrame = vi.fn(() => new Promise<ReturnType<typeof statusFrame>[]>((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const running = runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame
+    }));
+
+    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalledWith(12));
+    expect(capture.statuses).toEqual([{
+      status: "searching",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history_status",
+      targetTime: 12
+    }]);
+
+    const frames = [10, 12, 14].map(statusFrame);
+    resolveCapture(frames);
+    await running;
+    expect(capture.statuses[1]).toEqual({
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "history_status",
+      targetTime: 12,
+      resultCount: 3,
+      expectedCount: 3,
+      frames
+    });
+    expect(capture.toolTurns[0].some((message) => message.images?.length)).toBe(false);
+  });
+
+  it("部分成功：done 携带实际两帧与预期三帧，模型请求只含成功图片", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    const frames = [10, 14].map(statusFrame);
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => frames
+    }));
+
+    expect(capture.statuses[1]).toMatchObject({
+      status: "done",
+      callId: "history_status",
+      targetTime: 12,
+      resultCount: 2,
+      expectedCount: 3,
+      frames
+    });
+    expect(JSON.stringify(capture.calls[1].messages).match(/"type":"image_url"/g)).toHaveLength(2);
+  });
+
+  it("全部失败：failed 终态与既有诊断通知随行，后续文字回答不中断", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => []
+    }));
+
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching", "failed"]);
+    expect(capture.statuses[1]).toMatchObject({
+      tool: "capture_video_frame_at_time",
+      callId: "history_status",
+      targetTime: 12
+    });
+    expect(capture.notices).toEqual(["截取视频画面失败：三个时间点均未截取成功"]);
+    expect(capture.calls[1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", content: "截取视频画面失败：三个时间点均未截取成功" })
+    ]));
+  });
+
+  it("45 秒总超时错误收口为 failed，仍发起后续文字回答", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    await runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false },
+      captureCurrentVideoFrame: async () => {
+        throw new Error("历史帧截取超时（45000 毫秒）");
+      }
+    }));
+
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching", "failed"]);
+    expect(capture.notices).toEqual(["截取视频画面失败：历史帧截取超时（45000 毫秒）"]);
+    expect(capture.calls).toHaveLength(2);
+    expect(capture.calls[1].messages.some((message) => message.role === "tool" && message.content.includes("45000"))).toBe(true);
+  });
+
+  it("取消上抛中止语义，不把取消伪装成 failed，也不发起后续请求", async () => {
+    capture = makeCapture();
+    useHistoricalStatusRound();
+    const controller = new AbortController();
+    let rejectCapture!: (error: Error) => void;
+    const captureCurrentVideoFrame = vi.fn(() => new Promise<never>((_, reject) => {
+      rejectCapture = reject;
+    }));
+    const running = runToolLoop(makeInput({
+      requestProfile: { fetchImpl: capture.fetchImpl, includeWebSearchTool: false, signal: controller.signal },
+      captureCurrentVideoFrame
+    }));
+    const rejection = expect(running).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(captureCurrentVideoFrame).toHaveBeenCalled());
+
+    controller.abort();
+    rejectCapture(new DOMException("历史帧截取已中止", "AbortError"));
+    await rejection;
+    expect(capture.statuses.map((status) => status.status)).toEqual(["searching"]);
+    expect(capture.calls).toHaveLength(1);
+  });
+});

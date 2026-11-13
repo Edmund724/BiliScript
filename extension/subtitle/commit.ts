@@ -75,6 +75,7 @@ export interface AcceptSubtitleArgs {
   // 比对，已被 URL 变化递增/新一轮抓取推进时抛 STALE_RUN 让位（旧视频字幕不
   // 写进已重置的 state）。未传不校验（asr/fallback 收尾路径自有门控）。
   runId?: number;
+  skipHotComments?: boolean;
 }
 
 // 字幕接受（四个写入点的唯一实现）：幂等稳定排序在写 state 前完成——
@@ -88,7 +89,8 @@ export async function acceptSubtitle({
   selectedSubtitleId,
   selectedSubtitleUrl,
   selectedSubtitleLang,
-  runId
+  runId,
+  skipHotComments = false
 }: AcceptSubtitleArgs): Promise<unknown[] | null | undefined> {
   // runId 代次自检（可选）：守卫先于任何 state 写入，且与下方首个写入之间无
   // await——同步的 resetClipState 无法楔入自检与提交之间。
@@ -104,7 +106,9 @@ export async function acceptSubtitle({
     },
     sortedBody as SubtitleBodyItem[]
   );
-  await refreshHotComments();
+  if (!skipHotComments) {
+    await refreshHotComments();
+  }
   // 发射无条件：视图门控的裁决权归 reader 侧（init-essentials 分派链按
   // readingViewOpen 跳过、lifecycle 处理体再按当前 state 投影）。这里按视图
   // 开关截断通知会让「抓取完成时视图未开」的轮次永久丢通知，字幕列表停在

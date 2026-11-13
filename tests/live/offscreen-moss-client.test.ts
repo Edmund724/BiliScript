@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { registerDebugGate } from "../../extension/shared/logging.js";
 import {
   DEFAULT_MOSS_OVERVIEW_TOOL_TIMEOUT_MS,
   OffscreenMossLiveClient,
@@ -78,6 +79,7 @@ class FakeAudioBuffer implements AudioBufferLike {
 
 class FakeAudioBufferSourceNode implements AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null = null;
+  readonly playbackRate = { value: 1 };
   onended: (() => void) | null = null;
   connected = false;
   startedAt: number | null = null;
@@ -171,8 +173,9 @@ describe("OffscreenMossLiveClient", () => {
     // attach_session sent immediately on open
     expect(ws.sentData).toHaveLength(1);
     expect(JSON.parse(ws.sentData[0])).toEqual({
-      action: "attach_session",
-      memory_scope: "session"
+      type: "attach_session",
+      memory_scope: "session",
+      delegation: { type: "client" }
     });
 
     // not connected yet (session_attached required)
@@ -197,28 +200,487 @@ describe("OffscreenMossLiveClient", () => {
     expect(onConnected).toHaveBeenCalledTimes(1);
 
     // Verify protocol handshake messages sent
-    expect(ws.sentData).toHaveLength(3);
+    expect(ws.sentData).toHaveLength(6);
     expect(JSON.parse(ws.sentData[1])).toEqual({
       action: "media.mode",
       binary_protocol: "tagged-v1"
     });
-    expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload());
+    expect(JSON.parse(ws.sentData[2])).toEqual({
+      action: "media.configure",
+      playback: "server",
+      video: { max_long_side: 512, jpeg_quality: 0.75, interval_ms: 1000 }
+    });
+    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload());
+    expect(JSON.parse(ws.sentData[4])).toEqual({
+      action: "client_context.update",
+      context: { time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    });
+    expect(JSON.parse(ws.sentData[5])).toEqual({
+      action: "media.output.configure",
+      volume_db: 0,
+      speed: 1
+    });
 
     // Server confirms session.updated -> client enables screen video stream focus and mic_state once
     ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
-    expect(ws.sentData).toHaveLength(6);
-    expect(JSON.parse(ws.sentData[3])).toEqual({
+    expect(ws.sentData).toHaveLength(9);
+    expect(JSON.parse(ws.sentData[6])).toEqual({
       action: "video.state",
       source: "screen",
       enabled: true
     });
-    expect(JSON.parse(ws.sentData[4])).toEqual({
+    expect(JSON.parse(ws.sentData[7])).toEqual({
       action: "video.stream_focus",
       source: "screen"
     });
-    expect(JSON.parse(ws.sentData[5])).toEqual({
+    expect(JSON.parse(ws.sentData[8])).toEqual({
       action: "mic_state",
       enabled: true
+    });
+  });
+
+  describe("client context time zone", () => {
+    const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    it("sends exactly one client_context.update carrying only the device time zone after session_attached", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+      const updates = ws.sentData
+        .map((data) => JSON.parse(data))
+        .filter((frame) => frame.action === "client_context.update");
+      expect(updates).toEqual([
+        { action: "client_context.update", context: { time_zone: deviceTimeZone } }
+      ]);
+    });
+
+    it("resends the time zone once the reconnected socket attaches the session", () => {
+      const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+      client.connect();
+      let ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({
+        action: "session_attached",
+        data: { session_id: "tz-reconnect" }
+      }));
+      ws.close(1006, "network lost");
+
+      ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({
+        action: "session_attached",
+        data: { session_id: "tz-reconnect" }
+      }));
+
+      const updates = ws.sentData
+        .map((data) => JSON.parse(data))
+        .filter((frame) => frame.action === "client_context.update");
+      expect(updates).toEqual([
+        { action: "client_context.update", context: { time_zone: deviceTimeZone } }
+      ]);
+    });
+
+    it("records a rejected client context without interrupting the session", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      registerDebugGate(() => true);
+      const onError = vi.fn();
+      const transcripts: MossLiveTranscriptEvent[] = [];
+      const client = new OffscreenMossLiveClient({
+        onError,
+        onTranscript: (event) => transcripts.push(event)
+      });
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+      ws.simulateMessage(JSON.stringify({
+        action: "client_context.updated",
+        data: { accepted: false }
+      }));
+      ws.simulateMessage(JSON.stringify({
+        action: "input.transcript.updated",
+        data: { text: "会话继续" }
+      }));
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("时区上下文"));
+      expect(client.getState()).toBe("connected");
+      expect(onError).not.toHaveBeenCalled();
+      expect(transcripts).toEqual([{ kind: "input.updated", text: "会话继续" }]);
+      warn.mockRestore();
+    });
+  });
+
+  it("sends low-bandwidth video parameters with start and resends them after reconnect", () => {
+    const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "low-bandwidth" }
+    }));
+
+    const readConfigure = (socket: FakeWebSocket) =>
+      socket.sentData
+        .filter((data) => typeof data === "string")
+        .map((data) => JSON.parse(data))
+        .find((data) => data.action === "media.configure");
+
+    expect(readConfigure(ws)).toEqual({
+      action: "media.configure",
+      playback: "server",
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 }
+    });
+
+    // 断线重连后仍按低带宽档重发
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "low-bandwidth" }
+    }));
+    expect(readConfigure(ws)).toEqual({
+      action: "media.configure",
+      playback: "server",
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 }
+    });
+  });
+
+  it("forwards media.configured video to the page and falls back to standard on error", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: {
+        video: { max_long_side: 400, jpeg_quality: 0.55, interval_ms: 1500 },
+        error: ""
+      }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 400, jpegQuality: 0.55, intervalMs: 1500 }
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: {
+        video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
+        error: "low bandwidth unsupported"
+      }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 512, jpegQuality: 0.75, intervalMs: 1000 },
+      error: "low bandwidth unsupported"
+    });
+  });
+
+  it("fills missing media.configured fields from the requested low-bandwidth tier", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.handleAction({ action: "start", lowBandwidth: true });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.configured",
+      data: { video: { max_long_side: 400 }, error: "" }
+    }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "video_configured",
+      video: { maxLongSide: 400, jpegQuality: 0.5, intervalMs: 2000 }
+    });
+  });
+
+  it("sends change_voice after session_attached and defers session.update until voice_changed", () => {
+    const onConnected = vi.fn();
+    const client = new OffscreenMossLiveClient({ onConnected });
+    client.handleAction({ action: "start", voiceId: "voice-1" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "voice-session" }
+    }));
+
+    // 音色握手未完成前不完成会话：不发 session.update，也不进入 connected
+    expect(client.getState()).toBe("connecting");
+    expect(onConnected).not.toHaveBeenCalled();
+    const handshake = ws.sentData.map((data) => JSON.parse(data));
+    expect(handshake.slice(1).map((message) => message.action)).toEqual([
+      "media.mode",
+      "media.configure",
+      "change_voice"
+    ]);
+    expect(handshake[3]).toEqual({ action: "change_voice", voice_name: "voice-1" });
+    expect(handshake.some((message) => message.action === "session.update")).toBe(false);
+
+    ws.simulateMessage(JSON.stringify({ action: "voice_changed", data: { name: "voice-1" } }));
+
+    expect(client.getState()).toBe("connected");
+    expect(onConnected).toHaveBeenCalledTimes(1);
+    const afterAttach = ws.sentData.map((data) => JSON.parse(data));
+    expect(afterAttach.slice(4).map((message) => message.action)).toEqual([
+      "session.update",
+      "client_context.update",
+      "media.output.configure"
+    ]);
+  });
+
+  it("falls back to the default voice and reports once when change_voice fails", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    client.handleAction({ action: "start", voiceId: "deleted-voice" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "invalid_voice", message: "音色不存在" }
+    }));
+
+    // 不阻断会话：回退默认音色、照常 session.update 并完成握手
+    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
+    expect(onError).not.toHaveBeenCalled();
+    expect(client.getState()).toBe("connected");
+    const actions = ws.sentData.map((data) => JSON.parse(data).action);
+    expect(actions).toContain("session.update");
+    expect(actions.filter((action) => action === "change_voice")).toHaveLength(1);
+  });
+
+  it("treats a voice failure with a generic error code as a fallback, not a session error", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError });
+    client.handleAction({ action: "start", voiceId: "deleted-voice" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    // 服务端可能回通用错误码 + 音色相关错误信息
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "invalid_request", message: "音色不存在" }
+    }));
+
+    expect(onVoiceFallback).toHaveBeenCalledWith("deleted-voice");
+    expect(onError).not.toHaveBeenCalled();
+    expect(client.getState()).toBe("connected");
+  });
+
+  it("keeps non-voice errors during the voice wait on the normal session error path", () => {
+    const onVoiceFallback = vi.fn();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({ onVoiceFallback, onError, reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", voiceId: "voice-1" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { code: "internal_error", message: "server exploded" }
+    }));
+
+    expect(onVoiceFallback).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalled();
+  });
+
+  it("sends change_voice mid-session so the next reply uses the new voice", () => {
+    const client = new OffscreenMossLiveClient();
+    client.handleAction({ action: "start" });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+
+    client.handleAction({ action: "change_voice", voiceId: "voice-2" });
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "change_voice", voice_name: "voice-2" }
+    ]);
+    client.close();
+  });
+
+  it("configures server output after attach while keeping local gain at unity above 100%", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const client = new OffscreenMossLiveClient({ createAudioContext: () => fakeAudioCtx });
+    client.handleAction({ action: "start", volume: 1.5, speed: 1.25 });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 8,
+      speed: 1.25
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.outputGain.gain.value).toBe(1);
+  });
+
+  it("reconfigures changed output settings and reapplies them after reconnect", () => {
+    const client = new OffscreenMossLiveClient({ reconnectDelayMs: 0 });
+    client.handleAction({ action: "start", volume: 1.5, speed: 1.25 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-reconnect" }
+    }));
+    ws.sentData.length = 0;
+
+    client.handleAction({ action: "set_volume", volume: 1.75 });
+    client.handleAction({ action: "set_speed", speed: 0.75 });
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "media.output.configure", volume_db: 12, speed: 1.25 },
+      { action: "media.output.configure", volume_db: 12, speed: 0.75 }
+    ]);
+
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-reconnect" }
+    }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 12,
+      speed: 0.75
+    });
+  });
+
+  it("preserves local volume below 100% when the server confirms zero gain", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      createAudioContext: () => fakeAudioCtx,
+      onEvent
+    });
+    client.handleAction({ action: "start", volume: 0.5, speed: 0.75 });
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "media.output.configured",
+      data: { volume_db: 0, speed: 0.75 }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "output_configured",
+      volume: 0.5,
+      speed: 0.75
+    });
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.outputGain.gain.value).toBe(0.5);
+  });
+
+  it("falls back to local playbackRate without resending server speed control", () => {
+    const fakeAudioCtx = new FakeAudioContext();
+    const onError = vi.fn();
+    const client = new OffscreenMossLiveClient({
+      createAudioContext: () => fakeAudioCtx,
+      onError,
+      reconnectDelayMs: 0
+    });
+    client.handleAction({ action: "start", speed: 1.5 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      action: "session_attached",
+      data: { session_id: "output-fallback" }
+    }));
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { error: { code: "unsupported_control", message: "speed unsupported" } }
+    }));
+
+    expect(client.getState()).toBe("connected");
+    expect(onError).not.toHaveBeenCalled();
+    ws.sentData.length = 0;
+    client.handleAction({ action: "set_speed", speed: 0.75 });
+    client.handleAction({ action: "set_volume", volume: 1.25 });
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      { action: "media.output.configure", volume_db: 4 }
+    ]);
+    ws.simulateMessage(JSON.stringify({
+      action: "response.audio.context",
+      data: { chunk_id: "c1", run_id: "r1", turn_id: "t1" }
+    }));
+    ws.simulateMessage(encodeFloat32ToPcmS16LE(new Float32Array(4800)).buffer);
+    expect(fakeAudioCtx.sources[0].playbackRate.value).toBe(0.75);
+
+    ws.close(1006, "network lost");
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 4
+    });
+  });
+
+  it("retries server speed control in a new session after a local fallback", () => {
+    const client = new OffscreenMossLiveClient();
+    client.handleAction({ action: "start", speed: 1.5 });
+    let ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.simulateMessage(JSON.stringify({
+      action: "error",
+      data: { error: { code: "unsupported_control", message: "speed unsupported" } }
+    }));
+
+    client.handleAction({ action: "stop" });
+    client.handleAction({ action: "start", speed: 1.25 });
+    ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    expect(ws.sentData.map((data) => JSON.parse(data))).toContainEqual({
+      action: "media.output.configure",
+      volume_db: 0,
+      speed: 1.25
+    });
+  });
+
+  it("emits server-confirmed output settings for controller synchronization", () => {
+    const onEvent = vi.fn();
+    const client = new OffscreenMossLiveClient({ onEvent });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+
+    ws.simulateMessage(JSON.stringify({
+      action: "media.output.configured",
+      data: { volume_db: 8, speed: 1.25 }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "output_configured",
+      volume: 1.5,
+      speed: 1.25
     });
   });
 
@@ -787,6 +1249,46 @@ describe("OffscreenMossLiveClient", () => {
       });
     });
 
+    it("avoids a client-receipt round-trip gap between long-response audio chunks", () => {
+      const fakeAudioCtx = new FakeAudioContext();
+      const client = new OffscreenMossLiveClient({
+        createAudioContext: () => fakeAudioCtx
+      });
+
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+
+      const playbackMode = ws.sentData
+        .filter((data) => typeof data === "string")
+        .map((data) => JSON.parse(data))
+        .find((data) => data.action === "media.configure")?.playback || "client";
+      const pcmChunk = encodeFloat32ToPcmS16LE(new Float32Array(4800).fill(0.25));
+      const emitChunk = (chunkId: string) => {
+        ws.simulateMessage(JSON.stringify({
+          action: "response.audio.context",
+          data: { chunk_id: chunkId, run_id: "r1", turn_id: "t1" }
+        }));
+        ws.simulateMessage(pcmChunk.buffer);
+      };
+
+      emitChunk("c1");
+      fakeAudioCtx.currentTime = 0.1;
+      fakeAudioCtx.sources[0].finishPlayback();
+
+      if (playbackMode === "client") {
+        expect(ws.sentData.some((data) =>
+          typeof data === "string" && JSON.parse(data).action === "playback.chunk.completed"
+        )).toBe(true);
+        fakeAudioCtx.currentTime = 0.13;
+      }
+      emitChunk("c2");
+
+      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(0.1, 5);
+    });
+
     it("sends playback.completed when response.audio.done arrives AFTER all chunks already finished playing", () => {
       const fakeAudioCtx = new FakeAudioContext();
       const client = new OffscreenMossLiveClient({
@@ -1198,14 +1700,14 @@ describe("OffscreenMossLiveClient page tools and context refresh", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
 
-    expect(JSON.parse(ws.sentData[2])).toEqual(buildMinimalSessionUpdatePayload(context));
+    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(context));
     client.updateVideoContext(context);
-    expect(ws.sentData).toHaveLength(3);
+    expect(ws.sentData).toHaveLength(6);
 
     const nextContext = { ...context, cid: "456", pageIndex: 2, pageTitle: "第二部分" };
     client.updateVideoContext(nextContext);
-    expect(ws.sentData).toHaveLength(4);
-    expect(JSON.parse(ws.sentData[3])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
+    expect(ws.sentData).toHaveLength(7);
+    expect(JSON.parse(ws.sentData[6])).toEqual(buildMinimalSessionUpdatePayload(nextContext));
 
     ws.simulateMessage(JSON.stringify({
       action: "tool.call",
@@ -1444,6 +1946,162 @@ describe("OffscreenMossLiveClient summarize_video on-demand tool", () => {
     // 迟到的结果被丢弃
     expect(client.sendToolResult("call-sum-cancel", { ok: true })).toBe(false);
     expect(ws.sentData.some((d: any) => typeof d === "string" && d.includes("call-sum-cancel"))).toBe(false);
+  });
+});
+
+describe("OffscreenMossLiveClient native client delegation", () => {
+  const context = {
+    url: "https://www.bilibili.com/video/BV1test000000/",
+    bvid: "BV1test000000",
+    cid: "123",
+    title: "实时语音原理",
+    pageIndex: 1,
+    pageCount: 1,
+    pageTitle: "",
+    chapters: []
+  };
+
+  function connectClient(options: NonNullable<ConstructorParameters<typeof OffscreenMossLiveClient>[0]> = {}) {
+    const client = new OffscreenMossLiveClient({ videoContext: context, ...options });
+    client.connect();
+    const ws = (client as any).ws as FakeWebSocket;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+    ws.sentData.length = 0;
+    return { client, ws };
+  }
+
+  function createDelegation(ws: FakeWebSocket, delegationId = "del_001") {
+    ws.simulateMessage(JSON.stringify({
+      type: "session.delegation.created",
+      data: {
+        delegation: { id: delegationId, type: "client", status: "in_progress" },
+        objective: "总结视频核心内容",
+        context: ["用户刚才在问全片脉络"],
+        purpose: "task",
+        timeout_ms: null
+      }
+    }));
+  }
+
+  it("maps task callbacks to silent memory and spoken commentary protocol messages", () => {
+    const onEvent = vi.fn();
+    const { client, ws } = connectClient({ onEvent });
+    createDelegation(ws);
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "delegation_created",
+      delegation: {
+        delegationId: "del_001",
+        objective: "总结视频核心内容",
+        context: ["用户刚才在问全片脉络"],
+        purpose: "task"
+      }
+    });
+
+    client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "章节事实" });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "in_progress",
+      content: "仍在分析"
+    });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "completed",
+      content: "口语总结"
+    });
+
+    expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
+      {
+        action: "session.thinking.append",
+        event_id: expect.any(String),
+        delegation_id: "del_001",
+        content: "章节事实",
+        status: "in_progress"
+      },
+      {
+        action: "session.commentary.append",
+        event_id: expect.any(String),
+        delegation_id: "del_001",
+        status: "in_progress",
+        content: "仍在分析"
+      },
+      {
+        action: "session.commentary.append",
+        event_id: expect.any(String),
+        delegation_id: "del_001",
+        status: "completed",
+        content: "口语总结"
+      }
+    ]);
+
+    client.handleAction({ action: "delegation_silent", delegationId: "del_001", content: "迟到事实" });
+    expect(ws.sentData).toHaveLength(3);
+    client.close();
+  });
+
+  it("aborts through the page event and suppresses all late output after server cancellation", () => {
+    const onEvent = vi.fn();
+    const { client, ws } = connectClient({ onEvent });
+    createDelegation(ws);
+    ws.simulateMessage(JSON.stringify({
+      type: "session.delegation.cancelled",
+      data: {
+        delegation_id: "del_001",
+        cancelled_by: "server",
+        reason: "User cancelled the task"
+      }
+    }));
+
+    expect(onEvent).toHaveBeenCalledWith({ type: "delegation_cancelled", delegationId: "del_001" });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_001",
+      status: "completed",
+      content: "取消后的迟到总结"
+    });
+    expect(ws.sentData).toHaveLength(0);
+    client.close();
+  });
+
+  it("maps failures and invalidates active delegations on video switch or close", () => {
+    const { client, ws } = connectClient();
+    createDelegation(ws, "del_failed");
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_failed",
+      status: "failed",
+      content: "字幕不可用"
+    });
+    expect(JSON.parse(ws.sentData[0])).toEqual({
+      action: "session.commentary.append",
+      event_id: expect.any(String),
+      delegation_id: "del_failed",
+      status: "failed",
+      content: "字幕不可用"
+    });
+
+    createDelegation(ws, "del_switch");
+    client.updateVideoContext({ ...context, cid: "456", pageIndex: 2 });
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_switch",
+      status: "completed",
+      content: "旧视频结果"
+    });
+    expect(ws.sentData.filter((data) => JSON.parse(data).action === "session.commentary.append")).toHaveLength(1);
+
+    createDelegation(ws, "del_close");
+    client.close();
+    client.handleAction({
+      action: "delegation_result",
+      delegationId: "del_close",
+      status: "completed",
+      content: "断连后的结果"
+    });
+    expect(ws.sentData.filter((data) => JSON.parse(data).delegation_id === "del_close")).toHaveLength(0);
   });
 });
 
@@ -2001,8 +2659,9 @@ describe("MOSS session_id persistence and auto-reconnect", () => {
     ws.simulateOpen();
     const firstAttach = JSON.parse(ws.sentData[0]);
     expect(firstAttach).toEqual({
-      action: "attach_session",
+      type: "attach_session",
       memory_scope: "session",
+      delegation: { type: "client" },
       session_id: "sess_reconnect_test"
     });
 

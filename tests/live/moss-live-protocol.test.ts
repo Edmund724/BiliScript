@@ -10,6 +10,8 @@ import {
   MOSS_UPSTREAM_FRAME_SAMPLES,
   MOSS_UPSTREAM_SAMPLE_RATE,
   MossBinaryTag,
+  buildClientContextUpdatePayload,
+  buildChangeVoicePayload,
   buildMinimalSessionUpdatePayload,
   createPcm16kFrameChunker,
   decodeBase64Bytes,
@@ -264,6 +266,44 @@ describe("parseMossServerJsonEvent", () => {
     });
   });
 
+  it("parses media.configured video receipt verbatim for adapter-side normalization", () => {
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: {
+          video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
+          error: ""
+        }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: { max_long_side: 384, jpeg_quality: 0.5, interval_ms: 2000 },
+      error: ""
+    });
+
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: { video: { interval_ms: 1500 }, error: "" }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: { interval_ms: 1500 },
+      error: ""
+    });
+
+    expect(
+      parseMossServerJsonEvent({
+        action: "media.configured",
+        data: { error: "unsupported" }
+      })
+    ).toEqual({
+      kind: "media.configured",
+      video: {},
+      error: "unsupported"
+    });
+  });
+
   it("parses response.interrupted with turn identity", () => {
     expect(
       parseMossServerJsonEvent({
@@ -310,6 +350,34 @@ describe("parseMossServerJsonEvent", () => {
       runId: "r1",
       turnId: "t1"
     });
+  });
+
+  it("parses server-side output volume and speed confirmation", () => {
+    expect(parseMossServerJsonEvent({
+      action: "media.output.configured",
+      data: { volume_db: 8, speed: 1.25 }
+    })).toEqual({
+      kind: "output.configured",
+      volumeDb: 8,
+      speed: 1.25
+    });
+  });
+
+  it("parses client_context.updated acceptance, treating a missing flag as accepted", () => {
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: { accepted: false }
+    })).toEqual({ kind: "client_context.updated", accepted: false });
+
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: { accepted: true }
+    })).toEqual({ kind: "client_context.updated", accepted: true });
+
+    expect(parseMossServerJsonEvent({
+      action: "client_context.updated",
+      data: {}
+    })).toEqual({ kind: "client_context.updated", accepted: true });
   });
 
   it("parses completed web search calls and interruption markers", () => {
@@ -368,6 +436,57 @@ describe("parseMossServerJsonEvent", () => {
       kind: "error",
       message: "鉴权失败：密钥无效",
       code: ""
+    });
+  });
+
+  it("parses native client delegation creation and cancellation events", () => {
+    expect(parseMossServerJsonEvent({
+      type: "session.delegation.created",
+      data: {
+        delegation: { id: "del_001", type: "client", status: "in_progress" },
+        objective: "总结视频核心内容",
+        context: ["用户想先了解全片脉络"],
+        purpose: "reasoning",
+        timeout_ms: 2500
+      }
+    })).toEqual({
+      kind: "delegation.created",
+      delegation: {
+        delegationId: "del_001",
+        objective: "总结视频核心内容",
+        context: ["用户想先了解全片脉络"],
+        purpose: "reasoning",
+        timeoutMs: 2500
+      }
+    });
+
+    expect(parseMossServerJsonEvent({
+      type: "session.delegation.cancelled",
+      data: {
+        delegation_id: "del_001",
+        cancelled_by: "server",
+        reason: "User cancelled the task"
+      }
+    })).toEqual({ kind: "delegation.cancelled", delegationId: "del_001" });
+  });
+
+  it("parses delegation context given as role/content lines", () => {
+    expect(parseMossServerJsonEvent({
+      action: "session.delegation.created",
+      data: {
+        delegation: { id: "del_002", target: "client" },
+        objective: "总结视频核心内容",
+        context: [{ role: "user", content: "先讲全片脉络" }, { role: "", content: "无角色" }, { role: "user", content: "" }],
+        purpose: "task"
+      }
+    })).toEqual({
+      kind: "delegation.created",
+      delegation: {
+        delegationId: "del_002",
+        objective: "总结视频核心内容",
+        context: ["user：先讲全片脉络", "无角色"],
+        purpose: "task"
+      }
     });
   });
 
@@ -432,14 +551,30 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     ]);
   });
 
-  it("builds official session.update payload with persona and instructions only", () => {
+  it("builds session.update with lightweight tools and explicit delegation routing", () => {
     const payload = buildMinimalSessionUpdatePayload();
     expect(payload.action).toBe("session.update");
-    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona", "tools"]);
     expect(payload.session.persona.name).toBe("Bili伴看助手");
     expect(payload.session.instructions).toContain("screen通道");
     expect(payload.session.instructions).toContain("切勿提示用户打开摄像头");
     expect(payload.session.instructions).toContain("不得编造外部事实");
+    expect(payload.session.instructions).toContain("请通过后台委派（delegation）交由后台文本模型处理");
+    expect(payload.session.instructions).toContain("普通日常闲聊或常识问题请直接回答");
+    expect(payload.session.instructions).toContain("跳到刚才总结或分析中的某一点");
+    expect(payload.session.instructions).toContain("把时间戳换算成秒数后调用 control_bilibili_player 的 seek");
+    expect(payload.session.tools).toEqual(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS);
+  });
+
+  it("builds client_context.update with only the device time zone", () => {
+    expect(buildClientContextUpdatePayload("Asia/Shanghai")).toEqual({
+      action: "client_context.update",
+      context: { time_zone: "Asia/Shanghai" }
+    });
+    expect(buildClientContextUpdatePayload()).toEqual({
+      action: "client_context.update",
+      context: { time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    });
   });
 });
 
@@ -455,12 +590,13 @@ describe("subtitle-aware session and tool calls", () => {
       pageTitle: "工具调用",
       chapters: [{ title: "开场", from: 0, to: 10 }]
     });
-    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona"]);
+    expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona", "tools"]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
     expect(payload.session.instructions).toContain("0s 开场");
     expect(payload.session.instructions).toContain("time 时刻文本");
-    expect(payload.session.instructions).toContain("将其 from 作为 seek 的 time");
+    expect(payload.session.instructions).toContain("控制播放器（跳转进度、暂停/播放/倍速）");
+    expect(payload.session.instructions).toContain("总结全片或片段内容");
     expect(payload.session.instructions).toContain("不得声称操作已成功");
   });
 
@@ -484,7 +620,8 @@ describe("subtitle-aware session and tool calls", () => {
       }
     });
     const instructions = payload.session.instructions;
-    expect(instructions).toContain("不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论");
+    expect(instructions).toContain("不得用前台字幕工具或 web_search 代替后台委派");
+    expect(instructions).toContain("已有覆盖完整的全片概览，可直接读取并回答");
     expect(instructions).toContain("全片概览状态：ready（覆盖：complete）");
     expect(instructions).toContain("全片简介：全片介绍实时语音链路。");
     expect(instructions).toContain("0:00 开场：为什么需要实时");
@@ -542,7 +679,7 @@ describe("subtitle-aware session and tool calls", () => {
     expect(instructions).not.toContain("全片简介：");
   });
 
-  it("tells the assistant to admit no overview is available when none is wired", () => {
+  it("uses backend delegation when no local overview is available", () => {
     const payload = buildMinimalSessionUpdatePayload({
       url: "https://www.bilibili.com/video/BV1test000000/",
       bvid: "BV1test000000",
@@ -553,7 +690,8 @@ describe("subtitle-aware session and tool calls", () => {
       pageTitle: "",
       chapters: []
     });
-    expect(payload.session.instructions).toContain("没有可用的全片概览");
+    expect(payload.session.instructions).toContain("没有可用的本地概览");
+    expect(payload.session.instructions).toContain("发起后台委派");
     expect(payload.session.instructions).toContain("不得编造全片内容");
   });
 
@@ -576,51 +714,39 @@ describe("subtitle-aware session and tool calls", () => {
     });
   });
 
-  it("declares four page function tools including summarize_video for MOSS-LIVE server-side registration", () => {
+  it("declares only lightweight player and nearby-subtitle tools for MOSS-LIVE", () => {
     const names = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.map((tool) => tool.name);
     expect(names).toEqual([
       "control_bilibili_player",
-      "get_subtitles_around_time",
-      "search_video_subtitles",
-      "summarize_video"
+      "get_subtitles_around_time"
     ]);
-
-    const summarizeTool = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.find(
-      (tool) => tool.name === "summarize_video"
-    );
-    expect(summarizeTool).toBeDefined();
-    expect(summarizeTool?.type).toBe("function");
-
+    expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => tool.type === "function")).toBe(true);
+    expect(
+      MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.filter((tool) => "read_only" in tool).map((tool) => tool.name)
+    ).toEqual(["get_subtitles_around_time"]);
   });
 
   describe("formatLiveCloseDiagnostics", () => {
-    it("formats simple error message when code and reason are absent", () => {
-      expect(formatLiveCloseDiagnostics({ error: "网络中断" })).toBe("网络中断");
+    it("不回显外部错误原文", () => {
+      expect(formatLiveCloseDiagnostics({ error: "网络中断 apiKey=sk-live-secret" })).toBe("伴看连接已断开。");
       expect(formatLiveCloseDiagnostics({})).toBe("伴看连接已断开。");
     });
 
-    it("formats WebSocket close code and reason cleanly", () => {
+    it("保留数值关闭码但排除外部 reason/error", () => {
       const text = formatLiveCloseDiagnostics({
         code: 1006,
-        reason: "Connection refused"
+        reason: "Connection refused sk-live-secret",
+        error: "Bearer sk-live-secret"
       });
-      expect(text).toContain("关闭码: 1006");
-      expect(text).toContain("原因: Connection refused");
-      expect(text).toMatch(/^伴看连接已断开/);
+      expect(text).toBe("伴看连接已断开（关闭码: 1006）。");
+      expect(text).not.toContain("sk-live-secret");
     });
 
-    it("formats Relay / Live connection error details", () => {
-      const text = formatLiveCloseDiagnostics({
-        code: 502,
-        reason: "Bad Gateway",
-        error: "Relay 连接失败：上游网关超时"
-      });
-      expect(text).toContain("关闭码: 502");
-      expect(text).toContain("原因: Bad Gateway");
-      expect(text).toContain("错误详情: Relay 连接失败：上游网关超时");
+    it("非数值关闭码不进入反馈", () => {
+      expect(formatLiveCloseDiagnostics({ code: "sk-live-secret" })).toBe("伴看连接已断开。");
     });
 
-    it("formats reconnecting notices with attempt count and code/reason", () => {
+    it("重连通知仅保留安全进度与关闭码", () => {
       const text = formatLiveCloseDiagnostics({
         isReconnect: true,
         attempt: 1,
@@ -629,22 +755,36 @@ describe("subtitle-aware session and tool calls", () => {
         reason: "Abnormal Closure",
         error: "WebSocket 连接失败"
       });
-      expect(text).toContain("正在尝试自动重连 (第 1/3 次)...");
-      expect(text).toContain("关闭码: 1006");
-      expect(text).toContain("原因: Abnormal Closure");
-      expect(text).toContain("错误详情: WebSocket 连接失败");
+      expect(text).toBe("伴看连接已断开（关闭码: 1006），正在尝试自动重连 (第 1/3 次)...");
     });
 
-    it("formats exhausted retry failure with attempt count and diagnostic details", () => {
+    it("保留重连耗尽次数与关闭码", () => {
       const text = formatLiveCloseDiagnostics({
         attempt: 3,
         maxAttempts: 3,
         code: 1006,
         error: "已达最大重连次数 (3 次)"
       });
-      expect(text).toContain("自动重连 3 次均失败");
-      expect(text).toContain("关闭码: 1006");
+      expect(text).toBe("伴看连接已断开，自动重连 3 次均失败（关闭码: 1006）。");
     });
 
+  });
+});
+
+describe("MOSS-LIVE 音色事件", () => {
+  it("builds change_voice with the documented voice_name field", () => {
+    expect(buildChangeVoicePayload("voice-1")).toEqual({
+      action: "change_voice",
+      voice_name: "voice-1"
+    });
+  });
+
+  it("parses voice_changed from data.name and keeps the voice id", () => {
+    expect(
+      parseMossServerJsonEvent({ action: "voice_changed", data: { name: "voice-1" } })
+    ).toEqual({ kind: "voice_changed", voiceId: "voice-1" });
+    expect(
+      parseMossServerJsonEvent({ action: "voice_changed", data: { name: "voice-2" } })
+    ).toEqual({ kind: "voice_changed", voiceId: "voice-2" });
   });
 });

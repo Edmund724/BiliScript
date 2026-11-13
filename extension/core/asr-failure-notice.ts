@@ -217,6 +217,20 @@ export function getAsrFailureNotice(reason: NoSubtitleReason, detail?: AsrFailur
   };
 }
 
+// 配置类梗阻的判定（票 provider-onboarding-consistency/04）：补救动作是「去设置」
+// 的 reason 才有可落地的设置动作。字幕空态 / 概览空态 / 对话拦截三处的动作渲染
+// 都只读这一条，不在各面重写 remedy 比较。
+export function requiresAsrSetup(reason: NoSubtitleReason): boolean {
+  return getAsrFailureNotice(reason).remedy === "open-settings";
+}
+
+// 明确可经配置修复的三态（未配置 / 关闭 / 鉴权不通过）：只有这三个 reason 允许
+// 「配置类无字幕收尾可以重新进入抓取」（票 04）——未归类（null）与其余失败类
+// 不因一次发送就重跑抓取，仍按原规则拦截，避免无谓的重复转写。
+export function isConfigClassAsrReason(reason: NoSubtitleReason): boolean {
+  return reason === "no-asr-config" || reason === "asr-disabled" || reason === "asr-auth";
+}
+
 // surface 各自拼自己已冻结的前缀：过滤空段后单空格连接，避免原因缺失时留下
 // 双空格或尾空格。sidepanel 的 asr-empty 是唯一例外（整句替换）。
 export function buildAsrNoSubtitleMessage(

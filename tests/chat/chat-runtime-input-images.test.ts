@@ -1,6 +1,6 @@
 // tests/chat/chat-runtime-input-images.test.ts
 // 图片附件的发送侧接线（image-input 02 号票）：
-//   - deps.takeInputImages（组合根注入的附件区读清一体）在发送受理时被调用一次，
+//   - 受理时读取图片快照，闸通过后 deps.takeInputImages 按快照消费一次，
 //     返回的 ImagePart[] 随 chat 消息的 images 字段下发；
 //   - 无附件 / 未注入 takeInputImages：消息不带 images 字段（无图线格式不变）；
 //   - 被前置闸拦下（无平台 / 上下文读取失败）的发送不消费附件区——用户粘的图
@@ -116,6 +116,62 @@ describe("发送受理时消费附件区", () => {
   });
 });
 
+describe("等待期间的发送快照", () => {
+  it("原回合只发送受理时文本与图片，后续编辑和新图片全部保留", async () => {
+    const laterImage = { mime: "image/webp", data: "TkVX" };
+    let attachments = [IMAGE];
+    let releaseGate!: (value: { pass: true }) => void;
+    const getInputImages = vi.fn(() => attachments);
+    const takeInputImages = vi.fn((snapshot?: typeof IMAGE[]) => {
+      if (snapshot) {
+        attachments = attachments.filter((image) => !snapshot.includes(image));
+        return snapshot;
+      }
+      const taken = attachments;
+      attachments = [];
+      return taken;
+    });
+    const { deps, input, ports, ui } = makeDeps({
+      getInputImages,
+      takeInputImages,
+      ensureCurrentContextForSend: vi.fn(() => new Promise<{ pass: true }>((resolve) => {
+        releaseGate = resolve;
+      }))
+    });
+    input.value = "原始问题";
+    const sending = createChatRuntime(deps).sendTurn(input.value);
+    await vi.waitFor(() => expect(deps.ensureCurrentContextForSend).toHaveBeenCalled());
+
+    input.value = "等待期间的新草稿";
+    attachments = [...attachments, laterImage];
+    releaseGate({ pass: true });
+    await expect(sending).resolves.toBe("accepted");
+
+    expect(firstPosted(ports)).toMatchObject({ prompt: "原始问题", images: [IMAGE] });
+    expect(deps.messages.querySelector(".chat-msg-user .chat-image-thumb")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    expect(takeInputImages).toHaveBeenCalledWith([IMAGE]);
+    expect(input.value).toBe("等待期间的新草稿");
+    expect(attachments).toEqual([laterImage]);
+    expect(ui.showConversationContextNotice).toHaveBeenCalledWith("已发送原文，保留了后来修改的草稿与图片", 4000);
+  });
+
+  it("用户取消等待：文本与图片不消费，也不发起 port", async () => {
+    const takeInputImages = vi.fn(() => [IMAGE]);
+    const { deps, input, ports } = makeDeps({
+      getInputImages: () => [IMAGE],
+      takeInputImages,
+      ensureCurrentContextForSend: vi.fn(async () => ({ pass: false, kind: "cancelled" }) as const)
+    });
+    input.value = "保留这条草稿";
+
+    await expect(createChatRuntime(deps).sendTurn(input.value)).resolves.toBe("blocked");
+
+    expect(input.value).toBe("保留这条草稿");
+    expect(takeInputImages).not.toHaveBeenCalled();
+    expect(ports).toHaveLength(0);
+  });
+});
+
 describe("被拒绝的发送不消费附件区", () => {
   it("无可用平台：不调用 takeInputImages（附件留给下一次发送）", async () => {
     const takeInputImages = vi.fn(() => [IMAGE]);
@@ -158,13 +214,13 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "这张图里是什么", images: [IMAGE] },
+      { role: "user", content: "这张图里是什么", images: [IMAGE], contextKey: "video:BV1test" },
       { role: "assistant", content: "是截图" }
     ]);
     expect(deps.store.persistCurrent).toHaveBeenCalledTimes(1);
   });
 
-  it("无图发送 → done：user 消息不带 images 字段（历史线格式与改动前一致）", async () => {
+  it("无图发送 → done：user 消息不带 images 字段，contextKey 独立保存", async () => {
     const { deps, input } = makeDeps({ takeInputImages: () => [] });
     input.value = "总结一下";
     const runtime = createChatRuntime(deps);
@@ -174,7 +230,7 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "总结一下" },
+      { role: "user", content: "总结一下", contextKey: "video:BV1test" },
       { role: "assistant", content: "好" }
     ]);
     expect("images" in chatSessionState.chatHistory[0]).toBe(false);
@@ -196,9 +252,9 @@ describe("本轮图片写回 chatHistory", () => {
     runtime.handleChatPortMessage({ type: "done" });
 
     expect(chatSessionState.chatHistory).toEqual([
-      { role: "user", content: "第一轮带图", images: [IMAGE] },
+      { role: "user", content: "第一轮带图", images: [IMAGE], contextKey: "video:BV1test" },
       { role: "assistant", content: "答一" },
-      { role: "user", content: "第二轮纯文本" },
+      { role: "user", content: "第二轮纯文本", contextKey: "video:BV1test" },
       { role: "assistant", content: "答二" }
     ]);
   });

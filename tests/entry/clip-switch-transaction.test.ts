@@ -51,6 +51,10 @@ function createDeps() {
       calls.push(`isReaderMode ${url}`);
       return false;
     },
+    isSupportedVideoPage: (url) => {
+      calls.push(`isSupportedVideoPage ${url}`);
+      return true;
+    },
     isPlayerAiLoaded: () => {
       calls.push("isPlayerAiLoaded");
       return false;
@@ -69,6 +73,9 @@ function createDeps() {
     },
     refreshReaderClip: async () => {
       calls.push("refreshReaderClip");
+    },
+    exitReaderShell: async () => {
+      calls.push("exitReaderShell");
     },
     startSubtitlePrefetch: () => {
       calls.push("startSubtitlePrefetch");
@@ -115,7 +122,7 @@ describe("同步段：签名守卫与 runId 递增", () => {
     expect(calls.indexOf("writeRunId 6")).toBeLessThan(calls.indexOf("resetClipState"));
   });
 
-  it("签名不变 → 零步骤、不发完成边", async () => {
+  it("同 clip 普通 URL 不变 → 零步骤、不发完成边", async () => {
     const { deps, calls } = createDeps();
     deps.readSignature = () => {
       calls.push("readSignature");
@@ -128,8 +135,39 @@ describe("同步段：签名守卫与 runId 递增", () => {
     transaction.handleUrlChange();
     await flush();
 
-    expect(calls).toEqual(["readUrl", "computeSignature", "readSignature"]);
+    expect(calls).toEqual(["readUrl", "computeSignature", "readSignature", `isReaderMode ${URL}`]);
     expect(settled).not.toHaveBeenCalled();
+  });
+
+  it("同 clip 仅新增 reader 参数：只进入阅读壳，不写身份、不重置、不递增 runId", async () => {
+    const { deps, calls } = createDeps();
+    const readerUrl = `${URL}?biliscript_reader=1`;
+    deps.readUrl = () => {
+      calls.push("readUrl");
+      return readerUrl;
+    };
+    deps.readSignature = () => {
+      calls.push("readSignature");
+      return "sig-new";
+    };
+    deps.isReaderMode = (url) => {
+      calls.push(`isReaderMode ${url}`);
+      return new globalThis.URL(url).searchParams.get("biliscript_reader") === "1";
+    };
+    const transaction = createClipSwitchTransaction(deps);
+    const settled = vi.fn();
+    transaction.subscribeSettled(settled);
+
+    transaction.handleUrlChange();
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
+
+    expect(times(calls, "enterReaderShellOnUrlNavigation")).toBe(1);
+    expect(times(calls, "writeIdentity")).toBe(0);
+    expect(times(calls, "writeRunId")).toBe(0);
+    expect(times(calls, "ensureUiReady")).toBe(0);
+    expect(times(calls, "resetClipState")).toBe(0);
+    expect(times(calls, "refreshReaderClip")).toBe(0);
+    expect(times(calls, "startSubtitlePrefetch")).toBe(0);
   });
 });
 
@@ -167,6 +205,52 @@ describe("异步段：三档互斥分支的步骤集合", () => {
     expect(times(calls, "resetClipState")).toBe(1);
     expect(times(calls, "refreshReaderClip")).toBe(1);
     expect(times(calls, "enterReaderShellOnUrlNavigation")).toBe(0);
+    expect(times(calls, "startSubtitlePrefetch")).toBe(0);
+  });
+
+  it("非支持页带 reader 参数且视图已开：退出阅读壳，不刷新、不预抓取", async () => {
+    const { deps, calls } = createDeps();
+    const unsupportedUrl = "https://www.bilibili.com/read/cv123/?biliscript_reader=1";
+    deps.readUrl = () => {
+      calls.push("readUrl");
+      return unsupportedUrl;
+    };
+    deps.isReaderMode = () => true;
+    deps.isSupportedVideoPage = (url) => {
+      calls.push(`isSupportedVideoPage ${url}`);
+      return false;
+    };
+    deps.isReaderViewOpen = () => {
+      calls.push("isReaderViewOpen");
+      return true;
+    };
+    const transaction = createClipSwitchTransaction(deps);
+    const settled = vi.fn();
+    transaction.subscribeSettled(settled);
+
+    transaction.handleUrlChange();
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
+
+    expect(times(calls, "exitReaderShell")).toBe(1);
+    expect(times(calls, "refreshReaderClip")).toBe(0);
+    expect(times(calls, "enterReaderShellOnUrlNavigation")).toBe(0);
+    expect(times(calls, "startSubtitlePrefetch")).toBe(0);
+  });
+
+  it("非支持页带 reader 参数且视图未开：不进壳、不刷新、不预抓取", async () => {
+    const { deps, calls } = createDeps();
+    deps.isReaderMode = () => true;
+    deps.isSupportedVideoPage = () => false;
+    const transaction = createClipSwitchTransaction(deps);
+    const settled = vi.fn();
+    transaction.subscribeSettled(settled);
+
+    transaction.handleUrlChange();
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
+
+    expect(times(calls, "exitReaderShell")).toBe(0);
+    expect(times(calls, "enterReaderShellOnUrlNavigation")).toBe(0);
+    expect(times(calls, "refreshReaderClip")).toBe(0);
     expect(times(calls, "startSubtitlePrefetch")).toBe(0);
   });
 

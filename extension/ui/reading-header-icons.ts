@@ -5,7 +5,7 @@
 // AI 图标（~2.6KB）随 player-ai 按需下载，本表（~2.1KB）随 UI 壳常驻。
 // 均为纯字符串常量，不依赖 DOM/全局状态。
 
-export const READING_HEADER_ICONS: Record<"theme" | "themeDark" | "settings" | "close", string> = {
+export const READING_HEADER_ICONS: Record<"theme" | "themeDark" | "settings" | "close" | "back", string> = {
   theme: `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
   `,
@@ -17,5 +17,8 @@ export const READING_HEADER_ICONS: Record<"theme" | "themeDark" | "settings" | "
   `,
   close: `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  `,
+  back: `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
   `
 };

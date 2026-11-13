@@ -44,7 +44,7 @@ import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/stat
 //（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
 // reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
 // 本文件不静态依赖 fetcher，也不碰 reader 重域）。
-import { requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
@@ -52,9 +52,11 @@ import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
+import { collectAgentBridgeTabSnapshot } from "../agent-bridge/content.js";
 
 import {
   isReaderMode,
+  isSupportedVideoPage,
   isAutoOpenEligible,
   computeCurrentClipSignature
 } from "../bilibili/video-id-shared.js";
@@ -101,11 +103,9 @@ type ContentScriptHandler<K extends ContentScriptMessageType> = (
 // 进阅读壳（工单 arch-slim/02）：reading-view 消息只做意图路由，八步无闪变
 // 时序与 restore 失同步自愈都在 reader/shell.ts 唯一实现；意图从消息负载推导
 //——reader-restore → restore；reader-enter 无 chat 负载 → open，带 chat 负载
-// → chat（进入事务内激活对话 tab，prompt 非空时自动发送快捷提示词）。
-// arch-slim-2/09：shell 改经 lazy-shell 动态装载后，回包时点从「同步即答」
-// 平移为「shell 模块装载完成后、进入事务发起前即答」——即答语义写死为
-// 「命令已受理入队，不代表进入完成」：发响应不等待事务完成；装载失败才有
-// ok:false 分支（本地 chunk 装载 ~10ms，被消息往返掩盖）。
+// → chat（进入事务内激活对话 tab，prompt 非空时按会话状态发送快捷提示词）。
+// shell 经 lazy-shell 动态装载；回包等待进入事务完成，chat 档同时等待对话
+// 定位/快捷提示词处理完成。装载或事务失败均回 ok:false，让实际触发入口呈现失败。
 type ReaderShellEntryType = "reader-enter" | "reader-restore";
 
 function handleReaderShellEnter(
@@ -116,28 +116,29 @@ function handleReaderShellEnter(
     try {
       const shell = await ensureReaderShell();
       const chat = message.type === "reader-enter" ? message.chat : undefined;
-      shell.enterReaderShell({
+      await shell.enterReaderShell({
         readerUrl: String(message.readerUrl || ""),
         intent: message.type === "reader-restore" ? "restore" : chat ? "chat" : "open",
         prompt: chat?.prompt
       });
       sendResponse({ ok: true });
     } catch (error) {
-      logWarn("[BILISCRIPT] reading shell load failed", error);
+      logWarn("[BILISCRIPT] reading shell enter failed", error);
       sendResponse({ ok: false, error: getErrorMessage(error) });
     }
   })();
   return true;
 }
 
-// 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
-//（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
+// 跨标签页会话接管（live-session-takeover）：停止被接管的实时伴看会话，
+// 并联动停止已装载的对话 tab。
 function handleLiveSessionTakeover(
   _message: Msg<"live-session-takeover">,
   sendResponse: SendResponse
 ): boolean {
   (async () => {
     try {
+      requestLiveCompanionStop("takeover");
       if (isReaderChatTabLoaded()) {
         const chatDomain = await ensureReaderChatTab();
         chatDomain.stopLiveCompanion();
@@ -150,12 +151,43 @@ function handleLiveSessionTakeover(
   return true;
 }
 
+// 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托
+//（URL 收敛 → closeReadingView → 摘阅读表都在 exitReaderShell 内）。
 function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResponse): boolean {
   (async () => {
     try {
       const shell = await ensureReaderShell();
       await shell.exitReaderShell();
       sendResponse({ ok: true });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+}
+
+function handleAgentBridgeSnapshot(_message: Msg<"agent-bridge-snapshot">, sendResponse: SendResponse): boolean {
+  sendResponse({ ok: true, snapshot: collectAgentBridgeTabSnapshot() });
+  return false;
+}
+
+function handleAgentBridgeSubtitles(_message: Msg<"agent-bridge-subtitles">, sendResponse: SendResponse): boolean {
+  void (async () => {
+    try {
+      const { getAgentBridgeSubtitles } = await import("../agent-bridge/content-subtitles.js");
+      sendResponse({ ok: true, result: await getAgentBridgeSubtitles() });
+    } catch (error) {
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+}
+
+function handleAgentBridgeFrame(message: Msg<"agent-bridge-frame">, sendResponse: SendResponse): boolean {
+  void (async () => {
+    try {
+      const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
+      sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
     } catch (error) {
       sendResponse({ ok: false, error: getErrorMessage(error) });
     }
@@ -173,7 +205,10 @@ const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
   "reader-close": handleReaderClose,
-  "live-session-takeover": handleLiveSessionTakeover
+  "live-session-takeover": handleLiveSessionTakeover,
+  "agent-bridge-snapshot": handleAgentBridgeSnapshot,
+  "agent-bridge-subtitles": handleAgentBridgeSubtitles,
+  "agent-bridge-frame": handleAgentBridgeFrame
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 
 const contentMessageHandlers = new Map<
@@ -265,6 +300,7 @@ export function bindUrlChangeHandler() {
     enforceNormalPageStateIfNeeded,
     isReaderViewOpen,
     isReaderMode,
+    isSupportedVideoPage,
     shouldAutoOpen: (url: string) => Boolean(state.settings?.autoOpenReader && isAutoOpenEligible(url)),
     isPlayerAiLoaded,
     ensureUiReady,
@@ -314,6 +350,10 @@ export function bindUrlChangeHandler() {
         onChainLoadFailed: reportAutoRefreshFailure,
         onRefreshFailed: reportAutoRefreshFailure
       });
+    },
+    exitReaderShell: async () => {
+      const shell = await ensureReaderShell();
+      await shell.exitReaderShell();
     },
     // 普通页换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
     //「刷新抓取」按钮，本档不写这类引导）。守卫的先决是「clip 身份 = 当前

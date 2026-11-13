@@ -1,29 +1,14 @@
-import { formatLocalDate } from "../shared/utils.js";
-import { toReadableText, isExtensionContextInvalidated, getErrorMessage } from "../shared/error-helpers.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import { state, clipState } from "../core/state.js";
 import { getRuntimeVideoElement } from "./video-probe.js";
-import { isBiliUrl } from "./gateway-core.js";
+import { contentFetchJson } from "./content-transport.js";
 import type { JsonTransport } from "./gateway-core.js";
 import { logInfo, logWarn } from "../shared/logging.js";
-import {
-  buildSubtitleInfoRequests,
-  buildBiliApiError,
-  buildHotCommentsApiError,
-  mergeHotCommentsFromPayload,
-  subReplyMessages,
-  subReplyRootIds,
-  type HotComment,
-  type SubReplyInput,
-  type SubtitleInfoRequest
-} from "./bili-api-shared.js";
-// 原生产物映射（原生 subtitle.subtitles / view_points → SubtitleTrack / Chapter）随
-// 两个类型的声明归位本层（架构评审「轨道身份：selection.ts 按概念拆位」）：gateway
-// 不再为拿映射而反向 import subtitle/selection，映射叶见 ./native-payload.ts。
-import {
-  mapChaptersFromPlayerData,
-  mapSubtitleTracks
-} from "./native-payload.js";
+import type { HotComment } from "./bili-api-shared.js";
+import { fetchHotCommentsJson } from "./hot-comments.js";
+export { fetchHotCommentsJson } from "./hot-comments.js";
+export { fetchVideoMeta, fetchSubtitleBundle } from "./video-api.js";
+export type { VideoPage, VideoMeta, SubtitleTrack, Chapter } from "./video-api.js";
 
 declare global {
   interface Window {
@@ -34,50 +19,13 @@ declare global {
 // 传输叶拆出（arch-slim-2/04）：isBiliUrl / bgFetchJson / JsonTransport 迁至
 // gateway-core.ts（零 extension/ 内部依赖的叶子），SW 静态图不再经本模块拖入
 // state/video-probe/selection→cache→cache-lru 链。此处 re-export 保持既有
-// import 面兼容；本模块只剩页面侧编排（getCurrentAid / readRuntimeVideoDuration /
-// fetchVideoMeta / fetchSubtitleBundle / fetchHotComments / fetchSubtitleBody）。
+// import 面兼容；视频元信息与字幕列表由 video-api.ts 承载，本模块只剩页面侧编排
+//（getCurrentAid / readRuntimeVideoDuration / fetchHotComments / fetchSubtitleBody）。
 // 轨道身份批后本模块对 subtitle/ 已无静态 import：映射改由本层的 native-payload.ts
 // 提供（它只额外触达 subtitle/chapters 的归一叶）。
 export { bgFetchJson, isBiliUrl } from "./gateway-core.js";
+export { contentFetchJson } from "./content-transport.js";
 export type { JsonTransport } from "./gateway-core.js";
-
-async function fetchJson<T = unknown>(url: string): Promise<T> {
-  if (isBiliUrl(url)) {
-    return fetchJsonInBackground<T>(url);
-  }
-
-  const response = await fetch(url, {
-    credentials: "include",
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-export async function contentFetchJson<T = unknown>(url: string): Promise<T> {
-  return fetchJson<T>(url);
-}
-
-async function fetchJsonInBackground<T = unknown>(url: string): Promise<T> {
-  try {
-    // 响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）；data 为目标 JSON
-    // 原文（unknown），由本函数的泛型参数 T 收口
-    const resp = await sendRuntimeMessage({ type: "fetch-json", url });
-    if (!resp?.ok) {
-      throw new Error(toReadableText(resp?.error, "Background fetch failed"));
-    }
-    return resp.data as T;
-  } catch (error) {
-    if (isExtensionContextInvalidated(error)) {
-      throw new Error("扩展刚刚更新，请刷新当前页面后重试。");
-    }
-    throw error;
-  }
-}
 
 // ===== content-side adapters =====
 
@@ -157,212 +105,7 @@ export async function fetchHotCommentsWithLedger(
   }
 }
 
-// ===== gateway orchestration =====
-
-export interface VideoPage {
-  cid: string;
-  page: number;
-  part: string;
-  duration: number;
-}
-
-export interface VideoMeta {
-  aid: string;
-  title: string;
-  author: string;
-  description: string;
-  uploadDate: string;
-  defaultCid: string;
-  defaultDuration: number;
-  pages: VideoPage[];
-  // 充电专属且当前未开通充电（is_upower_exclusive && !is_upower_play）；普通视频缺省。
-  upowerBlocked?: boolean;
-}
-
-function isUpowerBlockedPayload(data: Record<string, unknown> | null | undefined): boolean {
-  return Boolean(data?.is_upower_exclusive) && !Boolean(data?.is_upower_play);
-}
-
-// 日志下沉（arch-slim-2/03）：原 subtitle/fetcher.ts 的纯直通包装删除，其
-// logInfo/logWarn 随之下沉到本模块（debug 级差异：日志 emitted 点从 fetcher
-// 包装层移到 gateway 本体，字段与文案逐字一致）。
-export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Promise<VideoMeta> {
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
-  logInfo("[BILISCRIPT] fetch video meta", { url, bvid });
-  const payload = await transport(url);
-  if ((payload as { code?: unknown })?.code !== 0) {
-    throw new Error(toReadableText((payload as { message?: unknown })?.message, "无法获取视频信息"));
-  }
-
-  const data = (payload as { data?: Record<string, unknown> }).data || {};
-  const pubdate = Number(data.pubdate || 0);
-  const uploadDate = pubdate > 0 ? formatLocalDate(pubdate * 1000) : "";
-  const pages = Array.isArray(data.pages) ? data.pages : [];
-  const upowerBlocked = isUpowerBlockedPayload(data);
-
-  return {
-    aid: String(data.aid || ""),
-    title: String(data.title || ""),
-    author: String((data.owner as { name?: unknown })?.name || ""),
-    description: String(data.desc || ""),
-    uploadDate,
-    defaultCid: data.cid ? String(data.cid) : "",
-    defaultDuration: Number(data.duration || 0) || 0,
-    pages: pages.map((item) => ({
-      cid: String((item as { cid?: unknown })?.cid || ""),
-      page: Number((item as { page?: unknown })?.page || 0) || 0,
-      part: String((item as { part?: unknown })?.part || "").trim(),
-      duration: Number((item as { duration?: unknown })?.duration || 0) || 0
-    })),
-    ...(upowerBlocked ? { upowerBlocked: true } : {})
-  };
-}
-
-export interface SubtitleTrack {
-  id: string;
-  lan: string;
-  lanDoc: string;
-  subtitleUrl: string;
-  source: string;
-}
-
-export interface Chapter {
-  title: string;
-  from: number;
-  to: number;
-  source: string;
-}
-
-export async function fetchSubtitleBundle(
-  transport: JsonTransport,
-  { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
-  // 日志下沉（arch-slim-2/03）：原 fetcher 包装层在整次调用失败时 logWarn 后
-  // 原样重抛，这里在兜底 catch 收口，字段与文案逐字一致。
-  try {
-    return await fetchSubtitleBundleInner(transport, { bvid, cid, aid });
-  } catch (error) {
-    logWarn("[BILISCRIPT] subtitles API request failed", {
-      bvid,
-      cid,
-      aid,
-      message: getErrorMessage(error)
-    });
-    throw error;
-  }
-}
-
-async function fetchSubtitleBundleInner(
-  transport: JsonTransport,
-  { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
-  logInfo("[BILISCRIPT] fetch subtitles list", { bvid, cid, aid });
-  const requests: SubtitleInfoRequest[] = buildSubtitleInfoRequests({ bvid, cid, aid });
-
-  const fetchByRequest = async (request: SubtitleInfoRequest) => {
-    const payload = await transport(request.url);
-    if ((payload as { code?: unknown })?.code !== 0) {
-      throw buildBiliApiError(payload, "无法获取字幕列表");
-    }
-
-    const data = (payload as { data?: Record<string, unknown> }).data;
-    const chapters = mapChaptersFromPlayerData(data) as Chapter[];
-    const subtitles = mapSubtitleTracks(
-      ((data as { subtitle?: { subtitles?: unknown } } | undefined)?.subtitle?.subtitles || []) as unknown[],
-      request.source
-    ) as SubtitleTrack[];
-    const withUrl = subtitles.filter((item) => item.subtitleUrl);
-    const upowerBlocked = isUpowerBlockedPayload(data);
-    return { source: request.source, chapters, withUrl, upowerBlocked };
-  };
-
-  if (requests.length === 0) {
-    return { tracks: [], chapters: [] };
-  }
-
-  const primaryRequest = requests[0];
-  try {
-    const primaryResult = await fetchByRequest(primaryRequest);
-    const extra = primaryResult.upowerBlocked ? { upowerBlocked: true } : {};
-    if (primaryResult.withUrl.length > 0) {
-      return { tracks: primaryResult.withUrl, chapters: primaryResult.chapters, ...extra };
-    }
-    // 主来源成功但无字幕：直接判定无字幕，不再跨源兜底。
-    return { tracks: [], chapters: primaryResult.chapters, ...extra };
-  } catch (primaryError) {
-    // 仅当主来源请求失败时才尝试次来源。
-    if (requests.length > 1) {
-      const secondaryRequest = requests[1];
-      try {
-        const secondaryResult = await fetchByRequest(secondaryRequest);
-        const extra = secondaryResult.upowerBlocked ? { upowerBlocked: true } : {};
-        if (secondaryResult.withUrl.length > 0) {
-          return { tracks: secondaryResult.withUrl, chapters: secondaryResult.chapters, ...extra };
-        }
-        return { tracks: [], chapters: secondaryResult.chapters, ...extra };
-      } catch (secondaryError) {
-        throw secondaryError;
-      }
-    }
-
-    throw primaryError;
-  }
-}
-
 async function fetchSubtitleBodyJson<T>(transport: JsonTransport, url: string): Promise<T[]> {
   const payload = await transport(url);
   return Array.isArray((payload as { body?: unknown })?.body) ? (payload as { body: T[] }).body : [];
-}
-
-// 楼中楼续篇补抓（F3）：只为正文含时间戳行的顶层评论拉续篇（上限常数根，防
-// 异常评论区撑爆请求数），单条失败折成空续篇，不影响顶层评论。
-const MAX_SUB_REPLY_ROOTS = 5;
-const SUB_REPLY_PAGE_SIZE = 20;
-
-async function fetchSubReplyInputs(
-  transport: JsonTransport,
-  aid: number,
-  payload: unknown
-): Promise<SubReplyInput[]> {
-  const roots = subReplyRootIds(payload).slice(0, MAX_SUB_REPLY_ROOTS);
-  return Promise.all(
-    roots.map(async (root) => {
-      const url =
-        `https://api.bilibili.com/x/v2/reply/reply` +
-        `?oid=${aid}&type=1&root=${encodeURIComponent(String(root))}` +
-        `&ps=${SUB_REPLY_PAGE_SIZE}&pn=1`;
-      const subPayload = await transport(url).catch(() => null);
-      return { root, messages: subReplyMessages(subPayload) };
-    })
-  );
-}
-
-// 与 fetchSubtitleBundle 同款 transport 注入缝（测试直测，零真实 fetch）。
-export async function fetchHotCommentsJson(
-  transport: JsonTransport,
-  aid: number | string,
-  count = 18
-): Promise<HotComment[]> {
-  const safeAid = Number(aid || 0) || 0;
-  const safeCount = Math.max(0, Number(count) || 0);
-  if (!safeAid || !safeCount) {
-    return [];
-  }
-
-  const url = `https://api.bilibili.com/x/v2/reply/main?type=1&oid=${safeAid}&mode=3&ps=${safeCount}&pn=1`;
-  // 拉不到评论就抛错，不折成空数组：空评论区与「拉不到」在用户侧同样是「没有目录」，
-  // 但后者会让概览整段退回 AI 自由分章，必须能让上游出声（-352 风控时尤其常见）。
-  // 降级动作（落空数组 + 记 note / 写状态行）由调用方做，语义在调用方一侧。
-  const payload = await transport(url).catch((error: unknown) => {
-    throw new Error(`热评请求失败：${getErrorMessage(error)}`);
-  });
-  const apiError = buildHotCommentsApiError(payload);
-  if (apiError) {
-    throw apiError;
-  }
-  // 置顶评论只出现在 data.top.upper / data.top_replies（详见 mergeHotCommentsFromPayload
-  // 注释）：挑/合并且去重的纯逻辑下沉到 bili-api-shared。楼中楼续篇（置顶目录的
-  // 第二段）经 subReplies 挂到顶层评论的 subMessages。
-  const subReplies = await fetchSubReplyInputs(transport, safeAid, payload);
-  return mergeHotCommentsFromPayload(payload, safeCount, subReplies);
 }

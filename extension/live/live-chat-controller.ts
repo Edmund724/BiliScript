@@ -1,6 +1,6 @@
 // extension/live/live-chat-controller.ts
 // AI 对话面板中实时伴看的控制状态机与生命周期管理。
-// 负责校验密钥与权限、采集麦克风音频与视频帧、管理静音/挂断、转发双端字幕与联网查证状态并处理断连/清理。
+// 负责校验密钥与权限、采集音视频、执行前台工具与后台视频委派，并管理静音、挂断、断连及换片清理。
 
 import {
   MOSS_LIVE_PORT_NAME,
@@ -10,6 +10,7 @@ import {
   resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
   type LiveProviderType,
+  type MossLiveDelegationRequest,
   type MossLiveServerEvent,
   type MossLiveToolCall,
   type MossLiveTranscriptEvent,
@@ -20,7 +21,25 @@ import {
   liveProviderStore,
   resolveActiveLiveProviderId
 } from "./live-provider-store.js";
+import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
+import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
+import {
+  LIVE_VOICE_FALLBACK_NOTICE_TEXT,
+  recordLiveVoiceFallbackNotice
+} from "./live-voice-fallback-notice.js";
+import {
+  VideoBackendTaskManager,
+  type VideoBackendTaskOptions,
+  type VideoBackendTaskResult
+} from "./video-backend-task.js";
+import {
+  createLiveTextToolRecordStore,
+  summarizeLiveTextToolMarkdown,
+  type LiveTextToolRecord,
+  type LiveTextToolRecordEvent
+} from "./live-text-tool-records.js";
+import { normalizeLiveTextToolVideo } from "./live-text-tool-history.js";
 import {
   createPageAudioCapture,
   type PageAudioCaptureOptions,
@@ -32,6 +51,7 @@ import {
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
 } from "./page-video-frame-capture.js";
+import { resolveMossVideoConfig, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
@@ -40,6 +60,17 @@ import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messa
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
 export const DEFAULT_LIVE_DUCK_RATIO = 0.2;
 
+function classifyConnectionFailure(
+  providerType: LiveProviderType,
+  details: { code?: string | number; reason?: string; error?: string }
+): LiveFailureKind {
+  const diagnostic = `${details.code ?? ""} ${details.reason ?? ""} ${details.error ?? ""}`;
+  if (/\b(?:401|403)\b|unauthorized|forbidden|authentication|invalid[^\n]*(?:api[ -]?key|key)|(?:api[ -]?key|密钥)[^\n]*(?:invalid|无效|失效|拒绝)/i.test(diagnostic)) {
+    return providerType === "gemini-live" ? "gemini-credential" : "key-rejected";
+  }
+  return "network";
+}
+
 export interface LiveReconnectingInfo {
   attempt: number;
   maxAttempts: number;
@@ -47,6 +78,12 @@ export interface LiveReconnectingInfo {
   reason?: string;
   error?: string;
   notice: string;
+}
+
+export interface LiveVideoBackendTaskManager {
+  runTask(options: VideoBackendTaskOptions): Promise<VideoBackendTaskResult | null>;
+  cancelTask(taskId: string): boolean;
+  cancelAllTasks(): void;
 }
 
 export interface LiveChatControllerDeps {
@@ -61,7 +98,9 @@ export interface LiveChatControllerDeps {
   getVideoElement?: () => HTMLVideoElement | null;
   onVoicePriorityChange?: (enabled: boolean) => void;
   onShareVideoAudioChange?: (enabled: boolean) => void;
-  onStateChange?: (state: LiveChatState, error?: string) => void;
+  onVolumeChange?: (volumePercent: number) => void;
+  onSpeedChange?: (speed: number) => void;
+  onStateChange?: (state: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onSpeakingChange?: (speaking: boolean) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
@@ -76,9 +115,12 @@ export interface LiveChatControllerDeps {
   startAudioCapture?: (options: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
   startVideoCapture?: (options: PageVideoFrameCaptureOptions) => PageVideoFrameCaptureSession;
   onTranscript?: (event: MossLiveTranscriptEvent) => void;
+  onVideoContextSwitch?: (context: MossLiveSessionContext | null) => void;
   getVideoContext?: () => MossLiveSessionContext | null;
   executeTool?: (call: MossLiveToolCall) => Promise<unknown> | unknown;
   subscribeVideoContextChanges?: (listener: () => void) => () => void;
+  videoBackendTaskManager?: LiveVideoBackendTaskManager;
+  persistTextToolRecord?: (record: LiveTextToolRecord) => Promise<void> | void;
 }
 
 export interface LiveChatController {
@@ -103,6 +145,10 @@ export interface LiveChatController {
   toggleMute(): void;
   interrupt(): void;
   refreshTarget(): Promise<void>;
+  getTextToolRecords(): LiveTextToolRecord[];
+  subscribeTextToolRecords(listener: () => void): () => void;
+  retryTextToolRecord(callId: string): boolean;
+  dismissTextToolRecord(callId: string): void;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
@@ -122,6 +168,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     getVideoElement = null,
     onVoicePriorityChange,
     onShareVideoAudioChange,
+    onVolumeChange,
+    onSpeedChange,
     onStateChange,
     onSpeakingChange,
     onReconnecting,
@@ -147,6 +195,72 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     : null;
   const resolveVideoContext = getVideoContext ?? defaultToolsBridge!.getVideoContext;
   const resolveExecuteTool = executeTool ?? defaultToolsBridge!.executeTool;
+  const backendTasks = deps.videoBackendTaskManager ?? new VideoBackendTaskManager();
+  const textToolRecords = createLiveTextToolRecordStore();
+  const textToolAttempts = new Map<string, number>();
+  const textToolRetries = new Map<string, () => void>();
+  const textToolPersistence = new Map<string, string>();
+  textToolRecords.subscribe(() => {
+    if (!deps.persistTextToolRecord) return;
+    for (const record of textToolRecords.getSnapshot()) {
+      if (record.status !== "completed" && record.status !== "failed") continue;
+      const key = `${record.status}:${record.startedAt}:${record.endedAt ?? ""}`;
+      if (textToolPersistence.get(record.callId) === key) continue;
+      textToolPersistence.set(record.callId, key);
+      try {
+        void Promise.resolve(deps.persistTextToolRecord(record)).catch(() => {});
+      } catch {}
+    }
+  });
+
+  function nextTextToolAttempt(callId: string): number {
+    const attempt = (textToolAttempts.get(callId) ?? 0) + 1;
+    textToolAttempts.set(callId, attempt);
+    return attempt;
+  }
+
+  function applyTextToolRecord(attempt: number, event: LiveTextToolRecordEvent): void {
+    if (textToolAttempts.get(event.callId) !== attempt) return;
+    textToolRecords.apply(event);
+  }
+
+  function failTextToolRecord(callId: string, error: string): void {
+    if (!textToolRecords.getSnapshot().some((record) => record.callId === callId && record.status === "running")) {
+      return;
+    }
+    nextTextToolAttempt(callId);
+    textToolRecords.apply({ type: "failed", callId, error, endedAt: Date.now() });
+  }
+
+  function failRunningTextToolRecords(error: string): void {
+    for (const record of textToolRecords.getSnapshot()) {
+      if (record.status === "running") failTextToolRecord(record.callId, error);
+    }
+  }
+
+  function clearTextToolRecords(): void {
+    failRunningTextToolRecords("本次分析已取消。");
+    textToolAttempts.clear();
+    textToolRetries.clear();
+    textToolPersistence.clear();
+    textToolRecords.clear();
+  }
+
+  function retryTextToolRecord(callId: string): boolean {
+    const record = textToolRecords.getSnapshot().find((item) => item.callId === callId);
+    const retry = textToolRetries.get(callId);
+    if (record?.status !== "failed" || !retry || state !== "connected" || !activePort) return false;
+    retry();
+    return true;
+  }
+
+  function dismissTextToolRecord(callId: string): void {
+    const record = textToolRecords.getSnapshot().find((item) => item.callId === callId);
+    if (record?.status !== "failed") return;
+    textToolAttempts.delete(callId);
+    textToolRetries.delete(callId);
+    textToolRecords.apply({ type: "dismissed", callId });
+  }
 
   let state: LiveChatState = "idle";
   let muted = false;
@@ -159,8 +273,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let currentVideoAudioStatus: VideoAudioTrackStatus = "未开启";
   const effectiveDuckRatio = Number.isFinite(duckRatio) && duckRatio >= 0 && duckRatio <= 1 ? duckRatio : DEFAULT_LIVE_DUCK_RATIO;
   const resolveVideoElement = getVideoElement ?? getRuntimeVideoElement;
-  let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(1, initialVolume)) : 1;
-  let speed = Number.isFinite(initialSpeed) && initialSpeed > 0 ? initialSpeed : 1;
+  let volume = Number.isFinite(initialVolume) ? Math.max(0, Math.min(2, initialVolume)) : 1;
+  let speed = normalizeLiveVoiceSpeed(initialSpeed);
   let currentGeneration = 0;
   function shouldDuck(): boolean {
     if (!voicePriority) return false;
@@ -194,15 +308,59 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  const pendingLongSummaryDelegations = new Set<string>();
+  let longSummaryControlActive = false;
+  let longSummaryVideo: HTMLVideoElement | null = null;
+  let longSummaryShouldResume = false;
+
+  function beginLongSummaryControl(): void {
+    if (longSummaryControlActive || pendingLongSummaryDelegations.size === 0) return;
+    const delegationId = pendingLongSummaryDelegations.values().next().value;
+    if (typeof delegationId !== "string") return;
+    pendingLongSummaryDelegations.delete(delegationId);
+    longSummaryControlActive = true;
+    longSummaryVideo = resolveVideoElement();
+    longSummaryShouldResume = Boolean(longSummaryVideo && !longSummaryVideo.paused);
+    if (longSummaryShouldResume) {
+      try {
+        longSummaryVideo?.pause();
+      } catch {}
+    }
+  }
+
+  function endLongSummaryControl(): void {
+    if (!longSummaryControlActive) return;
+    const video = longSummaryVideo;
+    const shouldResume = longSummaryShouldResume;
+    longSummaryControlActive = false;
+    longSummaryVideo = null;
+    longSummaryShouldResume = false;
+    if (shouldResume && video && resolveVideoElement() === video) {
+      try {
+        void video.play().catch(() => {});
+      } catch {}
+    }
+  }
+
+  function clearLongSummaryControls(): void {
+    pendingLongSummaryDelegations.clear();
+    endLongSummaryControl();
+  }
+
   let activePort: chrome.runtime.Port | null = null;
   let activeSessionId: string | null = null;
   let savedMossSessionId: string | null = null;
   let activeAudioCapture: PageAudioCaptureSession | null = null;
   let reconnecting = false;
   let activeVideoCapture: PageVideoFrameCaptureSession | null = null;
+  // 本次会话的画面采集参数：先按开关取请求档位，收到 media.configured 后以回执为准。
+  let videoCaptureConfig: MossVideoCaptureConfig = resolveMossVideoConfig(false);
+  let videoConfigErrorNotified = false;
   let activeTargetOrigin = "https://api.mosi.cn";
   let activeTargetModel = DEFAULT_LIVE_MODEL;
   let activeTargetProviderType: LiveProviderType = "moss-live";
+  let activeTargetProviderId = "";
+  let activeTargetVoiceId = "";
 
   async function refreshTarget(): Promise<void> {
     try {
@@ -226,6 +384,33 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           ? "https://generativelanguage.googleapis.com"
           : "https://api.mosi.cn");
       activeTargetModel = active?.model || DEFAULT_LIVE_MODEL;
+      const nextProviderId = String(active?.id || "");
+      const providerChanged = Boolean(
+        activeTargetProviderId &&
+        nextProviderId !== activeTargetProviderId &&
+        (state === "connecting" || state === "connected")
+      );
+      activeTargetProviderId = nextProviderId;
+      if (providerChanged) {
+        showNotice("伴看平台已切换，当前连接保持不变；重新连接后生效", 6000);
+      }
+      // 同平台通话中改音色：设置改动经 liveProviders 存储监听回到这里，向 offscreen
+      // 下发 change_voice（下一轮回答生效）；平台切换保留旧连接，仅更新下次连接目标。
+      const nextVoiceId = String(active?.voiceId || "").trim();
+      const voiceChanged = nextVoiceId !== activeTargetVoiceId;
+      activeTargetVoiceId = nextVoiceId;
+      if (
+        voiceChanged &&
+        !providerChanged &&
+        nextVoiceId &&
+        state === "connected" &&
+        activeTargetProviderType === "moss-live" &&
+        activePort
+      ) {
+        try {
+          activePort.postMessage({ action: "change_voice", voiceId: nextVoiceId });
+        } catch {}
+      }
     } catch {
       // 忽略加载错误
     }
@@ -246,7 +431,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     onSpeakingChange?.(speaking);
   }
 
-  function updateUi(nextState: LiveChatState, errorMessage?: string): void {
+  function updateUi(nextState: LiveChatState, errorMessage?: string, failureKind?: LiveFailureKind): void {
     state = nextState;
     if (nextState !== "connecting") {
       reconnecting = false;
@@ -255,6 +440,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       muted = false;
       speaking = false;
       micVadActive = false;
+      clearLongSummaryControls();
     }
     syncVideoDucking();
     if (liveButton) {
@@ -283,7 +469,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
     updateMuteUi();
     updateSpeakingUi();
-    onStateChange?.(nextState, errorMessage);
+    onStateChange?.(nextState, errorMessage, failureKind);
   }
 
   // 初始化 UI 呈现
@@ -312,6 +498,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       activeVideoCapture = startVideoCapture({
         getVideo: resolveVideoElement,
+        config: videoCaptureConfig,
         onJpegFrame: (jpegBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) return;
           try {
@@ -330,6 +517,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   async function cleanupSessionRule(targetSessionId?: string): Promise<void> {
+    // 无会话 id 的清理无法区分新旧会话：接管后新标签页已装规则时，旧页面
+    // 迟到的空 id 清理会踩掉新会话的所有权与鉴权规则。
+    if (!targetSessionId) return;
     try {
       await sendRuntimeMessage({ type: "live-session-cleanup", sessionId: targetSessionId });
     } catch {
@@ -337,8 +527,32 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  // change_voice 失败（如音色已被删）：页面内先告知，再清掉该 provider 的
+  // voiceId（下次会话回到平台默认）并留下一次性提示给设置面板。
+  function handleVoiceFallback(voiceId: string): void {
+    showNotice(LIVE_VOICE_FALLBACK_NOTICE_TEXT, 6000);
+    activeTargetVoiceId = "";
+    void clearFallbackVoiceSelection(voiceId);
+  }
+
+  async function clearFallbackVoiceSelection(voiceId: string): Promise<void> {
+    await recordLiveVoiceFallbackNotice({ voiceId });
+    try {
+      const providers = await liveProviderStore.loadProviders();
+      const index = providers.findIndex((provider) => provider.id === activeTargetProviderId);
+      if (index < 0 || providers[index].voiceId !== voiceId) return;
+      const { voiceId: _removed, ...rest } = providers[index];
+      const next = providers.map((provider, i) => (i === index ? rest : provider));
+      await liveProviderStore.saveProviders(next);
+    } catch {
+      // 回退提示已落盘；清选择失败时下次会话仍会走同一条回退路径
+    }
+  }
+
   let stopVideoContextWatch: (() => void) | null = null;
   let lastPostedContextJson: string | null = null;
+  let lastDelegationVideoKey: string | null = null;
+  let currentVideoGeneration = 0;
 
   function readVideoContext(): MossLiveSessionContext | null {
     try {
@@ -348,8 +562,254 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
   }
 
+  function delegationVideoKey(context: MossLiveSessionContext | null): string {
+    return context && !("kind" in context)
+      ? `${context.bvid}:${context.cid}:${context.pageIndex}`
+      : "";
+  }
+
+  function currentTextToolVideo() {
+    return normalizeLiveTextToolVideo(readVideoContext()) || undefined;
+  }
+
+  function postDelegationSilent(
+    delegationId: string,
+    content: string,
+    generation: number
+  ): void {
+    if (generation !== currentGeneration || !activePort) return;
+    try {
+      activePort.postMessage({
+        action: "delegation_silent",
+        delegationId,
+        content: Array.from(content).slice(0, 2000).join("")
+      });
+    } catch {}
+  }
+
+  function postDelegationResult(
+    delegationId: string,
+    status: "in_progress" | "completed" | "failed",
+    content: string,
+    generation: number
+  ): void {
+    if (generation !== currentGeneration || !activePort) return;
+    try {
+      activePort.postMessage({
+        action: "delegation_result",
+        delegationId,
+        status,
+        content: Array.from(content).slice(0, 2000).join("")
+      });
+    } catch {}
+  }
+
+  async function runBackendDelegation(
+    delegation: MossLiveDelegationRequest,
+    generation: number,
+    retry = false
+  ): Promise<void> {
+    const callId = delegation.delegationId;
+    if (!retry && textToolRetries.has(callId)) return;
+    const attempt = nextTextToolAttempt(callId);
+    textToolRetries.set(callId, () => {
+      void runBackendDelegation(delegation, generation, true);
+    });
+    applyTextToolRecord(attempt, {
+      type: "started",
+      callId,
+      source: activeTargetProviderType === "gemini-live" ? "gemini" : "moss",
+      objective: delegation.objective,
+      startedAt: Date.now(),
+      video: currentTextToolVideo(),
+      retry
+    });
+
+    const controller = new AbortController();
+    const timeout = delegation.purpose === "reasoning" && delegation.timeoutMs !== undefined
+      ? setTimeout(() => {
+          if (textToolAttempts.get(callId) !== attempt) return;
+          postDelegationResult(
+            callId,
+            "in_progress",
+            "后台分析仍在进行，完成后我会继续汇报。",
+            generation
+          );
+        }, delegation.timeoutMs)
+      : null;
+    try {
+      const result = await backendTasks.runTask({
+        taskId: callId,
+        objective: delegation.objective,
+        context: delegation.context,
+        scope: delegation.scope,
+        timeRange: delegation.timeRange,
+        signal: controller.signal,
+        onSilentProgress: (content) => {
+          if (textToolAttempts.get(callId) !== attempt) return;
+          postDelegationSilent(callId, content, generation);
+        },
+        onSpokenResult: (content) => {
+          if (textToolAttempts.get(callId) !== attempt || generation !== currentGeneration || !activePort) return;
+          pendingLongSummaryDelegations.add(callId);
+          postDelegationResult(callId, "completed", content, generation);
+        },
+        onTextProgress: (markdown) => {
+          applyTextToolRecord(attempt, {
+            type: "progress",
+            callId,
+            summary: summarizeLiveTextToolMarkdown(markdown),
+            markdown
+          });
+        },
+        onError: (content) => {
+          if (textToolAttempts.get(callId) !== attempt) return;
+          postDelegationResult(callId, "failed", content, generation);
+          applyTextToolRecord(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
+        }
+      });
+      if (result) {
+        applyTextToolRecord(attempt, {
+          type: "completed",
+          callId,
+          summary: summarizeLiveTextToolMarkdown(result.rawText),
+          markdown: result.detailText || result.rawText,
+          endedAt: Date.now()
+        });
+      } else if (!controller.signal.aborted) {
+        failTextToolRecord(callId, "后台视频任务未返回可用结果，请重试。");
+      }
+    } catch (error) {
+      if (controller.signal.aborted || textToolAttempts.get(callId) !== attempt) return;
+      const content = (error as Error)?.message || String(error);
+      postDelegationResult(callId, "failed", content, generation);
+      applyTextToolRecord(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
+    } finally {
+      if (timeout !== null) clearTimeout(timeout);
+    }
+  }
+
+  function overviewRecordResult(result: unknown): { summary: string; markdown: string } | null {
+    if (!result || typeof result !== "object" || (result as Record<string, unknown>).ok !== true) {
+      return null;
+    }
+    const value = result as Record<string, unknown>;
+    const summary = typeof value.summary === "string" ? value.summary.trim() : "";
+    const sections = ["# 全片概览", summary];
+    if (Array.isArray(value.chapters)) {
+      const chapters = value.chapters.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const chapter = raw as Record<string, unknown>;
+        const title = typeof chapter.title === "string" ? chapter.title.trim() : "";
+        const time = typeof chapter.time === "string" ? chapter.time.trim() : "";
+        const detail = typeof chapter.summary === "string" ? chapter.summary.trim() : "";
+        if (!title && !detail) return [];
+        return [`### ${time ? `[${time}] ` : ""}${title}\n${detail}`.trim()];
+      });
+      if (chapters.length > 0) sections.push("## 分章节详细笔记", ...chapters);
+    }
+    if (Array.isArray(value.quotes)) {
+      const quotes = value.quotes.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const quote = raw as Record<string, unknown>;
+        const content = typeof quote.content === "string" ? quote.content.trim() : "";
+        const time = typeof quote.time === "string" ? quote.time.trim() : "";
+        return content ? [`- ${time ? `[${time}] ` : ""}${content}`] : [];
+      });
+      if (quotes.length > 0) sections.push("## 关键原话", ...quotes);
+    }
+    const markdown = sections.filter(Boolean).join("\n\n");
+    if (!markdown || markdown === "# 全片概览") return null;
+    return { summary: summarizeLiveTextToolMarkdown(summary || markdown), markdown };
+  }
+
+  function postPageToolResult(
+    callId: string,
+    result: unknown,
+    generation: number,
+    videoGeneration: number
+  ): void {
+    if (
+      generation !== currentGeneration ||
+      videoGeneration !== currentVideoGeneration ||
+      !activePort
+    ) return;
+    try {
+      activePort.postMessage({ action: "tool_result", callId, result });
+    } catch {}
+  }
+
+  async function runPageTool(
+    call: MossLiveToolCall,
+    generation: number,
+    retry = false,
+    videoGeneration = currentVideoGeneration
+  ): Promise<void> {
+    const isSummary = call.name === "summarize_video";
+    const callId = call.callId;
+    if (!isSummary) {
+      try {
+        const result = await resolveExecuteTool(call);
+        postPageToolResult(callId, result, generation, videoGeneration);
+      } catch (error) {
+        postPageToolResult(callId, {
+          ok: false,
+          error: `页面工具执行失败：${(error as Error)?.message || String(error)}`
+        }, generation, videoGeneration);
+      }
+      return;
+    }
+
+    if (!retry && textToolRetries.has(callId)) return;
+    const attempt = nextTextToolAttempt(callId);
+    textToolRetries.set(callId, () => {
+      void runPageTool(call, generation, true, videoGeneration);
+    });
+    applyTextToolRecord(attempt, {
+      type: "started",
+      callId,
+      source: "moss",
+      objective: "生成当前视频全片总结",
+      startedAt: Date.now(),
+      video: currentTextToolVideo(),
+      retry
+    });
+
+    try {
+      const result = await resolveExecuteTool(call);
+      if (textToolAttempts.get(callId) !== attempt) return;
+      postPageToolResult(callId, result, generation, videoGeneration);
+      const completed = overviewRecordResult(result);
+      if (completed) {
+        applyTextToolRecord(attempt, { type: "completed", callId, ...completed, endedAt: Date.now() });
+      } else {
+        const error = result && typeof result === "object" && typeof (result as Record<string, unknown>).error === "string"
+          ? String((result as Record<string, unknown>).error)
+          : "全片概览生成失败，请重试。";
+        applyTextToolRecord(attempt, { type: "failed", callId, error, endedAt: Date.now() });
+      }
+    } catch (error) {
+      if (textToolAttempts.get(callId) !== attempt) return;
+      const message = `页面工具执行失败：${(error as Error)?.message || String(error)}`;
+      postPageToolResult(callId, { ok: false, error: message }, generation, videoGeneration);
+      applyTextToolRecord(attempt, { type: "failed", callId, error: message, endedAt: Date.now() });
+    }
+  }
+
   function postVideoContext(context: MossLiveSessionContext | null): void {
     if (!activePort) return;
+    const nextDelegationVideoKey = delegationVideoKey(context);
+    if (
+      lastDelegationVideoKey !== null &&
+      nextDelegationVideoKey !== lastDelegationVideoKey
+    ) {
+      currentVideoGeneration += 1;
+      backendTasks.cancelAllTasks();
+      clearLongSummaryControls();
+      clearTextToolRecords();
+      deps.onVideoContextSwitch?.(context);
+    }
+    lastDelegationVideoKey = nextDelegationVideoKey;
     const nextJson = JSON.stringify(context);
     if (nextJson === lastPostedContextJson) return;
     lastPostedContextJson = nextJson;
@@ -369,7 +829,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const handleUrlChange = () => {
       if (generation !== currentGeneration) return;
       postVideoContext(null);
-      guardedSync();
     };
     window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
     const unsubscribe = subscribeVideoContextChanges?.(guardedSync) || (() => {});
@@ -390,6 +849,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const sessionId = `live-${generation}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
     muted = false;
+    backendTasks.cancelAllTasks();
+    clearTextToolRecords();
     stopActiveMedia();
     updateUi("connecting");
 
@@ -419,7 +880,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = `权限申请异常：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "permission-denied");
       showNotice(errorMsg);
       return false;
     }
@@ -431,7 +892,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     if (!permResult.ok) {
       const errorMsg = permResult.error || "未授予平台域名权限，无法建立伴看连接";
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "permission-denied");
       showNotice(errorMsg);
       return false;
     }
@@ -446,7 +907,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = `启动服务通信失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       return false;
     }
@@ -459,7 +920,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     if (!prepResp?.ok) {
       const errorMsg = prepResp?.error || "伴看会话准备失败";
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, prepResp?.failureKind);
       showNotice(errorMsg);
       return false;
     }
@@ -470,7 +931,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         : prepResp.provider?.type === "moss-live"
           ? "moss-live"
           : targetProviderType;
+    // 低带宽开关在会话建立时生效：请求档位先用于抽帧，服务端回执到达后再覆盖。
+    videoCaptureConfig = resolveMossVideoConfig(prepResp.liveLowBandwidth === true);
+    videoConfigErrorNotified = false;
     activeTargetProviderType = resolvedProviderType;
+    if (prepResp.provider?.id) {
+      activeTargetProviderId = String(prepResp.provider.id);
+    }
     if (prepResp.provider?.baseUrl) {
       activeTargetOrigin = prepResp.provider.baseUrl;
     }
@@ -480,6 +947,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
     // 3. 请求麦克风授权并启动 16kHz 单声道 20ms PCM 采集
     let captureSession: PageAudioCaptureSession;
+    let microphoneFailed = false;
     try {
       captureSession = await startAudioCapture({
         initialMuted: false,
@@ -495,6 +963,23 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           if (generation !== currentGeneration) return;
           currentVideoAudioStatus = status;
           onVideoAudioStatusChange?.(status);
+        },
+        onMicrophoneError: (error) => {
+          if (
+            microphoneFailed ||
+            generation !== currentGeneration ||
+            (state !== "connecting" && state !== "connected")
+          ) {
+            return;
+          }
+          microphoneFailed = true;
+          const errorMsg = error.message || "麦克风连接已中断，请检查设备或浏览器权限后重试";
+          stopActiveMedia();
+          failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+          updateUi("failure", errorMsg, "microphone");
+          showNotice(errorMsg);
+          disconnectPort();
+          void cleanupSessionRule(sessionId);
         },
         onPcmFrame: (pcmBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) {
@@ -516,14 +1001,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         return false;
       }
       const errorMsg = (error as Error)?.message || String(error || "麦克风授权或启动失败");
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "microphone");
       showNotice(errorMsg);
       return false;
     }
 
-    if (generation !== currentGeneration) {
+    if (generation !== currentGeneration || microphoneFailed) {
       captureSession.stop();
-      void cleanupSessionRule(sessionId);
+      if (generation !== currentGeneration) {
+        void cleanupSessionRule(sessionId);
+      }
       return false;
     }
     activeAudioCapture = captureSession;
@@ -537,7 +1024,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     } catch (error) {
       stopActiveMedia();
       const errorMsg = `连接后台通信端口失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       void cleanupSessionRule(sessionId);
       return false;
@@ -554,7 +1041,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (msg.sessionId) {
           savedMossSessionId = msg.sessionId;
         }
+      } else if (msg.type === "voice_fallback") {
+        handleVoiceFallback(msg.voiceId);
       } else if (msg.type === "connecting") {
+        backendTasks.cancelAllTasks();
+        failRunningTextToolRecords("伴看连接中断，本次分析已取消，可重试。");
         updateUi("connecting");
       } else if (msg.type === "connected") {
         if (msg.sessionId) {
@@ -563,9 +1054,24 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         updateUi("connected");
         syncVideoContext();
         startActiveVideoCapture(generation);
+      } else if (msg.type === "output_configured") {
+        volume = Number.isFinite(msg.volume) ? Math.max(0, Math.min(2, msg.volume)) : volume;
+        speed = normalizeLiveVoiceSpeed(msg.speed);
+        onVolumeChange?.(Math.round(volume * 100));
+        onSpeedChange?.(speed);
+      } else if (msg.type === "video_configured") {
+        videoCaptureConfig = msg.video;
+        activeVideoCapture?.configure(msg.video);
+        if (msg.error && !videoConfigErrorNotified) {
+          videoConfigErrorNotified = true;
+          showNotice(`伴看画面参数未生效，已回退默认画质：${msg.error}`, 6000);
+        }
       } else if (msg.type === "speaking_state") {
         if (state === "connected" || state === "connecting") {
-          speaking = Boolean(msg.speaking);
+          const nextSpeaking = Boolean(msg.speaking);
+          if (nextSpeaking && !speaking) beginLongSummaryControl();
+          speaking = nextSpeaking;
+          if (!nextSpeaking) endLongSummaryControl();
           updateSpeakingUi();
           syncVideoDucking();
         }
@@ -573,20 +1079,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         if (state === "connected" || state === "connecting") {
           onTranscript?.(msg.event);
         }
+      } else if (msg.type === "delegation_created") {
+        void runBackendDelegation(msg.delegation, generation);
+      } else if (msg.type === "delegation_cancelled") {
+        pendingLongSummaryDelegations.delete(msg.delegationId);
+        backendTasks.cancelTask(msg.delegationId);
+        failTextToolRecord(msg.delegationId, "本次分析已取消，可重试。");
       } else if (msg.type === "tool_call") {
-        const postToolResult = (result: unknown) => {
-          if (generation !== currentGeneration || !activePort) return;
-          try {
-            activePort.postMessage({ action: "tool_result", callId: msg.call.callId, result });
-          } catch {}
-        };
-        void Promise.resolve()
-          .then(() => resolveExecuteTool(msg.call))
-          .then(postToolResult)
-          .catch((error) => {
-            postToolResult({ ok: false, error: `页面工具执行失败：${(error as Error)?.message || String(error)}` });
-          });
+        void runPageTool(msg.call, generation);
       } else if (msg.type === "tool_error") {
+        if (msg.callId) failTextToolRecord(msg.callId, msg.error);
         showNotice(msg.error, 4000);
       } else if (msg.type === "tool_status") {
         const event = msg.event;
@@ -601,14 +1103,14 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           showNotice(`联网查证失败${querySuffix}${event.error ? `：${event.error}` : ""}`, 6000);
         }
       } else if (msg.type === "reconnecting") {
+        backendTasks.cancelAllTasks();
+        failRunningTextToolRecords("伴看连接中断，本次分析已取消，可重试。");
         reconnecting = true;
         const notice = formatLiveCloseDiagnostics({
           isReconnect: true,
           attempt: msg.attempt,
           maxAttempts: msg.maxAttempts,
-          code: msg.code,
-          reason: msg.reason,
-          error: msg.error
+          code: msg.code
         });
         updateUi("connecting", notice);
         showNotice(notice, 6000);
@@ -616,45 +1118,36 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           attempt: msg.attempt,
           maxAttempts: msg.maxAttempts,
           code: msg.code,
-          reason: msg.reason,
-          error: msg.error,
           notice
         });
-      } else if (msg.type === "error") {
-        const errorMsg = formatLiveCloseDiagnostics({
-          code: msg.code,
-          reason: msg.reason,
-          error: msg.error || "MOSS-LIVE 连接异常中断"
-        });
-        stopActiveMedia();
-        updateUi("failure", errorMsg);
-        showNotice(errorMsg);
-        disconnectPort();
-        void cleanupSessionRule(sessionId);
-      } else if (msg.type === "closed") {
-        if (state === "connecting" || state === "connected") {
-          const errorMsg = formatLiveCloseDiagnostics({
-            code: msg.code,
-            reason: msg.reason,
-            error: msg.error || "MOSS-LIVE 连接已关闭"
-          });
-          stopActiveMedia();
-          updateUi("failure", errorMsg);
-          showNotice(errorMsg);
-          disconnectPort();
-          void cleanupSessionRule(sessionId);
-        }
+      } else if (msg.type === "error" || msg.type === "closed") {
+        handleConnectionFailure(msg);
       }
     });
+
+    function handleConnectionFailure(msg: Extract<MossLiveServerEvent, { type: "error" | "closed" }>): void {
+      if (msg.type === "closed" && state !== "connecting" && state !== "connected") return;
+      const failureKind = classifyConnectionFailure(resolvedProviderType, msg);
+      const errorMsg = failureKind === "key-rejected" || failureKind === "gemini-credential"
+        ? resolvedProviderType === "gemini-live"
+          ? "Gemini 凭据无效或已被拒绝，请检查后重试"
+          : "平台拒绝了 API Key，请检查或更换后重试"
+        : formatLiveCloseDiagnostics({ code: msg.code });
+      stopActiveMedia();
+      failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+      updateUi("failure", errorMsg, failureKind);
+      showNotice(errorMsg);
+      disconnectPort();
+      void cleanupSessionRule(sessionId);
+    }
 
     port.onDisconnect.addListener(() => {
       if (generation !== currentGeneration) return;
       if (state === "connecting" || state === "connected") {
-        const errorMsg = formatLiveCloseDiagnostics({
-          error: "后台伴看通道已断开"
-        });
+        const errorMsg = "后台伴看通道已断开。";
         stopActiveMedia();
-        updateUi("failure", errorMsg);
+        failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+        updateUi("failure", errorMsg, "network");
         showNotice(errorMsg);
         disconnectPort();
         void cleanupSessionRule(sessionId);
@@ -668,6 +1161,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         : resolveMossLiveWsUrl(prepResp.provider?.baseUrl || targetOrigin, resolvedModel);
     const initialVideoContext = readVideoContext();
     lastPostedContextJson = JSON.stringify(initialVideoContext);
+    lastDelegationVideoKey = delegationVideoKey(initialVideoContext);
     watchVideoContext(generation);
     try {
       port.postMessage({
@@ -678,15 +1172,19 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         volume,
         ...(savedMossSessionId ? { sessionId: savedMossSessionId } : {}),
         ...(speed !== 1 ? { speed } : {}),
+        ...(activeTargetVoiceId ? { voiceId: activeTargetVoiceId } : {}),
         ...(typeof prepResp.liveGeminiNativeSearch === "boolean"
           ? { liveGeminiNativeSearch: prepResp.liveGeminiNativeSearch }
+          : {}),
+        ...(typeof prepResp.liveLowBandwidth === "boolean"
+          ? { lowBandwidth: prepResp.liveLowBandwidth }
           : {}),
         ...(initialVideoContext || getVideoContext ? { videoContext: initialVideoContext } : {})
       });
     } catch (error) {
       stopActiveMedia();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
-      updateUi("failure", errorMsg);
+      updateUi("failure", errorMsg, "network");
       showNotice(errorMsg);
       disconnectPort();
       void cleanupSessionRule(sessionId);
@@ -697,8 +1195,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function disconnectPort(): void {
+    backendTasks.cancelAllTasks();
     stopVideoContextWatch?.();
     lastPostedContextJson = null;
+    lastDelegationVideoKey = null;
     if (activePort) {
       try {
         activePort.disconnect();
@@ -722,7 +1222,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function setVolume(nextVolume: number): void {
-    volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(1, nextVolume)) : 1;
+    volume = Number.isFinite(nextVolume) ? Math.max(0, Math.min(2, nextVolume)) : 1;
     if (!activePort) return;
     try {
       activePort.postMessage({ action: "set_volume", volume });
@@ -730,7 +1230,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   function setSpeed(nextSpeed: number): void {
-    speed = Number.isFinite(nextSpeed) && nextSpeed > 0 ? nextSpeed : 1;
+    speed = normalizeLiveVoiceSpeed(nextSpeed);
     if (!activePort) return;
     try {
       activePort.postMessage({ action: "set_speed", speed });
@@ -763,6 +1263,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activePort.postMessage({ action: "interrupt" });
     } catch {}
     speaking = false;
+    endLongSummaryControl();
     updateSpeakingUi();
     syncVideoDucking();
   }
@@ -772,6 +1273,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
     savedMossSessionId = null; // 用户主动点击结束伴看时清除 session_id
+    clearTextToolRecords();
     stopActiveMedia();
     if (activePort) {
       try {
@@ -827,6 +1329,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     toggleMute,
     interrupt,
     refreshTarget,
+    getTextToolRecords: textToolRecords.getSnapshot,
+    subscribeTextToolRecords: textToolRecords.subscribe,
+    retryTextToolRecord,
+    dismissTextToolRecord,
     start,
     stop,
     toggle,

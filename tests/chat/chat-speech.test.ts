@@ -60,6 +60,13 @@ describe("朗读正文", () => {
     expect(text).not.toContain("```");
   });
 
+  it("剔除来源引用编号，保留正文与标点", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<p>第一句<sup class="chat-cite">[1]</sup>，第二句<sup class="chat-cite">[12]</sup>。</p>';
+
+    expect(speechTextFromElement(root)).toBe("第一句，第二句。");
+  });
+
   it("表格单元格之间保留间隔", () => {
     const root = document.createElement("div");
     root.innerHTML = renderMarkdown("| 名称 | 数值 |\n| --- | --- |\n| 甲 | 乙 |");
@@ -174,6 +181,25 @@ describe("停止、切换与失败", () => {
     await controller.toggle(second, "第二条");
     expect(engine.stop).toHaveBeenCalledTimes(2);
     expect(second.getAttribute("aria-label")).toBe("朗读回答");
+  });
+
+  it("同一消息换上新按钮后仍按消息身份停止，旧按钮脱离 DOM 不影响", async () => {
+    const engine = new FakeSpeechEngine();
+    engine.voices = [localVoice("local-zh", "zh-CN")];
+    const { controller } = makeController(engine);
+    const first = document.createElement("button");
+    document.body.appendChild(first);
+
+    await controller.toggle(first, "同一条回答", { messageId: "message-1" });
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+    first.remove();
+    const replacement = document.createElement("button");
+    replacement.setAttribute("aria-label", "朗读回答");
+    await controller.toggle(replacement, "同一条回答", { messageId: "message-1" });
+
+    expect(engine.stop).toHaveBeenCalledTimes(1);
+    expect(engine.speak).toHaveBeenCalledTimes(1);
+    expect(replacement.getAttribute("aria-label")).toBe("朗读回答");
   });
 
   it("getVoices 尚未返回时停止，迟到的结果不再发声", async () => {

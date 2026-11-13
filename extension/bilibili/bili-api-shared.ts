@@ -17,14 +17,14 @@ export interface HotComment {
   message: string;
   /**
    * 楼中楼续篇正文（置顶目录评论的第二段目录），仅目录解析消费
-   * （shared/chapter-outline 的 hotCommentsText）；聊天展示只用 message。
+   * （shared/chapter-outline 的 hotCommentsText）；聊天工具结果只用 message。
    * 无续篇时不出现该字段。
    */
   subMessages?: string[];
 }
 
 // 热评数据通道保存正文全文（F1）：置顶长评论是章节目录的载体，任何截断都会把
-// 目录行拦腰切断。展示侧的 500 字截断由 ai/context.ts 的评论块单独负责。
+// 目录行拦腰切断。聊天工具结果的 500 字截断由 ai/tool-loop.ts 单独负责。
 export function normalizeHotComments(comments: unknown, limit = 20): HotComment[] {
   if (!Array.isArray(comments)) {
     return [];
@@ -126,6 +126,15 @@ function replyContentMessage(item: unknown): string {
 export function subReplyRootIds(payload: unknown): (number | string)[] {
   return mergedReplyItems(payload)
     .filter((item) => hasOutlineTimestampLine(replyContentMessage(item)))
+    .map((item) => (item as { rpid?: unknown }).rpid)
+    .filter((rpid): rpid is number | string => typeof rpid === "number" || (typeof rpid === "string" && !!rpid));
+}
+
+export function highLikedReplyRootIds(payload: unknown, limit = 5): (number | string)[] {
+  return mergedReplyItems(payload)
+    .filter((item) => Number((item as { like?: unknown }).like) > 0)
+    .sort((a, b) => Number((b as { like?: unknown }).like || 0) - Number((a as { like?: unknown }).like || 0))
+    .slice(0, limit)
     .map((item) => (item as { rpid?: unknown }).rpid)
     .filter((rpid): rpid is number | string => typeof rpid === "number" || (typeof rpid === "string" && !!rpid));
 }

@@ -27,6 +27,7 @@ import type { ProviderRowElement, ProviderRowShowStatus } from "./provider-row.j
 const modelDropdownDismissal = createOutsideClickDismissal({
   wrapperSelector: ".ai-provider-model-wrapper",
   openDropdownSelector: ".ai-provider-model-dropdown:not([hidden])",
+  triggerSelector: ".ai-provider-model-toggle",
   closeAll: () => closeAllModelDropdowns()
 });
 
@@ -34,12 +35,14 @@ export interface ModelPickerFieldOptions {
   inputClass: string;
   placeholder: string;
   value: string;
+  // 关联 label 与字段错误（省略 = 不写 id，行内复用同一控件的旧调用方不受影响）
+  inputId?: string;
 }
 
-export function buildModelPickerField({ inputClass, placeholder, value }: ModelPickerFieldOptions): string {
+export function buildModelPickerField({ inputClass, placeholder, value, inputId }: ModelPickerFieldOptions): string {
   return `
     <div class="ai-provider-model-wrapper">
-      <input class="${inputClass}" type="text" placeholder="${placeholder}" value="${escapeHtml(value)}" />
+      <input class="${inputClass}" type="text"${inputId ? ` id="${inputId}"` : ""} placeholder="${placeholder}" value="${escapeHtml(value)}" />
       <button type="button" class="ai-provider-model-toggle" title="从 baseUrl 拉取可用模型" aria-label="从 baseUrl 拉取可用模型" aria-haspopup="listbox" aria-expanded="false">
         ${READING_CHEVRON_DOWN_ICON}
       </button>

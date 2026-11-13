@@ -35,7 +35,8 @@ import {
   loadSubtitleFromCache,
   clearSubtitleCacheByKey,
   saveSubtitleToCache,
-  clearStaleAsrSubtitleCache
+  clearStaleAsrSubtitleCache,
+  clearTranslatedSubtitleCache
 } from "../subtitle/cache.js";
 import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
@@ -366,6 +367,10 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
             // 的过期 ASR 变体键；平台字幕轨不是孤儿，保留。清理只在写入成功后
             // 执行——写失败时旧变体仍是唯一可用副本，不能删。
             await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
+            // 译文副轨失效（票 asr-panel-translation）：译文缓存键不含原文身份
+            //（`id_translate-<目标语言>` 是兼容面），新一版原文落盘后旧译文一律作废，
+            // 否则同一目标语言会命中旧原文本的译文。
+            await clearTranslatedSubtitleCache({ bvid, cid });
           }
         }
         return { body, outcome };

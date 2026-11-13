@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   AI_CREDENTIAL_REFERENCE_SPECS,
   annotateAiCredentialRows,
+  getAiCredentialSourceLabel,
   getAiCredentialStatusText,
   isOfficialAiCredentialEndpoint,
   queryAiCredentialKey,
@@ -207,7 +208,7 @@ describe("声明式规格、UI 字段显隐与行状态文案注入", () => {
     expect(usesAiCredentialReference("live", "moss-live")).toBe(false);
   });
 
-  it("三态文案表与 annotateAiCredentialRows 行注解一致", () => {
+  it("四态文案表与 annotateAiCredentialRows 行注解一致（含结构化凭据状态与命中来源）", () => {
     expect(AI_CREDENTIAL_REFERENCE_SPECS.deepseek.officialHost).toBe("api.deepseek.com");
     expect(AI_CREDENTIAL_REFERENCE_SPECS["gemini-live"].officialHost).toBe(
       "generativelanguage.googleapis.com"
@@ -216,9 +217,16 @@ describe("声明式规格、UI 字段显隐与行状态文案注入", () => {
     expect(getAiCredentialStatusText("deepseek", "no-record")).toBe(
       "请先在 AI 平台添加官方 DeepSeek 记录"
     );
+    expect(getAiCredentialStatusText("deepseek", "no-key")).toBe(
+      "官方 DeepSeek AI Key 缺失或引用已失效"
+    );
     expect(getAiCredentialStatusText("gemini-live", "unofficial")).toBe(
       "AI 平台配置的并非 Gemini 官方接口地址"
     );
+    expect(getAiCredentialSourceLabel("deepseek", { ...OFFICIAL_DEEPSEEK, name: "DeepSeek 官方" })).toBe(
+      "DeepSeek 官方"
+    );
+    expect(getAiCredentialSourceLabel("deepseek", OFFICIAL_DEEPSEEK)).toBe("DeepSeek");
 
     const searchRows = annotateAiCredentialRows(
       "search",
@@ -227,7 +235,13 @@ describe("声明式规格、UI 字段显隐与行状态文案注入", () => {
     );
     expect(searchRows).toEqual([
       { id: "s1", presetId: "tavily" },
-      { id: "s2", presetId: "deepseek", statusNote: "已复用 AI 平台 Key" }
+      {
+        id: "s2",
+        presetId: "deepseek",
+        statusNote: "已复用 AI 平台 Key",
+        credentialStatus: "ok",
+        credentialSource: "DeepSeek"
+      }
     ]);
 
     const liveRows = annotateAiCredentialRows(
@@ -239,7 +253,8 @@ describe("声明式规格、UI 字段显隐与行状态文案注入", () => {
       {
         id: "l1",
         presetId: "gemini-live",
-        statusNote: "请先在 AI 平台添加官方 Gemini 记录"
+        statusNote: "尚未配置官方 Gemini AI Key",
+        credentialStatus: "no-record"
       }
     ]);
   });

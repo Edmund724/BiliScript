@@ -29,8 +29,10 @@ import type {
   GetAsrRuntimeConfigResponse,
   MessageReplyDecision,
   ProviderListEntry,
-  ResolveAiProviderResponse
+  ResolveAiProviderResponse,
+  ResolveSubtitleTranslateProviderResponse
 } from "../shared/messaging-protocol.js";
+import { resolveSubtitleTranslateProviderConfig } from "../ai/subtitle-translate-config.js";
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;
@@ -201,9 +203,14 @@ export function createAsrRuntimeConfigHandler({
 
 // ===== 「激活平台」单趟解析处理器（arch-slim-3/09，GLOSSARY.md 域词条）=====
 
-// 无可用平台的可读文案单源（原 ai/active-provider.ts 定义，随解析链收口搬入
-// 处理器——错误在解析期产生，文案与产生点同居）。
-export const NO_ACTIVE_PROVIDER_MESSAGE = "还没有配置 AI 平台，请先在插件设置中添加并启用。";
+// 解析期配置类错误的可读文案单源：常量定义在 core/overview-setup-error.ts
+// （SW 产生、content 侧分类两边共用的零依赖叶子，票 provider-onboarding-
+// consistency/01），此处 re-export 保持既有导入路径不变。
+export {
+  MISSING_PROVIDER_KEY_MESSAGE,
+  NO_ACTIVE_PROVIDER_MESSAGE
+} from "./overview-setup-error.js";
+import { MISSING_PROVIDER_KEY_MESSAGE, NO_ACTIVE_PROVIDER_MESSAGE } from "./overview-setup-error.js";
 
 export interface AiResolvedProviderHandlerDeps {
   getMergedSettings: () => Promise<{ defaultModel?: unknown }>;
@@ -214,7 +221,9 @@ export interface AiResolvedProviderHandlerDeps {
 }
 
 // 解析策略双档：providerId 给定 = 精确匹配（offscreen 聊天链，找不到即报错）；
-// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释）。
+// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释）。回落
+// 发生时响应带 isFallback: true（票 05 生效投影展示真实回落，判定在解析权威
+// 这一侧产出，消费方不重复实现回落逻辑）。
 // requiresKey !== false 且密钥缺失在解析期即拒绝——content 侧此前不校验、会
 // 拖到 HTTP 期才失败，两调用方统一收紧（arch-slim-3/09 行为裁决）。回包
 // provider 为平台记录（含 hasSavedKey、不含明文 Key），apiKey 单列。
@@ -243,6 +252,7 @@ export function createAiResolvedProviderHandler({
             && String(item.id || "").trim() !== ""
         );
         let provider: ProviderListEntry | null = null;
+        let isFallback = false;
         if (requestedId) {
           provider = enabled.find((item) => String(item.id) === requestedId) || null;
           if (!provider) {
@@ -255,14 +265,72 @@ export function createAiResolvedProviderHandler({
           if (!provider) {
             throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
           }
+          // 回落事实由解析权威自报（设置面板生效投影直接展示，见协议
+          // ResolveAiProviderResponse.isFallback）：显式默认记录存在且解析结果
+          // 不是它 = 真实回落；无显式默认时首项即缺省，不算回落。
+          isFallback = preferredId !== "" && String(provider.id) !== preferredId;
         }
         const providerId = String(provider.id);
         const keys = (await loadKeys()) || {};
         const apiKey = String(keys[providerId] || "").trim();
         if (provider.requiresKey !== false && !apiKey) {
-          throw new Error("该平台 API Key 未配置");
+          throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
         }
-        return { ok: true, provider, apiKey };
+        return {
+          ok: true,
+          provider,
+          apiKey,
+          // 回落标记只在确为回落时携带（缺省不携带），存量消费方回包形状不变。
+          ...(isFallback ? { isFallback: true } : {})
+        };
+      })(),
+      sendResponse,
+      (error) => (error as Error)?.message || String(error)
+    );
+  };
+}
+
+// ===== 字幕翻译平台解析处理器 =====
+
+export interface SubtitleTranslateProviderHandlerDeps {
+  getMergedSettings: () => Promise<{
+    subtitleTranslateProviderId?: unknown;
+    subtitleTranslateModel?: unknown;
+    defaultModel?: unknown;
+  }>;
+  loadProviders: () => Promise<ProviderListEntry[]>;
+  loadKeys: () => Promise<Record<string, string>>;
+}
+
+export function createSubtitleTranslateProviderHandler({
+  getMergedSettings,
+  loadProviders,
+  loadKeys
+}: SubtitleTranslateProviderHandlerDeps) {
+  return function handleResolveSubtitleTranslateProvider(
+    _message: unknown,
+    _sender: unknown,
+    sendResponse: (response: ResolveSubtitleTranslateProviderResponse) => void
+  ): void {
+    withOkResponse(
+      (async () => {
+        const [settings, providers, keys] = await Promise.all([
+          getMergedSettings(),
+          loadProviders(),
+          loadKeys()
+        ]);
+        const resolved = resolveSubtitleTranslateProviderConfig(providers, keys, settings);
+        // isFallback 只报「专属配置存在但解析不到」的回落；没有专属配置本身就是
+        // 正常跟随默认平台（与 resolve-ai-provider 的显式默认判定同义）。
+        const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
+        const isFallback = preferredProviderId !== "" && resolved.isFallback;
+        return {
+          ok: true,
+          provider: resolved.provider,
+          apiKey: resolved.apiKey,
+          model: resolved.model,
+          ...(isFallback ? { isFallback: true } : {})
+        };
       })(),
       sendResponse,
       (error) => (error as Error)?.message || String(error)

@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createProviderMessageHandlers, createAsrRuntimeConfigHandler } from "../../extension/core/provider-handlers.js";
+import { createProviderMessageHandlers, createAsrRuntimeConfigHandler, createSubtitleTranslateProviderHandler } from "../../extension/core/provider-handlers.js";
 
 // 捕获（可能异步的）sendResponse：回包即 resolve，测试 await response 即可
 function makeChannel<T = unknown>() {
@@ -334,6 +334,48 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     expect((await fallbackChannel.response).provider.id).toBe("p1");
   });
 
+  it("缺省档回落自报 isFallback：显式默认命中不携带，悬空默认回落带 true（票 05 投影标注真实回落）", async () => {
+    const matchedDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "p1" }))
+    });
+    const matchedHandler = createAiResolvedProviderHandler(matchedDeps);
+    const matchedChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    matchedHandler({}, {}, matchedChannel.sendResponse);
+    const matchedPayload = await matchedChannel.response;
+    expect(matchedPayload.ok).toBe(true);
+    expect("isFallback" in matchedPayload).toBe(false);
+
+    const fallbackDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "ghost" }))
+    });
+    const fallbackHandler = createAiResolvedProviderHandler(fallbackDeps);
+    const fallbackChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    fallbackHandler({}, {}, fallbackChannel.sendResponse);
+    expect(await fallbackChannel.response).toMatchObject({ ok: true, isFallback: true });
+
+    // 无显式默认（defaultModel 为空）：首项即缺省，不算回落
+    const noExplicitDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "" }))
+    });
+    const noExplicitHandler = createAiResolvedProviderHandler(noExplicitDeps);
+    const noExplicitChannel = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+    noExplicitHandler({}, {}, noExplicitChannel.sendResponse);
+    const noExplicitPayload = await noExplicitChannel.response;
+    expect(noExplicitPayload.ok).toBe(true);
+    expect("isFallback" in noExplicitPayload).toBe(false);
+  });
+
+  it("providerId 精确匹配档不携带 isFallback（无回落语义）", async () => {
+    const deps = makeResolvedDeps();
+    const handler = createAiResolvedProviderHandler(deps);
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean }>();
+
+    handler({ providerId: "p2" }, {}, sendResponse);
+    const payload = await response;
+    expect(payload.ok).toBe(true);
+    expect("isFallback" in payload).toBe(false);
+  });
+
   it("无启用平台 → { ok: false, error: NO_ACTIVE_PROVIDER_MESSAGE }", async () => {
     const deps = makeResolvedDeps({ loadProviders: vi.fn(async () => []) });
     const handler = createAiResolvedProviderHandler(deps);
@@ -389,5 +431,40 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       ok: false,
       error: "还没有配置 AI 平台，请先在插件设置中添加并启用。"
     });
+  });
+});
+
+describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-provider）", () => {
+  const SUBTITLE_PROVIDERS = [
+    { id: "p1", name: "P1", enabled: true, models: ["m1"], hasSavedKey: true },
+    { id: "p2", name: "P2", enabled: true, models: ["m2"], hasSavedKey: true }
+  ];
+
+  function makeSubtitleDeps(settings: Record<string, unknown>) {
+    return {
+      getMergedSettings: vi.fn(async () => settings),
+      loadProviders: vi.fn(async () => SUBTITLE_PROVIDERS),
+      loadKeys: vi.fn(async () => ({ p1: "k1", p2: "k2" }))
+    };
+  }
+
+  it("未指定专属配置：正常跟随默认平台，不携带 isFallback", async () => {
+    const handler = createSubtitleTranslateProviderHandler(makeSubtitleDeps({ defaultModel: "p2" }));
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+
+    handler({}, {}, sendResponse);
+    const payload = await response;
+    expect(payload.provider.id).toBe("p2");
+    expect("isFallback" in payload).toBe(false);
+  });
+
+  it("专属平台已删除：回落到默认平台并自报 isFallback", async () => {
+    const handler = createSubtitleTranslateProviderHandler(
+      makeSubtitleDeps({ subtitleTranslateProviderId: "ghost", defaultModel: "p2" })
+    );
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+
+    handler({}, {}, sendResponse);
+    expect(await response).toMatchObject({ ok: true, isFallback: true, provider: { id: "p2" } });
   });
 });

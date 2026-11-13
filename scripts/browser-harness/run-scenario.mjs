@@ -31,6 +31,11 @@ const argv = process.argv.slice(2);
 const name = argv[0];
 const scenarios = listScenarios();
 
+if (name === "--list" || name === "-l") {
+  for (const scenario of scenarios) console.log(scenario);
+  process.exit(0);
+}
+
 if (!name || name.startsWith("-")) {
   console.error("用法：pnpm harness:scenario <name> [-- <场景参数>]");
   console.error(`可用场景（${scenarios.length}）：${scenarios.join(", ") || "（无）"}`);

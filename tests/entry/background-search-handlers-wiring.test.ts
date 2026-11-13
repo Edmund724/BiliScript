@@ -112,10 +112,12 @@ describe("搜索编排 handler 的 SW 接线", () => {
     expect(Object.keys(wiring.saveDeps as object)).toEqual([
       "saveSettingsWithInvalidate",
       "getSettingsSnapshot",
-      "onSearchOptOut"
+      "onSearchOptOut",
+      "onSettingsSaved"
     ]);
-    const deps = wiring.saveDeps as { onSearchOptOut: () => Promise<void> };
+    const deps = wiring.saveDeps as { onSearchOptOut: () => Promise<void>; onSettingsSaved: () => Promise<void> };
     expect(typeof deps.onSearchOptOut).toBe("function");
+    expect(typeof deps.onSettingsSaved).toBe("function");
 
     const response = await callHandler(listener, { type: "save-settings", settings: {} });
     expect(response).toEqual({ ok: true, wiring: "save-settings" });

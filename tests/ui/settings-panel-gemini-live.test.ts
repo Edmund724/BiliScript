@@ -13,6 +13,17 @@ const GEMINI_LIVE = {
   hasSavedKey: false
 };
 
+const MOSS_LIVE = {
+  id: "live_moss",
+  presetId: "moss-live",
+  name: "MOSS Live",
+  type: "moss-live",
+  baseUrl: "https://api.mosi.cn",
+  model: "moss-live-1.0",
+  enabled: true,
+  hasSavedKey: true
+};
+
 const GEMINI_AI = {
   id: "p_gemini",
   presetId: "gemini",
@@ -77,6 +88,51 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
   });
 
+  it("公开 Gemini 凭据入口直达共享 AI 记录的 Key 字段", async () => {
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const key = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("gemini");
+    expect(key.closest<HTMLElement>(".provider-editor-field")!.hidden).toBe(false);
+    expect(document.activeElement).toBe(key);
+  });
+
+  it("Gemini 凭据入口使用唯一引用解析，空 baseUrl 按官方默认端点直达且不误选其他记录", async () => {
+    const defaultGemini = { ...GEMINI_AI, id: "p_gemini_default", name: "Gemini 默认端点", baseUrl: "" };
+    const customGemini = { ...GEMINI_AI, id: "p_gemini_custom", name: "Gemini 自定义代理", baseUrl: "https://proxy.example.com" };
+    const nonGemini = { ...GEMINI_AI, id: "p_openai", presetId: "openai", name: "非 Gemini 记录", protocol: "openai" };
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [customGemini, nonGemini, defaultGemini] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.value).toBe("Gemini 默认端点");
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-apikey"));
+  });
+
+  it("没有共享 AI 记录时 Gemini 凭据入口直接打开 Gemini 预设", async () => {
+    await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+
+    await panel.openLiveSettings("gemini-key");
+
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("gemini");
+    expect(document.activeElement).toBe(dialog.querySelector(".provider-editor-apikey"));
+  });
+
   it("AI 平台新增官方 Gemini 记录后同步刷新实时平台行", async () => {
     let aiProviders: Record<string, unknown>[] = [];
     const { host } = await mountPanel({
@@ -86,7 +142,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
         return { ok: true, providers: aiProviders };
       }
     });
-    expect(liveSubtitle(host)).toBe("gemini-3.8-live · 请先在 AI 平台添加官方 Gemini 记录");
+    expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
 
     click(host.querySelector("#addAiProviderBtn"));
     await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
@@ -119,7 +175,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     click(document.querySelector(".confirm-dialog-confirm"));
 
     await vi.waitFor(() => {
-      expect(liveSubtitle(host)).toBe("gemini-3.8-live · 请先在 AI 平台添加官方 Gemini 记录");
+      expect(liveSubtitle(host)).toBe("gemini-3.8-live · 尚未配置官方 Gemini AI Key");
     });
   });
 
@@ -172,5 +228,73 @@ describe("设置面板 Gemini Live 凭据引用", () => {
       providers?: Array<{ liveGeminiNativeSearch?: boolean }>;
     };
     expect(saveMsg?.providers?.[0]?.liveGeminiNativeSearch).toBe(true);
+  });
+});
+
+describe("MOSS Live 音色选择器与回退提示", () => {
+  it("打开编辑 Modal 时取一次音色列表，选项显示 name（空名回退 id），保存按 provider 落盘", async () => {
+    await chrome.storage.local.set({ liveProviderKeys: { live_moss: "sk-moss" } });
+    const { host, sent } = await mountPanel({
+      "live-providers-list": () => ({ ok: true, providers: [MOSS_LIVE] }),
+      "provider-http": () => ({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({
+          data: [
+            { id: "voice-1", name: "Alice" },
+            { id: "voice-2", name: "" }
+          ],
+          has_more: false
+        })
+      })
+    });
+
+    click(host.querySelector("#liveProvidersList .provider-row-edit"));
+    await vi.waitFor(() => expect(document.querySelector(".provider-editor-dialog")).toBeTruthy());
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    const voice = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice")!;
+    await vi.waitFor(() => expect(voice.options).toHaveLength(3));
+
+    expect(Array.from(voice.options).map((option) => option.textContent)).toEqual([
+      "默认音色",
+      "Alice",
+      "voice-2"
+    ]);
+    voice.value = "voice-1";
+    voice.dispatchEvent(new Event("change", { bubbles: true }));
+
+    click(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "live-providers-save")).toBe(true);
+    });
+
+    const saveMessage = sent.find((message) => message.type === "live-providers-save") as {
+      providers?: Array<{ voiceId?: string }>;
+    };
+    expect(saveMessage.providers?.[0]?.voiceId).toBe("voice-1");
+    const requests = sent.filter((message) => message.type === "provider-http");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("https://api.mosi.cn/v1/audio/voices?limit=150");
+    expect(requests[0]?.headers).toMatchObject({ authorization: "Bearer sk-moss" });
+  });
+
+  it("音色回退提示在设置里只出现一次（读取即清除）", async () => {
+    await chrome.storage.local.set({
+      liveVoiceFallbackNotice: { voiceId: "voice-1" }
+    });
+    const { host } = await mountPanel({
+      "live-providers-list": () => ({ ok: true, providers: [MOSS_LIVE] })
+    });
+
+    const hint = host.querySelector<HTMLElement>("#liveVoiceFallbackHint")!;
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe("所选音色已不可用，伴看已回退默认音色。");
+    const stored = await chrome.storage.local.get(["liveVoiceFallbackNotice"]);
+    expect(stored.liveVoiceFallbackNotice).toBeUndefined();
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    await vi.waitFor(() => expect(hint.hidden).toBe(true));
+    expect(hint.textContent).toBe("");
   });
 });

@@ -2,8 +2,17 @@
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
-import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
-import { ensureUiReady } from "../ui/lazy-ui.js";
+import {
+  applyInterpretMenuChoice,
+  ensureFullscreenOverlay,
+  getInterpretSessionState,
+  getLiveController,
+  isLiveCompanionActive,
+  startLiveCompanion,
+  stopLiveCompanion,
+  syncPlayerInterpretQuickAction
+} from "../live/live-companion-session.js";
+import { closeInterpretSubtitleMenu, toggleInterpretSubtitleMenu } from "../live/interpret-subtitle-menu.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -103,6 +112,27 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
   return isControlBarItemMounted(liveWrap, placement);
 }
 
+function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
+  const volumeNode = playerHost.querySelector(".bpx-player-ctrl-volume");
+  if (volumeNode?.parentElement instanceof HTMLElement) {
+    return {
+      kind: "before" as const,
+      parent: volumeNode.parentElement,
+      reference: volumeNode
+    };
+  }
+  return resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
+}
+
+function isPlayerInterpretQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  const interpretWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+  const interpretButton = document.getElementById("biliscript-player-interpret-quick-action");
+  if (!interpretWrap || !interpretButton || !interpretWrap.isConnected || !interpretWrap.contains(interpretButton)) {
+    return false;
+  }
+  return isControlBarItemMounted(interpretWrap, resolvePlayerInterpretQuickActionPlacement(playerHost));
+}
+
 function isPlayerAiQuickActionMountedStable(): boolean {
   const wrap = playerAiQuickActionMountedWrap;
   const host = playerAiQuickActionMountedHost;
@@ -110,7 +140,7 @@ function isPlayerAiQuickActionMountedStable(): boolean {
   if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
     return false;
   }
-  if (!isPlayerLiveQuickActionMountedStable(host)) {
+  if (!isPlayerLiveQuickActionMountedStable(host) || !isPlayerInterpretQuickActionMountedStable(host)) {
     return false;
   }
   return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
@@ -366,6 +396,41 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
   }
 }
 
+function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
+  const existing = document.getElementById("biliscript-player-interpret-quick-action");
+  let button = existing instanceof HTMLButtonElement ? existing : null;
+  const existingWrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
+  let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
+
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "biliscript-player-interpret-quick-action-wrap";
+    wrap.className = "bpx-player-ctrl-btn bpx-player-ctrl-subtitle biliscript-player-interpret-quick-action-wrap";
+    wrap.setAttribute("data-biliscript-extension-node", "interpret-quick-action");
+  }
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "biliscript-player-interpret-quick-action";
+    button.type = "button";
+    button.className = "bpx-player-ctrl-subtitle-result biliscript-player-interpret-quick-action";
+    button.textContent = "字幕";
+    button.title = "字幕";
+    button.setAttribute("aria-label", "字幕");
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-disabled", "false");
+    button.addEventListener("click", handlePlayerInterpretQuickActionClick, true);
+  }
+  if (button.parentElement !== wrap) {
+    wrap.replaceChildren(button);
+  }
+
+  const placement = resolvePlayerInterpretQuickActionPlacement(playerHost);
+  if (placement) {
+    applyControlBarPlacement(wrap, placement);
+  }
+  syncPlayerInterpretQuickAction();
+}
+
 function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
@@ -398,6 +463,7 @@ function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   syncPlayerAiQuickActionVisuals(button);
 
   mountPlayerLiveQuickAction(playerHost);
+  mountPlayerInterpretQuickAction(playerHost);
 
   // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
   playerAiQuickActionMountedWrap = wrap;
@@ -489,6 +555,9 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
+  closeInterpretSubtitleMenu();
+  document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
+  document.getElementById("biliscript-player-interpret-quick-action")?.remove();
   document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-live-quick-action")?.remove();
   document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
@@ -581,6 +650,12 @@ function isPlayerSubtitleControlNode(node: unknown): boolean {
   if (!(node instanceof Element)) {
     return false;
   }
+  // 本扩展自挂的播放器控件不算字幕控件：解读按钮自身就带「字幕」语义与
+  // bpx-player-ctrl-subtitle 类名，若计入则挂载完成后的下一次 sync 会把自己
+  // 刚挂的按钮误判成 B 站控制条水合，校准在控件真正就绪前就被消耗掉。
+  if (node.closest("[data-biliscript-extension-node]")) {
+    return false;
+  }
   const text = [
     node.getAttribute("aria-label"),
     node.getAttribute("title"),
@@ -647,6 +722,8 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
 
   playerAiState.setSubmitting(true);
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  const buttonWrap = button?.parentElement;
+  const buttonHost = buttonWrap?.parentElement;
   if (button) {
     button.disabled = true;
   }
@@ -656,24 +733,54 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     if (!state.settings?.enablePlayerAiQuickAction) {
       throw new Error("AI 按钮未开启");
     }
-    // 工单 08 决议 2（语义反转）：按钮常驻。阅读模式外点击 = background 触发
-    // 进入阅读模式；阅读模式内点击 = 直接定位对话 tab。两条路径都由 background
-    // 以单条带 chat 负载的 reader-enter 携快捷提示词，content 侧经对话 seam
-    // （runQuickActionPrompt）消费：定位对话 tab + 新会话 + 填提示词 + 自动发送。
-    // 响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）；resp?. 保留对
-    // 「无监听器时回包为 undefined」的运行时防御。
+    // 阅读模式外点击 = background 触发进入阅读模式；阅读模式内点击 = 直接定位
+    // 对话 tab。回包等待进入与定位完成，不把命令受理当作定位成功。
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");
     }
-    setMessage("已定位 AI 对话并发送快捷提示词。");
+    setMessage("已定位 AI 对话。");
   } catch (error) {
-    setMessage(`AI 快捷操作失败：${getErrorMessage(error)}`);
+    const message = `AI 快捷操作失败：${getErrorMessage(error)}`;
+    setMessage(message);
+    if (button && buttonWrap && !button.isConnected && buttonHost?.isConnected) {
+      buttonHost.appendChild(buttonWrap);
+    }
+    if (button?.isConnected) {
+      button.textContent = "AI 打开失败";
+      button.title = message;
+      button.setAttribute("aria-label", message);
+    }
   } finally {
     playerAiState.setSubmitting(false);
     if (button) {
       button.disabled = false;
     }
+  }
+}
+
+async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise<void> {
+  event.preventDefault();
+  event.stopPropagation();
+  const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  if (!button || button.getAttribute("aria-disabled") === "true" || button.disabled) return;
+  const wrap = button.parentElement;
+  if (!(wrap instanceof HTMLElement)) return;
+  button.setAttribute("aria-expanded", "true");
+  try {
+    await toggleInterpretSubtitleMenu(wrap, {
+      getSessionState: getInterpretSessionState,
+      getPreferences: async () => {
+        const settings = await getSettings();
+        return {
+          targetLang: String(settings.liveInterpretTargetLang || "zh"),
+          displayMode: String(settings.liveInterpretDisplayMode || "auto")
+        };
+      },
+      applyChoice: applyInterpretMenuChoice
+    });
+  } finally {
+    button.setAttribute("aria-expanded", "false");
   }
 }
 
@@ -691,23 +798,27 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
   playerAiState.setSubmitting(true);
 
   try {
-    await ensureUiReady();
-    const chat = await ensureReaderChatTab();
     const isCurrentlyActive = Boolean(
       liveButton?.classList.contains("is-active") ||
         document.body.hasAttribute("data-biliscript-live-active") ||
-        chat.getLiveController()?.getState() === "connected" ||
-        chat.getLiveController()?.getState() === "connecting"
+        isLiveCompanionActive() ||
+        getLiveController()?.getState() === "connected" ||
+        getLiveController()?.getState() === "connecting"
     );
 
     if (isCurrentlyActive) {
-      chat.stopLiveCompanion();
+      stopLiveCompanion();
     } else {
-      await chat.ensureChatTabActivated({ consumeIntent: false });
-      await chat.startLiveCompanion();
+      await startLiveCompanion();
     }
-  } catch (error) {
-    setMessage(`实时伴看操作失败：${getErrorMessage(error)}`);
+  } catch {
+    const errorMessage = "实时伴看启动失败，请重试";
+    try {
+      const overlay = ensureFullscreenOverlay();
+      overlay.show({ forceExpand: true });
+      overlay.syncState("failure", false, errorMessage, "unknown");
+    } catch {}
+    setMessage(errorMessage);
   } finally {
     playerAiState.setSubmitting(false);
     if (liveButton) {

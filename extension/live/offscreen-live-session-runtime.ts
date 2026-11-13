@@ -4,7 +4,7 @@
 // 1. WebSocket 代际防串音守卫、握手定时器与基于会话恢复句柄（sessionId / resumption handle）的自动重连状态机
 // 2. 页面工具与内置 web_search 的统一生命周期（activeToolCalls、独立超时、轮次配额、打断取消）
 // 3. MossAudioPlayer 播放队列、打断协调、视频音量压低（duck_video）与发言状态（speaking_state）同步
-// 4. 发言/播放期上下文更新暂存（pendingVideoContext）与回合空闲自动下发
+// 4. 同片内容更新在发言/播放期暂存；换片立即作废旧轮次并下发最新上下文
 // 通过窄协议适配器接缝（LiveWireProtocolAdapter）分别接入 MOSS tagged-v1 与 Gemini BidiGenerateContent。
 
 import { serializeSearchResults } from "../ai/tool-loop.js";
@@ -16,7 +16,9 @@ import {
   type AudioBufferSourceNodeLike,
   type AudioContextLike
 } from "./moss-audio-player.js";
+import { MOSS_STANDARD_VIDEO_CONFIG, type MossVideoCaptureConfig } from "./moss-video-config.js";
 import {
+  DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS,
   DEFAULT_MOSS_RECONNECT_DELAY_MS,
   MAX_MOSS_RECONNECT_ATTEMPTS,
   decodeBase64Bytes,
@@ -33,7 +35,7 @@ export type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike };
 
 export type LiveSessionClientState = "idle" | "connecting" | "connected" | "closed" | "failed";
 
-export const DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS = 10000;
+export { DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS };
 export const DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS = 10000;
 export const DEFAULT_LIVE_OVERVIEW_TOOL_TIMEOUT_MS = 120000;
 
@@ -102,6 +104,9 @@ export interface LiveWireSocketOpenContext extends LiveWireTransport {
   sessionId: string | null;
   videoContext: MossLiveSessionContext | null;
   micEnabled: boolean;
+  // 当前选用的音色（空 = 平台默认音色）：协议适配器在 session_attached 后据此
+  // 决定是否发 change_voice。
+  voiceId: string;
   markContextSent(context: MossLiveSessionContext | null): void;
 }
 
@@ -112,7 +117,12 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   getMicEnabled(): boolean;
   completeHandshake(options?: { sessionId?: string | null; emitSessionAttached?: boolean }): void;
   updateSessionHandle(sessionId: string, options?: { emitSessionAttached?: boolean }): void;
+  // change_voice 失败（音色已删/无权限）时由适配器上报：运行时清空当前音色并
+  // 通知页面侧回退默认音色。
+  reportVoiceFallback(voiceId: string): void;
   markContextSent(context: MossLiveSessionContext | null): void;
+  applyOutputConfiguration(config: { volumeDb?: number; speed?: number }): void;
+  applyMediaConfiguration(config: { video: MossVideoCaptureConfig; error: string }): void;
   emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
   enqueueAudioContext(chunkId: string, runId: string, turnId: string): boolean;
   enqueueAudioFrame(pcmBuffer: ArrayBufferLike): void;
@@ -120,6 +130,8 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   handleAudioDone(runId: string, turnId: string): void;
   handleAudioStop(runId: string, turnId: string): void;
   finishActiveTurn(runId: string, turnId: string): void;
+  startDelegation(delegation: { delegationId: string; objective: string; context: string[] }): void;
+  cancelDelegation(delegationId: string): void;
   startPageToolCall(rawCall: MossLiveToolCall, runId: string, turnId: string): void;
   startFunctionCall(params: {
     callId: string;
@@ -131,6 +143,7 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   }): void;
   cancelToolCallsByIds(ids: string[]): void;
   interrupt(): void;
+  useLocalPlaybackRate(): void;
   fail(error: Error, code?: number | string): void;
   failOrReconnectOnServerError(message: string, code?: number | string): void;
 }
@@ -161,6 +174,13 @@ export interface LiveWireProtocolAdapter {
     transport: LiveWireTransport
   ): void;
   onVideoContextUpdated?(context: MossLiveSessionContext | null): void;
+  configureOutput?(
+    output: { volumeDb: number; speed?: number },
+    transport: LiveWireTransport
+  ): boolean;
+  // 通话中改音色：适配器在已附着会话上直接发 change_voice（下一轮回答生效），
+  // 尚未附着时只记下选择、由 session_attached 的握手分支发送。
+  changeVoice?(voiceId: string, transport: LiveWireTransport): boolean;
   sendContextUpdate(context: MossLiveSessionContext | null, transport: LiveWireTransport): void;
   sendToolResponse(
     call: { callId: string; name: string },
@@ -193,6 +213,7 @@ export interface OffscreenLiveSessionRuntimeOptions {
   onConnecting?: () => void;
   onConnected?: (sessionId?: string) => void;
   onSessionAttached?: (sessionId: string) => void;
+  onVoiceFallback?: (voiceId: string) => void;
   onReconnecting?: (
     attempt: number,
     maxAttempts: number,
@@ -228,6 +249,12 @@ type ActiveRuntimeToolCall =
       timer: ReturnType<typeof setTimeout>;
     };
 
+function videoContextIdentityKey(context: MossLiveSessionContext | null): string {
+  if (!context) return "";
+  if ("kind" in context) return `live-room:${context.roomId}`;
+  return `video:${context.bvid}:${context.cid}:${context.pageIndex}`;
+}
+
 export class OffscreenLiveSessionRuntime {
   protected ws: WebSocket | null = null;
   protected state: LiveSessionClientState = "idle";
@@ -239,6 +266,8 @@ export class OffscreenLiveSessionRuntime {
   protected readonly activeToolCalls = new Map<string, ActiveRuntimeToolCall>();
   protected readonly handledToolCallIds = new Set<string>();
   protected readonly webSearchCallCounts = new Map<string, number>();
+  protected readonly discardedTurnKeys = new Set<string>();
+  protected suppressAdapterTranscripts = false;
   protected wsUrl: string;
   protected readonly handshakeTimeoutMs: number;
   protected readonly pageToolTimeoutMs: number;
@@ -247,6 +276,7 @@ export class OffscreenLiveSessionRuntime {
   protected readonly options: OffscreenLiveSessionRuntimeOptions;
   protected readonly adapter: LiveWireProtocolAdapter;
   protected videoContext: MossLiveSessionContext | null;
+  protected videoIdentityKey = "";
   protected lastSentContextKey = "";
   protected pendingVideoContext: MossLiveSessionContext | null = null;
   protected hasPendingContext = false;
@@ -260,6 +290,12 @@ export class OffscreenLiveSessionRuntime {
   protected readonly reconnectDelayMs: number;
   protected reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   protected lastSocketError = "";
+  protected outputVolume = 1;
+  protected outputSpeed = 1;
+  protected serverSpeedUnsupported = false;
+  // 当前选用的音色（空 = 平台默认）；start/change_voice 动作写入，重连时随
+  // onSocketOpen 交给适配器重发。
+  protected voiceId = "";
 
   protected readonly transport: LiveWireTransport = {
     sendJson: (payload: unknown) => this.sendJson(payload),
@@ -271,6 +307,7 @@ export class OffscreenLiveSessionRuntime {
     this.options = options;
     this.wsUrl = options.wsUrl || adapter.defaultWsUrl;
     this.videoContext = options.videoContext || null;
+    this.videoIdentityKey = videoContextIdentityKey(this.videoContext);
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS;
     this.pageToolTimeoutMs = options.pageToolTimeoutMs ?? DEFAULT_LIVE_PAGE_TOOL_TIMEOUT_MS;
     this.overviewToolTimeoutMs =
@@ -319,6 +356,9 @@ export class OffscreenLiveSessionRuntime {
         break;
       case "session_attached":
         this.options.onSessionAttached?.(event.sessionId);
+        break;
+      case "voice_fallback":
+        this.options.onVoiceFallback?.(event.voiceId);
         break;
       case "reconnecting":
         this.options.onReconnecting?.(event.attempt, event.maxAttempts, {
@@ -468,9 +508,19 @@ export class OffscreenLiveSessionRuntime {
     this.syncSpeakingState();
   }
 
+  protected configureOutput(): void {
+    const output: { volumeDb: number; speed?: number } = {
+      volumeDb: Math.max(0, (this.outputVolume - 1) * 16)
+    };
+    if (!this.serverSpeedUnsupported) output.speed = this.outputSpeed;
+    this.adapter.configureOutput?.(output, this.transport);
+  }
+
   handleAction(msg: MossLiveClientAction): void {
     switch (msg.action) {
       case "start":
+        this.serverSpeedUnsupported = false;
+        if (this.adapter.configureOutput) this.audioPlayer.setPlaybackRate(1);
         if (msg.wsUrl !== undefined) {
           this.wsUrl = msg.wsUrl || this.adapter.defaultWsUrl;
         }
@@ -481,19 +531,44 @@ export class OffscreenLiveSessionRuntime {
           this.sessionId = msg.sessionId || null;
         }
         this.adapter.onStartAction?.(msg);
-        if (msg.speed !== undefined) {
-          this.audioPlayer.setPlaybackRate(msg.speed);
+        if (msg.speed !== undefined && Number.isFinite(msg.speed) && msg.speed > 0) {
+          this.outputSpeed = msg.speed;
+          if (!this.adapter.configureOutput) this.audioPlayer.setPlaybackRate(msg.speed);
         }
-        this.audioPlayer.setVolume(msg.volume ?? 1);
+        if (msg.volume !== undefined && Number.isFinite(msg.volume)) {
+          this.outputVolume = Math.max(0, Math.min(2, msg.volume));
+        }
+        // 每次 start 都是新选择：省略 voiceId 表示回到平台默认音色，不能沿用
+        // 上一条会话遗留的旧音色。
+        this.voiceId = msg.voiceId !== undefined ? String(msg.voiceId || "").trim() : "";
+        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
         this.connect();
         break;
 
+      case "change_voice":
+        // 通话中改音色：直接下发，服务端从下一轮回答开始使用；未附着时由
+        // session_attached 的握手分支带上。
+        this.voiceId = String(msg.voiceId || "").trim();
+        this.adapter.changeVoice?.(this.voiceId, this.transport);
+        break;
+
       case "set_volume":
-        this.audioPlayer.setVolume(msg.volume);
+        if (Number.isFinite(msg.volume)) {
+          this.outputVolume = Math.max(0, Math.min(2, msg.volume));
+        }
+        this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        this.configureOutput();
         break;
 
       case "set_speed":
-        this.audioPlayer.setPlaybackRate(msg.speed);
+        if (Number.isFinite(msg.speed) && msg.speed > 0) {
+          this.outputSpeed = msg.speed;
+        }
+        if (this.adapter.configureOutput && !this.serverSpeedUnsupported) {
+          this.configureOutput();
+        } else {
+          this.audioPlayer.setPlaybackRate(this.outputSpeed);
+        }
         break;
 
       case "context_update":
@@ -550,7 +625,9 @@ export class OffscreenLiveSessionRuntime {
     this.hasPendingContext = false;
     this.pendingVideoContext = null;
     this.handledToolCallIds.clear();
+    this.discardedTurnKeys.clear();
     this.activeTurnKey = null;
+    this.videoIdentityKey = videoContextIdentityKey(this.videoContext);
     this.socketGeneration += 1;
     const currentGeneration = this.socketGeneration;
     this.adapter.onConnectReset(currentGeneration);
@@ -581,6 +658,7 @@ export class OffscreenLiveSessionRuntime {
           sessionId: this.sessionId,
           videoContext: this.videoContext,
           micEnabled: this.micEnabled,
+          voiceId: this.voiceId,
           sendJson: this.transport.sendJson,
           sendBinary: this.transport.sendBinary,
           markContextSent: (ctx) => {
@@ -640,6 +718,7 @@ export class OffscreenLiveSessionRuntime {
           this.emit({ type: "session_attached", sessionId: options.sessionId });
         }
         this.emit({ type: "connected", sessionId: this.sessionId || undefined });
+        this.configureOutput();
       },
       updateSessionHandle: (sessionId, options) => {
         if (!isCurrent() || !sessionId) return;
@@ -648,11 +727,47 @@ export class OffscreenLiveSessionRuntime {
           this.emit({ type: "session_attached", sessionId });
         }
       },
+      reportVoiceFallback: (voiceId) => {
+        if (!isCurrent()) return;
+        // 回退默认音色：清空当前选择，避免重连时再次下发已失效音色。
+        this.voiceId = "";
+        this.emit({ type: "voice_fallback", voiceId });
+      },
       markContextSent: (context) => {
         this.lastSentContextKey = JSON.stringify(context);
       },
-      emitTranscript: (event, options) => {
+      applyOutputConfiguration: (config) => {
         if (!isCurrent()) return;
+        if (config.volumeDb !== undefined && Number.isFinite(config.volumeDb)) {
+          if (config.volumeDb !== 0 || this.outputVolume >= 1) {
+            this.outputVolume = Math.max(0, Math.min(2, 1 + config.volumeDb / 16));
+          }
+          this.audioPlayer.setVolume(Math.min(1, this.outputVolume));
+        }
+        if (config.speed !== undefined && Number.isFinite(config.speed) && config.speed > 0) {
+          this.outputSpeed = config.speed;
+          if (this.serverSpeedUnsupported) this.audioPlayer.setPlaybackRate(config.speed);
+        }
+        this.emit({ type: "output_configured", volume: this.outputVolume, speed: this.outputSpeed });
+      },
+      applyMediaConfiguration: (config) => {
+        if (!isCurrent()) return;
+        // 服务端拒绝或回执带错时回退 standard 画质，由页面侧提示一次。
+        const error = config.error.trim();
+        this.emit({
+          type: "video_configured",
+          video: error ? { ...MOSS_STANDARD_VIDEO_CONFIG } : config.video,
+          ...(error ? { error } : {})
+        });
+      },
+      emitTranscript: (event, options) => {
+        if (!isCurrent() || this.suppressAdapterTranscripts) return;
+        if (
+          (event.kind === "output.updated" ||
+            event.kind === "output.done" ||
+            event.kind === "response.ended") &&
+          this.discardedTurnKeys.has(this.getTurnKey(event.runId, event.turnId))
+        ) return;
         if (event.kind === "input.updated" || event.kind === "input.done") {
           if (options?.duckInput !== false) {
             this.inputDucked = true;
@@ -670,7 +785,9 @@ export class OffscreenLiveSessionRuntime {
         this.emit({ type: "transcript", event });
       },
       enqueueAudioContext: (chunkId, runId, turnId) => {
-        if (!isCurrent()) return false;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) {
+          return false;
+        }
         const accepted = this.audioPlayer.enqueueAudioContext(chunkId, runId, turnId, isCurrent);
         if (accepted) {
           this.activateTurn(runId, turnId);
@@ -682,27 +799,35 @@ export class OffscreenLiveSessionRuntime {
         this.audioPlayer.enqueueAudioFrame(pcmBuffer, isCurrent);
       },
       markResponseEnded: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.markResponseEnded(runId, turnId);
       },
       handleAudioDone: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.handleAudioDone(runId, turnId);
       },
       handleAudioStop: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.audioPlayer.handleAudioStop(runId, turnId);
       },
       finishActiveTurn: (runId, turnId) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.finishActiveTurn(runId, turnId);
       },
-      startPageToolCall: (rawCall, runId, turnId) => {
+      startDelegation: (delegation) => {
         if (!isCurrent()) return;
+        this.emit({ type: "delegation_created", delegation });
+      },
+      cancelDelegation: (delegationId) => {
+        if (!isCurrent()) return;
+        this.emit({ type: "delegation_cancelled", delegationId });
+      },
+      startPageToolCall: (rawCall, runId, turnId) => {
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
         this.startPageToolCall(rawCall, runId, turnId, generation);
       },
       startFunctionCall: (params) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(params.runId, params.turnId))) return;
         this.handleFunctionCall(params, generation);
       },
       cancelToolCallsByIds: (ids) => {
@@ -717,6 +842,11 @@ export class OffscreenLiveSessionRuntime {
       interrupt: () => {
         if (!isCurrent()) return;
         this.interrupt();
+      },
+      useLocalPlaybackRate: () => {
+        if (!isCurrent()) return;
+        this.serverSpeedUnsupported = true;
+        this.audioPlayer.setPlaybackRate(this.outputSpeed);
       },
       fail: (error, code) => {
         if (!isCurrent()) return;
@@ -905,7 +1035,7 @@ export class OffscreenLiveSessionRuntime {
           { ok: false, error },
           this.transport
         );
-        this.emit({ type: "tool_error", error });
+        this.emit({ type: "tool_error", error, callId: call.callId });
       }, timeoutMs)
     };
 
@@ -1077,11 +1207,23 @@ export class OffscreenLiveSessionRuntime {
   }
 
   updateVideoContext(context: MossLiveSessionContext | null): void {
+    const nextIdentityKey = videoContextIdentityKey(context);
+    const identityChanged = nextIdentityKey !== this.videoIdentityKey;
+    this.videoIdentityKey = nextIdentityKey;
     this.videoContext = context;
     this.adapter.onVideoContextUpdated?.(context);
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
     if (contextKey === this.lastSentContextKey) return;
+    if (identityChanged) {
+      this.hasPendingContext = false;
+      this.pendingVideoContext = null;
+      this.interrupt(true);
+      this.audioPlayer.reset();
+      this.webSearchCallCounts.clear();
+      this.flushVideoContext(context);
+      return;
+    }
     if (this.isSpeaking() || this.activeTurnKey !== null || this.audioPlayer.isPlaying()) {
       this.pendingVideoContext = context;
       this.hasPendingContext = true;
@@ -1106,19 +1248,29 @@ export class OffscreenLiveSessionRuntime {
     );
   }
 
-  interrupt(): void {
+  interrupt(discardInterruptedTranscripts = false): void {
     if (this.disposed || this.state !== "connected") return;
     this.cancelAllToolCalls();
 
     const activeTurnBeforeStop = this.activeTurnKey;
+    if (discardInterruptedTranscripts && activeTurnBeforeStop) {
+      this.discardedTurnKeys.add(activeTurnBeforeStop);
+    }
     const callbacks = this.createRuntimeCallbacks(this.socketGeneration);
-    const adapterInterruptedTurn = this.adapter.onBeforeInterrupt?.(callbacks) ?? null;
+    this.suppressAdapterTranscripts = discardInterruptedTranscripts;
+    let adapterInterruptedTurn: { runId: string; turnId: string } | null;
+    try {
+      adapterInterruptedTurn = this.adapter.onBeforeInterrupt?.(callbacks) ?? null;
+    } finally {
+      this.suppressAdapterTranscripts = false;
+    }
 
     const interruptedTurns = this.audioPlayer.interruptActiveTurns();
     const emittedTurnKeys = new Set<string>();
 
     for (const turn of interruptedTurns) {
       const key = this.getTurnKey(turn.runId, turn.turnId);
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
       emittedTurnKeys.add(key);
       this.emit({
         type: "transcript",
@@ -1132,6 +1284,7 @@ export class OffscreenLiveSessionRuntime {
 
     if (adapterInterruptedTurn) {
       const key = this.getTurnKey(adapterInterruptedTurn.runId, adapterInterruptedTurn.turnId);
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
       if (!emittedTurnKeys.has(key)) {
         emittedTurnKeys.add(key);
         this.emit({
@@ -1147,6 +1300,7 @@ export class OffscreenLiveSessionRuntime {
 
     const fallbackTurnKey = this.activeTurnKey || activeTurnBeforeStop;
     if (fallbackTurnKey && !emittedTurnKeys.has(fallbackTurnKey)) {
+      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(fallbackTurnKey);
       const [runId, turnId] = fallbackTurnKey.split(":");
       if (runId && turnId) {
         this.emit({

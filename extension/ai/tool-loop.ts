@@ -1,22 +1,23 @@
-// tool-loop.ts — 联网搜索与当前视频截帧的工具调用循环（spec §2.3，offscreen 侧包住
+// tool-loop.ts — 联网搜索、视频截帧与热门评论的工具调用循环（offscreen 侧包住
 // chatCompletion 的单次调用）。纯编排层：不知道 port / DOM / chrome API，
 // 搜索执行经 executeSearch 回调注入（offscreen 注入 search-executor 的闭包，
-// SW 经 provider-http 通道发起，密钥不出 SW），截帧执行经 captureCurrentVideoFrame
-// 回调注入，port 回吐留在调用方（ai/client.ts 的 streamChat，port 适配单源）。
+// SW 经 provider-http 通道发起，密钥不出 SW），当前帧与历史帧经 captureCurrentVideoFrame
+// 回调注入（可选 targetTime 区分），评论经 fetchHotComments 回调注入；
+// port 回吐留在调用方（ai/client.ts 的 streamChat，port 适配单源）。
 //
 // 语义（spec §2.3）：
 // - finish_reason=tool_calls 时不回 done：回填 assistant(tool_calls) 消息 →
 //   逐条执行工具并回填 tool 结果消息 → 二次调用继续流式回吐；
 // - 单条搜索 tool call 计入配额；达 maxToolCalls 后摘除搜索工具并注入「本轮次数已达
 //   上限」system 提示（不进持久化历史，buildMessages 的历史过滤自动丢弃）；
-// - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
-// - 当前帧截图每轮最多一次，图片经后续 user 消息进入请求，不写进持久化副本；
+// - 搜索或评论获取失败：tool 消息写失败原因 + notice，回答不中断；
+// - 截帧与评论获取每轮各最多执行一次；截图经后续 user 消息进入请求，不写进持久化副本；
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
-import type { CaptureCurrentVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
@@ -34,9 +35,35 @@ export const CAPTURE_CURRENT_VIDEO_FRAME_TOOL: ChatToolDefinition = {
   }
 };
 
+export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME = "capture_video_frame_at_time";
+export const CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL: ChatToolDefinition = {
+  type: "function",
+  function: {
+    name: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+    description: "当字幕不足以回答某个历史时间点的问题，且当时的画面、图表、代码或操作界面可能有帮助时，自主截取该时间点前、中、后三帧（前后各间隔 2 秒，视频边界处截断）。targetTime 必须是字幕或用户问题所指的视频秒数，不要猜测。不会改变用户播放器。每次提问最多补充三帧。",
+    parameters: {
+      type: "object",
+      properties: {
+        targetTime: { type: "number", description: "目标视频时间点，单位为秒" }
+      },
+      required: ["targetTime"]
+    }
+  }
+};
+
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
 // 搜索结果时以 [n] 标记（n 为该条结果在全部搜索结果中的全局序号，从 1 起按
 // 搜索与结果顺序累计——宿主按 tool-status 到达顺序同序编号，两侧对齐）。
+export const FETCH_HOT_COMMENTS_TOOL_NAME = "fetch_hot_comments";
+export const FETCH_HOT_COMMENTS_TOOL: ChatToolDefinition = {
+  type: "function",
+  function: {
+    name: FETCH_HOT_COMMENTS_TOOL_NAME,
+    description: "获取当前对话所关联视频的前 20 条热门评论，包含作者、点赞数和评论正文。用户询问评论区、观众反响、高赞观点或争议时调用；不要用于总结视频正文。每次提问最多调用一次。",
+    parameters: { type: "object", properties: {} }
+  }
+};
+
 export const WEB_SEARCH_TOOL: ChatToolDefinition = webSearchTool();
 
 // 工具定义工厂（选区解释链用）：解释卡无来源 chip 行与内联引用的渲染，[n]
@@ -80,11 +107,22 @@ export interface ToolLoopSearchOutcome {
 }
 
 export type ExecuteSearchFn = (query: string) => Promise<ToolLoopSearchOutcome>;
+export interface ToolLoopHotComment {
+  uname?: string;
+  like?: number;
+  message?: string;
+}
+export type FetchHotCommentsFn = () => Promise<ToolLoopHotComment[]>;
 
 export interface ToolStatusPayload {
-  status: "searching" | "done" | "failed";
+  status: "searching" | "done" | "failed" | "cancelled";
   query: string;
+  tool?: "web_search" | "capture_video_frame_at_time";
+  callId?: string;
+  targetTime?: number;
   resultCount?: number;
+  expectedCount?: number;
+  frames?: CapturedVideoFrame[];
   platform?: string;
   // 搜索结果（done 时携带，spec §4）：时间线卡 chip 行与内联引用的数据源。
   sources?: NormalizedSearchResult[];
@@ -125,6 +163,7 @@ export interface RunToolLoopInput {
   maxToolCalls: number;
   executeSearch: ExecuteSearchFn;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  fetchHotComments?: FetchHotCommentsFn;
   // notice：额度用尽 / 平台不支持 tools / 搜索失败等用户可见提示。
   onNotice?: (text: string) => void;
   onToolStatus?: (payload: ToolStatusPayload) => void;
@@ -144,12 +183,29 @@ export function serializeSearchResults(results: NormalizedSearchResult[]): strin
   return payload.slice(0, TOOL_CONTENT_MAX_CHARS);
 }
 
+export const HOT_COMMENT_MESSAGE_MAX_CHARS = 500;
+export const HOT_COMMENTS_CONTENT_MAX_CHARS = 12000;
+
+export function serializeHotComments(comments: ToolLoopHotComment[]): string {
+  const capped = comments.slice(0, 20).map((comment) => ({
+    uname: String(comment.uname || "匿名"),
+    like: Number(comment.like || 0),
+    message: String(comment.message || "").slice(0, HOT_COMMENT_MESSAGE_MAX_CHARS)
+  }));
+  let payload = JSON.stringify(capped);
+  while (payload.length > HOT_COMMENTS_CONTENT_MAX_CHARS && capped.length > 1) {
+    capped.pop();
+    payload = JSON.stringify(capped);
+  }
+  return payload;
+}
+
 /**
- * 工具调用流式循环：包住 chatCompletion 的多轮调用（spec §2.3）。
- * - 每轮配额未满带 WEB_SEARCH_TOOL；截帧工具每轮最多可用一次；
+ * 工具调用流式循环：包住 chatCompletion 的多轮调用。
+ * - 每轮配额未满带 WEB_SEARCH_TOOL；截帧与评论工具每轮各最多可用一次；
  * - finish_reason=tool_calls 时回填消息续跑；
  * - 达 maxToolCalls 后摘除搜索工具 + 注入「本轮次数已达上限」system 提示（一次性）；
- * - 搜索/截帧失败降级 + notice；平台 4xx（非溢出/中止）摘除 tools 单次重发 + notice；
+ * - 搜索/截帧/评论获取失败降级 + notice；平台 4xx（非溢出/中止）摘除 tools 单次重发 + notice；
  * - 中止/溢出原语义上抛，由调用方（streamChat）既有 catch 收口。
  * 返回最终回答文本（非流式链消费；流式链文本走 onEvent，返回值被忽略）。
  */
@@ -160,6 +216,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     maxToolCalls,
     executeSearch,
     captureCurrentVideoFrame,
+    fetchHotComments,
     onNotice,
     onToolStatus,
     onToolTurn
@@ -175,6 +232,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
   let quotaNoticeInjected = false;
   let retriedWithoutTools = false;
   let captureUsed = false;
+  let hotCommentsUsed = false;
   // 最终回答文本（非流式轮取 chatCompletion 字符串；工具轮取各轮 assistantContent，
   // 后续轮覆盖）。返回值：选区解释链消费（非流式无 onEvent 拼装），流式调用方忽略。
   let finalText = "";
@@ -182,9 +240,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
   while (true) {
     const searchAvailable = includeWebSearchTool && !retriedWithoutTools && toolCallCount < maxToolCalls;
     const captureAvailable = Boolean(captureCurrentVideoFrame) && !captureUsed && !retriedWithoutTools;
+    const hotCommentsAvailable = Boolean(fetchHotComments) && !hotCommentsUsed && !retriedWithoutTools;
     const tools = [
       ...(searchAvailable ? [toolDefinition] : []),
-      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL] : [])
+      ...(captureAvailable ? [CAPTURE_CURRENT_VIDEO_FRAME_TOOL, CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL] : []),
+      ...(hotCommentsAvailable ? [FETCH_HOT_COMMENTS_TOOL] : [])
     ];
     const withTools = tools.length > 0;
 
@@ -215,13 +275,12 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         status >= 400 &&
         status < 500
       ) {
-        onNotice?.(
-          includeWebSearchTool
-            ? captureCurrentVideoFrame
-              ? "当前平台不支持工具调用，本轮未联网或截取画面"
-              : "当前平台不支持工具调用，本轮未联网"
-            : "当前平台不支持工具调用，本轮未截取画面"
-        );
+        const unavailableActions = [
+          ...(includeWebSearchTool ? ["联网"] : []),
+          ...(captureCurrentVideoFrame ? ["截取画面"] : []),
+          ...(fetchHotComments ? ["获取评论"] : [])
+        ];
+        onNotice?.(`当前平台不支持工具调用，本轮未${unavailableActions.join("或")}`);
         retriedWithoutTools = true;
         continue;
       }
@@ -235,10 +294,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       return typeof result === "string" ? result : finalText;
     }
 
-    const { finishReason, assistantContent, toolCalls } = result as {
+    const { finishReason, assistantContent, toolCalls, thoughtSignature } = result as {
       finishReason: string | null;
       assistantContent: string;
       toolCalls: ChatToolCall[];
+      thoughtSignature?: string;
     };
     if (finishReason !== "tool_calls") {
       return typeof result === "string" ? result : finalText;
@@ -250,23 +310,77 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     const assistantMessage: ChatMessage = {
       role: "assistant",
       content: assistantContent || "",
-      tool_calls: toolCalls
+      tool_calls: toolCalls,
+      ...(thoughtSignature ? { thoughtSignature } : {})
     };
     const toolMessages: ChatMessage[] = [];
     const frameMessages: ChatMessage[] = [];
     for (const call of toolCalls) {
-      if (call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME) {
+      const isCurrentFrame = call.function.name === CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME;
+      const isHistoricalFrame = call.function.name === CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME;
+      if (isCurrentFrame || isHistoricalFrame) {
         let toolContent = "本轮已调用过视频截图工具，请基于已有画面作答。";
         if (captureCurrentVideoFrame && !captureUsed) {
           captureUsed = true;
+          let historicalTargetTime: number | undefined;
+          let historicalStatusStarted = false;
           try {
-            const frame = await captureCurrentVideoFrame();
-            const time = formatClock(frame.currentTime, { hours: "auto" });
-            toolContent = `已截取视频在 ${time} 的画面。`;
-            frameMessages.push({
-              role: "user",
-              content: `以下是 ${CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
-              images: [frame.image]
+            const targetTime = isHistoricalFrame
+              ? Number((JSON.parse(call.function.arguments) as { targetTime?: unknown }).targetTime)
+              : undefined;
+            if (isHistoricalFrame && (typeof targetTime !== "number" || !Number.isFinite(targetTime) || targetTime < 0)) {
+              throw new Error("targetTime 必须是大于或等于 0 的有限秒数");
+            }
+            if (isHistoricalFrame) {
+              historicalTargetTime = targetTime;
+              historicalStatusStarted = true;
+              onToolStatus?.({
+                status: "searching",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: formatClock(targetTime, { hours: "auto" }),
+                callId: call.id,
+                targetTime
+              });
+            }
+            const captureResult = isHistoricalFrame
+              ? await captureCurrentVideoFrame(targetTime)
+              : await captureCurrentVideoFrame();
+            const frames = (Array.isArray(captureResult) ? captureResult : [captureResult]).slice(0, 3);
+            if (!frames.length) {
+              throw new Error("三个时间点均未截取成功");
+            }
+            const times = frames.map((frame) => formatClock(frame.currentTime, { hours: "auto" }));
+            const target = isHistoricalFrame ? formatClock(targetTime, { hours: "auto" }) : "";
+            toolContent = isHistoricalFrame
+              ? Array.isArray(captureResult)
+                ? frames.length === 3
+                  ? `已截取目标时间点 ${target} 附近的前、中、后三帧，实际时间依次为 ${times.join("、")}。`
+                  : `目标时间点 ${target} 附近仅成功截取 ${frames.length} 张画面，实际时间依次为 ${times.join("、")}；其余 ${3 - frames.length} 张截取失败。`
+                : `已截取视频在 ${times[0]} 的画面（目标时间点 ${target}）。`
+              : `已截取视频在 ${times[0]} 的画面。`;
+            if (isHistoricalFrame) {
+              onToolStatus?.({
+                status: "done",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: target,
+                callId: call.id,
+                targetTime: historicalTargetTime,
+                resultCount: frames.length,
+                expectedCount: Array.isArray(captureResult) ? 3 : 1,
+                frames
+              });
+            }
+            frames.forEach((frame, index) => {
+              const time = times[index];
+              frameMessages.push({
+                role: "user",
+                content: isHistoricalFrame
+                  ? Array.isArray(captureResult)
+                    ? `以下是 ${call.function.name} 工具截取的第 ${index + 1} 张，实际截图时间 ${time}；目标时间点 ${target}。图片按时间顺序排列，请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
+                    : `以下是 ${call.function.name} 工具截取的视频画面，实际截图时间 ${time}；目标时间点 ${target}。请结合画面回答用户的问题，不要将实际截图时间误述为目标时间点。`
+                  : `以下是 ${call.function.name} 工具在 ${time} 截取的视频画面，请结合画面回答用户的问题。`,
+                images: [frame.image]
+              });
             });
           } catch (e) {
             if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
@@ -274,6 +388,34 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
             }
             const reason = String((e as { message?: unknown })?.message ?? e);
             toolContent = `截取视频画面失败：${reason}`;
+            if (historicalStatusStarted) {
+              onToolStatus?.({
+                status: "failed",
+                tool: CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME,
+                query: formatClock(historicalTargetTime, { hours: "auto" }),
+                callId: call.id,
+                targetTime: historicalTargetTime
+              });
+            }
+            onNotice?.(toolContent);
+          }
+        }
+        toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
+        continue;
+      }
+
+      if (call.function.name === FETCH_HOT_COMMENTS_TOOL_NAME) {
+        hotCommentsUsed = true;
+        let toolContent = "当前对话没有可获取的视频评论。";
+        if (fetchHotComments) {
+          try {
+            toolContent = serializeHotComments(await fetchHotComments());
+          } catch (e) {
+            if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
+              throw e;
+            }
+            const reason = String((e as { message?: unknown })?.message ?? e);
+            toolContent = `获取热门评论失败：${reason}`;
             onNotice?.(toolContent);
           }
         }
@@ -282,7 +424,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       }
 
       const query = parseToolArgs(call.function.arguments).query;
-      onToolStatus?.({ status: "searching", query });
+      onToolStatus?.({ status: "searching", query, callId: call.id });
       let toolContent: string;
       try {
         const outcome = await executeSearch(query);
@@ -299,6 +441,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         onToolStatus?.({
           status: "done",
           query,
+          callId: call.id,
           resultCount: outcome.results.length,
           platform: outcome.platform,
           sources: outcome.results,
@@ -312,7 +455,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         }
         const reason = String((e as { message?: unknown })?.message ?? e);
         toolContent = `搜索失败：${reason}`;
-        onToolStatus?.({ status: "failed", query });
+        onToolStatus?.({ status: "failed", query, callId: call.id });
         // 终态文案（spec §6.4）：额度类错误的 message 已是终态句（链的
         // SEARCH_QUOTA_MESSAGE，带 searchFailureClass: "quota"），套前缀会二包；
         // 其余类（含鉴权）维持既有「联网搜索失败：<原因>」形态。
@@ -325,7 +468,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     }
     messages.push(assistantMessage, ...toolMessages, ...frameMessages);
-    toolCallCount += toolCalls.filter((call) => call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME).length;
+    toolCallCount += toolCalls.filter((call) =>
+      call.function.name !== CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME &&
+      call.function.name !== CAPTURE_HISTORICAL_VIDEO_FRAME_TOOL_NAME &&
+      call.function.name !== FETCH_HOT_COMMENTS_TOOL_NAME
+    ).length;
 
     // 持久化副本：tool 内容截 2,000 字符（完整结果只活在当轮请求里，spec §2.5）。
     // 截图只存在于本轮请求；持久化副本不含图片字节。

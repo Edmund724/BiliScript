@@ -2,12 +2,14 @@
 // 端到端真机场景：伴看与面板对话并行 —— `pnpm harness:scenario live-companion-panel-chat`。
 //
 // 判据（jsdom 够不着的部分）：
-// 1. 非全屏与全屏下，伴看浮窗都默认以胶囊出现，点击展开并可收起为胶囊；
-// 2. 拖拽浮窗后进出全屏，浮窗位置保存为相对右上角的偏移，进出全屏时自适应贴右上角，
-//    且不遮挡全屏画面中心区域（50% 视口中央画面保持无遮挡）；
-// 3. 伴看进行中，文摘面板发起文本问答可正常发送并收到回复，伴看会话不断开、快速操作按钮保持高亮；
-// 4. 面板对话历史中没有伴看语音转写与回复内容，浮窗中没有面板文本问答内容（两者内容隔离）；
-// 5. 产出可重复运行的验证工件（evidence.json 及四态真机渲染截图）。
+// 1. 首次连接展开，非全屏与全屏下可收起为胶囊，指针/键盘展开、最小化与焦点往返；
+// 2. 胶囊状态与麦克风文本、ARIA、最小目标，以及键盘静音和结束均可操作；
+// 3. 音频弹层的原生/fallback 定位、视口翻转、全屏迁移、Esc/外点回焦、缺音轨提示、音量单次提交与设置入口；
+// 4. 浮窗与胶囊拖拽后按 16px 安全间距就近吸附左右边缘，缩放后位置可达，减少动态下无吸附动画；
+//    进出全屏不遮挡中央 50% 画面，宿主替换保留原节点、展开状态与伴看会话；
+// 5. 伴看进行中，文摘面板发起文本问答可正常发送并收到回复，伴看会话不断开、快速操作按钮保持高亮；
+// 6. 面板对话历史中没有伴看语音转写与回复内容，浮窗中没有面板文本问答内容（两者内容隔离）；
+// 7. 产出可重复运行的验证工件（evidence.json 及四态真机渲染截图）。
 
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
@@ -224,16 +226,22 @@ try {
   // 初始化伴看绑定器与面板对话事件监听
   await page.cdp.evaluate(`(() => {
     let liveState = "idle";
+    let muted = false;
     const callbacks = {};
 
     const mockLiveController = {
       getState: () => liveState,
-      isMuted: () => false,
-      toggleMute: () => {},
+      isMuted: () => muted,
+      toggleMute: () => {
+        muted = !muted;
+      },
       getVolume: () => 1,
       setVolume: () => {},
+      getSpeed: () => 1,
+      setSpeed: () => {},
       isSharingVideoAudio: () => true,
       setShareVideoAudio: () => {},
+      getVideoAudioStatus: () => "未检测到音轨",
       isVoicePriority: () => true,
       setVoicePriority: () => {},
       start: async () => {
@@ -247,9 +255,13 @@ try {
       }
     };
 
+    window.__volumeSyncValues = [];
+    window.__liveSettingsTargets = [];
     const binding = LiveOverlayModule.createLiveOverlayBinding({
       getPlayerHost: () => document.getElementById("player-container"),
-      getLiveController: () => mockLiveController
+      getLiveController: () => mockLiveController,
+      onVolumeSync: (volume) => window.__volumeSyncValues.push(volume),
+      onOpenLiveSettings: (target) => window.__liveSettingsTargets.push(target)
     });
 
     Object.assign(callbacks, binding.bindControllerCallbacks());
@@ -299,7 +311,7 @@ try {
     });
   })()`);
 
-  // CDP 鼠标真实指针事件辅助
+  // CDP 真实指针与键盘输入辅助
   async function getElementMetrics(selector) {
     return page.cdp.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -329,10 +341,37 @@ try {
     await new Promise((r) => setTimeout(r, 120));
   }
 
+  async function pressKey(selector, key, code, windowsVirtualKeyCode) {
+    await page.cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    await page.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key,
+      code,
+      windowsVirtualKeyCode,
+      nativeVirtualKeyCode: windowsVirtualKeyCode,
+      text: key === "Enter" ? "\r" : key === " " ? " " : undefined,
+      unmodifiedText: key === "Enter" ? "\r" : key === " " ? " " : undefined
+    });
+    await page.cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      windowsVirtualKeyCode,
+      nativeVirtualKeyCode: windowsVirtualKeyCode
+    });
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
   // =========================================================================
-  // 1. 非全屏状态下开启伴看：默认胶囊出现，点击展开并可收回
+  // 1. 非全屏首次连接展开，最小化后可用键盘展开
   // =========================================================================
   await clickCenter("#biliscript-player-live-quick-action");
+  await waitFor("非全屏首次浮窗展开", async () =>
+    page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
+  );
+  check("C0-first-connection-expands-overlay", true);
+
+  await clickCenter(".live-overlay-min-btn");
   await waitFor("非全屏胶囊就绪", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('.biliscript-fullscreen-live-mini-capsule:not(.is-hidden):not([hidden])'))")
   );
@@ -350,12 +389,21 @@ try {
       btnActive: btn.classList.contains('is-active'),
       controllerState: window.__mockLiveController.getState(),
       capsuleDistanceToPlayerRight: Math.round(pRect.right - cRect.right),
-      capsuleDistanceToPlayerTop: Math.round(cRect.top - pRect.top)
+      capsuleDistanceToPlayerTop: Math.round(cRect.top - pRect.top),
+      capsuleTag: capsule.tagName,
+      capsuleStatus: capsule.querySelector('.live-overlay-mini-status-text')?.textContent,
+      capsuleMic: capsule.querySelector('.live-overlay-mini-mic-text')?.textContent,
+      capsuleExpanded: capsule.getAttribute('aria-expanded'),
+      capsuleControls: capsule.getAttribute('aria-controls'),
+      capsuleLabel: capsule.getAttribute('aria-label'),
+      capsuleWidth: cRect.width,
+      capsuleHeight: cRect.height,
+      overlayId: overlay.id
     };
   })()`);
 
   check(
-    "C1-non-fullscreen-default-capsule",
+    "C1-non-fullscreen-minimized-capsule",
     nonFsCapsuleState.capsuleVisible &&
       !nonFsCapsuleState.overlayVisible &&
       nonFsCapsuleState.btnActive &&
@@ -364,12 +412,24 @@ try {
       nonFsCapsuleState.capsuleDistanceToPlayerRight <= 32,
     nonFsCapsuleState
   );
+  check(
+    "C1b-capsule-text-aria-and-target",
+    nonFsCapsuleState.capsuleTag === "BUTTON" &&
+      nonFsCapsuleState.capsuleStatus === "正在伴看" &&
+      nonFsCapsuleState.capsuleMic === "麦克风已开启" &&
+      nonFsCapsuleState.capsuleExpanded === "false" &&
+      nonFsCapsuleState.capsuleControls === nonFsCapsuleState.overlayId &&
+      nonFsCapsuleState.capsuleLabel.includes("正在伴看") &&
+      nonFsCapsuleState.capsuleLabel.includes("麦克风已开启") &&
+      nonFsCapsuleState.capsuleWidth >= 24 &&
+      nonFsCapsuleState.capsuleHeight >= 24,
+    nonFsCapsuleState
+  );
 
   const shot1 = path.join(OUT_DIR, "01-capsule-non-fullscreen.png");
   await screenshot(page.cdp, shot1);
 
-  // 点击胶囊展开浮窗
-  await clickCenter(".biliscript-fullscreen-live-mini-capsule");
+  await pressKey(".biliscript-fullscreen-live-mini-capsule", "Enter", "Enter", 13);
   await waitFor("非全屏浮窗展开", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('#biliscript-fullscreen-live-overlay:not(.is-hidden):not([hidden])'))")
   );
@@ -377,23 +437,222 @@ try {
   const nonFsExpandedState = await page.cdp.evaluate(`(() => {
     const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
     const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const minButton = overlay.querySelector('.live-overlay-min-btn');
     return {
       capsuleVisible: Boolean(capsule && !capsule.hidden && !capsule.classList.contains('is-hidden')),
-      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden'))
+      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden')),
+      focusClass: document.activeElement?.className,
+      minExpanded: minButton.getAttribute('aria-expanded'),
+      minControls: minButton.getAttribute('aria-controls'),
+      overlayId: overlay.id
     };
   })()`);
 
   check(
-    "C2-non-fullscreen-click-expand",
-    !nonFsExpandedState.capsuleVisible && nonFsExpandedState.overlayVisible,
+    "C2-non-fullscreen-keyboard-expand-and-focus",
+    !nonFsExpandedState.capsuleVisible &&
+      nonFsExpandedState.overlayVisible &&
+      String(nonFsExpandedState.focusClass).includes("live-overlay-min-btn") &&
+      nonFsExpandedState.minExpanded === "true" &&
+      nonFsExpandedState.minControls === nonFsExpandedState.overlayId,
     nonFsExpandedState
+  );
+
+  await pressKey(".live-overlay-mic-btn", " ", "Space", 32);
+  const keyboardMuteState = await page.cdp.evaluate(`(() => ({
+    muted: window.__mockLiveController.isMuted(),
+    pressed: document.querySelector('.live-overlay-mic-btn').getAttribute('aria-pressed'),
+    capsuleMic: document.querySelector('.live-overlay-mini-mic-text').textContent
+  }))()`);
+  check(
+    "C2b-keyboard-mute-syncs-accessible-state",
+    keyboardMuteState.muted && keyboardMuteState.pressed === "true" && keyboardMuteState.capsuleMic === "麦克风已静音",
+    keyboardMuteState
   );
 
   const shot2 = path.join(OUT_DIR, "02-expanded-non-fullscreen.png");
   await screenshot(page.cdp, shot2);
 
+  await clickCenter(".live-overlay-audio-btn");
+  const nativePopoverState = await page.cdp.evaluate(`(() => {
+    const button = document.querySelector('.live-overlay-audio-btn');
+    const popover = document.querySelector('.live-overlay-audio-popover');
+    const status = document.querySelector('.live-overlay-audio-status');
+    const share = document.querySelector('.live-overlay-share-switch');
+    const rect = popover.getBoundingClientRect();
+    return {
+      expanded: button.getAttribute('aria-expanded'),
+      controls: button.getAttribute('aria-controls'),
+      popoverId: popover.id,
+      hidden: popover.hidden,
+      nativeOpen: popover.matches(':popover-open'),
+      withinViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+      missingTrackVisible: !status.hidden && status.textContent.includes('未采到视频音轨') && status.textContent.includes('仍可语音伴看'),
+      shareChecked: share.getAttribute('aria-checked'),
+      liveState: window.__mockLiveController.getState()
+    };
+  })()`);
+  check(
+    "C2c-native-audio-popover-and-missing-track-status",
+    nativePopoverState.expanded === "true" &&
+      nativePopoverState.controls === nativePopoverState.popoverId &&
+      !nativePopoverState.hidden &&
+      nativePopoverState.nativeOpen &&
+      nativePopoverState.withinViewport &&
+      nativePopoverState.missingTrackVisible &&
+      nativePopoverState.shareChecked === "true" &&
+      nativePopoverState.liveState === "connected",
+    nativePopoverState
+  );
+
+  const volumeMetrics = await getElementMetrics(".live-overlay-volume-slider:not(.live-overlay-speed-slider)");
+  const volumeX = Math.round(volumeMetrics.left + volumeMetrics.width * 0.25);
+  const volumeY = Math.round(volumeMetrics.cy);
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: volumeX, y: volumeY, button: "none", clickCount: 0 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: volumeX, y: volumeY, button: "left", buttons: 1, clickCount: 1 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: volumeX, y: volumeY, button: "left", buttons: 0, clickCount: 1 });
+  await new Promise((r) => setTimeout(r, 120));
+  const volumeCommitState = await page.cdp.evaluate(`(() => ({
+    value: document.querySelector('.live-overlay-volume-slider:not(.live-overlay-speed-slider)').value,
+    commits: window.__volumeSyncValues.slice(),
+    liveState: window.__mockLiveController.getState()
+  }))()`);
+  check(
+    "C2d-volume-pointer-gesture-commits-once",
+    volumeCommitState.value !== "100" &&
+      volumeCommitState.commits.length === 1 &&
+      String(volumeCommitState.commits[0]) === volumeCommitState.value &&
+      volumeCommitState.liveState === "connected",
+    volumeCommitState
+  );
+
+  await pressKey(".live-overlay-volume-slider:not(.live-overlay-speed-slider)", "Escape", "Escape", 27);
+  const escapeCloseState = await page.cdp.evaluate(`(() => ({
+    hidden: document.querySelector('.live-overlay-audio-popover').hidden,
+    expanded: document.querySelector('.live-overlay-audio-btn').getAttribute('aria-expanded'),
+    focusReturned: document.activeElement === document.querySelector('.live-overlay-audio-btn'),
+    liveState: window.__mockLiveController.getState()
+  }))()`);
+  check(
+    "C2e-escape-closes-only-popover-and-restores-focus",
+    escapeCloseState.hidden && escapeCloseState.expanded === "false" && escapeCloseState.focusReturned && escapeCloseState.liveState === "connected",
+    escapeCloseState
+  );
+
+  await clickCenter(".live-overlay-audio-btn");
+  await clickCenter(".video-placeholder");
+  const outsideCloseState = await page.cdp.evaluate(`(() => ({
+    hidden: document.querySelector('.live-overlay-audio-popover').hidden,
+    focusReturned: document.activeElement === document.querySelector('.live-overlay-audio-btn'),
+    liveState: window.__mockLiveController.getState()
+  }))()`);
+  check(
+    "C2f-outside-click-closes-only-popover",
+    outsideCloseState.hidden && outsideCloseState.focusReturned && outsideCloseState.liveState === "connected",
+    outsideCloseState
+  );
+
+  await page.cdp.evaluate(`(() => {
+    document.getElementById('player-container').style.height = '1000px';
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    overlay.style.top = '850px';
+    overlay.style.right = '16px';
+    overlay.style.left = 'auto';
+  })()`);
+  await clickCenter(".live-overlay-audio-btn");
+  const flippedPopoverState = await page.cdp.evaluate(`(() => {
+    const popover = document.querySelector('.live-overlay-audio-popover');
+    const button = document.querySelector('.live-overlay-audio-btn');
+    const popoverRect = popover.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    return {
+      placement: popover.dataset.placement,
+      flippedAbove: popoverRect.bottom <= buttonRect.top - 6,
+      withinViewport: popoverRect.left >= 0 && popoverRect.top >= 0 && popoverRect.right <= innerWidth && popoverRect.bottom <= innerHeight
+    };
+  })()`);
+  check(
+    "C2g-audio-popover-flips-at-viewport-edge",
+    flippedPopoverState.placement === "top" && flippedPopoverState.flippedAbove && flippedPopoverState.withinViewport,
+    flippedPopoverState
+  );
+  await pressKey(".live-overlay-audio-btn", "Escape", "Escape", 27);
+
+  await page.cdp.evaluate(`(() => {
+    document.getElementById('player-container').style.height = '562px';
+    document.getElementById('biliscript-fullscreen-live-overlay').style.top = '16px';
+    document.querySelector('.live-overlay-audio-popover').showPopover = undefined;
+  })()`);
+  await clickCenter(".live-overlay-audio-btn");
+  const fallbackPopoverState = await page.cdp.evaluate(`(() => {
+    const popover = document.querySelector('.live-overlay-audio-popover');
+    const rect = popover.getBoundingClientRect();
+    return {
+      parent: popover.parentElement === document.body ? 'body' : 'other',
+      position: getComputedStyle(popover).position,
+      hidden: popover.hidden,
+      withinViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+    };
+  })()`);
+  check(
+    "C2h-fixed-popover-fallback-avoids-player-clipping",
+    fallbackPopoverState.parent === "body" && fallbackPopoverState.position === "fixed" && !fallbackPopoverState.hidden && fallbackPopoverState.withinViewport,
+    fallbackPopoverState
+  );
+
+  await page.cdp.evaluate(`(() => {
+    const host = document.getElementById('player-container');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: host });
+    host.classList.add('is-fullscreen');
+    document.dispatchEvent(new Event('fullscreenchange'));
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const fallbackFullscreenState = await page.cdp.evaluate(`(() => {
+    const host = document.getElementById('player-container');
+    const popover = document.querySelector('.live-overlay-audio-popover');
+    return {
+      popoverInFullscreenHost: popover.parentElement === host,
+      overlayInFullscreenHost: document.getElementById('biliscript-fullscreen-live-overlay').parentElement === host,
+      open: !popover.hidden,
+      liveState: window.__mockLiveController.getState()
+    };
+  })()`);
+  check(
+    "C2h2-fallback-follows-fullscreen-host",
+    fallbackFullscreenState.popoverInFullscreenHost && fallbackFullscreenState.overlayInFullscreenHost && fallbackFullscreenState.open && fallbackFullscreenState.liveState === "connected",
+    fallbackFullscreenState
+  );
+  await page.cdp.evaluate(`(() => {
+    const host = document.getElementById('player-container');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    host.classList.remove('is-fullscreen');
+    document.dispatchEvent(new Event('fullscreenchange'));
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const fallbackExitState = await page.cdp.evaluate(`(() => ({
+    returnedToBody: document.querySelector('.live-overlay-audio-popover').parentElement === document.body,
+    open: !document.querySelector('.live-overlay-audio-popover').hidden
+  }))()`);
+  check("C2h3-fallback-follows-fullscreen-exit", fallbackExitState.returnedToBody && fallbackExitState.open, fallbackExitState);
+  await page.cdp.evaluate(`delete document.fullscreenElement`);
+
+  await clickCenter(".video-placeholder");
+  await page.cdp.evaluate(`delete document.querySelector('.live-overlay-audio-popover').showPopover`);
+
+  await clickCenter(".live-overlay-header-settings-btn");
+  const settingsEntryState = await page.cdp.evaluate(`(() => ({
+    targets: window.__liveSettingsTargets.slice(),
+    hidden: document.querySelector('.live-overlay-audio-popover').hidden,
+    liveState: window.__mockLiveController.getState()
+  }))()`);
+  check(
+    "C2i-header-settings-btn-opens-live-provider-settings",
+    settingsEntryState.targets.length === 1 && settingsEntryState.targets[0] === "live" && settingsEntryState.hidden && settingsEntryState.liveState === "connected",
+    settingsEntryState
+  );
+
   // =========================================================================
-  // 2. 拖动浮窗：保存相对右上角偏移，进出全屏不遮挡中央画面
+  // 2. 拖动浮窗：就近吸附左右边缘，缩放后保持可达，进出全屏不遮挡中央画面
   // =========================================================================
   const headerInfo = await getElementMetrics(".live-overlay-header");
   const dragStartX = Math.round(headerInfo.cx);
@@ -408,22 +667,89 @@ try {
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: dragStartX, y: dragStartY, button: "left", buttons: 1, clickCount: 1 });
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: dragEndX, y: dragEndY, button: "left", buttons: 1, clickCount: 1 });
   await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: dragEndX, y: dragEndY, button: "left", buttons: 0, clickCount: 1 });
-  await new Promise((r) => setTimeout(r, 120));
+  await new Promise((r) => setTimeout(r, 250));
 
   const dragOffsetNonFs = await page.cdp.evaluate(`(() => {
     const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const host = document.getElementById('player-container');
+    const overlayRect = overlay.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
     return {
       styleRight: overlay.style.right,
       styleTop: overlay.style.top,
-      styleLeft: overlay.style.left
+      styleLeft: overlay.style.left,
+      distanceToRight: Math.round(hostRect.right - overlayRect.right),
+      distanceToTop: Math.round(overlayRect.top - hostRect.top)
     };
   })()`);
 
   check(
-    "C3-drag-preserves-top-right-offset",
-    Boolean(dragOffsetNonFs.styleRight && dragOffsetNonFs.styleRight !== "0px" && dragOffsetNonFs.styleLeft === "auto"),
+    "C3-drag-snaps-right-safe-gap",
+    dragOffsetNonFs.styleRight === "16px" &&
+      dragOffsetNonFs.styleLeft === "auto" &&
+      dragOffsetNonFs.distanceToRight === 16 &&
+      dragOffsetNonFs.distanceToTop === 66,
     dragOffsetNonFs
   );
+
+  await page.cdp.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "reduce" }]
+  });
+  const leftDragStart = await getElementMetrics(".live-overlay-header");
+  const leftDragEndX = Math.round(leftDragStart.cx) - 700;
+  const leftDragEndY = Math.round(leftDragStart.cy) + 30;
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: Math.round(leftDragStart.cx), y: Math.round(leftDragStart.cy), button: "none", clickCount: 0 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: Math.round(leftDragStart.cx), y: Math.round(leftDragStart.cy), button: "left", buttons: 1, clickCount: 1 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: leftDragEndX, y: leftDragEndY, button: "left", buttons: 1, clickCount: 1 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: leftDragEndX, y: leftDragEndY, button: "left", buttons: 0, clickCount: 1 });
+  await new Promise((r) => setTimeout(r, 80));
+
+  const leftSnapState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const host = document.getElementById('player-container');
+    const overlayRect = overlay.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    return {
+      styleLeft: overlay.style.left,
+      styleRight: overlay.style.right,
+      distanceToLeft: Math.round(overlayRect.left - hostRect.left),
+      animations: overlay.getAnimations().length
+    };
+  })()`);
+  check(
+    "C3b-left-snap-without-reduced-motion-animation",
+    leftSnapState.styleLeft === "16px" &&
+      leftSnapState.styleRight === "auto" &&
+      leftSnapState.distanceToLeft === 16 &&
+      leftSnapState.animations === 0,
+    leftSnapState
+  );
+  await page.cdp.send("Emulation.setEmulatedMedia", { features: [] });
+
+  await page.cdp.evaluate(`document.getElementById('player-container').style.width = '700px'`);
+  await new Promise((r) => setTimeout(r, 200));
+  const resizedSnapState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const host = document.getElementById('player-container');
+    const overlayRect = overlay.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    return {
+      hostWidth: Math.round(hostRect.width),
+      styleLeft: overlay.style.left,
+      distanceToLeft: Math.round(overlayRect.left - hostRect.left),
+      withinHost: overlayRect.right <= hostRect.right && overlayRect.bottom <= hostRect.bottom
+    };
+  })()`);
+  check(
+    "C3c-resize-preserves-reachable-left-snap",
+    resizedSnapState.hostWidth === 700 &&
+      resizedSnapState.styleLeft === "16px" &&
+      resizedSnapState.distanceToLeft === 16 &&
+      resizedSnapState.withinHost,
+    resizedSnapState
+  );
+  await page.cdp.evaluate(`document.getElementById('player-container').style.width = '1000px'`);
+  await new Promise((r) => setTimeout(r, 200));
 
   // 进全屏模式（模拟 1920x1080 浏览器全屏或网页全屏）
   await page.cdp.evaluate(`(() => {
@@ -482,11 +808,11 @@ try {
     fullscreenState
   );
 
-  const shot3 = path.join(OUT_DIR, "03-dragged-fullscreen-top-right.png");
+  const shot3 = path.join(OUT_DIR, "03-dragged-fullscreen-snapped.png");
   await screenshot(page.cdp, shot3);
 
-  // 全屏下最小化回胶囊并点击展开
-  await clickCenter(".live-overlay-min-btn");
+  // 全屏下用键盘最小化回胶囊，再用指针展开
+  await pressKey(".live-overlay-min-btn", "Enter", "Enter", 13);
   await waitFor("全屏胶囊显形", async () =>
     page.cdp.evaluate("Boolean(document.querySelector('.biliscript-fullscreen-live-mini-capsule:not(.is-hidden):not([hidden])'))")
   );
@@ -496,14 +822,50 @@ try {
     const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
     return {
       capsuleVisible: Boolean(capsule && !capsule.hidden && !capsule.classList.contains('is-hidden')),
-      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden'))
+      overlayVisible: Boolean(overlay && !overlay.hidden && !overlay.classList.contains('is-hidden')),
+      focused: document.activeElement === capsule,
+      capsuleExpanded: capsule.getAttribute('aria-expanded'),
+      capsuleMic: capsule.querySelector('.live-overlay-mini-mic-text')?.textContent
     };
   })()`);
 
   check(
-    "C4b-fullscreen-capsule-and-expand",
-    fullscreenCapsuleState.capsuleVisible && !fullscreenCapsuleState.overlayVisible,
+    "C4b-fullscreen-keyboard-minimize-and-focus",
+    fullscreenCapsuleState.capsuleVisible &&
+      !fullscreenCapsuleState.overlayVisible &&
+      fullscreenCapsuleState.focused &&
+      fullscreenCapsuleState.capsuleExpanded === "false" &&
+      fullscreenCapsuleState.capsuleMic === "麦克风已静音",
     fullscreenCapsuleState
+  );
+
+  const capsuleDragStart = await getElementMetrics(".biliscript-fullscreen-live-mini-capsule");
+  const capsuleDragEndX = Math.round(capsuleDragStart.cx) + 1200;
+  const capsuleDragY = Math.round(capsuleDragStart.cy);
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: Math.round(capsuleDragStart.cx), y: capsuleDragY, button: "none", clickCount: 0 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: Math.round(capsuleDragStart.cx), y: capsuleDragY, button: "left", buttons: 1, clickCount: 1 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: capsuleDragEndX, y: capsuleDragY, button: "left", buttons: 1, clickCount: 1 });
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: capsuleDragEndX, y: capsuleDragY, button: "left", buttons: 0, clickCount: 1 });
+  await new Promise((r) => setTimeout(r, 250));
+  const capsuleDragState = await page.cdp.evaluate(`(() => {
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    return {
+      capsuleVisible: !capsule.hidden && !capsule.classList.contains('is-hidden'),
+      overlayHidden: overlay.hidden && overlay.classList.contains('is-hidden'),
+      styleRight: capsule.style.right,
+      styleLeft: capsule.style.left,
+      liveState: window.__mockLiveController.getState()
+    };
+  })()`);
+  check(
+    "C4c-capsule-drag-snaps-without-expanding",
+    capsuleDragState.capsuleVisible &&
+      capsuleDragState.overlayHidden &&
+      capsuleDragState.styleRight === "16px" &&
+      capsuleDragState.styleLeft === "auto" &&
+      capsuleDragState.liveState === "connected",
+    capsuleDragState
   );
 
   // 点击全屏胶囊重新展开
@@ -520,6 +882,43 @@ try {
     window.__liveBinding.getOverlay().show();
   })()`);
   await new Promise((r) => setTimeout(r, 200));
+
+  const hostMigrationState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    window.__overlayBeforeHostSwap = overlay;
+    window.__capsuleBeforeHostSwap = capsule;
+    const oldHost = document.getElementById('player-container');
+    const newHost = oldHost.cloneNode(true);
+    newHost.querySelectorAll('#biliscript-fullscreen-live-overlay, .biliscript-fullscreen-live-mini-capsule').forEach((el) => el.remove());
+    oldHost.replaceWith(newHost);
+    return true;
+  })()`);
+  await waitFor("播放器宿主替换后迁移浮窗", async () => page.cdp.evaluate(`(() => {
+    const host = document.getElementById('player-container');
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    return host && overlay?.parentElement === host && capsule?.parentElement === host;
+  })()`));
+  const migratedState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    return {
+      sameOverlay: overlay === window.__overlayBeforeHostSwap,
+      sameCapsule: capsule === window.__capsuleBeforeHostSwap,
+      expanded: !overlay.hidden && capsule.hidden,
+      liveState: window.__mockLiveController.getState()
+    };
+  })()`);
+  check(
+    "C4d-host-replacement-preserves-nodes-presentation-and-session",
+    hostMigrationState &&
+      migratedState.sameOverlay &&
+      migratedState.sameCapsule &&
+      migratedState.expanded &&
+      migratedState.liveState === "connected",
+    migratedState
+  );
 
   // =========================================================================
   // 3. 伴看进行中，文摘面板发起文本问答：两者互不冲突，会话不断开
@@ -599,6 +998,22 @@ try {
     "C9-screenshots-generated",
     existsSync(shot1) && existsSync(shot2) && existsSync(shot3) && existsSync(shot4),
     { shot1, shot2, shot3, shot4 }
+  );
+
+  await pressKey(".live-overlay-close-btn", " ", "Space", 32);
+  const keyboardStopState = await page.cdp.evaluate(`(() => {
+    const overlay = document.getElementById('biliscript-fullscreen-live-overlay');
+    const capsule = document.querySelector('.biliscript-fullscreen-live-mini-capsule');
+    return {
+      liveState: window.__mockLiveController.getState(),
+      overlayHidden: overlay.hidden && overlay.hasAttribute('inert'),
+      capsuleHidden: capsule.hidden && capsule.hasAttribute('inert')
+    };
+  })()`);
+  check(
+    "C10-keyboard-stop-hides-idle-overlay",
+    keyboardStopState.liveState === "idle" && keyboardStopState.overlayHidden && keyboardStopState.capsuleHidden,
+    keyboardStopState
   );
 
   await writeEvidence(OUT_DIR, {

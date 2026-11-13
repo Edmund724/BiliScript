@@ -109,11 +109,11 @@ const ASR_BASE_URL = "https://api.siliconflow.cn/v1";
 const TRANSCRIPTION_URL = `${ASR_BASE_URL}/audio/transcriptions`;
 
 // 每段解码产出的采样数：恰好让夹具的**单个** ADTS 段就切满 1 片——片长取
-// buildChunkPlan("openai-transcriptions") 的 300s @16kHz = 4_800_000 采样。
+// buildChunkPlan("openai-transcriptions") 的 60s @16kHz = 960_000 采样。
 // 夹具（fmp4-audio-sample.bin）经解复用得到 2 段，故第 1 段即触发首个转写请求，
 // 第 2 段要等第 1 段消费完才被解码（stream-chunker 逐段消费）——这正是中止能否
 // 拦住「第 2 片」的判别点：中止路径下请求数停在 1，非中止路径下继续往上走。
-const SAMPLES_PER_SEGMENT = 4_800_000;
+const SAMPLES_PER_SEGMENT = 960_000;
 
 const RUNTIME_CONFIG = {
   ok: true,

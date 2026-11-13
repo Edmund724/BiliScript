@@ -1,3 +1,4 @@
+import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
 // ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（script-only-ui，2026-09 拆分）。
 //
@@ -7,12 +8,11 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 //（分节、id、类名契约）与流程代码互不干扰，模板改动只落本文件。
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
-// 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 →
-// AI 对话 → 外观 → 导出 → 保存行）。
+// 抽屉内展示顺序。
 // id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
 // collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
-// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。6 个
+// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 // 布尔开关行（biliscript-toggle-row）的轨道/滑块样式走组件表
 // styles/toggle-switch.css（ADR-0019，随 ui/toggle-switch.ts 挂载），id 与
 // .checked 语义不变：装载/保存逻辑照读原生 input。
@@ -21,13 +21,18 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 // collectElements 元素袋的字段名（saveBtn / resetBtn / status 的 id 带
 // biliscriptSettings 前缀，字段名不带）；value = 渲染进模板的 id。
 export const SETTINGS_PANEL_DOM_IDS = {
+  readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
   settingsNav: "biliscriptSettingsNav",
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
+  liveSettingsHeader: "biliscript-live-settings",
   liveProvidersList: "liveProvidersList",
   liveProvidersEmpty: "liveProvidersEmpty",
+  liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
+  liveLowBandwidth: "liveLowBandwidth",
+  subtitleTranslateModel: "subtitleTranslateModel",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -51,6 +56,24 @@ export const SETTINGS_PANEL_DOM_IDS = {
   readerFontSizeScale: "readerFontSizeScale",
   readerFontSizeScaleValue: "readerFontSizeScaleValue",
   readerFontSizeScaleResetBtn: "readerFontSizeScaleResetBtn",
+  chatPreferencesHeading: "chatPreferencesHeading",
+  chatLineHeight: "chatLineHeight",
+  chatLineHeightValue: "chatLineHeightValue",
+  chatLineHeightResetBtn: "chatLineHeightResetBtn",
+  chatParagraphSpacing: "chatParagraphSpacing",
+  chatParagraphSpacingValue: "chatParagraphSpacingValue",
+  chatParagraphSpacingResetBtn: "chatParagraphSpacingResetBtn",
+  speechVoiceVolume: "speechVoiceVolume",
+  speechVoiceVolumeValue: "speechVoiceVolumeValue",
+  speechVoiceVolumeResetBtn: "speechVoiceVolumeResetBtn",
+  liveVoiceVolume: "liveVoiceVolume",
+  liveVoiceVolumeValue: "liveVoiceVolumeValue",
+  liveVoiceVolumeResetBtn: "liveVoiceVolumeResetBtn",
+  liveVoiceSpeed: "liveVoiceSpeed",
+  liveVoiceSpeedValue: "liveVoiceSpeedValue",
+  liveVoiceSpeedResetBtn: "liveVoiceSpeedResetBtn",
+  liveShareVideoAudio: "liveShareVideoAudio",
+  liveVoicePriority: "liveVoicePriority",
 
   customPanelWidthContainer: "customPanelWidthContainer",
   customPanelWidth: "customPanelWidth",
@@ -62,11 +85,23 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
+  agentBridgeConnectBtn: "agentBridgeConnectBtn",
+  agentBridgeAddressBtn: "agentBridgeAddressBtn",
+  agentBridgeAddressView: "agentBridgeAddressView",
+  agentBridgeAddressBackBtn: "agentBridgeAddressBackBtn",
+  agentBridgeUrl: "agentBridgeUrl",
+  agentBridgeResetUrlBtn: "agentBridgeResetUrlBtn",
+  agentBridgeTestBtn: "agentBridgeTestBtn",
+  agentBridgeSaveBtn: "agentBridgeSaveBtn",
+  agentBridgeAddressStatus: "agentBridgeAddressStatus",
   cleanConversationsOlderThan30Days: "cleanConversationsOlderThan30Days",
   status: "biliscriptSettingsStatus",
   toggleSearchChainBtn: "toggleSearchChainBtn",
   searchChainContainer: "searchChainContainer",
   searchChainActiveSummary: "searchChainActiveSummary",
+  aiActiveDefaultSummary: "aiActiveDefaultSummary",
+  aiChatSelectionSummary: "aiChatSelectionSummary",
+  subtitleTranslateFollowHint: "subtitleTranslateFollowHint",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;
 
@@ -76,30 +111,105 @@ export type SettingsPanelDomId = (typeof SETTINGS_PANEL_DOM_IDS)[keyof typeof SE
 export function buildSettingsHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
   return `
-    <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
-      <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="prompt">提示词</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
-      <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
-      <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
-    </nav>
+    <div class="biliscript-settings-nav-bar">
+      <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-settings-back-btn" title="返回" aria-label="返回">
+        ${READING_HEADER_ICONS.back}
+      </button>
+      <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
+        <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="live">实时伴看</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="subtitle">字幕翻译</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="ai-button">AI 按钮</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="system-prompt">系统提示词</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="initial-prompt">初始问题</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
+        <button type="button" class="biliscript-settings-nav-item" data-section="agent">本地 Agent</button>
+      </nav>
+    </div>
 
     <section class="biliscript-set-group" data-settings-section="llm">
       <div class="biliscript-set-header-row">
         <div class="biliscript-set-h">AI 模型平台</div>
         <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      </div>
+      <p id="${ids.aiActiveDefaultSummary}" class="biliscript-set-hint"></p>
+      <p id="${ids.aiChatSelectionSummary}" class="biliscript-set-hint" hidden></p>
+    </section>
 
-      <div class="biliscript-set-header-row" style="margin-top: var(--biliscript-space-lg);">
+    <section class="biliscript-set-group" data-settings-section="live">
+      <div id="${ids.liveSettingsHeader}" class="biliscript-set-header-row">
         <div class="biliscript-set-h">实时伴看平台</div>
         <button id="${ids.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.liveProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">低带宽画面采集</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveLowBandwidth}" type="checkbox" class="biliscript-toggle-input" aria-label="低带宽画面采集" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row biliscript-slider-row">
+          <label class="biliscript-set-label" for="${ids.liveVoiceVolume}">伴看音量</label>
+          <div class="biliscript-slider-control">
+            <input id="${ids.liveVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="200" step="1" value="100" style="--range-progress: 50%;" />
+            <span id="${ids.liveVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
+            <button id="${ids.liveVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看音量 (100%)" aria-label="恢复默认伴看音量">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <div class="biliscript-set-row biliscript-slider-row">
+          <label class="biliscript-set-label" for="${ids.liveVoiceSpeed}">伴看语速</label>
+          <div class="biliscript-slider-control">
+            <input id="${ids.liveVoiceSpeed}" type="range" class="biliscript-range-input" min="0.5" max="1.5" step="0.25" value="1" style="--range-progress: 50%;" />
+            <span id="${ids.liveVoiceSpeedValue}" class="biliscript-slider-badge">1×</span>
+            <button id="${ids.liveVoiceSpeedResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看语速 (1×)" aria-label="恢复默认伴看语速">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <div class="biliscript-set-check biliscript-toggle-row" title="让 AI 同时听到视频原声与你的麦克风声音">
+          <span class="biliscript-toggle-text">分享视频声音</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveShareVideoAudio}" type="checkbox" class="biliscript-toggle-input" aria-label="分享视频声音" aria-description="让 AI 同时听到视频原声与你的麦克风声音" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="biliscript-set-check biliscript-toggle-row" title="你说话或 AI 播报时降低视频音量，结束后恢复">
+          <span class="biliscript-toggle-text">语音优先</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.liveVoicePriority}" type="checkbox" class="biliscript-toggle-input" aria-label="语音优先" aria-description="你说话或 AI 播报时降低视频音量，结束后恢复" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+      <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
+
+    </section>
+
+    <section class="biliscript-set-group" data-settings-section="subtitle">
+      <div class="biliscript-set-header-row">
+        <div class="biliscript-set-h">字幕翻译</div>
+      </div>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <div class="biliscript-set-row-copy">
+            <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
+            <p id="${ids.subtitleTranslateFollowHint}" class="biliscript-set-hint biliscript-set-row-sub" hidden></p>
+          </div>
+          <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
+            <option value="">跟随 AI 默认平台</option>
+          </select>
+        </div>
+      </div>
 
     </section>
 
@@ -108,9 +218,9 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-h">语音转写平台</div>
         <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-      <div class="biliscript-set-card">
+      <div class="biliscript-set-card biliscript-provider-group">
+        <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
+        <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
         <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
           <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
           <label class="biliscript-toggle-switch">
@@ -126,18 +236,19 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-h">搜索平台</div>
         <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       </div>
-      <div class="biliscript-set-card">
-        <div id="${ids.toggleSearchChainBtn}" class="biliscript-set-row biliscript-entry-row" role="button" tabindex="0" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
+      <div class="biliscript-set-card biliscript-provider-group">
+        <button id="${ids.toggleSearchChainBtn}" type="button" class="biliscript-set-row biliscript-entry-row" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
           <span class="biliscript-set-label">搜索平台与回退链</span>
           <span class="biliscript-entry-summary">
-            <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能模式</span>
+            <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能搜索 · 失败自动回退</span>
             <svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
-        </div>
+        </button>
 
         <div id="${ids.searchChainContainer}" class="search-chain-collapse-body" hidden>
+          <p class="biliscript-set-hint search-chain-mode-note">智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。</p>
           <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
           <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
           <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
@@ -174,7 +285,7 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="ai-button">
       <div class="biliscript-set-h">AI 按钮</div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-check biliscript-toggle-row">
@@ -192,14 +303,14 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="system-prompt">
       <div class="biliscript-set-h">AI 对话 - 系统提示词</div>
       <div class="biliscript-set-card">
         <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
       </div>
     </section>
 
-    <section class="biliscript-set-group" data-settings-section="prompt">
+    <section class="biliscript-set-group" data-settings-section="initial-prompt">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-quick-prompts">
@@ -246,7 +357,41 @@ export function buildSettingsHtml(): string {
             <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
           </div>
         </div>
+      </div>
 
+      <div data-settings-subgroup="chat" aria-labelledby="${ids.chatPreferencesHeading}">
+        <div class="biliscript-set-header-row">
+          <div id="${ids.chatPreferencesHeading}" class="biliscript-set-subgroup-h">AI 对话</div>
+        </div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.chatLineHeight}">对话行高</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.chatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" style="--range-progress: 50%;" />
+              <span id="${ids.chatLineHeightValue}" class="biliscript-slider-badge">160%</span>
+              <button id="${ids.chatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话行高 (160%)" aria-label="恢复默认对话行高">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.chatParagraphSpacing}">对话段落间距</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.chatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" style="--range-progress: 50%;" />
+              <span id="${ids.chatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
+              <button id="${ids.chatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话段落间距 (12px)" aria-label="恢复默认对话段落间距">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.speechVoiceVolume}">对话朗读音量</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.speechVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
+              <span id="${ids.speechVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
+              <button id="${ids.speechVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话朗读音量 (100%)" aria-label="恢复默认对话朗读音量">${READING_RESET_ICON}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="biliscript-set-card">
         <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
           <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
           <div class="biliscript-slider-control">
@@ -325,6 +470,42 @@ export function buildSettingsHtml(): string {
             <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
           </label>
         </div>
+      </div>
+    </section>
+
+    <section class="biliscript-set-group" data-settings-section="agent">
+      <div class="biliscript-set-h">本地 Agent 远程控制</div>
+      <div class="biliscript-set-card biliscript-agent-bridge-card">
+        <div class="biliscript-set-row biliscript-agent-bridge-connection">
+          <span class="biliscript-agent-bridge-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 4 17m0 0v-5m0 5h5M15 12l5-5m0 0v5m0-5h-5"/></svg>
+          </span>
+          <div class="biliscript-agent-bridge-connection-copy">
+            <span class="biliscript-set-label">连接状态</span>
+            <p>连接后可通过 Kimi 等本地 Agent 远程操控 BiliScript 浏览器扩展</p>
+          </div>
+          <button id="${ids.agentBridgeConnectBtn}" type="button" class="biliscript-agent-bridge-connect">去连接</button>
+        </div>
+        <button id="${ids.agentBridgeAddressBtn}" type="button" class="biliscript-set-row biliscript-entry-row">
+          <span class="biliscript-set-label">连接地址</span>
+          <svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </div>
+    </section>
+
+    <section id="${ids.agentBridgeAddressView}" class="biliscript-agent-bridge-address-view" hidden>
+      <div class="biliscript-agent-bridge-address-header">
+        <button id="${ids.agentBridgeAddressBackBtn}" type="button" class="biliscript-reading-icon-btn" title="返回" aria-label="返回本地 Agent 设置">${READING_HEADER_ICONS.back}</button>
+        <div class="biliscript-set-h">连接地址</div>
+      </div>
+      <div class="biliscript-set-card">
+        <input id="${ids.agentBridgeUrl}" class="biliscript-set-input biliscript-agent-bridge-url" type="text" inputmode="url" spellcheck="false" aria-label="本地 Agent 连接地址" />
+      </div>
+      <p id="${ids.agentBridgeAddressStatus}" class="biliscript-set-status" role="status"></p>
+      <div class="biliscript-agent-bridge-address-actions">
+        <button id="${ids.agentBridgeResetUrlBtn}" type="button" class="biliscript-agent-bridge-secondary">恢复默认</button>
+        <button id="${ids.agentBridgeTestBtn}" type="button" class="biliscript-agent-bridge-secondary">测试</button>
+        <button id="${ids.agentBridgeSaveBtn}" type="button" class="biliscript-agent-bridge-primary">保存</button>
       </div>
     </section>
 

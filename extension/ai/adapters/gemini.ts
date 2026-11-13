@@ -241,7 +241,11 @@ export function convertGeminiMessages(
             if (isG3 && fcId) {
               fc.id = sanitizeGeminiCallId(fcId);
             }
-            parts.push({ functionCall: fc });
+            const thoughtSignature = typeof p.thoughtSignature === "string" ? p.thoughtSignature : msg.thoughtSignature;
+            parts.push({
+              functionCall: fc,
+              ...(isG3 && thoughtSignature ? { thoughtSignature } : {})
+            });
             pendingCalls.push({ id: fcId, name: fcName, responded: false });
           } else if (p.thoughtSignature) {
             parts.push({ ...p });
@@ -287,7 +291,10 @@ export function convertGeminiMessages(
           if (isG3 && call.id) {
             fc.id = sanitizeGeminiCallId(call.id);
           }
-          parts.push({ functionCall: fc });
+          parts.push({
+            functionCall: fc,
+            ...(isG3 && msg.thoughtSignature ? { thoughtSignature: msg.thoughtSignature } : {})
+          });
           pendingCalls.push({ id: call.id, name: call.function.name, responded: false });
         }
       }

@@ -8,6 +8,10 @@
 // import = 编译后无边，取值域实体在零 import 的词表叶 ai/thinking-levels.ts
 //（core 与请求路径两侧同源）。
 import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
+import type {
+  InterpretSubtitleDisplayMode,
+  LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
 
 // ===== Version =====
 // Single source of truth for the extension version; consumed by the content
@@ -37,6 +41,8 @@ export interface KnownSettings {
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
+  enableAgentBridge: boolean;
+  agentBridgeUrl: string;
   readerTheme: string;
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
@@ -51,10 +57,16 @@ export interface KnownSettings {
   activeAsrProviderId: string;
   activeLiveProviderId: string;
   liveVoiceVolume: number;
+  liveVoiceSpeed: number;
   speechVoiceVolume: number;
   liveVoicePriority: boolean;
   liveShareVideoAudio: boolean;
   liveGeminiNativeSearch: boolean;
+  liveLowBandwidth: boolean;
+  subtitleTranslateProviderId: string;
+  subtitleTranslateModel: string;
+  liveInterpretTargetLang: LiveInterpretTargetLang;
+  liveInterpretDisplayMode: InterpretSubtitleDisplayMode;
   asrAutoFallback: boolean;
   asrLanguage: string;
   // ===== 联网搜索（spec §3.2）=====
@@ -74,7 +86,7 @@ export interface KnownSettings {
   // 记录（否则「删除即撤回」不成立）。
   searchPresetsAutoActivated: boolean;
   // searchOptInNoticeAcknowledged：联网搜索 opt-in 一次性说明已确认，只在用户点
-  // 「同意并继续」时置位。
+  // 「允许并继续」时置位。
   searchOptInNoticeAcknowledged: boolean;
   // ===== 双语字幕 =====
   bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关
@@ -113,6 +125,8 @@ export const DEFAULT_SETTINGS: Settings = {
   playerAiQuickPrompt: "",
   includeTimestampInBody: true,
   enableDebugLogs: false,
+  enableAgentBridge: false,
+  agentBridgeUrl: "ws://127.0.0.1:18492",
   readerTheme: "light",
   readerThemeUserSet: false,
   readerPalette: "flyme",
@@ -129,10 +143,16 @@ export const DEFAULT_SETTINGS: Settings = {
   activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
   activeLiveProviderId: "",  // 当前选用的 MOSS-LIVE 平台 id
   liveVoiceVolume: 100,      // 实时伴看 AI 音量（百分比）
+  liveVoiceSpeed: 1,         // 实时伴看 AI 语速（0.5/0.75/1/1.25/1.5）
   speechVoiceVolume: 100,    // AI 回答朗读音量（百分比）
   liveVoicePriority: true,   // 实时伴看语音优先（自动压低视频音量，默认开启）
   liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
   liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
+  liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
+  subtitleTranslateProviderId: "", // 专属字幕翻译 AI 平台 id，空串表示跟随全局默认平台
+  subtitleTranslateModel: "",      // 专属字幕翻译模型，空串表示跟随全局默认模型
+  liveInterpretTargetLang: "zh",
+  liveInterpretDisplayMode: "auto",
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====

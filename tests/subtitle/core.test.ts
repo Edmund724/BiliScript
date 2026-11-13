@@ -407,10 +407,11 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
   });
 
-  it("拉取失败（风控 / 网络）：落空数组 + 状态行出声，病因带「失败」→ 常驻", async () => {
+  it("拉取失败（风控 / 网络）：落空数组 + 失败提示落 clip 字段（概览 tab 呈现），不写全局状态行", async () => {
     const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
-    const { isPersistentStatusText } = await import("../../extension/core/reading-status-line.js");
     state.clip.setHotComments([]);
+    state.clip.setHotCommentsNotice("");
+    state.ui.setMessageText("");
     gateway.fetchHotComments.mockRejectedValueOnce(
       new Error("B 站风控校验失败（-352），拿不到热评目录")
     );
@@ -418,23 +419,34 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     await refreshHotComments({ refreshComments: true });
 
     expect(state.clip.hotComments).toEqual([]);
-    expect(state.ui.messageText).toContain("热评没拿到");
-    expect(state.ui.messageText).toContain("B 站风控校验失败（-352）");
-    // 含「失败」→ 命中常驻词表：风控/网络类错误不自动消失
-    expect(isPersistentStatusText(state.ui.messageText)).toBe(true);
+    // 反馈归属（06 号票）：热评的消费方是概览，失败提示写给概览 tab 的
+    // hotCommentsNotice，全局状态行不再出声
+    expect(state.clip.hotCommentsNotice).toContain("热评没拿到");
+    expect(state.clip.hotCommentsNotice).toContain("B 站风控校验失败（-352）");
+    expect(state.ui.messageText).not.toContain("热评没拿到");
   });
 
-  it("评论被关闭（-404）：同样出声，但属正常态 → 5s 自动收起（不常驻）", async () => {
+  it("评论被关闭（-404）：同样落 clip 字段，病因原样可读", async () => {
     const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
-    const { isPersistentStatusText } = await import("../../extension/core/reading-status-line.js");
     state.clip.setHotComments([]);
+    state.clip.setHotCommentsNotice("");
     gateway.fetchHotComments.mockRejectedValueOnce(new Error("评论不存在或已关闭（-404）"));
 
     await refreshHotComments({ refreshComments: true });
 
     expect(state.clip.hotComments).toEqual([]);
-    expect(state.ui.messageText).toContain("评论不存在或已关闭（-404）");
-    expect(isPersistentStatusText(state.ui.messageText)).toBe(false);
+    expect(state.clip.hotCommentsNotice).toContain("评论不存在或已关闭（-404）");
+  });
+
+  it("拉取成功：清空上一轮失败留下的 hotCommentsNotice", async () => {
+    const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+    state.clip.setHotComments([]);
+    state.clip.setHotCommentsNotice("热评没拿到（旧失败）：本次概览没有评论目录。");
+
+    await refreshHotComments({ refreshComments: true });
+
+    expect(state.clip.hotComments).toEqual(HOT_COMMENTS);
+    expect(state.clip.hotCommentsNotice).toBe("");
   });
 });
 

@@ -199,6 +199,36 @@ describe("Offscreen 请求代际与过期工作清理", () => {
     expect(timeoutErrors).toHaveLength(1);
   });
 
+  it("截帧期间空闲超时会取消页面工作并结束工具等待", async () => {
+    let captureError: unknown;
+    runLadderChatMock.mockImplementation(async ({ captureCurrentVideoFrame }: RunLadderChatArgs) => {
+      try {
+        await captureCurrentVideoFrame?.(90);
+      } catch (error) {
+        captureError = error;
+      }
+    });
+    await importOffscreen();
+    const session = connectChat();
+
+    session.send({ ...CHAT_MSG_1, videoFrameToolEnabled: true });
+    await vi.advanceTimersByTimeAsync(10);
+    const request = session.postedMessages.find((message: any) => message?.type === "video-frame-request") as any;
+
+    await vi.advanceTimersByTimeAsync(90_000);
+
+    expect(captureError).toEqual(new Error("截图请求已中止"));
+    expect(session.postedMessages).toContainEqual({
+      type: "video-frame-cancel",
+      requestId: request.requestId,
+      cachedContextKey: CHAT_MSG_1.contextKey
+    });
+    expect(session.postedMessages).toContainEqual(expect.objectContaining({
+      type: "error",
+      error: expect.stringContaining("90 秒未返回任何数据")
+    }));
+  });
+
   it("成本确认跨代保护：旧请求在成本护栏等待期间被新请求接管，旧请求等待正常取消", async () => {
     let costGuardResult1: boolean | null = null;
 

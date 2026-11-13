@@ -6,6 +6,10 @@ import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/c
 import { normalizeChapters } from "../subtitle/chapters.js";
 import type { MossLiveToolCall, MossLiveVideoContext, MossLiveVideoIdentity } from "./moss-live-protocol.js";
 import { projectLiveOverview, type LiveOverviewSource } from "./live-overview-context.js";
+import {
+  ensureReaderOverviewSource,
+  getReaderOverviewSource
+} from "../reader/live-overview-source.js";
 
 export interface LiveToolsBridgeDeps {
   getClip?: () => Partial<ClipState>;
@@ -130,8 +134,8 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   const getPlayer = deps.getPlayer || getRuntimeVideoElement;
   const getCurrentTime = deps.getCurrentTime || (() => getPlayer()?.currentTime || 0);
   const showNotice = deps.showNotice || (() => {});
-  const getOverview = deps.getOverview || (() => null);
-  const ensureOverview = deps.ensureOverview;
+  const getOverview = deps.getOverview || getReaderOverviewSource;
+  const ensureOverview = deps.ensureOverview || ensureReaderOverviewSource;
 
   function getVideoContext(): MossLiveVideoContext | null {
     return projectVideoContext(getClip(), getUrl(), getOverview());

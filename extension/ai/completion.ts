@@ -441,7 +441,8 @@ export async function chatCompletion({
           done: true,
           finishReason: streamResult.finishReason,
           assistantContent: streamResult.content,
-          toolCalls: streamResult.toolCalls
+          toolCalls: streamResult.toolCalls,
+          ...(streamResult.thoughtSignature ? { thoughtSignature: streamResult.thoughtSignature } : {})
         };
       }
       return { done: true };
@@ -461,7 +462,8 @@ export async function chatCompletion({
         done: true,
         finishReason: parsed.finishReason,
         assistantContent: parsed.content,
-        toolCalls: parsed.toolCalls
+        toolCalls: parsed.toolCalls,
+        ...(parsed.thoughtSignature ? { thoughtSignature: parsed.thoughtSignature } : {})
       };
     }
     return parsed.content;

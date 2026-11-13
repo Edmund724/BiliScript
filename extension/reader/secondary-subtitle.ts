@@ -35,6 +35,7 @@ import {
 import { clearSecondary } from "../subtitle/slot.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
+import { normalizeAsrTranslationLang } from "./asr-translation.js";
 
 // 目标轨投影：id/url 取自轨，lang 是目标轨语言（统一走 selection.ts 的规范投影
 // `lanDoc || lan || "unknown"`，作为 per-track 缓存键的 source key 分量）。
@@ -348,12 +349,15 @@ export interface BilingualStorageSyncResult {
 
 // 跨上下文双语偏好同步（watchStorageKeys 回调）：合并 bilingualSubtitles /
 // secondarySubtitleLang 变更到 state.settings，若双语处于开启态则按偏好激活目标轨。
+// `liveInterpretTargetLang`（伪轨视频的译文目标语言）同表并入：它不影响副轨目标解析，
+// 只让面板副列的高亮跟着另一标签页的改动收敛。
 export function syncBilingualSettingsFromStorage(
   changes: Record<string, { oldValue?: unknown; newValue?: unknown }>
 ): BilingualStorageSyncResult {
   const bilingual = changes["bilingualSubtitles"];
   const lang = changes["secondarySubtitleLang"];
-  if (!bilingual && !lang) {
+  const translateLang = changes["liveInterpretTargetLang"];
+  if (!bilingual && !lang && !translateLang) {
     return {
       changed: false,
       loadOutcome: { kind: "skipped", reason: "bilingual-off" }
@@ -365,6 +369,9 @@ export function syncBilingualSettingsFromStorage(
   }
   if (lang && typeof lang.newValue === "string") {
     updates.secondarySubtitleLang = lang.newValue;
+  }
+  if (translateLang && typeof translateLang.newValue === "string") {
+    updates.liveInterpretTargetLang = normalizeAsrTranslationLang(translateLang.newValue);
   }
   state.setSettings({ ...state.settings, ...updates });
   const loadOutcome: SecondaryEnsureOutcome =

@@ -48,7 +48,10 @@ export interface ProviderTransactionsDeps {
 }
 
 export interface ProviderTransactions {
-  upsertProvider(kind: ProviderEditorKind, upsert: ProviderRowItem): Promise<{ ok: boolean; error?: string }>;
+  upsertProvider(
+    kind: ProviderEditorKind,
+    upsert: ProviderRowItem
+  ): Promise<{ ok: boolean; error?: string; permissionDenied?: boolean }>;
   deleteProvider(
     kind: ProviderEditorKind,
     target: { id: string; baseUrl: string }
@@ -72,7 +75,7 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
   async function upsertProvider(
     kind: ProviderEditorKind,
     upsert: ProviderRowItem
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; permissionDenied?: boolean }> {
     const family = deps.families[kind];
     // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
     // optional 权限代申请。手势不变式：本调用之前零先行 await。
@@ -83,7 +86,7 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
         PROVIDER_FAMILY_ROWS[kind].editor.resolvePermissionOrigins(rawUrl, model)
       );
       if (!permission.ok) {
-        return { ok: false, error: permission.error };
+        return { ok: false, error: permission.error, permissionDenied: true };
       }
     }
     try {

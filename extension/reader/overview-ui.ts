@@ -10,7 +10,8 @@ import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
-import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
+import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
+import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
@@ -28,6 +29,10 @@ import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 export interface OverviewUiActions {
   retry: () => void;
   cancel: () => void;
+  /** 配置类错误「去设置」（票 01）：直达正确的平台编辑界面并记录续跑意图 */
+  setup: (errorClass: OverviewSetupErrorClass) => void;
+  /** 无字幕配置空态「前往设置」：直达 ASR 平台编辑或自动转写开关（票 04） */
+  openTranscribeSettings: () => void;
 }
 
 let registeredActions: OverviewUiActions | null = null;
@@ -91,19 +96,26 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
 }
 
 function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
+  // 热评拉取失败提示（字幕管线写入 state.clip.hotCommentsNotice）：概览的章节
+  // 目录来源之一没拿到，按职责在概览自己的状态条呈现；只在有产物的相位挂条，
+  // empty/generating 等相位已有各自的预期文案。
+  const hotNotice = String(state.clip.hotCommentsNotice || "").trim();
+  const hotNoticeStrip = hotNotice
+    ? `<div class="biliscript-reading-ov-strip"><span class="biliscript-reading-ov-strip-text">${escapeHtml(hotNotice)}</span></div>`
+    : "";
   switch (snapshot.phase) {
     case "empty":
       return buildEmptyStateHtml();
     case "generating":
       return buildGeneratingStrip(snapshot) + buildResultSectionsHtml(snapshot);
     case "partial":
-      return buildPartialStrip(snapshot) + buildResultSectionsHtml(snapshot);
+      return hotNoticeStrip + buildPartialStrip(snapshot) + buildResultSectionsHtml(snapshot);
     case "error":
       return buildErrorStrip(snapshot);
     case "cancelled":
       return buildCancelledStrip();
     case "ready":
-      return buildResultSectionsHtml(snapshot);
+      return hotNoticeStrip + buildResultSectionsHtml(snapshot);
     case "idle":
     default:
       return `
@@ -141,15 +153,24 @@ function buildEmptyStateHtml(): string {
   }
   let title = "该视频没有可用字幕";
   let copy = "视频概览需基于字幕生成。";
+  let settingsAction = "";
   if (state.clip.noSubtitleReason) {
     const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
     title = notice.cause || title;
     copy = notice.remedyText || copy;
+    // 配置类无字幕空态（票 01/04）：补救动作是「去设置检查」时给明确设置入口，
+    // 直达 ASR 平台编辑或自动转写开关；非配置类（充值/重试/无人声）不挂，
+    // 不伪装成配置问题。
+    if (requiresAsrSetup(state.clip.noSubtitleReason)) {
+      settingsAction = `
+        <button type="button" class="biliscript-reading-mini-btn" data-overview-action="open-transcribe-settings">前往设置</button>`;
+    }
   }
   return `
     <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
       <div class="biliscript-reading-placeholder-title">${escapeHtml(title)}</div>
       <p class="biliscript-reading-placeholder-copy">${escapeHtml(copy)}</p>
+      ${settingsAction}
     </div>
   `;
 }
@@ -200,10 +221,16 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
 }
 
 function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
+  // 配置类错误（票 01）：无平台 / 缺 Key 给「去设置」直达正确的平台编辑界面
+  // （首配模式，保存后续跑概览）；其余错误只给「重试」，不伪装成配置问题。
+  const errorClass = classifyOverviewSetupError(snapshot.errorText);
+  const setupButton = errorClass
+    ? `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="setup" data-setup-class="${errorClass}">去设置</button>`
+    : "";
   return `
     <div class="biliscript-reading-ov-strip is-error">
       <span class="biliscript-reading-ov-strip-text">概览生成失败：${escapeHtml(snapshot.errorText || "未知错误")}</span>
-      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
+      ${setupButton}<button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
     </div>
   `;
 }
@@ -336,6 +363,17 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "cancel") {
       currentActions?.cancel();
+      return;
+    }
+    if (action === "setup") {
+      const errorClass = target.dataset.setupClass;
+      if (errorClass === "no-provider" || errorClass === "missing-key") {
+        currentActions?.setup(errorClass);
+      }
+      return;
+    }
+    if (action === "open-transcribe-settings") {
+      currentActions?.openTranscribeSettings();
       return;
     }
     if (action === "copy-quote") {

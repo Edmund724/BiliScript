@@ -59,6 +59,30 @@ describe("联网搜索 port 事件（spec §2.2/§2.5）", () => {
     void bad;
   });
 
+  it("历史截帧 tool-status 携带类别、调用身份、目标时间与实际帧", () => {
+    const searching = {
+      type: "tool-status",
+      status: "searching",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "frame-1",
+      targetTime: 12
+    } satisfies ChatPortMessage;
+    const done = {
+      type: "tool-status",
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query: "0:12",
+      callId: "frame-1",
+      targetTime: 12,
+      resultCount: 1,
+      expectedCount: 3,
+      frames: [{ image: { mime: "image/jpeg", data: "/9j/" }, currentTime: 12 }]
+    } satisfies ChatPortMessage;
+    void searching;
+    void done;
+  });
+
   it("tool-turn 成员可赋值：messages 为 ChatMessage[]（assistant/tool 轮持久化副本）", () => {
     const turn = {
       type: "tool-turn",

@@ -9,6 +9,14 @@ import {
   probeContentScriptVersion,
   triggerReaderModeInTab
 } from "./content-orchestration-wiring.js";
+// 非支持页工具栏可见反馈（工单 04，触点与文案单源在
+// extension/entry/unsupported-page-feedback.ts）：徽标/标题/页内提示的应用与清空。
+import {
+  applyUnsupportedPageFeedback,
+  clearUnsupportedPageFeedback,
+  isWwwBilibiliPage,
+  showUnsupportedPageToast
+} from "./unsupported-page-feedback.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 import { createSaveSettingsHandler } from "../core/save-settings-handler.js";
 // 设置快照（sw-settings-snapshot 票）：四个热路径读 handler 读设置/平台存储
@@ -38,13 +46,18 @@ import {
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 // storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { logWarn } from "../shared/logging.js";
+import { logWarn, logWarnAlways } from "../shared/logging.js";
+import { createAgentBridge, testAgentBridgeConnection } from "../agent-bridge/background.js";
+import { AGENT_BRIDGE_ALARM } from "../agent-bridge/protocol.js";
 import {
   aiProviderStore
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { liveProviderStore } from "../live/live-provider-store.js";
-import { liveSessionTracker, clearMossLiveWsAuthRule } from "../live/live-session-tracker.js";
+import {
+  liveSessionTracker,
+  clearMossLiveWsAuthRule
+} from "../live/live-session-tracker.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
@@ -66,6 +79,7 @@ import {
   createProviderMessageHandlers,
   createAsrRuntimeConfigHandler,
   createAiResolvedProviderHandler,
+  createSubtitleTranslateProviderHandler,
   withOkResponse
 } from "../core/provider-handlers.js";
 // offscreen 段缓存消息族 SW 端 handler（offscreen 文档无 chrome.storage，
@@ -141,13 +155,39 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
   );
 }
 
+const agentBridge = createAgentBridge({
+  getConfig: async () => {
+    const settings = await getSettingsSnapshot();
+    return { enabled: settings.enableAgentBridge === true, url: settings.agentBridgeUrl };
+  }
+});
+
+function handleAgentBridgeStatus(_message: Msg<"agent-bridge-status">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-status">): void {
+  sendResponse({ ok: true, ...agentBridge.getStatus() });
+}
+
+function handleAgentBridgeConnect(_message: Msg<"agent-bridge-connect">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-connect">): void {
+  withOkResponse(
+    (async () => ({ ok: true, connected: await agentBridge.connect() }))(),
+    sendResponse
+  );
+}
+
+function handleAgentBridgeTest(message: Msg<"agent-bridge-test">, _sender: MessageSender, sendResponse: Reply<"agent-bridge-test">): void {
+  withOkResponse(
+    (async () => ({ ok: true, connected: await testAgentBridgeConnection(message.url) }))(),
+    sendResponse
+  );
+}
+
 // save-settings 处理器（core/save-settings-handler.ts 工厂）：写入口（落盘 + 失效）
 // → 撤回判定 → 撤回钩子的编排收进 core 域；撤回判据与清缓存钩子住 search 域
 //（search-opt-out.ts，撤回是搜索域知识，spec §6.7 / §10 第 40 行），此处一行装配。
 const handleSaveSettings = createSaveSettingsHandler({
   saveSettingsWithInvalidate,
   getSettingsSnapshot,
-  onSearchOptOut: createSearchOptOutHook({ logWarn })
+  onSearchOptOut: createSearchOptOutHook({ logWarn }),
+  onSettingsSaved: agentBridge.sync
 });
 
 // script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
@@ -207,8 +247,8 @@ function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _send
   );
 }
 
-// 「进/聚焦阅读模式 + 定位对话 tab + 自动发送快捷提示词」的统一编排
-//（arch-slim-3/04 收口）：单条带 chat 负载的 reader-enter 命令直达 content 侧
+// 「进/聚焦阅读模式 + 定位对话 tab + 按会话状态发送快捷提示词」的统一编排：
+// 单条带 chat 负载的 reader-enter 命令直达 content 侧
 //（进入事务内激活对话 tab），不再即答后二次直发——双消息直发的进入/对话竞态
 // 在消息序上收口。触发失败回可读文案。
 const readerTriggerFailedText = "阅读模式触发失败，请刷新浏览器网页重试";
@@ -247,7 +287,7 @@ async function triggerReaderChatInTab(
 
 // player-ai 悬浮按钮语义反转（工单 08 决议 2）：不再打开 AI 侧边栏/写 storage
 // 信箱（biliscript_player_ai_quick_action_v1 已退役），改为「进入/聚焦阅读模式 +
-// 定位对话 tab + 自动发送快捷提示词」——单条带 chat 负载的 reader-enter 走
+// 定位对话 tab + 按会话状态发送快捷提示词」——单条带 chat 负载的 reader-enter 走
 // triggerReaderModeInTab 链（空 readerUrl = 已在阅读模式内，只聚焦），
 // 提示词组装后由 content 侧进入事务内的对话 seam runQuickActionPrompt 消费。
 function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sender: MessageSender, sendResponse: Reply<"player-ai-quick-action">): MessageReplyDecision {
@@ -324,6 +364,12 @@ const aiProviderHandlers = createProviderMessageHandlers<ProviderListEntry>({
 // settings-snapshot 的 ai 族快照：一次 storage 读拿全（此前 aiProviderKeys
 // 在 loadProviders 与 loadKeys 间重复读两次）。
 const aiResolvedProviderHandler = createAiResolvedProviderHandler({
+  getMergedSettings: getSettingsSnapshot,
+  loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
+  loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
+});
+
+const subtitleTranslateProviderHandler = createSubtitleTranslateProviderHandler({
   getMergedSettings: getSettingsSnapshot,
   loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
   loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
@@ -442,7 +488,10 @@ function handleLiveSessionPrepare(
   sendResponse: Reply<"live-session-prepare">
 ): void {
   withOkResponse(
-    liveSessionTracker.prepare(message?.sessionId || "", sender.tab?.id),
+    liveSessionTracker.prepare(
+      message?.sessionId || "",
+      sender.tab?.id
+    ),
     sendResponse
   );
 }
@@ -453,7 +502,9 @@ function handleLiveSessionCleanup(
   sendResponse: Reply<"live-session-cleanup">
 ): void {
   withOkResponse(
-    liveSessionTracker.cleanup(message?.sessionId),
+    liveSessionTracker.cleanup(
+      message?.sessionId
+    ),
     sendResponse
   );
 }
@@ -511,6 +562,9 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
 const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
+  "agent-bridge-status": handleAgentBridgeStatus,
+  "agent-bridge-connect": handleAgentBridgeConnect,
+  "agent-bridge-test": handleAgentBridgeTest,
   "request-provider-origins": handleRequestProviderOrigins,
   "check-provider-origin": handleCheckProviderOrigin,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
@@ -523,6 +577,7 @@ const messageHandlerTable = {
   "ai-providers-delete": aiProviderHandlers.remove,
   "provider-http": handleProviderHttp,
   "resolve-ai-provider": aiResolvedProviderHandler,
+  "resolve-subtitle-translate-provider": subtitleTranslateProviderHandler,
   "asr-presets-list": handleAsrPresetsList,
   "asr-providers-list": asrProviderHandlers.list,
   "asr-providers-save": asrProviderHandlers.save,
@@ -591,33 +646,58 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script）=====
-
-// chrome.action 命名空间声明已归并 chrome-types.d.ts（工单 04），原局部
-// ActionOnClickedEvent 契约与 cast 删除。可选链守卫：既有测试环境的 chrome
-// stub 可能缺 action 命名空间（生产 MV3 + manifest.action 恒有），顶层注册
-// 不可因缺命名空间抛错。
+// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script；非支持页反馈 04）=====
 
 // 与页内 文摘按钮同一条 reader-enter 事务：经 triggerReaderModeInTab 的
 // 重试/注入链发 reader-enter，content 侧落 entry/message-handler.ts →
 // ensureReaderShell 进入事务——不建 popup / Side Panel / 第二套打开流程。
 // 目标标签页只取 onClicked 事件自带的活动标签页：reader-enter 载荷没有 tabId
-// 字段，跨标签页消息无从伪造目标；非受支持的 B 站视频/稍后再看页直接忽略。
+// 字段，跨标签页消息无从伪造目标。受支持页触发成功后清掉本标签页的非支持反馈；
+// 非支持页不再静默——打 tab 级「!」徽标 + 标题引导（applyUnsupportedPageFeedback），
+// www.bilibili.com 已有 host 权限覆盖的页面（首页/番剧等）再注入 6 秒页内提示，
+// 搜索/空间等未获权限页只徽标+标题、不注入（isWwwBilibiliPage 判据，manifest 不动）。
 // readerUrl 与页内按钮同源 buildReaderModeUrl（单源 bilibili/video-id-shared.ts，
 // SW 侧不 import 拖 core/state 的 bilibili/reader-url.ts）。监听器顶层同步注册
 //（MV3：SW 可被重启，事件监听器必须在首个事件前同步就位）。
 chrome.action?.onClicked?.addListener(
   async (tab) => {
     const tabId = tab.id ?? 0;
-    if (!tabId || !isSupportedBilibiliPage(tab.url)) {
+    if (!tabId) {
       return;
     }
-    const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
-    if (!triggered) {
-      logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+    if (isSupportedBilibiliPage(tab.url)) {
+      const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
+      if (triggered) {
+        await clearUnsupportedPageFeedback(tabId);
+      } else {
+        logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
+        await Promise.allSettled([
+          chrome.action?.setBadgeText?.({ tabId, text: "!" }),
+          chrome.action?.setTitle?.({
+            tabId,
+            title: "BiliScript｜文摘面板打开失败，请刷新浏览器网页重试"
+          })
+        ]);
+      }
+      return;
+    }
+    await applyUnsupportedPageFeedback(tabId);
+    if (isWwwBilibiliPage(tab.url)) {
+      try {
+        await showUnsupportedPageToast(tabId);
+      } catch (error) {
+        // 注入失败只记日志：徽标/标题已先落，反馈不静默丢失（工单 04）。
+        logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
+      }
     }
   }
 );
+
+// 非支持页反馈的清理：标签页一开始导航（loading）即清徽标/标题，不跨导航残留。
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "loading") return;
+  void clearUnsupportedPageFeedback(tabId);
+});
 
 // ===== 入口监听 =====
 
@@ -632,6 +712,13 @@ chrome.runtime.onConnect?.addListener?.((port) => {
     return;
   }
 });
+
+watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge", "agentBridgeUrl"] });
+chrome.runtime.onStartup?.addListener(() => void agentBridge.sync());
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
+});
+void agentBridge.sync();
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
 // 用户开的调试日志在 SW 静默）。

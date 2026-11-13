@@ -16,6 +16,7 @@ import { withTimeout } from "../shared/error-helpers.js";
 import {
   booleanField,
   normalizeDownloadFormat,
+  normalizeAgentBridgeUrl,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
   normalizeReaderTheme,
@@ -26,10 +27,16 @@ import {
   normalizeDefaultModel,
   normalizeAiThinkingLevel,
   normalizeLiveVoiceVolume,
+  normalizeLiveVoiceSpeed,
   normalizeLiveVoicePriority,
   normalizeLiveShareVideoAudio,
   normalizeSpeechVoiceVolume,
   normalizeLiveGeminiNativeSearch,
+  normalizeLiveLowBandwidth,
+  normalizeSubtitleTranslateProviderId,
+  normalizeSubtitleTranslateModel,
+  normalizeLiveInterpretTargetLang,
+  normalizeLiveInterpretDisplayMode,
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
@@ -66,6 +73,8 @@ export const SETTINGS_FIELD_NORMALIZERS: {
 } = Object.freeze({
   downloadFormat: normalizeDownloadFormat,
   enablePlayerAiQuickAction: normalizeEnablePlayerAiQuickAction,
+  enableAgentBridge: booleanField(false),
+  agentBridgeUrl: normalizeAgentBridgeUrl,
   playerAiQuickPrompt: normalizePlayerAiQuickPrompt,
   readerTheme: normalizeReaderTheme,
   readerThemeUserSet: booleanField(false),
@@ -78,10 +87,16 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   activeAsrProviderId: (value) => String(value || "").trim(),
   activeLiveProviderId: (value) => String(value || "").trim(),
   liveVoiceVolume: normalizeLiveVoiceVolume,
+  liveVoiceSpeed: normalizeLiveVoiceSpeed,
   speechVoiceVolume: normalizeSpeechVoiceVolume,
   liveVoicePriority: normalizeLiveVoicePriority,
   liveShareVideoAudio: normalizeLiveShareVideoAudio,
   liveGeminiNativeSearch: normalizeLiveGeminiNativeSearch,
+  liveLowBandwidth: normalizeLiveLowBandwidth,
+  subtitleTranslateProviderId: normalizeSubtitleTranslateProviderId,
+  subtitleTranslateModel: normalizeSubtitleTranslateModel,
+  liveInterpretTargetLang: normalizeLiveInterpretTargetLang,
+  liveInterpretDisplayMode: normalizeLiveInterpretDisplayMode,
   asrAutoFallback: booleanField(true),
   asrLanguage: normalizeAsrLanguage,
   // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，
@@ -140,7 +155,15 @@ export async function getMergedSettings(timeoutMs = 5000): Promise<Settings> {
     new Error("storage timeout")
   ).catch(() => ({}));
 
-  return normalizeSettings({ ...DEFAULT_SETTINGS, ...(syncSettings as Record<string, unknown>) });
+  const merged = normalizeSettings({ ...DEFAULT_SETTINGS, ...(syncSettings as Record<string, unknown>) });
+  // 宽度自定义标记的存量补齐（读路径推导，不落盘）：customPanelWidthEnabled 是
+  // 后补的显式自定义标记——只设过宽度（旧版滑块直写 customPanelWidth、无开关键）
+  // 的存量用户按「已自定义」对待，避免升级后三种壳层形态宽度被静默回默认。
+  // 显式恢复默认（宽度回到 540、标记 false）后本推导不再置位，无需一次性迁移旗标。
+  if (merged.customPanelWidthEnabled !== true && merged.customPanelWidth !== DEFAULT_SETTINGS.customPanelWidth) {
+    merged.customPanelWidthEnabled = true;
+  }
+  return merged;
 }
 
 // 写入白名单：settings 域的键面 = DEFAULT_SETTINGS 声明的键集，等于归一步骤表键

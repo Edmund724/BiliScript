@@ -57,14 +57,14 @@
 // harness without a DOM shim.
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
-import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
+import type { AiContext, CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 // 会话 id 生成（平台会话头 x-opencode-session 的身份来源，见 ai/preset-headers.ts）：
 // 发送时物化，缺失才生成——持久化路径 persistCurrent 见已有 id 直接沿用。
-import { generateConversationId } from "../ai/conversation.js";
+import { buildContextKey, generateConversationId } from "../ai/conversation.js";
 // 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
-import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
+import { resolveWebSearchOptIn, SEARCH_OPT_IN_DECLINED_NOTICE } from "../search/opt-in-notice.js";
 import type { ConversationStore } from "./conversation-store.js";
 import {
   appendChatHistory,
@@ -81,6 +81,9 @@ import { sanitizeFileName } from "../shared/string-utils.js";
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
 import type { ViewResetIntent } from "./view-intent.js";
+// 配置类回合错误（无平台 / 缺 Key）的分类单源：错误文案由 SW resolve-ai-provider
+// 产生，分类与概览/解释两条链共用同一零依赖叶子（票 03）。
+import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
 import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession, type ChatContinuationSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
@@ -124,7 +127,17 @@ export interface ChatRuntimeStore {
 // 见 ./view-intent.ts 头注，其余方法名不变）
 export interface ChatRuntimeUi {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
-  showConversationContextNotice: (message: string, autoHideMs?: number, options?: { openSettingsAction?: boolean }) => void;
+  showConversationContextNotice: (
+    message: string,
+    autoHideMs?: number,
+    options?: {
+      openSettingsAction?: boolean;
+      spinner?: boolean;
+      settingsTarget?: "asr";
+      placement?: "input";
+      action?: { label: string; onClick: () => void };
+    }
+  ) => void;
   removeConversationContextNotice: () => void;
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
@@ -133,6 +146,10 @@ export interface ChatRuntimeUi {
   // 执行体唯一住在组合根的 requestViewReset。
   requestViewReset: (intent: ViewResetIntent) => void;
   autosizeInput: () => void;
+  // 配置类回合错误（票 03）：缺 Key 的回合已受理（用户气泡已上屏），组合根据此在
+  // 错误回合上给「直达平台编辑」的动作并记录返回意图。只提示，不重发——是否发送
+  // 由用户再点一次。providerId = 本回合实际请求的平台记录。
+  onSetupRequired?: (errorClass: OverviewSetupErrorClass, providerId: string) => void;
 }
 
 export interface CreateChatRuntimeDeps {
@@ -144,18 +161,18 @@ export interface CreateChatRuntimeDeps {
   // ---- UI 门面 ----
   ui: ChatRuntimeUi;
   // ---- context/transport helpers (AI domain, chat local) ----
-  // 发送闸出口：{pass:true} 放行；{pass:false,kind} 拦截（read-failed 已清场 /
-  // no-subtitle 无字幕，notice 已显示）。
+  // 发送闸出口：{pass:true} 放行；{pass:false,kind} 拦截或取消。拦截通知由闸侧
+  // 显示，所有非放行结果都保留文本与图片。
   ensureCurrentContextForSend: () => Promise<GateOutcome>;
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog）：chat 模型选择器一模型一选项后随
   // port 消息下发，offscreen 以它覆盖解析平台的目录首项。可选——未注入的
   // 旧组合根（测试）不发该字段，offscreen 回落平台目录首项。
   getSelectedModel?: () => string;
-  // 图片输入（image-input 路线 B）：发送受理时消费附件区（读取并清空缩略图），随
-  // 本条 chat 消息的 images 字段下发。未注入（旧组合根/测试）时不带该字段——
-  // 无图消息的线格式逐字节不变。
-  takeInputImages?: () => ImagePart[];
+  // 图片在受理开始时只读快照，闸通过后按快照消费；等待期间新增的图片不随原
+  // 回合发出。未注入快照入口的旧组合根仍在闸后全量消费，保持既有测试/宿主兼容。
+  getInputImages?: () => ImagePart[];
+  takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
   getTimestampNavDeps: () => TimestampNavDeps;
@@ -165,6 +182,8 @@ export interface CreateChatRuntimeDeps {
   // 面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也合法（注入桩/
   // 旧组合根），回执统一走 Promise 归一。
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
+  // 当前页面与原消息的视频/分P失配时，确认是否仍用原上下文重新生成。
+  confirmRegenerationContext?: (message: string) => boolean | Promise<boolean>;
   speechEngine?: ChatSpeechEngine;
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
@@ -258,6 +277,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activeRegeneration: {
     originalHistory: ChatSessionMessage[];
     userIndex: number;
+    context: AiContext | null;
+    contextKey: string;
+    contextMismatched: boolean;
     session: ChatRegenerationSession;
   } | null = null;
   let activeContinuation: {
@@ -270,10 +292,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     session: ChatContinuationSession;
   } | null = null;
   let activeUserPrompt = "";
+  // 本回合实际请求的平台记录 id（票 03）：配置类回合错误（缺 Key）到达时已无处
+  // 重新解析选中项（用户气泡已上屏、回合正在收尾），故受理时快照一份，供
+  // onSetupRequired 直达那条平台记录。与 activeUserPrompt 同生命周期清空。
+  let activeTurnProviderId = "";
   // 本代际用户消息的图片（image-input 04 号票）：发送受理时随 activeUserPrompt
   // 一起捕获，done/stopped 写回时挂在那条 user 消息上——图片从此进历史，
   // 追问/落盘才看得到（收口与 activeUserPrompt 同步清空，不串进下一条消息）。
   let activeUserImages: ImagePart[] = [];
+  let activeUserContextKey = "";
   // 联网搜索的 tool 轮持久化副本（spec §2.5）：tool-turn 事件到达时缓存，
   // done/stopped 写回时按 user → tool 消息 → assistant 顺序插入 chatHistory，
   // 收口时清空（终态后不串入下一条消息）。
@@ -314,6 +341,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 字幕体可达数 MB，逐条追问经 port 重传纯属浪费。null = 未确认（首条消息、
   // port 断连、字幕体缺失错误之后），必然全量携带。
   let lastAckedContextKey: string | null = null;
+  const pendingVideoFrames = new Map<string, AbortController>();
+  const activeToolCalls = new Set<string>();
+  let activeToolGeneration = 0;
 
   // ---- 回合生命周期（./turn-lifecycle.ts，GLOSSARY.md 词条「发送闸」「历史回放」）----
   // 一个回合「受理开始 → 终态落定」的时序与结算唯一实现点：在途判据（受理窗口
@@ -341,6 +371,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
     messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeRegeneration !== null || activeContinuation !== null);
   }
+  function abortAllVideoFrames(): void {
+    const controllers = [...pendingVideoFrames.values()];
+    pendingVideoFrames.clear();
+    for (const controller of controllers) controller.abort();
+  }
   // =========================================================================
   // DOM 渲染/滚动/水合片（./chat-stream-render.ts）的跨片消费面
   // =========================================================================
@@ -360,7 +395,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       continueAssistant(historyIndex, node);
     },
     onExport: exportAssistant,
-    onSpeak: (button, text) => speech.toggle(button, text),
+    onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
+    onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
     isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
   });
@@ -378,21 +414,33 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (typeof msg.cachedContextKey === "string" && msg.cachedContextKey) {
       lastAckedContextKey = msg.cachedContextKey;
     }
+    if (msg.type === "video-frame-cancel") {
+      const controller = pendingVideoFrames.get(msg.requestId);
+      pendingVideoFrames.delete(msg.requestId);
+      controller?.abort();
+      return;
+    }
     if (msg.type === "video-frame-request") {
       if (!port) return;
+      const controller = new AbortController();
+      pendingVideoFrames.get(msg.requestId)?.abort();
+      pendingVideoFrames.set(msg.requestId, controller);
       void (async () => {
         try {
           if (!deps.captureCurrentVideoFrame) {
             throw new Error("当前页面不支持视频截图");
           }
-          const frame = await deps.captureCurrentVideoFrame();
+          const captureResult = await deps.captureCurrentVideoFrame(msg.targetTime, controller.signal);
+          if (controller.signal.aborted || pendingVideoFrames.get(msg.requestId) !== controller) return;
           port.postMessage({
             action: "video-frame-result",
             requestId: msg.requestId,
-            image: frame.image,
-            currentTime: frame.currentTime
+            ...(Array.isArray(captureResult)
+              ? { frames: captureResult }
+              : { image: captureResult.image, currentTime: captureResult.currentTime })
           });
         } catch (error) {
+          if (controller.signal.aborted) return;
           try {
             port.postMessage({
               action: "video-frame-result",
@@ -400,6 +448,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
               error: String((error as Error)?.message || error)
             });
           } catch {}
+        } finally {
+          if (pendingVideoFrames.get(msg.requestId) === controller) {
+            pendingVideoFrames.delete(msg.requestId);
+          }
         }
       })();
       return;
@@ -424,8 +476,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         }
       }
     } else if (msg.type === "stream-reset") {
-      // 读流中断重试（offscreen 重新从头生成）：已吐 token 撤不回且新流不保证
-      // 前缀一致，清空本条消息缓冲整体重放，避免两代流拼接成重复文本。
+      const nextGeneration = typeof msg.generation === "number" ? msg.generation : activeToolGeneration + 1;
+      if (nextGeneration <= activeToolGeneration) {
+        return;
+      }
+      // 整体重放只保留新一代：文本、工具卡与待落库工具消息同步作废。
+      activeToolGeneration = nextGeneration;
+      pendingToolMessages = [];
+      turnTruncatedNotice = "";
+      activeToolCalls.clear();
       activeTurn?.reset();
     } else if (msg.type === "done") {
       finalizeAssistant(activeTurn);
@@ -438,7 +497,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (msg.code === "subtitle-body-missing") {
         lastAckedContextKey = null;
       }
+      // 配置类错误（票 03）：错误文案的单源分类器在 core/overview-setup-error。
+      // 先快照本回合的平台记录，再收尾（endStream 会清 activeTurnProviderId）。
+      const setupErrorClass = classifyOverviewSetupError(msg.error);
+      const setupProviderId = activeTurnProviderId;
       showAssistantError(activeTurn, msg.error || "未知错误");
+      // 收尾之后才通知组合根：endStream 的 clearStreamRuntimeState 会撤掉消息区
+      // 通知条，动作必须排在它之后才能留在屏上。已受理回合（用户气泡 / 部分回复 /
+      // 历史记录都在）不重发，只由组合根提供直达平台编辑的入口。
+      if (setupErrorClass) {
+        deps.ui.onSetupRequired?.(setupErrorClass, setupProviderId);
+      }
     } else if (msg.type === "notice") {
       // 截断提示（code:"truncated"）：不走 4 秒通知条——记在本代际上，done 收尾时
       // 渲染成 assistant 消息尾部的常驻徽标（文案由引擎给，宿主不复制一份）。
@@ -448,13 +517,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         deps.ui.showConversationContextNotice(msg.data, 4000);
       }
     } else if (msg.type === "tool-status") {
-      // 联网搜索工具状态（spec §4）：驱动搜索时间线卡（步骤行 / 结果数 /
-      // 平台耗时 / 来源 chip 行），插在用户消息与回答之间。
+      if (typeof msg.generation === "number" && msg.generation !== activeToolGeneration) {
+        return;
+      }
+      const activityId = msg.callId || `${msg.tool || "web_search"}:${msg.query}`;
+      if (msg.status === "searching") {
+        activeToolCalls.add(activityId);
+        clearStreamSlowNoticeTimer();
+        deps.ui.removeConversationContextNotice();
+      } else {
+        activeToolCalls.delete(activityId);
+        if (!activeToolCalls.size && activePort && !streamFirstTokenReceived) {
+          armStreamSlowNoticeTimer();
+        }
+      }
       activeTurn?.applySearchStatus(msg);
     } else if (msg.type === "tool-turn") {
-      // 工具轮持久化副本（spec §2.5）：缓存，done/stopped 时随一问一答写回。
-      // 同一 user 回合内每个 tool-turn 累积（runToolLoop 多轮各吐一次）——
-      // 整体替换会把多轮搜索的中间轮冲掉，回放重建只剩最后一轮。
+      if (typeof msg.generation === "number" && msg.generation !== activeToolGeneration) {
+        return;
+      }
+      // 同一 user 回合内每个 tool-turn 累积；stream-reset 已清除上一代副本。
       if (Array.isArray(msg.messages)) {
         pendingToolMessages.push(
           ...msg.messages.filter((m) => Boolean(m && typeof m === "object" && typeof (m as { role?: unknown }).role === "string"))
@@ -507,10 +589,28 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!prompt) {
       return;
     }
+    const userMessage = originalHistory[userIndex];
+    const meta = chatSessionState.currentConversationMeta;
+    const contextKey = String(userMessage.contextKey || meta?.contextKey || chatSessionState.currentContextKey || "").trim();
+    const contextCandidates = [
+      meta?.resolvedContext,
+      ...(!meta || meta.resolvedContext ? [chatSessionState.contextData] : [])
+    ];
+    const originalContext = contextKey
+      ? contextCandidates.find((candidate) => candidate && buildContextKey(candidate) === contextKey)
+      : meta?.resolvedContext || chatSessionState.contextData;
+    if (contextKey && !originalContext) {
+      deps.ui.showConversationContextNotice("原消息的视频或分P上下文不可用，无法重新生成。", 4000);
+      return;
+    }
+    const currentPageKey = String(chatSessionState.liveContextKey || chatSessionState.currentContextKey || "").trim();
     speech.stop();
     const regeneration = {
       originalHistory,
       userIndex,
+      context: originalContext ? { ...originalContext } : null,
+      contextKey,
+      contextMismatched: Boolean(contextKey && currentPageKey && contextKey !== currentPageKey),
       session: messageArea.beginRegeneration(node)
     };
     activeRegeneration = regeneration;
@@ -547,7 +647,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     speech.stop();
     const hasBody = Boolean(targetMessage.content?.trim());
-    const branch = hasBody ? "B" : "A";
+    const branch: "A" | "B" = hasBody ? "B" : "A";
     const initialRaw = hasBody ? targetMessage.content! : "";
     const initialThinking = targetMessage.thinking || "";
     const continuation = {
@@ -605,14 +705,33 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const providerId = deps.getProviderId();
       if (!providerId) {
-        deps.ui.requestViewReset({ kind: "state", html: "请先在设置页配置并启用一个 AI 平台。" });
+        // 配置类拦截屏（票 03）：状态屏的文案与「前往设置」动作由组合根产出
+        //（与无平台空态同源），这里只交标记。
+        deps.ui.requestViewReset({ kind: "setup" });
         return "blocked";
       }
 
-      const outcome = await deps.ensureCurrentContextForSend();
-      // 非 pass 一律在此提前返回：read-failed（上下文读取失败，已由闸侧清场）
-      // 与 no-subtitle（无字幕拦截，notice 已由闸侧显示）都不追加用户消息、
-      // 不落 chatHistory、不发起 port。
+      const regeneration = activeRegeneration;
+      const continuation = activeContinuation;
+      const branched = regeneration !== null || continuation !== null;
+      const inputSnapshot = deps.input.value;
+      const imageSnapshot = branched ? null : deps.getInputImages?.() ?? null;
+      if (regeneration?.contextMismatched) {
+        const confirmRegenerationContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
+          message,
+          confirmText: "继续生成"
+        }));
+        const confirmed = await Promise.resolve(confirmRegenerationContext(
+          "当前页面与原消息的视频或分P不一致。重新生成将使用原消息的上下文，是否继续？"
+        ));
+        if (!confirmed) {
+          return "blocked";
+        }
+      }
+      const outcome = regeneration?.contextMismatched
+        ? { pass: true as const }
+        : await deps.ensureCurrentContextForSend();
+      // 取消、读取失败与空上下文拦截都不追加消息、不消费文本或图片快照。
       if (!outcome.pass) {
         return "blocked";
       }
@@ -623,29 +742,42 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 不收编进 store 的 detachCurrent 原语（它连带清历史）：本守卫只表达
       // 「身份作废」这一个意图，写纪律经 chat-state 的
       // clearConversationIdentity 原语（工单 arch-slim-2/07 D/E 半场裁定）。
-      if (!currentMeta?.pinnedContext && currentMeta?.contextKey && currentMeta.contextKey !== chatSessionState.currentContextKey) {
+      if (!regeneration && !currentMeta?.pinnedContext && currentMeta?.contextKey && currentMeta.contextKey !== chatSessionState.currentContextKey) {
         clearConversationIdentity();
       }
 
       deps.ui.removeCenteredState();
       deps.ui.removeSuggestions();
-
-      const regeneration = activeRegeneration;
-      const continuation = activeContinuation;
+      // 授权在字幕闸通过后、用户气泡上屏前完成；视图销毁不是用户拒绝，直接取消回合。
+      const optIn = await resolveWebSearchOptIn(chatSessionState.webSearchEnabled);
+      if (optIn === "view-destroyed") {
+        return "blocked";
+      }
+      const webSearchEnabled = optIn === "granted";
+      let preserveSnapshotNotice = false;
       if (!regeneration && !continuation) {
-        messageArea.appendUserMessage(text, { source: "live" });
-        deps.input.value = "";
+        messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
+        preserveSnapshotNotice = deps.input.value !== inputSnapshot;
+        if (!preserveSnapshotNotice) {
+          deps.input.value = "";
+        }
         deps.ui.autosizeInput();
       }
 
-      const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
-      const images = (regeneration || continuation)
-        ? ((regeneration || continuation).originalHistory[(regeneration || continuation).userIndex].images ?? [])
-        : deps.takeInputImages?.() ?? [];
+      const branchRecord = regeneration || continuation;
+      const images = branchRecord
+        ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
+        : imageSnapshot
+          ? deps.takeInputImages?.(imageSnapshot) ?? []
+          : deps.takeInputImages?.() ?? [];
+      if (!branchRecord) {
+        preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
+      }
 
       setStreamingUiState(true);
       activeUserPrompt = text;
       activeUserImages = images;
+      activeTurnProviderId = providerId;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
       if (!chatSessionState.currentConversationId) {
@@ -653,7 +785,14 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       activeConversationId = chatSessionState.currentConversationId;
       activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
+      activeToolCalls.clear();
       startStreamSlowNoticeTimer();
+      if (preserveSnapshotNotice) {
+        deps.ui.showConversationContextNotice("已发送原文，保留了后来修改的草稿与图片", 4000);
+      }
+      if (optIn === "declined") {
+        deps.ui.showConversationContextNotice(SEARCH_OPT_IN_DECLINED_NOTICE, 4000, { placement: "input" });
+      }
       streamFirstTokenReceived = false;
 
       // connectPort 现为 async（发送前先 ensure offscreen 文档，文档死亡后
@@ -662,44 +801,32 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activePort = port;
 
       port.onMessage.addListener((msg) => {
+        if (activePort !== port) return;
         dispatchChatPortMessage(msg as ChatPortMessage, port);
       });
 
       port.onDisconnect.addListener(() => {
+        if (activePort !== port) return;
         activePort = null;
         lastAckedContextKey = null;
-        if (activeRegeneration) {
-          activeRegeneration.session.restore();
-          activeRegeneration = null;
-          pendingToolMessages = [];
-        }
-        if (activeContinuation) {
-          activeContinuation.session.restore();
-          activeContinuation = null;
-          pendingToolMessages = [];
-        }
-        clearStreamRuntimeState();
+        resetStreamState();
         setStreamingUiState(false);
-        // 断连即回合终结（offscreen 文档被回收 / 会话关闭）：结算待决 settle——
-        // 此后不再有终态到来，不兑现则历史项点击的 await 悬挂（settle 兜底红线）。
-        // 收口语义（清哪些字段）保持原状：activeUserPrompt / activeTurn
-        // 是既有行为，本处不动它们。
-        turn.resolve();
       });
 
       // 候选5：字幕体省略传输——offscreen 已确认缓存当前上下文的字幕体
       //（lastAckedContextKey === contextKey）时本条消息不再重传整份 subtitleBody；
       // contextKey 始终携带，offscreen 据此校验单槽匹配并在缺失时报错触发重置。
-      // 其余元数据/history/aiSystemPrompt 保持全量（体积小且每条都可能变）。
+      // 重新生成固定使用原消息快照；跨页确认后也不读取当前页上下文。
       const context = {
-        ...chatSessionState.contextData,
+        ...(regeneration?.context || chatSessionState.contextData),
         aiSystemPrompt: chatSessionState.aiPrefs.aiSystemPrompt
       };
-      const contextKey = String(chatSessionState.currentContextKey || "").trim();
+      const contextKey = regeneration?.contextKey || String(chatSessionState.currentContextKey || "").trim();
+      activeUserContextKey = contextKey;
       if (contextKey && lastAckedContextKey === contextKey) {
         delete context.subtitleBody;
       }
-      const videoFrameToolEnabled = await deps.canUseVideoFrameTool?.() === true;
+      const videoFrameToolEnabled = !regeneration?.contextMismatched && await deps.canUseVideoFrameTool?.() === true;
 
       port.postMessage({
         action: "chat",
@@ -711,8 +838,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         conversationId: chatSessionState.currentConversationId,
         thinkingLevel: chatSessionState.aiThinkingLevel,
         // 联网搜索开关（spec §2.1）：全局记忆（chat header pill），offscreen 据此
-        // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：取消说明
-        // 时本条传 false（本轮不搜索），其余情况等于全局记忆。
+        // 解析搜索配置并注入 tools。本条的取值为上面 opt-in 闸的产物：拒绝授权 /
+        // 偏好已关时本条传 false（本轮不搜索），其余情况等于全局记忆。
         webSearchEnabled,
         ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
         context,
@@ -755,8 +882,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       if (streamTurn) {
         showAssistantError(streamTurn, (err as Error)?.message || String(err));
       } else {
-        // 失败发生在占位建立前（ensure/上下文阶段）：只复位流式 UI 与计时器。
-        clearStreamRuntimeState();
+        // 占位建立前失败也要退出分支态，否则后续发送会被残留的重生成记录拦截。
+        resetStreamState();
         setStreamingUiState(false);
       }
       activeTurn = null;
@@ -772,7 +899,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // endStream — 流生命周期收口（done / stopped / error 三条终态路径唯一实现）
   // =========================================================================
   // 收口时序（原步骤①取消挂起帧已内收至 finish / fail / stop 意图方法内部自动处理）：
-  //   ① clearStreamRuntimeState          清慢响应计时器 / 首 token 标志 / 上下文 notice；
+  //   ① clearStreamRuntimeState          清慢响应计时器 / 上下文 notice；
   //   ② renderStep(streamTurn)           终态各自的 DOM / 持久化收尾（内部自动取消挂起帧）；
   //   ③ 断开并清空 activePort；
   //   ④ setStreamingUiState(false)；
@@ -783,10 +910,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (renderStep) {
       renderStep(streamTurn);
     }
+    pendingToolMessages = [];
     activeRegeneration = null;
     activeContinuation = null;
     activeUserPrompt = "";
     activeUserImages = [];
+    activeUserContextKey = "";
+    activeTurnProviderId = "";
+    activeToolCalls.clear();
+    activeToolGeneration = 0;
     if (activePort) {
       try { activePort.disconnect(); } catch {}
       activePort = null;
@@ -866,7 +998,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         {
           role: "user",
           content: activeUserPrompt,
-          ...(activeUserImages.length ? { images: activeUserImages } : {})
+          ...(activeUserImages.length ? { images: activeUserImages } : {}),
+          ...(activeUserContextKey ? { contextKey: activeUserContextKey } : {})
         },
         ...pendingToolMessages,
         assistantMsg
@@ -965,6 +1098,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 受理体在 postMessage 之后经 turn.flushDeferredStop 补发。不登记即静默丢失，
   // settle 悬到整段流自然结束。
   function stopActiveStream(): void {
+    if (!turn.isActive()) {
+      return;
+    }
+    setStreamingUiState(true, { stopping: true });
     turn.stop();
   }
 
@@ -980,22 +1117,34 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     try {
       activePort.postMessage({ action: "stop" });
     } catch {
-      try { activePort.disconnect(); } catch {}
-      activePort = null;
+      resetStreamState();
+      setStreamingUiState(false);
     }
   }
 
   // =========================================================================
   // startStreamSlowNoticeTimer
   // =========================================================================
-  function startStreamSlowNoticeTimer(): void {
-    clearStreamRuntimeState();
+  function clearStreamSlowNoticeTimer(): void {
+    if (streamSlowNoticeTimer) {
+      window.clearTimeout(streamSlowNoticeTimer);
+      streamSlowNoticeTimer = 0;
+    }
+  }
+
+  function armStreamSlowNoticeTimer(): void {
+    clearStreamSlowNoticeTimer();
     streamSlowNoticeTimer = window.setTimeout(() => {
-      if (!activePort || streamFirstTokenReceived) {
+      if (!activePort || streamFirstTokenReceived || activeToolCalls.size > 0) {
         return;
       }
       deps.ui.showConversationContextNotice("模型响应较慢，可能正在思考，请稍候…", 0);
     }, STREAM_SLOW_NOTICE_MS);
+  }
+
+  function startStreamSlowNoticeTimer(): void {
+    clearStreamRuntimeState();
+    armStreamSlowNoticeTimer();
   }
 
   // =========================================================================
@@ -1025,13 +1174,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 1. 「只清一次」失效——done/stopped/error 收尾后（clear 被调、标志被复位），
   //    同一节点上到达的收尾 reasoning/token 事件（竞态）会让
   //    handleFirstStreamToken 再次执行、撤下下一条消息的上下文 notice；
-  // 2. 慢响应提示的重新武装职责归位到受理体（发送前置 false），
-  //    clear 只管"当前代际内"的清计时器语义。
+  // 2. 慢响应提示在发送时与最后一个工具终态重新武装，clear 只清计时器。
   function clearStreamRuntimeState(): void {
-    if (streamSlowNoticeTimer) {
-      window.clearTimeout(streamSlowNoticeTimer);
-      streamSlowNoticeTimer = 0;
-    }
+    clearStreamSlowNoticeTimer();
     deps.ui.removeConversationContextNotice();
   }
 
@@ -1069,6 +1214,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
   function resetStreamState(): void {
     speech.stop();
+    abortAllVideoFrames();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。
@@ -1086,6 +1232,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeTurn = null;
     activeUserPrompt = "";
     activeUserImages = [];
+    activeUserContextKey = "";
+    activeTurnProviderId = "";
+    activeToolCalls.clear();
+    activeToolGeneration = 0;
     // 拆除类入口同样终结回合：复位受理窗口（resetStreamState 可能在 connectPort
     // await 窗口内被调——store reset / restartChat 路径；标志若不清，此后用户的
     // 新发送会被永久拦下），并兑现已武装的 settle（不留悬挂）。

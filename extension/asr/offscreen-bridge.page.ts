@@ -1,12 +1,10 @@
-// ASR offscreen 通道的页面侧客户端：两类任务共用同一个 "asr-decode" 端口——
+// ASR offscreen 通道的调用侧客户端：两类任务共用同一个 "asr-decode" 端口——
 // ① createOffscreenChunkHost：一次发起「下载 + 解码 + 切片 + 转写」，音频字节与
-//    API Key 全程不出 offscreen（offscreen 自己 fetch、自己取配置），页面只收逐片
-//    文本结果；
+//    API Key 全程不出 offscreen（offscreen 自己 fetch、自己取配置），调用侧只收逐片
+//    文本结果；页面与后台 Agent 桥接均可发起，后者注入 SW 内 prepare/cleanup；
 // ② probeAsrProviderViaOffscreen：连通性探针，把草稿 provider 交给 offscreen 的真
 //    适配器跑一次（端口上表现为 asr-probe 动作，见 asr/protocol.js）。
-// 仅在页面环境加载（bundle 链路：pipeline → fallback → content script，以及设置
-// 抽屉的 provider 测试按钮 → asr/provider-test.js），协议常量与契约注释唯一地址
-// 见 asr/protocol.js。
+// 协议常量与契约注释唯一地址见 asr/protocol.js。
 
 import { sendRuntimeMessage, sendOffloadMessage } from "../shared/messaging.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
@@ -25,6 +23,7 @@ import {
   readAsrFailureSummary,
   projectAsrFailureSummary
 } from "./protocol.js";
+import type { OffloadTaskResponse } from "../shared/messaging-protocol.js";
 import type {
   AsrProgressMessage,
   AsrChunkResultMessage,
@@ -58,6 +57,8 @@ export interface OffscreenChunkHostArgs {
   audioUrl: string | undefined;
   backupUrls?: string[];
   onProgress?: (message: string) => void;
+  onChunkResult?: (record: AsrChunkRecord) => void;
+  signal?: AbortSignal | null;
 }
 
 // 任务结果：results 为按片 index 排序的单片记录；totalChunks 为产出片数，
@@ -84,22 +85,31 @@ export interface OffscreenChunkHostResult extends AsrFailureFields {
 // 本任务这条，不碰并发任务的）。
 export type OffscreenChunkHost = (args: OffscreenChunkHostArgs) => Promise<OffscreenChunkHostResult>;
 
-// prepare/cleanup 响应（background 回包）：OffloadTaskResponse（协议单源，
-// shared/messaging-protocol.ts）——prepare 成功带回本任务独立的防盗链规则 id。
+export interface OffscreenChunkHostDeps {
+  prepare?: () => Promise<OffloadTaskResponse>;
+  cleanup?: (ruleId: number) => Promise<OffloadTaskResponse>;
+}
 
-// port 消息读取形状直接复用 protocol 的消息类型（线格式一致）。progress 的
-// 文本字段是 text（entry/offscreen-asr.ts 的 postMessage 实发字段）。
 type AsrPortMessageLike =
   | AsrProgressMessage
   | AsrChunkResultMessage
   | AsrDoneMessage
   | AsrErrorMessage;
 
-export function createOffscreenChunkHost(): OffscreenChunkHost {
-  return async function offscreenChunkHost({ audioUrl, backupUrls, onProgress }: OffscreenChunkHostArgs): Promise<OffscreenChunkHostResult> {
-    // 先让 background 建 offscreen 文档 + 加防盗链规则（响应带回 ruleId），
-    // 再直连文档传任务。响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）
-    const prepared = await sendOffloadMessage({ type: "offload-task", taskType: ASR_TASK_PREPARE });
+export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): OffscreenChunkHost {
+  const prepare = deps.prepare || (() => sendOffloadMessage({ type: "offload-task", taskType: ASR_TASK_PREPARE }));
+  const cleanupTask = deps.cleanup || ((ruleId) => sendOffloadMessage({ type: "offload-task", taskType: ASR_TASK_CLEANUP, ruleId }));
+  return async function offscreenChunkHost({
+    audioUrl,
+    backupUrls,
+    onProgress,
+    onChunkResult,
+    signal
+  }: OffscreenChunkHostArgs): Promise<OffscreenChunkHostResult> {
+    if (signal?.aborted) {
+      throw new Error("ASR 任务已中止");
+    }
+    const prepared = await prepare();
     if (!prepared?.ok) {
       throw new Error(prepared?.error || "音频解码服务启动失败");
     }
@@ -113,9 +123,7 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
       let failedChunks = 0;
 
       const cleanup = (): void => {
-        sendOffloadMessage({ type: "offload-task", taskType: ASR_TASK_CLEANUP, ruleId: sessionRuleId }).catch(() => {
-          // 规则清理失败不影响主流程（会话规则随浏览器重启自动清空）
-        });
+        cleanupTask(sessionRuleId).catch(() => {});
       };
       const finish = <V>(callback: (value: V) => void, value: V): void => {
         if (done) return;
@@ -128,6 +136,12 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
         cleanup();
         callback(value);
       };
+
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          finish(reject, new Error("ASR 任务已中止"));
+        }, { once: true });
+      }
 
       const port = chrome.runtime.connect({ name: ASR_DECODE_PORT_NAME });
       port.onMessage.addListener((rawMsg: unknown) => {
@@ -143,12 +157,18 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
           return;
         }
         if (msg.type === ASR_MSG_CHUNK_RESULT) {
-          results.push({
+          const record: AsrChunkRecord = {
             index: Number(msg.index) || 0,
             startSec: Number(msg.startSec) || 0,
             durationSec: Number(msg.durationSec) || 0,
             result: msg.result as AsrChunkResult | null
-          });
+          };
+          results.push(record);
+          try {
+            onChunkResult?.(record);
+          } catch {
+            // chunk 回调异常不影响收包
+          }
           return;
         }
         if (msg.type === ASR_MSG_DONE) {

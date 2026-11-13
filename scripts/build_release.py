@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """发布打包：跑多入口构建（node scripts/build.js），从 dist/ 组装发布 zip。
 
-只支持 Chrome 单变体（ADR-0002）：Firefox 变体（sidebar_action 改写、
-sidePanel 权限摘除、打包期对 options.css/validators.js 的字符串补丁）已随
-Firefox 兼容整套删除。发布 zip 里是 dist/ 的 minified 产物，不是源码。
+只支持 Chrome 单变体（ADR-0002）。发布 zip 里是 dist/ 的 minified 产物，不是源码。
 """
 import json
 import subprocess
@@ -97,8 +95,8 @@ def main():
     print(f"Built release package for v{version}:")
     print(f"- zip: {zip_path} ({zip_size} bytes)")
 
-    # 发布 ZIP 体积守卫：release zip 体积上限（2.7.0 引入实时伴看与语音朗读后基线 717,982 B，预算上限 750,000 B，留有明确余量）。
-    max_release_zip_bytes = 750_000
+    # 发布 ZIP 体积守卫：release zip 体积上限（2.7.2 引入本地 Agent 桥接、滑动窗口字幕翻译与仿原生字幕菜单后基线 842,420 B，预算上限 870,000 B，留有明确余量）。
+    max_release_zip_bytes = 870_000
     if zip_size > max_release_zip_bytes:
         raise SystemExit(
             f"Release ZIP size guard failed: {zip_size} bytes exceeds budget {max_release_zip_bytes} bytes"

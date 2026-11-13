@@ -1,30 +1,155 @@
 // extension/asr/pipeline.ts
-// ASR 管线编排（页面侧，只做编排不碰音频字节）：取音轨 → offscreen 下载/
+// ASR 管线编排（调用侧只做编排不碰音频字节）：取音轨 → offscreen 下载/
 // 解码/切片/逐片转写（转写引擎与解码同 context，跨 port 只传文本结果）→
 // 时间戳加片偏移合并为 B 站字幕格式 [{from,to,content}]。
 //
-// 页面不再感知 provider/Key：平台选择、Key 组装、语言档位全部在 offscreen
+// 调用侧不感知 provider/Key：平台选择、Key 组装、语言档位全部在 offscreen
 // 侧完成（entry/offscreen-asr.js 直调 background 的 get-asr-runtime-config），
 // 调度引擎（asr/engine.js，活队列 + 逐片重试 + 失败计数）也在 offscreen。
-// 页面职责只剩：回退决策由上游 fallback 承担；本模块负责取音轨地址、
-// 发任务、收文本结果、合并、空结果诊断。
+// 页面回退决策由上游 fallback 承担；本模块负责取音轨地址、发任务、收文本结果、
+// 合并与空结果诊断，页面与后台 Agent 桥接共用。
 //
 // 本模块不做任何过期守卫：转写与视频切换解耦（切走视频任务照跑、成果照落
-// 缓存），中止只剩真断连（页面关闭/扩展重载 → port disconnect）。
+// 缓存），中止只剩真断连（调用方关闭/扩展重载 → port disconnect）。
 
 import { getSourceAudioUrl } from "./audio-source.js";
+import type { JsonTransport } from "../bilibili/gateway-core.js";
 import { createOffscreenChunkHost } from "./offscreen-bridge.page.js";
 import type { OffscreenChunkHost, AsrChunkRecord, AsrChunkResult } from "./offscreen-bridge.page.js";
 import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
 
+// 中英文句末标点（。！？!? 以及非数字后小数点的 .）与换行符正则
+const SENTENCE_DELIMITER_RE = /(?:[。！？!?]+|\.+(?!\d))["'”’」』）\)]*|\r?\n+/g;
+
+function joinWithOptionalSpace(a: string, b: string): string {
+  if (!a) return b;
+  if (!b) return a;
+  const lastChar = a[a.length - 1];
+  const firstChar = b[0];
+  if (/[a-zA-Z0-9.!?]/.test(lastChar) && /[a-zA-Z0-9]/.test(firstChar)) {
+    return `${a} ${b}`;
+  }
+  return `${a}${b}`;
+}
+
+// 合并过短碎句（默认长度 < 4 字符，如单字或纯语气助词加标点）
+export function mergeShortSentences(sentences: string[], minChars = 4): string[] {
+  if (sentences.length <= 1 || minChars <= 0) {
+    return sentences;
+  }
+  const merged: string[] = [];
+
+  for (const s of sentences) {
+    if (merged.length === 0) {
+      merged.push(s);
+    } else if (s.length < minChars) {
+      // 当前句过短：合入前一句
+      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+    } else if (merged[merged.length - 1].length < minChars) {
+      // 前一句（首句）过短：把当前句合入前一句
+      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+    } else {
+      merged.push(s);
+    }
+  }
+
+  return merged;
+}
+
+// 按中英文句末标点与换行切分句子，并合并过短碎句
+export function splitTextIntoSentences(text: string, minChars = 4): string[] {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const rawSentences: string[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = SENTENCE_DELIMITER_RE.exec(trimmed)) !== null) {
+    const end = match.index + match[0].length;
+    const piece = trimmed.slice(lastIndex, end).trim();
+    if (piece) {
+      rawSentences.push(piece);
+    }
+    lastIndex = end;
+  }
+  const remaining = trimmed.slice(lastIndex).trim();
+  if (remaining) {
+    rawSentences.push(remaining);
+  }
+
+  if (rawSentences.length <= 1 || minChars <= 0) {
+    return rawSentences;
+  }
+
+  return mergeShortSentences(rawSentences, minChars);
+}
+
+// 纯文本按字符长度比例在 [startSec, startSec + durationSec] 线性插值分配 {from, to}
+export function interpolateSentenceTimestamps({
+  sentences,
+  startSec,
+  durationSec
+}: {
+  sentences: string[];
+  startSec: number;
+  durationSec: number;
+}): SubtitleItem[] {
+  if (!sentences || sentences.length === 0) {
+    return [];
+  }
+  const start = Number(startSec) || 0;
+  const dur = Number(durationSec) || 0;
+
+  if (sentences.length === 1) {
+    return [{
+      from: start,
+      to: dur > 0 ? start + dur : start,
+      content: sentences[0]
+    }];
+  }
+
+  if (!(dur > 0)) {
+    return sentences.map((content) => ({
+      from: start,
+      to: start,
+      content
+    }));
+  }
+
+  const weights = sentences.map((s) => Math.max(1, s.length));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+  const out: SubtitleItem[] = [];
+  let currentFrom = start;
+  let accumulatedWeight = 0;
+
+  for (let i = 0; i < sentences.length; i++) {
+    accumulatedWeight += weights[i];
+    const currentTo = (i === sentences.length - 1)
+      ? start + dur
+      : start + (dur * accumulatedWeight) / totalWeight;
+
+    out.push({
+      from: currentFrom,
+      to: currentTo,
+      content: sentences[i]
+    });
+    currentFrom = currentTo;
+  }
+
+  return out;
+}
+
 // 把单片的转写结果合成 {from,to,content}[]：
-//   有 segments → 每条 = startSec + seg.start/end；
-//   无 → 整片一条粗粒度字幕 {from:startSec, to:startSec+durationSec}。
-// to 不超过片末边界（chunk.durationSec 由 offscreen 按实际解码时长交付，
-// 此处兜底取入参 durationSec）；content trim。
-function synthesizeChunk({ startSec, durationSec, result }: {
+//   有有效 segments → 每条 = startSec + seg.start/end，to 不超过片末边界；
+//   无 segments → 按句末标点与换行切分句子并合并碎句，按字符长度在起止时间窗内线性插值。
+// 空白片段返回 []。
+export function synthesizeChunk({ startSec, durationSec, result }: {
   startSec: number;
   durationSec: number;
   result: AsrChunkResult | null;
@@ -47,10 +172,11 @@ function synthesizeChunk({ startSec, durationSec, result }: {
   } else {
     const text = String(result?.text || "").trim();
     if (text) {
-      out.push({
-        from: Number(startSec),
-        to: chunkDur > 0 ? Number(startSec) + chunkDur : Number(startSec) + Number(durationSec),
-        content: text
+      const sentences = splitTextIntoSentences(text);
+      return interpolateSentenceTimestamps({
+        sentences,
+        startSec: Number(startSec) || 0,
+        durationSec: chunkDur > 0 ? chunkDur : Number(durationSec) || 0
       });
     }
   }
@@ -61,7 +187,7 @@ function synthesizeChunk({ startSec, durationSec, result }: {
 // "未识别到语音内容"）。chunkResults 为按片 index 对齐的单片记录
 // [{ index, startSec, durationSec, result }]（offscreen 桥 done 后已排序）；
 // 转写失败片 / 解码失败段不在其中（offscreen 引擎跳过并计数），不参与合并。
-function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
+export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
   const merged: SubtitleItem[] = [];
   for (const record of chunkResults) {
     if (!record?.result) {
@@ -89,8 +215,11 @@ export interface RunAsrPipelineArgs {
   cid: string;
   onProgress?: (message: string) => void;
   chunkHost?: OffscreenChunkHost;
+  sourceTransport?: JsonTransport;
   onEmptyDiagnostic?: (diagText: string) => void;
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
+  onChunkResult?: (record: AsrChunkRecord, items: SubtitleItem[]) => void;
+  signal?: AbortSignal | null;
 }
 
 // runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmptyDiagnostic })
@@ -99,13 +228,23 @@ export interface RunAsrPipelineArgs {
 // 决定 UI 应用时机，转写本身与视频切换解耦，跑完即返回。chunkHost 为可选
 // 注入的任务宿主（测试传合成宿主，生产默认走 createOffscreenChunkHost：
 // offscreen 文档内下载+解码+切片+逐片转写，每片完成即回传文本结果）。
-export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmptyDiagnostic, onAttemptOutcome }: RunAsrPipelineArgs): Promise<SubtitleItem[]> {
+export async function runAsrPipeline({
+  bvid,
+  cid,
+  onProgress,
+  chunkHost,
+  sourceTransport,
+  onEmptyDiagnostic,
+  onAttemptOutcome,
+  onChunkResult,
+  signal
+}: RunAsrPipelineArgs): Promise<SubtitleItem[]> {
   const host = chunkHost || createOffscreenChunkHost();
   const startedAt = Date.now();
 
-  // 取音轨（页面同域能力：playurl 依赖 B 站页面 cookie，走 contentFetchJson）
+  // 取音轨：playurl 依赖浏览器登录态，页面与 SW 分别经注入传输请求。
   onProgress?.("无字幕轨，正在获取音频流…");
-  const source = await getSourceAudioUrl({ bvid, cid });
+  const source = await getSourceAudioUrl({ bvid, cid }, sourceTransport);
 
   // offscreen 文档内完成下载 → 解码 → 切片 → 逐片转写（engine 并发调度），
   // 每片完成即把文本结果经 port 发回；音频字节与 API Key 都不出 offscreen。
@@ -114,7 +253,22 @@ export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmpty
   const hostResult = await host({
     audioUrl: source.url,
     backupUrls: source.backupUrls || [],
-    onProgress
+    onProgress,
+    signal,
+    onChunkResult: (record) => {
+      if (onChunkResult) {
+        const items = synthesizeChunk({
+          startSec: record.startSec,
+          durationSec: record.durationSec,
+          result: record.result
+        });
+        try {
+          onChunkResult(record, items);
+        } catch {
+          // ignore
+        }
+      }
+    }
   });
   // 失败字段不再解构：片级失败摘要经协议模块的判定 → 投影读出（宿主结果形状见
   // asr/protocol.js 的 AsrFailureFields）。

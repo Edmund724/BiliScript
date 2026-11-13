@@ -95,6 +95,27 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     expect(options[0].getAttribute("aria-selected")).toBe("false");
   });
+
+  it("展开节点已脱离文档时不拦截后续点击，只清理残留监听", async () => {
+    document.body.innerHTML = '<select id="trackSelect"><option value="ai-zh">中文</option></select>';
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    wrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!.click();
+    expect(wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!.hidden).toBe(false);
+    wrapper.remove();
+
+    const target = document.createElement("button");
+    document.body.appendChild(target);
+    const targetClick = vi.fn();
+    target.addEventListener("click", targetClick);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+
+    expect(targetClick).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(false);
+  });
 });
 
 // aria-labelledby 的名字拼接：浏览器把引用节点的文本按空格连起来

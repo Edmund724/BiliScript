@@ -26,11 +26,12 @@ import { usesAiCredentialReference } from "../core/ai-credential-reference.js";
 import { presetBaseUrlForProtocol } from "../core/presets.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField } from "./model-picker.js";
-import { setCustomSelectValue } from "./custom-select.js";
+import { rebuildCustomSelectOptions, setCustomSelectValue } from "./custom-select.js";
 import { syncToggleSwitch } from "./toggle-switch.js";
 import { PROVIDER_FAMILY_ROWS, type FamilyEditorDeclaration } from "./provider-family.js";
 import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowPreset } from "./provider-row.js";
+import type { LiveVoice } from "../live/live-provider-store.js";
 
 // 协议端点查表的单源在 core/presets.ts（multi-protocol-ai 叶）；此处原样 re-export，
 // 调用方（Modal / 目录片）路径不变。
@@ -65,6 +66,8 @@ export interface ProjectionContext {
   kind: ProviderEditorKind;
   presets: readonly ProviderRowPreset[];
   hasSavedKey: boolean;
+  // 平台音色列表（仅 MOSS-LIVE 音色下拉用；未取到时装默认音色一项）
+  voices?: readonly LiveVoice[];
 }
 
 export interface FieldProjection {
@@ -83,6 +86,7 @@ export type ProjectionFieldKey =
   | "baseUrl"
   | "apiKey"
   | "model"
+  | "voice"
   | "protocolNotes"
   | "catalogEmpty"
   | "liveGeminiNativeSearch";
@@ -109,15 +113,42 @@ function scopeOf(draft: EditorDraftView, ctx: ProjectionContext): ProjectionScop
   return { ctx, family: family.editor, preset: family.resolvePreset(ctx.presets, draft.presetId) };
 }
 
-function fieldBlock(label: string, control: string): string {
+function fieldBlock(label: string, control: string, controlId?: string, errorId?: string): string {
   return `<div class="provider-editor-field">
-          <label class="provider-editor-label">${label}</label>
+          <label class="provider-editor-label"${controlId ? ` for="${controlId}"` : ""}>${label}</label>
           ${control}
+          ${errorId ? `<p class="provider-editor-field-error" id="${errorId}" hidden></p>` : ""}
         </div>`;
 }
 
 function inputValue(projection: FieldProjection): string {
   return escapeHtml(projection.value ?? "");
+}
+
+// 音色字段只在 MOSS-LIVE 平台出现（Gemini Live / ASR 不渲染该行）。
+function isMossLiveScope(scope: ProjectionScope): boolean {
+  if (scope.ctx.kind !== "live") return false;
+  const preset = scope.preset;
+  return preset?.type === "moss-live" || preset?.id === "moss-live";
+}
+
+// 音色下拉选项：首项「默认音色」= 空值（不发 change_voice）；列表按 name 展示
+//（空名已在 live-provider-store 回落 id）。已存 voiceId 不在列表里（音色被删或
+// 列表未取到）时保留一项，避免静默丢选择。
+function voiceOptionsHtml(scope: ProjectionScope, selected: string): string {
+  const current = selected.trim();
+  const voices = scope.ctx.voices ?? [];
+  const options = voices.map((voice) => ({ id: voice.id, name: voice.name || voice.id }));
+  if (current && !options.some((voice) => voice.id === current)) {
+    options.unshift({ id: current, name: current });
+  }
+  return [
+    `<option value="" ${current ? "" : "selected"}>默认音色</option>`,
+    ...options.map(
+      (voice) =>
+        `<option value="${escapeHtml(voice.id)}" ${voice.id === current ? "selected" : ""}>${escapeHtml(voice.name)}</option>`
+    )
+  ].join("");
 }
 
 const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
@@ -182,7 +213,8 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     html: (projection) =>
       fieldBlock(
         "名称",
-        `<input class="provider-editor-name" type="text" placeholder="${escapeHtml(projection.placeholder ?? "")}" value="${inputValue(projection)}" />`
+        `<input class="provider-editor-name" id="provider-editor-name" type="text" placeholder="${escapeHtml(projection.placeholder ?? "")}" value="${inputValue(projection)}" />`,
+        "provider-editor-name"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-name");
@@ -202,7 +234,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     html: (projection) =>
       fieldBlock(
         "API 地址",
-        `<input class="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="如 https://api.openai.com/v1" value="${inputValue(projection)}" />`
+        `<input class="provider-editor-baseurl" id="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="如 https://api.openai.com/v1" value="${inputValue(projection)}" />`,
+        "provider-editor-baseurl",
+        "provider-editor-error-baseurl"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
@@ -226,8 +260,9 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     },
     html: (projection) =>
       `<div class="provider-editor-field" ${projection.hidden ? "hidden" : ""}>
-          <label class="provider-editor-label">API Key</label>
-          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />
+          <label class="provider-editor-label" for="provider-editor-apikey">API Key</label>
+          <input class="provider-editor-apikey" id="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />
+          <p class="provider-editor-field-error" id="provider-editor-error-apikey" hidden></p>
         </div>`,
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
@@ -257,9 +292,12 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
         "模型",
         buildModelPickerField({
           inputClass: "provider-editor-model",
+          inputId: "provider-editor-model",
           placeholder: "模型名",
           value: projection.value ?? ""
-        })
+        }),
+        "provider-editor-model",
+        "provider-editor-error-model"
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
@@ -290,6 +328,38 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     read: (dialog) => {
       const node = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
       return { hidden: node?.hidden === true, text: node?.textContent ?? "" };
+    }
+  },
+
+  voice: {
+    project: (scope, draft) => {
+      if (!isMossLiveScope(scope)) return { hidden: true };
+      return { hidden: false, value: String(draft.voiceId || "") };
+    },
+    html: (projection, scope) =>
+      `<div class="provider-editor-field provider-editor-field-voice" ${projection.hidden ? "hidden" : ""}>
+          <label class="provider-editor-label">音色</label>
+          <select class="provider-editor-voice">${voiceOptionsHtml(scope, projection.value ?? "")}</select>
+        </div>`,
+    apply: (dialog, projection, scope) => {
+      const field = dialog.querySelector<HTMLElement>(".provider-editor-field-voice");
+      if (field) field.hidden = projection.hidden === true;
+      const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-voice");
+      if (select) {
+        select.innerHTML = voiceOptionsHtml(scope, projection.value ?? "");
+        // 已建壳（异步取到列表后重投影）时经组件入口换项集并同步 trigger 显示
+        if (projection.value !== undefined) {
+          setCustomSelectValue(select, projection.value);
+        }
+        rebuildCustomSelectOptions(select);
+      }
+    },
+    read: (dialog) => {
+      const field = dialog.querySelector<HTMLElement>(".provider-editor-field-voice");
+      return {
+        value: dialog.querySelector<HTMLSelectElement>(".provider-editor-voice")?.value ?? "",
+        hidden: field ? field.hidden === true : true
+      };
     }
   },
 
@@ -334,7 +404,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       const container = dialog.querySelector<HTMLElement>(".provider-editor-field-gemini-search");
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-gemini-search");
       return {
-        hidden: container ? container.hidden : true,
+        hidden: container ? container.hidden === true : true,
         checked: input ? input.checked : false
       };
     }
@@ -343,7 +413,12 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
 
 // Modal 打开参数直达的投影上下文（state 的只读视图，会话打开时即就位）
 export function sessionProjectionContext(): ProjectionContext {
-  return { kind: state.kind, presets: state.presets, hasSavedKey: state.hasSavedKey };
+  return {
+    kind: state.kind,
+    presets: state.presets,
+    hasSavedKey: state.hasSavedKey,
+    voices: state.voices
+  };
 }
 
 // 每个字段的目标态（模板与重投影共用的唯一投影规则）

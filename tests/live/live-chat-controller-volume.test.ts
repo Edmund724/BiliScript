@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createLiveChatController } from "../../extension/live/live-chat-controller.js";
+import {
+  createLiveChatController,
+  type LiveVideoBackendTaskManager
+} from "../../extension/live/live-chat-controller.js";
 
 class FakePort {
   readonly postedMessages: any[] = [];
@@ -38,13 +41,14 @@ beforeEach(() => {
 });
 
 describe("LiveChatController AI volume", () => {
-  async function setup() {
+  async function setup(options: { initialSpeed?: number } = {}) {
     const port = new FakePort();
     const volumeControl = document.createElement("details");
     const controller = createLiveChatController({
       liveButton: document.createElement("button"),
       volumeControl,
       initialVolume: 0.6,
+      initialSpeed: options.initialSpeed,
       connectPort: () => port as any,
       requestOrigins: async () => ({ ok: true }),
       sendRuntimeMessage: (async (message: any) => message.type === "live-session-prepare"
@@ -60,7 +64,7 @@ describe("LiveChatController AI volume", () => {
         isMicVadActive: () => false,
         isVoiceRecentlyActive: () => true
       }),
-      startVideoCapture: () => ({ stop: () => {} })
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} })
     });
     await controller.start();
     port.emit({ type: "connected" });
@@ -77,11 +81,24 @@ describe("LiveChatController AI volume", () => {
     expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 0.35 });
 
     controller.setVolume(2);
-    expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 1 });
+    expect(port.postedMessages.at(-1)).toEqual({ action: "set_volume", volume: 2 });
 
     await controller.stop();
     expect(volumeControl.hidden).toBe(true);
     expect(volumeControl.open).toBe(false);
+  });
+
+  it("adopts server-confirmed output volume and speed", async () => {
+    const { controller, port } = await setup();
+    port.emit({ type: "output_configured", volume: 1.5, speed: 1.25 });
+    expect(controller.getVolume()).toBe(1.5);
+    expect(controller.getSpeed()).toBe(1.25);
+  });
+
+  it("clamps the legacy 2x setting to the new 1.5x maximum", async () => {
+    const { controller, port } = await setup({ initialSpeed: 2 });
+    expect(controller.getSpeed()).toBe(1.5);
+    expect(port.postedMessages[0]).toMatchObject({ action: "start", speed: 1.5 });
   });
 
   it("ignores legacy duck events instead of taking over the page player volume", async () => {
@@ -94,10 +111,13 @@ describe("LiveChatController AI volume", () => {
 });
 
 describe("LiveChatController voice priority and ducking", () => {
-  function createMockVideo(initialVolume = 0.8) {
+  function createMockVideo(initialVolume = 0.8, paused = false) {
     const video = {
       volume: initialVolume,
-      muted: false
+      muted: false,
+      paused,
+      pause: vi.fn(),
+      play: vi.fn(async () => {})
     } as unknown as HTMLVideoElement;
     return video;
   }
@@ -107,9 +127,11 @@ describe("LiveChatController voice priority and ducking", () => {
     initialVoicePriority?: boolean;
     initialShareVideoAudio?: boolean;
     videoVolume?: number;
+    videoPaused?: boolean;
+    videoBackendTaskManager?: LiveVideoBackendTaskManager;
   } = {}) {
     const port = new FakePort();
-    const video = createMockVideo(options.videoVolume ?? 0.8);
+    const video = createMockVideo(options.videoVolume ?? 0.8, options.videoPaused ?? false);
     let vadCallback: ((active: boolean) => void) | null = null;
     let statusCallback: ((status: any) => void) | null = null;
     let shareVideoAudioState = options.initialShareVideoAudio ?? true;
@@ -143,7 +165,8 @@ describe("LiveChatController voice priority and ducking", () => {
           isVoiceRecentlyActive: () => true
         };
       },
-      startVideoCapture: () => ({ stop: () => {} })
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} }),
+      videoBackendTaskManager: options.videoBackendTaskManager
     });
 
     await controller.start();
@@ -160,6 +183,78 @@ describe("LiveChatController voice priority and ducking", () => {
       }
     };
   }
+
+  function createCompletedSummaryManager(): LiveVideoBackendTaskManager {
+    return {
+      runTask: vi.fn(async (options) => {
+        options.onSpokenResult("后台总结完成");
+        return null;
+      }),
+      cancelTask: vi.fn(() => true),
+      cancelAllTasks: vi.fn()
+    };
+  }
+
+  async function emitCompletedSummary(port: FakePort): Promise<void> {
+    port.emit({
+      type: "delegation_created",
+      delegation: { delegationId: "summary-1", objective: "总结全片", context: [] }
+    });
+    await vi.waitFor(() => expect(port.postedMessages).toContainEqual({
+      action: "delegation_result",
+      delegationId: "summary-1",
+      status: "completed",
+      content: "后台总结完成"
+    }));
+  }
+
+  it("pauses the original video during a backend summary and resumes it on completion", async () => {
+    const videoBackendTaskManager = createCompletedSummaryManager();
+    const { port, video } = await setupWithVideo({ videoVolume: 0.8, videoBackendTaskManager });
+    await emitCompletedSummary(port);
+
+    port.emit({ type: "speaking_state", speaking: true });
+    expect(video.pause).toHaveBeenCalledTimes(1);
+    expect(video.volume).toBeCloseTo(0.16, 5);
+
+    port.emit({ type: "speaking_state", speaking: false });
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(video.volume).toBeCloseTo(0.8, 5);
+  });
+
+  it("resumes summary-paused playback when the user interrupts", async () => {
+    const videoBackendTaskManager = createCompletedSummaryManager();
+    const { controller, port, video } = await setupWithVideo({ videoBackendTaskManager });
+    await emitCompletedSummary(port);
+    port.emit({ type: "speaking_state", speaking: true });
+
+    controller.interrupt();
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(video.volume).toBeCloseTo(0.8, 5);
+  });
+
+  it("does not resume a video that was already paused before the summary", async () => {
+    const videoBackendTaskManager = createCompletedSummaryManager();
+    const { port, video } = await setupWithVideo({ videoPaused: true, videoBackendTaskManager });
+    await emitCompletedSummary(port);
+    port.emit({ type: "speaking_state", speaking: true });
+    port.emit({ type: "speaking_state", speaking: false });
+
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(video.play).not.toHaveBeenCalled();
+  });
+
+  it("waits for the next response when a summary completes during an existing reply", async () => {
+    const videoBackendTaskManager = createCompletedSummaryManager();
+    const { port, video } = await setupWithVideo({ videoBackendTaskManager });
+    port.emit({ type: "speaking_state", speaking: true });
+    await emitCompletedSummary(port);
+    expect(video.pause).not.toHaveBeenCalled();
+
+    port.emit({ type: "speaking_state", speaking: false });
+    port.emit({ type: "speaking_state", speaking: true });
+    expect(video.pause).toHaveBeenCalledTimes(1);
+  });
 
   it("ducks video volume when user mic VAD detects speech and restores on silence", async () => {
     const { controller, video, emitVad } = await setupWithVideo({ videoVolume: 0.8 });
@@ -291,7 +386,7 @@ describe("LiveChatController voice priority and ducking", () => {
           isVoiceRecentlyActive: () => true
         };
       },
-      startVideoCapture: () => ({ stop: () => {} })
+      startVideoCapture: () => ({ stop: () => {}, configure: () => {} })
     });
 
     expect(controller.isSharingVideoAudio()).toBe(true);

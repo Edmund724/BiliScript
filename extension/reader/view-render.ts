@@ -18,6 +18,7 @@ import {
   getReadingSubtitlePlaceholderText
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import {
   SUBTITLE_FIRST_BATCH,
@@ -32,6 +33,7 @@ import {
 } from "./subtitle-item-dom.js";
 import { applyReadingViewPresentation } from "./presentation.js";
 import { ids } from "./state.js";
+import { projectReaderSettingsMode } from "./settings-mode.js";
 
 export interface ReaderViewProjection {
   readonly id: string;
@@ -83,9 +85,16 @@ function projectReadingSubtitleList(): void {
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {
+    // 配置类无字幕空态（票 04）：补救动作是「去设置」时给实际设置入口——直达
+    // ASR 平台编辑或自动转写开关；非配置类（充值 / 重试 / 无人声）不挂，
+    // 不把不可配置的成因伪装成配置问题。
+    const setupAction =
+      state.clip.subtitleFetchState === "empty" && requiresAsrSetup(state.clip.noSubtitleReason)
+        ? `<button type="button" class="biliscript-reading-mini-btn" data-subtitle-action="asr-setup">前往设置</button>`
+        : "";
     subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
       getReadingSubtitlePlaceholderText()
-    )}</div>`;
+    )}${setupAction}</div>`;
   } else {
     const firstEnd = Math.min(subtitleItems.length, SUBTITLE_FIRST_BATCH);
     let firstHtml = "";
@@ -110,11 +119,8 @@ function projectReadingSubtitleList(): void {
 // 原 options 页的全部设置项（宿主容器在 ui-renderer 模板内；模板与数据装载在
 // settings-panel 内，展开即刷新）。装载失败静默，渲染异常照旧上浮未处理拒绝。
 export function renderReaderPanels() {
-  const settingsPanel = getReaderElement(ids.readingSettingsPanel);
-  const settingsBtn = getReaderElement(ids.readingSettingsBtn);
-  settingsPanel.hidden = !state.reader.readingSettingsExpanded;
-  settingsBtn.classList.toggle("is-active", state.reader.readingSettingsExpanded);
-  if (!settingsPanel.hidden) {
+  projectReaderSettingsMode();
+  if (state.reader.readingSettingsExpanded) {
     void (async () => {
       const mod = await import("../ui/settings-panel.js").catch(() => null);
       mod?.renderReaderSettingsPanel();

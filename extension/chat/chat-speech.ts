@@ -37,7 +37,7 @@ export interface CreateChatSpeechControllerDeps {
 }
 
 export interface ChatSpeechController {
-  toggle(button: HTMLButtonElement, source: HTMLElement | string, options?: { maxChunkChars?: number; volume?: number }): Promise<void>;
+  toggle(button: HTMLButtonElement, source: HTMLElement | string, options?: { messageId?: string; maxChunkChars?: number; volume?: number }): Promise<void>;
   stop(): void;
 }
 
@@ -169,7 +169,7 @@ export function speechTextFromElement(root: HTMLElement): string {
   clone.querySelectorAll("img").forEach((image) => {
     image.replaceWith(document.createTextNode(image.getAttribute("alt") || ""));
   });
-  clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
+  clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .chat-cite, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
 
   function readNode(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -271,7 +271,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
   const getBrowserLanguage = deps.getBrowserLanguage || (() => navigator.language || "zh-CN");
   const onError = deps.onError || (() => {});
   let generation = 0;
-  let active: { generation: number; button: HTMLButtonElement } | null = null;
+  let active: { generation: number; messageId: string | HTMLButtonElement; button: HTMLButtonElement } | null = null;
 
   function isActive(token: number): boolean {
     return active?.generation === token;
@@ -367,8 +367,9 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     }
   }
 
-  async function toggle(button: HTMLButtonElement, source: HTMLElement | string, options: { maxChunkChars?: number; volume?: number } = {}): Promise<void> {
-    if (active?.button === button) {
+  async function toggle(button: HTMLButtonElement, source: HTMLElement | string, options: { messageId?: string; maxChunkChars?: number; volume?: number } = {}): Promise<void> {
+    const messageId = options.messageId ?? button;
+    if (active?.messageId === messageId) {
       stop();
       return;
     }
@@ -378,7 +379,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
       return;
     }
     const token = generation;
-    active = { generation: token, button };
+    active = { generation: token, messageId, button };
     setButtonSpeaking(button, true);
     try {
       const voices = await engine.getVoices();

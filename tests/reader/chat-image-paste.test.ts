@@ -162,6 +162,10 @@ function imageStrip(): HTMLElement {
   return document.getElementById(ids.readingChatImageStrip) as HTMLElement;
 }
 
+async function waitForImageReady(strip: HTMLElement): Promise<void> {
+  await waitFor(() => strip.querySelector(".chat-image-open .chat-image-thumb") !== null);
+}
+
 async function activateChat(): Promise<void> {
   seedReadyContext();
   const chat = await lazyChat.ensureReaderChatTab();
@@ -194,23 +198,31 @@ afterEach(() => {
 });
 
 describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
-  it("Ctrl+V 图片：拦截、压缩成 WebP 缩略图；回车发送带走 images 并清空附件区", async () => {
+  it("Ctrl+V 图片：立即回车受处理中守卫，完成后发送 WebP 并清空附件区", async () => {
     await activateChat();
     const input = inputEl();
     const strip = imageStrip();
     expect(strip.hidden).toBe(true); // 初始无附件
 
     const event = dispatchPaste(input, [textItem(), imageItem("image/png")]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
-
     expect(event.defaultPrevented).toBe(true); // 含 image/*：拦截
     expect(strip.hidden).toBe(false);
-    // 缩略图是压缩后的 WebP data URL（长边 2400→1568 后的 toBlob 产物）
-    expect(strip.querySelector(".chat-image-thumb")?.getAttribute("src")).toBe(
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(strip.querySelector(".chat-image-skeleton")).not.toBeNull();
+
+    input.value = "这张图里是什么";
+    sendEnter();
+    expect(ports).toHaveLength(0);
+    expect(document.querySelector(".chat-context-notice")?.textContent).toContain("图片处理中…");
+
+    await waitForImageReady(strip);
+    const open = strip.querySelector<HTMLButtonElement>(".chat-image-open.chat-image-preview");
+    expect(open).not.toBeNull();
+    // 压缩后的缩略图位于共享查看器按钮内（长边 2400→1568 后的 toBlob 产物）。
+    expect(open?.querySelector(".chat-image-thumb")?.getAttribute("src")).toBe(
       "data:image/webp;base64,iVBORw=="
     );
 
-    input.value = "这张图里是什么";
     sendEnter();
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
 
@@ -257,7 +269,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     const input = inputEl();
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    await waitForImageReady(strip);
 
     const removeBtn = strip.querySelector(".chat-image-remove") as HTMLButtonElement;
     removeBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -290,10 +302,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
   });
 
-  // 受理窗口（发送流程在途、端口未建、用户消息尚未上屏）：旧判据
-  // isStreaming() || hasPendingUserPrompt() 在这段窗口判「空闲」，图片会被收进附件区；
-  // 判据收成 isTurnActive（受理窗口 ∪ 流段）后，整段「受理 → 落定」窗口一致拒绝。
-  it("受理窗口内（闸 await 中）粘贴图片：同样拒绝，不产出附件项", async () => {
+  it("字幕等待期间粘贴图片：真实压缩后保留，不并入已受理的原回合", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -307,38 +316,57 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     input.value = "闸中问题";
     sendEnter();
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(ports).toHaveLength(0); // 仍在受理窗口内：端口未建、未上屏
+    await waitFor(() => document.querySelector<HTMLElement>(".chat-subtitle-wait")?.hidden === false);
+    expect(ports).toHaveLength(0);
 
     dispatchPaste(input, [imageItem()]);
+    await waitForImageReady(strip);
 
-    // 拒绝是同步的（流式闸在压缩之前）：提示立即换成拒绝文案，附件区保持空
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在生成回答");
-    expect(strip.hidden).toBe(true);
-    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
-
-    // 收尾：转写完成 → kick 放行挂起的那条发送（不留挂起的等待轮询）
     const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     statusBus.publishSubtitleStatusPhase("asr-done");
     await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+
+    const posted = ports[0].postMessage.mock.calls[0][0] as { images?: unknown[] };
+    expect(posted.images).toBeUndefined();
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(messages.textContent).toContain("已发送原文，保留了后来修改的草稿与图片");
   });
 
-  it("会话已激活时新会话清场：附件随输入框一起清空", async () => {
+  it("快捷动作遇到草稿与图片附件：只定位，不覆盖、不发送、不消费附件", async () => {
+    await activateChat();
+    const chat = await lazyChat.ensureReaderChatTab();
+    const input = inputEl();
+    const strip = imageStrip();
+    dispatchPaste(input, [imageItem()]);
+    await waitForImageReady(strip);
+    input.value = "草稿与图片都保留";
+
+    const accepted = await chat.runQuickActionPrompt("不得发送快捷提示词");
+
+    expect(accepted).toBe(false);
+    expect(input.value).toBe("草稿与图片都保留");
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
+    expect(strip.hidden).toBe(false);
+    expect(ports).toHaveLength(0);
+  });
+
+  it("会话已激活时确认新会话：附件随输入框一起清空", async () => {
     await activateChat();
     const input = inputEl();
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
-    // 输入框里的草稿与附件同属「本轮未发出的输入」：新会话（用户语义的清场）
-    // 两者一起清——本断言把「清输入」半边也钉进同一用例（此前只钉了附件）。
+    await waitForImageReady(strip);
     input.value = "草稿一句";
 
     const newChatBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
     newChatBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(document.querySelectorAll(".confirm-dialog-host")).toHaveLength(1);
+    expect(strip.hidden).toBe(false);
+    expect(input.value).toBe("草稿一句");
+
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
 
     await waitFor(() => strip.hidden === true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
@@ -365,7 +393,7 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     const input = inputEl();
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    await waitForImageReady(strip);
 
     switchPageCid("202");
     input.value = "这张图里是什么";
@@ -391,7 +419,7 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     const input = inputEl();
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    await waitForImageReady(strip);
 
     // 换 P（触发闸内 restartChat）且新上下文是无字幕收尾：闸 G6 拦截发送
     state.clip.cid = "202";
@@ -399,8 +427,7 @@ describe("闸内上下文变化（apply-live → restartChat）与附件", () =>
     state.clip.subtitleBody = [];
     input.value = "这张图里是什么";
     sendEnter();
-    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
-    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    await waitFor(() => Boolean(document.querySelector(".chat-input-card .chat-context-notice")));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // 被拦下 = 未受理：不发起 port、附件留在附件区、输入框文本保留
@@ -434,7 +461,7 @@ describe("发图门控（目录乐观放行）", () => {
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
 
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    await waitForImageReady(strip);
 
     input.value = "这张图里是什么";
     sendEnter();
@@ -455,7 +482,7 @@ describe("发图门控（目录乐观放行）", () => {
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
 
     dispatchPaste(input, [imageItem()]);
-    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    await waitForImageReady(strip);
 
     input.value = "这张图里是什么";
     sendEnter();

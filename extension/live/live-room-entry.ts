@@ -4,8 +4,9 @@
 
 import { state } from "../core/state.js";
 import { getSettings } from "../core/runtime.js";
-import { normalizeLiveVoiceVolume } from "../core/validators.js";
+import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { ensurePlayerAiStyles } from "../shared/style-injector.js";
+import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import {
   applyControlBarPlacement,
@@ -15,6 +16,7 @@ import {
 } from "../bilibili/player-control-mount.js";
 import { createLiveChatController, type LiveChatController } from "./live-chat-controller.js";
 import { createLiveOverlayBinding } from "./live-overlay-binding.js";
+import { watchLiveAudioSettings } from "./live-audio-settings.js";
 import { createLiveRoomBridge } from "./live-room-bridge.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 
@@ -28,15 +30,52 @@ let started = false;
 let controller: LiveChatController | null = null;
 let toggleButton: HTMLButtonElement | null = null;
 let containerObserverHandle: PlayerContainerObserverHandle | null = null;
+let unsubscribeStorageWatcher: (() => void) | null = null;
+let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
 let currentRoomId = "";
+let settingsRequestId = 0;
+let settingsModule: typeof import("./live-room-settings.js") | null = null;
 
 function findPlayerHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
 }
 
+function closeLiveRoomSettings(): void {
+  settingsRequestId += 1;
+  settingsModule?.closeLiveRoomSettings();
+}
+
+async function reconnectLive(roomId: string): Promise<boolean> {
+  const currentController = controller;
+  if (!currentController || roomId !== currentRoomId) return false;
+  await currentController.refreshTarget();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  await currentController.stop();
+  if (controller !== currentController || roomId !== currentRoomId) return false;
+  return currentController.start();
+}
+
 const overlayBinding = createLiveOverlayBinding({
   getPlayerHost: findPlayerHost,
-  getLiveController: () => controller
+  getLiveController: () => controller,
+  onOpenLiveSettings: (target) => {
+    const requestId = ++settingsRequestId;
+    const roomId = currentRoomId;
+    void import("./live-room-settings.js")
+      .then(async (settings) => {
+        if (requestId !== settingsRequestId || roomId !== currentRoomId) return;
+        settingsModule = settings;
+        await settings.openLiveRoomSettings(target, findPlayerHost, {
+          getState: () => controller?.getState() ?? "idle",
+          reconnect: () => reconnectLive(roomId)
+        });
+      })
+      .catch(() => {
+        if (requestId === settingsRequestId && roomId === currentRoomId) {
+          showNotice("伴看设置加载失败，请重试");
+        }
+      });
+  }
 });
 
 function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): void {
@@ -103,6 +142,7 @@ function handleRoomChange(): void {
   const nextRoomId = parseLiveRoomId();
   if (nextRoomId === currentRoomId) return;
   currentRoomId = nextRoomId;
+  closeLiveRoomSettings();
   void controller?.stop();
   overlayBinding.clearMessages();
 }
@@ -122,6 +162,7 @@ export async function startLiveRoomCompanion(): Promise<void> {
   const bridge = createLiveRoomBridge();
   controller = createLiveChatController({
     initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+    initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
     initialVoicePriority: state.settings?.liveVoicePriority !== false,
     initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
     getVideoElement: () => document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR),
@@ -132,6 +173,20 @@ export async function startLiveRoomCompanion(): Promise<void> {
       onStateChange: syncToggleButton
     })
   });
+  await controller.refreshTarget();
+  unsubscribeStorageWatcher = watchStorageKeys(
+    () => {
+      void controller?.refreshTarget();
+    },
+    {
+      sync: ["liveProviders", "activeLiveProviderId"],
+      local: ["liveProviderKeys"]
+    }
+  );
+  unsubscribeAudioSettingsWatcher = watchLiveAudioSettings(
+    () => controller,
+    () => overlayBinding.getOverlay()?.syncState()
+  );
 
   mountToggleButton();
   containerObserverHandle = observePlayerContainer({
@@ -148,11 +203,16 @@ export async function startLiveRoomCompanion(): Promise<void> {
 export function stopLiveRoomCompanion(): void {
   if (!started) return;
   started = false;
+  unsubscribeStorageWatcher?.();
+  unsubscribeStorageWatcher = null;
+  unsubscribeAudioSettingsWatcher?.();
+  unsubscribeAudioSettingsWatcher = null;
   containerObserverHandle?.disconnect();
   containerObserverHandle = null;
   const nav = (window as unknown as { navigation?: EventTarget }).navigation;
   nav?.removeEventListener("navigatesuccess", handleRoomChange);
   window.removeEventListener("popstate", handleRoomChange);
+  closeLiveRoomSettings();
   void controller?.stop();
   controller = null;
   toggleButton?.remove();

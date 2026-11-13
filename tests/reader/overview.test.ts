@@ -235,6 +235,36 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(1);
   });
 
+  it("热评拉取失败：ready 产物上方挂概览自己的提示条（反馈归位概览 tab，不写全局状态行）", async () => {
+    seedClip();
+    state.clip.hotCommentsNotice =
+      "热评没拿到（B 站风控校验失败（-352），拿不到热评目录）：本次概览没有评论目录。";
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    await reader.triggerReaderOverviewGeneration();
+
+    // 提示条用概览自己的 ov-strip（非生成中/失败条），产物照常渲染
+    const strip = overviewBody().querySelector(".biliscript-reading-ov-strip") as HTMLElement;
+    expect(strip).not.toBeNull();
+    expect(strip.classList.contains("is-generating")).toBe(false);
+    expect(strip.classList.contains("is-error")).toBe(false);
+    expect(strip.textContent).toContain("热评没拿到");
+    expect(strip.textContent).toContain("本次概览没有评论目录");
+    expect(overviewText()).toContain("开场");
+    // 全局状态行不写这条任务反馈（06 号票归属收口）
+    expect(messageText()).not.toContain("热评没拿到");
+  });
+
+  it("热评提示条：字段为空（拉取成功）时 ready 产物不挂条", async () => {
+    seedClip();
+    state.clip.hotCommentsNotice = "";
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-strip").length).toBe(0);
+  });
+
   it("presetId 穿线：解析链带回记录的 presetId（preset 词表键），随 provider 进入概览管线", async () => {
     seedClip();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
