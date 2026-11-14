@@ -156,6 +156,13 @@ export interface CreateProviderRowConfig {
   buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
 }
 
+export type ActiveRadioChangeHandler = (
+  activeId: string,
+  meta: { pending: boolean; rolledBack: boolean }
+) => void;
+
+export type ProviderRowErrorHandler = (message: string) => void;
+
 export interface ProviderRowController {
   generateId: () => string;
   render: (
@@ -167,6 +174,7 @@ export interface ProviderRowController {
   updateEmptyState: (listNode: HTMLElement, emptyNode: HTMLElement) => void;
   setDeleteHandler: (handler: ProviderRowHandler) => void;
   setBeforeDeleteHandler: (handler: ProviderRowBeforeDeleteHandler) => void;
+  setErrorHandler: (handler: ProviderRowErrorHandler) => void;
 }
 
 // 选用 radio 的共享实现（ASR / 搜索两行同款，差异仅类名前缀、radio 组名、
@@ -190,11 +198,19 @@ export interface ActiveRadioTail {
   setActive: (listNode: HTMLElement, activeId: string) => void;
   // 当前列表选中的平台 id（无则空串）
   getActiveId: (listNode: HTMLElement) => string;
+  // 在整表 render 完成后同步基线 id（供失败回滚使用）
+  syncRendered: (listNode: HTMLElement) => void;
+  setErrorHandler: (handler: ProviderRowErrorHandler) => void;
+  setActiveChangeHandler: (handler: ActiveRadioChangeHandler) => void;
 }
 
 export function buildActiveRadioTail({ classPrefix, title, settingsKey }: ActiveRadioTailConfig): ActiveRadioTail {
   const radioClass = `${classPrefix}-provider-active-radio`;
   const rowClass = `${classPrefix}-provider-row`;
+  let onError: ProviderRowErrorHandler = () => {};
+  let onActiveChange: ActiveRadioChangeHandler = () => {};
+  const lastActiveByList = new WeakMap<HTMLElement, string>();
+  const requestSeqByList = new WeakMap<HTMLElement, number>();
 
   function buildTailFields({ isActive }: { id: string; isActive: boolean }): string {
     return `
@@ -205,13 +221,28 @@ export function buildActiveRadioTail({ classPrefix, title, settingsKey }: Active
   }
 
   function wireTailExtras(row: ProviderRowElement, { listNode }: { listNode: HTMLElement }): void {
-    row.querySelector(`.${radioClass}`)?.addEventListener("change", async () => {
-      if (!(row.querySelector(`.${radioClass}`) as HTMLInputElement).checked) return;
+    const radio = row.querySelector<HTMLInputElement>(`.${radioClass}`);
+    radio?.addEventListener("change", async () => {
+      if (!radio.checked) return;
       const providerId = row.dataset.providerId || "";
+      const prevActiveId = lastActiveByList.get(listNode) ?? "";
+      const reqId = (requestSeqByList.get(listNode) ?? 0) + 1;
+      requestSeqByList.set(listNode, reqId);
+      onActiveChange(providerId, { pending: true, rolledBack: false });
       try {
-        await sendRuntimeMessage({ type: "save-settings", settings: { [settingsKey]: providerId } });
-      } catch {}
-      setActive(listNode, providerId);
+        const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [settingsKey]: providerId } });
+        if (requestSeqByList.get(listNode) !== reqId) return;
+        if (!resp?.ok) {
+          throw new Error((resp as { error?: string } | undefined)?.error || "保存选用平台失败");
+        }
+        setActive(listNode, providerId);
+        onActiveChange(providerId, { pending: false, rolledBack: false });
+      } catch (error) {
+        if (requestSeqByList.get(listNode) !== reqId) return;
+        setActive(listNode, prevActiveId);
+        onError((error as Error)?.message || "保存选用平台失败");
+        onActiveChange(prevActiveId, { pending: false, rolledBack: true });
+      }
     });
   }
 
@@ -221,6 +252,7 @@ export function buildActiveRadioTail({ classPrefix, title, settingsKey }: Active
       const row = radio.closest(`.${rowClass}`) as HTMLElement | null;
       radio.checked = Boolean(row && row.dataset.providerId === target);
     });
+    lastActiveByList.set(listNode, getActiveId(listNode));
   }
 
   function getActiveId(listNode: HTMLElement): string {
@@ -229,7 +261,23 @@ export function buildActiveRadioTail({ classPrefix, title, settingsKey }: Active
     return row?.dataset.providerId || "";
   }
 
-  return { buildTailFields, wireTailExtras, setActive, getActiveId };
+  function syncRendered(listNode: HTMLElement): void {
+    lastActiveByList.set(listNode, getActiveId(listNode));
+  }
+
+  return {
+    buildTailFields,
+    wireTailExtras,
+    setActive,
+    getActiveId,
+    syncRendered,
+    setErrorHandler(handler) {
+      onError = handler;
+    },
+    setActiveChangeHandler(handler) {
+      onActiveChange = handler;
+    }
+  };
 }
 
 export function createProviderRow({
@@ -252,6 +300,7 @@ export function createProviderRow({
   let onDelete: ProviderRowHandler = async () => {};
   // 删除动作前先执行的钩子（调用页注入回收 origin，需要被删行的 baseUrl）
   let onBeforeDelete: ProviderRowBeforeDeleteHandler = async () => {};
+  let onError: ProviderRowErrorHandler = () => {};
 
   function generateId(): string {
     return `${idPrefix}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -312,6 +361,7 @@ export function createProviderRow({
       row.dataset.currentPresetId = presetId;
       row.dataset.baseUrl = baseUrl;
 
+      const nameText = displayName(item, preset);
       const model = displayModel(item, preset);
       // Key 状态点第三态（spec §6.1 判据 f(access, hasSavedKey)）：keyless 预设
       // 无 Key 也标「可用」（第三色由 CSS 复用 success 变量，不新增颜色）；
@@ -337,15 +387,15 @@ export function createProviderRow({
       // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 已配 Key，
       // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
       const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
-      // 拖拽把手（spec §6.10）：行内最右端（删除按钮之后）的独立元素，仅搜索族
-      // 记录行渲染；只认它的 pointerdown（wireProviderRowDrag）。
+      // 拖拽把手（spec §6.10）：行内最右端（删除按钮之后）的可聚焦按钮，仅搜索族
+      // 记录行渲染；支持指针拖拽与聚焦后上下方向键调整顺序。
       const dragHandle = dragHandleClass
-        ? `<span class="${dragHandleClass}" title="拖拽调整搜索顺序"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${DRAG_HANDLE_ICON_PATHS}</svg></span>`
+        ? `<button type="button" class="${dragHandleClass}" title="拖拽或按上下方向键调整搜索顺序" aria-label="调整 ${escapeHtml(nameText)} 搜索顺序"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${DRAG_HANDLE_ICON_PATHS}</svg></button>`
         : "";
       row.innerHTML = `
         <div class="provider-row-line">
           <span class="provider-row-dot" data-state="${keyState}" title="${keyStateTitle}"></span>
-          <span class="provider-row-name">${escapeHtml(displayName(item, preset))}</span>
+          <span class="provider-row-name">${escapeHtml(nameText)}</span>
           ${badge ? `<span class="provider-row-badge">${escapeHtml(badge)}</span>` : ""}
           ${buildTailFields ? buildTailFields({ id, isActive }) : ""}
           <button type="button" class="${editClass}">编辑</button>
@@ -362,34 +412,51 @@ export function createProviderRow({
         onRowEdit?.(row);
       });
 
-      // 删除：面板内二次确认（ui/confirm-dialog.js，原生 confirm 弹窗绘制在浏
-      // 览器窗口中央，面板停靠右侧时可能看不到）后调后台删除；若删的是当前
-      // 选用平台，清空选用态（onDelete 注入处理）。onBeforeDelete 在被删行摘出
-      // DOM 之前执行，注入方据此拿到该行的 baseUrl 回收 host 权限
-      //（chrome.permissions.remove 不需要用户手势）；钩子报错不阻断删除。
+      // 删除：面板内二次确认后禁用行操作按钮，等待后台删除成功后再移出 DOM 与通知上层；
+      // 失败或抛错保留原行并恢复按钮可用态，触发 onError 提示错误。
+      let deleting = false;
       row.querySelector(`.${removeClass}`)?.addEventListener("click", async () => {
-        if (!(await confirmDialog({
-          title: "删除平台",
-          message: "确定要删除这个平台吗？",
-          confirmText: "删除",
-          danger: true,
-          mountHost: getConfirmMountHost?.() || undefined
-        }))) {
-          return;
-        }
-        const providerId = row.dataset.providerId || "";
+        if (deleting) return;
+        deleting = true;
+        const removeBtn = row.querySelector<HTMLButtonElement>(`.${removeClass}`);
+        const editBtn = row.querySelector<HTMLButtonElement>(`.${editClass}`);
         try {
-          await onBeforeDelete(providerId, row.dataset.baseUrl || "");
-        } catch {}
-        if (providerId) {
+          if (!(await confirmDialog({
+            title: "删除平台",
+            message: "确定要删除这个平台吗？",
+            confirmText: "删除",
+            danger: true,
+            mountHost: getConfirmMountHost?.() || undefined
+          }))) {
+            return;
+          }
+          if (removeBtn) removeBtn.disabled = true;
+          if (editBtn) editBtn.disabled = true;
+          const providerId = row.dataset.providerId || "";
           try {
-            await sendRuntimeMessage(buildDeleteMessage(providerId));
+            await onBeforeDelete(providerId, row.dataset.baseUrl || "");
           } catch {}
-        }
-        row.remove();
-        updateEmptyState(listNode, emptyNode);
-        if (typeof onDelete === "function") {
-          onDelete(providerId);
+          if (providerId) {
+            const resp = (await sendRuntimeMessage(buildDeleteMessage(providerId))) as
+              | { ok?: boolean; error?: string }
+              | undefined;
+            if (!resp?.ok) {
+              throw new Error(resp?.error || "删除平台失败");
+            }
+          }
+          row.remove();
+          updateEmptyState(listNode, emptyNode);
+          if (typeof onDelete === "function") {
+            await onDelete(providerId);
+          }
+        } catch (error) {
+          onError((error as Error)?.message || "删除平台失败");
+        } finally {
+          deleting = false;
+          if (row.isConnected) {
+            if (removeBtn) removeBtn.disabled = false;
+            if (editBtn) editBtn.disabled = false;
+          }
         }
       });
 
@@ -410,6 +477,9 @@ export function createProviderRow({
     },
     setBeforeDeleteHandler(handler) {
       onBeforeDelete = handler;
+    },
+    setErrorHandler(handler) {
+      onError = handler;
     }
   };
 }

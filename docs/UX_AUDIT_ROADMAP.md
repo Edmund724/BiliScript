@@ -1,6 +1,6 @@
 # BiliScript 信息架构与用户流程全景（UX Audit Roadmap）
 
-本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，Session 5 放弃）及已落地的核心产品裁定。
+本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，Session 5 放弃）及已落地的核心产品裁定。
 
 ---
 
@@ -68,6 +68,11 @@ flowchart TD
 * **一次性「设置并继续」**：概览、AI 对话、解释卡与 ASR 转写遇到无平台/缺 Key 阻断时，经各自内存级 resume 意图直达对应编辑器（无记录直接新建，缺 Key 精确编辑并聚焦 Key），保存后自动退出设置并续跑原任务；AI 对话仅恢复草稿与附件并提示确认发送，不自动触发付费请求。
 * **四族激活与搜索降密**：[`settings-panel.ts`](../extension/ui/settings-panel.ts) 区分 AI 模型默认摘要与对话精确选择；实时伴看与语音转写使用「使用 / 使用中」单选激活；搜索区按「智能搜索（有序回退）/ 仅单平台（失败不回退）」切换折叠摘要与控件显隐，拖拽排序与付费开关仅在智能模式展示。
 * **跨族凭据引用与编辑器降层**：Gemini Live 与 DeepSeek 搜索经 [`ai-credential-link.ts`](../extension/ui/ai-credential-link.ts) 同层往返官方 AI 平台编辑器并保留消费草稿；「获取可用模型」（[`provider-editor-fetch-dialog.ts`](../extension/ui/provider-editor-fetch-dialog.ts)）内联为编辑器子视图，并用会话级 `Set` 保留过滤前勾选；[`provider-editor-modal.ts`](../extension/ui/provider-editor-modal.ts) 补齐表单字段校验、焦点圈禁、`inert` 与权限手势链提示。
+* **M2 深度复审（P0/P1 已修复并验证，P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）**：
+  * **冷启动与首配闭环**：对话模型选择器（[`model-picker.ts`](../extension/ui/model-picker.ts)）补齐空态闭环与 `models: []` 导回编辑；首配模型编辑器增加空模型行校验（[`provider-editor-validation.ts`](../extension/ui/provider-editor-validation.ts)）；ASR 缺配/无 Key 实现一次配置闭环（[`asr-setup.ts`](../extension/asr/asr-setup.ts)）。
+  * **编辑器遮罩、并发与样式隔离**：内联子视图与弹窗补齐 `inert` 隔离与 Flyme 实底防透字（[`provider-editor-modal.ts`](../extension/ui/provider-editor-modal.ts)、[`provider-editor-fetch-dialog.ts`](../extension/ui/provider-editor-fetch-dialog.ts)）；异步操作补齐并发与防重入锁；错误语义色统一 `--biliscript-reader-danger` 并收窄 `:user-valid` 作用域。
+  * **四族交互、排序与跨族凭据一致**：行内删除/单选/排序防吞错与搜索激活 ID 清理；搜索拖拽补齐键盘排序（[`provider-row-drag.ts`](../extension/ui/provider-row-drag.ts)）；动态跨族凭据引用与跨族恢复提示改用内置 Modal 且关闭不回抢焦点（[`ai-credential-link.ts`](../extension/ui/ai-credential-link.ts)）；AI 设为默认与对话侧文案保持一致。
+  * **遗留改进项**：本轮 M2 深度复审产出的 P2（8 项）/ P3（4 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考。
 
 ### M3：字幕精读、双语对照与即席解释
 * 抓取 B 站 CC 字幕或通过 [`transcribe-banner.ts`](../extension/reader/transcribe-banner.ts) 触发 ASR 转写；无 CC 视频的播放器「字幕」入口还支持实时字幕翻译。
@@ -94,6 +99,7 @@ flowchart TD
 | **P0** | **Session 2**：M1 文摘面板壳层导航与唤起一致性 | ✅ 已完成 | 设置内容模式与「← 返回」、播放器「AI 分析」非破坏续发、非支持页反馈与宽度全形态生效已落地 |
 | **P1** | **Session 3**：M2 首配冷启动、四族平台与凭据引用 | ✅ 已完成 | 四入口「设置并继续」、四族激活与搜索降密、跨族同层凭据往返、内联拉取子视图与校验焦点已落地 |
 | **P1** | **Session 4**：M5 AI 对话高频交互、模型面板与工具反馈 | ✅ 已完成 | 保留 `⋮` 菜单收口并保留历史内容模式、7 项偏好归拢、发送闸快照保护、模型同屏联动与工具/消息终态已落地 |
+| **P0/P1** | **M2 深度复审**：首配冷启动、编辑器隔离与四族交互细节 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 对话模型选择器空态闭环与 `models: []` 导回编辑、首配空模型行校验、内联子视图/弹窗 `inert` 隔离与 Flyme 实底防透字、异步并发与防重入锁、错误语义色 `--biliscript-reader-danger` 与 `:user-valid` 作用域收窄、行内删除/单选/排序防吞错与搜索激活 ID 清理、动态跨族凭据引用、AI 设为默认与对话文案一致、搜索拖拽键盘排序、ASR 一次闭环、跨族恢复提示内置 Modal 与焦点不回抢已落地并通过构建验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
 | **P2** | **Session 5**：M3 & M4 字幕精读与概览金句深度走查 | ⏹️ 不实施 | P2 优先级，本轮走查不再推进 |
 
 ### 3.2 已落地的核心产品决策
@@ -110,3 +116,5 @@ flowchart TD
 ### 3.3 遗留 Backlog
 
 M1 三路审查产出的低优先级条目（P2/P3）记录于 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，与 Session 5 同作后续按需参考，不列入当前实施排期。
+
+M2 深度复审产出的 P2（8 项）/ P3（4 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。

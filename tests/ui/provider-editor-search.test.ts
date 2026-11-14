@@ -135,10 +135,13 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("tavily");
     expect(key.placeholder).toBe("API Key（可选）");
     expect(key.required).toBe(false);
-    // §6.6：复用 ASR 的测试行形状（按钮 + 状态行）
+    // §6.6：复用测试行形状；状态行固定在表单底栏上方，避免长表单滚动裁切
     const testrow = dialog.querySelector<HTMLElement>(".provider-editor-testrow")!;
     expect(testrow.querySelector(".provider-editor-test")).toBeTruthy();
-    expect(testrow.querySelector(".provider-editor-status")).toBeTruthy();
+    const status = dialog.querySelector<HTMLElement>(".provider-editor-status")!;
+    expect(status).toBeTruthy();
+    expect(status.closest(".provider-editor-body")).toBeNull();
+    expect(status.nextElementSibling?.classList.contains("provider-editor-foot")).toBe(true);
     expect(testrow.querySelector<HTMLButtonElement>(".provider-editor-test")!.title).toBe(
       "会真实发起一次搜索，占用一次平台额度"
     );
@@ -169,7 +172,7 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(key.required).toBe(false);
   });
 
-  it("keyless 有 Key：「已保存」且不 required；切预设后 sync 同样不 required", async () => {
+  it("编辑已存 Key 的平台：原位显示「已保存」且不 required；切到需 Key 新预设时要求重新确认，切到免 Key 预设不 required", async () => {
     const item = {
       id: "search_fc",
       presetId: "firecrawl",
@@ -191,9 +194,22 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     expect(key.placeholder).toBe("已保存");
     expect(key.required).toBe(false);
 
+    // 切到需要 Key 的其他预设（且不同端点）：禁止沿用旧平台已存 Key，标记需重新确认
     switchPreset(dialog, "doubao");
+    expect(key.placeholder).toBe("已切换平台或地址，请重新确认 API Key");
+    expect(key.required).toBe(true);
+    expect(statusNode(dialog).textContent).toContain("重新确认");
+
+    // 切到免 Key 预设：无需 Key 也不 required
+    switchPreset(dialog, "tavily");
+    expect(key.placeholder).toBe("API Key（可选）");
+    expect(key.required).toBe(false);
+
+    // 切回原预设与原端点：恢复「已保存」且清掉重确认提示
+    switchPreset(dialog, "firecrawl");
     expect(key.placeholder).toBe("已保存");
     expect(key.required).toBe(false);
+    expect(statusNode(dialog).hidden).toBe(true);
   });
 });
 
@@ -316,8 +332,8 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       searchProviderKeys: { search_exa: "sk-stored" }
     });
-    // 未保存草稿：地址改成另一个端点，测试必须用草稿值而不是已存记录
-    fillBaseUrl(dialog, "https://draft.exa.ai");
+    // 未保存草稿：同源路径改动仍沿用已存 Key，测试必须用草稿值而不是已存记录
+    fillBaseUrl(dialog, "https://api.exa.ai/draft");
     executeWebSearchMock.mockResolvedValueOnce({ results: [results[0]], platform: "Exa" });
 
     await clickTest(dialog);
@@ -325,12 +341,41 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     expect(executeWebSearchMock).toHaveBeenCalledTimes(1);
     expect(executeWebSearchMock.mock.calls[0][0]).toMatchObject({
       type: "exa",
-      baseUrl: "https://draft.exa.ai",
+      baseUrl: "https://api.exa.ai/draft",
       apiKey: "sk-stored"
     });
     expect(statusNode(dialog).textContent).toBe("连接成功 · 1 条结果");
     expect(sentTypes(sent).filter((type) => type.endsWith("-providers-save"))).toEqual([]);
     expect(sentTypes(sent)).not.toContain("save-settings");
+  });
+
+  it("编辑已存 Key 的平台改写为不同 origin 时，禁止将旧平台 Key 静默发往新端点", async () => {
+    const item = {
+      id: "search_exa",
+      presetId: "exa",
+      name: "Exa",
+      type: "exa",
+      baseUrl: "https://api.exa.ai",
+      enabled: true,
+      hasSavedKey: true
+    };
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({ ok: true, providers: [item] })
+    });
+    const row = host.querySelector<HTMLElement>(
+      '#searchProvidersList .search-provider-row:not([data-provider-id="__smart__"])'
+    )!;
+    const dialog = await openSearchEditor(host, row.querySelector(".provider-row-edit")!);
+    (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      searchProviderKeys: { search_exa: "sk-stored" }
+    });
+
+    fillBaseUrl(dialog, "https://untrusted.example.com/search");
+    await clickTest(dialog);
+
+    expect(executeWebSearchMock).not.toHaveBeenCalled();
+    expect(statusNode(dialog).dataset.error).toBe("true");
+    expect(statusNode(dialog).textContent).toContain("重新确认");
   });
 
   it("前置本地校验：baseUrl 空 →「请填写 API 地址」；free-quota 未配 Key →「请先填写 API Key」，都不发起请求", async () => {

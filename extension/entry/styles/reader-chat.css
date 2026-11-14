@@ -1307,6 +1307,50 @@
   text-decoration: underline;
 }
 
+.biliscript-reading-chat .chat-context-notice.is-success,
+.biliscript-reading-chat .chat-context-notice:has(.chat-notice-close) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.biliscript-reading-chat .chat-context-notice.is-success {
+  border-color: color-mix(in srgb, var(--biliscript-reader-success) 38%, var(--biliscript-reader-border));
+  background: color-mix(in srgb, var(--biliscript-reader-success) 10%, var(--biliscript-reader-surface-2));
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-context-notice.is-success::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-reader-success);
+}
+
+.biliscript-reading-chat .chat-context-notice .chat-notice-close {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--btn-radius, var(--biliscript-radius-panel));
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-context-notice .chat-notice-close:hover,
+.biliscript-reading-chat .chat-context-notice .chat-notice-close:focus-visible {
+  background: color-mix(in srgb, var(--biliscript-reader-text) 8%, transparent);
+  color: var(--biliscript-reader-text);
+}
+
 /* 等待通知条的加载环（spinner 选项插入的空 span）：12px border 法圆环，顶边透明
  * 即断口，靠旋转给出「还在抓取」的动感；与文案同行，不撑高通知条。 */
 .biliscript-reading-chat .chat-context-notice .chat-notice-spinner {

@@ -88,6 +88,16 @@ export interface AiCredentialPlan {
   record: ProviderRowItem | null;
 }
 
+export function linkedCredentialTargetForDraft(
+  kind: "live" | "search",
+  draft: Pick<EditorDraftView, "presetId">
+): AiCredentialLinkTarget | null {
+  const presetId = String(draft?.presetId || "").trim();
+  if (kind === "live" && presetId === "gemini-live") return "gemini-live";
+  if (kind === "search" && presetId === "deepseek") return "deepseek";
+  return null;
+}
+
 export function resolveAiCredentialPlan(
   target: AiCredentialLinkTarget,
   aiProviders: readonly ProviderRowItem[] | null | undefined

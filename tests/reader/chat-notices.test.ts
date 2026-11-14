@@ -206,6 +206,23 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     feedback.removeConversationContextNotice();
     expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
   });
+
+  it("tone=success + dismissible=true：挂载成功态修饰与可关闭按钮", () => {
+    const { feedback, messages } = makeHarness();
+
+    feedback.showConversationContextNotice("平台已就绪，请确认发送。", 0, {
+      tone: "success",
+      dismissible: true
+    });
+
+    const notice = messages.querySelector<HTMLElement>(".chat-context-notice")!;
+    expect(notice.classList.contains("is-success")).toBe(true);
+    expect(notice.textContent).toContain("平台已就绪，请确认发送。");
+    const closeBtn = notice.querySelector<HTMLButtonElement>(".chat-notice-close")!;
+    expect(closeBtn).not.toBeNull();
+    closeBtn.click();
+    expect(messages.querySelector(".chat-context-notice")).toBeNull();
+  });
 });
 
 describe("showConversationContextError / removeCenteredState", () => {

@@ -8,8 +8,8 @@
 // 一次（同一份状态判据）。
 
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
-import { getDialog, state, type EditorDraftView } from "./provider-editor-state.js";
-import { projectEditorFields, sessionProjectionContext } from "./provider-editor-projection.js";
+import { getDialog, normalizeDraftModels, state, type EditorDraftView } from "./provider-editor-state.js";
+import { isSavedKeyReconfirmRequired, projectEditorFields, sessionProjectionContext } from "./provider-editor-projection.js";
 
 export type EditorFieldKey = "baseUrl" | "apiKey" | "model" | "models";
 
@@ -53,6 +53,9 @@ function issueFor(field: EditorFieldKey, draft: EditorDraftView): EditorFieldIss
     const projection = projectEditorFields(draft, sessionProjectionContext()).apiKey;
     if (projection.hidden) return null;
     if (projection.required && !draft.apiKey.trim()) {
+      if (isSavedKeyReconfirmRequired(draft)) {
+        return { field, message: "已切换平台或地址，请重新确认 API Key" };
+      }
       const name = draft.name.trim() || preset?.name || "自定义";
       return { field, message: `平台「${name}」需要填写 API Key` };
     }
@@ -63,9 +66,9 @@ function issueFor(field: EditorFieldKey, draft: EditorDraftView): EditorFieldIss
     if (!draft.model.trim()) return { field, message: "请填写模型名" };
     return null;
   }
-  // 首配模式（票 01）：首个 AI 平台至少一个模型才可续跑；普通编辑仍允许空目录
-  //（multi-model-catalog Q13）
-  if (state.firstSetup && state.kind === "ai" && draft.models.length === 0) {
+  // 首配模式（票 01）：首个 AI 平台至少一个非空模型才可续跑（空白模型行不得放过）；
+  // 普通编辑仍允许空目录（multi-model-catalog Q13）
+  if (state.firstSetup && state.kind === "ai" && normalizeDraftModels(draft.models).length === 0) {
     return { field, message: "请至少添加一个模型后再保存" };
   }
   return null;
@@ -83,14 +86,45 @@ export function validateEditorFields(): EditorFieldIssue[] {
 }
 
 function controlOf(field: EditorFieldKey): HTMLElement | null {
-  return getDialog()?.querySelector<HTMLElement>(FIELD_DOM[field].control) ?? null;
+  const dialog = getDialog();
+  if (!dialog) return null;
+  if (field === "models") {
+    const emptyModelInput = Array.from(dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).find(
+      (input) => !input.value.trim()
+    );
+    if (emptyModelInput) return emptyModelInput;
+  }
+  return dialog.querySelector<HTMLElement>(FIELD_DOM[field].control) ?? null;
+}
+
+function allControlsOf(field: EditorFieldKey): HTMLElement[] {
+  const dialog = getDialog();
+  if (!dialog) return [];
+  if (field === "models") {
+    const inputs = Array.from(dialog.querySelectorAll<HTMLElement>(".provider-editor-model-id"));
+    const addBtn = dialog.querySelector<HTMLElement>(FIELD_DOM.models.control);
+    return addBtn ? [...inputs, addBtn] : inputs;
+  }
+  const control = dialog.querySelector<HTMLElement>(FIELD_DOM[field].control);
+  return control ? [control] : [];
 }
 
 function errorOf(field: EditorFieldKey): HTMLElement | null {
   return getDialog()?.querySelector<HTMLElement>(`#${FIELD_DOM[field].error}`) ?? null;
 }
 
+function clearControlAttributes(field: EditorFieldKey): void {
+  const errorId = FIELD_DOM[field].error;
+  for (const control of allControlsOf(field)) {
+    control.removeAttribute("aria-invalid");
+    if (control.getAttribute("aria-describedby") === errorId) {
+      control.removeAttribute("aria-describedby");
+    }
+  }
+}
+
 function showIssue(issue: EditorFieldIssue): void {
+  clearControlAttributes(issue.field);
   const control = controlOf(issue.field);
   const error = errorOf(issue.field);
   if (error) {
@@ -104,18 +138,12 @@ function showIssue(issue: EditorFieldIssue): void {
 }
 
 function clearIssue(field: EditorFieldKey): void {
-  const control = controlOf(field);
   const error = errorOf(field);
   if (error) {
     error.hidden = true;
     error.textContent = "";
   }
-  if (control) {
-    control.removeAttribute("aria-invalid");
-    if (control.getAttribute("aria-describedby") === FIELD_DOM[field].error) {
-      control.removeAttribute("aria-describedby");
-    }
-  }
+  clearControlAttributes(field);
 }
 
 // 把一次校验结果落到 DOM：未出现在结果里的字段清空错误（已解决）。
@@ -143,11 +171,33 @@ export function revalidateEditorField(field: EditorFieldKey): void {
   else clearIssue(field);
 }
 
+// 局部前置校验（如「获取可用模型」前检查 baseUrl / apiKey）：仅重算指定字段，
+// 不清除其他字段（如模型目录）的已有错误，并返回问题列表供聚焦定位。
+export function revalidateEditorFields(fields: readonly EditorFieldKey[]): EditorFieldIssue[] {
+  const draft = state.draft;
+  if (!draft) return [];
+  const issues: EditorFieldIssue[] = [];
+  for (const field of fields) {
+    const issue = issueFor(field, draft);
+    if (issue) {
+      showIssue(issue);
+      issues.push(issue);
+    } else {
+      clearIssue(field);
+    }
+  }
+  return issues;
+}
+
 // 预设 / 协议切换可能改变 required 与联动值：由 Modal 取 validateEditorFields
 // 后统一 renderEditorFieldIssues，不另设入口。
 
 export function focusEditorField(field: EditorFieldKey): void {
-  controlOf(field)?.focus();
+  const control = controlOf(field);
+  const error = errorOf(field);
+  control?.focus();
+  control?.scrollIntoView?.({ block: "nearest" });
+  error?.scrollIntoView?.({ block: "nearest" });
 }
 
 export function isEditorValidationAttempted(): boolean {

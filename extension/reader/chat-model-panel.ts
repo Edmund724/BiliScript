@@ -156,7 +156,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   function renderChip(): void {
     chip.disabled = false;
     if (modelSelect.disabled) {
-      chipModel.textContent = "未配置平台";
+      chipModel.textContent = chatSessionState.providers.length > 0 ? "未配置模型" : "未配置平台";
       chipLevel.textContent = "";
       updateModelSelectWidth({ chip, chipModel, chipLevel });
       return;
@@ -201,12 +201,14 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
     panelList.hidden = false;
     if (modelSelect.disabled) {
+      const emptyLabel = chatSessionState.providers.length > 0 ? "当前平台未配置可用模型" : "未配置平台";
       panelList.innerHTML =
-        '<div class="chat-model-empty"><span>未配置平台</span>' +
+        `<div class="chat-model-empty"><span>${emptyLabel}</span>` +
         '<button type="button" class="chat-model-empty-settings">前往设置</button></div>';
       thinkingRow.hidden = true;
       const settingsBtn = panelList.querySelector<HTMLButtonElement>(".chat-model-empty-settings");
-      settingsBtn?.addEventListener("click", () => {
+      settingsBtn?.addEventListener("click", (event) => {
+        event.stopPropagation();
         deps.hidePanel();
         deps.openSettings();
       });

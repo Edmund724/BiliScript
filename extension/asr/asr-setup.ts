@@ -20,10 +20,29 @@ import { resolveActiveAsrProviderId } from "./asr-provider-normalize.js";
 //   provider-config 记录与 Key 都在（域名未授权 / 模型不可用 / Key 失效）→ 编辑该记录
 export type AsrSetupKind = "disabled" | "no-provider" | "missing-key" | "provider-config";
 
+export type AsrProviderSetupKind = Exclude<AsrSetupKind, "disabled">;
+
 export interface AsrSetupPlan {
   kind: AsrSetupKind;
   /** 需要打开编辑器的 ASR 记录 id；disabled / no-provider 时为空串 */
   providerId: string;
+}
+
+export interface AsrSetupState {
+  /** 优先处理的设置目标（保持「开关 → 平台列表 → 激活平台 Key」的既有判定顺序） */
+  kind: AsrSetupKind;
+  /** 与 kind 对应的平台记录 id；disabled / no-provider 时为空串 */
+  providerId: string;
+  /** 无字幕自动转写开关是否开启 */
+  asrAutoFallback: boolean;
+  /** 忽略开关时 ASR 平台配置本身的阻塞/就绪状态 */
+  providerStatus: AsrProviderSetupKind;
+  /** 当 providerStatus 为 missing-key / provider-config 时的激活 ASR 平台 id */
+  targetProviderId: string;
+  /** 平台本身是否仍缺配置（无 ASR 平台或激活平台缺 Key） */
+  needsProviderSetup: boolean;
+  /** 是否同时处于「自动转写关闭」且「缺 ASR 平台或激活平台缺 Key」的复合阻塞态 */
+  blockedByBoth: boolean;
 }
 
 export interface AsrSetupInput {
@@ -32,15 +51,10 @@ export interface AsrSetupInput {
   providers?: ReadonlyArray<{ id?: string | null; hasSavedKey?: boolean }> | null;
 }
 
-/**
- * 按实时设置 + ASR 平台列表解析设置目标。开关只认严格 true（与 fallback 的
- * `asrAutoFallback === true` 同口径）；缺 Key 只认显式 hasSavedKey 为假
- *（列表接口恒带该布尔占位，缺失按未存 Key 处理，与 AI 族缺 Key 定位同口径）。
- */
-export function resolveAsrSetupPlan(input: AsrSetupInput): AsrSetupPlan {
-  if (input.asrAutoFallback !== true) {
-    return { kind: "disabled", providerId: "" };
-  }
+function resolveAsrProviderState(input: AsrSetupInput): {
+  providerStatus: AsrProviderSetupKind;
+  targetProviderId: string;
+} {
   const providers = (Array.isArray(input.providers) ? input.providers : [])
     .map((item) => ({
       id: String(item?.id || "").trim(),
@@ -48,7 +62,7 @@ export function resolveAsrSetupPlan(input: AsrSetupInput): AsrSetupPlan {
     }))
     .filter((item) => item.id !== "");
   if (providers.length === 0) {
-    return { kind: "no-provider", providerId: "" };
+    return { providerStatus: "no-provider", targetProviderId: "" };
   }
   const activeId = resolveActiveAsrProviderId(
     providers,
@@ -56,7 +70,38 @@ export function resolveAsrSetupPlan(input: AsrSetupInput): AsrSetupPlan {
   );
   const active = providers.find((item) => item.id === activeId) || providers[0];
   return {
-    kind: active.hasSavedKey ? "provider-config" : "missing-key",
-    providerId: active.id
+    providerStatus: active.hasSavedKey ? "provider-config" : "missing-key",
+    targetProviderId: active.id
   };
+}
+
+/**
+ * 查询完整 ASR 设置状态：即使 `asrAutoFallback === false`，也一并返回底层
+ * ASR 平台与 Key 是否完整及目标 `providerId`，供设置面板一次引导开开关+配置。
+ */
+export function resolveAsrSetupState(input: AsrSetupInput): AsrSetupState {
+  const asrAutoFallback = input.asrAutoFallback === true;
+  const { providerStatus, targetProviderId } = resolveAsrProviderState(input);
+  const needsProviderSetup = providerStatus === "no-provider" || providerStatus === "missing-key";
+  const kind: AsrSetupKind = asrAutoFallback ? providerStatus : "disabled";
+  const providerId = asrAutoFallback ? targetProviderId : "";
+  return {
+    kind,
+    providerId,
+    asrAutoFallback,
+    providerStatus,
+    targetProviderId,
+    needsProviderSetup,
+    blockedByBoth: !asrAutoFallback && needsProviderSetup
+  };
+}
+
+/**
+ * 按实时设置 + ASR 平台列表解析设置目标。开关只认严格 true（与 fallback 的
+ * `asrAutoFallback === true` 同口径）；缺 Key 只认显式 hasSavedKey 为假
+ *（列表接口恒带该布尔占位，缺失按未存 Key 处理，与 AI 族缺 Key 定位同口径）。
+ */
+export function resolveAsrSetupPlan(input: AsrSetupInput): AsrSetupPlan {
+  const { kind, providerId } = resolveAsrSetupState(input);
+  return { kind, providerId };
 }

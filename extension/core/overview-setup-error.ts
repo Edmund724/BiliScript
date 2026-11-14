@@ -11,24 +11,33 @@
 // 无可用平台（defaultModel 未命中且无任何启用平台）的解析期文案。
 export const NO_ACTIVE_PROVIDER_MESSAGE = "还没有配置 AI 平台，请先在插件设置中添加并启用。";
 
+// 显式指定 providerId 未命中任何启用平台时的解析期文案（core/provider-handlers.ts）。
+export const SELECTED_PROVIDER_NOT_FOUND_MESSAGE = "未找到选中的平台";
+
+// 平台已解析但未配置任何可用模型时的解析期文案（ai/active-provider.ts）。
+export const NO_ACTIVE_MODEL_MESSAGE = "该平台还没有配置可用模型，请先添加模型。";
+
 // 平台已解析但 Key 缺失（requiresKey !== false 且密钥为空）的解析期文案。
 export const MISSING_PROVIDER_KEY_MESSAGE = "该平台 API Key 未配置";
 
-// 配置类错误的两个类目：概览「去设置」动作据此直达正确的平台编辑界面。
-export type OverviewSetupErrorClass = "no-provider" | "missing-key";
+// 配置类错误的类目：概览 / 解释 / 对话「去设置」动作据此直达正确的平台编辑界面。
+export type OverviewSetupErrorClass = "no-provider" | "missing-key" | "no-model";
 
 /**
- * 判定概览错误文案是否为配置类错误。只认解析期产生的两个精确文案：
+ * 判定概览/解释/对话错误文案是否为配置类错误。只认解析期产生的精确文案：
  * 其余错误（网络、鉴权 401、额度、参数等）一律返回 null——非配置类错误
  * 不伪装成配置问题，概览 error 条只给「重试」。
  */
 export function classifyOverviewSetupError(errorText: unknown): OverviewSetupErrorClass | null {
   const text = String(errorText ?? "").trim();
-  if (text === NO_ACTIVE_PROVIDER_MESSAGE) {
+  if (text === NO_ACTIVE_PROVIDER_MESSAGE || text === SELECTED_PROVIDER_NOT_FOUND_MESSAGE) {
     return "no-provider";
   }
   if (text === MISSING_PROVIDER_KEY_MESSAGE) {
     return "missing-key";
+  }
+  if (text === NO_ACTIVE_MODEL_MESSAGE) {
+    return "no-model";
   }
   return null;
 }

@@ -17,6 +17,7 @@ import { closeConfirmDialog } from "./confirm-dialog.js";import { createProvider
 import {
   enterAiCredentialEditor,
   linkedCredentialFor,
+  linkedCredentialTargetForDraft,
   resolveAiCredentialPlan,
   stashEditorDraft,
   type AiEditorStash
@@ -60,9 +61,11 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   let generation = 0;
   let liveProviders: ProviderRowItem[] = [];
   let aiProviders: ProviderRowItem[] = [];
+  let aiProvidersLoaded = false;
   let activeId = "";
   let geminiCredentialStatus: AiCredentialStatus | null = null;
   let credentialRequest = 0;
+  let linkedCredentialInFlight = false;
   let editorModule: EditorModule | null = null;
 
   const familyRows = createProviderFamilyRows({
@@ -175,6 +178,7 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
         renderLiveProviders();
       } else if (kind === "ai") {
         aiProviders = providers;
+        aiProvidersLoaded = true;
         renderLiveProviders();
       }
     },
@@ -216,20 +220,30 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     kind: ProviderEditorKind,
     providerId: string,
     presetId?: string,
-    restore?: { initialDraft: EditorDraft; baselineDraft: EditorDraftView | null }
+    restore?: {
+      initialDraft: EditorDraft;
+      baselineDraft: EditorDraftView | null;
+      initialStatus?: { message: string; isError?: boolean } | null;
+    }
   ): Promise<void> {
     const sessionGeneration = generation;
     const providers = await loadRows(kind);
     if (disposed || sessionGeneration !== generation) return;
     const item = providerId ? providers.find((provider) => String(provider.id || "") === providerId) || null : null;
     if (providerId && !item) return;
-    // 伴看 Gemini 编辑器：内联凭据引用行（四态文案 + 同层进入 AI 族编辑器动作，
-    // 票 07）；他族/他平台不渲染
-    const linkedCredential = kind === "live" && item
-      && (item.type === "gemini-live" || item.presetId === "gemini-live")
-      ? linkedCredentialFor("gemini-live", resolveAiCredentialPlan("gemini-live", aiProviders), () => {
-          void enterGeminiCredentialFromLiveEditor();
-        })
+    if (kind === "live" && !aiProvidersLoaded) {
+      aiProviders = await loadRows("ai");
+      aiProvidersLoaded = true;
+      if (disposed || sessionGeneration !== generation) return;
+    }
+    const resolveLinkedCredential = kind === "live"
+      ? (draft: EditorDraftView) => {
+          const target = linkedCredentialTargetForDraft("live", draft);
+          if (!target) return null;
+          return linkedCredentialFor(target, resolveAiCredentialPlan(target, aiProviders), () => {
+            void enterGeminiCredentialFromLiveEditor();
+          });
+        }
       : null;
     try {
       const editor = editorModule || await import("./provider-editor.js");
@@ -243,8 +257,14 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
         mountHost: options.getEditorMountHost?.() || undefined,
         onSave: saveProvider,
         onDelete: deleteProvider,
-        ...(linkedCredential ? { linkedCredential } : {}),
-        ...(restore ? { initialDraft: restore.initialDraft, baselineDraft: restore.baselineDraft } : {})
+        ...(resolveLinkedCredential ? { resolveLinkedCredential } : {}),
+        ...(restore
+          ? {
+              initialDraft: restore.initialDraft,
+              baselineDraft: restore.baselineDraft,
+              ...(restore.initialStatus ? { initialStatus: restore.initialStatus } : {})
+            }
+          : {})
       });
     } catch (error) {
       if (!disposed) options.onStatus((error as Error).message || "编辑器加载失败", true);
@@ -255,21 +275,37 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
   // 宿主，openProviderEditor 幂等作废旧会话，不增加可见 Modal 层）；保存成功或
   // 取消都会话结束后恢复原伴看草稿（dirty 基线一并带回）
   async function enterGeminiCredentialFromLiveEditor(): Promise<void> {
-    if (disposed) return;
+    if (disposed || linkedCredentialInFlight) return;
     const stash = stashEditorDraft("live");
-    // 缓存编辑器模块：dispose 靠它强制关闭在飞会话（漏关会泄漏文档级监听）
-    editorModule = await enterAiCredentialEditor({
-      target: "gemini-live",
-      plan: resolveAiCredentialPlan("gemini-live", aiProviders),
-      mountHost: options.getEditorMountHost?.() ?? null,
-      aiPresets: PRESETS,
-      onSave: saveProvider,
-      onDelete: deleteProvider,
-      stash,
-      reopenConsumerEditor: (stashed, hint) => {
-        void restoreLiveEditor(stashed, hint);
-      }
-    });
+    if (!stash) return;
+    linkedCredentialInFlight = true;
+    const mountHost = options.getEditorMountHost?.() ?? null;
+    (mountHost ?? document)
+      .querySelectorAll<HTMLButtonElement>(".provider-editor-linked-credential-btn")
+      .forEach((btn) => {
+        btn.disabled = true;
+      });
+    try {
+      const latestAiProviders = await loadRows("ai");
+      if (disposed) return;
+      aiProviders = latestAiProviders;
+      aiProvidersLoaded = true;
+      // 缓存编辑器模块：dispose 靠它强制关闭在飞会话（漏关会泄漏文档级监听）
+      editorModule = await enterAiCredentialEditor({
+        target: "gemini-live",
+        plan: resolveAiCredentialPlan("gemini-live", latestAiProviders),
+        mountHost,
+        aiPresets: PRESETS,
+        onSave: saveProvider,
+        onDelete: deleteProvider,
+        stash,
+        reopenConsumerEditor: (stashed, hint) => {
+          void restoreLiveEditor(stashed, hint);
+        }
+      });
+    } finally {
+      linkedCredentialInFlight = false;
+    }
   }
 
   async function restoreLiveEditor(stash: AiEditorStash, hint: string | null): Promise<void> {
@@ -282,16 +318,28 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
     if (disposed) return;
     liveProviders = nextLiveProviders;
     aiProviders = nextAiProviders;
+    aiProvidersLoaded = true;
     renderLiveProviders();
     await refreshGeminiCredentialStatus();
     if (disposed) return;
     await openProviderEditorById("live", stash.editingId, undefined, {
       initialDraft: stash.draft,
-      baselineDraft: stash.baseline
+      baselineDraft: stash.baseline,
+      ...(hint ? { initialStatus: { message: hint, isError: false } } : {})
     });
-    if (!disposed && hint) options.onStatus(hint);
   }
 
+  familyRows.live.controller.setErrorHandler((message) => {
+    if (!disposed) options.onStatus(message, true);
+  });
+  familyRows.live.setActiveChangeHandler?.((nextId, meta) => {
+    if (disposed) return;
+    activeId = nextId;
+    state.patchSettings({ activeLiveProviderId: nextId });
+    if (!meta.pending || meta.rolledBack) {
+      void refreshGeminiCredentialStatus();
+    }
+  });
   familyRows.live.controller.setBeforeDeleteHandler(async (providerId, baseUrl) => {
     const providers = await loadOriginSharingProviders(families);
     const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
@@ -336,6 +384,7 @@ export function createLiveProviderSettings(options: LiveProviderSettingsOptions)
       if (disposed || sessionGeneration !== generation) return;
       liveProviders = nextLiveProviders;
       aiProviders = nextAiProviders;
+      aiProvidersLoaded = true;
       activeId = typeof syncSettings?.activeLiveProviderId === "string"
         ? syncSettings.activeLiveProviderId
         : "";

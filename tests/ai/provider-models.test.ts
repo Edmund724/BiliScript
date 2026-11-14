@@ -236,6 +236,42 @@ describe("fetchProviderModels 的错误分流", () => {
     expect(resp.error).toBe("HTTP 401: unauthorized");
   });
 
+  it("HTTP 错误（JSON / HTML）：401/403/404/429 提炼摘要与错误说明，不吐裸 JSON/HTML 噪声", async () => {
+    const { fetchProviderModels } = await loadModule();
+
+    mocks.providerFetch.mockResolvedValueOnce(
+      jsonResponse(401, JSON.stringify({ error: { message: "Incorrect API key provided" } }))
+    );
+    const r401 = await fetchProviderModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-bad" });
+    expect(r401.ok).toBe(false);
+    expect(r401.error).toContain("401");
+    expect(r401.error).toContain("API Key 无效或未授权");
+    expect(r401.error).toContain("Incorrect API key provided");
+    expect(r401.error).not.toContain("{");
+
+    mocks.providerFetch.mockResolvedValueOnce(
+      jsonResponse(404, "<!doctype html><html><body><h1>404 Not Found</h1></body></html>")
+    );
+    const r404 = await fetchProviderModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-1" });
+    expect(r404.ok).toBe(false);
+    expect(r404.error).toContain("404");
+    expect(r404.error).toContain("模型列表接口不存在");
+    expect(r404.error).not.toContain("<html");
+
+    mocks.providerFetch.mockResolvedValueOnce(
+      jsonResponse(403, JSON.stringify({ error: { message: "Permission denied on model list" } }))
+    );
+    const rGemini403 = await fetchProviderModels({
+      baseUrl: "https://generativelanguage.googleapis.com",
+      apiKey: "gk-bad",
+      protocol: "gemini"
+    });
+    expect(rGemini403.ok).toBe(false);
+    expect(rGemini403.error).toContain("403");
+    expect(rGemini403.error).toContain("无权限访问该接口");
+    expect(rGemini403.error).toContain("Permission denied on model list");
+  });
+
   it("代发通道抛错（未授权提示 / 超时文案）：原样透传", async () => {
     mocks.providerFetch.mockRejectedValue(new Error("该平台域名未授权，请在保存时允许权限"));
     const { fetchProviderModels } = await loadModule();

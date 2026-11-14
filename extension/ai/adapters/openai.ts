@@ -9,6 +9,7 @@
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
+import { formatModelListHttpError } from "./http-error.js";
 import type { ThinkingWireOutput } from "../thinking-wire-map.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
@@ -213,7 +214,7 @@ export async function listOpenAiCompatibleModels({ baseUrl, apiKey, fetchImpl }:
   const resp = await doFetch(`${normalizedBaseUrl}/v1/models`, { headers, method: "GET" });
   if (!resp.ok) {
     const text = await resp.text();
-    return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+    return { ok: false, error: formatModelListHttpError(resp.status, text) };
   }
   const data = (await resp.json()) as { data?: Array<{ id?: string }> };
   const models: string[] = [];

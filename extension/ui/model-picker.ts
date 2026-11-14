@@ -84,6 +84,8 @@ export function wireModelPicker(
 
   let optionLis: HTMLLIElement[] = [];
   let countLi: HTMLLIElement | null = null;
+  let fetchGeneration = 0;
+  let fetchInFlight = false;
 
   const chooseModelOption = (option: HTMLElement): void => {
     const modelInput = row.querySelector<HTMLInputElement>(`.${inputClass}`);
@@ -107,7 +109,11 @@ export function wireModelPicker(
         isSearchEnabled: () => optionLis.length >= CUSTOM_SELECT_SEARCH_THRESHOLD,
         onSelect: chooseModelOption,
         onClose: () => {
+          fetchGeneration += 1;
+          fetchInFlight = false;
           initialDropdown.hidden = true;
+          row.querySelector<HTMLElement>(".ai-provider-model-toggle")?.setAttribute("aria-expanded", "false");
+          modelDropdownDismissal.sync();
         },
         onFilter: (visibleCount, totalCount, kw) => {
           if (!countLi) return;
@@ -133,11 +139,16 @@ export function wireModelPicker(
     }
 
     const isAlreadyOpen = !dropdown.hidden;
-    closeAllModelDropdowns();
-
     if (isAlreadyOpen) {
+      fetchGeneration += 1;
+      fetchInFlight = false;
+      closeAllModelDropdowns();
       return;
     }
+    if (fetchInFlight) {
+      return;
+    }
+    closeAllModelDropdowns();
 
     if (statusNode) {
       statusNode.textContent = "";
@@ -164,10 +175,16 @@ export function wireModelPicker(
     loadingLi.textContent = "正在拉取模型列表...";
     dropdown.appendChild(loadingLi);
 
+    const generation = ++fetchGeneration;
+    fetchInFlight = true;
+    const isStale = (): boolean =>
+      !toggle.isConnected || !dropdown.isConnected || generation !== fetchGeneration || Boolean(dropdown.hidden);
+
     try {
       // 手势同步链：本次点击直达代申请（此前零 await，见 tests/ui/
       // options-save-gesture.test.js 的调用方扫描），拒绝则只在下拉内提示。
       const permission = await requestProviderOriginsViaBackground([baseUrl]);
+      if (isStale()) return;
       if (!permission.ok) {
         dropdown.innerHTML = "";
         const li = document.createElement("li");
@@ -181,6 +198,7 @@ export function wireModelPicker(
         apiKey,
         providerId: row.dataset.providerId || ""
       });
+      if (isStale()) return;
 
       dropdown.innerHTML = "";
       optionLis = [];
@@ -223,6 +241,7 @@ export function wireModelPicker(
         dropdown.appendChild(li);
       }
     } catch (error) {
+      if (isStale()) return;
       dropdown.innerHTML = "";
       optionLis = [];
       countLi = null;
@@ -235,10 +254,16 @@ export function wireModelPicker(
         li.textContent = message || "拉取失败";
       }
       dropdown.appendChild(li);
+    } finally {
+      if (generation === fetchGeneration) {
+        fetchInFlight = false;
+      }
     }
   });
 
   row.querySelector(`.${inputClass}`)?.addEventListener("input", () => {
+    fetchGeneration += 1;
+    fetchInFlight = false;
     closeAllModelDropdowns();
   });
 

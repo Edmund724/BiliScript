@@ -441,7 +441,7 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
     expect(recordRowIds(host)).toEqual(DEFAULT_ORDER_IDS);
   });
 
-  it("写库失败（sync.set reject）不崩溃，列表保持拖动后顺序", async () => {
+  it("写库失败（sync.set reject）回滚列表顺序并在状态条报错", async () => {
     syncStorage().set.mockRejectedValue(new Error("QUOTA_BYTES"));
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
@@ -454,15 +454,10 @@ describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行
     handle.dispatchEvent(dragPointer("pointermove", 130));
     handle.dispatchEvent(dragPointer("pointerup", 130));
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(recordRowIds(host)).toEqual([
-      "search_doubao",
-      "search_exa",
-      "search_tavily",
-      "search_firecrawl",
-      "search_anysearch",
-      "search_parallel"
-    ]);
+    await vi.waitFor(() => {
+      expect(host.querySelector<HTMLElement>("#biliscriptSettingsStatus")?.dataset.error).toBe("true");
+    });
+    expect(recordRowIds(host)).toEqual(DEFAULT_ORDER_IDS);
   });
 });
 

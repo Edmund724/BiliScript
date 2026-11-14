@@ -217,7 +217,7 @@ describe("字段级校验与焦点定位", () => {
     expect(fieldError("provider-editor-error-model").textContent).toBe("请填写模型名");
   });
 
-  it("首配缺模型：错误定位到目录区，聚焦「添加模型」", async () => {
+  it("首配缺模型：0 行聚焦「添加模型」，仅空行聚焦首个空模型框，输入非空模型后实时清错", async () => {
     const onSave = vi.fn(async () => ({ ok: true }));
     const editor = await openEditor({ firstSetup: true, onSave });
     setFieldValue(editor.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
@@ -231,9 +231,19 @@ describe("字段级校验与焦点定位", () => {
     expect(fieldError("provider-editor-error-models").textContent).toBe("请至少添加一个模型后再保存");
     expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toContain("请至少添加一个模型");
 
-    // 加一个模型：该错误随修正清掉
+    // 仅添加空白模型行：仍无有效模型，错误保持且再次提交聚焦首个空模型 ID 输入框
     fireClick(editor.querySelector(".provider-editor-model-add"));
+    expect(fieldError("provider-editor-error-models").hidden).toBe(false);
+    fireClick(editor.querySelector(".provider-editor-save"));
+    const modelInput = editor.querySelector<HTMLInputElement>(".provider-editor-model-id")!;
+    expect(document.activeElement).toBe(modelInput);
+    expect(modelInput.getAttribute("aria-invalid")).toBe("true");
+
+    // 输入非空模型 ID：实时重校验清掉错误与汇总状态
+    setFieldValue(modelInput, "gpt-4o-mini");
     expect(fieldError("provider-editor-error-models").hidden).toBe(true);
+    expect(modelInput.getAttribute("aria-invalid")).toBeNull();
+    expect(editor.querySelector<HTMLElement>(".provider-editor-status")!.hidden).toBe(true);
   });
 
   it("普通保存失败（非权限）不被字段修正误清", async () => {

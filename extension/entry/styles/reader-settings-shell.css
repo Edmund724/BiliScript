@@ -708,8 +708,9 @@
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.4;
   color: var(--biliscript-reader-muted);
+  overflow-wrap: anywhere;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-status[data-error="true"] {
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-danger);
 }

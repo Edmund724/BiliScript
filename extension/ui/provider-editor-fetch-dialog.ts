@@ -20,26 +20,16 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { fetchProviderModels, resolveAiModelListTarget } from "../ai/provider-models.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state, getDialog } from "./provider-editor-state.js";
-import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
+import { isSavedKeyReconfirmRequired } from "./provider-editor-projection.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
+import { isConfirmDialogOpen } from "./confirm-dialog.js";
+import { createFocusScope, type FocusScope } from "./focus-scope.js";
+import { beginEditorValidation, focusEditorField, revalidateEditorFields } from "./provider-editor-validation.js";
+import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 
 // ===== 「获取可用模型」内联子视图（拍板 Q5/Q11 + 票 09）：搜索 / 全选 / 已添加置灰 =====
 
-// 子视图同宿主同生共死（closeProviderEditor 摘除 host 时一并消失）
-export function getFetchDialog(): HTMLElement | null {
-  return state.host?.querySelector<HTMLElement>(".provider-editor-fetch-dialog") || null;
-}
-
-export function closeFetchDialog(restoreFocus = true): void {
-  getFetchDialog()?.remove();
-  fetchModelsCache = [];
-  fetchSelected.clear();
-  fetchFilter = "";
-  // 子视图关闭后归还焦点到「获取可用模型」触发键（编辑器已关时宿主已摘，无处可还）
-  if (restoreFocus && state.open) {
-    state.host?.querySelector<HTMLElement>(".provider-editor-fetch")?.focus({ preventScroll: true });
-  }
-}
+export type FetchDialogState = "loading" | "ready" | "empty-server" | "error";
 
 // 拉到的全量模型 id（子视图存活期有效）：搜索过滤与「已添加」置灰都基于它
 let fetchModelsCache: string[] = [];
@@ -50,26 +40,85 @@ let fetchFilter = "";
 // 子视图代次（票 09）：每次 openFetchDialog 递增——在飞回执落定时代次已推进
 // （子视图被关后重开、或失败原位重试）即丢弃，不得覆盖新子视图
 let fetchGeneration = 0;
+// 在飞防重入锁：快速双击「获取可用模型」或「重试」时不重复发请求/弹权限
+let fetchInFlight = false;
+// 子视图焦点约束：打开时把焦点圈禁在子视图内部，关闭时恢复底层再归还焦点
+let fetchFocusScope: FocusScope | null = null;
+
+function setUnderlyingEditorIsolated(isolated: boolean): void {
+  const dialog = getDialog();
+  if (!dialog) return;
+  const targets = dialog.querySelectorAll<HTMLElement>(":scope > .provider-editor-head, :scope > .provider-editor-form");
+  targets.forEach((el) => {
+    el.inert = isolated;
+    if (isolated) {
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      el.removeAttribute("aria-hidden");
+    }
+  });
+}
+
+function setFetchState(subview: HTMLElement, nextState: FetchDialogState): void {
+  subview.dataset.fetchState = nextState;
+  const loading = subview.querySelector<HTMLElement>(".provider-editor-fetch-loading");
+  const search = subview.querySelector<HTMLElement>(".provider-editor-fetch-search");
+  const allRow = subview.querySelector<HTMLElement>(".provider-editor-fetch-all-row");
+  const list = subview.querySelector<HTMLElement>(".provider-editor-fetch-list");
+  const emptyServer = subview.querySelector<HTMLElement>(".provider-editor-fetch-empty-server");
+  const error = subview.querySelector<HTMLElement>(".provider-editor-fetch-error");
+  const note = subview.querySelector<HTMLElement>(".provider-editor-fetch-note");
+
+  if (loading) loading.hidden = nextState !== "loading";
+  if (search) search.hidden = nextState !== "ready";
+  if (allRow) allRow.hidden = nextState !== "ready";
+  if (list) list.hidden = nextState !== "ready";
+  if (emptyServer) emptyServer.hidden = nextState !== "empty-server";
+  if (error) error.hidden = nextState !== "error";
+  if (note && nextState !== "ready") note.hidden = true;
+}
+
+// 子视图同宿主同生共死（closeProviderEditor 摘除 host 时一并消失）
+export function getFetchDialog(): HTMLElement | null {
+  return state.host?.querySelector<HTMLElement>(".provider-editor-fetch-dialog") || null;
+}
+
+export function closeFetchDialog(restoreFocus = true): void {
+  fetchGeneration += 1;
+  fetchInFlight = false;
+  getFetchDialog()?.remove();
+  fetchModelsCache = [];
+  fetchSelected.clear();
+  fetchFilter = "";
+  // 先恢复底层编辑器可交互状态，再经 FocusScope 归还焦点（否则底层仍 inert 无法聚焦）
+  setUnderlyingEditorIsolated(false);
+  fetchFocusScope?.dispose(restoreFocus && state.open);
+  fetchFocusScope = null;
+}
 
 export function renderFetchSkeleton(): void {
   const dialog = getDialog();
   if (!dialog) return;
   // 重建子视图不先归还焦点：新骨架随后把焦点放回子视图自身
   closeFetchDialog(false);
+  const triggerBtn = dialog.querySelector<HTMLElement>(".provider-editor-fetch");
   dialog.insertAdjacentHTML("beforeend", `
-    <section class="provider-editor-fetch-dialog" role="group" aria-label="获取可用模型">
+    <section class="provider-editor-fetch-dialog" role="group" aria-label="获取可用模型" tabindex="-1" data-fetch-state="loading">
       <header class="provider-editor-fetch-head">
         <button type="button" class="provider-editor-fetch-back" data-provider-editor-action="close-fetch" aria-label="返回平台编辑器">← 返回</button>
         <span class="provider-editor-fetch-title">获取可用模型</span>
       </header>
-      <input class="provider-editor-fetch-search" type="text" placeholder="搜索模型" />
-      <label class="provider-editor-fetch-all-row">
+      <p class="provider-editor-fetch-loading">
+        <span class="provider-editor-fetch-spinner" aria-hidden="true"></span>
+        <span>正在拉取模型列表...</span>
+      </p>
+      <input class="provider-editor-fetch-search" type="text" placeholder="搜索模型" hidden />
+      <label class="provider-editor-fetch-all-row" hidden>
         <input type="checkbox" class="provider-editor-fetch-all" />
         <span>全选</span>
       </label>
-      <ul class="provider-editor-fetch-list">
-        <li class="provider-editor-fetch-message">正在拉取模型列表...</li>
-      </ul>
+      <ul class="provider-editor-fetch-list" hidden></ul>
+      <p class="provider-editor-fetch-empty-server" hidden>该平台未返回可用模型，可返回手动添加</p>
       <p class="provider-editor-fetch-error" hidden></p>
       <p class="provider-editor-fetch-note" hidden></p>
       <footer class="provider-editor-fetch-foot">
@@ -78,14 +127,75 @@ export function renderFetchSkeleton(): void {
       </footer>
     </section>`);
   const subview = getFetchDialog();
-  subview
-    ?.querySelector<HTMLInputElement>(".provider-editor-fetch-search")
-    ?.addEventListener("input", (event) => {
-      renderFetchItems(String((event.target as HTMLInputElement).value || ""));
-    });
+  if (!subview) return;
+  setUnderlyingEditorIsolated(true);
+  const backBtn = subview.querySelector<HTMLElement>(".provider-editor-fetch-back");
+  fetchFocusScope = createFocusScope(subview, {
+    initialFocus: backBtn ?? subview,
+    returnFocus: triggerBtn,
+    isActive: () => !isConfirmDialogOpen()
+  });
+
+  const searchInput = subview.querySelector<HTMLInputElement>(".provider-editor-fetch-search");
+  searchInput?.addEventListener("input", (event) => {
+    renderFetchItems(String((event.target as HTMLInputElement).value || ""));
+  });
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const firstEnabled = subview.querySelector<HTMLInputElement>(".provider-editor-fetch-check:not(:disabled)");
+      if (firstEnabled) {
+        firstEnabled.checked = !firstEnabled.checked;
+        setFetchSelected(firstEnabled.value, firstEnabled.checked);
+        syncFetchSelectionState();
+      }
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      const target =
+        subview.querySelector<HTMLInputElement>(".provider-editor-fetch-check:not(:disabled)") ??
+        subview.querySelector<HTMLInputElement>(".provider-editor-fetch-check");
+      if (target) {
+        event.preventDefault();
+        target.focus({ preventScroll: true });
+      }
+    }
+  });
+
+  const list = subview.querySelector<HTMLElement>(".provider-editor-fetch-list");
+  list?.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("provider-editor-fetch-check")) return;
+    const checks = Array.from(list.querySelectorAll<HTMLInputElement>(".provider-editor-fetch-check"));
+    const index = checks.indexOf(target as HTMLInputElement);
+    if (index < 0) return;
+    if (event.key === "ArrowDown") {
+      const next = checks[index + 1];
+      if (next) {
+        event.preventDefault();
+        next.focus({ preventScroll: true });
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (index === 0) {
+        searchInput?.focus({ preventScroll: true });
+      } else {
+        checks[index - 1]?.focus({ preventScroll: true });
+      }
+    } else if (event.key === "Enter") {
+      const check = target as HTMLInputElement;
+      if (!check.disabled) {
+        event.preventDefault();
+        check.checked = !check.checked;
+        setFetchSelected(check.value, check.checked);
+        syncFetchSelectionState();
+      }
+    }
+  });
+
   // 勾选委托（票 09：选择集随点击落 Set，重渲后由渲染回填——过滤/重渲不丢）。
   // jsdom 与浏览器都先完成 checkbox 自身切换，再进此委托。
-  subview?.addEventListener("click", (event) => {
+  subview.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     const all = target.closest<HTMLInputElement>(".provider-editor-fetch-all");
     if (all) {
@@ -131,6 +241,15 @@ export function renderFetchList(models: string[]): void {
     error.hidden = true;
     error.textContent = "";
   }
+  if (fetchModelsCache.length === 0) {
+    fetchFilter = "";
+    const list = dialog.querySelector<HTMLElement>(".provider-editor-fetch-list");
+    if (list) list.innerHTML = "";
+    setFetchState(dialog, "empty-server");
+    syncFetchSelectionState();
+    return;
+  }
+  setFetchState(dialog, "ready");
   renderFetchItems("");
 }
 
@@ -183,12 +302,15 @@ export function syncFetchSelectionState(): void {
   const total = fetchSelected.size;
   const confirm = dialog.querySelector<HTMLButtonElement>(".provider-editor-fetch-confirm");
   if (confirm) {
-    confirm.disabled = total === 0;
+    confirm.disabled = total === 0 || dialog.dataset.fetchState !== "ready";
     confirm.textContent = total > 0 ? `添加所选 (${total})` : "添加所选";
   }
   // 不可见已选说明（票 09）：当前筛选结果之外的已选数量
   const kw = fetchFilter.trim().toLowerCase();
-  const hidden = kw ? Array.from(fetchSelected).filter((m) => !m.toLowerCase().includes(kw)).length : 0;
+  const hidden =
+    dialog.dataset.fetchState === "ready" && kw
+      ? Array.from(fetchSelected).filter((m) => !m.toLowerCase().includes(kw)).length
+      : 0;
   const note = dialog.querySelector<HTMLElement>(".provider-editor-fetch-note");
   if (note) {
     note.hidden = hidden === 0;
@@ -204,6 +326,7 @@ export function renderFetchError(message: string): void {
   if (list) {
     list.innerHTML = "";
   }
+  setFetchState(dialog, "error");
   error.hidden = false;
   error.textContent = `${message} `;
   const retry = document.createElement("button");
@@ -212,29 +335,45 @@ export function renderFetchError(message: string): void {
   retry.dataset.providerEditorAction = "retry-fetch";
   retry.textContent = "重试";
   error.appendChild(retry);
+  syncFetchSelectionState();
 }
 
 export async function loadFetchModels(
   baseUrl: string,
   apiKey: string,
   protocol: string,
-  generation?: number
+  generation?: number,
+  providerId?: string
 ): Promise<void> {
   await runIfCurrent(
     async (): Promise<{ ok?: boolean; models?: string[]; error?: string }> => {
       try {
-        return await fetchProviderModels({ baseUrl, apiKey, providerId: state.editingId, protocol });
+        return await fetchProviderModels({
+          baseUrl,
+          apiKey,
+          providerId: providerId ?? (isSavedKeyReconfirmRequired() ? "" : state.editingId),
+          protocol
+        });
       } catch (error) {
         return { ok: false, error: (error as Error | undefined)?.message || "拉取失败" };
       }
     },
     {
       ok: (resp) => {
+        if (generation === undefined || generation === fetchGeneration) {
+          fetchInFlight = false;
+        }
         if (resp?.ok && Array.isArray(resp.models)) {
           renderFetchList(resp.models);
         } else {
           renderFetchError(String(resp?.error || "拉取失败"));
         }
+      },
+      fail: (error) => {
+        if (generation === undefined || generation === fetchGeneration) {
+          fetchInFlight = false;
+        }
+        renderFetchError((error as Error | undefined)?.message || "拉取失败");
       }
     },
     // 存活判据：Modal 已关/已重开或子视图已关/已重开（代次令牌不匹配），过期回执不打扰
@@ -247,30 +386,35 @@ export async function loadFetchModels(
 // await——点击直达代申请（等价行为断言见 tests/ui/provider-editor.test.ts 与
 // tests/ui/provider-editor-session.test.ts 的同步出站核验）。
 export async function openFetchDialog(): Promise<void> {
+  if (fetchInFlight) return;
   const draft = state.draft;
   if (!draft) return;
   const baseUrl = draft.baseUrl.trim();
   const apiKey = draft.apiKey.trim();
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   const preset = family.resolvePreset(state.presets, draft.presetId);
-  // Key 必填判据与 Modal / 行的占位符同源（family.editor.isKeyRequired）：
-  // AI 侧公式一致才不留分叉（搜索族走不到本子视图）
-  if (!baseUrl || (!apiKey && !state.hasSavedKey && family.editor.isKeyRequired(preset))) {
-    showCatalogError("请先填写 API 地址和 Key");
+  beginEditorValidation();
+  const issues = revalidateEditorFields(["baseUrl", "apiKey"]);
+  if (issues.length > 0) {
+    const missingBoth =
+      !baseUrl && !apiKey && issues.some((issue) => issue.field === "baseUrl") && issues.some((issue) => issue.field === "apiKey");
+    showCatalogError(missingBoth ? "请先填写 API 地址和 Key" : issues[0].message);
+    focusEditorField(issues[0].field);
     return;
   }
   showCatalogError("");
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
+  const providerId = reconfirmKey ? "" : state.editingId;
   // 双协议预设的 Anthropic → OpenAI 模型端点回落与需授权源集合统一由 ai/provider-models.ts 解析。
   const target = resolveAiModelListTarget({
     baseUrl,
     protocol: draft.protocol,
     preset
   });
-  // 子视图代次（票 09）：重开/重试即在飞回执判死——迟到回执不得覆盖新子视图
-  const generation = ++fetchGeneration;
+  // 子视图代次（票 09）：先 renderFetchSkeleton，再递增生成新代次与设置 fetchInFlight 锁
   renderFetchSkeleton();
-  // 焦点进子视图（层内 Tab 约束由编辑器的 focus-scope 覆盖整个 Dialog）
-  getFetchDialog()?.querySelector<HTMLElement>(".provider-editor-fetch-back")?.focus({ preventScroll: true });
+  const generation = ++fetchGeneration;
+  fetchInFlight = true;
   // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或子视图已关/已重开
   // （代次不匹配）即丢弃，不再触发注定过期的模型请求。
   const session = captureSession(
@@ -278,13 +422,26 @@ export async function openFetchDialog(): Promise<void> {
   );
   await session.runWithOriginPreflight(
     target.permissionBaseUrls,
-    () => loadFetchModels(target.baseUrl, apiKey, draft.protocol, generation),
+    () => loadFetchModels(target.baseUrl, apiKey, draft.protocol, generation, providerId),
     {
-      ok: () => {},
+      ok: () => {
+        if (generation === fetchGeneration) {
+          fetchInFlight = false;
+        }
+      },
       denied: (error) => {
+        if (generation === fetchGeneration) {
+          fetchInFlight = false;
+        }
         renderFetchError(
           `未拉取：${error || "未取得该平台域名权限，无法拉取模型列表"}。请重新授权后重试`
         );
+      },
+      fail: (error) => {
+        if (generation === fetchGeneration) {
+          fetchInFlight = false;
+        }
+        renderFetchError((error as Error | undefined)?.message || "拉取失败");
       }
     }
   );

@@ -176,7 +176,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
       expect(chatSummary(host).hidden).toBe(false);
     });
     expect(chatSummary(host).textContent).toBe(
-      "对话当前使用 硅基流动 · Qwen3-8B（在视频页 AI 对话面板切换，不影响上方默认）"
+      "对话当前使用 硅基流动 · Qwen3-8B（在视频页 AI 对话面板切换会同步更新默认平台）"
     );
     // 默认投影不被对话另选改写
     expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
