@@ -1340,7 +1340,8 @@
 .biliscript-reading-explain-card-state.is-error {
   display: block;
   padding-bottom: 10px;
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-danger);
+  overflow-wrap: anywhere;
 }
 
 /* 工具循环提示（搜索失败原因 / 额度用尽）：注脚档灰字，留在卡片里随答案呈现 */

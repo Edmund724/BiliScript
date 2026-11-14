@@ -324,6 +324,23 @@ describe("renderPanel", () => {
     expect(hidePanel).toHaveBeenCalledTimes(1);
     expect(openSettings).toHaveBeenCalledTimes(1);
   });
+
+  it("已有启用平台但 models 为空：chip 与面板显示缺模型文案并可触发前往设置", () => {
+    chatSessionStateForTests.providers = [{ id: "p1", name: "空模型平台", models: [], enabled: true }];
+    const select = document.createElement("select");
+    select.disabled = true;
+    const { chipModel, panelList, openSettings, hidePanel, modelPanel } = makeHarness(select);
+
+    modelPanel.renderChip();
+    expect(chipModel.textContent).toBe("未配置模型");
+
+    modelPanel.renderPanel();
+    expect(panelList.querySelector(".chat-model-empty span")?.textContent).toBe("当前平台未配置可用模型");
+    const settingsBtn = panelList.querySelector<HTMLButtonElement>(".chat-model-empty-settings")!;
+    click(settingsBtn);
+    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(openSettings).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("renderPanel 的面板宽度（打开时快照）", () => {

@@ -117,7 +117,7 @@ import {
   type ChatSetupMode
 } from "./chat-setup-resume.js";
 // 保存成功后的返回事务要退出设置抽屉（关闭路径同时作废三张首配意图）。
-import { closeReaderSettingsMode } from "./settings-mode.js";
+import { closeReaderSettingsMode, focusProviderEditorModelControl } from "./settings-mode.js";
 // 配置类错误的两个类目（无平台 / 缺 Key）：分类器在 chat-runtime 用同一叶子判定，
 // 本文件只消费类目参数。
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
@@ -629,7 +629,10 @@ const modelPanel = createReaderChatModelPanel({
   // （面板 renderThinkingPicker 收整份视图值一次画完）。
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   hidePanel: () => popovers.hideModelPanel(),
-  openSettings: () => requestUiCommand("open-settings"),
+  openSettings: () => {
+    const { errorClass, providerId } = resolveChatSetupTarget();
+    beginChatSetup(errorClass, { providerId });
+  },
   // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
   pickLevel: (level) => pickThinkingLevel(level)
 });
@@ -753,6 +756,8 @@ const sessionTriggers = createReaderChatSessionTriggers({
       clipSignature = nextSignature;
       quickActionGeneration += 1;
       // 换视频/分P：首配返回意图与视图守卫作废（票 03），返回时不把用户拽回旧内容。
+      chatSetupSessionEpoch += 1;
+      chatSetupOpenInFlight = false;
       clearChatSetupResumeIntent();
       chatSetupViewHold = false;
       sendGate.cancel();
@@ -932,6 +937,8 @@ export function stopChatSpeech(): void {
 export function closeChatSession(): void {
   quickActionGeneration += 1;
   // 首配返回意图与视图守卫不跨会话残留（票 03）。
+  chatSetupSessionEpoch += 1;
+  chatSetupOpenInFlight = false;
   clearChatSetupResumeIntent();
   chatSetupViewHold = false;
   if (urlChangeSyncTimer) {
@@ -1169,7 +1176,8 @@ function bindEvents(): void {
       // 关闭（与壳内 readingSettingsToggleBtn 的 stopPropagation 同一先例）。
       event.preventDefault();
       event.stopPropagation();
-      beginChatSetup("no-provider", { mode: "blocked" });
+      const { errorClass, providerId } = resolveChatSetupTarget();
+      beginChatSetup(errorClass, { providerId, mode: "blocked" });
     }
   });
 }
@@ -1227,15 +1235,21 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
   if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || isConversationViewActive()) {
     return;
   }
-  if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {
+  if (
+    !ok
+    || !chatSessionState.contextData
+    || !chatSessionState.providers.length
+    || !hasSelectableChatModels()
+    || !chatSessionState.chatHistory.length
+  ) {
     renderInitialState();
     return;
   }
   lists.renderSuggestions();
 }
 
-// 【整段迁移自 sidepanel.ts】初始态渲染：无上下文 / 无平台 / 会话回放 / 非视频
-// 四态分支逐字保持；无平台分支的「前往设置」换 readingChatOpenSettings id——
+// 【整段迁移自 sidepanel.ts】初始态渲染：无上下文 / 无平台或无模型 / 会话回放 / 非视频
+// 四态分支逐字保持；配置引导分支的「前往设置」换 readingChatOpenSettings id——
 // 点击经本文件 bindEvents 的 #readingChatRoot 容器委托打开侧边栏设置抽屉
 //（arch-slim-2/06 死绑定修复；open-options 消息已删除）。
 // 唯一为测试而留的导出面（测试锚点：tests/reader/chat-tab.test.ts 直连渲染入口），
@@ -1246,8 +1260,8 @@ export function renderInitialState(): void {
     resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
     return;
   }
-  if (!chatSessionState.providers.length) {
-    resetConversationView(noProviderStateHtml());
+  if (!chatSessionState.providers.length || !hasSelectableChatModels()) {
+    resetConversationView(setupStateHtml());
     return;
   }
   if (chatSessionState.chatHistory.length) {
@@ -1294,10 +1308,10 @@ function resetConversationView(stateHtml = ""): void {
 // 消费方不感知 replay，历史上的 replay→resetView→invalidate 回环已随 replay
 // 空历史死分支一并摘除。
 function requestViewReset(intent: ViewResetIntent): void {
-  // 配置类拦截屏（票 03）：无平台状态屏与空态同源——同一句文案、同一个「前往设置」
-  // 动作（直达新增平台编辑器）；发送被拦下的草稿与附件区在此不受影响。
+  // 配置类拦截屏（票 03）：无平台/缺模型状态屏与空态同源——同一句文案、同一个「前往设置」
+  // 动作；发送被拦下的草稿与附件区在此不受影响。
   if (intent.kind === "setup") {
-    resetConversationView(noProviderStateHtml());
+    resetConversationView(setupStateHtml());
     return;
   }
   resetConversationView(intent.html);
@@ -1307,15 +1321,60 @@ function requestViewReset(intent: ViewResetIntent): void {
 // AI 对话首配直达与返回（票 provider-onboarding-consistency/03）
 // ============================================================
 
-// 无平台状态屏（空态与「发送前无平台」共用一份）：配置动作直达平台编辑记录。
-function noProviderStateHtml(): string {
+function providerHasModels(provider: (typeof chatSessionState.providers)[number] | null | undefined): boolean {
+  if (!provider) {
+    return false;
+  }
+  const models = Array.isArray(provider.models) ? provider.models : [];
+  if (models.some((model) => String(model || "").trim() !== "")) {
+    return true;
+  }
+  return Boolean(String(provider.model || "").trim());
+}
+
+function hasSelectableChatModels(): boolean {
+  return chatSessionState.providers.some((provider) => providerHasModels(provider));
+}
+
+function resolveChatMissingModelProviderId(): string {
+  const providers = chatSessionState.providers;
+  if (!providers.length) {
+    return "";
+  }
+  const storedSelected = parseModelOptionValue(providerPrefs.getStoredSelectedProviderId()).providerId;
+  const preferredId = String(chatSessionState.aiPrefs.defaultModel || "").trim();
+  for (const candidate of [preferredId, storedSelected]) {
+    if (candidate && providers.some((provider) => String(provider.id || "") === candidate)) {
+      return candidate;
+    }
+  }
+  return String(providers[0]?.id || "").trim();
+}
+
+function resolveChatSetupTarget(): { errorClass: OverviewSetupErrorClass; providerId: string } {
+  if (chatSessionState.providers.length > 0 && !hasSelectableChatModels()) {
+    return {
+      errorClass: "no-model",
+      providerId: resolveChatMissingModelProviderId()
+    };
+  }
+  return { errorClass: "no-provider", providerId: "" };
+}
+
+// 无平台 / 缺模型状态屏（空态与「发送前拦截」共用一份）：配置动作直达对应平台编辑记录。
+function setupStateHtml(): string {
+  if (chatSessionState.providers.length > 0 && !hasSelectableChatModels()) {
+    return `当前 AI 平台还没有配置可用模型，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
+  }
   return `还没有配置 AI 平台，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
 }
 
 // 返回对话后的提示（票 03）：只提示，不代发——是否发送始终由用户再点一次。
 const CHAT_SETUP_READY_NOTICE = "平台已就绪，请确认发送。";
-// 缺 Key 回合错误的行内提示与动作（「前往设置」与空态同一措辞）。
+// 缺 Key / 缺模型 / 平台失效回合错误的行内提示与动作（「前往设置」与空态同一措辞）。
 const CHAT_SETUP_MISSING_KEY_NOTICE = "该平台 API Key 未配置，配置后请重新发送。";
+const CHAT_SETUP_NO_MODEL_NOTICE = "当前 AI 平台未配置可用模型，配置后请重新发送。";
+const CHAT_SETUP_NO_PROVIDER_NOTICE = "当前 AI 平台配置已失效或未配置，请前往设置。";
 const CHAT_SETUP_ACTION_LABEL = "前往设置";
 
 // 首配返回视图守卫（只在内存）：平台保存会触发 storage 变更 → 平台/偏好重取，
@@ -1324,9 +1383,11 @@ const CHAT_SETUP_ACTION_LABEL = "前往设置";
 //（blocked 模式由 resume 重渲初始态；error 模式保持原样），直到用户下次发送、
 // 新会话、换视频或关闭会话恢复常规重建。
 let chatSetupViewHold = false;
+let chatSetupOpenInFlight = false;
+let chatSetupSessionEpoch = 0;
 
 interface BeginChatSetupOptions {
-  // 缺 Key 时已选平台的记录 id（直达该记录并聚焦 Key）；无记录时为空。
+  // 缺 Key / 缺模型时已选平台的记录 id（直达该记录）；无记录时为空。
   providerId?: string;
   // 来源：受理前拦截（blocked）或已受理错误回合（error）；缺省按当前历史推断。
   mode?: ChatSetupMode;
@@ -1335,10 +1396,16 @@ interface BeginChatSetupOptions {
 /**
  * 首配直达（票 03）：记录返回意图并打开正确的平台编辑记录。
  * - 无平台（空态 / 发送前拦截）→ 新增 AI 平台编辑器（首配「保存并继续」）；
- * - 缺 Key（已选平台）→ 编辑该记录并聚焦 Key。
+ * - 缺 Key（已选平台）→ 编辑该记录并聚焦 Key；
+ * - 缺模型（已启用平台但 models 为空）→ 编辑该记录并聚焦模型配置。
  * 保存成功由 resumeChatAfterSetup 回到对话；取消 / 关抽屉 / 换视频 / 换会话即作废。
  */
 function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", mode }: BeginChatSetupOptions = {}): void {
+  if (chatSetupOpenInFlight) {
+    return;
+  }
+  chatSetupOpenInFlight = true;
+  const sessionEpoch = ++chatSetupSessionEpoch;
   const targetProviderId = String(providerId || "").trim();
   // 来源按当前视图推断：消息区已有对话（用户气泡 / 历史）→ 已受理错误回合，
   // 返回时不重渲消息区；否则是受理前拦截，返回时清掉状态屏回到初始态。
@@ -1352,25 +1419,56 @@ function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", 
     conversationId: String(chatSessionState.currentConversationId || ""),
     createdAt: Date.now()
   });
-  void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
-    openReaderAiSetup(
-      errorClass,
-      {
-        onAfterSave: () => resumeChatAfterSetup(),
-        // 取消编辑（含 Esc / 外点 / 删除记录）：未消费意图即作废；视图守卫一并解除，
-        // 平台刷新恢复常规重建。保存成功路径的意图已被消费，守卫继续交给返回事务
-        //（error 模式要挡住保存触发的那次平台刷新对错误回合的拆除）。
-        onSessionEnd: () => {
-          const canceled = peekChatSetupResumeIntent() !== null;
-          clearChatSetupResumeIntent();
-          if (canceled) {
-            chatSetupViewHold = false;
+  void (async () => {
+    try {
+      const { openReaderAiSetup } = await import("../ui/settings-panel.js");
+      if (sessionClosed || sessionEpoch !== chatSetupSessionEpoch) {
+        return;
+      }
+      // settings-panel.openReaderAiSetup 仅当 errorClass === "missing-key" 时按 providerId 编辑；
+      // "no-model" 借道 "missing-key" + target.providerId 打开对应平台编辑页，随后聚焦模型配置。
+      const uiSetupClass: OverviewSetupErrorClass =
+        errorClass === "no-model" && targetProviderId ? "missing-key" : errorClass;
+      await openReaderAiSetup(
+        uiSetupClass,
+        {
+          onAfterSave: () => {
+            if (sessionEpoch !== chatSetupSessionEpoch) {
+              return;
+            }
+            resumeChatAfterSetup();
+          },
+          // 取消编辑（含 Esc / 外点 / 删除记录）：未消费意图即作废；视图守卫一并解除，
+          // 平台刷新恢复常规重建。保存成功路径的意图已被消费，守卫继续交给返回事务
+          //（error 模式要挡住保存触发的那次平台刷新对错误回合的拆除）。
+          // 仅对本代次会话生效：防止旧编辑器关闭清理覆盖后续新建会话的意图与守卫。
+          onSessionEnd: () => {
+            if (sessionEpoch !== chatSetupSessionEpoch) {
+              return;
+            }
+            const canceled = peekChatSetupResumeIntent() !== null;
+            clearChatSetupResumeIntent();
+            if (canceled) {
+              chatSetupViewHold = false;
+            }
           }
-        }
-      },
-      targetProviderId ? { providerId: targetProviderId } : undefined
-    );
-  });
+        },
+        targetProviderId ? { providerId: targetProviderId } : undefined
+      );
+      if (errorClass === "no-model" && !sessionClosed && sessionEpoch === chatSetupSessionEpoch) {
+        focusProviderEditorModelControl();
+      }
+    } catch {
+      if (sessionEpoch === chatSetupSessionEpoch) {
+        clearChatSetupResumeIntent();
+        chatSetupViewHold = false;
+      }
+    } finally {
+      if (sessionEpoch === chatSetupSessionEpoch) {
+        chatSetupOpenInFlight = false;
+      }
+    }
+  })();
 }
 
 /**
@@ -1401,26 +1499,46 @@ function resumeChatAfterSetup(): void {
   composer.autosizeInput();
   els.input?.focus?.();
   void (async () => {
-    // 新平台 / 新 Key 已落盘：重取平台列表与偏好，模型选择器与档位区随之就位。
+    // 新平台 / 新 Key / 新模型已落盘：重取平台列表与偏好，模型选择器与档位区随之就位。
     await loadProvidersAndPrefs().catch(() => null);
     refreshThinkingUi();
     if (intent.mode === "blocked") {
-      // 受理前拦截停在无平台状态屏：清掉状态屏回到初始态；输入框草稿与附件区不动。
+      // 受理前拦截停在状态屏：清掉状态屏回到初始态；输入框草稿与附件区不动。
       renderInitialState();
       chatSetupViewHold = false;
     }
     composer.autosizeInput();
     els.input?.focus?.();
-    showConversationContextNotice(CHAT_SETUP_READY_NOTICE, 0);
+    showConversationContextNotice(CHAT_SETUP_READY_NOTICE, 0, {
+      tone: "success",
+      dismissible: true
+    });
   })();
 }
 
-// 缺 Key 回合错误（已受理）的行内动作：只给「前往设置」，不重发本回合。
+// 缺 Key / 缺模型 / 平台失效回合错误（已受理）的行内动作：只给「前往设置」，不重发本回合。
 function showChatSetupAction(errorClass: OverviewSetupErrorClass, providerId: string): void {
-  showConversationContextNotice(CHAT_SETUP_MISSING_KEY_NOTICE, 0, {
+  let resolvedClass = errorClass;
+  let resolvedProviderId = String(providerId || "").trim();
+  if (
+    resolvedClass === "no-provider"
+    && !resolvedProviderId
+    && chatSessionState.providers.length > 0
+    && !hasSelectableChatModels()
+  ) {
+    resolvedClass = "no-model";
+    resolvedProviderId = resolveChatMissingModelProviderId();
+  }
+  const message =
+    resolvedClass === "missing-key"
+      ? CHAT_SETUP_MISSING_KEY_NOTICE
+      : resolvedClass === "no-model"
+        ? CHAT_SETUP_NO_MODEL_NOTICE
+        : CHAT_SETUP_NO_PROVIDER_NOTICE;
+  showConversationContextNotice(message, 0, {
     action: {
       label: CHAT_SETUP_ACTION_LABEL,
-      onClick: () => beginChatSetup(errorClass, { providerId, mode: "error" })
+      onClick: () => beginChatSetup(resolvedClass, { providerId: resolvedProviderId, mode: "error" })
     }
   });
 }
@@ -1450,6 +1568,8 @@ async function startNewConversation(): Promise<boolean> {
     });
     if (!confirmed) return false;
   }
+  chatSetupSessionEpoch += 1;
+  chatSetupOpenInFlight = false;
   clearChatSetupResumeIntent();
   chatSetupViewHold = false;
   popovers.hideHistoryPopover({ focus: "none" });

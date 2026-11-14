@@ -208,9 +208,14 @@ export function createAsrRuntimeConfigHandler({
 // consistency/01），此处 re-export 保持既有导入路径不变。
 export {
   MISSING_PROVIDER_KEY_MESSAGE,
-  NO_ACTIVE_PROVIDER_MESSAGE
+  NO_ACTIVE_PROVIDER_MESSAGE,
+  SELECTED_PROVIDER_NOT_FOUND_MESSAGE
 } from "./overview-setup-error.js";
-import { MISSING_PROVIDER_KEY_MESSAGE, NO_ACTIVE_PROVIDER_MESSAGE } from "./overview-setup-error.js";
+import {
+  MISSING_PROVIDER_KEY_MESSAGE,
+  NO_ACTIVE_PROVIDER_MESSAGE,
+  SELECTED_PROVIDER_NOT_FOUND_MESSAGE
+} from "./overview-setup-error.js";
 
 export interface AiResolvedProviderHandlerDeps {
   getMergedSettings: () => Promise<{ defaultModel?: unknown }>;
@@ -256,7 +261,7 @@ export function createAiResolvedProviderHandler({
         if (requestedId) {
           provider = enabled.find((item) => String(item.id) === requestedId) || null;
           if (!provider) {
-            throw new Error("未找到选中的平台");
+            throw new Error(SELECTED_PROVIDER_NOT_FOUND_MESSAGE);
           }
         } else {
           const settings = await getMergedSettings();

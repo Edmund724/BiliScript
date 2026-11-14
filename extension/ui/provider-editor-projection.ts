@@ -66,6 +66,8 @@ export interface ProjectionContext {
   kind: ProviderEditorKind;
   presets: readonly ProviderRowPreset[];
   hasSavedKey: boolean;
+  // 编辑态切换预设或更改不同 origin 时：需要用户重新确认 API Key，禁止沿用已存 Key
+  reconfirmKey?: boolean;
   // 平台音色列表（仅 MOSS-LIVE 音色下拉用；未取到时装默认音色一项）
   voices?: readonly LiveVoice[];
 }
@@ -240,7 +242,8 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
-      if (input) input.value = projection.value ?? "";
+      const nextValue = projection.value ?? "";
+      if (input && input.value !== nextValue) input.value = nextValue;
     },
     read: (dialog) => ({ value: dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")?.value ?? "" })
   },
@@ -251,9 +254,14 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (usesAiCredentialReference(scope.ctx.kind, scope.preset?.id)) {
         return { hidden: true, required: false };
       }
+      const keyRequired = scope.family.isKeyRequired(scope.preset);
+      const placeholder =
+        scope.ctx.reconfirmKey && keyRequired
+          ? "已切换平台或地址，请重新确认 API Key"
+          : scope.family.apiKeyPlaceholder(scope.preset, scope.ctx.hasSavedKey);
       const projection: FieldProjection = {
-        placeholder: scope.family.apiKeyPlaceholder(scope.preset, scope.ctx.hasSavedKey),
-        required: scope.family.isKeyRequired(scope.preset) && !scope.ctx.hasSavedKey
+        placeholder,
+        required: keyRequired && !scope.ctx.hasSavedKey
       };
       if (scope.ctx.kind !== "ai") projection.value = draft.apiKey;
       return projection;
@@ -271,7 +279,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (field) field.hidden = projection.hidden === true;
       input.placeholder = projection.placeholder ?? "";
       input.required = projection.required === true;
-      if (projection.value !== undefined) input.value = projection.value;
+      if (projection.value !== undefined && input.value !== projection.value) input.value = projection.value;
     },
     read: (dialog) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
@@ -411,12 +419,33 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   }
 };
 
+// 编辑态（hasSavedKey=true）切换预设或更换不同 origin 时，旧平台密钥不可静默复用，
+// 需由用户重新确认（重填 Key）；同源改路径（如 DeepSeek /anthropic <-> /v1）保留已存 Key。
+export function isSavedKeyReconfirmRequired(draft: EditorDraftView | null = state.draft): boolean {
+  if (!state.hasSavedKey || !state.editingId || !draft) return false;
+  if (draft.apiKey.trim()) return false;
+  if (usesAiCredentialReference(state.kind, draft.presetId)) return false;
+  const presetChanged = Boolean(state.openPresetId && draft.presetId !== state.openPresetId);
+  let openOrigin = "";
+  let currentOrigin = "";
+  try {
+    openOrigin = state.openBaseUrl ? new URL(state.openBaseUrl).origin : "";
+  } catch {}
+  try {
+    currentOrigin = draft.baseUrl.trim() ? new URL(draft.baseUrl.trim()).origin : "";
+  } catch {}
+  const originChanged = Boolean(openOrigin && currentOrigin && currentOrigin !== openOrigin);
+  return presetChanged || originChanged;
+}
+
 // Modal 打开参数直达的投影上下文（state 的只读视图，会话打开时即就位）
 export function sessionProjectionContext(): ProjectionContext {
+  const reconfirmKey = isSavedKeyReconfirmRequired();
   return {
     kind: state.kind,
     presets: state.presets,
-    hasSavedKey: state.hasSavedKey,
+    hasSavedKey: state.hasSavedKey && !reconfirmKey,
+    reconfirmKey,
     voices: state.voices
   };
 }

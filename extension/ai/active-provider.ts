@@ -18,6 +18,7 @@
 // ai/active-model-projection.ts（票 05 生效投影）——投影与真实请求复用同一套
 // 规则，不维护第二份模型回落逻辑。
 
+import { NO_ACTIVE_MODEL_MESSAGE } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { SELECTED_PROVIDER_KEY, parseModelOptionValue } from "../shared/selected-provider.js";
 import type { AiProvider } from "./types.js";
@@ -26,20 +27,24 @@ import type { AiProtocol } from "./protocol-adapter.js";
 /**
  * 解析当前应使用的 AI 平台（含 apiKey/baseUrl/model）。
  * 解析在 SW 侧一次往返完成（策略见 createAiResolvedProviderHandler）；无平台、
- * 读 Key 失败或需要 Key 但未配置都以可读错误抛出。
+ * 读 Key 失败、需要 Key 但未配置或平台未配置可用模型都以可读错误抛出。
  */
 export async function resolveActiveProvider(): Promise<AiProvider> {
   const resp = await sendRuntimeMessage({ type: "resolve-ai-provider" });
   if (!resp?.ok) {
     throw new Error(String(resp?.error || "解析 AI 平台配置失败"));
   }
+  // 模型取对话 tab 的选中项（概览 / 选区解释没有模型选择器，与对话用同一个
+  // 模型才谈得上「同一平台同一模型」）；无选中项或选中项属于别的平台时回落
+  // 模型目录首项，再回落旧单模型记录的 model 字段。
+  const model = (await selectedChatModelFor(String(resp.provider?.id || ""))) || firstCatalogModel(resp.provider);
+  if (!model) {
+    throw new Error(NO_ACTIVE_MODEL_MESSAGE);
+  }
   return {
     baseUrl: String(resp.provider?.baseUrl || "").trim(),
     apiKey: String(resp.apiKey || "").trim(),
-    // 模型取对话 tab 的选中项（概览 / 选区解释没有模型选择器，与对话用同一个
-    // 模型才谈得上「同一平台同一模型」）；无选中项或选中项属于别的平台时回落
-    // 模型目录首项，再回落旧单模型记录的 model 字段。
-    model: (await selectedChatModelFor(String(resp.provider?.id || ""))) || firstCatalogModel(resp.provider),
+    model,
     // presetId 穿线（provider 记录随带）：解释链下游 thinking-profiles 查表的
     // 主识别路径，反代 baseUrl 无 host 规则时是唯一线索。缺失归一为空串
     // （resolver 端回落 host/模型名识别，不臆造平台）。

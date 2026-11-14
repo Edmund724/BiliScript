@@ -155,6 +155,65 @@ describe("resolveAsrSetupPlan：配置类 ASR 阻塞的三态解析", () => {
   });
 });
 
+describe("resolveAsrSetupState：自动转写关闭时保留完整平台阻塞信息", () => {
+  it("开关关闭 + 无 ASR 平台 → kind 仍为 disabled，同时暴露 no-provider 与 blockedByBoth=true", async () => {
+    const { resolveAsrSetupState } = await import("../../extension/asr/asr-setup.js");
+    expect(
+      resolveAsrSetupState({
+        asrAutoFallback: false,
+        activeAsrProviderId: "",
+        providers: []
+      })
+    ).toEqual({
+      kind: "disabled",
+      providerId: "",
+      asrAutoFallback: false,
+      providerStatus: "no-provider",
+      targetProviderId: "",
+      needsProviderSetup: true,
+      blockedByBoth: true
+    });
+  });
+
+  it("开关关闭 + 激活平台缺 Key → 暴露 missing-key、targetProviderId 与 blockedByBoth=true", async () => {
+    const { resolveAsrSetupState } = await import("../../extension/asr/asr-setup.js");
+    expect(
+      resolveAsrSetupState({
+        asrAutoFallback: false,
+        activeAsrProviderId: "asr-1",
+        providers: [MISSING_KEY_PROVIDER]
+      })
+    ).toEqual({
+      kind: "disabled",
+      providerId: "",
+      asrAutoFallback: false,
+      providerStatus: "missing-key",
+      targetProviderId: "asr-1",
+      needsProviderSetup: true,
+      blockedByBoth: true
+    });
+  });
+
+  it("开关关闭 + 平台与 Key 均就绪 → needsProviderSetup=false, blockedByBoth=false", async () => {
+    const { resolveAsrSetupState } = await import("../../extension/asr/asr-setup.js");
+    expect(
+      resolveAsrSetupState({
+        asrAutoFallback: false,
+        activeAsrProviderId: "asr-1",
+        providers: [ASR_PROVIDER]
+      })
+    ).toEqual({
+      kind: "disabled",
+      providerId: "",
+      asrAutoFallback: false,
+      providerStatus: "provider-config",
+      targetProviderId: "asr-1",
+      needsProviderSetup: false,
+      blockedByBoth: false
+    });
+  });
+});
+
 describe("openReaderAsrSetup：未配置 → 直接打开 ASR 编辑器", () => {
   it("无记录时打开新增编辑器，并记录一次性续跑意图", async () => {
     const { panel, leaf } = await mountPanel({
@@ -253,6 +312,89 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     });
     expect(refresh).not.toHaveBeenCalled();
     expect(leaf.peekAsrSetupResumeIntent()).not.toBeNull();
+  });
+
+  it("开关关闭 + 无 ASR 平台：开启开关后不退出设置，直接顺滑进入新增 ASR 编辑器（一次闭环）", async () => {
+    let settings = { asrAutoFallback: false, activeAsrProviderId: "" };
+    let providers: Array<Record<string, unknown>> = [];
+    const { panel, leaf, core, host, refresh } = await mountPanel({
+      "asr-providers-list": () => ({ ok: true, providers }),
+      "asr-providers-save": (msg) => {
+        providers = Array.isArray(msg.providers) ? msg.providers : [];
+        return { ok: true, providers };
+      },
+      "get-settings": () => ({ ok: true, settings }),
+      "save-settings": (msg) => {
+        settings = { ...settings, ...(msg.settings as Record<string, unknown>) } as typeof settings;
+        return { ok: true };
+      }
+    });
+
+    await panel.openReaderAsrSetup();
+    expect(document.querySelector(".provider-editor-dialog")).toBeNull();
+    const toggle = host.querySelector<HTMLInputElement>("#asrAutoFallback")!;
+    expect(document.activeElement).toBe(toggle);
+    expect(host.querySelector("#biliscriptSettingsStatus")?.textContent).toContain("随后补充语音转写平台配置");
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
+    });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(core.state.reader.readingSettingsExpanded).toBe(true);
+    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "no-provider" });
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector(".provider-editor-title")?.textContent).toBe("添加语音转写平台");
+    expect(dialog.querySelector(".provider-editor-save")?.textContent).toBe("保存并继续");
+    expect(dialog.querySelector<HTMLElement>(".provider-editor-context-banner")?.textContent).toBe(
+      "保存可用语音转写平台后将自动返回继续"
+    );
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-asr-new");
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(core.state.reader.readingSettingsExpanded).toBe(false);
+  });
+
+  it("开关关闭 + 激活平台缺 Key：开启开关后顺滑进入编辑 ASR 并聚焦 Key，保存即完成续跑", async () => {
+    let settings = { asrAutoFallback: false, activeAsrProviderId: "asr-1" };
+    const { panel, leaf, core, host, refresh } = await mountPanel({
+      "asr-providers-list": () => ({ ok: true, providers: [MISSING_KEY_PROVIDER] }),
+      "get-settings": () => ({ ok: true, settings }),
+      "save-settings": (msg) => {
+        settings = { ...settings, ...(msg.settings as Record<string, unknown>) } as typeof settings;
+        return { ok: true };
+      }
+    });
+
+    await panel.openReaderAsrSetup();
+    const toggle = host.querySelector<HTMLInputElement>("#asrAutoFallback")!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
+    });
+    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "missing-key" });
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+    expect(dialog.querySelector(".provider-editor-title")?.textContent).toBe("编辑语音转写平台");
+    const keyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
+    expect(document.activeElement).toBe(keyInput);
+    expect(dialog.querySelector<HTMLElement>(".provider-editor-context-banner")?.textContent).toBe(
+      "请补充语音转写 API Key 后保存继续"
+    );
+
+    setFieldValue(keyInput, "sk-asr-fixed");
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+    expect(core.state.reader.readingSettingsExpanded).toBe(false);
   });
 });
 

@@ -16,7 +16,11 @@ import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 import type { AiProvider } from "../../extension/ai/types.js";
 import type { OverviewUiActions } from "../../extension/reader/overview-ui.js";
-import { MISSING_PROVIDER_KEY_MESSAGE, NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/overview-setup-error.js";
+import {
+  MISSING_PROVIDER_KEY_MESSAGE,
+  NO_ACTIVE_MODEL_MESSAGE,
+  NO_ACTIVE_PROVIDER_MESSAGE
+} from "../../extension/core/overview-setup-error.js";
 
 const BODY: SubtitleBodyItem[] = [
   { from: 0, to: 10, content: "大家好" },
@@ -331,6 +335,13 @@ describe("error 条：配置类错误给「去设置」，非配置类不给", (
     const body = await renderErrorStrip(h, new Error(MISSING_PROVIDER_KEY_MESSAGE));
     const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]');
     expect(setup?.dataset.setupClass).toBe("missing-key");
+  });
+
+  it("缺模型错误：去设置（no-model）", async () => {
+    const h = await makeHarness();
+    const body = await renderErrorStrip(h, new Error(NO_ACTIVE_MODEL_MESSAGE));
+    const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]');
+    expect(setup?.dataset.setupClass).toBe("no-model");
   });
 
   it("非配置类错误（管线失败）：只有重试，不伪装成配置问题", async () => {

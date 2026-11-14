@@ -128,7 +128,7 @@ describe("live-provider-settings 凭据同层往返", () => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
-    expect(mounted.statusLog.some((entry) => entry.message.includes("请继续保存伴看平台记录"))).toBe(true);
+    expect(dialog()!.querySelector(".provider-editor-status")!.textContent).toContain("请继续保存伴看平台记录");
     expect(mounted.savedLog.some((entry) => entry.kind === "ai")).toBe(true);
     // 伴看行状态随新引用刷新
     await vi.waitFor(() => {
@@ -156,7 +156,7 @@ describe("live-provider-settings 凭据同层往返", () => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
-    expect(mounted.statusLog.some((entry) => entry.message.includes("请继续保存伴看平台记录"))).toBe(false);
+    expect(dialog()!.querySelector(".provider-editor-status")!.textContent).not.toContain("请继续保存伴看平台记录");
     mounted.panel.dispose();
     expect(dialog()).toBeNull();
   });

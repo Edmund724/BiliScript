@@ -1,6 +1,7 @@
 // ai/adapters/gemini.ts — Gemini 原生 generateContent 协议适配器（ADR-0018）。
 // 手撸 fetch + SSE 逐块解析，零新增依赖，天然支持 AbortSignal。
 import { makeAbortedError } from "../../shared/error-helpers.js";
+import { formatModelListHttpError } from "./http-error.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { CompatQuirk } from "../compat-vocab.js";
@@ -667,7 +668,7 @@ export async function listGeminiModels({ baseUrl, apiKey, fetchImpl }: ListModel
     const resp = await doFetch(url, { headers, method: "GET" });
     if (!resp.ok) {
       const text = await resp.text();
-      return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+      return { ok: false, error: formatModelListHttpError(resp.status, text) };
     }
     const data = (await resp.json()) as {
       models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;

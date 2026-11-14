@@ -40,6 +40,20 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+function ensureLiveStatusNode(listNode: HTMLElement): HTMLElement | null {
+  const parent = listNode.parentElement;
+  if (!parent) return null;
+  const existing = parent.querySelector<HTMLElement>('[data-search-order-live="1"]');
+  if (existing) return existing;
+  const node = document.createElement("p");
+  node.className = "biliscript-sr-only search-order-live-status";
+  node.setAttribute("aria-live", "polite");
+  node.setAttribute("aria-atomic", "true");
+  node.dataset.searchOrderLive = "1";
+  listNode.insertAdjacentElement("afterend", node);
+  return node;
+}
+
 export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: ProviderRowDragOptions): void {
   let session: DragSession | null = null;
 
@@ -50,6 +64,15 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
       (row) => row.querySelector(DRAG_HANDLE_SELECTOR) !== null
     );
   const recordIds = (): string[] => recordRows().map((row) => row.dataset.providerId || "");
+
+  const commitOrder = (ids: string[]): void => {
+    try {
+      const pending: unknown = onCommit(ids);
+      if (typeof (pending as Promise<void> | null | undefined)?.catch === "function") {
+        void (pending as Promise<void>).catch(() => {});
+      }
+    } catch {}
+  };
 
   // 回滚：按按下时的 id 顺序把记录行依次挪到列表尾（虚拟行恒为首个子元素，
   // 故「依次追加」即恢复原序）。
@@ -78,12 +101,7 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     }
     const ids = recordIds();
     if (sameIds(ids, current.originalOrder)) return;
-    try {
-      const pending: unknown = onCommit(ids);
-      if (typeof (pending as Promise<void> | null | undefined)?.catch === "function") {
-        void (pending as Promise<void>).catch(() => {});
-      }
-    } catch {}
+    commitOrder(ids);
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -151,8 +169,46 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     end(false);
   };
 
+  const onHandleKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    if (listNode.classList.contains("search-chain-single-mode")) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const handle = target.closest<HTMLElement>(DRAG_HANDLE_SELECTOR);
+    if (!handle || !listNode.contains(handle)) return;
+    const row = handle.closest<HTMLElement>(ROW_SELECTOR);
+    if (!row || row.parentElement !== listNode) return;
+
+    const rows = recordRows();
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+
+    const delta = event.key === "ArrowUp" ? -1 : 1;
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= rows.length) {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    if (delta < 0) {
+      listNode.insertBefore(row, rows[nextIndex]);
+    } else {
+      const afterTarget = rows[nextIndex].nextElementSibling;
+      listNode.insertBefore(row, afterTarget);
+    }
+    handle.focus({ preventScroll: true });
+    const liveNode = ensureLiveStatusNode(listNode);
+    if (liveNode) {
+      const name = row.querySelector(".provider-row-name")?.textContent?.trim() || "当前平台";
+      liveNode.textContent = `${name}已移至第 ${nextIndex + 1} 位，共 ${rows.length} 位`;
+    }
+    commitOrder(recordIds());
+  };
+
   listNode.addEventListener("pointerdown", onPointerDown);
   listNode.addEventListener("pointermove", onPointerMove);
   listNode.addEventListener("pointerup", onPointerUp);
   listNode.addEventListener("pointercancel", onPointerCancel);
+  listNode.addEventListener("keydown", onHandleKeyDown);
 }

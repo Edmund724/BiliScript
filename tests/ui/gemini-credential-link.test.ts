@@ -232,10 +232,10 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     });
     const restored = dialog()!;
     expect(restored.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
+    expect(restored.querySelector(".provider-editor-status")!.textContent).not.toContain("请继续保存伴看平台记录");
     // dirty 仍在：Esc 触发逐层退出的确认框（既有 confirmDialog 规则）
     pressEsc();
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
-    expect(host.querySelector("#biliscriptSettingsStatus")!.textContent).not.toContain("请继续保存伴看平台记录");
   });
 
   it("保存成功后恢复草稿、刷新行状态并提示仍需显式保存伴看记录；Key 只落 AI 族", async () => {
@@ -260,14 +260,14 @@ describe("往返：恢复伴看草稿与保存提示", () => {
     input(dialog()!.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "AIza-roundtrip");
     click(dialog()!.querySelector<HTMLButtonElement>(".provider-editor-save"));
 
-    // 保存成功后：伴看草稿恢复 + 状态行提示仍需显式保存伴看记录 + 行状态刷新
+    // 保存成功后：伴看草稿恢复 + Modal 内状态行提示仍需显式保存伴看记录 + 行状态刷新
     await vi.waitFor(() => {
       expect(dialog()?.querySelector(".provider-editor-title")?.textContent).toBe("编辑实时伴看平台");
     });
     const restored = dialog()!;
     expect(restored.querySelector<HTMLInputElement>(".provider-editor-model")!.value).toBe("gemini-3.9-live");
     await vi.waitFor(() => {
-      expect(host.querySelector("#biliscriptSettingsStatus")!.textContent).toContain("请继续保存伴看平台记录");
+      expect(restored.querySelector(".provider-editor-status")!.textContent).toContain("请继续保存伴看平台记录");
     });
     await vi.waitFor(() => {
       expect(host.querySelector("#liveProvidersList .provider-row-model")!.textContent)

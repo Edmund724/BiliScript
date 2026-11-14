@@ -164,4 +164,14 @@ describe("resolveActiveProvider 模型同步（对话 tab 选中项）", () => {
 
     expect(provider.model).toBe("glm-4.5");
   });
+
+  it("平台已启用但 models 为空且无 model 字段 → 拒绝放行并抛 NO_ACTIVE_MODEL_MESSAGE", async () => {
+    const { NO_ACTIVE_MODEL_MESSAGE } = await import("../../extension/core/overview-setup-error.js");
+    stubMessages({
+      provider: { id: "p1", baseUrl: "https://api.example.com/v1", models: [], model: "", enabled: true }
+    });
+
+    await expect(activeProvider.resolveActiveProvider()).rejects.toThrow(NO_ACTIVE_MODEL_MESSAGE);
+  });
 });
+

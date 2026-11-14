@@ -1066,15 +1066,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
-/* 校验态反馈：描边归零后 border-color 无处落，改光环（accent=错误沿用既有
- * 语义、success=通过）；声明在焦点规则之前，聚焦时光环让位焦点态。 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="text"]:user-invalid,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="password"]:user-invalid {
-  box-shadow: 0 0 0 1.5px var(--biliscript-reader-accent);
+/* 校验态反馈：描边归零后 border-color 无处落，改光环（danger=错误、success=通过）；
+ * 仅作用于带原生约束（required / pattern）的输入框；声明在焦点规则之前。 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-invalid {
+  box-shadow: 0 0 0 1.5px var(--biliscript-reader-danger);
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="text"]:user-valid,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="password"]:user-valid {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-valid {
   box-shadow: 0 0 0 1.5px var(--biliscript-reader-success);
 }
 
@@ -1106,9 +1104,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
   box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
-/* 平台编辑 Modal 与「获取可用模型」弹窗：白玻璃凸起大卡 + 分隔线归零 + 毛玻璃 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog {
+/* 平台编辑 Modal：白玻璃凸起大卡 + 分隔线归零 + 毛玻璃 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1116,6 +1113,17 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.16), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
+}
+
+/* 「获取可用模型」内联子视图在玻璃主题下改用实底面板，避免底层文字透出叠影 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog {
+  border: none;
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-head,
@@ -1153,9 +1161,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
   box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-black-rgb), 0.4), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog {
   box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-black-rgb), 0.5), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 /* ===== flyme 液态玻璃收敛与 Gemini 流光 =====

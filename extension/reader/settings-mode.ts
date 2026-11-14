@@ -1,4 +1,5 @@
 import { state } from "../core/state.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getReaderActiveScriptTab, ids } from "./state.js";
 import { clearOverviewSetupResumeIntent } from "./overview-setup-resume.js";
 import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
@@ -15,6 +16,41 @@ let settingsReturnFocus: HTMLElement | null = null;
 
 export function focusWithoutScroll(element: HTMLElement | null): void {
   element?.focus({ preventScroll: true });
+}
+
+export function focusProviderEditorModelControl(): void {
+  const target = document.querySelector<HTMLElement>(
+    '.provider-editor-dialog [data-provider-editor-action="add-model"], .provider-editor-dialog .provider-editor-model-input, .provider-editor-dialog .provider-editor-model'
+  );
+  focusWithoutScroll(target);
+}
+
+/**
+ * 缺模型错误进入设置时定位要编辑的启用 AI 平台 id（defaultModel 优先，否则首个启用平台）。
+ */
+export async function resolveEditableAiProviderId(): Promise<string> {
+  try {
+    const [providersResp, settingsResp] = await Promise.all([
+      sendRuntimeMessage({ type: "ai-providers-list" }),
+      sendRuntimeMessage({ type: "get-settings" })
+    ]);
+    const list = Array.isArray(providersResp?.providers) ? providersResp.providers : [];
+    const enabled = list.filter(
+      (item: unknown): item is { enabled?: unknown; id?: unknown } =>
+        Boolean(item)
+        && typeof item === "object"
+        && (item as { enabled?: unknown }).enabled !== false
+        && String((item as { id?: unknown }).id || "").trim() !== ""
+    );
+    if (!enabled.length) {
+      return "";
+    }
+    const preferredId = String(settingsResp?.settings?.defaultModel || "").trim();
+    const matched = preferredId ? enabled.find((item) => String(item.id) === preferredId) : null;
+    return String((matched || enabled[0]).id || "").trim();
+  } catch {
+    return "";
+  }
 }
 
 export function projectReaderSettingsMode(): void {
@@ -68,7 +104,19 @@ export function closeReaderSettingsMode({ restoreFocus = true }: { restoreFocus?
   clearAsrSetupResumeIntent();
   if (restoreFocus) {
     const returnTarget = settingsReturnFocus?.isConnected ? settingsReturnFocus : null;
-    focusWithoutScroll(returnTarget ?? document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
+    if (returnTarget) {
+      focusWithoutScroll(returnTarget);
+    } else {
+      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
+      const active = document.activeElement;
+      const focusAlreadyOutsideSettings =
+        active instanceof HTMLElement
+        && active !== document.body
+        && (!settingsPanel || !settingsPanel.contains(active));
+      if (!focusAlreadyOutsideSettings) {
+        focusWithoutScroll(document.getElementById(TAB_BUTTON_IDS[getReaderActiveScriptTab()]));
+      }
+    }
   }
   settingsReturnFocus = null;
 }

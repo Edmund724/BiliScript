@@ -139,6 +139,12 @@ export interface ProviderEditorOpenOptions {
   baselineDraft?: EditorDraftView | null;
   // 跨族凭据引用的内联状态行 + 动作（伴看 Gemini Live / 搜索 DeepSeek 编辑器传入）
   linkedCredential?: LinkedCredentialAction | null;
+  // 动态凭据引用解析回调（优先级高于静态 linkedCredential，新建或切预设时实时重算）
+  resolveLinkedCredential?: ((draft: EditorDraftView) => LinkedCredentialAction | null) | null;
+  // 首配或跨族往返时的上下文引导文案（展示在 Modal 表单顶部）
+  setupContextBanner?: string | null;
+  // 打开即显示的初始状态行（如跨族凭据返回提示）
+  initialStatus?: { message: string; isError?: boolean } | null;
 }
 
 // 会话控制字段：对外只读（写入走下面的意图级原语）。
@@ -147,8 +153,10 @@ export interface EditorState {
   readonly kind: ProviderEditorKind;
   readonly editingId: string;
   readonly hasSavedKey: boolean;
-  // 打开时锚定的已存列表项 baseUrl（删除回收 orphan origin 的目标地址）
+  // 打开时锚定的已存列表项 baseUrl（删除回收 orphan origin 的目标地址；同时用于编辑态改 origin 防呆）
   readonly openBaseUrl: string;
+  // 打开时锚定的已存列表项 presetId（编辑态换预设时防将旧平台密钥静默发往新端点）
+  readonly openPresetId: string;
   // 打开参数直达（collectUpsert / runTest / 预设切换读取）
   readonly presets: readonly ProviderRowPreset[];
   readonly onSave: ProviderEditorSave;
@@ -161,6 +169,8 @@ export interface EditorState {
   // 跨族凭据引用内联动作（票 07）：伴看 Gemini 编辑器的四态状态行 + 同层切到
   // AI 族编辑器的动作；会话结束清空
   readonly linkedCredential: LinkedCredentialAction | null;
+  readonly resolveLinkedCredential: ((draft: EditorDraftView) => LinkedCredentialAction | null) | null;
+  readonly setupContextBanner: string | null;
   // 编辑草稿与打开时的基线（dirty = 逐字段对比，见 draftsEqual）
   readonly draft: EditorDraftView | null;
   readonly baselineDraft: EditorDraftView | null;
@@ -181,6 +191,7 @@ const bag: MutableEditorState = {
   editingId: "",
   hasSavedKey: false,
   openBaseUrl: "",
+  openPresetId: "",
   presets: [],
   onSave: async () => ({ ok: false, error: "保存回调未注入" }),
   onDelete: null,
@@ -188,6 +199,8 @@ const bag: MutableEditorState = {
   onAfterSave: null,
   onSessionEnd: null,
   linkedCredential: null,
+  resolveLinkedCredential: null,
+  setupContextBanner: null,
   draft: null,
   baselineDraft: null,
   generation: 0,
@@ -212,6 +225,7 @@ export interface EditorSessionInit {
   onDelete?: ProviderEditorDelete | null;
   editingId?: string;
   openBaseUrl?: string;
+  openPresetId?: string;
   hasSavedKey?: boolean;
   draft: EditorDraft;
   // 缺省 = cloneDraft(draft)（打开即基线）；显式 null = 无基线（手工挂载的测试）
@@ -220,6 +234,8 @@ export interface EditorSessionInit {
   onAfterSave?: (() => void) | null;
   onSessionEnd?: (() => void) | null;
   linkedCredential?: LinkedCredentialAction | null;
+  resolveLinkedCredential?: ((draft: EditorDraftView) => LinkedCredentialAction | null) | null;
+  setupContextBanner?: string | null;
 }
 
 // 打开一次编辑会话：会话控制字段的唯一写入点。
@@ -232,11 +248,14 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.onDelete = init.onDelete ?? null;
   bag.editingId = init.editingId ?? "";
   bag.openBaseUrl = init.openBaseUrl ?? "";
+  bag.openPresetId = init.openPresetId ?? init.draft.presetId ?? "";
   bag.hasSavedKey = Boolean(init.hasSavedKey);
   bag.firstSetup = init.firstSetup === true;
   bag.onAfterSave = init.onAfterSave ?? null;
   bag.onSessionEnd = init.onSessionEnd ?? null;
   bag.linkedCredential = init.linkedCredential ?? null;
+  bag.resolveLinkedCredential = init.resolveLinkedCredential ?? null;
+  bag.setupContextBanner = init.setupContextBanner?.trim() || null;
   bag.draft = init.draft;
   bag.baselineDraft = init.baselineDraft === undefined ? cloneDraft(init.draft) : init.baselineDraft;
   bag.voices = [];
@@ -251,9 +270,13 @@ export function endEditorSession(): void {
   bag.generation += 1;
   bag.open = false;
   bag.firstSetup = false;
+  bag.openBaseUrl = "";
+  bag.openPresetId = "";
   bag.onAfterSave = null;
   bag.onSessionEnd = null;
   bag.linkedCredential = null;
+  bag.resolveLinkedCredential = null;
+  bag.setupContextBanner = null;
   sessionObserver.observer?.disconnect();
   sessionObserver.observer = null;
   bag.host?.remove();

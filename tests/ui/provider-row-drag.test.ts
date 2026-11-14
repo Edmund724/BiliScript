@@ -62,7 +62,7 @@ function makeHarness(options: { withSmartRow?: boolean; order?: string[] } = {})
     row.innerHTML = `
       <div class="provider-row-line">
         <span class="provider-row-name">${id}</span>
-        <span class="provider-row-drag-handle" title="拖拽调整搜索顺序"></span>
+        <button type="button" class="provider-row-drag-handle" title="拖拽或按上下方向键调整搜索顺序" aria-label="调整 ${id} 搜索顺序"></button>
       </div>`;
     list.appendChild(row);
     handles[id] = row.querySelector<HTMLElement>(".provider-row-drag-handle")!;
@@ -230,5 +230,46 @@ describe("wireProviderRowDrag：回滚与失败静默（spec §6.10 / §12.3 写
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(harness.ids()).toEqual(["search_b", "search_a", "search_c"]);
+  });
+});
+
+describe("wireProviderRowDrag：键盘无障碍排序（P1-2）", () => {
+  it("聚焦把手按 ArrowDown/ArrowUp 调整顺序、保持焦点、更新 aria-live 提示并调用 onCommit", () => {
+    const harness = makeHarness({ withSmartRow: true });
+    harness.handles.a.focus();
+
+    const downEvent = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+    harness.handles.a.dispatchEvent(downEvent);
+
+    expect(downEvent.defaultPrevented).toBe(true);
+    expect(harness.ids()).toEqual([SMART_ID, "search_b", "search_a", "search_c"]);
+    expect(document.activeElement).toBe(harness.handles.a);
+    expect(harness.onCommit).toHaveBeenLastCalledWith(["search_b", "search_a", "search_c"]);
+    const liveNode = document.querySelector<HTMLElement>(".search-order-live-status");
+    expect(liveNode?.getAttribute("aria-live")).toBe("polite");
+    expect(liveNode?.textContent).toBe("a已移至第 2 位，共 3 位");
+
+    const upEvent = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+    harness.handles.a.dispatchEvent(upEvent);
+    expect(harness.ids()).toEqual([SMART_ID, "search_a", "search_b", "search_c"]);
+    expect(document.activeElement).toBe(harness.handles.a);
+    expect(harness.onCommit).toHaveBeenLastCalledWith(["search_a", "search_b", "search_c"]);
+    expect(liveNode?.textContent).toBe("a已移至第 1 位，共 3 位");
+  });
+
+  it("边界按 ArrowUp/ArrowDown 或单平台模式下不移动、不触发 onCommit", () => {
+    const harness = makeHarness();
+    harness.handles.a.focus();
+
+    const boundaryUp = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+    harness.handles.a.dispatchEvent(boundaryUp);
+    expect(boundaryUp.defaultPrevented).toBe(true);
+    expect(harness.ids()).toEqual(["search_a", "search_b", "search_c"]);
+    expect(harness.onCommit).not.toHaveBeenCalled();
+
+    harness.list.classList.add("search-chain-single-mode");
+    harness.handles.a.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(harness.ids()).toEqual(["search_a", "search_b", "search_c"]);
+    expect(harness.onCommit).not.toHaveBeenCalled();
   });
 });

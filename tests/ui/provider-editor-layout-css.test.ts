@@ -19,8 +19,8 @@ const READER_CSS = read("extension/entry/styles/reader.css");
 
 function ruleBlock(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
-  return match?.[1] ?? "";
+  const matches = Array.from(css.matchAll(new RegExp(`${escaped}\\s*(?:,[^{]*)?\\{([^}]*)\\}`, "g")));
+  return matches.map((m) => m[1] ?? "").join("\n");
 }
 
 describe("平台编辑 Modal：矮容器滚动与窄面板折行", () => {
@@ -78,5 +78,78 @@ describe("平台编辑 Modal：矮容器滚动与窄面板折行", () => {
     expect(dialog).toContain("overflow-y: auto");
     expect(dialog).toContain("overscroll-behavior: contain");
     expect(ruleBlock(READER_CSS, "#biliscript-reading-view .confirm-dialog-title")).toContain("font-weight: 700");
+  });
+});
+
+describe("语义色、校验作用域、玻璃防透字与窄屏/字号缩放适配", () => {
+  const ROWS_CSS = read("extension/entry/styles/reader-settings-rows.css");
+  const SHELL_CSS = read("extension/entry/styles/reader-settings-shell.css");
+  const GATE_CSS = read("extension/entry/styles/reader-gate.css");
+
+  it("错误文案/边框/图标统一使用 --biliscript-reader-danger，不误用 --biliscript-reader-accent", () => {
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-field-error")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-status[data-error=\"true\"]")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-model-result[data-state=\"error\"]")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-catalog-error")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-fetch-error")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(ROWS_CSS, "#biliscript-reading-view .provider-editor-host .ai-provider-model-error")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(SHELL_CSS, "#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-status[data-error=\"true\"]")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+    expect(ruleBlock(READER_CSS, ".biliscript-reading-explain-card-state.is-error")).toContain(
+      "var(--biliscript-reader-danger)"
+    );
+  });
+
+  it(":user-valid / :user-invalid 严格收窄到带 required / pattern 约束的输入", () => {
+    const providerValid = PROVIDERS_CSS.match(/.*:user-valid\s*\{[^}]*\}/g) ?? [];
+    const providerInvalid = PROVIDERS_CSS.match(/.*:user-invalid\s*\{[^}]*\}/g) ?? [];
+    expect(providerValid.length).toBeGreaterThan(0);
+    expect(providerInvalid.length).toBeGreaterThan(0);
+    for (const rule of [...providerValid, ...providerInvalid]) {
+      expect(rule).toContain(":is([required], [pattern])");
+    }
+
+    const gateValid = GATE_CSS.match(/.*:user-valid\s*\{[^}]*\}/g) ?? [];
+    const gateInvalid = GATE_CSS.match(/.*:user-invalid\s*\{[^}]*\}/g) ?? [];
+    expect(gateValid.length).toBeGreaterThan(0);
+    expect(gateInvalid.length).toBeGreaterThan(0);
+    for (const rule of [...gateValid, ...gateInvalid]) {
+      expect(rule).toContain(":is([required], [pattern])");
+    }
+    expect(gateInvalid[0]).toContain("var(--biliscript-reader-danger)");
+  });
+
+  it("子视图实底隔离底层头/表防 Flyme 透字叠影；底栏可折行、控件改 min-height 并支持长错换行", () => {
+    expect(
+      ruleBlock(
+        PROVIDERS_CSS,
+        "#biliscript-reading-view .provider-editor-dialog:has(> .provider-editor-fetch-dialog) > :is(.provider-editor-head, .provider-editor-form)"
+      )
+    ).toContain("visibility: hidden");
+    const gateFetch = ruleBlock(GATE_CSS, 'body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog');
+    expect(gateFetch).toContain("background: var(--biliscript-reader-surface)");
+    expect(gateFetch).toContain("backdrop-filter: none");
+
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-fetch-foot")).toContain(
+      "flex-wrap: wrap"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-status")).toContain(
+      "overflow-wrap: anywhere"
+    );
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-cancel")).toContain("min-height: 32px");
+    expect(ruleBlock(PROVIDERS_CSS, "#biliscript-reading-view .provider-editor-save")).toContain("min-height: 32px");
   });
 });

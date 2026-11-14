@@ -48,6 +48,8 @@ export interface ReaderChatFeedback {
       // 前往设置的分区目标（票 04：ASR 配置类拦截直达 ASR 平台编辑 / 自动转写开关）
       settingsTarget?: "asr";
       placement?: "input";
+      tone?: "default" | "success";
+      dismissible?: boolean;
     }
   ) => void;
   removeConversationContextNotice: () => void;
@@ -70,18 +72,25 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
       spinner = false,
       action,
       settingsTarget,
-      placement
+      placement,
+      tone = "default",
+      dismissible = false
     }: {
       openSettingsAction?: boolean;
       spinner?: boolean;
       action?: { label: string; onClick: () => void };
       settingsTarget?: "asr";
       placement?: "input";
+      tone?: "default" | "success";
+      dismissible?: boolean;
     } = {}
   ): void {
     removeConversationContextNotice();
     const notice = document.createElement("div");
     notice.className = "chat-context-notice";
+    if (tone === "success") {
+      notice.classList.add("is-success");
+    }
     notice.setAttribute("role", placement === "input" ? "alert" : "status");
     notice.textContent = String(message || "").trim();
     if (spinner) {
@@ -105,6 +114,21 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
       });
       notice.appendChild(document.createTextNode(" "));
       notice.appendChild(link);
+    }
+    if (dismissible) {
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "chat-notice-close";
+      closeBtn.setAttribute("aria-label", "关闭提示");
+      closeBtn.title = "关闭";
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        removeConversationContextNotice();
+      });
+      notice.appendChild(document.createTextNode(" "));
+      notice.appendChild(closeBtn);
     }
     (placement === "input" && inputCard ? inputCard : messages).prepend(notice);
     if (autoHideMs > 0) {

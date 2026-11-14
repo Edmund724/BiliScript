@@ -43,11 +43,11 @@ export interface ChatSelectionOverride {
 
 /**
  * 对话另选摘要：对话 tab 选了与生效投影不同的平台 / 模型时给出一句提示
- * （含切换位置），并声明不影响上方默认；无另选返回空串（调用方隐藏该行）。
+ * （含切换位置），并说明会同步更新默认平台；无另选返回空串（调用方隐藏该行）。
  */
 export function formatChatSelectionLine(override: ChatSelectionOverride | null): string {
   if (!override) return "";
-  return `对话当前使用 ${override.name} · ${override.model}（在视频页 AI 对话面板切换，不影响上方默认）`;
+  return `对话当前使用 ${override.name} · ${override.model}（在视频页 AI 对话面板切换会同步更新默认平台）`;
 }
 
 /**
@@ -113,4 +113,24 @@ export function syncAiDefaultBadge(
     modelLine.textContent = effectiveModel;
     line.insertAdjacentElement("afterend", modelLine);
   }
+}
+
+/**
+ * 同步 AI 平台行内「设为默认 / 默认」切换按钮状态。
+ */
+export function syncAiDefaultButtonState(
+  listNode: HTMLElement | null | undefined,
+  defaultProviderId: string
+): void {
+  if (!listNode) return;
+  const target = String(defaultProviderId || "").trim();
+  listNode.querySelectorAll<HTMLElement>(".ai-provider-row").forEach((row) => {
+    const button = row.querySelector<HTMLButtonElement>(".ai-provider-default-btn");
+    if (!button) return;
+    const isDefault = Boolean(target && row.dataset.providerId === target);
+    button.textContent = isDefault ? "默认" : "设为默认";
+    button.setAttribute("aria-pressed", String(isDefault));
+    button.classList.toggle("is-default", isDefault);
+    button.disabled = isDefault;
+  });
 }

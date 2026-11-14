@@ -7,21 +7,32 @@ import { describe, expect, it } from "vitest";
 import {
   classifyOverviewSetupError,
   MISSING_PROVIDER_KEY_MESSAGE,
-  NO_ACTIVE_PROVIDER_MESSAGE
+  NO_ACTIVE_MODEL_MESSAGE,
+  NO_ACTIVE_PROVIDER_MESSAGE,
+  SELECTED_PROVIDER_NOT_FOUND_MESSAGE
 } from "../../extension/core/overview-setup-error.js";
-import { NO_ACTIVE_PROVIDER_MESSAGE as HANDLERS_REEXPORT } from "../../extension/core/provider-handlers.js";
+import {
+  NO_ACTIVE_PROVIDER_MESSAGE as HANDLERS_REEXPORT,
+  SELECTED_PROVIDER_NOT_FOUND_MESSAGE as HANDLERS_NOT_FOUND_REEXPORT
+} from "../../extension/core/provider-handlers.js";
 
 describe("classifyOverviewSetupError", () => {
   it("无平台文案 → no-provider", () => {
     expect(classifyOverviewSetupError(NO_ACTIVE_PROVIDER_MESSAGE)).toBe("no-provider");
+    expect(classifyOverviewSetupError(SELECTED_PROVIDER_NOT_FOUND_MESSAGE)).toBe("no-provider");
   });
 
   it("缺 Key 文案 → missing-key", () => {
     expect(classifyOverviewSetupError(MISSING_PROVIDER_KEY_MESSAGE)).toBe("missing-key");
   });
 
+  it("缺模型文案 → no-model", () => {
+    expect(classifyOverviewSetupError(NO_ACTIVE_MODEL_MESSAGE)).toBe("no-model");
+  });
+
   it("provider-handlers re-export 与叶子同源", () => {
     expect(HANDLERS_REEXPORT).toBe(NO_ACTIVE_PROVIDER_MESSAGE);
+    expect(HANDLERS_NOT_FOUND_REEXPORT).toBe(SELECTED_PROVIDER_NOT_FOUND_MESSAGE);
   });
 
   it("非配置类错误 → null", () => {

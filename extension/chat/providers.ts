@@ -226,7 +226,8 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
       .map((provider) => ({ provider, models: normalizeProviderModels(provider) }))
       .filter((group) => group.models.length > 0);
     if (!groups.length) {
-      modelSelect.innerHTML = '<option value="">未配置平台</option>';
+      const emptyLabel = chatSessionState.providers.length > 0 ? "未配置模型" : "未配置平台";
+      modelSelect.innerHTML = `<option value="">${emptyLabel}</option>`;
       modelSelect.disabled = true;
       modelSelect.style.width = "96px";
       return;

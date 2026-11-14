@@ -526,3 +526,79 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     expect(ports).toHaveLength(0);
   });
 });
+
+describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防连点", () => {
+  it("模型选择器空态「前往设置」走首配闭环并写入返回意图，保存后显示可关闭成功提示", async () => {
+    await activateChat();
+    const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
+    clickElement(chip);
+    const panelSettingsBtn = document.querySelector<HTMLButtonElement>(".chat-model-empty-settings");
+    expect(panelSettingsBtn, "模型面板空态应渲染「前往设置」").not.toBeNull();
+
+    clickElement(panelSettingsBtn);
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [errorClass, session] = capturedSetupSession();
+    expect(errorClass).toBe("no-provider");
+    expect(resumeLeaf.peekChatSetupResumeIntent()).toMatchObject({ errorClass: "no-provider", mode: "blocked" });
+
+    providersPayload = [{ id: "p1", name: "平台一", models: ["m1"], enabled: true }];
+    session.onAfterSave();
+    await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
+    const notice = messagesEl().querySelector<HTMLElement>(".chat-context-notice");
+    expect(notice?.classList.contains("is-success")).toBe(true);
+    const closeBtn = notice?.querySelector<HTMLButtonElement>(".chat-notice-close") ?? null;
+    expect(closeBtn).not.toBeNull();
+    clickElement(closeBtn);
+    expect(messagesEl().querySelector(".chat-context-notice")).toBeNull();
+  });
+
+  it("已有启用平台但 models 为空：直接渲染缺模型引导并定位该 providerId 编辑", async () => {
+    providersPayload = [{ id: "p-empty", name: "空模型平台", models: [], enabled: true }];
+    settingsPayload = { defaultModel: "p-empty" };
+    await activateChat();
+
+    expect(
+      document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-model`)?.textContent
+    ).toBe("未配置模型");
+    expect(messagesEl().textContent).toContain("当前 AI 平台还没有配置可用模型");
+
+    clickElement(setupLink());
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [errorClass, _session, target] = capturedSetupSession();
+    expect(errorClass).toBe("missing-key");
+    expect(target).toEqual({ providerId: "p-empty" });
+    expect(resumeLeaf.peekChatSetupResumeIntent()).toMatchObject({
+      errorClass: "no-model",
+      providerId: "p-empty",
+      mode: "blocked"
+    });
+  });
+
+  it("快速双击防重入 & 旧会话 onSessionEnd 不清最新意图", async () => {
+    await activateChat();
+    let resolveFirst!: () => void;
+    setupMock.openReaderAiSetup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+    const link = setupLink();
+    clickElement(link);
+    clickElement(link);
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [, session1] = capturedSetupSession();
+    resolveFirst();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // 打开第二轮设置会话后，旧会话迟到的 onSessionEnd 不得误清第二轮刚写入的意图
+    clickElement(link);
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(2));
+    const intent2 = resumeLeaf.peekChatSetupResumeIntent();
+    expect(intent2).not.toBeNull();
+
+    session1.onSessionEnd();
+    expect(resumeLeaf.peekChatSetupResumeIntent()).toEqual(intent2);
+  });
+});
+

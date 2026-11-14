@@ -704,9 +704,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.hideHistoryPopover();
 
       const providerId = deps.getProviderId();
-      if (!providerId) {
+      const selectedModel = deps.getSelectedModel ? deps.getSelectedModel() : "__legacy__";
+      if (!providerId || !selectedModel) {
         // 配置类拦截屏（票 03）：状态屏的文案与「前往设置」动作由组合根产出
-        //（与无平台空态同源），这里只交标记。
+        //（与无平台 / 缺模型空态同源），这里只交标记。
         deps.ui.requestViewReset({ kind: "setup" });
         return "blocked";
       }

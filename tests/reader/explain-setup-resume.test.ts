@@ -15,6 +15,7 @@ import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 import {
   MISSING_PROVIDER_KEY_MESSAGE,
+  NO_ACTIVE_MODEL_MESSAGE,
   NO_ACTIVE_PROVIDER_MESSAGE
 } from "../../extension/core/overview-setup-error.js";
 
@@ -155,7 +156,7 @@ async function openCardInError(selection: string, error: Error): Promise<HTMLEle
 function capturedSetupSession() {
   const call = setupMock.openReaderAiSetup.mock.calls.at(-1);
   expect(call, "openReaderAiSetup 应已被调用").toBeTruthy();
-  return call as [string, { onAfterSave(): void; onSessionEnd(): void }];
+  return call as [string, { onAfterSave(): void; onSessionEnd(): void }, { providerId?: string } | undefined];
 }
 
 beforeEach(async () => {
@@ -421,3 +422,95 @@ describe("续跑意图失效：关卡片 / 换选区 / 换视频后旧意图不�
     expect(cardAction("setup")).not.toBeNull();
   });
 });
+
+describe("缺模型引导、防连点代次保护与保存后焦点不盗抢", () => {
+  it("resolveEditableAiProviderId 优先命中 defaultModel 启用平台，否则回落首个启用平台", async () => {
+    const { callbackStyleSendMessage } = await import("../helpers/chrome-runtime-host.js");
+    (chrome.runtime as unknown as { sendMessage: unknown }).sendMessage = callbackStyleSendMessage({
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [
+          { id: "p-disabled", enabled: false, models: [] },
+          { id: "p1", enabled: true, models: [] },
+          { id: "p2", enabled: true, models: [] }
+        ]
+      }),
+      "get-settings": () => ({ ok: true, settings: { defaultModel: "p2" } })
+    });
+    const { resolveEditableAiProviderId } = await import("../../extension/reader/settings-mode.js");
+    await expect(resolveEditableAiProviderId()).resolves.toBe("p2");
+  });
+
+  it("缺模型错误：渲染「去设置」，记录 no-model 意图并按 target.providerId 打开对应平台编辑", async () => {
+    const { callbackStyleSendMessage } = await import("../helpers/chrome-runtime-host.js");
+    (chrome.runtime as unknown as { sendMessage: unknown }).sendMessage = callbackStyleSendMessage({
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [{ id: "p-empty", enabled: true, models: [] }]
+      }),
+      "get-settings": () => ({ ok: true, settings: { defaultModel: "p-empty" } })
+    });
+
+    await openCardInError("工具", new Error(NO_ACTIVE_MODEL_MESSAGE));
+    expect(cardAction("setup")).not.toBeNull();
+    dispatchActionClick("setup");
+
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [errorClass, _session, target] = capturedSetupSession();
+    expect(errorClass).toBe("missing-key");
+    expect(target).toEqual({ providerId: "p-empty" });
+    expect(resumeLeaf.peekExplainSetupResumeIntent()).toMatchObject({
+      errorClass: "no-model"
+    });
+  });
+
+  it("快速双击去设置只打开一次 & 旧会话 onSessionEnd 不误清最新意图", async () => {
+    let resolveFirst!: () => void;
+    setupMock.openReaderAiSetup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+    await openCardInError("工具", new Error(NO_ACTIVE_PROVIDER_MESSAGE));
+    dispatchActionClick("setup");
+    dispatchActionClick("setup");
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [, session1] = capturedSetupSession();
+    resolveFirst();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    dispatchActionClick("setup");
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(2));
+    const intent2 = resumeLeaf.peekExplainSetupResumeIntent();
+    expect(intent2).not.toBeNull();
+
+    session1.onSessionEnd();
+    expect(resumeLeaf.peekExplainSetupResumeIntent()).toEqual(intent2);
+  });
+
+  it("保存续跑后关闭设置抽屉：焦点留在解释卡对话框，不被抢回字幕 Tab 按钮", async () => {
+    await openCardInError("传递信息的工具", new Error(MISSING_PROVIDER_KEY_MESSAGE));
+    const { openReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
+    // 原触发按钮在设置期间被卡片重建卸载（模拟 returnTarget.isConnected === false）
+    dispatchActionClick("setup");
+    await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
+    const [, session] = capturedSetupSession();
+    openReaderSettingsMode();
+    expect(state.reader.readingSettingsExpanded).toBe(true);
+
+    let resolveResume: (text: string) => void = () => {};
+    aiMock.explainSelection.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveResume = resolve; })
+    );
+    session.onAfterSave();
+
+    await vi.waitFor(() => expect(aiMock.explainSelection).toHaveBeenCalledTimes(1));
+    expect(state.reader.readingSettingsExpanded).toBe(false);
+    const dialog = explainCard().querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+    expect(dialog).not.toBeNull();
+    expect(document.activeElement).toBe(dialog);
+    resolveResume("已恢复。");
+  });
+});
+

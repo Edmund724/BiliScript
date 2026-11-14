@@ -62,11 +62,13 @@ import {
 } from "./provider-editor-state.js";
 import {
   DRAFT_INPUTS,
+  isSavedKeyReconfirmRequired,
   normalizeProtocolValue,
   presetBaseUrlForProtocol,
   presetProtocol,
   projectionBlocks,
-  renderProjection
+  renderProjection,
+  sessionProjectionContext
 } from "./provider-editor-projection.js";
 import {
   addModelRow,
@@ -82,7 +84,7 @@ import {
   getFetchDialog,
   openFetchDialog
 } from "./provider-editor-fetch-dialog.js";
-import { createFocusScope, type FocusScope } from "./focus-scope.js";
+import { createFocusScope, isolateHostSiblings, type FocusScope } from "./focus-scope.js";
 import {
   beginEditorValidation,
   focusEditorField,
@@ -126,12 +128,47 @@ const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamily
   }
 };
 
-// 本层焦点约束（打开时捕获触发控件，关闭/取消归还；确认框打开期间让位）
+// 本层焦点约束（打开时捕获触发控件，关闭/取消归还；确认框/拉取子视图打开期间让位）
 let focusScope: FocusScope | null = null;
-// 合法提交的在飞标记（重复点击 / Enter 连发只落盘一次）
+// 宿主下同级容器 inert 恢复函数（关闭 Modal 时恢复底层）
+let restoreSiblings: (() => void) | null = null;
+// 合法提交/删除/测试在飞标记（彼此互斥，防止保存/删除/测试并发）
 let saveInFlight = false;
+let deleteInFlight = false;
+let testInFlight = false;
 // 状态行当前是否在展示字段校验汇总：输入修正时据此只更新/清掉已解决的校验错误
 let validationStatusActive = false;
+// 状态行当前是否在展示「换预设/换地址需重新确认 Key」提示
+let reconfirmStatusActive = false;
+
+function currentLinkedCredential(draft = state.draft): LinkedCredentialAction | null {
+  if (state.resolveLinkedCredential && draft) {
+    return state.resolveLinkedCredential(draft);
+  }
+  return state.linkedCredential;
+}
+
+function linkedCredentialInnerHtml(linkedCredential: LinkedCredentialAction | null): string {
+  if (!linkedCredential) return "";
+  return `<span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText || "")}</span>${
+    linkedCredential.actionLabel
+      ? `\n          <button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
+      : ""
+  }`;
+}
+
+function syncLinkedCredentialDom(): void {
+  const container = getDialog()?.querySelector<HTMLElement>(".provider-editor-linked-credential");
+  if (!container) return;
+  const linked = currentLinkedCredential();
+  if (!linked) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = linkedCredentialInnerHtml(linked);
+}
 
 // ===== 音色列表（MOSS-LIVE 编辑器下拉）=====
 // 只在打开 Modal 时取一次（失败也记为已尝试），选项来自 /v1/audio/voices 分页
@@ -148,10 +185,11 @@ function primeEditorVoices(): void {
   if (!isMossLivePreset(preset)) return;
   const baseUrl = draft.baseUrl.trim();
   const apiKey = draft.apiKey.trim();
-  // 新增平台尚未填 Key 时无从鉴权：下拉只留「默认音色」，不发起请求
-  if (!baseUrl || (!apiKey && !state.hasSavedKey)) return;
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
+  // 新增平台尚未填 Key（或已换平台/地址待重新确认）时无从鉴权：下拉只留「默认音色」，不发起请求
+  if (!baseUrl || (!apiKey && (!state.hasSavedKey || reconfirmKey))) return;
   void runIfCurrent(
-    () => listLiveVoices({ baseUrl, apiKey, providerId: state.editingId }),
+    () => listLiveVoices({ baseUrl, apiKey, providerId: reconfirmKey ? "" : state.editingId }),
     {
       ok: (result) => {
         if (!result.ok) {
@@ -172,6 +210,7 @@ function primeEditorVoices(): void {
 // data-error，与平铺行 .ai-provider-status 的 CSS 契约同款）
 export function showStatus(text: string, isError = false): void {
   validationStatusActive = false;
+  reconfirmStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
   if (!statusNode) return;
   statusNode.hidden = false;
@@ -183,6 +222,26 @@ export function showStatus(text: string, isError = false): void {
 function showValidationStatus(text: string): void {
   showStatus(text, true);
   validationStatusActive = true;
+}
+
+function showReconfirmStatus(): void {
+  showStatus("已切换平台或地址，请重新确认 API Key", true);
+  reconfirmStatusActive = true;
+}
+
+function syncReconfirmFeedback(): void {
+  const draft = state.draft;
+  if (!draft) return;
+  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
+  const needsReconfirm = isSavedKeyReconfirmRequired(draft) && PROVIDER_FAMILY_ROWS[state.kind].editor.isKeyRequired(preset);
+  if (isEditorValidationAttempted()) {
+    return;
+  }
+  if (needsReconfirm) {
+    showReconfirmStatus();
+  } else if (reconfirmStatusActive) {
+    clearStatus();
+  }
 }
 
 // 校验态下输入修正后重算汇总行：只剩已解决错误时清空，仍有未解决项时换成首个。
@@ -210,6 +269,7 @@ function applyValidationState(): void {
 
 export function clearStatus(): void {
   validationStatusActive = false;
+  reconfirmStatusActive = false;
   const statusNode = getDialog()?.querySelector<HTMLElement>(".provider-editor-status");
   if (!statusNode) return;
   statusNode.hidden = true;
@@ -217,10 +277,34 @@ export function clearStatus(): void {
   statusNode.dataset.error = "false";
 }
 
+const BUSY_CONTROL_SELECTOR = [
+  ".provider-editor-test",
+  ".provider-editor-save",
+  ".provider-editor-delete",
+  ".provider-editor-linked-credential-btn",
+  ".provider-editor-fetch",
+  ".provider-editor-model-add",
+  ".provider-editor-model-remove",
+  ".provider-editor-model-test",
+  ".ai-provider-model-toggle",
+  ".custom-select-trigger",
+  ".provider-editor-preset",
+  ".provider-editor-protocol",
+  ".provider-editor-name",
+  ".provider-editor-baseurl",
+  ".provider-editor-apikey",
+  ".provider-editor-model",
+  ".provider-editor-model-id",
+  ".provider-editor-voice",
+  ".provider-editor-gemini-search"
+].join(", ");
+
 export function setBusy(isBusy: boolean): void {
   getDialog()
-    ?.querySelectorAll<HTMLButtonElement>(".provider-editor-test, .provider-editor-save")
-    .forEach((button) => (button.disabled = isBusy));
+    ?.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(BUSY_CONTROL_SELECTOR)
+    .forEach((control) => {
+      control.disabled = isBusy;
+    });
 }
 
 // ===== 协议/预设投影口径（provider-editor-projection）=====
@@ -251,10 +335,18 @@ export function closeProviderEditor(force = false): void {
   }
   document.removeEventListener("click", onDocumentClickCapture, true);
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-  // 焦点归还仍有效的触发控件；在飞保存标记随会话作废（重开不被旧会话卡住）
+  // 若拉取子视图仍挂在弹窗内，先清理其焦点约束与底层 inert 标记（不向触发按钮归还焦点）
+  closeFetchDialog(false);
+  // 先解除宿主外同级容器的 inert，再归还焦点给仍有效的触发控件
+  restoreSiblings?.();
+  restoreSiblings = null;
   focusScope?.dispose();
   focusScope = null;
   saveInFlight = false;
+  deleteInFlight = false;
+  testInFlight = false;
+  validationStatusActive = false;
+  reconfirmStatusActive = false;
   // 会话控制字段的唯一写入点在状态片（代际作废 + 摘宿主/观察器 + 清草稿）
   endEditorSession();
 }
@@ -293,13 +385,14 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
   const draft = state.draft!;
   // 预设回落与序列化都走族声明（每族知识唯一来源，行/编辑器同源）
   const preset = family.resolvePreset(state.presets, draft.presetId);
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
   return family.editor.serializeUpsert({
     id: state.editingId,
     preset,
     name: draft.name.trim() || preset?.name || "自定义",
     baseUrl: draft.baseUrl.trim().replace(/\/+$/, ""),
     apiKey: draft.apiKey.trim(),
-    hasSavedKey: state.hasSavedKey,
+    hasSavedKey: state.hasSavedKey && !reconfirmKey,
     models: normalizeDraftModels(draft.models),
     model: draft.model.trim(),
     liveGeminiNativeSearch: draft.liveGeminiNativeSearch === true,
@@ -310,8 +403,8 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
 }
 
 export async function save(): Promise<void> {
-  // 合法提交在飞时忽略重复提交（双击保存 / 表单连发）：一次提交只落盘一次
-  if (saveInFlight) return;
+  // 合法提交/删除/测试在飞或确认框打开时忽略重复提交：一次提交只落盘一次
+  if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   // 提交时才进入校验态（保留交互后校验）：首配缺模型、URL、Key 与单模型字段
   // 全部定位到具体控件并聚焦首个无效字段
   beginEditorValidation();
@@ -372,22 +465,26 @@ export async function save(): Promise<void> {
 // ===== 删除（编辑态，Modal 头部警示按钮；回收权限/删除消息/重渲在 onDelete） =====
 
 export async function deleteActive(): Promise<void> {
+  if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const onDelete = state.onDelete;
   if (!state.editingId || !onDelete) return;
+  const session = captureSession();
   // 面板内二次确认（ui/confirm-dialog.js）：原生 confirm 绘制在浏览器窗口中央，
-  // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听整体让位
-  if (!(await confirmDialog({
+  // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听与宿主整体让位
+  const confirmed = await confirmDialog({
     title: "删除平台",
     message: "确定要删除这个平台吗？删除后需要重新配置。",
     confirmText: "删除",
     danger: true,
     mountHost: state.host?.parentElement || undefined
-  }))) {
+  });
+  if (!confirmed || !session.isCurrent() || saveInFlight || deleteInFlight || testInFlight) {
     return;
   }
+  deleteInFlight = true;
   setBusy(true);
   showStatus("正在删除...");
-  await runIfCurrent(
+  await session.run(
     () =>
       onDelete(state.kind, {
         id: state.editingId,
@@ -401,10 +498,12 @@ export async function deleteActive(): Promise<void> {
           closeProviderEditor(true);
           return;
         }
+        deleteInFlight = false;
         setBusy(false);
         showStatus(result.error || "删除失败", true);
       },
       fail: (error) => {
+        deleteInFlight = false;
         setBusy(false);
         showStatus(`删除失败：${(error as Error).message || "未知错误"}`, true);
       }
@@ -419,6 +518,7 @@ export async function deleteActive(): Promise<void> {
 // 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
 
 export async function runTest(): Promise<void> {
+  if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   if (!family.editor.supportsPlatformTest) return;
   if (state.kind === "search") {
@@ -440,18 +540,26 @@ export async function runTest(): Promise<void> {
     showStatus("请填写模型名", true);
     return;
   }
+  const preset = family.resolvePreset(state.presets, draft.presetId);
+  const apiKey = draft.apiKey.trim();
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
+  if (!apiKey && reconfirmKey && family.editor.isKeyRequired(preset)) {
+    showReconfirmStatus();
+    return;
+  }
   // 手势不变式：本次点击直达权限代申请（此前零 await，等价行为断言见
   // tests/ui/provider-editor.test.ts 的点击当拍核验）。已授权时 Chrome 直接放行
   // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
+  testInFlight = true;
+  setBusy(true);
+  showStatus("正在测试...");
   const session = captureSession();
   await session.runWithOriginPreflight(
     family.editor.resolvePermissionOrigins(baseUrl, model),
     () => {
-      const preset = family.resolvePreset(state.presets, draft.presetId);
-      const apiKey = draft.apiKey.trim();
       const name = draft.name.trim() || preset?.name || "自定义";
       return inputIo.probePlatform({
-        id: state.editingId,
+        id: reconfirmKey ? "" : state.editingId,
         name,
         type: preset?.type || inputIo.defaultType,
         baseUrl,
@@ -460,23 +568,27 @@ export async function runTest(): Promise<void> {
       });
     },
     {
-      beforeWork: () => {
-        setBusy(true);
-        showStatus("正在测试...");
-      },
       denied: (error) => {
+        testInFlight = false;
+        setBusy(false);
         showStatus(
           `未测试：${error || "未取得该平台域名权限，无法测试连接"}。请重新授权后重试`,
           true
         );
       },
       ok: (resp) => {
+        testInFlight = false;
         setBusy(false);
         if (!resp?.ok) {
           showStatus(`失败：${resp?.error || "未知错误"}`, true);
           return;
         }
         showStatus("连接成功");
+      },
+      fail: (error) => {
+        testInFlight = false;
+        setBusy(false);
+        showStatus(`失败：${(error as Error)?.message || "未知错误"}`, true);
       }
     }
   );
@@ -494,6 +606,7 @@ export const SEARCH_TEST_QUERY = "联网搜索测试";
 // （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
 //「连接失败：<原因>」。分类复用 search-chain 的 classifySearchFailure（单一映射表）。
 export async function runSearchTest(): Promise<void> {
+  if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const family = PROVIDER_FAMILY_ROWS[state.kind];
   const draft = state.draft;
   if (!draft) return;
@@ -503,20 +616,40 @@ export async function runSearchTest(): Promise<void> {
     showStatus("请填写 API 地址", true);
     return;
   }
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
   let apiKey = draft.apiKey.trim();
-  // 编辑已存 Key 的平台时空输入沿用已存 Key（与保存链同语义）：只读存储，不写
-  if (!apiKey && state.hasSavedKey && state.editingId) {
+  if (!apiKey && reconfirmKey && family.editor.isKeyRequired(preset)) {
+    showReconfirmStatus();
+    return;
+  }
+  testInFlight = true;
+  setBusy(true);
+  showStatus("正在测试...");
+  const session = captureSession();
+  // 编辑已存 Key 的平台时空输入沿用已存 Key（与保存链同语义）：只读存储，不写；
+  // 已换预设/地址时禁止沿用旧平台已存 Key。
+  if (!apiKey && state.hasSavedKey && state.editingId && !reconfirmKey) {
     try {
       apiKey = (await searchProviderStore.getKey(state.editingId)) || "";
     } catch {
       apiKey = "";
+    }
+    if (!session.isCurrent()) {
+      if (!state.open) testInFlight = false;
+      return;
     }
   }
   // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
   // 同源判定）；取不到按状态给三态文案之一，不发起请求。
   if (preset?.id === "deepseek") {
     const resolved = await queryAiCredentialKey("deepseek");
+    if (!session.isCurrent()) {
+      if (!state.open) testInFlight = false;
+      return;
+    }
     if (!resolved.key) {
+      testInFlight = false;
+      setBusy(false);
       showStatus(getAiCredentialStatusText("deepseek", resolved.status), true);
       return;
     }
@@ -524,13 +657,13 @@ export async function runSearchTest(): Promise<void> {
   }
   // Key 必填判据与占位符 / required 同源（族声明的 isKeyRequired）
   if (!apiKey && family.editor.isKeyRequired(preset)) {
+    testInFlight = false;
+    setBusy(false);
     showStatus("请先填写 API Key", true);
     return;
   }
-  setBusy(true);
-  showStatus("正在测试...");
   // 会话结算（owner 2）：五态映射只写在成功与失败两支，过期回执静默丢弃
-  await runIfCurrent(
+  await session.run(
     () =>
       executeWebSearch(
         {
@@ -542,6 +675,7 @@ export async function runSearchTest(): Promise<void> {
       ),
     {
       ok: (outcome) => {
+        testInFlight = false;
         setBusy(false);
         // 200 但 0 条是失败态（空结果不能假装连通成功）
         if (!outcome.results.length) {
@@ -551,6 +685,7 @@ export async function runSearchTest(): Promise<void> {
         showStatus(`连接成功 · ${outcome.results.length} 条结果`);
       },
       fail: (error) => {
+        testInFlight = false;
         setBusy(false);
         const failure = classifySearchFailure(error);
         if (failure === "quota") {
@@ -606,15 +741,12 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
 }
 
 // 跨族凭据引用内联行（票 07/08）：消费族编辑器（伴看 Gemini Live / 搜索
-// DeepSeek）内展示四态状态文案与同层进入 AI 族编辑器的动作。
+// DeepSeek）内展示四态状态文案与同层进入 AI 族编辑器的动作。始终保留占位节点，
+// 以便新建或切预设时由 syncLinkedCredentialDom() 实时显隐。
 function linkedCredentialHtml(linkedCredential: LinkedCredentialAction | null): string {
-  if (!linkedCredential) return "";
   return `
-        <div class="provider-editor-linked-credential">
-          <span class="provider-editor-linked-credential-text">${escapeHtml(linkedCredential.statusText)}</span>
-          ${linkedCredential.actionLabel
-            ? `<button type="button" class="provider-editor-linked-credential-btn" data-provider-editor-action="linked-credential">${escapeHtml(linkedCredential.actionLabel)}</button>`
-            : ""}
+        <div class="provider-editor-linked-credential"${linkedCredential ? "" : " hidden"}>
+          ${linkedCredentialInnerHtml(linkedCredential)}
         </div>`;
 }
 
@@ -624,19 +756,14 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   // 各一份），本函数只做布局拼装（哪个 kind 出哪些块）
   const draft = state.draft;
   if (!draft) return "";
-  const blocks = projectionBlocks(draft, {
-    kind: options.kind,
-    presets: options.presets,
-    hasSavedKey: Boolean(item?.hasSavedKey),
-    voices: state.voices
-  });
+  const blocks = projectionBlocks(draft, sessionProjectionContext());
   const isAi = options.kind === "ai";
   const isSearch = options.kind === "search";
   const models = draft.models;
   const title = editorTitle(options.kind, Boolean(item?.id));
   // 跨族凭据引用内联行（票 07/08，伴看 Gemini Live / 搜索 DeepSeek 编辑器）：
-  // 四态状态文案 + 同层动作，纯会话态，随 endEditorSession 清空
-  const linkedCredential = state.linkedCredential;
+  // 优先动态回调，切预设或新建切到对应平台时即刻刷新
+  const linkedCredential = currentLinkedCredential(draft);
 
   return `
     <div class="provider-editor-mask" data-provider-editor-action="close"></div>
@@ -647,6 +774,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
       </header>
       <form class="provider-editor-form" novalidate>
         <div class="provider-editor-body">
+          <p class="provider-editor-context-banner"${state.setupContextBanner ? "" : " hidden"}>${escapeHtml(state.setupContextBanner || "")}</p>
           ${blocks.preset}
           ${isAi ? `\n        ${blocks.protocol}` : ""}
           ${blocks.name}
@@ -667,17 +795,13 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <button type="button" class="provider-editor-model-add" data-provider-editor-action="add-model">+ 添加模型</button>
           <p class="provider-editor-field-error" id="provider-editor-error-models" hidden></p>
         </div>
-        <p class="provider-editor-status" hidden></p>
         ${blocks.protocolNotes}`
             : isSearch
               ? `
         ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test" title="会真实发起一次搜索，占用一次平台额度" aria-describedby="provider-editor-test-hint">测试</button>
-          <div class="provider-editor-test-column">
-            <p class="provider-editor-status" hidden></p>
-            <p class="provider-editor-test-hint" id="provider-editor-test-hint">会真实发起一次搜索，占用一次平台额度</p>
-          </div>
+          <p class="provider-editor-test-hint" id="provider-editor-test-hint">会真实发起一次搜索，占用一次平台额度</p>
         </div>`
               : `
         ${blocks.model}
@@ -686,9 +810,9 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         ${linkedCredentialHtml(linkedCredential)}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
-          <p class="provider-editor-status" hidden></p>
         </div>`}
         </div>
+        <p class="provider-editor-status" hidden></p>
         <footer class="provider-editor-foot">
           <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">${escapeHtml(options.cancelLabel?.trim() || "取消")}</button>
           <button type="submit" class="provider-editor-save" data-provider-editor-action="save">${escapeHtml(options.submitLabel?.trim() || "保存")}</button>
@@ -772,7 +896,7 @@ export function wireDialog(): void {
     else if (action === "linked-credential") {
       // 跨族凭据动作（票 07）：装配方负责同层切换编辑器；异常不得阻断收场
       try {
-        state.linkedCredential?.onAction?.();
+        currentLinkedCredential()?.onAction?.();
       } catch {}
     }
     else if (action === "add-model") {
@@ -809,10 +933,9 @@ export function wireDialog(): void {
   // required 都在投影片的字段表内挂摘（与占位符同源，模板与联动同一份规则）。
 
   // 预设切换（候选 4 片 3：改 draft 后重投影）：baseUrl 未改过（空或仍是上一
-  // 预设默认值）才跟随（平铺行同款规则）。AI 名称留过实值（≠当前预设名）视为
-  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。单模型输入族
-  //（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——
-  // Modal 的 host 权限在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
+  // 预设默认值）才跟随（平铺行同款规则）。名称仅在为空或等于上一预设默认名时跟随
+  // 新预设名（保护用户手动修改过的名称）；Key 仅在新预设免 Key（requiresKey === false）
+  // 时清空，保留用户新填的 Key 草稿。编辑态切换预设/origin 时明确提示重新确认 Key。
   presetSelect?.addEventListener("change", () => {
     const next = family.resolvePreset(state.presets, presetSelect.value);
     const draft = state.draft;
@@ -841,24 +964,29 @@ export function wireDialog(): void {
         if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
           current.baseUrl = next.baseUrl || "";
         }
-        // 单模型输入族（ASR / Live）名称/模型无条件跟随、Key 清空（平铺行同款）；
-        // 搜索平台同款语义，只是无模型字段可跟
         if (family.editor.modelSource === "input") {
           current.model = next.model || "";
         }
-        current.name = next.name || "";
-        current.apiKey = "";
+        const currentName = current.name.trim();
+        if (!currentName || (previous && currentName === previous.name)) {
+          current.name = next.name || "";
+        }
+        if (next.requiresKey === false) {
+          current.apiKey = "";
+        }
       }
     });
     // 一次重投影覆盖全部字段：协议 trigger 显示 / Key 占位与 required / 名称
     // 占位 / baseUrl / 模型，不再逐字段手写
     renderProjection();
-    // 预设切换改变 required（如免 Key 预设）与联动值：校验态下重算字段错误；
-    // 未进入校验态时只清状态行（既有预设切换语义）
+    syncLinkedCredentialDom();
+    // 预设切换改变 required（如免 Key 预设 / 换平台重新确认 Key）与联动值：
+    // 校验态下重算字段错误；未进入校验态时按是否需重确认 Key 更新/清空状态行
     if (isEditorValidationAttempted()) {
       applyValidationState();
     } else {
       clearStatus();
+      syncReconfirmFeedback();
     }
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
     refreshModelCatalogMeta();
@@ -894,8 +1022,10 @@ export function wireDialog(): void {
         });
       }
       renderProjection();
+      syncLinkedCredentialDom();
       // 切协议可能联动改 baseUrl（protocolBaseUrls 端点）：校验态下重算字段错误
       applyValidationState();
+      syncReconfirmFeedback();
       // 切协议可能联动改 baseUrl（protocolBaseUrls 端点），元数据跟着重算
       refreshModelCatalogMeta();
     });
@@ -935,14 +1065,24 @@ export function wireDialog(): void {
       editDraft((draft) => {
         draft[field.key] = input.value;
       });
+      if (field.key === "baseUrl") {
+        renderProjection();
+        syncLinkedCredentialDom();
+        refreshModelCatalogMeta();
+      } else if (field.key === "apiKey") {
+        renderProjection();
+      }
       if (field.key !== "name") {
         revalidateEditorField(field.key);
+      }
+      if (field.key === "baseUrl" || field.key === "apiKey") {
+        syncReconfirmFeedback();
       }
       syncValidationStatus();
     });
   }
   // AI 目录行：行动态增删，输入事件按当前行序整列回写 draft.models（行 DOM
-  // 就是 draft.models 的投影，一一对应）
+  // 就是 draft.models 的投影，一一对应），并实时重算元数据与 models 字段校验
   dialog.querySelector<HTMLElement>(".provider-editor-model-list")?.addEventListener("input", (event) => {
     const target = event.target as HTMLElement;
     if (!target.classList.contains("provider-editor-model-id")) return;
@@ -953,14 +1093,10 @@ export function wireDialog(): void {
         (input) => input.value
       );
     });
+    refreshModelCatalogMeta();
+    revalidateEditorField("models");
+    syncValidationStatus();
   });
-
-  // 只读模型元数据（model-catalog/04）：改 API 地址（custom/未知预设的身份来源）
-  // 或改模型 ID 都要重算；目录行是动态增删的，用委托收 input
-  dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")?.addEventListener("input", () => refreshModelCatalogMeta());
-  dialog
-    .querySelector<HTMLElement>(".provider-editor-model-list")
-    ?.addEventListener("input", () => refreshModelCatalogMeta());
 
   // 单模型输入族（ASR / Live）侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）
   const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
@@ -973,10 +1109,11 @@ export function wireDialog(): void {
       showStatus: (_node, text, isError) => showStatus(text, isError),
       fetchModels: ({ baseUrl, apiKey, providerId }) => {
         const preset = family.resolvePreset(state.presets, state.draft?.presetId || "");
+        const reconfirmKey = isSavedKeyReconfirmRequired();
         return inputIo.fetchModels({
           baseUrl,
           apiKey,
-          providerId: providerId || state.editingId,
+          providerId: reconfirmKey ? "" : (providerId || state.editingId),
           type: preset?.type
         });
       },
@@ -992,7 +1129,7 @@ export function wireDialog(): void {
         }
         return family.editor.isKeyRequired(preset);
       },
-      hasSavedKey: () => Boolean(state.hasSavedKey)
+      hasSavedKey: () => Boolean(state.hasSavedKey && !isSavedKeyReconfirmRequired())
     });
   }
 }
@@ -1004,6 +1141,7 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   if (!host) {
     return;
   }
+  const initialDraft = options.initialDraft ? cloneDraft(options.initialDraft) : buildInitialDraft(options);
   // 会话控制字段的唯一写入点（状态片原语）：draft 真源与 dirty 基线先就位，
   // 模板渲染（buildDialogHtml）只是它的投影
   beginEditorSession({
@@ -1014,30 +1152,38 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
     onDelete: options.onDelete || null,
     editingId: String(options.item?.id || ""),
     openBaseUrl: String(options.item?.baseUrl || ""),
+    openPresetId: String(options.item?.presetId || initialDraft.presetId || ""),
     hasSavedKey: Boolean(options.item?.hasSavedKey),
     firstSetup: options.firstSetup === true,
     onAfterSave: options.onAfterSave ?? null,
     onSessionEnd: options.onSessionEnd ?? null,
     linkedCredential: options.linkedCredential ?? null,
+    resolveLinkedCredential: options.resolveLinkedCredential ?? null,
+    setupContextBanner: options.setupContextBanner ?? null,
     // 恢复草稿（票 07）：跨族凭据往返后显式带回原草稿与 dirty 基线；缺省由
     // 编辑目标/预设推导初稿、打开即基线
-    draft: options.initialDraft ? cloneDraft(options.initialDraft) : buildInitialDraft(options),
+    draft: initialDraft,
     ...(options.baselineDraft !== undefined ? { baselineDraft: options.baselineDraft } : {})
   });
   host.innerHTML = buildDialogHtml(options);
+  // 隔离宿主同级容器，防止 Tab 穿透到底层页面或设置面板
+  restoreSiblings = isolateHostSiblings(host);
   // 投影水合：模板已按同一份字段表渲染，这里再走一遍 apply，把「投影规则」
   //（含 required 挂摘、Key 占位符等）统一落到 DOM，随后联动只调 renderProjection
   renderProjection();
   wireDialog();
   // 新会话的首次提交前不展示字段错误
   resetEditorValidation();
+  if (options.initialStatus?.message) {
+    showStatus(options.initialStatus.message, options.initialStatus.isError === true);
+  }
   // 焦点约束：打开即入 Dialog（Tab 在层内环绕），关闭/取消后归还仍有效的触发
-  // 控件；确认框打开期间本层让位（一次输入只结算最上层）
+  // 控件；确认框与模型拉取子视图打开期间本层让位（一次输入只结算最上层）
   const dialog = getDialog();
   if (dialog) {
     focusScope = createFocusScope(dialog, {
       initialFocus: dialog,
-      isActive: () => !isConfirmDialogOpen()
+      isActive: () => !isConfirmDialogOpen() && !getFetchDialog()
     });
   }
   primeEditorVoices();

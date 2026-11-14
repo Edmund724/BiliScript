@@ -21,7 +21,7 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
-import { createFocusScope, type FocusScope } from "./focus-scope.js";
+import { createFocusScope, isolateHostSiblings, type FocusScope } from "./focus-scope.js";
 
 export interface ConfirmDialogOptions {
   message: string;
@@ -44,6 +44,7 @@ interface ConfirmState {
   host: HTMLElement | null;
   observer: MutationObserver | null;
   focusScope: FocusScope | null;
+  restoreSiblings: (() => void) | null;
   // 代际号：结算（resolve + 清场）只认最后一次打开——重复打开、抽屉收起、
   // 迟到点击都不会把新弹层误关或重复 resolve
   generation: number;
@@ -54,6 +55,7 @@ const state: ConfirmState = {
   host: null,
   observer: null,
   focusScope: null,
+  restoreSiblings: null,
   generation: 0
 };
 
@@ -78,6 +80,9 @@ function settle(generation: number, result: ConfirmDialogResult): void {
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
   state.host?.remove();
   state.host = null;
+  // 先解除下层 inert，再归还焦点（否则 returnTarget 仍处 inert 无法接收焦点）
+  state.restoreSiblings?.();
+  state.restoreSiblings = null;
   state.focusScope?.dispose();
   state.focusScope = null;
   resolvePending(result);
@@ -156,6 +161,7 @@ export function confirmDialogWithResult(options: ConfirmDialogOptions): Promise<
   state.host = host;
   state.open = true;
   view.appendChild(host);
+  state.restoreSiblings = isolateHostSiblings(host);
 
   // 委托挂宿主（mask 与 dialog 的兄弟结构，同 provider-editor 的注释）；
   // stopPropagation 同款：点击不外泄成抽屉外点

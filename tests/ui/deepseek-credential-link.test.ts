@@ -308,7 +308,7 @@ describe("往返：恢复搜索草稿与保存后重查引用", () => {
     expect(dialog()!.querySelector<HTMLInputElement>(".provider-editor-name")!.value)
       .toBe("DeepSeek 搜索草稿");
     await vi.waitFor(() => {
-      expect(host.querySelector("#biliscriptSettingsStatus")!.textContent)
+      expect(dialog()!.querySelector(".provider-editor-status")!.textContent)
         .toContain("请继续保存搜索平台记录");
     });
     await vi.waitFor(() => {

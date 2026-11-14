@@ -25,12 +25,15 @@ export interface FocusScopeOptions {
 }
 
 export interface FocusScope {
-  dispose(): void;
+  dispose(restoreFocus?: boolean): void;
 }
 
 function isVisible(element: HTMLElement): boolean {
   if (element.hidden || element.closest("[hidden]")) return false;
-  if (element.getAttribute("aria-hidden") === "true") return false;
+  if (element.closest('[aria-hidden="true"]')) return false;
+  for (let cur: HTMLElement | null = element; cur; cur = cur.parentElement) {
+    if (cur.inert || cur.hasAttribute("inert")) return false;
+  }
   const view = element.ownerDocument.defaultView;
   if (!view) return true;
   const style = view.getComputedStyle(element);
@@ -50,6 +53,28 @@ function captureReturnTarget(explicit: HTMLElement | null | undefined): HTMLElem
   if (!(active instanceof HTMLElement)) return null;
   if (active === document.body || active === document.documentElement) return null;
   return active;
+}
+
+// 隔离同级容器：把宿主父容器下除本宿主外、尚未处于 inert 态的同级节点置为 inert，
+// 返回幂等恢复函数（支持多层弹层叠加时逐层隔离与恢复，不误解开底层隔离）。
+export function isolateHostSiblings(host: HTMLElement): () => void {
+  const parent = host.parentElement;
+  if (!parent) return () => {};
+  const isolated: HTMLElement[] = [];
+  for (const child of Array.from(parent.children)) {
+    if (!(child instanceof HTMLElement) || child === host) continue;
+    if (child.inert || child.hasAttribute("inert")) continue;
+    child.inert = true;
+    isolated.push(child);
+  }
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    for (const sibling of isolated) {
+      sibling.inert = false;
+    }
+  };
 }
 
 export function createFocusScope(container: HTMLElement, options: FocusScopeOptions = {}): FocusScope {
@@ -102,12 +127,14 @@ export function createFocusScope(container: HTMLElement, options: FocusScopeOpti
   (options.initialFocus ?? container).focus({ preventScroll: true });
 
   return {
-    dispose(): void {
+    dispose(restoreFocus = true): void {
       if (disposed) return;
       disposed = true;
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("focusin", onFocusIn, true);
-      restore();
+      if (restoreFocus) {
+        restore();
+      }
     }
   };
 }

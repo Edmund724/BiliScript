@@ -15,8 +15,9 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
+import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { captureSession, editDraft, getDialog, readField, runIfCurrent, state } from "./provider-editor-state.js";
-import { renderProjection } from "./provider-editor-projection.js";
+import { isSavedKeyReconfirmRequired, renderProjection } from "./provider-editor-projection.js";
 import { loadModelCatalog, loadedModelCatalog } from "./lazy-model-catalog.js";
 
 // ===== AI 模型目录（multi-model-catalog 阶段2：内联行 + 行级测试 + 拉取弹窗） =====
@@ -104,6 +105,13 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   const protocol = draft.protocol;
   const presetId = draft.presetId;
   const apiKey = draft.apiKey.trim();
+  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  const preset = family.resolvePreset(state.presets, presetId);
+  if (!apiKey && reconfirmKey && family.editor.isKeyRequired(preset)) {
+    fail("已切换平台或地址，请先重新确认 API Key");
+    return;
+  }
   const token = (Number(row.dataset.testToken) || 0) + 1;
   row.dataset.testToken = String(token);
   if (result) {
@@ -126,7 +134,7 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
     [baseUrl],
     () =>
       testAiProviderConnection({
-        providerId: state.editingId,
+        providerId: reconfirmKey ? "" : state.editingId,
         baseUrl,
         apiKey,
         model,

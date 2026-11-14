@@ -35,6 +35,9 @@
 
 export { closeProviderEditor, isProviderEditorOpen, openProviderEditor } from "./provider-editor-modal.js";
 export type {
+  EditorDraft,
+  EditorDraftView,
+  LinkedCredentialAction,
   ProviderEditorDelete,
   ProviderEditorKind,
   ProviderEditorOpenOptions,

@@ -25,7 +25,7 @@
 // 取消/关抽屉/换选区/换视频均作废。非配置类错误保持原重试语义。
 
 import { state } from "../core/state.js";
-import { classifyOverviewSetupError } from "../core/overview-setup-error.js";
+import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
@@ -40,7 +40,12 @@ import {
   consumeExplainSetupResumeIntent,
   setExplainSetupResumeIntent
 } from "./explain-setup-resume.js";
-import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen } from "./settings-mode.js";
+import {
+  closeReaderSettingsMode,
+  focusProviderEditorModelControl,
+  hasReaderSettingsOverlayOpen,
+  resolveEditableAiProviderId
+} from "./settings-mode.js";
 import { activateScriptTab } from "./script-tab-activation.js";
 
 type ExplainCardPhase = "loading" | "ready" | "error";
@@ -268,18 +273,24 @@ function startExplainRequest(): void {
   })();
 }
 
+let explainSetupOpenInFlight = false;
+let explainSetupSessionEpoch = 0;
+
 // 首配「去设置」（票 02）：error 态的分类在渲染期已用同一分类器判过，点击时再判
 // 一次兜底（error 只会在新一轮请求后改写，但入口收敛在这里）；记录续跑意图
 // （选区/整句/时刻/下标 + 卡片代际号 + 视频身份快照）并直达正确的平台编辑界面
-// （无记录新增 / 缺 Key 聚焦 Key，出口在 ui/settings-panel 的 openReaderAiSetup）。
+// （无记录新增 / 缺 Key 聚焦 Key / 缺模型编辑该平台并聚焦模型配置）。
 function beginExplainSetup(): void {
-  if (!card.open) {
+  if (!card.open || explainSetupOpenInFlight) {
     return;
   }
   const errorClass = classifyOverviewSetupError(card.error);
   if (!errorClass) {
     return;
   }
+  explainSetupOpenInFlight = true;
+  const sessionEpoch = ++explainSetupSessionEpoch;
+  const targetRunId = card.runId;
   setExplainSetupResumeIntent({
     selection: card.selection,
     line: card.line,
@@ -291,17 +302,51 @@ function beginExplainSetup(): void {
     createdAt: Date.now(),
     errorClass
   });
-  void import("../ui/settings-panel.js").then(({ openReaderAiSetup }) => {
-    openReaderAiSetup(errorClass, {
-      onAfterSave: () => {
-        // 先消费意图并续跑（同一卡片重发，用户可见 loading → 结果），再退出
-        // 设置抽屉；抽屉关闭的意图清除随后落到已消费的空槽。
-        resumeExplainAfterSetup();
-        closeReaderSettingsMode({ restoreFocus: true });
-      },
-      onSessionEnd: () => clearExplainSetupResumeIntent()
-    });
-  });
+  void (async () => {
+    try {
+      const resolvedProviderId = errorClass === "no-model" ? await resolveEditableAiProviderId() : "";
+      const { openReaderAiSetup } = await import("../ui/settings-panel.js");
+      if (!card.open || card.runId !== targetRunId || sessionEpoch !== explainSetupSessionEpoch) {
+        return;
+      }
+      // settings-panel.openReaderAiSetup 仅当 errorClass === "missing-key" 时按 providerId 编辑；
+      // "no-model" 在有目标平台时借道 "missing-key" + target.providerId 打开对应平台编辑页，随后聚焦模型配置。
+      const uiSetupClass: OverviewSetupErrorClass =
+        errorClass === "no-model" && resolvedProviderId ? "missing-key" : errorClass;
+      await openReaderAiSetup(
+        uiSetupClass,
+        {
+          onAfterSave: () => {
+            if (sessionEpoch !== explainSetupSessionEpoch) {
+              return;
+            }
+            // 先消费意图并续跑（同一卡片重发，用户可见 loading → 结果），再退出
+            // 设置抽屉；若续跑已接管焦点（聚焦解释卡），禁止 restoreFocus 把焦点抢回 Tab 按钮。
+            const resumed = resumeExplainAfterSetup();
+            closeReaderSettingsMode({ restoreFocus: !resumed });
+          },
+          onSessionEnd: () => {
+            if (sessionEpoch !== explainSetupSessionEpoch) {
+              return;
+            }
+            clearExplainSetupResumeIntent();
+          }
+        },
+        resolvedProviderId ? { providerId: resolvedProviderId } : undefined
+      );
+      if (errorClass === "no-model" && card.open && sessionEpoch === explainSetupSessionEpoch) {
+        focusProviderEditorModelControl();
+      }
+    } catch {
+      if (sessionEpoch === explainSetupSessionEpoch) {
+        clearExplainSetupResumeIntent();
+      }
+    } finally {
+      if (sessionEpoch === explainSetupSessionEpoch) {
+        explainSetupOpenInFlight = false;
+      }
+    }
+  })();
 }
 
 /**
@@ -342,6 +387,8 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   if (!selection) {
     return;
   }
+  explainSetupSessionEpoch += 1;
+  explainSetupOpenInFlight = false;
   card.controller?.abort();
   card.runId += 1;
   card.open = true;
@@ -358,6 +405,8 @@ export function closeReaderExplainCard(): void {
   if (!card.open) {
     return;
   }
+  explainSetupSessionEpoch += 1;
+  explainSetupOpenInFlight = false;
   // 首配续跑意图随卡片关闭作废（票 02：关卡片即失效；保存成功路径已先消费）。
   clearExplainSetupResumeIntent();
   unbindCardEsc();

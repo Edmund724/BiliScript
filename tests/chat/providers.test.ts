@@ -238,16 +238,20 @@ describe("renderModelSelect", () => {
     ]);
   });
 
-  it("全部平台零模型：等同未配置（disabled + 占位）", () => {
+  it("无平台与全部平台零模型：区分未配置平台与未配置模型占位", () => {
+    const { modelSelect, providerPrefs } = makeHarness();
+
+    chatSessionStateForTests.providers = [];
+    providerPrefs.renderModelSelect();
+    expect(modelSelect.disabled).toBe(true);
+    expect(modelSelect.innerHTML).toContain("未配置平台");
+
     chatSessionStateForTests.providers = [
       { id: "p1", name: "空目录平台", models: [], enabled: true }
     ];
-    const { modelSelect, providerPrefs } = makeHarness();
-
     providerPrefs.renderModelSelect();
-
     expect(modelSelect.disabled).toBe(true);
-    expect(modelSelect.innerHTML).toContain("未配置平台");
+    expect(modelSelect.innerHTML).toContain("未配置模型");
   });
 
   it("复合值编解码往返", () => {
