@@ -49,6 +49,7 @@ import { readerPorts } from "./reader-bus.js";
 // transcribe-banner 内部，稳态零 DOM 写）。transcribe-banner 是零依赖呈现叶子
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
+import { isReaderExplainCardOpen } from "./explain-card.js";
 import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
 
 
@@ -58,6 +59,7 @@ import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./su
 // manualScrollPauseUntil / programmaticScrollUntil live in ./state.js,
 // the shared leaf both this module and the LAYOUT layer read/write directly.
 let syncTimer = 0; // readingSyncTimer
+let hadSelectionOnPointerDown = false;
 
 // ===== subtitle-sync.js (playback sync) =====
 
@@ -266,7 +268,9 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
       }
     }
     if (scrollSubtitleNode) {
-      scrollReadingSubtitleItemIntoView(scrollSubtitleNode);
+      if (!isReaderExplainCardOpen()) {
+        scrollReadingSubtitleItemIntoView(scrollSubtitleNode);
+      }
     }
   }
 
@@ -376,13 +380,19 @@ export function jumpReadingTarget(seconds: number | string) {
   seekReadingTarget(seconds, { resumePlayback: true, scrollBehavior: "smooth" });
 }
 
+export function markSubtitlePointerDownSelection(hasSelection?: boolean) {
+  hadSelectionOnPointerDown = hasSelection ?? Boolean(window.getSelection()?.toString().trim());
+}
+
 export function onReadingSubtitleClick(event: MouseEvent) {
+  const hadSelection = hadSelectionOnPointerDown;
+  hadSelectionOnPointerDown = false;
   const target = closestSubtitleItem(event.target as Element | null);
   if (!target) {
     return;
   }
   // Don't jump if user is selecting text
-  if (window.getSelection()?.toString().trim()) {
+  if (hadSelection || window.getSelection()?.toString().trim()) {
     return;
   }
   jumpReadingTarget(target.dataset.seconds ?? 0);

@@ -38,7 +38,7 @@ import { clipState, state } from "../core/state.js";
 import { getReadingSubtitleItems } from "../subtitle/core.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
-import { ids } from "./state.js";
+import { ids, setProgrammaticScrollUntil } from "./state.js";
 import {
   findSubtitleItem,
   getSubtextNode,
@@ -274,16 +274,35 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     currentActiveItemNode = node;
     if (scroll) {
       // 搜索定位即「用户在看这里」：暂停自动跟随（与手动滚动同语义，保持手动
-      // 浏览态，Follow 悬浮按钮同步出现），再把命中条目滚到视口中部。
+      // 浏览态，Follow 悬浮按钮同步出现），再在列表容器内居中滚动命中条目。
       deps.noteManualReaderInteraction();
-      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      setProgrammaticScrollUntil(Date.now() + 800);
+      const listRect = list.getBoundingClientRect();
+      const nodeRect = node.getBoundingClientRect();
+      const targetTop =
+        listRect.height > 0 && nodeRect.height > 0
+          ? Math.max(
+              0,
+              Math.round(
+                list.scrollTop + (nodeRect.top - listRect.top) - Math.max(0, (list.clientHeight - node.clientHeight) / 2)
+              )
+            )
+          : Math.max(
+              0,
+              Math.round(node.offsetTop - list.offsetTop - Math.max(0, (list.clientHeight - node.clientHeight) / 2))
+            );
+      list.scrollTo?.({ top: targetTop, behavior: "smooth" });
     }
   }
 
   function updateSearchControls(): void {
+    const clearBtn = document.getElementById(ids.readingSearchClearBtn) as HTMLButtonElement | null;
     const countNode = document.getElementById(ids.readingSearchCount);
     const prev = document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement | null;
     const next = document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement | null;
+    if (clearBtn) {
+      clearBtn.hidden = !query;
+    }
     if (countNode) {
       countNode.textContent = !query
         ? ""

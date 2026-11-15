@@ -244,8 +244,9 @@ export function createTranscriptionEngine({
 
   async function runChunk(chunk: TranscribeChunk): Promise<void> {
     try {
-      const result = await transcribeChunk({ chunk, transcribe, onProgress, retries, retryDelayMs });
+      const result = await transcribeChunk({ chunk, transcribe, retries, retryDelayMs });
       completedChunks += 1;
+      onProgress?.(`语音识别已完成 ${completedChunks} 片…`);
       deliver(chunk, result);
     } catch (error) {
       // 重试耗尽仍失败：跳过并计数，不中止整条管线（Q8a 口径）

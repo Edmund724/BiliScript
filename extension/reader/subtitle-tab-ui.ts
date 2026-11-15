@@ -70,7 +70,7 @@ import {
 } from "../subtitle/labels.js";
 import { resolveTrackTarget } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-import { isProgrammaticScrolling, ids } from "./state.js";
+import { isProgrammaticScrolling, isReadingSubtitleBodyVisible, ids } from "./state.js";
 // 阅读域设置键面（主表派生）：双语两键的收敛订阅从它取，不手抄键数组。
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import { state } from "../core/state.js";
@@ -129,6 +129,14 @@ export function buildSubtitleTabBodyHtml(): string {
                   placeholder="搜索字幕…"
                   aria-label="搜索字幕"
                 />
+                <button
+                  id="${ids.readingSearchClearBtn}"
+                  type="button"
+                  class="biliscript-reading-search-clear"
+                  title="清空搜索"
+                  aria-label="清空搜索"
+                  hidden
+                >×</button>
                 <span id="${ids.readingSearchCount}" class="biliscript-reading-search-count" aria-live="polite"></span>
                 <button
                   id="${ids.readingSearchPrevBtn}"
@@ -169,7 +177,7 @@ export function buildSubtitleTabBodyHtml(): string {
                  取，见该模块的相位文案表）；进度为不确定样式（页面侧拿不到片
                  x/y），进度行实时显示状态栏文本。初始文案是转写中相位的同款，
                  供骨架先于首拍驱动的窗口期显示 -->
-            <aside id="${ids.readingTranscribeBanner}" class="biliscript-reading-asr-banner" hidden>
+            <aside id="${ids.readingTranscribeBanner}" class="biliscript-reading-asr-banner" role="status" aria-live="polite" hidden>
               <div id="${ids.readingTranscribeBannerTitle}" class="biliscript-reading-asr-title">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].title}</div>
               <p id="${ids.readingTranscribeBannerCopy}" class="biliscript-reading-asr-copy">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy}</p>
               <div class="biliscript-reading-asr-track" aria-hidden="true"><div class="biliscript-reading-asr-fill"></div></div>
@@ -1077,10 +1085,53 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     withReader("subtitle search next", (reader) => reader.moveReadingSubtitleSearch(1));
   });
 
+  document.getElementById(ids.readingSearchClearBtn)?.addEventListener("click", () => {
+    flushSearchDebounce();
+    readingSearchInput.value = "";
+    withReader("subtitle search clear", (reader) => {
+      reader.refreshReadingSubtitleSearch({ scroll: false });
+    });
+    readingSearchInput.focus();
+  });
+
+  const docWithSearchShortcut = document as Document & {
+    __biliscriptSubtitleSearchShortcut?: (event: KeyboardEvent) => void;
+  };
+  if (docWithSearchShortcut.__biliscriptSubtitleSearchShortcut) {
+    document.removeEventListener("keydown", docWithSearchShortcut.__biliscriptSubtitleSearchShortcut);
+  }
+  const onDocumentSearchShortcut = (event: KeyboardEvent): void => {
+    if (
+      event.defaultPrevented ||
+      !(event.ctrlKey || event.metaKey) ||
+      event.shiftKey ||
+      event.altKey ||
+      event.key.toLowerCase() !== "f"
+    ) {
+      return;
+    }
+    if (!isReadingSubtitleBodyVisible()) {
+      return;
+    }
+    const input = document.getElementById(ids.readingSearchInput) as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+    event.preventDefault();
+    input.focus();
+    input.select();
+  };
+  docWithSearchShortcut.__biliscriptSubtitleSearchShortcut = onDocumentSearchShortcut;
+  document.addEventListener("keydown", onDocumentSearchShortcut);
+
   // ===== PR3 复制 / 导出（纯接线，逻辑在总结链 subtitle/ui.ts） =====
   // 复制 = 字幕纯文本（copySubtitleTranscript，buildTxt 管线，transcript 语义）；
   // 导出 = SRT/TXT（downloadSubtitle，按 downloadFormat 设置）。
+  let subtitleCopyInFlight = false;
+  let subtitleExportInFlight = false;
   byId(ids.readingCopySubtitleBtn).addEventListener("click", async () => {
+    if (subtitleCopyInFlight) return;
+    subtitleCopyInFlight = true;
     try {
       const chain = await ensureSummarizeChain();
       const ok = await chain.copySubtitleTranscript();
@@ -1092,14 +1143,27 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       }
     } catch (error) {
       logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
+    } finally {
+      subtitleCopyInFlight = false;
     }
   });
   byId(ids.readingExportSubtitleBtn).addEventListener("click", async () => {
+    if (subtitleExportInFlight) return;
+    subtitleExportInFlight = true;
     try {
       const chain = await ensureSummarizeChain();
-      await chain.downloadSubtitle();
+      const ok = await chain.downloadSubtitle();
+      if (ok) {
+        flashCopySuccess(byId(ids.readingExportSubtitleBtn), {
+          originalSvg: READING_DOWNLOAD_ICON,
+          originalLabel: "导出字幕",
+          copiedLabel: "已导出"
+        });
+      }
     } catch (error) {
       logWarn("[BILISCRIPT] download subtitle failed", error);
+    } finally {
+      subtitleExportInFlight = false;
     }
   });
 
@@ -1133,25 +1197,48 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   subtitleList.addEventListener("scroll", handleReaderManualScroll);
   subtitleList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
   subtitleList.addEventListener("pointerdown", () => {
-    withReader(null, (reader) => reader.noteManualReaderInteraction());
+    const hasSelection = Boolean(window.getSelection()?.toString().trim());
+    withReader(null, (reader) => {
+      reader.markSubtitlePointerDownSelection(hasSelection);
+      reader.noteManualReaderInteraction();
+    });
   });
   let asrSetupOpenInFlight = false;
+  let retryFetchInFlight = false;
   subtitleList.addEventListener("click", (event) => {
     // 配置类无字幕空态「前往设置」（票 04）：与概览空态 / 对话拦截同一入口，
     // 直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。
     const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
-    if (actionNode instanceof HTMLElement && actionNode.dataset.subtitleAction === "asr-setup") {
-      if (asrSetupOpenInFlight) {
+    if (actionNode instanceof HTMLElement) {
+      const action = actionNode.dataset.subtitleAction;
+      if (action === "asr-setup") {
+        if (asrSetupOpenInFlight) {
+          return;
+        }
+        asrSetupOpenInFlight = true;
+        void import("../ui/settings-panel.js")
+          .then(({ openReaderAsrSetup }) => openReaderAsrSetup())
+          .catch(() => null)
+          .finally(() => {
+            asrSetupOpenInFlight = false;
+          });
         return;
       }
-      asrSetupOpenInFlight = true;
-      void import("../ui/settings-panel.js")
-        .then(({ openReaderAsrSetup }) => openReaderAsrSetup())
-        .catch(() => null)
-        .finally(() => {
-          asrSetupOpenInFlight = false;
-        });
-      return;
+      if (action === "retry-fetch") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (retryFetchInFlight) {
+          return;
+        }
+        retryFetchInFlight = true;
+        void ensureSummarizeChain()
+          .then((chain) => chain.refreshClip())
+          .catch((error) => logWarn("[BILISCRIPT] retry fetch clip failed", error))
+          .finally(() => {
+            retryFetchInFlight = false;
+          });
+        return;
+      }
     }
     withReader(null, (reader) => reader.onReadingSubtitleClick(event));
   });

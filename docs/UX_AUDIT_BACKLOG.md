@@ -153,3 +153,53 @@
 
 - 用户影响：平台编辑器的 AI 模型目录行删除按钮在悬浮态原本使用常规强调色（`--biliscript-reader-accent` / `--biliscript-reader-accent-soft`），未能向用户传递删除操作的警示语义。
 - 代码证据：M2 深度复审记录 `.provider-editor-model-remove:hover` 使用 `--biliscript-reader-accent` 与 `--biliscript-reader-accent-soft` 而未对齐 `--biliscript-reader-danger` / `--biliscript-reader-danger-soft`（`extension/entry/styles/reader-settings-providers.css:586-610`；列表行 `.provider-row-remove:hover` 在 `extension/entry/styles/reader-settings-rows.css:382-385` 仍为强调色）。
+
+---
+
+## M3 深度复审
+
+范围：收录 M3 深度复审产出的 P2（7 项）/ P3（1 项）中低优先级问题（P0/P1 已修复）；以下只记录问题、用户影响与代码证据，不包含解决方案。
+
+### P2
+
+#### M3-P2-01｜字幕列表｜未做视口虚拟化且双语加载与失败占位逐行重复渲染
+
+- 用户影响：长视频字幕列表渲染全量条目节点，仅靠分批追加与 `content-visibility` 缓解；副轨处于加载中或失败状态时，每一条字幕下方均重复出现同一句「译文加载中…」或「译文加载失败」文本，造成长列表视觉噪音与多余 DOM 开销。
+- 代码证据：`extension/reader/view-render.ts:108-124` 采用首批渲染与 rAF 分批追加全量条目；`extension/reader/batched-render.ts:67-113` 在 `slot.state === "loading"` 或 `"error"` 时逐行输出 `SECONDARY_LOADING_TEXT` / `SECONDARY_FAIL_TEXT`。
+
+#### M3-P2-02｜选轨控件｜工具条触发器定宽 120px 与双语空态限宽在窄词长语种下易截断
+
+- 用户影响：工具条上的选轨控件固定宽度 120px，较长语言名或带区分标签文本容易在触发器内被省略号截断；双语卡片空态说明行限宽 140px 且整体卡片限高 320px，长提示文本与多语种列表的可读空间受限。
+- 代码证据：`extension/entry/styles/reader.css:284-287` 将 `.biliscript-reading-track-picker` 设为 `width: 120px`；`extension/entry/styles/bilingual-subtitles.css:55-68,220-231` 设定卡片 `max-height: 320px` 及 `.biliscript-bilingual-empty` `max-width: 140px` 单行省略。
+
+#### M3-P2-03｜字幕导出｜工具条导出按钮仅按全局设置导出单一格式，缺乏当场格式切换
+
+- 用户影响：点击字幕工具条「导出字幕」只能按设置抽屉里预设的 `downloadFormat`（SRT 或 TXT）直接下载单一格式，无法在精读现场按需切换导出纯文本、带时间轴文本或双语字幕格式。
+- 代码证据：`extension/reader/subtitle-tab-ui.ts:172,1129-1168` 绑定单一导出按钮调用 `chain.downloadSubtitle()`；`extension/subtitle/ui.ts:53-82` 直接读取 `state.settings?.downloadFormat` 生成单个文件并触发下载。
+
+#### M3-P2-04｜ASR 转写｜自动语音转写进行中缺少手动取消或跳过控制
+
+- 用户影响：无 CC 视频自动触发 ASR 转写期间，字幕页签显示转写进度横幅并淡出列表，但用户无法在页签内主动取消或跳过本次在飞转写任务，只能等待完成或离开当前页面。
+- 代码证据：`extension/reader/transcribe-banner.ts:62-93` 与 `extension/reader/subtitle-tab-ui.ts:180-185` 仅渲染纯状态展示横幅，未提供取消按钮；`extension/asr/fallback.ts:164-208` 的 `AsrFallback` 与 `ActiveAsrTranscribe` 未暴露按视频取消转写任务的控制入口。
+
+#### M3-P2-05｜无字幕空态与 ASR 失败｜失败提示动作粒度单一，且空态操作按钮缺少主次层级
+
+- 用户影响：部分 ASR 失败原因（如额度不足）与未知失败同样仅提供「重新抓取」重试按钮，缺乏更明确的平台排查上下文引导；无字幕空态渲染的「前往设置」与「重新抓取」按钮均使用普通样式，缺少主次视觉区分。
+- 代码证据：`extension/core/asr-failure-notice.ts:81-142` 的 `COPY_TABLE` 将 `asr-quota` 等多项归入 `"retry-later"`；`extension/reader/view-render.ts:97-107` 直接拼接 `.biliscript-reading-mini-btn` 输出 `setupAction` 与 `retryAction`，未做 `.is-primary` 等级区分。
+
+#### M3-P2-06｜实时字幕翻译｜浮层淡出过渡未生效且字幕字号固定写死，无法随偏好缩放
+
+- 用户影响：无 CC 视频开启播放器「字幕」实时翻译后，隐藏浮层直接置 `hidden = true` 匹配 `display: none !important`，导致 CSS 中声明的 300ms `.is-fading` 透明度淡出动画从未触发；同时浮层译文与原文字号写死为 `20px` / `18px`，无法随播放器尺寸或阅读字号偏好自适应缩放。
+- 代码证据：`extension/live/interpret-subtitle-overlay.ts:67-79` 的 `clearCurrent` 直接设置 `rootEl.hidden = true`；`extension/entry/styles/interpret-subtitles.css:13-45` 定义了 `.is-fading { opacity: 0 }` 与 `transition: opacity 300ms ease-out`，但 `[hidden]` 强制 `display: none !important`，且原文/译文分别固定 `font-size: 18px` 与 `20px`。
+
+#### M3-P2-07｜字幕交互与工具条｜窄面板工具条折行与列表指针按下无条件暂停自动跟随
+
+- 用户影响：在 380–460px 窄面板宽度下，字幕工具条搜索框与右侧控件易发生换行，增加顶部固定占位高度；同时在字幕列表内任意 `pointerdown`（包含普通点句或轻微触碰，未实际滚动）都会立即记为手动交互并弹出「跟随播放」悬浮按钮。
+- 代码证据：`extension/entry/styles/reader.css:898-909` 的 `.biliscript-reading-sub-toolbar` 在搜索框 `flex: 1 1 150px` 放不下时折行；`extension/reader/subtitle-tab-ui.ts:1199-1205` 在 `subtitleList` 的 `pointerdown` 回调内无条件调用 `reader.noteManualReaderInteraction()`。
+
+### P3
+
+#### M3-P3-01｜样式与微交互｜跟随按钮重复字族声明、实时提示定位写死及滚动条定制口径不统一
+
+- 用户影响：`#biliscript-reading-view .biliscript-reading-follow-btn` 连续声明两次 `font-family`，并在静态规则中未显式对齐圆角焦点环；实时翻译通知条固定 `bottom: 120px` 与 `13px` 字号，在较矮播放器视口下位置不够灵活；双语弹层列使用自定义 `::-webkit-scrollbar` 而解释卡长引文容器使用原生 `scrollbar-width: thin`，跨区域滚动条外观存在细微差异。
+- 代码证据：`extension/entry/styles/reader.css:1176-1178` 重复声明 `font-family`；`extension/entry/styles/interpret-subtitles.css:52-68` 为 `.biliscript-interpret-notice` 固定 `bottom: 120px` 与 `font-size: 13px`；`extension/entry/styles/bilingual-subtitles.css:126-151` 采用 `::-webkit-scrollbar` 定制，与 `reader.css` 解释卡引文区的 `scrollbar-width: thin` 口径不同。

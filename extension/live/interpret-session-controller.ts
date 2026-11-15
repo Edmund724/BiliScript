@@ -16,8 +16,10 @@ import {
   type InterpretSubtitleDisplayMode
 } from "./interpret-subtitle-lines.js";
 import { runAsrPipeline, type RunAsrPipelineArgs } from "../asr/pipeline.js";
+import { loadActiveAsrFallback } from "../asr/active-fallback.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import {
   resolveSubtitleTranslateProvider,
   translateSubtitleItems
@@ -94,11 +96,14 @@ export function createInterpretSessionController(
   const isTranslatingChunk = new Set<number>();
   const isTranslateDoneChunk = new Set<number>();
   const isAsrDoneChunk = new Set<number>();
+  const failedTranslateChunks = new Map<number, number>();
   let secondaryAlignmentCache: ReturnType<typeof buildSecondaryAlignment> | null = null;
   let primaryCacheKey = "";
   let secondaryCacheKey = "";
   let activeTargetLang = "zh";
+  let activeAsrLabel = buildAsrSubtitleLabel(undefined);
   let activeProviderRes: SubtitleTranslateProviderResolution | undefined;
+  let lastTranslatingNoticeAt = -Infinity;
 
   function updateState(next: InterpretSessionState): void {
     stateVal = next;
@@ -255,14 +260,17 @@ export function createInterpretSessionController(
     }
 
     const currentChunk = Math.floor(currentTime / CHUNK_DURATION_SEC);
-    if (isTranslatingChunk.has(currentChunk) || (!isAsrDoneChunk.has(currentChunk) && !isTranslateDoneChunk.has(currentChunk))) {
-      // 正在处理中显示轻量状态
-      showNotice("正在转写并翻译字幕...", 2000);
+    if (!isAsrDoneChunk.has(currentChunk) && body.length === 0) {
+      const now = Date.now();
+      if (now - lastTranslatingNoticeAt > 2000) {
+        lastTranslatingNoticeAt = now;
+        showNotice("正在转写并翻译字幕...", 2000);
+      }
     }
     setSubtitle("", "");
   }
 
-  function seedAsrPseudoTrackIfNeeded(label = "语音识别"): void {
+  function seedAsrPseudoTrackIfNeeded(label = activeAsrLabel): void {
     const existing = state.clip.subtitles || [];
     if (!existing.some((t) => t.id === "asr")) {
       clipState.setSubtitles([
@@ -284,12 +292,12 @@ export function createInterpretSessionController(
       .sort((a, b) => a.from - b.from);
 
     if (sortedPrimary.length > 0) {
-      seedAsrPseudoTrackIfNeeded();
+      seedAsrPseudoTrackIfNeeded(activeAsrLabel);
       await acceptSubtitle({
         body: sortedPrimary,
         selectedSubtitleId: "asr",
         selectedSubtitleUrl: "",
-        selectedSubtitleLang: "asr-zh",
+        selectedSubtitleLang: activeAsrLabel,
         skipHotComments: true
       });
       if (primaryCacheKey) {
@@ -337,12 +345,15 @@ export function createInterpretSessionController(
 
       if (currentGeneration !== generation) return;
 
+      failedTranslateChunks.delete(chunkIndex);
       chunkSecondaryItems.set(chunkIndex, translated);
       isTranslateDoneChunk.add(chunkIndex);
       await mergeAndPersistProgress();
     } catch (err) {
       // 中止或单片失败不崩溃整条流水
       if (currentGeneration !== generation || abortController?.signal.aborted) return;
+      failedTranslateChunks.set(chunkIndex, Date.now());
+      showNotice("当前片段字幕翻译失败，将保留原文", 3000);
     } finally {
       isTranslatingChunk.delete(chunkIndex);
     }
@@ -357,7 +368,11 @@ export function createInterpretSessionController(
     }
 
     for (const chunkIdx of windowChunks) {
-      if (isTranslateDoneChunk.has(chunkIdx) || isTranslatingChunk.has(chunkIdx)) {
+      if (!isAsrDoneChunk.has(chunkIdx) || isTranslateDoneChunk.has(chunkIdx) || isTranslatingChunk.has(chunkIdx)) {
+        continue;
+      }
+      const lastFailAt = failedTranslateChunks.get(chunkIdx);
+      if (lastFailAt !== undefined && Date.now() - lastFailAt <= 15_000) {
         continue;
       }
       if (chunkPrimaryItems.has(chunkIdx)) {
@@ -388,6 +403,18 @@ export function createInterpretSessionController(
     }
   }
 
+  function resetBuffers(): void {
+    chunkPrimaryItems.clear();
+    chunkSecondaryItems.clear();
+    isTranslatingChunk.clear();
+    isTranslateDoneChunk.clear();
+    isAsrDoneChunk.clear();
+    failedTranslateChunks.clear();
+    secondaryAlignmentCache = null;
+    lastTranslatingNoticeAt = -Infinity;
+    activeAsrLabel = buildAsrSubtitleLabel(undefined);
+  }
+
   async function stop(): Promise<void> {
     generation += 1;
     abortController?.abort();
@@ -395,12 +422,7 @@ export function createInterpretSessionController(
     unbindVideoLifecycle();
     clearSubtitles();
     setSubtitle("", "");
-    chunkPrimaryItems.clear();
-    chunkSecondaryItems.clear();
-    isTranslatingChunk.clear();
-    isTranslateDoneChunk.clear();
-    isAsrDoneChunk.clear();
-    secondaryAlignmentCache = null;
+    resetBuffers();
     updateState("idle");
   }
 
@@ -436,6 +458,9 @@ export function createInterpretSessionController(
         typeof settings.activeAsrProviderId === "string" ? settings.activeAsrProviderId : undefined
       );
       const activeAsr = providers.find((p) => p.id === activeId);
+      activeAsrLabel = buildAsrSubtitleLabel(
+        typeof settings.asrLanguage === "string" ? settings.asrLanguage : undefined
+      );
 
       primaryCacheKey = getSubtitleCacheKey({
         bvid,
@@ -481,12 +506,12 @@ export function createInterpretSessionController(
         partitionItemsIntoChunks(primaryItems);
         partitionSecondaryItemsIntoChunks(secondaryItems);
         secondaryAlignmentCache = buildSecondaryAlignment(secondaryItems);
-        seedAsrPseudoTrackIfNeeded(activeAsr?.name);
+        seedAsrPseudoTrackIfNeeded(activeAsrLabel);
         await acceptSubtitle({
           body: primaryItems,
           selectedSubtitleId: "asr",
           selectedSubtitleUrl: "",
-          selectedSubtitleLang: "asr-zh",
+          selectedSubtitleLang: activeAsrLabel,
           skipHotComments: true
         });
         await acceptSecondarySubtitle({
@@ -504,12 +529,12 @@ export function createInterpretSessionController(
       // 主轨已就绪仅缺译文：跳过 ASR，仅按播放游标滑动窗口调度 LLM 翻译
       if (primaryItems && primaryItems.length > 0) {
         partitionItemsIntoChunks(primaryItems);
-        seedAsrPseudoTrackIfNeeded(activeAsr?.name);
+        seedAsrPseudoTrackIfNeeded(activeAsrLabel);
         await acceptSubtitle({
           body: primaryItems,
           selectedSubtitleId: "asr",
           selectedSubtitleUrl: "",
-          selectedSubtitleLang: "asr-zh",
+          selectedSubtitleLang: activeAsrLabel,
           skipHotComments: true
         });
         updateState("connected");
@@ -519,6 +544,14 @@ export function createInterpretSessionController(
         ensureWindowChunks(currentChunk);
         if (video) syncCurrentSubtitles(video.currentTime);
         return true;
+      }
+
+      const activeFallback = await loadActiveAsrFallback().catch(() => null);
+      if (currentGeneration !== generation) return false;
+      if (activeFallback?.hasActiveAsrTranscribe({ bvid, cid })) {
+        showNotice("后台语音识别正在进行中，请稍候完成后再试", 4000);
+        await stop();
+        return false;
       }
 
       // 需要 ASR 转写：启动滑动窗口调度与 ASR 流水线

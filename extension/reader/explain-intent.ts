@@ -18,13 +18,16 @@
 //   from      —— 选中句起始秒（条目 data-seconds），供对话侧时间戳 pill / 引用定位
 //   content   —— 选中所在整句纯文本（.biliscript-reading-text 的 textContent trim），
 //                始终是解释的上下文锚点
-//   selection —— 用户实际选中的词/短语（选区文本 trim）；整句选中或无选区时省略，
-//                消费方据此区分「解释一个词」与「解释整句」两种提示词
-//   createdAt —— 记录时间（Date.now()），供 PR5 判过期/排序（本 PR 不消费）
+//   selection   —— 用户实际选中的词/短语（选区文本 trim）；整句选中或无选区时省略，
+//                  消费方据此区分「解释一个词」与「解释整句」两种提示词
+//   explanation —— 解释卡已生成的正文（仅在「去对话追问」已有就绪解释时写入），
+//                  消费方据此保留上下文供用户直接输入追问，不重复生成同一段解释
+//   createdAt   —— 记录时间（Date.now()），供 PR5 判过期/排序（本 PR 不消费）
 export interface ReaderExplainIntent {
   from: number;
   content: string;
   selection?: string;
+  explanation?: string;
   createdAt: number;
 }
 
@@ -36,6 +39,7 @@ let pendingIntent: ReaderExplainIntent | null = null;
 export function setPendingExplainIntent(intent: ReaderExplainIntent): void {
   const content = String(intent?.content || "");
   const selection = String(intent?.selection || "").trim();
+  const explanation = typeof intent?.explanation === "string" ? intent.explanation.trim() : "";
   pendingIntent = {
     from: Number(intent?.from) || 0,
     content,
@@ -43,6 +47,9 @@ export function setPendingExplainIntent(intent: ReaderExplainIntent): void {
   };
   if (selection && selection !== content) {
     pendingIntent.selection = selection;
+  }
+  if (explanation) {
+    pendingIntent.explanation = explanation;
   }
 }
 

@@ -389,18 +389,131 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     }
   });
 
+  function getOuterOpenDropdown(dropdown: HTMLElement): HTMLElement {
+    let current = dropdown;
+    while (true) {
+      const parentDropdown = current.parentElement?.closest<HTMLElement>(".custom-select-dropdown:not([hidden])");
+      if (!parentDropdown || parentDropdown === current) {
+        return current;
+      }
+      current = parentDropdown;
+    }
+  }
+
+  function isHiddenInScope(el: HTMLElement, scopeRoot: HTMLElement): boolean {
+    let cur: HTMLElement | null = el;
+    while (cur && cur !== scopeRoot) {
+      // 双语副栏的内嵌 .custom-select-dropdown 常驻 hidden=true，由 CSS 在可见父列下强制展示。
+      if (cur.hidden && !(cur.classList.contains("custom-select-dropdown") && cur.closest(".biliscript-bilingual-secondary-picker"))) {
+        return true;
+      }
+      cur = cur.parentElement;
+    }
+    return Boolean(scopeRoot.hidden);
+  }
+
+  function getVisibleOptionColumns(scopeRoot: HTMLElement): HTMLElement[] {
+    const candidates = Array.from(
+      scopeRoot.querySelectorAll<HTMLElement>(".custom-select-list, .biliscript-bilingual-list, .custom-select-dropdown")
+    );
+    return candidates.filter((col) => {
+      if (isHiddenInScope(col, scopeRoot)) return false;
+      return Array.from(col.querySelectorAll<HTMLElement>(".custom-select-option")).some(
+        (opt) =>
+          !opt.hidden &&
+          opt.getAttribute("aria-disabled") !== "true" &&
+          opt.closest(".custom-select-list, .biliscript-bilingual-list, .custom-select-dropdown") === col
+      );
+    });
+  }
+
+  function getPreferredColumnOption(column: HTMLElement): HTMLElement | null {
+    const options = Array.from(column.querySelectorAll<HTMLElement>(".custom-select-option")).filter(
+      (opt) =>
+        !opt.hidden &&
+        opt.getAttribute("aria-disabled") !== "true" &&
+        opt.closest(".custom-select-list, .biliscript-bilingual-list, .custom-select-dropdown") === column
+    );
+    return options.find((opt) => opt.dataset.selected === "true") ?? options[0] ?? null;
+  }
+
+  function getInternalTabbables(scopeRoot: HTMLElement): HTMLElement[] {
+    const selector =
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.from(scopeRoot.querySelectorAll<HTMLElement>(selector)).filter((el) => {
+      if (el.getAttribute("aria-disabled") === "true") return false;
+      if (isHiddenInScope(el, scopeRoot)) return false;
+      if (el.classList.contains("custom-select-trigger")) return false;
+      return true;
+    });
+  }
+
   config.dropdown.addEventListener("keydown", (e) => {
     if (config.isDisabled?.()) return;
     if (document.activeElement === searchInput) return;
-    const visibleOptions = config.getOptions().filter((o) => !o.hidden);
-    if (visibleOptions.length === 0) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        config.onClose(true);
+    const outerDropdown = getOuterOpenDropdown(config.dropdown);
+    const isNested = outerDropdown !== config.dropdown;
+    const active = document.activeElement;
+    const isForeignInteractiveControl =
+      active instanceof HTMLElement &&
+      active !== config.dropdown &&
+      config.dropdown.contains(active) &&
+      !active.classList.contains("custom-select-option");
+
+    if (e.key === "Escape") {
+      if (isNested) return;
+      e.preventDefault();
+      config.onClose(true);
+      return;
+    }
+
+    if (e.key === "Tab") {
+      if (isNested) return;
+      const tabbables = getInternalTabbables(outerDropdown);
+      const hasTargetInside =
+        active instanceof HTMLElement && outerDropdown.contains(active)
+          ? tabbables.some((el) => {
+              if (el === active) return false;
+              const pos = active.compareDocumentPosition(el);
+              return e.shiftKey
+                ? Boolean(pos & Node.DOCUMENT_POSITION_PRECEDING)
+                : Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+            })
+          : false;
+      if (!hasTargetInside) {
+        config.onTab?.();
       }
       return;
     }
-    const active = document.activeElement;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const columns = getVisibleOptionColumns(outerDropdown);
+      if (columns.length > 1 && active instanceof HTMLElement) {
+        const currentCol = active.closest(".custom-select-list, .biliscript-bilingual-list, .custom-select-dropdown");
+        const colIdx = currentCol instanceof HTMLElement ? columns.indexOf(currentCol) : -1;
+        if (colIdx !== -1) {
+          const targetIdx = e.key === "ArrowRight" ? colIdx + 1 : colIdx - 1;
+          if (targetIdx >= 0 && targetIdx < columns.length) {
+            const targetOption = getPreferredColumnOption(columns[targetIdx]);
+            if (targetOption) {
+              e.preventDefault();
+              e.stopPropagation();
+              targetOption.focus();
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    if (isForeignInteractiveControl) {
+      return;
+    }
+
+    const visibleOptions = config.getOptions().filter((o) => !o.hidden);
+    if (visibleOptions.length === 0) {
+      return;
+    }
     const current =
       active instanceof HTMLLIElement && visibleOptions.includes(active)
         ? visibleOptions.indexOf(active)
@@ -409,6 +522,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
           : -1;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
+      if (isNested) e.stopPropagation();
       if (e.key === "ArrowUp" && current <= 0) {
         if (config.isSearchEnabled()) {
           searchInput.focus();
@@ -424,19 +538,17 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       }
     } else if (e.key === "Home" && config.enableHomeEnd) {
       e.preventDefault();
+      if (isNested) e.stopPropagation();
       visibleOptions[0]?.focus();
     } else if (e.key === "End" && config.enableHomeEnd) {
       e.preventDefault();
+      if (isNested) e.stopPropagation();
       visibleOptions[visibleOptions.length - 1]?.focus();
     } else if (e.key === "Enter" || (e.key === " " && config.enableSpaceSelect)) {
       e.preventDefault();
+      if (isNested) e.stopPropagation();
       const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
       if (option) config.onSelect(option);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      config.onClose(true);
-    } else if (e.key === "Tab") {
-      config.onTab?.();
     }
   });
 

@@ -401,10 +401,13 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 占位文案（加载中 / 失败）斜体：与正文区分，说明这一行还不是译文。 */
+/* 占位文案（加载中 / 失败）斜体且禁止划词：与正文区分，说明这一行还不是译文。 */
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="loading"],
+#biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="error"],
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext[data-state="fail"] {
   font-style: italic;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* 失败行 accent 色但**不可点**：重试入口唯一在弹层副列（02 号票的「入口唯一」），

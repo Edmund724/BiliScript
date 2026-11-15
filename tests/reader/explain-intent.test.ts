@@ -64,4 +64,29 @@ describe("待解释意图契约（reader/explain-intent）", () => {
     // 消费方按「有无 selection」分流出两种提示词口径，不必自己判等
     expect(explainIntent.consumePendingExplainIntent()).toEqual({ from: 7, content: "句", createdAt: 1 });
   });
+
+  it("explanation：非空解释文本随意图保存并返回，纯空白不落字段", () => {
+    explainIntent.setPendingExplainIntent({
+      from: 8,
+      content: "原句",
+      selection: "词",
+      explanation: "  解释正文  ",
+      createdAt: 100
+    });
+    expect(explainIntent.peekPendingExplainIntent()).toEqual({
+      from: 8,
+      content: "原句",
+      selection: "词",
+      explanation: "解释正文",
+      createdAt: 100
+    });
+
+    explainIntent.setPendingExplainIntent({
+      from: 9,
+      content: "原句",
+      explanation: "   ",
+      createdAt: 200
+    });
+    expect(explainIntent.peekPendingExplainIntent()).not.toHaveProperty("explanation");
+  });
 });

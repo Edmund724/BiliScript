@@ -329,5 +329,67 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
 
       expect(controller.getState()).toBe("idle");
     });
+
+    it("单片翻译失败后进入 15s 冷却期并提示，期间 timeupdate 不重复风暴重试；超时后可重试", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-15T00:00:00Z"));
+      clipState.setSubtitleBody([
+        { from: 0, to: 5, content: "Hello" }
+      ]);
+      clipState.setSubtitleFetchState("ready");
+
+      let calls = 0;
+      const { controller, video, showNotice, translateItems } = setupTest({
+        translateItems: async ({ items }) => {
+          calls += 1;
+          if (calls === 1) throw new Error("rate limit");
+          return (items || []).map((it: any) => ({ ...it, content: `译: ${it.content}` }));
+        }
+      });
+
+      await controller.start();
+      await vi.waitFor(() =>
+        expect(showNotice).toHaveBeenCalledWith("当前片段字幕翻译失败，将保留原文", 3000)
+      );
+      expect(translateItems).toHaveBeenCalledTimes(1);
+
+      // 冷却期内多次 timeupdate 不触发重试
+      vi.advanceTimersByTime(5_000);
+      video.currentTime = 1;
+      video.dispatchEvent(new Event("timeupdate"));
+      video.currentTime = 2;
+      video.dispatchEvent(new Event("timeupdate"));
+      await Promise.resolve();
+      expect(translateItems).toHaveBeenCalledTimes(1);
+
+      // 超过 15s 后 timeupdate 允许重试并成功
+      vi.advanceTimersByTime(11_000);
+      video.currentTime = 3;
+      video.dispatchEvent(new Event("timeupdate"));
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
+    });
+
+    it("空间隙期间有主轨时不显示转写提示；无主轨时节流每 2s 至多提示一次", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-15T00:00:00Z"));
+
+      const { controller, video, showNotice } = setupTest({
+        runAsr: async () => new Promise(() => {})
+      });
+      await controller.start();
+      showNotice.mockClear();
+
+      video.currentTime = 1;
+      video.dispatchEvent(new Event("timeupdate"));
+      video.currentTime = 2;
+      video.dispatchEvent(new Event("timeupdate"));
+      expect(showNotice).toHaveBeenCalledTimes(1);
+      expect(showNotice).toHaveBeenCalledWith("正在转写并翻译字幕...", 2000);
+
+      vi.advanceTimersByTime(2500);
+      video.currentTime = 3;
+      video.dispatchEvent(new Event("timeupdate"));
+      expect(showNotice).toHaveBeenCalledTimes(2);
+    });
   });
 });

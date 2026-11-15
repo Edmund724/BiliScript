@@ -202,6 +202,7 @@ export async function ensureAsrSecondarySubtitle(
       const translated = await translateSubtitleItems({
         items: chunk.items,
         targetLang,
+        fallbackToOriginal: false,
         signal: args.signal ?? null
       });
       if (isStale()) {

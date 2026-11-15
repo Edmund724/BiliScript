@@ -412,6 +412,8 @@ const composer = createReaderChatComposer({
   onNotice: showConversationContextNotice,
   isImageProcessing: () => inputImages.isPending(),
   hasInputImages: () => inputImages.count() > 0,
+  prepareManualPrompt: (text) => explainIntentConsumption.buildFollowUpPrompt(text),
+  onManualPromptAccepted: () => explainIntentConsumption.completePendingFollowUp(),
   getLiveState: () => getLiveController()?.getState() ?? "idle",
   onStartLive: () => {
     void startLiveCompanion();
@@ -420,7 +422,10 @@ const composer = createReaderChatComposer({
 
 const explainIntentConsumption = createExplainIntentConsumption({
   card: els.intentCard,
-  autoSendPrompt: composer.autoSendPrompt
+  autoSendPrompt: composer.autoSendPrompt,
+  isTurnActive: () => chatRuntime.isTurnActive(),
+  onNotice: showConversationContextNotice,
+  onFocusInput: () => els.input?.focus?.({ preventScroll: true })
 });
 
 // 发图门控（image-input 05 号票）：带图消息被发送受理时查一次模型目录，目录明确
@@ -1156,8 +1161,12 @@ function bindEvents(): void {
   els.root.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
     const intentBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
-    if (intentBtn && intentBtn.dataset.chatIntentAction === "cancel") {
+    if (intentBtn?.dataset.chatIntentAction === "cancel") {
       explainIntentConsumption.cancel();
+      return;
+    }
+    if (intentBtn?.dataset.chatIntentAction === "send") {
+      void explainIntentConsumption.consumeIfPending();
       return;
     }
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");

@@ -490,6 +490,9 @@ type ReaderPresenterReceivers = {
 const readerPresenterReceivers: ReaderPresenterReceivers = {
   reset() {
     stopReadingViewSync();
+    closeReaderExplainCard();
+    clearPendingExplainIntent();
+    clearExplainSetupResumeIntent();
   },
   "subtitle-ready"(event) {
     onReaderSubtitleReady({

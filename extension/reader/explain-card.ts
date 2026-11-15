@@ -46,6 +46,7 @@ import {
   hasReaderSettingsOverlayOpen,
   resolveEditableAiProviderId
 } from "./settings-mode.js";
+import { findSubtitleItem } from "./subtitle-item-dom.js";
 import { activateScriptTab } from "./script-tab-activation.js";
 
 type ExplainCardPhase = "loading" | "ready" | "error";
@@ -97,6 +98,47 @@ export interface ReaderExplainCardPayload {
   index: number;
 }
 
+const CARD_FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+let returnFocusEl: HTMLElement | null = null;
+let pendingInitialFocus = false;
+
+function isElementFocusable(element: HTMLElement | null | undefined): element is HTMLElement {
+  if (!element || !element.isConnected) {
+    return false;
+  }
+  if (
+    element.hidden ||
+    element.closest("[hidden]") ||
+    element.closest('[aria-hidden="true"]') ||
+    element.closest("[inert]")
+  ) {
+    return false;
+  }
+  if ((element as HTMLButtonElement).disabled) {
+    return false;
+  }
+  const view = element.ownerDocument.defaultView;
+  if (view) {
+    const style = view.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getDialogFocusables(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(CARD_FOCUSABLE_SELECTOR)).filter(isElementFocusable);
+}
+
+function focusExplainDialog(): void {
+  const root = getCardRoot();
+  const dialog = root?.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+  dialog?.focus?.({ preventScroll: true });
+}
+
 function getCardRoot(): HTMLElement | null {
   return document.getElementById(ids.readingExplainCard);
 }
@@ -118,28 +160,48 @@ function renderCard(): void {
   }
   root.hidden = false;
 
+  const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const wasFocusInsideCard = Boolean(activeEl && root.contains(activeEl));
+  const activeAction = wasFocusInsideCard ? activeEl?.dataset.explainCardAction ?? "" : "";
+
   const setupClass = card.phase === "error" ? classifyOverviewSetupError(card.error) : null;
-  const setupButtonHtml = setupClass
-    ? `<button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="setup">去设置</button>`
-    : "";
   const bodyHtml =
     card.phase === "loading"
       ? `
         <div class="biliscript-reading-explain-card-state">
           <span class="biliscript-reading-explain-card-dot" aria-hidden="true"></span>
-          ${card.searching ? "正在联网搜索…" : "正在解释…"}
+          <span>${card.searching ? "正在联网搜索…" : "正在解释…"}</span>
+        </div>
+        <div class="biliscript-reading-explain-card-skeleton" aria-hidden="true">
+          <span class="biliscript-reading-explain-card-skeleton-line is-long"></span>
+          <span class="biliscript-reading-explain-card-skeleton-line is-mid"></span>
+          <span class="biliscript-reading-explain-card-skeleton-line is-short"></span>
         </div>
       `
       : card.phase === "error"
         ? `
           <div class="biliscript-reading-explain-card-state is-error">${escapeHtml(card.error || "解释失败")}</div>
-          ${setupButtonHtml}<button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>
+          <div class="biliscript-reading-explain-card-actions">
+            ${
+              setupClass
+                ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-explain-card-action="setup">去设置</button>`
+                : `<button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>`
+            }
+          </div>
         `
         : `<div class="biliscript-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
   // 工具提示（搜索失败原因 / 额度用尽）留在卡片里随答案一起呈现（回答不因搜索
   // 失败中断）；空串不渲染节点。
   const noticeHtml = card.notice
     ? `<div class="biliscript-reading-explain-card-notice">${escapeHtml(card.notice)}</div>`
+    : "";
+  const showAskChat = card.phase === "ready" || (card.phase === "error" && !setupClass);
+  const footerHtml = showAskChat
+    ? `
+      <footer class="biliscript-reading-explain-card-foot">
+        <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="ask-chat">去对话追问</button>
+      </footer>
+    `
     : "";
 
   root.innerHTML = `
@@ -151,33 +213,75 @@ function renderCard(): void {
       </header>
       <div class="biliscript-reading-explain-card-quote">${escapeHtml(card.selection)}</div>
       <div class="biliscript-reading-explain-card-content">${bodyHtml}${noticeHtml}</div>
-      <footer class="biliscript-reading-explain-card-foot">
-        <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="ask-chat">去对话追问</button>
-      </footer>
+      ${footerHtml}
     </section>
   `;
 
   // 作答块里的图表与数学公式：卡片每次整卡重建，水合随时机同走一次
   hydrateMarkdownContent(root);
 
-  // 焦点进对话框：键盘用户点完「解释」后 Esc/Tab 立即可用（选区已清，不再需要
-  // 页面焦点；jsdom 无布局但 focus() 可调，守卫存在性即可）。
-  root.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog")?.focus?.({ preventScroll: true });
+  // 仅在首次打开或聚焦本来就在卡片内时接管/恢复焦点；设置层盖在上方或后台阶段变化不抢焦点。
+  const overlayBlocked = state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen();
+  if (!overlayBlocked) {
+    if (pendingInitialFocus) {
+      pendingInitialFocus = false;
+      focusExplainDialog();
+    } else if (wasFocusInsideCard) {
+      const dialog = root.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+      const matching = activeAction
+        ? dialog?.querySelector<HTMLElement>(`[data-explain-card-action="${activeAction}"]:not([disabled])`) ?? null
+        : null;
+      if (matching && isElementFocusable(matching)) {
+        matching.focus?.({ preventScroll: true });
+      } else {
+        focusExplainDialog();
+      }
+    }
+  }
 }
 
-// Esc 关闭：只在卡片开着期间挂文档级 keydown（与遮罩/× 同一关闭语义）。
-// 设置抽屉 / 平台编辑器 / 确认弹层叠在卡片上时 Esc 归逐层退出规则消化，卡片
-// 不抢——否则配置期间一次 Esc 同时关掉编辑器与卡片，首配续跑意图被误作废
-// （票 02：取消配置应保留原错误与再次进入设置的入口）。
+// 键盘拦截（Esc 关闭 + Tab/Shift+Tab 焦点圈禁）：仅在卡片开着且无设置浮层叠加时接管。
+// 设置抽屉 / 平台编辑器 / 确认弹层叠在卡片上时交回上层叠层规则处理。
 function onCardKeyDown(event: KeyboardEvent): void {
-  if (event.key !== "Escape") {
+  if (!card.open) {
     return;
   }
   if (state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen()) {
     return;
   }
-  event.stopPropagation();
-  closeReaderExplainCard();
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    closeReaderExplainCard();
+    return;
+  }
+  if (event.key !== "Tab") {
+    return;
+  }
+  const root = getCardRoot();
+  const dialog = root?.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+  if (!dialog) {
+    return;
+  }
+  const focusables = getDialogFocusables(dialog);
+  if (focusables.length === 0) {
+    event.preventDefault();
+    dialog.focus?.({ preventScroll: true });
+    return;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active === first || active === dialog || !dialog.contains(active)) {
+      event.preventDefault();
+      last.focus?.({ preventScroll: true });
+    }
+    return;
+  }
+  if (active === last || active === dialog || !dialog.contains(active)) {
+    event.preventDefault();
+    first.focus?.({ preventScroll: true });
+  }
 }
 
 function bindCardEsc(): void {
@@ -321,9 +425,13 @@ function beginExplainSetup(): void {
               return;
             }
             // 先消费意图并续跑（同一卡片重发，用户可见 loading → 结果），再退出
-            // 设置抽屉；若续跑已接管焦点（聚焦解释卡），禁止 restoreFocus 把焦点抢回 Tab 按钮。
+            // 设置抽屉；设置层完全收起后再把焦点移回解释卡对话框。
             const resumed = resumeExplainAfterSetup();
             closeReaderSettingsMode({ restoreFocus: !resumed });
+            if (resumed) {
+              pendingInitialFocus = false;
+              focusExplainDialog();
+            }
           },
           onSessionEnd: () => {
             if (sessionEpoch !== explainSetupSessionEpoch) {
@@ -387,6 +495,24 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   if (!selection) {
     return;
   }
+  const root = getCardRoot();
+  const pop = document.getElementById(ids.readingExplainPop);
+  if (pop) {
+    pop.hidden = true;
+    delete pop.dataset.itemIndex;
+  }
+  const subtitleList = document.getElementById(ids.readingSubtitleList);
+  const nextIndex = Number.isFinite(Number(payload?.index)) ? Number(payload.index) : -1;
+  if (!card.open) {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fromCardOrPop = Boolean(active && ((root && root.contains(active)) || (pop && pop.contains(active))));
+    const fallbackItem = nextIndex >= 0 ? findSubtitleItem(subtitleList, nextIndex) : null;
+    returnFocusEl =
+      active && active.isConnected && !fromCardOrPop && active !== document.body && active !== document.documentElement
+        ? active
+        : fallbackItem;
+  }
+  pendingInitialFocus = true;
   explainSetupSessionEpoch += 1;
   explainSetupOpenInFlight = false;
   card.controller?.abort();
@@ -395,16 +521,21 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   card.selection = selection;
   card.line = line || selection;
   card.from = Number(payload?.from) || 0;
-  card.index = Number.isFinite(Number(payload?.index)) ? Number(payload.index) : -1;
+  card.index = nextIndex;
   bindCardEsc();
   startExplainRequest();
 }
 
 /** 关闭卡片：中止在飞请求并整卡归位（幂等）。 */
-export function closeReaderExplainCard(): void {
+export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): void {
   if (!card.open) {
     return;
   }
+  const shouldRestoreFocus = options?.restoreFocus !== false;
+  const savedIndex = card.index;
+  const targetToRestore = shouldRestoreFocus ? returnFocusEl : null;
+  returnFocusEl = null;
+  pendingInitialFocus = false;
   explainSetupSessionEpoch += 1;
   explainSetupOpenInFlight = false;
   // 首配续跑意图随卡片关闭作废（票 02：关卡片即失效；保存成功路径已先消费）。
@@ -419,6 +550,17 @@ export function closeReaderExplainCard(): void {
   card.searching = false;
   card.notice = "";
   renderCard();
+  if (shouldRestoreFocus && !state.reader.readingSettingsExpanded && !hasReaderSettingsOverlayOpen()) {
+    const subtitleList = document.getElementById(ids.readingSubtitleList);
+    const fallbackItem = savedIndex >= 0 ? findSubtitleItem(subtitleList, savedIndex) : null;
+    const candidate =
+      targetToRestore && isElementFocusable(targetToRestore)
+        ? targetToRestore
+        : fallbackItem && isElementFocusable(fallbackItem)
+          ? fallbackItem
+          : null;
+    candidate?.focus?.({ preventScroll: true });
+  }
 }
 
 /**
@@ -449,18 +591,17 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
     return;
   }
   if (action === "ask-chat") {
-    // 意图契约（reader/explain-intent.ts）：selection 带上用户实际选中的片段，
-    // 对话 tab 据此出「解释这个词」的提示词；卡片自身负责关（切 tab 后卡片在
-    // 字幕 tab 里，不关会残留）。切 tab + 激活经标签激活属主
-    //（reader/script-tab-activation.activateScriptTab，含状态位/持久化/投影与
-    // 对话组合根激活——收口前是 reader-bus 的 set-tab:chat 壳命令，ui 侧执行）。
+    // 意图契约（reader/explain-intent.ts）：已生成解释一并带走，对话侧直接保留上下文
+    // 供用户继续追问（不再重发同一遍）；加载失败无解释时保持原解释请求兜底。
+    const explanation = card.phase === "ready" && card.text.trim() ? card.text.trim() : undefined;
     setPendingExplainIntent({
       from: card.from,
       content: card.line,
       selection: card.selection,
+      ...(explanation ? { explanation } : {}),
       createdAt: Date.now()
     });
-    closeReaderExplainCard();
+    closeReaderExplainCard({ restoreFocus: false });
     // 切对话 tab + 激活（含二级激活）由标签激活属主统一执行：写状态位/持久化 →
     // 投影命令 → 对话组合根激活（consumeIntent 默认 true，落定即消费上面写入的
     // 待解释意图）。fire-and-forget：点击反馈（卡片收起、tab 投影）不依赖它。

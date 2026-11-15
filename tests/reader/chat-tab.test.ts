@@ -1349,6 +1349,63 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toBe("总结提示词");
   });
+
+  it("带 explanation 的追问意图：保留上下文并聚焦输入框，追问发送时拼入已有解释并消费", async () => {
+    seedReadyContext();
+    explainIntent.setPendingExplainIntent({
+      from: 10,
+      content: "原字幕句",
+      selection: "选区词",
+      explanation: "已有释义正文",
+      createdAt: 1000
+    });
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    expect(ports).toHaveLength(0);
+    const intentCard = document.getElementById(ids.readingChatIntent) as HTMLElement;
+    expect(intentCard.hidden).toBe(false);
+    expect(intentCard.querySelector(".biliscript-reading-chat-intent-title")?.textContent).toBe("基于当前解释继续追问");
+    expect(intentCard.querySelector<HTMLButtonElement>('[data-chat-intent-action="send"]')?.hidden).toBe(true);
+    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
+
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(input);
+
+    input.value = "请再举个例子";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1);
+    const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
+    expect(posted.prompt).toContain("已有释义正文");
+    expect(posted.prompt).toContain("追问：请再举个例子");
+    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+    expect(intentCard.hidden).toBe(true);
+  });
+
+  it("无 explanation 且流式生成中：提示稍后可发送，流结束后点引用卡发送可发出并消费", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.runQuickActionPrompt("首问");
+    expect(ports).toHaveLength(1);
+
+    explainIntent.setPendingExplainIntent({ from: 20, content: "忙时字幕句", createdAt: 2000 });
+    await chat.ensureChatTabActivated();
+
+    expect(ports).toHaveLength(1);
+    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("当前对话正在生成，待本轮结束后可继续追问或发送。");
+    const sendAction = document.querySelector<HTMLButtonElement>(
+      `#${ids.readingChatIntent} [data-chat-intent-action="send"]`
+    ) as HTMLButtonElement;
+    expect(sendAction.hidden).toBe(false);
+
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    sendAction.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 2);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toContain("忙时字幕句");
+    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+  });
 });
 
 describe("历史回放分片让出（P2-1：50ms 预算 + scheduler.yield/setTimeout 兜底）", () => {

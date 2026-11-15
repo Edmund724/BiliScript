@@ -226,18 +226,22 @@ describe("意图叶子（reader/explain-setup-resume）：单槽语义", () => {
   });
 });
 
-describe("error 态：配置类错误给「去设置」，非配置类只给「重试」", () => {
-  it("无平台错误：去设置 + 重试并存", async () => {
+describe("error 态：配置类错误仅给「去设置」，非配置类只给「重试」", () => {
+  it("无平台错误：只保留主按钮「去设置」，不显示无效的「重试」和「去对话追问」", async () => {
     await openCardInError("工具", new Error(NO_ACTIVE_PROVIDER_MESSAGE));
     const setup = cardAction("setup");
     expect(setup).not.toBeNull();
     expect(setup?.textContent).toContain("去设置");
-    expect(cardAction("retry")).not.toBeNull();
+    expect(setup?.classList.contains("is-primary")).toBe(true);
+    expect(cardAction("retry")).toBeNull();
+    expect(cardAction("ask-chat")).toBeNull();
   });
 
-  it("缺 Key 错误：给去设置", async () => {
+  it("缺 Key 错误：仅给「去设置」", async () => {
     await openCardInError("工具", new Error(MISSING_PROVIDER_KEY_MESSAGE));
     expect(cardAction("setup")).not.toBeNull();
+    expect(cardAction("retry")).toBeNull();
+    expect(cardAction("ask-chat")).toBeNull();
   });
 
   it("非配置类错误（网络/额度/限流文案）：不伪装成配置问题，只有重试", async () => {

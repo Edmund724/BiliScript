@@ -133,6 +133,29 @@ describe("interpret-subtitle-menu: 仿原生字幕菜单", () => {
     expect(document.getElementById("biliscript-interpret-menu")).toBeNull();
   });
 
+  it("双语态右列原文为静态非交互节点，Escape 复位 aria-expanded 并回焦触发按钮", async () => {
+    const anchor = document.createElement("div");
+    const trigger = document.createElement("button");
+    trigger.id = "biliscript-player-interpret-quick-action";
+    trigger.setAttribute("aria-expanded", "false");
+    anchor.appendChild(trigger);
+    document.body.appendChild(anchor);
+
+    const { openInterpretSubtitleMenu } = await import("../../extension/live/interpret-subtitle-menu.js");
+    const { deps } = createDeps({ sessionState: "connected", targetLang: "zh", displayMode: "bilingual" });
+    await openInterpretSubtitleMenu(anchor, deps);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const original = anchor.querySelector(".biliscript-interpret-menu-grid-col:last-child .biliscript-interpret-menu-item");
+    expect(original?.tagName).toBe("DIV");
+    expect(original?.classList.contains("is-static")).toBe(true);
+    expect(original?.getAttribute("aria-current")).toBe("true");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("biliscript-interpret-menu")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("菜单内点击不触发外部关闭", async () => {
     const { deps } = createDeps();
     const menu = await openMenu(deps);

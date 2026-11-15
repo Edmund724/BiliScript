@@ -57,7 +57,10 @@ const ACTION_FEEDBACK_PATTERNS: readonly RegExp[] = [
   /已下载/,
   /没有可复制/,
   /没有可下载/,
-  /复制失败/
+  /复制失败/,
+  /字幕切换失败/,
+  /副字幕加载失败/,
+  /译文生成失败/
 ];
 
 // 字幕抓取与无字幕/语音转写提示词表（下方字幕列表已有即时渲染与空态展示，不落 header 行以避免上下重复）。
@@ -101,10 +104,10 @@ function cancelAutoHide(node: StatusLineNode): void {
 // 抑制/转写判定后的有效文案，可见行不写它就不写（转写进度早退分支不触碰）。
 // 双实例（常驻包 + 懒加载区）共享同一 document：节点按 id 取或建，两侧写的是
 // 同一个 DOM 节点，与本模块无模块级可变状态的纪律一致。
-function syncStatusLiveRegion(text: string): void {
-  let node = document.getElementById(ids.readingStatusLive) as HTMLElement | null;
+function syncStatusLiveRegion(text: string): StatusLineNode {
+  let node = document.getElementById(ids.readingStatusLive) as StatusLineNode | null;
   if (!node) {
-    node = document.createElement("p");
+    node = document.createElement("p") as StatusLineNode;
     node.id = ids.readingStatusLive;
     node.className = "biliscript-reading-status-live";
     node.setAttribute("role", "status");
@@ -115,6 +118,23 @@ function syncStatusLiveRegion(text: string): void {
   if (node.textContent !== text) {
     node.textContent = text;
   }
+  return node;
+}
+
+export function announceReadingStatusLive(text: unknown): void {
+  const normalized = String(text ?? "").trim();
+  const node = syncStatusLiveRegion(normalized);
+  if (node.__biliscriptStatusHideTimer !== undefined) {
+    clearTimeout(node.__biliscriptStatusHideTimer);
+    delete node.__biliscriptStatusHideTimer;
+  }
+  if (!normalized) {
+    return;
+  }
+  node.__biliscriptStatusHideTimer = window.setTimeout(() => {
+    delete node.__biliscriptStatusHideTimer;
+    node.textContent = "";
+  }, STATUS_LINE_AUTO_HIDE_MS);
 }
 
 // 节点由调用方解析（core/ui-status 走 getElementById 允许缺失，reader/presentation

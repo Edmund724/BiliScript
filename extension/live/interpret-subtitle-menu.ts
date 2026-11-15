@@ -55,6 +55,7 @@ const MENU_ID = "biliscript-interpret-menu";
 
 let menuEl: HTMLElement | null = null;
 let anchorEl: HTMLElement | null = null;
+let triggerEl: HTMLElement | null = null;
 let activeDeps: InterpretSubtitleMenuDeps | null = null;
 let openGeneration = 0;
 
@@ -197,11 +198,9 @@ async function renderMenu(): Promise<void> {
     secondaryTitle.className = "biliscript-interpret-menu-grid-title";
     secondaryTitle.textContent = "副字幕";
     secondaryCol.appendChild(secondaryTitle);
-    const originalItem = document.createElement("button");
-    originalItem.type = "button";
-    originalItem.className = "biliscript-interpret-menu-item is-selected";
-    originalItem.setAttribute("role", "menuitemradio");
-    originalItem.setAttribute("aria-checked", "true");
+    const originalItem = document.createElement("div");
+    originalItem.className = "biliscript-interpret-menu-item is-selected is-static";
+    originalItem.setAttribute("aria-current", "true");
     const originalLabel = document.createElement("span");
     originalLabel.className = "biliscript-interpret-menu-item-label";
     originalLabel.textContent = "原文";
@@ -228,21 +227,29 @@ function handleDocumentPointerDown(event: PointerEvent): void {
 }
 
 function handleDocumentKeyDown(event: KeyboardEvent): void {
-  if (event.key === "Escape") closeInterpretSubtitleMenu();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeInterpretSubtitleMenu(true);
+  }
 }
 
 export function isInterpretSubtitleMenuOpen(): boolean {
   return Boolean(menuEl?.isConnected);
 }
 
-export function closeInterpretSubtitleMenu(): void {
+export function closeInterpretSubtitleMenu(restoreFocus = false): void {
+  const triggerToFocus = restoreFocus ? triggerEl : null;
   openGeneration += 1;
   menuEl?.remove();
   menuEl = null;
   anchorEl = null;
+  triggerEl?.setAttribute("aria-expanded", "false");
+  triggerEl = null;
   activeDeps = null;
   document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
   document.removeEventListener("keydown", handleDocumentKeyDown, true);
+  triggerToFocus?.focus();
 }
 
 export async function openInterpretSubtitleMenu(
@@ -251,6 +258,8 @@ export async function openInterpretSubtitleMenu(
 ): Promise<void> {
   closeInterpretSubtitleMenu();
   anchorEl = anchor;
+  triggerEl = anchor.querySelector<HTMLElement>("#biliscript-player-interpret-quick-action, button");
+  triggerEl?.setAttribute("aria-expanded", "true");
   activeDeps = deps;
   menuEl = buildMenuShell();
   anchor.appendChild(menuEl);

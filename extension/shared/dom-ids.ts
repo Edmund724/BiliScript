@@ -44,6 +44,7 @@ export const ids = {
   // 恢复——控件本体换成了组件形态，id 与选择器语义不变）。
   readingSubtitleSelect: "biliscript-reading-subtitle-select",
   readingSearchInput: "biliscript-reading-search-input",
+  readingSearchClearBtn: "biliscript-reading-search-clear",
   readingSearchCount: "biliscript-reading-search-count",
   readingSearchPrevBtn: "biliscript-reading-search-prev",
   readingSearchNextBtn: "biliscript-reading-search-next",

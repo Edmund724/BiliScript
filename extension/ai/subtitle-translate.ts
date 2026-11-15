@@ -133,10 +133,21 @@ export function formatSubtitleNumberedLines(items: Array<{ content?: unknown }>)
  * 序号行协议解析：从 LLM 返回文本按行解析序号与译文，并严格保持与原文字幕条目 1:1 时间戳对齐。
  * 容错支持 `1. 译文`、`1、译文`、`1: 译文` 等变体；若某行缺失则回退原文，不发生时间戳偏移。
  */
+export interface ParseSubtitleNumberedLinesOptions {
+  fallbackToOriginal?: boolean;
+}
+
+/**
+ * 解析 LLM 返回的「序号. 译文」行，按原数组长度 1:1 对齐时间轴。
+ * fallbackToOriginal 为 true（默认）时，遗漏或空行回退为原文以保持字幕连续；
+ * 为 false 时回退空串，避免伪双语把原文混入译文轨。
+ */
 export function parseSubtitleNumberedLines(
   response: string,
-  originalItems: SubtitleBodyItem[]
+  originalItems: SubtitleBodyItem[],
+  options: ParseSubtitleNumberedLinesOptions = {}
 ): SubtitleBodyItem[] {
+  const { fallbackToOriginal = true } = options;
   if (!Array.isArray(originalItems) || originalItems.length === 0) {
     return [];
   }
@@ -163,7 +174,12 @@ export function parseSubtitleNumberedLines(
     return {
       from: Number(item.from) || 0,
       to: Number(item.to) || 0,
-      content: translated && translated.length > 0 ? translated : String(item.content || "").trim()
+      content:
+        translated && translated.length > 0
+          ? translated
+          : fallbackToOriginal
+            ? String(item.content || "").trim()
+            : ""
     };
   });
 }
@@ -197,6 +213,7 @@ export interface TranslateSubtitleItemsInput {
   targetLang: string;
   providerResolution?: SubtitleTranslateProviderResolution;
   signal?: AbortSignal | null;
+  fallbackToOriginal?: boolean;
   chatCompletionFn?: typeof chatCompletion;
 }
 
@@ -209,6 +226,7 @@ export async function translateSubtitleItems({
   targetLang,
   providerResolution,
   signal,
+  fallbackToOriginal = true,
   chatCompletionFn = chatCompletion
 }: TranslateSubtitleItemsInput): Promise<SubtitleBodyItem[]> {
   if (!Array.isArray(items) || items.length === 0) {
@@ -231,5 +249,5 @@ export async function translateSubtitleItems({
 
   const rawResult = await chatCompletionFn(request);
   const responseText = typeof rawResult === "string" ? rawResult : "";
-  return parseSubtitleNumberedLines(responseText, items);
+  return parseSubtitleNumberedLines(responseText, items, { fallbackToOriginal });
 }

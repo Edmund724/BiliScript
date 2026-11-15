@@ -1,6 +1,6 @@
 # BiliScript 信息架构与用户流程全景（UX Audit Roadmap）
 
-本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，Session 5 放弃）及已落地的核心产品裁定。
+本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 / M3 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，M4 深度走查暂不实施）及已落地的核心产品裁定。
 
 ---
 
@@ -78,6 +78,11 @@ flowchart TD
 * 抓取 B 站 CC 字幕或通过 [`transcribe-banner.ts`](../extension/reader/transcribe-banner.ts) 触发 ASR 转写；无 CC 视频的播放器「字幕」入口还支持实时字幕翻译。
 * [`subtitle-tab-ui.ts`](../extension/reader/subtitle-tab-ui.ts) 提供主/副双语选轨专用弹层（真副轨及伪轨译文副轨）、句内搜索、自动跟随、一键复制与多格式导出。
 * 划词弹出「解释」气泡 → [`explain-card.ts`](../extension/reader/explain-card.ts) 流式释义 →「去对话追问」写入待解释意图并切至 `AI 对话`。
+* **M3 深度复审（P0/P1 已修复并验证，P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）**：
+  * **选区与同步隔离**：指针按下时记录选区态并在点击收口，避免点击折叠选区误触发视频跳播（[`sync.ts`](../extension/reader/sync.ts)、[`subtitle-tab-ui.ts`](../extension/reader/subtitle-tab-ui.ts)）；解释卡开启期间暂停字幕列表自动跟滚（[`sync.ts`](../extension/reader/sync.ts)）；视频或分 P 切换时 `reset` 统一关闭解释卡并清理待处理与首配续跑意图（[`lifecycle.ts`](../extension/reader/lifecycle.ts)）。
+  * **解释气泡与模态卡焦点闭环**：解释气泡支持底边自适应上翻/钳制、隐藏重置尺寸校准、`Esc` 收起、跨句与时间戳/非就绪副行过滤，并在选中已就绪译文副行时合并主副文上下文（[`explain-pop-ui.ts`](../extension/reader/explain-pop-ui.ts)、[`bilingual-subtitles.css`](../extension/entry/styles/bilingual-subtitles.css)）；模态卡实现 `Tab`/`Shift+Tab` 焦点圈禁与关闭归还焦点，重渲不再抢占设置层或外部焦点，长引文限高滚动，加载态补齐骨架占位且隐藏「去对话追问」，配置类错误仅留「去设置」主按钮并为错误动作区补齐间距与 `:focus-visible` 焦点环（[`explain-card.ts`](../extension/reader/explain-card.ts)、[`reader.css`](../extension/entry/styles/reader.css)）。
+  * **去对话追问与草稿保护**：带回已有解释上下文并在 AI 对话直接聚焦输入框追问、避免重复生成同一段释义；无解释回退自动发送时保护未发送草稿与图片并在拒发后恢复输入框、生成中给予明确提示与重发入口（[`explain-intent.ts`](../extension/reader/explain-intent.ts)、[`explain-intent-consumption.ts`](../extension/reader/explain-intent-consumption.ts)、[`chat-tab-composer.ts`](../extension/reader/chat-tab-composer.ts)、[`chat-tab.ts`](../extension/reader/chat-tab.ts)）。
+  * **遗留改进项**：本轮 M3 深度复审产出的 P2（7 项）/ P3（1 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考。
 
 ### M4：AI 概览与金句分享
 * [`overview-ui.ts`](../extension/reader/overview-ui.ts) 支持自动/手动生成概览、长视频分段进度与部分失败重试、三源分章跳播与随播放高亮，以及 [`quote-share-modal.ts`](../extension/reader/quote-share-modal.ts) 金句海报导出。
@@ -100,7 +105,8 @@ flowchart TD
 | **P1** | **Session 3**：M2 首配冷启动、四族平台与凭据引用 | ✅ 已完成 | 四入口「设置并继续」、四族激活与搜索降密、跨族同层凭据往返、内联拉取子视图与校验焦点已落地 |
 | **P1** | **Session 4**：M5 AI 对话高频交互、模型面板与工具反馈 | ✅ 已完成 | 保留 `⋮` 菜单收口并保留历史内容模式、7 项偏好归拢、发送闸快照保护、模型同屏联动与工具/消息终态已落地 |
 | **P0/P1** | **M2 深度复审**：首配冷启动、编辑器隔离与四族交互细节 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 对话模型选择器空态闭环与 `models: []` 导回编辑、首配空模型行校验、内联子视图/弹窗 `inert` 隔离与 Flyme 实底防透字、异步并发与防重入锁、错误语义色 `--biliscript-reader-danger` 与 `:user-valid` 作用域收窄、行内删除/单选/排序防吞错与搜索激活 ID 清理、动态跨族凭据引用、AI 设为默认与对话文案一致、搜索拖拽键盘排序、ASR 一次闭环、跨族恢复提示内置 Modal 与焦点不回抢已落地并通过构建验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
-| **P2** | **Session 5**：M3 & M4 字幕精读与概览金句深度走查 | ⏹️ 不实施 | P2 优先级，本轮走查不再推进 |
+| **P0/P1** | **M3 深度复审**：字幕精读、选区解释浮层/卡片与去对话追问闭环 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 指针按下选区消费防折叠误跳播、解释卡开启暂停自动跟滚、视频/分 P 切换重置解释卡与待处理/续跑意图、解释卡 `Tab` 焦点圈禁与关闭归还焦点及重渲不抢焦点、解释气泡底边翻转/尺寸校准重测/`Esc`/跨句与时间戳及非就绪副行过滤/双语已就绪全句上下文、长引文限高滚动与加载骨架、配置错仅留「去设置」与错误按钮间距、去对话保留已有解释上下文与草稿保护及 `:focus-visible` 焦点环已落地并通过验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
+| **P2** | **Session 5**：M4 概览与金句深度走查（M3 深度复审已完成） | ⏹️ 不实施 | M4 属 P2 优先级，本轮走查不再推进 |
 
 ### 3.2 已落地的核心产品决策
 
@@ -118,3 +124,5 @@ flowchart TD
 M1 三路审查产出的低优先级条目（P2/P3）记录于 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，与 Session 5 同作后续按需参考，不列入当前实施排期。
 
 M2 深度复审产出的 P2（8 项）/ P3（4 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
+
+M3 深度复审产出的 P2（7 项）/ P3（1 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。

@@ -23,6 +23,7 @@ import {
   type LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
 
@@ -177,6 +178,7 @@ export async function ensureAsrTranslation(
     return { kind: result.kind === "pending" ? "pending" : "done" };
   } catch (error) {
     logWarn("[BILISCRIPT] asr translation failed", error);
+    notifyReaderPresenter({ kind: "status", text: `译文生成失败：${getErrorMessage(error)}` });
     return { kind: "skipped" };
   } finally {
     if (activeAbort === abort) {

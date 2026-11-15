@@ -189,7 +189,8 @@
   }
 
   /* 换轨进场动画同样关停（与 tab 体进场同族） */
-  .biliscript-reading-subtitle.is-track-switching {
+  .biliscript-reading-subtitle.is-track-switching,
+  .biliscript-reading-explain-card-skeleton-line {
     animation: none;
   }
 }
@@ -715,6 +716,8 @@
   white-space: nowrap;
   justify-self: start;
   align-self: start;
+  user-select: none;
+  -webkit-user-select: none;
   transition: background 0.24s cubic-bezier(0.2, 0, 0, 1),
               color 0.24s cubic-bezier(0.2, 0, 0, 1);
 }
@@ -730,10 +733,21 @@
   color: inherit;
 }
 
-.biliscript-reading-empty {
-  padding: 12px 4px;
+#biliscript-reading-view .biliscript-reading-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 8px;
+  line-height: 1.6;
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint, var(--biliscript-primitive-color-gray-500));
+}
+
+#biliscript-reading-view .biliscript-reading-empty-detail {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-muted);
+  word-break: break-word;
 }
 
 /* 视口媒体查询只留壳定位（浮层档的边距/贴顶）：排版窄档已上移到下方
@@ -926,6 +940,36 @@
   color: var(--biliscript-reader-faint);
 }
 
+.biliscript-reading-search-clear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  padding: 0;
+  font-size: var(--biliscript-font-size-md);
+  line-height: 1;
+  color: var(--biliscript-reader-faint);
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+
+.biliscript-reading-search-clear[hidden] {
+  display: none;
+}
+
+.biliscript-reading-search-clear:hover,
+.biliscript-reading-search-clear:focus-visible {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+  outline: none;
+}
+
 .biliscript-reading-search-count {
   flex: 0 0 auto;
   font-size: var(--biliscript-font-size-base);
@@ -992,6 +1036,24 @@
   color: var(--biliscript-reader-accent);
 }
 
+.biliscript-reading-mini-btn.is-primary {
+  border-color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-on-fill);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
+}
+
+.biliscript-reading-mini-btn.is-primary:hover {
+  color: var(--biliscript-reader-on-fill);
+  filter: brightness(1.05);
+}
+
+.biliscript-reading-mini-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 /* 命中高亮：mark + 当前命中（search-current 为 JS/CSS 契约名） */
 .biliscript-reading-subtitle mark.biliscript-reading-search-hit {
   background: var(--biliscript-reader-accent-soft);
@@ -1006,8 +1068,13 @@
   color: var(--biliscript-reader-accent-ink);
 }
 
-.biliscript-reading-item.search-current {
+#biliscript-reading-view .biliscript-reading-item.search-current {
   background: var(--biliscript-reader-highlight);
+}
+
+#biliscript-reading-view .biliscript-reading-item.is-active.search-current {
+  background: var(--biliscript-reader-highlight);
+  box-shadow: 0 0 0 1.5px var(--biliscript-reader-accent);
 }
 
 /* 转写中间态：横幅（highlight 底）+ 不确定进度动画 + 列表淡出禁用 */
@@ -1083,6 +1150,10 @@
 .biliscript-reading-tab-body.is-transcribing .biliscript-reading-main {
   opacity: 0.35;
   pointer-events: none;
+}
+
+#biliscript-reading-view .biliscript-reading-tab-body.is-transcribing .biliscript-reading-empty {
+  display: none;
 }
 
 /* Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow 驱动——
@@ -1166,6 +1237,11 @@
   color: var(--biliscript-reader-accent);
 }
 
+.biliscript-reading-explain-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 /* 选区「解释」卡片：面板内弹层（遮罩 + 居中对话框），整块内容由
  * reader/explain-card.js 按 loading/ready/error 三态重建。视觉基准
  * prototype/final-字幕-解释.jpg：accent 标题 + 选中原文软底条 + 正文解释。 */
@@ -1240,10 +1316,19 @@
   color: var(--biliscript-reader-text);
 }
 
+.biliscript-reading-explain-card-close:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 .biliscript-reading-explain-card-quote {
   font-family: var(--biliscript-reader-font-sans);
   font-size-adjust: from-font;
   flex: 0 0 auto;
+  max-height: 68px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   margin: 0 0 10px;
   padding: 10px 14px;
   background: var(--biliscript-reader-accent-soft);
@@ -1342,6 +1427,50 @@
   padding-bottom: 10px;
   color: var(--biliscript-reader-danger);
   overflow-wrap: anywhere;
+}
+
+.biliscript-reading-explain-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.biliscript-reading-explain-card-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 6px;
+}
+
+.biliscript-reading-explain-card-skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-fill-hover, var(--biliscript-reader-pill-bg));
+  animation: biliscript-explain-pulse 1.4s ease-in-out infinite;
+}
+
+.biliscript-reading-explain-card-skeleton-line.is-long {
+  width: 92%;
+}
+
+.biliscript-reading-explain-card-skeleton-line.is-mid {
+  width: 78%;
+}
+
+.biliscript-reading-explain-card-skeleton-line.is-short {
+  width: 56%;
+}
+
+@keyframes biliscript-explain-pulse {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 /* 工具循环提示（搜索失败原因 / 额度用尽）：注脚档灰字，留在卡片里随答案呈现 */
@@ -1461,6 +1590,20 @@
 .biliscript-reading-chat-intent-cancel:hover {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat-intent-cancel:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
+.biliscript-reading-chat-intent-send:not([hidden]) {
+  margin-left: auto;
+  padding: 2px 10px;
+}
+
+.biliscript-reading-chat-intent-send:not([hidden]) + .biliscript-reading-chat-intent-cancel {
+  margin-left: 0;
 }
 
 .biliscript-reading-chat-intent-quote {

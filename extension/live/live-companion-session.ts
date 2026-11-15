@@ -182,8 +182,18 @@ function bindLifecycleListeners(): void {
         void interpretController?.refreshAvailability();
       },
       {
-        sync: ["liveProviders", "activeLiveProviderId"],
-        local: ["liveProviderKeys"]
+        sync: [
+          "liveProviders",
+          "activeLiveProviderId",
+          "asrProviders",
+          "activeAsrProviderId",
+          "aiProviders",
+          "activeAiProviderId",
+          "defaultModel",
+          "subtitleTranslateProviderId",
+          "subtitleTranslateModel"
+        ],
+        local: ["liveProviderKeys", "asrProviderKeys", "aiProviderKeys"]
       }
     );
   }

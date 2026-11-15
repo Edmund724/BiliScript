@@ -38,6 +38,11 @@ export interface ReaderChatComposerRuntime {
   stopActiveStream: () => void;
 }
 
+export interface SendViaInputBoxOptions {
+  preserveDraft?: boolean;
+  restoreOnReject?: boolean;
+}
+
 export interface ReaderChatComposerDeps {
   els?: ReaderChatComposerEls;
   input?: HTMLTextAreaElement;
@@ -48,6 +53,8 @@ export interface ReaderChatComposerDeps {
   onNotice?: (message: string, autoHideMs?: number) => void;
   isImageProcessing?: () => boolean;
   hasInputImages?: () => boolean;
+  prepareManualPrompt?: (text: string) => string;
+  onManualPromptAccepted?: () => void;
   getLiveState?: () => "idle" | "connecting" | "connected" | "failure";
   onStartLive?: () => void;
 }
@@ -59,7 +66,7 @@ export interface ReaderChatComposer {
   syncSendState: () => void;
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   setSubtitleWaitUi: (active: boolean) => void;
-  sendViaInputBox: (text: string) => Promise<boolean>;
+  sendViaInputBox: (text: string, options?: SendViaInputBoxOptions) => Promise<boolean>;
   autoSendPrompt: (text: string) => Promise<boolean>;
 }
 
@@ -200,17 +207,39 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     return null;
   }
 
-  async function sendViaInputBox(text: string): Promise<boolean> {
+  async function sendViaInputBox(text: string, options: SendViaInputBoxOptions = {}): Promise<boolean> {
+    const prevValue = input.value;
+    const hasDraft = Boolean(prevValue.trim()) || Boolean(deps.hasInputImages?.());
+    if (options.preserveDraft && hasDraft) {
+      deps.onNotice?.("已保留未发送草稿，本次未自动发送。", 4000);
+      input.focus?.();
+      return false;
+    }
     input.value = text;
     autosizeInput();
     const blockReason = imageSendBlockReason(text);
     if (blockReason) {
+      if (options.restoreOnReject) {
+        input.value = prevValue;
+        autosizeInput();
+        updateSendBtnState();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       deps.onNotice?.(blockReason, 3000);
       return false;
     }
     // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
     const verdict = await chatRuntime.sendTurn(text);
-    return verdict === "accepted";
+    if (verdict !== "accepted") {
+      if (options.restoreOnReject) {
+        input.value = prevValue;
+        autosizeInput();
+        updateSendBtnState();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return false;
+    }
+    return true;
   }
 
   // 自动发送共用体：填输入框 → sendTurn → 折算是否受理。回合在途（受理窗口 ∪
@@ -222,9 +251,10 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       return false;
     }
     if (chatRuntime.isTurnActive()) {
+      deps.onNotice?.("当前对话正在生成，待本轮结束后可继续追问或发送。", 4000);
       return false;
     }
-    return sendViaInputBox(text);
+    return sendViaInputBox(text, { preserveDraft: true, restoreOnReject: true });
   }
 
   // 发送入口（回车 / 发送键）直接交给 chatRuntime 的回合受理；
@@ -239,8 +269,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     if (!input.value.trim()) {
       return;
     }
-    const verdict = await chatRuntime.sendTurn(input.value);
-    if (verdict === "ignored" && subtitleWaitActive) {
+    const outgoing = deps.prepareManualPrompt ? deps.prepareManualPrompt(input.value) : input.value;
+    const verdict = await chatRuntime.sendTurn(outgoing);
+    if (verdict === "accepted") {
+      deps.onManualPromptAccepted?.();
+    } else if (verdict === "ignored" && subtitleWaitActive) {
       deps.onNotice?.(SUBTITLE_WAIT_NOTICE, 3000);
     }
   }

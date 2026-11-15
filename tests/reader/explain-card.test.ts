@@ -511,10 +511,12 @@ describe("面板内解释卡片", () => {
     vi.unstubAllGlobals();
   });
 
-  it("卡片「去对话追问」：写意图（含 selection）+ 切到 AI 对话 tab + 引用卡展示选中片段", async () => {
+  it("卡片「去对话追问」：写意图（含 selection + explanation）+ 切到 AI 对话 tab + 聚焦输入框继续追问", async () => {
     selectInItem(1, "传递信息的工具");
     explainBtn().click();
-    await vi.waitFor(() => expect(explainCard().hidden).toBe(false));
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")).not.toBeNull()
+    );
 
     dispatchActionClick("ask-chat");
 
@@ -526,6 +528,7 @@ describe("面板内解释卡片", () => {
     });
     expect(intent!.content).toBe("我们习惯将其视为传递信息的工具");
     expect(intent!.selection).toBe("传递信息的工具");
+    expect(intent!.explanation).toBe("这是模型给出的解释。");
     expect(intent!.from).toBe(10);
 
     // 卡片自身收起（切 tab 后留在字幕 tab 里会残留）
@@ -539,6 +542,10 @@ describe("面板内解释卡片", () => {
     const quote = document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-quote`);
     expect(quote?.textContent).toContain("传递信息的工具");
     expect(quote?.textContent).toContain("我们习惯将其视为传递信息的工具");
+    expect(document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-title`)?.textContent).toBe(
+      "基于当前解释继续追问"
+    );
+    expect(document.activeElement).toBe(document.getElementById(ids.readingChatInput));
   });
 
   it("× / 遮罩 / Esc 都关闭卡片", async () => {
@@ -564,13 +571,13 @@ describe("面板内解释卡片", () => {
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(false));
   });
 
-  it("provider 解析失败 → error 态如实展示，重试按钮再次发起", async () => {
-    aiMock.resolveActiveProvider.mockRejectedValueOnce(new Error("还没有配置 AI 平台，请先在插件设置中添加并启用。"));
+  it("provider 解析失败 → error 态如实展示，非配置错误时重试按钮再次发起", async () => {
+    aiMock.resolveActiveProvider.mockRejectedValueOnce(new Error("服务暂时不可用"));
 
     selectInItem(1, "工具");
     explainBtn().click();
     await vi.waitFor(() =>
-      expect(explainCard().querySelector(".biliscript-reading-explain-card-state.is-error")?.textContent).toContain("还没有配置 AI 平台")
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-state.is-error")?.textContent).toContain("服务暂时不可用")
     );
     const firstCallCount = aiMock.explainSelection.mock.calls.length;
 
@@ -579,6 +586,34 @@ describe("面板内解释卡片", () => {
     await vi.waitFor(() =>
       expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent).toContain("这是模型给出的解释。")
     );
+  });
+
+  it("loading 态显示骨架占位并隐藏「去对话追问」；配置类错误仅渲染主按钮「去设置」", async () => {
+    let resolveExplain: (text: string) => void = () => {};
+    aiMock.explainSelection.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveExplain = resolve; })
+    );
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-skeleton")).not.toBeNull()
+    );
+    expect(cardAction("ask-chat")).toBeNull();
+    resolveExplain("完成解释");
+    await vi.waitFor(() => expect(cardAction("ask-chat")).not.toBeNull());
+    dispatchActionClick("close");
+
+    aiMock.resolveActiveProvider.mockRejectedValueOnce(new Error("还没有配置 AI 平台，请先在插件设置中添加并启用。"));
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-state.is-error")?.textContent).toContain("还没有配置 AI 平台")
+    );
+    expect(explainCard().querySelector(".biliscript-reading-explain-card-actions")).not.toBeNull();
+    expect(cardAction("setup")?.classList.contains("is-primary")).toBe(true);
+    expect(cardAction("retry")).toBeNull();
+    expect(cardAction("ask-chat")).toBeNull();
   });
 
   it("工具循环 notice（搜索失败/额度用尽）渲染在卡片内，不写全局状态行", async () => {
@@ -659,5 +694,242 @@ describe("面板内解释卡片", () => {
     dispatchActionClick("close");
 
     expect(video.currentTime).toBe(5);
+  });
+});
+
+describe("解释卡片焦点管理（M3 Stage 2 P0）", () => {
+  it("打开移入卡片焦点，Tab/Shift+Tab 在弹窗内循环，Esc/关闭归还触发前焦点并防后台重渲抢焦点", async () => {
+    state.reader.readingViewOpen = true;
+    document.getElementById(ids.readingView)?.setAttribute("aria-hidden", "false");
+    reader.renderReadingView();
+
+    const triggerBtn = document.createElement("button");
+    triggerBtn.type = "button";
+    triggerBtn.textContent = "外侧触发器";
+    document.body.appendChild(triggerBtn);
+    triggerBtn.focus();
+
+    let resolveExplain: (text: string) => void = () => {};
+    aiMock.explainSelection.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveExplain = resolve; })
+    );
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
+
+    const dialog = explainCard().querySelector(".biliscript-reading-explain-card-dialog") as HTMLElement;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    // 焦点移到外部后，后台流/loading→ready 重渲不得抢走焦点
+    const outsideInput = document.createElement("input");
+    document.body.appendChild(outsideInput);
+    outsideInput.focus();
+    expect(document.activeElement).toBe(outsideInput);
+
+    resolveExplain("解释已完成。");
+    await vi.waitFor(() =>
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent).toContain("解释已完成。")
+    );
+    expect(document.activeElement).toBe(outsideInput);
+
+    // Tab / Shift+Tab 圈禁在卡片内：末项 Tab 回到首项（关闭 ×），首项 Shift+Tab 回到末项（去对话追问）
+    const closeBtn = explainCard().querySelector<HTMLButtonElement>(
+      "button.biliscript-reading-explain-card-close"
+    ) as HTMLButtonElement;
+    const askBtn = cardAction("ask-chat") as HTMLButtonElement;
+    askBtn.focus();
+    askBtn.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(closeBtn);
+
+    closeBtn.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(askBtn);
+
+    // Esc 关闭并归还初始焦点
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(false));
+    expect(document.activeElement).toBe(triggerBtn);
+
+    // 原焦点节点已不在 DOM 时，关闭回落聚焦到对应字幕项
+    triggerBtn.focus();
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
+    triggerBtn.remove();
+    dispatchActionClick("close");
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(false));
+    expect(document.activeElement).toBe(subtitleItem(1));
+  });
+});
+
+describe("选区「解释」浮层 Stage 2 边界与过滤（P1）", () => {
+  it("底边溢出上翻并钳制、隐藏后重新测量宽度、Esc 收起浮层", () => {
+    const tabBodySubtitle = document.getElementById(ids.readingTabBodySubtitle) as HTMLElement;
+    let bodyRectValue = { left: 0, top: 0, width: 320, height: 200, right: 320, bottom: 200 };
+    vi.spyOn(tabBodySubtitle, "getBoundingClientRect").mockImplementation(() => bodyRectValue as DOMRect);
+    let rangeRectValue = { left: 40, top: 185, bottom: 198, right: 140, width: 100, height: 13 };
+    const originalRangeRectDesc = Object.getOwnPropertyDescriptor(Range.prototype, "getBoundingClientRect");
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      writable: true,
+      value: () => rangeRectValue as DOMRect
+    });
+
+    try {
+      let popWidth = 56;
+      const pop = explainPop();
+      vi.spyOn(pop, "offsetWidth", "get").mockImplementation(() => popWidth);
+      vi.spyOn(pop, "offsetHeight", "get").mockImplementation(() => 30);
+
+      // 下方放不下且上方够高：翻到选区上方（185 - 30 - 4 = 151）
+      selectInItem(1, "工具");
+      expect(pop.hidden).toBe(false);
+      expect(pop.style.top).toBe("151px");
+
+      // 隐藏并变更宽度后重开：必须重新测量新宽度（left = max(8, 320 - 8 - 120) = 192），且超窄容器钳制在 [8, maxTop]
+      clearSelection();
+      popWidth = 120;
+      bodyRectValue = { left: 0, top: 0, width: 320, height: 44, right: 320, bottom: 44 };
+      rangeRectValue = { left: 300, top: 20, bottom: 32, right: 310, width: 10, height: 12 };
+      selectInItem(1, "工具");
+      expect(pop.hidden).toBe(false);
+      expect(pop.style.left).toBe("192px");
+      expect(pop.style.top).toBe("8px");
+
+      // Esc 仅在浮层可见时收起浮层
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(pop.hidden).toBe(true);
+    } finally {
+      if (originalRangeRectDesc) {
+        Object.defineProperty(Range.prototype, "getBoundingClientRect", originalRangeRectDesc);
+      } else {
+        delete (Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+      }
+    }
+  });
+
+  it("跨句选区、时间戳与非 ready 副行不弹出；ready 译文副行选中传完整双语上下文", async () => {
+    state.settings.bilingualSubtitles = true;
+    clipState.applySecondarySubtitle({
+      id: "sub-en",
+      url: "https://sub/en.json",
+      body: [{ from: 10, to: 30, content: "TRANSLATED" }]
+    });
+    reader.renderReadingView();
+
+    const sel = document.getSelection();
+    // 1. 跨两条字幕项的选区 → 隐藏
+    const t0 = subtitleItem(0).querySelector(".biliscript-reading-text")?.firstChild as Text;
+    const t1 = subtitleItem(1).querySelector(".biliscript-reading-text")?.firstChild as Text;
+    const crossRange = document.createRange();
+    crossRange.setStart(t0, 0);
+    crossRange.setEnd(t1, 2);
+    sel?.removeAllRanges();
+    sel?.addRange(crossRange);
+    document.dispatchEvent(new Event("selectionchange"));
+    flushAnimationFrames();
+    expect(explainPop().hidden).toBe(true);
+
+    // 2. 时间戳内部选区 → 隐藏
+    const timeNode = subtitleItem(1).querySelector(".biliscript-reading-time")?.firstChild as Text;
+    const timeRange = document.createRange();
+    timeRange.setStart(timeNode, 0);
+    timeRange.setEnd(timeNode, timeNode.textContent?.length || 1);
+    sel?.removeAllRanges();
+    sel?.addRange(timeRange);
+    document.dispatchEvent(new Event("selectionchange"));
+    flushAnimationFrames();
+    expect(explainPop().hidden).toBe(true);
+
+    // 3. 非 ready 副行（loading/fail）→ 隐藏
+    const subEl = subtitleItem(1).querySelector(".biliscript-reading-subtext") as HTMLElement;
+    const subText = subEl.firstChild as Text;
+    subEl.setAttribute("data-state", "loading");
+    const subLoadingRange = document.createRange();
+    subLoadingRange.setStart(subText, 0);
+    subLoadingRange.setEnd(subText, 4);
+    sel?.removeAllRanges();
+    sel?.addRange(subLoadingRange);
+    document.dispatchEvent(new Event("selectionchange"));
+    flushAnimationFrames();
+    expect(explainPop().hidden).toBe(true);
+
+    // 4. ready 译文副行内划词 → 弹出，点击解释传入「主句（副句）」上下文
+    subEl.setAttribute("data-state", "ready");
+    const subReadyRange = document.createRange();
+    subReadyRange.setStart(subText, 0);
+    subReadyRange.setEnd(subText, subText.textContent?.length || 10);
+    sel?.removeAllRanges();
+    sel?.addRange(subReadyRange);
+    document.dispatchEvent(new Event("selectionchange"));
+    flushAnimationFrames();
+    expect(explainPop().hidden).toBe(false);
+
+    explainBtn().click();
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+    const args = aiMock.explainSelection.mock.calls[0][0] as { selection: string; line: string };
+    expect(args.selection).toBe("TRANSLATED");
+    expect(args.line).toBe("我们习惯将其视为传递信息的工具（TRANSLATED）");
+  });
+});
+
+describe("Stage 2 同步与生命周期联动闭环（P0/P1）", () => {
+  it("点击折叠字幕选区不触发跳播；卡片开启时不自动滚动列表", async () => {
+    state.reader.readingViewOpen = true;
+    reader.bindReadingViewVideo(video);
+    video.play = () => Promise.resolve();
+    video.currentTime = 5;
+
+    selectInItem(1, "工具");
+    const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    list.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    clearSelection();
+    subtitleItem(1).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(video.currentTime).toBe(5);
+
+    // 无选区普通点击则正常跳播
+    list.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    subtitleItem(1).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => expect(video.currentTime).toBe(10));
+
+    // 打开解释卡后同步 tick 不触发列表自动滚动
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
+
+    const windowScrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    video.currentTime = 2;
+    reader.syncReadingViewPlayback();
+    expect(windowScrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("换片 / 分 P reset 时关闭解释卡并清理待解释与首配续跑意图", async () => {
+    const lifecycle = await import("../../extension/reader/lifecycle.js");
+    const resumeLeaf = await import("../../extension/reader/explain-setup-resume.js");
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
+
+    explainIntent.setPendingExplainIntent({ from: 10, content: "句", createdAt: 1 });
+    resumeLeaf.setExplainSetupResumeIntent({
+      selection: "工具",
+      line: "我们习惯将其视为传递信息的工具",
+      from: 10,
+      index: 1,
+      runId: 1,
+      bvid: "BV1reset",
+      cid: "10",
+      createdAt: 1,
+      errorClass: "no-provider"
+    });
+
+    lifecycle.handleReaderPresenterNotification({ kind: "reset" });
+
+    expect(reader.isReaderExplainCardOpen()).toBe(false);
+    expect(explainCard().hidden).toBe(true);
+    expect(explainIntent.peekPendingExplainIntent()).toBeNull();
+    expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
   });
 });

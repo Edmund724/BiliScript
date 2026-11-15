@@ -419,4 +419,24 @@ describe("播放同步与高亮", () => {
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
     expect(windowScrollToSpy).toHaveBeenCalled();
   });
+
+  it("pointerdown 时存在文本选区：随后点击收起选区即使选区已空也不触发跳播", () => {
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    playerHost.bindReadingViewVideo(video);
+    video.play = vi.fn(() => Promise.resolve());
+    video.currentTime = 5;
+
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    const target = readingView.querySelectorAll(".biliscript-reading-item")[1] as HTMLElement;
+
+    sync.markSubtitlePointerDownSelection(true);
+    document.getSelection()?.removeAllRanges();
+    sync.onReadingSubtitleClick({ target } as unknown as MouseEvent);
+    expect(video.currentTime).toBe(5);
+
+    sync.markSubtitlePointerDownSelection(false);
+    sync.onReadingSubtitleClick({ target } as unknown as MouseEvent);
+    expect(video.currentTime).toBe(10);
+  });
 });

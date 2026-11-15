@@ -41,6 +41,7 @@ export function buildChatTabBodyHtml(): string {
           <div class="biliscript-reading-chat-intent-head">
             <span class="biliscript-reading-chat-intent-title">待解释的字幕句</span>
             <span class="biliscript-reading-chat-intent-time biliscript-reading-time">00:00</span>
+            <button type="button" class="biliscript-reading-mini-btn biliscript-reading-chat-intent-send" data-chat-intent-action="send" hidden>发送</button>
             <button type="button" class="biliscript-reading-chat-intent-cancel" data-chat-intent-action="cancel" title="取消解释" aria-label="取消解释">×</button>
           </div>
           <blockquote class="biliscript-reading-chat-intent-quote"></blockquote>

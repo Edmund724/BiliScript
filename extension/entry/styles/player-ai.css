@@ -397,7 +397,7 @@
   right: -8px;
   scrollbar-color: rgb(255 255 255 / 0.25) transparent;
   scrollbar-width: thin;
-  z-index: 30;
+  z-index: 70;
 }
 
 .biliscript-interpret-menu::-webkit-scrollbar {
@@ -443,8 +443,15 @@
   width: 100%;
 }
 
-.biliscript-interpret-menu-item:hover {
+.biliscript-interpret-menu-item:hover,
+.biliscript-interpret-menu-item:focus-visible {
   background: rgb(255 255 255 / 0.08);
+  outline: none;
+}
+
+.biliscript-interpret-menu-item.is-static {
+  cursor: default;
+  pointer-events: none;
 }
 
 .biliscript-interpret-menu-item.is-selected .biliscript-interpret-menu-item-label {
@@ -519,6 +526,11 @@
 
 .biliscript-interpret-menu-switch.is-on > span {
   transform: translateX(16px);
+}
+
+.biliscript-interpret-menu-switch:focus-visible {
+  outline: 2px solid var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  outline-offset: 2px;
 }
 
 .biliscript-interpret-menu-grid {

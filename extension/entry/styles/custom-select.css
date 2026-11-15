@@ -175,8 +175,10 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-#biliscript-reading-view .custom-select-option:hover {
+#biliscript-reading-view .custom-select-option:hover,
+#biliscript-reading-view .custom-select-option:focus-visible {
   background: var(--select-option-hover-bg, var(--biliscript-reader-surface-2));
+  outline: none;
 }
 
 #biliscript-reading-view .custom-select-option[data-selected="true"] {

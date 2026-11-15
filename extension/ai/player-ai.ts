@@ -416,6 +416,8 @@ function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
     button.textContent = "字幕";
     button.title = "字幕";
     button.setAttribute("aria-label", "字幕");
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
     button.setAttribute("aria-pressed", "false");
     button.setAttribute("aria-disabled", "false");
     button.addEventListener("click", handlePlayerInterpretQuickActionClick, true);
@@ -763,25 +765,20 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
   event.preventDefault();
   event.stopPropagation();
   const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
-  if (!button || button.getAttribute("aria-disabled") === "true" || button.disabled) return;
+  if (!button || button.disabled) return;
   const wrap = button.parentElement;
   if (!(wrap instanceof HTMLElement)) return;
-  button.setAttribute("aria-expanded", "true");
-  try {
-    await toggleInterpretSubtitleMenu(wrap, {
-      getSessionState: getInterpretSessionState,
-      getPreferences: async () => {
-        const settings = await getSettings();
-        return {
-          targetLang: String(settings.liveInterpretTargetLang || "zh"),
-          displayMode: String(settings.liveInterpretDisplayMode || "auto")
-        };
-      },
-      applyChoice: applyInterpretMenuChoice
-    });
-  } finally {
-    button.setAttribute("aria-expanded", "false");
-  }
+  await toggleInterpretSubtitleMenu(wrap, {
+    getSessionState: getInterpretSessionState,
+    getPreferences: async () => {
+      const settings = await getSettings();
+      return {
+        targetLang: String(settings.liveInterpretTargetLang || "zh"),
+        displayMode: String(settings.liveInterpretDisplayMode || "auto")
+      };
+    },
+    applyChoice: applyInterpretMenuChoice
+  });
 }
 
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {

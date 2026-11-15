@@ -322,6 +322,17 @@ describe("字幕翻译序号行协议", () => {
     ]);
   });
 
+  it("fallbackToOriginal=false 时，遗漏行返回空串而不混入原文", () => {
+    const llmOutput = "1. 你好，世界\n3. 让我们学点新东西。";
+    const parsed = parseSubtitleNumberedLines(llmOutput, originalItems, { fallbackToOriginal: false });
+
+    expect(parsed).toEqual([
+      { from: 0, to: 2.5, content: "你好，世界" },
+      { from: 2.5, to: 5.0, content: "" },
+      { from: 5.0, to: 8.0, content: "让我们学点新东西。" }
+    ]);
+  });
+
   it("translateSubtitleItems 调度模型并返回对齐条目", async () => {
     const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n2. 你好吗\n3. 学新知识");
     const result = await translateSubtitleItems({

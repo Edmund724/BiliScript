@@ -14,7 +14,13 @@
 import { byId } from "../shared/dom-utils.js";
 import { ids } from "./state.js";
 import { withReader } from "../ui/reader-gate.js";
-import { closestSubtitleItem, findSubtitleItem, getMainLineText } from "./subtitle-item-dom.js";
+import {
+  closestSubtitleItem,
+  findSubtitleItem,
+  getMainLineText,
+  getSubtextNode,
+  SUBTITLE_SUBTEXT_CLASS
+} from "./subtitle-item-dom.js";
 
 // 选区「解释」浮层：单实例、绝对定位在 tab body（不进列表滚动容器，避免随
 // 滚动裁剪/漂移），在字幕句内选中词/句后定位到选区下方。
@@ -52,18 +58,23 @@ export function bindReadingExplainEvents(): void {
   const subtitleList = byId(ids.readingSubtitleList);
   // 浮层显示时快照选区（条目索引 + 选中原文）：点「解释」时不再回读
   // window.getSelection()——彼时选区可能已被浏览器折叠，且快照语义更明确。
-  let pendingExplainSelection: { itemIndex: string; selection: string } | null = null;
+  let pendingExplainSelection: { itemIndex: string; selection: string; inReadySubtext: boolean } | null = null;
   // 本帧待定位的选区快照（cloneRange——rAF 执行时选区可能已继续变化/折叠）；
   // 两个帧句柄分别对应「定位/显形」与「显形后量宽」，hide 时一并取消。
-  let pendingExplainTarget: { item: HTMLElement; range: Range; selection: string } | null = null;
+  let pendingExplainTarget: { item: HTMLElement; range: Range; selection: string; inReadySubtext: boolean } | null = null;
+  let lastPlacedTarget: { item: HTMLElement; range: Range; selection: string; inReadySubtext: boolean } | null = null;
   let showFrameId = 0;
   let measureFrameId = 0;
-  // 宽度缓存：定位热路径绝不回读 offsetWidth（写 hidden 后立刻读会强制同步
-  // 布局）。首次显形的下一帧量一次（显形后布局已就绪，且该帧只读不写），此后
-  // 每次定位都用缓存值——按钮文案固定（「解释」），宽度在绑定期内不变。
-  const POP_WIDTH_FALLBACK = 96;
+  // 尺寸缓存：定位热路径绝不回读 offsetWidth/offsetHeight（写 hidden 后立刻读会强制
+  // 同步布局）。每次显形后的下一帧量一次（该帧只读不写），在浮层隐藏时重置标记，避免
+  // 字号调整后长期沿用旧尺寸。
+  const POP_MARGIN = 8;
+  const POP_GAP = 4;
+  const POP_WIDTH_FALLBACK = 52;
+  const POP_HEIGHT_FALLBACK = 30;
   let popWidth = POP_WIDTH_FALLBACK;
-  let popWidthMeasured = false;
+  let popHeight = POP_HEIGHT_FALLBACK;
+  let popSizeMeasured = false;
   const cancelExplainPopFrames = () => {
     if (showFrameId) {
       window.cancelAnimationFrame(showFrameId);
@@ -79,6 +90,9 @@ export function bindReadingExplainEvents(): void {
     // 先取消本帧待定位：「浮层已隐藏且尚无快照」也可能是刚排了一帧，走下面的
     // 早退会漏掉取消，下一帧又把它显形。
     cancelExplainPopFrames();
+    // 浮层收起后清掉尺寸缓存标记，下次再显示时重新按当前字号校准一次宽高。
+    popSizeMeasured = false;
+    lastPlacedTarget = null;
     // 热路径守卫：selectionchange 对页面任何输入框的选区变化都会触发，已隐藏时
     // 直接返回，避免每次敲键盘都写一遍 DOM。
     if (readingExplainPop.hidden && !pendingExplainSelection) {
@@ -99,17 +113,33 @@ export function bindReadingExplainEvents(): void {
   };
   // 显形 + 定位：本帧的「读→写」相位。读相位一次性取全部几何（body rect、
   // 选区 rect），写相位一次性写 hidden/dataset/left/top——中间不再夹读，
-  // 因此不触发强制同步布局。浮层宽度取缓存值（首次显形下一帧才量）。
-  const placeExplainPop = (target: { item: HTMLElement; range: Range; selection: string }) => {
+  // 因此不触发强制同步布局。浮层宽高取缓存值（显形下一帧只读校准）。
+  const placeExplainPop = (target: { item: HTMLElement; range: Range; selection: string; inReadySubtext: boolean }) => {
     const bodyRect = readingTabBodySubtitle.getBoundingClientRect();
     const rect = explainAnchorRect(target.range, target.item);
-    // 水平位置 = 选区中点正下方居中（贴左右边界时收敛回 tab body 内），
-    // 垂直位置 = 选区下缘留 4px。
+    const width = popWidth || POP_WIDTH_FALLBACK;
+    const height = popHeight || POP_HEIGHT_FALLBACK;
+    // 水平位置 = 选区中点正下方居中（贴左右边界时收敛回 tab body 内）；
+    // 垂直位置 = 默认放在选区下缘留 4px，若贴底溢出且上方有空间则翻转到选区上方，
+    // 否则钳制在可见区域 [POP_MARGIN, maxTop] 内。
     const selectionCenter = Math.round(rect.left + rect.width / 2 - bodyRect.left);
-    const maxLeft = Math.max(8, Math.round(bodyRect.width) - popWidth - 8);
-    const left = Math.min(Math.max(8, selectionCenter - Math.round(popWidth / 2)), maxLeft);
-    const top = Math.max(0, Math.round(rect.bottom - bodyRect.top) + 4);
-    pendingExplainSelection = { itemIndex: target.item.dataset.index || "", selection: target.selection };
+    const maxLeft = Math.max(POP_MARGIN, Math.round(bodyRect.width) - width - POP_MARGIN);
+    const left = Math.min(Math.max(POP_MARGIN, selectionCenter - Math.round(width / 2)), maxLeft);
+    const belowTop = Math.round(rect.bottom - bodyRect.top) + POP_GAP;
+    const aboveTop = Math.round(rect.top - bodyRect.top) - height - POP_GAP;
+    const maxTop = Math.max(POP_MARGIN, Math.round(bodyRect.height) - height - POP_MARGIN);
+    let top = belowTop;
+    if (belowTop + height > bodyRect.height - POP_MARGIN) {
+      top = aboveTop >= POP_MARGIN ? aboveTop : Math.min(Math.max(POP_MARGIN, belowTop), maxTop);
+    } else {
+      top = Math.max(POP_MARGIN, belowTop);
+    }
+    pendingExplainSelection = {
+      itemIndex: target.item.dataset.index || "",
+      selection: target.selection,
+      inReadySubtext: target.inReadySubtext
+    };
+    lastPlacedTarget = target;
     readingExplainPop.dataset.itemIndex = pendingExplainSelection.itemIndex;
     readingExplainPop.style.left = `${left}px`;
     readingExplainPop.style.top = `${top}px`;
@@ -123,26 +153,37 @@ export function bindReadingExplainEvents(): void {
       return;
     }
     placeExplainPop(target);
-    // 宽度校准帧：显形后布局已就绪，该帧只读不写，读 offsetWidth 是干净读。
-    // 量到后更新缓存供后续选区定位用（本帧位置用缓存值/fallback）。被 hide 取消
-    // 时不置位，下次显形重新排帧校准。
-    if (!popWidthMeasured && !measureFrameId) {
+    // 尺寸校准帧：显形后布局已就绪，该帧只读不写，读 offsetWidth/offsetHeight 是干净读。
+    // 量到后更新缓存；若宽高变化（如字号调整后首次重开）同步基于当前已量尺寸刷新定位。
+    if (!popSizeMeasured && !measureFrameId) {
       measureFrameId = window.requestAnimationFrame(() => {
         measureFrameId = 0;
-        const measured = readingExplainPop.hidden ? 0 : readingExplainPop.offsetWidth;
-        if (measured) {
-          popWidth = measured;
-          popWidthMeasured = true;
+        if (readingExplainPop.hidden) {
+          return;
+        }
+        const prevWidth = popWidth;
+        const prevHeight = popHeight;
+        popWidth = readingExplainPop.offsetWidth || POP_WIDTH_FALLBACK;
+        popHeight = readingExplainPop.offsetHeight || POP_HEIGHT_FALLBACK;
+        popSizeMeasured = true;
+        if ((popWidth !== prevWidth || popHeight !== prevHeight) && lastPlacedTarget) {
+          placeExplainPop(lastPlacedTarget);
         }
       });
     }
   };
-  const showExplainPopForSelection = (item: HTMLElement, range: Range, selection: string) => {
+  const showExplainPopForSelection = (item: HTMLElement, range: Range, selection: string, inReadySubtext: boolean) => {
     // 快照选区范围：rAF 执行时用户可能已拖到别处或折叠选区，届时 range 会失效。
-    pendingExplainTarget = { item, range: range.cloneRange(), selection };
+    pendingExplainTarget = { item, range: range.cloneRange(), selection, inReadySubtext };
     if (!showFrameId) {
       showFrameId = window.requestAnimationFrame(runExplainPopFrame);
     }
+  };
+  const elementFromNode = (node: Node | null | undefined): Element | null => {
+    if (!node) {
+      return null;
+    }
+    return node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
   };
   const syncExplainPopWithSelection = () => {
     const selection = window.getSelection?.();
@@ -152,17 +193,40 @@ export function bindReadingExplainEvents(): void {
       return;
     }
     const range = selection.getRangeAt(0);
-    const anchorNode = range.startContainer.nodeType === Node.TEXT_NODE
-      ? range.startContainer.parentElement
-      : (range.startContainer as HTMLElement | null);
-    const item = closestSubtitleItem(anchorNode);
-    if (!item || !subtitleList.contains(item)) {
+    const startEl = elementFromNode(range.startContainer);
+    const endEl = elementFromNode(range.endContainer);
+    const item = closestSubtitleItem(startEl);
+    const endItem = closestSubtitleItem(endEl);
+    if (!item || !endItem || item !== endItem || !subtitleList.contains(item)) {
       hideExplainPop();
       return;
     }
-    showExplainPopForSelection(item, range, text);
+    const timeEl = item.querySelector<HTMLElement>(".biliscript-reading-time");
+    const subEl = getSubtextNode(item);
+    const startSub = startEl?.closest<HTMLElement>(`.${SUBTITLE_SUBTEXT_CLASS}`) ?? null;
+    const endSub = endEl?.closest<HTMLElement>(`.${SUBTITLE_SUBTEXT_CLASS}`) ?? null;
+    const touchesTime =
+      Boolean(startEl?.closest(".biliscript-reading-time") || endEl?.closest(".biliscript-reading-time")) ||
+      Boolean(timeEl && typeof range.intersectsNode === "function" && range.intersectsNode(timeEl));
+    const subNotReady = Boolean(subEl && subEl.dataset.state !== "ready");
+    const touchesInvalidSubtext =
+      Boolean((startSub && startSub.dataset.state !== "ready") || (endSub && endSub.dataset.state !== "ready")) ||
+      Boolean(subNotReady && subEl && typeof range.intersectsNode === "function" && range.intersectsNode(subEl));
+    if (touchesTime || touchesInvalidSubtext) {
+      hideExplainPop();
+      return;
+    }
+    const inReadySubtext = Boolean(
+      (startSub && startSub.dataset.state === "ready") || (endSub && endSub.dataset.state === "ready")
+    );
+    showExplainPopForSelection(item, range, text, inReadySubtext);
   };
   document.addEventListener("selectionchange", syncExplainPopWithSelection);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !readingExplainPop.hidden) {
+      hideExplainPop();
+    }
+  });
   // 按住「解释」按钮的 mousedown 必须吃掉默认动作：否则 Chrome 会先折叠页面
   // 选区 → selectionchange 把浮层连同快照一起清掉 → click 落点时已无选区可用。
   readingExplainPop.addEventListener("mousedown", (event) => {
@@ -180,7 +244,9 @@ export function bindReadingExplainEvents(): void {
       snapshot && snapshot.itemIndex !== "" && Number.isFinite(itemIndex) && itemIndex >= 0
         ? findSubtitleItem(subtitleList, itemIndex)
         : null;
-    const line = getMainLineText(itemNode).trim();
+    const mainLine = getMainLineText(itemNode).trim();
+    const subLine = snapshot?.inReadySubtext ? getSubtextNode(itemNode)?.textContent?.trim() || "" : "";
+    const line = mainLine && subLine ? `${mainLine}（${subLine}）` : mainLine;
     if (!itemNode || !line || !snapshot) {
       hideExplainPop();
       return;

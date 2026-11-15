@@ -1,11 +1,13 @@
 import { buildTxt } from "../notes/render.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
+import { formatLocalDate } from "../shared/utils.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { state } from "../core/state.js";
 import { normalizeDownloadFormat } from "../core/validators.js";
 // 候选03 常驻瘦身：setMessage / setStatus 迁入 core/ui-status.js。
 import { setMessage, setStatus } from "../core/ui-status.js";
+import { announceReadingStatusLive } from "../core/reading-status-line.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
 import { ensureDerivedContent } from "./core.js";
@@ -40,7 +42,7 @@ export async function copySubtitleTranscript(): Promise<boolean> {
 
   try {
     await navigator.clipboard.writeText(text);
-    setMessage("字幕已复制到剪贴板。");
+    announceReadingStatusLive("字幕已复制到剪贴板。");
     return true;
   } catch (error) {
     setMessage(`复制失败：${getErrorMessage(error)}`);
@@ -48,7 +50,7 @@ export async function copySubtitleTranscript(): Promise<boolean> {
   }
 }
 
-export async function downloadSubtitle(): Promise<void> {
+export async function downloadSubtitle(): Promise<boolean> {
   state.setSettings(await getSettings());
   // 懒生成（opt-backlog-2026-09/04）：首次消费时构建并缓存，命中即零开销。
   ensureDerivedContent();
@@ -56,12 +58,14 @@ export async function downloadSubtitle(): Promise<void> {
   const content = format === "txt" ? state.clip.txt : state.clip.srt;
   if (!content) {
     setMessage("没有可下载的字幕，请先刷新抓取。");
-    return;
+    return false;
   }
 
   const safeTitle = sanitizeFileName(state.clip.title || state.clip.bvid || "bilibili-subtitle");
   const langSuffix = sanitizeFileName(state.clip.selectedSubtitleLang || "subtitle") || "subtitle";
-  const filename = `${safeTitle}.${langSuffix}.${format}`;
+  const dateRaw = state.settings?.includeDateInFilename ? state.clip.uploadDate || formatLocalDate() : "";
+  const datePrefix = dateRaw ? `${sanitizeFileName(dateRaw)}-` : "";
+  const filename = `${datePrefix}${safeTitle}.${langSuffix}.${format}`;
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 
@@ -73,7 +77,8 @@ export async function downloadSubtitle(): Promise<void> {
   a.remove();
   URL.revokeObjectURL(url);
 
-  setMessage(`已下载：${filename}`);
+  announceReadingStatusLive(`已下载：${filename}`);
+  return true;
 }
 
 // applyNoSubtitleState 已迁入 subtitle/commit.js（commitNoSubtitle，无字幕出口

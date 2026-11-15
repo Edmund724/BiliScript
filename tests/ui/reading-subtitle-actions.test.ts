@@ -37,9 +37,13 @@ function dispatchClick(elementId: string) {
   );
 }
 
-// script-only-ui：A 形态 message 节点已删除，反馈收敛到 #biliscript-reading-status
+// script-only-ui：失败反馈走 #biliscript-reading-status；成功操作走按钮反馈 + live region，不展开可见状态行（防 CLS）。
 function messageText(): string {
   return (document.getElementById(ids.readingStatus) as HTMLElement).textContent || "";
+}
+
+function liveText(): string {
+  return document.getElementById(ids.readingStatusLive)?.textContent || "";
 }
 
 function seedSubtitleBody() {
@@ -98,7 +102,9 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     expect(copied).toContain("0:00");
     expect(copied).toContain("0:10");
 
-    await vi.waitFor(() => expect(messageText()).toBe("字幕已复制到剪贴板。"));
+    await vi.waitFor(() => expect(liveText()).toBe("字幕已复制到剪贴板。"));
+    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
+    expect(document.getElementById(ids.readingCopySubtitleBtn)?.classList.contains("is-copied")).toBe(true);
   });
 
   it("无字幕时复制：反馈「没有可复制的字幕」，不写剪贴板", async () => {
@@ -151,15 +157,43 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     // 副行不带时间戳：缩进行里没有任何时刻文本
     const secondaryLines = copied.split("\n").filter((line) => line.startsWith("  "));
     expect(secondaryLines).toEqual(["  English line", "  English line"]);
-    await vi.waitFor(() => expect(messageText()).toBe("字幕已复制到剪贴板。"));
+    await vi.waitFor(() => expect(liveText()).toBe("字幕已复制到剪贴板。"));
+    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
+    expect(document.getElementById(ids.readingCopySubtitleBtn)?.classList.contains("is-copied")).toBe(true);
   });
 
-  it("点击「导出」：按默认 srt 格式触发下载并反馈文件名", async () => {
+  it("点击「导出」：按默认 srt 格式触发下载并反馈文件名（live region + 按钮已导出，不顶开状态行）", async () => {
+    state.clip.uploadDate = "2026-11-15";
     dispatchClick(ids.readingExportSubtitleBtn);
 
     await vi.waitFor(() => expect(clickedAnchor).not.toBe(null));
+    expect((clickedAnchor as HTMLAnchorElement | null)!.download.startsWith("2026-11-15-")).toBe(true);
     expect((clickedAnchor as HTMLAnchorElement | null)!.download.endsWith(".srt")).toBe(true);
-    await vi.waitFor(() => expect(messageText()).toContain("已下载"));
+    await vi.waitFor(() => expect(liveText()).toContain("已下载"));
+    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
+    expect(document.getElementById(ids.readingExportSubtitleBtn)?.getAttribute("aria-label")).toBe("已导出");
+  });
+
+  it("导出文件名设置 includeDateInFilename=false 时不加日期前缀", async () => {
+    state.clip.uploadDate = "2026-11-15";
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: { type?: string }, cb?: (r: unknown) => void) => {
+          const payload = msg?.type === "get-settings" ? { ok: true, settings: { includeDateInFilename: false } } : { ok: true };
+          if (typeof cb === "function") {
+            cb(payload);
+            return undefined;
+          }
+          return Promise.resolve(payload);
+        }
+      }
+    });
+
+    dispatchClick(ids.readingExportSubtitleBtn);
+    await vi.waitFor(() => expect(clickedAnchor).not.toBe(null));
+    expect((clickedAnchor as HTMLAnchorElement | null)!.download.startsWith("2026-11-15-")).toBe(false);
   });
 
   it("无字幕时导出：反馈「没有可下载的字幕」，不触发下载", async () => {
