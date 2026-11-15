@@ -1683,6 +1683,28 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     };
   }
 
+  function createFollowingVisibilityScope(node: HTMLElement): { restore: () => void; remove: () => void } {
+    const following: HTMLElement[] = [];
+    let next = node.nextElementSibling;
+    while (next) {
+      if (next instanceof HTMLElement) {
+        next.hidden = true;
+        following.push(next);
+      }
+      next = next.nextElementSibling;
+    }
+    return {
+      restore() {
+        following.forEach((element) => {
+          element.hidden = false;
+        });
+      },
+      remove() {
+        following.forEach((element) => element.remove());
+      }
+    };
+  }
+
   function beginRegeneration(node: HTMLDivElement): ChatRegenerationSession {
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalContent = document.createDocumentFragment();
@@ -1694,15 +1716,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     originalSearchCard?.remove();
     searchCardStates.delete(node);
     settledSearchTurns.delete(node);
-    const following: HTMLElement[] = [];
-    let next = node.nextElementSibling;
-    while (next) {
-      if (next instanceof HTMLElement) {
-        next.hidden = true;
-        following.push(next);
-      }
-      next = next.nextElementSibling;
-    }
+    const following = createFollowingVisibilityScope(node);
 
     cancelTokenFlush();
     const oldState = getTokenStreamState(node);
@@ -1728,9 +1742,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       if (originalSearchCard) {
         deps.messages.insertBefore(originalSearchCard, node);
       }
-      following.forEach((element) => {
-        element.hidden = false;
-      });
+      following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);
     }
     const turn: ChatAssistantTurn = {
@@ -1755,7 +1767,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           return;
         }
         settled = true;
-        following.forEach((element) => element.remove());
+        following.remove();
       },
       restore
     };
@@ -1768,6 +1780,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalChildren = Array.from(node.childNodes);
     settledSearchTurns.delete(node);
+    const following = createFollowingVisibilityScope(node);
 
     cancelTokenFlush();
     const oldState = getTokenStreamState(node);
@@ -1823,6 +1836,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       clearSearchCard(node);
       node.innerHTML = "";
       originalChildren.forEach((child) => node.appendChild(child));
+      following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);
     }
 
@@ -1840,7 +1854,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     return {
       turn,
       commit() {
+        if (settled) {
+          return;
+        }
         settled = true;
+        following.remove();
       },
       restore
     };

@@ -395,4 +395,157 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(assistantEl.querySelector(".chat-msg-assistant-body")?.textContent).toContain("原部分正文");
     expect(assistantEl.querySelectorAll(".chat-msg-action-btn")).toHaveLength(5);
   });
+
+  it("继续生成较早的已停止回答（Branch B）：生成中隐藏后续消息，完成后合并落盘并永久删去后续", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "token", data: "第一答前半" });
+    feed(runtime, { type: "stopped", reason: "初停" });
+
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+
+    const firstAssistant = deps.messages.querySelectorAll<HTMLDivElement>(".chat-msg-assistant")[0];
+    firstAssistant.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-user")[1].hidden).toBe(true);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(true);
+
+    feed(runtime, { type: "token", data: "，第一答后半" });
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答前半，第一答后半" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+    expect(firstAssistant.querySelector(".chat-msg-assistant-body")?.textContent).toContain("第一答前半，第一答后半");
+  });
+
+  it("继续生成较早的仅思考已停止回答（Branch A）：完成后删去后续消息与历史", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "reasoning", data: "先想一下" });
+    feed(runtime, { type: "stopped", reason: "思考中断" });
+
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+
+    const firstAssistant = deps.messages.querySelectorAll<HTMLDivElement>(".chat-msg-assistant")[0];
+    firstAssistant.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-user")[1].hidden).toBe(true);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(true);
+
+    feed(runtime, { type: "token", data: "第一答正文" });
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答正文", thinking: "先想一下" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+  });
+
+  it("继续生成较早回答失败：恢复原卡片与后续消息，历史不变", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "token", data: "第一答前半" });
+    feed(runtime, { type: "stopped", reason: "初停" });
+
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+
+    const firstAssistant = deps.messages.querySelectorAll<HTMLDivElement>(".chat-msg-assistant")[0];
+    firstAssistant.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+
+    feed(runtime, { type: "token", data: "半截新内容" });
+    feed(runtime, { type: "error", error: "网络断开" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答前半", stopped: true },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: "第二答" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-user")[1].hidden).toBe(false);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(false);
+    expect(firstAssistant.querySelector(".chat-msg-stopped")?.textContent).toBe("初停");
+    expect(firstAssistant.querySelector(".chat-msg-assistant-body")?.textContent).not.toContain("半截新内容");
+  });
+
+  it("继续生成较早回答在零新增输出时被停止：恢复原卡片与后续消息", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "token", data: "第一答前半" });
+    feed(runtime, { type: "stopped", reason: "初停" });
+
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+
+    const firstAssistant = deps.messages.querySelectorAll<HTMLDivElement>(".chat-msg-assistant")[0];
+    firstAssistant.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+
+    feed(runtime, { type: "stopped", reason: "立即停止" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答前半", stopped: true },
+      { role: "user", content: "第二问" },
+      { role: "assistant", content: "第二答" }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-user")[1].hidden).toBe(false);
+    expect(deps.messages.querySelectorAll<HTMLElement>(".chat-msg-assistant")[1].hidden).toBe(false);
+    expect(firstAssistant.querySelector(".chat-msg-stopped")?.textContent).toBe("初停");
+    expect(firstAssistant.querySelector(".chat-msg-continue-btn")).toBeTruthy();
+  });
+
+  it("继续生成较早回答收到新增输出后被停止：保留合并内容并永久删去后续消息", async () => {
+    const deps = makeDeps();
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "token", data: "第一答前半" });
+    feed(runtime, { type: "stopped", reason: "初停" });
+
+    await runtime.sendTurn("第二问");
+    feed(runtime, { type: "token", data: "第二答" });
+    feed(runtime, { type: "done" });
+
+    const firstAssistant = deps.messages.querySelectorAll<HTMLDivElement>(".chat-msg-assistant")[0];
+    firstAssistant.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+
+    feed(runtime, { type: "token", data: "，新追加" });
+    feed(runtime, { type: "stopped", reason: "再次停止" });
+
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "第一问" },
+      { role: "assistant", content: "第一答前半，新追加", stopped: true }
+    ]);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+    expect(firstAssistant.querySelector(".chat-msg-stopped")?.textContent).toBe("再次停止");
+  });
 });

@@ -289,6 +289,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     initialRaw: string;
     userPrompt: string;
     branch: "A" | "B";
+    hasNewOutput: boolean;
     session: ChatContinuationSession;
   } | null = null;
   let activeUserPrompt = "";
@@ -458,6 +459,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     if (msg.type === "reasoning") {
       handleFirstStreamToken();
+      if (activeContinuation && String(msg.data ?? "").length > 0) {
+        activeContinuation.hasNewOutput = true;
+      }
       // 思考节点的一代际状态（是否已有打开的节点 / 是否已收尾）随回合句柄持有
       // （./chat-stream-render.ts 的 ChatAssistantTurn）：token 收尾后仍到达的
       // reasoning 收尾事件由句柄新建节点（附着当前在途回合的节点——跨消息时
@@ -465,6 +469,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeTurn?.appendThinking(msg.data);
     } else if (msg.type === "token") {
       handleFirstStreamToken();
+      if (activeContinuation && String(msg.data ?? "").length > 0) {
+        activeContinuation.hasNewOutput = true;
+      }
       activeTurn?.appendToken(msg.data);
     } else if (msg.type === "token-batch") {
       // 07 票合帧：与逐 token 同一 appendToken 渲染收口（首个 token 注册帧，
@@ -472,6 +479,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       handleFirstStreamToken();
       for (const token of Array.isArray(msg.data) ? msg.data : []) {
         if (typeof token === "string") {
+          if (activeContinuation && token.length > 0) {
+            activeContinuation.hasNewOutput = true;
+          }
           activeTurn?.appendToken(token);
         }
       }
@@ -484,6 +494,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeToolGeneration = nextGeneration;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
+      if (activeContinuation) {
+        activeContinuation.hasNewOutput = false;
+      }
       activeToolCalls.clear();
       activeTurn?.reset();
     } else if (msg.type === "done") {
@@ -657,6 +670,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       initialRaw,
       userPrompt,
       branch,
+      hasNewOutput: false,
       session: messageArea.beginContinuation(node, {
         initialRaw,
         thinking: initialThinking
@@ -932,7 +946,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
   function getActiveAssistantHistoryIndex(): number {
     if (activeContinuation) {
-      return activeContinuation.historyIndex;
+      const baseIndex = activeContinuation.branch === "A"
+        ? activeContinuation.userIndex + 1
+        : activeContinuation.historyIndex;
+      return baseIndex + pendingToolMessages.length;
     }
     if (activeRegeneration) {
       return activeRegeneration.userIndex + 1 + pendingToolMessages.length;
@@ -982,12 +999,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         pendingToolMessages = [];
         return false;
       }
-      if (isStopped && !hasContent && !hasThinking) {
+      if (isStopped && (!activeContinuation.hasNewOutput || (!hasContent && !hasThinking))) {
         pendingToolMessages = [];
         return false;
       }
-      const history = [...activeContinuation.originalHistory];
-      history[activeContinuation.historyIndex] = assistantMsg;
+      const sliceEnd = activeContinuation.branch === "A"
+        ? activeContinuation.userIndex + 1
+        : activeContinuation.historyIndex;
+      const history = activeContinuation.originalHistory.slice(0, sliceEnd);
+      history.push(...pendingToolMessages, assistantMsg);
       applyConversationIdentity({ history });
       void deps.store.persistCurrent();
       pendingToolMessages = [];
