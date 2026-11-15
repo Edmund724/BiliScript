@@ -12,7 +12,9 @@ import {
 } from "../../extension/reader/quote-share-modal.js";
 import { layoutQuoteCardText } from "../../extension/reader/quote-share-export.js";
 import { renderReadingOverview, onReadingOverviewClick } from "../../extension/reader/overview-ui.js";
-import { closeReadingView } from "../../extension/reader/lifecycle.js";
+import { closeReadingView, handleReaderPresenterNotification } from "../../extension/reader/lifecycle.js";
+import { openReaderSettingsMode, closeReaderSettingsMode } from "../../extension/reader/settings-mode.js";
+import { mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import { ids } from "../../extension/reader/state.js";
 import type { ReaderOverviewSnapshot } from "../../extension/reader/overview-coordinator.js";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
@@ -663,6 +665,205 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
 
     host.querySelector<HTMLElement>("[data-preset]")!.click();
     expect(viewClickTriggered).toBe(false);
+  });
+
+  it("打开弹窗时惰性隔离同级阅读内容，Tab/Shift+Tab 在弹窗内闭环，关闭时解除 inert 并归还焦点给触发源", () => {
+    document.body.innerHTML = `
+      <div id="${ids.readingView}">
+        <div id="${ids.readingScriptPanel}">
+          <div id="${ids.readingOverviewBody}"></div>
+        </div>
+      </div>
+    `;
+
+    renderReadingOverview(
+      makeSnapshot({
+        summary: "",
+        chapters: [],
+        quotes: [{ from: 30, content: "焦点范围与同级隔离验证金句" }]
+      })
+    );
+
+    const scriptPanel = document.getElementById(ids.readingScriptPanel)!;
+    const shareBtn = document.querySelector<HTMLElement>("[data-overview-action='share-quote']")!;
+    shareBtn.focus();
+    expect(document.activeElement).toBe(shareBtn);
+
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    shareBtn.dispatchEvent(clickEvent);
+    onReadingOverviewClick(clickEvent);
+
+    expect(isQuoteShareModalOpen()).toBe(true);
+    expect(scriptPanel.inert).toBe(true);
+
+    const dialog = document.querySelector<HTMLElement>(".biliscript-quote-share-dialog")!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    const focusables = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    first.focus();
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(last);
+
+    last.focus();
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(first);
+
+    closeQuoteShareModal();
+    expect(isQuoteShareModalOpen()).toBe(false);
+    expect(scriptPanel.inert).toBe(false);
+    expect(document.activeElement).toBe(shareBtn);
+  });
+
+  it("reset 通知与进入设置页都会收起已打开的分享弹窗并解除 inert", () => {
+    document.body.innerHTML = "";
+    mountReaderSkeleton(ids);
+    const scriptPanel = document.getElementById(ids.readingScriptPanel)!;
+
+    openQuoteShareModal({ content: "reset 清理验证金句" });
+    expect(isQuoteShareModalOpen()).toBe(true);
+    expect(scriptPanel.inert).toBe(true);
+
+    handleReaderPresenterNotification({ kind: "reset" });
+    expect(isQuoteShareModalOpen()).toBe(false);
+    expect(scriptPanel.inert).toBe(false);
+
+    const triggerBtn = document.createElement("button");
+    triggerBtn.type = "button";
+    scriptPanel.appendChild(triggerBtn);
+    triggerBtn.focus();
+
+    openQuoteShareModal({ content: "设置模式互清验证金句", triggerEl: triggerBtn });
+    expect(isQuoteShareModalOpen()).toBe(true);
+    expect(scriptPanel.inert).toBe(true);
+
+    openReaderSettingsMode();
+    expect(isQuoteShareModalOpen()).toBe(false);
+    expect(scriptPanel.inert).toBe(false);
+
+    closeReaderSettingsMode();
+  });
+
+  it("关闭并重开弹窗后，旧会话的反馈定时器与挂起异步复制均不会污染旧按钮或新会话", async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    const origImage = globalThis.Image;
+    const origClipboard = navigator.clipboard;
+    const origClipboardItem = (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
+    const origToBlob = HTMLCanvasElement.prototype.toBlob;
+
+    try {
+      const fakeCtx = {
+        scale: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        clip: vi.fn(),
+        stroke: vi.fn(),
+        fill: vi.fn(),
+        rect: vi.fn(),
+        roundRect: vi.fn(),
+        strokeRect: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createPattern: vi.fn(() => null),
+        fillRect: vi.fn(),
+        drawImage: vi.fn(),
+        measureText: vi.fn((str: string) => ({ width: str.length * 16 })),
+        fillText: vi.fn(),
+        font: "",
+        fillStyle: "",
+        strokeStyle: "",
+        lineWidth: 1,
+        textAlign: "left",
+        textBaseline: "middle",
+        shadowColor: "",
+        shadowBlur: 0,
+        shadowOffsetY: 0,
+        globalAlpha: 1,
+        globalCompositeOperation: "source-over"
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((type: string) =>
+        type === "2d" ? (fakeCtx as unknown as CanvasRenderingContext2D) : null
+      );
+      HTMLCanvasElement.prototype.toBlob = vi.fn((cb: BlobCallback) =>
+        cb(new Blob(["png"], { type: "image/png" }))
+      );
+      globalThis.Image = class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        crossOrigin = "";
+        set src(_val: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      } as unknown as typeof Image;
+      (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
+
+      // 1. 反馈定时器在关闭弹窗时被取消，过期后不再触发文案回退
+      Object.defineProperty(navigator, "clipboard", {
+        value: { write: vi.fn().mockResolvedValue(undefined) },
+        configurable: true
+      });
+      openQuoteShareModal({ content: "定时器取消验证" });
+      const btn1 = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
+      btn1.click();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(btn1.classList.contains("is-success")).toBe(true);
+      expect(btn1.textContent).toContain("已复制");
+
+      closeQuoteShareModal();
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+
+      // 2. 在途异步操作跨会话返回时被 sessionEpoch 拦截
+      let resolvePending!: () => void;
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          write: vi.fn(
+            () =>
+              new Promise<void>((resolve) => {
+                resolvePending = resolve;
+              })
+          )
+        },
+        configurable: true
+      });
+      openQuoteShareModal({ content: "跨会话旧操作" });
+      const btn2 = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
+      btn2.click();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(btn2.disabled).toBe(true);
+
+      closeQuoteShareModal();
+      openQuoteShareModal({ content: "新会话金句" });
+      const btn3 = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
+
+      resolvePending();
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(btn1.textContent).toContain("已复制");
+      expect(btn2.classList.contains("is-success")).toBe(false);
+      expect(btn3.classList.contains("is-success")).toBe(false);
+      expect(btn3.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      HTMLCanvasElement.prototype.toBlob = origToBlob;
+      globalThis.Image = origImage;
+      Object.defineProperty(navigator, "clipboard", {
+        value: origClipboard,
+        configurable: true
+      });
+      (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = origClipboardItem;
+    }
   });
 });
 

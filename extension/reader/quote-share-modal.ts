@@ -24,11 +24,13 @@ import {
   downloadQuoteCardBlob
 } from "./quote-share-export.js";
 import { ids } from "./state.js";
+import { createFocusScope, isolateHostSiblings, type FocusScope } from "../ui/focus-scope.js";
 
 export interface OpenQuoteShareModalOptions {
   content: string;
   preset?: string;
   pattern?: QuotePatternId;
+  triggerEl?: HTMLElement | null;
 }
 
 interface SpringPoint2D {
@@ -52,6 +54,10 @@ interface QuoteShareModalState {
   lastCardWidth: number;
   copying: boolean;
   downloading: boolean;
+  focusScope: FocusScope | null;
+  restoreSiblings: (() => void) | null;
+  sessionEpoch: number;
+  feedbackTimers: Set<ReturnType<typeof setTimeout>>;
 }
 
 const state: QuoteShareModalState = {
@@ -64,7 +70,11 @@ const state: QuoteShareModalState = {
   resizeObserver: null,
   lastCardWidth: 0,
   copying: false,
-  downloading: false
+  downloading: false,
+  focusScope: null,
+  restoreSiblings: null,
+  sessionEpoch: 0,
+  feedbackTimers: new Set()
 };
 
 /**
@@ -281,13 +291,20 @@ function updatePatternSelectionInDom(patternId: QuotePatternId): void {
 }
 
 export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
-  closeQuoteShareModal();
+  const activeEl = document.activeElement;
+  const triggerEl =
+    options.triggerEl ??
+    (activeEl instanceof HTMLElement && activeEl !== document.body && activeEl !== document.documentElement
+      ? activeEl
+      : null);
+  closeQuoteShareModal({ restoreFocus: false });
 
   const content = String(options.content || "").trim();
   if (!content) {
     return;
   }
 
+  state.sessionEpoch += 1;
   state.open = true;
   state.content = content;
   if (options.preset && QUOTE_CARD_PRESETS.some((p) => p.id === options.preset)) {
@@ -312,19 +329,39 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   container.appendChild(host);
   state.host = host;
 
+  if (container.id === ids.readingView) {
+    state.restoreSiblings = isolateHostSiblings(host);
+  }
+  const dialog = host.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
+  const initialFocus =
+    dialog?.querySelector<HTMLElement>("[data-action='copy-image']") ??
+    dialog?.querySelector<HTMLElement>(".biliscript-quote-share-close") ??
+    dialog;
+  if (dialog) {
+    state.focusScope = createFocusScope(dialog, {
+      initialFocus,
+      returnFocus: triggerEl
+    });
+  }
+
   fitQuoteCardText(host);
   observeCardResize(host);
 
   document.addEventListener("keydown", onDocumentKeyDown, true);
 }
 
-export function closeQuoteShareModal(): void {
+export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void {
   if (!state.open && !state.host) {
     return;
   }
   state.open = false;
+  state.sessionEpoch += 1;
   state.copying = false;
   state.downloading = false;
+  for (const timer of state.feedbackTimers) {
+    clearTimeout(timer);
+  }
+  state.feedbackTimers.clear();
 
   if (state.spring) {
     state.spring.stop();
@@ -336,9 +373,16 @@ export function closeQuoteShareModal(): void {
   }
   state.lastCardWidth = 0;
 
+  state.restoreSiblings?.();
+  state.restoreSiblings = null;
+
   document.removeEventListener("keydown", onDocumentKeyDown, true);
   state.host?.remove();
   state.host = null;
+
+  const scope = state.focusScope;
+  state.focusScope = null;
+  scope?.dispose(options?.restoreFocus !== false);
 }
 
 let quoteTextMeasurer: QuoteCardTextMeasurer | null | undefined;
@@ -403,6 +447,7 @@ function onDocumentKeyDown(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") {
     return;
   }
+  event.preventDefault();
   event.stopPropagation();
   closeQuoteShareModal();
 }
@@ -525,6 +570,7 @@ async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promis
   if (state[busyKey]) {
     return;
   }
+  const epoch = state.sessionEpoch;
   state[busyKey] = true;
 
   const textEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-text");
@@ -537,7 +583,11 @@ async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promis
   btn.disabled = true;
 
   const resetState = (delay: number) => {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      state.feedbackTimers.delete(timer);
+      if (!state.open || state.sessionEpoch !== epoch) {
+        return;
+      }
       btn.classList.remove("is-success");
       if (textEl) {
         textEl.textContent = origText;
@@ -548,10 +598,14 @@ async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promis
       btn.disabled = false;
       state[busyKey] = false;
     }, delay);
+    state.feedbackTimers.add(timer);
   };
 
   try {
     const result = await action();
+    if (!state.open || state.sessionEpoch !== epoch) {
+      return;
+    }
     if (result !== false) {
       btn.classList.add("is-success");
       if (textEl) {
@@ -568,6 +622,9 @@ async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promis
       resetState(failureDuration);
     }
   } catch {
+    if (!state.open || state.sessionEpoch !== epoch) {
+      return;
+    }
     if (textEl) {
       textEl.textContent = errorText;
     }

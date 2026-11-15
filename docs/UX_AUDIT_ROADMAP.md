@@ -1,6 +1,6 @@
 # BiliScript 信息架构与用户流程全景（UX Audit Roadmap）
 
-本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 / M3 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，M4 深度走查暂不实施）及已落地的核心产品裁定。
+本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 / M3 / M4 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）及已落地的核心产品裁定。
 
 ---
 
@@ -86,6 +86,7 @@ flowchart TD
 
 ### M4：AI 概览与金句分享
 * [`overview-ui.ts`](../extension/reader/overview-ui.ts) 支持自动/手动生成概览、长视频分段进度与部分失败重试、三源分章跳播与随播放高亮，以及 [`quote-share-modal.ts`](../extension/reader/quote-share-modal.ts) 金句海报导出。
+  * **M4 深度复审（P0/P1 已修复并验证，P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）**：修复配置类错误条（含 `no-model`）仅保留 `.is-primary`「去设置」主动作并补齐空态主按钮样式；`QuoteShareModal` 接入同级 `inert` 隔离、`createFocusScope` 焦点闭环与原触发按钮归还、`Escape` 阻止默认行为及异步按钮反馈定时器跨会话 epoch 清理；在视图 `reset()`、`closeReadingView()` 与进入设置页时自动收起分享弹窗并恢复状态，`clearOverviewProduct()` 同步停止等待计时器；补全小视口弹窗高度自适应、概览/弹窗 `:focus-visible` 焦点环、金句内嵌分享/复制按钮 `tabindex="0"` + `Enter`/`Space` 触发、概览划词 `pointerdown` 防误跳播、长正文折行以及状态条 `flex-wrap` 与 `role="status"`/`role="alert"` 无障碍语义；遗留 P2（4 项）/ P3（2 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)。
 
 ### M5：AI 对话与双端实时伴看
 * **会话管理与偏好同源**：标签行右侧保留 `⋮` 菜单收纳「开启新会话」「历史对话」「对话行高 / 段落间距 / 对话朗读音量」及「更多显示设置」深链；新建会话对草稿、图片与在途回合做合并确认；[`chat-popovers.ts`](../extension/reader/chat-popovers.ts) 将历史对话作为 `hidden` 单源驱动的内容模式（定位当前项、流式切换等待 `settleTurn()` 落定、单条删除 6 秒撤销）；7 项排版与音频偏好在设置抽屉与场景面板/浮窗间同源持久化、重置与同步。
@@ -106,7 +107,7 @@ flowchart TD
 | **P1** | **Session 4**：M5 AI 对话高频交互、模型面板与工具反馈 | ✅ 已完成 | 保留 `⋮` 菜单收口并保留历史内容模式、7 项偏好归拢、发送闸快照保护、模型同屏联动与工具/消息终态已落地 |
 | **P0/P1** | **M2 深度复审**：首配冷启动、编辑器隔离与四族交互细节 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 对话模型选择器空态闭环与 `models: []` 导回编辑、首配空模型行校验、内联子视图/弹窗 `inert` 隔离与 Flyme 实底防透字、异步并发与防重入锁、错误语义色 `--biliscript-reader-danger` 与 `:user-valid` 作用域收窄、行内删除/单选/排序防吞错与搜索激活 ID 清理、动态跨族凭据引用、AI 设为默认与对话文案一致、搜索拖拽键盘排序、ASR 一次闭环、跨族恢复提示内置 Modal 与焦点不回抢已落地并通过构建验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
 | **P0/P1** | **M3 深度复审**：字幕精读、选区解释浮层/卡片与去对话追问闭环 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 指针按下选区消费防折叠误跳播、解释卡开启暂停自动跟滚、视频/分 P 切换重置解释卡与待处理/续跑意图、解释卡 `Tab` 焦点圈禁与关闭归还焦点及重渲不抢焦点、解释气泡底边翻转/尺寸校准重测/`Esc`/跨句与时间戳及非就绪副行过滤/双语已就绪全句上下文、长引文限高滚动与加载骨架、配置错仅留「去设置」与错误按钮间距、去对话保留已有解释上下文与草稿保护及 `:focus-visible` 焦点环已落地并通过验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
-| **P2** | **Session 5**：M4 概览与金句深度走查（M3 深度复审已完成） | ⏹️ 不实施 | M4 属 P2 优先级，本轮走查不再推进 |
+| **P0/P1** | **M4 深度复审**：AI 概览生成、金句卡片交互与海报分享弹窗 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 修复 `no-model` 误接与配置错误条无效重试、`QuoteShareModal` 焦点闭环/`inert`/跨会话定时器与视图 `reset` 清理、小视口弹窗自适应、划词防误跳播、金句内嵌操作键盘可达性及状态条 live region 语义；4 项 P2 与 2 项 P3 归入 Backlog |
 
 ### 3.2 已落地的核心产品决策
 
@@ -121,8 +122,10 @@ flowchart TD
 
 ### 3.3 遗留 Backlog
 
-M1 三路审查产出的低优先级条目（P2/P3）记录于 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，与 Session 5 同作后续按需参考，不列入当前实施排期。
+M1 三路审查产出的低优先级条目（P2/P3）记录于 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
 
 M2 深度复审产出的 P2（8 项）/ P3（4 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
 
 M3 深度复审产出的 P2（7 项）/ P3（1 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
+
+M4 深度复审产出的 P2（4 项）/ P3（2 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。

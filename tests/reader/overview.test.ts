@@ -787,6 +787,83 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
   });
 });
 
+describe("概览划词防误跳与金句键盘可达性", () => {
+  afterEach(async () => {
+    const quoteShareModal = await import("../../extension/reader/quote-share-modal.js");
+    quoteShareModal.closeQuoteShareModal({ restoreFocus: false });
+  });
+
+  it("pointerdown 时存在文本选区、click 时已清空选区仍不跳播，下一次正常点击恢复跳播", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+    await reader.triggerReaderOverviewGeneration();
+
+    const overviewUi = await import("../../extension/reader/overview-ui.js");
+    overviewUi.bindReadingOverviewEvents();
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+    video.play = vi.fn(() => Promise.resolve()) as unknown as HTMLVideoElement["play"];
+    const chapter = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-chapter[data-seconds='120']")!;
+
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "选中的概览文本"
+    } as unknown as Selection);
+    chapter.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+
+    // 模拟浏览器在 click 前清空选区
+    selectionSpy.mockReturnValue({
+      toString: () => ""
+    } as unknown as Selection);
+    chapter.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(video.currentTime).toBe(0);
+    expect(video.play).not.toHaveBeenCalled();
+
+    // 再次无选区正常点击时应恢复跳播
+    chapter.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    chapter.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(video.currentTime).toBe(120));
+    expect(video.play).toHaveBeenCalledTimes(1);
+    selectionSpy.mockRestore();
+  });
+
+  it("金句内嵌分享与复制按钮具有 tabindex=0，通过 Space / Enter 键盘触发时不跳播", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+    await reader.triggerReaderOverviewGeneration();
+
+    const overviewUi = await import("../../extension/reader/overview-ui.js");
+    const quoteShareModal = await import("../../extension/reader/quote-share-modal.js");
+    overviewUi.bindReadingOverviewEvents();
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+    video.play = vi.fn(() => Promise.resolve()) as unknown as HTMLVideoElement["play"];
+
+    const clipboardWriteText = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: clipboardWriteText },
+      configurable: true
+    });
+
+    const copyBtn = overviewBody().querySelector<HTMLElement>("[data-overview-action='copy-quote']")!;
+    const shareBtn = overviewBody().querySelector<HTMLElement>("[data-overview-action='share-quote']")!;
+    expect(copyBtn.getAttribute("tabindex")).toBe("0");
+    expect(shareBtn.getAttribute("tabindex")).toBe("0");
+
+    copyBtn.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(clipboardWriteText).toHaveBeenCalledTimes(1));
+    expect(video.currentTime).toBe(0);
+    expect(video.play).not.toHaveBeenCalled();
+
+    shareBtn.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(quoteShareModal.isQuoteShareModalOpen()).toBe(true));
+    expect(video.currentTime).toBe(0);
+    expect(video.play).not.toHaveBeenCalled();
+  });
+});
+
 describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）", () => {
   it("切到概览 tab：idle 自动触发生成并渲染结果", async () => {
     const uiRenderer = await import("../../extension/ui/ui-renderer.js");

@@ -36,9 +36,31 @@ export interface OverviewUiActions {
 }
 
 let registeredActions: OverviewUiActions | null = null;
+let hadSelectionOnOverviewPointerDown = false;
 
 export function registerOverviewUiActions(actions: OverviewUiActions): void {
   registeredActions = actions;
+}
+
+export function markOverviewPointerDownSelection(
+  hasSelection = Boolean(window.getSelection()?.toString().trim())
+): void {
+  hadSelectionOnOverviewPointerDown = hasSelection;
+}
+
+export function onReadingOverviewKeyDown(event: KeyboardEvent): void {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  const actionTarget = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    "[data-overview-action='share-quote'], [data-overview-action='copy-quote']"
+  );
+  if (!actionTarget) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  actionTarget.click();
 }
 
 export function buildOverviewTabBodyHtml(): string {
@@ -56,6 +78,12 @@ export function bindReadingOverviewEvents(): void {
   // 事件委托挂概览渲染宿主（内容被状态机整块重建，容器不换）；逻辑经 ui/reader-gate
   // 装载后转发，与章节 rail / 字幕句点击同款接线。
   const readingOverviewBody = byId(ids.readingOverviewBody);
+  readingOverviewBody.addEventListener("pointerdown", () => {
+    markOverviewPointerDownSelection();
+  });
+  readingOverviewBody.addEventListener("keydown", (event) => {
+    onReadingOverviewKeyDown(event);
+  });
   readingOverviewBody.addEventListener("click", (event) => {
     withReader("overview click", (reader) => reader.onReadingOverviewClick(event));
   });
@@ -163,7 +191,7 @@ function buildEmptyStateHtml(): string {
     // 不伪装成配置问题。
     if (requiresAsrSetup(state.clip.noSubtitleReason)) {
       settingsAction = `
-        <button type="button" class="biliscript-reading-mini-btn" data-overview-action="open-transcribe-settings">前往设置</button>`;
+        <button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="open-transcribe-settings">前往设置</button>`;
     }
   }
   return `
@@ -183,7 +211,7 @@ function buildEmptyStateHtml(): string {
 function buildGeneratingStrip(snapshot: ReaderOverviewSnapshot): string {
   const text = snapshot.stripText || "正在生成概览…";
   return `
-    <div class="biliscript-reading-ov-strip is-generating">
+    <div class="biliscript-reading-ov-strip is-generating" role="status" aria-live="polite">
       <span class="biliscript-reading-ov-strip-text">${escapeHtml(text)}</span>
       <button type="button" class="biliscript-reading-mini-btn" data-overview-action="cancel">取消</button>
     </div>
@@ -213,7 +241,7 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
     messages.push("全片简介未生成。");
   }
   return `
-    <div class="biliscript-reading-ov-strip is-partial">
+    <div class="biliscript-reading-ov-strip is-partial" role="status" aria-live="polite">
       <span class="biliscript-reading-ov-strip-text">${messages.join(" ")}</span>
       <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">${failedCount ? "重试失败区间" : "重试简介"}</button>
     </div>
@@ -221,16 +249,16 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
 }
 
 function buildErrorStrip(snapshot: ReaderOverviewSnapshot): string {
-  // 配置类错误（票 01）：无平台 / 缺 Key 给「去设置」直达正确的平台编辑界面
-  // （首配模式，保存后续跑概览）；其余错误只给「重试」，不伪装成配置问题。
+  // 配置类错误（票 01）：无平台 / 缺 Key / 缺模型仅给「去设置」主按钮直达正确的
+  // 平台编辑界面（首配模式，保存后续跑概览）；其余错误只给「重试」，不伪装成配置问题。
   const errorClass = classifyOverviewSetupError(snapshot.errorText);
-  const setupButton = errorClass
-    ? `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="setup" data-setup-class="${errorClass}">去设置</button>`
-    : "";
+  const actionButton = errorClass
+    ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-overview-action="setup" data-setup-class="${errorClass}">去设置</button>`
+    : `<button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>`;
   return `
-    <div class="biliscript-reading-ov-strip is-error">
+    <div class="biliscript-reading-ov-strip is-error" role="alert">
       <span class="biliscript-reading-ov-strip-text">概览生成失败：${escapeHtml(snapshot.errorText || "未知错误")}</span>
-      ${setupButton}<button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
+      ${actionButton}
     </div>
   `;
 }
@@ -340,8 +368,8 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
           <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
         </span>
         <span class="biliscript-reading-ov-quote-actions">
-          <span class="biliscript-reading-ov-quote-share" role="button" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
-          <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
+          <span class="biliscript-reading-ov-quote-share" role="button" tabindex="0" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
+          <span class="biliscript-reading-ov-quote-copy" role="button" tabindex="0" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
         </span>
       </span>
     </button>
@@ -353,6 +381,8 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
 // ============================================================
 
 export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiActions): void {
+  const hadSelection = hadSelectionOnOverviewPointerDown;
+  hadSelectionOnOverviewPointerDown = false;
   const currentActions = actions || registeredActions;
   const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-overview-action]");
   if (target) {
@@ -367,7 +397,11 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "setup") {
       const errorClass = target.dataset.setupClass;
-      if (errorClass === "no-provider" || errorClass === "missing-key") {
+      if (
+        errorClass === "no-provider" ||
+        errorClass === "missing-key" ||
+        errorClass === "no-model"
+      ) {
         currentActions?.setup(errorClass);
       }
       return;
@@ -382,7 +416,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "share-quote") {
       const quote = target.dataset.quote || "";
-      openQuoteShareModal({ content: quote });
+      openQuoteShareModal({ content: quote, triggerEl: target });
       return;
     }
     return;
@@ -397,7 +431,7 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
   if (!seekTarget) {
     return;
   }
-  if (window.getSelection()?.toString().trim()) {
+  if (hadSelection || window.getSelection()?.toString().trim()) {
     return;
   }
   jumpReadingTarget(seekTarget.dataset.seconds ?? 0);

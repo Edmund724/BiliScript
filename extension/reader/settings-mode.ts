@@ -5,6 +5,7 @@ import { clearOverviewSetupResumeIntent } from "./overview-setup-resume.js";
 import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
 import { clearChatSetupResumeIntent } from "./chat-setup-resume.js";
 import { clearAsrSetupResumeIntent } from "./asr-setup-resume.js";
+import { closeQuoteShareModal, isQuoteShareModalOpen } from "./quote-share-modal.js";
 
 const TAB_BUTTON_IDS = {
   subtitle: ids.readingTabSubtitle,
@@ -69,6 +70,9 @@ export function projectReaderSettingsMode(): void {
 }
 
 export function openReaderSettingsMode(): void {
+  if (isQuoteShareModalOpen()) {
+    closeQuoteShareModal({ restoreFocus: true });
+  }
   if (!state.reader.readingSettingsExpanded) {
     const activeElement = document.activeElement;
     settingsReturnFocus = activeElement instanceof HTMLElement && activeElement !== document.body

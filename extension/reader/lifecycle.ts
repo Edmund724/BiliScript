@@ -491,8 +491,15 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
   reset() {
     stopReadingViewSync();
     closeReaderExplainCard();
+    closeQuoteShareModal({ restoreFocus: false });
     clearPendingExplainIntent();
+    overviewSetupSessionEpoch += 1;
+    overviewSetupOpenInFlight = false;
+    asrSetupOpenInFlight = false;
+    clearOverviewSetupResumeIntent();
     clearExplainSetupResumeIntent();
+    clearAsrSetupResumeIntent();
+    resetReaderOverviewState();
   },
   "subtitle-ready"(event) {
     onReaderSubtitleReady({
@@ -727,7 +734,7 @@ export function closeReadingView() {
   dismissConfirmDialog();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
-  closeQuoteShareModal();
+  closeQuoteShareModal({ restoreFocus: false });
   // PR5：对话 tab 的断流收口（工单 08 决议：关闭即断流——resetStreamState 断
   // port、挂起的 subtitle-wait 失效、摘全局触发源；重开从会话历史恢复，由对话
   // tab 的激活路径负责）。未装载 = 对话功能从未启用，no-op（不触发懒加载）。

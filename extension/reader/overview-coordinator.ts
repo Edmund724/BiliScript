@@ -248,6 +248,7 @@ export function createOverviewCoordinator(
   // ============================================================
 
   function clearOverviewProduct(phase: "empty" | "idle"): void {
+    stopWaitTicker();
     overview.phase = phase;
     overview.analysis = null;
     overview.generatedFor = "";

@@ -320,28 +320,37 @@ describe("error 条：配置类错误给「去设置」，非配置类不给", (
     return document.getElementById(h.modules.ids.readingOverviewBody) as HTMLElement;
   }
 
-  it("无平台错误：去设置（no-provider）+ 重试并存", async () => {
+  it("无平台错误：仅展示主按钮去设置（no-provider），不再渲染重试", async () => {
     const h = await makeHarness();
     const body = await renderErrorStrip(h, new Error(NO_ACTIVE_PROVIDER_MESSAGE));
+    const strip = body.querySelector<HTMLElement>(".biliscript-reading-ov-strip.is-error");
+    expect(strip?.getAttribute("role")).toBe("alert");
     const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]');
     expect(setup).not.toBeNull();
+    expect(setup?.classList.contains("is-primary")).toBe(true);
     expect(setup?.dataset.setupClass).toBe("no-provider");
     expect(setup?.textContent).toContain("去设置");
-    expect(body.querySelector('[data-overview-action="retry"]')).not.toBeNull();
+    expect(body.querySelector('[data-overview-action="retry"]')).toBeNull();
   });
 
-  it("缺 Key 错误：去设置（missing-key）", async () => {
+  it("缺 Key 错误：仅展示主按钮去设置（missing-key）", async () => {
     const h = await makeHarness();
     const body = await renderErrorStrip(h, new Error(MISSING_PROVIDER_KEY_MESSAGE));
     const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]');
+    expect(setup).not.toBeNull();
+    expect(setup?.classList.contains("is-primary")).toBe(true);
     expect(setup?.dataset.setupClass).toBe("missing-key");
+    expect(body.querySelector('[data-overview-action="retry"]')).toBeNull();
   });
 
-  it("缺模型错误：去设置（no-model）", async () => {
+  it("缺模型错误：仅展示主按钮去设置（no-model）", async () => {
     const h = await makeHarness();
     const body = await renderErrorStrip(h, new Error(NO_ACTIVE_MODEL_MESSAGE));
     const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]');
+    expect(setup).not.toBeNull();
+    expect(setup?.classList.contains("is-primary")).toBe(true);
     expect(setup?.dataset.setupClass).toBe("no-model");
+    expect(body.querySelector('[data-overview-action="retry"]')).toBeNull();
   });
 
   it("非配置类错误（管线失败）：只有重试，不伪装成配置问题", async () => {
@@ -359,6 +368,16 @@ describe("error 条：配置类错误给「去设置」，非配置类不给", (
     setup.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(h.begin).toHaveBeenCalledTimes(1);
     expect(h.begin.mock.calls[0][0].errorClass).toBe("no-provider");
+  });
+
+  it("点击「去设置」（no-model）→ setup 动作带 no-model 分派", async () => {
+    const h = await makeHarness();
+    const body = await renderErrorStrip(h, new Error(NO_ACTIVE_MODEL_MESSAGE));
+    body.addEventListener("click", (event) => h.modules.overviewUi.onReadingOverviewClick(event as MouseEvent));
+    const setup = body.querySelector<HTMLElement>('[data-overview-action="setup"]')!;
+    setup.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(h.begin).toHaveBeenCalledTimes(1);
+    expect(h.begin.mock.calls[0][0].errorClass).toBe("no-model");
   });
 });
 

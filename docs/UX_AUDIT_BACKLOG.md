@@ -203,3 +203,43 @@
 
 - 用户影响：`#biliscript-reading-view .biliscript-reading-follow-btn` 连续声明两次 `font-family`，并在静态规则中未显式对齐圆角焦点环；实时翻译通知条固定 `bottom: 120px` 与 `13px` 字号，在较矮播放器视口下位置不够灵活；双语弹层列使用自定义 `::-webkit-scrollbar` 而解释卡长引文容器使用原生 `scrollbar-width: thin`，跨区域滚动条外观存在细微差异。
 - 代码证据：`extension/entry/styles/reader.css:1176-1178` 重复声明 `font-family`；`extension/entry/styles/interpret-subtitles.css:52-68` 为 `.biliscript-interpret-notice` 固定 `bottom: 120px` 与 `font-size: 13px`；`extension/entry/styles/bilingual-subtitles.css:126-151` 采用 `::-webkit-scrollbar` 定制，与 `reader.css` 解释卡引文区的 `scrollbar-width: thin` 口径不同。
+
+---
+
+## M4 深度复审
+
+范围：收录 M4 深度复审产出的 P2（4 项）/ P3（2 项）中低优先级问题（P0/P1 已修复）；以下只记录问题、用户影响与代码证据，不包含解决方案。
+
+### P2
+
+#### M4-P2-01｜概览加载态｜生成态下方占位卡为纯文字说明，缺少结构化骨架屏预览
+
+- 用户影响：首次生成概览且尚无旧产物可展示时，生成状态条下方仅显示纯文字居中提示卡片，用户无法预见「摘要 / 章节要点 / 金句卡片」三段式版面结构，生成完成切换瞬间整块内容跳变较大。
+- 代码证据：`extension/reader/overview-ui.ts:137-168` 在 `phase === "generating"` 且 `analysis === null` 时只渲染 `buildGeneratingStrip` 与 `.biliscript-reading-ov-empty-card` 纯文本占位提示，未提供结构化骨架屏 DOM。
+
+#### M4-P2-02｜概览刷新与缓存｜完成态缺少手动重新生成入口，且切换默认模型后仍命中旧模型缓存
+
+- 用户影响：概览处于完成态（`ready`）时面板内不提供手动「重新生成」按钮；同时在设置抽屉切换当前使用的 AI 平台或模型后，重新进入同一视频概览仍会直接读取旧模型写入的本地缓存，无法自动或一键刷新为新模型结果。
+- 代码证据：`extension/reader/overview-ui.ts:145-147,267-330` 的完成态渲染未提供重生成动作按钮（仅 `cancelled` 与部分失败条带含重试/重新生成按钮）；`extension/ai/analysis-orchestrate.ts:118-139` 的 `buildAnalysisFinalCacheKey` 与 `buildAnalysisSegmentCacheKey` 仅拼接 `bvid`、`cid`、字幕轨 `source key` 与字幕签名 `signature`，未把平台或模型标识写入缓存键。
+
+#### M4-P2-03｜金句分享卡片｜超长金句超过 4 行被截断时缺少界面提示，且海报缺少可选视频标题或时间点署名
+
+- 用户影响：金句正文在 14px 下限字号下仍超过 4 行时，预览与导出成图会自动截取前 4 行并在末尾补省略号，但弹窗未提示正文已被截断；同时卡片底栏仅固定署名 `BiliScript`，缺少可选的视频标题或时间戳来源信息，脱离视频页面传播时上下文信息不足。
+- 代码证据：`extension/reader/quote-share-export.ts:435-436,565-573,824-880` 在 `MAX_LINES = 4` 超限后通过 `truncateQuoteLines` 截断并标记 `truncated = true`，Canvas 导出仅绘制正文、`BiliScript` 角标与双段标记；`extension/reader/quote-share-modal.ts:29-33,416,709-730` 的 `OpenQuoteShareModalOptions` 未接收视频标题或时间点，`buildModalHtml()` 也未根据 `layout.truncated` 展示截断提示。
+
+#### M4-P2-04｜章节随播同步｜多章节长视频随播高亮滚出视口后缺少自动跟随或快速定位入口
+
+- 用户影响：长视频章节数量较多时，随播放进度推进仅有当前章节卡片切换高亮状态，高亮项滚出概览容器可视区域后不会自动跟随滚动，且面板内没有类似字幕页「跟随播放」的快速定位当前章节按钮。
+- 代码证据：`extension/reader/sync.ts:157-208` 的 `syncReadingOverviewActiveChapter` 仅更新 `.biliscript-reading-ov-chapter` 的 `is-active` 类名与 `aria-current="true"`，未执行任何滚动定位；`extension/reader/overview-ui.ts:267-330` 亦未提供定位当前章节入口。
+
+### P3
+
+#### M4-P3-01｜章节来源标识｜三源分章仅标识 AI 生成，简介/热评时间轴与官方看点缺少来源标签
+
+- 用户影响：章节区标题旁仅在 AI 自由分章时展示「AI 生成」标签；当章节源自视频简介/热评时间轴或 B 站官方看点时无任何来源角标，用户难以分辨当前章节时间轴的出处。
+- 代码证据：`extension/reader/overview-ui.ts:294` 仅基于布尔条件渲染 `snapshot.aiChapters ? '<span class="biliscript-reading-ov-badge">AI 生成</span>' : ""`，`ReaderOverviewSnapshot`（`extension/reader/overview-coordinator.ts:36-44`）未向 UI 传递三源分章的具体来源标识。
+
+#### M4-P3-02｜金句卡 DOM 结构｜金句卡外层 button 嵌套 span[role=button] 子操作控件，读屏朗读与语义耦合
+
+- 用户影响：金句卡整卡为原生 `<button type="button">`，内部嵌套两个 `<span role="button" tabindex="0">` 子操作按钮（分享与复制），属于交互元素嵌套交互元素；读屏聚焦整卡时会合并朗读正文与子操作语义，结构耦合。
+- 代码证据：`extension/reader/overview-ui.ts:356-375` 的 `quoteCardHtml` 使用外层 `<button type="button" class="biliscript-reading-ov-quote" ...>` 直接包裹 `.biliscript-reading-ov-quote-share` 与 `.biliscript-reading-ov-quote-copy` 两个 `role="button"` 节点。
