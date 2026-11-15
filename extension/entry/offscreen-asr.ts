@@ -45,7 +45,7 @@ import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/ho
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, isRetryableNetworkError, withTimeout } from "../shared/error-helpers.js";
-import { safePostMessage } from "../shared/messaging.js";
+import { consumeRuntimeLastError, safePostMessage } from "../shared/messaging.js";
 import { logWarn } from "../shared/logging.js";
 import { resolveActiveAsrProviderId, type AsrProvider } from "../asr/asr-provider-store.js";
 import type { GetAsrRuntimeConfigResponse } from "../shared/messaging-protocol.js";
@@ -279,6 +279,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
     // 故在 try 之外声明——作用域留在 try 内会让中止路径拿不到这个计数。
     let skippedSegments = 0;
     port.onDisconnect.addListener(() => {
+      consumeRuntimeLastError();
       // 断连视为取消：下载/解码/调度各处检查标志并静默退出（原 asr-audio 通道风格）
       aborted = true;
       // 断连即终态：页面已不再等结果，通知入口层做自关判定。下方各早退点

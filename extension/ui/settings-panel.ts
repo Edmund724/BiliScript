@@ -218,6 +218,7 @@ function collectElements(host: HTMLElement) {
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
     includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
     enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    enableAgentBridge: byIdIn<HTMLInputElement>(dom.enableAgentBridge),
     agentBridgeConnectBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeConnectBtn),
     agentBridgeAddressBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBtn),
     agentBridgeAddressView: byIdIn<HTMLElement>(dom.agentBridgeAddressView),
@@ -446,6 +447,17 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "enableDebugLogs",
     getElement: (el) => el.enableDebugLogs,
     normalize: (val) => Boolean(val)
+  },
+  {
+    kind: "toggle",
+    key: "enableAgentBridge",
+    getElement: (el) => el.enableAgentBridge,
+    normalize: (val) => val === true,
+    patchState: false,
+    watchSync: true,
+    onSaved: () => {
+      void agentBridgeSettings?.refresh();
+    }
   },
   {
     kind: "toggle",
@@ -2443,7 +2455,6 @@ function bindSettingsEvents(host: HTMLElement): void {
     {
       sync: [
         ...watchedSyncBindings.map((binding) => binding.key),
-        "enableAgentBridge",
         "agentBridgeUrl",
         "subtitleTranslateProviderId",
         "subtitleTranslateModel"

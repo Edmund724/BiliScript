@@ -17,6 +17,8 @@
 // 独立成文件：entry/offscreen.ts 顶层挂满 chrome 事件监听，不可在 Node 测试环境
 // 导入；本模块只认识端口的最小结构面，不引用 chrome。
 
+import { consumeRuntimeLastError } from "../shared/messaging.js";
+
 // 本模块只用端口的断连事件；chrome.runtime.Port 结构上满足该面。
 export interface LifetimePort {
   onDisconnect: {
@@ -62,24 +64,28 @@ export function createOffscreenLifetime({
     trackChatPort(port) {
       currentChatCount += 1;
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         currentChatCount -= 1;
       });
     },
     trackLivePort(port) {
       currentLiveCount += 1;
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         currentLiveCount -= 1;
       });
     },
     trackAsrPort(port) {
       activeAsrPorts.add(port);
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         activeAsrPorts.delete(port);
       });
     },
     trackProviderPort(port) {
       activeProviderPorts.add(port);
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         activeProviderPorts.delete(port);
       });
     },

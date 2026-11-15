@@ -26,7 +26,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { bgFetchJson } from "../bilibili/gateway-core.js";
 import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { logInfo, logWarn, registerDebugGate, shouldDebugLog } from "../shared/logging.js";
-import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
+import { consumeRuntimeLastError, safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { createOffscreenLifetime } from "./offscreen-lifecycle.js";
 import { ASR_DECODE_PORT_NAME, ASR_DECODE_ACTION, ASR_PROBE_ACTION, ASR_MSG_ERROR, ASR_MSG_PROBE_RESULT } from "../asr/protocol.js";
 // 候选5：聊天字幕体单槽缓存（纯逻辑在 ./offscreen-subtitle-slot.js，可测）。
@@ -427,6 +427,7 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastError();
     // 换片断流后新回合可能已经接管；旧端口的迟到断连不得中止新回合。
     if (activeChatPort !== port) {
       return;

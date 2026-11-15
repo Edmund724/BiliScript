@@ -43,7 +43,7 @@
 //（等待 DISPATCH_RETRY_DELAY_MS 给上一轮 closeDocument 收尾），仍不成才以可读错误
 // 上浮——概览落错误条带「重试」，不再无限挂着。
 
-import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
+import { consumeRuntimeLastError, safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { extractOriginFromBaseUrl, hasHostPermissionViaBackground, HOST_PERMISSION_HINT } from "./host-permissions.js";
 import {
   buildProviderFetchInit,
@@ -298,6 +298,7 @@ function openProviderStream(
       }
     });
     port.onDisconnect.addListener(() => {
+      consumeRuntimeLastError();
       if (!settled) {
         settled = true;
         releasePort();
@@ -331,6 +332,7 @@ function openProviderStream(
 export function attachProviderHttpPort(port: chrome.runtime.Port): void {
   const inflight = new Set<AbortController>();
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastError();
     for (const controller of inflight) {
       if (!controller.signal.aborted) {
         controller.abort();

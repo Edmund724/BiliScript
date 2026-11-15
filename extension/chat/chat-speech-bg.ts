@@ -1,3 +1,4 @@
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import {
   CHAT_SPEECH_PORT_NAME,
   type ChatSpeechEvent,
@@ -94,6 +95,7 @@ export function attachChatSpeechPort(port: chrome.runtime.Port): boolean {
     }
   });
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastError();
     if (activePort !== port) {
       return;
     }

@@ -410,4 +410,28 @@ describe("SW 朗读端口跨标签页抢占", () => {
       { type: "event", requestId: 1, event: { type: "end" } }
     ]);
   });
+
+  it("端口因 bfcache 断开时消费 runtime.lastError", () => {
+    let lastErrorRead = false;
+    const disconnectListeners: Array<() => void> = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        get lastError() {
+          lastErrorRead = true;
+          return { message: "The page keeping the extension port is moved into back/forward cache, so the message channel is closed." };
+        }
+      },
+      tts: { stop: vi.fn() }
+    });
+    const port = {
+      name: CHAT_SPEECH_PORT_NAME,
+      postMessage: vi.fn(),
+      onMessage: { addListener: vi.fn() },
+      onDisconnect: { addListener: (fn: () => void) => disconnectListeners.push(fn) }
+    } as unknown as chrome.runtime.Port;
+
+    expect(attachChatSpeechPort(port)).toBe(true);
+    disconnectListeners.forEach((fn) => fn());
+    expect(lastErrorRead).toBe(true);
+  });
 });

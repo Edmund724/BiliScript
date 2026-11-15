@@ -274,6 +274,7 @@ export async function testAgentBridgeConnection(rawUrl: unknown): Promise<boolea
 export function createAgentBridge({ getConfig, videoService = createAgentBridgeVideoService() }: AgentBridgeDeps) {
   let socket: WebSocket | null = null;
   let socketUrl = "";
+  let reconnectEnabled = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let syncTask: Promise<void> | null = null;
   let syncRequested = false;
@@ -344,7 +345,7 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
   };
 
   const scheduleReconnect = (): void => {
-    if (reconnectTimer) return;
+    if (!reconnectEnabled || reconnectTimer) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       void sync();
@@ -397,6 +398,7 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       do {
         syncRequested = false;
         const { enabled, url } = await getConfig();
+        reconnectEnabled = enabled;
         if (!enabled) {
           stop();
           continue;
@@ -425,8 +427,26 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     sync,
     getStatus: () => ({ connected: socket?.readyState === WebSocket.OPEN }),
     connect: async (): Promise<boolean> => {
-      await sync();
-      return socket ? waitForSocket(socket) : false;
+      if (syncTask) await syncTask;
+      const { enabled, url } = await getConfig();
+      reconnectEnabled = enabled;
+      if (socket && socketUrl !== url) stop();
+      if (socket?.readyState === WebSocket.CLOSED) {
+        socket = null;
+        socketUrl = "";
+      }
+      if (!socket) {
+        try {
+          openSocket(url);
+        } catch {
+          return false;
+        }
+      }
+      const connected = socket ? await waitForSocket(socket) : false;
+      if (!connected && !(await getConfig()).enabled) {
+        stop();
+      }
+      return connected;
     }
   };
 }

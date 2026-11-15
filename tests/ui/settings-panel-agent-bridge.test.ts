@@ -29,10 +29,29 @@ async function mountPanel(overrides: Record<string, BusResponder> = {}) {
 }
 
 describe("本地 Agent 设置", () => {
-  it("连接失败时展示可复制安装 Prompt，复制内容包含安装与检查步骤", async () => {
+  it("默认关闭本地 Agent 开关，手动切换开关才保存轮询启停", async () => {
+    const { host, sent } = await mountPanel();
+    const toggle = host.querySelector<HTMLInputElement>("#enableAgentBridge")!;
+    expect(toggle.checked).toBe(false);
+
+    toggle.click();
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
+    });
+    expect(toggle.checked).toBe(true);
+
+    toggle.click();
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: false } });
+    });
+    expect(toggle.checked).toBe(false);
+  });
+
+  it("连接失败时展示可复制安装 Prompt 且不开启后台轮询", async () => {
     const { host, sent } = await mountPanel({
       "agent-bridge-connect": () => ({ ok: true, connected: false })
     });
+    const toggle = host.querySelector<HTMLInputElement>("#enableAgentBridge")!;
 
     host.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
 
@@ -47,8 +66,9 @@ describe("本地 Agent 设置", () => {
     expect(prompt.value).toContain("去连接");
     expect(prompt.value).toContain("完整错误");
     expect(prompt.value.length).toBeLessThan(300);
-    expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     expect(sent).toContainEqual({ type: "agent-bridge-connect" });
+    expect(sent.some((message) => message.type === "save-settings")).toBe(false);
+    expect(toggle.checked).toBe(false);
 
     const copyButton = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
     expect(copyButton.closest(".agent-bridge-install-prompt-card")).not.toBeNull();
@@ -59,7 +79,7 @@ describe("本地 Agent 设置", () => {
     document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
   });
 
-  it("连接成功不弹安装引导，并保留断开入口", async () => {
+  it("连接成功不弹安装引导，同步打开开关并保留断开入口", async () => {
     let bridgeConnected = false;
     const { host, sent } = await mountPanel({
       "agent-bridge-status": () => ({ ok: true, connected: bridgeConnected }),
@@ -75,15 +95,19 @@ describe("本地 Agent 设置", () => {
       }
     });
     const button = host.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!;
+    const toggle = host.querySelector<HTMLInputElement>("#enableAgentBridge")!;
 
     button.click();
     await vi.waitFor(() => expect(button.textContent).toBe("断开"));
+    expect(toggle.checked).toBe(true);
+    expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: true } });
     expect(document.querySelector(".agent-bridge-install-prompt")).toBeNull();
 
     button.click();
     await vi.waitFor(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { enableAgentBridge: false } });
     });
+    expect(toggle.checked).toBe(false);
     expect(button.textContent).toBe("去连接");
   });
 

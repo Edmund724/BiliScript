@@ -1,3 +1,4 @@
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { READING_SPEAKER_ICON, READING_STOP_ICON } from "../ui/reading-icons.js";
 import {
   CHAT_SPEECH_PORT_NAME,
@@ -50,6 +51,31 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
   }>();
   const eventListeners = new Map<number, ((event: ChatSpeechEvent) => void) | undefined>();
 
+  function resetPort(reason: string, shouldDisconnect = false): void {
+    const active = port;
+    if (!active) {
+      return;
+    }
+    port = null;
+    if (shouldDisconnect) {
+      try {
+        active.disconnect();
+      } catch {}
+    }
+    const error = new Error(reason);
+    voiceRequests.forEach((pending) => pending.reject(error));
+    voiceRequests.clear();
+    const listeners = Array.from(eventListeners.values());
+    eventListeners.clear();
+    listeners.forEach((listener) => listener?.({ type: "error", errorMessage: error.message }));
+  }
+
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("pagehide", () => {
+      resetPort("Speech port disconnected", true);
+    });
+  }
+
   function ensurePort(): chrome.runtime.Port {
     if (port) {
       return port;
@@ -83,15 +109,11 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
       listener?.(message.event);
     });
     connected.onDisconnect.addListener(() => {
-      if (port === connected) {
-        port = null;
+      const reason = consumeRuntimeLastError() || "Speech port disconnected";
+      if (port !== connected) {
+        return;
       }
-      const error = new Error(chrome.runtime.lastError?.message || "Speech port disconnected");
-      voiceRequests.forEach((pending) => pending.reject(error));
-      voiceRequests.clear();
-      const listeners = Array.from(eventListeners.values());
-      eventListeners.clear();
-      listeners.forEach((listener) => listener?.({ type: "error", errorMessage: error.message }));
+      resetPort(reason);
     });
     return connected;
   }

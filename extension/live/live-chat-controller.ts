@@ -24,6 +24,7 @@ import {
 import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import { normalizeLiveVoiceSpeed } from "./live-voice-speed.js";
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import {
   LIVE_VOICE_FALLBACK_NOTICE_TEXT,
   recordLiveVoiceFallbackNotice
@@ -1142,6 +1143,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     }
 
     port.onDisconnect.addListener(() => {
+      consumeRuntimeLastError();
       if (generation !== currentGeneration) return;
       if (state === "connecting" || state === "connected") {
         const errorMsg = "后台伴看通道已断开。";

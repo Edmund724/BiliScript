@@ -117,3 +117,9 @@ export function safePostMessage(port: PostMessageLikePort, message: unknown): vo
     // port 已断开，回执无接收方，忽略
   }
 }
+
+// 在 port.onDisconnect 监听中消费 chrome.runtime.lastError，防止页面进入 bfcache
+// 或对端异常断开时 Chromium 记录 "Unchecked runtime.lastError"。
+export function consumeRuntimeLastError(): string | undefined {
+  return (globalThis.chrome?.runtime as Runtime | undefined)?.lastError?.message;
+}

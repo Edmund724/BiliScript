@@ -85,6 +85,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
+  enableAgentBridge: "enableAgentBridge",
   agentBridgeConnectBtn: "agentBridgeConnectBtn",
   agentBridgeAddressBtn: "agentBridgeAddressBtn",
   agentBridgeAddressView: "agentBridgeAddressView",
@@ -476,6 +477,13 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group" data-settings-section="agent">
       <div class="biliscript-set-h">本地 Agent 远程控制</div>
       <div class="biliscript-set-card biliscript-agent-bridge-card">
+        <div class="biliscript-set-check biliscript-toggle-row">
+          <span class="biliscript-toggle-text">启用本地 Agent 连接</span>
+          <label class="biliscript-toggle-switch">
+            <input id="${ids.enableAgentBridge}" type="checkbox" class="biliscript-toggle-input" aria-label="启用本地 Agent 连接" />
+            <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+          </label>
+        </div>
         <div class="biliscript-set-row biliscript-agent-bridge-connection">
           <span class="biliscript-agent-bridge-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 4 17m0 0v-5m0 5h5M15 12l5-5m0 0v5m0-5h-5"/></svg>

@@ -92,4 +92,25 @@ describe("Agent Bridge 连接", () => {
     expect(await testAgentBridgeConnection("https://example.com")).toBe(false);
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
+
+  it("开关关闭时默认不建立连接也不轮询；单次连接失败后不安排后台重连", async () => {
+    vi.useFakeTimers();
+    try {
+      const bridge = createAgentBridge({
+        getConfig: async () => ({ enabled: false, url: "ws://127.0.0.1:18492" })
+      });
+      await bridge.sync();
+      expect(FakeWebSocket.instances).toHaveLength(0);
+
+      const connecting = bridge.connect();
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+      FakeWebSocket.instances[0].close();
+
+      expect(await connecting).toBe(false);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

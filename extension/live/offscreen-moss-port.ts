@@ -5,6 +5,7 @@
 //
 // 伴看单通道模型：全文档独占一个活跃伴看槽位，跨端口 start 触发前序会话接管。
 
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import type {
   LiveProviderType,
   MossLiveClientAction,
@@ -187,6 +188,7 @@ export function attachMossLivePort<
   });
 
   port.onDisconnect.addListener(() => {
+    consumeRuntimeLastError();
     cleanup();
   });
 

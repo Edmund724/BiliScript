@@ -4,6 +4,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { openAgentBridgeInstallDialog } from "./agent-bridge-install-dialog.js";
 
 export interface AgentBridgeSettingsElements {
+  enableAgentBridge: HTMLInputElement;
   agentBridgeConnectBtn: HTMLButtonElement;
   agentBridgeAddressBtn: HTMLButtonElement;
   agentBridgeAddressView: HTMLElement;
@@ -113,6 +114,7 @@ export function bindAgentBridgeSettings(
           setStatus(response?.error || "断开失败", true);
           return;
         }
+        elements.enableAgentBridge.checked = false;
         connected = false;
         setStatus("已断开本地 Agent");
       } catch (error) {
@@ -127,17 +129,18 @@ export function bindAgentBridgeSettings(
     pending = "connect";
     renderConnection();
     try {
-      const saved = await sendRuntimeMessage({ type: "save-settings", settings: { enableAgentBridge: true } });
-      if (!saved?.ok) {
-        setStatus(saved?.error || "无法启用本地 Agent 桥接", true);
-        return;
-      }
       const response = await sendRuntimeMessage({ type: "agent-bridge-connect" });
       connected = response?.ok === true && response.connected === true;
       if (!connected) {
         openAgentBridgeInstallDialog(savedUrl);
         return;
       }
+      const saved = await sendRuntimeMessage({ type: "save-settings", settings: { enableAgentBridge: true } });
+      if (!saved?.ok) {
+        setStatus(saved?.error || "无法启用本地 Agent 桥接", true);
+        return;
+      }
+      elements.enableAgentBridge.checked = true;
       setStatus("本地 Agent 已连接");
     } catch {
       connected = false;
@@ -199,6 +202,7 @@ export function bindAgentBridgeSettings(
 
   return {
     sync(settings) {
+      elements.enableAgentBridge.checked = settings.enableAgentBridge === true;
       savedUrl = normalizeAgentBridgeUrl(settings.agentBridgeUrl);
       if (!addressOpen) elements.agentBridgeUrl.value = savedUrl;
       void refresh();

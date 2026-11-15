@@ -6,7 +6,7 @@
 //    适配器跑一次（端口上表现为 asr-probe 动作，见 asr/protocol.js）。
 // 协议常量与契约注释唯一地址见 asr/protocol.js。
 
-import { sendRuntimeMessage, sendOffloadMessage } from "../shared/messaging.js";
+import { consumeRuntimeLastError, sendRuntimeMessage, sendOffloadMessage } from "../shared/messaging.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
 import {
   ASR_DECODE_PORT_NAME,
@@ -207,6 +207,7 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
         }
       });
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         if (!done) {
           finish(reject, new Error("音频解码中断：后台连接已断开"));
         }
@@ -299,6 +300,7 @@ function waitProbeResult(
       resolve(msg.ok ? { ok: true } : { ok: false, error: msg.error || "转写请求失败" });
     });
     port.onDisconnect.addListener(() => {
+      consumeRuntimeLastError();
       if (settled) return;
       settled = true;
       reject(new Error(PROBE_DISCONNECTED_MESSAGE));

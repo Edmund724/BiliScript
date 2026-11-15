@@ -74,6 +74,7 @@ import {
   ensureConversationId,
   type ChatSessionMessage
 } from "./chat-state.js";
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
@@ -821,6 +822,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       });
 
       port.onDisconnect.addListener(() => {
+        consumeRuntimeLastError();
         if (activePort !== port) return;
         activePort = null;
         lastAckedContextKey = null;
