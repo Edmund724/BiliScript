@@ -194,10 +194,6 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
     node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
-    const body = document.createElement("div");
-    body.className = "chat-msg-user-body";
-    body.textContent = text;
-    node.appendChild(body);
     if (images.length) {
       const imageStrip = document.createElement("div");
       imageStrip.className = "chat-image-strip chat-msg-user-images";
@@ -209,6 +205,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       });
       node.appendChild(imageStrip);
     }
+    const body = document.createElement("div");
+    body.className = "chat-msg-user-body";
+    body.textContent = text;
+    node.appendChild(body);
     const actions = document.createElement("div");
     actions.className = "chat-msg-actions";
     actions.appendChild(createCopyButton("复制消息", () => text));

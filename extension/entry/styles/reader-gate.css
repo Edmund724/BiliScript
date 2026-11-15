@@ -948,7 +948,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
  * 白玻璃凸起配方（--card 渐变 + 软投影 + 内高光、描边归零）从雾底浮出，
  * 同时与「助手消息透明直落雾底」形成明确的层级分工。气泡形状（圆角 14px
  * + 尾巴 6px）保留在基础表，此处只覆写填充与阴影。 */
-#biliscript-reading-view .biliscript-reading-chat .chat-msg-user {
+#biliscript-reading-view .biliscript-reading-chat .chat-msg-user-body {
   background: var(--biliscript-reader-card);
   border: none;
   box-shadow: var(--biliscript-reader-card-highlight);
@@ -1433,7 +1433,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-placeholder,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-empty-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user-body,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-dialog,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-chip,
@@ -1498,7 +1498,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-placeholder,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-empty-card,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user-body,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card {
   border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));

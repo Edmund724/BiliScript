@@ -527,9 +527,26 @@
   font-size: var(--biliscript-font-size-md);
 }
 
-/* 用户气泡：右对齐圆润矩形气泡（圆角 28px），在阅读视图中覆写为白玻璃凸起卡 */
+/* 用户消息外容器：透明右对齐列（图片条 -> 凸起文字气泡 -> 外置复制键） */
 .biliscript-reading-chat .chat-msg-user {
   align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  white-space: normal;
+  box-shadow: none;
+}
+
+/* 用户气泡：仅包裹文本正文（圆角 28px），在阅读视图中覆写为白玻璃凸起卡 */
+.biliscript-reading-chat .chat-msg-user-body {
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  padding: 7px 11px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
   border: 1px solid var(--biliscript-reader-border);
@@ -537,7 +554,7 @@
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
-.biliscript-reading-chat .chat-msg-user.chat-msg-live-pending {
+.biliscript-reading-chat .chat-msg-user.chat-msg-live-pending .chat-msg-user-body {
   opacity: 0.78;
   border-style: dashed;
 }
@@ -760,6 +777,7 @@
 
 .biliscript-reading-chat .chat-msg-user .chat-msg-actions {
   justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .biliscript-reading-chat .chat-msg-action-btn {
@@ -1835,7 +1853,7 @@
 
 .biliscript-reading-chat .chat-msg-user-images {
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 .chat-image-viewer {

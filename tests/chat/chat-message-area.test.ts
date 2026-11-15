@@ -101,7 +101,12 @@ describe("消息区句柄：装配形状与来源语义", () => {
 
     // replay：不滚底、不动自动滚动开关
     area.appendUserMessage("回放消息", { source: "replay" });
-    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("回放消息");
+    const replayedUser = deps.messages.querySelector(".chat-msg-user")!;
+    expect(replayedUser.textContent).toBe("回放消息");
+    expect(Array.from(replayedUser.children).map((el) => el.className)).toEqual([
+      "chat-msg-user-body",
+      "chat-msg-actions"
+    ]);
     expect(deps.messages.scrollTop).toBe(0);
 
     // live：强制 instant 滚底（CSS smooth 压不住）+ 接管自动滚动
@@ -122,7 +127,13 @@ describe("消息区句柄：装配形状与来源语义", () => {
       source: "replay",
       images: [{ mime: "image/webp", data: "QUJD" }]
     });
-    const open = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-user .chat-image-open")!;
+    const userNode = deps.messages.querySelector(".chat-msg-user")!;
+    expect(Array.from(userNode.children).map((el) => el.className)).toEqual([
+      "chat-image-strip chat-msg-user-images",
+      "chat-msg-user-body",
+      "chat-msg-actions"
+    ]);
+    const open = userNode.querySelector<HTMLButtonElement>(".chat-image-open")!;
 
     expect(open.querySelector(".chat-image-thumb")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
     open.click();
