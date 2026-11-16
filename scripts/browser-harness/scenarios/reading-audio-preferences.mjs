@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// 离线真机判据：七项阅读/音频偏好同源、默认值、Aa 设置深链与全局重置。
+// 离线真机判据（仅保留 jsdom 够不着的两条 Chromium 几何/指针判据）：
+// 1. Aa 深链在真实样式（吸顶导航栏 + scroll-margin-top）下触发有效滚动且标题不被遮挡；
+// 2. 真实指针点击 #liveVoiceVolume range 轨道后，抽屉、伴看浮窗与控制器三端同源且仅保存一次。
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -9,11 +11,10 @@ import {
   REPO_ROOT,
   artifactDir,
   attachPage,
-  launchBrowser,
   log,
   screenshot,
-  teardown,
   waitFor,
+  withBrowser,
   writeEvidence
 } from "../harness.mjs";
 
@@ -44,7 +45,6 @@ const bundled = await build({
     contents: `
       export * as settingsPanel from "./extension/ui/settings-panel.ts";
       export { createLiveOverlayBinding } from "./extension/live/live-overlay-binding.ts";
-      export { state } from "./extension/core/state.ts";
     `,
     resolveDir: REPO_ROOT
   },
@@ -55,10 +55,11 @@ const bundled = await build({
   platform: "browser"
 });
 const source = bundled.outputFiles[0].text;
-const browser = await launchBrowser({ muted: true });
-const page = await attachPage(browser);
 
-try {
+await withBrowser({ muted: true }, async (ctx) => {
+  const page = await attachPage(ctx.browser);
+  ctx.cdps = [page.cdp];
+
   await page.cdp.send("Emulation.setDeviceMetricsOverride", {
     width: 1440,
     height: 900,
@@ -73,18 +74,19 @@ try {
       body { margin: 0; padding: 20px; background: #111; color: #eee; font-family: sans-serif; }
       main { display: grid; grid-template-columns: 720px 520px; gap: 20px; }
       #player-container { position: relative; height: 405px; background: #000; overflow: hidden; }
-      #biliscript-reading-view { position: relative; height: 620px; background: #181818; }
-      #biliscript-reading-settings-panel { height: 600px; overflow-y: auto; }
+      #biliscript-reading-view { position: relative; height: 400px; background: #181818; }
+      #biliscript-reading-settings-panel { height: 380px; overflow-y: auto; }
     </style></head><body><main>
       <div id="player-container" class="bpx-player-container"></div>
       <div id="biliscript-reading-view" class="open" data-theme="dark" data-palette="flyme">
-        <div id="biliscript-reading-settings-panel"><div id="biliscript-reading-settings-host" class="biliscript-reading-settings-host"></div></div>
+        <section id="biliscript-reading-settings-panel" class="biliscript-reading-panel biliscript-reading-settings-panel">
+          <div id="biliscript-reading-settings-host" class="biliscript-reading-settings-host"></div>
+        </section>
       </div>
     </main></body></html>`
   });
 
   await page.cdp.evaluate(`(() => {
-    const listeners = new Set();
     window.__preferenceSettings = {};
     window.__preferenceSaves = [];
     const area = () => ({
@@ -114,15 +116,10 @@ try {
         sync: area(),
         local: area(),
         onChanged: {
-          addListener: (listener) => listeners.add(listener),
-          removeListener: (listener) => listeners.delete(listener)
+          addListener: () => {},
+          removeListener: () => {}
         }
       }
-    };
-    window.__firePreferenceChanges = (patch) => {
-      Object.assign(window.__preferenceSettings, patch);
-      const changes = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, { newValue: value }]));
-      for (const listener of [...listeners]) listener(changes, "sync");
     };
   })()`);
   await page.cdp.evaluate(source);
@@ -167,26 +164,35 @@ try {
     `document.querySelector('#biliscript-reading-settings-host')?.dataset.biliscriptSettingsRendered === '1'`
   ));
 
-  const defaults = await page.cdp.evaluate(`(() => ({
-    values: Object.fromEntries([
-      "chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume", "liveVoiceVolume", "liveVoiceSpeed"
-    ].map((id) => [id, document.getElementById(id)?.value])),
-    share: document.getElementById("liveShareVideoAudio")?.checked,
-    priority: document.getElementById("liveVoicePriority")?.checked,
-    speechLabel: document.querySelector('label[for="speechVoiceVolume"]')?.textContent,
-    liveLabel: document.querySelector('label[for="liveVoiceVolume"]')?.textContent
-  }))()`);
-  check("R1-seven-defaults-and-distinct-names",
-    defaults.values.chatLineHeight === "160" &&
-    defaults.values.chatParagraphSpacing === "12" &&
-    defaults.values.speechVoiceVolume === "100" &&
-    defaults.values.liveVoiceVolume === "100" &&
-    defaults.values.liveVoiceSpeed === "1" &&
-    defaults.share === false && defaults.priority === true &&
-    defaults.speechLabel === "对话朗读音量" && defaults.liveLabel === "伴看音量",
-    defaults
-  );
+  async function clickAt(selector, offsetXRatio = 0.5) {
+    const target = await page.cdp.evaluate(`(() => {
+      const node = document.querySelector(${JSON.stringify(selector)});
+      if (!node) return { reason: "missing" };
+      node.scrollIntoView({ block: "center" });
+      const rect = node.getBoundingClientRect();
+      const x = rect.left + rect.width * ${offsetXRatio};
+      const y = rect.top + rect.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return {
+        width: rect.width,
+        height: rect.height,
+        x,
+        y,
+        hitOk: Boolean(hit && (hit === node || node.contains(hit))),
+        hitTag: hit?.tagName || null,
+        hitId: hit?.id || null,
+        hitClass: typeof hit?.className === "string" ? hit.className : null
+      };
+    })()`);
+    if (!target || target.width <= 0 || target.height <= 0 || !target.hitOk) {
+      throw new Error(`不可点击 ${selector}: ${JSON.stringify(target)}`);
+    }
+    await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, button: "none" });
+    await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: target.x, y: target.y, button: "left", buttons: 1, clickCount: 1 });
+    await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", buttons: 0, clickCount: 1 });
+  }
 
+  // R1：Aa 深链进入「AI 对话与快捷动作」子页后真正滚动并避开吸顶导航栏
   await page.cdp.evaluate(`ReadingAudioPreferences.settingsPanel.openAppearanceSettings()`);
   await waitFor("Aa 深链聚焦", () => page.cdp.evaluate(
     `document.activeElement?.id === 'chatPreferencesHeading'`
@@ -201,44 +207,38 @@ try {
       focused: document.activeElement === heading,
       subgroup: heading.closest('[data-settings-subgroup]')?.dataset.settingsSubgroup,
       scrollTop: panel.scrollTop,
+      scrollHeight: panel.scrollHeight,
+      clientHeight: panel.clientHeight,
+      headingTop: rect.top,
+      headingBottom: rect.bottom,
+      navBottom: navRect.bottom,
+      panelTop: panelRect.top,
+      panelBottom: panelRect.bottom,
       visible: rect.top >= panelRect.top && rect.top >= navRect.bottom && rect.bottom <= panelRect.bottom,
       subpageOpen:
         document.getElementById('biliscriptSettingsSubpageAiPrompt')?.hidden === false &&
         document.getElementById('biliscriptSettingsTitle')?.textContent?.trim() === 'AI 对话与快捷动作'
     };
   })()`);
-  check("R2-appearance-deep-link-scrolls-to-chat-subgroup",
-    deepLink.focused && deepLink.subgroup === "chat" && typeof deepLink.scrollTop === "number" && deepLink.visible && deepLink.subpageOpen,
+  check("R1-appearance-deep-link-scrolls-without-sticky-occlusion",
+    deepLink.focused &&
+    deepLink.subgroup === "chat" &&
+    deepLink.scrollTop > 0 &&
+    deepLink.visible &&
+    deepLink.subpageOpen,
     deepLink
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "01-appearance-deep-link.png"));
 
-  async function getMetrics(selector) {
-    return page.cdp.evaluate(`(() => {
-      const node = document.querySelector(${JSON.stringify(selector)});
-      if (!node) return null;
-      const rect = node.getBoundingClientRect();
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width, height: rect.height };
-    })()`);
-  }
-
-  async function click(selector) {
-    const metrics = await getMetrics(selector);
-    if (!metrics || metrics.width <= 0 || metrics.height <= 0) throw new Error(`不可点击: ${selector}`);
-    await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: metrics.x, y: metrics.y, button: "none" });
-    await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: metrics.x, y: metrics.y, button: "left", buttons: 1, clickCount: 1 });
-    await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: metrics.x, y: metrics.y, button: "left", buttons: 0, clickCount: 1 });
-  }
-
-  await click("#biliscript-reading-settings-back-btn");
+  // R2：真实指针点击 #liveVoiceVolume 轨道同步抽屉、浮窗与控制器且仅保存一次
+  await clickAt("#biliscript-reading-settings-back-btn");
   await waitFor("返回设置总览", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false`));
-  await click("#openLiveSettingsBtn");
-  await waitFor("打开实时伴看子页", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsSubpageLive')?.hidden === false && document.getElementById('liveVoiceVolume') !== null`));
+  await clickAt("#openLiveSettingsBtn");
+  await waitFor("打开实时伴看子页", () => page.cdp.evaluate(
+    `document.getElementById('biliscriptSettingsSubpageLive')?.hidden === false && document.getElementById('liveVoiceVolume') !== null`
+  ));
 
-  await page.cdp.evaluate(`document.getElementById('liveVoiceVolume').scrollIntoView({ block: 'center' })`);
-  const volume = await getMetrics("#liveVoiceVolume");
-  await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: volume.x - volume.width / 4, y: volume.y, button: "left", buttons: 1, clickCount: 1 });
-  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: volume.x - volume.width / 4, y: volume.y, button: "left", buttons: 0, clickCount: 1 });
+  await clickAt("#liveVoiceVolume", 0.25);
   await waitFor("抽屉音量同步浮窗", () => page.cdp.evaluate(`(() => {
     const value = document.getElementById('liveVoiceVolume').value;
     return value !== '100' && document.querySelector('.live-overlay-volume-slider:not(.live-overlay-speed-slider)').value === value;
@@ -249,79 +249,18 @@ try {
     controller: window.__audioController.getVolume(),
     saved: window.__preferenceSaves.filter((patch) => patch.liveVoiceVolume !== undefined)
   }))()`);
-  check("R3-live-volume-shared-by-drawer-overlay-controller",
+  check("R2-live-volume-pointer-syncs-drawer-overlay-controller",
     sameSource.drawer === sameSource.overlay &&
     Math.abs(sameSource.controller * 100 - Number(sameSource.drawer)) <= 1 &&
-    sameSource.saved.length === 1 && sameSource.saved[0].liveVoiceVolume === Number(sameSource.drawer),
+    sameSource.saved.length === 1 &&
+    sameSource.saved[0].liveVoiceVolume === Number(sameSource.drawer),
     sameSource
   );
-
-  await page.cdp.evaluate(`window.__firePreferenceChanges({
-    chatLineHeight: 185,
-    chatParagraphSpacing: 18,
-    speechVoiceVolume: 45,
-    liveVoiceVolume: 150,
-    liveVoiceSpeed: 1.25,
-    liveShareVideoAudio: true,
-    liveVoicePriority: false
-  })`);
-  const external = await page.cdp.evaluate(`(() => ({
-    values: Object.fromEntries([
-      "chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume", "liveVoiceVolume", "liveVoiceSpeed"
-    ].map((id) => [id, document.getElementById(id)?.value])),
-    share: document.getElementById('liveShareVideoAudio').checked,
-    priority: document.getElementById('liveVoicePriority').checked,
-    controller: {
-      volume: window.__audioController.getVolume(),
-      speed: window.__audioController.getSpeed(),
-      share: window.__audioController.isSharingVideoAudio(),
-      priority: window.__audioController.isVoicePriority()
-    },
-    overlaySpeed: document.querySelector('.live-overlay-speed-value').textContent
-  }))()`);
-  check("R4-external-storage-change-syncs-all-surfaces",
-    external.values.chatLineHeight === "185" && external.values.chatParagraphSpacing === "18" &&
-    external.values.speechVoiceVolume === "45" && external.values.liveVoiceVolume === "150" &&
-    external.values.liveVoiceSpeed === "1.25" && external.share === true && external.priority === false &&
-    external.controller.volume === 1.5 && external.controller.speed === 1.25 &&
-    external.controller.share === true && external.controller.priority === false && external.overlaySpeed === "1.25×",
-    external
-  );
-
-  await click("#biliscript-reading-settings-back-btn");
-  await waitFor("返回设置总览展示重置按钮", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false && document.getElementById('biliscriptSettingsResetBtn')?.hidden === false`));
-  await page.cdp.evaluate(`document.getElementById('biliscriptSettingsResetBtn').scrollIntoView({ block: 'center' })`);
-  await click("#biliscriptSettingsResetBtn");
-  await click(".confirm-dialog-confirm");
-  await waitFor("全局重置保存", () => page.cdp.evaluate(
-    `window.__preferenceSaves.some((patch) => patch.chatLineHeight === 160 && patch.liveVoiceSpeed === 1)`
-  ));
-  const reset = await page.cdp.evaluate(`(() => {
-    const payload = window.__preferenceSaves.find((patch) => patch.chatLineHeight === 160 && patch.liveVoiceSpeed === 1);
-    return {
-      payload,
-      controller: {
-        volume: window.__audioController.getVolume(),
-        speed: window.__audioController.getSpeed(),
-        share: window.__audioController.isSharingVideoAudio(),
-        priority: window.__audioController.isVoicePriority()
-      }
-    };
-  })()`);
-  check("R5-global-reset-covers-seven-without-platform-audio-key",
-    reset.payload.speechVoiceVolume === 100 && reset.payload.liveVoiceVolume === 100 &&
-    reset.payload.liveShareVideoAudio === false && reset.payload.liveVoicePriority === true &&
-    reset.payload.readerTheme === "light" && !("liveLowBandwidth" in reset.payload) &&
-    reset.controller.volume === 1 && reset.controller.speed === 1 &&
-    reset.controller.share === false && reset.controller.priority === true,
-    reset
-  );
+  await screenshot(page.cdp, path.join(OUT_DIR, "02-live-volume-sync.png"));
 
   await writeEvidence(OUT_DIR, {
     failed: checks.filter((entry) => !entry.ok).map((entry) => entry.name),
     checks
   });
   if (checks.some((entry) => !entry.ok)) process.exitCode = 1;
-} finally {
-  await teardown({ browser, cdps: [page.cdp] });
-}
+});
