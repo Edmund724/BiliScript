@@ -14,6 +14,7 @@ const HOST = "127.0.0.1";
 const EXTENSION_PROTOCOL = "biliscript-extension-v1";
 const CLI_PROTOCOL_PREFIX = "biliscript-cli-v1.";
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+export const SUBTITLE_INLINE_MAX_BYTES = 12 * 1024;
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 const DEFAULT_EXTENSION_GRACE_MS = 35 * 1000;
 const EXTENSION_OFFLINE_ERROR = "扩展未连接，请在扩展的「设置 → 本地 Agent」开启连接或点击「去连接」";
@@ -514,7 +515,7 @@ export async function startDaemon({
         respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extension) });
         return;
       }
-      if (!["status", "tabs", "subtitles", "comments", "frame"].includes(command)) {
+      if (!["status", "tabs", "fetch", "subtitles", "comments", "frame"].includes(command)) {
         respondToCli(peer, message.id, { ok: false, error: "未知命令" });
         return;
       }
@@ -648,9 +649,64 @@ function writeFrameFiles(result, out) {
   return { ...result, frames: written };
 }
 
+// 与 extension/shared/clock-text.ts 的 formatClock（不补零）及 extension/notes/render.ts 的 buildTxt 保持同口径
+export function formatSubtitleClock(seconds, withHours = false) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const second = total % 60;
+  if (!withHours) {
+    return `${Math.floor(total / 60)}:${String(second).padStart(2, "0")}`;
+  }
+  const minute = Math.floor((total % 3600) / 60);
+  return `${Math.floor(total / 3600)}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
+}
+
+export function applySubtitleSpillover(result, out, { maxInlineBytes = SUBTITLE_INLINE_MAX_BYTES } = {}) {
+  const subtitle = result?.subtitle;
+  if (!subtitle || !Array.isArray(subtitle.items)) return result;
+  const itemsBytes = Buffer.byteLength(JSON.stringify(subtitle.items), "utf8");
+  if (!out && itemsBytes <= maxInlineBytes) return result;
+
+  const validItems = [];
+  let minFrom = Number.POSITIVE_INFINITY;
+  let maxTo = 0;
+  for (const item of subtitle.items) {
+    const content = String(item?.content ?? "").replace(/[\r\n]+/g, " ").trim();
+    if (!content) continue;
+    const from = Number(item?.from) || 0;
+    const to = Number(item?.to) || from;
+    validItems.push({ from, to, content });
+    if (from < minFrom) minFrom = from;
+    if (to > maxTo) maxTo = to;
+    if (from > maxTo) maxTo = from;
+  }
+
+  const withHours = maxTo >= 3600;
+  const lines = validItems.map((item) => `${formatSubtitleClock(item.from, withHours)} ${item.content}`);
+  const outputDirectory = out ? path.resolve(out) : mkdtempSync(path.join(tmpdir(), "biliscript-subtitles-"));
+  mkdirSync(outputDirectory, { recursive: true });
+  const batchId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+  const bvid = String(result?.video?.bvid || result?.bvid || "video").replace(/[^0-9A-Za-z_-]/g, "_");
+  const page = Number(result?.video?.page);
+  const pagePart = Number.isInteger(page) && page > 0 ? `-p${page}` : "";
+  const filePath = path.join(outputDirectory, `${bvid}${pagePart}-${batchId}.txt`);
+  writeFileSync(filePath, lines.length ? `${lines.join("\n")}\n` : "", { encoding: "utf8", flag: "wx" });
+
+  const { items: _items, ...subtitleMeta } = subtitle;
+  return {
+    ...result,
+    subtitle: {
+      ...subtitleMeta,
+      path: filePath,
+      count: lines.length,
+      from: validItems.length ? minFrom : null,
+      to: validItems.length ? maxTo : null
+    }
+  };
+}
+
 function parseCliArgs(args) {
   const command = args[0];
-  if (!["status", "tabs", "subtitles", "comments", "frame"].includes(command)) return null;
+  if (!["status", "tabs", "fetch", "subtitles", "comments", "frame"].includes(command)) return null;
   if (command === "tabs") return args.length === 1 ? { command } : null;
   if (command === "status") {
     if (args.length === 1) return { command };
@@ -659,6 +715,7 @@ function parseCliArgs(args) {
   }
   const options = {};
   let out;
+  const hasSubtitles = command === "subtitles" || command === "fetch";
   for (let index = 1; index < args.length; index += 1) {
     const flag = args[index];
     const value = args[index + 1];
@@ -669,14 +726,14 @@ function parseCliArgs(args) {
       if (!Number.isInteger(options.tabId) || options.tabId <= 0) return null;
     } else if (flag === "--bvid") {
       options.bvid = value;
-    } else if (command === "subtitles" && (flag === "--from" || flag === "--to")) {
+    } else if (hasSubtitles && (flag === "--from" || flag === "--to")) {
       const number = Number(value);
       if (!Number.isFinite(number) || number < 0) return null;
       options[flag.slice(2)] = number;
     } else if (command === "frame" && flag === "--time") {
       options.targetTime = Number(value);
       if (!Number.isFinite(options.targetTime) || options.targetTime < 0) return null;
-    } else if (command === "frame" && flag === "--out") {
+    } else if ((command === "frame" || hasSubtitles) && flag === "--out") {
       out = value;
     } else {
       return null;
@@ -701,7 +758,7 @@ async function main() {
   }
   const parsed = parseCliArgs(args);
   if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；fetch [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
     process.exitCode = 1;
     return;
   }
@@ -711,6 +768,13 @@ async function main() {
     if (parsed.command === "frame") {
       try {
         output = writeFrameFiles(result, parsed.out);
+      } catch (error) {
+        error.remote = true;
+        throw error;
+      }
+    } else if (parsed.command === "subtitles" || parsed.command === "fetch") {
+      try {
+        output = applySubtitleSpillover(result, parsed.out);
       } catch (error) {
         error.remote = true;
         throw error;

@@ -1,8 +1,16 @@
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { connectWebSocket } from "../../skills/biliscript/scripts/biliscript.mjs";
+import {
+  SUBTITLE_INLINE_MAX_BYTES,
+  applySubtitleSpillover,
+  connectWebSocket,
+  formatSubtitleClock
+} from "../../skills/biliscript/scripts/biliscript.mjs";
+import { formatClock } from "../../extension/shared/clock-text.js";
+import { buildTxt } from "../../extension/notes/render.js";
 
 const port = 21000 + Math.floor(Math.random() * 1000);
 mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
@@ -18,7 +26,10 @@ let daemonPid = 0;
 let extension: Awaited<ReturnType<typeof connectWebSocket>> | null = null;
 const extensionRequests: Array<{ command?: string; options?: unknown }> = [];
 
-function runCli(command: "status" | "tabs" | "subtitles" | "comments" | "frame", args: string[] = []): Promise<Record<string, unknown>> {
+function runCli(
+  command: "status" | "tabs" | "fetch" | "subtitles" | "comments" | "frame",
+  args: string[] = []
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     execFile(process.execPath, [script, command, ...args], { env }, (error, stdout, stderr) => {
       if (error) {
@@ -137,6 +148,193 @@ describe("桌面 Agent CLI 端到端", () => {
       command: "comments",
       options: { tabId: 42 }
     });
+  });
+
+  it("fetch 单趟合并拉取元信息、分P、章节、短字幕内联与热评，并支持 --out 与 --from/--to", async () => {
+    const previous = extension?.onMessage;
+    extensionRequests.length = 0;
+    const allItems = [
+      { from: 5, to: 8, content: "片头开场" },
+      { from: 150, to: 155, content: "核心台词" },
+      { from: 260, to: 265, content: "片尾总结" }
+    ];
+    if (extension) {
+      extension.onMessage = (message: { type?: string; id?: string; command?: string; options?: { from?: number; to?: number } }) => {
+        if (message.type !== "request" || message.command !== "fetch") {
+          previous?.(message as never);
+          return;
+        }
+        extensionRequests.push(message);
+        const from = message.options?.from ?? 0;
+        const to = message.options?.to ?? Number.POSITIVE_INFINITY;
+        extension?.sendJSON({
+          type: "response",
+          id: message.id,
+          ok: true,
+          result: {
+            video: { bvid: "BV1test000000", cid: "123456", page: 2, pageCount: 2, title: "测试视频" },
+            pages: [{ cid: "100", page: 1, part: "P1", duration: 60 }, { cid: "123456", page: 2, part: "P2", duration: 300 }],
+            chapters: [{ title: "章节一", from: 0, to: 200, source: "player-view-points" }],
+            subtitle: {
+              source: "player-wbi-v2",
+              trackId: "track-1",
+              language: "中文",
+              items: allItems.filter((item) => item.to >= from && item.from <= to)
+            },
+            comments: [{ uname: "热评用户", like: 120, message: "好视频", subMessages: ["高赞楼中楼"] }]
+          }
+        });
+      };
+    }
+
+    try {
+      const inline = await runCli("fetch", ["--bvid", "BV1test000000"]);
+      expect(inline).toMatchObject({
+        ok: true,
+        command: "fetch",
+        extensionOnline: true,
+        video: { bvid: "BV1test000000", page: 2 },
+        pages: [{ page: 1 }, { page: 2 }],
+        chapters: [{ title: "章节一" }],
+        subtitle: {
+          source: "player-wbi-v2",
+          trackId: "track-1",
+          language: "中文",
+          items: allItems
+        },
+        comments: [{ uname: "热评用户", like: 120, message: "好视频", subMessages: ["高赞楼中楼"] }]
+      });
+
+      const outDir = join(scratch, "fetch-out");
+      const filteredOut = await runCli("fetch", [
+        "--tab", "42",
+        "--from", "100",
+        "--to", "200",
+        "--out", outDir
+      ]);
+      const subtitle = filteredOut.subtitle as {
+        path: string;
+        count: number;
+        from: number;
+        to: number;
+        items?: unknown;
+      };
+      expect(filteredOut).toMatchObject({
+        ok: true,
+        command: "fetch",
+        comments: [{ uname: "热评用户", message: "好视频", subMessages: ["高赞楼中楼"] }]
+      });
+      expect(subtitle.items).toBeUndefined();
+      expect(subtitle.path).toBe(resolve(subtitle.path));
+      expect(dirname(subtitle.path)).toBe(resolve(outDir));
+      expect(subtitle.count).toBe(1);
+      expect(subtitle.from).toBe(150);
+      expect(subtitle.to).toBe(155);
+      expect(readFileSync(subtitle.path, "utf8")).toBe("2:30 核心台词\n");
+    } finally {
+      if (extension) extension.onMessage = previous;
+    }
+  });
+
+  it("长字幕超安全阈值时自动落盘系统临时目录，stdout 仅保留摘要与绝对路径", async () => {
+    const previous = extension?.onMessage;
+    const longItems = Array.from({ length: 260 }, (_, index) => ({
+      from: index * 15,
+      to: index * 15 + 12,
+      content: `第${index + 1}条长视频字幕内容用于测试超过终端输出安全阈值后的自动落盘行为`
+    }));
+    expect(new TextEncoder().encode(JSON.stringify(longItems)).byteLength).toBeGreaterThan(SUBTITLE_INLINE_MAX_BYTES);
+
+    if (extension) {
+      extension.onMessage = (message: { type?: string; id?: string; command?: string }) => {
+        if (message.type !== "request" || (message.command !== "subtitles" && message.command !== "fetch")) {
+          previous?.(message as never);
+          return;
+        }
+        extension?.sendJSON({
+          type: "response",
+          id: message.id,
+          ok: true,
+          result: {
+            video: { bvid: "BV1long000000", cid: "789", page: 1, pageCount: 1, title: "长视频" },
+            pages: [{ cid: "789", page: 1, part: "正片", duration: 4000 }],
+            chapters: [],
+            subtitle: { source: "player-wbi-v2", trackId: "track-long", language: "中文", items: longItems },
+            ...(message.command === "fetch" ? { comments: [{ uname: "观众", like: 10, message: "热评" }] } : {})
+          }
+        });
+      };
+    }
+
+    const dirsToClean: string[] = [];
+    try {
+      const subResult = await runCli("subtitles", ["--bvid", "BV1long000000"]);
+      const subSummary = subResult.subtitle as { path: string; count: number; from: number; to: number; items?: unknown };
+      dirsToClean.push(dirname(subSummary.path));
+      expect(subSummary.items).toBeUndefined();
+      expect(subSummary.path).toBe(resolve(subSummary.path));
+      expect(subSummary.path.startsWith(resolve(tmpdir()))).toBe(true);
+      expect(subSummary.count).toBe(260);
+      expect(subSummary.from).toBe(0);
+      expect(subSummary.to).toBe(259 * 15 + 12);
+      const writtenLines = readFileSync(subSummary.path, "utf8").trimEnd().split("\n");
+      expect(writtenLines).toHaveLength(260);
+      expect(writtenLines[0]).toBe(`0:00:00 ${longItems[0].content}`);
+      expect(writtenLines[10]).toBe(`0:02:30 ${longItems[10].content}`);
+      expect(writtenLines[259]).toBe(`1:04:45 ${longItems[259].content}`);
+
+      const fetchResult = await runCli("fetch", ["--bvid", "BV1long000000"]);
+      const fetchSub = fetchResult.subtitle as { path: string; count: number; items?: unknown };
+      dirsToClean.push(dirname(fetchSub.path));
+      expect(fetchSub.items).toBeUndefined();
+      expect(fetchSub.count).toBe(260);
+      expect(fetchResult.comments).toEqual([{ uname: "观众", like: 10, message: "热评" }]);
+    } finally {
+      if (extension) extension.onMessage = previous;
+      for (const dir of dirsToClean) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("字幕落盘时刻文本与 clock-text / notes buildTxt 同口径，并支持 --from/--to 与空区间", () => {
+    const shortBody = [
+      { from: 5, to: 10, content: "开场" },
+      { from: 150, to: 160, content: "中段" }
+    ];
+    const longBody = [
+      { from: 5, to: 10, content: "开场" },
+      { from: 3725, to: 3730, content: "一小时后" }
+    ];
+
+    expect(formatSubtitleClock(5, false)).toBe(formatClock(5, { hours: false }));
+    expect(formatSubtitleClock(3725, true)).toBe(formatClock(3725, { hours: true }));
+
+    const outShort = join(scratch, "parity-short");
+    const shortSpilled = applySubtitleSpillover({
+      video: { bvid: "BV1parity0000", page: 1 },
+      subtitle: { source: "bilibili", trackId: "1", language: "中文", items: shortBody }
+    }, outShort);
+    const shortPath = (shortSpilled.subtitle as { path: string }).path;
+    expect(readFileSync(shortPath, "utf8")).toBe(`${buildTxt(shortBody, { includeTimestampInBody: true })}\n`);
+
+    const outLong = join(scratch, "parity-long");
+    const longSpilled = applySubtitleSpillover({
+      video: { bvid: "BV1parity0000", page: 1 },
+      subtitle: { source: "bilibili", trackId: "1", language: "中文", items: longBody }
+    }, outLong);
+    const longPath = (longSpilled.subtitle as { path: string }).path;
+    expect(readFileSync(longPath, "utf8")).toBe(`${buildTxt(longBody, { includeTimestampInBody: true })}\n`);
+
+    const outEmpty = join(scratch, "parity-empty");
+    const emptySpilled = applySubtitleSpillover({
+      video: { bvid: "BV1parity0000", page: 1 },
+      subtitle: { source: "bilibili", trackId: "1", language: "中文", items: [] }
+    }, outEmpty);
+    expect(emptySpilled.subtitle).toMatchObject({
+      count: 0,
+      from: null,
+      to: null
+    });
+    expect(readFileSync((emptySpilled.subtitle as { path: string }).path, "utf8")).toBe("");
   });
 
   it("frame 写入当前帧与历史三帧 JPEG，输出绝对路径和逐帧时间", async () => {

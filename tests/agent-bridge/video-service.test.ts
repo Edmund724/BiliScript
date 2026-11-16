@@ -159,4 +159,97 @@ describe("Agent Bridge 视频服务", () => {
     expect(result.comments).toHaveLength(20);
     expect(result.video).toMatchObject({ bvid, aid: "123" });
   });
+
+  it("getVideoBundle 单趟合并拉取元信息、分P、章节、过滤后字幕与前 20 条热评（含高赞楼中楼）", async () => {
+    let viewCalls = 0;
+    const replies = Array.from({ length: 22 }, (_, index) => ({
+      rpid: 100 + index,
+      member: { uname: `用户${index + 1}` },
+      like: 30 - index,
+      content: { message: `热评${index + 1}` }
+    }));
+    const transport = vi.fn(async (url: string) => {
+      if (url.includes("x/web-interface/view")) {
+        viewCalls += 1;
+        return metaPayload();
+      }
+      if (url.includes("x/player/wbi/v2")) return playerPayload();
+      if (url.includes("i0.hdslb.com")) {
+        return {
+          body: [
+            { from: 0, to: 5, content: "开头" },
+            { from: 10, to: 15, content: "中段" },
+            { from: 25, to: 30, content: "结尾" }
+          ]
+        };
+      }
+      if (url.includes("x/v2/reply/main")) return { code: 0, data: { replies } };
+      if (url.includes("x/v2/reply/reply")) {
+        const root = new URL(url).searchParams.get("root");
+        return { code: 0, data: { replies: [{ content: { message: `楼中楼-${root}` } }] } };
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+
+    const service = createAgentBridgeVideoService({ transport });
+    const result = await service.getVideoBundle({ bvid, pageIndex: 2, from: 8, to: 18 });
+
+    expect(viewCalls).toBe(1);
+    expect(result.video).toMatchObject({ bvid, cid: "200", page: 2, pageCount: 2, duration: 90 });
+    expect(result.pages).toHaveLength(2);
+    expect(result.chapters).toEqual([{ title: "章节", from: 0, to: 30, source: "player-view-points" }]);
+    expect(result.subtitle).toMatchObject({
+      source: "player-wbi-v2",
+      trackId: "track-1",
+      language: "中文",
+      items: [{ from: 10, to: 15, content: "中段" }]
+    });
+    expect(result.comments).toHaveLength(20);
+    expect(result.comments[0]).toMatchObject({
+      uname: "用户1",
+      message: "热评1",
+      subMessages: ["楼中楼-100"]
+    });
+    expect(result.commentsError).toBeUndefined();
+  });
+
+  it("getVideoBundle 复用标签页内容字幕，且热评失败时保留字幕并附带 commentsError", async () => {
+    let viewCalls = 0;
+    const service = createAgentBridgeVideoService({
+      transport: vi.fn(async (url: string) => {
+        if (url.includes("x/web-interface/view")) {
+          viewCalls += 1;
+          return metaPayload();
+        }
+        if (url.includes("x/v2/reply/main")) return { code: -404, message: "评论区已关闭" };
+        throw new Error(`unexpected ${url}`);
+      })
+    });
+
+    const result = await service.getVideoBundle(
+      { bvid, from: 10, to: 20 },
+      async () => ({
+        bvid,
+        cid: "200",
+        pageIndex: 2,
+        chapters: [{ title: "页内章节", from: 0, to: 30, source: "bilibili" }],
+        subtitle: {
+          source: "bilibili",
+          trackId: "tab-track",
+          language: "中文",
+          items: [
+            { from: 2, to: 4, content: "跳过" },
+            { from: 12, to: 16, content: "命中" }
+          ]
+        }
+      })
+    );
+
+    expect(viewCalls).toBe(1);
+    expect(result.video).toMatchObject({ bvid, cid: "200", page: 2 });
+    expect(result.chapters).toEqual([{ title: "页内章节", from: 0, to: 30, source: "bilibili" }]);
+    expect(result.subtitle.items).toEqual([{ from: 12, to: 16, content: "命中" }]);
+    expect(result.comments).toEqual([]);
+    expect(result.commentsError).toContain("-404");
+  });
 });

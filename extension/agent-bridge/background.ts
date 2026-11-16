@@ -295,9 +295,17 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
   const execute = async (command: unknown, options: unknown): Promise<unknown> => {
     if (command === "tabs") return listAgentBridgeTabs();
     if (command === "frame") return captureFrames(options);
-    if (command !== "subtitles" && command !== "comments") throw new Error("不支持的桥接命令");
+    if (command !== "fetch" && command !== "subtitles" && command !== "comments") {
+      throw new Error("不支持的桥接命令");
+    }
     const target = await resolveTarget(options);
     if (command === "comments") return videoService.getComments(target);
+    if (command === "fetch") {
+      return videoService.getVideoBundle(
+        target,
+        target.tabId ? () => requestContentSubtitles(target.tabId!) : undefined
+      );
+    }
     if (target.tabId) {
       const content = await requestContentSubtitles(target.tabId);
       if (content) return videoService.completeContentSubtitles(target, content);

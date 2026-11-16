@@ -110,6 +110,15 @@ export interface AgentBridgeCommentsResult {
   comments: AgentBridgeComment[];
 }
 
+export interface AgentBridgeFetchResult {
+  video: AgentBridgeVideo;
+  pages: AgentBridgePage[];
+  chapters: AgentBridgeChapter[];
+  subtitle: AgentBridgeSubtitle;
+  comments: AgentBridgeComment[];
+  commentsError?: string;
+}
+
 export interface AgentBridgeContentSubtitlesResult {
   bvid: string;
   cid: string;

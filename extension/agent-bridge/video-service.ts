@@ -27,8 +27,11 @@ import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import type { TrackIdentity } from "../subtitle/source-key.js";
 import type {
+  AgentBridgeComment,
   AgentBridgeCommentsResult,
   AgentBridgeContentSubtitlesResult,
+  AgentBridgeFetchResult,
+  AgentBridgeSubtitle,
   AgentBridgeSubtitleItem,
   AgentBridgeSubtitlesResult,
   AgentBridgeVideo
@@ -137,11 +140,15 @@ function resolveVideo(meta: VideoMeta, pageIndex = 1, cid = ""): ResolvedVideo {
   };
 }
 
-function filterRange(items: AgentBridgeSubtitleItem[], from = 0, to = Number.POSITIVE_INFINITY): AgentBridgeSubtitleItem[] {
+function validateRange(from = 0, to = Number.POSITIVE_INFINITY): void {
   if (!Number.isFinite(from) || from < 0 || (!(to === Number.POSITIVE_INFINITY) && (!Number.isFinite(to) || to < 0))) {
     throw new Error("--from 与 --to 必须是非负秒数");
   }
   if (to < from) throw new Error("--to 不能小于 --from");
+}
+
+function filterRange(items: AgentBridgeSubtitleItem[], from = 0, to = Number.POSITIVE_INFINITY): AgentBridgeSubtitleItem[] {
+  validateRange(from, to);
   return items.filter((item) => item.to >= from && item.from <= to);
 }
 
@@ -241,6 +248,35 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
     }
   }
 
+  async function loadSubtitleForResolved(resolved: ResolvedVideo): Promise<{
+    chapters: Chapter[];
+    subtitle: AgentBridgeSubtitle;
+  }> {
+    const native = await loadNativeSubtitle(resolved);
+    if (native) {
+      return {
+        chapters: native.chapters,
+        subtitle: {
+          source: native.track.source || "bilibili",
+          trackId: native.track.id,
+          language: native.track.lanDoc || native.track.lan || "unknown",
+          items: native.items
+        }
+      };
+    }
+
+    const asr = await loadAsrSubtitle(resolved);
+    return {
+      chapters: [],
+      subtitle: {
+        source: "asr",
+        trackId: "asr",
+        language: asr.language,
+        items: asr.items
+      }
+    };
+  }
+
   return {
     async resolveVideoInfo(query: AgentBridgeSubtitleQuery): Promise<AgentBridgeVideo> {
       return (await resolve(query.bvid, query.pageIndex, query.cid)).video;
@@ -250,6 +286,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       query: AgentBridgeSubtitleQuery,
       content: AgentBridgeContentSubtitlesResult
     ): Promise<AgentBridgeSubtitlesResult> {
+      validateRange(query.from, query.to);
       const resolved = await resolve(query.bvid, content.pageIndex, content.cid);
       return {
         video: resolved.video,
@@ -263,32 +300,16 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
     },
 
     async getSubtitles(query: AgentBridgeSubtitleQuery): Promise<AgentBridgeSubtitlesResult> {
+      validateRange(query.from, query.to);
       const resolved = await resolve(query.bvid, query.pageIndex, query.cid);
-      const native = await loadNativeSubtitle(resolved);
-      if (native) {
-        return {
-          video: resolved.video,
-          pages: resolved.meta.pages,
-          chapters: native.chapters,
-          subtitle: {
-            source: native.track.source || "bilibili",
-            trackId: native.track.id,
-            language: native.track.lanDoc || native.track.lan || "unknown",
-            items: filterRange(native.items, query.from, query.to)
-          }
-        };
-      }
-
-      const asr = await loadAsrSubtitle(resolved);
+      const { chapters, subtitle } = await loadSubtitleForResolved(resolved);
       return {
         video: resolved.video,
         pages: resolved.meta.pages,
-        chapters: [],
+        chapters,
         subtitle: {
-          source: "asr",
-          trackId: "asr",
-          language: asr.language,
-          items: filterRange(asr.items, query.from, query.to)
+          ...subtitle,
+          items: filterRange(subtitle.items, query.from, query.to)
         }
       };
     },
@@ -298,6 +319,48 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       return {
         video: resolved.video,
         comments: await fetchHotCommentsJson(transport, resolved.video.aid, 20, { includeHighLikedReplies: true })
+      };
+    },
+
+    async getVideoBundle(
+      query: AgentBridgeSubtitleQuery,
+      loadContentSubtitles?: () => Promise<AgentBridgeContentSubtitlesResult | null>
+    ): Promise<AgentBridgeFetchResult> {
+      validateRange(query.from, query.to);
+      const metaTask = fetchVideoMeta(transport, query.bvid);
+      const contentTask = loadContentSubtitles ? loadContentSubtitles() : Promise.resolve(null);
+      const commentsTask = metaTask.then(
+        (meta) =>
+          fetchHotCommentsJson(transport, meta.aid, 20, { includeHighLikedReplies: true }).then(
+            (comments) => ({ comments, commentsError: undefined as string | undefined }),
+            (error) => ({ comments: [] as AgentBridgeComment[], commentsError: getErrorMessage(error) })
+          ),
+        () => ({ comments: [] as AgentBridgeComment[], commentsError: undefined as string | undefined })
+      );
+
+      const [meta, content] = await Promise.all([metaTask, contentTask]);
+      const resolved = content
+        ? resolveVideo(meta, content.pageIndex, content.cid)
+        : resolveVideo(meta, query.pageIndex, query.cid);
+      resolved.video.bvid = query.bvid;
+
+      const [{ chapters, subtitle }, { comments, commentsError }] = await Promise.all([
+        content
+          ? Promise.resolve({ chapters: content.chapters, subtitle: content.subtitle })
+          : loadSubtitleForResolved(resolved),
+        commentsTask
+      ]);
+
+      return {
+        video: resolved.video,
+        pages: resolved.meta.pages,
+        chapters,
+        subtitle: {
+          ...subtitle,
+          items: filterRange(subtitle.items, query.from, query.to)
+        },
+        comments,
+        ...(commentsError ? { commentsError } : {})
       };
     }
   };
