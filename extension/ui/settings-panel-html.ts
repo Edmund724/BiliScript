@@ -518,7 +518,7 @@ export function buildSettingsHtml(): string {
     </section>
 
     <div class="biliscript-set-actions">
-      <p id="${ids.status}" class="biliscript-set-status"></p>
+      <p id="${ids.status}" class="biliscript-set-status" role="status" aria-live="polite"></p>
       <button id="${ids.resetBtn}" type="button" class="biliscript-set-reset-btn">恢复默认偏好</button>
     </div>
   `;

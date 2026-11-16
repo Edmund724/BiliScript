@@ -96,15 +96,19 @@ function projectReadingSubtitleList(): void {
     // 不把不可配置的成因伪装成配置问题。
     const setupAction =
       isEmpty && requiresAsrSetup(state.clip.noSubtitleReason)
-        ? `<button type="button" class="biliscript-reading-mini-btn" data-subtitle-action="asr-setup">前往设置</button>`
+        ? `<button type="button" class="biliscript-reading-mini-btn is-primary" data-subtitle-action="asr-setup">前往设置</button>`
         : "";
     const retryAction =
       isError || (isEmpty && getAsrFailureNotice(state.clip.noSubtitleReason)?.remedy === "retry-later")
         ? `<button type="button" class="biliscript-reading-mini-btn" data-subtitle-action="retry-fetch">重新抓取</button>`
         : "";
+    const actionsHtml = `${setupAction}${retryAction}`;
+    const actionsWrap = actionsHtml
+      ? `<div class="biliscript-reading-empty-actions">${actionsHtml}</div>`
+      : "";
     subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
       getReadingSubtitlePlaceholderText()
-    )}${detailHtml}${setupAction}${retryAction}</div>`;
+    )}${detailHtml}${actionsWrap}</div>`;
   } else {
     const firstEnd = Math.min(subtitleItems.length, SUBTITLE_FIRST_BATCH);
     let firstHtml = "";

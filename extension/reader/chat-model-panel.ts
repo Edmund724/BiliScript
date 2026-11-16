@@ -34,8 +34,8 @@ const SNAP_THRESHOLD = 0.1;
 // 最高档（档位数 ≥ 3 的最右端）触发时的脉冲增亮时长（ms）。
 const ULTRA_BURST_MS = 420;
 function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  return typeof window !== "undefined"
+    ? Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
     : false;
 }
 
@@ -511,7 +511,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thumb.style.transform = `translateX(${deltaX}px)`;
     void thumb.offsetWidth;
 
-    thumb.style.transition = "transform 0.18s cubic-bezier(0.2, 0.9, 0.25, 1)";
+    thumb.style.transition = "transform 0.18s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1))";
     thumb.style.transform = "translateX(0)";
 
     if (thumbTransitionCleanup) {

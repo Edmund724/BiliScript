@@ -53,8 +53,10 @@ function syncTable(table: HTMLTableElement, shell: HTMLElement): void {
   }
 }
 
-function openTableDialog(table: HTMLTableElement): void {
-  activeDialog?.close();
+function openTableDialog(table: HTMLTableElement, trigger?: HTMLElement): void {
+  const previousDialog = activeDialog;
+  activeDialog = null;
+  previousDialog?.close();
   const doc = table.ownerDocument;
   const dialog = doc.createElement("dialog");
   dialog.className = TABLE_DIALOG_CLASS;
@@ -92,9 +94,13 @@ function openTableDialog(table: HTMLTableElement): void {
     }
   });
   dialog.addEventListener("close", () => {
-    dialog.remove();
-    if (activeDialog === dialog) {
+    const isCurrent = activeDialog === dialog;
+    if (isCurrent) {
       activeDialog = null;
+    }
+    dialog.remove();
+    if (isCurrent && trigger?.isConnected) {
+      trigger.focus();
     }
   });
   activeDialog = dialog;
@@ -110,7 +116,7 @@ function createExpandButton(doc: Document, table: HTMLTableElement): HTMLButtonE
   button.setAttribute("aria-label", "展开表格");
   button.setAttribute("title", "展开表格");
   button.innerHTML = EXPAND_ICON;
-  button.addEventListener("click", () => openTableDialog(table));
+  button.addEventListener("click", () => openTableDialog(table, button));
   return button;
 }
 

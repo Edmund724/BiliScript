@@ -20,7 +20,7 @@
    * 表，播放器页无 data-biliscript-reader-mode 时走字面 fallback。按钮视觉
    * 画在内层按钮上，壳只管几何与滑入。 */
   transition: opacity 0.15s ease-out,
-    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1));
   width: var(--biliscript-player-ai-action-hit-size, 28px);
   z-index: 30;
 }
@@ -173,12 +173,12 @@
 }
 
 #biliscript-player-ai-quick-action:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
 #biliscript-player-ai-quick-action.is-error {
-  color: var(--biliscript-reader-danger, rgb(248 113 113));
+  color: var(--biliscript-reader-danger, rgb(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90)));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -274,7 +274,7 @@
   background: transparent;
   border: none;
   box-sizing: border-box;
-  color: var(--biliscript-primitive-color-white);
+  color: var(--biliscript-primitive-color-white, rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255)));
   cursor: pointer;
   display: flex;
   flex: 0 0 auto;
@@ -305,7 +305,7 @@
 
 #biliscript-player-live-quick-action:hover {
   opacity: 1;
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   transform: scale(1.06);
 }
 
@@ -315,17 +315,17 @@
 
 #biliscript-player-live-quick-action.is-active,
 .biliscript-player-live-quick-action-wrap.is-active #biliscript-player-live-quick-action {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   opacity: 1;
 }
 
 #biliscript-player-live-quick-action.is-active:hover {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   opacity: 1;
 }
 
 #biliscript-player-live-quick-action:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
@@ -364,13 +364,13 @@
 }
 
 #biliscript-player-interpret-quick-action:hover {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   opacity: 1;
 }
 
 #biliscript-player-interpret-quick-action.is-active,
 #biliscript-player-interpret-quick-action.is-connecting {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   opacity: 1;
 }
 
@@ -384,7 +384,7 @@
 }
 
 #biliscript-player-interpret-quick-action:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
@@ -393,11 +393,11 @@
    语言行 [AI] 徽标、右侧开关、双语态主/副字幕双列网格。 */
 
 .biliscript-interpret-menu {
-  background: rgb(31 31 31 / 0.95);
+  background: rgba(var(--biliscript-primitive-color-dark-gray-900-rgb, 27, 28, 32), 0.95);
   border-radius: var(--biliscript-primitive-radius-10, 10px);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   bottom: calc(100% + 12px);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
+  box-shadow: 0 4px 16px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.4);
   box-sizing: border-box;
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   font-size: var(--biliscript-font-size-base, 14px);
@@ -409,7 +409,7 @@
   padding: 6px 0;
   position: absolute;
   right: -8px;
-  scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+  scrollbar-color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.25) transparent;
   scrollbar-width: thin;
   z-index: 70;
 }
@@ -423,16 +423,16 @@
 }
 
 .biliscript-interpret-menu::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.25);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.25);
   border-radius: var(--biliscript-radius-pill, 999px);
 }
 
 .biliscript-interpret-menu::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.4);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.4);
 }
 
 .biliscript-interpret-menu-title {
-  color: rgb(255 255 255 / 0.55);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.55);
   font-size: var(--biliscript-font-size-sm, 12px);
   padding: 4px 16px 6px;
 }
@@ -459,7 +459,7 @@
 
 .biliscript-interpret-menu-item:hover,
 .biliscript-interpret-menu-item:focus-visible {
-  background: rgb(255 255 255 / 0.08);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.08);
   outline: none;
 }
 
@@ -469,7 +469,7 @@
 }
 
 .biliscript-interpret-menu-item.is-selected .biliscript-interpret-menu-item-label {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
 }
 
 .biliscript-interpret-menu-item-label {
@@ -481,10 +481,10 @@
 }
 
 .biliscript-interpret-menu-ai {
-  border: 1px solid rgb(255 255 255 / 0.25);
+  border: 1px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.25);
   border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  color: rgb(255 255 255 / 0.45);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.45);
   flex: 0 0 auto;
   font-size: var(--biliscript-font-size-2xs, 10px);
   line-height: 1.2;
@@ -492,7 +492,7 @@
 }
 
 .biliscript-interpret-menu-divider {
-  background: rgb(255 255 255 / 0.1);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.1);
   height: 1px;
   margin: 6px 0;
 }
@@ -511,7 +511,7 @@
 .biliscript-interpret-menu-switch {
   -webkit-appearance: none;
   appearance: none;
-  background: rgb(255 255 255 / 0.25);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.25);
   border: 0;
   border-radius: var(--biliscript-radius-pill, 999px);
   cursor: pointer;
@@ -526,7 +526,7 @@
 
 .biliscript-interpret-menu-switch > span {
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   display: block;
   height: 16px;
   transform: translateX(0);
@@ -535,7 +535,7 @@
 }
 
 .biliscript-interpret-menu-switch.is-on {
-  background: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  background: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
 }
 
 .biliscript-interpret-menu-switch.is-on > span {
@@ -543,7 +543,7 @@
 }
 
 .biliscript-interpret-menu-switch:focus-visible {
-  outline: 2px solid var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  outline: 2px solid var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   outline-offset: 2px;
 }
 
@@ -558,7 +558,7 @@
 }
 
 .biliscript-interpret-menu-grid-title {
-  color: rgb(255 255 255 / 0.55);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.55);
   font-size: var(--biliscript-font-size-sm, 12px);
   padding: 4px 16px 6px;
 }
@@ -570,40 +570,40 @@
 .biliscript-fullscreen-live-overlay {
   /* 液体玻璃材质令牌（全屏视频深色场景 + 实时视频密集色调兜底） */
   --biliscript-live-glass-tint-scale: 1;
-  --biliscript-live-glass-tint-rgb: 18 20 24;
+  --biliscript-live-glass-tint-rgb: var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20);
   --biliscript-live-glass-tint-alpha: calc(0.58 * var(--biliscript-live-glass-tint-scale, 1));
   --biliscript-live-glass-saturate: 125%;
   --biliscript-live-glass-brightness: calc(1 - 0.24 * min(1, var(--biliscript-live-glass-tint-scale, 1)));
   --biliscript-live-glass-inner-glow:
     radial-gradient(
       125% 95% at 10% 0%,
-      rgb(255 255 255 / calc(0.14 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 0%,
-      rgb(255 255 255 / calc(0.04 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 55%,
+      rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), calc(0.14 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 0%,
+      rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), calc(0.04 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 55%,
       transparent 100%
     ),
     linear-gradient(
       165deg,
-      rgb(255 255 255 / calc(0.08 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 0%,
+      rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), calc(0.08 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 0%,
       transparent 44%,
-      rgb(0 0 0 / calc(0.12 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 100%
+      rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), calc(0.12 * min(1, var(--biliscript-live-glass-tint-scale, 1)))) 100%
     );
   --biliscript-live-glass-tint:
     var(--biliscript-live-glass-inner-glow),
-    rgb(var(--biliscript-live-glass-tint-rgb) / var(--biliscript-live-glass-tint-alpha));
+    rgba(var(--biliscript-live-glass-tint-rgb), var(--biliscript-live-glass-tint-alpha));
   --biliscript-live-glass-filter:
     blur(12px)
     saturate(var(--biliscript-live-glass-saturate))
     brightness(var(--biliscript-live-glass-brightness));
   --biliscript-live-glass-rim:
-    inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.36),
-    inset -1.5px -1.5px 1px -1px rgb(255 255 255 / 0.18),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
-    0 0 0 0.5px rgb(0 0 0 / 0.38),
-    0 10px 30px rgb(0 0 0 / 0.45);
-  --biliscript-live-glass-ink: rgb(255 255 255 / 0.94);
-  --biliscript-live-glass-ink-secondary: rgb(235 235 245 / 0.64);
+    inset 1.5px 1.5px 1px -1px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.36),
+    inset -1.5px -1.5px 1px -1px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.18),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16),
+    0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.38),
+    0 10px 30px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.45);
+  --biliscript-live-glass-ink: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.94);
+  --biliscript-live-glass-ink-secondary: rgba(var(--biliscript-primitive-color-dark-gray-100-rgb, 236, 237, 239), 0.64);
   --biliscript-live-glass-ink-blend: plus-lighter;
-  --live-overlay-surface-radius: var(--biliscript-radius-14, var(--biliscript-primitive-radius-14, 14px));
+  --live-overlay-surface-radius: var(--biliscript-primitive-radius-14, 14px);
   --live-overlay-surface-inset: 8px;
   --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
 
@@ -678,17 +678,17 @@
   align-items: center;
   gap: 7px;
   background:
-    radial-gradient(125% 95% at 10% 0%, rgb(255 255 255 / 0.16) 0%, transparent 100%),
-    rgb(18 20 24 / 0.46);
+    radial-gradient(125% 95% at 10% 0%, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16) 0%, transparent 100%),
+    rgba(var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20), 0.46);
   backdrop-filter: blur(8px) saturate(168%) brightness(0.9);
   -webkit-backdrop-filter: blur(8px) saturate(168%) brightness(0.9);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.38),
-    inset -1px -1px 0.5px -0.5px rgb(255 255 255 / 0.14),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
-    0 0 0 0.5px rgb(0 0 0 / 0.38),
-    0 6px 20px rgb(0 0 0 / 0.4);
-  color: rgb(255 255 255 / 0.94);
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.38),
+    inset -1px -1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.18),
+    0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.38),
+    0 6px 20px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.4);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.94);
   font-size: var(--biliscript-font-size-xs, 11px);
   z-index: 99999;
   cursor: grab;
@@ -696,8 +696,8 @@
   -webkit-user-select: none;
   user-select: none;
   transition:
-    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.2s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    transform 0.2s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
     background-color 0.15s ease,
     box-shadow 0.15s ease;
 }
@@ -708,11 +708,11 @@
 }
 
 .biliscript-fullscreen-live-mini-capsule:hover {
-  background-color: rgb(18 20 24 / 0.6);
+  background-color: rgba(var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20), 0.6);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.48),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.26),
-    0 8px 24px rgb(0 0 0 / 0.5);
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.48),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.26),
+    0 8px 24px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.5);
 }
 
 .biliscript-fullscreen-live-mini-capsule.is-hidden,
@@ -722,8 +722,8 @@
 
 .biliscript-fullscreen-live-mini-capsule.is-talking {
   box-shadow:
-    0 0 12px rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248) / 0.6),
-    inset 0 0 0 1px rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248) / 0.5);
+    0 0 12px rgba(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248), 0.6),
+    inset 0 0 0 1px rgba(var(--biliscript-primitive-color-blue-blob-d4-rgb, 56, 189, 248), 0.5);
 }
 
 .biliscript-fullscreen-live-mini-capsule svg {
@@ -736,7 +736,7 @@
 }
 
 .live-overlay-mini-mic-text {
-  color: rgb(255 255 255 / 0.72);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.72);
 }
 
 .live-overlay-mini-mic-text[hidden],
@@ -750,7 +750,7 @@
   justify-content: space-between;
   padding: var(--live-overlay-surface-inset);
   background: transparent;
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  border-bottom: 1px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.08);
   cursor: grab;
   touch-action: none;
   -webkit-user-select: none;
@@ -772,12 +772,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgb(255 255 255 / 0.1);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.1);
   border: none;
   border-radius: var(--biliscript-radius-pill, 999px);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.34),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.16);
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.34),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16);
   padding: 3px 9px;
   color: var(--biliscript-live-glass-ink);
   font-size: var(--biliscript-font-size-sm, 12px);
@@ -790,7 +790,7 @@
 .live-overlay-status-dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
@@ -839,8 +839,8 @@
 }
 
 .live-overlay-icon-btn:hover {
-  background: rgb(255 255 255 / 0.14);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.24);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24);
   opacity: 1;
 }
 
@@ -884,9 +884,11 @@
 }
 
 .live-overlay-audio-popover {
-  --live-overlay-surface-radius: var(--biliscript-radius-12, var(--biliscript-primitive-radius-12, 12px));
+  --live-overlay-surface-radius: var(--biliscript-radius-md, var(--biliscript-primitive-radius-12, 12px));
   --live-overlay-surface-inset: 6px;
   --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
+  --biliscript-live-glass-ink: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.92);
+  --biliscript-live-glass-ink-blend: normal;
 
   position: fixed;
   inset: auto;
@@ -896,8 +898,8 @@
   box-sizing: border-box;
   overflow-y: auto;
   background:
-    radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.14) 0%, transparent 65%),
-    rgb(18 20 26 / 0.76);
+    radial-gradient(120% 90% at 12% 0%, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14) 0%, transparent 65%),
+    rgba(var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20), 0.76);
   backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   -webkit-backdrop-filter: blur(8px) saturate(165%) brightness(0.82);
   border: none;
@@ -905,11 +907,11 @@
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   padding: var(--live-overlay-surface-inset);
   box-shadow:
-    inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.36),
-    inset -1.5px -1.5px 1px -1px rgb(255 255 255 / 0.16),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
-    0 0 0 0.5px rgb(0 0 0 / 0.42),
-    0 8px 24px rgb(0 0 0 / 0.5);
+    inset 1.5px 1.5px 1px -1px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.36),
+    inset -1.5px -1.5px 1px -1px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.18),
+    0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.42),
+    0 8px 24px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.5);
   color: var(--biliscript-live-glass-ink);
   z-index: 1000;
   flex-direction: column;
@@ -925,12 +927,12 @@
 }
 
 .live-overlay-audio-popover :where(button, input[type="range"]):focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
 .live-overlay-audio-status {
-  color: rgb(255 205 120);
+  color: rgb(var(--biliscript-primitive-color-gemini-amber-dark-rgb, 253, 214, 99));
   font-size: var(--biliscript-font-size-xs, 11px);
   line-height: 1.5;
 }
@@ -954,8 +956,8 @@
   flex: none;
   padding: 0;
   border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill, 999px));
-  background: rgb(255 255 255 / 0.22);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.2);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.22);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2);
   border: none;
   position: relative;
   cursor: pointer;
@@ -971,9 +973,9 @@
   left: 2px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.3);
   transform: translateY(-50%);
   transition:
     transform 0.24s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
@@ -982,8 +984,8 @@
 
 .live-overlay-switch.is-active,
 .live-overlay-switch[aria-checked="true"] {
-  background: var(--toggle-track-bg-on, var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(96 165 250))));
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.28);
+  background: var(--toggle-track-bg-on, var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)))));
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.28);
 }
 
 .live-overlay-switch.is-active::after,
@@ -1043,7 +1045,7 @@
 }
 
 .live-overlay-volume-slider:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
@@ -1052,10 +1054,10 @@
   border-radius: var(--biliscript-radius-pill, 999px);
   background: linear-gradient(
     to right,
-    var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(96 165 250))) 0%,
-    var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(96 165 250))) var(--live-progress, 100%),
-    rgb(255 255 255 / 0.24) var(--live-progress, 100%),
-    rgb(255 255 255 / 0.24) 100%
+    var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)))) 0%,
+    var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-400, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)))) var(--live-progress, 100%),
+    rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24) var(--live-progress, 100%),
+    rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24) 100%
   );
 }
 
@@ -1065,9 +1067,9 @@
   width: 16px;
   height: 16px;
   margin-top: 0;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   background: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.35);
   cursor: pointer;
   transition: transform 0.18s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
@@ -1089,6 +1091,11 @@
   .live-overlay-volume-slider::-webkit-slider-thumb {
     transition: none;
   }
+
+  .live-overlay-volume-slider::-webkit-slider-thumb:hover,
+  .live-overlay-volume-slider::-webkit-slider-thumb:active {
+    transform: none;
+  }
 }
 
 .live-overlay-body {
@@ -1101,7 +1108,7 @@
 }
 
 .live-overlay-failure-card {
-  --live-overlay-surface-radius: var(--biliscript-radius-12, var(--biliscript-primitive-radius-12, 12px));
+  --live-overlay-surface-radius: var(--biliscript-radius-md, var(--biliscript-primitive-radius-12, 12px));
   --live-overlay-surface-inset: 6px;
   --live-overlay-control-radius: max(0px, calc(var(--live-overlay-surface-radius) - var(--live-overlay-surface-inset)));
 
@@ -1115,7 +1122,7 @@
   background: rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.18);
   box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-red-500-rgb, 217, 48, 37), 0.35);
   color: var(--biliscript-live-glass-ink);
-  font-size: var(--biliscript-font-size-xs, 12px);
+  font-size: var(--biliscript-font-size-sm, 12px);
   line-height: 1.45;
 }
 
@@ -1148,23 +1155,23 @@
   padding: 4px 10px;
   font-size: var(--biliscript-font-size-xs, 11px);
   color: var(--biliscript-live-glass-ink);
-  background: rgb(255 255 255 / 0.14);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.24);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24);
   cursor: pointer;
   transition: background 0.15s ease, opacity 0.15s ease;
 }
 
 .live-overlay-action-btn:hover {
-  background: rgb(255 255 255 / 0.24);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24);
 }
 
 .live-overlay-action-btn[data-primary-action="true"] {
-  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 59, 130, 246), 0.42);
-  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-blue-500-rgb, 59, 130, 246), 0.55);
+  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255), 0.42);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255), 0.55);
 }
 
 .live-overlay-action-btn[data-primary-action="true"]:hover {
-  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 59, 130, 246), 0.58);
+  background: rgba(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255), 0.58);
 }
 
 .live-overlay-interpret-notice {
@@ -1184,21 +1191,21 @@
   bottom: 12px;
   width: 26px;
   height: 26px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.2) 0%, transparent 65%),
-    rgb(18 20 26 / 0.72);
+    radial-gradient(120% 90% at 12% 0%, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2) 0%, transparent 65%),
+    rgba(var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20), 0.72);
   backdrop-filter: blur(6px) saturate(160%);
   -webkit-backdrop-filter: blur(6px) saturate(160%);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.4),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.2),
-    0 4px 14px rgb(0 0 0 / 0.35);
-  color: rgb(255 255 255 / 0.92);
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.4),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.2),
+    0 4px 14px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.35);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.92);
   cursor: pointer;
   z-index: 10;
   transition:
@@ -1208,9 +1215,9 @@
 }
 
 .live-overlay-scroll-bottom-btn:hover {
-  background-color: rgb(28 32 40 / 0.88);
+  background-color: rgba(var(--biliscript-primitive-color-dark-gray-900-rgb, 27, 28, 32), 0.88);
   transform: scale(1.08);
-  color: rgb(255 255 255);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
 }
 
 .live-overlay-scroll-bottom-btn:active {
@@ -1240,12 +1247,12 @@
 }
 
 .live-overlay-messages::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.24);
-  border-radius: var(--biliscript-radius-pill, 9999px);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.24);
+  border-radius: var(--biliscript-radius-pill, 999px);
 }
 
 .live-overlay-messages::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.42);
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.42);
 }
 
 .live-overlay-messages::-webkit-scrollbar-button {
@@ -1269,21 +1276,21 @@
   align-self: flex-end;
   background: var(--biliscript-reader-success, rgb(var(--biliscript-primitive-color-green-500-rgb, 63, 185, 80)));
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  border-bottom-right-radius: 2px;
+  border-bottom-right-radius: var(--biliscript-primitive-radius-2, 2px);
   box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.28),
-    0 2px 8px rgb(0 0 0 / 0.18);
+    inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.28),
+    0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.18);
 }
 
 .live-overlay-bubble-assistant {
   align-self: flex-start;
-  background: rgb(10 12 16 / 0.54);
+  background: rgba(var(--biliscript-primitive-color-dark-gray-950-rgb, 16, 17, 20), 0.62);
   box-shadow:
-    inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.28),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.14);
+    inset 1px 1px 0.5px -0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.28),
+    inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14);
   color: var(--biliscript-live-glass-ink);
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.38);
-  border-bottom-left-radius: 2px;
+  text-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.38);
+  border-bottom-left-radius: var(--biliscript-primitive-radius-2, 2px);
 }
 
 .biliscript-fullscreen-live-overlay :where(button, input[type="range"]) {
@@ -1293,7 +1300,7 @@
 
 .biliscript-fullscreen-live-overlay :where(button):focus-visible,
 .biliscript-fullscreen-live-mini-capsule:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
@@ -1301,7 +1308,7 @@
   .biliscript-fullscreen-live-overlay,
   .biliscript-fullscreen-live-overlay[data-glass-lens="ready"]:not([data-popover-open="1"]),
   .live-overlay-audio-popover {
-    background: rgb(20 22 28);
+    background: rgb(var(--biliscript-primitive-color-dark-gray-900-rgb, 27, 28, 32));
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1330,7 +1337,7 @@
   border: 0;
   border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  color: hsla(0, 0%, 100%, 0.85);
+  color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.85);
   background: transparent;
   cursor: pointer;
   opacity: 0.9;
@@ -1342,7 +1349,7 @@
     border-color 0.2s ease,
     color 0.15s ease-out,
     filter 0.2s ease-out,
-    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1));
 }
 
 .biliscript-live-room-toggle svg {
@@ -1356,7 +1363,7 @@
 
 .biliscript-live-room-toggle:focus-visible {
   opacity: 1;
-  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline: 2px solid rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.95);
   outline-offset: 2px;
 }
 
@@ -1365,7 +1372,7 @@
 }
 
 .biliscript-live-room-toggle:hover {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
 }
 
@@ -1374,12 +1381,12 @@
 }
 
 .biliscript-live-room-toggle.is-active {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   background: transparent;
 }
 
 .biliscript-live-room-toggle.is-active:hover {
-  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
+  color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
   background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.12);
 }
 
@@ -1392,7 +1399,7 @@
   padding: 5px 8px;
   background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.85);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  font-size: var(--biliscript-font-size-xs, 12px);
+  font-size: var(--biliscript-font-size-sm, 12px);
   line-height: 1;
   white-space: nowrap;
   border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
@@ -1423,7 +1430,7 @@
   padding: 8px 12px;
   border-radius: var(--biliscript-radius-pill, 999px);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  font-size: var(--biliscript-font-size-base, 13px);
+  font-size: var(--biliscript-font-size-sm-md, 13px);
   line-height: 1.5;
   background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.8);
   pointer-events: none;
@@ -1437,16 +1444,17 @@
   max-height: none;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--biliscript-reader-border, rgb(255 255 255 / 0.16));
-  border-radius: var(--biliscript-radius-panel, 14px);
+  border: 1px solid var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16));
+  border-radius: var(--biliscript-radius-panel, var(--biliscript-primitive-radius-28, 28px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-surface, rgb(24 26 32));
-  color: var(--biliscript-reader-text, rgb(245 245 245));
-  box-shadow: 0 24px 80px rgb(0 0 0 / 0.45);
+  background: var(--biliscript-reader-surface, rgb(var(--biliscript-primitive-color-dark-gray-900-rgb, 27, 28, 32)));
+  color: var(--biliscript-reader-text, rgb(var(--biliscript-primitive-color-dark-gray-100-rgb, 236, 237, 239)));
+  box-shadow: 0 24px 80px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.45);
 }
 
 .biliscript-live-room-settings::backdrop {
-  background: rgb(0 0 0 / 0.56);
+  background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.55);
+  backdrop-filter: blur(4px);
 }
 
 .biliscript-live-room-settings-close {
@@ -1454,24 +1462,32 @@
   top: 12px;
   right: 12px;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.12);
-  color: rgb(245 245 245);
-  font-size: var(--biliscript-font-size-2xl, 22px);
-  line-height: 1;
+  border-radius: var(--biliscript-radius-sm, var(--biliscript-primitive-radius-8, 8px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: transparent;
+  color: var(--biliscript-reader-muted, rgb(var(--biliscript-primitive-color-dark-gray-400-rgb, 156, 160, 168)));
   cursor: pointer;
+  transition: transform 100ms ease-out, background 0.15s ease, color 0.15s ease;
 }
 
 .biliscript-live-room-settings-close:hover {
-  background: rgb(255 255 255 / 0.2);
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.1));
+  color: var(--biliscript-reader-text, rgb(var(--biliscript-primitive-color-dark-gray-100-rgb, 236, 237, 239)));
+}
+
+.biliscript-live-room-settings-close:active {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
 .biliscript-live-room-settings-close:focus-visible {
-  outline: 2px solid var(--biliscript-reader-accent, rgb(96 165 250));
+  outline: 2px solid var(--biliscript-reader-accent, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)));
   outline-offset: 2px;
 }
 
@@ -1527,7 +1543,7 @@
 }
 
 .biliscript-live-room-settings-status[data-error="true"] {
-  color: var(--biliscript-reader-danger, rgb(248 113 113));
+  color: var(--biliscript-reader-danger, rgb(var(--biliscript-primitive-color-red-400-rgb, 242, 85, 90)));
 }
 
 .biliscript-live-room-gemini-credential,
@@ -1538,10 +1554,10 @@
   gap: 16px;
   margin-top: 16px;
   padding: 12px 16px;
-  border: 1px solid var(--biliscript-reader-border, rgb(255 255 255 / 0.16));
-  border-radius: var(--biliscript-radius-card, 10px);
+  border: 1px solid var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.16));
+  border-radius: var(--biliscript-radius-card-inner, var(--biliscript-primitive-radius-16, 16px));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-surface-2, rgb(255 255 255 / 0.06));
+  background: var(--biliscript-reader-surface-2, rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.06));
 }
 
 .biliscript-live-room-gemini-credential[hidden],
@@ -1552,12 +1568,17 @@
 .biliscript-live-room-gemini-configure-btn,
 .biliscript-live-room-settings-reconnect-btn {
   flex: none;
-  padding: 8px 14px;
+  min-height: 32px;
+  padding: 6px 14px;
   border: 0;
-  border-radius: var(--biliscript-radius-pill, 999px);
-  background: var(--biliscript-reader-accent, rgb(96 165 250));
-  color: var(--biliscript-reader-on-fill, rgb(255 255 255));
+  border-radius: var(--btn-radius, 999px);
+  background: var(--biliscript-reader-accent, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)));
+  color: var(--biliscript-reader-on-fill, rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255)));
+  font-family: inherit;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base, 14px));
+  font-weight: 600;
   cursor: pointer;
+  transition: transform 100ms ease-out, filter 0.15s ease;
 }
 
 .biliscript-live-room-gemini-configure-btn:hover,
@@ -1565,9 +1586,14 @@
   filter: brightness(1.06);
 }
 
+.biliscript-live-room-gemini-configure-btn:active:not(:disabled),
+.biliscript-live-room-settings-reconnect-btn:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
+}
+
 .biliscript-live-room-gemini-configure-btn:focus-visible,
 .biliscript-live-room-settings-reconnect-btn:focus-visible {
-  outline: 2px solid var(--biliscript-reader-accent, rgb(96 165 250));
+  outline: 2px solid var(--biliscript-reader-accent, rgb(var(--biliscript-primitive-color-blue-400-rgb, 61, 155, 255)));
   outline-offset: 2px;
 }
 
@@ -1575,4 +1601,37 @@
 .biliscript-live-room-settings-reconnect-btn:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-player-live-quick-action,
+  .biliscript-fullscreen-live-overlay,
+  .biliscript-fullscreen-live-mini-capsule,
+  .live-overlay-status-dot,
+  .live-overlay-scroll-bottom-btn,
+  .biliscript-live-room-toggle,
+  .biliscript-interpret-menu-switch,
+  .biliscript-interpret-menu-switch > span,
+  .biliscript-live-room-settings-close,
+  .biliscript-live-room-gemini-configure-btn,
+  .biliscript-live-room-settings-reconnect-btn {
+    transition: none;
+  }
+
+  .live-overlay-status-dot.is-connecting,
+  .live-overlay-status-dot.is-reconnecting {
+    animation: none;
+  }
+
+  #biliscript-player-live-quick-action:hover,
+  #biliscript-player-live-quick-action:active,
+  .biliscript-fullscreen-live-mini-capsule:active,
+  .live-overlay-scroll-bottom-btn:hover,
+  .live-overlay-scroll-bottom-btn:active,
+  .biliscript-live-room-toggle:active,
+  .biliscript-live-room-settings-close:active,
+  .biliscript-live-room-gemini-configure-btn:active:not(:disabled),
+  .biliscript-live-room-settings-reconnect-btn:active:not(:disabled) {
+    transform: none;
+  }
 }

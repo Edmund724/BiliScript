@@ -1,5 +1,8 @@
 import type { ImagePart } from "../ai/types.js";
 
+const CLOSE_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
 export interface ChatImageViewer {
   open(src: string, trigger: HTMLElement, alt?: string): void;
   close(restoreFocus?: boolean): void;
@@ -67,7 +70,7 @@ export function createChatImageViewer(): ChatImageViewer {
     closeButton.className = "chat-image-viewer-close";
     closeButton.setAttribute("aria-label", "关闭图片");
     closeButton.title = "关闭图片";
-    closeButton.textContent = "×";
+    closeButton.innerHTML = CLOSE_ICON;
     closeButton.addEventListener("click", () => close(true));
     viewer.addEventListener("cancel", (event) => {
       event.preventDefault();

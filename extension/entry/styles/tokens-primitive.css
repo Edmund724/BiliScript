@@ -35,6 +35,7 @@
   --biliscript-primitive-font-size-2xl: var(--biliscript-primitive-font-size-22);
 
   /* 基础圆角（Radius Scale: 核心阶梯 4px, 8px, 14px, 20px, 28px, 999px, 50% 及辅助档） */
+  --biliscript-primitive-radius-2: 2px;
   --biliscript-primitive-radius-4: 4px;
   --biliscript-primitive-radius-6: 6px;
   --biliscript-primitive-radius-8: 8px;

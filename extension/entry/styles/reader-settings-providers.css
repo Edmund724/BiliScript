@@ -98,16 +98,21 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-delete:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-delete:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-delete:hover {
+#biliscript-reading-view .provider-editor-delete:hover:not(:disabled) {
   background: var(--biliscript-reader-danger);
   color: var(--biliscript-reader-on-fill);
+}
+
+#biliscript-reading-view .provider-editor-delete:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-body {
@@ -248,15 +253,20 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-test:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-test:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-test:hover {
+#biliscript-reading-view .provider-editor-test:hover:not(:disabled) {
   background: var(--biliscript-reader-surface-3);
+}
+
+#biliscript-reading-view .provider-editor-test:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-test:disabled,
@@ -332,15 +342,20 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-linked-credential-btn:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-linked-credential-btn:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-linked-credential-btn:hover {
+#biliscript-reading-view .provider-editor-linked-credential-btn:hover:not(:disabled) {
   background: var(--biliscript-reader-surface-3);
+}
+
+#biliscript-reading-view .provider-editor-linked-credential-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-foot {
@@ -364,17 +379,22 @@
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-cancel:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-cancel:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .provider-editor-cancel:hover {
+#biliscript-reading-view .provider-editor-cancel:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .provider-editor-cancel:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-save {
@@ -393,12 +413,17 @@
 }
 
 /* save 的 hover 走亮度通道（下方 :hover filter），按压叠加缩放不冲突 */
-#biliscript-reading-view .provider-editor-save:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-save:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-save:hover {
+#biliscript-reading-view .provider-editor-save:hover:not(:disabled) {
   filter: brightness(1.05);
+}
+
+#biliscript-reading-view .provider-editor-save:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 /* ===== AI 模型目录（multi-model-catalog 阶段2）：Modal 内联模型行（ID + 行级
@@ -427,15 +452,20 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-fetch:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-fetch:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-fetch:hover {
+#biliscript-reading-view .provider-editor-fetch:hover:not(:disabled) {
   background: var(--biliscript-reader-accent-soft);
+}
+
+#biliscript-reading-view .provider-editor-fetch:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-model-list {
@@ -566,15 +596,20 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-model-test:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-model-test:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-model-test:hover {
+#biliscript-reading-view .provider-editor-model-test:hover:not(:disabled) {
   background: var(--biliscript-reader-surface-3);
+}
+
+#biliscript-reading-view .provider-editor-model-test:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-model-test:disabled {
@@ -597,16 +632,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, color 0.15s, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-model-remove:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-model-remove:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-model-remove:hover {
+#biliscript-reading-view .provider-editor-model-remove:hover:not(:disabled) {
   color: var(--biliscript-reader-danger);
   background: var(--biliscript-reader-danger-soft);
+}
+
+#biliscript-reading-view .provider-editor-model-remove:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-model-remove svg {
@@ -669,14 +709,19 @@
   transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-model-add:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-model-add:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .provider-editor-model-add:hover {
+#biliscript-reading-view .provider-editor-model-add:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .provider-editor-model-add:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 /* 子视图在位时彻底隐藏底层表头与表单，避免半透明玻璃主题下透出底层文字叠影 */
@@ -730,14 +775,19 @@
   transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-fetch-back:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-fetch-back:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .provider-editor-fetch-back:hover {
+#biliscript-reading-view .provider-editor-fetch-back:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .provider-editor-fetch-back:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-loading,
@@ -789,6 +839,15 @@
   font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
   cursor: pointer;
+}
+
+#biliscript-reading-view .provider-editor-fetch-dialog input[type="checkbox"] {
+  accent-color: var(--biliscript-reader-accent);
+}
+
+#biliscript-reading-view .provider-editor-fetch-dialog input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-list {
@@ -901,11 +960,20 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-fetch-retry:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-fetch-retry:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
+}
+
+#biliscript-reading-view .provider-editor-fetch-retry:hover:not(:disabled) {
+  background: var(--biliscript-reader-surface-3);
+}
+
+#biliscript-reading-view .provider-editor-fetch-retry:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-foot {
@@ -927,17 +995,22 @@
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .provider-editor-fetch-cancel:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-fetch-cancel:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .provider-editor-fetch-cancel:hover {
+#biliscript-reading-view .provider-editor-fetch-cancel:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .provider-editor-fetch-cancel:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-confirm {
@@ -955,12 +1028,17 @@
   transition: transform 100ms ease-out;
 }
 
-#biliscript-reading-view .provider-editor-fetch-confirm:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .provider-editor-fetch-confirm:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .provider-editor-fetch-confirm:hover {
+#biliscript-reading-view .provider-editor-fetch-confirm:hover:not(:disabled) {
   filter: brightness(1.05);
+}
+
+#biliscript-reading-view .provider-editor-fetch-confirm:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-confirm:disabled {
@@ -983,16 +1061,21 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active:not(:disabled) {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:hover {
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn {
@@ -1008,16 +1091,21 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn:active:not(:disabled) {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn:hover:not(:disabled) {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn.is-default,
@@ -1038,24 +1126,25 @@
   }
 
   #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,
-  #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle:active,
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle:active:not(:disabled),
   #biliscript-reading-view .biliscript-reading-settings-host .provider-row-remove:active,
-  #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:active,
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:active,
-  #biliscript-reading-view .provider-editor-delete:active,
-  #biliscript-reading-view .provider-editor-test:active,
-  #biliscript-reading-view .provider-editor-cancel:active,
-  #biliscript-reading-view .provider-editor-save:active,
-  #biliscript-reading-view .provider-editor-fetch:active,
-  #biliscript-reading-view .provider-editor-model-test:active,
-  #biliscript-reading-view .provider-editor-model-remove:active,
-  #biliscript-reading-view .provider-editor-model-add:active,
-  #biliscript-reading-view .provider-editor-fetch-back:active,
-  #biliscript-reading-view .provider-editor-fetch-retry:active,
-  #biliscript-reading-view .provider-editor-fetch-cancel:active,
-  #biliscript-reading-view .provider-editor-fetch-confirm:active,
-  #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn:active,
-  #biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active {
+  #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:active:not(:disabled),
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-delete:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-test:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-linked-credential-btn:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-cancel:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-save:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-fetch:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-model-test:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-model-remove:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-model-add:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-fetch-back:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-fetch-retry:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-fetch-cancel:active:not(:disabled),
+  #biliscript-reading-view .provider-editor-fetch-confirm:active:not(:disabled),
+  #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-default-btn:active:not(:disabled),
+  #biliscript-reading-view .biliscript-reading-settings-host .provider-row-edit:active:not(:disabled) {
     transform: none;
   }
 

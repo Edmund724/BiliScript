@@ -107,6 +107,7 @@ export function renderUnsupportedPageToast(message: string, durationMs: number):
     "max-width:80vw",
     "padding:10px 18px",
     "border-radius:8px",
+    "corner-shape:superellipse(1.25)",
     "background:rgba(24,25,28,0.92)",
     "color:#ffffff",
     "font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",

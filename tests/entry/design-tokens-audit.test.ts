@@ -78,7 +78,8 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       "custom-select.css",
       "toggle-switch.css",
       "github-markdown-theme.css",
-      "player-ai.css"
+      "player-ai.css",
+      "interpret-subtitles.css"
     ];
 
     const createReaderQuoteCardPresetExemption = () => {
@@ -296,8 +297,8 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
           if (fileName === "reader.css" && isReaderQuoteCardPresetLine(line)) return;
 
-          // 匹配裸写数字的 rgba(0, 0, 0, ...)
-          const rawRgbMatch = trimmed.match(/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+/g);
+          // 匹配裸写数字的 rgba(0, 0, 0, ...) 与现代空格语法 rgb(0 0 0 / 22%)
+          const rawRgbMatch = trimmed.match(/rgba?\(\s*\d+(?:\s*,\s*|\s+)\d+(?:\s*,\s*|\s+)\d+/g);
           if (rawRgbMatch) {
             violations.push(`${fileName}:${lineNum}: ${trimmed}`);
           }

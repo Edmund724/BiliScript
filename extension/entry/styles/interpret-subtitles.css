@@ -28,20 +28,21 @@
   box-sizing: border-box;
   max-width: 100%;
   padding: 4px 10px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.68);
-  color: #fff;
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.68);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   font-family: inherit;
-  font-size: 20px;
+  font-size: var(--biliscript-font-size-xl, 20px);
   line-height: 1.45;
   text-align: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.9);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .biliscript-interpret-subtitle-original {
-  font-size: 18px;
+  font-size: var(--biliscript-font-size-lg, 18px);
 }
 
 .biliscript-interpret-subtitle-original[hidden],
@@ -57,10 +58,11 @@
   box-sizing: border-box;
   max-width: min(560px, calc(100% - 32px));
   padding: 8px 12px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 0.78);
-  color: #fff;
-  font-size: 13px;
+  border-radius: var(--biliscript-radius-sm, var(--biliscript-primitive-radius-8, 8px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.78);
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  font-size: var(--biliscript-font-size-sm-md, 13px);
   line-height: 1.5;
   overflow-wrap: anywhere;
   pointer-events: none;

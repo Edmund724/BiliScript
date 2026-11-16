@@ -812,7 +812,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
         </div>`}
         </div>
-        <p class="provider-editor-status" hidden></p>
+        <p class="provider-editor-status" role="status" aria-live="polite" hidden></p>
         <footer class="provider-editor-foot">
           <button type="button" class="provider-editor-cancel" data-provider-editor-action="close">${escapeHtml(options.cancelLabel?.trim() || "取消")}</button>
           <button type="submit" class="provider-editor-save" data-provider-editor-action="save">${escapeHtml(options.submitLabel?.trim() || "保存")}</button>

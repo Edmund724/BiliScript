@@ -91,7 +91,7 @@ function updateBtnState(): void {
   const currentRate = v ? v.playbackRate : 1;
   document.querySelectorAll<HTMLElement>(`[${BTN_FLAG}] .${RATE_RESULT_CLASS}`).forEach((el) => {
     const btnRate = Number(el.parentElement?.getAttribute(BTN_FLAG));
-    const nextColor = currentRate === btnRate ? "#00aeec" : el.dataset.nativeColor || "";
+    const nextColor = currentRate === btnRate ? "var(--bpx-primary-color, #00aeec)" : el.dataset.nativeColor || "";
     if (el.style.color !== nextColor) {
       el.style.color = nextColor;
     }

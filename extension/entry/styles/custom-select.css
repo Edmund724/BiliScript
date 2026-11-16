@@ -49,8 +49,8 @@
   transform-origin: top left;
   opacity: 1;
   transform: scale(1);
-  transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
-              transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+  transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+              transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
               display 160ms allow-discrete;
 }
 
@@ -172,7 +172,7 @@
 }
 
 #biliscript-reading-view .custom-select-option:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
 #biliscript-reading-view .custom-select-option:hover,
@@ -227,7 +227,7 @@
 }
 
 #biliscript-reading-view .custom-select-trigger:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
 /* 焦点态（原 reader-settings-shell.css:161-172 焦点组里的 custom-select 分支）：
@@ -313,7 +313,7 @@
   display: inline-flex;
   flex: 0 0 auto;
   color: var(--select-arrow-color, var(--biliscript-reader-faint));
-  transition: transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1));
+  transition: transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 #biliscript-reading-view .custom-select-arrow svg {

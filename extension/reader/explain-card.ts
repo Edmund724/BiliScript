@@ -28,6 +28,7 @@ import { state } from "../core/state.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
+import { ensureReaderChatStyles } from "../shared/style-injector.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { resolveWebSearchOptIn } from "../search/opt-in-notice.js";
@@ -158,6 +159,9 @@ function renderCard(): void {
     root.innerHTML = "";
     return;
   }
+  if (typeof chrome !== "undefined" && typeof chrome.runtime?.getURL === "function") {
+    ensureReaderChatStyles();
+  }
   root.hidden = false;
 
   const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -209,7 +213,7 @@ function renderCard(): void {
     <section class="biliscript-reading-explain-card-dialog" role="dialog" aria-modal="true" aria-label="解释" tabindex="-1">
       <header class="biliscript-reading-explain-card-head">
         <span class="biliscript-reading-explain-card-title">解释</span>
-        <button type="button" class="biliscript-reading-explain-card-close" data-explain-card-action="close" title="关闭" aria-label="关闭">×</button>
+        <button type="button" class="biliscript-reading-explain-card-close" data-explain-card-action="close" title="关闭" aria-label="关闭解释"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="biliscript-reading-explain-card-quote">${escapeHtml(card.selection)}</div>
       <div class="biliscript-reading-explain-card-content">${bodyHtml}${noticeHtml}</div>

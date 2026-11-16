@@ -1020,7 +1020,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 
 /* 抽屉壳：透明直露雾底（打开态的接管规则已把 border/shadow 归零，这里补
  * 底色与毛玻璃；收起期间的几何落位不动）。 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-panel {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-panel,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-panel {
   background: transparent;
   border-color: transparent;
   -webkit-backdrop-filter: none;
@@ -1031,14 +1032,19 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .live-provider-row,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .ai-provider-row,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .live-provider-row {
   border: none;
   border-radius: 0;
   box-shadow: none;
 }
 
 /* 智能虚拟行（搜索列表首行）的虚线识别保留——上面的描边归零不能吃掉它 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row:first-child {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row:first-child:not(:last-child),
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row:first-child:not(:last-child) {
   border: 0;
   border-bottom: 1px dashed var(--biliscript-reader-border);
 }
@@ -1056,7 +1062,17 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog input[type="text"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog input[type="password"],
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog select,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-fetch-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view .custom-select-trigger,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-search {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1065,18 +1081,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 
 /* 下拉与模型搜索框保留原胶囊圆角，只把描边换成同款轻影。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input,
+.biliscript-live-room-settings #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input,
+.biliscript-live-room-settings #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input {
   border: none;
   box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 /* 校验态反馈：描边归零后 border-color 无处落，改光环（danger=错误、success=通过）；
  * 仅作用于带原生约束（required / pattern）的输入框；声明在焦点规则之前。 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-invalid {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-invalid,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-invalid {
   box-shadow: 0 0 0 1.5px var(--biliscript-reader-danger);
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-valid {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-valid,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog :is(input[type="text"], input[type="password"]):is([required], [pattern]):user-valid {
   box-shadow: 0 0 0 1.5px var(--biliscript-reader-success);
 }
 
@@ -1091,7 +1111,18 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search:focus-within {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search:focus-within,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select:focus,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog input[type="text"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog input[type="password"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog select:focus,
+.biliscript-live-room-settings #biliscript-reading-view .custom-select-trigger:focus,
+.biliscript-live-room-settings #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-search:focus-within {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
@@ -1100,7 +1131,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-model-panel
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-chat-more-menu {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-chat-more-menu,
+.biliscript-live-room-settings #biliscript-reading-view .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view .chat-search-preview,
+.biliscript-live-room-settings #biliscript-reading-view .custom-select-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-chat-more-menu {
   border: none;
   background: var(--biliscript-reader-popover-bg);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1109,7 +1145,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 }
 
 /* 平台编辑 Modal：白玻璃凸起大卡 + 分隔线归零 + 毛玻璃 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-dialog {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1120,7 +1157,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 }
 
 /* 「获取可用模型」内联子视图在玻璃主题下改用实底面板，避免底层文字透出叠影 */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-fetch-dialog {
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -1131,7 +1169,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-head,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-foot {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-foot,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-head,
+.biliscript-live-room-settings #biliscript-reading-view .provider-editor-foot {
   border: none;
 }
 
@@ -1147,13 +1187,44 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-textarea,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="password"],
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog select,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .custom-select-trigger,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search {
   box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="text"]:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="password"]:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog select:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="text"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="password"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog select:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .custom-select-trigger:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
@@ -1161,15 +1232,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-host .ai-provider-model-dropdown,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat-more-menu {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat-more-menu,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .chat-search-preview,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .custom-select-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-host .ai-provider-model-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat-more-menu {
   box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-black-rgb), 0.4), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog {
   box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-black-rgb), 0.5), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog,
+.biliscript-live-room-settings #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
   box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
@@ -1192,13 +1270,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 
 /* 次级小按钮（概览操作键 / 解释卡操作键）：去框 + 液态玻璃卡面 + 折射高光；
  * 悬停走全仓可点母题（accent-soft 底 + accent 字）。 */
-#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn {
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn:not(.is-primary) {
   border-color: transparent;
   background: var(--biliscript-reader-card);
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
-#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn:hover {
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn:not(.is-primary):hover {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
 }
@@ -1282,16 +1360,48 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.12), 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb), 0.2);
 }
 
-/* 面板内弹层对话框（选区解释卡 / 二次确认弹层）：去框 + 液态玻璃卡面 +
- * blur(24px) saturate(180%) 磨砂 + 悬浮柔影 token（明暗两档随 token 换档）。
+/* 面板内弹层对话框（选区解释卡 / 二次确认弹层 / 本地 Agent 安装弹层 / Markdown 表格弹窗）：
+ * 去框 + 液态玻璃卡面 + blur(24px) saturate(180%) 磨砂 + 悬浮柔影 token（明暗两档随 token 换档）。
  * 确认弹层基表底色是 surface，这里统一升到卡面——弹层即凸起卡。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-card-dialog,
-#biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog {
+#biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog,
+#biliscript-reading-view:not([data-palette="editorial"]) .agent-bridge-install-dialog,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-md-table-dialog {
   border-color: transparent;
   background: var(--biliscript-reader-popover-bg);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
+}
+
+/* Agent Bridge 动作键与安装引导：Flyme 无边框液态玻璃与暗面凹陷指令框 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-settings-host .biliscript-agent-bridge-connect,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-settings-host .biliscript-agent-bridge-secondary,
+#biliscript-reading-view:not([data-palette="editorial"]) .agent-bridge-install-copy {
+  border-color: transparent;
+  background: var(--biliscript-reader-card);
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-settings-host .biliscript-agent-bridge-connect:hover:not(:disabled),
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-settings-host .biliscript-agent-bridge-secondary:hover:not(:disabled) {
+  background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .agent-bridge-install-copy:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .agent-bridge-install-prompt {
+  border: none;
+  background: var(--biliscript-reader-surface-2);
+  box-shadow: inset 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .agent-bridge-install-prompt {
+  background: var(--biliscript-reader-surface-3);
+  box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 /* 金句分享弹窗沿用基表实色与悬浮柔影，仅去外圈灰框。 */
@@ -1439,8 +1549,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user-body,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view[data-palette="editorial"] .confirm-dialog,
+#biliscript-reading-view[data-palette="editorial"] .agent-bridge-install-dialog,
+#biliscript-reading-view[data-palette="editorial"] .agent-bridge-install-copy,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-md-table-dialog,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-chip,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-agent-bridge-connect,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-agent-bridge-secondary,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea,
@@ -1451,11 +1567,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
 #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
 #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-host .ai-provider-model-dropdown,
+#biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog,
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog,
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu,
@@ -1463,13 +1590,49 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-host .ai-provider-model-dropdown,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-host .ai-provider-model-dropdown,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-more-menu {
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog {
+  background: var(--biliscript-reader-surface);
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-head,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-head {
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-foot,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-foot {
+  border-top: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view[data-palette="editorial"] .agent-bridge-install-prompt {
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface);
+  box-shadow: none;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-agent-bridge-connect:hover:not(:disabled),
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-agent-bridge-secondary:hover:not(:disabled),
+#biliscript-reading-view[data-palette="editorial"] .agent-bridge-install-copy:hover {
+  background: var(--biliscript-reader-surface-3);
 }
 
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter:hover,
@@ -1481,7 +1644,23 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search:focus-within,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active:hover {
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter.is-active:hover,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"]:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"]:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"]:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select:focus,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger:focus {
   border: 1px solid var(--biliscript-reader-accent);
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
@@ -1515,7 +1694,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"] {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"],
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select,
+.biliscript-live-room-settings #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"] {
   border-radius: var(--biliscript-radius-2xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
@@ -1557,20 +1743,26 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-search-preview,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-dropdown,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-explain-card-dialog,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-chat-more-menu,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .confirm-dialog,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .agent-bridge-install-dialog,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-md-table-dialog,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-placeholder,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-ov-empty-card,
   #biliscript-reading-view .chat-model-panel,
   #biliscript-reading-view .chat-search-preview,
   #biliscript-reading-view .custom-select-dropdown,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
+  #biliscript-reading-view .provider-editor-dialog,
   #biliscript-reading-view .provider-editor-fetch-dialog,
   #biliscript-reading-view .biliscript-reading-explain-card-dialog,
   #biliscript-reading-view .biliscript-reading-chat-more-menu,
   #biliscript-reading-view .confirm-dialog,
+  #biliscript-reading-view .agent-bridge-install-dialog,
+  #biliscript-reading-view .biliscript-md-table-dialog,
   #biliscript-reading-view .biliscript-reading-placeholder,
   #biliscript-reading-view .biliscript-reading-ov-empty-card {
     -webkit-backdrop-filter: none;
@@ -1597,18 +1789,24 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-explain-card-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-chat-more-menu,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .confirm-dialog,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .agent-bridge-install-dialog,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-md-table-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-model-panel,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-search-preview,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-explain-card-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-chat-more-menu,
-#biliscript-reading-view[data-biliscript-script-scrolling="1"] .confirm-dialog {
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .confirm-dialog,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .agent-bridge-install-dialog,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-md-table-dialog {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

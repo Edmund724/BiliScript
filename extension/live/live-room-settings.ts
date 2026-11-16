@@ -74,7 +74,7 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
   dialog.setAttribute("data-biliscript-extension-node", "live-room-settings");
   dialog.setAttribute("aria-label", "伴看平台与密钥");
   dialog.innerHTML = `
-    <button type="button" class="biliscript-live-room-settings-close" aria-label="关闭伴看设置">×</button>
+    <button type="button" class="biliscript-live-room-settings-close" aria-label="关闭伴看设置"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     <div id="${ids.readingView}" class="biliscript-live-room-settings-view" data-theme="dark">
       <section id="${ids.readingSettingsPanel}" class="biliscript-reading-settings-panel">
         <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">
@@ -83,8 +83,10 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
               <div class="biliscript-set-h">实时伴看平台</div>
               <button id="${domIds.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
             </div>
-            <div id="${domIds.liveProvidersList}" class="ai-providers-list"></div>
-            <p id="${domIds.liveProvidersEmpty}" class="ai-providers-empty" hidden>暂无已配置平台</p>
+            <div class="biliscript-set-card biliscript-provider-group">
+              <div id="${domIds.liveProvidersList}" class="ai-providers-list"></div>
+              <p id="${domIds.liveProvidersEmpty}" class="ai-providers-empty" hidden>暂无已配置平台</p>
+            </div>
             <div class="biliscript-live-room-gemini-credential" hidden>
               <span class="biliscript-live-room-gemini-credential-reason"></span>
               <button type="button" class="biliscript-live-room-gemini-configure-btn">配置 Gemini Key</button>
