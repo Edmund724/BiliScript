@@ -29,7 +29,7 @@ API Key 需自行准备，但无需付费：下文推荐的硅基流动和 Model
 
 ### AI 对话栏
 
-- 围绕字幕内容多轮对话，支持模型切换、思考强度调节与历史会话管理；选中字幕可弹出「解释」卡片一键追问，播放器内提供 AI 快捷摘要按钮
+- 围绕字幕内容多轮对话，支持面板内独立切换模型、思考强度调节与历史对话管理（支持定位当前会话、删除 6 秒撤销与发送闸等待期间草稿快照保护）；选中字幕可弹出「解释」卡片一键追问，播放器内提供 AI 快捷摘要按钮
 - 回答支持一键重新生成（Regenerate）、原地无缝继续生成（Continue）与复制/导出为 Markdown
 - 对话思考过程支持会话持久化与历史回放，生成中断时保留完整思考链路；支持自动清理 30 天超期历史会话
 - 回答支持本地语音朗读：优先选用 Edge / Natural 高清在线音色并平滑回退至系统本地音色，朗读时自动过滤时间戳并支持跨标签页打断抢占与音量统管
@@ -50,16 +50,16 @@ API Key 需自行准备，但无需付费：下文推荐的硅基流动和 Model
 
 - **播放器控制增强**：播放器控制栏新增 3x / 4x 极速倍速按钮，可在设置抽屉中按需开关，自适应全屏与窗口居中对齐
 - **首配直达与容错续跑**：概览生成、解释卡、AI 对话与 ASR 转写遇到未配置平台或凭据失效时，点击提示一键直达对应平台设置，保存成功后自动原位返回并续跑未完成任务
-- **设置抽屉视觉升级**：吸顶顶栏整合导航与返回，活动态字重与强调色指示；直显 AI 默认平台与模型生效投影；模型拉取收纳为编辑器内子视图并保留多选；搜索平台收纳为折叠手风琴展开与二级弹窗管理
-- 控制栏浮层、外溢菜单及原生笔记展开时自动提升层级并驱动文摘面板避让；充电专属视频按钮与状态行提示优化
+- **设置抽屉三级导航与模型解耦**：采用「4 组总览卡片 → 9 个功能子页 → 本地 Agent 连接地址」三级视图与吸顶「← 返回」导航；对话、概览与解释、字幕翻译各自独立选择模型，取消全局默认平台绑定；实时伴看与联网搜索子页改为平铺展示
+- **就地状态反馈与壳层收口**：移除面板顶部全局状态行，正常流程不额外打扰，复制/导出与字幕异常就地提示；控制栏浮层、外溢菜单及原生笔记展开时自动提升层级并驱动文摘面板避让，关闭面板保持宿主页滚动位置与焦点收口
 
 - 面板宽度支持在 400px–650px 间调节（默认 540px），可选进入视频页自动展开；支持调节字号、行高与段落间距
 - 内置 **Flyme 蓝雾**（半透明雾壳与白玻璃卡片，HarmonyOS Sans SC 字体栈）与 **数字刊物 Editorial**（暖调羊皮纸底与衬线排版，推荐系统安装「思源宋体 / Noto Serif SC」）两套风格，均支持浅色 / 深色模式切换
 
 ### 本地 Agent 联动（可选）
 
-- 支持通过本地 WebSocket 桥接供 Kimi Code、DeepSeek Harness、Antigravity 等编程 Agent 远程读取当前视频字幕、热门评论与精准时间戳关键帧
-- 提供一键安装脚本（PowerShell）与免配置 Skill，数据全程留在本机，不经任何第三方中转
+- 支持通过本地 WebSocket 桥接供 Kimi Code、DeepSeek Harness、Antigravity 等编程 Agent 远程读取当前视频字幕、热门评论与精准时间戳关键帧，支持多浏览器实例共存路由与单趟视频采集（超 12 KiB 长字幕自动落盘分段精读）
+- 提供 Windows（PowerShell）与 macOS / Linux（POSIX Shell）一键安装脚本与免配置 Skill，支持冷启动自动宽限等待与断线退避重连，数据全程留在本机，不经任何第三方中转
 
 ## 功能图片演示
 
@@ -113,23 +113,30 @@ pnpm run build:release  # 生成发布包到 release/（不含 sourcemap）
 
 需要让 Kimi Code、DeepSeek Harness、Antigravity 等编程 Agent 读取视频字幕、热评和关键帧时，再启用此功能：
 
-1. 打开 B 站视频右侧的文摘面板，进入「设置 → 本地 Agent」，点击「去连接」。桥接默认关闭，只连接本机 `127.0.0.1`；默认地址为 `ws://127.0.0.1:18492`，可在「连接地址」中测试、修改或恢复默认。连接失败时，可在弹窗中复制一键安装指令并发给自己的 Agent。Bridge 必须运行在与浏览器相同的 Windows 宿主机（非沙箱、非容器、非 WSL）中；Agent 无法访问该环境时，需由用户在本机 PowerShell 执行安装命令。
-2. Windows 用户也可直接在 PowerShell 运行：
+1. 打开 B 站视频右侧的文摘面板，进入「设置 → 本地 Agent 连接」，开启开关并点击「去连接」。桥接默认关闭，只连接本机 `127.0.0.1`（默认地址为 `ws://127.0.0.1:18492`，可在「连接地址」三级页中测试、修改或恢复默认）。连接失败时，安装弹窗会按当前系统生成对应指令，可一键复制发给自己的 Agent。Bridge 必须运行在与浏览器相同的宿主机（非沙箱、非容器、非 WSL）中；Agent 无法访问该环境时，需由用户在本机终端执行安装命令。
+2. 也可直接在宿主机终端运行一键安装脚本（均需本机 Node.js 22.20+）：
 
-   ```powershell
-   irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex
-   ```
+   - **Windows（PowerShell）**：
 
-   脚本会免交互安装 Skill 和内置 CLI 到 `~/.agents/skills/biliscript`，启动本地 Bridge 并检查扩展连接；无需 `npx` 或 `git clone`。下载优先使用 GitHub ZIP，失败后自动改用 jsDelivr；失效的会话代理只会在安装进程内被绕开或替换，不修改系统代理设置。
+     ```powershell
+     irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex
+     ```
 
-   后续升级时重新运行上述命令即可。脚本会覆盖安装 Skill 和 CLI，自动结束旧 Bridge、启动新版并检查扩展连接，无需手动结束进程。
+   - **macOS / Linux（POSIX Shell）**：
+     ```bash
+     curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | sh
+     ```
 
-   其他系统或需要安装到 Claude Code 等其他 Agent 时，可手动运行 `npx -y skills add Edmund724/BiliScript -g -y`，再按技能说明启动 Bridge。
+   脚本会免交互安装 Skill 和内置 CLI 到 `~/.agents/skills/biliscript`，启动本地 Bridge 并检查扩展连接；无需 `npx` 或 `git clone`。下载优先使用 GitHub 归档，失败后自动改用 jsDelivr；失效的会话代理只会在安装进程内被绕开或替换，不修改系统代理设置。CLI 与扩展支持冷启动 35 秒宽限等待与断开后指数退避重连，也支持多个浏览器实例同时连接与路由；单趟 `fetch` 命令可一次拉取元信息、分 P、章节、字幕与最多 20 条热评，字幕超过 12 KiB 时自动落盘以便 Agent 分段精读。
+
+   后续升级时重新运行对应系统的一键安装命令即可。脚本会覆盖安装 Skill 和 CLI，自动结束旧 Bridge、启动新版并检查扩展连接，无需手动结束进程。
+
+   需要安装到 Claude Code 等其他 Agent 目录时，也可手动运行 `npx -y skills add Edmund724/BiliScript -g -y`，再按技能说明启动 Bridge。
 3. 让 Agent 分析当前 B 站视频或提供 BV 号/视频链接。Agent 会按需获取字幕与热评、截取关键时间点画面并读取本地图片；未打开视频的无字幕转写仍使用你在扩展中配置的 ASR 平台。
 
 CLI 与扩展之间的数据不经过第三方服务器；后续分析产生的数据传输遵循所用 Agent 的模型与隐私设置。
 
-卸载本地 Agent 时，先在扩展的「设置 → 本地 Agent」点击「断开」，再在 PowerShell 执行以下命令（适用于默认安装目录和端口）：
+卸载本地 Agent 时，先在扩展的「设置 → 本地 Agent 连接」断开连接，再在 PowerShell 执行以下命令（适用于默认安装目录和端口）：
 
 ```powershell
 $cli = "$HOME\.agents\skills\biliscript\scripts\biliscript.mjs"
@@ -147,9 +154,10 @@ Remove-Item "$env:TEMP\biliscript-bridge-18492.token" -Force -ErrorAction Silent
 
 ### 1. 配置 AI 模型平台（总结与对话）
 
-1. 在设置抽屉「AI 模型平台」区域点击「+ 添加平台」，选择平台预设或「自定义」。
+1. 在「设置 → AI 模型平台」区域点击「+ 添加平台」，选择平台预设或「自定义」。
 2. 确认协议（**OpenAI 兼容 / Anthropic / Gemini 原生**，切换协议时预设 Base URL 自动联动）。
 3. 粘贴 API Key，点击模型名称旁的箭头拉取可用模型列表（内置模型目录会自动标注上下文窗口及「思考」「图片」能力徽标），点击「测试」验证通过后自动保存。
+4. 对话模型在 AI 对话面板内独立选择；「概览与解释模型」在「设置 → AI 模型平台」下方独立指定，「字幕翻译模型」在「设置 → 字幕翻译与导出」独立指定。
 
 **内置平台预设**：DeepSeek、阿里通义千问（Qwen）、智谱 GLM、月之暗面 Kimi、MiniMax、Mimo、Opencode Go、OpenRouter、阶跃星辰（Stepfun）、ModelScope、AMD Radeon Cloud（免费）、SenseNova 商汤（免费）、Ollama（本地）、Google Gemini。
 
@@ -178,11 +186,11 @@ Remove-Item "$env:TEMP\biliscript-bridge-18492.token" -Force -ErrorAction Silent
 | Exa | `free-quota`（自备 Key） | 每月 10 美元赠送额度（新号另赠 10 美元），搜索 7 美元 / 1,000 次 |
 | DeepSeek | `paid`（复用 AI 平台凭据） | 自动复用 AI 平台中官方 DeepSeek 的 Key；默认在智能链中关闭，需单选或开启「允许智能搜索使用付费平台」 |
 
-**排序与回退机制**：支持置顶的「**智能**」模式（默认按列表顺序逐家回退，总预算 30 秒；单引擎连续失败 3 次自动进入 5–60 分钟指数退避冷却，5 分钟内相同查询命中本地哈希缓存直接复用）与「**单选**」模式（仅请求指定平台，失败不回退）。列表顺序可拖拽调整或一键恢复默认，单轮搜索上限默认 5 次（可调 1–20）。
+**排序与回退机制**：搜索平台在「设置 → 联网搜索」中平铺展示，支持「**智能回退**」（默认按列表顺序逐家回退，总预算 30 秒；单引擎连续失败 3 次自动进入 5–60 分钟指数退避冷却，5 分钟内相同查询命中本地哈希缓存直接复用）与「**单选平台**」（仅请求指定平台，失败不回退）。列表顺序支持拖拽或键盘调整并可一键恢复默认，单轮搜索上限默认 5 次（可调 1–20）。
 
 ### 4. 配置实时伴看平台（可选，多模态音画互动）
 
-在设置抽屉「实时伴看平台」区域可添加伴看平台：
+在「设置 → 实时伴看」区域可添加伴看平台并调整伴看语音与混音选项：
 - **MOSS Live**：填入 MOSS Live 官方 API Key（默认 Base URL 为 `https://api.mosi.cn`，模型 `moss-live-1.0`），内置 WebSocket 握手鉴权与会话生命周期管理。
 - **Gemini Live**：支持 Google Gemini 原生多模态实时协议（模型 `gemini-3.8-live` 等），若在「AI 模型平台」中已配置 Google Gemini，可直接一键复用凭据；支持开启原生 Google 搜索工具与页面查证。
 
@@ -233,6 +241,7 @@ B 站音频流 CDN 依赖本地运营商 Local DNS 进行机房调度与防盗�
 extension/
 ├── manifest.json          # 扩展清单
 ├── entry/                 # 入口（background、content、offscreen）
+├── agent-bridge/          # 本地 Agent WebSocket 桥接、多实例路由与视频采集
 ├── ai/                    # AI 客户端、SSE 流式解析、播放器 AI 按钮
 ├── asr/                   # 语音识别（音频分片、转写、WAV 编码）
 ├── bilibili/              # B 站 API 网关与视频 ID 解析
