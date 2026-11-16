@@ -61,7 +61,7 @@ import {
   formatChatSelectionLine,
   formatSubtitleFollowHint,
   subtitleFollowHintState,
-  syncAiDefaultBadge
+  syncAiDefaultModelLine
 } from "./ai-active-projection.js";
 import { AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE } from "../core/ai-provider-store.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
@@ -1018,7 +1018,7 @@ async function refreshAiActiveProjection(
       knownProviders ? Promise.resolve(knownProviders) : loadAiProviders()
     ]);
     elements.aiActiveDefaultSummary.textContent = formatAiDefaultSummaryLine(projection);
-    syncAiDefaultBadge(
+    syncAiDefaultModelLine(
       elements.aiProvidersList,
       projection.state === "ok" ? String(projection.provider.id || "") : "",
       projection.state === "ok" ? projection.model : ""

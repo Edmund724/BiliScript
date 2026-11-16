@@ -1,10 +1,10 @@
 // ui/settings-panel.ts 生效投影直测（票 05：AI 默认平台与模型生效投影）。
 //
 // 走真实模块 + DOM 仿真（settings-panel-save.test.ts 同款）：挂载面板后断言——
-// - 默认平台行挂「默认」徽标与概览/解释模型行，分区摘要显示实际缺省选择；
-// - 默认被禁用 / 删除（解析回落，isFallback 自报）时摘要显示真实回落目标；
-// - 缺 Key / 无平台时摘要显示不可用状态，徽标摘除，不展示陈旧成功状态；
-// - 对话另选平台 / 模型时显示对话选择及切换位置，默认摘要与徽标不变；
+// - 生效平台行挂概览/解释模型行（不额外挂重复的「默认」徽标），分区摘要显示实际缺省选择；
+// - 默认被禁用 / 删除（解析回落，isFallback 自报）时摘要显示真实回落目标，模型行落在回落行上；
+// - 缺 Key / 无平台时摘要显示不可用状态，模型行摘除，不展示陈旧成功状态；
+// - 对话另选平台 / 模型时显示对话选择及切换位置，默认摘要与模型行不变；
 // - 字幕翻译「跟随 AI 默认平台」提示展示解析权威给出的真实跟随目标；
 // - chrome.storage.onChanged（defaultModel / aiProviders / 对话选中键）驱动摘要同步刷新。
 
@@ -65,8 +65,8 @@ function followHint(host: HTMLElement): HTMLElement {
   return host.querySelector<HTMLElement>("#subtitleTranslateFollowHint")!;
 }
 
-function defaultBadge(host: HTMLElement): HTMLElement | null {
-  return host.querySelector<HTMLElement>(".ai-provider-row .provider-row-badge");
+function activeModelLine(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>(".ai-provider-row .provider-row-model");
 }
 
 // 捕获真实注册的 onChanged 监听（watch-storage-keys 懒注册单条分发监听）
@@ -99,7 +99,7 @@ beforeEach(() => {
 });
 
 describe("设置面板 AI 生效投影（票 05）", () => {
-  it("显式默认：默认行挂「默认」徽标与模型行，分区摘要显示概览与解释的实际缺省选择", async () => {
+  it("显式默认：生效行挂模型行且不重复挂「默认」徽标，分区摘要显示概览与解释的实际缺省选择", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1" };
     resolveAiReply = {
@@ -115,12 +115,15 @@ describe("设置面板 AI 生效投影（票 05）", () => {
       expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
     });
 
-    const badge = defaultBadge(host);
-    expect(badge?.textContent).toBe("默认");
-    expect(badge?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p1");
-    // AI 族行模板不渲染模型副行：默认行的模型行由投影挂出，且是解析出的生效模型
-    const modelLine = host.querySelector<HTMLElement>(".ai-provider-row .provider-row-model");
+    // 默认态由行尾 .ai-provider-default-btn 表达，不再额外插入同名 .provider-row-badge
+    expect(host.querySelector(".ai-provider-row .provider-row-badge")).toBeNull();
+    expect(
+      host.querySelector('.ai-provider-row[data-provider-id="p1"] .ai-provider-default-btn')?.textContent
+    ).toBe("默认");
+    // AI 族行模板不渲染模型副行：生效行的模型行由投影挂出，且是解析出的生效模型
+    const modelLine = activeModelLine(host);
     expect(modelLine?.textContent).toBe("deepseek-chat");
+    expect(modelLine?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p1");
     // 无对话另选 → 对话行隐藏
     expect(chatSummary(host).hidden).toBe(true);
     // 字幕翻译跟随提示：解析权威给出的真实跟随目标
@@ -128,7 +131,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     expect(followHint(host).textContent).toBe("当前 DeepSeek 官方 · deepseek-chat");
   });
 
-  it("悬空默认回落（禁用 / 删除）：摘要显示真实回落目标并标注，徽标落在回落平台上", async () => {
+  it("悬空默认回落（禁用 / 删除）：摘要显示真实回落目标并标注，模型行落在回落平台上", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "ghost" };
     resolveAiReply = {
@@ -143,10 +146,10 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     await vi.waitFor(() => {
       expect(summary(host).textContent).toBe("概览与解释已回落至 硅基流动 · Qwen3-8B（默认平台不可用）");
     });
-    expect(defaultBadge(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
+    expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
   });
 
-  it("不可用（无平台 / 缺 Key）：摘要显示不可用状态，徽标摘除，不展示陈旧成功状态", async () => {
+  it("不可用（无平台 / 缺 Key）：摘要显示不可用状态，模型行摘除，不展示陈旧成功状态", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1" };
     resolveAiReply = { ok: false, error: "该平台 API Key 未配置" };
@@ -156,11 +159,11 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     await vi.waitFor(() => {
       expect(summary(host).textContent).toBe("概览与解释暂不可用：该平台 API Key 未配置");
     });
-    expect(defaultBadge(host)).toBeNull();
+    expect(activeModelLine(host)).toBeNull();
     expect(chatSummary(host).hidden).toBe(true);
   });
 
-  it("对话另选平台 / 模型：显示对话选择及切换位置，默认摘要与徽标不变", async () => {
+  it("对话另选平台 / 模型：显示对话选择及切换位置，默认摘要与模型行不变", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1" };
     resolveAiReply = {
@@ -180,7 +183,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     );
     // 默认投影不被对话另选改写
     expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
-    expect(defaultBadge(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p1");
+    expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p1");
   });
 
   it("对话选中与生效投影一致时不显示另选行", async () => {
@@ -229,7 +232,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     await vi.waitFor(() => {
       expect(summary(host).textContent).toBe("概览与解释已回落至 硅基流动 · Qwen3-8B（默认平台不可用）");
     });
-    expect(defaultBadge(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
+    expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
   });
 
   it("storage.onChanged：aiProviders 列表变化（他端增删启停）驱动摘要刷新", async () => {
@@ -254,7 +257,7 @@ describe("设置面板 AI 生效投影（票 05）", () => {
     await vi.waitFor(() => {
       expect(summary(host).textContent).toBe("概览与解释暂不可用：还没有配置 AI 平台，请先在插件设置中添加并启用。");
     });
-    expect(defaultBadge(host)).toBeNull();
+    expect(activeModelLine(host)).toBeNull();
   });
 
   it("storage.onChanged：对话选中键变化（local）驱动另选行刷新", async () => {

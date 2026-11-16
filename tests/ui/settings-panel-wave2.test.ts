@@ -188,7 +188,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     expect(host.querySelector<HTMLElement>(".search-chain-footer-bar")?.hidden).toBe(false);
   });
 
-  it("AI 行内删除：同步刷新默认摘要、默认徽标与字幕翻译下拉选项", async () => {
+  it("AI 行内删除：同步刷新默认摘要、生效模型行与字幕翻译下拉选项", async () => {
     let currentAi = [...AI_PROVIDERS];
     let resolveCalled = 0;
     const { host } = await mountPanel({
@@ -228,9 +228,10 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
       expect(host.querySelector("#aiActiveDefaultSummary")?.textContent).toContain("DeepSeek · deepseek-chat");
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(1);
+    expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-badge')).toBeNull();
     expect(
-      host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-badge')?.textContent
-    ).toBe("默认");
+      host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-model')?.textContent
+    ).toBe("deepseek-chat");
   });
 });
 
