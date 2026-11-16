@@ -100,7 +100,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   toggleSearchChainBtn: "toggleSearchChainBtn",
   searchChainContainer: "searchChainContainer",
   searchChainActiveSummary: "searchChainActiveSummary",
-  aiActiveDefaultSummary: "aiActiveDefaultSummary",
   aiDefaultModel: "aiDefaultModel",
   subtitleTranslateFollowHint: "subtitleTranslateFollowHint",
   resetBtn: "biliscriptSettingsResetBtn"
@@ -142,10 +141,7 @@ export function buildSettingsHtml(): string {
       </div>
       <div class="biliscript-set-card">
         <div class="biliscript-set-row">
-          <div class="biliscript-set-row-copy">
-            <label class="biliscript-set-label" for="${ids.aiDefaultModel}">概览与解释模型</label>
-            <p id="${ids.aiActiveDefaultSummary}" class="biliscript-set-hint biliscript-set-row-sub"></p>
-          </div>
+          <label class="biliscript-set-label" for="${ids.aiDefaultModel}">概览与解释模型</label>
           <select id="${ids.aiDefaultModel}" class="biliscript-set-select">
             <option value="">暂无可用模型</option>
           </select>

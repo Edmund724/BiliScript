@@ -57,10 +57,6 @@ async function mountPanel(): Promise<HTMLElement> {
   return document.getElementById("biliscript-reading-settings-host")!;
 }
 
-function summary(host: HTMLElement): HTMLElement {
-  return host.querySelector<HTMLElement>("#aiActiveDefaultSummary")!;
-}
-
 function defaultModelSelect(host: HTMLElement): HTMLSelectElement {
   return host.querySelector<HTMLSelectElement>("#aiDefaultModel")!;
 }
@@ -104,7 +100,7 @@ beforeEach(() => {
 });
 
 describe("设置面板 AI 生效投影与默认模型选择", () => {
-  it("显式默认：生效行挂模型行且不重复挂「默认」徽标，分区摘要与 #aiDefaultModel 同步", async () => {
+  it("显式默认：生效行挂模型行且不重复挂「默认」徽标，右侧选择器与行状态同步，不重复解释文案", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1", defaultAiModel: "deepseek-reasoner" };
     resolveAiReply = {
@@ -118,9 +114,10 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     const host = await mountPanel();
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-reasoner");
+      expect(activeModelLine(host)?.textContent).toBe("deepseek-reasoner");
     });
 
+    expect(host.querySelector("#aiActiveDefaultSummary")).toBeNull();
     expect(host.querySelector("#aiChatSelectionSummary")).toBeNull();
     expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-reasoner`);
     expect(host.querySelector(".ai-provider-row .provider-row-badge")).toBeNull();
@@ -128,7 +125,6 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
       host.querySelector('.ai-provider-row[data-provider-id="p1"] .ai-provider-default-btn')?.textContent
     ).toBe("默认");
     const modelLine = activeModelLine(host);
-    expect(modelLine?.textContent).toBe("deepseek-reasoner");
     expect(modelLine?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p1");
     expect(followHint(host).hidden).toBe(false);
     expect(followHint(host).textContent).toBe("当前 DeepSeek 官方 · deepseek-reasoner");
@@ -167,7 +163,7 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 硅基流动 · Qwen3-8B");
+      expect(activeModelLine(host)?.textContent).toBe("Qwen3-8B");
     });
     expect(
       sent.some((m) => {
@@ -180,7 +176,7 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     expect(followHint(host).textContent).toBe("当前 硅基流动 · Qwen3-8B");
   });
 
-  it("悬空默认回落（禁用 / 删除）：摘要显示真实回落目标并标注，模型行落在回落平台上", async () => {
+  it("悬空默认回落（禁用 / 删除）：模型行落在回落平台上", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "ghost" };
     resolveAiReply = {
@@ -193,13 +189,12 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     const host = await mountPanel();
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释已回落至 硅基流动 · Qwen3-8B（默认平台不可用）");
+      expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
     });
-    expect(summary(host).dataset.state).toBe("fallback");
-    expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
+    expect(activeModelLine(host)?.textContent).toBe("Qwen3-8B");
   });
 
-  it("不可用（无平台 / 缺 Key）：摘要显示不可用状态，模型行摘除，不展示陈旧成功状态", async () => {
+  it("不可用（无平台 / 缺 Key）：模型行摘除，不展示陈旧成功状态", async () => {
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1" };
     resolveAiReply = { ok: false, error: "该平台 API Key 未配置" };
@@ -207,10 +202,10 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     const host = await mountPanel();
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释暂不可用：该平台 API Key 未配置");
+      expect(host.querySelectorAll(".ai-provider-row").length).toBe(2);
     });
-    expect(summary(host).dataset.state).toBe("unavailable");
     expect(activeModelLine(host)).toBeNull();
+    expect(host.querySelector("#aiActiveDefaultSummary")).toBeNull();
     expect(host.querySelector("#aiChatSelectionSummary")).toBeNull();
   });
 
@@ -229,20 +224,20 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     const host = await mountPanel();
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
+      expect(activeModelLine(host)?.textContent).toBe("deepseek-chat");
     });
+    expect(host.querySelector("#aiActiveDefaultSummary")).toBeNull();
     expect(host.querySelector("#aiChatSelectionSummary")).toBeNull();
     expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
-    expect(activeModelLine(host)?.textContent).toBe("deepseek-chat");
 
     await chrome.storage.local.set({ [SELECTED_KEY]: `p1${String.fromCharCode(1)}deepseek-reasoner` });
     fireChanged(listeners, SELECTED_KEY);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
+    expect(activeModelLine(host)?.textContent).toBe("deepseek-chat");
     expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-chat`);
   });
 
-  it("storage.onChanged：defaultModel / defaultAiModel 变化驱动摘要与下拉同步刷新", async () => {
+  it("storage.onChanged：defaultModel / defaultAiModel 变化驱动模型行与下拉同步刷新", async () => {
     const listeners = captureOnChangedListeners();
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1", defaultAiModel: "deepseek-chat" };
@@ -255,7 +250,7 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     installBus();
     const host = await mountPanel();
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
+      expect(activeModelLine(host)?.textContent).toBe("deepseek-chat");
     });
 
     settingsReply = { defaultModel: "p1", defaultAiModel: "deepseek-reasoner" };
@@ -268,7 +263,7 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     fireChanged(listeners, "defaultAiModel");
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-reasoner");
+      expect(activeModelLine(host)?.textContent).toBe("deepseek-reasoner");
       expect(defaultModelSelect(host).value).toBe(`p1${String.fromCharCode(1)}deepseek-reasoner`);
     });
 
@@ -282,12 +277,11 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     fireChanged(listeners, "defaultModel");
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释已回落至 硅基流动 · Qwen3-8B（默认平台不可用）");
+      expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
     });
-    expect(activeModelLine(host)?.closest(".ai-provider-row")?.getAttribute("data-provider-id")).toBe("p2");
   });
 
-  it("storage.onChanged：aiProviders 列表变化（他端增删启停）驱动摘要刷新", async () => {
+  it("storage.onChanged：aiProviders 列表变化（他端增删启停）驱动模型行刷新", async () => {
     const listeners = captureOnChangedListeners();
     aiProvidersReply = { ok: true, providers: TWO_PROVIDERS };
     settingsReply = { defaultModel: "p1" };
@@ -299,7 +293,7 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     installBus();
     const host = await mountPanel();
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释将使用 DeepSeek 官方 · deepseek-chat");
+      expect(activeModelLine(host)?.textContent).toBe("deepseek-chat");
     });
 
     // 他端删除了默认平台：解析不再可用
@@ -307,9 +301,8 @@ describe("设置面板 AI 生效投影与默认模型选择", () => {
     fireChanged(listeners, "aiProviders");
 
     await vi.waitFor(() => {
-      expect(summary(host).textContent).toBe("概览与解释暂不可用：还没有配置 AI 平台，请先在插件设置中添加并启用。");
+      expect(activeModelLine(host)).toBeNull();
     });
-    expect(activeModelLine(host)).toBeNull();
   });
 
   it("字幕翻译跟随提示如实标注专属配置回落（isFallback 自报）", async () => {

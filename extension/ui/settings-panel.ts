@@ -52,11 +52,9 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { buildModelOptionValue, normalizeProviderModels, parseModelOptionValue, resolveCatalogModel } from "../shared/selected-provider.js";
 import {
   resolveAiActiveModelProjection,
-  resolveSubtitleFollowProjection,
-  type AiActiveModelProjection
+  resolveSubtitleFollowProjection
 } from "../ai/active-model-projection.js";
 import {
-  formatAiDefaultSummaryLine,
   formatSubtitleFollowHint,
   subtitleFollowHintState,
   syncAiDefaultModelLine
@@ -205,7 +203,6 @@ function collectElements(host: HTMLElement) {
     toggleSearchChainBtn: byIdIn<HTMLElement>(dom.toggleSearchChainBtn),
     searchChainContainer: byIdIn<HTMLElement>(dom.searchChainContainer),
     searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
-    aiActiveDefaultSummary: byIdIn<HTMLElement>(dom.aiActiveDefaultSummary),
     aiDefaultModel: byIdIn<HTMLSelectElement>(dom.aiDefaultModel),
     subtitleTranslateFollowHint: byIdIn<HTMLElement>(dom.subtitleTranslateFollowHint),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
@@ -1052,13 +1049,6 @@ async function refreshAiActiveProjection(
       resolveAiActiveModelProjection(),
       resolveSubtitleFollowProjection()
     ]);
-    elements.aiActiveDefaultSummary.textContent = formatAiDefaultSummaryLine(projection);
-    elements.aiActiveDefaultSummary.dataset.state =
-      projection.state === "unavailable"
-        ? "unavailable"
-        : projection.isFallback
-          ? "fallback"
-          : "active";
     syncAiDefaultModelLine(
       elements.aiProvidersList,
       projection.state === "ok" ? String(projection.provider.id || "") : "",

@@ -214,7 +214,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     });
 
     await vi.waitFor(() => {
-      expect(host.querySelector("#aiActiveDefaultSummary")?.textContent).toContain("OpenAI · gpt-4o-mini");
+      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(2);
 
@@ -225,7 +225,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
 
     await vi.waitFor(() => {
       expect(resolveCalled).toBeGreaterThan(callsBeforeDelete);
-      expect(host.querySelector("#aiActiveDefaultSummary")?.textContent).toContain("DeepSeek · deepseek-chat");
+      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(1);
     expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-badge')).toBeNull();
@@ -333,7 +333,7 @@ describe("Wave 2 [P1-1]: AI 行内「设为默认」与失败回滚", () => {
     });
 
     await vi.waitFor(() => {
-      expect(host.querySelector("#aiActiveDefaultSummary")?.textContent).toContain("OpenAI · gpt-4o-mini");
+      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
     });
 
     const btn1 = host.querySelector<HTMLButtonElement>(
@@ -351,7 +351,9 @@ describe("Wave 2 [P1-1]: AI 行内「设为默认」与失败回滚", () => {
     await vi.waitFor(() => {
       expect(btn2.disabled).toBe(true);
       expect(btn2.textContent).toBe("默认");
-      expect(host.querySelector("#aiActiveDefaultSummary")?.textContent).toContain("DeepSeek · deepseek-chat");
+      expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-model')?.textContent).toBe(
+        "deepseek-chat"
+      );
     });
     expect(btn1.disabled).toBe(false);
     expect(btn1.textContent).toBe("设为默认");

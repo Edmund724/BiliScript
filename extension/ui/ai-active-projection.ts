@@ -8,32 +8,11 @@
 // 生效行的模型行由本模块按需挂上，摘掉即还原；默认平台身份由行尾的
 // .ai-provider-default-btn 统一承担，不再额外挂同名「默认」徽标。
 
-import type {
-  AiActiveModelProjection,
-  SubtitleFollowProjection
-} from "../ai/active-model-projection.js";
+import type { SubtitleFollowProjection } from "../ai/active-model-projection.js";
 
 // 模型行的摘除标记：syncAiDefaultModelLine 每次先清带标记的节点再重挂，
 // 列表重渲（整表 innerHTML 重建）后旧节点本就消失，标记只是幂等保险。
 const DEFAULT_MARK_ATTR = "data-ai-default-mark";
-
-function providerDisplayName(projection: Extract<AiActiveModelProjection, { state: "ok" }>): string {
-  return String(projection.provider.name || "").trim() || "自定义";
-}
-
-/**
- * 概览 / 解释缺省选择摘要：显式默认、真实回落与不可用三态各一句话，
- * 不展示陈旧成功状态。
- */
-export function formatAiDefaultSummaryLine(projection: AiActiveModelProjection): string {
-  if (projection.state === "unavailable") {
-    return `概览与解释暂不可用：${projection.error}`;
-  }
-  const target = `${providerDisplayName(projection)} · ${projection.model || "未配置模型"}`;
-  return projection.isFallback
-    ? `概览与解释已回落至 ${target}（默认平台不可用）`
-    : `概览与解释将使用 ${target}`;
-}
 
 /**
  * 字幕翻译「跟随 AI 默认平台」的跟随目标提示：ok 时给当前跟随的平台 + 模型，
