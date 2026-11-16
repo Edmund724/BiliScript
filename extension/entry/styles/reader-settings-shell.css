@@ -193,7 +193,7 @@
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部快速跳转导航条（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化；包含返回按钮与分节导航） */
+/* 设置抽屉顶部返回与标题栏（吸顶常驻、与 Header 连体雾底材质防穿透、下沿柔和羽化） */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar {
   position: sticky;
   top: -12px;
@@ -201,8 +201,6 @@
   padding: var(--biliscript-space-8) var(--biliscript-space-lg) var(--biliscript-space-8) var(--biliscript-space-md);
   display: flex;
   align-items: center;
-  /* 本层是宿主网格的直接子项：不给 0 下限，返回键 + 全部分节 tab 的
-   * max-content 会把单列 auto 轨道撑宽，面板随之横向可滚。 */
   min-width: 0;
   gap: var(--biliscript-space-xs);
   z-index: 10;
@@ -218,90 +216,29 @@
   border-bottom: none;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-title {
   flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--biliscript-space-lg);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  padding: 0;
-}
-
-/* 导航横向滚动条按需现身（settings-panel 切 .is-scrollbar-visible）：静止态导航底部
- * 只有文字，不与活动项抢同一条线；指针进入导航条或正在横向滚动时 6px 胶囊拇指显形，
- * 停手后收回。触发条件不能写在宿主 :hover 上——Chromium 不刷新 scrollbar 伪元素的
- * 悬停链路，只能由事件切类。 */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
-  width: 8px;
-  height: 6px;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
-
-/* 两端内收的一行胶囊：不铺满导航全宽，读起来是位置指示而非第二条下划线。 */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar-thumb {
-  background: transparent;
-  border: 0;
-  border-left: var(--biliscript-space-2xl) solid transparent;
-  border-right: var(--biliscript-space-2xl) solid transparent;
-  border-radius: var(--biliscript-radius-pill);
-  background-clip: content-box;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav.is-scrollbar-visible::-webkit-scrollbar-thumb {
-  background: var(--biliscript-reader-faint);
-  border: 0;
-  border-left: var(--biliscript-space-2xl) solid transparent;
-  border-right: var(--biliscript-space-2xl) solid transparent;
-  border-radius: var(--biliscript-radius-pill);
-  background-clip: content-box;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item {
-  flex: 0 0 auto;
-  border: none;
-  background: none;
-  padding: var(--biliscript-space-xs) 2px;
-  font-size: var(--pill-font-size, var(--biliscript-font-size-sm));
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  color: var(--biliscript-reader-muted);
-  transition: color 0.15s ease-out;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item:hover {
+  font-size: var(--biliscript-font-size-lg);
+  font-weight: 700;
   color: var(--biliscript-reader-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item:focus-visible {
-  outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
-  outline-offset: 2px;
-  border-radius: var(--biliscript-radius-xs);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-view {
+  display: grid;
+  gap: var(--biliscript-space-2xl);
 }
 
-/* 活动态只走字重 + 强调色：导航底部不再有下划线，与按需现身的滚动条不重叠。 */
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active {
-  color: var(--biliscript-reader-accent);
-  font-weight: 600;
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-view[hidden] {
+  display: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar,
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-bar {
     background: var(--biliscript-reader-surface);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -345,20 +282,32 @@
   z-index: 2;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > :not(:last-child) {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > :not([hidden]):has(~ :not([hidden])),
+#biliscript-reading-view .biliscript-reading-settings-host .live-audio-collapse-body > :not([hidden]):has(~ :not([hidden])) {
   border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row,
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-toggle-row {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-toggle-row,
+#biliscript-reading-view .biliscript-reading-settings-host .live-audio-collapse-body > .biliscript-set-row,
+#biliscript-reading-view .biliscript-reading-settings-host .live-audio-collapse-body > .biliscript-toggle-row {
   padding: var(--biliscript-space-10) var(--biliscript-space-14);
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row,
+#biliscript-reading-view .biliscript-reading-settings-host .live-audio-collapse-body > .biliscript-set-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--biliscript-space-md);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-row.is-disabled {
+  opacity: 0.5;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-row.is-disabled .biliscript-toggle-switch {
+  cursor: not-allowed;
 }
 
 /* 行内左列（标签 + 跟随目标副行）：字幕翻译在「跟随 AI 默认平台」时用它交代
@@ -469,11 +418,35 @@
   gap: var(--biliscript-space-xs);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
+  min-width: 0;
+  max-width: 58%;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row > .biliscript-set-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-chevron {
   color: var(--biliscript-reader-faint);
   flex-shrink: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .live-audio-collapse-body {
+  display: flex;
+  flex-direction: column;
+  background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .live-audio-collapse-body[hidden] {
+  display: none;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .search-chain-collapse-body {

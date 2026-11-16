@@ -83,6 +83,16 @@ export interface OpenProviderEditorRequest {
   submitLabel?: string;
 }
 
+export interface ProviderSummarySnapshot {
+  aiProviders: readonly ProviderRowItem[];
+  liveProviders: readonly ProviderRowItem[];
+  activeLiveId: string;
+  asrProviders: readonly ProviderRowItem[];
+  activeAsrId: string;
+  searchProviders: readonly ProviderRowItem[];
+  activeSearchProviderId: string;
+}
+
 export interface ProviderSettingsHostOptions {
   host: HTMLElement;
   mountedFamilies: readonly ProviderEditorKind[];
@@ -91,6 +101,7 @@ export interface ProviderSettingsHostOptions {
   onGeminiCredentialStatus?: (status: AiCredentialStatus | null) => void;
   canRestoreConsumerEditor?: () => boolean;
   onAiChanged?: (providers: ProviderRowItem[], context: { settings?: Partial<Settings> }) => void;
+  onSummaryChange?: (snapshot: ProviderSummarySnapshot) => void;
   onMutated?: (event: { kind: ProviderEditorKind; action: "save" | "delete"; providerId: string }) => void;
   reportMutationStatus?: boolean;
 }
@@ -189,6 +200,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   let aiProvidersLoaded = false;
   let liveProviders: ProviderRowItem[] = [];
   let activeLiveId = "";
+  let asrProviders: ProviderRowItem[] = [];
   let activeAsrId = "";
   let searchProviders: ProviderRowItem[] = [];
   let activeSearchProviderId = "";
@@ -212,6 +224,19 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     if (options.reportMutationStatus !== false) {
       reportStatus(message);
     }
+  };
+
+  const emitSummarySnapshot = (): void => {
+    if (disposed || !options.onSummaryChange) return;
+    options.onSummaryChange({
+      aiProviders,
+      liveProviders,
+      activeLiveId,
+      asrProviders,
+      activeAsrId,
+      searchProviders,
+      activeSearchProviderId
+    });
   };
 
   async function loadRows(kind: ProviderEditorKind): Promise<ProviderRowItem[]> {
@@ -359,10 +384,12 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
           reportStatus((error as Error)?.message || "激活平台保存失败", true);
         });
     }
+    emitSummarySnapshot();
   }
 
   function renderAsrProviders(providers: ProviderRowItem[], rawActiveId?: string): void {
     if (disposed || !asrNodes) return;
+    asrProviders = providers;
     const prevActiveId =
       rawActiveId !== undefined
         ? String(rawActiveId || "").trim()
@@ -385,6 +412,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
           reportStatus((error as Error)?.message || "保存默认平台失败", true);
         });
     }
+    emitSummarySnapshot();
   }
 
   async function refreshGeminiCredentialStatus(): Promise<void> {
@@ -540,6 +568,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     syncSearchDanglingHint(activeSearchProviderId, providers);
     syncSearchModeControls();
     syncSearchChainActiveSummary();
+    emitSummarySnapshot();
   }
 
   function rerenderSearchProviders(providers: ProviderRowItem[], knownAiProviders?: readonly ProviderRowItem[]): void {
@@ -563,6 +592,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     syncSearchDanglingHint("", searchProviders);
     syncSearchModeControls();
     syncSearchChainActiveSummary();
+    emitSummarySnapshot();
     try {
       const resp = await sendRuntimeMessage({
         type: "save-settings",
@@ -583,6 +613,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     familyRows.ai.render(aiNodes.listNode, aiNodes.emptyNode, providers, {
       presets: presetsForKind("ai")
     });
+    emitSummarySnapshot();
   }
 
   async function syncConsumerFamiliesAfterAiChange(
@@ -891,6 +922,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       if (kind === "live" && (!meta.pending || meta.rolledBack)) {
         void refreshGeminiCredentialStatus();
       }
+      emitSummarySnapshot();
     });
     familyRows[kind].controller.setDeleteHandler(async (providerId) => {
       if (disposed) return;
@@ -924,7 +956,10 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       if (kind === "live") {
         liveProviders = liveProviders.filter((provider) => provider.id !== providerId);
         await refreshGeminiCredentialStatus();
+      } else {
+        asrProviders = asrProviders.filter((provider) => provider.id !== providerId);
       }
+      emitSummarySnapshot();
       options.onMutated?.({ kind, action: "delete", providerId });
       if (!deleteRevokeFailureInFlight) {
         reportMutationText("平台已删除");
@@ -981,6 +1016,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       }
       syncSearchModeControls();
       syncSearchChainActiveSummary();
+      emitSummarySnapshot();
     });
     familyRows.search.controller.setDeleteHandler(async (providerId) => {
       if (disposed) return;
@@ -992,6 +1028,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         await clearDeletedActiveSearchProvider();
         if (statusErrorMarked) return;
       }
+      emitSummarySnapshot();
       options.onMutated?.({ kind: "search", action: "delete", providerId });
       reportMutationText("平台已删除");
     });
@@ -1075,6 +1112,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         if (disposed || sessionGeneration !== generation) return;
         renderSearchProvidersSync(nextSearch, nextAi);
       }
+      emitSummarySnapshot();
     } catch (error) {
       if (!disposed) {
         reportStatus(

@@ -778,7 +778,9 @@ try {
   // ============================================================
   const completionsBeforeNormalEdit = completions().length;
   await clickCenter(page.cdp, "#biliscript-reading-settings-btn");
-  await waitFor("设置抽屉打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") && document.querySelectorAll("#aiProvidersList .ai-provider-row").length === 1`));
+  await waitFor("设置抽屉打开", () => page.cdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") && Boolean(document.getElementById("openAiProvidersBtn"))`));
+  await clickCenter(page.cdp, "#openAiProvidersBtn");
+  await waitFor("AI 平台子页打开", () => page.cdp.evaluate(`document.getElementById("biliscriptSettingsSubpageAiProviders")?.hidden === false && document.querySelectorAll("#aiProvidersList .ai-provider-row").length === 1`));
   await clickCenter(page.cdp, "#aiProvidersList .ai-provider-row .provider-row-edit");
   const normalEditor = await waitProviderEditor(page.cdp, "保存");
   results.normalEditor = normalEditor;
@@ -955,7 +957,9 @@ try {
     results.cancelState
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "10-overview-cancel.png"));
-  await clickCenter(page.cdp, "#biliscript-reading-settings-back-btn").catch(() => {});
+  if (await page.cdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true`)) {
+    await clickCenter(page.cdp, "#biliscript-reading-settings-btn").catch(() => {});
+  }
   await sleep(300);
 
   // A6b 保存失败 + 重复保存：失败不续跑、重试成功只续跑一次

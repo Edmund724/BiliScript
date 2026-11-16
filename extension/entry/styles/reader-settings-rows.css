@@ -795,12 +795,6 @@
   display: none;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-address-header {
-  display: flex;
-  align-items: center;
-  gap: var(--biliscript-space-sm);
-}
-
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-agent-bridge-url {
   width: 100%;
   border: 0;

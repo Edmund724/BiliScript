@@ -28,7 +28,7 @@ flowchart TD
     subgraph Shell["右侧「文摘面板」(#biliscript-reading-view)"]
         Header["顶栏：UP主/分P元信息 | 主题切换 | 设置齿轮 | 关闭 ×"]
         Status["全局状态条 (#biliscript-reading-status)"]
-        Settings["设置内容层 (#biliscript-reading-settings-panel)<br/>← 返回 + 11 分区导航：语言模型 | 实时伴看 | 字幕翻译 | 语音转写 | 搜索 | AI 按钮 | 系统提示词 | 初始问题 | 外观 | 导出 | 本地 Agent"]
+        Settings["设置内容层 (#biliscript-reading-settings-panel)<br/>← 返回 + 标题栏 + 四组总览卡片 → 9 个二级子页（含本地 Agent 三级地址页）"]
         Tabs["一级导航：字幕 | 概览 | AI 对话 + 右侧 ⋮ 更多操作（仅 AI 对话可见）"]
     end
 
@@ -62,7 +62,7 @@ flowchart TD
 ### M1：唤起、壳层导航与生命周期
 * **入口语义对齐**：扩展图标（[`background.ts`](../extension/entry/background.ts)）、页内「文摘」按钮（[`script-button.ts`](../extension/ui/script-button.ts)）、`autoOpenReader` 与 `?biliscript_reader=1` 只负责幂等打开/聚焦文摘面板并恢复上次 Tab；播放器「AI 分析」（[`player-ai.ts`](../extension/ai/player-ai.ts)）不再破坏既有会话；非支持页点击扩展图标由 [`unsupported-page-feedback.ts`](../extension/entry/unsupported-page-feedback.ts) 提供 `tab` 级 `!` 徽标与标题引导，`www.bilibili.com` 额外注入 6 秒顶部提示。
 * **壳层与几何**：[`shell.ts`](../extension/reader/shell.ts) 统一进入/退出事务；[`script-host.ts`](../extension/reader/script-host.ts) 按右栏锚点 → 播放器右侧降级 → 居中浮层自适应，并在用户显式调节宽度后在三种形态下均生效。
-* **设置内容模式**：点击顶栏齿轮后，[`ui-renderer.ts`](../extension/ui/ui-renderer.ts) 保留并轻微灰化顶栏，设置内容区左上角提供独立「← 返回」（[`settings-panel-html.ts`](../extension/ui/settings-panel-html.ts)），点击返回、再次点齿轮、点击灰化顶栏非按钮区、按 `Esc` 或点击面板外均只退出设置并按规则归还焦点；全局 `×` 仍关闭整个文摘面板。
+* **设置内容模式**：点击顶栏齿轮后，[`ui-renderer.ts`](../extension/ui/ui-renderer.ts) 保留并轻微灰化顶栏，设置内容区采取三级总览+子页视图栈（四组总览卡片 → 9 个二级子页及本地 Agent 三级地址页，[`settings-panel-html.ts`](../extension/ui/settings-panel-html.ts)），共用顶部吸顶「← 返回」与页标题；`←` 与 `Esc` 在子页内逐级返回上级（三级地址页 → 本地 Agent 连接 → 设置总览 → 退出设置），再次点齿轮、点击灰化顶栏非按钮区或点击面板外则一步退出设置并复位到总览、按规则归还焦点；全局 `×` 仍关闭整个文摘面板。
 
 ### M2：首配冷启动与四族平台管理
 * **一次性「设置并继续」**：概览、AI 对话、解释卡与 ASR 转写遇到无平台/缺 Key 阻断时，经各自内存级 resume 意图直达对应编辑器（无记录直接新建，缺 Key 精确编辑并聚焦 Key），保存后自动退出设置并续跑原任务；AI 对话仅恢复草稿与附件并提示确认发送，不自动触发付费请求。
@@ -115,7 +115,7 @@ flowchart TD
 
 1. **双生命周期解耦**：关闭文摘面板终止在途文本流、取消发送闸并停止朗读，但不销毁实时伴看连接与浮窗；切 P / 切视频保留伴看传输与麦克风并清理旧轮次和委派任务；显式挂断才销毁伴看连接。
 2. **直播间轻量闭环**：直播间不加载阅读壳，配置通过按需伴看设置 `<dialog>` 就地完成；视频页伴看由播放器浮窗主承载，AI 对话顶部状态条同步展示状态与文本模型委托记录。
-3. **设置与历史均为内容模式**：设置接管内容区并保留灰化顶栏，内部提供「← 返回」，`Esc` 与外点一次只结算最上层叠层；历史对话同为 `hidden` 单源投影的内容模式，退出回原触发焦点，选中后回输入框。
+3. **设置与历史均为内容模式**：设置接管内容区并保留灰化顶栏，采用三级总览+子页视图栈与共用顶部「← 返回」，`Esc` 与顶部返回在子页内逐级退回，再次点齿轮、灰化顶栏或面板外点则一步退出设置并复位总览（`Esc` 与外点仍先由最上层弹窗/下拉消费）；历史对话同为 `hidden` 单源投影的内容模式，退出回原触发焦点，选中后回输入框。
 4. **入口非破坏与非支持页反馈**：播放器「AI 分析」在空闲会话直发/续发，在忙态或存在草稿/附件时只定位并提示；非支持页统一显示扩展图标 `!` 徽标与标题引导，`www.bilibili.com` 另出 6 秒页内提示。
 5. **对话动作入口收口**：经最终裁定，对话标签行保留 `⋮` 单一触发键收纳「开启新会话」「历史对话」「对话排版与朗读」与「更多显示设置」，不拆为多枚一级图标键，优先保住面板横宽与视觉简洁度。
 6. **首配单次内存意图**：概览 / 解释 / ASR 配置完成后自动退出设置并续跑一次，对话仅恢复草稿并交由用户确认发送；意图只存页面内存，换片、取消或关闭即作废。

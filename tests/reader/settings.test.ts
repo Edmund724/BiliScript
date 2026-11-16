@@ -464,11 +464,9 @@ describe("主题：只剩明暗一轴", () => {
     });
 
     // 外观分区在场：色板下拉两档（flyme 默认 / editorial），装载显示存储值
-    const groups = [...document.querySelectorAll<HTMLElement>(".biliscript-set-group")];
-    const appearance = groups.find(
-      (group) => group.querySelector(".biliscript-set-h")?.textContent?.startsWith("外观")
-    );
+    const appearance = document.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="appearance"]');
     expect(appearance, "外观分区应存在").toBeTruthy();
+    expect(appearance?.querySelector(".biliscript-set-h")?.textContent?.startsWith("外观")).toBe(true);
     const paletteSelect = appearance!.querySelector<HTMLSelectElement>("#readerPalette")!;
     expect(paletteSelect).toBeTruthy();
     expect([...paletteSelect.options].map((option) => option.value)).toEqual([
@@ -517,10 +515,12 @@ describe("主题：只剩明暗一轴", () => {
     await vi.waitFor(() => {
       expect(host.dataset.biliscriptSettingsRendered).toBe("1");
     });
-    const nav = host.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="appearance"]')!;
+    const aiPromptSubpage = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAiPrompt")!;
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     const heading = host.querySelector<HTMLElement>("#chatPreferencesHeading")!;
     const subgroup = heading.closest("[data-settings-subgroup]")!;
-    expect(nav.classList.contains("is-active")).toBe(true);
+    expect(aiPromptSubpage.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("AI 对话与快捷动作");
     expect(subgroup.getAttribute("data-settings-subgroup")).toBe("chat");
     // 深链滚动的是子组容器：56px scroll-margin 才能避开吸顶导航，标题保持可见。
     expect(scrollSpy.mock.instances).toContain(subgroup);

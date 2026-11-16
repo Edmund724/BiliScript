@@ -2,13 +2,13 @@ import { DEFAULT_SETTINGS, type Settings } from "../core/defaults.js";
 import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { openAgentBridgeInstallDialog } from "./agent-bridge-install-dialog.js";
+import { syncToggleSwitch } from "./toggle-switch.js";
 
 export interface AgentBridgeSettingsElements {
   enableAgentBridge: HTMLInputElement;
   agentBridgeConnectBtn: HTMLButtonElement;
   agentBridgeAddressBtn: HTMLButtonElement;
-  agentBridgeAddressView: HTMLElement;
-  agentBridgeAddressBackBtn: HTMLButtonElement;
+  agentBridgeAddressSummary: HTMLElement;
   agentBridgeUrl: HTMLInputElement;
   agentBridgeResetUrlBtn: HTMLButtonElement;
   agentBridgeTestBtn: HTMLButtonElement;
@@ -16,16 +16,29 @@ export interface AgentBridgeSettingsElements {
   agentBridgeAddressStatus: HTMLElement;
 }
 
+export interface AgentBridgeSettingsState {
+  enabled: boolean;
+  connected: boolean;
+  savedUrl: string;
+}
+
+export interface AgentBridgeSettingsOptions {
+  onOpenAddress?: () => void;
+  onStateChange?: (state: AgentBridgeSettingsState) => void;
+}
+
 export interface AgentBridgeSettingsController {
   sync(settings: Settings): void;
   updateUrl(value: unknown): void;
   refresh(): Promise<void>;
+  onAddressViewClosed(options?: { focusButton?: boolean }): void;
+  getSummaryState(): AgentBridgeSettingsState;
 }
 
 export function bindAgentBridgeSettings(
-  host: HTMLElement,
   elements: AgentBridgeSettingsElements,
-  setStatus: (text: string, isError?: boolean) => void
+  setStatus: (text: string, isError?: boolean) => void,
+  options?: AgentBridgeSettingsOptions
 ): AgentBridgeSettingsController {
   let savedUrl = DEFAULT_SETTINGS.agentBridgeUrl;
   let connected = false;
@@ -33,6 +46,23 @@ export function bindAgentBridgeSettings(
   let addressOpen = false;
   let statusGeneration = 0;
   let addressBusy = false;
+
+  function getSummaryState(): AgentBridgeSettingsState {
+    return {
+      enabled: elements.enableAgentBridge.checked,
+      connected,
+      savedUrl
+    };
+  }
+
+  function renderAddressSummary(): void {
+    elements.agentBridgeAddressSummary.textContent = savedUrl;
+  }
+
+  function emitStateChange(): void {
+    renderAddressSummary();
+    options?.onStateChange?.(getSummaryState());
+  }
 
   function renderConnection(): void {
     const button = elements.agentBridgeConnectBtn;
@@ -54,6 +84,7 @@ export function bindAgentBridgeSettings(
       connected = false;
     }
     renderConnection();
+    emitStateChange();
   }
 
   function setAddressStatus(text: string, isError = false): void {
@@ -74,26 +105,17 @@ export function bindAgentBridgeSettings(
     addressOpen = true;
     elements.agentBridgeUrl.value = savedUrl;
     setAddressStatus("");
-    for (const child of Array.from(host.children)) {
-      if (child === elements.agentBridgeAddressView) continue;
-      if (!(child as HTMLElement).hidden) (child as HTMLElement).dataset.agentAddressHidden = "true";
-      (child as HTMLElement).hidden = true;
-    }
-    elements.agentBridgeAddressView.hidden = false;
+    options?.onOpenAddress?.();
     elements.agentBridgeUrl.focus({ preventScroll: true });
   }
 
-  function closeAddress(): void {
+  function onAddressViewClosed({ focusButton = true }: { focusButton?: boolean } = {}): void {
+    const wasOpen = addressOpen;
     addressOpen = false;
-    elements.agentBridgeAddressView.hidden = true;
-    for (const child of Array.from(host.children)) {
-      const element = child as HTMLElement;
-      if (element.dataset.agentAddressHidden === "true") {
-        element.hidden = false;
-        delete element.dataset.agentAddressHidden;
-      }
+    if (!wasOpen) return;
+    if (focusButton) {
+      elements.agentBridgeAddressBtn.focus({ preventScroll: true });
     }
-    elements.agentBridgeAddressBtn.focus({ preventScroll: true });
     void refresh();
   }
 
@@ -115,6 +137,7 @@ export function bindAgentBridgeSettings(
           return;
         }
         elements.enableAgentBridge.checked = false;
+        syncToggleSwitch(elements.enableAgentBridge);
         connected = false;
         setStatus("已断开本地 Agent");
       } catch (error) {
@@ -122,6 +145,7 @@ export function bindAgentBridgeSettings(
       } finally {
         pending = null;
         renderConnection();
+        emitStateChange();
       }
       return;
     }
@@ -141,6 +165,7 @@ export function bindAgentBridgeSettings(
         return;
       }
       elements.enableAgentBridge.checked = true;
+      syncToggleSwitch(elements.enableAgentBridge);
       setStatus("本地 Agent 已连接");
     } catch {
       connected = false;
@@ -148,6 +173,7 @@ export function bindAgentBridgeSettings(
     } finally {
       pending = null;
       renderConnection();
+      emitStateChange();
     }
   }
 
@@ -181,6 +207,7 @@ export function bindAgentBridgeSettings(
       savedUrl = url;
       elements.agentBridgeUrl.value = url;
       setAddressStatus("已保存");
+      emitStateChange();
       void refresh();
     } catch (error) {
       setAddressStatus((error as Error).message || "保存失败", true);
@@ -191,7 +218,6 @@ export function bindAgentBridgeSettings(
 
   elements.agentBridgeConnectBtn.addEventListener("click", () => void connect());
   elements.agentBridgeAddressBtn.addEventListener("click", openAddress);
-  elements.agentBridgeAddressBackBtn.addEventListener("click", closeAddress);
   elements.agentBridgeResetUrlBtn.addEventListener("click", () => {
     elements.agentBridgeUrl.value = DEFAULT_SETTINGS.agentBridgeUrl;
     setAddressStatus("");
@@ -200,18 +226,23 @@ export function bindAgentBridgeSettings(
   elements.agentBridgeTestBtn.addEventListener("click", () => void testAddress());
   elements.agentBridgeSaveBtn.addEventListener("click", () => void saveAddress());
   renderConnection();
+  renderAddressSummary();
 
   return {
     sync(settings) {
       elements.enableAgentBridge.checked = settings.enableAgentBridge === true;
       savedUrl = normalizeAgentBridgeUrl(settings.agentBridgeUrl);
       if (!addressOpen) elements.agentBridgeUrl.value = savedUrl;
+      emitStateChange();
       void refresh();
     },
     updateUrl(value) {
       savedUrl = normalizeAgentBridgeUrl(value);
       if (!addressOpen) elements.agentBridgeUrl.value = savedUrl;
+      emitStateChange();
     },
-    refresh
+    refresh,
+    onAddressViewClosed,
+    getSummaryState
   };
 }

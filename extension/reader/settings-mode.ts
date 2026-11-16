@@ -9,7 +9,39 @@ const TAB_BUTTON_IDS = {
   chat: ids.readingTabChat
 } as const;
 
+type SettingsBackInterceptor = () => boolean;
+type SettingsCloseListener = () => void;
+
 let settingsReturnFocus: HTMLElement | null = null;
+let settingsBackInterceptor: SettingsBackInterceptor | null = null;
+let settingsCloseListener: SettingsCloseListener | null = null;
+
+export function registerReaderSettingsBackInterceptor(
+  interceptor: SettingsBackInterceptor | null
+): () => void {
+  settingsBackInterceptor = interceptor;
+  return () => {
+    if (settingsBackInterceptor === interceptor) {
+      settingsBackInterceptor = null;
+    }
+  };
+}
+
+export function registerReaderSettingsCloseListener(
+  listener: SettingsCloseListener | null
+): () => void {
+  settingsCloseListener = listener;
+  return () => {
+    if (settingsCloseListener === listener) {
+      settingsCloseListener = null;
+    }
+  };
+}
+
+export function stepBackReaderSettings(): void {
+  if (settingsBackInterceptor?.()) return;
+  closeReaderSettingsMode();
+}
 
 export function focusWithoutScroll(element: HTMLElement | null): void {
   element?.focus({ preventScroll: true });
@@ -62,6 +94,7 @@ export function closeReaderSettingsMode({ restoreFocus = true }: { restoreFocus?
   state.reader.setSettingsExpanded(false);
   projectReaderSettingsMode();
   invalidateReaderSetupFlows("all");
+  settingsCloseListener?.();
   if (restoreFocus) {
     const returnTarget = settingsReturnFocus?.isConnected ? settingsReturnFocus : null;
     if (returnTarget) {

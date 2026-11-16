@@ -475,7 +475,7 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索链自动展开与 Modal 保存/删除状�
 });
 
 describe("Wave 2 [P1-冷启动闭环]: openReaderAiSetup 冷启动导航、no-model 与异常终止", () => {
-  it("冷启动未预先渲染面板时调用 openReaderAiSetup → 等待渲染完成并定位到 llm 导航项", async () => {
+  it("冷启动未预先渲染面板时调用 openReaderAiSetup → 等待渲染完成并定位到 AI 模型平台子页", async () => {
     const host = setupReadingShellDom();
     installSettingsPanelBus<SentMessage>({
       "ai-providers-list": () => ({ ok: true, providers: [] }),
@@ -487,8 +487,9 @@ describe("Wave 2 [P1-冷启动闭环]: openReaderAiSetup 冷启动导航、no-mo
 
     await panel.openReaderAiSetup("no-provider", { onAfterSave, onSessionEnd });
 
-    const llmNav = host.querySelector<HTMLElement>('.biliscript-settings-nav-item[data-section="llm"]');
-    expect(llmNav?.classList.contains("is-active")).toBe(true);
+    const aiSubpage = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAiProviders");
+    expect(aiSubpage?.hidden).toBe(false);
+    expect(host.querySelector<HTMLElement>("#biliscriptSettingsTitle")?.textContent?.trim()).toBe("AI 模型平台");
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     expect(dialog.querySelector<HTMLElement>(".provider-editor-context-banner")?.textContent).toBe(
       "保存可用 AI 平台后将自动返回继续"

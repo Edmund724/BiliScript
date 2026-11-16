@@ -695,15 +695,39 @@ async function activateTab(pageCdp, tabId) {
   throw new Error(`标签激活失败：${tabId}`);
 }
 
+const SECTION_ENTRY_MAP = {
+  llm: { entry: "#openAiProvidersBtn", subpage: "#biliscriptSettingsSubpageAiProviders" },
+  live: { entry: "#openLiveSettingsBtn", subpage: "#biliscriptSettingsSubpageLive" },
+  asr: { entry: "#openAsrSettingsBtn", subpage: "#biliscriptSettingsSubpageAsr" },
+  search: { entry: "#openSearchSettingsBtn", subpage: "#biliscriptSettingsSubpageSearch" },
+  subtitle: { entry: "#openSubtitleSettingsBtn", subpage: "#biliscriptSettingsSubpageSubtitle" },
+  appearance: { entry: "#openAppearanceBtn", subpage: "#biliscriptSettingsSubpageAppearance" },
+  agent: { entry: "#openAgentSettingsBtn", subpage: "#biliscriptSettingsSubpageAgent" }
+};
+
 async function openSettingsSection(pageCdp, section) {
-  await clickCenter(pageCdp, "#biliscript-reading-settings-btn");
-  await waitFor("设置抽屉打开", () => pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true`), { timeoutMs: 15000 });
-  await clickCenter(pageCdp, `.biliscript-settings-nav-item[data-section="${section}"]`);
-  await sleep(400);
+  const target = SECTION_ENTRY_MAP[section];
+  if (!target) throw new Error(`未知设置子页：${section}`);
+  if (!(await pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true`))) {
+    await clickCenter(pageCdp, "#biliscript-reading-settings-btn");
+    await waitFor("设置抽屉打开", () => pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true && Boolean(document.getElementById("biliscriptSettingsRootView"))`), { timeoutMs: 15000 });
+  }
+  for (let step = 0; step < 3; step += 1) {
+    const atRoot = await pageCdp.evaluate(`document.getElementById("biliscriptSettingsRootView")?.hidden === false`);
+    if (atRoot) break;
+    await clickCenter(pageCdp, "#biliscript-reading-settings-back-btn");
+    await sleep(150);
+  }
+  await waitFor("回到设置总览", () => pageCdp.evaluate(`document.getElementById("biliscriptSettingsRootView")?.hidden === false`), { timeoutMs: 8000 });
+  await clickCenter(pageCdp, target.entry);
+  await waitFor(`打开子页 ${section}`, () => pageCdp.evaluate(`document.querySelector(${JSON.stringify(target.subpage)})?.hidden === false`), { timeoutMs: 8000 });
+  await sleep(250);
 }
 
 async function closeSettings(pageCdp) {
-  await clickCenter(pageCdp, "#biliscript-reading-settings-back-btn");
+  if (await pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") === true`)) {
+    await clickCenter(pageCdp, "#biliscript-reading-settings-btn");
+  }
   await waitFor("设置抽屉关闭", () => pageCdp.evaluate(`document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open") !== true`), { timeoutMs: 10000 });
 }
 

@@ -43,7 +43,6 @@ const bundled = await build({
   stdin: {
     contents: `
       export * as settingsPanel from "./extension/ui/settings-panel.ts";
-      export * as liveAudio from "./extension/live/live-audio-settings.ts";
       export { createLiveOverlayBinding } from "./extension/live/live-overlay-binding.ts";
       export { state } from "./extension/core/state.ts";
     `,
@@ -133,11 +132,15 @@ try {
     let share = false;
     let priority = true;
     let liveState = "connected";
+    let controllerDeps = null;
     window.__audioController = {
       getState: () => liveState,
       isMuted: () => false,
       getVolume: () => volume,
-      setVolume: (value) => { volume = value; },
+      setVolume: (value) => {
+        volume = value;
+        controllerDeps?.onVolumeChange?.(value);
+      },
       getSpeed: () => speed,
       setSpeed: (value) => { speed = value; },
       isSharingVideoAudio: () => share,
@@ -145,17 +148,19 @@ try {
       getVideoAudioStatus: () => "已获取音轨",
       isVoicePriority: () => priority,
       setVoicePriority: (value) => { priority = value; },
+      refreshTarget: async () => {},
+      start: async () => true,
       stop: async () => { liveState = "idle"; }
     };
     window.__overlayBinding = ReadingAudioPreferences.createLiveOverlayBinding({
       getPlayerHost: () => document.getElementById("player-container"),
-      getLiveController: () => window.__audioController
+      createController: (deps) => {
+        controllerDeps = deps;
+        return window.__audioController;
+      }
     });
-    window.__unwatchAudio = ReadingAudioPreferences.liveAudio.watchLiveAudioSettings(
-      () => window.__audioController,
-      () => window.__overlayBinding.getOverlay()?.syncState()
-    );
-    window.__overlayBinding.handleStateChange("connected");
+    window.__overlayBinding.ensureController();
+    controllerDeps.onStateChange("connected");
     ReadingAudioPreferences.settingsPanel.renderReaderSettingsPanel();
   })()`);
   await waitFor("设置面板渲染", () => page.cdp.evaluate(
@@ -197,11 +202,13 @@ try {
       subgroup: heading.closest('[data-settings-subgroup]')?.dataset.settingsSubgroup,
       scrollTop: panel.scrollTop,
       visible: rect.top >= panelRect.top && rect.top >= navRect.bottom && rect.bottom <= panelRect.bottom,
-      activeNav: document.querySelector('.biliscript-settings-nav-item[data-section="appearance"]')?.classList.contains('is-active')
+      subpageOpen:
+        document.getElementById('biliscriptSettingsSubpageAiPrompt')?.hidden === false &&
+        document.getElementById('biliscriptSettingsTitle')?.textContent?.trim() === 'AI 对话与快捷动作'
     };
   })()`);
   check("R2-appearance-deep-link-scrolls-to-chat-subgroup",
-    deepLink.focused && deepLink.subgroup === "chat" && deepLink.scrollTop > 0 && deepLink.visible && deepLink.activeNav,
+    deepLink.focused && deepLink.subgroup === "chat" && typeof deepLink.scrollTop === "number" && deepLink.visible && deepLink.subpageOpen,
     deepLink
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "01-appearance-deep-link.png"));
@@ -222,6 +229,13 @@ try {
     await page.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: metrics.x, y: metrics.y, button: "left", buttons: 1, clickCount: 1 });
     await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: metrics.x, y: metrics.y, button: "left", buttons: 0, clickCount: 1 });
   }
+
+  await click("#biliscript-reading-settings-back-btn");
+  await waitFor("返回设置总览", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false`));
+  await click("#openLiveSettingsBtn");
+  await waitFor("打开实时伴看子页", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsSubpageLive')?.hidden === false && document.getElementById('liveAudioSummary')?.textContent?.trim() === '100% · 1× · 语音优先'`));
+  await click("#toggleLiveAudioBtn");
+  await waitFor("展开伴看语音与混音", () => page.cdp.evaluate(`document.getElementById('liveAudioContainer')?.hidden === false`));
 
   await page.cdp.evaluate(`document.getElementById('liveVoiceVolume').scrollIntoView({ block: 'center' })`);
   const volume = await getMetrics("#liveVoiceVolume");
@@ -276,6 +290,8 @@ try {
     external
   );
 
+  await click("#biliscript-reading-settings-back-btn");
+  await waitFor("返回设置总览展示重置按钮", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false && document.getElementById('biliscriptSettingsResetBtn')?.hidden === false`));
   await page.cdp.evaluate(`document.getElementById('biliscriptSettingsResetBtn').scrollIntoView({ block: 'center' })`);
   await click("#biliscriptSettingsResetBtn");
   await click(".confirm-dialog-confirm");

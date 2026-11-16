@@ -38,12 +38,23 @@ import {
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
-import { closeReaderSettingsMode, openReaderSettingsMode } from "../reader/settings-mode.js";
+import {
+  closeReaderSettingsMode,
+  hasReaderSettingsOverlayOpen,
+  openReaderSettingsMode,
+  registerReaderSettingsBackInterceptor,
+  registerReaderSettingsCloseListener,
+  stepBackReaderSettings
+} from "../reader/settings-mode.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
-import { bindAgentBridgeSettings, type AgentBridgeSettingsController } from "./agent-bridge-settings.js";
+import {
+  bindAgentBridgeSettings,
+  type AgentBridgeSettingsController,
+  type AgentBridgeSettingsState
+} from "./agent-bridge-settings.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { cleanExpiredConversations } from "../chat/conversation-store.js";
@@ -75,7 +86,7 @@ import {
   LIVE_VOICE_FALLBACK_NOTICE_TEXT,
   takeLiveVoiceFallbackNotice
 } from "../live/live-voice-fallback-notice.js";
-import { createProviderSettingsHost, type ProviderSettingsHost } from "./provider-settings-host.js";
+import { createProviderSettingsHost, type ProviderSettingsHost, type ProviderSummarySnapshot } from "./provider-settings-host.js";
 import { ids } from "../reader/state.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import {
@@ -86,12 +97,46 @@ import {
 ensureReaderSettingsStyles();
 
 // 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
+type SettingsSubpageId =
+  | "ai-providers"
+  | "live"
+  | "asr"
+  | "search"
+  | "ai-prompt"
+  | "subtitle"
+  | "appearance"
+  | "agent"
+  | "advanced";
+
+type SettingsViewId = "root" | SettingsSubpageId | "agent-address";
+
+const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
+  root: "设置",
+  "ai-providers": "AI 模型平台",
+  live: "实时伴看",
+  asr: "语音转写",
+  search: "联网搜索",
+  "ai-prompt": "AI 对话与快捷动作",
+  subtitle: "字幕翻译与导出",
+  appearance: "阅读器与播放器",
+  agent: "本地 Agent 连接",
+  "agent-address": "连接地址",
+  advanced: "高级设置"
+};
+
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
 let pendingSettingsTarget: LiveSettingsTarget | "appearance" | null = null;
 let renderSettingsPromise: Promise<void> | null = null;
 let renderSettingsHost: HTMLElement | null = null;
 let providerHost: ProviderSettingsHost | null = null;
+let activeSettingsView: SettingsViewId = "root";
+let savedRootScrollTop = 0;
+let subpageReturnButton: HTMLButtonElement | null = null;
+let unregisterBackInterceptor: (() => void) | null = null;
+let unregisterCloseListener: (() => void) | null = null;
+let lastProviderSnapshot: ProviderSummarySnapshot | null = null;
+let lastAgentBridgeState: AgentBridgeSettingsState | null = null;
 
 // ===== 分区渲染隔离 =====
 // .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
@@ -117,7 +162,35 @@ function collectElements(host: HTMLElement) {
     host.querySelector(`#${id}`) as T;
   return {
     backBtn: byIdIn<HTMLButtonElement>(dom.readingSettingsBackBtn),
-    settingsNav: byIdIn<HTMLElement>(dom.settingsNav),
+    settingsTitle: byIdIn<HTMLElement>(dom.settingsTitle),
+    settingsRootView: byIdIn<HTMLElement>(dom.settingsRootView),
+    subpageAiProviders: byIdIn<HTMLElement>(dom.subpageAiProviders),
+    subpageLive: byIdIn<HTMLElement>(dom.subpageLive),
+    subpageAsr: byIdIn<HTMLElement>(dom.subpageAsr),
+    subpageSearch: byIdIn<HTMLElement>(dom.subpageSearch),
+    subpageAiPrompt: byIdIn<HTMLElement>(dom.subpageAiPrompt),
+    subpageSubtitle: byIdIn<HTMLElement>(dom.subpageSubtitle),
+    subpageAppearance: byIdIn<HTMLElement>(dom.subpageAppearance),
+    subpageAgent: byIdIn<HTMLElement>(dom.subpageAgent),
+    subpageAdvanced: byIdIn<HTMLElement>(dom.subpageAdvanced),
+    openAiProvidersBtn: byIdIn<HTMLButtonElement>(dom.openAiProvidersBtn),
+    aiProvidersSummary: byIdIn<HTMLElement>(dom.aiProvidersSummary),
+    openLiveSettingsBtn: byIdIn<HTMLButtonElement>(dom.openLiveSettingsBtn),
+    liveSettingsSummary: byIdIn<HTMLElement>(dom.liveSettingsSummary),
+    openAsrSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAsrSettingsBtn),
+    asrSettingsSummary: byIdIn<HTMLElement>(dom.asrSettingsSummary),
+    openSearchSettingsBtn: byIdIn<HTMLButtonElement>(dom.openSearchSettingsBtn),
+    searchSettingsSummary: byIdIn<HTMLElement>(dom.searchSettingsSummary),
+    openAiPromptBtn: byIdIn<HTMLButtonElement>(dom.openAiPromptBtn),
+    aiPromptSummary: byIdIn<HTMLElement>(dom.aiPromptSummary),
+    openSubtitleSettingsBtn: byIdIn<HTMLButtonElement>(dom.openSubtitleSettingsBtn),
+    subtitleSettingsSummary: byIdIn<HTMLElement>(dom.subtitleSettingsSummary),
+    openAppearanceBtn: byIdIn<HTMLButtonElement>(dom.openAppearanceBtn),
+    appearanceSettingsSummary: byIdIn<HTMLElement>(dom.appearanceSettingsSummary),
+    openAgentSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAgentSettingsBtn),
+    agentSettingsSummary: byIdIn<HTMLElement>(dom.agentSettingsSummary),
+    openAdvancedSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAdvancedSettingsBtn),
+    advancedSettingsSummary: byIdIn<HTMLElement>(dom.advancedSettingsSummary),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
@@ -135,6 +208,9 @@ function collectElements(host: HTMLElement) {
     speechVoiceVolume: byIdIn<HTMLInputElement>(dom.speechVoiceVolume),
     speechVoiceVolumeValue: byIdIn<HTMLElement>(dom.speechVoiceVolumeValue),
     speechVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.speechVoiceVolumeResetBtn),
+    toggleLiveAudioBtn: byIdIn<HTMLButtonElement>(dom.toggleLiveAudioBtn),
+    liveAudioContainer: byIdIn<HTMLElement>(dom.liveAudioContainer),
+    liveAudioSummary: byIdIn<HTMLElement>(dom.liveAudioSummary),
     liveVoiceVolume: byIdIn<HTMLInputElement>(dom.liveVoiceVolume),
     liveVoiceVolumeValue: byIdIn<HTMLElement>(dom.liveVoiceVolumeValue),
     liveVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceVolumeResetBtn),
@@ -157,8 +233,8 @@ function collectElements(host: HTMLElement) {
     enableAgentBridge: byIdIn<HTMLInputElement>(dom.enableAgentBridge),
     agentBridgeConnectBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeConnectBtn),
     agentBridgeAddressBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBtn),
+    agentBridgeAddressSummary: byIdIn<HTMLElement>(dom.agentBridgeAddressSummary),
     agentBridgeAddressView: byIdIn<HTMLElement>(dom.agentBridgeAddressView),
-    agentBridgeAddressBackBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeAddressBackBtn),
     agentBridgeUrl: byIdIn<HTMLInputElement>(dom.agentBridgeUrl),
     agentBridgeResetUrlBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeResetUrlBtn),
     agentBridgeTestBtn: byIdIn<HTMLButtonElement>(dom.agentBridgeTestBtn),
@@ -521,6 +597,29 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   }
 ];
 
+function syncPlayerQuickPromptVisibility(elements: SettingsElements): void {
+  elements.playerAiQuickPrompt.hidden = !elements.enablePlayerAiQuickAction.checked;
+}
+
+function syncChatInputGlowAvailability(elements: SettingsElements): void {
+  const isEditorial = normalizeReaderPalette(elements.readerPalette.value) === "editorial";
+  const row = elements.chatInputGlow.closest<HTMLElement>(".biliscript-toggle-row");
+  elements.chatInputGlow.disabled = isEditorial;
+  syncToggleSwitch(elements.chatInputGlow);
+  row?.classList.toggle("is-disabled", isEditorial);
+  if (row) {
+    row.title = isEditorial ? "仅在「蓝雾玻璃」外观色板下生效" : "";
+  }
+}
+
+function syncScalarSideEffects(key: KnownSettingKey, elements: SettingsElements): void {
+  if (key === "enablePlayerAiQuickAction") {
+    syncPlayerQuickPromptVisibility(elements);
+  } else if (key === "readerPalette") {
+    syncChatInputGlowAvailability(elements);
+  }
+}
+
 function hydrateScalarField(binding: ScalarFieldBinding, elements: SettingsElements, rawValue: unknown): void {
   switch (binding.kind) {
     case "select": {
@@ -544,6 +643,229 @@ function hydrateScalarField(binding: ScalarFieldBinding, elements: SettingsEleme
       break;
     }
   }
+  syncScalarSideEffects(binding.key, elements);
+}
+
+function resolveSelectedModelLabel(selectEl: HTMLSelectElement): string {
+  const rawValue = selectEl.value;
+  if (!rawValue) return "";
+  const optionText = selectEl.options[selectEl.selectedIndex]?.textContent?.trim() || "";
+  if (optionText && optionText !== "暂无可用模型") return optionText;
+  return parseModelOptionValue(rawValue).model;
+}
+
+function resolveProviderName(
+  providers: readonly ProviderRowItem[] | undefined,
+  preferredId: string
+): string {
+  if (!providers || providers.length === 0) return "";
+  const matched = preferredId
+    ? providers.find((item) => String(item?.id || "") === preferredId)
+    : providers[0];
+  const target = matched ?? providers[0];
+  return String(target?.name || target?.model || target?.presetId || "").trim();
+}
+
+function formatLiveAudioSummary(elements: SettingsElements): string {
+  const volume = normalizeLiveVoiceVolume(elements.liveVoiceVolume.value);
+  const speed = normalizeLiveVoiceSpeed(Number(elements.liveVoiceSpeed.value));
+  const parts = [`${volume}%`, `${speed}×`];
+  if (elements.liveShareVideoAudio.checked) parts.push("共享原声");
+  if (elements.liveVoicePriority.checked) parts.push("语音优先");
+  return parts.join(" · ");
+}
+
+function syncAllSummaries(elements: SettingsElements): void {
+  elements.liveAudioSummary.textContent = formatLiveAudioSummary(elements);
+
+  const snapshot = lastProviderSnapshot;
+  if (snapshot) {
+    const aiTotal = snapshot.aiProviders.length;
+    const aiEnabled = snapshot.aiProviders.filter((p) => p && p.enabled !== false).length;
+    const defaultModelLabel = resolveSelectedModelLabel(elements.aiDefaultModel);
+    if (aiTotal === 0) {
+      elements.aiProvidersSummary.textContent = "未配置";
+    } else if (aiEnabled === 0) {
+      elements.aiProvidersSummary.textContent = "已全部停用";
+    } else {
+      elements.aiProvidersSummary.textContent = defaultModelLabel
+        ? `${aiEnabled} 个启用 · ${defaultModelLabel}`
+        : `${aiEnabled} 个启用`;
+    }
+
+    if (snapshot.liveProviders.length === 0) {
+      elements.liveSettingsSummary.textContent = "未配置";
+    } else {
+      const liveName = resolveProviderName(snapshot.liveProviders, snapshot.activeLiveId);
+      elements.liveSettingsSummary.textContent = liveName || `${snapshot.liveProviders.length} 个平台`;
+    }
+
+    const asrAuto = elements.asrAutoFallback.checked;
+    if (snapshot.asrProviders.length === 0) {
+      elements.asrSettingsSummary.textContent = asrAuto ? "自动开启 · 未配平台" : "已关闭";
+    } else {
+      const asrName = resolveProviderName(snapshot.asrProviders, snapshot.activeAsrId);
+      elements.asrSettingsSummary.textContent = `${asrName || "语音转写"} · ${asrAuto ? "自动开启" : "手动触发"}`;
+    }
+
+    const maxCalls = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
+    if (snapshot.searchProviders.length === 0) {
+      elements.searchSettingsSummary.textContent = "未配置";
+    } else if (snapshot.activeSearchProviderId) {
+      const matched = snapshot.searchProviders.find(
+        (item) => String(item?.id || "") === snapshot.activeSearchProviderId
+      );
+      const searchLabel = matched
+        ? String(matched.name || matched.presetId || "指定平台").trim()
+        : "智能回退";
+      elements.searchSettingsSummary.textContent = `${searchLabel} · 最多 ${maxCalls} 次`;
+    } else {
+      elements.searchSettingsSummary.textContent = `智能回退 · 最多 ${maxCalls} 次`;
+    }
+  }
+
+  const promptParts: string[] = [];
+  if (elements.enablePlayerAiQuickAction.checked) promptParts.push("播放器快捷开");
+  const quickCount = collectInitialQuickPrompts(elements).length;
+  if (quickCount > 0) promptParts.push(`${quickCount} 条快捷问题`);
+  promptParts.push(`朗读 ${normalizeSpeechVoiceVolume(elements.speechVoiceVolume.value)}%`);
+  elements.aiPromptSummary.textContent = promptParts.join(" · ");
+
+  const formatLabel = normalizeDownloadFormat(elements.downloadFormat.value).toUpperCase();
+  const translateModel = resolveSelectedModelLabel(elements.subtitleTranslateModel);
+  elements.subtitleSettingsSummary.textContent = translateModel ? `${translateModel} · ${formatLabel}` : formatLabel;
+
+  const paletteLabel = normalizeReaderPalette(elements.readerPalette.value) === "editorial" ? "数字刊物" : "蓝雾玻璃";
+  const fontScale = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
+  const panelWidth = normalizeCustomPanelWidth(elements.customPanelWidth.value);
+  elements.appearanceSettingsSummary.textContent = `${paletteLabel} · ${fontScale}% · ${panelWidth}px`;
+
+  const agentState = lastAgentBridgeState ?? agentBridgeSettings?.getSummaryState();
+  if (agentState?.connected) {
+    elements.agentSettingsSummary.textContent = "已连接";
+  } else if (agentState?.enabled || elements.enableAgentBridge.checked) {
+    elements.agentSettingsSummary.textContent = "已启用 · 未连接";
+  } else {
+    elements.agentSettingsSummary.textContent = "未启用";
+  }
+
+  const advancedParts: string[] = [];
+  if (elements.cleanConversationsOlderThan30Days.checked) advancedParts.push("30 天自动清理");
+  if (elements.enableDebugLogs.checked) advancedParts.push("调试日志已开");
+  elements.advancedSettingsSummary.textContent = advancedParts.length > 0 ? advancedParts.join(" · ") : "默认";
+}
+
+function getScrollContainer(host: HTMLElement): HTMLElement {
+  return host.closest<HTMLElement>(`#${ids.readingSettingsPanel}`) ?? host;
+}
+
+function getViewElement(elements: SettingsElements, view: SettingsViewId): HTMLElement {
+  switch (view) {
+    case "root": return elements.settingsRootView;
+    case "ai-providers": return elements.subpageAiProviders;
+    case "live": return elements.subpageLive;
+    case "asr": return elements.subpageAsr;
+    case "search": return elements.subpageSearch;
+    case "ai-prompt": return elements.subpageAiPrompt;
+    case "subtitle": return elements.subpageSubtitle;
+    case "appearance": return elements.subpageAppearance;
+    case "agent": return elements.subpageAgent;
+    case "agent-address": return elements.agentBridgeAddressView;
+    case "advanced": return elements.subpageAdvanced;
+  }
+}
+
+function getEntryButtonForSubpage(elements: SettingsElements, view: SettingsSubpageId): HTMLButtonElement {
+  switch (view) {
+    case "ai-providers": return elements.openAiProvidersBtn;
+    case "live": return elements.openLiveSettingsBtn;
+    case "asr": return elements.openAsrSettingsBtn;
+    case "search": return elements.openSearchSettingsBtn;
+    case "ai-prompt": return elements.openAiPromptBtn;
+    case "subtitle": return elements.openSubtitleSettingsBtn;
+    case "appearance": return elements.openAppearanceBtn;
+    case "agent": return elements.openAgentSettingsBtn;
+    case "advanced": return elements.openAdvancedSettingsBtn;
+  }
+}
+
+function navigateSettingsView(
+  host: HTMLElement,
+  view: SettingsViewId,
+  options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean } = {}
+): void {
+  const elements = collectElements(host);
+  const previousView = activeSettingsView;
+  const scrollContainer = getScrollContainer(host);
+
+  if (previousView === "root" && view !== "root") {
+    savedRootScrollTop = scrollContainer.scrollTop;
+    if (view !== "agent-address") {
+      subpageReturnButton = options.returnButton ?? getEntryButtonForSubpage(elements, view);
+    }
+  }
+
+  const allViews: SettingsViewId[] = [
+    "root",
+    "ai-providers",
+    "live",
+    "asr",
+    "search",
+    "ai-prompt",
+    "subtitle",
+    "appearance",
+    "agent",
+    "agent-address",
+    "advanced"
+  ];
+  for (const key of allViews) {
+    getViewElement(elements, key).hidden = key !== view;
+  }
+
+  activeSettingsView = view;
+  elements.settingsTitle.textContent = SETTINGS_VIEW_TITLES[view];
+  elements.resetBtn.hidden = view !== "root";
+  elements.backBtn.setAttribute(
+    "aria-label",
+    view === "root" ? "返回" : view === "agent-address" ? "返回本地 Agent 连接" : "返回设置总览"
+  );
+
+  const shouldFocus = options.focusOnEnter !== false;
+  if (previousView === "agent-address" && view !== "agent-address") {
+    agentBridgeSettings?.onAddressViewClosed({ focusButton: view === "agent" && shouldFocus });
+    if (view === "agent") {
+      scrollContainer.scrollTop = 0;
+      return;
+    }
+  }
+
+  if (view === "root") {
+    scrollContainer.scrollTop = savedRootScrollTop;
+    const returnTarget = subpageReturnButton?.isConnected ? subpageReturnButton : null;
+    subpageReturnButton = null;
+    if (shouldFocus) {
+      (returnTarget ?? elements.backBtn)?.focus({ preventScroll: true });
+    }
+    return;
+  }
+
+  scrollContainer.scrollTop = 0;
+  if (shouldFocus && view !== "agent-address") {
+    const viewEl = getViewElement(elements, view);
+    const firstFocusable = viewEl.querySelector<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
+    );
+    (firstFocusable ?? elements.backBtn)?.focus({ preventScroll: true });
+  }
+}
+
+function setLiveAudioExpanded(elements: SettingsElements, expanded: boolean): void {
+  elements.toggleLiveAudioBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+  elements.toggleLiveAudioBtn.setAttribute(
+    "aria-label",
+    expanded ? "收起伴看语音与混音" : "展开伴看语音与混音"
+  );
+  elements.liveAudioContainer.hidden = !expanded;
 }
 
 // ===== 对外入口 =====
@@ -607,19 +929,21 @@ async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Pr
     return;
   }
   pendingSettingsTarget = null;
-  const section = target === "appearance" ? "appearance" : target === "live" ? "live" : "llm";
-  host.querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)?.click();
+  const view: SettingsSubpageId = target === "appearance" ? "ai-prompt" : "live";
+  navigateSettingsView(host, view, { focusOnEnter: false });
   const sectionHeading = target === "appearance"
     ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
-    : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${section}"] .biliscript-set-h`);
+    : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
   if (target === "appearance") {
     const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup]") ?? sectionHeading;
     scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
   }
+  if (target === "gemini-key") {
+    await providerHost?.openLinkedCredentialEditor("gemini-live");
+    return;
+  }
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });
-  if (target !== "gemini-key") return;
-  await providerHost?.openLinkedCredentialEditor("gemini-live");
 }
 
 // ===== 概览首配直达入口 =====
@@ -650,7 +974,7 @@ export async function openReaderAiSetup(
 ): Promise<void> {
   openReaderSettingsMode();
   await renderReaderSettingsPanel();
-  focusSettingsNavSection("llm");
+  focusSettingsView("ai-providers");
   const host = settingsHostRef ?? document.getElementById(ids.readingSettingsHost);
   const defaultBanner =
     errorClass === "missing-key"
@@ -806,7 +1130,7 @@ export async function openReaderAsrSetup(): Promise<void> {
     activeAsrProviderId: settings.activeAsrProviderId,
     providers
   });
-  focusSettingsNavSection("asr");
+  focusSettingsView("asr");
   setAsrSetupResumeToken({ videoKey: currentPageVideoKey(), kind: setupState.kind });
   if (!setupState.asrAutoFallback) {
     setStatus(
@@ -840,13 +1164,11 @@ export async function openReaderAsrSetup(): Promise<void> {
   });
 }
 
-// 设置分区定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
-function focusSettingsNavSection(section: string): void {
+// 设置子页定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
+function focusSettingsView(view: SettingsSubpageId): void {
   const host = settingsHostRef;
   if (!host || !host.dataset.biliscriptSettingsRendered) return;
-  host
-    .querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)
-    ?.click();
+  navigateSettingsView(host, view, { focusOnEnter: false });
 }
 
 async function loadAiProviders(): Promise<ProviderRowItem[]> {
@@ -1008,6 +1330,7 @@ function renderAiModelSelects(elements: SettingsElements, providers: ProviderRow
     s.subtitleTranslateProviderId,
     s.subtitleTranslateModel
   );
+  syncAllSummaries(elements);
 }
 
 function bindProviderModelSelect(
@@ -1023,11 +1346,13 @@ function bindProviderModelSelect(
     const prevModel = String(state.settings?.[modelKey] || "").trim();
     const patch = { [providerKey]: providerId, [modelKey]: model };
     state.patchSettings(patch);
+    syncAllSummaries(elements);
     void saveSettingField(elements, patch).then((saved) => {
       if (saved) return;
       state.patchSettings({ [providerKey]: prevProviderId, [modelKey]: prevModel });
       void loadAiProviders().then((providers) => {
         renderProviderModelSelect(selectEl, providers, prevProviderId, prevModel);
+        syncAllSummaries(elements);
       });
     });
   });
@@ -1041,9 +1366,11 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   }
   agentBridgeSettings?.sync(settings);
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
+  syncAllSummaries(elements);
 
   await providerHost?.load(settings);
   await syncLiveVoiceFallbackHint(elements);
+  syncAllSummaries(elements);
 }
 
 // 音色回退提示（仅一次）：信箱内容在读取时清除，重开设置不再重复出现。
@@ -1214,138 +1541,50 @@ function debounce<T extends (...args: unknown[]) => void>(
 
 // ===== 事件绑定（模板渲染后一次性接线） =====
 
-function bindSettingsNav(host: HTMLElement): void {
-  const nav = host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.settingsNav}`);
-  if (!nav) return;
+function bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): void {
+  activeSettingsView = "root";
+  savedRootScrollTop = 0;
+  subpageReturnButton = null;
+  setLiveAudioExpanded(elements, false);
+  navigateSettingsView(host, "root", { focusOnEnter: false });
 
-  const navItems = Array.from(nav.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-  const groups = Array.from(host.querySelectorAll<HTMLElement>(".biliscript-set-group[data-settings-section]"));
+  const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
+    [elements.openAiProvidersBtn, "ai-providers"],
+    [elements.openLiveSettingsBtn, "live"],
+    [elements.openAsrSettingsBtn, "asr"],
+    [elements.openSearchSettingsBtn, "search"],
+    [elements.openAiPromptBtn, "ai-prompt"],
+    [elements.openSubtitleSettingsBtn, "subtitle"],
+    [elements.openAppearanceBtn, "appearance"],
+    [elements.openAgentSettingsBtn, "agent"],
+    [elements.openAdvancedSettingsBtn, "advanced"]
+  ];
 
-  // 横向滚动条按需现身：静止态导航底部不留第二条线，指针进入导航条或正在横向滚动时
-  // 才显形。显隐只能切类——Chromium 不刷新 scrollbar 伪元素上由宿主 :hover 触发的样式。
-  const hasOverflow = (): boolean => nav.scrollWidth - nav.clientWidth > 1;
-  const setScrollbarVisible = (visible: boolean): void => {
-    nav.classList.toggle("is-scrollbar-visible", visible);
-  };
-  let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
-  const cancelScrollbarHide = (): void => {
-    if (scrollbarHideTimer) {
-      clearTimeout(scrollbarHideTimer);
-      scrollbarHideTimer = null;
-    }
-  };
-  const scheduleScrollbarHide = (delayMs: number): void => {
-    cancelScrollbarHide();
-    scrollbarHideTimer = setTimeout(() => {
-      scrollbarHideTimer = null;
-      setScrollbarVisible(false);
-    }, delayMs);
-  };
-
-  nav.addEventListener("pointerenter", () => {
-    if (!hasOverflow()) return;
-    cancelScrollbarHide();
-    setScrollbarVisible(true);
-  });
-  nav.addEventListener("pointerleave", () => {
-    if (hasOverflow()) scheduleScrollbarHide(360);
-  });
-  nav.addEventListener(
-    "scroll",
-    () => {
-      if (!hasOverflow()) {
-        setScrollbarVisible(false);
-        return;
-      }
-      setScrollbarVisible(true);
-      scheduleScrollbarHide(900);
-    },
-    { passive: true }
-  );
-  if (typeof ResizeObserver !== "undefined") {
-    // 面板宽度或字号变化后可能从可滚变成放得下，残留的拇指要收掉。
-    new ResizeObserver(() => {
-      if (hasOverflow()) return;
-      cancelScrollbarHide();
-      setScrollbarVisible(false);
-    }).observe(nav);
-  }
-
-  function setActive(sectionKey: string): void {
-    let activeBtn: HTMLButtonElement | null = null;
-    navItems.forEach((btn) => {
-      const match = btn.dataset.section === sectionKey;
-      btn.classList.toggle("is-active", match);
-      if (match) activeBtn = btn;
+  for (const [button, view] of entries) {
+    button.addEventListener("click", () => {
+      navigateSettingsView(host, view, { returnButton: button, focusOnEnter: true });
     });
-    if (activeBtn && typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
-      (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-    }
   }
 
-  let userClickLock = false;
-  let clickLockTimer: ReturnType<typeof setTimeout> | null = null;
-
-  nav.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>(".biliscript-settings-nav-item");
-    if (!btn) return;
-    const sectionKey = btn.dataset.section;
-    if (!sectionKey) return;
-    const target = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${sectionKey}"]`);
-    if (target) {
-      userClickLock = true;
-      setActive(sectionKey);
-      if (typeof target.scrollIntoView === "function") {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-      if (clickLockTimer) clearTimeout(clickLockTimer);
-      clickLockTimer = setTimeout(() => {
-        userClickLock = false;
-      }, 600);
+  unregisterBackInterceptor?.();
+  unregisterBackInterceptor = registerReaderSettingsBackInterceptor(() => {
+    if (activeSettingsView === "root") return false;
+    if (activeSettingsView === "agent-address") {
+      navigateSettingsView(host, "agent", { focusOnEnter: true });
+      return true;
     }
+    navigateSettingsView(host, "root", { focusOnEnter: true });
+    return true;
   });
 
-  if (typeof IntersectionObserver === "undefined") {
-    return;
-  }
-
-  const scrollContainer = host.closest<HTMLElement>("#biliscript-reading-settings-panel") ?? host.parentElement;
-  if (!scrollContainer) return;
-
-  const intersectingKeys = new Map<HTMLElement, number>();
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        const target = entry.target as HTMLElement;
-        if (entry.isIntersecting) {
-          intersectingKeys.set(target, entry.boundingClientRect.top);
-        } else {
-          intersectingKeys.delete(target);
-        }
-      }
-      if (userClickLock || intersectingKeys.size === 0) return;
-
-      let topmostEl: HTMLElement | null = null;
-      let minTop = Infinity;
-      for (const el of intersectingKeys.keys()) {
-        const rectTop = el.getBoundingClientRect().top;
-        if (rectTop < minTop) {
-          minTop = rectTop;
-          topmostEl = el;
-        }
-      }
-      if (topmostEl?.dataset.settingsSection) {
-        setActive(topmostEl.dataset.settingsSection);
-      }
-    },
-    {
-      root: scrollContainer,
-      rootMargin: "-44px 0px -40% 0px",
-      threshold: 0
+  unregisterCloseListener?.();
+  unregisterCloseListener = registerReaderSettingsCloseListener(() => {
+    savedRootScrollTop = 0;
+    subpageReturnButton = null;
+    if (activeSettingsView !== "root") {
+      navigateSettingsView(host, "root", { focusOnEnter: false });
     }
-  );
-
-  groups.forEach((group) => observer.observe(group));
+  });
 }
 
 function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsElements): void {
@@ -1358,6 +1597,8 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
           state.patchSettings({ [binding.key]: val });
         }
         binding.onApply?.(val);
+        syncScalarSideEffects(binding.key, elements);
+        syncAllSummaries(elements);
         void saveSettingField(elements, { [binding.key]: val });
       });
       break;
@@ -1371,6 +1612,8 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
           state.patchSettings({ [binding.key]: val });
         }
         binding.onApply?.(val);
+        syncScalarSideEffects(binding.key, elements);
+        syncAllSummaries(elements);
         void saveSettingField(elements, { [binding.key]: val }, binding.persist).then((ok) => {
           if (ok) binding.onSaved?.(val);
         });
@@ -1390,8 +1633,10 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
             state.patchSettings({ [binding.key]: val, ...(binding.commitExtras?.() ?? {}) });
           }
           binding.onPreview?.(val);
+          syncAllSummaries(elements);
         },
         onCommit: (val) => {
+          syncAllSummaries(elements);
           void saveSettingField(
             elements,
             { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) },
@@ -1404,6 +1649,7 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
               if (binding.patchState !== false) {
                 state.patchSettings(patch);
               }
+              syncAllSummaries(elements);
               void saveSettingField(elements, patch, binding.persist);
             }
           : undefined
@@ -1420,7 +1666,10 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         void saveSettingField(elements, { [binding.key]: val });
       };
       const debouncedSave = debounce(save, 400);
-      el.addEventListener("input", debouncedSave);
+      el.addEventListener("input", () => {
+        debouncedSave();
+        syncAllSummaries(elements);
+      });
       el.addEventListener("blur", () => debouncedSave.flush());
       break;
     }
@@ -1429,17 +1678,38 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
 
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
-  bindSettingsNav(host);
+  lastProviderSnapshot = null;
+  lastAgentBridgeState = null;
 
-  elements.backBtn?.addEventListener("click", () => {
-    closeReaderSettingsMode();
+  bindSettingsNavigation(host, elements);
+
+  elements.backBtn?.addEventListener("click", (event) => {
+    if (hasReaderSettingsOverlayOpen()) return;
+    event.stopPropagation();
+    stepBackReaderSettings();
+  });
+
+  elements.toggleLiveAudioBtn.addEventListener("click", () => {
+    setLiveAudioExpanded(elements, Boolean(elements.liveAudioContainer.hidden));
   });
 
   for (const binding of SCALAR_FIELD_BINDINGS) {
     bindScalarFieldEvents(binding, elements);
   }
 
-  agentBridgeSettings = bindAgentBridgeSettings(host, elements, (text, isError) => setStatus(elements, text, isError));
+  agentBridgeSettings = bindAgentBridgeSettings(
+    elements,
+    (text, isError) => setStatus(elements, text, isError),
+    {
+      onOpenAddress: () => {
+        navigateSettingsView(host, "agent-address", { focusOnEnter: false });
+      },
+      onStateChange: (bridgeState) => {
+        lastAgentBridgeState = bridgeState;
+        syncAllSummaries(collectElements(host));
+      }
+    }
+  );
 
   const saveInitialQuickPrompts = () => {
     const prompts = collectInitialQuickPrompts(elements);
@@ -1448,7 +1718,10 @@ function bindSettingsEvents(host: HTMLElement): void {
   };
   const debouncedSaveInitialQuickPrompts = debounce(saveInitialQuickPrompts, 400);
   elements.aiInitialQuickPrompts.forEach((input) => {
-    input.addEventListener("input", debouncedSaveInitialQuickPrompts);
+    input.addEventListener("input", () => {
+      debouncedSaveInitialQuickPrompts();
+      syncAllSummaries(elements);
+    });
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
@@ -1466,6 +1739,10 @@ function bindSettingsEvents(host: HTMLElement): void {
       void getSettings().then((s) => {
         renderAiModelSelects(elements, providers, s);
       });
+    },
+    onSummaryChange: (snapshot) => {
+      lastProviderSnapshot = snapshot;
+      syncAllSummaries(collectElements(host));
     }
   });
 
@@ -1501,6 +1778,7 @@ function bindSettingsEvents(host: HTMLElement): void {
           renderAiModelSelects(currentElements, providers, settings);
         });
       }
+      syncAllSummaries(collectElements(host));
     },
     {
       sync: [

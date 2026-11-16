@@ -364,4 +364,46 @@ describe("设置与弹层逐层退出", () => {
     expect(element(ids.readingScriptPanel).isConnected).toBe(true);
     expect(mocks.exitReaderShell).not.toHaveBeenCalled();
   });
+
+  it("子页栈拦截器在返回键与 Esc 时优先退回上级，齿轮与外点仍一步关闭并回调复位", async () => {
+    const { registerReaderSettingsBackInterceptor, registerReaderSettingsCloseListener } =
+      await import("../../extension/reader/settings-mode.js");
+    let depth = 1;
+    const onClose = vi.fn();
+    const unregisterInterceptor = registerReaderSettingsBackInterceptor(() => {
+      if (depth > 0) {
+        depth -= 1;
+        return true;
+      }
+      return false;
+    });
+    const unregisterClose = registerReaderSettingsCloseListener(onClose);
+
+    try {
+      openFromGear();
+      element(ids.readingSettingsBackBtn).click();
+      expect(depth).toBe(0);
+      expect(state.reader.readingSettingsExpanded).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+
+      depth = 1;
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      expect(depth).toBe(0);
+      expect(state.reader.readingSettingsExpanded).toBe(true);
+
+      element(ids.readingSettingsBackBtn).click();
+      expect(state.reader.readingSettingsExpanded).toBe(false);
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      depth = 2;
+      openFromGear();
+      element(ids.readingSettingsBtn).click();
+      expect(state.reader.readingSettingsExpanded).toBe(false);
+      expect(depth).toBe(2);
+      expect(onClose).toHaveBeenCalledTimes(2);
+    } finally {
+      unregisterInterceptor();
+      unregisterClose();
+    }
+  });
 });

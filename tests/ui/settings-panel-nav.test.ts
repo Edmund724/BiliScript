@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
+import { installSettingsPanelBus, type BusResponder } from "../helpers/settings-panel-bus.js";
 
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
 });
 
-async function mountPanel(): Promise<HTMLElement> {
+async function mountPanel(overrides: Record<string, BusResponder> = {}): Promise<HTMLElement> {
   document.body.innerHTML = `
     <div id="biliscript-reading-view">
       <section id="biliscript-reading-settings-panel">
@@ -17,7 +17,7 @@ async function mountPanel(): Promise<HTMLElement> {
       </section>
     </div>
   `;
-  installSettingsPanelBus();
+  installSettingsPanelBus(overrides);
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
   const host = document.getElementById("biliscript-reading-settings-host")!;
@@ -27,107 +27,206 @@ async function mountPanel(): Promise<HTMLElement> {
   return host;
 }
 
-describe("设置抽屉顶部快速跳转导航条", () => {
-  it("渲染 11 个预期标签与对应 section 映射", async () => {
+const SUBPAGE_CASES = [
+  { entryId: "openAiProvidersBtn", subpageId: "biliscriptSettingsSubpageAiProviders", title: "AI 模型平台" },
+  { entryId: "openLiveSettingsBtn", subpageId: "biliscriptSettingsSubpageLive", title: "实时伴看" },
+  { entryId: "openAsrSettingsBtn", subpageId: "biliscriptSettingsSubpageAsr", title: "语音转写" },
+  { entryId: "openSearchSettingsBtn", subpageId: "biliscriptSettingsSubpageSearch", title: "联网搜索" },
+  { entryId: "openAiPromptBtn", subpageId: "biliscriptSettingsSubpageAiPrompt", title: "AI 对话与快捷动作" },
+  { entryId: "openSubtitleSettingsBtn", subpageId: "biliscriptSettingsSubpageSubtitle", title: "字幕翻译与导出" },
+  { entryId: "openAppearanceBtn", subpageId: "biliscriptSettingsSubpageAppearance", title: "阅读器与播放器" },
+  { entryId: "openAgentSettingsBtn", subpageId: "biliscriptSettingsSubpageAgent", title: "本地 Agent 连接" },
+  { entryId: "openAdvancedSettingsBtn", subpageId: "biliscriptSettingsSubpageAdvanced", title: "高级设置" }
+] as const;
+
+describe("设置抽屉三级总览与子页导航", () => {
+  it("首次渲染默认停在设置总览，4 张总览卡片与 9 个子页入口完整且子页隐藏", async () => {
     const host = await mountPanel();
-    const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav");
-    expect(nav).not.toBeNull();
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
+    const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
+    const resetBtn = host.querySelector<HTMLButtonElement>("#biliscriptSettingsResetBtn")!;
 
-    const items = Array.from(nav!.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
-    expect(items).toHaveLength(11);
+    expect(title.textContent?.trim()).toBe("设置");
+    expect(rootView.hidden).toBe(false);
+    expect(rootView.querySelectorAll("[data-settings-root-card]")).toHaveLength(4);
+    expect(rootView.querySelectorAll(".biliscript-entry-row")).toHaveLength(9);
+    expect(resetBtn.hidden).toBe(false);
+    expect(host.querySelector("#agentBridgeAddressView")?.hasAttribute("hidden")).toBe(true);
 
-    const labels = items.map((item) => ({
-      section: item.dataset.section,
-      text: item.textContent?.trim()
-    }));
-
-    expect(labels).toEqual([
-      { section: "llm", text: "语言模型" },
-      { section: "live", text: "实时伴看" },
-      { section: "subtitle", text: "字幕翻译" },
-      { section: "asr", text: "语音转写" },
-      { section: "search", text: "搜索" },
-      { section: "ai-button", text: "AI 按钮" },
-      { section: "system-prompt", text: "系统提示词" },
-      { section: "initial-prompt", text: "初始问题" },
-      { section: "appearance", text: "外观" },
-      { section: "export", text: "导出" },
-      { section: "agent", text: "本地 Agent" }
-    ]);
-
-    // 默认首项处于激活态
-    expect(items[0].classList.contains("is-active")).toBe(true);
-
-    // 校验每个 section 均在宿主中存在
-    for (const key of labels.map((item) => item.section)) {
-      const target = host.querySelector(`.biliscript-set-group[data-settings-section="${key}"]`);
-      expect(target).not.toBeNull();
+    for (const item of SUBPAGE_CASES) {
+      const subpage = host.querySelector<HTMLElement>(`#${item.subpageId}`);
+      expect(subpage, `${item.subpageId} 应存在`).not.toBeNull();
+      expect(subpage!.hidden, `${item.subpageId} 默认应隐藏`).toBe(true);
     }
   });
 
-  it("点击导航项触发目标 section 的 scrollIntoView 并更新激活态", async () => {
+  it("点击全部 9 个入口逐一进入对应子页，返回总览后恢复滚动与来源入口焦点", async () => {
     const host = await mountPanel();
-    const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav")!;
-    const searchBtn = nav.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="search"]')!;
-    const targetSection = host.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="search"]')!;
+    const panelEl = document.getElementById("biliscript-reading-settings-panel")!;
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
+    const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
+    const backBtn = host.querySelector<HTMLButtonElement>("#biliscript-reading-settings-back-btn")!;
+    const resetBtn = host.querySelector<HTMLButtonElement>("#biliscriptSettingsResetBtn")!;
+    const status = host.querySelector<HTMLElement>("#biliscriptSettingsStatus")!;
 
-    const scrollSpy = vi.fn();
-    targetSection.scrollIntoView = scrollSpy;
+    for (const item of SUBPAGE_CASES) {
+      panelEl.scrollTop = 72;
+      const entryBtn = host.querySelector<HTMLButtonElement>(`#${item.entryId}`)!;
+      entryBtn.click();
 
-    searchBtn.click();
+      const subpage = host.querySelector<HTMLElement>(`#${item.subpageId}`)!;
+      expect(rootView.hidden).toBe(true);
+      expect(subpage.hidden).toBe(false);
+      expect(title.textContent?.trim()).toBe(item.title);
+      expect(resetBtn.hidden).toBe(true);
+      expect(status.closest(".biliscript-set-actions")).not.toBeNull();
+      expect(status.hidden).toBe(false);
+      expect(panelEl.scrollTop).toBe(0);
 
-    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(searchBtn.classList.contains("is-active")).toBe(true);
+      backBtn.click();
 
-    const llmBtn = nav.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="llm"]')!;
-    expect(llmBtn.classList.contains("is-active")).toBe(false);
+      expect(subpage.hidden).toBe(true);
+      expect(rootView.hidden).toBe(false);
+      expect(title.textContent?.trim()).toBe("设置");
+      expect(resetBtn.hidden).toBe(false);
+      expect(panelEl.scrollTop).toBe(72);
+      expect(document.activeElement).toBe(entryBtn);
+    }
   });
 
-  it("横向可滚时滚动或指针进入才显形滚动条", async () => {
+  it("本地 Agent 三级地址页复用顶部返回键逐级回退并归还焦点", async () => {
     const host = await mountPanel();
-    const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav")!;
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
+    const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
+    const agentView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAgent")!;
+    const addressView = host.querySelector<HTMLElement>("#agentBridgeAddressView")!;
+    const openAgentBtn = host.querySelector<HTMLButtonElement>("#openAgentSettingsBtn")!;
+    const addressBtn = host.querySelector<HTMLButtonElement>("#agentBridgeAddressBtn")!;
+    const backBtn = host.querySelector<HTMLButtonElement>("#biliscript-reading-settings-back-btn")!;
 
-    // 活动态只靠字重与字色，不再渲染滑动下划线
-    expect(nav.querySelector(".biliscript-settings-nav-indicator")).toBeNull();
+    openAgentBtn.click();
+    expect(agentView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("本地 Agent 连接");
 
-    const setMetrics = (scrollWidth: number, clientWidth: number) => {
-      Object.defineProperty(nav, "scrollWidth", { value: scrollWidth, configurable: true });
-      Object.defineProperty(nav, "clientWidth", { value: clientWidth, configurable: true });
-    };
+    addressBtn.click();
+    expect(agentView.hidden).toBe(true);
+    expect(addressView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("连接地址");
 
-    // 静止态不占视觉：没有横向溢出就没有拇指
-    setMetrics(300, 300);
-    expect(nav.classList.contains("is-scrollbar-visible")).toBe(false);
+    backBtn.click();
+    expect(addressView.hidden).toBe(true);
+    expect(agentView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("本地 Agent 连接");
+    expect(document.activeElement).toBe(addressBtn);
 
-    setMetrics(600, 300);
-    nav.dispatchEvent(new Event("scroll"));
-    expect(nav.classList.contains("is-scrollbar-visible")).toBe(true);
-
-    nav.dispatchEvent(new Event("pointerenter"));
-    expect(nav.classList.contains("is-scrollbar-visible")).toBe(true);
-
-    // 面板变宽放得下后拇指收起
-    setMetrics(300, 300);
-    nav.dispatchEvent(new Event("scroll"));
-    expect(nav.classList.contains("is-scrollbar-visible")).toBe(false);
+    backBtn.click();
+    expect(agentView.hidden).toBe(true);
+    expect(rootView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("设置");
+    expect(document.activeElement).toBe(openAgentBtn);
   });
 
-  it("公开伴看设置入口定位到实时伴看配置", async () => {
+  it("伴看语音与混音折叠行默认收起、展示实时摘要且可展开/收起", async () => {
     const host = await mountPanel();
-    const target = host.querySelector<HTMLElement>('.biliscript-set-group[data-settings-section="live"]')!;
-    target.scrollIntoView = vi.fn();
+    host.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!.click();
+
+    const toggleBtn = host.querySelector<HTMLButtonElement>("#toggleLiveAudioBtn")!;
+    const collapseBody = host.querySelector<HTMLElement>("#liveAudioContainer")!;
+    const summary = host.querySelector<HTMLElement>("#liveAudioSummary")!;
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(collapseBody.hidden).toBe(true);
+    expect(summary.textContent?.trim()).toBe("100% · 1× · 语音优先");
+
+    toggleBtn.click();
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(collapseBody.hidden).toBe(false);
+
+    const volume = host.querySelector<HTMLInputElement>("#liveVoiceVolume")!;
+    const share = host.querySelector<HTMLInputElement>("#liveShareVideoAudio")!;
+    volume.value = "125";
+    volume.dispatchEvent(new Event("input", { bubbles: true }));
+    share.click();
+
+    expect(summary.textContent?.trim()).toBe("125% · 1× · 共享原声 · 语音优先");
+
+    toggleBtn.click();
+    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(collapseBody.hidden).toBe(true);
+  });
+
+  it("播放器 AI 快捷按钮关闭时隐藏提示词输入框，开启时显示", async () => {
+    const host = await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { enablePlayerAiQuickAction: false } })
+    });
+    const toggle = host.querySelector<HTMLInputElement>("#enablePlayerAiQuickAction")!;
+    const prompt = host.querySelector<HTMLTextAreaElement>("#playerAiQuickPrompt")!;
+
+    expect(toggle.checked).toBe(false);
+    expect(prompt.hidden).toBe(true);
+
+    toggle.click();
+    expect(toggle.checked).toBe(true);
+    expect(prompt.hidden).toBe(false);
+
+    toggle.click();
+    expect(toggle.checked).toBe(false);
+    expect(prompt.hidden).toBe(true);
+  });
+
+  it("数字刊物色板下禁用输入框光晕开关但不篡改存储值，切回蓝雾玻璃恢复可用", async () => {
+    const sentMessages: unknown[] = [];
+    const host = await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { readerPalette: "editorial", chatInputGlow: true } }),
+      "save-settings": (message) => {
+        sentMessages.push(message);
+        return { ok: true };
+      }
+    });
+
+    const palette = host.querySelector<HTMLSelectElement>("#readerPalette")!;
+    const glow = host.querySelector<HTMLInputElement>("#chatInputGlow")!;
+    const glowRow = glow.closest<HTMLElement>(".biliscript-toggle-row")!;
+
+    expect(glow.checked).toBe(true);
+    expect(glow.disabled).toBe(true);
+    expect(glowRow.classList.contains("is-disabled")).toBe(true);
+
+    palette.value = "flyme";
+    palette.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(glow.disabled).toBe(false);
+    expect(glowRow.classList.contains("is-disabled")).toBe(false);
+    expect(glow.checked).toBe(true);
+    await vi.waitFor(() => {
+      expect(sentMessages).toContainEqual({ type: "save-settings", settings: { readerPalette: "flyme" } });
+    });
+  });
+
+  it("openLiveSettings 定位到实时伴看子页，关闭设置抽屉后自动复位回总览", async () => {
+    const host = await mountPanel();
+    const { closeReaderSettingsMode, openReaderSettingsMode } = await import("../../extension/reader/settings-mode.js");
     const panel = await import("../../extension/ui/settings-panel.js");
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
+    const liveView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageLive")!;
+    const rootView = host.querySelector<HTMLElement>("#biliscriptSettingsRootView")!;
 
+    openReaderSettingsMode();
     await panel.openLiveSettings("live");
 
-    expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(host.querySelector('.biliscript-settings-nav-item[data-section="live"]')?.classList.contains("is-active")).toBe(true);
-    const heading = target.querySelector<HTMLElement>(".biliscript-set-h")!;
+    expect(liveView.hidden).toBe(false);
+    expect(rootView.hidden).toBe(true);
+    expect(title.textContent?.trim()).toBe("实时伴看");
+    const heading = liveView.querySelector<HTMLElement>(".biliscript-set-h")!;
     expect(heading.tabIndex).toBe(-1);
     expect(document.activeElement).toBe(heading);
+
+    closeReaderSettingsMode();
+    expect(liveView.hidden).toBe(true);
+    expect(rootView.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("设置");
   });
 
-  it("首次设置渲染期间的伴看定位不会丢失", async () => {
+  it("首次渲染完成前调用 openLiveSettings 仍会切到实时伴看子页", async () => {
     document.body.innerHTML = `
       <div id="biliscript-reading-view">
         <section id="biliscript-reading-settings-panel">
@@ -136,22 +235,13 @@ describe("设置抽屉顶部快速跳转导航条", () => {
       </div>`;
     installSettingsPanelBus();
     const panel = await import("../../extension/ui/settings-panel.js");
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    const scrollIntoView = vi.fn();
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
-    try {
-      await panel.openLiveSettings("live");
+    await panel.openLiveSettings("live");
 
-      await vi.waitFor(() => {
-        expect(document.getElementById("biliscript-reading-settings-host")?.dataset.biliscriptSettingsRendered).toBe("1");
-        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-      });
-    } finally {
-      if (originalScrollIntoView) {
-        HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-      } else {
-        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
-      }
-    }
+    const host = document.getElementById("biliscript-reading-settings-host")!;
+    await vi.waitFor(() => {
+      expect(host.dataset.biliscriptSettingsRendered).toBe("1");
+      expect(host.querySelector<HTMLElement>("#biliscriptSettingsSubpageLive")?.hidden).toBe(false);
+    });
+    expect(host.querySelector<HTMLElement>("#biliscriptSettingsTitle")?.textContent?.trim()).toBe("实时伴看");
   });
 });

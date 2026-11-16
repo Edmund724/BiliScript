@@ -14,7 +14,7 @@ import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 // 在 reader/lazy-reader 内部）。
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
-import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode } from "../reader/settings-mode.js";
+import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode, stepBackReaderSettings } from "../reader/settings-mode.js";
 import { beginReaderAsrSetupFlow } from "../reader/setup-resume.js";
 // tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
 //（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
@@ -56,7 +56,7 @@ import { buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/o
 export function buildUiHtml(): string {
   const themeView = themeButtonView(state.reader.readingTheme);
   return `
-    <section id="${ids.readingView}" aria-hidden="true" data-biliscript-reader-ready="0" aria-busy="true">
+    <section id="${ids.readingView}" hidden aria-hidden="true" data-biliscript-reader-ready="0" aria-busy="true">
       <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
@@ -96,6 +96,7 @@ export function buildUiHtml(): string {
                     <button id="${ids.readingSettingsBackBtn}" type="button" class="biliscript-reading-icon-btn biliscript-reading-settings-back-btn" title="返回" aria-label="返回">
                       ${READING_HEADER_ICONS.back}
                     </button>
+                    <span class="biliscript-settings-nav-title">设置</span>
                   </div>
                 </div>
               </section>
@@ -371,14 +372,14 @@ export function bindUiEvents(): void {
   });
   readingSettingsBackBtn.addEventListener("click", (event) => {
     if (consumeOverlayClick(event)) return;
-    closeReaderSettingsMode();
+    stepBackReaderSettings();
   });
   readingView.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
     const backBtn = target?.closest<HTMLButtonElement>(`#${ids.readingSettingsBackBtn}`);
     if (backBtn && backBtn !== readingSettingsBackBtn) {
       if (consumeOverlayClick(event)) return;
-      closeReaderSettingsMode();
+      stepBackReaderSettings();
     }
   });
   readingSettingsToggleBtn.addEventListener("click", (event) => {
@@ -414,7 +415,7 @@ export function bindUiEvents(): void {
       if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
       event.preventDefault();
       event.stopPropagation();
-      closeReaderSettingsMode();
+      stepBackReaderSettings();
     });
     state.reader.readingDocumentClickBound = true;
   }

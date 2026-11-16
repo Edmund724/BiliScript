@@ -131,11 +131,19 @@ describe("本地 Agent 设置", () => {
     const { host, sent } = await mountPanel({
       "agent-bridge-test": () => ({ ok: true, connected: true })
     });
+    host.querySelector<HTMLButtonElement>("#openAgentSettingsBtn")!.click();
+    expect(host.querySelector<HTMLElement>("#agentBridgeAddressSummary")?.textContent).toBe("ws://127.0.0.1:18492");
+
     host.querySelector<HTMLButtonElement>("#agentBridgeAddressBtn")!.click();
     const input = host.querySelector<HTMLInputElement>("#agentBridgeUrl")!;
     const view = host.querySelector<HTMLElement>("#agentBridgeAddressView")!;
+    const agentView = host.querySelector<HTMLElement>("#biliscriptSettingsSubpageAgent")!;
+    const navBar = host.querySelector<HTMLElement>(".biliscript-settings-nav-bar")!;
+    const title = host.querySelector<HTMLElement>("#biliscriptSettingsTitle")!;
     expect(view.hidden).toBe(false);
-    expect(host.querySelector<HTMLElement>(".biliscript-settings-nav-bar")?.hidden).toBe(true);
+    expect(agentView.hidden).toBe(true);
+    expect(navBar.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("连接地址");
     expect(input.value).toBe("ws://127.0.0.1:18492");
 
     input.value = "ws://127.0.0.1:19000";
@@ -148,21 +156,25 @@ describe("本地 Agent 设置", () => {
     await vi.waitFor(() => {
       expect(sent).toContainEqual({ type: "save-settings", settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } });
     });
+    expect(host.querySelector<HTMLElement>("#agentBridgeAddressSummary")?.textContent).toBe("ws://127.0.0.1:19000");
 
     input.value = "https://example.com/agent";
     host.querySelector<HTMLButtonElement>("#agentBridgeTestBtn")!.click();
     expect(host.querySelector("#agentBridgeAddressStatus")?.textContent).toContain("本机 WebSocket 地址");
     expect(sent.filter((message) => message.type === "agent-bridge-test")).toHaveLength(1);
 
-    host.querySelector<HTMLButtonElement>("#agentBridgeAddressBackBtn")!.click();
+    host.querySelector<HTMLButtonElement>("#biliscript-reading-settings-back-btn")!.click();
     expect(view.hidden).toBe(true);
-    expect(host.querySelector<HTMLElement>(".biliscript-settings-nav-bar")?.hidden).toBe(false);
+    expect(agentView.hidden).toBe(false);
+    expect(navBar.hidden).toBe(false);
+    expect(title.textContent?.trim()).toBe("本地 Agent 连接");
   });
 
   it("输入 localhost 与 [::1] 测试和保存时归一为 127.0.0.1，并拒绝非法协议、非回环与缺失端口", async () => {
     const { host, sent } = await mountPanel({
       "agent-bridge-test": () => ({ ok: true, connected: true })
     });
+    host.querySelector<HTMLButtonElement>("#openAgentSettingsBtn")!.click();
     host.querySelector<HTMLButtonElement>("#agentBridgeAddressBtn")!.click();
     const input = host.querySelector<HTMLInputElement>("#agentBridgeUrl")!;
     const status = host.querySelector<HTMLElement>("#agentBridgeAddressStatus")!;
