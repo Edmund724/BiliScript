@@ -338,3 +338,63 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     expect(document.querySelector('.provider-editor-fetch-check[value="fresh-model"]')).toBeTruthy();
   });
 });
+
+describe("provider-editor 对外窄接口（initialFocusField / stashProviderEditorDraft）", () => {
+  it("initialFocusField 支持打开后直聚焦 apiKey 或 models 控件", async () => {
+    const editor = await import("../../extension/ui/provider-editor.js");
+
+    editor.openProviderEditor({
+      kind: "ai",
+      presets: PRESETS,
+      onSave: async () => ({ ok: true }),
+      initialFocusField: "apiKey"
+    });
+    expect(document.activeElement).toBe(document.querySelector(".provider-editor-apikey"));
+
+    editor.openProviderEditor({
+      kind: "ai",
+      presets: PRESETS,
+      onSave: async () => ({ ok: true }),
+      initialFocusField: "models"
+    });
+    expect(document.activeElement).toBe(document.querySelector('[data-provider-editor-action="add-model"]'));
+
+    editor.openProviderEditor({
+      kind: "asr",
+      presets: PRESETS,
+      onSave: async () => ({ ok: true }),
+      initialFocusField: "models"
+    });
+    expect(document.activeElement).toBe(document.querySelector(".provider-editor-model"));
+  });
+
+  it("stashProviderEditorDraft 仅在对应消费族会话打开时返回深拷贝草稿与基线", async () => {
+    const editor = await import("../../extension/ui/provider-editor.js");
+
+    expect(editor.stashProviderEditorDraft("live")).toBeNull();
+
+    editor.openProviderEditor({
+      kind: "search",
+      item: { id: "s_1", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", hasSavedKey: false },
+      presets: [{ id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", requiresKey: false }],
+      onSave: async () => ({ ok: true })
+    });
+
+    expect(editor.stashProviderEditorDraft("live")).toBeNull();
+    setFieldValue(dialogNode().querySelector<HTMLInputElement>(".provider-editor-name")!, "自定义搜索");
+
+    const stash = editor.stashProviderEditorDraft("search")!;
+    expect(stash).toMatchObject({
+      editingId: "s_1",
+      draft: { name: "自定义搜索" },
+      baseline: { name: "Tavily" }
+    });
+
+    // 外部修改暂存副本不得污染编辑器当前草稿
+    stash.draft.name = "外部篡改";
+    expect(editor.stashProviderEditorDraft("search")?.draft.name).toBe("自定义搜索");
+
+    editor.closeProviderEditor(true);
+    expect(editor.stashProviderEditorDraft("search")).toBeNull();
+  });
+});

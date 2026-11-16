@@ -1,8 +1,7 @@
+import { ids } from "../shared/dom-ids.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { ids } from "../reader/state.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
-import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
-import { createFocusScope, isolateHostSiblings, type FocusScope } from "./focus-scope.js";
+import { mountPanelModalShell, type PanelModalShell } from "./focus-scope.js";
 
 export function buildAgentBridgeInstallPrompt(address: string): string {
   const port = new URL(address).port;
@@ -16,62 +15,34 @@ ${portPrefix}irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scr
 }
 
 interface DialogState {
-  host: HTMLElement | null;
-  observer: MutationObserver | null;
-  focusScope: FocusScope | null;
-  restoreSiblings: (() => void) | null;
+  shell: PanelModalShell | null;
   generation: number;
 }
 
 const state: DialogState = {
-  host: null,
-  observer: null,
-  focusScope: null,
-  restoreSiblings: null,
+  shell: null,
   generation: 0
 };
 
 function closeDialog(generation = state.generation): void {
-  if (generation !== state.generation || !state.host) return;
-  state.observer?.disconnect();
-  state.observer = null;
-  document.removeEventListener("click", onDocumentClick, true);
-  document.removeEventListener("keydown", onDocumentKeyDown, true);
-  state.host.remove();
-  state.host = null;
-  state.restoreSiblings?.();
-  state.restoreSiblings = null;
-  state.focusScope?.dispose();
-  state.focusScope = null;
-}
-
-function onDocumentClick(event: MouseEvent): void {
-  const view = state.host?.parentElement;
-  if (!view || (event.target instanceof Node && view.contains(event.target))) return;
-  event.stopPropagation();
-  closeDialog();
-}
-
-function onDocumentKeyDown(event: KeyboardEvent): void {
-  if (event.key !== "Escape") return;
-  event.preventDefault();
-  event.stopPropagation();
-  closeDialog();
+  if (generation !== state.generation || !state.shell) return;
+  state.shell.dispose();
+  state.shell = null;
 }
 
 export function openAgentBridgeInstallDialog(address: string): void {
   closeDialog();
-  const view = document.getElementById(ids.readingView);
-  if (!view) return;
-  const active = document.activeElement;
-  const returnFocus =
-    active instanceof HTMLElement && active !== document.body && active !== document.documentElement
-      ? active
-      : null;
+  const mountHost = document.getElementById(ids.readingView);
+  if (!mountHost) return;
   const prompt = buildAgentBridgeInstallPrompt(address);
-  const host = document.createElement("div");
-  host.className = "confirm-dialog-host agent-bridge-install-host";
-  host.innerHTML = `
+  const generation = state.generation + 1;
+  state.generation = generation;
+
+  const shell = mountPanelModalShell({
+    mountHost,
+    hostClassName: "confirm-dialog-host agent-bridge-install-host",
+    dialogSelector: ".agent-bridge-install-dialog",
+    html: `
     <div class="confirm-dialog-mask" data-agent-install-action="close"></div>
     <section class="confirm-dialog agent-bridge-install-dialog" role="dialog" aria-modal="true" aria-labelledby="agentBridgeInstallTitle" aria-describedby="agentBridgeInstallDescription" tabindex="-1">
       <button type="button" class="agent-bridge-install-close" data-agent-install-action="close" aria-label="关闭" title="关闭">${READING_HEADER_ICONS.close}</button>
@@ -81,23 +52,22 @@ export function openAgentBridgeInstallDialog(address: string): void {
         <textarea class="agent-bridge-install-prompt" readonly aria-label="BiliScript 安装 Prompt">${escapeHtml(prompt)}</textarea>
         <button type="button" class="agent-bridge-install-copy" data-agent-install-action="copy">复制指令</button>
       </div>
-    </section>`;
-  const generation = state.generation + 1;
-  state.generation = generation;
-  state.host = host;
-  view.appendChild(host);
-  state.restoreSiblings = isolateHostSiblings(host);
+    </section>`,
+    isTopLayer: () => state.generation === generation,
+    onRequestDismiss: () => closeDialog(generation),
+    onForceDismiss: () => closeDialog(generation)
+  });
+  state.shell = shell;
 
-  host.addEventListener("click", (event) => {
-    event.stopPropagation();
+  shell.host.addEventListener("click", (event) => {
     const action = (event.target as HTMLElement).closest<HTMLElement>("[data-agent-install-action]")?.dataset.agentInstallAction;
     if (action === "close") {
       closeDialog(generation);
       return;
     }
     if (action !== "copy") return;
-    const button = host.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
-    const textarea = host.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt")!;
+    const button = shell.host.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
+    const textarea = shell.host.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt")!;
     void (async () => {
       try {
         await navigator.clipboard.writeText(prompt);
@@ -109,16 +79,4 @@ export function openAgentBridgeInstallDialog(address: string): void {
       }
     })();
   });
-
-  const dialog = host.querySelector<HTMLElement>(".agent-bridge-install-dialog");
-  if (dialog) {
-    state.focusScope = createFocusScope(dialog, {
-      initialFocus: dialog,
-      returnFocus,
-      isActive: () => state.generation === generation
-    });
-  }
-  document.addEventListener("click", onDocumentClick, true);
-  document.addEventListener("keydown", onDocumentKeyDown, true);
-  observeSettingsPanelHidden(() => closeDialog(generation), state);
 }

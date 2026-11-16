@@ -5,18 +5,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   normalizeLiveProvider,
-  resolveActiveLiveProviderId
-} from "../../extension/live/live-provider-store.js";
-import {
+  resolveActiveLiveProviderId,
   liveProviderStore,
   LIVE_PROVIDERS_STORAGE,
-  LIVE_PROVIDER_KEYS_STORAGE,
+  LIVE_PROVIDER_KEYS_STORAGE
+} from "../../extension/live/live-provider-store.js";
+import {
   resolveLiveModelsUrl,
   resolveLiveVoicesUrl,
   listLiveModels,
   listLiveVoices,
   testLiveConnection
-} from "../../extension/live/live-provider-store.js";
+} from "../../extension/live/live-provider-probe.js";
 
 function installStorageStub() {
   const sync: Record<string, unknown> = {};

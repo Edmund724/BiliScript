@@ -29,15 +29,11 @@ vi.mock("../../extension/asr/provider-test.js", () => ({ testAsrConnection }));
 vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
-vi.mock("../../extension/live/live-provider-store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/live/live-provider-store.js")>();
-  return {
-    ...actual,
-    testLiveConnection,
-    listLiveVoices: vi.fn(async () => ({ ok: false, error: "not used" })),
-    listLiveModels: vi.fn(async () => ({ ok: false, error: "not used" }))
-  };
-});
+vi.mock("../../extension/live/live-provider-probe.js", () => ({
+  testLiveConnection,
+  listLiveVoices: vi.fn(async () => ({ ok: false, error: "not used" })),
+  listLiveModels: vi.fn(async () => ({ ok: false, error: "not used" }))
+}));
 
 let sent: SentMessage[] = [];
 let denyOrigins: string | null = null;

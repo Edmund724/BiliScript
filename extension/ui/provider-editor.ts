@@ -33,7 +33,13 @@
 //     provider-editor.test.ts 与 provider-editor-session.test.ts。
 //   - 关闭语义（拍板 Q6）与抽屉收起联动（hidden → 强制关闭）实现在 modal 片。
 
-export { closeProviderEditor, isProviderEditorOpen, openProviderEditor } from "./provider-editor-modal.js";
+export {
+  closeProviderEditor,
+  isProviderEditorOpen,
+  openProviderEditor,
+  stashProviderEditorDraft,
+  type ProviderEditorDraftStash
+} from "./provider-editor-modal.js";
 export type {
   EditorDraft,
   EditorDraftView,

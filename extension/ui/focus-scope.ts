@@ -1,10 +1,12 @@
 // extension/ui/focus-scope.ts
-// 单层弹层的键盘焦点约束与归还：Tab / Shift+Tab 在当前容器内环绕，容器打开
-// 期间焦点被拉回容器，关闭 / 取消后把焦点还给打开前仍有效的触发控件。
+// 面板内弹层的共享外壳、键盘焦点约束与归还、同级节点 inert 隔离与设置抽屉收起观察：
+// Tab / Shift+Tab 在当前容器内环绕，容器打开期间焦点被拉回容器，关闭 / 取消后
+// 把焦点还给打开前仍有效的触发控件。
 //
-// 叠层的让位规则由调用方经 isActive 注入：下层弹层在确认框等上层弹层打开时
-// 整体停手，一次键盘输入只结算最上层（与 provider-editor / confirm-dialog
-// 既有的文档级监听让位同源）。
+// 叠层的让位规则由调用方经 isActive / isTopLayer 注入：下层弹层在确认框等上层
+// 弹层打开时整体停手，一次键盘或外点输入只结算最上层。
+
+import { ids } from "../shared/dom-ids.js";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -135,6 +137,114 @@ export function createFocusScope(container: HTMLElement, options: FocusScopeOpti
       if (restoreFocus) {
         restore();
       }
+    }
+  };
+}
+
+export type PanelModalDismissReason = "escape" | "outside-click";
+
+export interface PanelModalShellOptions {
+  hostClassName: string;
+  html: string;
+  dialogSelector: string;
+  mountHost?: HTMLElement | null;
+  initialFocusSelector?: string;
+  returnFocus?: HTMLElement | null;
+  isTopLayer?: () => boolean;
+  onRequestDismiss: (reason: PanelModalDismissReason) => void;
+  onForceDismiss: () => void;
+}
+
+export interface PanelModalShell {
+  host: HTMLElement;
+  dialog: HTMLElement | null;
+  dispose(restoreFocus?: boolean): void;
+}
+
+// 盯 #biliscript-reading-settings-panel 的 hidden 属性，设置抽屉收起时联动结算上层弹层。
+export function observeSettingsPanelHidden(onHidden: () => void): () => void {
+  const panel = document.getElementById(ids.readingSettingsPanel);
+  if (!panel || typeof MutationObserver === "undefined") {
+    return () => {};
+  }
+  const observer = new MutationObserver(() => {
+    if (panel.hidden) {
+      onHidden();
+    }
+  });
+  observer.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
+  return () => observer.disconnect();
+}
+
+export function mountPanelModalShell(options: PanelModalShellOptions): PanelModalShell {
+  const mountHost = options.mountHost || document.getElementById(ids.readingView);
+  if (!mountHost) {
+    throw new Error("Panel modal mount host not found");
+  }
+  const host = document.createElement("div");
+  host.className = options.hostClassName;
+  host.dataset.panelModalHost = "1";
+  host.innerHTML = options.html;
+  mountHost.appendChild(host);
+
+  const restoreSiblings = isolateHostSiblings(host);
+  const isTopLayer = options.isTopLayer ?? (() => true);
+  let disposed = false;
+
+  host.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  const onDocumentClickCapture = (event: MouseEvent): void => {
+    if (disposed || !isTopLayer()) return;
+    const view = host.parentElement || document.getElementById(ids.readingView);
+    if (view && event.target instanceof Node && view.contains(event.target)) {
+      return;
+    }
+    event.stopPropagation();
+    options.onRequestDismiss("outside-click");
+  };
+
+  const onDocumentKeyDownCapture = (event: KeyboardEvent): void => {
+    if (disposed || event.key !== "Escape" || !isTopLayer()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    options.onRequestDismiss("escape");
+  };
+
+  const dialog = host.querySelector<HTMLElement>(options.dialogSelector);
+  const initialFocus =
+    (options.initialFocusSelector ? host.querySelector<HTMLElement>(options.initialFocusSelector) : null) ??
+    dialog;
+  const focusScope = dialog
+    ? createFocusScope(dialog, {
+        initialFocus,
+        returnFocus: options.returnFocus,
+        isActive: isTopLayer
+      })
+    : null;
+
+  document.addEventListener("click", onDocumentClickCapture, true);
+  document.addEventListener("keydown", onDocumentKeyDownCapture, true);
+  const stopObservingHidden = observeSettingsPanelHidden(() => {
+    if (!disposed) {
+      options.onForceDismiss();
+    }
+  });
+
+  return {
+    host,
+    dialog,
+    dispose(restoreFocus = true): void {
+      if (disposed) return;
+      disposed = true;
+      stopObservingHidden();
+      document.removeEventListener("click", onDocumentClickCapture, true);
+      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
+      host.remove();
+      // 先解除同级 inert 再归还焦点，避免 returnTarget 仍处于 inert 无法接收焦点。
+      restoreSiblings();
+      focusScope?.dispose(restoreFocus);
     }
   };
 }

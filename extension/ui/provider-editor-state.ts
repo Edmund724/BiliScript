@@ -21,14 +21,12 @@
 // 视图，写入只经本片的意图级原语（beginEditorSession / endEditorSession /
 // editDraft）；「代际 + open + 存活判据」的过期回执纪律收进结算原语
 //（captureSession / runIfCurrent），动作只写成功与失败两支，不再逐处手抄
-// `generation !== state.generation || !state.open`。挂抽屉观察器的槽位单独留
-// sessionObserver（settings-panel-hidden 需要就地写入的宿主对象）。
+// `generation !== state.generation || !state.open`。
 
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
 import type { LiveVoice } from "../live/live-provider-store.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
-import type { SettingsPanelObserverHost } from "./settings-panel-hidden.js";
 
 export type ProviderEditorKind = "ai" | "asr" | "search" | "live";
 
@@ -145,6 +143,8 @@ export interface ProviderEditorOpenOptions {
   setupContextBanner?: string | null;
   // 打开即显示的初始状态行（如跨族凭据返回提示）
   initialStatus?: { message: string; isError?: boolean } | null;
+  // 打开后优先聚焦的目标字段（缺省聚焦对话框容器）
+  initialFocusField?: "apiKey" | "models";
 }
 
 // 会话控制字段：对外只读（写入走下面的意图级原语）。
@@ -212,9 +212,6 @@ const bag: MutableEditorState = {
 // 片外只读视图：`state.x = ...` 编译期即失败（写入走原语）。
 export const state: Readonly<EditorState> = bag;
 
-// 抽屉收起观察器的就地写入槽（observeSettingsPanelHidden 需要宿主对象）。
-export const sessionObserver: SettingsPanelObserverHost = { observer: null };
-
 // ===== 会话写入原语（owner 2）=====
 
 export interface EditorSessionInit {
@@ -277,8 +274,6 @@ export function endEditorSession(): void {
   bag.linkedCredential = null;
   bag.resolveLinkedCredential = null;
   bag.setupContextBanner = null;
-  sessionObserver.observer?.disconnect();
-  sessionObserver.observer = null;
   bag.host?.remove();
   bag.host = null;
   bag.draft = null;

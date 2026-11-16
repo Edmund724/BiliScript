@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   LIVE_PROVIDER_KEYS_STORAGE,
-    listLiveModels,
   liveProviderStore,
-  normalizeLiveProvider,
+  normalizeLiveProvider
+} from "../../extension/live/live-provider-store.js";
+import {
+  listLiveModels,
   resolveLiveModelsUrl,
   testLiveConnection
-} from "../../extension/live/live-provider-store.js";
+} from "../../extension/live/live-provider-probe.js";
 
 const GEMINI_AI = {
   id: "p_gemini",

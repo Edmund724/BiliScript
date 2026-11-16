@@ -51,6 +51,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const view = document.getElementById("biliscript-reading-view")!;
     const host = view.querySelector<HTMLElement>(".confirm-dialog-host")!;
     expect(host).not.toBeNull();
+    expect(host.dataset.panelModalHost).toBe("1");
     expect(host.parentElement).toBe(view);
     expect(host.querySelector(".confirm-dialog-mask")).not.toBeNull();
 

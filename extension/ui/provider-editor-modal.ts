@@ -20,17 +20,8 @@ import { escapeHtml } from "../shared/string-utils.js";
 
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
-import { listLiveModels, listLiveVoices, testLiveConnection } from "../live/live-provider-store.js";
-import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
-import { executeWebSearch } from "../search/search-executor.js";
-import { classifySearchFailure } from "../search/search-chain.js";
-import { searchProviderStore } from "../search/search-provider-store.js";
-// DeepSeek 凭据引用（GLOSSARY「凭据引用」）：搜索测试的 Key 与链装配同源——读 AI 族
-// 列表（ai-providers-list）+ 官方端点判定，再按记录 id 取 Key（get-ai-provider-key）。
-import {
-  getAiCredentialStatusText,
-  queryAiCredentialKey
-} from "../core/ai-credential-reference.js";
+import { listLiveModels, listLiveVoices, testLiveConnection } from "../live/live-provider-probe.js";
+import { SEARCH_TEST_QUERY, testSearchConnection } from "../search/provider-test.js";
 
 import { wireModelPicker, type ModelPickerFetchResult } from "./model-picker.js";
 import { initCustomSelect } from "./custom-select.js";
@@ -38,7 +29,6 @@ import { initToggleSwitch } from "./toggle-switch.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { hasReaderSettingsDropdownOpen } from "../reader/settings-mode.js";
-import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
@@ -53,7 +43,6 @@ import {
   markEditorVoicesLoaded,
   normalizeDraftModels,
   runIfCurrent,
-  sessionObserver,
   state,
   type EditorDraft,
   type LinkedCredentialAction,
@@ -84,7 +73,12 @@ import {
   getFetchDialog,
   openFetchDialog
 } from "./provider-editor-fetch-dialog.js";
-import { createFocusScope, isolateHostSiblings, type FocusScope } from "./focus-scope.js";
+import {
+  createFocusScope,
+  isolateHostSiblings,
+  observeSettingsPanelHidden,
+  type FocusScope
+} from "./focus-scope.js";
 import {
   beginEditorValidation,
   focusEditorField,
@@ -95,11 +89,13 @@ import {
   validateEditorFields
 } from "./provider-editor-validation.js";
 
-// 单模型输入族（modelSource === "input"：asr / live）的运行时 I/O 动作表：
-// 纯声明留在 provider-family.ts，带网络/port 副作用的探针与模型枚举留在本懒加载片。
-interface InputModelFamilyIo {
-  readonly defaultType: string;
-  readonly fetchModels: (params: {
+export { SEARCH_TEST_QUERY };
+
+// 平台级探针与模型枚举动作表（覆盖 ASR / Live / Search）：纯声明留在 provider-family.ts，
+// 带网络/port 副作用的探针与模型枚举留在本懒加载片。
+interface PlatformProbeIo {
+  readonly preflightOrigin: boolean;
+  readonly fetchModels?: (params: {
     baseUrl: string;
     apiKey?: string;
     providerId?: string;
@@ -107,24 +103,59 @@ interface InputModelFamilyIo {
   }) => Promise<ModelPickerFetchResult | null>;
   readonly probePlatform: (params: {
     id: string;
+    presetId: string;
     name: string;
     type: string;
     baseUrl: string;
     model: string;
     apiKey?: string;
-  }) => Promise<{ ok?: boolean; error?: string }>;
+    requiresKey: boolean;
+  }) => Promise<{ ok?: boolean; message?: string; error?: string }>;
+  readonly formatFailure: (error?: string) => string;
 }
 
-const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamilyIo>> = {
+const PLATFORM_PROBE_IO: Partial<Record<ProviderEditorKind, PlatformProbeIo>> = {
   asr: {
-    defaultType: "openai-transcriptions",
+    preflightOrigin: true,
     fetchModels: listAsrModels,
-    probePlatform: testAsrConnection
+    probePlatform: ({ id, name, type, baseUrl, model, apiKey }) =>
+      testAsrConnection({
+        id,
+        name,
+        type: type || "openai-transcriptions",
+        baseUrl,
+        model,
+        ...(apiKey ? { apiKey } : {})
+      }),
+    formatFailure: (error) => `失败：${error || "未知错误"}`
   },
   live: {
-    defaultType: "moss-live",
+    preflightOrigin: true,
     fetchModels: listLiveModels,
-    probePlatform: testLiveConnection
+    probePlatform: ({ id, presetId, name, type, baseUrl, model, apiKey }) =>
+      testLiveConnection({
+        id,
+        presetId,
+        name,
+        type: type || "moss-live",
+        baseUrl,
+        model,
+        ...(apiKey ? { apiKey } : {})
+      }),
+    formatFailure: (error) => `失败：${error || "未知错误"}`
+  },
+  search: {
+    preflightOrigin: false,
+    probePlatform: ({ id, presetId, type, baseUrl, apiKey, requiresKey }) =>
+      testSearchConnection({
+        id,
+        presetId,
+        type,
+        baseUrl,
+        apiKey,
+        requiresKey
+      }),
+    formatFailure: (error) => error || "连接失败：未知错误"
   }
 };
 
@@ -132,6 +163,8 @@ const INPUT_MODEL_FAMILY_IO: Partial<Record<ProviderEditorKind, InputModelFamily
 let focusScope: FocusScope | null = null;
 // 宿主下同级容器 inert 恢复函数（关闭 Modal 时恢复底层）
 let restoreSiblings: (() => void) | null = null;
+// 设置抽屉 hidden 属性观察清理函数
+let stopObservingSettingsHidden: (() => void) | null = null;
 // 合法提交/删除/测试在飞标记（彼此互斥，防止保存/删除/测试并发）
 let saveInFlight = false;
 let deleteInFlight = false;
@@ -333,6 +366,8 @@ export function closeProviderEditor(force = false): void {
     void confirmDiscardChanges();
     return;
   }
+  stopObservingSettingsHidden?.();
+  stopObservingSettingsHidden = null;
   document.removeEventListener("click", onDocumentClickCapture, true);
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
   // 若拉取子视图仍挂在弹窗内，先清理其焦点约束与底层 inert 标记（不向触发按钮归还焦点）
@@ -513,112 +548,31 @@ export async function deleteActive(): Promise<void> {
 
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 //
-// AI：行级测试（拍板 Q4/Q12，runModelTest），平台级按钮已退役；本函数只剩
-// 单模型输入族（ASR / Live）平台级探针与搜索测试动作（spec §6.6）。探针的 host
-// 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
+// AI 走目录行级测试；本函数处理保留平台级探针的族（ASR / Live / Search）。
+// 需动态权限的族（ASR / Live）从函数入口到 runWithOriginPreflight 之间保持零 await，
+// 以确保权限弹窗在点击手势同步链上发起；静态权限族（Search）直接走 session.run。
 
 export async function runTest(): Promise<void> {
   if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
   const family = PROVIDER_FAMILY_ROWS[state.kind];
-  if (!family.editor.supportsPlatformTest) return;
-  if (state.kind === "search") {
-    // 不同步 await：搜索域名是 manifest 静态 host 权限（settings-panel 保存链同款
-    // 判据），不代申请；这里让出控制权也不影响手势（该分支直接返回，从不到申请处）
-    void runSearchTest();
-    return;
-  }
-  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
+  const probeIo = PLATFORM_PROBE_IO[state.kind];
   const draft = state.draft;
-  if (!draft || !inputIo) return;
+  if (!family.editor.supportsPlatformTest || !probeIo || !draft) return;
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
   if (!baseUrl) {
     showStatus("请填写 API 地址", true);
     return;
   }
-  if (!model) {
+  if (family.editor.modelSource === "input" && !model) {
     showStatus("请填写模型名", true);
     return;
   }
   const preset = family.resolvePreset(state.presets, draft.presetId);
   const apiKey = draft.apiKey.trim();
   const reconfirmKey = isSavedKeyReconfirmRequired(draft);
-  if (!apiKey && reconfirmKey && family.editor.isKeyRequired(preset)) {
-    showReconfirmStatus();
-    return;
-  }
-  // 手势不变式：本次点击直达权限代申请（此前零 await，等价行为断言见
-  // tests/ui/provider-editor.test.ts 的点击当拍核验）。已授权时 Chrome 直接放行
-  // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
-  testInFlight = true;
-  setBusy(true);
-  showStatus("正在测试...");
-  const session = captureSession();
-  await session.runWithOriginPreflight(
-    family.editor.resolvePermissionOrigins(baseUrl, model),
-    () => {
-      const name = draft.name.trim() || preset?.name || "自定义";
-      return inputIo.probePlatform({
-        id: reconfirmKey ? "" : state.editingId,
-        name,
-        type: preset?.type || inputIo.defaultType,
-        baseUrl,
-        model,
-        ...(apiKey ? { apiKey } : {})
-      });
-    },
-    {
-      denied: (error) => {
-        testInFlight = false;
-        setBusy(false);
-        showStatus(
-          `未测试：${error || "未取得该平台域名权限，无法测试连接"}。请重新授权后重试`,
-          true
-        );
-      },
-      ok: (resp) => {
-        testInFlight = false;
-        setBusy(false);
-        if (!resp?.ok) {
-          showStatus(`失败：${resp?.error || "未知错误"}`, true);
-          return;
-        }
-        showStatus("连接成功");
-      },
-      fail: (error) => {
-        testInFlight = false;
-        setBusy(false);
-        showStatus(`失败：${(error as Error)?.message || "未知错误"}`, true);
-      }
-    }
-  );
-}
-
-// ===== 搜索测试动作（spec §6.6） =====
-//
-// 三条硬约束：① 测试走单引擎执行路径（executeWebSearch）——不经回退链，也不走、
-// 不写查询缓存；② 探针词是设置页常量；③ 不落盘（只有「保存」写设置）。
-// 前置（baseUrl 空 / Key 必填但空）是本地校验，不是测试态：不发起请求。
-export const SEARCH_TEST_QUERY = "联网搜索测试";
-
-
-// 五态：HTTP 200 有结果 →「连接成功 · N 条结果」；200 且 0 条 →「未返回结果」
-// （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
-//「连接失败：<原因>」。分类复用 search-chain 的 classifySearchFailure（单一映射表）。
-export async function runSearchTest(): Promise<void> {
-  if (saveInFlight || deleteInFlight || testInFlight || isConfirmDialogOpen()) return;
-  const family = PROVIDER_FAMILY_ROWS[state.kind];
-  const draft = state.draft;
-  if (!draft) return;
-  const preset = family.resolvePreset(state.presets, draft.presetId) as SearchProviderPreset | null;
-  const baseUrl = draft.baseUrl.trim();
-  if (!baseUrl) {
-    showStatus("请填写 API 地址", true);
-    return;
-  }
-  const reconfirmKey = isSavedKeyReconfirmRequired(draft);
-  let apiKey = draft.apiKey.trim();
-  if (!apiKey && reconfirmKey && family.editor.isKeyRequired(preset)) {
+  const requiresKey = family.editor.isKeyRequired(preset);
+  if (!apiKey && reconfirmKey && requiresKey) {
     showReconfirmStatus();
     return;
   }
@@ -626,80 +580,53 @@ export async function runSearchTest(): Promise<void> {
   setBusy(true);
   showStatus("正在测试...");
   const session = captureSession();
-  // 编辑已存 Key 的平台时空输入沿用已存 Key（与保存链同语义）：只读存储，不写；
-  // 已换预设/地址时禁止沿用旧平台已存 Key。
-  if (!apiKey && state.hasSavedKey && state.editingId && !reconfirmKey) {
-    try {
-      apiKey = (await searchProviderStore.getKey(state.editingId)) || "";
-    } catch {
-      apiKey = "";
-    }
-    if (!session.isCurrent()) {
-      if (!state.open) testInFlight = false;
-      return;
-    }
-  }
-  // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
-  // 同源判定）；取不到按状态给三态文案之一，不发起请求。
-  if (preset?.id === "deepseek") {
-    const resolved = await queryAiCredentialKey("deepseek");
-    if (!session.isCurrent()) {
-      if (!state.open) testInFlight = false;
-      return;
-    }
-    if (!resolved.key) {
-      testInFlight = false;
-      setBusy(false);
-      showStatus(getAiCredentialStatusText("deepseek", resolved.status), true);
-      return;
-    }
-    apiKey = resolved.key;
-  }
-  // Key 必填判据与占位符 / required 同源（族声明的 isKeyRequired）
-  if (!apiKey && family.editor.isKeyRequired(preset)) {
+  const probeParams = {
+    id: reconfirmKey ? "" : state.editingId,
+    presetId: draft.presetId,
+    name: draft.name.trim() || preset?.name || "自定义",
+    type: preset?.type || "",
+    baseUrl,
+    model,
+    ...(apiKey ? { apiKey } : {}),
+    requiresKey
+  };
+  const onOk = (resp: { ok?: boolean; message?: string; error?: string }): void => {
     testInFlight = false;
     setBusy(false);
-    showStatus("请先填写 API Key", true);
+    if (!resp?.ok) {
+      showStatus(probeIo.formatFailure(resp?.error), true);
+      return;
+    }
+    showStatus(resp.message || "连接成功");
+  };
+  const onFail = (error: unknown): void => {
+    testInFlight = false;
+    setBusy(false);
+    showStatus(probeIo.formatFailure((error as Error)?.message), true);
+  };
+  if (probeIo.preflightOrigin) {
+    await session.runWithOriginPreflight(
+      family.editor.resolvePermissionOrigins(baseUrl, model),
+      () => probeIo.probePlatform(probeParams),
+      {
+        denied: (error) => {
+          testInFlight = false;
+          setBusy(false);
+          showStatus(
+            `未测试：${error || "未取得该平台域名权限，无法测试连接"}。请重新授权后重试`,
+            true
+          );
+        },
+        ok: onOk,
+        fail: onFail
+      }
+    );
     return;
   }
-  // 会话结算（owner 2）：五态映射只写在成功与失败两支，过期回执静默丢弃
-  await session.run(
-    () =>
-      executeWebSearch(
-        {
-          type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
-          baseUrl,
-          apiKey
-        },
-        SEARCH_TEST_QUERY
-      ),
-    {
-      ok: (outcome) => {
-        testInFlight = false;
-        setBusy(false);
-        // 200 但 0 条是失败态（空结果不能假装连通成功）
-        if (!outcome.results.length) {
-          showStatus("未返回结果", true);
-          return;
-        }
-        showStatus(`连接成功 · ${outcome.results.length} 条结果`);
-      },
-      fail: (error) => {
-        testInFlight = false;
-        setBusy(false);
-        const failure = classifySearchFailure(error);
-        if (failure === "quota") {
-          showStatus("额度已用尽", true);
-          return;
-        }
-        if (failure === "auth") {
-          showStatus("Key 无效或无权限", true);
-          return;
-        }
-        showStatus(`连接失败：${(error as Error)?.message || "未知错误"}`, true);
-      }
-    }
-  );
+  await session.run(() => probeIo.probePlatform(probeParams), {
+    ok: onOk,
+    fail: onFail
+  });
 }
 
 // ===== 模板 =====
@@ -1099,8 +1026,9 @@ export function wireDialog(): void {
   });
 
   // 单模型输入族（ASR / Live）侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）
-  const inputIo = INPUT_MODEL_FAMILY_IO[state.kind];
-  if (family.editor.modelSource === "input" && inputIo) {
+  const probeIo = PLATFORM_PROBE_IO[state.kind];
+  const fetchModels = probeIo?.fetchModels;
+  if (family.editor.modelSource === "input" && fetchModels) {
     wireModelPicker(dialog as unknown as ProviderRowElement, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
@@ -1110,7 +1038,7 @@ export function wireDialog(): void {
       fetchModels: ({ baseUrl, apiKey, providerId }) => {
         const preset = family.resolvePreset(state.presets, state.draft?.presetId || "");
         const reconfirmKey = isSavedKeyReconfirmRequired();
-        return inputIo.fetchModels({
+        return fetchModels({
           baseUrl,
           apiKey,
           providerId: reconfirmKey ? "" : (providerId || state.editingId),
@@ -1189,14 +1117,36 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   primeEditorVoices();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
-  // 外层命令收起设置时强制关闭（含 dirty 改动），confirm 无意义；普通外点与
-  // Esc 已在当前弹层结算，不会进入这条联动。自治监听 hidden 属性变化。
-  observeSettingsPanelHidden(() => closeProviderEditor(true), sessionObserver);
-  // 只读模型元数据（model-catalog/04）：只有目录族的 Modal 用得上，打开后才动态
-  // import 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗
+  stopObservingSettingsHidden = observeSettingsPanelHidden(() => closeProviderEditor(true));
   if (PROVIDER_FAMILY_ROWS[options.kind].editor.modelSource === "catalog") {
     void primeModelCatalogMeta();
   }
+  if (dialog && options.initialFocusField === "apiKey") {
+    dialog.querySelector<HTMLElement>(".provider-editor-apikey")?.focus({ preventScroll: true });
+  } else if (dialog && options.initialFocusField === "models") {
+    dialog
+      .querySelector<HTMLElement>(
+        '[data-provider-editor-action="add-model"], .provider-editor-model-input, .provider-editor-model'
+      )
+      ?.focus({ preventScroll: true });
+  }
+}
+
+export interface ProviderEditorDraftStash {
+  editingId: string;
+  draft: EditorDraft;
+  baseline: EditorDraft | null;
+}
+
+export function stashProviderEditorDraft(kind: "live" | "search"): ProviderEditorDraftStash | null {
+  if (!state.open || state.kind !== kind || !state.draft || !state.host) {
+    return null;
+  }
+  return {
+    editingId: state.editingId,
+    draft: cloneDraft(state.draft),
+    baseline: state.baselineDraft ? cloneDraft(state.baselineDraft) : null
+  };
 }
 
 export function isProviderEditorOpen(): boolean {

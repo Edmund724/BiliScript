@@ -49,7 +49,11 @@ vi.mock("../../extension/search/search-executor.js", () => ({
 
 vi.mock("../../extension/search/search-provider-store.js", () => ({
   searchProviderStore: {
-    getKey: mocks.searchGetKey
+    getKey: mocks.searchGetKey,
+    resolveDraftApiKey: (apiKey?: string | null, providerId?: string | null) => {
+      const direct = String(apiKey || "").trim();
+      return direct ? Promise.resolve(direct) : (providerId ? mocks.searchGetKey() : Promise.resolve(""));
+    }
   }
 }));
 
