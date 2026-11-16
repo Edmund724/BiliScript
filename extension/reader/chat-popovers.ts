@@ -16,6 +16,9 @@ export interface CreateReaderChatPopoversDeps {
   moreMenu?: HTMLElement | null;
   renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
   settlePendingDeletion: () => void;
+  cancelPendingSwitch?: () => void;
+  exitLiveHistoryDetail?: () => boolean;
+  resetLiveHistoryDetail?: () => void;
   renderModelPanel: () => void;
 }
 
@@ -23,9 +26,9 @@ export interface ReaderChatPopovers {
   toggleHistoryPopover: (event?: Event) => void;
   hideHistoryPopover: (options?: { focus?: HistoryExitFocus }) => void;
   toggleModelPanel: (event?: Event) => void;
-  hideModelPanel: () => void;
+  hideModelPanel: (options?: { restoreFocus?: boolean }) => void;
   toggleMoreMenu: (event?: Event) => void;
-  hideMoreMenu: () => void;
+  hideMoreMenu: (options?: { restoreFocus?: boolean }) => void;
   handleDocumentClick: (event: MouseEvent) => void;
   handleEscapeKey: (event: KeyboardEvent) => void;
 }
@@ -44,7 +47,11 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (!hidden) {
       focusWithoutScroll(deps.historyBackBtn);
     } else {
-      if (wasOpen) deps.settlePendingDeletion();
+      if (wasOpen) {
+        deps.cancelPendingSwitch?.();
+        deps.resetLiveHistoryDetail?.();
+        deps.settlePendingDeletion();
+      }
       if (wasOpen && focus === "trigger") {
         focusWithoutScroll(deps.historyExitFocusEl ?? deps.historyBtn);
       } else if (wasOpen && focus === "input") {
@@ -72,11 +79,20 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     }
   }
 
-  function setMoreMenuHidden(hidden: boolean): void {
+  function setMoreMenuHidden(hidden: boolean, restoreFocus = false): void {
+    const wasOpen = Boolean(moreMenu && !moreMenu.hidden);
     if (moreMenu) moreMenu.hidden = hidden;
     if (moreBtn) {
       moreBtn.setAttribute("aria-expanded", String(!hidden));
       moreBtn.classList.toggle("is-active", !hidden);
+    }
+    if (!moreMenu) {
+      return;
+    }
+    if (!hidden) {
+      focusWithoutScroll(moreMenu.querySelector<HTMLElement>(".biliscript-reading-chat-more-item, button, input"));
+    } else if (wasOpen && restoreFocus) {
+      focusWithoutScroll(moreBtn);
     }
   }
 
@@ -100,19 +116,20 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (willShow) deps.renderModelPanel();
   }
 
-  function hideModelPanel(): void {
-    setModelPanelHidden(true, true);
+  function hideModelPanel({ restoreFocus = true }: { restoreFocus?: boolean } = {}): void {
+    setModelPanelHidden(true, restoreFocus);
   }
 
   function toggleMoreMenu(event?: Event): void {
     event?.stopPropagation();
     if (!moreMenu) return;
     hideOthers(moreMenu);
-    setMoreMenuHidden(!moreMenu.hidden);
+    const willShow = moreMenu.hidden;
+    setMoreMenuHidden(!willShow, !willShow);
   }
 
-  function hideMoreMenu(): void {
-    setMoreMenuHidden(true);
+  function hideMoreMenu({ restoreFocus = false }: { restoreFocus?: boolean } = {}): void {
+    setMoreMenuHidden(true, restoreFocus);
   }
 
   function handleDocumentClick(event: MouseEvent): void {
@@ -137,6 +154,9 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (event.key !== "Escape") return;
     if (!historyPopover.hidden) {
       event.preventDefault();
+      if (deps.exitLiveHistoryDetail?.()) {
+        return;
+      }
       hideHistoryPopover();
       return;
     }
@@ -147,7 +167,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     }
     if (moreMenu && !moreMenu.hidden) {
       event.preventDefault();
-      hideMoreMenu();
+      hideMoreMenu({ restoreFocus: true });
     }
   }
 

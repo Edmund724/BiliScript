@@ -548,4 +548,50 @@ describe("Ticket 04: 原地无缝“继续生成”流式编排", () => {
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
     expect(firstAssistant.querySelector(".chat-msg-stopped")?.textContent).toBe("再次停止");
   });
+
+  it("跨视频继续生成弹出上下文确认并沿用原上下文（不带截帧工具），取消时恢复 DOM 与 scrollTop", async () => {
+    const stateMod = await import("../../extension/chat/chat-state.js");
+    stateMod.chatSessionStateForTests.currentContextKey = "video:BV1old|1";
+    stateMod.chatSessionStateForTests.liveContextKey = "video:BV1old|1";
+    stateMod.chatSessionStateForTests.contextData = {
+      title: "旧视频",
+      bvid: "BV1old",
+      cid: "1",
+      url: "https://www.bilibili.com/video/BV1old",
+      isVideoContext: true,
+      subtitleBody: [{ from: 0, to: 5, content: "旧字幕" }]
+    };
+    const deps = makeDeps();
+    (deps as CreateChatRuntimeDeps).canUseVideoFrameTool = vi.fn(async () => true);
+    const confirmFn = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    (deps as CreateChatRuntimeDeps).confirmRegenerationContext = confirmFn;
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("第一问");
+    feed(runtime, { type: "token", data: "半句" });
+    feed(runtime, { type: "stopped", reason: "已停止" });
+
+    // 切到新视频页面
+    stateMod.chatSessionStateForTests.liveContextKey = "video:BV1new|1";
+    deps.messages.scrollTop = 180;
+    const assistantEl = deps.messages.querySelector<HTMLDivElement>(".chat-msg-assistant")!;
+
+    assistantEl.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(assistantEl.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止"));
+    expect(deps.messages.scrollTop).toBe(180);
+    expect(deps.ports).toHaveLength(1);
+
+    assistantEl.querySelector<HTMLButtonElement>(".chat-msg-continue-btn")!.click();
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(2));
+    const posted = deps.ports[1].port.postMessage.mock.calls[0][0] as {
+      contextKey?: string;
+      context?: { bvid?: string };
+      videoFrameToolEnabled?: boolean;
+    };
+    expect(posted.contextKey).toBe("video:BV1old|1");
+    expect(posted.context?.bvid).toBe("BV1old");
+    expect(posted).not.toHaveProperty("videoFrameToolEnabled");
+  });
 });

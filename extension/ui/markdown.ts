@@ -10,6 +10,8 @@
 //     (/\b\d{1,3}:\d{2}(?::\d{2})?\b/g); timestamp-nav.js imports it from here.
 //   - TIMESTAMP_INLINE_CODE_REST_PATTERN: used only by isTimestampOnlyInlineCode.
 import { decodeHtmlEntities, escapeHtml } from "../shared/string-utils.js";
+import { flashCopySuccess } from "./copy-feedback.js";
+import { READING_COPY_ICON } from "./reading-icons.js";
 import { enhanceMarkdownTables, TABLE_SHELL_CLASS } from "./markdown-table.js";
 import { hydrateMermaid } from "./lazy-mermaid.js";
 import { hydrateMath } from "./lazy-math.js";
@@ -269,7 +271,9 @@ export function renderMarkdownStripped(text: string, options: MarkdownRenderOpti
         );
         continue;
       }
-      out.push(`<pre><code>${fence.code}</code></pre>`);
+      const fenceLang = fence.lang.trim().split(/\s+/)[0] || "";
+      const langAttr = fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : "";
+      out.push(`<pre${langAttr}><code>${fence.code}</code></pre>`);
       continue;
     }
 
@@ -987,9 +991,51 @@ export interface MarkdownStreamSession {
 }
 
 /**
- * 统一水合 markdown 渲染后的 DOM 内容（表格横滑/卡片交互 + Mermaid 占位图表 + KaTeX 数学公式）。
+ * 为 Markdown 普通代码块补齐语言标签栏与复制按钮（幂等，跳过 Mermaid 源码）。
+ */
+export function enhanceMarkdownCodeBlocks(root: ParentNode): void {
+  const preNodes = Array.from(root.querySelectorAll<HTMLPreElement>("pre"));
+  for (const pre of preNodes) {
+    if (pre.classList.contains(MERMAID_SOURCE_CLASS) || pre.closest(".biliscript-md-mermaid") || pre.closest(".biliscript-md-code")) {
+      continue;
+    }
+    const wrapper = document.createElement("div");
+    wrapper.className = "biliscript-md-code";
+    const bar = document.createElement("div");
+    bar.className = "biliscript-md-code-bar";
+    const lang = pre.getAttribute("data-lang")?.trim() || "";
+    if (lang) {
+      const langEl = document.createElement("span");
+      langEl.className = "biliscript-md-code-lang";
+      langEl.textContent = lang;
+      bar.appendChild(langEl);
+    }
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "biliscript-md-code-copy";
+    copyBtn.setAttribute("aria-label", "复制代码");
+    copyBtn.setAttribute("title", "复制代码");
+    copyBtn.innerHTML = READING_COPY_ICON.trim();
+    copyBtn.addEventListener("click", async () => {
+      const text = pre.querySelector("code")?.textContent ?? pre.textContent ?? "";
+      try {
+        await navigator.clipboard.writeText(text);
+        flashCopySuccess(copyBtn, { originalSvg: READING_COPY_ICON, originalLabel: "复制代码" });
+      } catch {
+        // 剪贴板不可用时静默失败
+      }
+    });
+    bar.appendChild(copyBtn);
+    pre.parentNode?.insertBefore(wrapper, pre);
+    wrapper.append(bar, pre);
+  }
+}
+
+/**
+ * 统一水合 markdown 渲染后的 DOM 内容（代码块复制条 + 表格横滑/卡片交互 + Mermaid 占位图表 + KaTeX 数学公式）。
  */
 export function hydrateMarkdownContent(root: ParentNode): void {
+  enhanceMarkdownCodeBlocks(root);
   enhanceMarkdownTables(root);
   hydrateMermaid(root);
   hydrateMath(root);

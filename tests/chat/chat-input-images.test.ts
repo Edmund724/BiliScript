@@ -562,34 +562,50 @@ describe("删除与预览的焦点", () => {
     const trigger = strip.querySelector<HTMLButtonElement>(".chat-image-preview")!;
     trigger.focus();
 
-    images.previewAt(0);
+    trigger.click();
 
-    const overlay = document.querySelector<HTMLElement>(".chat-image-lightbox")!;
-    expect(overlay.querySelector("[role='dialog']")?.getAttribute("aria-modal")).toBe("true");
-    expect(overlay.querySelector(".chat-image-lightbox-image")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
-    expect(document.activeElement).toBe(overlay.querySelector(".chat-image-lightbox-close"));
+    const viewer = document.querySelector<HTMLDialogElement>("dialog.chat-image-viewer")!;
+    expect(viewer).not.toBeNull();
+    expect(viewer.hasAttribute("open")).toBe(true);
+    expect(viewer.querySelector(".chat-image-viewer-image")?.getAttribute("src")).toBe("data:image/webp;base64,QUJD");
+    expect(document.activeElement).toBe(viewer.querySelector(".chat-image-viewer-close"));
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 
-    expect(document.querySelector(".chat-image-lightbox")).toBeNull();
+    expect(document.querySelector("dialog.chat-image-viewer")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("点击预览外部关闭并归还焦点，点击图片本身不关闭", async () => {
+  it("点击预览外部关闭并归还焦点，点击图片本身不关闭，restoreImages 还原附件且 closeViewer(false) 不归还焦点", async () => {
     const { images, strip } = makeRuntime();
     images.handlePaste(makePasteEvent([fileItem(makeFile())]));
     await flush();
     const trigger = strip.querySelector<HTMLButtonElement>(".chat-image-preview")!;
     trigger.focus();
-    images.previewAt(0);
-    const overlay = document.querySelector<HTMLElement>(".chat-image-lightbox")!;
+    trigger.click();
+    const viewer = document.querySelector<HTMLDialogElement>("dialog.chat-image-viewer")!;
 
-    overlay.querySelector<HTMLImageElement>(".chat-image-lightbox-image")!.click();
-    expect(document.querySelector(".chat-image-lightbox")).not.toBeNull();
+    viewer.querySelector<HTMLImageElement>(".chat-image-viewer-image")!.click();
+    expect(document.querySelector("dialog.chat-image-viewer")).not.toBeNull();
 
-    overlay.click();
+    viewer.click();
 
-    expect(document.querySelector(".chat-image-lightbox")).toBeNull();
+    expect(document.querySelector("dialog.chat-image-viewer")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+
+    trigger.click();
+    expect(document.querySelector("dialog.chat-image-viewer")).not.toBeNull();
+    const otherBtn = document.createElement("button");
+    document.body.appendChild(otherBtn);
+    otherBtn.focus();
+    images.closeViewer(false);
+    expect(document.querySelector("dialog.chat-image-viewer")).toBeNull();
+    expect(document.activeElement).toBe(otherBtn);
+
+    const snapshot = images.takeImages();
+    expect(images.count()).toBe(0);
+    images.restoreImages(snapshot);
+    expect(images.count()).toBe(1);
+    expect(images.getImages()).toEqual(snapshot);
   });
 });

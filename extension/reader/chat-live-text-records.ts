@@ -1,11 +1,14 @@
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { hydrateMarkdownContent, renderMarkdown } from "../ui/markdown.js";
+import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 
 export interface ChatLiveTextRecordsDeps {
   root: HTMLElement | null;
   getRecords: () => LiveTextToolRecord[];
   subscribe: (listener: () => void) => () => void;
+  canRetry?: () => boolean;
+  getTimestampNavDeps?: () => TimestampNavDeps;
   onRetry: (callId: string) => void;
   onContinue: (callId: string) => void;
 }
@@ -32,7 +35,7 @@ function durationLabel(record: LiveTextToolRecord): string {
 
 export function renderLiveTextToolRecordHtml(
   record: LiveTextToolRecord,
-  { readOnly = false }: { readOnly?: boolean } = {}
+  { readOnly = false, canRetry = true }: { readOnly?: boolean; canRetry?: boolean } = {}
 ): string {
   const duration = durationLabel(record);
   const error = record.status === "failed"
@@ -43,7 +46,7 @@ export function renderLiveTextToolRecordHtml(
     : "";
   const actions = record.status === "failed" && !readOnly
     ? `<div class="chat-live-status-actions chat-live-tool-record-actions">
-         <button type="button" data-live-record-action="retry" data-call-id="${escapeHtml(record.callId)}">重试</button>
+         ${canRetry ? `<button type="button" data-live-record-action="retry" data-call-id="${escapeHtml(record.callId)}">重试</button>` : ""}
          <button type="button" data-live-record-action="continue" data-call-id="${escapeHtml(record.callId)}">继续伴看</button>
        </div>`
     : "";
@@ -94,12 +97,19 @@ export function createChatLiveTextRecords(deps: ChatLiveTextRecordsDeps): ChatLi
         .map((details) => details.dataset.recordDetails || "")
     );
     const records = deps.getRecords();
+    const allowRetry = deps.canRetry ? deps.canRetry() : true;
     root.hidden = records.length === 0;
-    root.innerHTML = records.map((record) => renderLiveTextToolRecordHtml(record)).join("");
+    root.innerHTML = records.map((record) => renderLiveTextToolRecordHtml(record, { canRetry: allowRetry })).join("");
     for (const details of root.querySelectorAll<HTMLDetailsElement>("details[data-record-details]")) {
       details.open = expanded.has(details.dataset.recordDetails || "");
     }
     hydrateMarkdownContent(root);
+    const navDeps = deps.getTimestampNavDeps?.();
+    if (navDeps) {
+      root.querySelectorAll<HTMLElement>(".chat-live-tool-record-markdown").forEach((el) => {
+        linkifyAssistantTimestamps(el, navDeps);
+      });
+    }
   }
 
   function setOpen(nextOpen: boolean): void {

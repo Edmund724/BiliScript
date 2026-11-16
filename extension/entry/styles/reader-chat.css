@@ -515,6 +515,11 @@
   color: var(--biliscript-reader-accent);
 }
 
+.biliscript-reading-chat .chat-chip:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
 /* 消息基础样式：正文 16px、圆角 28px。 */
 .biliscript-reading-chat .chat-msg {
   max-width: 94%;
@@ -610,10 +615,32 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
+  text-align: left;
   margin-bottom: 0;
   color: var(--biliscript-reader-muted);
+}
+
+.biliscript-reading-chat .chat-thinking-label:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-label {
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-label:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .biliscript-reading-chat .chat-thinking-duration-num {
@@ -808,11 +835,14 @@
 .biliscript-reading-chat .chat-msg-action-btn:focus-visible {
   background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-text);
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
 }
 
 .biliscript-reading-chat .chat-msg-action-btn:disabled {
   cursor: default;
   color: var(--biliscript-reader-muted);
+  opacity: 0.4;
 }
 
 .biliscript-reading-chat .chat-msg-action-btn svg {
@@ -857,6 +887,11 @@
   color: var(--biliscript-reader-accent);
 }
 
+.biliscript-reading-chat .chat-msg-action-btn.is-loading {
+  color: var(--biliscript-reader-accent);
+  opacity: 0.72;
+}
+
 .biliscript-reading-chat .chat-msg-action-btn.is-copied svg {
   animation: biliscript-copy-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -889,6 +924,10 @@
 
 .biliscript-reading-chat .chat-msg-assistant p:last-child {
   margin-bottom: 0;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .chat-stream-stable:not(:has(+ .chat-stream-tail:empty)) > p:last-child {
+  margin-bottom: var(--biliscript-chat-paragraph-spacing, 12px);
 }
 
 .biliscript-reading-chat .chat-msg-assistant h2,
@@ -963,7 +1002,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   font: inherit;
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
@@ -974,8 +1013,82 @@
 }
 
 .biliscript-reading-chat .chat-timestamp-link:hover {
-  color: var(--biliscript-reader-accent);
-  text-decoration-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  text-decoration-color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+}
+
+#biliscript-reading-view .biliscript-reading-chat .chat-timestamp-link:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code {
+  margin: 6px 0 var(--biliscript-chat-paragraph-spacing, 12px);
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface);
+  overflow: hidden;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-muted);
+  font-size: var(--biliscript-font-size-xs);
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-lang {
+  font-family: var(--biliscript-reader-font-mono);
+  text-transform: lowercase;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-copy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-copy:hover {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-copy:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code-copy svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.biliscript-reading-chat .chat-msg-assistant .biliscript-md-code pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .biliscript-reading-chat .chat-msg-assistant pre {
@@ -1302,7 +1415,7 @@
 .biliscript-reading-chat .chat-context-notice {
   align-self: stretch;
   position: sticky;
-  top: 0;
+  top: 10px;
   z-index: 1;
   margin-bottom: 2px;
   padding: 7px 10px;
@@ -1469,8 +1582,21 @@
   display: grid;
   gap: 6px;
   min-width: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-top: 6px;
   border-top: 1px solid var(--biliscript-reader-border);
+}
+
+.biliscript-reading-chat .chat-live-tool-records::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.biliscript-reading-chat .chat-live-tool-records::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
 }
 
 .biliscript-reading-chat .chat-live-tool-records[hidden] {
@@ -1527,9 +1653,12 @@
   font-weight: 600;
 }
 
-.biliscript-reading-chat .chat-live-tool-record-summary,
-.biliscript-reading-chat .chat-live-tool-record-error {
+.biliscript-reading-chat .chat-live-tool-record-summary {
   color: var(--biliscript-reader-muted);
+}
+
+.biliscript-reading-chat .chat-live-tool-record:has(.chat-live-tool-record-details[open]) .chat-live-tool-record-summary {
+  display: none;
 }
 
 .biliscript-reading-chat .chat-live-tool-record-actions {
@@ -1608,6 +1737,12 @@
 
 .biliscript-reading-chat .chat-scroll-bottom:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-scroll-bottom:focus-visible,
+.biliscript-reading-chat .chat-web-search-pill:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
 }
 
 .biliscript-reading-chat .chat-scroll-bottom svg {
@@ -1856,15 +1991,29 @@
   margin-bottom: 8px;
 }
 
-.chat-image-viewer {
+dialog.chat-image-viewer {
   position: fixed;
   inset: 0;
   z-index: 1000;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  padding: 32px;
+  box-sizing: border-box;
+  background: rgba(var(--biliscript-primitive-color-black-rgb), 0.72);
+}
+
+dialog.chat-image-viewer[open] {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  background: rgb(0 0 0 / 72%);
+}
+
+dialog.chat-image-viewer::backdrop {
+  background: rgba(var(--biliscript-primitive-color-black-rgb), 0.72);
 }
 
 .chat-image-viewer-image {
@@ -1872,6 +2021,8 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 .chat-image-viewer-close {
@@ -1881,13 +2032,19 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 1px solid rgb(255 255 255 / 40%);
-  border-radius: 50%;
-  background: rgb(0 0 0 / 45%);
-  color: white;
+  border: 1px solid rgba(var(--biliscript-primitive-color-white-rgb), 0.4);
+  border-radius: var(--biliscript-radius-circle);
+  background: rgba(var(--biliscript-primitive-color-black-rgb), 0.45);
+  color: var(--biliscript-primitive-color-white);
   font-size: var(--biliscript-font-size-2xl);
   line-height: 1;
   cursor: pointer;
+}
+
+.chat-image-viewer-close:focus-visible,
+.biliscript-reading-chat .chat-image-open:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
 }
 
 /* 删除键：缩略图右上角外沿的小圆键（角标压在图上，形状与发送键的圆键母题一致）。 */
@@ -1920,53 +2077,9 @@
 }
 
 .biliscript-reading-chat .chat-image-preview:focus-visible,
-.biliscript-reading-chat .chat-image-remove:focus-visible,
-.biliscript-reading-chat .chat-image-lightbox-close:focus-visible {
+.biliscript-reading-chat .chat-image-remove:focus-visible {
   outline: 2px solid var(--biliscript-reader-accent);
   outline-offset: 2px;
-}
-
-.biliscript-reading-chat .chat-image-lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(var(--biliscript-primitive-color-black-rgb), 0.72);
-}
-
-.biliscript-reading-chat .chat-image-lightbox-dialog {
-  position: relative;
-  display: flex;
-  max-width: 100%;
-  max-height: 100%;
-}
-
-.biliscript-reading-chat .chat-image-lightbox-image {
-  display: block;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
-  object-fit: contain;
-  border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-}
-
-.biliscript-reading-chat .chat-image-lightbox-close {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--biliscript-radius-pill);
-  background: var(--biliscript-reader-surface);
-  color: var(--biliscript-reader-text);
-  font-size: var(--biliscript-font-size-2xl);
-  line-height: 1;
-  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2168,7 +2281,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
@@ -2208,7 +2321,7 @@
 
 /* 历史是对话区的内容模式，不是第四张 Tab。同一 hidden 同时隐藏标签行与其后的
  * 对话内容；直接切换，不做透明交叉淡化，避免退出时两版文字叠在一起。 */
-#biliscript-reading-view .biliscript-reading-script-panel:has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row {
+#biliscript-reading-view .biliscript-reading-script-panel:has(#biliscript-reading-tab-body-chat.is-active):has(.chat-history-popover:not([hidden])) > .biliscript-reading-tabs-row {
   display: none;
 }
 
@@ -2405,6 +2518,14 @@
 .biliscript-reading-chat .chat-history-clear-btn:hover {
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
+}
+
+.biliscript-reading-chat .chat-history-clear-btn:focus-visible,
+.biliscript-reading-chat .chat-history-open:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: -2px;
+  border-radius: var(--biliscript-radius-sm);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
 /* 无界平列表条目：整行都可打开，独立删除键除外。当前项以左侧标记和文字徽标
@@ -2778,7 +2899,7 @@
 }
 
 .biliscript-reading-chat .chat-search-step.is-failed .chat-search-step-note {
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-danger);
 }
 
 .biliscript-reading-chat .chat-search-step-query {
@@ -2892,7 +3013,7 @@
 
 /* 正文内联 [n] 引用：accent 上标，悬停出预览卡，点击新标签打开来源 URL。 */
 .biliscript-reading-chat .chat-cite {
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   font-size: var(--biliscript-font-size-sm);
@@ -2940,7 +3061,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
@@ -2987,7 +3108,6 @@
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
 }
 
 .biliscript-reading-chat .biliscript-md-math::-webkit-scrollbar {
@@ -3003,7 +3123,7 @@
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-reading-chat .biliscript-md-math-block {
   display: flex !important;
-  justify-content: center !important;
+  justify-content: safe center !important;
   align-items: center;
   margin: 0.4em 0;
   padding: 2px 0;
@@ -3105,7 +3225,7 @@
   padding: 8px;
   border-radius: var(--biliscript-radius-lg);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -3168,6 +3288,12 @@
   background: var(--biliscript-reader-fill-hover);
 }
 
+#biliscript-reading-view .biliscript-reading-chat-more-item:focus-visible {
+  background: var(--biliscript-reader-fill-hover);
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: -2px;
+}
+
 #biliscript-reading-view .biliscript-reading-chat-more-item svg {
   width: 16px;
   height: 16px;
@@ -3226,8 +3352,8 @@
   background: none;
   border: none;
   padding: 0;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   cursor: pointer;
   display: inline-flex;
@@ -3241,6 +3367,13 @@
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn:hover:not(:disabled) {
   background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn:focus-visible {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn:disabled {
@@ -3286,6 +3419,10 @@
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-webkit-slider-thumb:hover {
   transform: scale(1.15);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--biliscript-reader-accent-soft), 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-labels {

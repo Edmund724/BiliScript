@@ -3,8 +3,8 @@
 // mermaid 图表占位（真正的 SVG 由 ui/mermaid-render 异步水合，见
 // tests/ui/mermaid-render.test.ts）。
 
-import { describe, expect, it } from "vitest";
-import { renderMarkdown, renderMarkdownStripped } from "../../extension/ui/markdown.js";
+import { describe, expect, it, vi } from "vitest";
+import { hydrateMarkdownContent, renderMarkdown, renderMarkdownStripped } from "../../extension/ui/markdown.js";
 
 describe("renderMarkdown 代码围栏", () => {
   it("```mermaid → 图表占位，语言名不进正文", () => {
@@ -21,9 +21,9 @@ describe("renderMarkdown 代码围栏", () => {
     expect(renderMarkdown("``` MERMAID \ngraph TD\n```")).toContain("data-biliscript-mermaid");
   });
 
-  it("其他语言的围栏：语言名同样不进正文，仍走普通代码块", () => {
+  it("其他语言的围栏：语言名写入 data-lang 属性而不进正文，仍走普通代码块", () => {
     const html = renderMarkdown("```js\nconst a = 1;\n```");
-    expect(html).toContain("<pre><code>");
+    expect(html).toContain('<pre data-lang="js"><code>');
     expect(html).toContain("const a = 1;");
     expect(html).not.toContain("js\n");
     expect(html).not.toContain("data-biliscript-mermaid");
@@ -33,7 +33,7 @@ describe("renderMarkdown 代码围栏", () => {
     expect(renderMarkdown("```\nplain\n```")).toBe("<pre><code>plain\n</code></pre>");
     // info string 是多个词时只取首词判语言，其余不落正文
     const html = renderMarkdown("```js title=foo\nx\n```");
-    expect(html).toContain("x\n");
+    expect(html).toContain('<pre data-lang="js"><code>x\n</code></pre>');
     expect(html).not.toContain("title=foo");
   });
 
@@ -45,7 +45,7 @@ describe("renderMarkdown 代码围栏", () => {
       "<p>``<code>js alert(1)</code>``</p>"
     );
     expect(renderMarkdown("```plain```")).toBe("<p>``<code>plain</code>``</p>");
-    expect(renderMarkdown("   ```js\ncode\n```")).toBe("<pre><code>code\n</code></pre>");
+    expect(renderMarkdown("   ```js\ncode\n```")).toBe('<pre data-lang="js"><code>code\n</code></pre>');
     expect(renderMarkdownStripped("    ```js\ncode\n```")).toBe(
       "<p>``<code>js code </code>``</p>"
     );
@@ -68,5 +68,26 @@ describe("renderMarkdown 代码围栏", () => {
   it("围栏在流式切分中闭合于前缀：图表占位整块落在 stable", () => {
     const html = renderMarkdown("说明\n\n```mermaid\ngraph TD\nA --> B\n```");
     expect(html).toContain("data-biliscript-mermaid");
+  });
+
+  it("hydrateMarkdownContent 幂等增强普通代码块：显示语言栏并支持一键复制，跳过 mermaid 源码", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    const root = document.createElement("div");
+    root.innerHTML = renderMarkdown("```ts\nconst x = 42;\n```\n\n```mermaid\ngraph TD\nA-->B\n```");
+
+    hydrateMarkdownContent(root);
+    hydrateMarkdownContent(root);
+
+    const blocks = root.querySelectorAll(".biliscript-md-code");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].querySelector(".biliscript-md-code-lang")?.textContent).toBe("ts");
+    const copyBtn = blocks[0].querySelector<HTMLButtonElement>(".biliscript-md-code-copy")!;
+    expect(copyBtn.getAttribute("aria-label")).toBe("复制代码");
+    copyBtn.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("const x = 42;\n"));
   });
 });

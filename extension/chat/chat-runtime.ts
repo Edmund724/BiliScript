@@ -147,6 +147,7 @@ export interface ChatRuntimeUi {
   // 执行体唯一住在组合根的 requestViewReset。
   requestViewReset: (intent: ViewResetIntent) => void;
   autosizeInput: () => void;
+  onTurnFailedRestoreDraft?: (draft: { text: string; images: ImagePart[]; isSetupError: boolean }) => void;
   // 配置类回合错误（票 03）：缺 Key 的回合已受理（用户气泡已上屏），组合根据此在
   // 错误回合上给「直达平台编辑」的动作并记录返回意图。只提示，不重发——是否发送
   // 由用户再点一次。providerId = 本回合实际请求的平台记录。
@@ -189,6 +190,7 @@ export interface CreateChatRuntimeDeps {
   getSpeechVolume?: () => number | undefined;
   smoothStream?: boolean;
   onContinue?: (historyIndex: number, node: HTMLDivElement) => void;
+  onTurnFailedRestoreDraft?: (draft: { text: string; images: ImagePart[]; isSetupError: boolean }) => void;
 }
 
 /**
@@ -291,9 +293,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     userPrompt: string;
     branch: "A" | "B";
     hasNewOutput: boolean;
+    context: AiContext | null;
+    contextKey: string;
+    contextMismatched: boolean;
     session: ChatContinuationSession;
   } | null = null;
   let activeUserPrompt = "";
+  let activeUserNode: HTMLDivElement | null = null;
   // 本回合实际请求的平台记录 id（票 03）：配置类回合错误（缺 Key）到达时已无处
   // 重新解析选中项（用户气泡已上屏、回合正在收尾），故受理时快照一份，供
   // onSetupRequired 直达那条平台记录。与 activeUserPrompt 同生命周期清空。
@@ -338,6 +344,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 收在下面的 turn（./turn-lifecycle.ts）——置位与复位只经 turn 的
   // accepting 槽位，本文件不再直接读写它。
   let sendInFlight = false;
+  let acceptanceEpoch = 0;
+  let pendingRetryDraft: { images: ImagePart[] } | null = null;
   // 候选5：offscreen 侧已确认缓存字幕体的 contextKey（从其每次回执的
   // cachedContextKey 读到）。追问消息据此省略整份 subtitleBody——长视频单份
   // 字幕体可达数 MB，逐条追问经 port 重传纯属浪费。null = 未确认（首条消息、
@@ -587,6 +595,32 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     return verdict;
   }
 
+  function resolveBranchContext(originalHistory: ChatSessionMessage[], userIndex: number): {
+    context: AiContext | null;
+    contextKey: string;
+    contextMismatched: boolean;
+  } | null {
+    const userMessage = originalHistory[userIndex];
+    const meta = chatSessionState.currentConversationMeta;
+    const contextKey = String(userMessage?.contextKey || meta?.contextKey || chatSessionState.currentContextKey || "").trim();
+    const contextCandidates = [
+      meta?.resolvedContext,
+      ...(!meta || meta.resolvedContext ? [chatSessionState.contextData] : [])
+    ];
+    const originalContext = contextKey
+      ? contextCandidates.find((candidate) => candidate && buildContextKey(candidate) === contextKey)
+      : meta?.resolvedContext || chatSessionState.contextData;
+    if (contextKey && !originalContext) {
+      return null;
+    }
+    const currentPageKey = String(chatSessionState.liveContextKey || chatSessionState.currentContextKey || "").trim();
+    return {
+      context: originalContext ? { ...originalContext } : null,
+      contextKey,
+      contextMismatched: Boolean(contextKey && currentPageKey && contextKey !== currentPageKey)
+    };
+  }
+
   function regenerateAssistant(historyIndex: number, node: HTMLDivElement): void {
     if (turn.isActive() || activeRegeneration || activeContinuation) {
       return;
@@ -603,28 +637,18 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!prompt) {
       return;
     }
-    const userMessage = originalHistory[userIndex];
-    const meta = chatSessionState.currentConversationMeta;
-    const contextKey = String(userMessage.contextKey || meta?.contextKey || chatSessionState.currentContextKey || "").trim();
-    const contextCandidates = [
-      meta?.resolvedContext,
-      ...(!meta || meta.resolvedContext ? [chatSessionState.contextData] : [])
-    ];
-    const originalContext = contextKey
-      ? contextCandidates.find((candidate) => candidate && buildContextKey(candidate) === contextKey)
-      : meta?.resolvedContext || chatSessionState.contextData;
-    if (contextKey && !originalContext) {
+    const branchContext = resolveBranchContext(originalHistory, userIndex);
+    if (!branchContext) {
       deps.ui.showConversationContextNotice("原消息的视频或分P上下文不可用，无法重新生成。", 4000);
       return;
     }
-    const currentPageKey = String(chatSessionState.liveContextKey || chatSessionState.currentContextKey || "").trim();
     speech.stop();
     const regeneration = {
       originalHistory,
       userIndex,
-      context: originalContext ? { ...originalContext } : null,
-      contextKey,
-      contextMismatched: Boolean(contextKey && currentPageKey && contextKey !== currentPageKey),
+      context: branchContext.context,
+      contextKey: branchContext.contextKey,
+      contextMismatched: branchContext.contextMismatched,
       session: messageArea.beginRegeneration(node)
     };
     activeRegeneration = regeneration;
@@ -659,6 +683,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!userPrompt) {
       return;
     }
+    const branchContext = resolveBranchContext(originalHistory, userIndex);
+    if (!branchContext) {
+      deps.ui.showConversationContextNotice("原消息的视频或分P上下文不可用，无法继续生成。", 4000);
+      return;
+    }
     speech.stop();
     const hasBody = Boolean(targetMessage.content?.trim());
     const branch: "A" | "B" = hasBody ? "B" : "A";
@@ -672,6 +701,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       userPrompt,
       branch,
       hasNewOutput: false,
+      context: branchContext.context,
+      contextKey: branchContext.contextKey,
+      contextMismatched: branchContext.contextMismatched,
       session: messageArea.beginContinuation(node, {
         initialRaw,
         thinking: initialThinking
@@ -714,7 +746,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 发送都被入口判 ignored 而静默发不出去）。首 token 之前的每一步（provider 检查、
   // 发送闸、上屏、附件消费、连端口）都在同一个 try 里——任意一步抛错都走用户可见
   // 的错误收口（与迁移前的 sendMessage 逐字一致）。
+  function imagesEqual(a: readonly ImagePart[], b: readonly ImagePart[]): boolean {
+    return a.length === b.length && a.every((item, index) => item.mime === b[index]?.mime && item.data === b[index]?.data);
+  }
+
+  function retryFailedTurn(prompt: string, images: ImagePart[]): void {
+    if (turn.isActive()) {
+      return;
+    }
+    pendingRetryDraft = { images: images.map((img) => ({ ...img })) };
+    void turn.send(prompt).then((verdict) => {
+      if (verdict !== "accepted" && pendingRetryDraft) {
+        pendingRetryDraft = null;
+      }
+    });
+  }
+
   async function runAcceptance(text: string): Promise<SendVerdict> {
+    const epoch = acceptanceEpoch;
+    const retryDraft = pendingRetryDraft;
+    pendingRetryDraft = null;
     try {
       deps.ui.hideHistoryPopover();
 
@@ -729,24 +780,28 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const regeneration = activeRegeneration;
       const continuation = activeContinuation;
-      const branched = regeneration !== null || continuation !== null;
+      const branchRecord = regeneration || continuation;
+      const branched = branchRecord !== null;
       const inputSnapshot = deps.input.value;
-      const imageSnapshot = branched ? null : deps.getInputImages?.() ?? null;
-      if (regeneration?.contextMismatched) {
-        const confirmRegenerationContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
+      const imageSnapshot = branched ? null : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? null));
+      if (branchRecord?.contextMismatched) {
+        const confirmBranchContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
           message,
           confirmText: "继续生成"
         }));
-        const confirmed = await Promise.resolve(confirmRegenerationContext(
-          "当前页面与原消息的视频或分P不一致。重新生成将使用原消息的上下文，是否继续？"
+        const confirmed = await Promise.resolve(confirmBranchContext(
+          "当前页面与原消息的视频或分P不一致。继续生成将使用原消息的上下文，是否继续？"
         ));
-        if (!confirmed) {
+        if (epoch !== acceptanceEpoch || !confirmed) {
           return "blocked";
         }
       }
-      const outcome = regeneration?.contextMismatched
+      const outcome = branchRecord?.contextMismatched
         ? { pass: true as const }
         : await deps.ensureCurrentContextForSend();
+      if (epoch !== acceptanceEpoch) {
+        return "blocked";
+      }
       // 取消、读取失败与空上下文拦截都不追加消息、不消费文本或图片快照。
       if (!outcome.pass) {
         return "blocked";
@@ -758,7 +813,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 不收编进 store 的 detachCurrent 原语（它连带清历史）：本守卫只表达
       // 「身份作废」这一个意图，写纪律经 chat-state 的
       // clearConversationIdentity 原语（工单 arch-slim-2/07 D/E 半场裁定）。
-      if (!regeneration && !currentMeta?.pinnedContext && currentMeta?.contextKey && currentMeta.contextKey !== chatSessionState.currentContextKey) {
+      if (!branched && !currentMeta?.pinnedContext && currentMeta?.contextKey && currentMeta.contextKey !== chatSessionState.currentContextKey) {
         clearConversationIdentity();
       }
 
@@ -766,27 +821,45 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.removeSuggestions();
       // 授权在字幕闸通过后、用户气泡上屏前完成；视图销毁不是用户拒绝，直接取消回合。
       const optIn = await resolveWebSearchOptIn(chatSessionState.webSearchEnabled);
-      if (optIn === "view-destroyed") {
+      if (epoch !== acceptanceEpoch || optIn === "view-destroyed") {
         return "blocked";
       }
       const webSearchEnabled = optIn === "granted";
       let preserveSnapshotNotice = false;
-      if (!regeneration && !continuation) {
-        messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
-        preserveSnapshotNotice = deps.input.value !== inputSnapshot;
-        if (!preserveSnapshotNotice) {
-          deps.input.value = "";
+      if (!branched) {
+        messageArea.clearUncommittedFailedTurns?.();
+        const appendedUserNode = messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
+        activeUserNode = appendedUserNode instanceof HTMLDivElement ? appendedUserNode : null;
+        if (retryDraft) {
+          if (deps.input.value === text) {
+            deps.input.value = "";
+            deps.ui.autosizeInput();
+          }
+          if (retryDraft.images.length > 0 && deps.getInputImages && deps.takeInputImages) {
+            const currentImages = deps.getInputImages();
+            if (imagesEqual(currentImages, retryDraft.images)) {
+              deps.takeInputImages(currentImages);
+            }
+          }
+        } else {
+          preserveSnapshotNotice = deps.input.value !== inputSnapshot;
+          if (!preserveSnapshotNotice) {
+            deps.input.value = "";
+          }
+          deps.ui.autosizeInput();
         }
-        deps.ui.autosizeInput();
+      } else {
+        activeUserNode = null;
       }
 
-      const branchRecord = regeneration || continuation;
       const images = branchRecord
         ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
-        : imageSnapshot
-          ? deps.takeInputImages?.(imageSnapshot) ?? []
-          : deps.takeInputImages?.() ?? [];
-      if (!branchRecord) {
+        : retryDraft
+          ? retryDraft.images
+          : imageSnapshot
+            ? deps.takeInputImages?.(imageSnapshot) ?? []
+            : deps.takeInputImages?.() ?? [];
+      if (!branchRecord && !retryDraft) {
         preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
       }
 
@@ -814,6 +887,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // connectPort 现为 async（发送前先 ensure offscreen 文档，文档死亡后
       // 自愈重建）；await 兼容旧的同步返回 Port 的 deps 实现。
       const port = await deps.connectPort();
+      if (epoch !== acceptanceEpoch) {
+        try { port.disconnect(); } catch {}
+        return "blocked";
+      }
       activePort = port;
 
       port.onMessage.addListener((msg) => {
@@ -826,6 +903,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         if (activePort !== port) return;
         activePort = null;
         lastAckedContextKey = null;
+        if (activeTurn) {
+          const disconnectingTurn = activeTurn;
+          activeTurn = null;
+          showAssistantError(disconnectingTurn, "对话连接已中断，请重试", { searchStatus: "cancelled" });
+          return;
+        }
         resetStreamState();
         setStreamingUiState(false);
       });
@@ -833,17 +916,26 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 候选5：字幕体省略传输——offscreen 已确认缓存当前上下文的字幕体
       //（lastAckedContextKey === contextKey）时本条消息不再重传整份 subtitleBody；
       // contextKey 始终携带，offscreen 据此校验单槽匹配并在缺失时报错触发重置。
-      // 重新生成固定使用原消息快照；跨页确认后也不读取当前页上下文。
+      // 重新生成/继续生成固定使用原消息快照；跨页确认后也不读取当前页上下文。
       const context = {
-        ...(regeneration?.context || chatSessionState.contextData),
+        ...(branchRecord?.context || chatSessionState.contextData),
         aiSystemPrompt: chatSessionState.aiPrefs.aiSystemPrompt
       };
-      const contextKey = regeneration?.contextKey || String(chatSessionState.currentContextKey || "").trim();
+      const contextKey = branchRecord?.contextKey || String(chatSessionState.currentContextKey || "").trim();
       activeUserContextKey = contextKey;
       if (contextKey && lastAckedContextKey === contextKey) {
         delete context.subtitleBody;
       }
-      const videoFrameToolEnabled = !regeneration?.contextMismatched && await deps.canUseVideoFrameTool?.() === true;
+      const livePageKey = String(chatSessionState.liveContextKey || "").trim();
+      const sameLiveVideo = !livePageKey || !contextKey || contextKey === livePageKey;
+      const videoFrameToolEnabled = !branchRecord?.contextMismatched && sameLiveVideo && await deps.canUseVideoFrameTool?.() === true;
+      if (epoch !== acceptanceEpoch) {
+        try { port.disconnect(); } catch {}
+        if (activePort === port) {
+          activePort = null;
+        }
+        return "blocked";
+      }
 
       port.postMessage({
         action: "chat",
@@ -888,6 +980,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 把这条次序收在 flushDeferredStop 的唯一调用点上）。
       turn.flushDeferredStop();
     } catch (err) {
+      if (epoch !== acceptanceEpoch) {
+        return "blocked";
+      }
       // connectPort 失败（ensure offscreen 文档/建连抛错）无回退：UI 卡流式
       // 态而 isStreaming() 为 false（activePort 从未置位，但 setStreamingUiState
       // (true) 已调用）。这里恢复全部半置位流状态并走用户可见错误路径——
@@ -923,6 +1018,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   //   ⑤ deps.input.focus() + scrollToBottom()。
   // activeUserPrompt 在 ② 之后统一清空（② 内的写回判定还要读它）。
   function endStream(streamTurn: ChatAssistantTurn, renderStep: ((turn: ChatAssistantTurn) => void) | undefined): void {
+    abortAllVideoFrames();
     clearStreamRuntimeState();
     if (renderStep) {
       renderStep(streamTurn);
@@ -931,6 +1027,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeRegeneration = null;
     activeContinuation = null;
     activeUserPrompt = "";
+    activeUserNode = null;
     activeUserImages = [];
     activeUserContextKey = "";
     activeTurnProviderId = "";
@@ -1069,13 +1166,42 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     turn.markTruncated(turnTruncatedNotice);
   }
 
-  function showAssistantError(streamTurn: ChatAssistantTurn | null, error: unknown): void {
+  function showAssistantError(
+    streamTurn: ChatAssistantTurn | null,
+    error: unknown,
+    opts?: { searchStatus?: "failed" | "cancelled" }
+  ): void {
     if (!streamTurn) {
       return;
     }
+    const isNewTurn = !activeRegeneration && !activeContinuation && (Boolean(activeUserPrompt) || activeUserImages.length > 0);
+    const failedPrompt = activeUserPrompt;
+    const failedImages = activeUserImages.map((img) => ({ ...img }));
+    const failedUserNode = activeUserNode;
+    const errorText = String(error ?? "");
+    const isSetupError = classifyOverviewSetupError(errorText) !== null;
     endStream(streamTurn, (turn) => {
       const message = `${error}${imageUnsupportedErrorHint(error, activeUserImages)}`;
-      turn.fail(`错误：${message}`);
+      const onRetry = isNewTurn && !isSetupError
+        ? () => retryFailedTurn(failedPrompt, failedImages)
+        : undefined;
+      turn.fail(`错误：${message}`, {
+        ...(onRetry ? { onRetry } : {}),
+        ...(opts?.searchStatus ? { searchStatus: opts.searchStatus } : {})
+      });
+      if (isNewTurn) {
+        if (failedUserNode) {
+          failedUserNode.dataset.uncommittedFailedTurn = "1";
+        }
+        if (turn.node) {
+          turn.node.dataset.uncommittedFailedTurn = "1";
+        }
+        (deps.onTurnFailedRestoreDraft ?? deps.ui.onTurnFailedRestoreDraft)?.({
+          text: failedPrompt,
+          images: failedImages,
+          isSetupError
+        });
+      }
       if (activeRegeneration) {
         deps.ui.showConversationContextNotice(`重新生成失败：${message}`, 4000);
       }
@@ -1235,7 +1361,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     speech.stop();
   }
 
+  function closeImageViewer(opts?: { restoreFocus?: boolean }): void {
+    messageArea.closeImageViewer?.(opts);
+  }
+
   function resetStreamState(): void {
+    acceptanceEpoch += 1;
+    pendingRetryDraft = null;
     speech.stop();
     abortAllVideoFrames();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
@@ -1254,6 +1386,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     activeTurn = null;
     activeUserPrompt = "";
+    activeUserNode = null;
     activeUserImages = [];
     activeUserContextKey = "";
     activeTurnProviderId = "";
@@ -1286,6 +1419,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     sendTurn,
     stopActiveStream,
     stopSpeech,
+    closeImageViewer,
     setAutoScroll,
     scrollToBottom,
     isStreaming,

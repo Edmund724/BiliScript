@@ -68,11 +68,13 @@ export interface ChatContinuationSession {
 }
 
 export interface ChatMessageArea {
-  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string; images?: ImagePart[] }) => void;
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource; messageId?: string; images?: ImagePart[] }) => HTMLDivElement | void;
   appendAssistantMessage: (opts?: { source?: ChatMessageSource; runId?: string; messageId?: string }) => ChatAssistantTurn;
   beginRegeneration: (node: HTMLDivElement) => ChatRegenerationSession;
   beginContinuation: (node: HTMLDivElement, opts?: { initialRaw?: string; thinking?: string }) => ChatContinuationSession;
   setRegenerationDisabled: (disabled: boolean) => void;
+  clearUncommittedFailedTurns?: () => void;
+  closeImageViewer?: (opts?: { restoreFocus?: boolean }) => void;
   clear: () => void;
 }
 
@@ -93,8 +95,8 @@ export interface ChatAssistantTurn {
   discard: () => void;
   /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
   finish: (opts?: { raw?: unknown; thinking?: string; stopped?: boolean; userPrompt?: string; sources?: ChatSearchSource[]; historyIndex?: number }) => string;
-  /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案）。 */
-  fail: (text: string) => void;
+  /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案与可选原位重试操作）。 */
+  fail: (text: string, opts?: { onRetry?: () => void; searchStatus?: "failed" | "cancelled" }) => void;
   /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
   stop: (reason: string, opts?: { userPrompt?: string; historyIndex?: number }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
@@ -190,7 +192,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string, images: ImagePart[] = []): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource, messageId?: string, images: ImagePart[] = []): HTMLDivElement {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
     node.setAttribute("data-message-id", messageId || `chat-message-${++nextMessageId}`);
@@ -221,6 +223,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       // 长消息 c-v 塌缩后的估算块，弹高突跳且动画终点落后于真实底部。
       scrollToBottom(true, { instant: true });
     }
+    return node;
   }
 
   // =========================================================================
@@ -320,8 +323,16 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     node.className = classList.join(" ");
 
-    const label = document.createElement("span");
+    const label = document.createElement("button");
+    label.type = "button";
     label.className = "chat-thinking-label";
+    if (opts.collapsible) {
+      label.disabled = false;
+      label.setAttribute("aria-expanded", opts.collapsed ? "false" : "true");
+    } else {
+      label.disabled = true;
+      label.removeAttribute("aria-expanded");
+    }
     const icon = document.createElement("span");
     icon.className = "chat-thinking-icon";
     icon.innerHTML = THINKING_ICON_SVG;
@@ -340,11 +351,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     thinkingTextNodes.set(node, text);
     thinkingLabelTexts.set(node, labelText);
 
-    node.addEventListener("click", () => {
+    label.addEventListener("click", () => {
       if (!node.classList.contains("chat-thinking-collapsible")) {
         return;
       }
-      node.classList.toggle("chat-thinking-collapsed");
+      const collapsedNow = node.classList.toggle("chat-thinking-collapsed");
+      label.setAttribute("aria-expanded", collapsedNow ? "false" : "true");
     });
     return node;
   }
@@ -383,6 +395,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
     }
     thinking.classList.add("chat-thinking-collapsible", "chat-thinking-collapsed");
+    const labelBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label");
+    if (labelBtn) {
+      labelBtn.disabled = false;
+      labelBtn.setAttribute("aria-expanded", "false");
+    }
     const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
     if (labelText) {
       const startTime = thinkingStartTimes.get(thinking);
@@ -1562,16 +1579,29 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
 
     // 挂错误占位：自动取消挂起的流式渲染帧；清空节点内容，只留给定文案。
-    function fail(text: string): void {
+    function fail(text: string, opts?: { onRetry?: () => void; searchStatus?: "failed" | "cancelled" }): void {
       flushPendingThinking();
       cancelTokenFlush();
-      settleSearchCard(node, "failed");
+      settleSearchCard(node, opts?.searchStatus ?? "failed");
       const state = getTokenStreamState(node);
       for (const thinking of state.allThinking) {
         cancelThinkingFrame(thinking);
       }
       node.innerHTML = "";
       appendBadge(node, "chat-msg-error", text);
+      if (opts?.onRetry) {
+        const actions = document.createElement("div");
+        actions.className = "chat-msg-actions";
+        const retryBtn = createActionButton("chat-msg-retry-btn", "重试", READING_RESET_ICON);
+        retryBtn.disabled = Boolean(deps.isRegenerationDisabled?.());
+        retryBtn.addEventListener("click", () => {
+          if (!deps.isRegenerationDisabled?.()) {
+            opts.onRetry?.();
+          }
+        });
+        actions.appendChild(retryBtn);
+        node.appendChild(actions);
+      }
     }
 
     // 挂停止态：自动取消挂起的流式渲染帧；
@@ -1598,6 +1628,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       if (state.allThinking.length > 0) {
         for (const thinking of state.allThinking) {
           cancelThinkingFrame(thinking);
+          thinkingStartTimes.delete(thinking);
           const textNode = thinkingTextNodes.get(thinking) || thinking.querySelector(".chat-thinking-text");
           if (textNode) {
             const st = thinkingDisplayStates.get(textNode);
@@ -1607,6 +1638,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           }
           thinking.classList.add("chat-thinking-collapsible");
           thinking.classList.remove("chat-thinking-collapsed");
+          const labelBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label");
+          if (labelBtn) {
+            labelBtn.disabled = false;
+            labelBtn.setAttribute("aria-expanded", "true");
+          }
           const labelText = thinkingLabelTexts.get(thinking) || thinking.querySelector(".chat-thinking-label-text");
           if (labelText) {
             labelText.textContent = "已停止";
@@ -1706,6 +1742,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   function beginRegeneration(node: HTMLDivElement): ChatRegenerationSession {
+    const savedScrollTop = deps.messages.scrollTop;
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalContent = document.createDocumentFragment();
     while (node.firstChild) {
@@ -1744,6 +1781,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);
+      deps.messages.scrollTop = savedScrollTop;
     }
     const turn: ChatAssistantTurn = {
       ...baseTurn,
@@ -1777,6 +1815,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     node: HTMLDivElement,
     opts: { initialRaw?: string; thinking?: string } = {}
   ): ChatContinuationSession {
+    const savedScrollTop = deps.messages.scrollTop;
     const originalStreaming = node.classList.contains("chat-msg-streaming");
     const originalChildren = Array.from(node.childNodes);
     settledSearchTurns.delete(node);
@@ -1838,6 +1877,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       originalChildren.forEach((child) => node.appendChild(child));
       following.restore();
       node.classList.toggle("chat-msg-streaming", originalStreaming);
+      deps.messages.scrollTop = savedScrollTop;
     }
 
     const turn: ChatAssistantTurn = {
@@ -1866,7 +1906,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
   const messageArea: ChatMessageArea = {
     appendUserMessage(text, { source = "live", messageId, images = [] } = {}) {
-      appendUserMessageNode(text, source, messageId, images);
+      return appendUserMessageNode(text, source, messageId, images);
     },
     appendAssistantMessage({ source = "live", runId, messageId } = {}) {
       return createTurnHandle(appendAssistantMessageNode(source, runId, messageId));
@@ -1874,13 +1914,19 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     beginRegeneration,
     beginContinuation,
     setRegenerationDisabled(disabled) {
-      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn, .chat-msg-continue-btn").forEach((button) => {
+      deps.messages.querySelectorAll<HTMLButtonElement>(".chat-msg-regenerate-btn, .chat-msg-continue-btn, .chat-msg-retry-btn").forEach((button) => {
         button.disabled = disabled;
       });
     },
+    clearUncommittedFailedTurns() {
+      deps.messages.querySelectorAll('[data-uncommitted-failed-turn="1"]').forEach((el) => el.remove());
+    },
+    closeImageViewer(opts) {
+      imageViewer.close(opts?.restoreFocus);
+    },
     clear() {
       deps.onClear?.();
-      imageViewer.close();
+      imageViewer.close(false);
       deps.messages.innerHTML = "";
     }
   };

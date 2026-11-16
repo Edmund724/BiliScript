@@ -2414,4 +2414,38 @@ describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () =>
       ].join("\n")
     );
   });
+
+  it("拖拽图片入 .chat-input-card 添加附件、非图片给出提示；开启新会话聚焦输入区；切走或关会话清浮层不抢焦点", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const inputCard = input.closest<HTMLElement>(".chat-input-card")!;
+
+    // 非图片拖入提示
+    const txtDrop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(txtDrop, "dataTransfer", {
+      value: { types: ["Files"], files: [new File(["hello"], "note.txt", { type: "text/plain" })] }
+    });
+    inputCard.dispatchEvent(txtDrop);
+    expect(document.querySelector(".chat-context-notice")?.textContent).toContain("仅支持拖入图片文件");
+
+    // 开启新会话聚焦输入区
+    const outsideBtn = document.createElement("button");
+    document.body.appendChild(outsideBtn);
+    outsideBtn.focus();
+    const newChatBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
+    newChatBtn.click();
+    await waitFor(() => document.activeElement === input);
+
+    // 打开更多菜单后关会话/停用浮层不把焦点抢回触发键
+    const moreBtn = document.getElementById(ids.readingChatMoreBtn) as HTMLButtonElement;
+    moreBtn.click();
+    expect(document.getElementById(ids.readingChatMoreMenu)?.hidden).toBe(false);
+    outsideBtn.focus();
+    (chat as typeof chat & { deactivateChatTabOverlays?: () => void }).deactivateChatTabOverlays?.();
+    expect(document.getElementById(ids.readingChatMoreMenu)?.hidden).toBe(true);
+    expect(document.activeElement).toBe(outsideBtn);
+    chat.closeChatSession();
+  });
 });

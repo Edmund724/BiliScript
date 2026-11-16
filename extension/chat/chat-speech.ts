@@ -191,7 +191,7 @@ export function speechTextFromElement(root: HTMLElement): string {
   clone.querySelectorAll("img").forEach((image) => {
     image.replaceWith(document.createTextNode(image.getAttribute("alt") || ""));
   });
-  clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .chat-cite, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
+  clone.querySelectorAll("script, style, svg, .katex-mathml, annotation, .chat-cite, .biliscript-md-code-bar, .biliscript-md-mermaid-fallback, .biliscript-md-table-cell-label, .biliscript-md-table-tools").forEach((element) => element.remove());
 
   function readNode(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -279,13 +279,17 @@ function matchVoice(voices: ChatSpeechVoice[], lang: string): ChatSpeechVoice | 
     || matched[0];
 }
 
-function setButtonSpeaking(button: HTMLButtonElement, speaking: boolean): void {
-  const label = speaking ? "停止朗读" : "朗读回答";
+type SpeechButtonState = "idle" | "loading" | "speaking";
+
+function setButtonSpeaking(button: HTMLButtonElement, state: SpeechButtonState): void {
+  const active = state !== "idle";
+  const label = active ? "停止朗读" : "朗读回答";
   button.setAttribute("aria-label", label);
   button.setAttribute("title", label);
-  button.setAttribute("aria-pressed", String(speaking));
-  button.classList.toggle("is-speaking", speaking);
-  button.innerHTML = speaking ? READING_STOP_ICON : READING_SPEAKER_ICON;
+  button.setAttribute("aria-pressed", String(active));
+  button.classList.toggle("is-loading", state === "loading");
+  button.classList.toggle("is-speaking", state === "speaking");
+  button.innerHTML = active ? READING_STOP_ICON : READING_SPEAKER_ICON;
 }
 
 export function createChatSpeechController(deps: CreateChatSpeechControllerDeps = {}): ChatSpeechController {
@@ -304,7 +308,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     const current = active;
     active = null;
     if (current) {
-      setButtonSpeaking(current.button, false);
+      setButtonSpeaking(current.button, "idle");
       try {
         engine.stop();
       } catch {}
@@ -319,16 +323,16 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     active = null;
     generation += 1;
     if (current) {
-      setButtonSpeaking(current.button, false);
+      setButtonSpeaking(current.button, "idle");
     }
   }
 
-  function fail(token: number): void {
+  function fail(token: number, message = "当前设备无法朗读"): void {
     if (!isActive(token)) {
       return;
     }
     stop();
-    onError("当前设备无法朗读");
+    onError(message);
   }
 
   function speakChunk(
@@ -368,7 +372,11 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
           if (!isActive(token)) {
             return;
           }
-          if (event.type === "error") {
+          if (event.type === "start" || event.type === "word" || event.type === "sentence") {
+            if (active) {
+              setButtonSpeaking(active.button, "speaking");
+            }
+          } else if (event.type === "error") {
             handleChunkError();
           } else if (event.type === "interrupted" || event.type === "cancelled") {
             stop();
@@ -402,7 +410,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
     }
     const token = generation;
     active = { generation: token, messageId, button };
-    setButtonSpeaking(button, true);
+    setButtonSpeaking(button, "loading");
     try {
       const voices = await engine.getVoices();
       if (!isActive(token)) {
@@ -415,7 +423,7 @@ export function createChatSpeechController(deps: CreateChatSpeechControllerDeps 
       const voice = matchVoice(voices, requestedLanguage)
         || matchVoice(voices, browserLanguage);
       if (!voice) {
-        fail(token);
+        fail(token, "当前设备未找到可用朗读语音");
         return;
       }
       const fallbackVoice = voice.remote === true

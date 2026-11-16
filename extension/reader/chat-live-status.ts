@@ -2,12 +2,16 @@ import type { LiveChatState } from "../live/live-chat-controller.js";
 import type { LiveFailureKind } from "../live/live-session-tracker.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
+import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { createChatLiveTextRecords } from "./chat-live-text-records.js";
 
 export interface ChatLiveStatusDeps {
   root: HTMLElement | null;
   getState: () => LiveChatState;
   isReconnecting: () => boolean;
+  getLastError?: () => string | undefined;
+  getLastFailureKind?: () => LiveFailureKind | undefined;
+  getTimestampNavDeps?: () => TimestampNavDeps;
   getTextToolRecords?: () => LiveTextToolRecord[];
   subscribeTextToolRecords?: (listener: () => void) => () => void;
   onRetry: () => void;
@@ -33,6 +37,14 @@ const ACTIONS: Record<string, LiveStatusAction[]> = {
   failure: ["retry", "settings", "stop"]
 };
 
+const SETTINGS_FAILURE_LABELS: Partial<Record<LiveFailureKind, string>> = {
+  "provider-unconfigured": "设置伴看",
+  "key-missing": "填写 Key",
+  "key-rejected": "检查 Key",
+  "gemini-credential": "配置 Gemini Key",
+  "permission-denied": "设置伴看"
+};
+
 export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
   const root = deps.root;
   const text = root?.querySelector<HTMLElement>(".chat-live-status-text") ?? null;
@@ -45,6 +57,8 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
     root: root?.querySelector<HTMLElement>(".chat-live-tool-records") ?? null,
     getRecords: deps.getTextToolRecords ?? (() => []),
     subscribe: deps.subscribeTextToolRecords ?? (() => () => {}),
+    canRetry: () => currentState === "connected" && !deps.isReconnecting(),
+    getTimestampNavDeps: deps.getTimestampNavDeps,
     onRetry: (callId) => deps.onRetryTextToolRecord?.(callId),
     onContinue: (callId) => deps.onContinueTextToolRecord?.(callId)
   });
@@ -82,9 +96,24 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
       text.textContent = currentError?.trim() ? `伴看连接失败：${currentError}` : "伴看连接失败";
     }
 
-    const visibleActions = ACTIONS[viewState] ?? [];
+    const visibleActions = (ACTIONS[viewState] ?? []).filter((action) => {
+      if (viewState !== "failure") {
+        return true;
+      }
+      if (action === "retry") {
+        return currentFailureKind !== "provider-unconfigured" && currentFailureKind !== "key-missing";
+      }
+      if (action === "settings") {
+        return currentFailureKind !== undefined && currentFailureKind in SETTINGS_FAILURE_LABELS;
+      }
+      return true;
+    });
     buttons.forEach((button, action) => {
-      button.hidden = !visibleActions.includes(action);
+      const hidden = !visibleActions.includes(action);
+      button.hidden = hidden;
+      if (!hidden && action === "settings" && currentFailureKind) {
+        button.textContent = SETTINGS_FAILURE_LABELS[currentFailureKind] || "打开设置";
+      }
     });
   }
 
@@ -94,6 +123,9 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
       if (error !== undefined || failureKind !== undefined) {
         currentError = error;
         currentFailureKind = failureKind;
+      } else {
+        currentError = deps.getLastError?.();
+        currentFailureKind = deps.getLastFailureKind?.();
       }
     } else {
       currentError = undefined;

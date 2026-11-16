@@ -658,4 +658,57 @@ describe("历史定位、切换与删除撤销（工单 05）", () => {
     expect(historyList.querySelector(".chat-live-history-detail")).toBeNull();
     expect(document.activeElement).toBe(historyList.querySelector(".chat-history-open[data-id=c1]"));
   });
+
+  it("settleTurn 未落定前调用 cancelPendingSwitch：作废切换且恢复清空按钮可用", async () => {
+    seed(["c1", "c2"]);
+    let releaseSettle = () => {};
+    const settleGate = new Promise<void>((resolve) => { releaseSettle = resolve; });
+    const { lists, deps, historyList, historyClearBtn } = makeDeps({
+      settleTurn: vi.fn(() => settleGate)
+    });
+    lists.renderHistoryList();
+
+    clickOnce(historyList.querySelector(".chat-history-item[data-id=c1]")!);
+    expect(historyClearBtn.disabled).toBe(true);
+    expect(deps.applyById).not.toHaveBeenCalled();
+
+    lists.cancelPendingSwitch();
+    expect(historyClearBtn.disabled).toBe(false);
+    expect(historyList.getAttribute("aria-busy")).toBeNull();
+
+    releaseSettle();
+    await flushPromises();
+    expect(deps.applyById).not.toHaveBeenCalled();
+    expect(deps.hideHistoryPopover).not.toHaveBeenCalled();
+  });
+
+  it("伴看详情隐藏清空全部按钮；exitLiveHistoryDetail 返回列表并归还焦点", () => {
+    const live = {
+      id: "live:BV1test000000:1",
+      kind: "live-text-tool" as const,
+      title: "伴看视频",
+      contextKey: "video:BV1test000000|1",
+      contextTitle: "伴看视频",
+      contextUrl: "https://www.bilibili.com/video/BV1test000000",
+      isVideoContext: true,
+      createdAt: 100,
+      updatedAt: 200,
+      contextRef: { bvid: "BV1test000000", cid: "1" },
+      messages: [],
+      records: []
+    };
+    seed(["c1"]);
+    setSavedConversations([conversation("c1"), live] as never);
+    const { lists, historyList, historyClearBtn } = makeDeps();
+    lists.renderHistoryList();
+    expect(historyClearBtn.hidden).toBe(false);
+
+    clickOnce(historyList.querySelector(".chat-history-open[data-id='live:BV1test000000:1']")!);
+    expect(historyClearBtn.hidden).toBe(true);
+
+    expect(lists.exitLiveHistoryDetail()).toBe(true);
+    expect(lists.exitLiveHistoryDetail()).toBe(false);
+    expect(historyClearBtn.hidden).toBe(false);
+    expect(document.activeElement).toBe(historyList.querySelector(".chat-history-open[data-id='live:BV1test000000:1']"));
+  });
 });

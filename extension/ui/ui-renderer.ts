@@ -119,7 +119,7 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
               </div>
               <div class="biliscript-reading-tabs-tools">
-                <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">
+                <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="true" aria-controls="${ids.readingChatMoreMenu}" aria-expanded="false">
                   <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true">
                     <circle cx="12" cy="5" r="1.75"></circle>
                     <circle cx="12" cy="12" r="1.75"></circle>

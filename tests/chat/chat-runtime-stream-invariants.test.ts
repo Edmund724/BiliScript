@@ -137,6 +137,12 @@ function withoutTableLayout(element: Element): HTMLElement {
       shell.replaceWith(table);
     }
   }
+  for (const codeShell of Array.from(clone.querySelectorAll(".biliscript-md-code"))) {
+    const pre = codeShell.querySelector("pre");
+    if (pre) {
+      codeShell.replaceWith(pre);
+    }
+  }
   return clone;
 }
 

@@ -1,8 +1,8 @@
 import type { ImagePart } from "../ai/types.js";
 
 export interface ChatImageViewer {
-  open(src: string, trigger: HTMLElement): void;
-  close(): void;
+  open(src: string, trigger: HTMLElement, alt?: string): void;
+  close(restoreFocus?: boolean): void;
 }
 
 export function chatImageDataUrl(image: ImagePart): string {
@@ -10,63 +10,86 @@ export function chatImageDataUrl(image: ImagePart): string {
 }
 
 export function createChatImageViewer(): ChatImageViewer {
-  let overlay: HTMLDivElement | null = null;
+  let overlay: HTMLDialogElement | null = null;
   let returnFocus: HTMLElement | null = null;
 
-  function close(): void {
-    if (!overlay) {
+  function close(restoreFocus = true): void {
+    const dialog = overlay;
+    if (!dialog) {
       return;
     }
-    overlay.remove();
     overlay = null;
     document.removeEventListener("keydown", onKeydown, true);
+    if (dialog.open && typeof dialog.close === "function") {
+      try {
+        dialog.close();
+      } catch {
+        // 忽略 JSDOM 或已脱离节点关闭异常
+      }
+    }
+    dialog.removeAttribute("open");
+    dialog.remove();
     const target = returnFocus;
     returnFocus = null;
-    if (target?.isConnected) {
+    if (restoreFocus && target?.isConnected) {
       target.focus();
     }
   }
 
   function onKeydown(event: KeyboardEvent): void {
+    if (!overlay?.isConnected) {
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      close(true);
       return;
     }
     if (event.key === "Tab") {
       event.preventDefault();
-      overlay?.querySelector<HTMLButtonElement>(".chat-image-viewer-close")?.focus();
+      overlay.querySelector<HTMLButtonElement>(".chat-image-viewer-close")?.focus();
     }
   }
 
-  function open(src: string, trigger: HTMLElement): void {
-    close();
+  function open(src: string, trigger: HTMLElement, alt = "查看图片"): void {
+    close(false);
     returnFocus = trigger;
-    const viewer = document.createElement("div");
+    const viewer = document.createElement("dialog");
     viewer.className = "chat-image-viewer";
-    viewer.setAttribute("role", "dialog");
-    viewer.setAttribute("aria-modal", "true");
-    viewer.setAttribute("aria-label", "查看图片");
+    viewer.setAttribute("aria-label", alt || "查看图片");
     const image = document.createElement("img");
     image.className = "chat-image-viewer-image";
     image.src = src;
-    image.alt = "已发送的图片";
+    image.alt = alt || "查看图片";
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "chat-image-viewer-close";
     closeButton.setAttribute("aria-label", "关闭图片");
     closeButton.title = "关闭图片";
     closeButton.textContent = "×";
-    closeButton.addEventListener("click", close);
+    closeButton.addEventListener("click", () => close(true));
+    viewer.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+    });
+    viewer.addEventListener("close", () => {
+      close(true);
+    });
     viewer.addEventListener("click", (event) => {
       if (event.target === viewer) {
-        close();
+        close(true);
       }
     });
     viewer.append(image, closeButton);
-    (trigger.closest(".biliscript-reading-chat") || document.body).appendChild(viewer);
+    (trigger.closest<HTMLElement>("#biliscript-reading-view") || document.body).appendChild(viewer);
     overlay = viewer;
+    if (typeof viewer.showModal === "function") {
+      viewer.showModal();
+    } else {
+      viewer.setAttribute("open", "");
+    }
     document.addEventListener("keydown", onKeydown, true);
     closeButton.focus();
   }
@@ -85,6 +108,6 @@ export function createChatImageViewButton(image: ImagePart, viewer: ChatImageVie
   thumbnail.src = chatImageDataUrl(image);
   thumbnail.alt = alt;
   button.appendChild(thumbnail);
-  button.addEventListener("click", () => viewer.open(thumbnail.src, button));
+  button.addEventListener("click", () => viewer.open(thumbnail.src, button, alt));
   return button;
 }

@@ -36,7 +36,9 @@ export interface ChatInputImagesDeps {
 
 export interface ChatInputImages {
   handlePaste(event: PasteEventLike): void;
-  previewAt(index: number): void;
+  addFiles(files: readonly File[]): void;
+  restoreImages(parts: readonly ImagePart[]): void;
+  closeViewer(restoreFocus?: boolean): void;
   removeAt(index: number): void;
   clear(): void;
   getImages(): ImagePart[];
@@ -59,12 +61,6 @@ export const IMAGE_STREAMING_REJECT_MESSAGE = "正在生成回答，暂不支持
 interface Attachment {
   id: number;
   compressed: CompressedImage | null;
-}
-
-interface ActivePreview {
-  id: number;
-  overlay: HTMLElement;
-  onKeyDown: (event: KeyboardEvent) => void;
 }
 
 function collectImageFiles(clipboardData: PasteEventLike["clipboardData"]): File[] {
@@ -95,7 +91,6 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
   let generation = 0;
   let nextId = 1;
   let pendingUi = false;
-  let activePreview: ActivePreview | null = null;
 
   function isPending(): boolean {
     return attachments.some((item) => item.compressed === null);
@@ -108,28 +103,6 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     }
     pendingUi = pending;
     deps.onPendingChange?.(pending);
-  }
-
-  function closePreview(restoreFocus = true): void {
-    if (!activePreview) {
-      return;
-    }
-    const { id, overlay, onKeyDown } = activePreview;
-    activePreview = null;
-    document.removeEventListener("keydown", onKeyDown);
-    overlay.remove();
-    if (!restoreFocus) {
-      return;
-    }
-    const candidates = deps.strip
-      ? Array.from(deps.strip.querySelectorAll<HTMLButtonElement>(".chat-image-preview"))
-      : [];
-    const trigger = candidates.find((node) => Number(node.dataset.chatImageId) === id);
-    if (trigger) {
-      trigger.focus();
-    } else {
-      deps.focusInput?.();
-    }
   }
 
   function render(): void {
@@ -222,67 +195,50 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     }
   }
 
+  function addFiles(files: readonly File[]): void {
+    const imageFiles = files.filter((file) => /^image\//i.test(String(file.type || "")));
+    if (!imageFiles.length) {
+      return;
+    }
+    if (deps.isStreaming?.()) {
+      deps.onReject(IMAGE_STREAMING_REJECT_MESSAGE);
+      return;
+    }
+    acceptFiles(imageFiles);
+  }
+
   function handlePaste(event: PasteEventLike): void {
     const files = collectImageFiles(event.clipboardData);
     if (!files.length) {
       return;
     }
     event.preventDefault();
-    if (deps.isStreaming?.()) {
-      deps.onReject(IMAGE_STREAMING_REJECT_MESSAGE);
-      return;
-    }
-    acceptFiles(files);
+    addFiles(files);
   }
 
-  function previewAt(index: number): void {
-    const entry = attachments[index];
-    if (!entry?.compressed) {
+  function restoreImages(parts: readonly ImagePart[]): void {
+    if (attachments.length > 0 || isPending() || !parts.length) {
       return;
     }
-    closePreview(false);
-    const overlay = document.createElement("div");
-    overlay.className = "chat-image-lightbox";
-    const dialog = document.createElement("div");
-    dialog.className = "chat-image-lightbox-dialog";
-    dialog.setAttribute("role", "dialog");
-    dialog.setAttribute("aria-modal", "true");
-    dialog.setAttribute("aria-label", `第 ${index + 1} 张图片预览`);
-    const image = document.createElement("img");
-    image.className = "chat-image-lightbox-image";
-    image.src = `data:${entry.compressed.part.mime};base64,${entry.compressed.part.data}`;
-    image.alt = `第 ${index + 1} 张粘贴图片的大图预览`;
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "chat-image-lightbox-close";
-    close.setAttribute("aria-label", "关闭图片预览");
-    close.title = "关闭";
-    close.textContent = "×";
-    dialog.append(image, close);
-    overlay.appendChild(dialog);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closePreview();
-      }
-    };
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) {
-        closePreview();
-      }
+    attachments = parts.slice(0, IMAGE_MAX_COUNT).map((part) => {
+      const copy: ImagePart = { mime: part.mime, data: part.data };
+      const bytes = Math.floor((copy.data.length * 3) / 4);
+      return {
+        id: nextId++,
+        compressed: { part: copy, bytes }
+      };
     });
-    close.addEventListener("click", () => closePreview());
-    document.addEventListener("keydown", onKeyDown);
-    activePreview = { id: entry.id, overlay, onKeyDown };
-    const host = deps.strip?.closest<HTMLElement>(".biliscript-reading-chat") ?? document.body;
-    host.appendChild(overlay);
-    close.focus();
+    render();
+    syncPending();
+  }
+
+  function closeViewer(restoreFocus = true): void {
+    viewer.close(restoreFocus);
   }
 
   function clear(): void {
-    viewer.close();
+    viewer.close(false);
     generation += 1;
-    closePreview(false);
     attachments = [];
     render();
     syncPending();
@@ -292,11 +248,8 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     if (!Number.isInteger(index) || index < 0 || index >= attachments.length) {
       return;
     }
-    viewer.close();
-    const [removed] = attachments.splice(index, 1);
-    if (activePreview?.id === removed.id) {
-      closePreview(false);
-    }
+    viewer.close(false);
+    attachments.splice(index, 1);
     render();
     syncPending();
     const items = deps.strip?.querySelectorAll<HTMLElement>(".chat-image-item");
@@ -319,8 +272,8 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
       const removedIds = new Set(
         attachments.filter((item) => item.compressed && consumed.has(item.compressed.part)).map((item) => item.id)
       );
-      if (activePreview && removedIds.has(activePreview.id)) {
-        closePreview(false);
+      if (removedIds.size > 0) {
+        viewer.close(false);
       }
       attachments = attachments.filter((item) => !removedIds.has(item.id));
       render();
@@ -334,7 +287,9 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
 
   return {
     handlePaste,
-    previewAt,
+    addFiles,
+    restoreImages,
+    closeViewer,
     removeAt,
     clear,
     getImages,

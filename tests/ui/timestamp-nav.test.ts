@@ -37,15 +37,28 @@ afterEach(() => {
 });
 
 describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
-  it("非法时刻 99:99：按哨兵 0 跳转（严口径拒绝，不再换算成非法秒数）", async () => {
+  it("非法时刻 99:99：严口径拒绝，保持纯文本不生成跳转按钮", () => {
     const deps = makeDeps();
     const container = document.createElement("div");
     container.textContent = "99:99 这里";
     document.body.append(container);
     linkifyAssistantTimestamps(container, deps);
     const button = container.querySelector<HTMLButtonElement>(".chat-timestamp-link");
+    expect(button).toBeNull();
+    expect(container.textContent).toBe("99:99 这里");
+    container.remove();
+  });
+
+  it("合法时刻 00:00：按 0 秒跳转并设置完整无障碍名称", async () => {
+    const deps = makeDeps();
+    const container = document.createElement("div");
+    container.textContent = "00:00 开场";
+    document.body.append(container);
+    linkifyAssistantTimestamps(container, deps);
+    const button = container.querySelector<HTMLButtonElement>(".chat-timestamp-link")!;
     expect(button).not.toBeNull();
-    button!.click();
+    expect(button.getAttribute("aria-label")).toBe("跳转到视频 00:00");
+    button.click();
     container.remove();
 
     await vi.waitFor(() => expect(deps.seek).toHaveBeenCalledTimes(1));
@@ -82,5 +95,20 @@ describe("对话时间戳跳转（parseClock 归一 + nav 哨兵 0）", () => {
       expect(deps.notice).toHaveBeenCalledWith("时间跳转失败：视频时间跳转失败", 2600)
     );
     expect(deps.seek).toHaveBeenCalledWith(62);
+  });
+
+  it("isContextValid 返回 false 时拒绝跳转并给出跨视频提示", async () => {
+    const deps = { ...makeDeps(), isContextValid: () => false };
+    const container = document.createElement("div");
+    container.textContent = "1:02 这里";
+    document.body.append(container);
+    linkifyAssistantTimestamps(container, deps);
+    container.querySelector<HTMLButtonElement>(".chat-timestamp-link")!.click();
+    container.remove();
+
+    await vi.waitFor(() =>
+      expect(deps.notice).toHaveBeenCalledWith("当前播放页与该对话所属视频不一致，无法跳转进度。", 2600)
+    );
+    expect(deps.seek).not.toHaveBeenCalled();
   });
 });

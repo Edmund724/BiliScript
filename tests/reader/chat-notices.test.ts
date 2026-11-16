@@ -223,6 +223,32 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     closeBtn.click();
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
   });
+
+  it("messages 与 input 槽隔离；removePersistentContextNotice 仅清无动作非成功常驻等待提示", () => {
+    const { feedback, messages, inputCard } = makeHarness();
+
+    feedback.showConversationContextNotice("临时 toast", 4000);
+    feedback.showConversationContextNotice("输入框提示", 4000, { placement: "input" });
+    expect(messages.querySelector(".chat-context-notice")?.textContent).toBe("临时 toast");
+    expect(inputCard.querySelector(".chat-context-notice")?.textContent).toBe("输入框提示");
+
+    feedback.removePersistentContextNotice();
+    expect(messages.querySelector(".chat-context-notice")).not.toBeNull();
+    expect(inputCard.querySelector(".chat-context-notice")).not.toBeNull();
+
+    feedback.showConversationContextNotice("模型响应较慢，请稍候…", 0);
+    feedback.removePersistentContextNotice();
+    expect(messages.querySelector(".chat-context-notice")).toBeNull();
+    expect(inputCard.querySelector(".chat-context-notice")).not.toBeNull();
+
+    feedback.showConversationContextNotice("平台已就绪，请确认发送。", 0, { tone: "success" });
+    feedback.removePersistentContextNotice();
+    expect(messages.querySelector(".chat-context-notice")).not.toBeNull();
+
+    feedback.removeConversationContextNotice();
+    expect(messages.querySelector(".chat-context-notice")).toBeNull();
+    expect(inputCard.querySelector(".chat-context-notice")).toBeNull();
+  });
 });
 
 describe("showConversationContextError / removeCenteredState", () => {

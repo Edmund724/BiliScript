@@ -24,17 +24,9 @@ import { isTimestampOnlyInlineCode, TIMESTAMP_PATTERN } from "./markdown.js";
 
 export interface TimestampNavDeps {
   contextUrl?: string;
+  isContextValid?: () => boolean;
   notice?: (message: string, autoHideMs?: number) => void;
   seek?: (seconds: number) => number | null;
-}
-
-// 对话时间戳解析（arch-slim-2/08 归一）：容错规则单源 shared/clock-text.ts 的
-// parseClock（2 段分钟位不封顶、拒 ss≥60/3 段 mm≥60/hh≥24——原实现不拒，
-// 「99:99」会换算成非法秒数）；
-// 哨兵语义保留在本模块：解不出返回 0（与章节目录的 -1 哨兵不同），跳转调用方
-// 以 0 为「不跳转」。上游 TIMESTAMP_PATTERN 已约束 2/3 段形状。
-function parseTimestampToSeconds(value: unknown): number {
-  return parseClock(value) ?? 0;
 }
 
 export function unwrapTimestampInlineCode(text: unknown): string {
@@ -78,12 +70,18 @@ export function linkifyAssistantTimestamps(root: Node | null | undefined, deps: 
         fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
       }
       const timestamp = match[0];
-      const seconds = parseTimestampToSeconds(timestamp);
+      const seconds = parseClock(timestamp);
+      if (seconds === null) {
+        fragment.append(document.createTextNode(timestamp));
+        lastIndex = match.index + timestamp.length;
+        continue;
+      }
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chat-timestamp-link";
       button.textContent = timestamp;
       button.setAttribute("title", `跳转到 ${timestamp}`);
+      button.setAttribute("aria-label", `跳转到视频 ${timestamp}`);
       button.addEventListener("click", () => {
         void jumpToAssistantTimestamp(seconds, timestamp, deps);
       });
@@ -105,6 +103,10 @@ async function jumpToAssistantTimestamp(
   label = "",
   deps: TimestampNavDeps = {}
 ): Promise<void> {
+  if (deps.isContextValid && !deps.isContextValid()) {
+    deps.notice?.("当前播放页与该对话所属视频不一致，无法跳转进度。", 2600);
+    return;
+  }
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
   const targetUrl = String(deps.contextUrl || "").trim();
   if (!targetUrl) {

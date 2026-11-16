@@ -230,9 +230,12 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       expect(thinkingEl.querySelector(".chat-thinking-label-text")?.textContent).toBe("思考过程");
       expect(thinkingEl.querySelector(".chat-thinking-text")?.textContent).toContain("1. 识别问题关键词");
 
-      // 点击支持展开
-      thinkingEl.click();
+      // 点击标题按钮支持展开
+      const thinkingBtn = thinkingEl.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
+      expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
+      thinkingBtn.click();
       expect(thinkingEl.classList.contains("chat-thinking-collapsed")).toBe(false);
+      expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
 
       // 正文存在且渲染 markdown
       const bodyEl = assistantEl.querySelector(".chat-msg-assistant-body");
@@ -280,8 +283,11 @@ describe("Ticket 03: 思考过程会话持久化与历史回放", () => {
       expect(thinkingEl.querySelector(".chat-thinking-text")?.textContent).toBe("正在构思大纲：第一部分、第二部分...");
 
       // 支持手动折叠
-      thinkingEl.click();
+      const thinkingBtn = thinkingEl.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
+      expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
+      thinkingBtn.click();
       expect(thinkingEl.classList.contains("chat-thinking-collapsed")).toBe(true);
+      expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
 
       // 无正文 DOM
       expect(assistantEl.querySelector(".chat-msg-assistant-body")).toBeNull();

@@ -536,20 +536,29 @@ describe("reasoning / thinking 展示", () => {
 
     feed(runtime, { type: "reasoning", data: "想了很多" });
     const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
-    // 流式期间未进入可折叠态：点击无事发生
-    thinking.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const thinkingBtn = thinking.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
+    // 流式期间未进入可折叠态：按钮禁用，点击无事发生
+    expect(thinkingBtn.disabled).toBe(true);
+    expect(thinkingBtn.hasAttribute("aria-expanded")).toBe(false);
+    thinkingBtn.click();
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
-    expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
+    expect(thinkingBtn.textContent).toBe("思考中…");
 
-    // 正文首帧后折叠；点击展开回看 → 再点击收起
+    // 正文首帧后折叠；点击标题按钮展开回看 → 再点击收起（点正文文本区不误折叠）
     feed(runtime, { type: "token", data: "正文" });
     runRafFrames(raf);
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
-    thinking.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(thinkingBtn.disabled).toBe(false);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
+    thinkingBtn.click();
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
     expect(thinking.querySelector(".chat-thinking-text")?.textContent).toBe("想了很多");
-    thinking.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    thinking.querySelector<HTMLElement>(".chat-thinking-text")!.click();
+    expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
+    thinkingBtn.click();
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
 
     // done 终态重渲染保留折叠行与文本
     feed(runtime, { type: "done" });
@@ -1132,7 +1141,8 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     deps.input.value = "重试发送";
     await runtime.sendTurn(deps.input.value);
     expect(deps.connectPort).toHaveBeenCalledTimes(2);
-    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(2);
+    expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("重试发送");
   });
 });
 
@@ -2281,5 +2291,120 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     next.listeners.message[0]({ type: "done" });
     expect(deps.messages.textContent).toContain("新回答");
     expect(deps.messages.textContent).not.toContain("旧回答");
+  });
+
+  it("活动端口非预期断开：收口思考/光标/慢提示并报错，支持原位重试、草稿图片还原与配置错误免重试", async () => {
+    const { MISSING_PROVIDER_KEY_MESSAGE } = await import("../../extension/core/overview-setup-error.js");
+    const restoredDrafts: Array<{ text: string; images: Array<{ mime: string; data: string }>; isSetupError: boolean }> = [];
+    const currentImages: Array<{ mime: string; data: string }> = [{ mime: "image/webp", data: "IMG1" }];
+    const deps = makeDeps();
+    deps.getInputImages = () => [...currentImages];
+    deps.takeInputImages = () => currentImages.splice(0, currentImages.length);
+    deps.onTurnFailedRestoreDraft = (draft) => {
+      restoredDrafts.push(draft);
+      if (!deps.input.value.trim()) {
+        deps.input.value = draft.text;
+      }
+      if (currentImages.length === 0 && draft.images.length > 0) {
+        currentImages.push(...draft.images);
+      }
+    };
+    const runtime = createChatRuntime(deps);
+
+    // 1. port 非预期断开
+    deps.input.value = "带图提问";
+    await runtime.sendTurn(deps.input.value);
+    feed(runtime, { type: "token", data: "半截" });
+    deps.ports[0].listeners.disconnect[0]();
+
+    expect(runtime.isStreaming()).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-cursor")).toBeNull();
+    expect(deps.messages.querySelector(".chat-msg-error")?.textContent).toBe("错误：对话连接已中断，请重试");
+    expect(deps.messages.querySelectorAll('[data-uncommitted-failed-turn="1"]')).toHaveLength(2);
+    expect(restoredDrafts[0]).toEqual({
+      text: "带图提问",
+      images: [{ mime: "image/webp", data: "IMG1" }],
+      isSetupError: false
+    });
+    expect(deps.input.value).toBe("带图提问");
+
+    // 2. 点击原位重试：回填相同草稿清空并带原图片重发，同时清理上轮未提交失败 DOM
+    const retryBtn = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-retry-btn");
+    expect(retryBtn).not.toBeNull();
+    retryBtn!.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(2));
+    expect(deps.input.value).toBe("");
+    expect(currentImages).toHaveLength(0);
+    expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
+    expect(deps.messages.querySelectorAll('[data-uncommitted-failed-turn="1"]')).toHaveLength(0);
+    expect(deps.ports[1].port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "带图提问", images: [{ mime: "image/webp", data: "IMG1" }] })
+    );
+
+    // 3. 普通错误下若用户修改过草稿：重试保留新草稿且仍重发原问题
+    feed(runtime, { type: "error", error: "网络抖动" });
+    deps.input.value = "用户新输入草稿";
+    const retry2 = deps.messages.querySelector<HTMLButtonElement>(".chat-msg-retry-btn")!;
+    retry2.click();
+    await vi.waitFor(() => expect(deps.ports).toHaveLength(3));
+    expect(deps.input.value).toBe("用户新输入草稿");
+    expect(deps.ports[2].port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "带图提问" })
+    );
+    feed(runtime, { type: "done" });
+
+    // 4. 配置类错误：不挂载重试按钮，isSetupError = true
+    deps.input.value = "无 Key 发送";
+    await runtime.sendTurn(deps.input.value);
+    feed(runtime, { type: "error", error: MISSING_PROVIDER_KEY_MESSAGE });
+    expect(deps.messages.querySelector(".chat-msg-retry-btn")).toBeNull();
+    expect(restoredDrafts.at(-1)?.isSetupError).toBe(true);
+  });
+
+  it("acceptanceEpoch 守卫：在途上下文闸与建连期间被 resetStreamState 作废时不追发请求并断开迟到端口", async () => {
+    let releaseContext!: (value: { pass: boolean }) => void;
+    const deps = makeDeps();
+    deps.ensureCurrentContextForSend = vi.fn(() => new Promise<{ pass: boolean }>((resolve) => {
+      releaseContext = resolve;
+    }));
+    const runtime = createChatRuntime(deps);
+
+    const pendingTurn1 = runtime.sendTurn("闸内重置");
+    runtime.resetStreamState();
+    releaseContext({ pass: true });
+    await expect(pendingTurn1).resolves.toBe("blocked");
+    expect(deps.ports).toHaveLength(0);
+
+    // connectPort 期间重置：断开迟到端口
+    let resolvePort!: (p: TestPort["port"]) => void;
+    deps.ensureCurrentContextForSend = vi.fn(async () => ({ pass: true }));
+    deps.connectPort = vi.fn(() => new Promise<TestPort["port"]>((resolve) => {
+      resolvePort = resolve;
+    }));
+    const pendingTurn2 = runtime.sendTurn("建连内重置");
+    await vi.waitFor(() => expect(deps.connectPort).toHaveBeenCalledTimes(1));
+    runtime.resetStreamState();
+    const lateSession = makePort();
+    resolvePort(lateSession.port);
+    await expect(pendingTurn2).resolves.toBe("blocked");
+    expect(lateSession.port.disconnect).toHaveBeenCalledTimes(1);
+    expect(lateSession.port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("思考过程中断 stop() 清理开始时间并启用按钮 aria-expanded=true；跨视频 pinned 会话关闭截帧工具", async () => {
+    chatSessionStateForTests.currentContextKey = "video:BV1pinned|1";
+    chatSessionStateForTests.liveContextKey = "video:BV1other|1";
+    const deps = makeDeps();
+    deps.canUseVideoFrameTool = vi.fn(async () => true);
+    const runtime = createChatRuntime(deps);
+
+    await runtime.sendTurn("思考断流与跨视频");
+    expect(deps.ports[0].port.postMessage.mock.calls[0][0]).not.toHaveProperty("videoFrameToolEnabled");
+    feed(runtime, { type: "reasoning", data: "推演中" });
+    feed(runtime, { type: "stopped", reason: "已中断" });
+
+    const labelBtn = deps.messages.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
+    expect(labelBtn.disabled).toBe(false);
+    expect(labelBtn.getAttribute("aria-expanded")).toBe("true");
   });
 });

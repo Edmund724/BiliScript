@@ -53,7 +53,7 @@ describe("splitMarkdownTail", () => {
     const { stableText, tailText } = splitMarkdownTail(text);
     expect(stableText).toBe("说明\n\n```js\nconst a = 1;\n```");
     expect(tailText).toBe("\n后续段落");
-    expect(renderMarkdown(stableText)).toContain("<pre><code>");
+    expect(renderMarkdown(stableText)).toContain('<pre data-lang="js"><code>');
     expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(text));
   });
 

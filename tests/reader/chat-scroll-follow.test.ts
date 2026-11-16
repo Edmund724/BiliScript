@@ -218,6 +218,29 @@ describe("chat-scroll-follow：物理手势即时断跟", () => {
     expect(h.getAutoScroll()).toBe(false);
     expect(h.hasScheduledFrames()).toBe(true);
   });
+
+  it("键盘 ArrowUp / PageUp / Home 立即切断跟随并放闸，输入控件内按键忽略", () => {
+    for (const key of ["ArrowUp", "PageUp", "Home"]) {
+      const h = makeHarness(false, 10);
+      h.controller.bind();
+      h.controller.scrollBottomClicked();
+      expect(h.controller.isHolding()).toBe(true);
+
+      h.messages.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      expect(h.controller.isHolding()).toBe(false);
+      expect(h.getAutoScroll()).toBe(false);
+      expect(h.hasScheduledFrames()).toBe(true);
+    }
+
+    const hInput = makeHarness(true, 10);
+    hInput.controller.bind();
+    const textarea = document.createElement("textarea");
+    const evt = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true });
+    Object.defineProperty(evt, "target", { value: textarea });
+    hInput.messages.dispatchEvent(evt);
+    expect(hInput.getAutoScroll()).toBeNull();
+    expect(hInput.hasScheduledFrames()).toBe(false);
+  });
 });
 
 describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {

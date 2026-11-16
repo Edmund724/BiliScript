@@ -123,15 +123,17 @@ describe("单次激活顺序（状态位 → 持久化 → 投影 → 二级激�
     expect(m.ensureReaderDomain).not.toHaveBeenCalled();
   });
 
-  it("离开已装载的 chat：停止朗读；未装载时不为停止而加载对话域", async () => {
+  it("离开已装载的 chat：停止朗读并关闭对话浮层；未装载时不为停止而加载对话域", async () => {
     const stopChatSpeech = vi.fn();
+    const deactivateChatTabOverlays = vi.fn();
     const lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
     vi.mocked(lazyChat.isReaderChatTabLoaded).mockReturnValue(true);
-    (m.ensureReaderChatTab as ReturnType<typeof vi.fn>).mockResolvedValue({ stopChatSpeech });
+    (m.ensureReaderChatTab as ReturnType<typeof vi.fn>).mockResolvedValue({ stopChatSpeech, deactivateChatTabOverlays });
 
     await m.activateScriptTab("subtitle");
 
     expect(stopChatSpeech).toHaveBeenCalledTimes(1);
+    expect(deactivateChatTabOverlays).toHaveBeenCalledTimes(1);
   });
 
   it("chat：走 chat seam 的 ensureChatTabActivated，consumeIntent 默认 true / 显式 false 透传", async () => {

@@ -12,6 +12,8 @@ const liveHarness = vi.hoisted(() => ({
   controller: null as any,
   records: null as any,
   state: "idle",
+  lastError: undefined as string | undefined,
+  lastFailureKind: undefined as string | undefined,
   reconnecting: false,
   emit: (_state: string, _error?: string, _failureKind?: string, _reconnecting?: boolean) => {}
 }));
@@ -25,11 +27,15 @@ vi.mock("../../extension/live/live-chat-controller.js", () => ({
   createLiveChatController: (deps: any) => {
     liveHarness.deps = deps;
     liveHarness.state = "idle";
+    liveHarness.lastError = undefined;
+    liveHarness.lastFailureKind = undefined;
     liveHarness.reconnecting = false;
     const records = createLiveTextToolRecordStore();
     liveHarness.records = records;
     liveHarness.emit = (state, error, failureKind, reconnecting = false) => {
       liveHarness.state = state;
+      liveHarness.lastError = error;
+      liveHarness.lastFailureKind = failureKind;
       liveHarness.reconnecting = reconnecting;
       deps.onStateChange?.(state, error, failureKind);
       if (reconnecting) {
@@ -39,6 +45,8 @@ vi.mock("../../extension/live/live-chat-controller.js", () => ({
     liveHarness.controller = {
       getState: () => liveHarness.state,
       isReconnecting: () => liveHarness.reconnecting,
+      getLastError: () => liveHarness.lastError,
+      getLastFailureKind: () => liveHarness.lastFailureKind,
       getTextToolRecords: records.getSnapshot,
       subscribeTextToolRecords: records.subscribe,
       retryTextToolRecord: vi.fn((callId: string) => {
@@ -251,7 +259,7 @@ describe("AI 对话实时伴看状态区", () => {
     liveHarness.emit("failure", "网络握手超时", "network");
     expect(statusElement().hidden).toBe(false);
     expect(statusText.textContent).toBe("伴看连接失败：网络握手超时");
-    expect(visibleActions()).toEqual(["retry", "settings", "stop"]);
+    expect(visibleActions()).toEqual(["retry", "stop"]);
     expect(composerButton().classList.contains("is-live")).toBe(false);
     expect(composerButton().getAttribute("aria-busy")).toBeNull();
     record("失败");
@@ -477,6 +485,7 @@ describe("AI 对话实时伴看状态区", () => {
 
   it("失败记录提供重试和继续伴看，关闭面板不保留记录 DOM 且事件不自动打开", async () => {
     const chat = await activateChat();
+    liveHarness.emit("connected");
     const records = liveHarness.records;
     records.apply({ type: "started", callId: "failed-1", source: "moss", objective: "生成全片总结", startedAt: 10 });
     records.apply({ type: "failed", callId: "failed-1", error: "文本模型限流", endedAt: 20 });
@@ -507,5 +516,56 @@ describe("AI 对话实时伴看状态区", () => {
     expect(root.textContent).toContain("完整结果");
     expect(shellHarness.ensure).not.toHaveBeenCalled();
     expect(liveHarness.controller.start).not.toHaveBeenCalled();
+  });
+
+  it("按 failureKind 过滤动作与设置文案，支持无参 sync 回查 controller 错误；非 connected 隐藏重试并链接化记录时间戳", async () => {
+    const chat = await activateChat();
+
+    const cases: Array<[string, string[], string | undefined]> = [
+      ["provider-unconfigured", ["settings", "stop"], "设置伴看"],
+      ["key-missing", ["settings", "stop"], "填写 Key"],
+      ["key-rejected", ["retry", "settings", "stop"], "检查 Key"],
+      ["gemini-credential", ["settings", "retry", "stop"], "配置 Gemini Key"],
+      ["permission-denied", ["retry", "settings", "stop"], "设置伴看"],
+      ["microphone", ["retry", "stop"], undefined],
+      ["unknown", ["retry", "stop"], undefined]
+    ];
+    for (const [kind, expectedActions, expectedLabel] of cases) {
+      liveHarness.emit("failure", `err-${kind}`, kind);
+      expect(visibleActions().sort()).toEqual([...expectedActions].sort());
+      if (expectedLabel) {
+        expect(actionButton("settings")?.textContent).toBe(expectedLabel);
+      }
+    }
+
+    // 重开后 sync() 无参数从 getLastError / getLastFailureKind 恢复错误
+    chat.closeChatSession();
+    liveHarness.state = "failure";
+    liveHarness.lastError = "晚到失败";
+    liveHarness.lastFailureKind = "key-missing";
+    await chat.ensureChatTabActivated();
+    expect(statusElement().textContent).toContain("晚到失败");
+    expect(visibleActions()).toEqual(["settings", "stop"]);
+    expect(actionButton("settings")?.textContent).toBe("填写 Key");
+
+    // 非 connected 隐藏文本模型重试按钮
+    liveHarness.records.apply({ type: "started", callId: "rec-1", source: "gemini", objective: "分析片段", startedAt: 1 });
+    liveHarness.records.apply({ type: "failed", callId: "rec-1", error: "失败", endedAt: 2 });
+    const recordsRoot = statusElement().querySelector<HTMLElement>(".chat-live-tool-records")!;
+    expect(recordsRoot.querySelector("[data-live-record-action='retry']")).toBeNull();
+    expect(recordsRoot.querySelector("[data-live-record-action='continue']")).not.toBeNull();
+
+    // connected 下渲染已完成记录的时间戳链接
+    liveHarness.emit("connected");
+    liveHarness.records.apply({ type: "started", callId: "rec-2", source: "moss", objective: "带时间戳结果", startedAt: 1 });
+    liveHarness.records.apply({
+      type: "completed",
+      callId: "rec-2",
+      summary: "摘要",
+      markdown: "重点见 01:02",
+      endedAt: 2
+    });
+    const tsBtn = recordsRoot.querySelector<HTMLButtonElement>(".chat-live-tool-record-markdown .chat-timestamp-link");
+    expect(tsBtn?.textContent).toBe("01:02");
   });
 });

@@ -274,6 +274,54 @@ describe("停止、切换与失败", () => {
     await controller.toggle(button, "回答");
     await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(2));
   });
+
+  it("三态按钮：getVoices 等待与首包到达前为 is-loading，start 后为 is-speaking；loading 期间点击可中止；无可用语音给出明确提示", async () => {
+    let resolveVoices!: (voices: ChatSpeechVoice[]) => void;
+    const engine = new FakeSpeechEngine();
+    engine.getVoices = vi.fn(() => new Promise<ChatSpeechVoice[]>((resolve) => {
+      resolveVoices = resolve;
+    }));
+    const { controller, onError } = makeController(engine);
+    const button = document.createElement("button");
+
+    const pending = controller.toggle(button, "准备朗读");
+    expect(button.classList.contains("is-loading")).toBe(true);
+    expect(button.classList.contains("is-speaking")).toBe(false);
+
+    // loading 期间再次点击立即取消
+    await controller.toggle(button, "准备朗读");
+    expect(button.classList.contains("is-loading")).toBe(false);
+    resolveVoices([localVoice("local-zh", "zh-CN")]);
+    await pending;
+    expect(engine.speak).not.toHaveBeenCalled();
+
+    // 正常起跑：loading -> start -> speaking
+    engine.getVoices = vi.fn(async () => [localVoice("local-zh", "zh-CN")]);
+    await controller.toggle(button, "正式朗读");
+    await vi.waitFor(() => expect(engine.speak).toHaveBeenCalledTimes(1));
+    expect(button.classList.contains("is-loading")).toBe(true);
+    expect(button.classList.contains("is-speaking")).toBe(false);
+    engine.emit(0, "start");
+    expect(button.classList.contains("is-loading")).toBe(false);
+    expect(button.classList.contains("is-speaking")).toBe(true);
+    controller.stop();
+
+    // 无语音包区分报错
+    engine.getVoices = vi.fn(async () => []);
+    await controller.toggle(button, "空语音测试");
+    expect(onError).toHaveBeenCalledWith("当前设备未找到可用朗读语音");
+  });
+
+  it("speechTextFromElement 跳过代码块操作栏（.biliscript-md-code-bar），不朗读语言与复制文案", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<p>前面一句</p><div class="biliscript-md-code"><div class="biliscript-md-code-bar"><span class="biliscript-md-code-lang">typescript</span><button class="biliscript-md-code-copy">复制代码</button></div><pre><code>const x = 1;</code></pre></div><p>后面一句</p>`;
+    const spoken = speechTextFromElement(root);
+    expect(spoken).not.toContain("typescript");
+    expect(spoken).not.toContain("复制代码");
+    expect(spoken).toContain("前面一句");
+    expect(spoken).toContain("代码块，已跳过。");
+    expect(spoken).toContain("后面一句");
+  });
 });
 
 describe("音量对齐", () => {

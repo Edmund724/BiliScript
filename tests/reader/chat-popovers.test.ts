@@ -299,4 +299,45 @@ describe("toggleMoreMenu", () => {
     expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
     expect(moreBtn.classList.contains("is-active")).toBe(false);
   });
+
+  it("打开更多菜单聚焦首项；Esc 关闭更多菜单归还触发键焦点", () => {
+    const { popovers, moreMenu, moreBtn, historyPopover, modelPanel } = makeHarness();
+    historyPopover.hidden = true;
+    modelPanel.hidden = true;
+    moreMenu.hidden = true;
+    const item = document.createElement("button");
+    item.className = "biliscript-reading-chat-more-item";
+    moreMenu.appendChild(item);
+
+    popovers.toggleMoreMenu();
+    expect(document.activeElement).toBe(item);
+
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(moreMenu.hidden).toBe(true);
+    expect(document.activeElement).toBe(moreBtn);
+  });
+
+  it("伴看详情内按 Esc 先回退历史列表，二次按 Esc 才退出历史；hideModelPanel({ restoreFocus: false }) 不抢焦点", () => {
+    const exitLiveHistoryDetail = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const { popovers, historyPopover, modelPanel, deps } = makeHarness();
+    (deps as { exitLiveHistoryDetail?: () => boolean }).exitLiveHistoryDetail = exitLiveHistoryDetail;
+    historyPopover.hidden = false;
+    modelPanel.hidden = true;
+
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(exitLiveHistoryDetail).toHaveBeenCalledTimes(1);
+    expect(historyPopover.hidden).toBe(false);
+
+    popovers.handleEscapeKey(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(exitLiveHistoryDetail).toHaveBeenCalledTimes(2);
+    expect(historyPopover.hidden).toBe(true);
+
+    const outsider = document.createElement("button");
+    document.body.appendChild(outsider);
+    outsider.focus();
+    modelPanel.hidden = false;
+    popovers.hideModelPanel({ restoreFocus: false });
+    expect(modelPanel.hidden).toBe(true);
+    expect(document.activeElement).toBe(outsider);
+  });
 });

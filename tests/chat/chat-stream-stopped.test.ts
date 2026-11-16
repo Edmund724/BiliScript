@@ -90,13 +90,18 @@ describe("Ticket 02: 中断时思考过程保留与操作栏改造", () => {
     expect(thinkingEl.classList.contains("chat-thinking-collapsible")).toBe(true);
     expect(thinkingEl.classList.contains("chat-thinking-collapsed")).toBe(false);
 
-    // 支持手动折叠与展开
-    thinkingEl.click();
+    // 支持手动折叠与展开（点击独立按钮触发，同时更新 aria-expanded）
+    const thinkingBtn = thinkingEl.querySelector<HTMLButtonElement>(".chat-thinking-label")!;
+    expect(thinkingBtn.disabled).toBe(false);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
+    thinkingBtn.click();
     expect(thinkingEl.classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("false");
     expect(thinkingEl.querySelector(".chat-thinking-label-text")?.textContent).toBe("已停止");
 
-    thinkingEl.click();
+    thinkingBtn.click();
     expect(thinkingEl.classList.contains("chat-thinking-collapsed")).toBe(false);
+    expect(thinkingBtn.getAttribute("aria-expanded")).toBe("true");
 
     // 停止徽标存在
     const stoppedBadge = node.querySelector(".chat-msg-stopped");

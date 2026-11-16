@@ -2053,7 +2053,7 @@
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   border: 1px solid var(--biliscript-reader-border);
-  background: var(--biliscript-reader-surface);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-surface));
   box-shadow: var(--biliscript-reader-shadow);
 }
 
@@ -2138,7 +2138,6 @@
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
 }
 
 .biliscript-md-math::-webkit-scrollbar {
@@ -2154,7 +2153,7 @@
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-md-math-block {
   display: flex !important;
-  justify-content: center !important;
+  justify-content: safe center !important;
   align-items: center;
   margin: 0.4em 0;
   padding: 2px 0;

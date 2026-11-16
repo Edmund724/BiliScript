@@ -145,6 +145,18 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     notifyScrolled();
   }
 
+  function onKeydown(e: KeyboardEvent): void {
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) {
+      return;
+    }
+    if (e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home") {
+      releaseScrollBottomHold();
+      deps.setAutoScroll(false);
+      notifyScrolled();
+    }
+  }
+
   function scrollBottomClicked(): void {
     holdScrollBottom();
     deps.setAutoScroll(true);
@@ -164,6 +176,7 @@ export function createScrollFollowController(deps: ChatScrollFollowDeps): ChatSc
     deps.messages.addEventListener("scroll", notifyScrolled);
     deps.messages.addEventListener("wheel", onWheel, { passive: true });
     deps.messages.addEventListener("touchmove", onTouchMove, { passive: true });
+    deps.messages.addEventListener("keydown", onKeydown);
     if ("addEventListener" in deps.scrollBottomBtn && typeof deps.scrollBottomBtn.addEventListener === "function") {
       deps.scrollBottomBtn.addEventListener("click", scrollBottomClicked);
     }

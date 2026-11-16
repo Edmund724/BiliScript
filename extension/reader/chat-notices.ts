@@ -53,6 +53,7 @@ export interface ReaderChatFeedback {
     }
   ) => void;
   removeConversationContextNotice: () => void;
+  removePersistentContextNotice: () => void;
   showConversationContextError: (message: string) => void;
   removeCenteredState: () => void;
   removeSuggestions: () => void;
@@ -61,8 +62,27 @@ export interface ReaderChatFeedback {
 }
 
 export function createReaderChatFeedback({ messages, inputCard, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
-  // 通知条自动消失定时器（闭包私有单例；0 = 无挂起定时器）
-  let contextNoticeTimer = 0;
+  // 通知条自动消失定时器（分槽隔离：消息区 vs 输入卡区；0 = 无挂起定时器）
+  let messageNoticeTimer = 0;
+  let messageNoticePersistent = false;
+  let inputNoticeTimer = 0;
+
+  function removeMessagesNotice(): void {
+    if (messageNoticeTimer) {
+      clearTimer(messageNoticeTimer);
+      messageNoticeTimer = 0;
+    }
+    messageNoticePersistent = false;
+    messages.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
+  }
+
+  function removeInputNotice(): void {
+    if (inputNoticeTimer) {
+      clearTimer(inputNoticeTimer);
+      inputNoticeTimer = 0;
+    }
+    inputCard?.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
+  }
 
   function showConversationContextNotice(
     message: string,
@@ -85,7 +105,12 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
       dismissible?: boolean;
     } = {}
   ): void {
-    removeConversationContextNotice();
+    const isInputSlot = placement === "input" && Boolean(inputCard);
+    if (isInputSlot) {
+      removeInputNotice();
+    } else {
+      removeMessagesNotice();
+    }
     const notice = document.createElement("div");
     notice.className = "chat-context-notice";
     if (tone === "success") {
@@ -125,26 +150,45 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
       closeBtn.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        removeConversationContextNotice();
+        if (isInputSlot) {
+          removeInputNotice();
+        } else {
+          removeMessagesNotice();
+        }
       });
       notice.appendChild(document.createTextNode(" "));
       notice.appendChild(closeBtn);
     }
-    (placement === "input" && inputCard ? inputCard : messages).prepend(notice);
+    (isInputSlot && inputCard ? inputCard : messages).prepend(notice);
+    if (!isInputSlot) {
+      messageNoticePersistent = autoHideMs <= 0 && !openSettingsAction && !action && tone !== "success";
+    }
     if (autoHideMs > 0) {
-      contextNoticeTimer = setTimer(() => {
-        removeConversationContextNotice();
+      const timer = setTimer(() => {
+        if (isInputSlot) {
+          removeInputNotice();
+        } else {
+          removeMessagesNotice();
+        }
       }, autoHideMs);
+      if (isInputSlot) {
+        inputNoticeTimer = timer;
+      } else {
+        messageNoticeTimer = timer;
+      }
     }
   }
 
   function removeConversationContextNotice(): void {
-    if (contextNoticeTimer) {
-      clearTimer(contextNoticeTimer);
-      contextNoticeTimer = 0;
+    removeMessagesNotice();
+    removeInputNotice();
+  }
+
+  function removePersistentContextNotice(): void {
+    if (!messageNoticePersistent) {
+      return;
     }
-    messages.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
-    inputCard?.querySelectorAll(".chat-context-notice").forEach((node) => node.remove());
+    removeMessagesNotice();
   }
 
   function showConversationContextError(message: string): void {
@@ -180,6 +224,7 @@ export function createReaderChatFeedback({ messages, inputCard, setTimer, clearT
   return {
     showConversationContextNotice,
     removeConversationContextNotice,
+    removePersistentContextNotice,
     showConversationContextError,
     removeCenteredState,
     removeSuggestions,

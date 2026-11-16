@@ -70,7 +70,8 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
-import { confirmDialog } from "../ui/confirm-dialog.js";
+import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
+import type { LiveFailureKind } from "../live/live-session-tracker.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -263,7 +264,13 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 
+type ExtendedLiveController = ReturnType<typeof getLiveController> & {
+  getLastError?: () => string | undefined;
+  getLastFailureKind?: () => LiveFailureKind | undefined;
+};
+
 function openChatSettings(target?: "asr" | "appearance"): void {
+  chatRuntime.stopSpeech();
   popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideMoreMenu();
   requestUiCommand("open-settings", target ? { target } : undefined);
@@ -273,6 +280,9 @@ const liveStatus = createChatLiveStatus({
   root: els.liveStatus,
   getState: () => getLiveController()?.getState() ?? "idle",
   isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
+  getLastError: () => (getLiveController() as ExtendedLiveController | null)?.getLastError?.(),
+  getLastFailureKind: () => (getLiveController() as ExtendedLiveController | null)?.getLastFailureKind?.(),
+  getTimestampNavDeps,
   getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
   subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),
   onRetryTextToolRecord: (callId) => {
@@ -296,6 +306,7 @@ function bindLiveConsumerHooks(): void {
   setLiveSessionHooks({
     showNotice: (message, autoHideMs) => showConversationContextNotice(message, autoHideMs || 4000),
     onBeforeStart: () => {
+      chatRuntime.stopSpeech();
       if (chatRuntime.isTurnActive()) {
         chatRuntime.stopActiveStream();
       }
@@ -373,6 +384,7 @@ const feedback = createReaderChatFeedback({
 const {
   showConversationContextNotice,
   removeConversationContextNotice,
+  removePersistentContextNotice,
   showConversationContextError,
   removeCenteredState,
   removeSuggestions,
@@ -457,6 +469,8 @@ const imageSupportGate = createImageSupportGate({
 //    （非流式时为无害空操作）。
 //   - onContextNotice：上下文补水提示生命周期（pending 展示 / clear 撤除 /
 //     error 展示）。
+let restartForContextFollow = false;
+
 const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
@@ -472,12 +486,21 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   ui: {
     setStreamingUiState: composer.setStreamingUiState,
     showConversationContextNotice,
-    removeConversationContextNotice,
+    removeConversationContextNotice: removePersistentContextNotice,
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions,
     requestViewReset,
     autosizeInput: composer.autosizeInput,
+    onTurnFailedRestoreDraft: ({ text, images }) => {
+      if (els.input.value.trim() === "" && text) {
+        els.input.value = text;
+      }
+      if (inputImages.count() === 0 && !inputImages.isPending() && images.length > 0) {
+        inputImages.restoreImages(images);
+      }
+      composer.autosizeInput();
+    },
     // 缺 Key 回合错误（票 03）：已受理的错误回合只给「前往设置」直达对应平台记录，
     // 不重发本回合。
     onSetupRequired: showChatSetupAction
@@ -496,7 +519,9 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
   },
   onStreamInterrupted: () => {
-    chatRuntime.resetStreamState();
+    if (!restartForContextFollow) {
+      chatRuntime.resetStreamState();
+    }
     resetConversationView();
     composer.setStreamingUiState(false);
   },
@@ -578,13 +603,9 @@ const { loadContextState } = contextLoad;
 // 在途一问一答（含 partial 正文）写回**原**会话并落盘；落定后才 applyById 切换。
 // 不进 conversation-store（store 不碰 runtime 的分层不动），也不动 replay。
 // 不在途时返回 void，applyById 与退出历史在同一 tick 内完成。
-function openConversationById(id: string): Promise<void> | void {
+function openConversationById(id: string): void {
   chatRuntime.stopSpeech();
-  if (!chatRuntime.isTurnActive()) {
-    conversationStore.applyById(id);
-    return;
-  }
-  return chatRuntime.settleTurn().then(() => conversationStore.applyById(id));
+  conversationStore.applyById(id);
 }
 
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
@@ -593,7 +614,11 @@ const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
   applyById: openConversationById,
-  deleteById: (id) => conversationStore.deleteById(id),
+  settleTurn: () => (chatRuntime.isTurnActive() ? chatRuntime.settleTurn() : undefined),
+  deleteById: (id) => {
+    restartForContextFollow = false;
+    return conversationStore.deleteById(id);
+  },
   isTurnActive: () => chatRuntime.isTurnActive(),
   confirmDeleteCurrent: (message) => confirmDialog({ message, confirmText: "删除", danger: true }),
   startNewConversation,
@@ -614,6 +639,9 @@ const popovers = createReaderChatPopovers({
   moreMenu: els.moreMenu,
   renderHistoryList: (options) => lists.renderHistoryList(options),
   settlePendingDeletion: () => lists.settlePendingDeletion(),
+  cancelPendingSwitch: () => lists.cancelPendingSwitch(),
+  exitLiveHistoryDetail: () => lists.exitLiveHistoryDetail(),
+  resetLiveHistoryDetail: () => lists.resetLiveHistoryDetail(),
   renderModelPanel: () => modelPanel.renderPanel()
 });
 
@@ -766,6 +794,9 @@ const sessionTriggers = createReaderChatSessionTriggers({
       clearChatSetupResumeIntent();
       chatSetupViewHold = false;
       sendGate.cancel();
+      deactivateChatTabOverlays();
+      dismissConfirmDialog();
+      restartForContextFollow = false;
       lists.settlePendingDeletion();
       conversationStore.detachForRestart();
       scheduleLiveContextSync();
@@ -944,7 +975,16 @@ export function stopChatSpeech(): void {
   chatRuntime.stopSpeech();
 }
 
+export function deactivateChatTabOverlays(): void {
+  popovers.hideMoreMenu();
+  popovers.hideModelPanel({ restoreFocus: false });
+  popovers.hideHistoryPopover({ focus: "none" });
+  chatRuntime.closeImageViewer({ restoreFocus: false });
+  inputImages.closeViewer(false);
+}
+
 export function closeChatSession(): void {
+  restartForContextFollow = false;
   quickActionGeneration += 1;
   // 首配返回意图与视图守卫不跨会话残留（票 03）。
   chatSetupSessionEpoch += 1;
@@ -972,8 +1012,7 @@ export function closeChatSession(): void {
   // 同步隐藏等待卡并恢复发送键。
   composer.setSubtitleWaitUi(false);
   lists.settlePendingDeletion();
-  popovers.hideHistoryPopover({ focus: "none" });
-  popovers.hideModelPanel();
+  deactivateChatTabOverlays();
   removeConversationContextNotice();
   sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
@@ -1104,6 +1143,7 @@ function bindEvents(): void {
     void startNewConversation();
   });
   els.historyBtn?.addEventListener("click", (event) => {
+    chatRuntime.stopSpeech();
     popovers.toggleHistoryPopover(event);
   });
   els.displaySettingsBtn?.addEventListener("click", () => {
@@ -1179,11 +1219,6 @@ function bindEvents(): void {
       inputImages.removeAt(Number(removeBtn.dataset.chatImageRemove));
       return;
     }
-    const previewBtn = target?.closest<HTMLElement>("[data-chat-image-preview]");
-    if (previewBtn) {
-      inputImages.previewAt(Number(previewBtn.dataset.chatImagePreview));
-      return;
-    }
     if (target?.closest<HTMLElement>(`[id="${ids.readingChatOpenSettings}"]`)) {
       // stopPropagation 必须有：打开抽屉的点击若继续冒泡到 ui-renderer 的文档级
       // click 委托，会被「settingsExpanded 已开 + 点在面板外」判定当成外点立即
@@ -1194,6 +1229,32 @@ function bindEvents(): void {
       beginChatSetup(errorClass, { providerId, mode: "blocked" });
     }
   });
+  const inputCard = els.input.closest<HTMLElement>(".chat-input-card");
+  if (inputCard) {
+    const hasDraggedFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    inputCard.addEventListener("dragover", (event) => {
+      if (!hasDraggedFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+    });
+    inputCard.addEventListener("drop", (event) => {
+      if (!hasDraggedFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (!files.length) {
+        return;
+      }
+      const imageFiles = files.filter((file) => /^image\//i.test(String(file.type || "")));
+      if (!imageFiles.length) {
+        showConversationContextNotice("仅支持拖入图片文件", 4000);
+        return;
+      }
+      inputImages.addFiles(imageFiles);
+    });
+  }
 }
 
 function onWindowResize(): void {
@@ -1269,6 +1330,7 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
 // 唯一为测试而留的导出面（测试锚点：tests/reader/chat-tab.test.ts 直连渲染入口），
 // 运行时消费方只需 closeChatSession / ensureChatTabActivated / runQuickActionPrompt。
 export function renderInitialState(): void {
+  restartForContextFollow = false;
   updateChatLayoutState();
   if (!chatSessionState.contextData) {
     resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
@@ -1326,6 +1388,8 @@ function requestViewReset(intent: ViewResetIntent): void {
   // 动作；发送被拦下的草稿与附件区在此不受影响。
   if (intent.kind === "setup") {
     resetConversationView(setupStateHtml());
+    document.getElementById(ids.readingChatOpenSettings)?.focus({ preventScroll: true });
+    showConversationContextNotice("请先配置平台与模型，点击下方「前往设置」", 4000, { placement: "input" });
     return;
   }
   resetConversationView(intent.html);
@@ -1601,6 +1665,7 @@ async function startNewConversation(): Promise<boolean> {
   }
   restartChat({ keepContext: true });
   renderInitialState();
+  els.input?.focus({ preventScroll: true });
   return true;
 }
 
@@ -1640,8 +1705,19 @@ async function startSubtitleFetch(): Promise<boolean> {
 // seekReadingTarget（content script 无 chrome.tabs 消息链，无跨标签导航可言），
 // 返回 null = 未绑定到视频，由 nav 侧降级为失败播报。
 function getTimestampNavDeps() {
+  const targetContextKey = String(
+    chatSessionState.currentConversationMeta?.contextKey || chatSessionState.currentContextKey || ""
+  ).trim();
   return {
     contextUrl: String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim(),
+    isContextValid: () => {
+      const liveKey = String(chatSessionState.liveContextKey || "").trim();
+      const hasLiveVideo = chatSessionState.liveContextData ? chatSessionState.liveContextData.isVideoContext !== false : true;
+      if (!hasLiveVideo) {
+        return false;
+      }
+      return !targetContextKey || !liveKey || targetContextKey === liveKey;
+    },
     notice: showConversationContextNotice,
     seek: (seconds: number) => seekReadingTarget(seconds)
   };
@@ -1661,7 +1737,16 @@ function restartChat({ keepContext = false, preserveInput = false }: { keepConte
   // 回调同步先执行，时序与直调时代一致）；订阅处是 resetStreamState 的唯一接线
   // 点，runtime 直调仅剩该订阅处与会话关闭 closeChatSession（非拆除事务，不属
   // 本收口）——store 事件管断流通知，防再造第三轨。
-  conversationStore.detachForRestart();
+  // preserveInput=true 来自发送闸 apply-live 预检（与随后 context-load 内的
+  // restoreLatest() 一同跨越）：在此期间不触发 resetStreamState()，避免递增
+  // acceptanceEpoch 误伤正在进行的本轮发送；renderInitialState/cancel/urlChange 会归零。
+  restartForContextFollow = Boolean(preserveInput);
+  try {
+    conversationStore.detachForRestart();
+  } catch (error) {
+    restartForContextFollow = false;
+    throw error;
+  }
   if (!keepContext) {
     rebuildCurrentContextKeyFromContext();
   }

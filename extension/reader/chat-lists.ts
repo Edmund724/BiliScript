@@ -45,12 +45,16 @@ export interface CreateReaderChatListsDeps {
   suggestions: ChatSuggestionsSlot;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hideHistoryPopover: () => void;
+  settleTurn?: () => Promise<void> | undefined;
 }
 
 export interface ReaderChatLists {
   renderSuggestions: () => void;
   renderHistoryList: (options?: { revealCurrent?: boolean }) => void;
   settlePendingDeletion: () => void;
+  cancelPendingSwitch: () => void;
+  exitLiveHistoryDetail: () => boolean;
+  resetLiveHistoryDetail: () => void;
 }
 
 // 空态欢迎区图标与建议 chip 的 DOM 均在建议区属主（./chat-suggestions-slot）里。
@@ -110,6 +114,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   // 取消返回（伴看详情 → 历史列表）恢复进入详情前的列表滚动位置。
   let liveHistoryReturnScrollTop = 0;
   let pendingSwitchId: string | null = null;
+  let switchSeq = 0;
   let pendingDeletion: { id: string; undo: () => Promise<void>; timer: number } | null = null;
   // 删除请求序号：连续删除时只有最后一次的落定结果能占用撤销条与焦点，
   // 先发后至的旧删除不得覆盖。
@@ -144,6 +149,39 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     </div>`;
   }
 
+  function cancelPendingSwitch(): void {
+    switchSeq += 1;
+    if (historyClearBtn) {
+      historyClearBtn.disabled = false;
+    }
+    if (!pendingSwitchId) {
+      return;
+    }
+    pendingSwitchId = null;
+    renderHistoryList();
+  }
+
+  function exitLiveHistoryDetail(): boolean {
+    if (!openLiveHistoryId) {
+      return false;
+    }
+    const returnId = openLiveHistoryId;
+    openLiveHistoryId = null;
+    renderHistoryList();
+    historyList.scrollTop = liveHistoryReturnScrollTop;
+    focusHistoryOpen(returnId);
+    return true;
+  }
+
+  function resetLiveHistoryDetail(): void {
+    if (!openLiveHistoryId) {
+      return;
+    }
+    openLiveHistoryId = null;
+    liveHistoryReturnScrollTop = 0;
+    renderHistoryList();
+  }
+
   function openConversation(id: string): void {
     if (pendingSwitchId) {
       return;
@@ -162,9 +200,58 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     }
     openLiveHistoryId = null;
     pendingSwitchId = id;
+    const seq = ++switchSeq;
+    if (historyClearBtn) {
+      historyClearBtn.disabled = true;
+    }
+    const completeSwitch = () => {
+      if (seq !== switchSeq || pendingSwitchId !== id) {
+        return;
+      }
+      pendingSwitchId = null;
+      if (historyClearBtn) {
+        historyClearBtn.disabled = false;
+      }
+      renderHistoryList();
+      deps.hideHistoryPopover();
+    };
+    const abortSwitch = () => {
+      if (seq !== switchSeq || pendingSwitchId !== id) {
+        return;
+      }
+      pendingSwitchId = null;
+      if (historyClearBtn) {
+        historyClearBtn.disabled = false;
+      }
+      renderHistoryList();
+      focusHistoryOpen(id);
+    };
+    const settling = deps.settleTurn?.();
+    if (settling) {
+      renderHistoryList();
+      focusHistoryOpen(id);
+      settling.then(
+        () => {
+          if (seq !== switchSeq || pendingSwitchId !== id) {
+            return;
+          }
+          const switching = deps.applyById(id);
+          if (!switching) {
+            completeSwitch();
+            return;
+          }
+          switching.then(completeSwitch, abortSwitch);
+        },
+        abortSwitch
+      );
+      return;
+    }
     const switching = deps.applyById(id);
     if (!switching) {
       pendingSwitchId = null;
+      if (historyClearBtn) {
+        historyClearBtn.disabled = false;
+      }
       renderHistoryList();
       deps.hideHistoryPopover();
       return;
@@ -173,20 +260,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     // 重渲换了节点：把键盘焦点留在正在保存的目标行（aria-disabled 仍可聚焦），
     // 落定后才交给 hideHistoryPopover 转到输入框。
     focusHistoryOpen(id);
-    switching.then(
-      () => {
-        if (pendingSwitchId !== id) return;
-        pendingSwitchId = null;
-        renderHistoryList();
-        deps.hideHistoryPopover();
-      },
-      () => {
-        if (pendingSwitchId !== id) return;
-        pendingSwitchId = null;
-        renderHistoryList();
-        focusHistoryOpen(id);
-      }
-    );
+    switching.then(completeSwitch, abortSwitch);
   }
 
   async function deleteConversation(id: string): Promise<void> {
@@ -273,8 +347,11 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     const currentId = chatSessionState.currentConversationId || "";
     const currentAppeared = Boolean(currentId) && currentId !== lastCurrentId;
     lastCurrentId = currentId;
+    const selected = chatSessionState.savedConversations.find((item) => item.id === openLiveHistoryId);
+    const inLiveDetail = isLiveTextToolHistoryEntry(selected);
     if (historyClearBtn) {
-      historyClearBtn.hidden = chatSessionState.savedConversations.length === 0;
+      historyClearBtn.hidden = chatSessionState.savedConversations.length === 0 || inLiveDetail;
+      historyClearBtn.disabled = Boolean(pendingSwitchId);
     }
     if (pendingSwitchId) {
       historyList.setAttribute("aria-busy", "true");
@@ -291,8 +368,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       return;
     }
 
-    const selected = chatSessionState.savedConversations.find((item) => item.id === openLiveHistoryId);
-    if (isLiveTextToolHistoryEntry(selected)) {
+    if (inLiveDetail && isLiveTextToolHistoryEntry(selected)) {
       const metaText = `${formatConversationTimestamp(selected.updatedAt || selected.createdAt)} · ${selected.records.length} 条记录`;
       historyList.innerHTML = `
         <section class="chat-live-history-detail" aria-label="伴看记录">
@@ -308,11 +384,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       hydrateMarkdownContent(historyList);
       historyList.querySelector(".chat-live-history-back")?.addEventListener("click", (event) => {
         event.stopPropagation();
-        const returnId = openLiveHistoryId;
-        openLiveHistoryId = null;
-        renderHistoryList();
-        historyList.scrollTop = liveHistoryReturnScrollTop;
-        if (returnId) focusHistoryOpen(returnId);
+        exitLiveHistoryDetail();
       });
       bindHistoryActions();
       return;
@@ -363,5 +435,12 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     }
   }
 
-  return { renderSuggestions, renderHistoryList, settlePendingDeletion };
+  return {
+    renderSuggestions,
+    renderHistoryList,
+    settlePendingDeletion,
+    cancelPendingSwitch,
+    exitLiveHistoryDetail,
+    resetLiveHistoryDetail
+  };
 }
