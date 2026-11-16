@@ -17,6 +17,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
+import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
 import { state } from "../core/state.js";
 // playerAi 状态微模块（随 ai 域内聚）：本模块独占读写，不再经 core/state。
 import { playerAiState } from "./player-ai-state.js";
@@ -54,8 +55,10 @@ ensurePlayerAiStyles();
 // 走 requestAnimationFrame 而不是退避定时器——播放器容器已出现但尚未完成
 // 布局/被显隐门挡住的窗口只有几帧，定时器路径要等满 100ms 起步的退避拍。
 const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
+const LIVE_QUICK_ACTION_THROTTLE_MS = 250;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
+let lastLiveQuickActionClickAt = -LIVE_QUICK_ACTION_THROTTLE_MS;
 
 // 注入耗时观测（工单 button-injection-stability/01 可观测，默认开启）：模块
 // 求值到 AI 键首次挂载的耗时，只记一次。
@@ -223,6 +226,7 @@ export function stopPlayerAiQuickAction(): void {
   // 变化，新装载窗口应重新获得一次性复校保护，而不是只校准内容脚本存活期内
   // 的第一个视频。
   playerAiSubtitleControlCalibrated = false;
+  lastLiveQuickActionClickAt = -LIVE_QUICK_ACTION_THROTTLE_MS;
 }
 
 export function startPlayerAiQuickActionObserver(): void {
@@ -735,11 +739,17 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
     if (!state.settings?.enablePlayerAiQuickAction) {
       throw new Error("AI 按钮未开启");
     }
+    await exitPlayerFullscreenIfNeeded();
     // 阅读模式外点击 = background 触发进入阅读模式；阅读模式内点击 = 直接定位
     // 对话 tab。回包等待进入与定位完成，不把命令受理当作定位成功。
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 对话失败");
+    }
+    if (button) {
+      button.classList.remove("is-error");
+      button.title = "用 AI 分析这期视频";
+      button.setAttribute("aria-label", "用 AI 分析这期视频");
     }
     setMessage("已定位 AI 对话。");
   } catch (error) {
@@ -749,7 +759,7 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
       buttonHost.appendChild(buttonWrap);
     }
     if (button?.isConnected) {
-      button.textContent = "AI 打开失败";
+      button.classList.add("is-error");
       button.title = message;
       button.setAttribute("aria-label", message);
     }
@@ -784,16 +794,13 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
   event.preventDefault();
   event.stopPropagation();
-  if (playerAiState.playerAiQuickActionSubmitting) {
+  const now = Date.now();
+  if (now - lastLiveQuickActionClickAt < LIVE_QUICK_ACTION_THROTTLE_MS) {
     return;
   }
+  lastLiveQuickActionClickAt = now;
 
   const liveButton = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
-  if (liveButton) {
-    liveButton.disabled = true;
-  }
-  playerAiState.setSubmitting(true);
-
   try {
     const isCurrentlyActive = Boolean(
       liveButton?.classList.contains("is-active") ||
@@ -816,10 +823,5 @@ async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void
       overlay.syncState("failure", false, errorMessage, "unknown");
     } catch {}
     setMessage(errorMessage);
-  } finally {
-    playerAiState.setSubmitting(false);
-    if (liveButton) {
-      liveButton.disabled = false;
-    }
   }
 }

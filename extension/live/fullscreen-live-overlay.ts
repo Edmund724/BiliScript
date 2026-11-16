@@ -86,9 +86,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let miniCapsuleDotEl: HTMLElement | null = null;
   let miniCapsuleStatusTextEl: HTMLElement | null = null;
   let miniCapsuleMicTextEl: HTMLElement | null = null;
+  let miniCapsuleMicIconEl: SVGSVGElement | null = null;
 
   let isMin = true;
   let lastSyncedState: LiveChatState = "idle";
+  let lastIsReconnecting = false;
   let failureActive = false;
   let restoreMiniAfterFailure = false;
   let lastFailureError: string | undefined;
@@ -98,12 +100,15 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
   let capsuleDragHandle: ViewportDragHandle | null = null;
   let hostResizeObserver: ResizeObserver | null = null;
   let observedHost: HTMLElement | null = null;
+  let rootResizeObserver: ResizeObserver | null = null;
+  let observedRoot: HTMLElement | null = null;
   let mountMutationObserver: MutationObserver | null = null;
   let mountSyncQueued = false;
   let disposed = false;
 
   const SCROLL_THRESHOLD = 60;
   let isScrolledToBottom = true;
+  let smoothScrollingToBottom = false;
 
   function getMountHost(): HTMLElement {
     const fullscreenHost = getFullscreenHost();
@@ -133,6 +138,21 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
   }
 
+  function observeRootResize(overlay: HTMLElement): void {
+    if (observedRoot === overlay) return;
+    rootResizeObserver?.disconnect();
+    rootResizeObserver = null;
+    observedRoot = overlay;
+    if (typeof ResizeObserver !== "undefined") {
+      rootResizeObserver = new ResizeObserver(() => {
+        if (disposed || !rootEl || isMin || !savedOffset) return;
+        applyOffset(rootEl, savedOffset);
+        audioPopoverHandle?.reposition();
+      });
+      rootResizeObserver.observe(overlay);
+    }
+  }
+
   function syncMountedHost(): void {
     if (disposed || !rootEl || typeof document === "undefined") return;
     const host = getMountHost();
@@ -150,11 +170,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (miniCapsuleEl && miniCapsuleEl.parentElement !== host) {
       host.appendChild(miniCapsuleEl);
     }
-    audioPopoverHandle?.syncHost();
     const positionedEl = isMin ? miniCapsuleEl : rootEl;
     if (savedOffset && positionedEl) {
-      savedOffset = applyOffset(positionedEl, savedOffset, host);
+      applyOffset(positionedEl, savedOffset, host);
     }
+    audioPopoverHandle?.syncHost();
+    audioPopoverHandle?.reposition();
     if (!rootEl.hidden && !rootEl.classList.contains("is-hidden")) {
       glassLens.sync(rootEl);
     }
@@ -195,24 +216,38 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     isVisible: () => Boolean(rootEl && !rootEl.hidden && !rootEl.classList.contains("is-hidden"))
   });
 
+  function setScrollBottomButtonHidden(hidden: boolean): void {
+    if (!scrollBottomBtnEl) return;
+    if (hidden && document.activeElement === scrollBottomBtnEl) {
+      minBtnEl?.focus({ preventScroll: true });
+    }
+    scrollBottomBtnEl.hidden = hidden;
+  }
+
   function updateScrollFollowState(): void {
     if (!messagesEl) return;
     const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
     const atBottom = distFromBottom <= SCROLL_THRESHOLD;
-    isScrolledToBottom = atBottom;
-    if (scrollBottomBtnEl) {
-      scrollBottomBtnEl.hidden = atBottom;
+    if (smoothScrollingToBottom) {
+      if (atBottom) {
+        smoothScrollingToBottom = false;
+      } else {
+        isScrolledToBottom = true;
+        setScrollBottomButtonHidden(true);
+        return;
+      }
     }
+    isScrolledToBottom = atBottom;
+    setScrollBottomButtonHidden(atBottom);
   }
 
   function scrollToBottom(force = false): void {
     if (!messagesEl) return;
     if (force || isScrolledToBottom) {
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      smoothScrollingToBottom = false;
       isScrolledToBottom = true;
-      if (scrollBottomBtnEl) {
-        scrollBottomBtnEl.hidden = true;
-      }
+      setScrollBottomButtonHidden(true);
     }
   }
 
@@ -239,10 +274,12 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         miniCapsuleDotEl = miniCapsuleEl.querySelector(".live-overlay-status-dot");
         miniCapsuleStatusTextEl = miniCapsuleEl.querySelector(".live-overlay-mini-status-text");
         miniCapsuleMicTextEl = miniCapsuleEl.querySelector(".live-overlay-mini-mic-text");
+        miniCapsuleMicIconEl = miniCapsuleEl.querySelector(".live-overlay-mini-mic-icon, svg");
       }
       bindDomReferences(rootEl);
       observeMountHost();
       observeHostResize(host);
+      observeRootResize(rootEl);
       return rootEl;
     }
 
@@ -290,7 +327,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
               </svg>
             </button>
-            <div id="biliscript-live-audio-popover" class="live-overlay-audio-popover" popover="auto" hidden>
+            <div id="biliscript-live-audio-popover" class="live-overlay-audio-popover" popover="manual" hidden>
               <div class="live-overlay-output-controls">
                 <div class="live-overlay-pop-item live-overlay-pop-volume-item">
                   <span>伴看音量</span>
@@ -363,7 +400,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       <span class="live-overlay-status-dot" aria-hidden="true"></span>
       <span class="live-overlay-mini-status-text">正在伴看</span>
       <span class="live-overlay-mini-mic-text">麦克风已开启</span>
-      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg aria-hidden="true" focusable="false" class="live-overlay-mini-mic-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
         <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
         <line x1="12" x2="12" y1="19" y2="22"/>
@@ -377,6 +414,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     miniCapsuleDotEl = miniCapsule.querySelector(".live-overlay-status-dot");
     miniCapsuleStatusTextEl = miniCapsule.querySelector(".live-overlay-mini-status-text");
     miniCapsuleMicTextEl = miniCapsule.querySelector(".live-overlay-mini-mic-text");
+    miniCapsuleMicIconEl = miniCapsule.querySelector(".live-overlay-mini-mic-icon, svg");
 
     bindDomReferences(overlay);
     bindEvents(overlay);
@@ -384,6 +422,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     glassLens.observeResize(overlay);
     observeMountHost();
     observeHostResize(host);
+    observeRootResize(overlay);
     return overlay;
   }
 
@@ -425,12 +464,14 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
         ignoreSelector: "button, [role='switch'], input, .live-overlay-audio-popover",
         onDragEnd: (offset) => {
           savedOffset = offset;
+          audioPopoverHandle?.reposition();
         }
       });
     }
 
     micBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (!isMicControlActive()) return;
       const controller = deps.getLiveController();
       controller?.toggleMute();
       syncMicButton();
@@ -534,18 +575,25 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       }
     });
 
+    const cancelSmoothScrollToBottom = () => {
+      smoothScrollingToBottom = false;
+    };
     messagesEl?.addEventListener("scroll", updateScrollFollowState, { passive: true });
+    messagesEl?.addEventListener("wheel", cancelSmoothScrollToBottom, { passive: true });
+    messagesEl?.addEventListener("pointerdown", cancelSmoothScrollToBottom, { passive: true });
+    messagesEl?.addEventListener("touchmove", cancelSmoothScrollToBottom, { passive: true });
     scrollBottomBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
       if (messagesEl && typeof messagesEl.scrollTo === "function") {
+        const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+        smoothScrollingToBottom = distFromBottom > SCROLL_THRESHOLD;
         messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: "smooth" });
       } else if (messagesEl) {
+        smoothScrollingToBottom = false;
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
       isScrolledToBottom = true;
-      if (scrollBottomBtnEl) {
-        scrollBottomBtnEl.hidden = true;
-      }
+      setScrollBottomButtonHidden(true);
     });
   }
 
@@ -599,24 +647,43 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (speedValueEl) speedValueEl.textContent = text;
   }
 
+  function isMicControlActive(): boolean {
+    return lastSyncedState === "connected" && !lastIsReconnecting;
+  }
+
   function syncMiniCapsuleName(): void {
     if (!miniCapsuleEl) return;
     const status = miniCapsuleStatusTextEl?.textContent || "实时伴看";
-    const mic = miniCapsuleMicTextEl?.textContent || "麦克风已开启";
-    const label = `${status}，${mic}，展开伴看浮窗`;
+    const micActive = isMicControlActive();
+    const mic = micActive ? (miniCapsuleMicTextEl?.textContent || "麦克风已开启") : "";
+    const label = mic ? `${status}，${mic}，展开伴看浮窗` : `${status}，展开伴看浮窗`;
     miniCapsuleEl.setAttribute("aria-label", label);
     miniCapsuleEl.title = label;
   }
 
   function syncMicButton(): void {
-    const isMuted = deps.getLiveController()?.isMuted() ?? false;
+    const micActive = isMicControlActive();
+    const isMuted = micActive && (deps.getLiveController()?.isMuted() ?? false);
     if (micBtnEl) {
+      micBtnEl.disabled = !micActive;
       micBtnEl.setAttribute("aria-pressed", String(isMuted));
-      micBtnEl.setAttribute("title", isMuted ? "取消静音麦克风" : "麦克风静音");
-      micBtnEl.setAttribute("aria-label", isMuted ? "取消静音麦克风" : "麦克风静音");
+      const label = !micActive
+        ? "连接后可用麦克风"
+        : isMuted
+          ? "取消静音麦克风"
+          : "麦克风静音";
+      micBtnEl.setAttribute("title", label);
+      micBtnEl.setAttribute("aria-label", label);
     }
     if (miniCapsuleMicTextEl) {
-      miniCapsuleMicTextEl.textContent = isMuted ? "麦克风已静音" : "麦克风已开启";
+      miniCapsuleMicTextEl.hidden = !micActive;
+      miniCapsuleMicTextEl.textContent = micActive
+        ? (isMuted ? "麦克风已静音" : "麦克风已开启")
+        : "";
+    }
+    if (miniCapsuleMicIconEl) {
+      miniCapsuleMicIconEl.toggleAttribute("hidden", !micActive);
+      miniCapsuleMicIconEl.style.display = micActive ? "" : "none";
     }
     syncMiniCapsuleName();
   }
@@ -716,6 +783,8 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
     isMin = true;
     lastSyncedState = "idle";
+    lastIsReconnecting = false;
+    smoothScrollingToBottom = false;
     failureActive = false;
     restoreMiniAfterFailure = false;
     if (rootEl) {
@@ -757,7 +826,11 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     const state = customState ?? controller?.getState() ?? "idle";
     lastSyncedState = state;
     const isReconnecting = reconnecting ?? Boolean(controller?.isReconnecting?.());
+    lastIsReconnecting = isReconnecting;
     const showFailure = state === "failure" && !isReconnecting;
+    if (state === "failure") {
+      audioPopoverHandle?.close(false);
+    }
     if (state !== "failure") {
       lastFailureError = undefined;
       lastFailureKind = undefined;
@@ -847,9 +920,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
           );
         }
         if (retryBtnEl) {
-          retryBtnEl.hidden = kind === "provider-unconfigured";
+          const hideRetry = kind === "provider-unconfigured" || kind === "key-missing";
+          retryBtnEl.hidden = hideRetry;
           retryBtnEl.textContent = kind === "permission-denied" ? "重新授权" : "重试";
-          retryBtnEl.dataset.primaryAction = String(kind !== "provider-unconfigured" && settingsBtnEl?.dataset.primaryAction !== "true");
+          retryBtnEl.dataset.primaryAction = String(!hideRetry && settingsBtnEl?.dataset.primaryAction !== "true");
         }
       } else {
         delete failureCardEl.dataset.failureKind;
@@ -874,7 +948,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     }
     if (micBtnEl) {
       const isMuted = deps.getLiveController()?.isMuted() ?? false;
-      micBtnEl.classList.toggle("is-talking", active && !isMuted);
+      micBtnEl.classList.toggle("is-talking", active && isMicControlActive() && !isMuted);
     }
   }
 
@@ -886,6 +960,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (messagesEl) {
       messagesEl.innerHTML = "";
     }
+    smoothScrollingToBottom = false;
+    isScrolledToBottom = true;
+    setScrollBottomButtonHidden(true);
     transcriptMerger.resetActiveTurns?.();
   }
 
@@ -949,6 +1026,9 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     hostResizeObserver?.disconnect();
     hostResizeObserver = null;
     observedHost = null;
+    rootResizeObserver?.disconnect();
+    rootResizeObserver = null;
+    observedRoot = null;
     headerDragHandle?.dispose();
     headerDragHandle = null;
     capsuleDragHandle?.dispose();
@@ -961,6 +1041,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
       miniCapsuleDotEl = null;
       miniCapsuleStatusTextEl = null;
       miniCapsuleMicTextEl = null;
+      miniCapsuleMicIconEl = null;
     }
     if (rootEl) {
       rootEl.remove();

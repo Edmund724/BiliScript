@@ -121,6 +121,7 @@ export interface LiveOverlayBinding {
   getOverlay(): FullscreenLiveOverlay | null;
   ensureOverlay(): FullscreenLiveOverlay;
   startOrRestoreCompanion(): Promise<boolean>;
+  retry(): Promise<boolean>;
   bindControllerCallbacks(hooks?: LiveOverlayControllerHooks): BoundLiveControllerCallbacks;
   handleVadChange(active: boolean): void;
   handleTranscript(event: MossLiveTranscriptEvent): void;
@@ -169,21 +170,24 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
           void options.getLiveController()?.stop();
         },
         onRetryLive: () => {
-          const controller = options.getLiveController();
-          if (!controller) return;
-          retryInProgress = true;
-          void (async () => {
-            try {
-              await controller.stop();
-              await controller.start();
-            } finally {
-              retryInProgress = false;
-            }
-          })();
+          void retry();
         }
       });
     }
     return overlay;
+  }
+
+  async function retry(): Promise<boolean> {
+    if (retryInProgress) return false;
+    const controller = options.getLiveController();
+    if (!controller) return false;
+    retryInProgress = true;
+    try {
+      await controller.stop();
+      return await startOrRestoreCompanion();
+    } finally {
+      retryInProgress = false;
+    }
   }
 
   function shouldAutoShowOverlay(): boolean {
@@ -214,6 +218,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
   }
 
   function handleStateChange(liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind): void {
+    if (retryInProgress && liveState === "idle") {
+      return;
+    }
     const active = liveState === "connected" || liveState === "connecting";
     const shouldShowOverlay = active || liveState === "failure";
     syncPlayerLiveQuickActionState(active);
@@ -288,6 +295,9 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
         handleReconnecting();
       },
       onStateChange: (liveState, error, failureKind) => {
+        if (retryInProgress && liveState === "idle") {
+          return;
+        }
         if (error !== undefined) {
           hooks?.onStateChange?.(liveState, error, failureKind);
         } else {
@@ -332,6 +342,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     getOverlay: () => overlay,
     ensureOverlay,
     startOrRestoreCompanion,
+    retry,
     bindControllerCallbacks,
     handleVadChange,
     handleTranscript,

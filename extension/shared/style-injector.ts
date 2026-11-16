@@ -124,6 +124,12 @@ export function whenReaderSettingsStylesReady(): Promise<void> {
   return styleSlots().readerSettingsReady ?? Promise.resolve();
 }
 
+export async function ensureLiveRoomSettingsStyles(): Promise<void> {
+  const readerReady = ensureReaderStyles();
+  ensureReaderSettingsStyles();
+  await Promise.all([readerReady, whenReaderSettingsStylesReady()]);
+}
+
 // 自定义下拉组件表（2026-10 从设置三件套里抽出）：组件在设置抽屉与阅读面板两侧
 // 都用（ui/custom-select.ts），规则不再随 ui/settings-panel chunk 按需装载——只看
 // 字幕、没开过设置抽屉时也必须有样式。故由组件模块顶层 ensure（settings-panel.ts

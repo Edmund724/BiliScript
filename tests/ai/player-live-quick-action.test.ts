@@ -112,6 +112,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    document.body.removeAttribute("data-biliscript-live-active");
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.doUnmock("../../extension/reader/lazy-shell.js");
@@ -324,6 +325,89 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     expect(mockLiveSession.stopLiveCompanion).toHaveBeenCalledTimes(1);
     expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
+  });
+
+  it("AI 按钮提交期间不阻塞伴看按钮；伴看按钮 250ms 节流且连接中保持可点以支持取消", async () => {
+    const sendMessage = vi.mocked(chrome.runtime.sendMessage);
+    let resolveAiAction!: (res: unknown) => void;
+    sendMessage.mockImplementation((message: any, callback?: (res: unknown) => void) => {
+      if (message?.type === "player-ai-quick-action") {
+        resolveAiAction = (res) => callback?.(res);
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    let liveState: "idle" | "connecting" | "connected" = "idle";
+    mockLiveSession.getLiveController.mockImplementation(() => ({ getState: () => liveState }));
+    mockLiveSession.isLiveCompanionActive.mockImplementation(() => liveState === "connecting" || liveState === "connected");
+    let resolveStart!: (ok: boolean) => void;
+    mockLiveSession.startLiveCompanion.mockImplementation(() => {
+      liveState = "connecting";
+      return new Promise<boolean>((resolve) => {
+        resolveStart = resolve;
+      });
+    });
+
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    const aiButton = document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement;
+    const liveButton = document.getElementById("biliscript-player-live-quick-action") as HTMLButtonElement;
+
+    // AI 按钮提交中，不应锁住伴看按钮
+    aiButton.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(aiButton.disabled).toBe(true);
+    expect(liveButton.disabled).toBe(false);
+
+    // 伴看按钮 250ms 内连点仅触发一次 start，且连接中按钮保持可点
+    liveButton.click();
+    liveButton.click();
+    expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(liveButton.disabled).toBe(false);
+
+    // 超过 250ms 后在 connecting 态再次点击可一键取消
+    await vi.advanceTimersByTimeAsync(260);
+    liveButton.click();
+    expect(mockLiveSession.stopLiveCompanion).toHaveBeenCalledTimes(1);
+
+    resolveStart(false);
+    resolveAiAction({ ok: true });
+    await vi.advanceTimersByTimeAsync(20);
+  });
+
+  it("网页全屏点击 AI 快捷按钮时先退出网页全屏再发送定位命令", async () => {
+    playerContainer.setAttribute("data-screen", "web");
+    const webBtn = document.createElement("button");
+    webBtn.className = "bpx-player-ctrl-web";
+    const order: string[] = [];
+    webBtn.addEventListener("click", () => {
+      order.push("web-exit");
+      playerContainer.setAttribute("data-screen", "normal");
+    });
+    playerContainer.appendChild(webBtn);
+
+    const sendMessage = vi.mocked(chrome.runtime.sendMessage);
+    sendMessage.mockImplementation((message: any, callback?: (res: unknown) => void) => {
+      if (message?.type === "player-ai-quick-action") {
+        order.push("quick-action");
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    (document.getElementById("biliscript-player-ai-quick-action") as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(order).toEqual(["web-exit", "quick-action"]);
   });
 });
 

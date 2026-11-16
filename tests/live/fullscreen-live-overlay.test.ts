@@ -128,7 +128,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.show({ forceExpand: true });
     const cases = [
       ["provider-unconfigured", "设置伴看", null, "settings"],
-      ["key-missing", "填写 Key", "重试", "settings"],
+      ["key-missing", "填写 Key", null, "settings"],
       ["key-rejected", "检查 Key", "重试", "settings"],
       ["gemini-credential", "配置 Gemini Key", "重试", "settings"],
       ["permission-denied", "设置伴看", "重新授权", "retry"],
@@ -255,7 +255,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
-  it("Esc 与外点只关闭音频弹层并回焦，不结束伴看", () => {
+  it("Esc 关闭音频弹层并回焦，外点关闭不抢外部焦点且均不结束伴看", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -265,6 +265,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     const root = overlay.getElement()!;
     const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
     const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    expect(popover.getAttribute("popover")).toBe("manual");
     Object.defineProperty(popover, "showPopover", {
       configurable: true,
       value: vi.fn(() => {
@@ -280,12 +281,68 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(onStopLive).not.toHaveBeenCalled();
 
     audioBtn.click();
-    const outside = document.createElement("button");
-    document.body.appendChild(outside);
-    outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    const outsideInput = document.createElement("input");
+    document.body.appendChild(outsideInput);
+    outsideInput.focus();
+    const outsideDown = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    outsideInput.dispatchEvent(outsideDown);
+    expect(outsideDown.defaultPrevented).toBe(false);
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(outsideInput);
+    expect(onStopLive).not.toHaveBeenCalled();
+    overlay.dispose();
+  });
+
+  it("native popover='manual' 下点喇叭不闪关重开、键盘打开聚焦首控件、外点不抢焦点、Esc 归还焦点", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const audioBtn = root.querySelector<HTMLButtonElement>(".live-overlay-audio-btn")!;
+    const popover = root.querySelector<HTMLElement>(".live-overlay-audio-popover")!;
+    const volumeSlider = popover.querySelector<HTMLInputElement>(".live-overlay-volume-slider")!;
+    const showPopover = vi.fn();
+    const hidePopover = vi.fn();
+    Object.defineProperty(popover, "showPopover", { configurable: true, value: showPopover });
+    Object.defineProperty(popover, "hidePopover", { configurable: true, value: hidePopover });
+
+    // 键盘打开（detail === 0）应聚焦弹层内首个可交互控件
+    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    expect(showPopover).toHaveBeenCalledTimes(1);
+    expect(popover.hidden).toBe(false);
+    expect(document.activeElement).toBe(volumeSlider);
+
+    // 再次点击喇叭按钮直接收起，不会重开
+    audioBtn.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(hidePopover).toHaveBeenCalledTimes(1);
+    expect(popover.hidden).toBe(true);
+    expect(audioBtn.getAttribute("aria-expanded")).toBe("false");
+
+    // 鼠标打开后外部点击：关闭弹层且保留外部焦点
+    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(popover.hidden).toBe(false);
+    const outsideBtn = document.createElement("button");
+    document.body.appendChild(outsideBtn);
+    outsideBtn.focus();
+    outsideBtn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(outsideBtn);
+
+    // 重新打开后按 Esc：关闭弹层并把焦点还给喇叭按钮
+    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(popover.hidden).toBe(true);
     expect(document.activeElement).toBe(audioBtn);
-    expect(onStopLive).not.toHaveBeenCalled();
+
+    // 进入 failure 态自动关闭音频弹层
+    audioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(popover.hidden).toBe(false);
+    overlay.syncState("failure", false, "网络异常", "network");
+    expect(popover.hidden).toBe(true);
     overlay.dispose();
   });
 
@@ -535,6 +592,53 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(onStopLive).not.toHaveBeenCalled();
   });
 
+  it("未连接态（connecting / reconnecting / failure / idle）禁用麦克风钮并隐藏胶囊麦克风指示", () => {
+    let liveState: "idle" | "connecting" | "connected" | "failure" = "connecting";
+    mockController.getState = () => liveState;
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show();
+    const root = overlay.getElement()!;
+    const capsule = overlay.getMiniCapsuleElement()!;
+    const micBtn = root.querySelector<HTMLButtonElement>(".live-overlay-mic-btn")!;
+    const micText = capsule.querySelector<HTMLElement>(".live-overlay-mini-mic-text")!;
+    const micIcon = capsule.querySelector<SVGElement>(".live-overlay-mini-mic-icon")!;
+
+    // connecting 态
+    expect(micBtn.disabled).toBe(true);
+    expect(micText.hidden).toBe(true);
+    expect(micIcon.hasAttribute("hidden")).toBe(true);
+    expect(capsule.getAttribute("aria-label")).not.toContain("麦克风已开启");
+
+    // reconnecting 态
+    liveState = "connected";
+    overlay.syncState("connected", true);
+    expect(micBtn.disabled).toBe(true);
+    expect(micText.hidden).toBe(true);
+    expect(micIcon.hasAttribute("hidden")).toBe(true);
+    expect(capsule.getAttribute("aria-label")).not.toContain("麦克风已开启");
+
+    // failure 态
+    liveState = "failure";
+    overlay.syncState("failure", false, "连接失败", "network");
+    expect(micBtn.disabled).toBe(true);
+    expect(micText.hidden).toBe(true);
+    expect(micIcon.hasAttribute("hidden")).toBe(true);
+
+    // connected 恢复后才启用
+    liveState = "connected";
+    overlay.syncState("connected", false);
+    expect(micBtn.disabled).toBe(false);
+    expect(micText.hidden).toBe(false);
+    expect(micText.textContent).toBe("麦克风已开启");
+    expect(micIcon.hasAttribute("hidden")).toBe(false);
+    expect(capsule.getAttribute("aria-label")).toContain("麦克风已开启");
+    overlay.dispose();
+  });
+
   it("连接或失败活跃时隐藏与切换只进入胶囊，空闲才完全隐藏", () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
@@ -658,6 +762,43 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     // 点击回底
     scrollBtn.click();
     expect(scrollBtn.hidden).toBe(true);
+  });
+
+  it("点击回底在平滑滚动途中不首帧断跟，主动滚轮后恢复检测，隐藏前移交焦点到最小化钮", () => {
+    const overlay = createFullscreenLiveOverlay({
+      getPlayerHost: () => playerHost,
+      getLiveController: () => mockController as LiveChatController,
+      onStopLive
+    });
+    overlay.show({ forceExpand: true });
+    const root = overlay.getElement()!;
+    const messages = root.querySelector(".live-overlay-messages") as HTMLElement;
+    const scrollBtn = root.querySelector(".live-overlay-scroll-bottom-btn") as HTMLButtonElement;
+    const minBtn = root.querySelector(".live-overlay-min-btn") as HTMLButtonElement;
+
+    Object.defineProperty(messages, "scrollHeight", { value: 600, configurable: true });
+    Object.defineProperty(messages, "clientHeight", { value: 200, configurable: true });
+    Object.defineProperty(messages, "scrollTop", { value: 100, writable: true, configurable: true });
+    messages.scrollTo = vi.fn();
+
+    messages.dispatchEvent(new Event("scroll"));
+    expect(scrollBtn.hidden).toBe(false);
+
+    scrollBtn.focus();
+    expect(document.activeElement).toBe(scrollBtn);
+    scrollBtn.click();
+    expect(scrollBtn.hidden).toBe(true);
+    expect(document.activeElement).toBe(minBtn);
+
+    // 平滑滚动途中仍远离底部，中间帧 scroll 事件不应把按钮翻回显示
+    messages.dispatchEvent(new Event("scroll"));
+    expect(scrollBtn.hidden).toBe(true);
+
+    // 用户触发 wheel 后解除守卫，再触发 scroll 会重新显示回底钮
+    messages.dispatchEvent(new Event("wheel"));
+    messages.dispatchEvent(new Event("scroll"));
+    expect(scrollBtn.hidden).toBe(false);
+    overlay.dispose();
   });
 
   it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，浮窗不提供清空按钮", () => {
@@ -1116,5 +1257,82 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(overlay.isMinimized()).toBe(false);
     expect(overlay.getElement()).toBe(root);
     overlay.dispose();
+  });
+
+  it("ResizeObserver 观察浮窗尺寸增长并向上夹紧，且不覆写原始 savedOffset", async () => {
+    const originalRO = globalThis.ResizeObserver;
+    const observed = new Map<Element, ResizeObserverCallback>();
+    class FakeResizeObserver {
+      private cb: ResizeObserverCallback;
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb;
+      }
+      observe(target: Element) {
+        observed.set(target, this.cb);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+
+    try {
+      const overlay = createFullscreenLiveOverlay({
+        getPlayerHost: () => playerHost,
+        getLiveController: () => mockController as LiveChatController,
+        onStopLive
+      });
+      overlay.show({ forceExpand: true });
+      const root = overlay.getElement()!;
+      const capsule = overlay.getMiniCapsuleElement()!;
+
+      let rootHeight = 120;
+      root.getBoundingClientRect = () => ({
+        left: 664,
+        top: 400,
+        right: 984,
+        bottom: 400 + rootHeight,
+        width: 320,
+        height: rootHeight,
+        x: 664,
+        y: 400,
+        toJSON: () => {}
+      });
+      capsule.getBoundingClientRect = () => ({
+        left: 900,
+        top: 400,
+        right: 984,
+        bottom: 428,
+        width: 84,
+        height: 28,
+        x: 900,
+        y: 400,
+        toJSON: () => {}
+      });
+
+      const header = root.querySelector<HTMLElement>(".live-overlay-header")!;
+      header.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 800, clientY: 410 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 800, clientY: 420 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 800, clientY: 420 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(root.style.top).toBe("410px");
+
+      // 浮窗内容变高到 400px，ResizeObserver 夹紧到 600 - 400 - 16 = 184px
+      rootHeight = 400;
+      const rootCb = observed.get(root);
+      expect(rootCb).toBeDefined();
+      rootCb!([], {} as ResizeObserver);
+      expect(root.style.top).toBe("184px");
+
+      // 最小化回胶囊时仍恢复拖拽时的原始 top (410px)
+      root.querySelector<HTMLButtonElement>(".live-overlay-min-btn")!.click();
+      expect(capsule.style.top).toBe("410px");
+      overlay.dispose();
+    } finally {
+      if (originalRO) {
+        vi.stubGlobal("ResizeObserver", originalRO);
+      } else {
+        Reflect.deleteProperty(globalThis, "ResizeObserver");
+      }
+    }
   });
 });

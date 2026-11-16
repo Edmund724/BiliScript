@@ -172,6 +172,15 @@
   transform: none;
 }
 
+#biliscript-player-ai-quick-action:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
+}
+
+#biliscript-player-ai-quick-action.is-error {
+  color: var(--biliscript-reader-danger, rgb(248 113 113));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .biliscript-player-ai-wrap {
     /* 滑入位移对减少动态用户关停（显隐跳变即到位），opacity 保留 */
@@ -207,19 +216,19 @@
 @property --biliscript-live-glass-tint-alpha {
   syntax: "<number>";
   inherits: true;
-  initial-value: 0.3;
+  initial-value: 0.58;
 }
 
 @property --biliscript-live-glass-brightness {
   syntax: "<number>";
   inherits: true;
-  initial-value: 0.82;
+  initial-value: 0.76;
 }
 
 @property --biliscript-live-glass-saturate {
   syntax: "<percentage>";
   inherits: true;
-  initial-value: 168%;
+  initial-value: 125%;
 }
 
 .biliscript-player-live-quick-action-wrap {
@@ -313,6 +322,11 @@
 #biliscript-player-live-quick-action.is-active:hover {
   color: var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500));
   opacity: 1;
+}
+
+#biliscript-player-live-quick-action:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
 }
 
 .biliscript-player-interpret-quick-action-wrap {
@@ -557,9 +571,9 @@
   /* 液体玻璃材质令牌（全屏视频深色场景 + 实时视频密集色调兜底） */
   --biliscript-live-glass-tint-scale: 1;
   --biliscript-live-glass-tint-rgb: 18 20 24;
-  --biliscript-live-glass-tint-alpha: calc(0.3 * var(--biliscript-live-glass-tint-scale, 1));
-  --biliscript-live-glass-saturate: 168%;
-  --biliscript-live-glass-brightness: calc(1 - 0.18 * min(1, var(--biliscript-live-glass-tint-scale, 1)));
+  --biliscript-live-glass-tint-alpha: calc(0.58 * var(--biliscript-live-glass-tint-scale, 1));
+  --biliscript-live-glass-saturate: 125%;
+  --biliscript-live-glass-brightness: calc(1 - 0.24 * min(1, var(--biliscript-live-glass-tint-scale, 1)));
   --biliscript-live-glass-inner-glow:
     radial-gradient(
       125% 95% at 10% 0%,
@@ -577,7 +591,7 @@
     var(--biliscript-live-glass-inner-glow),
     rgb(var(--biliscript-live-glass-tint-rgb) / var(--biliscript-live-glass-tint-alpha));
   --biliscript-live-glass-filter:
-    blur(2px)
+    blur(12px)
     saturate(var(--biliscript-live-glass-saturate))
     brightness(var(--biliscript-live-glass-brightness));
   --biliscript-live-glass-rim:
@@ -598,7 +612,7 @@
   right: 16px;
   width: 320px;
   max-width: calc(100% - 32px);
-  max-height: 480px;
+  max-height: min(480px, calc(100% - 32px));
   display: flex;
   flex-direction: column;
   background: var(--biliscript-live-glass-tint);
@@ -634,8 +648,8 @@
 }
 
 .biliscript-fullscreen-live-overlay:hover {
-  --biliscript-live-glass-tint-alpha: calc(0.34 * var(--biliscript-live-glass-tint-scale, 1));
-  --biliscript-live-glass-brightness: calc(1 - 0.14 * min(1, var(--biliscript-live-glass-tint-scale, 1)));
+  --biliscript-live-glass-tint-alpha: calc(0.64 * var(--biliscript-live-glass-tint-scale, 1));
+  --biliscript-live-glass-brightness: calc(1 - 0.24 * min(1, var(--biliscript-live-glass-tint-scale, 1)));
 }
 
 .biliscript-fullscreen-live-overlay.is-hidden,
@@ -725,6 +739,11 @@
   color: rgb(255 255 255 / 0.72);
 }
 
+.live-overlay-mini-mic-text[hidden],
+.live-overlay-mini-mic-icon[hidden] {
+  display: none;
+}
+
 .live-overlay-header {
   display: flex;
   align-items: center;
@@ -808,8 +827,7 @@
   background: transparent;
   border: none;
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  opacity: 0.72;
-  mix-blend-mode: var(--biliscript-live-glass-ink-blend);
+  opacity: 0.85;
   padding: 4px;
   border-radius: var(--live-overlay-control-radius);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -824,6 +842,11 @@
   background: rgb(255 255 255 / 0.14);
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.24);
   opacity: 1;
+}
+
+.live-overlay-icon-btn:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
 }
 
 .live-overlay-close-btn:hover {
@@ -899,6 +922,11 @@
 
 .live-overlay-audio-popover[hidden] {
   display: none !important;
+}
+
+.live-overlay-audio-popover :where(button, input[type="range"]):focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
 }
 
 .live-overlay-audio-status {
@@ -1067,7 +1095,7 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 120px;
+  min-height: min(120px, 100%);
   max-height: 400px;
   position: relative;
 }
@@ -1097,6 +1125,13 @@
 
 .live-overlay-failure-reason {
   word-break: break-word;
+}
+
+.live-overlay-messages,
+.live-overlay-failure-reason {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
 }
 
 .live-overlay-failure-actions {
@@ -1242,12 +1277,12 @@
 
 .live-overlay-bubble-assistant {
   align-self: flex-start;
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(10 12 16 / 0.54);
   box-shadow:
     inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.28),
     inset 0 0 0 0.5px rgb(255 255 255 / 0.14);
   color: var(--biliscript-live-glass-ink);
-  mix-blend-mode: var(--biliscript-live-glass-ink-blend);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.38);
   border-bottom-left-radius: 2px;
 }
 
@@ -1319,7 +1354,12 @@
   filter: drop-shadow(0 1px 2px rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.35));
 }
 
-.biliscript-live-room-toggle:focus-visible,
+.biliscript-live-room-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid rgb(255 255 255 / 0.95);
+  outline-offset: 2px;
+}
+
 .biliscript-live-room-toggle.is-active {
   opacity: 1;
 }
@@ -1369,7 +1409,8 @@
   content: attr(data-tooltip);
 }
 
-.biliscript-live-room-toggle:hover::after {
+.biliscript-live-room-toggle:hover::after,
+.biliscript-live-room-toggle:focus-visible::after {
   opacity: 1;
   visibility: visible;
 }
@@ -1418,17 +1459,54 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgb(23 24 26 / 0.08);
-  color: rgb(23 24 26);
+  background: rgb(255 255 255 / 0.12);
+  color: rgb(245 245 245);
   font-size: var(--biliscript-font-size-2xl, 22px);
   line-height: 1;
   cursor: pointer;
+}
+
+.biliscript-live-room-settings-close:hover {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.biliscript-live-room-settings-close:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent, rgb(96 165 250));
+  outline-offset: 2px;
 }
 
 .biliscript-live-room-settings-view {
   position: relative;
   height: 100%;
   min-height: 0;
+}
+
+#biliscript-live-room-settings #biliscript-reading-view {
+  display: block !important;
+  pointer-events: auto !important;
+  position: relative !important;
+  inset: auto !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: auto !important;
+  translate: none !important;
+  scale: 1 !important;
+  opacity: 1 !important;
+  transition: none !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 #biliscript-live-room-settings #biliscript-reading-settings-panel {
@@ -1478,8 +1556,19 @@
   border: 0;
   border-radius: var(--biliscript-radius-pill, 999px);
   background: var(--biliscript-reader-accent, rgb(96 165 250));
-  color: var(--biliscript-reader-on-accent, rgb(15 23 42));
+  color: var(--biliscript-reader-on-fill, rgb(255 255 255));
   cursor: pointer;
+}
+
+.biliscript-live-room-gemini-configure-btn:hover,
+.biliscript-live-room-settings-reconnect-btn:hover {
+  filter: brightness(1.06);
+}
+
+.biliscript-live-room-gemini-configure-btn:focus-visible,
+.biliscript-live-room-settings-reconnect-btn:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent, rgb(96 165 250));
+  outline-offset: 2px;
 }
 
 .biliscript-live-room-gemini-configure-btn:disabled,

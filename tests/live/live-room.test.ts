@@ -1,7 +1,7 @@
 // tests/live/live-room.test.ts
 // 直播间实时伴看：房间号判定、会话上下文投影、工具拒绝与提示词/工具声明裁剪
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isLiveRoomPage, parseLiveRoomId } from "../../extension/bilibili/video-id-shared.js";
 import { createLiveRoomBridge } from "../../extension/live/live-room-bridge.js";
 import {
@@ -156,5 +156,63 @@ describe("直播间伴看开关按钮", () => {
 
     stopLiveRoomCompanion();
     host.remove();
+  });
+
+  it("直播间伴看开关 250ms 防连点节流，且 aria-label 与 data-tooltip 随连接状态同步", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = document.createElement("div");
+      host.id = "live-player";
+      const controllerBar = document.createElement("div");
+      controllerBar.className = "live-web-player-controller";
+      const rightArea = document.createElement("div");
+      rightArea.className = "right-area";
+      const controls = document.createElement("div");
+      controls.className = "ext-nodes";
+      rightArea.appendChild(controls);
+      controllerBar.appendChild(rightArea);
+      host.appendChild(controllerBar);
+      document.body.appendChild(host);
+
+      const originalSendMessage = chrome.runtime.sendMessage;
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation((message: any, callback?: (resp: unknown) => void) => {
+        if (message?.type === "live-session-prepare") {
+          return undefined;
+        }
+        callback?.({ ok: true });
+        return undefined;
+      });
+      vi.stubGlobal("chrome", {
+        ...chrome,
+        permissions: {
+          request: vi.fn(async () => true)
+        }
+      });
+
+      await startLiveRoomCompanion();
+      const btn = host.querySelector<HTMLButtonElement>(".biliscript-live-room-toggle")!;
+      expect(btn.getAttribute("aria-label")).toBe("实时伴看");
+      expect(btn.getAttribute("data-tooltip")).toBe("实时伴看");
+
+      // 快速连点两次：第二次 250ms 内被节流，仍只触发一次启动（状态进入 connecting）
+      btn.click();
+      btn.click();
+      await Promise.resolve();
+      expect(btn.getAttribute("aria-label")).toBe("正在连接伴看，点击取消");
+      expect(btn.getAttribute("data-tooltip")).toBe("正在连接伴看，点击取消");
+
+      // 超过 250ms 后再次点击：可一键取消回到 idle
+      vi.advanceTimersByTime(260);
+      btn.click();
+      await Promise.resolve();
+      expect(btn.getAttribute("aria-label")).toBe("实时伴看");
+      expect(btn.getAttribute("data-tooltip")).toBe("实时伴看");
+
+      chrome.runtime.sendMessage = originalSendMessage;
+      stopLiveRoomCompanion();
+      host.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

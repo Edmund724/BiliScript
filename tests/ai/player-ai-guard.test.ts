@@ -247,10 +247,24 @@ describe("player-ai 启停守卫", () => {
     await flushMicrotasks();
 
     expect(button.isConnected).toBe(true);
-    expect(button.textContent).toBe("AI 打开失败");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.classList.contains("is-error")).toBe(true);
     expect(button.title).toBe("AI 快捷操作失败：enter failed");
+    expect(button.getAttribute("aria-label")).toBe("AI 快捷操作失败：enter failed");
     expect(state.ui.messageText).toBe("AI 快捷操作失败：enter failed");
     expect(button.disabled).toBe(false);
+
+    // 再次点击成功时清除错误状态并恢复默认标签与图标
+    sendMessage.mockImplementation((message, callback) => {
+      callback?.({ ok: true });
+    });
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await flushMicrotasks();
+
+    expect(button.classList.contains("is-error")).toBe(false);
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.title).toBe("用 AI 分析这期视频");
+    expect(button.getAttribute("aria-label")).toBe("用 AI 分析这期视频");
   });
 
   it("设置关闭 → 不挂 observer、不绑 window layout 监听", async () => {

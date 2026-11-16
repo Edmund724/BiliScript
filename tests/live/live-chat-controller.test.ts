@@ -373,9 +373,10 @@ describe("LiveChatController", () => {
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
     expect(liveButton.classList.contains("is-failure")).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith(
+    expect(controller.getLastError()).toBe(
       "未授予平台域名权限（https://custom.live.mosi.cn），请在设置中重新保存该平台以授予权限"
     );
+    expect(showNotice).not.toHaveBeenCalled();
   });
 
   it("handles user denial of host permissions with actionable failure state", async () => {
@@ -393,7 +394,9 @@ describe("LiveChatController", () => {
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
     expect(liveButton.classList.contains("is-failure")).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith(expect.stringContaining("未授权 https://api.mosi.cn/*"));
+    expect(controller.getLastError()).toContain("未授权 https://api.mosi.cn/*");
+    expect(controller.getLastFailureKind()).toBe("permission-denied");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(onStateChange).toHaveBeenCalledWith(
       "failure",
       "用户拒绝授予 host_permissions：未授权 https://api.mosi.cn/*",
@@ -415,7 +418,9 @@ describe("LiveChatController", () => {
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
     expect(liveButton.classList.contains("is-failure")).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
+    expect(controller.getLastError()).toBe("麦克风权限被拒绝，请在浏览器地址栏允许访问麦克风后重试");
+    expect(controller.getLastFailureKind()).toBe("microphone");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(connectPort).not.toHaveBeenCalled();
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
     expect(onStateChange).toHaveBeenCalledWith(
@@ -473,7 +478,8 @@ describe("LiveChatController", () => {
     expect(ok).toBe(false);
     expect(controller.getState()).toBe("failure");
     expect(liveButton.classList.contains("is-failure")).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith("未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key");
+    expect(controller.getLastError()).toBe("未配置 MOSS-LIVE 密钥，请先在设置中填写 API Key");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(startAudioCapture).not.toHaveBeenCalled();
   });
 
@@ -720,7 +726,9 @@ describe("LiveChatController", () => {
     expect(muteButton.hidden).toBe(true);
     expect(getAudioCapture()?.stopped).toBe(true);
     expect(isMergerDisposed()).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith("伴看连接已断开。");
+    expect(controller.getLastError()).toBe("伴看连接已断开。");
+    expect(controller.getLastFailureKind()).toBe("network");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
   });
 
@@ -750,7 +758,9 @@ describe("LiveChatController", () => {
     expect(controller.isDucked()).toBe(false);
     expect(fakeCapture?.stopped).toBe(true);
     expect(fakePort.disconnected).toBe(true);
-    expect(showNotice).toHaveBeenCalledWith(error.message);
+    expect(controller.getLastError()).toBe(error.message);
+    expect(controller.getLastFailureKind()).toBe("microphone");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(onStateChange).toHaveBeenCalledWith("failure", error.message, "microphone");
     expect(onStateChange.mock.calls.filter(([state]) => state === "failure")).toHaveLength(1);
     expect(sendRuntimeMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "live-session-cleanup" }));
@@ -772,7 +782,9 @@ describe("LiveChatController", () => {
       "平台拒绝了 API Key，请检查或更换后重试",
       "key-rejected"
     );
-    expect(showNotice).toHaveBeenCalledWith("平台拒绝了 API Key，请检查或更换后重试");
+    expect(controller.getLastError()).toBe("平台拒绝了 API Key，请检查或更换后重试");
+    expect(controller.getLastFailureKind()).toBe("key-rejected");
+    expect(showNotice).not.toHaveBeenCalled();
     expect(JSON.stringify(onStateChange.mock.calls)).not.toContain("sk-live-secret");
   });
 
@@ -1489,13 +1501,19 @@ describe("LiveChatController video context and page tools", () => {
       });
 
       expect(controller.getState()).toBe("failure");
-      expect(showNotice).toHaveBeenCalledWith("伴看连接已断开（关闭码: 1006）。");
+      expect(controller.getLastError()).toBe("伴看连接已断开（关闭码: 1006）。");
+      expect(controller.getLastFailureKind()).toBe("network");
+      expect(showNotice).not.toHaveBeenCalled();
       expect(onStateChange).toHaveBeenCalledWith(
         "failure",
         "伴看连接已断开（关闭码: 1006）。",
         "network"
       );
       expect(JSON.stringify([onStateChange.mock.calls, showNotice.mock.calls])).not.toContain("sk-live-secret");
+
+      await controller.stop();
+      expect(controller.getLastError()).toBeUndefined();
+      expect(controller.getLastFailureKind()).toBeUndefined();
     });
   });
 
@@ -1682,6 +1700,32 @@ describe("LiveChatController video context and page tools", () => {
       error: "本次分析已取消。",
       video: expect.objectContaining({ bvid: initialContext.bvid, cid: initialContext.cid })
     }));
+  });
+
+  it("彻底断连失败时，将运行中的后台工具记录标记为已中断而非可原地重试", async () => {
+    const runTask = vi.fn<LiveVideoBackendTaskManager["runTask"]>(() => new Promise(() => {}));
+    const { controller, fakePort } = setupContextTest({
+      videoBackendTaskManager: { runTask, cancelTask: vi.fn(() => true), cancelAllTasks: vi.fn() }
+    });
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    fakePort.simulateMessage({
+      type: "delegation_created",
+      delegation: { delegationId: "disconnected-call", objective: "分析细节", context: [] }
+    });
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1));
+
+    fakePort.simulateMessage({ type: "closed", code: 1006 });
+
+    expect(controller.getState()).toBe("failure");
+    expect(controller.getLastError()).toBe("伴看连接已断开（关闭码: 1006）。");
+    expect(controller.getLastFailureKind()).toBe("network");
+    expect(controller.getTextToolRecords()[0]).toMatchObject({
+      callId: "disconnected-call",
+      status: "failed",
+      error: "伴看连接已断开，本次分析已中断。"
+    });
+    await controller.stop();
   });
 
 });

@@ -459,4 +459,63 @@ describe("live/live-overlay-binding 共用浮窗挂载与控制器绑定", () =>
     expect(binding.getOverlay()?.getElement()?.querySelector(".live-overlay-interpret-btn")).toBeNull();
     binding.dispose();
   });
+
+  it("retry() 单飞锁拦截并发重试，并屏蔽重连中间态 idle 对状态钩子与浮窗的闪隐重置", async () => {
+    const host = document.createElement("div");
+    host.className = "bpx-player-container";
+    document.body.appendChild(host);
+
+    let currentState: "idle" | "connecting" | "connected" | "failure" = "failure";
+    let resolveStop!: () => void;
+    const stopFn = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStop = () => {
+            currentState = "idle";
+            callbacks.onStateChange?.("idle");
+            resolve();
+          };
+        })
+    );
+    const startFn = vi.fn(async () => {
+      currentState = "connecting";
+      callbacks.onStateChange?.("connecting");
+      return true;
+    });
+
+    const controller = {
+      getState: () => currentState,
+      isMuted: () => false,
+      isSharingVideoAudio: () => false,
+      isVoicePriority: () => true,
+      getSpeed: () => 1,
+      stop: stopFn,
+      start: startFn
+    };
+
+    const hookStates: string[] = [];
+    const binding = createLiveOverlayBinding({
+      getPlayerHost: () => host,
+      getLiveController: () => controller as any
+    });
+    const callbacks = binding.bindControllerCallbacks({
+      onStateChange: (s) => hookStates.push(s)
+    });
+
+    callbacks.onStateChange?.("failure", "网络中断", "network");
+    hookStates.length = 0;
+
+    const first = binding.retry();
+    const second = binding.retry();
+    await expect(second).resolves.toBe(false);
+    expect(stopFn).toHaveBeenCalledTimes(1);
+
+    resolveStop();
+    await expect(first).resolves.toBe(true);
+    expect(startFn).toHaveBeenCalledTimes(1);
+    expect(hookStates).toEqual(["connecting"]);
+    expect(hookStates).not.toContain("idle");
+    expect(binding.getOverlay()?.isVisible()).toBe(true);
+    binding.dispose();
+  });
 });

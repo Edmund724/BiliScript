@@ -1,9 +1,6 @@
 import { ids } from "../shared/dom-ids.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import {
-  ensureReaderSettingsStyles,
-  whenReaderSettingsStylesReady
-} from "../shared/style-injector.js";
+import { ensureLiveRoomSettingsStyles } from "../shared/style-injector.js";
 import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { getFullscreenHost } from "./fullscreen-host.js";
 import type { LiveChatState } from "./live-chat-controller.js";
@@ -78,7 +75,7 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
   dialog.setAttribute("aria-label", "伴看平台与密钥");
   dialog.innerHTML = `
     <button type="button" class="biliscript-live-room-settings-close" aria-label="关闭伴看设置">×</button>
-    <div id="${ids.readingView}" class="biliscript-live-room-settings-view">
+    <div id="${ids.readingView}" class="biliscript-live-room-settings-view" data-theme="dark">
       <section id="${ids.readingSettingsPanel}" class="biliscript-reading-settings-panel">
         <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host">
           <section class="biliscript-set-group" data-settings-section="llm">
@@ -87,7 +84,7 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
               <button id="${domIds.addLiveProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
             </div>
             <div id="${domIds.liveProvidersList}" class="ai-providers-list"></div>
-            <p id="${domIds.liveProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+            <p id="${domIds.liveProvidersEmpty}" class="ai-providers-empty" hidden>暂无已配置平台</p>
             <div class="biliscript-live-room-gemini-credential" hidden>
               <span class="biliscript-live-room-gemini-credential-reason"></span>
               <button type="button" class="biliscript-live-room-gemini-configure-btn">配置 Gemini Key</button>
@@ -194,13 +191,14 @@ export async function openLiveRoomSettings(
     dialog.addEventListener("close", () => {
       if (session === created) closeLiveRoomSettings();
     });
-    dialog.showModal();
-    dialog.focus({ preventScroll: true });
   }
 
-  ensureReaderSettingsStyles();
-  await whenReaderSettingsStylesReady();
+  await ensureLiveRoomSettingsStyles();
   if (session !== current) return;
+  if (!current.dialog.open) {
+    current.dialog.showModal();
+    current.dialog.focus({ preventScroll: true });
+  }
   await current.panel.load();
   if (session !== current) return;
   await current.panel.open(target);

@@ -51,4 +51,36 @@ describe("视频页伴看设置入口", () => {
     });
     expect(exitFullscreen.mock.invocationCallOrder[0]).toBeLessThan(enterReaderShell.mock.invocationCallOrder[0]);
   });
+
+  it("网页全屏中先点击退出网页全屏按钮，再打开阅读设置", async () => {
+    const player = document.createElement("div");
+    player.className = "bpx-player-container";
+    player.setAttribute("data-screen", "web");
+    const webBtn = document.createElement("button");
+    webBtn.className = "bpx-player-ctrl-web";
+    const clicked: string[] = [];
+    webBtn.addEventListener("click", () => {
+      clicked.push("web-exit");
+      player.setAttribute("data-screen", "normal");
+    });
+    player.appendChild(webBtn);
+    document.body.appendChild(player);
+
+    const enterReaderShell = vi.fn(async () => {
+      clicked.push("enter-shell");
+    });
+    vi.doMock("../../extension/reader/lazy-shell.js", () => ({
+      ensureReaderShell: async () => ({ enterReaderShell })
+    }));
+    const session = await import("../../extension/live/live-companion-session.js");
+
+    await session.openLiveCompanionSettings("live");
+
+    expect(clicked).toEqual(["web-exit", "enter-shell"]);
+    expect(enterReaderShell).toHaveBeenCalledWith({
+      readerUrl: "",
+      intent: "open",
+      settingsTarget: "live"
+    });
+  });
 });

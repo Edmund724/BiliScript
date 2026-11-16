@@ -340,4 +340,59 @@ describe("直播间伴看设置", () => {
     expect(host.querySelector(".biliscript-live-room-settings")).toBeNull();
     expect(deps.reconnect).not.toHaveBeenCalled();
   });
+
+  it("挂载阅读令牌与设置样式、设深色主题、首帧隐藏空态并在样式就绪后才 showModal", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    document.head.innerHTML = "";
+    const showModalSpy = HTMLDialogElement.prototype.showModal as unknown as ReturnType<typeof vi.fn>;
+    showModalSpy.mockClear();
+
+    const opening = openLiveRoomSettings("live", () => host, createDeps());
+
+    const dialog = host.querySelector<HTMLDialogElement>(".biliscript-live-room-settings")!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.querySelector<HTMLElement>("#biliscript-reading-view")?.dataset.theme).toBe("dark");
+    expect(dialog.querySelector<HTMLElement>("#liveProvidersEmpty")?.hidden).toBe(true);
+    expect(showModalSpy).not.toHaveBeenCalled();
+
+    const expectedStyles = [
+      "entry/styles/tokens-primitive.css",
+      "entry/styles/reader.css",
+      "entry/styles/reader-gate.css",
+      "entry/styles/reader-settings-shell.css",
+      "entry/styles/reader-settings-rows.css",
+      "entry/styles/reader-settings-providers.css"
+    ];
+    for (const path of expectedStyles) {
+      const link = document.head.querySelector(`link[href$="${path}"]`);
+      expect(link, `${path} 未挂载`).not.toBeNull();
+      link?.dispatchEvent(new Event("load"));
+    }
+
+    await opening;
+    expect(showModalSpy).toHaveBeenCalledTimes(1);
+    expect(dialog.open).toBe(true);
+    expect(dialog.querySelector<HTMLElement>("#liveProvidersEmpty")?.hidden).toBe(true);
+  });
+
+  it("等待样式就绪期间关闭弹窗则取消 showModal", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    document.head.innerHTML = "";
+    const showModalSpy = HTMLDialogElement.prototype.showModal as unknown as ReturnType<typeof vi.fn>;
+    showModalSpy.mockClear();
+
+    const opening = openLiveRoomSettings("live", () => host, createDeps());
+    expect(showModalSpy).not.toHaveBeenCalled();
+    closeLiveRoomSettings();
+
+    for (const link of document.head.querySelectorAll("link[data-biliscript-style='1']")) {
+      link.dispatchEvent(new Event("load"));
+    }
+    await opening;
+
+    expect(showModalSpy).not.toHaveBeenCalled();
+    expect(host.querySelector(".biliscript-live-room-settings")).toBeNull();
+  });
 });

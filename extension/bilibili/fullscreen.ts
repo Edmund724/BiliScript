@@ -46,3 +46,39 @@ export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   return false;
 }
 
+export async function exitPlayerFullscreenIfNeeded(): Promise<void> {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    webkitExitFullscreen?: () => Promise<void> | void;
+  };
+  const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+  if (fsEl) {
+    const exitPromise = doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.();
+    await Promise.resolve(exitPromise).catch(() => {});
+  }
+
+  const isWebFullscreen = Boolean(
+    document.querySelector(
+      '.bpx-player-container[data-screen="web"], .bpx-player-container.bpx-state-web-fullscreen'
+    ) ||
+      document.body?.classList.contains("player-mode-webfullscreen") ||
+      document.body?.classList.contains("player-full-win")
+  );
+  if (!isWebFullscreen) {
+    return;
+  }
+
+  const webBtn = document.querySelector<HTMLElement>(
+    ".bpx-player-ctrl-web, .squirtle-video-pagefullscreen"
+  );
+  if (!webBtn) {
+    return;
+  }
+  webBtn.click();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+

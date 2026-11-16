@@ -4,6 +4,7 @@
 
 import { state } from "../core/state.js";
 import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
+import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import {
@@ -214,9 +215,7 @@ export function setLiveSessionHooks(hooks: LiveSessionConsumerHooks | null): voi
 }
 
 export async function openLiveCompanionSettings(target: LiveSettingsTarget): Promise<void> {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen();
-  }
+  await exitPlayerFullscreenIfNeeded();
   const shell = await ensureReaderShell();
   await shell.enterReaderShell({ readerUrl: "", intent: "open", settingsTarget: target });
 }
@@ -302,9 +301,9 @@ export async function startLiveCompanion(): Promise<boolean> {
 }
 
 export async function retryLiveCompanion(): Promise<boolean> {
-  const controller = ensureLiveController();
-  await controller.stop();
-  return startLiveCompanion();
+  ensureLiveController();
+  sessionHooks?.onBeforeStart?.();
+  return liveOverlayBinding.retry();
 }
 
 export function restoreLiveCompanionOverlay(): void {

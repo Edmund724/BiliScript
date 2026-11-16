@@ -126,6 +126,8 @@ export interface LiveChatControllerDeps {
 
 export interface LiveChatController {
   getState(): LiveChatState;
+  getLastError(): string | undefined;
+  getLastFailureKind(): LiveFailureKind | undefined;
   getSavedSessionId?(): string | null;
   isMuted(): boolean;
   isSpeaking(): boolean;
@@ -264,6 +266,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   }
 
   let state: LiveChatState = "idle";
+  let lastError: string | undefined;
+  let lastFailureKind: LiveFailureKind | undefined;
   let muted = false;
   let speaking = false;
   let voicePriority = initialVoicePriority !== false;
@@ -434,6 +438,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function updateUi(nextState: LiveChatState, errorMessage?: string, failureKind?: LiveFailureKind): void {
     state = nextState;
+    if (nextState === "failure") {
+      lastError = errorMessage;
+      lastFailureKind = failureKind;
+    } else {
+      lastError = undefined;
+      lastFailureKind = undefined;
+    }
     if (nextState !== "connecting") {
       reconnecting = false;
     }
@@ -882,7 +893,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       }
       const errorMsg = `权限申请异常：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg, "permission-denied");
-      showNotice(errorMsg);
       return false;
     }
 
@@ -894,7 +904,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (!permResult.ok) {
       const errorMsg = permResult.error || "未授予平台域名权限，无法建立伴看连接";
       updateUi("failure", errorMsg, "permission-denied");
-      showNotice(errorMsg);
       return false;
     }
 
@@ -909,7 +918,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       }
       const errorMsg = `启动服务通信失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg, "network");
-      showNotice(errorMsg);
       return false;
     }
 
@@ -922,7 +930,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     if (!prepResp?.ok) {
       const errorMsg = prepResp?.error || "伴看会话准备失败";
       updateUi("failure", errorMsg, prepResp?.failureKind);
-      showNotice(errorMsg);
       return false;
     }
 
@@ -976,9 +983,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           microphoneFailed = true;
           const errorMsg = error.message || "麦克风连接已中断，请检查设备或浏览器权限后重试";
           stopActiveMedia();
-          failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+          failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
           updateUi("failure", errorMsg, "microphone");
-          showNotice(errorMsg);
           disconnectPort();
           void cleanupSessionRule(sessionId);
         },
@@ -1003,7 +1009,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       }
       const errorMsg = (error as Error)?.message || String(error || "麦克风授权或启动失败");
       updateUi("failure", errorMsg, "microphone");
-      showNotice(errorMsg);
       return false;
     }
 
@@ -1026,7 +1031,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       stopActiveMedia();
       const errorMsg = `连接后台通信端口失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg, "network");
-      showNotice(errorMsg);
       void cleanupSessionRule(sessionId);
       return false;
     }
@@ -1135,9 +1139,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           : "平台拒绝了 API Key，请检查或更换后重试"
         : formatLiveCloseDiagnostics({ code: msg.code });
       stopActiveMedia();
-      failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+      failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
       updateUi("failure", errorMsg, failureKind);
-      showNotice(errorMsg);
       disconnectPort();
       void cleanupSessionRule(sessionId);
     }
@@ -1148,9 +1151,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (state === "connecting" || state === "connected") {
         const errorMsg = "后台伴看通道已断开。";
         stopActiveMedia();
-        failRunningTextToolRecords("伴看连接已断开，本次分析已取消，可重试。");
+        failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
         updateUi("failure", errorMsg, "network");
-        showNotice(errorMsg);
         disconnectPort();
         void cleanupSessionRule(sessionId);
       }
@@ -1187,7 +1189,6 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       stopActiveMedia();
       const errorMsg = `下发启动指令失败：${(error as Error)?.message || error}`;
       updateUi("failure", errorMsg, "network");
-      showNotice(errorMsg);
       disconnectPort();
       void cleanupSessionRule(sessionId);
       return false;
@@ -1309,6 +1310,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   return {
     getState: () => state,
+    getLastError: () => lastError,
+    getLastFailureKind: () => lastFailureKind,
     getSavedSessionId: () => savedMossSessionId,
 
 

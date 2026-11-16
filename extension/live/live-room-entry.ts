@@ -25,6 +25,7 @@ const VIDEO_SELECTOR = "#live-player video, .live-player-mounter video, video";
 const TOGGLE_BUTTON_CLASS = "biliscript-live-room-toggle";
 const NOTICE_CLASS = "biliscript-live-room-notice";
 const NOTICE_DEFAULT_MS = 4000;
+const TOGGLE_THROTTLE_MS = 250;
 
 let started = false;
 let controller: LiveChatController | null = null;
@@ -35,6 +36,7 @@ let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
 let currentRoomId = "";
 let settingsRequestId = 0;
 let settingsModule: typeof import("./live-room-settings.js") | null = null;
+let lastToggleClickAt = -TOGGLE_THROTTLE_MS;
 
 function findPlayerHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(PLAYER_HOST_SELECTOR);
@@ -89,15 +91,31 @@ function showNotice(message: string, autoHideMs: number = NOTICE_DEFAULT_MS): vo
   window.setTimeout(() => notice.remove(), autoHideMs);
 }
 
+function resolveToggleLabel(liveState: string): string {
+  if (liveState === "connecting") return "正在连接伴看，点击取消";
+  if (liveState === "connected") return "实时伴看 (已开启)";
+  return "实时伴看";
+}
+
 function syncToggleButton(liveState: string): void {
   if (!toggleButton) return;
   const active = liveState === "connecting" || liveState === "connected";
+  const label = resolveToggleLabel(liveState);
   if (toggleButton.classList.contains("is-active") !== active) {
     toggleButton.classList.toggle("is-active", active);
   }
   const pressed = String(active);
   if (toggleButton.getAttribute("aria-pressed") !== pressed) {
     toggleButton.setAttribute("aria-pressed", pressed);
+  }
+  if (toggleButton.getAttribute("aria-label") !== label) {
+    toggleButton.setAttribute("aria-label", label);
+  }
+  if (toggleButton.getAttribute("data-tooltip") !== label) {
+    toggleButton.setAttribute("data-tooltip", label);
+  }
+  if (toggleButton.hasAttribute("title") && toggleButton.title !== label) {
+    toggleButton.title = label;
   }
 }
 
@@ -126,10 +144,13 @@ function mountToggleButton(): void {
       toggleButton?.removeAttribute("title");
     });
     toggleButton.addEventListener("mouseleave", () => {
-      toggleButton?.setAttribute("title", "实时伴看");
+      toggleButton?.setAttribute("title", resolveToggleLabel(controller?.getState() ?? "idle"));
     });
     toggleButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
     toggleButton.addEventListener("click", () => {
+      const now = Date.now();
+      if (now - lastToggleClickAt < TOGGLE_THROTTLE_MS) return;
+      lastToggleClickAt = now;
       void controller?.toggle();
     });
   }
@@ -217,5 +238,6 @@ export function stopLiveRoomCompanion(): void {
   controller = null;
   toggleButton?.remove();
   toggleButton = null;
+  lastToggleClickAt = -TOGGLE_THROTTLE_MS;
   currentRoomId = "";
 }

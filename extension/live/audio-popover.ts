@@ -1,11 +1,12 @@
 // extension/live/audio-popover.ts
-// 伴看音频设置弹层：原生 Popover 提供 top layer 与 light dismiss；不支持时
-// 移到当前全屏宿主或 body，以 fixed 定位避开浮窗圆角和播放器 overflow 裁切。
+// 伴看音频设置弹层：使用受控 popover="manual" 提供 top layer，避免 light-dismiss
+// 与喇叭点击/外点焦点争夺；不支持时移到全屏宿主或 body 以 fixed 定位避开裁切。
 
 import { getFullscreenHost } from "./fullscreen-host.js";
 
 export interface AudioPopoverHandle {
   syncHost(): void;
+  reposition(): void;
   close(restoreFocus?: boolean): void;
   dispose(): void;
 }
@@ -104,7 +105,14 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     finalizeClose(restoreFocus);
   }
 
-  function show(): void {
+  function focusFirstControl(): void {
+    const firstInteractive = popover.querySelector<HTMLElement>(
+      'input:not([disabled]), button:not([disabled]), [role="switch"]:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    firstInteractive?.focus({ preventScroll: true });
+  }
+
+  function show(showOptions?: { focusFirst?: boolean }): void {
     if (disposed || open) return;
     onOpen();
     popover.hidden = false;
@@ -120,43 +128,37 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     nativeOpen = nativeShown;
     syncFallbackHost();
     position();
-  }
-
-  function toggle(): void {
-    if (open) {
-      close();
-    } else {
-      show();
+    if (showOptions?.focusFirst) {
+      focusFirstControl();
     }
   }
 
   function onButtonClick(event: MouseEvent): void {
     event.stopPropagation();
-    toggle();
+    if (open) {
+      close(true);
+    } else {
+      show({ focusFirst: event.detail === 0 });
+    }
   }
 
   function onPopoverClick(event: MouseEvent): void {
     event.stopPropagation();
   }
 
-  function onPopoverToggle(event: Event): void {
-    if ((event as ToggleEvent).newState === "closed") finalizeClose(true);
-  }
-
   function onDocumentPointerDown(event: PointerEvent): void {
-    if (!open || nativeOpen) return;
+    if (!open) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (popover.contains(target) || button.contains(target)) return;
-    event.preventDefault();
-    close();
+    close(false);
   }
 
   function onDocumentKeyDown(event: KeyboardEvent): void {
-    if (!open || nativeOpen || event.key !== "Escape") return;
+    if (!open || event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
-    close();
+    close(true);
   }
 
   function onViewportChange(): void {
@@ -166,7 +168,6 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
 
   button.addEventListener("click", onButtonClick);
   popover.addEventListener("click", onPopoverClick);
-  popover.addEventListener("toggle", onPopoverToggle);
   document.addEventListener("pointerdown", onDocumentPointerDown);
   document.addEventListener("keydown", onDocumentKeyDown, true);
   window.addEventListener("resize", onViewportChange);
@@ -174,13 +175,13 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
 
   return {
     syncHost: syncFallbackHost,
+    reposition: onViewportChange,
     close,
     dispose() {
       disposed = true;
       close(false);
       button.removeEventListener("click", onButtonClick);
       popover.removeEventListener("click", onPopoverClick);
-      popover.removeEventListener("toggle", onPopoverToggle);
       document.removeEventListener("pointerdown", onDocumentPointerDown);
       document.removeEventListener("keydown", onDocumentKeyDown, true);
       window.removeEventListener("resize", onViewportChange);
