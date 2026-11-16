@@ -6,6 +6,7 @@
     <a href="https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn"><img src="https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge" alt="Edge 应用市场立即安装" /></a>
     <a href="https://github.com/Edmund724/BiliScript/releases"><img src="https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github" alt="GitHub Releases 下载 zip" /></a>
   </p>
+  <p>🎬 <a href="https://www.bilibili.com/video/BV1zwWh61E8D">在 B 站观看演示视频</a></p>
   <img src="docs/images/demo-overview.png" width="420" alt="BiliScript 概览标签页：AI 生成的章节分段与重点引用" />
 </div>
 
