@@ -904,6 +904,42 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     expect(Array.from(modelSelect.options).map((option) => option.value)).toContain("p2\u0001模型二");
   });
 
+  it("关闭前有置顶会话、关闭后切换视频再重开：未命中历史会话时同步新视频字幕", async () => {
+    state.clip.title = "视频A";
+    state.clip.bvid = "BV1videoA0001";
+    state.clip.cid = "101";
+    state.clip.aid = "7100";
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "视频A字幕" }];
+    setLocationUrl("https://www.bilibili.com/video/BV1videoA0001/?biliscript_reader=1");
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await expect(chat.runQuickActionPrompt("总结视频A")).resolves.toBe(true);
+    await waitFor(() => ports.length === 1);
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "token", data: "视频A回复" });
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    await waitFor(() => chatSessionState.currentConversationMeta?.pinnedContext === true);
+
+    chat.closeChatSession();
+
+    state.clip.title = "视频B";
+    state.clip.bvid = "BV1videoB0002";
+    state.clip.cid = "202";
+    state.clip.aid = "7200";
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "视频B新字幕" }];
+    setLocationUrl("https://www.bilibili.com/list/watchlater?oid=222&bvid=BV1videoB0002");
+
+    await expect(chat.runQuickActionPrompt("总结视频B")).resolves.toBe(true);
+    await waitFor(() => ports.length === 2 && ports[1].postMessage.mock.calls.length === 1);
+    const posted = ports[1].postMessage.mock.calls[0][0] as {
+      context?: { bvid?: string; title?: string; subtitleBody?: Array<{ content?: string }> };
+    };
+    expect(posted.context?.bvid).toBe("BV1videoB0002");
+    expect(posted.context?.title).toBe("视频B");
+    expect(posted.context?.subtitleBody?.map((item) => item.content)).toEqual(["视频B新字幕"]);
+  });
+
   // 联网搜索授权被拒后闸侧关闭偏好（票 11）：既有对话开关与内存态经同一条
   // 「外部设置变更 → 刷新」路径同步，下一条消息不再重复询问。
   it("联网偏好外部变更（拒绝授权后关闭）→ 对话开关与内存态同步", async () => {

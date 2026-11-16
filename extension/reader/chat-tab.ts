@@ -908,7 +908,12 @@ async function restoreChatSession(): Promise<void> {
   if (!ok) {
     return;
   }
-  await conversationStore.restoreLatest();
+  const restored = await conversationStore.restoreLatest();
+  if (!restored && chatSessionState.liveContextData) {
+    // 此前若有置顶旧会话，loadContextState 会走 APPLY_PINNED 只写 liveContextData；
+    // 未命中新视频历史会话时 restoreLatest 只拆旧会话而不回填，需把 live 快照落回主上下文。
+    applyLiveContextToMain();
+  }
   renderInitialState();
   composer.autosizeInput();
 }
