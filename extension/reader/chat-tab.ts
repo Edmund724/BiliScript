@@ -94,17 +94,9 @@ import { createExplainIntentController } from "./explain-intent.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
-// AI 对话首配返回意图（票 provider-onboarding-consistency/03）：页面内存单槽，
-// 取消 / 换视频 / 换会话 / 关设置抽屉 / 关对话会话即失效。
-import {
-  clearChatSetupResumeIntent,
-  consumeChatSetupResumeIntent,
-  peekChatSetupResumeIntent,
-  setChatSetupResumeIntent,
-  type ChatSetupMode
-} from "./chat-setup-resume.js";
-// 保存成功后的返回事务要退出设置抽屉（关闭路径同时作废三张首配意图）。
-import { closeReaderSettingsMode, focusProviderEditorModelControl } from "./settings-mode.js";
+import { beginReaderAiSetupFlow, invalidateReaderSetupFlows } from "./setup-resume.js";
+// 保存成功后的返回事务要退出设置抽屉（关闭路径同时作废未消费的首配流程）。
+import { closeReaderSettingsMode } from "./settings-mode.js";
 // 配置类错误的两个类目（无平台 / 缺 Key）：分类器在 chat-runtime 用同一叶子判定，
 // 本文件只消费类目参数。
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
@@ -690,10 +682,8 @@ const sessionTriggers = createReaderChatSessionTriggers({
       }
       clipSignature = nextSignature;
       quickActionGeneration += 1;
-      // 换视频/分P：首配返回意图与视图守卫作废（票 03），返回时不把用户拽回旧内容。
-      chatSetupSessionEpoch += 1;
-      chatSetupOpenInFlight = false;
-      clearChatSetupResumeIntent();
+      // 换视频/分P：首配返回意图与视图守卫作废，返回时不把用户拽回旧内容。
+      invalidateReaderSetupFlows("chat");
       chatSetupViewHold = false;
       sendGate.cancel();
       deactivateChatTabOverlays();
@@ -879,10 +869,7 @@ export function deactivateChatTabOverlays(): void {
 export function closeChatSession(): void {
   restartForContextFollow = false;
   quickActionGeneration += 1;
-  // 首配返回意图与视图守卫不跨会话残留（票 03）。
-  chatSetupSessionEpoch += 1;
-  chatSetupOpenInFlight = false;
-  clearChatSetupResumeIntent();
+  invalidateReaderSetupFlows("chat");
   chatSetupViewHold = false;
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
@@ -1123,7 +1110,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
   // 防止上下文对账把已上屏的实时问答重建掉。
   lists.renderHistoryList();
-  if (isConversationViewActive() || chatSetupViewHold || peekChatSetupResumeIntent()) {
+  if (isConversationViewActive() || chatSetupViewHold) {
     return;
   }
   renderInitialState();
@@ -1256,9 +1243,9 @@ const CHAT_SETUP_ACTION_LABEL = "前往设置";
 // 刚发生的一问一答一起清掉。守卫期间平台与历史列表照刷，消息区归返回事务
 //（blocked 模式由 resume 重渲初始态；error 模式保持原样），直到用户下次发送、
 // 新会话、换视频或关闭会话恢复常规重建。
+type ChatSetupMode = "blocked" | "error";
+
 let chatSetupViewHold = false;
-let chatSetupOpenInFlight = false;
-let chatSetupSessionEpoch = 0;
 
 interface BeginChatSetupOptions {
   // 缺 Key / 缺模型时已选平台的记录 id（直达该记录）；无记录时为空。
@@ -1268,115 +1255,46 @@ interface BeginChatSetupOptions {
 }
 
 /**
- * 首配直达（票 03）：记录返回意图并打开正确的平台编辑记录。
- * - 无平台（空态 / 发送前拦截）→ 新增 AI 平台编辑器（首配「保存并继续」）；
- * - 缺 Key（已选平台）→ 编辑该记录并聚焦 Key；
- * - 缺模型（已启用平台但 models 为空）→ 编辑该记录并聚焦模型配置。
- * 保存成功由 resumeChatAfterSetup 回到对话；取消 / 关抽屉 / 换视频 / 换会话即作废。
+ * 首配直达：进入平台编辑并在保存成功且仍有效时回到对话，取消或上下文切换时收敛守卫。
  */
 function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", mode }: BeginChatSetupOptions = {}): void {
-  if (chatSetupOpenInFlight) {
+  if (sessionClosed) {
     return;
   }
-  chatSetupOpenInFlight = true;
-  const sessionEpoch = ++chatSetupSessionEpoch;
   const targetProviderId = String(providerId || "").trim();
-  // 来源按当前视图推断：消息区已有对话（用户气泡 / 历史）→ 已受理错误回合，
-  // 返回时不重渲消息区；否则是受理前拦截，返回时清掉状态屏回到初始态。
   const setupMode: ChatSetupMode = mode ?? (chatSessionState.chatHistory.length ? "error" : "blocked");
+  const snapshotContextKey = String(chatSessionState.currentContextKey || "");
+  const snapshotConversationId = String(chatSessionState.currentConversationId || "");
   chatSetupViewHold = true;
-  setChatSetupResumeIntent({
+
+  void beginReaderAiSetupFlow({
+    scope: "chat",
     errorClass,
     providerId: targetProviderId,
-    mode: setupMode,
-    contextKey: String(chatSessionState.currentContextKey || ""),
-    conversationId: String(chatSessionState.currentConversationId || ""),
-    createdAt: Date.now()
-  });
-  void (async () => {
-    try {
-      const { openReaderAiSetup } = await import("../ui/settings-panel.js");
-      if (sessionClosed || sessionEpoch !== chatSetupSessionEpoch) {
-        return;
-      }
-      // settings-panel.openReaderAiSetup 仅当 errorClass === "missing-key" 时按 providerId 编辑；
-      // "no-model" 借道 "missing-key" + target.providerId 打开对应平台编辑页，随后聚焦模型配置。
-      const uiSetupClass: OverviewSetupErrorClass =
-        errorClass === "no-model" && targetProviderId ? "missing-key" : errorClass;
-      await openReaderAiSetup(
-        uiSetupClass,
-        {
-          onAfterSave: () => {
-            if (sessionEpoch !== chatSetupSessionEpoch) {
-              return;
-            }
-            resumeChatAfterSetup();
-          },
-          // 取消编辑（含 Esc / 外点 / 删除记录）：未消费意图即作废；视图守卫一并解除，
-          // 平台刷新恢复常规重建。保存成功路径的意图已被消费，守卫继续交给返回事务
-          //（error 模式要挡住保存触发的那次平台刷新对错误回合的拆除）。
-          // 仅对本代次会话生效：防止旧编辑器关闭清理覆盖后续新建会话的意图与守卫。
-          onSessionEnd: () => {
-            if (sessionEpoch !== chatSetupSessionEpoch) {
-              return;
-            }
-            const canceled = peekChatSetupResumeIntent() !== null;
-            clearChatSetupResumeIntent();
-            if (canceled) {
-              chatSetupViewHold = false;
-            }
-          }
-        },
-        targetProviderId ? { providerId: targetProviderId } : undefined
-      );
-      if (errorClass === "no-model" && !sessionClosed && sessionEpoch === chatSetupSessionEpoch) {
-        focusProviderEditorModelControl();
-      }
-    } catch {
-      if (sessionEpoch === chatSetupSessionEpoch) {
-        clearChatSetupResumeIntent();
-        chatSetupViewHold = false;
-      }
-    } finally {
-      if (sessionEpoch === chatSetupSessionEpoch) {
-        chatSetupOpenInFlight = false;
-      }
+    isStillValid: () =>
+      !sessionClosed
+      && initialized
+      && snapshotContextKey === String(chatSessionState.currentContextKey || "")
+      && snapshotConversationId === String(chatSessionState.currentConversationId || ""),
+    onResume: () => {
+      resumeChatAfterSetup(setupMode);
+    },
+    onCancel: () => {
+      chatSetupViewHold = false;
     }
-  })();
+  });
 }
 
 /**
- * 保存成功后的返回（票 03）：消费意图并校验身份——会话已关闭、视图未初始化、
- * 换视频/分P（contextKey 变）或换会话（conversationId 变）都静默作废，不在新位置
- * 做事。通过则退出设置抽屉、重取平台与偏好、聚焦输入区并提示「平台已就绪，请确认
- * 发送」；**不发送**、不新建会话、不清输入、不拆历史（blocked 模式才把无平台状态屏
- * 重渲回初始态）。一次性消费：重复保存回调落到空槽，不会二次提示。
+ * 保存成功后的返回：退出设置抽屉、重取平台与偏好、聚焦输入区并提示「平台已就绪，请确认发送」。
  */
-function resumeChatAfterSetup(): void {
-  const intent = consumeChatSetupResumeIntent();
-  if (!intent) {
-    return;
-  }
-  if (
-    sessionClosed
-    || !initialized
-    || intent.contextKey !== String(chatSessionState.currentContextKey || "")
-    || intent.conversationId !== String(chatSessionState.currentConversationId || "")
-  ) {
-    chatSetupViewHold = false;
-    return;
-  }
-  // 先关抽屉再做事：关闭路径会作废未消费的首配意图（本意图已消费，落到空槽）。
-  // restoreFocus:false——返回后的焦点目标是对话输入区，不是设置入口；这里先聚焦
-  // 一次（保存回执返回后立即可输入），重取平台/重渲初始态之后再收一次尾。
+function resumeChatAfterSetup(mode: ChatSetupMode): void {
   closeReaderSettingsMode({ restoreFocus: false });
   composer.autosizeInput();
   els.input?.focus?.();
   void (async () => {
-    // 新平台 / 新 Key / 新模型已落盘：重取平台列表与偏好，模型选择器与档位区随之就位。
     await modelPanel.reload().catch(() => null);
-    if (intent.mode === "blocked") {
-      // 受理前拦截停在状态屏：清掉状态屏回到初始态；输入框草稿与附件区不动。
+    if (mode === "blocked") {
       renderInitialState();
       chatSetupViewHold = false;
     }
@@ -1442,9 +1360,7 @@ async function startNewConversation(): Promise<boolean> {
     });
     if (!confirmed) return false;
   }
-  chatSetupSessionEpoch += 1;
-  chatSetupOpenInFlight = false;
-  clearChatSetupResumeIntent();
+  invalidateReaderSetupFlows("chat");
   chatSetupViewHold = false;
   popovers.hideHistoryPopover({ focus: "none" });
   popovers.hideModelPanel();

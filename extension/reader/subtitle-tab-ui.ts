@@ -102,6 +102,7 @@ import {
   selectAsrTranslationLanguage
 } from "./asr-translation.js";
 import type { AsrTranslationView } from "./asr-translation.js";
+import { beginReaderAsrSetupFlow } from "./setup-resume.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../live/interpret-subtitle-preferences.js";
 // 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
 //（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
@@ -1203,25 +1204,14 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       reader.noteManualReaderInteraction();
     });
   });
-  let asrSetupOpenInFlight = false;
   let retryFetchInFlight = false;
   subtitleList.addEventListener("click", (event) => {
-    // 配置类无字幕空态「前往设置」（票 04）：与概览空态 / 对话拦截同一入口，
-    // 直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。
+    // 配置类无字幕空态「前往设置」：直达 ASR 平台编辑或自动转写开关；普通点句仍走跳播。
     const actionNode = (event.target as Element | null)?.closest?.("[data-subtitle-action]");
     if (actionNode instanceof HTMLElement) {
       const action = actionNode.dataset.subtitleAction;
       if (action === "asr-setup") {
-        if (asrSetupOpenInFlight) {
-          return;
-        }
-        asrSetupOpenInFlight = true;
-        void import("../ui/settings-panel.js")
-          .then(({ openReaderAsrSetup }) => openReaderAsrSetup())
-          .catch(() => null)
-          .finally(() => {
-            asrSetupOpenInFlight = false;
-          });
+        void beginReaderAsrSetupFlow();
         return;
       }
       if (action === "retry-fetch") {

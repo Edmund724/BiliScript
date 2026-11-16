@@ -908,28 +908,27 @@ describe("Stage 2 同步与生命周期联动闭环（P0/P1）", () => {
     expect(windowScrollToSpy).not.toHaveBeenCalled();
   });
 
-  it("换片 / 分 P reset 时关闭解释卡并清理待解释与首配续跑意图", async () => {
+  it("换片 / 分 P reset 时关闭解释卡并清理待解释与首配续跑流程", async () => {
     const lifecycle = await import("../../extension/reader/lifecycle.js");
-    const resumeLeaf = await import("../../extension/reader/explain-setup-resume.js");
+    const setupResume = await import("../../extension/reader/setup-resume.js");
+    const onResume = vi.fn();
+    const onCancel = vi.fn();
 
     selectInItem(1, "工具");
     explainBtn().click();
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
 
     explainIntent.setPendingExplainIntent({ from: 10, content: "句", createdAt: 1 });
-    resumeLeaf.setExplainSetupResumeIntent({
-      selection: "工具",
-      line: "我们习惯将其视为传递信息的工具",
-      from: 10,
-      index: 1,
-      runId: 1,
-      bvid: "BV1reset",
-      cid: "10",
-      createdAt: 1,
-      errorClass: "no-provider"
+    const flowPromise = setupResume.beginReaderAiSetupFlow({
+      scope: "explain",
+      errorClass: "no-provider",
+      isStillValid: () => true,
+      onResume,
+      onCancel
     });
 
     lifecycle.handleReaderPresenterNotification({ kind: "reset" });
+    await flowPromise;
 
     expect(reader.isReaderExplainCardOpen()).toBe(false);
     expect(explainCard().hidden).toBe(true);
@@ -940,6 +939,7 @@ describe("Stage 2 同步与生命周期联动闭环（P0/P1）", () => {
     });
     await probe.consumeIfPending();
     expect(probeSend).not.toHaveBeenCalled();
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
+    expect(onCancel).toHaveBeenCalledWith("invalid");
+    expect(onResume).not.toHaveBeenCalled();
   });
 });

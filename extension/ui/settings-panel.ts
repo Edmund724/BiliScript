@@ -19,8 +19,6 @@ import {
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   MAX_INITIAL_QUICK_PROMPTS
 } from "../core/default-prompts.js";
-import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
-import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
@@ -40,15 +38,14 @@ import {
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
-import { closeReaderSettingsMode, focusProviderEditorModelControl, openReaderSettingsMode, resolveEditableAiProviderId } from "../reader/settings-mode.js";
+import { closeReaderSettingsMode, openReaderSettingsMode } from "../reader/settings-mode.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { bindAgentBridgeSettings, type AgentBridgeSettingsController } from "./agent-bridge-settings.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
-import { isProviderEditorOpen } from "./provider-editor.js";
+import { confirmDialog } from "./confirm-dialog.js";
 import { cleanExpiredConversations } from "../chat/conversation-store.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectValue } from "./custom-select.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -64,29 +61,23 @@ import {
   formatChatSelectionLine,
   formatSubtitleFollowHint,
   subtitleFollowHintState,
-  syncAiDefaultBadge,
-  syncAiDefaultButtonState
+  syncAiDefaultBadge
 } from "./ai-active-projection.js";
 import { AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE } from "../core/ai-provider-store.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
-import { createProviderFamilyRows, PROVIDER_FAMILY_ROWS } from "./provider-family.js";
-import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
-import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
-// ASR 配置类阻塞的设置目标解析（票 04）：无记录 / 缺 Key / 开关关闭三态。
+import type { ProviderRowItem } from "./provider-row.js";
 import { resolveAsrSetupState } from "../asr/asr-setup.js";
-// ASR 配置续跑（票 04）：页面内存一次性意图 + 续跑后重新进入既有字幕抓取链。
 import {
-  clearAsrSetupResumeIntent,
-  consumeAsrSetupResumeIntent,
+  consumeAsrSetupResumeToken,
   currentPageVideoKey,
-  peekAsrSetupResumeIntent,
-  setAsrSetupResumeIntent
-} from "../reader/asr-setup-resume.js";
+  invalidateReaderSetupFlows,
+  peekAsrSetupResumeToken,
+  setAsrSetupResumeToken
+} from "../reader/setup-resume.js";
 import { requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
-import { LIVE_PROVIDER_PRESETS, resolveActiveLiveProviderId } from "../live/live-provider-store.js";
 import {
   applyLiveAudioSettings,
   persistLiveAudioSettings,
@@ -97,40 +88,7 @@ import {
   LIVE_VOICE_FALLBACK_NOTICE_TEXT,
   takeLiveVoiceFallbackNotice
 } from "../live/live-voice-fallback-notice.js";
-import { wireProviderRowDrag } from "./provider-row-drag.js";
-import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
-import { isSmartSearchActive } from "../core/search-mode.js";
-// 跨族凭据引用四态（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 与
-// 伴看侧 Gemini Live 行副行状态文案统一经 core/ai-credential-reference 注入。
-import { annotateAiCredentialRows } from "../core/ai-credential-reference.js";
-// 消费族凭据同层往返编排（票 07/08）：伴看 Gemini Live 与搜索 DeepSeek 的编辑器
-// 内联凭据行 + 暂存/恢复原草稿共用同一份编排。
-import {
-  enterAiCredentialEditor,
-  linkedCredentialFor,
-  linkedCredentialTargetForDraft,
-  resolveAiCredentialPlan,
-  stashEditorDraft,
-  type AiCredentialLinkTarget,
-  type AiEditorStash
-} from "./ai-credential-link.js";
-import type {
-  EditorDraft,
-  EditorDraftView,
-  ProviderEditorDelete,
-  ProviderEditorSave
-} from "./provider-editor-state.js";
-// 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js：
-// 本模块不直接 import search-chain（避免把 search-executor → 六适配器拖进设置抽屉的懒 chunk）。
-import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
-import { SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
-import type { ProviderEditorKind } from "./provider-editor.js";
-import {
-  requestProviderOriginsViaBackground,
-  revokeOrphanOrigin,
-  permissionRevokeErrorMessage
-} from "../core/host-permissions.js";
-import { createProviderTransactions, loadOriginSharingProviders } from "./provider-transaction.js";
+import { createProviderSettingsHost, type ProviderSettingsHost } from "./provider-settings-host.js";
 import { ids } from "../reader/state.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
 import {
@@ -140,22 +98,13 @@ import {
 
 ensureReaderSettingsStyles();
 
-let aiPresets: AiProviderPreset[] = [];
-let asrPresets: AsrProviderPreset[] = [];
-
 // 设置抽屉宿主引用：单平台保存后的列表重渲需要按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
 let pendingSettingsTarget: LiveSettingsTarget | "appearance" | null = null;
 let renderSettingsPromise: Promise<void> | null = null;
 let renderSettingsHost: HTMLElement | null = null;
-let activeSearchProviderId = "";
-let cachedAiProviders: ProviderRowItem[] = [];
-let cachedAiProvidersLoaded = false;
-let cachedDefaultAiProviderId = "";
-let cachedSearchProviders: ProviderRowItem[] = [];
-let linkedCredentialInFlight = false;
-let deleteRevokeFailureInFlight = false;
+let providerHost: ProviderSettingsHost | null = null;
 
 // ===== 分区渲染隔离 =====
 // .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
@@ -504,10 +453,10 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     normalize: (val) => val !== false,
     patchState: false,
     watchSync: true,
-    // 票 04：从配置类阻塞直达开关的启用路径——打开并落盘成功后，若底层 ASR 平台/Key
-    // 仍缺配置则顺滑进入对应 ASR 编辑器一次完成；否则回到原任务续跑。
+    // 从配置类阻塞直达开关的启用路径：打开并落盘成功后，若底层 ASR 平台或 Key
+    // 仍缺配置则进入对应 ASR 编辑器；否则回到原任务续跑。
     onSaved: (val) => {
-      if (val && peekAsrSetupResumeIntent() !== null && settingsHostRef) {
+      if (val && peekAsrSetupResumeToken() !== null && settingsHostRef) {
         void continueAsrSetupAfterToggleEnabled(collectElements(settingsHostRef));
       }
     }
@@ -685,20 +634,10 @@ async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Pr
   sectionHeading?.setAttribute("tabindex", "-1");
   sectionHeading?.focus({ preventScroll: true });
   if (target !== "gemini-key") return;
-  // 四态直达 Gemini Live 凭据编辑器：无记录 / 非官方地址新建官方 Gemini 记录，
-  // 缺 Key / 可用编辑实际引用记录并聚焦 Key。
-  await ensurePresetsLoaded();
-  const providers = await PROVIDER_FAMILY_UI.ai.loadProviders();
-  await enterAiCredentialEditor({
-    target: "gemini-live",
-    plan: resolveAiCredentialPlan("gemini-live", providers),
-    aiPresets: aiPresets.length ? aiPresets : PRESETS,
-    onSave: providerTransactions.upsertProvider,
-    onDelete: providerTransactions.deleteProvider
-  });
+  await providerHost?.openLinkedCredentialEditor("gemini-live");
 }
 
-// ===== 概览首配直达入口（票 provider-onboarding-consistency/01）=====
+// ===== 概览首配直达入口 =====
 
 // 首配编辑会话回调：保存成功后与编辑器会话结束时的装配方出口（消费/作废续跑
 // 意图、退出设置抽屉），由 reader 装配根注入。
@@ -712,7 +651,6 @@ export interface AiSetupSession {
 // - "missing-key"：定位缺 Key 的启用记录 → 直接编辑该记录并聚焦 Key 输入框；
 //   定位不到（缺失 / 禁用 / 无需 Key）则结束会话并在状态栏提示；
 // - "no-model"：定位可编辑的启用 AI 平台并聚焦模型配置区。
-// 连通性测试不是必经步骤：保存只做本地校验 + 落盘。
 export interface AiSetupTarget {
   // 缺 Key / 缺模型时调用方已知的已选平台记录：优先直达该记录；缺省按解析策略定位。
   providerId?: string;
@@ -753,14 +691,13 @@ export async function openReaderAiSetup(
       }
       return;
     }
-    await openProviderEditorById("ai", String(record.id || ""), undefined, session, undefined, {
-      setupContextBanner
+    await providerHost?.openEditor({
+      kind: "ai",
+      providerId: String(record.id || ""),
+      setupSession: session,
+      setupContextBanner,
+      initialFocusField: target.focusField === "models" ? "models" : "apiKey"
     });
-    if (target.focusField === "models") {
-      focusProviderEditorModelControl();
-    } else {
-      document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
-    }
     return;
   }
 
@@ -777,29 +714,35 @@ export async function openReaderAiSetup(
       }
       return;
     }
-    await openProviderEditorById("ai", String(record.id || ""), undefined, session, undefined, {
-      setupContextBanner
+    await providerHost?.openEditor({
+      kind: "ai",
+      providerId: String(record.id || ""),
+      setupSession: session,
+      setupContextBanner,
+      initialFocusField: "models"
     });
-    focusProviderEditorModelControl();
     return;
   }
 
-  await openProviderEditorById("ai", "", undefined, session, undefined, { setupContextBanner });
+  await providerHost?.openEditor({
+    kind: "ai",
+    providerId: "",
+    setupSession: session,
+    setupContextBanner
+  });
 }
 
-// ===== ASR 配置类阻塞直达入口（票 provider-onboarding-consistency/04）=====
+// ===== ASR 配置类阻塞直达入口 =====
 
-// 配置完成后的续跑（开关落盘 / 编辑器保存共用）：取走一次性意图并校验——
-// 意图缺失（已消费 / 已取消）、换视频或换分 P（页面身份键失配）都不续跑；
-// 已在飞或字幕在手（别的抓取已接手）由 kick 的在手/在飞判定让位，不另起一轮。
-// 通过后重新进入既有字幕抓取链：refreshClip → 无字幕出口 → ASR 转写 → 字幕
-// 接受事务，不建第二条转写管线；浮空发起，保存链路不被整轮转写挂住。
+// 配置完成后的续跑（开关落盘 / 编辑器保存共用）：取走一次性令牌并校验——
+// 令牌缺失、换视频或换分 P（页面身份键失配）都不续跑；
+// 已在飞或字幕在手由 kick 的在手/在飞判定让位，通过后重新进入既有字幕抓取链。
 export function resumeAsrSubtitleFetchAfterSetup(): boolean {
-  const intent = consumeAsrSetupResumeIntent();
-  if (!intent) {
+  const token = consumeAsrSetupResumeToken();
+  if (!token) {
     return false;
   }
-  if (intent.videoKey !== currentPageVideoKey()) {
+  if (token.videoKey !== currentPageVideoKey()) {
     return false;
   }
   void kickSubtitleFetch(() => requestSubtitleRefresh(), {
@@ -812,10 +755,10 @@ export function resumeAsrSubtitleFetchAfterSetup(): boolean {
 }
 
 async function continueAsrSetupAfterToggleEnabled(elements: SettingsElements): Promise<void> {
-  const intent = peekAsrSetupResumeIntent();
-  if (!intent) return;
-  if (intent.videoKey !== currentPageVideoKey()) {
-    consumeAsrSetupResumeIntent();
+  const token = peekAsrSetupResumeToken();
+  if (!token) return;
+  if (token.videoKey !== currentPageVideoKey()) {
+    consumeAsrSetupResumeToken();
     closeReaderSettingsMode({ restoreFocus: true });
     return;
   }
@@ -831,7 +774,7 @@ async function continueAsrSetupAfterToggleEnabled(elements: SettingsElements): P
     }
     return;
   }
-  setAsrSetupResumeIntent({ videoKey: intent.videoKey, kind: setupState.providerStatus });
+  setAsrSetupResumeToken({ videoKey: token.videoKey, kind: setupState.providerStatus });
   const isMissingKey = setupState.providerStatus === "missing-key";
   const targetId = isMissingKey ? setupState.targetProviderId : "";
   const banner = isMissingKey
@@ -843,35 +786,25 @@ async function continueAsrSetupAfterToggleEnabled(elements: SettingsElements): P
       ? "已开启自动转写，请补充语音转写 API Key 后保存继续"
       : "已开启自动转写，请添加语音转写平台后保存继续"
   );
-  await openProviderEditorById(
-    "asr",
-    targetId,
-    undefined,
-    {
+  await providerHost?.openEditor({
+    kind: "asr",
+    providerId: targetId,
+    setupSession: {
       onAfterSave: () => {
         resumeAsrSubtitleFetchAfterSetup();
         closeReaderSettingsMode({ restoreFocus: true });
       },
-      onSessionEnd: () => clearAsrSetupResumeIntent()
+      onSessionEnd: () => invalidateReaderSetupFlows("asr")
     },
-    undefined,
-    { setupContextBanner: banner }
-  );
-  if (isMissingKey) {
-    document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
-  }
+    setupContextBanner: banner,
+    ...(isMissingKey ? { initialFocusField: "apiKey" as const } : {})
+  });
 }
 
 /**
  * ASR 配置类阻塞的「前往设置」直达（字幕空态 / 概览空态 / 对话拦截共用）：
- * - 自动转写关闭：打开设置抽屉并定位开关（启用路径），不代用户改设置；
- *   若同时缺平台/缺 Key，提示开启原因并在开启后顺滑衔接对应 ASR 编辑器一次闭环；
- * - 无 ASR 记录：直接打开新增编辑器；
- * - 激活记录缺 Key：打开该记录的编辑器并聚焦 Key；
- * - 其余配置类（域名未授权 / 模型不可用 / Key 失效）：打开激活记录的编辑器。
- * 点击时刻重新读实时设置与平台列表（跨端设置变化后按新配置解析）；打开前记录
- * 一次性续跑意图（页面内存单槽），保存成功或开关落盘成功后回到原任务续跑，
- * 取消编辑 / 关闭抽屉作废意图。
+ * 点击时刻重新读实时设置与平台列表；打开前记录一次性续跑令牌，
+ * 保存成功或开关落盘成功后回到原任务续跑，取消编辑或关闭抽屉作废令牌。
  */
 export async function openReaderAsrSetup(): Promise<void> {
   openReaderSettingsMode();
@@ -889,7 +822,7 @@ export async function openReaderAsrSetup(): Promise<void> {
     providers
   });
   focusSettingsNavSection("asr");
-  setAsrSetupResumeIntent({ videoKey: currentPageVideoKey(), kind: setupState.kind });
+  setAsrSetupResumeToken({ videoKey: currentPageVideoKey(), kind: setupState.kind });
   if (!setupState.asrAutoFallback) {
     setStatus(
       elements,
@@ -906,24 +839,20 @@ export async function openReaderAsrSetup(): Promise<void> {
       : setupState.kind === "missing-key"
         ? "请补充语音转写 API Key 后保存继续"
         : "确认语音转写平台配置后保存继续";
-  await openProviderEditorById(
-    "asr",
-    setupState.providerId,
-    undefined,
-    {
+  const isMissingKey = setupState.kind === "missing-key";
+  await providerHost?.openEditor({
+    kind: "asr",
+    providerId: setupState.providerId,
+    setupSession: {
       onAfterSave: () => {
-        // 先续跑（消费意图）再退出设置抽屉：抽屉关闭的意图清除落到已消费的空槽。
         resumeAsrSubtitleFetchAfterSetup();
         closeReaderSettingsMode({ restoreFocus: true });
       },
-      onSessionEnd: () => clearAsrSetupResumeIntent()
+      onSessionEnd: () => invalidateReaderSetupFlows("asr")
     },
-    undefined,
-    { setupContextBanner: banner }
-  );
-  if (setupState.kind === "missing-key") {
-    document.querySelector<HTMLInputElement>(".provider-editor-apikey")?.focus();
-  }
+    setupContextBanner: banner,
+    ...(isMissingKey ? { initialFocusField: "apiKey" as const } : {})
+  });
 }
 
 // 设置分区定位（面板未首建完成时 best-effort 跳过——编辑 Modal 才是该流程焦点）。
@@ -933,6 +862,46 @@ function focusSettingsNavSection(section: string): void {
   host
     .querySelector<HTMLButtonElement>(`.biliscript-settings-nav-item[data-section="${section}"]`)
     ?.click();
+}
+
+async function loadAiProviders(): Promise<ProviderRowItem[]> {
+  if (providerHost) return providerHost.loadRows("ai");
+  try {
+    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
+    return resp?.ok && Array.isArray(resp.providers) ? resp.providers : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadAsrProviders(): Promise<ProviderRowItem[]> {
+  if (providerHost) return providerHost.loadRows("asr");
+  try {
+    const resp = await sendRuntimeMessage({ type: "asr-providers-list" });
+    return resp?.ok && Array.isArray(resp.providers) ? resp.providers : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 缺模型错误进入设置时定位要编辑的启用 AI 平台 id（defaultModel 优先，否则首个启用平台）。
+ */
+export async function resolveEditableAiProviderId(): Promise<string> {
+  try {
+    const [providers, settings] = await Promise.all([loadAiProviders(), getSettings()]);
+    const enabled = providers.filter(
+      (item) => Boolean(item) && item.enabled !== false && String(item.id || "").trim() !== ""
+    );
+    if (!enabled.length) {
+      return "";
+    }
+    const preferredId = String(settings?.defaultModel || "").trim();
+    const matched = preferredId ? enabled.find((item) => String(item.id) === preferredId) : null;
+    return String((matched || enabled[0]).id || "").trim();
+  } catch {
+    return "";
+  }
 }
 
 // 缺 Key 记录定位（resolve-ai-provider 解析策略的镜像：调用方给定的已选平台 →
@@ -961,42 +930,6 @@ async function findMissingKeyAiProvider(preferredProviderId = ""): Promise<Provi
 }
 
 // ===== 装载与保存 =====
-
-async function loadAiPresets(): Promise<void> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "ai-presets-list" });
-    if (resp?.ok && Array.isArray(resp.presets)) {
-      aiPresets = resp.presets;
-      return;
-    }
-  } catch {
-    // fallback to built-in list when background is unreachable
-  }
-  aiPresets = PRESETS.slice();
-}
-
-async function loadAsrPresets(): Promise<void> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "asr-presets-list" });
-    if (resp?.ok && Array.isArray(resp.presets)) {
-      asrPresets = resp.presets;
-      return;
-    }
-  } catch {
-    // fallback to built-in list when background is unreachable
-  }
-  asrPresets = ASR_PROVIDER_PRESETS.slice();
-}
-
-let presetsLoaded = false;
-
-async function ensurePresetsLoaded(): Promise<void> {
-  if (presetsLoaded) {
-    return;
-  }
-  await Promise.all([loadAiPresets(), loadAsrPresets()]);
-  presetsLoaded = true;
-}
 
 function setStatus(elements: SettingsElements, text: unknown, isError = false): void {
   elements.status.textContent = String(text || "");
@@ -1131,7 +1064,6 @@ async function resolveChatOverride(
 }
 
 async function loadSettings(elements: SettingsElements): Promise<void> {
-  await ensurePresetsLoaded();
   const settings = await getSettings();
 
   for (const binding of SCALAR_FIELD_BINDINGS) {
@@ -1140,284 +1072,8 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   agentBridgeSettings?.sync(settings);
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
 
-  // AI 配置
-  cachedDefaultAiProviderId = String(settings.defaultModel || "").trim();
-  const providers = await loadAiProviders();
-  cachedAiProviders = providers;
-  cachedAiProvidersLoaded = true;
-  familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, {
-    presets: aiPresets.length ? aiPresets : PRESETS
-  });
-  syncAiDefaultButtonState(elements.aiProvidersList, cachedDefaultAiProviderId);
-  renderSubtitleTranslateModelOptions(
-    elements.subtitleTranslateModel,
-    providers,
-    settings.subtitleTranslateProviderId,
-    settings.subtitleTranslateModel
-  );
-  void refreshAiActiveProjection(elements, providers);
-
-  // 实时伴看平台配置与 ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
-  const liveProviders = await loadLiveProviders();
-  renderActiveRadioFamily(
-    "live",
-    elements,
-    annotateAiCredentialRows("live", liveProviders, providers),
-    settings.activeLiveProviderId
-  );
-  // 音色回退提示：会话侧写入的一次性信箱，读到即清（设置里只出现一次）
+  await providerHost?.load(settings);
   await syncLiveVoiceFallbackHint(elements);
-
-  const asrProviders = await loadAsrProviders();
-  renderActiveRadioFamily("asr", elements, asrProviders, settings.activeAsrProviderId);
-
-  // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
-  const searchProviders = await loadSearchProviders();
-  activeSearchProviderId = String(settings.activeSearchProviderId || "").trim();
-  cachedSearchProviders = searchProviders;
-  // 列表顺序 = 链序：先取用户拖拽序（归一后），再按「order 下标 > 内置默认序」
-  // 排序渲染。DeepSeek 行副行 = 凭据引用四态文案与命中来源（AI 族列表在同一份 loadSettings 里已取到）。
-  searchProviderOrder = await loadSearchProviderOrder(searchProviders);
-  if (searchProviders.length === 0) {
-    setSearchChainExpanded(elements, true);
-  }
-  familyRows.search.render(
-    elements.searchProvidersList,
-    elements.searchProvidersEmpty,
-    annotateAiCredentialRows("search", sortSearchProviders(searchProviders), providers),
-    {
-      presets: SEARCH_PROVIDER_PRESETS,
-      activeId: activeSearchProviderId
-    }
-  );
-  syncResetSearchOrderButton(elements);
-  // 悬空链首提示：链首指向已不存在的记录时露条件提示行；用户改选或链首指向在场记录即隐藏。
-  syncSearchDanglingHint(elements, activeSearchProviderId, searchProviders);
-  syncSearchModeControls(elements);
-  syncSearchChainActiveSummary(elements);
-}
-
-// 面板当前生效的用户拖拽顺序（记录 id 数组；空 = 无自定义顺序，按内置默认序渲染）。
-// searchProviderOrder 与列表同侧（chrome.storage.sync）：面板直读直写，读失败 / 脏值
-// 按无自定义顺序，写失败静默——顺序是偏好不是数据。
-let searchProviderOrder: string[] = [];
-
-async function loadSearchProviderOrder(providers: ProviderRowItem[]): Promise<string[]> {
-  try {
-    const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
-    return normalizeSearchProviderOrder(
-      stored?.[SEARCH_PROVIDER_ORDER_STORAGE],
-      providers.map((provider) => String(provider?.id || ""))
-    );
-  } catch {
-    return [];
-  }
-}
-
-// 列表渲染顺序 = 链序：在 order 中的按数组下标排在先，不在数组中的排到其后、
-// 相互之间按内置默认序。键算法单源在 search-order.js 的 providerOrderRank。
-function sortSearchProviders(providers: ProviderRowItem[]): ProviderRowItem[] {
-  return providers
-    .map((provider) => ({
-      provider,
-      rank: providerOrderRank(
-        String(provider?.id || ""),
-        String(provider?.presetId || ""),
-        searchProviderOrder
-      )
-    }))
-    .sort((left, right) =>
-      left.rank[0] !== right.rank[0] ? left.rank[0] - right.rank[0] : left.rank[1] - right.rank[1]
-    )
-    .map((entry) => entry.provider);
-}
-
-// 「恢复默认顺序」按钮态：无自定义顺序时禁用。
-function syncResetSearchOrderButton(elements: SettingsElements): void {
-  elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
-}
-
-function setSearchChainExpanded(elements: SettingsElements, expanded: boolean): void {
-  if (elements.searchChainContainer) {
-    elements.searchChainContainer.hidden = !expanded;
-  }
-  if (elements.toggleSearchChainBtn) {
-    elements.toggleSearchChainBtn.setAttribute("aria-expanded", String(expanded));
-    elements.toggleSearchChainBtn.setAttribute(
-      "aria-label",
-      expanded ? "收起搜索平台与回退链" : "展开搜索平台与回退链"
-    );
-  }
-}
-
-function restoreSearchRowDomOrder(listNode: HTMLElement | null, order: string[]): void {
-  if (!listNode) return;
-  const smartRow = listNode.querySelector<HTMLElement>('.search-provider-row[data-provider-id="__smart__"]');
-  const recordRows = Array.from(listNode.querySelectorAll<HTMLElement>(".search-provider-row")).filter(
-    (row) => !smartRow || row !== smartRow
-  );
-  recordRows.sort((left, right) => {
-    const rankA = providerOrderRank(
-      left.dataset.providerId || "",
-      left.dataset.currentPresetId || "",
-      order
-    );
-    const rankB = providerOrderRank(
-      right.dataset.providerId || "",
-      right.dataset.currentPresetId || "",
-      order
-    );
-    return rankA[0] !== rankB[0] ? rankA[0] - rankB[0] : rankA[1] - rankB[1];
-  });
-  for (const row of recordRows) {
-    listNode.appendChild(row);
-  }
-}
-
-function rerenderLiveProviders(
-  elements: SettingsElements,
-  providers: ProviderRowItem[],
-  knownAiProviders?: readonly ProviderRowItem[]
-): void {
-  if (knownAiProviders) {
-    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, knownAiProviders));
-    return;
-  }
-  void loadAiProviders().then((aiProviders) => {
-    renderActiveRadioFamily("live", elements, annotateAiCredentialRows("live", providers, aiProviders));
-  });
-}
-
-// 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态从
-// 行内 radio 现读。DeepSeek 行副行 = 凭据引用四态文案与命中来源（现查 AI 族列表）。
-
-// 摘要与模式控件同步（票 06）：折叠摘要让读者无需展开即可判断「智能回退 / 单平台
-// 调用、失败是否回退、是否可能付费」；展开体内只留对当前模式有效的控件。
-//
-// 摘要取值以 DOM 选中态为准（行 radio 现读）：智能模式按列表顺序回退，单平台模式
-// 只用它且失败不回退。已删除 / 不可用的旧单选 id 没有任何行选中（悬空按空处理走
-// 智能链，spec §6.8），现读后自然落到智能文案，不再误报单个平台。
-const SMART_SUMMARY_BASE = "智能搜索 · 失败自动回退";
-const SINGLE_MODE_NOTE =
-  "已单选平台：只使用选中的平台搜索，失败不会切换到其他平台。";
-const SMART_MODE_NOTE =
-  "智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。";
-
-// 当前模式（DOM 真值）：单平台返回选中行元素，否则（智能 / 悬空 / 未选）返回 null。
-function resolveSelectedSearchRow(elements: SettingsElements): HTMLElement | null {
-  const checked = elements.searchProvidersList?.querySelector<HTMLInputElement>(
-    ".search-provider-active-radio:checked"
-  );
-  const row = checked?.closest(".search-provider-row") as HTMLElement | null;
-  if (!row || isSmartSearchActive(row.dataset.providerId || "")) return null;
-  return row;
-}
-
-function isPaidSearchRow(row: HTMLElement): boolean {
-  const presetId = row.dataset.currentPresetId || "";
-  return SEARCH_PROVIDER_PRESETS.some((preset) => preset.id === presetId && preset.access === "paid");
-}
-
-function syncSearchChainActiveSummary(elements: SettingsElements): void {
-  const summaryEl = elements.searchChainActiveSummary;
-  if (!summaryEl) return;
-  const row = resolveSelectedSearchRow(elements);
-  if (!row) {
-    // 智能（含悬空旧 id 的实际行为）：付费准入开时才提示可能产生付费。
-    const paidAdmitted = elements.allowPaidSearchProviders?.checked === true;
-    summaryEl.textContent = paidAdmitted ? `${SMART_SUMMARY_BASE} · 可能使用付费平台` : SMART_SUMMARY_BASE;
-    return;
-  }
-  const name = row.querySelector(".provider-row-name")?.textContent?.trim() || "所选平台";
-  summaryEl.textContent = `仅使用 ${name} · 失败不回退${isPaidSearchRow(row) ? " · 可能付费" : ""}`;
-}
-
-// 模式控件显隐：智能模式 = 有序回退说明 + 拖拽 + 恢复默认 + 付费准入；单平台模式
-// 隐藏这些对单选无效的控件（把手经 search-chain-single-mode 类隐藏，样式在
-// reader-settings-rows.css），说明行改口「失败不回退」——关键后果不只存在于悬停。
-function syncSearchModeControls(elements: SettingsElements): void {
-  const single = resolveSelectedSearchRow(elements) !== null;
-  const note = elements.searchChainContainer?.querySelector<HTMLElement>(".search-chain-mode-note");
-  if (note) note.textContent = single ? SINGLE_MODE_NOTE : SMART_MODE_NOTE;
-  const footer = elements.searchChainContainer?.querySelector<HTMLElement>(".search-chain-footer-bar");
-  if (footer) footer.hidden = single;
-  const paidRow = elements.allowPaidSearchProviders?.closest<HTMLElement>(".biliscript-toggle-row");
-  if (paidRow) paidRow.hidden = single;
-  elements.searchProvidersList?.classList.toggle("search-chain-single-mode", single);
-}
-
-function rerenderSearchProviders(
-  elements: SettingsElements,
-  providers: ProviderRowItem[],
-  knownAiProviders?: readonly ProviderRowItem[]
-): void {
-  cachedSearchProviders = providers;
-  const render = (aiProviders: readonly ProviderRowItem[]) => {
-    if (providers.length === 0) {
-      setSearchChainExpanded(elements, true);
-    }
-    familyRows.search.render(
-      elements.searchProvidersList,
-      elements.searchProvidersEmpty,
-      annotateAiCredentialRows("search", sortSearchProviders(providers), aiProviders),
-      {
-        presets: SEARCH_PROVIDER_PRESETS,
-        activeId: activeSearchProviderId
-      }
-    );
-    syncResetSearchOrderButton(elements);
-    syncSearchDanglingHint(elements, activeSearchProviderId, providers);
-    syncSearchModeControls(elements);
-    syncSearchChainActiveSummary(elements);
-  };
-  if (knownAiProviders) {
-    render(knownAiProviders);
-    return;
-  }
-  void loadAiProviders().then(render);
-}
-
-// 悬空链首提示行的显隐：activeSearchProviderId 指向不存在记录才出现。
-// 哨兵不算悬空：选中「智能」不得误露「原选用平台已不可用」。
-function syncSearchDanglingHint(
-  elements: SettingsElements,
-  activeSearchProviderId: string,
-  providers: ProviderRowItem[]
-): void {
-  const hint = elements.searchProvidersDanglingHint;
-  if (!hint) return;
-  const activeId = activeSearchProviderId.trim();
-  hint.hidden =
-    !activeId ||
-    isSmartSearchActive(activeId) ||
-    providers.some((provider) => String(provider?.id || "") === activeId);
-}
-
-// 族无关的整列表现查：失败 / 形状坏一律回空数组（编辑 Modal 打开前用）。
-async function loadProviderRows(request: () => Promise<ProviderListResponse>): Promise<ProviderRowItem[]> {
-  try {
-    const resp = await request();
-    if (!resp?.ok) return [];
-    return Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadAiProviders(): Promise<ProviderRowItem[]> {
-  return loadProviderRows(() => sendRuntimeMessage({ type: "ai-providers-list" }));
-}
-
-function loadAsrProviders(): Promise<ProviderRowItem[]> {
-  return loadProviderRows(() => sendRuntimeMessage({ type: "asr-providers-list" }));
-}
-
-function loadSearchProviders(): Promise<ProviderRowItem[]> {
-  return loadProviderRows(() => sendRuntimeMessage({ type: "search-providers-list" }));
-}
-
-function loadLiveProviders(): Promise<ProviderRowItem[]> {
-  return loadProviderRows(() => sendRuntimeMessage({ type: "live-providers-list" }));
 }
 
 // 音色回退提示（仅一次）：信箱内容在读取时清除，重开设置不再重复出现。
@@ -1427,444 +1083,6 @@ async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<vo
   if (!hint) return;
   hint.textContent = notice ? LIVE_VOICE_FALLBACK_NOTICE_TEXT : "";
   hint.hidden = !notice;
-}
-
-// ===== provider 各族分派表 =====
-
-type ProviderListResponse = {
-  ok: boolean;
-  providers?: ProviderRowItem[];
-  error?: string;
-};
-
-// 族 → 设置面板分派表。各族在本面板的分派点（整列表消息、新平台 id
-// 生成、现查列表、预设装载、列表重渲、optional host 权限策略）同构，Record 全键覆盖。
-// 各族的消息 type 写在本族箭头函数体内、保持单字面量以保留 ResponseOf 推断。
-interface ProviderFamilyUi {
-  list: () => Promise<ProviderListResponse>;
-  loadProviders: () => Promise<ProviderRowItem[]>;
-  save: (providers: ProviderRowItem[]) => Promise<ProviderListResponse>;
-  remove: (providerId: string) => Promise<ProviderListResponse>;
-  generateId: () => string;
-  presets: () => readonly ProviderRowPreset[];
-  rerender: (elements: SettingsElements, providers: ProviderRowItem[]) => void;
-  optionalHostPermission: boolean;
-}
-
-// 单选激活族（activeRadio 非空且无智能哨兵：live / asr）的共享重渲与删除回退：
-// 保持「列表非空即有激活平台」不变量，原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
-type ActiveRadioFamilyKind = "live" | "asr";
-
-interface ActiveRadioFamilySpec {
-  readonly settingsKey: "activeLiveProviderId" | "activeAsrProviderId";
-  readonly getListNode: (elements: SettingsElements) => HTMLElement;
-  readonly getEmptyNode: (elements: SettingsElements) => HTMLElement;
-  readonly getPresets: () => readonly ProviderRowPreset[];
-  readonly resolveActiveId: (
-    providers: ReadonlyArray<{ id?: string | null }>,
-    activeId?: string | null
-  ) => string;
-}
-
-const ACTIVE_RADIO_FAMILY_SPEC: Record<ActiveRadioFamilyKind, ActiveRadioFamilySpec> = {
-  live: {
-    settingsKey: "activeLiveProviderId",
-    getListNode: (el) => el.liveProvidersList,
-    getEmptyNode: (el) => el.liveProvidersEmpty,
-    getPresets: () => LIVE_PROVIDER_PRESETS,
-    resolveActiveId: resolveActiveLiveProviderId
-  },
-  asr: {
-    settingsKey: "activeAsrProviderId",
-    getListNode: (el) => el.asrProvidersList,
-    getEmptyNode: (el) => el.asrProvidersEmpty,
-    getPresets: () => asrPresets,
-    resolveActiveId: resolveActiveAsrProviderId
-  }
-};
-
-function renderActiveRadioFamily(
-  kind: ActiveRadioFamilyKind,
-  elements: SettingsElements,
-  providers: ProviderRowItem[],
-  rawActiveId?: string
-): void {
-  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
-  const listNode = spec.getListNode(elements);
-  const prevActiveId =
-    rawActiveId !== undefined
-      ? String(rawActiveId || "").trim()
-      : familyRows[kind].getActiveId?.(listNode) || "";
-  const nextActiveId = spec.resolveActiveId(providers, prevActiveId);
-  familyRows[kind].render(listNode, spec.getEmptyNode(elements), providers, {
-    presets: spec.getPresets(),
-    activeId: nextActiveId
-  });
-  if (nextActiveId !== prevActiveId) {
-    state.patchSettings({ [spec.settingsKey]: nextActiveId });
-    void sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } })
-      .then((resp) => {
-        if (!resp?.ok) {
-          setStatus(elements, (resp as { error?: string } | undefined)?.error || "保存默认平台失败", true);
-        }
-      })
-      .catch((error) => {
-        setStatus(elements, (error as Error)?.message || "保存默认平台失败", true);
-      });
-  }
-}
-
-function bindActiveRadioDeleteHandler(kind: ActiveRadioFamilyKind, elements: SettingsElements): void {
-  const spec = ACTIVE_RADIO_FAMILY_SPEC[kind];
-  const decl = PROVIDER_FAMILY_ROWS[kind];
-  const radioClass = `${decl.activeRadio!.classPrefix}-provider-active-radio`;
-  familyRows[kind].controller.setDeleteHandler(async () => {
-    const listNode = spec.getListNode(elements);
-    const remainingRows = Array.from(listNode.querySelectorAll<HTMLElement>(`.${decl.rowClass}`));
-    const currentCheckedId = familyRows[kind].getActiveId?.(listNode) || "";
-    const nextActiveId = spec.resolveActiveId(
-      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
-      currentCheckedId
-    );
-    if (nextActiveId && nextActiveId !== currentCheckedId) {
-      const targetRadio = remainingRows
-        .find((row) => row.dataset.providerId === nextActiveId)
-        ?.querySelector<HTMLInputElement>(`.${radioClass}`);
-      if (targetRadio) targetRadio.checked = true;
-    }
-    familyRows[kind].syncActiveRendered?.(listNode);
-    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
-      state.patchSettings({ [spec.settingsKey]: nextActiveId });
-      try {
-        const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [spec.settingsKey]: nextActiveId } });
-        if (!resp?.ok) {
-          throw new Error((resp as { error?: string } | undefined)?.error || "保存默认平台失败");
-        }
-      } catch (error) {
-        setStatus(elements, (error as Error)?.message || "保存默认平台失败", true);
-        return;
-      }
-    }
-    if (!deleteRevokeFailureInFlight) {
-      setStatus(elements, "平台已删除");
-    }
-  });
-}
-
-const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
-  live: {
-    list: () => sendRuntimeMessage({ type: "live-providers-list" }),
-    loadProviders: loadLiveProviders,
-    save: (providers) => sendRuntimeMessage({ type: "live-providers-save", providers }),
-    remove: (providerId) => sendRuntimeMessage({ type: "live-providers-delete", providerId }),
-    generateId: () => familyRows.live.controller.generateId(),
-    presets: () => LIVE_PROVIDER_PRESETS,
-    rerender: rerenderLiveProviders,
-    optionalHostPermission: true
-  },
-
-  ai: {
-    list: () => sendRuntimeMessage({ type: "ai-providers-list" }),
-    loadProviders: loadAiProviders,
-    save: (providers) => sendRuntimeMessage({ type: "ai-providers-save", providers }),
-    remove: (providerId) => sendRuntimeMessage({ type: "ai-providers-delete", providerId }),
-    generateId: () => familyRows.ai.controller.generateId(),
-    presets: () => aiPresets,
-    rerender: (elements, providers) => {
-      cachedAiProviders = providers;
-      cachedAiProvidersLoaded = true;
-      familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, {
-        presets: aiPresets.length ? aiPresets : PRESETS
-      });
-      syncAiDefaultButtonState(elements.aiProvidersList, cachedDefaultAiProviderId);
-      void getSettings().then((settings) => {
-        cachedDefaultAiProviderId = String(settings.defaultModel || "").trim();
-        syncAiDefaultButtonState(elements.aiProvidersList, cachedDefaultAiProviderId);
-        renderSubtitleTranslateModelOptions(
-          elements.subtitleTranslateModel,
-          providers,
-          settings.subtitleTranslateProviderId,
-          settings.subtitleTranslateModel
-        );
-      });
-      void refreshAiActiveProjection(elements, providers);
-    },
-    optionalHostPermission: true
-  },
-  asr: {
-    list: () => sendRuntimeMessage({ type: "asr-providers-list" }),
-    loadProviders: loadAsrProviders,
-    save: (providers) => sendRuntimeMessage({ type: "asr-providers-save", providers }),
-    remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
-    generateId: () => familyRows.asr.controller.generateId(),
-    presets: () => asrPresets,
-    rerender: (elements, providers) => renderActiveRadioFamily("asr", elements, providers),
-    optionalHostPermission: true
-  },
-  search: {
-    list: () => sendRuntimeMessage({ type: "search-providers-list" }),
-    loadProviders: loadSearchProviders,
-    save: (providers) => sendRuntimeMessage({ type: "search-providers-save", providers }),
-    remove: (providerId) => sendRuntimeMessage({ type: "search-providers-delete", providerId }),
-    generateId: () => familyRows.search.controller.generateId(),
-    presets: () => SEARCH_PROVIDER_PRESETS,
-    rerender: (elements, providers) => rerenderSearchProviders(elements, providers),
-    optionalHostPermission: false
-  }
-};
-
-const familyRows = createProviderFamilyRows({
-  onRowEdit: (kind, providerId) => void openProviderEditorById(kind, providerId)
-});
-
-async function clearDeletedActiveSearchProvider(elements: SettingsElements): Promise<void> {
-  activeSearchProviderId = "";
-  state.patchSettings({ activeSearchProviderId: "" });
-  syncSearchDanglingHint(elements, "", cachedSearchProviders);
-  syncSearchModeControls(elements);
-  syncSearchChainActiveSummary(elements);
-  try {
-    const resp = await sendRuntimeMessage({
-      type: "save-settings",
-      settings: { activeSearchProviderId: "" }
-    });
-    if (!resp?.ok) {
-      throw new Error((resp as { error?: string } | undefined)?.error || "清除默认搜索平台失败");
-    }
-  } catch (error) {
-    setStatus(elements, (error as Error)?.message || "清除默认搜索平台失败", true);
-  }
-}
-
-// ===== 单平台保存与删除 =====
-
-const providerTransactions = createProviderTransactions({
-  families: PROVIDER_FAMILY_UI,
-  requestOrigins: requestProviderOriginsViaBackground,
-  rerender: rerenderProviderList,
-  reportOriginRevokeFailure: (message) => {
-    deleteRevokeFailureInFlight = true;
-    const host = settingsHostRef;
-    if (host) {
-      setStatus(collectElements(host), message, true);
-    }
-  }
-});
-
-function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowItem[]): void {
-  const host = settingsHostRef;
-  if (!host) {
-    return;
-  }
-  const elements = collectElements(host);
-  PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
-  if (kind === "ai") {
-    // AI 族变更后，实时伴看与搜索两类凭据引用行同事务重渲：两族列表先并发取回，
-    // 再用同一份 AI 列表快照渲染，避免逐族现查出现一前一后的陈旧状态
-    void Promise.all([loadLiveProviders(), loadSearchProviders()]).then(
-      ([liveProviders, searchProviders]) => {
-        rerenderLiveProviders(elements, liveProviders, providers);
-        rerenderSearchProviders(elements, searchProviders, providers);
-      }
-    );
-  }
-}
-
-interface OpenProviderEditorExtraOptions {
-  setupContextBanner?: string | null;
-  initialStatus?: { message: string; isError?: boolean } | null;
-}
-
-async function openProviderEditorById(
-  kind: ProviderEditorKind,
-  providerId: string,
-  presetId?: string,
-  setupSession?: AiSetupSession,
-  restore?: { initialDraft: EditorDraft; baselineDraft: EditorDraftView | null },
-  extra?: OpenProviderEditorExtraOptions
-): Promise<void> {
-  await ensurePresetsLoaded();
-  const family = PROVIDER_FAMILY_UI[kind];
-  const providers = await family.loadProviders();
-  const item = providerId ? providers.find((p) => String(p?.id || "") === providerId) || null : null;
-  if (providerId && !item) {
-    setupSession?.onSessionEnd?.();
-    const host = settingsHostRef;
-    if (host) {
-      setStatus(collectElements(host), "未找到要编辑的平台记录，可能已被删除", true);
-    }
-    return;
-  }
-  if ((kind === "live" || kind === "search") && !cachedAiProvidersLoaded) {
-    cachedAiProviders = await loadAiProviders();
-    cachedAiProvidersLoaded = true;
-  }
-  const resolveLinkedCredential =
-    kind === "live" || kind === "search"
-      ? (draft: EditorDraftView) => {
-          const target = linkedCredentialTargetForDraft(kind, draft);
-          if (!target) return null;
-          return linkedCredentialFor(
-            target,
-            resolveAiCredentialPlan(target, cachedAiProviders),
-            () => {
-              void enterLinkedCredentialEditor(target);
-            }
-          );
-        }
-      : null;
-
-  const onSave: ProviderEditorSave = async (saveKind, upsert) => {
-    const result = await providerTransactions.upsertProvider(saveKind, upsert);
-    if (result.ok) {
-      const host = settingsHostRef;
-      if (host) {
-        const elements = collectElements(host);
-        if (saveKind === "search") {
-          setSearchChainExpanded(elements, true);
-        }
-        setStatus(elements, "平台已保存");
-      }
-    }
-    return result;
-  };
-
-  const onDelete: ProviderEditorDelete = async (deleteKind, target) => {
-    deleteRevokeFailureInFlight = false;
-    const result = await providerTransactions.deleteProvider(deleteKind, target);
-    if (result.ok) {
-      const host = settingsHostRef;
-      if (host) {
-        const elements = collectElements(host);
-        if (deleteKind === "search" && target.id && target.id === activeSearchProviderId) {
-          await clearDeletedActiveSearchProvider(elements);
-        }
-        if (!deleteRevokeFailureInFlight && elements.status.dataset.error !== "true") {
-          setStatus(elements, "平台已删除");
-        }
-      }
-    }
-    return result;
-  };
-
-  try {
-    const { openProviderEditor } = await import("./provider-editor.js");
-    openProviderEditor({
-      kind,
-      item,
-      presetId,
-      presets: family.presets(),
-      onSave,
-      onDelete,
-      // 首配模式（票 01）：保存钮「保存并继续」+ AI 至少一个模型 + 会话回调
-      ...(setupSession
-        ? {
-            submitLabel: "保存并继续",
-            firstSetup: true,
-            onAfterSave: setupSession.onAfterSave,
-            onSessionEnd: setupSession.onSessionEnd
-          }
-        : {}),
-      ...(resolveLinkedCredential ? { resolveLinkedCredential } : {}),
-      ...(extra?.setupContextBanner ? { setupContextBanner: extra.setupContextBanner } : {}),
-      ...(extra?.initialStatus ? { initialStatus: extra.initialStatus } : {}),
-      ...(restore ? { initialDraft: restore.initialDraft, baselineDraft: restore.baselineDraft } : {})
-    });
-  } catch (error) {
-    setupSession?.onSessionEnd?.();
-    const host = settingsHostRef;
-    if (host) {
-      setStatus(collectElements(host), (error as Error).message || "编辑器加载失败", true);
-    }
-  }
-}
-
-// 消费族编辑器内联凭据动作（票 07/08）：暂存原草稿 → 同层打开 AI 族凭据编辑器
-// （复用同一宿主，不增加可见 Modal 层）；保存成功或取消都会话结束后恢复原草稿
-// （dirty 基线一并带回），保存成功另在 Modal 内部状态行提示仍需显式保存消费族记录
-async function enterLinkedCredentialEditor(target: AiCredentialLinkTarget): Promise<void> {
-  if (linkedCredentialInFlight) {
-    return;
-  }
-  linkedCredentialInFlight = true;
-  const actionBtn = document.querySelector<HTMLButtonElement>(".provider-editor-linked-credential-btn");
-  if (actionBtn) {
-    actionBtn.disabled = true;
-  }
-  try {
-    const kind = target === "deepseek" ? "search" : "live";
-    const stash = stashEditorDraft(kind);
-    if (!stash) return;
-    await ensurePresetsLoaded();
-    const aiProviders = await loadAiProviders();
-    cachedAiProviders = aiProviders;
-    cachedAiProvidersLoaded = true;
-    await enterAiCredentialEditor({
-      target,
-      plan: resolveAiCredentialPlan(target, aiProviders),
-      aiPresets: aiPresets.length ? aiPresets : PRESETS,
-      onSave: async (saveKind, upsert) => {
-        const result = await providerTransactions.upsertProvider(saveKind, upsert);
-        if (result.ok && settingsHostRef) {
-          setStatus(collectElements(settingsHostRef), "平台已保存");
-        }
-        return result;
-      },
-      onDelete: async (deleteKind, deleteTarget) => {
-        deleteRevokeFailureInFlight = false;
-        const result = await providerTransactions.deleteProvider(deleteKind, deleteTarget);
-        if (result.ok && settingsHostRef && !deleteRevokeFailureInFlight) {
-          setStatus(collectElements(settingsHostRef), "平台已删除");
-        }
-        return result;
-      },
-      stash,
-      reopenConsumerEditor: (stashed, hint) => {
-        void restoreConsumerEditorAfterCredential(kind, stashed, hint);
-      }
-    });
-  } finally {
-    linkedCredentialInFlight = false;
-    if (actionBtn?.isConnected) {
-      actionBtn.disabled = false;
-    }
-  }
-}
-
-async function restoreConsumerEditorAfterCredential(
-  kind: "live" | "search",
-  stash: AiEditorStash,
-  hint: string | null
-): Promise<void> {
-  const host = settingsHostRef;
-  if (!host) return;
-  // 抽屉收起的强制关闭路径不恢复：草稿随既有规则丢弃，不得在抽屉外重开编辑器
-  if (document.getElementById(ids.readingSettingsPanel)?.hidden) return;
-  // 重新装载消费族与 AI 族列表：行状态文案 / 命中来源随新引用刷新（annotate 与
-  // 恢复后的编辑器内联行共用同一份 AI 列表快照）
-  const [consumerProviders, aiProviders] = await Promise.all([
-    kind === "live" ? loadLiveProviders() : loadSearchProviders(),
-    loadAiProviders()
-  ]);
-  cachedAiProviders = aiProviders;
-  cachedAiProvidersLoaded = true;
-  const elements = collectElements(host);
-  if (kind === "live") {
-    rerenderLiveProviders(elements, consumerProviders, aiProviders);
-  } else {
-    rerenderSearchProviders(elements, consumerProviders, aiProviders);
-  }
-  await openProviderEditorById(
-    kind,
-    stash.editingId,
-    undefined,
-    undefined,
-    {
-      initialDraft: stash.draft,
-      baselineDraft: stash.baseline
-    },
-    hint ? { initialStatus: { message: hint, isError: false } } : undefined
-  );
 }
 
 function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
@@ -2264,152 +1482,34 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-  familyRows.ai.controller.setErrorHandler((msg) => setStatus(elements, msg, true));
-  familyRows.asr.controller.setErrorHandler((msg) => setStatus(elements, msg, true));
-  familyRows.live.controller.setErrorHandler((msg) => setStatus(elements, msg, true));
-  familyRows.search.controller.setErrorHandler((msg) => setStatus(elements, msg, true));
-
-  elements.aiProvidersList?.addEventListener("click", async (event) => {
-    const btn = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(".ai-provider-default-btn");
-    if (!btn || btn.disabled) return;
-    const row = btn.closest<HTMLElement>(".ai-provider-row");
-    const providerId = String(row?.dataset.providerId || "").trim();
-    if (!providerId || providerId === cachedDefaultAiProviderId) return;
-
-    const prevDefaultId = cachedDefaultAiProviderId;
-    cachedDefaultAiProviderId = providerId;
-    state.patchSettings({ defaultModel: providerId });
-    syncAiDefaultButtonState(elements.aiProvidersList, providerId);
-
-    try {
-      const resp = await sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } });
-      if (!resp?.ok) {
-        throw new Error((resp as { error?: string } | undefined)?.error || "设置默认 AI 平台失败");
-      }
-      const [aiProviders, settings] = await Promise.all([
-        cachedAiProvidersLoaded ? Promise.resolve(cachedAiProviders) : loadAiProviders(),
-        getSettings()
-      ]);
-      renderSubtitleTranslateModelOptions(
-        elements.subtitleTranslateModel,
-        aiProviders,
-        settings.subtitleTranslateProviderId,
-        settings.subtitleTranslateModel
-      );
-      await refreshAiActiveProjection(elements, aiProviders);
-      setStatus(elements, "已设为默认 AI 平台");
-    } catch (error) {
-      cachedDefaultAiProviderId = prevDefaultId;
-      state.patchSettings({ defaultModel: prevDefaultId });
-      syncAiDefaultButtonState(elements.aiProvidersList, prevDefaultId);
-      setStatus(elements, (error as Error)?.message || "设置默认 AI 平台失败", true);
-    }
-  });
-
-  bindActiveRadioDeleteHandler("live", elements);
-  bindActiveRadioDeleteHandler("asr", elements);
-  familyRows.ai.controller.setDeleteHandler(async () => {
-    // 列表行删除不经过 providerTransactions（消息已在行内发出）：删除后同一份 AI
-    // 快照 + 两族列表并发取回，同步刷新 AI 默认按钮、生效投影、字幕翻译与两类引用行
-    const [aiProviders, liveProviders, searchProviders, settings] = await Promise.all([
-      loadAiProviders(),
-      loadLiveProviders(),
-      loadSearchProviders(),
-      getSettings()
-    ]);
-    cachedAiProviders = aiProviders;
-    cachedAiProvidersLoaded = true;
-    cachedDefaultAiProviderId = String(settings.defaultModel || "").trim();
-    syncAiDefaultButtonState(elements.aiProvidersList, cachedDefaultAiProviderId);
-    renderSubtitleTranslateModelOptions(
-      elements.subtitleTranslateModel,
-      aiProviders,
-      settings.subtitleTranslateProviderId,
-      settings.subtitleTranslateModel
-    );
-    void refreshAiActiveProjection(elements, aiProviders);
-    rerenderLiveProviders(elements, liveProviders, aiProviders);
-    rerenderSearchProviders(elements, searchProviders, aiProviders);
-    if (!deleteRevokeFailureInFlight) {
-      setStatus(elements, "平台已删除");
-    }
-  });
-  familyRows.search.setActiveChangeHandler?.((providerId) => {
-    activeSearchProviderId = providerId;
-    state.patchSettings({ activeSearchProviderId: providerId });
-    if (providerId) {
-      elements.searchProvidersDanglingHint.hidden = true;
-    } else {
-      syncSearchDanglingHint(elements, "", cachedSearchProviders);
-    }
-    syncSearchModeControls(elements);
-    syncSearchChainActiveSummary(elements);
-  });
-  familyRows.search.controller.setDeleteHandler(async (providerId) => {
-    cachedSearchProviders = cachedSearchProviders.filter(
-      (item) => String(item?.id || "") !== providerId
-    );
-    if (cachedSearchProviders.length === 0) {
-      setSearchChainExpanded(elements, true);
-    }
-    if (providerId && providerId === activeSearchProviderId) {
-      await clearDeletedActiveSearchProvider(elements);
-      if (elements.status.dataset.error === "true") {
+  providerHost?.dispose();
+  providerHost = createProviderSettingsHost({
+    host,
+    mountedFamilies: ["ai", "live", "asr", "search"],
+    onStatus: (message, isError) => setStatus(elements, message, isError),
+    canRestoreConsumerEditor: () => !document.getElementById(ids.readingSettingsPanel)?.hidden,
+    onAiChanged: (providers, { settings: known }) => {
+      if (known) {
+        renderSubtitleTranslateModelOptions(
+          elements.subtitleTranslateModel,
+          providers,
+          known.subtitleTranslateProviderId,
+          known.subtitleTranslateModel
+        );
+        void refreshAiActiveProjection(elements, providers);
         return;
       }
-    }
-    setStatus(elements, "平台已删除");
-  });
-  // 搜索平台列表拖拽排序：落定即直写 sync；失败回滚内存顺序与 DOM 行序并报错。
-  wireProviderRowDrag(elements.searchProvidersList, {
-    onCommit: async (orderedIds) => {
-      const prevOrder = [...searchProviderOrder];
-      searchProviderOrder = orderedIds;
-      syncResetSearchOrderButton(elements);
-      try {
-        await chrome.storage.sync.set({ [SEARCH_PROVIDER_ORDER_STORAGE]: orderedIds });
-      } catch (error) {
-        searchProviderOrder = prevOrder;
-        syncResetSearchOrderButton(elements);
-        restoreSearchRowDomOrder(elements.searchProvidersList, prevOrder);
-        setStatus(elements, (error as Error)?.message || "保存搜索顺序失败", true);
-      }
+      void refreshAiActiveProjection(elements, providers);
+      void getSettings().then((s) => {
+        renderSubtitleTranslateModelOptions(
+          elements.subtitleTranslateModel,
+          providers,
+          s.subtitleTranslateProviderId,
+          s.subtitleTranslateModel
+        );
+      });
     }
   });
-  // 「恢复默认顺序」= 删除该 storage key + 按内置默认序重渲染；失败保持当前顺序并报错。
-  elements.resetSearchProviderOrderBtn.addEventListener("click", async () => {
-    try {
-      await chrome.storage.sync.remove(SEARCH_PROVIDER_ORDER_STORAGE);
-      searchProviderOrder = [];
-      rerenderSearchProviders(elements, await loadSearchProviders());
-      setStatus(elements, "已恢复默认搜索顺序");
-    } catch (error) {
-      setStatus(elements, (error as Error)?.message || "恢复默认搜索顺序失败", true);
-    }
-  });
-  // 搜索平台卡片内原地折叠展开（原生 button：Enter/Space 由浏览器原生触发 click）
-  elements.toggleSearchChainBtn?.addEventListener("click", () => {
-    setSearchChainExpanded(elements, Boolean(elements.searchChainContainer.hidden));
-  });
-  // 付费准入开关改变 → 智能摘要的「可能使用付费平台」段跟着改口
-  elements.allowPaidSearchProviders?.addEventListener("change", () => {
-    syncSearchChainActiveSummary(elements);
-  });
-
-  // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里
-  // optionalHostPermission 的并集，当前 ai+asr+live）的存活平台使用才 remove」。
-  const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
-    deleteRevokeFailureInFlight = false;
-    const providers = await loadOriginSharingProviders(PROVIDER_FAMILY_UI);
-    const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
-    if (origins.length > 0 && !revoked) {
-      deleteRevokeFailureInFlight = true;
-      setStatus(elements, permissionRevokeErrorMessage(origins), true);
-    }
-  };
-  familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
-  familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
-  familyRows.live.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
   elements.subtitleTranslateModel?.addEventListener("change", () => {
     const val = elements.subtitleTranslateModel?.value || "";
@@ -2424,12 +1524,6 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
-
-  // 添加平台：直接进空白编辑 Modal
-  elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
-  elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
-  elements.addLiveProviderBtn.addEventListener("click", () => void openProviderEditorById("live", ""));
-  elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
 
   // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。
   const watchedSyncBindings = SCALAR_FIELD_BINDINGS.filter((binding) => binding.watchSync);
@@ -2462,16 +1556,12 @@ function bindSettingsEvents(host: HTMLElement): void {
     }
   );
 
-  // 生效投影跨端同步（票 05）：默认平台记录（settings.defaultModel）、平台列表 /
-  // 密钥存储（aiProviders / aiProviderKeys，他端增删改启停）与对话选中项
-  // （biliscript_ai_selected_provider）任一变更加发一次投影刷新——摘要、默认
-  // 徽标与字幕跟随提示随之更新，不展示陈旧状态。
+  // 生效投影跨端同步：默认平台记录、平台列表/密钥存储与对话选中项任一变更时重算一次投影。
   watchStorageKeys(
     (changes) => {
       const currentElements = collectElements(host);
       if (changes.defaultModel && typeof changes.defaultModel.newValue === "string") {
-        cachedDefaultAiProviderId = changes.defaultModel.newValue.trim();
-        syncAiDefaultButtonState(currentElements.aiProvidersList, cachedDefaultAiProviderId);
+        providerHost?.syncDefaultAiProvider(changes.defaultModel.newValue);
       }
       void refreshAiActiveProjection(currentElements);
     },

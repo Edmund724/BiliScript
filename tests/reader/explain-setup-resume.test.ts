@@ -45,7 +45,7 @@ let state: TestState;
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
-let resumeLeaf: typeof import("../../extension/reader/explain-setup-resume.js");
+let setupResume: typeof import("../../extension/reader/setup-resume.js");
 
 let rafPending: Map<number, (time: number) => void>;
 let rafNextId: number;
@@ -88,7 +88,7 @@ function flushAnimationFrames(maxRounds = 30) {
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
-  resumeLeaf = await import("../../extension/reader/explain-setup-resume.js");
+  setupResume = await import("../../extension/reader/setup-resume.js");
   const stateModule = await import("../../extension/core/state.js");
   state = stateModule.state as TestState;
   reader = await import("../../extension/reader/index.js");
@@ -196,33 +196,39 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("意图叶子（reader/explain-setup-resume）：单槽语义", () => {
-  it("set → peek 副本 → consume 取走清空 → clear 作废", async () => {
-    const intent = {
-      selection: "传递信息的工具",
-      line: "我们习惯将其视为传递信息的工具",
-      from: 10,
-      index: 1,
-      runId: 3,
-      bvid: "BV1explain000",
-      cid: "2000",
-      createdAt: 1000,
-      errorClass: "missing-key" as const
-    };
-    resumeLeaf.setExplainSetupResumeIntent(intent);
-    const peeked = resumeLeaf.peekExplainSetupResumeIntent();
-    expect(peeked).toEqual(intent);
-    // 外部改写副本不影响内部状态
-    (peeked as { selection: string }).selection = "被篡改";
-    expect(resumeLeaf.peekExplainSetupResumeIntent()?.selection).toBe("传递信息的工具");
+describe("设置协调（reader/setup-resume · explain scope）：单槽与失效语义", () => {
+  it("保存有效时仅触发一次恢复；invalidateReaderSetupFlows 作废并发出 cancel", async () => {
+    const onResume = vi.fn();
+    const onCancel = vi.fn();
+    await setupResume.beginReaderAiSetupFlow({
+      scope: "explain",
+      errorClass: "missing-key",
+      isStillValid: () => true,
+      onResume,
+      onCancel
+    });
+    const [errorClass, session] = capturedSetupSession();
+    expect(errorClass).toBe("missing-key");
 
-    expect(resumeLeaf.consumeExplainSetupResumeIntent()).toEqual(intent);
-    expect(resumeLeaf.consumeExplainSetupResumeIntent()).toBeNull();
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
+    session.onAfterSave();
+    session.onAfterSave();
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
 
-    resumeLeaf.setExplainSetupResumeIntent({ ...intent, errorClass: "no-provider" });
-    resumeLeaf.clearExplainSetupResumeIntent();
-    expect(resumeLeaf.consumeExplainSetupResumeIntent()).toBeNull();
+    const onResume2 = vi.fn();
+    const onCancel2 = vi.fn();
+    await setupResume.beginReaderAiSetupFlow({
+      scope: "explain",
+      errorClass: "no-provider",
+      isStillValid: () => true,
+      onResume: onResume2,
+      onCancel: onCancel2
+    });
+    const [, session2] = capturedSetupSession();
+    setupResume.invalidateReaderSetupFlows("explain");
+    session2.onAfterSave();
+    expect(onResume2).not.toHaveBeenCalled();
+    expect(onCancel2).toHaveBeenCalledWith("invalid");
   });
 });
 
@@ -260,8 +266,8 @@ describe("error 态：配置类错误仅给「去设置」，非配置类只给�
   });
 });
 
-describe("「去设置」：记录意图并直达平台编辑", () => {
-  it("点击去设置：意图快照（选区/整句/时刻/下标/代际号/视频身份/类目）+ 直达分派", async () => {
+describe("「去设置」：直接进入平台编辑并携带一次性恢复回调", () => {
+  it("点击去设置：直达 openReaderAiSetup 并附带 onAfterSave / onSessionEnd", async () => {
     await openCardInError("传递信息的工具", new Error(NO_ACTIVE_PROVIDER_MESSAGE));
     dispatchActionClick("setup");
 
@@ -270,18 +276,6 @@ describe("「去设置」：记录意图并直达平台编辑", () => {
     expect(errorClass).toBe("no-provider");
     expect(typeof session.onAfterSave).toBe("function");
     expect(typeof session.onSessionEnd).toBe("function");
-
-    const intent = resumeLeaf.peekExplainSetupResumeIntent();
-    expect(intent).toMatchObject({
-      selection: "传递信息的工具",
-      line: "我们习惯将其视为传递信息的工具",
-      from: 10,
-      index: 1,
-      bvid: "BV1explain000",
-      cid: "2000",
-      errorClass: "no-provider"
-    });
-    expect(typeof intent?.runId).toBe("number");
   });
 
   it("配置期间 Esc 归逐层退出：设置开着不抢关卡片，设置关了恢复卡片 Esc", async () => {
@@ -342,18 +336,17 @@ describe("保存成功：回到同一解释卡并续跑一次", () => {
 });
 
 describe("取消配置：保留原错误与再次进入设置的入口", () => {
-  it("onSessionEnd 清意图 → 不续跑；卡片 error 与「去设置」原样保留", async () => {
+  it("onSessionEnd 作废续跑 → 不续跑；卡片 error 与「去设置」原样保留", async () => {
     await openCardInError("传递信息的工具", new Error(NO_ACTIVE_PROVIDER_MESSAGE));
     dispatchActionClick("setup");
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session] = capturedSetupSession();
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).not.toBeNull();
 
-    // 取消编辑：会话结束回调清意图（保存回调不会随取消触发，这里兜底连发也不续跑）
+    // 取消编辑：会话结束回调作废续跑（保存回调不会随取消触发，这里兜底连发也不续跑）
     session.onSessionEnd();
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(aiMock.explainSelection).not.toHaveBeenCalled();
 
     // 原错误与再次进入设置的入口保留
@@ -364,7 +357,7 @@ describe("取消配置：保留原错误与再次进入设置的入口", () => {
   });
 });
 
-describe("续跑意图失效：关卡片 / 换选区 / 换视频后旧意图不续跑", () => {
+describe("续跑失效：关卡片 / 换选区 / 换视频后旧会话不续跑", () => {
   it("关闭卡片后保存成功：不续跑", async () => {
     await openCardInError("工具", new Error(MISSING_PROVIDER_KEY_MESSAGE));
     dispatchActionClick("setup");
@@ -373,10 +366,10 @@ describe("续跑意图失效：关卡片 / 换选区 / 换视频后旧意图不�
 
     dispatchActionClick("close");
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(false));
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
 
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(aiMock.explainSelection).not.toHaveBeenCalled();
   });
 
@@ -441,34 +434,27 @@ describe("缺模型引导、防连点代次保护与保存后焦点不盗抢", (
       }),
       "get-settings": () => ({ ok: true, settings: { defaultModel: "p2" } })
     });
-    const { resolveEditableAiProviderId } = await import("../../extension/reader/settings-mode.js");
+    const { resolveEditableAiProviderId } = await vi.importActual<
+      typeof import("../../extension/ui/settings-panel.js")
+    >("../../extension/ui/settings-panel.js");
     await expect(resolveEditableAiProviderId()).resolves.toBe("p2");
   });
 
-  it("缺模型错误：渲染「去设置」，记录 no-model 意图并按 target.providerId 打开对应平台编辑", async () => {
-    const { callbackStyleSendMessage } = await import("../helpers/chrome-runtime-host.js");
-    (chrome.runtime as unknown as { sendMessage: unknown }).sendMessage = callbackStyleSendMessage({
-      "ai-providers-list": () => ({
-        ok: true,
-        providers: [{ id: "p-empty", enabled: true, models: [] }]
-      }),
-      "get-settings": () => ({ ok: true, settings: { defaultModel: "p-empty" } })
-    });
-
+  it("缺模型错误：渲染「去设置」，直接透传 no-model（不改写为 missing-key）", async () => {
     await openCardInError("工具", new Error(NO_ACTIVE_MODEL_MESSAGE));
     expect(cardAction("setup")).not.toBeNull();
     dispatchActionClick("setup");
 
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
-    const [errorClass, _session, target] = capturedSetupSession();
-    expect(errorClass).toBe("missing-key");
-    expect(target).toEqual({ providerId: "p-empty" });
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toMatchObject({
-      errorClass: "no-model"
-    });
+    const [errorClass, session, target] = capturedSetupSession();
+    expect(errorClass).toBe("no-model");
+    expect(target).toBeUndefined();
+
+    session.onAfterSave();
+    await vi.waitFor(() => expect(aiMock.explainSelection).toHaveBeenCalledTimes(1));
   });
 
-  it("快速双击去设置只打开一次 & 旧会话 onSessionEnd 不误清最新意图", async () => {
+  it("快速双击去设置只打开一次 & 旧会话 onSessionEnd 不误清最新流程", async () => {
     let resolveFirst!: () => void;
     setupMock.openReaderAiSetup.mockImplementationOnce(
       () =>
@@ -482,15 +468,16 @@ describe("缺模型引导、防连点代次保护与保存后焦点不盗抢", (
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session1] = capturedSetupSession();
     resolveFirst();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await Promise.resolve();
+    await Promise.resolve();
 
     dispatchActionClick("setup");
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(2));
-    const intent2 = resumeLeaf.peekExplainSetupResumeIntent();
-    expect(intent2).not.toBeNull();
+    const [, session2] = capturedSetupSession();
 
     session1.onSessionEnd();
-    expect(resumeLeaf.peekExplainSetupResumeIntent()).toEqual(intent2);
+    session2.onAfterSave();
+    await vi.waitFor(() => expect(aiMock.explainSelection).toHaveBeenCalledTimes(1));
   });
 
   it("保存续跑后关闭设置抽屉：焦点留在解释卡对话框，不被抢回字幕 Tab 按钮", async () => {

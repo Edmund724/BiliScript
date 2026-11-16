@@ -1,15 +1,14 @@
-// 直播间伴看设置宿主（extension/ui/live-provider-settings.ts）的凭据同层往返
-//（票 provider-onboarding-consistency/07）：伴看 Gemini 编辑器内联凭据动作 →
-// 同层 AI 族编辑器 → 保存成功（提示仍需显式保存伴看记录 + onSaved 回调）或取消
-// 都恢复伴看草稿；dispose 在飞往返编辑器不恢复、不泄漏。
+// 直播间伴看设置宿主（extension/ui/provider-settings-host.ts）的凭据同层往返：
+// 伴看 Gemini 编辑器内联凭据动作 → 同层 AI 族编辑器 → 保存成功（提示仍需显式
+// 保存伴看记录 + onMutated 回调）或取消都恢复伴看草稿；dispose 在飞往返编辑器不恢复、不泄漏。
 //
-// 手法：真实 createLiveProviderSettings + provider-editor，消息走
-// installSettingsPanelBus 总线（同 tests/ui/gemini-credential-link.test.ts）。
+// 手法：真实 createProviderSettingsHost({ mountedFamilies: ["live"] }) + provider-editor，
+// 消息走 installSettingsPanelBus 总线（同 tests/ui/gemini-credential-link.test.ts）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
-import type { LiveProviderSettings } from "../../extension/ui/live-provider-settings.js";
+import type { ProviderSettingsHost } from "../../extension/ui/provider-settings-host.js";
 
 const GEMINI_LIVE = {
   id: "live_gemini",
@@ -48,7 +47,7 @@ function dialog(): HTMLElement | null {
 }
 
 interface MountedPanel {
-  panel: LiveProviderSettings;
+  panel: ProviderSettingsHost;
   view: HTMLElement;
   sent: Array<BusMessage>;
   statusLog: Array<{ message: string; isError?: boolean }>;
@@ -69,15 +68,17 @@ async function mountPanel(overrides: Record<string, BusResponder<BusMessage>> = 
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
   });
-  const { createLiveProviderSettings } = await import("../../extension/ui/live-provider-settings.js");
+  const { createProviderSettingsHost } = await import("../../extension/ui/provider-settings-host.js");
   const view = document.getElementById("biliscript-reading-view")!;
   const statusLog: MountedPanel["statusLog"] = [];
   const savedLog: MountedPanel["savedLog"] = [];
-  const panel = createLiveProviderSettings({
+  const panel = createProviderSettingsHost({
     host: view,
+    mountedFamilies: ["live"],
     getEditorMountHost: () => view,
+    reportMutationStatus: false,
     onStatus: (message, isError) => statusLog.push({ message, isError }),
-    onSaved: (kind, providerId) => savedLog.push({ kind, providerId })
+    onMutated: ({ kind, providerId }) => savedLog.push({ kind, providerId })
   });
   await panel.load();
   return { panel, view, sent: bus.sent, statusLog, savedLog };
@@ -175,8 +176,9 @@ describe("live-provider-settings 凭据同层往返", () => {
     mounted.panel.dispose();
 
     expect(dialog()).toBeNull();
-    // 恢复路径带 dispose 守卫：不重建编辑器
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 恢复路径带 dispose 守卫：刷新微任务后仍不重建编辑器
+    await Promise.resolve();
+    await Promise.resolve();
     expect(dialog()).toBeNull();
     expect(mounted.view.querySelector(".provider-editor-host")).toBeNull();
   });

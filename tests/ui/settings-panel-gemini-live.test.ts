@@ -83,9 +83,18 @@ afterEach(async () => {
 describe("设置面板 Gemini Live 凭据引用", () => {
   it("行副标题组合模型名与凭据状态", async () => {
     const { host } = await mountPanel({
-      "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] })
+      "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "shared-gemini-key" })
     });
     expect(liveSubtitle(host)).toBe("gemini-3.8-live · 已复用 AI 平台 Key");
+  });
+
+  it("AI 平台元数据标记 hasSavedKey 但本地存储实际无 Key 时如实降级提示密钥缺失", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [GEMINI_AI] }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "" })
+    });
+    expect(liveSubtitle(host)).toBe("gemini-3.8-live · 官方 Gemini AI Key 缺失或引用已失效");
   });
 
   it("公开 Gemini 凭据入口直达共享 AI 记录的 Key 字段", async () => {
@@ -137,6 +146,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     let aiProviders: Record<string, unknown>[] = [];
     const { host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: aiProviders }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "shared-gemini-key" }),
       "ai-providers-save": (_message) => {
         aiProviders = [GEMINI_AI];
         return { ok: true, providers: aiProviders };
@@ -164,6 +174,7 @@ describe("设置面板 Gemini Live 凭据引用", () => {
     let aiProviders: Record<string, unknown>[] = [GEMINI_AI];
     const { host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: aiProviders }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "shared-gemini-key" }),
       "ai-providers-delete": () => {
         aiProviders = [];
         return { ok: true, providers: aiProviders };

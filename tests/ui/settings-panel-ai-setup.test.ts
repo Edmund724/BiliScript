@@ -172,3 +172,35 @@ describe("openReaderAiSetup：缺 Key → 编辑该记录并聚焦 Key", () => {
     );
   });
 });
+
+describe("openReaderAiSetup：缺模型 → 无需 Key 平台（如 Ollama）也能直接进入模型配置", () => {
+  const OLLAMA_NO_MODEL = {
+    id: "ollama-1",
+    presetId: "ollama",
+    name: "Ollama 本地",
+    protocol: "openai",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: [] as string[],
+    requiresKey: false,
+    enabled: true,
+    hasSavedKey: false
+  };
+
+  it("no-model 直达 requiresKey: false 平台并打开模型编辑且聚焦添加模型控件", async () => {
+    const { panel } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [OLLAMA_NO_MODEL] }),
+      "get-settings": () => ({ ok: true, settings: { defaultModel: "ollama-1" } })
+    });
+    await panel.openReaderAiSetup("no-model", SESSION);
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(".provider-editor-title")?.textContent).toBe("编辑AI 平台");
+    expect(dialog?.querySelector<HTMLInputElement>(".provider-editor-name")?.value).toBe("Ollama 本地");
+    expect(dialog?.querySelector(".provider-editor-context-banner")?.textContent).toContain("请至少添加一个可用模型后保存继续");
+    expect(document.activeElement).toBe(
+      dialog?.querySelector<HTMLElement>(
+        '[data-provider-editor-action="add-model"], .provider-editor-model-input, .provider-editor-model'
+      )
+    );
+  });
+});

@@ -15,6 +15,7 @@ import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
 import { closeReaderSettingsMode, hasReaderSettingsOverlayOpen, openReaderSettingsMode } from "../reader/settings-mode.js";
+import { beginReaderAsrSetupFlow } from "../reader/setup-resume.js";
 // tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
 //（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
 // ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
@@ -302,10 +303,7 @@ subscribeUiCommand((name, payload) => {
   if (name === "open-settings") {
     const target = (payload as { target?: unknown } | null)?.target;
     if (target === "asr") {
-      // ASR 配置类阻塞直达（票 04）：入口自己打开抽屉并定位分区/编辑器。
-      void import("./settings-panel.js")
-        .then((mod) => mod.openReaderAsrSetup())
-        .catch(() => {});
+      void beginReaderAsrSetupFlow();
       return;
     }
     openReaderSettingsPanel();

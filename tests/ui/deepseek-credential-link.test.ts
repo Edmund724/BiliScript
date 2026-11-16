@@ -407,6 +407,7 @@ describe("AI 族变更联动两类引用行", () => {
       "live-providers-list": () => ({ ok: true, providers: [GEMINI_LIVE] }),
       "search-providers-list": () => ({ ok: true, providers: [DEEPSEEK_SEARCH] }),
       "ai-providers-list": () => ({ ok: true, providers: aiProviders }),
+      "get-ai-provider-key": () => ({ ok: true, apiKey: "shared-gemini-key" }),
       "ai-providers-delete": (message) => {
         aiProviders = aiProviders.filter((provider) => provider.id !== message.providerId);
         return { ok: true, providers: aiProviders };

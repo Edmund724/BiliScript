@@ -683,4 +683,17 @@ describe("主题：只剩明暗一轴", () => {
       settings: { webSearchMaxToolCalls: 5 }
     });
   });
+
+  it("hasReaderSettingsOverlayOpen 识别统一模态宿主标记 [data-panel-modal-host=1]", async () => {
+    const { hasReaderSettingsOverlayOpen } = await import("../../extension/reader/settings-mode.js");
+    expect(hasReaderSettingsOverlayOpen()).toBe(false);
+
+    const modalHost = document.createElement("div");
+    modalHost.dataset.panelModalHost = "1";
+    document.body.appendChild(modalHost);
+    expect(hasReaderSettingsOverlayOpen()).toBe(true);
+
+    modalHost.remove();
+    expect(hasReaderSettingsOverlayOpen()).toBe(false);
+  });
 });

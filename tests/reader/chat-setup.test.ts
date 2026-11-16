@@ -52,7 +52,7 @@ let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
-let resumeLeaf: typeof import("../../extension/reader/chat-setup-resume.js");
+let setupResume: typeof import("../../extension/reader/setup-resume.js");
 
 const ports: FakePort[] = [];
 interface FakePort {
@@ -126,7 +126,7 @@ async function loadShell(): Promise<void> {
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
-  resumeLeaf = await import("../../extension/reader/chat-setup-resume.js");
+  setupResume = await import("../../extension/reader/setup-resume.js");
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
 }
@@ -231,31 +231,37 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
-describe("意图叶子（reader/chat-setup-resume）：单槽语义", () => {
-  it("set → peek 副本 → consume 取走清空 → clear 作废", () => {
-    const intent = {
-      errorClass: "no-provider" as const,
-      providerId: "",
-      mode: "blocked" as const,
-      contextKey: "BV1|1",
-      conversationId: "conv-1",
-      createdAt: 1
-    };
-    resumeLeaf.setChatSetupResumeIntent(intent);
-    const peeked = resumeLeaf.peekChatSetupResumeIntent();
-    expect(peeked).toEqual(intent);
-    expect(peeked).not.toBe(intent);
-    // 副本不反写内部状态
-    peeked!.contextKey = "changed";
-    expect(resumeLeaf.peekChatSetupResumeIntent()?.contextKey).toBe("BV1|1");
-    // 一次性消费
-    expect(resumeLeaf.consumeChatSetupResumeIntent()).toEqual(intent);
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
-    expect(resumeLeaf.consumeChatSetupResumeIntent()).toBeNull();
-    // clear 作废未消费意图
-    resumeLeaf.setChatSetupResumeIntent(intent);
-    resumeLeaf.clearChatSetupResumeIntent();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
+describe("设置协调（reader/setup-resume · chat scope）：单槽与失效语义", () => {
+  it("保存有效时仅触发一次恢复；invalidateReaderSetupFlows 作废并发出 cancel", async () => {
+    const onResume = vi.fn();
+    const onCancel = vi.fn();
+    await setupResume.beginReaderAiSetupFlow({
+      scope: "chat",
+      errorClass: "no-provider",
+      isStillValid: () => true,
+      onResume,
+      onCancel
+    });
+    const [, session] = capturedSetupSession();
+    session.onAfterSave();
+    session.onAfterSave();
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+
+    const onResume2 = vi.fn();
+    const onCancel2 = vi.fn();
+    await setupResume.beginReaderAiSetupFlow({
+      scope: "chat",
+      errorClass: "no-provider",
+      isStillValid: () => true,
+      onResume: onResume2,
+      onCancel: onCancel2
+    });
+    const [, session2] = capturedSetupSession();
+    setupResume.invalidateReaderSetupFlows("chat");
+    session2.onAfterSave();
+    expect(onResume2).not.toHaveBeenCalled();
+    expect(onCancel2).toHaveBeenCalledWith("invalid");
   });
 });
 
@@ -271,10 +277,6 @@ describe("无平台空态：直达新增平台编辑器，保存后回对话聚�
     const [errorClass, session, target] = capturedSetupSession();
     expect(errorClass).toBe("no-provider");
     expect(target).toBeUndefined();
-    const intent = resumeLeaf.peekChatSetupResumeIntent();
-    expect(intent).toMatchObject({ errorClass: "no-provider", providerId: "", mode: "blocked" });
-    expect(intent?.contextKey).toBe(String(chatSessionState.currentContextKey || ""));
-    expect(intent?.conversationId).toBe(String(chatSessionState.currentConversationId || ""));
 
     // 保存成功：平台已落盘 → 返回对话
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
@@ -286,7 +288,6 @@ describe("无平台空态：直达新增平台编辑器，保存后回对话聚�
     await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
     expect(state.reader.readingSettingsExpanded, "保存成功后应退出设置抽屉").toBe(false);
     expect(document.activeElement, "应聚焦对话输入区").toBe(input);
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
     // 不误自动发送：没有端口、没有用户气泡
     expect(ports).toHaveLength(0);
     expect(messagesEl().querySelector(".chat-msg-user")).toBeNull();
@@ -306,7 +307,8 @@ describe("无平台空态：直达新增平台编辑器，保存后回对话聚�
 
     session.onAfterSave();
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(messagesEl().querySelectorAll(".chat-context-notice")).toHaveLength(1);
     expect(noticeText()).toContain("平台已就绪");
@@ -336,7 +338,6 @@ describe("发送前无平台：草稿与图片附件原位保留", () => {
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [errorClass, session] = capturedSetupSession();
     expect(errorClass).toBe("no-provider");
-    expect(resumeLeaf.peekChatSetupResumeIntent()?.mode).toBe("blocked");
 
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
     session.onAfterSave();
@@ -392,11 +393,6 @@ describe("已选平台缺 Key：错误回合直达该记录，不自动重发", 
     const [errorClass, session, target] = capturedSetupSession();
     expect(errorClass).toBe("missing-key");
     expect(target).toEqual({ providerId: "p1" });
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toMatchObject({
-      errorClass: "missing-key",
-      providerId: "p1",
-      mode: "error"
-    });
 
     // 保存成功：只回对话提示，不重发、不新建会话、不清历史身份
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true, hasSavedKey: true }];
@@ -426,15 +422,14 @@ describe("已选平台缺 Key：错误回合直达该记录，不自动重发", 
     ports[0].__fire!({ type: "error", error: "网络连接失败" });
     await waitFor(() => Boolean(messages.querySelector(".chat-msg-error")));
     expect(messages.querySelector(".chat-msg-error")?.textContent).toContain("网络连接失败");
-    // 网络错误不伪装成配置问题：没有「前往设置」动作、不记录返回意图
+    // 网络错误不伪装成配置问题：没有「前往设置」动作、不进入设置跳转
     expect(messages.querySelector(".chat-context-notice a")).toBeNull();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
     expect(setupMock.openReaderAiSetup).not.toHaveBeenCalled();
   });
 });
 
 describe("取消 / 换视频 / 关会话：返回意图作废", () => {
-  it("取消编辑（onSessionEnd）：意图清空，迟到的保存回调不再有返回效果", async () => {
+  it("取消编辑（onSessionEnd）：作废流程，迟到的保存回调不再有返回效果", async () => {
     await activateChat();
     const input = inputEl();
     input.value = "草稿仍在";
@@ -443,36 +438,35 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     const [, session] = capturedSetupSession();
 
     session.onSessionEnd();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
 
     // 迟到回调（同一 session 被误触发）：无提示、无发送、草稿不动
     input.value = "草稿仍在";
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(noticeText()).toBe("");
     expect(ports).toHaveLength(0);
     expect(input.value).toBe("草稿仍在");
   });
 
-  it("换视频：URL 变化即作废意图，保存回调不再提示", async () => {
+  it("换视频：URL 变化即作废，保存回调不再提示", async () => {
     await activateChat();
     clickElement(setupLink());
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session] = capturedSetupSession();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).not.toBeNull();
 
     setLocationUrl("https://www.bilibili.com/video/BV1other0000/?biliscript_reader=1");
     window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
 
     providersPayload = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(noticeText()).toBe("");
     expect(ports).toHaveLength(0);
   });
 
-  it("关闭设置抽屉：意图随抽屉关闭作废", async () => {
+  it("关闭设置抽屉：随抽屉关闭作废", async () => {
     await activateChat();
     clickElement(setupLink());
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
@@ -481,13 +475,12 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
       "../../extension/reader/settings-mode.js"
     );
     openReaderSettingsMode();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).not.toBeNull();
 
     closeReaderSettingsMode({ restoreFocus: false });
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
 
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(noticeText()).toBe("");
     expect(ports).toHaveLength(0);
   });
@@ -497,20 +490,18 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     clickElement(setupLink());
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session] = capturedSetupSession();
-    const intent = resumeLeaf.peekChatSetupResumeIntent();
-    expect(intent?.conversationId).toBeDefined();
 
-    // 会话身份变化（历史项切换 / 新会话）：返回意图快照失配，保存回调静默作废
+    // 会话身份变化（历史项切换 / 新会话）：快照失配，保存回调静默作废
     const { applyConversationIdentity } = await import("../../extension/chat/chat-state.js");
     applyConversationIdentity({ id: "conv-other" });
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(noticeText()).toBe("");
     expect(ports).toHaveLength(0);
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
   });
 
-  it("关闭对话会话：意图作废，重开后不自作主张提示或发送", async () => {
+  it("关闭对话会话：作废流程，重开后不自作主张提示或发送", async () => {
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
     clickElement(setupLink());
@@ -518,17 +509,17 @@ describe("取消 / 换视频 / 关会话：返回意图作废", () => {
     const [, session] = capturedSetupSession();
 
     chat.closeChatSession();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toBeNull();
 
     session.onAfterSave();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(noticeText()).toBe("");
     expect(ports).toHaveLength(0);
   });
 });
 
 describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防连点", () => {
-  it("模型选择器空态「前往设置」走首配闭环并写入返回意图，保存后显示可关闭成功提示", async () => {
+  it("模型选择器空态「前往设置」走首配闭环，保存后显示可关闭成功提示", async () => {
     await activateChat();
     const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
     clickElement(chip);
@@ -539,7 +530,6 @@ describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防�
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [errorClass, session] = capturedSetupSession();
     expect(errorClass).toBe("no-provider");
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toMatchObject({ errorClass: "no-provider", mode: "blocked" });
 
     providersPayload = [{ id: "p1", name: "平台一", models: ["m1"], enabled: true }];
     session.onAfterSave();
@@ -552,7 +542,7 @@ describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防�
     expect(messagesEl().querySelector(".chat-context-notice")).toBeNull();
   });
 
-  it("已有启用平台但 models 为空：直接渲染缺模型引导并定位该 providerId 编辑", async () => {
+  it("已有启用平台但 models 为空：直接透传 no-model 并定位该 providerId 编辑", async () => {
     providersPayload = [{ id: "p-empty", name: "空模型平台", models: [], enabled: true }];
     settingsPayload = { defaultModel: "p-empty" };
     await activateChat();
@@ -564,17 +554,16 @@ describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防�
 
     clickElement(setupLink());
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
-    const [errorClass, _session, target] = capturedSetupSession();
-    expect(errorClass).toBe("missing-key");
+    const [errorClass, session, target] = capturedSetupSession();
+    expect(errorClass).toBe("no-model");
     expect(target).toEqual({ providerId: "p-empty" });
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toMatchObject({
-      errorClass: "no-model",
-      providerId: "p-empty",
-      mode: "blocked"
-    });
+
+    providersPayload = [{ id: "p-empty", name: "空模型平台", models: ["m1"], enabled: true }];
+    session.onAfterSave();
+    await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
   });
 
-  it("快速双击防重入 & 旧会话 onSessionEnd 不清最新意图", async () => {
+  it("快速双击防重入 & 旧会话 onSessionEnd 不清最新流程", async () => {
     await activateChat();
     let resolveFirst!: () => void;
     setupMock.openReaderAiSetup.mockImplementationOnce(
@@ -589,16 +578,18 @@ describe("模型选择器空态 / 已有平台 models: [] / 成功提示与防�
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(1));
     const [, session1] = capturedSetupSession();
     resolveFirst();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await Promise.resolve();
+    await Promise.resolve();
 
-    // 打开第二轮设置会话后，旧会话迟到的 onSessionEnd 不得误清第二轮刚写入的意图
+    // 打开第二轮设置会话后，旧会话迟到的 onSessionEnd 不得误清第二轮流程
     clickElement(link);
     await vi.waitFor(() => expect(setupMock.openReaderAiSetup).toHaveBeenCalledTimes(2));
-    const intent2 = resumeLeaf.peekChatSetupResumeIntent();
-    expect(intent2).not.toBeNull();
+    const [, session2] = capturedSetupSession();
 
     session1.onSessionEnd();
-    expect(resumeLeaf.peekChatSetupResumeIntent()).toEqual(intent2);
+    providersPayload = [{ id: "p1", name: "平台一", models: ["m1"], enabled: true }];
+    session2.onAfterSave();
+    await vi.waitFor(() => expect(noticeText()).toContain("平台已就绪，请确认发送"));
   });
 });
 

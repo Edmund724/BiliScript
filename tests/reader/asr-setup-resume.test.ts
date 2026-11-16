@@ -54,7 +54,7 @@ function chromeStub(): { runtime: { sendMessage: Mock } } {
 
 interface PanelHarness {
   panel: typeof import("../../extension/ui/settings-panel.js");
-  leaf: typeof import("../../extension/reader/asr-setup-resume.js");
+  leaf: typeof import("../../extension/reader/setup-resume.js");
   core: typeof import("../../extension/core/state.js");
   host: HTMLElement;
   sent: SentMessage[];
@@ -77,7 +77,7 @@ async function mountPanel(overrides: Record<string, MessageResponder> = {}): Pro
   }).sent;
   const [panel, leaf, state, readerBus] = await Promise.all([
     import("../../extension/ui/settings-panel.js"),
-    import("../../extension/reader/asr-setup-resume.js"),
+    import("../../extension/reader/setup-resume.js"),
     import("../../extension/core/state.js"),
     import("../../extension/reader/reader-bus.js")
   ]);
@@ -227,7 +227,7 @@ describe("openReaderAsrSetup：未配置 → 直接打开 ASR 编辑器", () => 
     expect(document.activeElement).not.toBe(
       dialog?.querySelector<HTMLInputElement>(".provider-editor-apikey")
     );
-    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "no-provider" });
+    expect(leaf.peekAsrSetupResumeToken()).toMatchObject({ kind: "no-provider" });
   });
 });
 
@@ -252,7 +252,7 @@ describe("openReaderAsrSetup：缺 Key → 编辑精确记录并聚焦 Key", () 
     await vi.waitFor(() => {
       expect(refresh).toHaveBeenCalledTimes(1);
     });
-    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).toBeNull();
     expect(core.state.reader.readingSettingsExpanded).toBe(false);
   });
 
@@ -262,13 +262,13 @@ describe("openReaderAsrSetup：缺 Key → 编辑精确记录并聚焦 Key", () 
       "get-settings": () => ({ ok: true, settings: { asrAutoFallback: true, activeAsrProviderId: "asr-1" } })
     });
     await panel.openReaderAsrSetup();
-    expect(leaf.peekAsrSetupResumeIntent()).not.toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).not.toBeNull();
     // 取消 = 关闭编辑器会话
     fireClick(document.querySelector(".provider-editor-mask"));
     await vi.waitFor(() => {
       expect(document.querySelector(".provider-editor-dialog")).toBeNull();
     });
-    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).toBeNull();
     expect(refresh).not.toHaveBeenCalled();
     expect(core.state.reader.readingSettingsExpanded).toBe(true);
   });
@@ -285,7 +285,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     const toggle = host.querySelector<HTMLInputElement>("#asrAutoFallback");
     expect(toggle).not.toBeNull();
     expect(document.activeElement).toBe(toggle);
-    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "disabled" });
+    expect(leaf.peekAsrSetupResumeToken()).toMatchObject({ kind: "disabled" });
 
     // 用户显式打开开关（不代用户改设置），落盘成功后续跑
     toggle!.checked = true;
@@ -293,7 +293,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     await vi.waitFor(() => {
       expect(refresh).toHaveBeenCalledTimes(1);
     });
-    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).toBeNull();
     expect(core.state.reader.readingSettingsExpanded).toBe(false);
   });
 
@@ -311,7 +311,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
       expect(core.state.reader.readingSettingsExpanded).toBe(true);
     });
     expect(refresh).not.toHaveBeenCalled();
-    expect(leaf.peekAsrSetupResumeIntent()).not.toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).not.toBeNull();
   });
 
   it("开关关闭 + 无 ASR 平台：开启开关后不退出设置，直接顺滑进入新增 ASR 编辑器（一次闭环）", async () => {
@@ -344,7 +344,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     });
     expect(refresh).not.toHaveBeenCalled();
     expect(core.state.reader.readingSettingsExpanded).toBe(true);
-    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "no-provider" });
+    expect(leaf.peekAsrSetupResumeToken()).toMatchObject({ kind: "no-provider" });
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     expect(dialog.querySelector(".provider-editor-title")?.textContent).toBe("添加语音转写平台");
     expect(dialog.querySelector(".provider-editor-save")?.textContent).toBe("保存并继续");
@@ -357,7 +357,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     await vi.waitFor(() => {
       expect(refresh).toHaveBeenCalledTimes(1);
     });
-    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).toBeNull();
     expect(core.state.reader.readingSettingsExpanded).toBe(false);
   });
 
@@ -380,7 +380,7 @@ describe("openReaderAsrSetup：自动转写关闭 → 启用路径", () => {
     await vi.waitFor(() => {
       expect(document.querySelector(".provider-editor-dialog")).not.toBeNull();
     });
-    expect(leaf.peekAsrSetupResumeIntent()).toMatchObject({ kind: "missing-key" });
+    expect(leaf.peekAsrSetupResumeToken()).toMatchObject({ kind: "missing-key" });
     const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
     expect(dialog.querySelector(".provider-editor-title")?.textContent).toBe("编辑语音转写平台");
     const keyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!;
@@ -414,7 +414,7 @@ describe("字幕空态：配置类 ASR 补救投影为实际设置动作", () =>
     uiRenderer.ensureUiReady({ forceRecreate: true });
     const [panel, leaf, core, readerBus, reader] = await Promise.all([
       import("../../extension/ui/settings-panel.js"),
-      import("../../extension/reader/asr-setup-resume.js"),
+      import("../../extension/reader/setup-resume.js"),
       import("../../extension/core/state.js"),
       import("../../extension/reader/reader-bus.js"),
       import("../../extension/reader/index.js")
@@ -477,7 +477,7 @@ describe("对话拦截「前往设置」：带 ASR 目标经壳命令直达设�
 describe("resumeAsrSubtitleFetchAfterSetup：一次性、换视频失效、在飞去重", () => {
   it("重复续跑只起一轮抓取（意图一次性消费）", async () => {
     const { panel, leaf, refresh } = await mountPanel();
-    leaf.setAsrSetupResumeIntent({ videoKey: leaf.currentPageVideoKey(), kind: "missing-key" });
+    leaf.setAsrSetupResumeToken({ videoKey: leaf.currentPageVideoKey(), kind: "missing-key" });
     expect(panel.resumeAsrSubtitleFetchAfterSetup()).toBe(true);
     expect(panel.resumeAsrSubtitleFetchAfterSetup()).toBe(false);
     await vi.waitFor(() => {
@@ -487,10 +487,10 @@ describe("resumeAsrSubtitleFetchAfterSetup：一次性、换视频失效、在�
 
   it("视频身份快照不一致（换视频 / 换分 P）时不续跑", async () => {
     const { panel, leaf, refresh } = await mountPanel();
-    leaf.setAsrSetupResumeIntent({ videoKey: "BV1other00000|1", kind: "missing-key" });
+    leaf.setAsrSetupResumeToken({ videoKey: "BV1other00000|1", kind: "missing-key" });
     expect(panel.resumeAsrSubtitleFetchAfterSetup()).toBe(false);
     expect(refresh).not.toHaveBeenCalled();
-    expect(leaf.peekAsrSetupResumeIntent()).toBeNull();
+    expect(leaf.peekAsrSetupResumeToken()).toBeNull();
   });
 
   it("同一视频已有抓取在飞时不另起一轮（在飞去重）", async () => {
@@ -498,7 +498,7 @@ describe("resumeAsrSubtitleFetchAfterSetup：一次性、换视频失效、在�
     core.clipState.setBvid("BV1test000000");
     core.clipState.setPageIndex(1);
     core.clipState.setSubtitleFetchState("loading");
-    leaf.setAsrSetupResumeIntent({ videoKey: leaf.currentPageVideoKey(), kind: "missing-key" });
+    leaf.setAsrSetupResumeToken({ videoKey: leaf.currentPageVideoKey(), kind: "missing-key" });
     expect(panel.resumeAsrSubtitleFetchAfterSetup()).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
   });

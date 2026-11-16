@@ -36,16 +36,10 @@ import { resolveWebSearchRuntime, type WebSearchRuntime } from "../search/search
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
 import { setPendingExplainIntent } from "./explain-intent.js";
-import {
-  clearExplainSetupResumeIntent,
-  consumeExplainSetupResumeIntent,
-  setExplainSetupResumeIntent
-} from "./explain-setup-resume.js";
+import { beginReaderAiSetupFlow, invalidateReaderSetupFlows } from "./setup-resume.js";
 import {
   closeReaderSettingsMode,
-  focusProviderEditorModelControl,
-  hasReaderSettingsOverlayOpen,
-  resolveEditableAiProviderId
+  hasReaderSettingsOverlayOpen
 } from "./settings-mode.js";
 import { findSubtitleItem } from "./subtitle-item-dom.js";
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -381,112 +375,43 @@ function startExplainRequest(): void {
   })();
 }
 
-let explainSetupOpenInFlight = false;
-let explainSetupSessionEpoch = 0;
-
-// 首配「去设置」（票 02）：error 态的分类在渲染期已用同一分类器判过，点击时再判
-// 一次兜底（error 只会在新一轮请求后改写，但入口收敛在这里）；记录续跑意图
-// （选区/整句/时刻/下标 + 卡片代际号 + 视频身份快照）并直达正确的平台编辑界面
-// （无记录新增 / 缺 Key 聚焦 Key / 缺模型编辑该平台并聚焦模型配置）。
 function beginExplainSetup(): void {
-  if (!card.open || explainSetupOpenInFlight) {
+  if (!card.open) {
     return;
   }
   const errorClass = classifyOverviewSetupError(card.error);
   if (!errorClass) {
     return;
   }
-  explainSetupOpenInFlight = true;
-  const sessionEpoch = ++explainSetupSessionEpoch;
   const targetRunId = card.runId;
-  setExplainSetupResumeIntent({
-    selection: card.selection,
-    line: card.line,
-    from: card.from,
-    index: card.index,
-    runId: card.runId,
-    bvid: String(state.clip.bvid || ""),
-    cid: String(state.clip.cid || ""),
-    createdAt: Date.now(),
-    errorClass
-  });
-  void (async () => {
-    try {
-      const resolvedProviderId = errorClass === "no-model" ? await resolveEditableAiProviderId() : "";
-      const { openReaderAiSetup } = await import("../ui/settings-panel.js");
-      if (!card.open || card.runId !== targetRunId || sessionEpoch !== explainSetupSessionEpoch) {
-        return;
-      }
-      // settings-panel.openReaderAiSetup 仅当 errorClass === "missing-key" 时按 providerId 编辑；
-      // "no-model" 在有目标平台时借道 "missing-key" + target.providerId 打开对应平台编辑页，随后聚焦模型配置。
-      const uiSetupClass: OverviewSetupErrorClass =
-        errorClass === "no-model" && resolvedProviderId ? "missing-key" : errorClass;
-      await openReaderAiSetup(
-        uiSetupClass,
-        {
-          onAfterSave: () => {
-            if (sessionEpoch !== explainSetupSessionEpoch) {
-              return;
-            }
-            // 先消费意图并续跑（同一卡片重发，用户可见 loading → 结果），再退出
-            // 设置抽屉；设置层完全收起后再把焦点移回解释卡对话框。
-            const resumed = resumeExplainAfterSetup();
-            closeReaderSettingsMode({ restoreFocus: !resumed });
-            if (resumed) {
-              pendingInitialFocus = false;
-              focusExplainDialog();
-            }
-          },
-          onSessionEnd: () => {
-            if (sessionEpoch !== explainSetupSessionEpoch) {
-              return;
-            }
-            clearExplainSetupResumeIntent();
-          }
-        },
-        resolvedProviderId ? { providerId: resolvedProviderId } : undefined
-      );
-      if (errorClass === "no-model" && card.open && sessionEpoch === explainSetupSessionEpoch) {
-        focusProviderEditorModelControl();
-      }
-    } catch {
-      if (sessionEpoch === explainSetupSessionEpoch) {
-        clearExplainSetupResumeIntent();
-      }
-    } finally {
-      if (sessionEpoch === explainSetupSessionEpoch) {
-        explainSetupOpenInFlight = false;
+  const targetBvid = String(state.clip.bvid || "");
+  const targetCid = String(state.clip.cid || "");
+  const targetSelection = card.selection;
+  const targetLine = card.line;
+
+  void beginReaderAiSetupFlow({
+    scope: "explain",
+    errorClass,
+    isStillValid: () =>
+      card.open
+      && card.runId === targetRunId
+      && String(state.clip.bvid || "") === targetBvid
+      && String(state.clip.cid || "") === targetCid
+      && card.selection === targetSelection
+      && card.line === targetLine,
+    onResume: () => {
+      card.runId += 1;
+      startExplainRequest();
+      closeReaderSettingsMode({ restoreFocus: false });
+      pendingInitialFocus = false;
+      focusExplainDialog();
+    },
+    onCancel: (reason) => {
+      if (reason === "stale") {
+        closeReaderSettingsMode({ restoreFocus: true });
       }
     }
-  })();
-}
-
-/**
- * 首配保存成功后续跑（票 02）：取走意图并逐项校验——卡片代际号变化（换选区
- * 重开 / 重试 / 关闭过）、视频身份变化（换视频 / 分 P）、卡片已关或选区整句快照
- * 不一致均静默作废；通过才在同一卡片续跑一次（runId +1 让迟到旧回执作废）。
- * 一次性消费：校验失败的意图已随 consume 丢弃，不会二次生效。
- */
-export function resumeExplainAfterSetup(): boolean {
-  const intent = consumeExplainSetupResumeIntent();
-  if (!intent) {
-    return false;
-  }
-  if (!card.open) {
-    return false;
-  }
-  if (intent.runId !== card.runId) {
-    return false;
-  }
-  if (String(intent.bvid) !== String(state.clip.bvid || "") || String(intent.cid) !== String(state.clip.cid || "")) {
-    return false;
-  }
-  if (intent.selection !== card.selection || intent.line !== card.line) {
-    return false;
-  }
-  card.runId += 1;
-  startExplainRequest();
-  return true;
+  });
 }
 
 /**
@@ -517,8 +442,7 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
         : fallbackItem;
   }
   pendingInitialFocus = true;
-  explainSetupSessionEpoch += 1;
-  explainSetupOpenInFlight = false;
+  invalidateReaderSetupFlows("explain");
   card.controller?.abort();
   card.runId += 1;
   card.open = true;
@@ -540,10 +464,7 @@ export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): vo
   const targetToRestore = shouldRestoreFocus ? returnFocusEl : null;
   returnFocusEl = null;
   pendingInitialFocus = false;
-  explainSetupSessionEpoch += 1;
-  explainSetupOpenInFlight = false;
-  // 首配续跑意图随卡片关闭作废（票 02：关卡片即失效；保存成功路径已先消费）。
-  clearExplainSetupResumeIntent();
+  invalidateReaderSetupFlows("explain");
   unbindCardEsc();
   card.controller?.abort();
   card.controller = null;

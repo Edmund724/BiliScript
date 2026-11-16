@@ -54,11 +54,8 @@ import { activateScriptTab } from "./script-tab-activation.js";
 import {
   projectReaderSettingsMode,
   closeReaderSettingsMode,
-  focusProviderEditorModelControl,
-  focusWithoutScroll,
-  resolveEditableAiProviderId
+  focusWithoutScroll
 } from "./settings-mode.js";
-import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -85,16 +82,11 @@ import {
   type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
-// 首配续跑意图（票 01/02）：概览「去设置」记录、保存成功后消费续跑、取消/关面板/关视图作废。
 import {
-  clearOverviewSetupResumeIntent,
-  consumeOverviewSetupResumeIntent,
-  setOverviewSetupResumeIntent
-} from "./overview-setup-resume.js";
-// 解释卡首配续跑意图（票 02）：卡片「去设置」记录、保存成功回同一卡续跑、取消/关抽屉/关卡片/关视图作废。
-import { clearExplainSetupResumeIntent } from "./explain-setup-resume.js";
-// ASR 配置续跑意图（票 04）：三个面的设置动作记录、配置落盘后续跑、关闭视图作废。
-import { clearAsrSetupResumeIntent } from "./asr-setup-resume.js";
+  beginReaderAiSetupFlow,
+  beginReaderAsrSetupFlow,
+  invalidateReaderSetupFlows
+} from "./setup-resume.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
@@ -194,10 +186,6 @@ export function clearReadingSubtitleSearch(): void {
 // 装载、confirm 弹窗、UI 动作注册）。计时器经箭头转发：调用点才解析全局
 // setInterval/clearInterval，测试环境在模块装载后替换全局计时器（fake timers）
 // 也能生效。
-let overviewSetupOpenInFlight = false;
-let overviewSetupSessionEpoch = 0;
-let asrSetupOpenInFlight = false;
-
 const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator({
   getClip: () => state.clip,
   isReadingViewOpen: () => state.reader.readingViewOpen,
@@ -205,87 +193,38 @@ const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator
   loadAnalysis: () => import("../ai/analysis.js"),
   confirm: (options) => (state.reader.readingViewOpen ? confirmDialog(options) : Promise.resolve(true)),
   registerUiActions: (actions) => registerOverviewUiActions(actions),
-  // 首配续跑（票 01）：「去设置」记录页面内存意图并直达正确的平台编辑界面；
-  // 首配保存成功经 onAfterSave 消费意图、退出设置并在同一视频续跑一次概览；
-  // 取消编辑（onSessionEnd）/关闭设置抽屉/关闭阅读视图均作废意图。
+  // 首配续跑：「去设置」直达对应的 AI 平台编辑界面，保存成功且有效时退出设置并续跑概览。
   setupResume: {
-    begin: (intent) => {
-      if (overviewSetupOpenInFlight) {
-        return;
-      }
-      overviewSetupOpenInFlight = true;
-      const sessionEpoch = ++overviewSetupSessionEpoch;
-      setOverviewSetupResumeIntent(intent);
-      void (async () => {
-        try {
-          const resolvedProviderId = intent.errorClass === "no-model" ? await resolveEditableAiProviderId() : "";
-          const { openReaderAiSetup } = await import("../ui/settings-panel.js");
-          if (sessionEpoch !== overviewSetupSessionEpoch) {
-            return;
-          }
-          const uiSetupClass: OverviewSetupErrorClass =
-            intent.errorClass === "no-model" && resolvedProviderId ? "missing-key" : intent.errorClass;
-          await openReaderAiSetup(
-            uiSetupClass,
-            {
-              onAfterSave: () => {
-                if (sessionEpoch !== overviewSetupSessionEpoch) {
-                  return;
-                }
-                // resumeAfterSetup 同步取走并校验意图并立即切 loading 重渲概览（原「去设置」
-                // 按钮已随重渲卸载）；禁止 closeReaderSettingsMode 把焦点抢回 Tab 按钮。
-                const resumePromise = overviewCoordinator.resumeAfterSetup();
-                closeReaderSettingsMode({ restoreFocus: false });
-                void resumePromise.then((resumed) => {
-                  if (resumed) {
-                    const overviewBody = document.getElementById(ids.readingOverviewBody);
-                    if (overviewBody) {
-                      if (overviewBody.tabIndex < 0) overviewBody.tabIndex = -1;
-                      focusWithoutScroll(overviewBody);
-                    }
-                    return;
-                  }
-                  focusWithoutScroll(document.getElementById(ids.readingTabOverview));
-                });
-              },
-              onSessionEnd: () => {
-                if (sessionEpoch !== overviewSetupSessionEpoch) {
-                  return;
-                }
-                clearOverviewSetupResumeIntent();
-              }
-            },
-            resolvedProviderId ? { providerId: resolvedProviderId } : undefined
-          );
-          if (intent.errorClass === "no-model" && sessionEpoch === overviewSetupSessionEpoch) {
-            focusProviderEditorModelControl();
-          }
-        } catch {
-          if (sessionEpoch === overviewSetupSessionEpoch) {
-            clearOverviewSetupResumeIntent();
-          }
-        } finally {
-          if (sessionEpoch === overviewSetupSessionEpoch) {
-            overviewSetupOpenInFlight = false;
+    begin: (request) => {
+      void beginReaderAiSetupFlow({
+        scope: "overview",
+        errorClass: request.errorClass,
+        isStillValid: request.isStillValid,
+        onResume: () => {
+          const resumePromise = request.onResume();
+          closeReaderSettingsMode({ restoreFocus: false });
+          void resumePromise.then(() => {
+            const overviewBody = document.getElementById(ids.readingOverviewBody);
+            if (overviewBody) {
+              if (overviewBody.tabIndex < 0) overviewBody.tabIndex = -1;
+              focusWithoutScroll(overviewBody);
+              return;
+            }
+            focusWithoutScroll(document.getElementById(ids.readingTabOverview));
+          });
+        },
+        onCancel: (reason) => {
+          if (reason === "stale") {
+            closeReaderSettingsMode({ restoreFocus: false });
+            focusWithoutScroll(document.getElementById(ids.readingTabOverview));
           }
         }
-      })();
-    },
-    consume: consumeOverviewSetupResumeIntent
-  },
-  // 无字幕配置空态的「前往设置」（票 01 建立、票 04 升级为实际设置动作并续跑）：
-  // 直达 ASR 平台编辑 / 自动转写开关，配置完成后重新进入既有字幕抓取链。
-  openTranscribeSettings: () => {
-    if (asrSetupOpenInFlight) {
-      return;
-    }
-    asrSetupOpenInFlight = true;
-    void import("../ui/settings-panel.js")
-      .then(({ openReaderAsrSetup }) => openReaderAsrSetup())
-      .catch(() => null)
-      .finally(() => {
-        asrSetupOpenInFlight = false;
       });
+    }
+  },
+  // 无字幕配置空态「前往设置」：直达 ASR 平台编辑或自动转写开关。
+  openTranscribeSettings: () => {
+    void beginReaderAsrSetupFlow();
   },
   now: () => Date.now(),
   setInterval: (...args) => setInterval(...args),
@@ -493,12 +432,7 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
     closeReaderExplainCard();
     closeQuoteShareModal({ restoreFocus: false });
     clearPendingExplainIntent();
-    overviewSetupSessionEpoch += 1;
-    overviewSetupOpenInFlight = false;
-    asrSetupOpenInFlight = false;
-    clearOverviewSetupResumeIntent();
-    clearExplainSetupResumeIntent();
-    clearAsrSetupResumeIntent();
+    invalidateReaderSetupFlows("all");
     resetReaderOverviewState();
   },
   "subtitle-ready"(event) {
@@ -723,13 +657,7 @@ export function closeReadingView() {
   // 与待解释意图（不跨会话残留；下次打开按空态渲染）。
   clearReadingSubtitleSearch();
   clearPendingExplainIntent();
-  // 首配续跑意图不跨会话残留（票 01/02/04）：关视图即作废未消费意图并失效在飞设置打开。
-  overviewSetupSessionEpoch += 1;
-  overviewSetupOpenInFlight = false;
-  asrSetupOpenInFlight = false;
-  clearOverviewSetupResumeIntent();
-  clearExplainSetupResumeIntent();
-  clearAsrSetupResumeIntent();
+  invalidateReaderSetupFlows("all");
   // 视图销毁只撤销确认框；搜索授权据此取消回合，不按用户拒绝写偏好。
   dismissConfirmDialog();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。

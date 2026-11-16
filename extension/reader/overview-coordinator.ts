@@ -16,7 +16,6 @@ import type { AiProvider } from "../ai/types.js";
 import type { ConfirmDialogOptions } from "../ui/confirm-dialog.js";
 import type { SubtitleBodyItem } from "../core/state.js";
 import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
-import type { OverviewSetupResumeIntent } from "./overview-setup-resume.js";
 import { getErrorMessage, isAbortedMarkerError, isCancelledError } from "../shared/error-helpers.js";
 import {
   renderReadingOverview,
@@ -60,11 +59,12 @@ export interface ReaderOverviewCoordinator {
   render(): void;
   /** 概览 tab 切换入口（收敛渲染 + 未生成时自动触发） */
   ensureTab(): void;
-  /**
-   * 消费首配续跑意图（票 01）：意图在、概览身份键与任务代次均未变时续跑一次
-   * （forceRefresh），返回是否续跑；其余情况静默作废。装配方在首配保存成功后调用。
-   */
-  resumeAfterSetup(): Promise<boolean>;
+}
+
+export interface OverviewSetupRequest {
+  errorClass: OverviewSetupErrorClass;
+  isStillValid: () => boolean;
+  onResume: () => Promise<void>;
 }
 
 interface OverviewClipSource {
@@ -97,13 +97,11 @@ export interface CreateOverviewCoordinatorDeps {
   /** 注册 UI 点击分派对应的协调动作 */
   registerUiActions(actions: OverviewUiActions): void;
   /**
-   * 首配续跑意图支持（票 01）：概览「去设置」动作经 begin 记录意图（装配方落页面
-   * 内存并打开对应平台编辑界面），首配保存成功后协调器经 consume 取走校验。
+   * 首配续跑支持：概览「去设置」动作经 begin 发起跳转并携带有效性与恢复回调。
    * 缺省 = 不支持（伴看侧无头协调器等非阅读视图装配）。
    */
   setupResume?: {
-    begin(intent: OverviewSetupResumeIntent): void;
-    consume(): OverviewSetupResumeIntent | null;
+    begin(request: OverviewSetupRequest): void;
   };
   /** 无字幕配置空态「前往设置」的打开出口（装配方直达 ASR 平台编辑或自动转写开关，票 04） */
   openTranscribeSettings?: () => void;
@@ -523,32 +521,6 @@ export function createOverviewCoordinator(
     void triggerReaderOverviewGeneration();
   }
 
-  // 首配续跑（票 01）：取走意图并逐项校验——意图缺失/已消费、无字幕空态、
-  // 概览身份键变化（换视频/分P/换轨）、任务代次变化（设置期间起过新一轮）均
-  // 静默作废；通过才 forceRefresh 续跑一次（error 相位同 key 会被去重挡回，
-  // 必须强刷）。校验失败的意图已随 consume 丢弃，不会二次生效。
-  async function resumeOverviewAfterSetup(): Promise<boolean> {
-    const gate = deps.setupResume;
-    if (!gate) {
-      return false;
-    }
-    const intent = gate.consume();
-    if (!intent) {
-      return false;
-    }
-    if (getClipBody().length === 0) {
-      return false;
-    }
-    if (String(intent.overviewKey || "") !== currentOverviewKey()) {
-      return false;
-    }
-    if (Number(intent.taskEpoch) !== taskEpoch) {
-      return false;
-    }
-    await triggerReaderOverviewGeneration({ forceRefresh: true });
-    return true;
-  }
-
   // 注册 UI 点击分派对应的协调动作（单向依赖：呈现不 import 协调器，由协调器挂接）
   deps.registerUiActions({
     retry: () => {
@@ -558,13 +530,15 @@ export function createOverviewCoordinator(
       cancelReaderOverview();
     },
     setup: (errorClass: OverviewSetupErrorClass) => {
-      // 记录首配续跑意图（identity/代次在任务起跑前快照），打开正确平台编辑界面
-      // 的出站由装配方在 begin 里完成。
+      const snapshotKey = currentOverviewKey();
+      const snapshotEpoch = taskEpoch;
       deps.setupResume?.begin({
-        overviewKey: currentOverviewKey(),
-        taskEpoch,
-        createdAt: deps.now(),
-        errorClass
+        errorClass,
+        isStillValid: () =>
+          getClipBody().length > 0 &&
+          snapshotKey === currentOverviewKey() &&
+          snapshotEpoch === taskEpoch,
+        onResume: () => triggerReaderOverviewGeneration({ forceRefresh: true })
       });
     },
     openTranscribeSettings: () => {
@@ -580,7 +554,6 @@ export function createOverviewCoordinator(
     getPhase: getReaderOverviewPhase,
     getSnapshot: getReaderOverviewSnapshot,
     render: renderReadingOverviewNow,
-    ensureTab: ensureReaderOverviewTab,
-    resumeAfterSetup: resumeOverviewAfterSetup
+    ensureTab: ensureReaderOverviewTab
   };
 }

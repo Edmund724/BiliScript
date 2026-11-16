@@ -5,9 +5,9 @@ import type { LiveSettingsTarget } from "./fullscreen-live-overlay.js";
 import { getFullscreenHost } from "./fullscreen-host.js";
 import type { LiveChatState } from "./live-chat-controller.js";
 import {
-  createLiveProviderSettings,
-  type LiveProviderSettings
-} from "../ui/live-provider-settings.js";
+  createProviderSettingsHost,
+  type ProviderSettingsHost
+} from "../ui/provider-settings-host.js";
 import { SETTINGS_PANEL_DOM_IDS } from "../ui/settings-panel-html.js";
 import {
   getAiCredentialStatusText,
@@ -24,7 +24,7 @@ interface LiveRoomSettingsSession {
   dialog: HTMLDialogElement;
   view: HTMLElement;
   trigger: HTMLElement | null;
-  panel: LiveProviderSettings;
+  panel: ProviderSettingsHost;
   unsubscribeStorage: () => void;
 }
 
@@ -120,9 +120,11 @@ export async function openLiveRoomSettings(
     }
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const id = ++nextSessionId;
-    const panel = createLiveProviderSettings({
+    const panel = createProviderSettingsHost({
       host: view,
+      mountedFamilies: ["live"],
       getEditorMountHost: () => view,
+      reportMutationStatus: false,
       onStatus: (message, isError) => {
         const active = session;
         if (active?.id === id) setStatus(active, message, isError);
@@ -131,9 +133,9 @@ export async function openLiveRoomSettings(
         const active = session;
         if (active?.id === id) syncGeminiCredential(active, status);
       },
-      onSaved: (kind) => {
+      onMutated: ({ kind }) => {
         const active = session;
-        if (!active || active.id !== id) return;
+        if (!active || active.id !== id || (kind !== "live" && kind !== "ai")) return;
         offerReconnect(
           active,
           deps,
@@ -164,7 +166,7 @@ export async function openLiveRoomSettings(
     dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-settings-close")
       ?.addEventListener("click", () => closeLiveRoomSettings());
     dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-gemini-configure-btn")
-      ?.addEventListener("click", () => void created.panel.open("gemini-key"));
+      ?.addEventListener("click", () => void created.panel.openLiveTarget("gemini-key"));
     dialog.querySelector<HTMLButtonElement>(".biliscript-live-room-settings-reconnect-btn")
       ?.addEventListener("click", async () => {
         if (session !== created) return;
@@ -203,7 +205,7 @@ export async function openLiveRoomSettings(
   }
   await current.panel.load();
   if (session !== current) return;
-  await current.panel.open(target);
+  await current.panel.openLiveTarget(target);
 }
 
 export function closeLiveRoomSettings(): void {

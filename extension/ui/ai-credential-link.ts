@@ -1,26 +1,11 @@
-// extension/ui/ai-credential-link.ts — 消费族（伴看 Gemini Live / 搜索 DeepSeek）↔
-// AI 族凭据的同层往返编排（票 provider-onboarding-consistency/07、08）。
+// extension/ui/ai-credential-link.ts — 消费族（伴看 Gemini Live / 搜索 DeepSeek）与
+// AI 族凭据的同层往返编排。
 //
 // 伴看 Gemini Live 与搜索 DeepSeek 都不设自有 Key 输入框，Key 单向实时引用 AI 族
 // 「第一条启用、对应 presetId 且官方 HTTPS 端点」的记录（单一真源在
-// core/ai-credential-reference）。本模块把「在消费族编辑器里进入官方 AI Key 配置、
-// 再返回原消费族草稿」的编排收成一份，四态文案 / 行注解 / 动作 / 暂存恢复两个族
-// 共用，差异只在目标档（AI 预设 id、消费族称呼、动作标签）：
-//
-//   1. resolveAiCredentialPlan：四态解析（ok / no-record / no-key / unofficial），
-//      判定口径与列表行 annotate 同源（同函数，不换第二份判据）；
-//   2. linkedCredentialFor：消费族编辑器内联凭据行的文案与动作标签（四态各配
-//      动作；「可用」态只读无按钮，DeepSeek 另显示实际命中的来源）；
-//   3. stashEditorDraft：动作点击时暂存当前打开的消费族编辑会话（草稿 + dirty
-//      基线 + 编辑目标 id），供往返后恢复；
-//   4. enterAiCredentialEditor：同层打开 AI 族编辑器——缺 Key / 可用编辑实际
-//      引用记录并聚焦 Key；无记录 / 非官方地址新建独立官方记录（不静默改写仍
-//      可能服务其他任务的中转地址）；有暂存时提交钮「保存并返回…」、取消钮
-//      「返回…」，保存成功或取消都会话结束（onSessionEnd）后由宿主恢复原草稿。
-//
-// 宿主的差异（行装载/事务/宿主元素/重渲）经 deps 注入；本模块零 DOM 全局访问，
-// 编辑器会话切换复用 provider-editor 的既有单例（openProviderEditor 开头幂等
-// 作废旧会话），不增加可见 Modal 层。
+// core/ai-credential-reference）。本模块收口四态文案、动作生成及同层打开 AI 平台
+// 编辑器的往返会话配置；编辑器草稿暂存由 provider-editor 的 stashProviderEditorDraft
+// 完成，本模块零 DOM 全局访问，并始终保留单层 Modal 语义。
 
 import {
   getAiCredentialSourceLabel,
@@ -29,15 +14,13 @@ import {
   type AiCredentialReferenceTarget,
   type AiCredentialStatus
 } from "../core/ai-credential-reference.js";
-import {
-  cloneDraft,
-  state as editorState,
-  type EditorDraft,
-  type EditorDraftView,
-  type LinkedCredentialAction,
-  type ProviderEditorDelete,
-  type ProviderEditorSave
-} from "./provider-editor-state.js";
+import type {
+  EditorDraftView,
+  LinkedCredentialAction,
+  ProviderEditorDelete,
+  ProviderEditorDraftStash,
+  ProviderEditorSave
+} from "./provider-editor.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 
 // ===== 目标档：两族共用编排的唯一差异面 =====
@@ -133,28 +116,6 @@ export function linkedCredentialFor(
   };
 }
 
-// ===== 消费族草稿暂存 =====
-
-export interface AiEditorStash {
-  editingId: string;
-  draft: EditorDraft;
-  baseline: EditorDraftView | null;
-}
-
-// 动作点击时暂存当前打开的消费族编辑会话。草稿与 dirty 基线都深拷贝——往返后恢复
-// 的编辑器要保留原 dirty 判定（Esc/外点的逐层退出与确认框按既有规则结算）。
-// 会话未开 / 非该族 / 无草稿时返回 null（无草稿可恢复，AI 编辑器不带返回语义）。
-export function stashEditorDraft(kind: "live" | "search"): AiEditorStash | null {
-  if (!editorState.open || editorState.kind !== kind || !editorState.draft || !editorState.host) {
-    return null;
-  }
-  return {
-    editingId: editorState.editingId,
-    draft: cloneDraft(editorState.draft),
-    baseline: editorState.baselineDraft ? cloneDraft(editorState.baselineDraft) : null
-  };
-}
-
 // ===== 同层进入 AI 族凭据编辑器 =====
 
 export interface EnterAiCredentialDeps {
@@ -165,10 +126,10 @@ export interface EnterAiCredentialDeps {
   onSave: ProviderEditorSave;
   onDelete?: ProviderEditorDelete;
   // 有暂存 = 从消费族编辑器进入：保存/取消后由宿主恢复原草稿
-  stash?: AiEditorStash | null;
+  stash?: ProviderEditorDraftStash | null;
   // AI 会话结束（保存成功或取消/强制关闭）后的恢复出口；hint 非空 = 保存成功，
   // 提示仍需显式保存消费族记录
-  reopenConsumerEditor?: (stash: AiEditorStash, hint: string | null) => void;
+  reopenConsumerEditor?: (stash: ProviderEditorDraftStash, hint: string | null) => void;
 }
 
 export async function enterAiCredentialEditor(
@@ -192,6 +153,7 @@ export async function enterAiCredentialEditor(
     mountHost: deps.mountHost ?? undefined,
     onSave: deps.onSave,
     onDelete: deps.onDelete,
+    initialFocusField: "apiKey",
     // 往返语义：保存钮 / 取消钮都明确「返回消费族平台」；无暂存（横幅直达）保持默认文案
     ...(stash
       ? {
@@ -213,10 +175,5 @@ export async function enterAiCredentialEditor(
         }
       : null
   });
-  // 缺 Key / 无记录 / 非官方都落在 Key 输入框（新增态聚焦待填项，与既有直达
-  // 入口行为一致）
-  (deps.mountHost ?? document)
-    .querySelector<HTMLInputElement>(".provider-editor-apikey")
-    ?.focus({ preventScroll: true });
   return editorModule;
 }
