@@ -356,6 +356,7 @@ describe("Wave 2 [P1-1]: AI 行内「设为默认」与失败回滚", () => {
     expect(btn1.disabled).toBe(false);
     expect(btn1.textContent).toBe("设为默认");
     expect(sent.some((m) => m.type === "save-settings" && m.settings?.defaultModel === "ai-2")).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
 
     failSave = true;
     fireClick(btn1);

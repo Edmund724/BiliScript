@@ -17,17 +17,18 @@ let sendMessageMock: Mock;
 type StubMessagesOptions = {
   provider?: Record<string, unknown>;
   apiKey?: string;
+  model?: string;
   ok?: boolean;
   error?: string;
 };
 
-function stubMessages({ provider, apiKey = "sk-test", ok = true, error }: StubMessagesOptions = {}) {
+function stubMessages({ provider, apiKey = "sk-test", model, ok = true, error }: StubMessagesOptions = {}) {
   sendMessageMock.mockImplementation((message, callback) => {
     if (message?.type === "resolve-ai-provider") {
       if (!ok) {
         callback({ ok: false, error });
       } else {
-        callback({ ok: true, provider, apiKey });
+        callback({ ok: true, provider, apiKey, ...(model !== undefined ? { model } : {}) });
       }
     } else {
       callback({ ok: true });
@@ -108,61 +109,36 @@ describe("resolveActiveProvider presetId 穿线（resolve-ai-provider 单趟）"
   });
 });
 
-// 模型同步（工单「概览和解释要用和对话 tab 同步的模型」）：对话 tab 的模型选择器把
-// 「平台 id\u0001模型 id」复合值写进 chrome.storage.local（chat/providers.ts 的
-// setSelectedProvider）；概览 / 选区解释没有模型选择器，只能读这个选中项。
-// 不同步的后果：平台记录首个模型无效/不可用时，对话正常而概览与解释失败。
-describe("resolveActiveProvider 模型同步（对话 tab 选中项）", () => {
+// 模型选择独立性：概览 / 选区解释由 resolve-ai-provider 回传的默认模型决定，
+// 不再受对话 tab chrome.storage.local 选中项影响。
+describe("resolveActiveProvider 模型解析（独立于对话 tab）", () => {
   const SELECTED_KEY = "biliscript_ai_selected_provider";
 
-  function stubSelected(value: unknown): void {
-    (chrome.storage.local.get as Mock).mockImplementation(async () => ({ [SELECTED_KEY]: value }));
-  }
-
-  it("选中项指向同一平台 → 用选中的模型，而非记录首个", async () => {
+  it("优先采用 resolve-ai-provider 返回的 model，忽略对话 tab 本地选中", async () => {
+    (chrome.storage.local.get as Mock).mockImplementation(async () => ({
+      [SELECTED_KEY]: `p1${String.fromCharCode(1)}glm-4.5`
+    }));
     stubMessages({
-      provider: { id: "p1", baseUrl: "https://opencode.ai/zen/go/v1", models: ["glm-4.5", "glm-5.1"], enabled: true }
+      provider: { id: "p1", baseUrl: "https://opencode.ai/zen/go/v1", models: ["glm-4.5", "glm-5.1"], enabled: true },
+      model: "glm-5.1"
     });
-    stubSelected(`p1${String.fromCharCode(1)}glm-5.1`);
 
     const provider = await activeProvider.resolveActiveProvider();
 
     expect(provider.model).toBe("glm-5.1");
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
   });
 
-  it("选中项属于别的平台 → 不串用，回落记录首个模型", async () => {
-    stubMessages({
-      provider: { id: "p1", baseUrl: "https://api.example.com/v1", models: ["glm-4.5"], enabled: true }
-    });
-    stubSelected(`p2${String.fromCharCode(1)}别的模型`);
-
-    const provider = await activeProvider.resolveActiveProvider();
-
-    expect(provider.model).toBe("glm-4.5");
-  });
-
-  it("无选中项 / 旧裸平台 id（无模型段）→ 回落记录首个模型", async () => {
+  it("回包未携带 model 时回落目录首项或旧 model 字段", async () => {
     stubMessages({
       provider: { id: "p1", baseUrl: "https://api.example.com/v1", models: ["glm-4.5", "glm-5.1"], enabled: true }
     });
-
-    stubSelected(undefined);
     expect((await activeProvider.resolveActiveProvider()).model).toBe("glm-4.5");
 
-    // 旧记录：复合值只有平台 id（multi-model-catalog 之前写入的裸 id），模型段为空
-    stubSelected("p1");
-    expect((await activeProvider.resolveActiveProvider()).model).toBe("glm-4.5");
-  });
-
-  it("选中项读取失败 → 静默回落记录首个模型（概览 / 解释不因偏好读取失败而中断）", async () => {
     stubMessages({
-      provider: { id: "p1", baseUrl: "https://api.example.com/v1", models: ["glm-4.5"], enabled: true }
+      provider: { id: "p1", baseUrl: "https://api.example.com/v1", model: "legacy-m", enabled: true }
     });
-    (chrome.storage.local.get as Mock).mockRejectedValue(new Error("storage 不可用"));
-
-    const provider = await activeProvider.resolveActiveProvider();
-
-    expect(provider.model).toBe("glm-4.5");
+    expect((await activeProvider.resolveActiveProvider()).model).toBe("legacy-m");
   });
 
   it("平台已启用但 models 为空且无 model 字段 → 拒绝放行并抛 NO_ACTIVE_MODEL_MESSAGE", async () => {

@@ -7,7 +7,6 @@ import {
   resetChatSessionStateForTests,
   applyLiveContextToMain,
   rebuildCurrentContextKeyFromContext,
-  noteDefaultModelChoice,
   setAsrTranscribingActive,
   applyContextToMain,
   applyContextSnapshot,
@@ -37,15 +36,6 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
       expect(chatSessionState.asrTranscribingActive).toBe(true);
       setAsrTranscribingActive(false);
       expect(chatSessionState.asrTranscribingActive).toBe(false);
-    });
-  });
-
-  describe("noteDefaultModelChoice", () => {
-    it("裸平台 id 直接落 aiPrefs.defaultModel", () => {
-      noteDefaultModelChoice("openai");
-      expect(chatSessionState.aiPrefs.defaultModel).toBe("openai");
-      noteDefaultModelChoice("");
-      expect(chatSessionState.aiPrefs.defaultModel).toBe("");
     });
   });
 

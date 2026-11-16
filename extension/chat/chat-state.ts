@@ -127,12 +127,13 @@ type ChatSessionGuardedState = {
 // 取值域单源在 ai/thinking-levels 词表叶；持久化口径见 ChatSessionOpenState.aiThinkingLevel。
 export type ChatThinkingLevel = ThinkingLevelValue;
 
-// 平台偏好三键（loadProvidersAndPrefs 整体替换，modelSelect 局部改写）。
+// 平台偏好（loadProvidersAndPrefs 整体替换）。
 export interface ChatSessionPreferences {
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
-  // modelSelect change 时局部写入（loadProvidersAndPrefs 整体替换前不存在）
+  // 默认平台与模型只作对话无本地选中时的初始回落，不随对话切模型回写
   defaultModel?: string;
+  defaultAiModel?: string;
 }
 
 // B 档散字段（contextData / currentContextKey / providers / live 三键 / aiPrefs /
@@ -301,11 +302,6 @@ export function setSavedConversations(next: ChatSessionSavedConversation[]): voi
 // 转写相位订阅方（chat-tab 的状态总线回调 → send-gate）的写口。
 export function setAsrTranscribingActive(active: boolean): void {
   chatSessionStateMutable.asrTranscribingActive = active;
-}
-
-// 模型下拉选中（reader/chat-tab 的 change 回调）：sync defaultModel 的进程内镜像。
-export function noteDefaultModelChoice(providerId: string): void {
-  chatSessionStateMutable.aiPrefs.defaultModel = providerId;
 }
 
 // 拆除会话（restartChat !keepContext 分支）：按当前主上下文重算 key。

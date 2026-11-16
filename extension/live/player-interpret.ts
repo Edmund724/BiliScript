@@ -560,6 +560,7 @@ function bindInterpretLifecycleListeners(): void {
           "aiProviders",
           "activeAiProviderId",
           "defaultModel",
+          "defaultAiModel",
           "subtitleTranslateProviderId",
           "subtitleTranslateModel"
         ],

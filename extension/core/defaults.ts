@@ -53,6 +53,7 @@ export interface KnownSettings {
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
+  defaultAiModel: string;
   aiThinkingLevel: ThinkingLevelValue;
   activeAsrProviderId: string;
   activeLiveProviderId: string;
@@ -134,6 +135,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   defaultModel: "",
+  defaultAiModel: "",
   // 思考档位出厂/重置默认 = default（不干预：不发任何思考字段，由平台默认行为决定）。
   // 2026-10-05 用户裁定；7 档强度偏好的合法值不变（见 ai/thinking-levels 的两个词表）。
   aiThinkingLevel: "default",

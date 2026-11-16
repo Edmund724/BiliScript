@@ -215,7 +215,8 @@ describe("reload 与持久化状态水合", () => {
     expect(chatSessionState.aiPrefs).toEqual({
       aiSystemPrompt: "系统提示",
       aiInitialQuickPrompts: ["快速一"],
-      defaultModel: "p3"
+      defaultModel: "p3",
+      defaultAiModel: ""
     });
     expect(chatSessionState.aiThinkingLevel).toBe("low");
     expect(select.value).toBe(buildModelOptionValue("p3", "模型三"));
@@ -528,11 +529,9 @@ describe("renderPanel", () => {
     expect(onBubbledChange).not.toHaveBeenCalled();
     expect(chipModel.textContent).toBe("平台二·m2");
     expect(storage.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: `p2${SEP}m2` });
-    expect(chatSessionState.aiPrefs.defaultModel).toBe("p2");
-    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
-      type: "save-settings",
-      settings: { defaultModel: "p2" }
-    });
+    expect(sendRuntimeMessageMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "save-settings" })
+    );
     expect(hidePanel).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(target);
     expect(panelList.querySelector(".chat-model-option.is-selected")).toBe(target);

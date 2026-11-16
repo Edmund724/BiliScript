@@ -16,7 +16,14 @@ type ProviderFixture = Record<string, unknown>;
 
 function stubMessages(
   overrides: {
-    aiProvider?: { ok: boolean; provider?: ProviderFixture; apiKey?: string; isFallback?: boolean; error?: string };
+    aiProvider?: {
+      ok: boolean;
+      provider?: ProviderFixture;
+      apiKey?: string;
+      model?: string;
+      isFallback?: boolean;
+      error?: string;
+    };
     subtitle?: { ok: boolean; provider?: ProviderFixture; apiKey?: string; model?: string; isFallback?: boolean; error?: string };
   } = {}
 ) {
@@ -37,12 +44,6 @@ function stubMessages(
     }
     return undefined;
   });
-}
-
-function stubSelected(value: unknown): void {
-  (chrome.storage.local.get as Mock).mockImplementation(async () => ({
-    biliscript_ai_selected_provider: value
-  }));
 }
 
 beforeEach(async () => {
@@ -86,15 +87,18 @@ describe("resolveAiActiveModelProjection（生效投影）", () => {
     expect(result).toMatchObject({ state: "ok", isFallback: true, model: "Qwen3" });
   });
 
-  it("模型规则复用：对话选中模型属于解析平台时优先于目录首项", async () => {
+  it("解析回包携带 model 时优先采用（独立于对话 tab 本地选中）", async () => {
+    (chrome.storage.local.get as Mock).mockImplementation(async () => ({
+      biliscript_ai_selected_provider: `p1${String.fromCharCode(1)}glm-4.5`
+    }));
     stubMessages({
       aiProvider: {
         ok: true,
         provider: { id: "p1", name: "P1", models: ["glm-4.5", "glm-5.1"] },
-        apiKey: "sk"
+        apiKey: "sk",
+        model: "glm-5.1"
       }
     });
-    stubSelected(`p1${String.fromCharCode(1)}glm-5.1`);
 
     const result = await projection.resolveAiActiveModelProjection();
 
@@ -103,12 +107,10 @@ describe("resolveAiActiveModelProjection（生效投影）", () => {
     expect(result.model).toBe("glm-5.1");
   });
 
-  it("模型规则复用：无选中项回落目录首项，再回落历史 model 字段", async () => {
-    stubSelected(undefined);
+  it("回包未携带 model 时回落目录首项，再回落历史 model 字段", async () => {
     stubMessages({
       aiProvider: { ok: true, provider: { id: "p1", name: "P1", models: ["first", "second"] }, apiKey: "sk" }
     });
-    expect((await projection.resolveAiActiveModelProjection()).state).toBe("ok");
     const withCatalog = await projection.resolveAiActiveModelProjection();
     if (withCatalog.state === "ok") expect(withCatalog.model).toBe("first");
 
@@ -139,24 +141,6 @@ describe("resolveAiActiveModelProjection（生效投影）", () => {
     expect(result.state).toBe("unavailable");
     if (result.state !== "unavailable") return;
     expect(result.error).toContain("resolve-ai-provider");
-  });
-});
-
-describe("readChatSelectedModel（对话选中读取）", () => {
-  it("复合值解析为平台 + 模型；旧裸平台 id 模型段为空", async () => {
-    stubSelected(`p2${String.fromCharCode(1)}glm-5.1`);
-    expect(await projection.readChatSelectedModel()).toEqual({ providerId: "p2", model: "glm-5.1" });
-
-    stubSelected("p2");
-    expect(await projection.readChatSelectedModel()).toEqual({ providerId: "p2", model: "" });
-  });
-
-  it("无选中项 / 读取失败返回空（偏好读不到不阻断投影）", async () => {
-    stubSelected(undefined);
-    expect(await projection.readChatSelectedModel()).toEqual({ providerId: "", model: "" });
-
-    (chrome.storage.local.get as Mock).mockRejectedValue(new Error("storage 不可用"));
-    expect(await projection.readChatSelectedModel()).toEqual({ providerId: "", model: "" });
   });
 });
 

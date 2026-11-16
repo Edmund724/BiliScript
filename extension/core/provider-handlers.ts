@@ -24,6 +24,7 @@
 
 import { errorText } from "./provider-http-shared.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+import { resolveCatalogModel } from "../shared/selected-provider.js";
 import type {
   AsrProviderListEntry,
   GetAsrRuntimeConfigResponse,
@@ -218,7 +219,7 @@ import {
 } from "./overview-setup-error.js";
 
 export interface AiResolvedProviderHandlerDeps {
-  getMergedSettings: () => Promise<{ defaultModel?: unknown }>;
+  getMergedSettings: () => Promise<{ defaultModel?: unknown; defaultAiModel?: unknown }>;
   // 条目形状收成协议条目类型（票 ai-entry-type/01 单源化后 store 产物即其子类型，
   // 不再需要形状谓词做类型收束）。
   loadProviders: () => Promise<ProviderListEntry[]>;
@@ -226,7 +227,8 @@ export interface AiResolvedProviderHandlerDeps {
 }
 
 // 解析策略双档：providerId 给定 = 精确匹配（offscreen 聊天链，找不到即报错）；
-// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释）。回落
+// 缺省 = 设置 defaultModel → 首个启用平台回落（content 概览/选区解释），并按
+// defaultAiModel（非回落且在模型目录内）→ 首项解析出实际 model。回落
 // 发生时响应带 isFallback: true（票 05 生效投影展示真实回落，判定在解析权威
 // 这一侧产出，消费方不重复实现回落逻辑）。
 // requiresKey !== false 且密钥缺失在解析期即拒绝——content 侧此前不校验、会
@@ -258,6 +260,7 @@ export function createAiResolvedProviderHandler({
         );
         let provider: ProviderListEntry | null = null;
         let isFallback = false;
+        let model = "";
         if (requestedId) {
           provider = enabled.find((item) => String(item.id) === requestedId) || null;
           if (!provider) {
@@ -274,6 +277,7 @@ export function createAiResolvedProviderHandler({
           // ResolveAiProviderResponse.isFallback）：显式默认记录存在且解析结果
           // 不是它 = 真实回落；无显式默认时首项即缺省，不算回落。
           isFallback = preferredId !== "" && String(provider.id) !== preferredId;
+          model = resolveCatalogModel(provider, isFallback ? "" : settings?.defaultAiModel);
         }
         const providerId = String(provider.id);
         const keys = (await loadKeys()) || {};
@@ -285,6 +289,7 @@ export function createAiResolvedProviderHandler({
           ok: true,
           provider,
           apiKey,
+          ...(!requestedId && model ? { model } : {}),
           // 回落标记只在确为回落时携带（缺省不携带），存量消费方回包形状不变。
           ...(isFallback ? { isFallback: true } : {})
         };
@@ -302,6 +307,7 @@ export interface SubtitleTranslateProviderHandlerDeps {
     subtitleTranslateProviderId?: unknown;
     subtitleTranslateModel?: unknown;
     defaultModel?: unknown;
+    defaultAiModel?: unknown;
   }>;
   loadProviders: () => Promise<ProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;

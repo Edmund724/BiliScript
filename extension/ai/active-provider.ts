@@ -1,26 +1,21 @@
 // extension/ai/active-provider.ts
 // 「当前选中的 AI 平台 + 其 API Key」的 content 侧解析（概览生成 / 选区解释共用）。
 //
-// arch-slim-3/09 收口：解析单趟化——原先手抄三趟消息链（get-settings →
-// ai-providers-list → get-ai-provider-key），现统一走 resolve-ai-provider
-// 合成消息，解析策略（defaultModel → 首个启用回落）与密钥校验单源在
+// 解析单趟化：统一走 resolve-ai-provider 合成消息，解析策略（defaultModel →
+// 首个启用回落、defaultAiModel → 模型目录首项）与密钥校验单源在
 // core/provider-handlers.ts 的处理器；offscreen 聊天链同走此消息（
-// entry/offscreen.ts 的 resolveProviderWithKey），此前「回吐协议不同不合并」
-// 的第三份复制就此退役。
+// entry/offscreen.ts 的 resolveProviderWithKey）。
 //
 // 为什么单独成文件：概览（reader/overview.ts）与选区解释（reader/explain-card.ts）
 // 都要「拿一个能直接发请求的 provider」，本模块是 content 侧对该接缝的唯一
 // 消费壳——没有 port 可回吐，失败一律以异常上翻，由调用方的状态机落 error 态。
 //
-// 模型选择：两条链都没有模型选择器，取对话 tab 的选中模型（chrome.storage.local
-// 的复合值，编解码单源在 shared/selected-provider.ts），不再固定用记录首个模型。
-// 模型规则的两个叶子（firstCatalogModel / selectedChatModelFor）同步导出给
-// ai/active-model-projection.ts（票 05 生效投影）——投影与真实请求复用同一套
-// 规则，不维护第二份模型回落逻辑。
+// 模型选择：独立于对话 tab，直接采信默认设置（defaultModel + defaultAiModel），
+// 由 resolve-ai-provider 随回包给出；缺失时用 firstCatalogModel 兜底。
 
 import { NO_ACTIVE_MODEL_MESSAGE } from "../core/overview-setup-error.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
-import { SELECTED_PROVIDER_KEY, parseModelOptionValue } from "../shared/selected-provider.js";
+import { resolveCatalogModel } from "../shared/selected-provider.js";
 import type { AiProvider } from "./types.js";
 import type { AiProtocol } from "./protocol-adapter.js";
 
@@ -34,10 +29,7 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
   if (!resp?.ok) {
     throw new Error(String(resp?.error || "解析 AI 平台配置失败"));
   }
-  // 模型取对话 tab 的选中项（概览 / 选区解释没有模型选择器，与对话用同一个
-  // 模型才谈得上「同一平台同一模型」）；无选中项或选中项属于别的平台时回落
-  // 模型目录首项，再回落旧单模型记录的 model 字段。
-  const model = (await selectedChatModelFor(String(resp.provider?.id || ""))) || firstCatalogModel(resp.provider);
+  const model = String(resp.model || "").trim() || firstCatalogModel(resp.provider);
   if (!model) {
     throw new Error(NO_ACTIVE_MODEL_MESSAGE);
   }
@@ -56,27 +48,6 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
 }
 
 // 平台记录的首个可用模型：模型目录首项，回落旧单模型记录的 model 字段。
-// 概览 / 选区解释与生效投影（票 05）共用的模型回落单源。
 export function firstCatalogModel(provider: { models?: unknown; model?: unknown } | null | undefined): string {
-  const models = Array.isArray(provider?.models) ? provider.models : [];
-  return String(models[0] ?? "").trim() || String(provider?.model || "").trim();
-}
-
-// 对话 tab 的选中模型：chrome.storage.local 的复合值「平台 id 模型 id」（写入方
-// chat/providers.ts 的 setSelectedProvider，编解码单源 shared/selected-provider.ts）。
-// 只在选中项确实指向给定平台时采信——本地复合值与 sync settings 的 defaultModel
-//（裸平台 id）由同一次 change 写入、正常情况下同平台；不一致时宁可用记录首个
-// 模型，也不把别的平台的模型名发过来。读取失败（存储不可用）按「无选中项」处理：
-// 偏好读不到不该让概览 / 解释 / 生效投影中断。
-export async function selectedChatModelFor(providerId: string): Promise<string> {
-  if (!providerId || typeof chrome === "undefined" || !chrome?.storage?.local) {
-    return "";
-  }
-  try {
-    const stored = await chrome.storage.local.get([SELECTED_PROVIDER_KEY]);
-    const selected = parseModelOptionValue(stored?.[SELECTED_PROVIDER_KEY]);
-    return selected.providerId === providerId ? selected.model : "";
-  } catch {
-    return "";
-  }
+  return resolveCatalogModel(provider);
 }

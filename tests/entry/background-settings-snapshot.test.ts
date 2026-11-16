@@ -171,7 +171,8 @@ describe("热路径命中：四个读 handler 二次调用 storage 读为 0", ()
       expect(response).toEqual({
         ok: true,
         provider: { ...AI_PROVIDER, hasSavedKey: true },
-        apiKey: "sk-test"
+        apiKey: "sk-test",
+        model: "gpt-4o"
       });
     });
   });

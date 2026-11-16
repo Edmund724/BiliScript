@@ -35,21 +35,6 @@ export function formatAiDefaultSummaryLine(projection: AiActiveModelProjection):
     : `概览与解释将使用 ${target}`;
 }
 
-export interface ChatSelectionOverride {
-  providerId: string;
-  name: string;
-  model: string;
-}
-
-/**
- * 对话另选摘要：对话 tab 选了与生效投影不同的平台 / 模型时给出一句提示
- * （含切换位置），并说明会同步更新默认平台；无另选返回空串（调用方隐藏该行）。
- */
-export function formatChatSelectionLine(override: ChatSelectionOverride | null): string {
-  if (!override) return "";
-  return `对话当前使用 ${override.name} · ${override.model}（在视频页 AI 对话面板切换会同步更新默认平台）`;
-}
-
 /**
  * 字幕翻译「跟随 AI 默认平台」的跟随目标提示：ok 时给当前跟随的平台 + 模型，
  * 专属配置失效回落时说明回落并给回落目标；不可用时如实展示原因。
@@ -100,7 +85,7 @@ export function syncAiDefaultModelLine(
   const modelLine = document.createElement("div");
   modelLine.className = "provider-row-model";
   modelLine.setAttribute(DEFAULT_MARK_ATTR, "1");
-  modelLine.title = "概览与解释将使用的模型（跟随对话选中）";
+  modelLine.title = "概览与解释将使用的模型";
   modelLine.textContent = effectiveModel;
   line.insertAdjacentElement("afterend", modelLine);
 }

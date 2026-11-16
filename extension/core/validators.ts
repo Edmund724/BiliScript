@@ -152,6 +152,10 @@ export function normalizeDefaultModel(value: unknown): string {
   return toString(value).trim();
 }
 
+export function normalizeDefaultAiModel(value: unknown): string {
+  return toString(value).trim();
+}
+
 // 思考档位（8 个可选值：default/off/minimal/low/medium/high/xhigh/max），
 // default = 不干预（不发任何思考参数），缺省 / 非法值回落 default（2026-10-05
 // 裁定，见 docs/adr/0015 修订块）。05 号票起值域来自 ai/thinking-levels 词表叶

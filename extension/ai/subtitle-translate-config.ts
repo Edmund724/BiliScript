@@ -8,6 +8,7 @@
 
 import { NO_ACTIVE_PROVIDER_MESSAGE } from "../core/overview-setup-error.js";
 import type { ProviderListEntry } from "../shared/messaging-protocol.js";
+import { resolveCatalogModel } from "../shared/selected-provider.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 
 export interface SubtitleTranslateProviderResolution {
@@ -24,6 +25,7 @@ export interface SubtitleTranslateSettingsInput {
   subtitleTranslateProviderId?: unknown;
   subtitleTranslateModel?: unknown;
   defaultModel?: unknown;
+  defaultAiModel?: unknown;
 }
 
 /**
@@ -77,9 +79,9 @@ export function resolveSubtitleTranslateProviderConfig(
   if (!isFallback && String(settings?.subtitleTranslateModel || "").trim()) {
     model = String(settings?.subtitleTranslateModel).trim();
   } else {
-    const models = Array.isArray(chosen.models) ? chosen.models : [];
-    const legacyModel = String(chosen.model || "").trim();
-    model = String(models[0] ?? "").trim() || legacyModel;
+    const defaultId = String(settings?.defaultModel || "").trim();
+    const defaultModelAllowed = !defaultId || chosenId === defaultId;
+    model = resolveCatalogModel(chosen, defaultModelAllowed ? settings?.defaultAiModel : "");
   }
 
   return {

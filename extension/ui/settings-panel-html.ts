@@ -101,7 +101,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   searchChainContainer: "searchChainContainer",
   searchChainActiveSummary: "searchChainActiveSummary",
   aiActiveDefaultSummary: "aiActiveDefaultSummary",
-  aiChatSelectionSummary: "aiChatSelectionSummary",
+  aiDefaultModel: "aiDefaultModel",
   subtitleTranslateFollowHint: "subtitleTranslateFollowHint",
   resetBtn: "biliscriptSettingsResetBtn"
 } as const;
@@ -140,8 +140,17 @@ export function buildSettingsHtml(): string {
         <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
         <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       </div>
-      <p id="${ids.aiActiveDefaultSummary}" class="biliscript-set-hint"></p>
-      <p id="${ids.aiChatSelectionSummary}" class="biliscript-set-hint" hidden></p>
+      <div class="biliscript-set-card">
+        <div class="biliscript-set-row">
+          <div class="biliscript-set-row-copy">
+            <label class="biliscript-set-label" for="${ids.aiDefaultModel}">概览与解释模型</label>
+            <p id="${ids.aiActiveDefaultSummary}" class="biliscript-set-hint biliscript-set-row-sub"></p>
+          </div>
+          <select id="${ids.aiDefaultModel}" class="biliscript-set-select">
+            <option value="">暂无可用模型</option>
+          </select>
+        </div>
+      </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="live">

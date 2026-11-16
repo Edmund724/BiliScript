@@ -22,12 +22,12 @@ import {
   SELECTED_PROVIDER_KEY,
   MODEL_OPTION_SEPARATOR,
   buildModelOptionValue,
+  normalizeProviderModels,
   parseModelOptionValue
 } from "../shared/selected-provider.js";
 import {
   applyProviderPrefs,
   chatSessionState,
-  noteDefaultModelChoice,
   setAiThinkingLevel,
   setWebSearchEnabled as setWebSearchEnabledState,
   type ChatSessionProvider
@@ -84,22 +84,6 @@ function measureTextWidth(text: string, style?: CSSStyleDeclaration | null): num
   const fontFamily = style?.fontFamily || "sans-serif";
   ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
   return ctx.measureText(text).width;
-}
-
-function normalizeProviderModels(provider: { models?: unknown; model?: unknown }): string[] {
-  if (Array.isArray(provider?.models)) {
-    const seen = new Set<string>();
-    const result: string[] = [];
-    for (const entry of provider.models) {
-      const id = String(entry ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      result.push(id);
-    }
-    return result;
-  }
-  const legacy = String(provider?.model || "").trim();
-  return legacy ? [legacy] : [];
 }
 
 function formatProviderLabel(provider: { name?: string; model?: unknown }): string {
@@ -315,9 +299,15 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return groups;
     }
 
+    const defaultProviderId = String(chatSessionState.aiPrefs.defaultModel || "").trim();
+    const defaultModelId = String(chatSessionState.aiPrefs.defaultAiModel || "").trim();
+    const defaultCompound =
+      defaultProviderId && defaultModelId
+        ? buildModelOptionValue(defaultProviderId, defaultModelId)
+        : "";
     const candidates = force
-      ? [preferredProviderId, storedSelectedProviderId, chatSessionState.aiPrefs.defaultModel || ""]
-      : [preferredProviderId, selectedValue, storedSelectedProviderId, chatSessionState.aiPrefs.defaultModel || ""];
+      ? [preferredProviderId, storedSelectedProviderId, defaultCompound, defaultProviderId]
+      : [preferredProviderId, selectedValue, storedSelectedProviderId, defaultCompound, defaultProviderId];
 
     let matched = "";
     for (const candidate of candidates) {
@@ -467,13 +457,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     if (modelSelect.value !== normalizedValue) {
       modelSelect.value = normalizedValue;
     }
-    if (providerId) {
-      setSelectedProvider(normalizedValue);
-      noteDefaultModelChoice(providerId);
-    } else {
-      noteDefaultModelChoice("");
-    }
-    void sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } }).catch(() => null);
+    setSelectedProvider(providerId ? normalizedValue : "");
     syncSelectedModel();
     refreshThinkingUi();
   }
@@ -659,7 +643,8 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       aiPrefs: {
         aiSystemPrompt: String(settings?.aiSystemPrompt || "").trim(),
         aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
-        defaultModel: String(settings?.defaultModel || "").trim()
+        defaultModel: String(settings?.defaultModel || "").trim(),
+        defaultAiModel: String(settings?.defaultAiModel || "").trim()
       },
       aiThinkingLevel: normalizeAiThinkingLevel(
         settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY] ?? DEFAULT_SETTINGS.aiThinkingLevel

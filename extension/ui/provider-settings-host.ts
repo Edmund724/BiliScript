@@ -956,12 +956,16 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       if (!providerId || providerId === defaultAiProviderId) return;
 
       const prevDefaultId = defaultAiProviderId;
+      const prevDefaultAiModel = String(state.settings?.defaultAiModel || "").trim();
       defaultAiProviderId = providerId;
-      state.patchSettings({ defaultModel: providerId });
+      state.patchSettings({ defaultModel: providerId, defaultAiModel: "" });
       syncAiDefaultButtonState(aiNodes.listNode, providerId);
 
       try {
-        const resp = await sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } });
+        const resp = await sendRuntimeMessage({
+          type: "save-settings",
+          settings: { defaultModel: providerId, defaultAiModel: "" }
+        });
         if (!resp?.ok) {
           throw new Error((resp as { error?: string } | undefined)?.error || "设置默认 AI 平台失败");
         }
@@ -976,7 +980,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         reportStatus("已设为默认 AI 平台");
       } catch (error) {
         defaultAiProviderId = prevDefaultId;
-        state.patchSettings({ defaultModel: prevDefaultId });
+        state.patchSettings({ defaultModel: prevDefaultId, defaultAiModel: prevDefaultAiModel });
         syncAiDefaultButtonState(aiNodes.listNode, prevDefaultId);
         reportStatus((error as Error)?.message || "设置默认 AI 平台失败", true);
       }

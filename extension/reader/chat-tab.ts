@@ -728,6 +728,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
         "aiSystemPrompt",
         "aiInitialQuickPrompts",
         "defaultModel",
+        "defaultAiModel",
         "aiThinkingLevel",
         "liveProviders",
         "activeLiveProviderId",

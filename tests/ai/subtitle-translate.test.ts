@@ -99,7 +99,7 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(resolution.apiKey).toBe("sk-deepseek-123");
   });
 
-  it("未指定专属平台时，平滑回落至全局默认激活 AI 平台（defaultModel）", () => {
+  it("未指定专属平台时，平滑回落至全局默认激活 AI 平台（defaultModel + defaultAiModel）", () => {
     const resolution = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
@@ -114,6 +114,19 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(resolution.provider.id).toBe("openai-custom");
     expect(resolution.model).toBe("gpt-4o-mini");
     expect(resolution.apiKey).toBe("sk-openai-456");
+
+    const withDefaultAiModel = resolveSubtitleTranslateProviderConfig(
+      sampleProviders,
+      sampleKeys,
+      {
+        subtitleTranslateProviderId: "",
+        subtitleTranslateModel: "",
+        defaultModel: "openai-custom",
+        defaultAiModel: "gpt-4o"
+      }
+    );
+    expect(withDefaultAiModel.provider.id).toBe("openai-custom");
+    expect(withDefaultAiModel.model).toBe("gpt-4o");
   });
 
   it("专属平台已被删除或禁用时，平滑回落至全局默认激活 AI 平台", () => {

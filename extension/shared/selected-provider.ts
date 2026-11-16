@@ -32,3 +32,36 @@ export function parseModelOptionValue(value: unknown): { providerId: string; mod
     model: raw.slice(idx + MODEL_OPTION_SEPARATOR.length).trim()
   };
 }
+
+export function normalizeProviderModels(
+  provider: { models?: unknown; model?: unknown } | null | undefined
+): string[] {
+  if (Array.isArray(provider?.models)) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of provider.models) {
+      const id = String(entry ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      result.push(id);
+    }
+    return result;
+  }
+  const legacy = String(provider?.model || "").trim();
+  return legacy ? [legacy] : [];
+}
+
+export function resolveCatalogModel(
+  provider: { models?: unknown; model?: unknown } | null | undefined,
+  preferredModel?: unknown
+): string {
+  const models = normalizeProviderModels(provider);
+  if (!models.length) {
+    return "";
+  }
+  const preferred = String(preferredModel || "").trim();
+  if (preferred && models.includes(preferred)) {
+    return preferred;
+  }
+  return models[0];
+}

@@ -432,6 +432,42 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       error: "还没有配置 AI 平台，请先在插件设置中添加并启用。"
     });
   });
+
+  it("缺省档按 defaultAiModel 解析 model；悬空或不在目录内回落平台首项", async () => {
+    const multiDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "p1", defaultAiModel: "m1b" })),
+      loadProviders: vi.fn(async () => [
+        { id: "p1", name: "P1", models: ["m1a", "m1b"], enabled: true, hasSavedKey: true },
+        { id: "p2", name: "P2", models: ["m2a", "m2b"], enabled: true, hasSavedKey: true }
+      ])
+    });
+    const handler = createAiResolvedProviderHandler(multiDeps);
+    const ch1 = makeChannel<{ ok: boolean; model?: string; provider: { id: string } }>();
+    handler({}, {}, ch1.sendResponse);
+    expect(await ch1.response).toMatchObject({ ok: true, provider: { id: "p1" }, model: "m1b" });
+
+    // defaultAiModel 不在目录内 → 回落目录首项
+    const staleDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "p1", defaultAiModel: "deleted-model" })),
+      loadProviders: vi.fn(async () => [
+        { id: "p1", name: "P1", models: ["m1a", "m1b"], enabled: true, hasSavedKey: true }
+      ])
+    });
+    const ch2 = makeChannel<{ ok: boolean; model?: string }>();
+    createAiResolvedProviderHandler(staleDeps)({}, {}, ch2.sendResponse);
+    expect(await ch2.response).toMatchObject({ ok: true, model: "m1a" });
+
+    // 默认平台回落时不用旧平台的 defaultAiModel，回落到替补平台首项
+    const fallbackDeps = makeResolvedDeps({
+      getMergedSettings: vi.fn(async () => ({ defaultModel: "ghost", defaultAiModel: "m2b" })),
+      loadProviders: vi.fn(async () => [
+        { id: "p2", name: "P2", models: ["m2a", "m2b"], enabled: true, hasSavedKey: true }
+      ])
+    });
+    const ch3 = makeChannel<{ ok: boolean; model?: string; isFallback?: boolean }>();
+    createAiResolvedProviderHandler(fallbackDeps)({}, {}, ch3.sendResponse);
+    expect(await ch3.response).toMatchObject({ ok: true, isFallback: true, model: "m2a" });
+  });
 });
 
 describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-provider）", () => {
