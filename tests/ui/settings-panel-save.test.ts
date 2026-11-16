@@ -322,9 +322,9 @@ describe("对话与伴看偏好同源读写", () => {
     expect(host.querySelector<HTMLInputElement>("#liveVoicePriority")?.checked).toBe(true);
     expect(host.querySelector('label[for="speechVoiceVolume"]')?.textContent).toBe("对话朗读音量");
     expect(host.querySelector('label[for="liveVoiceVolume"]')?.textContent).toBe("伴看音量");
-    const liveSection = host.querySelector('[data-settings-section="live"]');
+    const liveSubpage = host.querySelector("#biliscriptSettingsSubpageLive");
     for (const id of ["liveVoiceVolume", "liveVoiceSpeed", "liveShareVideoAudio", "liveVoicePriority"]) {
-      expect(liveSection?.querySelector(`#${id}`)).not.toBeNull();
+      expect(liveSubpage?.querySelector(`#${id}`)).not.toBeNull();
     }
     expect(host.querySelector('[data-settings-subgroup="chat"] #speechVoiceVolume')).not.toBeNull();
     for (const id of ["liveShareVideoAudio", "liveVoicePriority"]) {

@@ -6,7 +6,7 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 //   - 顶部吸顶栏（.biliscript-settings-nav-bar）包含统一返回键（#biliscript-reading-settings-back-btn）
 //     与当前页标题（#biliscriptSettingsTitle）；
 //   - 一级总览（#biliscriptSettingsRootView）按 4 张卡片承载 9 个子页入口行及实时状态摘要；
-//   - 二级子页（9 个 [hidden] 视图容器）按功能域分组承载具体表单控件、平台列表与折叠子区；
+//   - 二级子页（9 个 [hidden] 视图容器）按功能域分组承载具体表单控件与平台列表；
 //   - 三级子页（#agentBridgeAddressView）承载本地 Agent 连接地址配置，复用顶部返回键与标题栏；
 //   - 末尾动作栏（.biliscript-set-actions）保持为宿主末子节点，承载保存状态与总览重置按钮。
 //
@@ -14,8 +14,6 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 // collectElements() 严格一一对应收集。
 
 const CHEVRON_RIGHT_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
-
-const CHEVRON_DOWN_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
 export const SETTINGS_PANEL_DOM_IDS = {
   readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
@@ -58,9 +56,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveVoiceFallbackHint: "liveVoiceFallbackHint",
   addLiveProviderBtn: "addLiveProviderBtn",
   liveLowBandwidth: "liveLowBandwidth",
-  toggleLiveAudioBtn: "toggleLiveAudioBtn",
-  liveAudioContainer: "liveAudioContainer",
-  liveAudioSummary: "liveAudioSummary",
   liveVoiceVolume: "liveVoiceVolume",
   liveVoiceVolumeValue: "liveVoiceVolumeValue",
   liveVoiceVolumeResetBtn: "liveVoiceVolumeResetBtn",
@@ -84,9 +79,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   webSearchMaxToolCalls: "webSearchMaxToolCalls",
   webSearchMaxToolCallsValue: "webSearchMaxToolCallsValue",
   webSearchMaxToolCallsResetBtn: "webSearchMaxToolCallsResetBtn",
-  toggleSearchChainBtn: "toggleSearchChainBtn",
-  searchChainContainer: "searchChainContainer",
-  searchChainActiveSummary: "searchChainActiveSummary",
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
@@ -270,45 +262,40 @@ export function buildSettingsHtml(): string {
             </label>
           </div>
         </div>
+      </section>
+
+      <section class="biliscript-set-group" data-settings-section="live-audio">
+        <div class="biliscript-set-h">伴看语音与混音</div>
         <div class="biliscript-set-card">
-          <button id="${ids.toggleLiveAudioBtn}" type="button" class="biliscript-set-row biliscript-entry-row" aria-expanded="false" aria-controls="${ids.liveAudioContainer}" aria-label="展开伴看语音与混音">
-            <span class="biliscript-set-label">伴看语音与混音</span>
-            <span class="biliscript-entry-summary">
-              <span id="${ids.liveAudioSummary}" class="biliscript-entry-summary-text">100% · 1× · 语音优先</span>
-              ${CHEVRON_DOWN_SVG}
-            </span>
-          </button>
-          <div id="${ids.liveAudioContainer}" class="live-audio-collapse-body" hidden>
-            <div class="biliscript-set-row biliscript-slider-row">
-              <label class="biliscript-set-label" for="${ids.liveVoiceVolume}">伴看音量</label>
-              <div class="biliscript-slider-control">
-                <input id="${ids.liveVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="200" step="1" value="100" style="--range-progress: 50%;" />
-                <span id="${ids.liveVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
-                <button id="${ids.liveVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看音量 (100%)" aria-label="恢复默认伴看音量">${READING_RESET_ICON}</button>
-              </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.liveVoiceVolume}">伴看音量</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.liveVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="200" step="1" value="100" style="--range-progress: 50%;" />
+              <span id="${ids.liveVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
+              <button id="${ids.liveVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看音量 (100%)" aria-label="恢复默认伴看音量">${READING_RESET_ICON}</button>
             </div>
-            <div class="biliscript-set-row biliscript-slider-row">
-              <label class="biliscript-set-label" for="${ids.liveVoiceSpeed}">伴看语速</label>
-              <div class="biliscript-slider-control">
-                <input id="${ids.liveVoiceSpeed}" type="range" class="biliscript-range-input" min="0.5" max="1.5" step="0.25" value="1" style="--range-progress: 50%;" />
-                <span id="${ids.liveVoiceSpeedValue}" class="biliscript-slider-badge">1×</span>
-                <button id="${ids.liveVoiceSpeedResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看语速 (1×)" aria-label="恢复默认伴看语速">${READING_RESET_ICON}</button>
-              </div>
+          </div>
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${ids.liveVoiceSpeed}">伴看语速</label>
+            <div class="biliscript-slider-control">
+              <input id="${ids.liveVoiceSpeed}" type="range" class="biliscript-range-input" min="0.5" max="1.5" step="0.25" value="1" style="--range-progress: 50%;" />
+              <span id="${ids.liveVoiceSpeedValue}" class="biliscript-slider-badge">1×</span>
+              <button id="${ids.liveVoiceSpeedResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认伴看语速 (1×)" aria-label="恢复默认伴看语速">${READING_RESET_ICON}</button>
             </div>
-            <div class="biliscript-set-check biliscript-toggle-row" title="让 AI 同时听到视频原声与你的麦克风声音">
-              <span class="biliscript-toggle-text">分享视频声音</span>
-              <label class="biliscript-toggle-switch">
-                <input id="${ids.liveShareVideoAudio}" type="checkbox" class="biliscript-toggle-input" aria-label="分享视频声音" aria-description="让 AI 同时听到视频原声与你的麦克风声音" />
-                <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-              </label>
-            </div>
-            <div class="biliscript-set-check biliscript-toggle-row" title="你说话或 AI 播报时降低视频音量，结束后恢复">
-              <span class="biliscript-toggle-text">语音优先</span>
-              <label class="biliscript-toggle-switch">
-                <input id="${ids.liveVoicePriority}" type="checkbox" class="biliscript-toggle-input" aria-label="语音优先" aria-description="你说话或 AI 播报时降低视频音量，结束后恢复" />
-                <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-              </label>
-            </div>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row" title="让 AI 同时听到视频原声与你的麦克风声音">
+            <span class="biliscript-toggle-text">分享视频声音</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.liveShareVideoAudio}" type="checkbox" class="biliscript-toggle-input" aria-label="分享视频声音" aria-description="让 AI 同时听到视频原声与你的麦克风声音" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="biliscript-set-check biliscript-toggle-row" title="你说话或 AI 播报时降低视频音量，结束后恢复">
+            <span class="biliscript-toggle-text">语音优先</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.liveVoicePriority}" type="checkbox" class="biliscript-toggle-input" aria-label="语音优先" aria-description="你说话或 AI 播报时降低视频音量，结束后恢复" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
           </div>
         </div>
         <p id="${ids.liveVoiceFallbackHint}" class="biliscript-set-hint" hidden></p>
@@ -342,22 +329,12 @@ export function buildSettingsHtml(): string {
           <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
         </div>
         <div class="biliscript-set-card biliscript-provider-group">
-          <button id="${ids.toggleSearchChainBtn}" type="button" class="biliscript-set-row biliscript-entry-row" aria-expanded="false" aria-controls="${ids.searchChainContainer}" aria-label="展开搜索平台与回退链">
-            <span class="biliscript-set-label">搜索平台与回退链</span>
-            <span class="biliscript-entry-summary">
-              <span id="${ids.searchChainActiveSummary}" class="biliscript-entry-summary-text">智能搜索 · 失败自动回退</span>
-              ${CHEVRON_DOWN_SVG}
-            </span>
-          </button>
-
-          <div id="${ids.searchChainContainer}" class="search-chain-collapse-body" hidden>
-            <p class="biliscript-set-hint search-chain-mode-note">智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。</p>
-            <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
-            <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
-            <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
-            <div class="search-chain-footer-bar">
-              <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
-            </div>
+          <p class="biliscript-set-hint search-chain-mode-note" hidden>已单选平台：只使用选中的平台搜索，失败不会切换到其他平台。</p>
+          <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
+          <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
+          <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
+          <div class="search-chain-footer-bar">
+            <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
           </div>
 
           <div class="biliscript-set-check biliscript-toggle-row">

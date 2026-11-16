@@ -128,7 +128,7 @@ _Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 _Avoid_: 把字体缩放扩展到外壳固定骨架（如面板顶部 Header、底部状态栏）、用总开关包裹排版滑块
 
 **对话朗读与伴看音频**:
-对话朗读音量（`speechVoiceVolume`，默认 100%）同时位于设置抽屉「AI 对话与快捷动作 · 阅读与朗读」和「AI 对话」标签页更多操作菜单；伴看音量（`liveVoiceVolume`，默认 100%）、伴看语速（`liveVoiceSpeed`，默认 1×）、分享视频声音（`liveShareVideoAudio`，默认关）与语音优先（`liveVoicePriority`，默认开）同时位于设置抽屉「实时伴看」子页的「伴看语音与混音」折叠行和伴看浮窗音频弹层。两处读写同一设置键，伴看会话与浮窗经 live 域叶子同步应用同页及跨标签页变更；滑块即时预览、提交时落盘，开关立即落盘。三个音量/语速滑块各配 ↻ 单项重置，「恢复默认偏好」覆盖这里的五项音频偏好及两项对话排版偏好；`readerTheme` 仍随全局偏好重置，`liveLowBandwidth` 等平台与采集配置不参与。
+对话朗读音量（`speechVoiceVolume`，默认 100%）同时位于设置抽屉「AI 对话与快捷动作 · 阅读与朗读」和「AI 对话」标签页更多操作菜单；伴看音量（`liveVoiceVolume`，默认 100%）、伴看语速（`liveVoiceSpeed`，默认 1×）、分享视频声音（`liveShareVideoAudio`，默认关）与语音优先（`liveVoicePriority`，默认开）同时位于设置抽屉「实时伴看」子页的「伴看语音与混音」分组和伴看浮窗音频弹层。两处读写同一设置键，伴看会话与浮窗经 live 域叶子同步应用同页及跨标签页变更；滑块即时预览、提交时落盘，开关立即落盘。三个音量/语速滑块各配 ↻ 单项重置，「恢复默认偏好」覆盖这里的五项音频偏好及两项对话排版偏好；`readerTheme` 仍随全局偏好重置，`liveLowBandwidth` 等平台与采集配置不参与。
 代码名：`live/live-audio-settings.ts` / `applyLiveAudioSettings` / `persistLiveAudioSettings` / `watchLiveAudioSettings` / `speechVoiceVolume` / `liveVoiceVolume` / `liveVoiceSpeed` / `liveShareVideoAudio` / `liveVoicePriority`
 _Avoid_: 把对话朗读音量与伴看音量混称、为浮窗或抽屉另建会话级音频偏好副本、给两个音频开关增加常驻次级说明
 

@@ -126,32 +126,22 @@ describe("设置抽屉三级总览与子页导航", () => {
     expect(document.activeElement).toBe(openAgentBtn);
   });
 
-  it("伴看语音与混音折叠行默认收起、展示实时摘要且可展开/收起", async () => {
+  it("伴看语音与混音在实时伴看子页内直接平铺展示，无折叠触发器", async () => {
     const host = await mountPanel();
     host.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!.click();
 
-    const toggleBtn = host.querySelector<HTMLButtonElement>("#toggleLiveAudioBtn")!;
-    const collapseBody = host.querySelector<HTMLElement>("#liveAudioContainer")!;
-    const summary = host.querySelector<HTMLElement>("#liveAudioSummary")!;
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-    expect(collapseBody.hidden).toBe(true);
-    expect(summary.textContent?.trim()).toBe("100% · 1× · 语音优先");
+    expect(host.querySelector("#toggleLiveAudioBtn")).toBeNull();
+    expect(host.querySelector("#liveAudioContainer")).toBeNull();
+    expect(host.querySelector("#liveAudioSummary")).toBeNull();
 
-    toggleBtn.click();
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
-    expect(collapseBody.hidden).toBe(false);
-
-    const volume = host.querySelector<HTMLInputElement>("#liveVoiceVolume")!;
-    const share = host.querySelector<HTMLInputElement>("#liveShareVideoAudio")!;
-    volume.value = "125";
-    volume.dispatchEvent(new Event("input", { bubbles: true }));
-    share.click();
-
-    expect(summary.textContent?.trim()).toBe("125% · 1× · 共享原声 · 语音优先");
-
-    toggleBtn.click();
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-    expect(collapseBody.hidden).toBe(true);
+    const audioSection = host.querySelector<HTMLElement>('[data-settings-section="live-audio"]')!;
+    expect(audioSection).not.toBeNull();
+    expect(audioSection.querySelector(".biliscript-set-h")?.textContent?.trim()).toBe("伴看语音与混音");
+    for (const id of ["liveVoiceVolume", "liveVoiceSpeed", "liveShareVideoAudio", "liveVoicePriority"]) {
+      const el = audioSection.querySelector<HTMLElement>(`#${id}`)!;
+      expect(el).not.toBeNull();
+      expect(el.closest("[hidden]")).toBeNull();
+    }
   });
 
   it("播放器 AI 快捷按钮关闭时隐藏提示词输入框，开启时显示", async () => {

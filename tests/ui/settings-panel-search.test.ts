@@ -501,118 +501,7 @@ describe("设置页搜索节：「恢复默认顺序」（spec §6.10 / §12.3 /
   });
 });
 
-describe("搜索平台与回退链手风琴展开", () => {
-  it("折叠触发器是原生 button（无 role/tabindex 伪饰），点击展开/收起并同步 aria 状态", async () => {
-    const { host } = await mountPanel({
-      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
-    });
-    await waitForSearchRows(host, 6);
-
-    const container = host.querySelector<HTMLElement>("#searchChainContainer")!;
-    const toggleBtn = host.querySelector("#toggleSearchChainBtn")!;
-
-    expect(toggleBtn).toBeInstanceOf(HTMLButtonElement);
-    expect((toggleBtn as HTMLButtonElement).type).toBe("button");
-    expect(toggleBtn.getAttribute("role")).toBeNull();
-    expect(toggleBtn.getAttribute("tabindex")).toBeNull();
-    expect(toggleBtn.getAttribute("aria-controls")).toBe("searchChainContainer");
-
-    expect(container.hidden).toBe(true);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-
-    // 键盘可达性 = 原生按钮语义：Enter/Space 交给浏览器原生激活（jsdom 不模拟键激活，
-    // 故此处钉「无自定义 keydown 处理器」+ click 生效，防回退成 div 手写键盘）。
-    for (const key of ["Enter", " "]) {
-      toggleBtn.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    }
-    expect(container.hidden).toBe(true);
-
-    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(container.hidden).toBe(false);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
-
-    toggleBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(container.hidden).toBe(true);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("摘要随选中态更新：智能回退 / 单平台不回退", async () => {
-    const { host } = await mountPanel({
-      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
-    });
-    await waitForSearchRows(host, 6);
-
-    const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
-    expect(summary.textContent).toBe("智能搜索 · 失败自动回退");
-
-    const tavilyRadio = searchList(host).querySelector<HTMLInputElement>(
-      '[data-provider-id="search_tavily"] .search-provider-active-radio'
-    )!;
-    tavilyRadio.checked = true;
-    tavilyRadio.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(summary.textContent).toBe("仅使用 Tavily · 失败不回退");
-  });
-});
-
-describe("票 06：折叠摘要（模式 / 失败回退 / 付费可判）", () => {
-  const TAVILY = SEARCH_ITEMS[1];
-
-  it("已删除/不可用的旧单选 id 按实际智能行为显示，不再误报单个平台", async () => {
-    const { host } = await mountPanel({
-      "get-settings": () => ({ ok: true, settings: { activeSearchProviderId: "search_ghost" } }),
-      "search-providers-list": () => ({ ok: true, providers: [TAVILY] })
-    });
-    await waitForSearchRows(host, 1);
-    const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
-    expect(summary.textContent).toBe("智能搜索 · 失败自动回退");
-  });
-
-  it("单平台选中付费平台（DeepSeek）→ 摘要标明「仅使用 … · 失败不回退 · 可能付费」", async () => {
-    const { host } = await mountPanel({
-      "get-settings": () => ({ ok: true, settings: { activeSearchProviderId: "search_deepseek" } }),
-      "search-providers-list": () => ({
-        ok: true,
-        providers: [
-          TAVILY,
-          {
-            id: "search_deepseek",
-            presetId: "deepseek",
-            name: "DeepSeek Search",
-            type: "deepseek",
-            baseUrl: "https://api.deepseek.com",
-            enabled: true,
-            hasSavedKey: false
-          }
-        ]
-      })
-    });
-    await waitForSearchRows(host, 2);
-    const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
-    expect(summary.textContent).toBe("仅使用 DeepSeek Search · 失败不回退 · 可能付费");
-  });
-
-  it("智能模式 + 付费准入开启 → 摘要含「可能使用付费平台」；开关切换即时改口并落库", async () => {
-    const { sent, host } = await mountPanel({
-      "get-settings": () => ({ ok: true, settings: { allowPaidSearchProviders: true } }),
-      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
-    });
-    await waitForSearchRows(host, 6);
-    const summary = host.querySelector<HTMLElement>("#searchChainActiveSummary")!;
-    expect(summary.textContent).toBe("智能搜索 · 失败自动回退 · 可能使用付费平台");
-
-    const toggle = host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!;
-    toggle.checked = false;
-    toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(summary.textContent).toBe("智能搜索 · 失败自动回退");
-    await vi.waitFor(() => {
-      expect(sent).toContainEqual({ type: "save-settings", settings: { allowPaidSearchProviders: false } });
-    });
-  });
-});
-
-describe("票 06：展开体内只留对当前模式有效的控件", () => {
-  const TAVILY = SEARCH_ITEMS[1];
-
+describe("搜索平台列表平铺展示与模式控件切换", () => {
   function modeNote(host: HTMLElement): HTMLElement {
     return host.querySelector<HTMLElement>(".search-chain-mode-note")!;
   }
@@ -623,21 +512,49 @@ describe("票 06：展开体内只留对当前模式有效的控件", () => {
     return host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!.closest(".biliscript-toggle-row")!;
   }
 
-  it("智能模式：有序回退说明、恢复默认、付费准入、拖拽把手全部在位", async () => {
+  it("平铺展示搜索平台列表：无折叠触发器与折叠体", async () => {
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
     });
     await waitForSearchRows(host, 6);
 
-    expect(modeNote(host).textContent).toContain("按下方列表顺序依次尝试");
-    expect(modeNote(host).textContent).toContain("失败自动回退");
+    expect(host.querySelector("#toggleSearchChainBtn")).toBeNull();
+    expect(host.querySelector("#searchChainContainer")).toBeNull();
+    expect(host.querySelector("#searchChainActiveSummary")).toBeNull();
+    expect(searchList(host).closest("[hidden]")).toBe(host.querySelector("#biliscriptSettingsSubpageSearch"));
+  });
+
+  it("智能模式：不显示多余解释文本，恢复默认、付费准入、拖拽把手全部在位", async () => {
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
+    });
+    await waitForSearchRows(host, 6);
+
+    expect(modeNote(host).hidden).toBe(true);
+    expect(modeNote(host).textContent).toBe("");
     expect(footerBar(host).hidden).toBe(false);
     expect(paidToggleRow(host).hidden).toBe(false);
     expect(searchList(host).classList.contains("search-chain-single-mode")).toBe(false);
     expect(recordRows(host).every((row) => row.querySelector(".provider-row-drag-handle"))).toBe(true);
   });
 
-  it("单平台模式：说明改口「失败不会切换」、恢复默认/付费准入/拖拽把手隐藏；切回智能恢复", async () => {
+  it("智能模式 + 付费准入开关切换即时落库", async () => {
+    const { sent, host } = await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { allowPaidSearchProviders: true } }),
+      "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
+    });
+    await waitForSearchRows(host, 6);
+
+    const toggle = host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!;
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({ type: "save-settings", settings: { allowPaidSearchProviders: false } });
+    });
+  });
+
+  it("单平台模式：显示不回退提示、恢复默认/付费准入/拖拽把手隐藏；切回智能恢复", async () => {
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: SEARCH_ITEMS })
     });
@@ -649,6 +566,7 @@ describe("票 06：展开体内只留对当前模式有效的控件", () => {
     tavilyRadio.checked = true;
     tavilyRadio.dispatchEvent(new Event("change", { bubbles: true }));
 
+    expect(modeNote(host).hidden).toBe(false);
     expect(modeNote(host).textContent).toBe("已单选平台：只使用选中的平台搜索，失败不会切换到其他平台。");
     expect(footerBar(host).hidden).toBe(true);
     expect(paidToggleRow(host).hidden).toBe(true);
@@ -656,10 +574,11 @@ describe("票 06：展开体内只留对当前模式有效的控件", () => {
     // 把手仍在 DOM（CSS 类隐藏，reader-settings-rows.css），不重建行
     expect(recordRows(host).every((row) => row.querySelector(".provider-row-drag-handle") !== null)).toBe(true);
 
-    // 切回智能：控件全部恢复
+    // 切回智能：提示隐藏，控件全部恢复
     smartRadio(host).checked = true;
     smartRadio(host).dispatchEvent(new Event("change", { bubbles: true }));
-    expect(modeNote(host).textContent).toContain("按下方列表顺序依次尝试");
+    expect(modeNote(host).hidden).toBe(true);
+    expect(modeNote(host).textContent).toBe("");
     expect(footerBar(host).hidden).toBe(false);
     expect(paidToggleRow(host).hidden).toBe(false);
     expect(searchList(host).classList.contains("search-chain-single-mode")).toBe(false);

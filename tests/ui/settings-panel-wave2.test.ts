@@ -153,7 +153,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     expect(editBtn.disabled).toBe(false);
   });
 
-  it("搜索行内删除当前激活平台：无需 DOM :checked 反查，直接清空 activeSearchProviderId 与单选态并重置摘要", async () => {
+  it("搜索行内删除当前激活平台：无需 DOM :checked 反查，直接清空 activeSearchProviderId 与单选态并重置模式控件", async () => {
     let currentSearch = [...SEARCH_PROVIDERS];
     let currentSettings: Record<string, unknown> = { activeSearchProviderId: "search-1" };
     const { host, sent } = await mountPanel({
@@ -170,7 +170,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     });
 
     await vi.waitFor(() => {
-      expect(host.querySelector("#searchChainActiveSummary")?.textContent).toContain("仅使用 Tavily");
+      expect(host.querySelector<HTMLElement>(".search-chain-mode-note")?.hidden).toBe(false);
     });
 
     const row = host.querySelector<HTMLElement>('.search-provider-row[data-provider-id="search-1"]')!;
@@ -183,7 +183,7 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
       );
     });
     expect(host.querySelector('.search-provider-row[data-provider-id="search-1"]')).toBeNull();
-    expect(host.querySelector("#searchChainActiveSummary")?.textContent).toBe("智能搜索 · 失败自动回退");
+    expect(host.querySelector<HTMLElement>(".search-chain-mode-note")?.hidden).toBe(true);
     expect(host.querySelector<HTMLElement>("#searchProvidersDanglingHint")?.hidden).toBe(true);
     expect(host.querySelector<HTMLElement>(".search-chain-footer-bar")?.hidden).toBe(false);
   });
@@ -379,19 +379,17 @@ describe("Wave 2 [P1-3]: 行内单选切换与重置顺序失败回滚", () => {
   });
 });
 
-describe("Wave 2 [P1-5 & P1-6]: 搜索链自动展开与 Modal 保存/删除状态反馈", () => {
-  it("搜索平台为空时自动展开 #searchChainContainer 并同步 aria-expanded", async () => {
+describe("Wave 2 [P1-5 & P1-6]: 搜索平台平铺展示与 Modal 保存/删除状态反馈", () => {
+  it("搜索平台为空时直接展示空态提示，无折叠开关", async () => {
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: [] })
     });
 
-    const container = host.querySelector<HTMLElement>("#searchChainContainer")!;
-    const toggleBtn = host.querySelector<HTMLButtonElement>("#toggleSearchChainBtn")!;
-    expect(container.hidden).toBe(false);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("#toggleSearchChainBtn")).toBeNull();
+    expect(host.querySelector<HTMLElement>("#searchProvidersEmpty")?.hidden).toBe(false);
   });
 
-  it("搜索链原本折叠时通过 Modal 新增保存搜索平台 → 自动展开并显示「平台已保存」", async () => {
+  it("通过 Modal 新增保存搜索平台 → 直接在平铺列表中可见并显示「平台已保存」", async () => {
     let currentSearch = [...SEARCH_PROVIDERS];
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: currentSearch }),
@@ -400,11 +398,6 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索链自动展开与 Modal 保存/删除状�
         return { ok: true, providers: currentSearch };
       }
     });
-
-    const container = host.querySelector<HTMLElement>("#searchChainContainer")!;
-    const toggleBtn = host.querySelector<HTMLButtonElement>("#toggleSearchChainBtn")!;
-    expect(container.hidden).toBe(true);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
 
     fireClick(host.querySelector("#addSearchProviderBtn"));
     await vi.waitFor(() => {
@@ -420,8 +413,7 @@ describe("Wave 2 [P1-5 & P1-6]: 搜索链自动展开与 Modal 保存/删除状�
     await vi.waitFor(() => {
       expect(document.querySelector(".provider-editor-dialog")).toBeNull();
     });
-    expect(container.hidden).toBe(false);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelectorAll("#searchProvidersList .search-provider-row").length).toBeGreaterThan(0);
     expect(statusEl(host).textContent).toBe("平台已保存");
   });
 

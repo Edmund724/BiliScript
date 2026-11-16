@@ -208,9 +208,6 @@ function collectElements(host: HTMLElement) {
     speechVoiceVolume: byIdIn<HTMLInputElement>(dom.speechVoiceVolume),
     speechVoiceVolumeValue: byIdIn<HTMLElement>(dom.speechVoiceVolumeValue),
     speechVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.speechVoiceVolumeResetBtn),
-    toggleLiveAudioBtn: byIdIn<HTMLButtonElement>(dom.toggleLiveAudioBtn),
-    liveAudioContainer: byIdIn<HTMLElement>(dom.liveAudioContainer),
-    liveAudioSummary: byIdIn<HTMLElement>(dom.liveAudioSummary),
     liveVoiceVolume: byIdIn<HTMLInputElement>(dom.liveVoiceVolume),
     liveVoiceVolumeValue: byIdIn<HTMLElement>(dom.liveVoiceVolumeValue),
     liveVoiceVolumeResetBtn: byIdIn<HTMLButtonElement>(dom.liveVoiceVolumeResetBtn),
@@ -267,9 +264,6 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
-    toggleSearchChainBtn: byIdIn<HTMLElement>(dom.toggleSearchChainBtn),
-    searchChainContainer: byIdIn<HTMLElement>(dom.searchChainContainer),
-    searchChainActiveSummary: byIdIn<HTMLElement>(dom.searchChainActiveSummary),
     aiDefaultModel: byIdIn<HTMLSelectElement>(dom.aiDefaultModel),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
@@ -666,17 +660,7 @@ function resolveProviderName(
   return String(target?.name || target?.model || target?.presetId || "").trim();
 }
 
-function formatLiveAudioSummary(elements: SettingsElements): string {
-  const volume = normalizeLiveVoiceVolume(elements.liveVoiceVolume.value);
-  const speed = normalizeLiveVoiceSpeed(Number(elements.liveVoiceSpeed.value));
-  const parts = [`${volume}%`, `${speed}×`];
-  if (elements.liveShareVideoAudio.checked) parts.push("共享原声");
-  if (elements.liveVoicePriority.checked) parts.push("语音优先");
-  return parts.join(" · ");
-}
-
 function syncAllSummaries(elements: SettingsElements): void {
-  elements.liveAudioSummary.textContent = formatLiveAudioSummary(elements);
 
   const snapshot = lastProviderSnapshot;
   if (snapshot) {
@@ -857,15 +841,6 @@ function navigateSettingsView(
     );
     (firstFocusable ?? elements.backBtn)?.focus({ preventScroll: true });
   }
-}
-
-function setLiveAudioExpanded(elements: SettingsElements, expanded: boolean): void {
-  elements.toggleLiveAudioBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
-  elements.toggleLiveAudioBtn.setAttribute(
-    "aria-label",
-    expanded ? "收起伴看语音与混音" : "展开伴看语音与混音"
-  );
-  elements.liveAudioContainer.hidden = !expanded;
 }
 
 // ===== 对外入口 =====
@@ -1545,7 +1520,6 @@ function bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): 
   activeSettingsView = "root";
   savedRootScrollTop = 0;
   subpageReturnButton = null;
-  setLiveAudioExpanded(elements, false);
   navigateSettingsView(host, "root", { focusOnEnter: false });
 
   const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
@@ -1687,10 +1661,6 @@ function bindSettingsEvents(host: HTMLElement): void {
     if (hasReaderSettingsOverlayOpen()) return;
     event.stopPropagation();
     stepBackReaderSettings();
-  });
-
-  elements.toggleLiveAudioBtn.addEventListener("click", () => {
-    setLiveAudioExpanded(elements, Boolean(elements.liveAudioContainer.hidden));
   });
 
   for (const binding of SCALAR_FIELD_BINDINGS) {

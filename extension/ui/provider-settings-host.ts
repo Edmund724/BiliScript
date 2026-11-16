@@ -128,15 +128,12 @@ interface FamilyDomNodes {
 interface SearchExtraDomNodes {
   danglingHint: HTMLElement | null;
   resetOrderBtn: HTMLButtonElement | null;
-  toggleChainBtn: HTMLElement | null;
-  chainContainer: HTMLElement | null;
-  chainActiveSummary: HTMLElement | null;
+  modeNote: HTMLElement | null;
+  footerBar: HTMLElement | null;
   allowPaidToggle: HTMLInputElement | null;
 }
 
-const SMART_SUMMARY_BASE = "智能搜索 · 失败自动回退";
 const SINGLE_MODE_NOTE = "已单选平台：只使用选中的平台搜索，失败不会切换到其他平台。";
-const SMART_MODE_NOTE = "智能搜索：按下方列表顺序依次尝试，失败自动回退到下一个平台；拖动行可调整顺序。";
 
 function isGeminiLiveProvider(
   provider: Pick<ProviderRowItem, "type" | "presetId"> | null | undefined
@@ -179,13 +176,13 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     ids.searchProvidersEmpty,
     ids.addSearchProviderBtn
   );
+  const searchCard = searchNodes?.listNode.closest(".biliscript-set-card") ?? null;
   const searchExtra: SearchExtraDomNodes | null = searchNodes
     ? {
         danglingHint: byId<HTMLElement>(ids.searchProvidersDanglingHint),
         resetOrderBtn: byId<HTMLButtonElement>(ids.resetSearchProviderOrderBtn),
-        toggleChainBtn: byId<HTMLElement>(ids.toggleSearchChainBtn),
-        chainContainer: byId<HTMLElement>(ids.searchChainContainer),
-        chainActiveSummary: byId<HTMLElement>(ids.searchChainActiveSummary),
+        modeNote: searchCard?.querySelector<HTMLElement>(".search-chain-mode-note") ?? null,
+        footerBar: searchCard?.querySelector<HTMLElement>(".search-chain-footer-bar") ?? null,
         allowPaidToggle: byId<HTMLInputElement>(ids.allowPaidSearchProviders)
       }
     : null;
@@ -466,19 +463,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     }
   }
 
-  function setSearchChainExpanded(expanded: boolean): void {
-    if (searchExtra?.chainContainer) {
-      searchExtra.chainContainer.hidden = !expanded;
-    }
-    if (searchExtra?.toggleChainBtn) {
-      searchExtra.toggleChainBtn.setAttribute("aria-expanded", String(expanded));
-      searchExtra.toggleChainBtn.setAttribute(
-        "aria-label",
-        expanded ? "收起搜索平台与回退链" : "展开搜索平台与回退链"
-      );
-    }
-  }
-
   function restoreSearchRowDomOrder(order: string[]): void {
     const listNode = searchNodes?.listNode;
     if (!listNode) return;
@@ -513,30 +497,16 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     return row;
   }
 
-  function isPaidSearchRow(row: HTMLElement): boolean {
-    const presetId = row.dataset.currentPresetId || "";
-    return SEARCH_PROVIDER_PRESETS.some((preset) => preset.id === presetId && preset.access === "paid");
-  }
-
-  function syncSearchChainActiveSummary(): void {
-    const summaryEl = searchExtra?.chainActiveSummary;
-    if (!summaryEl) return;
-    const row = resolveSelectedSearchRow();
-    if (!row) {
-      const paidAdmitted = searchExtra?.allowPaidToggle?.checked === true;
-      summaryEl.textContent = paidAdmitted ? `${SMART_SUMMARY_BASE} · 可能使用付费平台` : SMART_SUMMARY_BASE;
-      return;
-    }
-    const name = row.querySelector(".provider-row-name")?.textContent?.trim() || "所选平台";
-    summaryEl.textContent = `仅使用 ${name} · 失败不回退${isPaidSearchRow(row) ? " · 可能付费" : ""}`;
-  }
-
   function syncSearchModeControls(): void {
     const single = resolveSelectedSearchRow() !== null;
-    const note = searchExtra?.chainContainer?.querySelector<HTMLElement>(".search-chain-mode-note");
-    if (note) note.textContent = single ? SINGLE_MODE_NOTE : SMART_MODE_NOTE;
-    const footer = searchExtra?.chainContainer?.querySelector<HTMLElement>(".search-chain-footer-bar");
-    if (footer) footer.hidden = single;
+    const note = searchExtra?.modeNote;
+    if (note) {
+      note.hidden = !single;
+      note.textContent = single ? SINGLE_MODE_NOTE : "";
+    }
+    if (searchExtra?.footerBar) {
+      searchExtra.footerBar.hidden = single;
+    }
     const paidRow = searchExtra?.allowPaidToggle?.closest<HTMLElement>(".biliscript-toggle-row");
     if (paidRow) paidRow.hidden = single;
     searchNodes?.listNode.classList.toggle("search-chain-single-mode", single);
@@ -555,9 +525,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   function renderSearchProvidersSync(providers: ProviderRowItem[], knownAiProviders: readonly ProviderRowItem[]): void {
     if (disposed || !searchNodes) return;
     searchProviders = providers;
-    if (providers.length === 0) {
-      setSearchChainExpanded(true);
-    }
     familyRows.search.render(
       searchNodes.listNode,
       searchNodes.emptyNode,
@@ -567,7 +534,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     syncResetSearchOrderButton();
     syncSearchDanglingHint(activeSearchProviderId, providers);
     syncSearchModeControls();
-    syncSearchChainActiveSummary();
     emitSummarySnapshot();
   }
 
@@ -591,7 +557,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     state.patchSettings({ activeSearchProviderId: "" });
     syncSearchDanglingHint("", searchProviders);
     syncSearchModeControls();
-    syncSearchChainActiveSummary();
     emitSummarySnapshot();
     try {
       const resp = await sendRuntimeMessage({
@@ -714,9 +679,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   const modalOnSave: ProviderEditorSave = async (saveKind, upsert) => {
     const result = await upsertProvider(saveKind, upsert);
     if (!disposed && result.ok) {
-      if (saveKind === "search" && searchNodes) {
-        setSearchChainExpanded(true);
-      }
       reportMutationText("平台已保存");
     }
     return result;
@@ -1015,15 +977,11 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         syncSearchDanglingHint("", searchProviders);
       }
       syncSearchModeControls();
-      syncSearchChainActiveSummary();
       emitSummarySnapshot();
     });
     familyRows.search.controller.setDeleteHandler(async (providerId) => {
       if (disposed) return;
       searchProviders = searchProviders.filter((item) => String(item?.id || "") !== providerId);
-      if (searchProviders.length === 0) {
-        setSearchChainExpanded(true);
-      }
       if (providerId && providerId === activeSearchProviderId) {
         await clearDeletedActiveSearchProvider();
         if (statusErrorMarked) return;
@@ -1056,12 +1014,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       } catch (error) {
         reportStatus((error as Error)?.message || "恢复默认搜索顺序失败", true);
       }
-    });
-    searchExtra?.toggleChainBtn?.addEventListener("click", () => {
-      setSearchChainExpanded(Boolean(searchExtra.chainContainer?.hidden));
-    });
-    searchExtra?.allowPaidToggle?.addEventListener("change", () => {
-      syncSearchChainActiveSummary();
     });
     searchNodes.addButton.addEventListener("click", () => void openEditor({ kind: "search", providerId: "" }));
   }

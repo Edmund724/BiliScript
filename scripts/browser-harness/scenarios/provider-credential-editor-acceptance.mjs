@@ -742,12 +742,6 @@ async function openSettingsSection(pageCdp, section) {
 
 async function openSearchSection() {
   await openSettingsSection(page.cdp, "search");
-  // 搜索平台列表收在「搜索链」折叠体里：展开后才参与布局 / 命中测试
-  const expanded = await page.cdp.evaluate(`document.getElementById("toggleSearchChainBtn")?.getAttribute("aria-expanded") === "true"`);
-  if (!expanded) {
-    await clickCenter(page.cdp, "#toggleSearchChainBtn");
-    await waitFor("搜索链展开", () => page.cdp.evaluate(`document.getElementById("toggleSearchChainBtn")?.getAttribute("aria-expanded") === "true" && document.getElementById("searchChainContainer")?.hidden === false`), { timeoutMs: 8000 });
-  }
   await sleep(200);
 }
 

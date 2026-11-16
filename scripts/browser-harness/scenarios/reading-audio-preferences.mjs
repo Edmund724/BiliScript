@@ -233,9 +233,7 @@ try {
   await click("#biliscript-reading-settings-back-btn");
   await waitFor("返回设置总览", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsRootView')?.hidden === false`));
   await click("#openLiveSettingsBtn");
-  await waitFor("打开实时伴看子页", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsSubpageLive')?.hidden === false && document.getElementById('liveAudioSummary')?.textContent?.trim() === '100% · 1× · 语音优先'`));
-  await click("#toggleLiveAudioBtn");
-  await waitFor("展开伴看语音与混音", () => page.cdp.evaluate(`document.getElementById('liveAudioContainer')?.hidden === false`));
+  await waitFor("打开实时伴看子页", () => page.cdp.evaluate(`document.getElementById('biliscriptSettingsSubpageLive')?.hidden === false && document.getElementById('liveVoiceVolume') !== null`));
 
   await page.cdp.evaluate(`document.getElementById('liveVoiceVolume').scrollIntoView({ block: 'center' })`);
   const volume = await getMetrics("#liveVoiceVolume");

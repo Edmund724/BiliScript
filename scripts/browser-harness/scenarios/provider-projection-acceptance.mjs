@@ -825,12 +825,13 @@ async function seedSearchProviders(workerSession) {
 async function searchChainControlState(pageCdp) {
   return pageCdp.evaluate(`(() => {
     const rows = [...document.querySelectorAll("#searchProvidersList .search-provider-row")];
+    const noteEl = document.querySelector("#biliscriptSettingsSubpageSearch .search-chain-mode-note");
     return {
       order: rows.map((row) => row.dataset.providerId),
       names: rows.map((row) => row.querySelector(".provider-row-name")?.textContent?.trim() || ""),
-      summary: document.getElementById("searchChainActiveSummary")?.textContent?.trim() || "",
-      note: document.querySelector("#searchChainContainer .search-chain-mode-note")?.textContent?.trim() || "",
-      footerHidden: document.querySelector("#searchChainContainer .search-chain-footer-bar")?.hidden === true,
+      noteHidden: noteEl?.hidden === true,
+      note: noteEl?.textContent?.trim() || "",
+      footerHidden: document.querySelector("#biliscriptSettingsSubpageSearch .search-chain-footer-bar")?.hidden === true,
       paidRowHidden: document.getElementById("allowPaidSearchProviders")?.closest(".biliscript-toggle-row")?.hidden === true,
       paidChecked: document.getElementById("allowPaidSearchProviders")?.checked === true,
       maxCallsVisible: (() => {
@@ -843,15 +844,6 @@ async function searchChainControlState(pageCdp) {
       resetDisabled: document.getElementById("resetSearchProviderOrderBtn")?.disabled === true
     };
   })()`);
-}
-
-async function expandSearchChain(pageCdp) {
-  const expanded = await pageCdp.evaluate(`document.getElementById("toggleSearchChainBtn")?.getAttribute("aria-expanded") === "true"`);
-  if (!expanded) {
-    await clickCenter(pageCdp, "#toggleSearchChainBtn");
-    await waitFor("搜索链展开", () => pageCdp.evaluate(`document.getElementById("toggleSearchChainBtn")?.getAttribute("aria-expanded") === "true" && document.getElementById("searchChainContainer")?.hidden === false`), { timeoutMs: 8000 });
-  }
-  await sleep(200);
 }
 
 async function clickSearchRadio(pageCdp, providerId) {
@@ -1052,13 +1044,11 @@ try {
   await seedAiProviders(worker);
   await seedSearchProviders(worker);
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   const smartState = await searchChainControlState(page.cdp);
   results.smartState = smartState;
   check(
-    "B2.1-智能模式摘要与控件可见性",
-    smartState.summary === "智能搜索 · 失败自动回退" &&
-      smartState.note.includes("按下方列表顺序依次尝试，失败自动回退") &&
+    "B2.1-智能模式平铺与控件可见性",
+    smartState.noteHidden === true &&
       smartState.footerHidden === false &&
       smartState.paidRowHidden === false &&
       smartState.maxCallsVisible === true &&
@@ -1097,13 +1087,12 @@ try {
 
   // 单平台：Tavily 失败不回退（两轮都只打 Tavily）
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   await clickSearchRadio(page.cdp, "search_tavily");
   const singleTavily = await searchChainControlState(page.cdp);
   results.singleTavily = singleTavily;
   check(
-    "B2.5-单平台摘要说明失败不回退并隐藏无效控件",
-    singleTavily.summary === "仅使用 Tavily · 失败不回退" &&
+    "B2.5-单平台说明失败不回退并隐藏无效控件",
+    singleTavily.noteHidden === false &&
       singleTavily.note.includes("失败不会切换到其他平台") &&
       singleTavily.footerHidden === true &&
       singleTavily.paidRowHidden === true &&
@@ -1124,7 +1113,6 @@ try {
 
   // 单平台成功的实际请求：只打 AnySearch
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   await clickSearchRadio(page.cdp, "search_anysearch");
   await closeSettings(page.cdp);
   const searchBeforeAny = searchRequests().length;
@@ -1137,23 +1125,21 @@ try {
     results.anySearch
   );
 
-  // 付费准入：智能模式下勾选后摘要加「可能使用付费平台」，链尾出现付费平台
+  // 付费准入：智能模式下勾选后落盘，链尾出现付费平台
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   await clickSearchRadio(page.cdp, "__smart__");
   const paidOff = await searchChainControlState(page.cdp);
-  check("B2.8-智能模式回到默认摘要且控件恢复", paidOff.summary === "智能搜索 · 失败自动回退" && paidOff.footerHidden === false && paidOff.paidRowHidden === false, paidOff);
+  check("B2.8-智能模式控件恢复且无多余说明", paidOff.noteHidden === true && paidOff.footerHidden === false && paidOff.paidRowHidden === false, paidOff);
   await clickCenter(page.cdp, ".biliscript-toggle-row:has(#allowPaidSearchProviders) .biliscript-toggle-track");
-  const paidOn = await waitFor("付费准入摘要", () => page.cdp.evaluate(`(() => {
-    const summary = document.getElementById("searchChainActiveSummary")?.textContent?.trim() || "";
+  const paidOn = await waitFor("付费准入开启", () => page.cdp.evaluate(`(() => {
     const checked = document.getElementById("allowPaidSearchProviders")?.checked === true;
-    return checked && summary.includes("可能使用付费平台") ? { summary, checked } : null;
+    return checked ? { checked } : null;
   })()`), { timeoutMs: 15000 });
   await waitFor("付费准入落盘", () => worker.evaluate(`chrome.storage.sync.get("allowPaidSearchProviders").then((value) => value.allowPaidSearchProviders)`).then((value) => value === true), { timeoutMs: 8000 });
   results.paidChain = await offscreen.evaluate(`chrome.runtime.sendMessage({ type: "resolve-search-provider" })`);
   results.deepseekRowNote = await page.cdp.evaluate(`document.querySelector('#searchProvidersList .search-provider-row[data-provider-id="search_deepseek"] .provider-row-model')?.textContent?.trim() || ""`);
   results.paidOn = paidOn;
-  check("B2.9-付费准入在智能模式摘要中明示", paidOn.summary === "智能搜索 · 失败自动回退 · 可能使用付费平台", paidOn);
+  check("B2.9-付费准入开关状态生效", paidOn.checked === true, paidOn);
   await closeSettings(page.cdp);
   // 让两家免 Key 平台都失败，逼真实链尾走到付费平台（DeepSeek Search）。
   searchFailures.anysearch = true;
@@ -1173,7 +1159,6 @@ try {
 
   // 上限回到 5：同样的两全家链，轮数翻倍 → 请求数翻倍（上限确实约束单轮工具调用）
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   await clickCenter(page.cdp, ".biliscript-toggle-row:has(#allowPaidSearchProviders) .biliscript-toggle-track");
   await waitFor("付费准入关闭", () => page.cdp.evaluate(`document.getElementById("allowPaidSearchProviders")?.checked === false`), { timeoutMs: 10000 });
   await setRangeByKeyboard(page.cdp, "#webSearchMaxToolCalls", 5);
@@ -1195,7 +1180,6 @@ try {
   // 排序恢复：自定义顺序 → 模式切换保留 → 恢复默认顺序
   await worker.evaluate(`chrome.storage.sync.set({ searchProviderOrder: ["search_deepseek", "search_anysearch", "search_tavily"] })`);
   await openSettingsSection(page.cdp, "search");
-  await expandSearchChain(page.cdp);
   const customOrder = await searchChainControlState(page.cdp);
   check(
     "B2.13-自定义顺序按链序渲染",
