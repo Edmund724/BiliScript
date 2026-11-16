@@ -143,6 +143,47 @@ describe("本地 Agent 设置", () => {
     expect(host.querySelector<HTMLElement>(".biliscript-settings-nav-bar")?.hidden).toBe(false);
   });
 
+  it("输入 localhost 与 [::1] 测试和保存时归一为 127.0.0.1，并拒绝非法协议、非回环与缺失端口", async () => {
+    const { host, sent } = await mountPanel({
+      "agent-bridge-test": () => ({ ok: true, connected: true })
+    });
+    host.querySelector<HTMLButtonElement>("#agentBridgeAddressBtn")!.click();
+    const input = host.querySelector<HTMLInputElement>("#agentBridgeUrl")!;
+    const status = host.querySelector<HTMLElement>("#agentBridgeAddressStatus")!;
+
+    input.value = "ws://localhost:19000";
+    host.querySelector<HTMLButtonElement>("#agentBridgeTestBtn")!.click();
+    await vi.waitFor(() => expect(status.textContent).toBe("连接成功"));
+    expect(input.value).toBe("ws://127.0.0.1:19000");
+    expect(sent).toContainEqual({ type: "agent-bridge-test", url: "ws://127.0.0.1:19000" });
+
+    input.value = "ws://[::1]:19001";
+    host.querySelector<HTMLButtonElement>("#agentBridgeSaveBtn")!.click();
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({ type: "save-settings", settings: { agentBridgeUrl: "ws://127.0.0.1:19001" } });
+    });
+    expect(input.value).toBe("ws://127.0.0.1:19001");
+    expect(status.textContent).toBe("已保存");
+
+    input.value = "wss://localhost:19001";
+    host.querySelector<HTMLButtonElement>("#agentBridgeSaveBtn")!.click();
+    expect(status.dataset.error).toBe("true");
+    expect(status.textContent).toContain("带端口的本机 WebSocket 地址");
+
+    input.value = "ws://192.168.1.5:19001";
+    host.querySelector<HTMLButtonElement>("#agentBridgeTestBtn")!.click();
+    expect(status.dataset.error).toBe("true");
+    expect(status.textContent).toContain("本机 WebSocket 地址");
+
+    input.value = "ws://localhost";
+    host.querySelector<HTMLButtonElement>("#agentBridgeSaveBtn")!.click();
+    expect(status.dataset.error).toBe("true");
+    expect(status.textContent).toContain("带端口");
+
+    expect(sent.filter((message) => message.type === "agent-bridge-test")).toHaveLength(1);
+    expect(sent.filter((message) => message.type === "save-settings")).toHaveLength(1);
+  });
+
   it("失败 Prompt 对自定义端口附带 CLI 环境变量", async () => {
     await mountPanel({
       "get-settings": () => ({ ok: true, settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } }),

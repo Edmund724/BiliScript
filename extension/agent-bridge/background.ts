@@ -3,7 +3,7 @@ import type { AgentBridgeFrameResponse, AgentBridgeSnapshotResponse, AgentBridge
 import { withBiliMediaSessionRule } from "../core/offscreen-host.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { createAgentBridgeVideoService } from "./video-service.js";
-import { parseAgentBridgeUrl } from "../core/validators.js";
+import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../core/validators.js";
 import {
   AGENT_BRIDGE_ALARM,
   AGENT_BRIDGE_PROTOCOL,
@@ -86,8 +86,19 @@ async function readTabSnapshot(tab: chrome.tabs.Tab): Promise<AgentBridgeTabSnap
 }
 
 export async function listAgentBridgeTabs(): Promise<AgentBridgeTabsResult> {
-  const tabs = await chrome.tabs.query({ url: VIDEO_URL_PATTERNS });
-  return { tabs: await Promise.all(tabs.filter((tab) => tab.id).map(readTabSnapshot)) };
+  const [tabs, activeTabs] = await Promise.all([
+    chrome.tabs.query({ url: VIDEO_URL_PATTERNS }),
+    chrome.tabs.query({ active: true, currentWindow: true, url: VIDEO_URL_PATTERNS }).catch(() => [] as chrome.tabs.Tab[])
+  ]);
+  const activeTabId = activeTabs.find((tab) => tab.id && tab.active === true)?.id;
+  return {
+    tabs: await Promise.all(
+      tabs.filter((tab) => tab.id).map(async (tab) => {
+        const snapshot = await readTabSnapshot(tab);
+        return tab.id === activeTabId ? { ...snapshot, active: true } : snapshot;
+      })
+    )
+  };
 }
 
 interface ResolvedTarget extends AgentBridgeRequestOptions {
@@ -401,7 +412,9 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
         pendingReset = false;
         syncRequested = false;
         syncResetRequested = false;
-        const { enabled, url } = await getConfig();
+        const config = await getConfig();
+        const enabled = config.enabled;
+        const url = normalizeAgentBridgeUrl(config.url);
         reconnectEnabled = enabled;
         if (!enabled) {
           stop();
@@ -447,7 +460,9 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       if (syncTask) await syncTask;
       clearReconnectTimer();
       reconnectAttempt = 0;
-      const { enabled, url } = await getConfig();
+      const config = await getConfig();
+      const enabled = config.enabled;
+      const url = normalizeAgentBridgeUrl(config.url);
       reconnectEnabled = enabled;
       if (socket && socketUrl !== url) closeSocket();
       if (socket?.readyState === WebSocket.CLOSED) {

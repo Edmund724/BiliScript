@@ -12,6 +12,7 @@ export interface AgentBridgeTabSnapshot {
   currentTime: number;
   duration: number;
   subtitlesReady: boolean;
+  active?: boolean;
 }
 
 export interface AgentBridgeTabsResult {

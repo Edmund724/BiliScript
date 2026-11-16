@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { createAgentBridge, testAgentBridgeConnection } from "../../extension/agent-bridge/background.js";
+import { createAgentBridge, listAgentBridgeTabs, testAgentBridgeConnection } from "../../extension/agent-bridge/background.js";
 import { AGENT_BRIDGE_ALARM } from "../../extension/agent-bridge/protocol.js";
+import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../../extension/core/validators.js";
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0;
@@ -68,7 +69,7 @@ describe("Agent Bridge 连接", () => {
     expect(JSON.parse(FakeWebSocket.instances[0].sent[0])).toMatchObject({ type: "hello", role: "extension" });
   });
 
-  it("地址变化后关闭旧连接并使用新地址", async () => {
+  it("地址变化后关闭旧连接并使用归一后的 127.0.0.1 地址", async () => {
     const config = { enabled: true, url: "ws://127.0.0.1:18492" };
     const bridge = createAgentBridge({ getConfig: async () => config });
     await bridge.sync();
@@ -80,7 +81,14 @@ describe("Agent Bridge 连接", () => {
 
     expect(first.readyState).toBe(FakeWebSocket.CLOSED);
     expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[1].url).toBe("ws://localhost:19001");
+    expect(FakeWebSocket.instances[1].url).toBe("ws://127.0.0.1:19001");
+
+    // 等价回环写法（[::1] -> 127.0.0.1）不触发多余重连
+    FakeWebSocket.instances[1].open();
+    config.url = "ws://[::1]:19001";
+    await bridge.sync();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].readyState).toBe(FakeWebSocket.OPEN);
   });
 
   it("地址测试独立探测并在结束后关闭临时连接", async () => {
@@ -90,8 +98,39 @@ describe("Agent Bridge 连接", () => {
 
     expect(await probing).toBe(true);
     expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+
+    const probingLocalhost = testAgentBridgeConnection("ws://localhost:19003");
+    FakeWebSocket.instances[1].open();
+    expect(await probingLocalhost).toBe(true);
+    expect(FakeWebSocket.instances[1].url).toBe("ws://127.0.0.1:19003");
+
+    const probingIpv6 = testAgentBridgeConnection("ws://[::1]:19004");
+    FakeWebSocket.instances[2].open();
+    expect(await probingIpv6).toBe(true);
+    expect(FakeWebSocket.instances[2].url).toBe("ws://127.0.0.1:19004");
+
     expect(await testAgentBridgeConnection("https://example.com")).toBe(false);
-    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+  });
+
+  it("回环地址解析与校验统一归一 localhost 和 [::1] 并拒绝非法地址", () => {
+    expect(parseAgentBridgeUrl("ws://localhost:19000")).toBe("ws://127.0.0.1:19000");
+    expect(parseAgentBridgeUrl("ws://localhost:19000/")).toBe("ws://127.0.0.1:19000");
+    expect(parseAgentBridgeUrl("WS://LOCALHOST:19000")).toBe("ws://127.0.0.1:19000");
+    expect(parseAgentBridgeUrl("ws://[::1]:19000")).toBe("ws://127.0.0.1:19000");
+    expect(parseAgentBridgeUrl("ws://[0:0:0:0:0:0:0:1]:19000/")).toBe("ws://127.0.0.1:19000");
+    expect(normalizeAgentBridgeUrl("ws://[::1]:19500")).toBe("ws://127.0.0.1:19500");
+
+    expect(parseAgentBridgeUrl("ws://example.com:19000")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://192.168.1.10:19000")).toBeNull();
+    expect(parseAgentBridgeUrl("wss://localhost:19000")).toBeNull();
+    expect(parseAgentBridgeUrl("http://127.0.0.1:19000")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://localhost")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://[::1]")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://127.0.0.1")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://127.0.0.1:0")).toBeNull();
+    expect(parseAgentBridgeUrl("ws://127.0.0.1:19000/ws")).toBeNull();
+    expect(normalizeAgentBridgeUrl("ws://example.com:19000")).toBe("ws://127.0.0.1:18492");
   });
 
   it("开关关闭时默认不建立连接也不轮询；单次连接失败后不安排后台重连", async () => {
@@ -210,6 +249,34 @@ describe("Agent Bridge 连接", () => {
       expect(FakeWebSocket.instances).toHaveLength(4);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("listAgentBridgeTabs 标记当前窗口活动视频标签页为 active", async () => {
+    const prevChrome = globalThis.chrome;
+    const allTabs = [
+      { id: 10, url: "https://www.bilibili.com/video/BV1one000001/", title: "后台", active: false },
+      { id: 20, url: "https://www.bilibili.com/video/BV1two000002/", title: "活动", active: true }
+    ];
+    vi.stubGlobal("chrome", {
+      ...prevChrome,
+      tabs: {
+        query: vi.fn(async (queryInfo: { active?: boolean }) =>
+          queryInfo.active ? [allTabs[1]] : allTabs
+        ),
+        sendMessage: vi.fn((_tabId: number, _msg: unknown, callback: (res: unknown) => void) => {
+          callback({ ok: false });
+        })
+      }
+    });
+    try {
+      const result = await listAgentBridgeTabs();
+      expect(result.tabs).toHaveLength(2);
+      expect(result.tabs[0]).toMatchObject({ tabId: 10, bvid: "BV1one000001" });
+      expect(result.tabs[0].active).toBeUndefined();
+      expect(result.tabs[1]).toMatchObject({ tabId: 20, bvid: "BV1two000002", active: true });
+    } finally {
+      vi.stubGlobal("chrome", prevChrome);
     }
   });
 });

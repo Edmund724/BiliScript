@@ -154,6 +154,7 @@ export function bindAgentBridgeSettings(
   async function testAddress(): Promise<void> {
     const url = readAddress();
     if (!url || addressBusy) return;
+    elements.agentBridgeUrl.value = url;
     setAddressBusy(true, true);
     setAddressStatus("");
     try {

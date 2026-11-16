@@ -80,9 +80,12 @@ export function parseAgentBridgeUrl(value: unknown): string | null {
   try {
     const url = new URL(input);
     const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
-    if (url.protocol !== "ws:" || !loopback || !url.port) return null;
+    const port = Number(url.port);
+    if (url.protocol !== "ws:" || !loopback || !url.port || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return null;
+    }
     if (url.username || url.password || (url.pathname && url.pathname !== "/") || url.search || url.hash) return null;
-    return input.replace(/\/$/, "");
+    return `ws://127.0.0.1:${port}`;
   } catch {
     return null;
   }

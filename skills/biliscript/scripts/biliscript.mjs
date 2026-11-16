@@ -346,14 +346,33 @@ export async function requestDaemon(command, { port = configuredPort(), timeoutM
   });
 }
 
-function daemonStatus(command, extension) {
+function daemonStatus(command, extensionOnline) {
   return {
     ok: true,
     command,
     bridgeOnline: true,
-    extensionOnline: Boolean(extension),
+    extensionOnline: Boolean(extensionOnline),
     daemonPid: process.pid
   };
+}
+
+function extractTargetBvid(value) {
+  const input = String(value || "").trim();
+  if (!input) return "";
+  if (/^BV[0-9A-Za-z]+$/.test(input)) return input;
+  const pathMatch = input.match(/\/video\/(BV[0-9A-Za-z]+)/);
+  if (pathMatch?.[1]) return pathMatch[1];
+  try {
+    const queryBvid = String(new URL(input).searchParams.get("bvid") || "").trim();
+    if (/^BV[0-9A-Za-z]+$/.test(queryBvid)) return queryBvid;
+  } catch {
+    // ignore invalid URL
+  }
+  return "";
+}
+
+function isNoActiveVideoTabError(error) {
+  return String(error?.message || "").includes("当前活动标签页不是 B 站视频页");
 }
 
 export async function startDaemon({
@@ -367,14 +386,17 @@ export async function startDaemon({
     ? extensionGraceMs
     : DEFAULT_EXTENSION_GRACE_MS;
   const graceDeadline = Date.now() + graceMs;
-  let extension = null;
+  const extensions = new Set();
+  const tabRoutes = new Map();
+  const disconnectedTabIds = new Set();
+  let nextAliasTabId = 100000;
   let hasSeenExtension = false;
   let graceExpired = graceMs === 0;
   let graceTimer = null;
   let lastActivity = Date.now();
   let sequence = 0;
+  let activeRequests = 0;
   const clients = new Set();
-  const pendingTabs = new Map();
   const waitingRequests = [];
   const server = http.createServer((request, response) => {
     response.writeHead(426, { "content-type": "application/json; charset=utf-8" });
@@ -386,40 +408,256 @@ export async function startDaemon({
     client.sendJSON({ type: "response", id, ...payload });
   };
 
-  const failPendingFor = (client, error) => {
-    for (const [requestId, pending] of pendingTabs) {
-      if (pending.client !== client) continue;
-      clearTimeout(pending.timer);
-      pendingTabs.delete(requestId);
-      respondToCli(client, pending.clientRequestId, { ok: false, error });
-    }
-  };
-
   const removeWaitingFor = (client) => {
     for (let index = waitingRequests.length - 1; index >= 0; index -= 1) {
       if (waitingRequests[index].client === client) waitingRequests.splice(index, 1);
     }
   };
 
+  const requestTimeoutMs = (command) => (command === "tabs" ? 6000 : command === "frame" ? frameTimeoutMs : 0);
+
+  const sendExtensionRequest = (session, command, options) => {
+    if (!extensions.has(session)) {
+      const error = new Error("扩展连接已断开");
+      error.extensionDisconnected = true;
+      return Promise.reject(error);
+    }
+    return new Promise((resolve, reject) => {
+      const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
+      const timeoutMs = requestTimeoutMs(command);
+      const timer = timeoutMs > 0 ? setTimeout(() => {
+        session.pending.delete(requestId);
+        reject(new Error(
+          command === "tabs"
+            ? "等待扩展标签页快照超时"
+            : command === "frame"
+              ? `视频截帧超时（${frameTimeoutMs} 毫秒）`
+              : "等待扩展响应超时"
+        ));
+      }, timeoutMs) : null;
+      session.pending.set(requestId, { resolve, reject, timer });
+      session.peer.sendJSON({ type: "request", id: requestId, command, ...(options ? { options } : {}) });
+    });
+  };
+
+  const aggregateTabsWithSessions = async () => {
+    const activeSessions = Array.from(extensions);
+    if (activeSessions.length === 0) {
+      const error = new Error(EXTENSION_OFFLINE_ERROR);
+      error.extensionOnline = false;
+      throw error;
+    }
+    const settled = await Promise.allSettled(
+      activeSessions.map(async (session) => ({
+        session,
+        result: await sendExtensionRequest(session, "tabs")
+      }))
+    );
+    const fulfilled = settled
+      .filter((entry) => entry.status === "fulfilled" && extensions.has(entry.value.session))
+      .map((entry) => entry.value);
+    if (fulfilled.length === 0) {
+      const rejected = settled.find((entry) => entry.status === "rejected");
+      throw rejected ? rejected.reason : new Error(EXTENSION_OFFLINE_ERROR);
+    }
+
+    const entries = [];
+    for (const { session, result } of fulfilled) {
+      const rawTabs = Array.isArray(result?.tabs) ? result.tabs : [];
+      const liveRawIds = new Set();
+      for (const tab of rawTabs) {
+        const rawTabId = Number(tab?.tabId);
+        if (Number.isInteger(rawTabId) && rawTabId > 0) liveRawIds.add(rawTabId);
+        entries.push({ session, tab, rawTabId });
+      }
+      for (const [rawId, publicId] of session.rawToPublic) {
+        if (!liveRawIds.has(rawId)) {
+          session.rawToPublic.delete(rawId);
+          if (tabRoutes.get(publicId)?.session === session) tabRoutes.delete(publicId);
+        }
+      }
+    }
+
+    const deferred = [];
+    // Pass 1: preserve existing tabId mappings for active sessions
+    for (const entry of entries) {
+      if (!Number.isInteger(entry.rawTabId) || entry.rawTabId <= 0) continue;
+      const existingPublicId = entry.session.rawToPublic.get(entry.rawTabId);
+      if (!existingPublicId) continue;
+      const currentOwner = tabRoutes.get(existingPublicId);
+      if (currentOwner && currentOwner.session !== entry.session) {
+        entry.session.rawToPublic.delete(entry.rawTabId);
+        continue;
+      }
+      tabRoutes.set(existingPublicId, { session: entry.session, rawTabId: entry.rawTabId });
+      disconnectedTabIds.delete(existingPublicId);
+    }
+
+    // Pass 2: claim uncontested raw tabIds directly before allocating aliases
+    for (const entry of entries) {
+      if (!Number.isInteger(entry.rawTabId) || entry.rawTabId <= 0) continue;
+      if (entry.session.rawToPublic.has(entry.rawTabId)) continue;
+      if (!tabRoutes.has(entry.rawTabId)) {
+        entry.session.rawToPublic.set(entry.rawTabId, entry.rawTabId);
+        tabRoutes.set(entry.rawTabId, { session: entry.session, rawTabId: entry.rawTabId });
+        disconnectedTabIds.delete(entry.rawTabId);
+      } else {
+        deferred.push(entry);
+      }
+    }
+
+    // Pass 3: assign non-conflicting numeric aliases for colliding raw tabIds
+    for (const entry of deferred) {
+      if (entry.session.rawToPublic.has(entry.rawTabId)) continue;
+      while (tabRoutes.has(nextAliasTabId) || disconnectedTabIds.has(nextAliasTabId)) {
+        nextAliasTabId += 1;
+      }
+      const publicTabId = nextAliasTabId++;
+      entry.session.rawToPublic.set(entry.rawTabId, publicTabId);
+      tabRoutes.set(publicTabId, { session: entry.session, rawTabId: entry.rawTabId });
+      disconnectedTabIds.delete(publicTabId);
+    }
+
+    const tabs = [];
+    const bySession = new Map();
+    for (const entry of entries) {
+      const publicTabId = entry.session.rawToPublic.get(entry.rawTabId);
+      const snapshot = publicTabId ? { ...entry.tab, tabId: publicTabId } : { ...entry.tab };
+      tabs.push(snapshot);
+      let list = bySession.get(entry.session);
+      if (!list) {
+        list = [];
+        bySession.set(entry.session, list);
+      }
+      list.push(snapshot);
+    }
+    return { tabs, bySession };
+  };
+
+  const executeCommand = async (command, options) => {
+    if (command === "tabs") {
+      const { tabs } = await aggregateTabsWithSessions();
+      return { tabs };
+    }
+
+    if (options?.tabId !== undefined) {
+      const requestedTabId = Number(options.tabId);
+      let route = tabRoutes.get(requestedTabId);
+      if (!route) {
+        if (disconnectedTabIds.has(requestedTabId)) {
+          throw new Error("目标标签页所在扩展实例已断开连接");
+        }
+        if (extensions.size === 1) {
+          const [onlySession] = extensions;
+          return sendExtensionRequest(onlySession, command, options);
+        }
+        await aggregateTabsWithSessions();
+        route = tabRoutes.get(requestedTabId);
+        if (!route) {
+          throw new Error(`未找到标签页 ${requestedTabId}，请先运行 tabs 查看当前在线标签页`);
+        }
+      }
+      if (!extensions.has(route.session)) {
+        throw new Error("目标标签页所在扩展实例已断开连接");
+      }
+      return sendExtensionRequest(route.session, command, { ...options, tabId: route.rawTabId });
+    }
+
+    if (extensions.size === 1) {
+      const [onlySession] = extensions;
+      return sendExtensionRequest(onlySession, command, options);
+    }
+
+    const { bySession } = await aggregateTabsWithSessions();
+    const onlineSessions = Array.from(extensions);
+    const targetBvid = extractTargetBvid(options?.bvid);
+
+    if (targetBvid) {
+      const matchingActive = [];
+      const matchingOther = [];
+      const nonMatching = [];
+      for (const session of onlineSessions) {
+        const sessionTabs = bySession.get(session) || [];
+        const matchingTabs = sessionTabs.filter((tab) => tab?.bvid === targetBvid);
+        if (matchingTabs.some((tab) => tab?.active === true)) {
+          matchingActive.push(session);
+        } else if (matchingTabs.length > 0) {
+          matchingOther.push(session);
+        } else {
+          nonMatching.push(session);
+        }
+      }
+      const candidates = [...matchingActive, ...matchingOther, ...nonMatching];
+      let lastError = null;
+      for (const session of candidates) {
+        if (!extensions.has(session)) continue;
+        try {
+          return await sendExtensionRequest(session, command, options);
+        } catch (error) {
+          lastError = error;
+          if (!error.extensionDisconnected) throw error;
+        }
+      }
+      throw lastError || new Error(EXTENSION_OFFLINE_ERROR);
+    }
+
+    const withActiveTab = [];
+    const withAnyTab = [];
+    const withoutTabs = [];
+    for (const session of onlineSessions) {
+      const sessionTabs = bySession.get(session) || [];
+      if (sessionTabs.some((tab) => tab?.active === true)) {
+        withActiveTab.push(session);
+      } else if (sessionTabs.length > 0) {
+        withAnyTab.push(session);
+      } else {
+        withoutTabs.push(session);
+      }
+    }
+    const candidates = [...withActiveTab, ...withAnyTab, ...withoutTabs];
+    let lastError = null;
+    for (const session of candidates) {
+      if (!extensions.has(session)) continue;
+      try {
+        return await sendExtensionRequest(session, command, options);
+      } catch (error) {
+        lastError = error;
+        if (!error.extensionDisconnected && !isNoActiveVideoTabError(error)) throw error;
+      }
+    }
+    throw lastError || new Error(EXTENSION_OFFLINE_ERROR);
+  };
+
   const dispatchToExtension = (client, clientRequestId, command, options) => {
     if (command === "status") {
-      respondToCli(client, clientRequestId, { ok: true, result: daemonStatus(command, extension) });
+      respondToCli(client, clientRequestId, { ok: true, result: daemonStatus(command, extensions.size > 0) });
       return;
     }
-    const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
-    const timer = command === "tabs" ? setTimeout(() => {
-      pendingTabs.delete(requestId);
-      respondToCli(client, clientRequestId, { ok: false, error: "等待扩展标签页快照超时" });
-    }, 6000) : command === "frame" ? setTimeout(() => {
-      pendingTabs.delete(requestId);
-      respondToCli(client, clientRequestId, { ok: false, error: `视频截帧超时（${frameTimeoutMs} 毫秒）` });
-    }, frameTimeoutMs) : null;
-    pendingTabs.set(requestId, { client, clientRequestId, command, timer });
-    extension.sendJSON({ type: "request", id: requestId, command, ...(options ? { options } : {}) });
+    activeRequests += 1;
+    void executeCommand(command, options)
+      .then((result) => {
+        lastActivity = Date.now();
+        respondToCli(client, clientRequestId, {
+          ok: true,
+          result: { ...daemonStatus(command, extensions.size > 0), ...result }
+        });
+      })
+      .catch((error) => {
+        lastActivity = Date.now();
+        const extensionOnline = error?.extensionOnline !== false && extensions.size > 0;
+        respondToCli(client, clientRequestId, {
+          ok: false,
+          error: String(error?.message || "扩展执行桥接命令失败"),
+          ...(extensionOnline ? {} : { extensionOnline: false })
+        });
+      })
+      .finally(() => {
+        activeRequests = Math.max(0, activeRequests - 1);
+      });
   };
 
   const flushWaitingRequests = () => {
-    if (!extension || waitingRequests.length === 0) return;
+    if (extensions.size === 0 || waitingRequests.length === 0) return;
     const queued = waitingRequests.splice(0, waitingRequests.length);
     lastActivity = Date.now();
     for (const item of queued) {
@@ -473,28 +711,41 @@ export async function startDaemon({
         clearTimeout(graceTimer);
         graceTimer = null;
       }
-      if (extension) extension.close();
-      extension = peer;
+      const session = {
+        peer,
+        rawToPublic: new Map(),
+        pending: new Map()
+      };
+      extensions.add(session);
       peer.onMessage = (message) => {
         if (message?.type !== "response" || typeof message.id !== "string") return;
-        const pending = pendingTabs.get(message.id);
+        const pending = session.pending.get(message.id);
         if (!pending) return;
         if (pending.timer) clearTimeout(pending.timer);
-        pendingTabs.delete(message.id);
+        session.pending.delete(message.id);
         lastActivity = Date.now();
-        respondToCli(pending.client, pending.clientRequestId, message.ok
-          ? { ok: true, result: { ...daemonStatus(pending.command, extension), ...message.result } }
-          : { ok: false, error: String(message.error || "扩展执行桥接命令失败") });
+        if (message.ok) {
+          pending.resolve(message.result || {});
+        } else {
+          pending.reject(new Error(String(message.error || "扩展执行桥接命令失败")));
+        }
       };
       peer.onClose = () => {
-        if (extension !== peer) return;
-        extension = null;
-        for (const [requestId, pending] of pendingTabs) {
-          if (pending.timer) clearTimeout(pending.timer);
-          pendingTabs.delete(requestId);
-          respondToCli(pending.client, pending.clientRequestId, { ok: false, error: "扩展连接已断开" });
+        if (!extensions.has(session)) return;
+        extensions.delete(session);
+        for (const [publicTabId, entry] of tabRoutes) {
+          if (entry.session !== session) continue;
+          tabRoutes.delete(publicTabId);
+          disconnectedTabIds.add(publicTabId);
         }
-        server.emit("extension-disconnected");
+        for (const [requestId, pending] of session.pending) {
+          if (pending.timer) clearTimeout(pending.timer);
+          session.pending.delete(requestId);
+          const error = new Error("扩展连接已断开");
+          error.extensionDisconnected = true;
+          pending.reject(error);
+        }
+        server.emit("extension-disconnected", { remaining: extensions.size });
       };
       flushWaitingRequests();
       if (peer.buffer.length) queueMicrotask(() => peer.consume(Buffer.alloc(0)));
@@ -505,21 +756,20 @@ export async function startDaemon({
     peer.onClose = () => {
       clients.delete(peer);
       removeWaitingFor(peer);
-      failPendingFor(peer, "CLI 连接已断开");
     };
     peer.onMessage = (message) => {
       lastActivity = Date.now();
       if (message?.type !== "request" || typeof message.id !== "string") return;
       const command = String(message.command || "");
       if (command === "status" && !message.options?.wait) {
-        respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extension) });
+        respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extensions.size > 0) });
         return;
       }
       if (!["status", "tabs", "fetch", "subtitles", "comments", "frame"].includes(command)) {
         respondToCli(peer, message.id, { ok: false, error: "未知命令" });
         return;
       }
-      if (!extension) {
+      if (extensions.size === 0) {
         const remainingGraceMs = hasSeenExtension || graceExpired ? 0 : graceDeadline - Date.now();
         if (remainingGraceMs > 0) {
           waitingRequests.push({
@@ -547,9 +797,11 @@ export async function startDaemon({
     if (peer.buffer.length) queueMicrotask(() => peer.consume(Buffer.alloc(0)));
   });
 
-  const heartbeat = setInterval(() => extension?.ping(), 20000);
+  const heartbeat = setInterval(() => {
+    for (const session of extensions) session.peer.ping();
+  }, 20000);
   const idleTimer = setInterval(() => {
-    if (pendingTabs.size > 0 || waitingRequests.length > 0 || Date.now() - lastActivity < idleMs) return;
+    if (activeRequests > 0 || waitingRequests.length > 0 || Date.now() - lastActivity < idleMs) return;
     clearInterval(heartbeat);
     clearInterval(idleTimer);
     if (graceTimer) {
@@ -557,7 +809,7 @@ export async function startDaemon({
       graceTimer = null;
     }
     for (const client of clients) client.close();
-    extension?.close();
+    for (const session of extensions) session.peer.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 500).unref();
   }, 1000);
@@ -571,10 +823,12 @@ export async function startDaemon({
       clearTimeout(graceTimer);
       graceTimer = null;
     }
-    for (const pending of pendingTabs.values()) {
-      if (pending.timer) clearTimeout(pending.timer);
+    for (const session of extensions) {
+      for (const pending of session.pending.values()) {
+        if (pending.timer) clearTimeout(pending.timer);
+      }
+      session.pending.clear();
     }
-    pendingTabs.clear();
   });
 
   await new Promise((resolve, reject) => {
