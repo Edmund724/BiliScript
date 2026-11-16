@@ -1,4 +1,6 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+
+const includeInstallerTest = process.argv.some((arg) => arg.includes("install-agent-sh"));
 
 export default defineConfig({
   test: {
@@ -9,6 +11,9 @@ export default defineConfig({
       }
     },
     include: ["tests/**/*.test.js", "tests/**/*.test.ts"],
+    exclude: includeInstallerTest
+      ? configDefaults.exclude
+      : [...configDefaults.exclude, "tests/agent-bridge/install-agent-sh.test.ts"],
     setupFiles: ["tests/setup.ts"],
     clearMocks: true,
     testTimeout: 10000,

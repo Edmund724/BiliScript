@@ -16,6 +16,10 @@ DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 �
 
 jsdom 够不着的（真实 DOM 几何 / B 站真实接口 / MV3 SW 生命周期 / offscreen / CSP）走真机：自检跑 `pnpm harness:browser`，写场景见 `scripts/browser-harness/README.md`。其余验证留在 `tests/`。
 
+### POSIX 安装脚本测试
+
+`tests/agent-bridge/install-agent-sh.test.ts` 在 Windows 下依赖 Git Bash（`msys-2.0.dll`），无法在终端沙箱内运行，默认被 `vitest.config.mjs` 排除。改动 `scripts/install-agent.sh` 或 bridge `status` 输出时，需在沙箱外执行 `pnpm test:installer`。
+
 ## Agent skills
 
 ### Issue tracker
