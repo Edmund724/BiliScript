@@ -5,68 +5,71 @@ description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、�
 
 # BiliScript
 
-使用技能目录内的 `scripts/biliscript.mjs` 调用本机扩展。脚本仅依赖 Node.js 内置模块，可在任意工作目录运行；不要假设当前目录就是技能目录，也不要把脚本复制到项目后再执行。
+使用技能目录内的 `scripts/biliscript.mjs` 调用本机扩展。脚本仅依赖 Node.js 内置模块，直接通过技能目录绝对路径 `<skill-dir>/scripts/biliscript.mjs` 从当前工作目录执行。
 
-## 前置条件
+## 前置条件与连接机制
 
-- 用户已在 Chrome 或 Edge 安装 BiliScript，并在「设置 → 本地 Agent」点击「去连接」完成连接。
-- 本机可运行 Node.js。未打开的视频需要无字幕转写时，用户还需在扩展中启用并配置 ASR。
+- 用户已在 Chrome 或 Edge 安装 BiliScript，并在「设置 → 本地 Agent」开启连接或点击「去连接」。
+- 本机可运行 Node.js。无原生字幕的视频需要自动转写时，用户需在扩展设置中开启「无字幕时自动生成字幕」并配置语音识别平台。
+- **冷启动自动等待重连**：本地 Bridge Daemon 默认监听 `127.0.0.1:18492`（可用 `BILISCRIPT_BRIDGE_PORT` 覆盖），空闲 5 分钟（300 秒）后自动退出。任意 CLI 命令均会按需拉起 Daemon；`tabs`、`fetch`、`subtitles`、`comments`、`frame` 与 `status --wait` 在冷启动时会自动进入最长 **35 秒**的宽限等待队列，扩展断开后会先按 **1s → 2s → 4s → 8s** 指数退避重连并每 **30 秒**周期唤醒，接通后立即执行已排队请求。`status`（无 `--wait`）立即返回当前状态；显式等待重连可使用 `status --wait`。
 
 ## 工作流
 
 以下命令中的 `<skill-dir>` 替换为本技能所在目录的绝对路径。
 
-### 1. 检查连接并选择视频
+### 1. 目标选择
+
+按已知条件选择最短入口：
+
+- **已知 BV 号或 B 站链接**（链接中的分 P 参数 `?p=` 会保留）：直接跳至第 2 步并传入 `--bvid <BV/URL>`。
+- **分析当前活动视频标签页**：直接跳至第 2 步并省略目标参数。
+- **需要从多个已打开标签页中选择**：先列出当前视频标签页（Daemon 快照超时 6 秒）：
 
 ```bash
-node "<skill-dir>/scripts/biliscript.mjs" status
 node "<skill-dir>/scripts/biliscript.mjs" tabs
 ```
 
-`status` 会按需启动本地 Bridge。若 `extensionOnline` 为 `false`，请用户在扩展的「设置 → 本地 Agent」点击「去连接」，不要反复重启命令。
+`tabs` 返回已打开视频的 `tabId`、`bvid`、`title`、`currentTime`、`duration` 与 `subtitlesReady`。
 
-`tabs` 返回已打开的 B 站视频及 `tabId`、`bvid`、`title`、`currentTime`、`duration` 等字段。根据用户意图选择目标：
+**完成判据**：已确定目标参数（`--bvid <BV/URL>`、`--tab <tabId>` 或省略以指向当前活动标签页）；若任务涉及当前播放进度，已记录对应的 `currentTime`。
 
-- 当前活动视频：省略目标参数。
-- 指定已打开标签页：使用 `--tab <tabId>`。
-- 任意 BV 号或视频链接：使用 `--bvid <BV/URL>`；链接中的分 P 参数会被保留。
+### 2. 单趟拉取字幕与热评（长字幕按文件精读）
 
-### 2. 获取字幕与热门评论
+执行单趟采集命令一次获取视频元信息（`video`）、分 P（`pages`）、章节（`chapters`）、字幕（`subtitle`）与最多 20 条热门评论及高赞楼中楼（`comments`）：
 
 ```bash
-node "<skill-dir>/scripts/biliscript.mjs" subtitles [--tab <id>|--bvid <BV/URL>]
-node "<skill-dir>/scripts/biliscript.mjs" comments [--tab <id>|--bvid <BV/URL>]
+node "<skill-dir>/scripts/biliscript.mjs" fetch [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]
 ```
 
-字幕结果包含视频元信息、分 P、章节和带时间轴的 `subtitle.items`。评论结果包含最多 20 条热门评论及高赞楼中楼。只需要局部内容时，用秒数过滤字幕：
+- **大字幕自动落盘精读**：当 `subtitle.items` 的 UTF-8 JSON 体积超过 **12 KiB（12288 字节）** 或显式指定 `--out <dir>` 时，CLI 会将字幕写入 `${bvid}(-p${page})-${batchId}.txt`（默认位于系统临时目录），每行格式为 `<时间> <文本>`（不补零，如 `2:30 内容`；末尾时间达 1 小时及以上时带小时位，如 `1:02:30 内容`），JSON 中的 `subtitle` 返回 `{ source, trackId, language, path, count, from, to }`。遇到 `subtitle.path` 时，使用文件读取或文本检索工具结合 `chapters` 时间段与 `count` 分段精读，或追加 `--from <sec> --to <sec>` 提取局部区间。
+- **无字幕自动转写与容错**：无原生字幕且扩展已启用 ASR 时自动转写并返回 `source: "asr"` 字幕；`fetch`、`subtitles`、`comments` 在 Bridge 与 CLI 侧均不设固定短超时，支持长视频与转写等待。热评请求失败时返回 `comments: []` 与 `commentsError`，字幕与元信息正常返回。
+- **单项补拉**：仅需补拉局部字幕或热评时，可单独调用 `subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>] [--out <dir>]` 或 `comments [--tab <id>|--bvid <BV/URL>]`。
+- **证据区分与时间锚点**：以 `subtitle` 和 `chapters` 作为视频内容事实依据，以 `comments` 作为观众观点与热点补充；整理要点时保留秒级时间锚点，便于下一步定位画面。
+
+**完成判据**：已获取完整的 `video`、`chapters`、`subtitle`（内联 `items` 或已用文件工具读取 `subtitle.path` 相关区间）及 `comments`（或已确认 `commentsError`），并列出需要核验画面的精确秒数。
+
+### 3. 定位关键秒数截帧并用读图工具核验画面
+
+依据用户问题、章节和字幕确定目标时间戳后再截取关键帧：
 
 ```bash
-node "<skill-dir>/scripts/biliscript.mjs" subtitles --bvid <BV/URL> --from 60 --to 180
-```
-
-无原生字幕时，扩展会自动使用已配置的 ASR 转写。结合字幕、章节和评论完成分析；评论代表观众观点，不要当作视频事实。引用内容时保留对应秒数，便于后续定位画面。
-
-### 3. 按需截取关键画面
-
-先根据用户问题、章节和字幕确定关键时间戳，再截帧；不要无目的地批量截图。
-
-```bash
-# 已打开标签页的当前播放帧，不改变播放位置
+# 已打开标签页的当前播放帧（不改变播放位置）
 node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] [--out <dir>]
 
-# 指定时间点附近的前、中、后三帧（t-2s、t、t+2s，边界处可能更少）
+# 指定时间点附近前、中、后三帧（t-2s、t、t+2s，边界处可能更少；未打开视频必传 --time）
 node "<skill-dir>/scripts/biliscript.mjs" frame [--tab <id>|--bvid <BV/URL>] --time <sec> [--out <dir>]
 ```
 
-未打开的视频必须提供 `--time`。CLI 会把 JPEG 写入 `--out` 指定目录；省略时使用系统临时目录。命令输出每张图片的绝对路径、`targetTime` 和实际 `currentTime`。
+- CLI 将 JPEG 写入 `--out` 指定目录（默认写入系统临时目录），输出每张图片的绝对路径 `frames[].path`、`targetTime` 与实际 `currentTime`。
+- 同一视频的多个时间点可并发提交 `frame` 命令：扩展在队列内复用同一隐藏视频串行 seek，并在队列空闲、切换视频或出错时立即释放媒体。扩展单次截帧超时为 **45 秒**，Bridge Daemon 兜底等待超时为 **50 秒**；若单次超时，确认目标秒数或刷新页面后单次重试即可。
+- 调用 Agent 自身的图片读取工具逐张打开 `frames[].path` 核验真实画面，结合 `currentTime` 描述画面细节并与字幕、评论交叉印证。
 
-同一视频的多个时间点可以并行提交 `frame` 命令。扩展会将请求排入队列，复用同一个隐藏视频并串行 seek；队列空闲、切换视频或截帧失败时立即释放媒体。不同视频不会同时截帧。每个请求 50 秒未收到结果会超时；失败后可重试，不需要通过额外并发请求试探恢复。
-
-使用 Agent 自己的图片读取工具打开返回的 `frames[].path`，再进行视觉分析。不要从 JSON 推测画面内容，也不要把图片路径当作已读图片。结合 `currentTime` 说明实际画面时刻，并将视觉观察与字幕、评论交叉验证。
+**完成判据**：所有目标 `frames[].path` 均已通过图片读取工具实际查看，视觉观察与 `currentTime`、字幕及章节证据交叉核验完毕后输出最终回答。
 
 ## 结果与错误处理
 
-- CLI 输出单行 JSON；`ok: false` 且进程非零退出表示失败，读取 `error` 后针对原因处理。
-- 扩展未连接时，引导用户开启桥接；ASR 未开启或未配置时，引导用户检查扩展的语音识别设置。
-- 已打开标签页但截帧失败时，可让用户刷新页面后重试；未打开视频的当前帧请求应改为带 `--time` 的历史截帧。
+- CLI 输出单行 JSON；`ok: false` 且进程非零退出表示失败，根据 `error` 与字段处理：
+  - `extensionOnline: false`（超过 35 秒冷启动宽限后仍未连接）：引导用户在扩展「设置 → 本地 Agent」开启连接或点击「去连接」。
+  - ASR 未启用或配置不可用：引导用户在扩展设置中开启「无字幕时自动生成字幕」并检查语音识别平台、模型与域名授权。
+  - 已打开标签页截帧失败：请用户刷新视频标签页后重试；未打开的视频改传 `--bvid <BV/URL> --time <sec>`。
 - Bridge 仅在 `127.0.0.1` 上连接本机扩展。后续内容由 Agent 的模型分析时，遵循该 Agent 的隐私与数据设置。
