@@ -58,5 +58,6 @@ extension/
 
 ## 评测基准与架构文档
 
+- **Agent 协作规范**：编程 Agent 在本仓库工作时请遵循根目录 [`AGENTS.md`](../AGENTS.md) 中的工具链、测试与架构约束。
 - **ASR 转写模型与并发评测**：可运行 `pnpm run eval:run` 复现 60 分钟音频（5 分钟/片、10 并发）下各模型的实测耗时与 RTF，或运行 `pnpm run eval:sweep` 压测并发度。转写并发固定上限为 10 片，源于对硅基流动的实测结果：超过 12 并发会触发服务端排队，20 并发整体耗时反而慢于 9 并发。
-- **领域模型与架构决策**：核心领域术语以根目录 [GLOSSARY.md](../GLOSSARY.md) 为准；历次架构裁决与审查红线索引见 [docs/adr/README.md](adr/README.md)。
+- **领域模型与架构决策**：核心领域术语以根目录 [`GLOSSARY.md`](../GLOSSARY.md) 为准；历次架构裁决与审查红线索引见 [docs/adr/README.md](adr/README.md)。
