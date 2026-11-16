@@ -32,7 +32,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
+    contentFetchJson: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300)
   };
 });
@@ -62,12 +62,12 @@ vi.mock("../../extension/subtitle/core.js", () => ({
 //（若这些模块的 import 链被进一步破坏，这里会暴露为“红在别处”。）
 
 let fetcher: typeof import("../../extension/subtitle/fetcher.js");
-let fetchBodyMock: typeof import("../../extension/bilibili/gateway.js").fetchSubtitleBody;
+let fetchBodyMock: typeof import("../../extension/bilibili/gateway.js").contentFetchJson;
 
 beforeEach(async () => {
   resetModuleState();
   fetcher = await import("../../extension/subtitle/fetcher.js");
-  fetchBodyMock = (await import("../../extension/bilibili/gateway.js")).fetchSubtitleBody;
+  fetchBodyMock = (await import("../../extension/bilibili/gateway.js")).contentFetchJson;
   vi.mocked(fetchBodyMock).mockReset();
 
   // 测试桩：vitest 的 ESM 变换把 logWarn 这类未绑定标识符回退到全局对象

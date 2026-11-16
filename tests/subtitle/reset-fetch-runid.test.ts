@@ -38,7 +38,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
+    contentFetchJson: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300)
   };
 });
@@ -106,7 +106,7 @@ async function importEpoch() {
     pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }]
   });
   gateway.fetchSubtitleBundle.mockReset().mockResolvedValue({ tracks: [TRACK], chapters: [] });
-  gateway.fetchSubtitleBody.mockReset();
+  gateway.contentFetchJson.mockReset();
   gateway.readRuntimeVideoDuration.mockReset().mockReturnValue(300);
   installChromeHost();
   uiStatus.setStatus.mockReset();
@@ -201,7 +201,7 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
     clipState.setFetchRunId(1);
     clipState.setVideoDuration(300);
     const bodyPending = createPending<{ body: unknown[] }>();
-    gateway.fetchSubtitleBody.mockImplementation(() => bodyPending.promise);
+    gateway.contentFetchJson.mockImplementation(() => bodyPending.promise);
     const dataWritePending = createPending<void>();
     let dataWriteStarted = false;
     const memorySet = vi.mocked(globalThis.chrome.storage.local.set).getMockImplementation();
@@ -214,7 +214,7 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
       await memorySet?.(entries);
     });
     const run = fetcher.refreshClip();
-    await vi.waitFor(() => expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1));
     bodyPending.resolve({ body: GOOD_BODY });
     await vi.waitFor(() => expect(dataWriteStarted).toBe(true));
     return { run, dataWritePending };

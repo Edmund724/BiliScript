@@ -164,3 +164,46 @@ describe("clearTranslatedSubtitleCache：新转写落盘后旧译文整体作废
     expect(storage.map.has(otherVideo)).toBe(true);
   });
 });
+
+describe("persistAsrSubtitleToCache：落盘主轨后同步清旧 ASR 变体与旧译文副轨", () => {
+  it("写入成功：保留新 ASR 键与平台轨，删除同视频旧 ASR 变体与全部 translate-* 译文键", async () => {
+    const identity = asrIdentity("new-p", "new-m", "zh");
+    const keepKey = cacheKey("BV1p", "5", identity);
+    const staleAsr = cacheKey("BV1p", "5", asrIdentity("old-p", "old-m", "auto"));
+    const translatedEn = cacheKey("BV1p", "5", { kind: "translated", targetLang: "en" });
+    const translatedJa = cacheKey("BV1p", "5", { kind: "translated", targetLang: "ja" });
+    const platformTrack = cacheKey("BV1p", "5", { kind: "track", trackId: "88" });
+    const otherVideoTranslated = cacheKey("BV1q", "5", { kind: "translated", targetLang: "en" });
+
+    await cache.saveSubtitleToCache(staleAsr, BODY);
+    await cache.saveSubtitleToCache(translatedEn, BODY);
+    await cache.saveSubtitleToCache(translatedJa, BODY);
+    await cache.saveSubtitleToCache(platformTrack, BODY);
+    await cache.saveSubtitleToCache(otherVideoTranslated, BODY);
+
+    const result = await cache.persistAsrSubtitleToCache({ bvid: "BV1p", cid: "5", identity, body: BODY });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(storage.map.has(keepKey)).toBe(true);
+    expect(storage.map.has(staleAsr)).toBe(false);
+    expect(storage.map.has(translatedEn)).toBe(false);
+    expect(storage.map.has(translatedJa)).toBe(false);
+    expect(storage.map.has(platformTrack)).toBe(true);
+    expect(storage.map.has(otherVideoTranslated)).toBe(true);
+  });
+
+  it("写入失败：不清理旧 ASR 变体与译文缓存，返回 { ok: false }", async () => {
+    const identity = asrIdentity("new-p", "new-m", "zh");
+    const staleAsr = cacheKey("BV1p", "5", asrIdentity("old-p", "old-m", "auto"));
+    const translatedEn = cacheKey("BV1p", "5", { kind: "translated", targetLang: "en" });
+    storage.seedCacheEntry(staleAsr, BODY, 1);
+    storage.seedCacheEntry(translatedEn, BODY, 1);
+    storage.local.set.mockRejectedValue(new Error("quota"));
+
+    const result = await cache.persistAsrSubtitleToCache({ bvid: "BV1p", cid: "5", identity, body: BODY });
+
+    expect(result.ok).toBe(false);
+    expect(storage.map.has(staleAsr)).toBe(true);
+    expect(storage.map.has(translatedEn)).toBe(true);
+  });
+});

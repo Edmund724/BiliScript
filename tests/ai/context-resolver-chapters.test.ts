@@ -5,52 +5,60 @@
 // 修复后返回值带 chapters（与渲染 markdown 同一来源），此测试锁定透传行为。
 // 单纪元：不使用 vi.resetModules，vi.mock 工厂闭包全程有效。
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../extension/bilibili/gateway.js", () => ({
-  fetchVideoMeta: vi.fn(async () => ({
-    title: "测试视频",
-    author: "UP主",
-    uploadDate: "2026-01-01",
-    aid: "42",
-    defaultCid: "101",
-    defaultDuration: 600,
-    pages: [{ cid: "101", page: 1, part: "P1", duration: 600 }]
-  })),
-  fetchSubtitleBundle: vi.fn(async () => ({
-    tracks: [
-      { id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文" }
-    ],
-    chapters: [
-      { title: "开场", from: 0, to: 60, source: "player-view-points" },
-      { title: "正文", from: 60, to: 600, source: "player-view-points" }
-    ]
-  })),
-  // 现代签名：fetchSubtitleBody(url) 返回 { body }（工单 04 起 context-resolver
-  // 按现代契约调用，legacy 形状垫片已删）。
-  fetchSubtitleBody: vi.fn(async () => ({ body: [{ from: 0, to: 5, content: "第一句" }] })),
-  fetchHotComments: vi.fn(async () => [])
-}));
+vi.mock("../../extension/bilibili/video-api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/bilibili/video-api.js")>();
+  return {
+    ...actual,
+    fetchVideoMeta: vi.fn(async () => ({
+      title: "测试视频",
+      author: "UP主",
+      uploadDate: "2026-01-01",
+      aid: "42",
+      description: "",
+      defaultCid: "101",
+      defaultDuration: 600,
+      pages: [{ cid: "101", page: 1, part: "P1", duration: 600 }]
+    })),
+    fetchSubtitleBundle: vi.fn(async () => ({
+      tracks: [
+        { id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文", source: "player-wbi-v2" }
+      ],
+      chapters: [
+        { title: "开场", from: 0, to: 60, source: "player-view-points" },
+        { title: "正文", from: 60, to: 600, source: "player-view-points" }
+      ]
+    }))
+  };
+});
 
-// gateway 拆叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 已迁 gateway-core，
-// context-resolver 改从 gateway-core 消费，mock 路径随迁。
-vi.mock("../../extension/bilibili/gateway-core.js", () => ({
-  bgFetchJson: vi.fn(),
-  isBiliUrl: vi.fn(() => true)
-}));
+vi.mock("../../extension/bilibili/gateway-core.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway-core.js")>();
+  return {
+    ...actual,
+    bgFetchJson: vi.fn(async () => ({ body: [{ from: 0, to: 200, content: "第一句" }] }))
+  };
+});
 
 vi.mock("../../extension/core/settings-store.js", () => ({
   getMergedSettings: vi.fn(async () => ({ includeTimestampInBody: false }))
 }));
 
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  getSubtitleCacheKey: vi.fn(() => "subtitle-cache-key"),
-  loadSubtitleFromCache: vi.fn(async () => null)
-}));
+vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
+  return {
+    ...actual,
+    getSubtitleCacheKey: vi.fn(() => "subtitle-cache-key"),
+    loadSubtitleFromCache: vi.fn(async () => null),
+    saveSubtitleToCache: vi.fn(async () => ({ ok: true }))
+  };
+});
 
 import { resolveAiConversationContext } from "../../extension/ai/context-resolver.js";
-import { fetchSubtitleBundle, type Chapter } from "../../extension/bilibili/gateway.js";
+import { fetchSubtitleBundle, type Chapter } from "../../extension/bilibili/video-api.js";
+import { bgFetchJson } from "../../extension/bilibili/gateway-core.js";
+import { saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 
 const CONTEXT_REF = {
   title: "入口标题",
@@ -58,25 +66,46 @@ const CONTEXT_REF = {
   bvid: "BV1chapters"
 };
 
-describe("resolveAiConversationContext chapters 透传", () => {
-  it("返回值携带字幕 bundle 的章节（与渲染 markdown 同一来源）", async () => {
+beforeEach(() => {
+  vi.mocked(fetchSubtitleBundle).mockClear();
+  vi.mocked(bgFetchJson).mockReset().mockResolvedValue({ body: [{ from: 0, to: 200, content: "第一句" }] });
+  vi.mocked(saveSubtitleToCache).mockClear();
+});
+
+describe("resolveAiConversationContext chapters 透传与取体健壮性", () => {
+  it("返回值携带字幕 bundle 的章节，并在未命中缓存时回写缓存", async () => {
     const result = await resolveAiConversationContext(CONTEXT_REF);
 
     expect(result.isVideoContext).toBe(true);
     expect(result.bvid).toBe("BV1chapters");
-    // 章节透传且与 fetchSubtitleBundle 返回值全等
     expect(result.chapters).toEqual([
       { title: "开场", from: 0, to: 60, source: "player-view-points" },
       { title: "正文", from: 60, to: 600, source: "player-view-points" }
     ]);
-    // 确实来自字幕 bundle（背景侧唯一章节来源）
     expect(fetchSubtitleBundle).toHaveBeenCalledTimes(1);
-    // 协议不再携带预渲染 markdown：改为透传渲染所需输入（body/chapters/
-    // videoDuration/includeTimestampInBody），发送物由 ai/subtitle-prompt.js
-    // 的 buildSubtitlePrompt 在发 prompt 前现场渲染。
-    expect(result.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
+    expect(result.subtitleBody).toEqual([{ from: 0, to: 200, content: "第一句" }]);
     expect(result.videoDuration).toBe(600);
     expect(result.includeTimestampInBody).toBe(false);
+    expect(saveSubtitleToCache).toHaveBeenCalledWith("subtitle-cache-key", [{ from: 0, to: 200, content: "第一句" }]);
+  });
+
+  it("首选轨时长不匹配时回退次选候选轨", async () => {
+    vi.mocked(fetchSubtitleBundle).mockResolvedValueOnce({
+      tracks: [
+        { id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文", source: "player-wbi-v2" },
+        { id: "sub-2", subtitleUrl: "https://s.example.com/2.json", lan: "en-US", lanDoc: "English", source: "player-wbi-v2" }
+      ],
+      chapters: []
+    });
+    vi.mocked(bgFetchJson)
+      .mockResolvedValueOnce({ body: [{ from: 0, to: 5, content: "过短首轨" }] })
+      .mockResolvedValueOnce({ body: [{ from: 0, to: 250, content: "合规模板次轨" }] });
+
+    const result = await resolveAiConversationContext(CONTEXT_REF);
+
+    expect(result.selectedSubtitleId).toBe("sub-2");
+    expect(result.subtitleLang).toBe("English");
+    expect(result.subtitleBody).toEqual([{ from: 0, to: 250, content: "合规模板次轨" }]);
   });
 
   it("bundle 无章节 → chapters 为空数组（非 undefined）", async () => {

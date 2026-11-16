@@ -51,18 +51,26 @@ function noSubtitleError(): Error {
   ].filter(Boolean).join(" "));
 }
 
-async function waitForSubtitles(): Promise<AgentBridgeContentSubtitlesResult> {
+export const WAIT_FOR_SUBTITLES_TIMEOUT_MS = 30_000;
+
+async function waitForSubtitles(timeoutMs = WAIT_FOR_SUBTITLES_TIMEOUT_MS): Promise<AgentBridgeContentSubtitlesResult> {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
   while (true) {
     const ready = readReadySubtitles();
     if (ready) return ready;
     if (!isCurrentClip() || state.clip.subtitleFetchState === "error" || state.clip.subtitleFetchState === "empty") {
       throw noSubtitleError();
     }
+    if (Date.now() >= deadline) {
+      throw new Error("等待字幕抓取超时，请稍后重试。");
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 
-export async function getAgentBridgeSubtitles(): Promise<AgentBridgeContentSubtitlesResult> {
+export async function getAgentBridgeSubtitles(
+  options: { timeoutMs?: number } = {}
+): Promise<AgentBridgeContentSubtitlesResult> {
   const ready = readReadySubtitles();
   if (ready) return ready;
 
@@ -75,5 +83,5 @@ export async function getAgentBridgeSubtitles(): Promise<AgentBridgeContentSubti
     if (completed) return completed;
     throw noSubtitleError();
   }
-  return waitForSubtitles();
+  return waitForSubtitles(options.timeoutMs);
 }

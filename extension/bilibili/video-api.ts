@@ -16,6 +16,32 @@ export interface VideoPage {
   duration: number;
 }
 
+export interface VideoPageQuery {
+  cid?: string;
+  pageIndex?: number;
+}
+
+export interface VideoMetaLike {
+  aid?: string | number;
+  defaultCid?: string | number;
+  defaultDuration?: string | number;
+  pages?: ReadonlyArray<{
+    cid?: string | number;
+    page?: string | number;
+    part?: string;
+    duration?: string | number;
+  }>;
+}
+
+export interface ResolvedVideoPage {
+  page: VideoPage | null;
+  cid: string;
+  pageIndex: number;
+  pageTitle: string;
+  duration: number;
+  pageCount: number;
+}
+
 export interface VideoMeta {
   aid: string;
   title: string;
@@ -26,6 +52,72 @@ export interface VideoMeta {
   defaultDuration: number;
   pages: VideoPage[];
   upowerBlocked?: boolean;
+}
+
+/**
+ * 从视频元信息中按 `cid` → `page === pageIndex` → `pages[pageIndex - 1]` 顺序解析当前分P，
+ * 并统一处理 cid / duration / pageIndex 的兜底逻辑。
+ */
+export function resolveVideoPageFromMeta(
+  meta: VideoMetaLike | null | undefined,
+  query: VideoPageQuery = {}
+): ResolvedVideoPage {
+  const rawPages = Array.isArray(meta?.pages) ? meta.pages : [];
+  const pages: VideoPage[] = rawPages.map((item) => ({
+    cid: String(item?.cid ?? "").trim(),
+    page: Number(item?.page || 0) || 0,
+    part: String(item?.part || "").trim(),
+    duration: Number(item?.duration || 0) || 0
+  }));
+
+  const targetCid = String(query.cid || "").trim();
+  const hasExplicitPage = query.pageIndex !== undefined && Number(query.pageIndex) > 0;
+  const safePageIndex = hasExplicitPage ? Math.floor(Number(query.pageIndex)) : 1;
+
+  let matched: VideoPage | null = null;
+  if (targetCid) {
+    matched = pages.find((item) => item.cid === targetCid) || null;
+  }
+  if (!matched) {
+    matched =
+      pages.find((item) => item.page === safePageIndex && Boolean(item.cid)) ||
+      pages.find((item) => item.page === safePageIndex) ||
+      null;
+  }
+  if (!matched && safePageIndex > 0) {
+    const byPos = pages[safePageIndex - 1];
+    if (byPos) {
+      matched = byPos;
+    }
+  }
+
+  const firstWithCid = pages.find((item) => Boolean(item.cid));
+  const cid = String(targetCid || matched?.cid || firstWithCid?.cid || meta?.defaultCid || "").trim();
+  const firstWithDuration = pages.find((item) => item.duration > 0);
+  const duration =
+    (matched && matched.duration > 0 ? matched.duration : 0) ||
+    firstWithDuration?.duration ||
+    (Number(meta?.defaultDuration || 0) || 0);
+  const pageIndex = matched?.page && matched.page > 0 ? matched.page : safePageIndex;
+  const pageTitle = matched?.part || "";
+
+  return {
+    page: matched,
+    cid,
+    pageIndex,
+    pageTitle,
+    duration,
+    pageCount: pages.length
+  };
+}
+
+export async function fetchSubtitleBodyJson<T = unknown>(
+  transport: JsonTransport,
+  url: string
+): Promise<T[]> {
+  logInfo("[BILISCRIPT] fetch subtitle body", { url });
+  const payload = await transport(url);
+  return Array.isArray((payload as { body?: unknown })?.body) ? (payload as { body: T[] }).body : [];
 }
 
 function isUpowerBlockedPayload(data: Record<string, unknown> | null | undefined): boolean {

@@ -23,15 +23,11 @@ import type { SubtitleBodyItem } from "../ai/types.js";
 import { logWarn } from "../shared/logging.js";
 import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "./cache.js";
 import { acceptSecondarySubtitle } from "./commit.js";
+import { translatedTrackId } from "./source-key.js";
 
 // 分片时长：与浮层 use 的时间轴一致（60 秒），但调度语义独立——本模块不 import
 // live 域，避免把阅读面绑到播放器会话。
 const TRANSLATION_CHUNK_SEC = 60;
-
-// 译文副轨的轨身份（缓存键分量与副轨槽 id 同一串）：`translate-<目标语言>`。
-function translatedTrackId(targetLang: string): string {
-  return `translate-${String(targetLang || "").trim()}`;
-}
 
 export interface AsrTranslationProgress {
   // 有原文的分片总数
@@ -145,7 +141,7 @@ export async function ensureAsrSecondarySubtitle(
   const cacheKey = getSubtitleCacheKey({
     bvid,
     cid,
-    identity: { kind: "track", trackId }
+    identity: { kind: "translated", targetLang }
   });
   const cached = await loadTranslatedBody(cacheKey);
 

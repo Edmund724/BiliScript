@@ -31,7 +31,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
+    contentFetchJson: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300)
   };
 });
@@ -89,7 +89,7 @@ async function importEpoch() {
 
   gateway.fetchVideoMeta.mockReset();
   gateway.fetchSubtitleBundle.mockReset();
-  gateway.fetchSubtitleBody.mockReset();
+  gateway.contentFetchJson.mockReset();
   gateway.readRuntimeVideoDuration.mockReset().mockReturnValue(300);
   commit.acceptSubtitle.mockReset().mockResolvedValue(undefined);
   commit.commitNoSubtitle.mockReset().mockResolvedValue(undefined);
@@ -120,7 +120,7 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     gateway.fetchSubtitleBundle
       .mockResolvedValueOnce({ tracks: [oldTrack], chapters: [] })
       .mockResolvedValueOnce({ tracks: [freshTrack], chapters: [] });
-    gateway.fetchSubtitleBody
+    gateway.contentFetchJson
       .mockRejectedValueOnce(new Error("HTTP 403"))
       .mockResolvedValueOnce({ body: goodBody });
 
@@ -128,15 +128,15 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
 
     // 重试链恰好各跑两次：初始抓取 + 重抓 bundle / 初始加载 + 重试加载
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(2);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
     // 重抓 bundle 复用同一 bvid/cid/aid 上下文
     expect(gateway.fetchSubtitleBundle).toHaveBeenLastCalledWith(
       gateway.contentFetchJson,
       expect.objectContaining({ bvid: "BV1test000000", cid: "101", aid: "123" })
     );
     // 第二次加载用的是新 bundle 里的签名 URL（旧 URL 失效）
-    expect(gateway.fetchSubtitleBody.mock.calls[0][0]).toBe(oldTrack.subtitleUrl);
-    expect(gateway.fetchSubtitleBody.mock.calls[1][0]).toBe(freshTrack.subtitleUrl);
+    expect(gateway.contentFetchJson.mock.calls[0][0]).toBe(oldTrack.subtitleUrl);
+    expect(gateway.contentFetchJson.mock.calls[1][0]).toBe(freshTrack.subtitleUrl);
     // 字幕接受事务只落一次，选中轨即重选后的同 id 轨 + 新 URL
     expect(commit.acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(commit.acceptSubtitle).toHaveBeenCalledWith(
@@ -161,14 +161,14 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
       .mockResolvedValueOnce({ tracks: [oldTrack], chapters: [] })
       .mockResolvedValueOnce({ tracks: [freshTrack], chapters: [] });
     // 首次 body 覆盖 10s ≪ 300s×0.22 → too-short（SUBTITLE_DURATION_MISMATCH）
-    gateway.fetchSubtitleBody
+    gateway.contentFetchJson
       .mockResolvedValueOnce({ body: [{ from: 0, to: 10, content: "short" }] })
       .mockResolvedValueOnce({ body: goodBody });
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(2);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
     expect(commit.acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith({
       kind: "status",
@@ -178,13 +178,13 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
 
   it("重试仍失败：只重试一次，原始错误上抛并由 refreshClip 错误路径收尾", async () => {
     gateway.fetchSubtitleBundle.mockResolvedValue({ tracks: [oldTrack], chapters: [] });
-    gateway.fetchSubtitleBody.mockRejectedValue(new Error("HTTP 403"));
+    gateway.contentFetchJson.mockRejectedValue(new Error("HTTP 403"));
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
     // 恰好一次重试：bundle 两抓、body 两载，不无限循环
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(2);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
     // 原始错误（HTTP 403）上抛后的统一收尾：reset(keepFetchState) + error + 文案
     expect(uiStatus.setStatus).toHaveBeenLastCalledWith("抓取失败：HTTP 403");
     expect(state.clip.subtitleFetchState).toBe("error");
@@ -195,24 +195,24 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     gateway.fetchSubtitleBundle
       .mockResolvedValueOnce({ tracks: [oldTrack], chapters: [] })
       .mockResolvedValueOnce({ tracks: [], chapters: [] });
-    gateway.fetchSubtitleBody.mockRejectedValue(new Error("HTTP 403"));
+    gateway.contentFetchJson.mockRejectedValue(new Error("HTTP 403"));
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1);
     expect(uiStatus.setStatus).toHaveBeenLastCalledWith("抓取失败：HTTP 403");
     expect(state.clip.subtitleFetchState).toBe("error");
   });
 
   it("非重试类错误（无 HTTP 特征）不走重试链：bundle 只抓一次直接进错误路径", async () => {
     gateway.fetchSubtitleBundle.mockResolvedValue({ tracks: [oldTrack], chapters: [] });
-    gateway.fetchSubtitleBody.mockRejectedValue(new Error("字幕文件为空。"));
+    gateway.contentFetchJson.mockRejectedValue(new Error("字幕文件为空。"));
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(1);
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1);
     expect(uiStatus.setStatus).toHaveBeenLastCalledWith("抓取失败：字幕文件为空。");
     expect(state.clip.subtitleFetchState).toBe("error");
   });

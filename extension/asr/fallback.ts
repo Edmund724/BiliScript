@@ -34,10 +34,9 @@ import {
   getSubtitleCacheKey,
   loadSubtitleFromCache,
   clearSubtitleCacheByKey,
-  saveSubtitleToCache,
-  clearStaleAsrSubtitleCache,
-  clearTranslatedSubtitleCache
+  persistAsrSubtitleToCache
 } from "../subtitle/cache.js";
+import type { TrackIdentity } from "../subtitle/source-key.js";
 import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import { sleep } from "../shared/utils.js";
@@ -268,12 +267,11 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // refreshClip 误判为过期；换视频时 bvid/cid 变化才需要让 UI 收尾让位
       // （转写本身照跑，成果照落缓存）。
       isStale = () => `${state.clip.bvid}|${state.clip.cid}` !== videoKey;
+      const identity: TrackIdentity = { kind: "asr", providerId: activeId, model, lang: language };
       const cacheKey = getSubtitleCacheKey({
         bvid,
         cid,
-        // 组键显式传 ASR 变体身份（provider/model/language 分段由键位叶编码），
-        // 不再手拼 "asr:<provider>:<model>:<lang>" 字符串再去走 id 分支。
-        identity: { kind: "asr", providerId: activeId, model, lang: language }
+        identity
       });
 
       // 缓存命中：直接收尾（校验通过才用，不通过则清掉重新生成）
@@ -358,19 +356,10 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         });
         const body = Array.isArray(rawBody) ? rawBody : [];
         if (body.length > 0) {
-          const saveResult = await saveSubtitleToCache(cacheKey, body);
+          const saveResult = await persistAsrSubtitleToCache({ bvid, cid, identity, body });
           if (saveResult && saveResult.ok === false) {
             // 淘汰后重试仍失败：经既有消息栏一次性上浮，不阻断主流程。
             setMessage("语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
-          } else {
-            // 孤儿清理：新 ASR 转写落盘后，移除同视频其它 provider/model/language
-            // 的过期 ASR 变体键；平台字幕轨不是孤儿，保留。清理只在写入成功后
-            // 执行——写失败时旧变体仍是唯一可用副本，不能删。
-            await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
-            // 译文副轨失效（票 asr-panel-translation）：译文缓存键不含原文身份
-            //（`id_translate-<目标语言>` 是兼容面），新一版原文落盘后旧译文一律作废，
-            // 否则同一目标语言会命中旧原文本的译文。
-            await clearTranslatedSubtitleCache({ bvid, cid });
           }
         }
         return { body, outcome };

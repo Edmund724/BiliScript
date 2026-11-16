@@ -32,24 +32,31 @@ const { VIDEO_FACTS } = vi.hoisted(() => ({
     ],
     body: [
       { from: 0, to: 5, content: "第一句" },
-      { from: 5, to: 10, content: "第二句" }
+      { from: 5, to: 200, content: "第二句" }
     ]
   }
 }));
 
-vi.mock("../../extension/bilibili/gateway.js", () => ({
-  fetchVideoMeta: vi.fn(async () => VIDEO_FACTS.meta),
-  fetchSubtitleBundle: vi.fn(async () => ({
-    tracks: VIDEO_FACTS.tracks,
-    chapters: VIDEO_FACTS.chapters
-  })),
-  fetchSubtitleBody: vi.fn(async () => ({ body: VIDEO_FACTS.body }))
-}));
+vi.mock("../../extension/bilibili/video-api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/bilibili/video-api.js")>();
+  return {
+    ...actual,
+    fetchVideoMeta: vi.fn(async () => VIDEO_FACTS.meta),
+    fetchSubtitleBundle: vi.fn(async () => ({
+      tracks: VIDEO_FACTS.tracks,
+      chapters: VIDEO_FACTS.chapters
+    }))
+  };
+});
 
 // gateway 拆叶（arch-slim-2/04）：context-resolver 经 gateway-core 消费传输叶。
-vi.mock("../../extension/bilibili/gateway-core.js", () => ({
-  bgFetchJson: vi.fn()
-}));
+vi.mock("../../extension/bilibili/gateway-core.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway-core.js")>();
+  return {
+    ...actual,
+    bgFetchJson: vi.fn(async () => ({ body: VIDEO_FACTS.body }))
+  };
+});
 
 vi.mock("../../extension/core/settings-store.js", () => ({
   getMergedSettings: vi.fn(async () => ({ includeTimestampInBody: true }))

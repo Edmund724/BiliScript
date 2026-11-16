@@ -3,21 +3,21 @@
 // 派生的「这是不是 ASR 变体键」判据。身份编码不归存储族模块承载：缓存键入口收
 // 身份，ASR 侧显式构造 asr 身份，孤儿清理的匹配前缀取自本叶的导出常量。
 //
-// 身份的成员集是封闭判别联合（track / url / lang / asr），导出的四个面各司其职：
+// 身份的成员集是封闭判别联合（track / url / lang / asr / translated），导出面各司其职：
 //   ① trackIdentity(subtitleId, subtitleUrl, lang)：三个散字段原始输入 → 身份，
 //      优先级 id > url > lang 与 URL 归一的唯一裁定处；
-//   ② subtitleSourceKey(identity)：身份 → source key，封闭四态（switch 穷尽四态，
+//   ② subtitleSourceKey(identity)：身份 → source key，封闭五态（switch 穷尽五态，
 //      新增一态必须显式给一行——身份没有看不见的支线）；
 //   ③ buildSubtitleSourceKey(subtitleId, subtitleUrl, lang)：位置参数的便捷形
 //      （= ①∘②），供缓存族注入面与直取用——URL 归一不会被绕开；
-//   ④ isAsrVariantSourceKey(sourceKey) + ASR_SOURCE_KEY_PREFIX：ASR 变体判据与它的
-//      匹配前缀，前缀由本叶唯一根常量派生、判据即前缀匹配。组键侧（ASR 伪轨身份）
-//      与识别侧（孤儿清理）因此出自同一根，改编码时判据跟着改，不可能各写一套拼写
-//      而悄悄漂移。
+//   ④ isAsrVariantSourceKey / ASR_SOURCE_KEY_PREFIX 与
+//      isTranslatedVariantSourceKey / TRANSLATED_SOURCE_KEY_PREFIX：ASR 与译文副轨
+//      变体判据与匹配前缀，前缀由本叶唯一根常量派生、判据即前缀匹配。
 //
-// 字节纪律（缓存零迁移是硬验收）：四态的产物就是**既有缓存的 source key 字节面**——
+// 字节纪律（缓存零迁移是硬验收）：五态的产物就是**既有缓存的 source key 字节面**——
 // 键形逐字节不变，老缓存继续命中、无需迁移：轨 id 整体 trim、URL 归一（hostname + 净化
-// path）后空串回落 lang 分支、空语言的 unknown 兜底、ASR 分段用 ":" 原样拼接（不剔空段）。
+// path）后空串回落 lang 分支、空语言的 unknown 兜底、ASR 分段用 ":" 原样拼接（不剔空段）、
+// 译文副轨产 `id_translate-<目标语言>`。
 //
 // 叶子纪律：运行时依赖只有 URL 归一叶（第二套归一「削成 hostname + 净化 path」的
 // 住处，本叶 import 复用、不存第二份）；不碰 chrome、不碰 state、不拖网关闭包——
@@ -29,7 +29,8 @@ export type TrackIdentity =
   | { kind: "track"; trackId: unknown } // → id_<轨 id；trim 后非空>
   | { kind: "url"; url: unknown } // → url_<缓存键分量；归一后非空>
   | { kind: "lang"; lang: unknown } // → lang_<小写；空为 unknown>
-  | { kind: "asr"; providerId: unknown; model: unknown; lang: unknown }; // → id_asr:<p>:<m>:<l>
+  | { kind: "asr"; providerId: unknown; model: unknown; lang: unknown } // → id_asr:<p>:<m>:<l>
+  | { kind: "translated"; targetLang: unknown }; // → id_translate-<目标语言>
 
 // ASR 伪轨 id 的根名（叶内唯一根常量）：变体前缀与变体判据都从它派生。
 const ASR_VARIANT_ROOT = "asr";
@@ -37,7 +38,16 @@ const ASR_VARIANT_ROOT = "asr";
 // 全仓不得出现第二处 "id_asr:" 字面拼写。
 export const ASR_SOURCE_KEY_PREFIX = `id_${ASR_VARIANT_ROOT}:`;
 
-// id_ 分支分量（track 与 asr 两态共用同一语义：整体 trim 后进键）。
+// 译文副轨 id 前缀与 source key 前缀（叶内唯一根常量派生）。
+const TRANSLATED_VARIANT_ROOT = "translate-";
+export const TRANSLATED_SOURCE_KEY_PREFIX = `id_${TRANSLATED_VARIANT_ROOT}`;
+
+// 译文副轨的轨身份串（缓存键分量与副轨槽 id 同源）：`translate-<目标语言>`。
+export function translatedTrackId(targetLang: unknown): string {
+  return `${TRANSLATED_VARIANT_ROOT}${String(targetLang || "").trim()}`;
+}
+
+// id_ 分支分量（track / asr / translated 共用同一语义：整体 trim 后进键）。
 function trackIdComponent(rawId: unknown): string {
   return `id_${String(rawId || "").trim()}`;
 }
@@ -59,9 +69,7 @@ export function trackIdentity(subtitleId: unknown, subtitleUrl: unknown, lang: u
   return { kind: "lang", lang };
 }
 
-// ② 身份 → source key：封闭四态——产物即缓存键 source key 的字节面（键形就是兼容承诺，见头注字节纪律）。
-// 状态来源没有第二处：track / url / lang 由 ① 的 trackIdentity 产出（优先级与 URL 回落的唯一裁定处），
-// asr 由 ASR 组键侧（asr/fallback）显式构造——本函数的原始值编码不会收到 trackIdentity 不可能给出的状态。
+// ② 身份 → source key：封闭五态——产物即缓存键 source key 的字节面（键形就是兼容承诺，见头注字节纪律）。
 export function subtitleSourceKey(identity: TrackIdentity): string {
   switch (identity.kind) {
     case "track":
@@ -74,6 +82,8 @@ export function subtitleSourceKey(identity: TrackIdentity): string {
       return trackIdComponent(
         `${ASR_VARIANT_ROOT}:${asrSegmentText(identity.providerId)}:${asrSegmentText(identity.model)}:${asrSegmentText(identity.lang)}`
       );
+    case "translated":
+      return trackIdComponent(translatedTrackId(identity.targetLang));
   }
 }
 
@@ -86,4 +96,9 @@ export function buildSubtitleSourceKey(subtitleId: unknown, subtitleUrl: unknown
 // ④ ASR 变体判据：与编码同根——前缀由 ASR_VARIANT_ROOT 派生，判据即前缀匹配。
 export function isAsrVariantSourceKey(sourceKey: unknown): boolean {
   return String(sourceKey || "").startsWith(ASR_SOURCE_KEY_PREFIX);
+}
+
+// ⑤ 译文副轨变体判据：与编码同根——前缀由 TRANSLATED_VARIANT_ROOT 派生，判据即前缀匹配。
+export function isTranslatedVariantSourceKey(sourceKey: unknown): boolean {
+  return String(sourceKey || "").startsWith(TRANSLATED_SOURCE_KEY_PREFIX);
 }

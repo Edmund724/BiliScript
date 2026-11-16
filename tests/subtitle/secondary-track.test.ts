@@ -47,7 +47,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
+    contentFetchJson: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300)
   };
 });
@@ -116,7 +116,7 @@ async function importEpoch() {
   uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
 
   storageHost = installChromeHost();
-  gateway.fetchSubtitleBody.mockReset();
+  gateway.contentFetchJson.mockReset();
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
   readerBus.notifyReaderPresenter.mockReset();
   uiStatus.setStatus.mockReset();
@@ -198,10 +198,10 @@ describe("acceptSecondarySubtitle（副轨接受事务）", () => {
 describe("loadSecondarySubtitle（副轨装载）", () => {
   it("乐观写「目标 + loading」，网络到站后落 ready", async () => {
     const pending = createPending<{ body: unknown[] }>();
-    gateway.fetchSubtitleBody.mockImplementation(() => pending.promise);
+    gateway.contentFetchJson.mockImplementation(() => pending.promise);
 
     const run = loadSecondary();
-    await vi.waitFor(() => expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1));
 
     // await 之前就已乐观写入：副列选中态与列表占位立刻反映用户的选择
     expect(state.clip.secondarySubtitle).toMatchObject({
@@ -222,12 +222,12 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
     storageHost.seedCacheEntry(secondaryCacheKey(), GOOD_BODY);
 
     await loadSecondary();
-    expect(gateway.fetchSubtitleBody).not.toHaveBeenCalled();
+    expect(gateway.contentFetchJson).not.toHaveBeenCalled();
     expect(state.clip.secondarySubtitle.state).toBe("ready");
     expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["First", "Second"]);
 
     // 盘上仍是那条缓存体；forceRefresh 必须无视它取网络新体（内容可区分，证明真的绕过）
-    gateway.fetchSubtitleBody.mockResolvedValue({
+    gateway.contentFetchJson.mockResolvedValue({
       body: [
         { from: 0, to: 1.2, content: "Net" },
         { from: 1.5, to: 290, content: "Work" }
@@ -235,12 +235,12 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
     });
     await loadSecondary({ forceRefresh: true });
 
-    expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1);
+    expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1);
     expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["Net", "Work"]);
   });
 
   it("失败（网络抛错）⇒ error 态 + 保留目标 + 清 body + 上抛（不回退、不弹开关）", async () => {
-    gateway.fetchSubtitleBody.mockRejectedValue(new Error("HTTP 500"));
+    gateway.contentFetchJson.mockRejectedValue(new Error("HTTP 500"));
 
     await expect(loadSecondary()).rejects.toThrow("HTTP 500");
 
@@ -252,7 +252,7 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
   });
 
   it("时长不匹配 ⇒ error 态（错轨不写进槽）", async () => {
-    gateway.fetchSubtitleBody.mockResolvedValue({ body: [{ from: 0, to: 400, content: "错轨" }] });
+    gateway.contentFetchJson.mockResolvedValue({ body: [{ from: 0, to: 400, content: "错轨" }] });
 
     await expect(loadSecondary()).rejects.toMatchObject({ code: "SUBTITLE_DURATION_MISMATCH" });
     expect(state.clip.secondarySubtitle.state).toBe("error");
@@ -260,7 +260,7 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
   });
 
   it("空 body ⇒ error 态", async () => {
-    gateway.fetchSubtitleBody.mockResolvedValue({ body: [] });
+    gateway.contentFetchJson.mockResolvedValue({ body: [] });
 
     await expect(loadSecondary()).rejects.toThrow("字幕文件为空。");
     expect(state.clip.secondarySubtitle.state).toBe("error");
@@ -275,7 +275,7 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
 
   it("STALE_RUN 让位 ⇒ 不写 error（旧 run 的失败不污染已重置的新视频槽）", async () => {
     clipState.setFetchRunId(5);
-    gateway.fetchSubtitleBody.mockRejectedValue(
+    gateway.contentFetchJson.mockRejectedValue(
       Object.assign(new Error("stale"), { code: "STALE_RUN" })
     );
 

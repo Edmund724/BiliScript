@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAgentBridgeVideoService } from "../../extension/agent-bridge/video-service.js";
+import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 
 const bvid = "BV1test000000";
 const provider = {
@@ -111,6 +112,33 @@ describe("Agent Bridge 视频服务", () => {
     expect(right.subtitle.items).toEqual([{ from: 0, to: 4, content: "转写结果" }]);
     await service.getSubtitles({ bvid });
     expect(transcribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("ASR 转写落盘后同步清理过期 ASR 变体与共享译文副轨缓存", async () => {
+    const staleAsrKey = getSubtitleCacheKey({
+      bvid,
+      cid: "100",
+      identity: { kind: "asr", providerId: "old-asr", model: "old-model", lang: "auto" }
+    });
+    const translatedEnKey = getSubtitleCacheKey({
+      bvid,
+      cid: "100",
+      identity: { kind: "translated", targetLang: "en" }
+    });
+    await saveSubtitleToCache(staleAsrKey, [{ from: 0, to: 3, content: "旧转写" }]);
+    await saveSubtitleToCache(translatedEnKey, [{ from: 0, to: 3, content: "old translation" }]);
+
+    const service = createAgentBridgeVideoService({
+      transport: vi.fn(async (url: string) => url.includes("view") ? metaPayload() : playerPayload(false)),
+      getAsrRuntime: async () => ({ enabled: true, provider, language: "zh" }),
+      transcribe: async () => [{ from: 0, to: 4, content: "新版转写结果" }]
+    });
+
+    const result = await service.getSubtitles({ bvid });
+
+    expect(result.subtitle.items).toEqual([{ from: 0, to: 4, content: "新版转写结果" }]);
+    await expect(loadSubtitleFromCache(staleAsrKey)).resolves.toBeNull();
+    await expect(loadSubtitleFromCache(translatedEnKey)).resolves.toBeNull();
   });
 
   it("comments 返回前 20 条热评", async () => {

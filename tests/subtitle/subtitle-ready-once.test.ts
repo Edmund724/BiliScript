@@ -22,7 +22,6 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300),
     contentFetchJson: vi.fn()
   };
@@ -89,7 +88,7 @@ describe("字幕就绪通知全程恰一次（链级防回焊锁）", () => {
       ],
       chapters: []
     });
-    vi.mocked(gateway.fetchSubtitleBody).mockResolvedValue({
+    vi.mocked(gateway.contentFetchJson).mockResolvedValue({
       body: [
         { from: 0, to: 140, content: "大家好" },
         { from: 140, to: 280, content: "开始今天的话题" }

@@ -9,6 +9,12 @@
 //    以降低字幕逐句翻译的首字延迟与 token 成本。
 
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
+import type { ProviderTransport } from "../core/provider-http-shared.js";
+import {
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
 import {
   resolveSubtitleTranslateProviderConfig,
   type SubtitleTranslateProviderResolution
@@ -68,6 +74,7 @@ export interface SubtitleTranslateRequestInput {
   stream?: boolean;
   signal?: AbortSignal | null;
   maxTokens?: number | null;
+  fetchImpl?: ProviderTransport;
   /** 外部传入的任何思考档位将被显式忽略，强制收敛为 "off"。 */
   thinkingLevel?: unknown;
 }
@@ -75,7 +82,7 @@ export interface SubtitleTranslateRequestInput {
 /**
  * 装配字幕翻译模型请求：
  * 固定将思考档位设为关闭（`off`），不继承对话面板的高思考强度档位，
- * 降低首字延迟与 token 消耗。
+ * 降低首字延迟与 token 消耗；传输默认走 offscreen 代发通道以绕过页面 CORS 预检。
  */
 export function buildSubtitleTranslateRequest(
   input: SubtitleTranslateRequestInput
@@ -92,31 +99,28 @@ export function buildSubtitleTranslateRequest(
     stream: input.stream ?? false,
     signal: input.signal ?? null,
     maxTokens: input.maxTokens ?? null,
+    fetchImpl: input.fetchImpl ?? providerFetchViaOffscreen,
     // 固定将思考档位设为关闭（off），不继承对话面板的高思考强度档位
     thinkingLevel: "off"
   };
 }
 
-export const TARGET_LANG_NAME_MAP: Record<string, string> = {
-  zh: "中文",
-  en: "英文",
-  ja: "日文",
-  ko: "韩文",
-  de: "德文",
-  fr: "法文",
-  es: "西班牙文",
-  ru: "俄文",
-  it: "意大利文",
-  pt: "葡萄牙文",
-  tr: "土耳其文",
-  el: "希腊文",
-  id: "印尼文",
-  ms: "马来文"
+const PROMPT_LANG_NAME_OVERRIDES: Partial<Record<LiveInterpretTargetLang, string>> = {
+  en: "英文"
 };
+
+export const TARGET_LANG_NAME_MAP: Record<string, string> = Object.fromEntries(
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => [
+    option.value,
+    PROMPT_LANG_NAME_OVERRIDES[option.value] ?? option.label
+  ])
+);
 
 export function resolveTargetLangDisplayName(lang: string): string {
   const code = String(lang || "").trim().toLowerCase();
-  return TARGET_LANG_NAME_MAP[code] || lang;
+  return Object.prototype.hasOwnProperty.call(TARGET_LANG_NAME_MAP, code)
+    ? TARGET_LANG_NAME_MAP[code]
+    : lang;
 }
 
 /**
@@ -215,19 +219,22 @@ export interface TranslateSubtitleItemsInput {
   signal?: AbortSignal | null;
   fallbackToOriginal?: boolean;
   chatCompletionFn?: typeof chatCompletion;
+  fetchImpl?: ProviderTransport;
 }
 
 /**
  * 基于序号行协议的 LLM 逐句翻译核心函数：
  * 将一组字幕条目翻译为指定目标语言，返回保持 1:1 时间戳对齐的新字幕条目数组。
+ * 默认不将未译出的行回退为原文（fallbackToOriginal = false），避免原文混入共享译文缓存。
  */
 export async function translateSubtitleItems({
   items,
   targetLang,
   providerResolution,
   signal,
-  fallbackToOriginal = true,
-  chatCompletionFn = chatCompletion
+  fallbackToOriginal = false,
+  chatCompletionFn = chatCompletion,
+  fetchImpl = providerFetchViaOffscreen
 }: TranslateSubtitleItemsInput): Promise<SubtitleBodyItem[]> {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
@@ -244,7 +251,8 @@ export async function translateSubtitleItems({
       protocol: resolved.protocol
     },
     messages,
-    signal
+    signal,
+    fetchImpl
   });
 
   const rawResult = await chatCompletionFn(request);

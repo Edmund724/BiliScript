@@ -2,6 +2,7 @@ import { bgFetchJson, type JsonTransport } from "../bilibili/gateway-core.js";
 import {
   fetchSubtitleBundle,
   fetchVideoMeta,
+  resolveVideoPageFromMeta,
   type Chapter,
   type SubtitleTrack,
   type VideoMeta,
@@ -9,26 +10,22 @@ import {
 } from "../bilibili/video-api.js";
 import { fetchHotCommentsJson } from "../bilibili/hot-comments.js";
 import { getSettingsSnapshot, getProviderStore } from "../core/settings-snapshot.js";
+import { acquireBiliMediaSessionRule, releaseBiliMediaSessionRule } from "../core/offscreen-host.js";
 import { runAsrPipeline } from "../asr/pipeline.js";
 import { createOffscreenChunkHost } from "../asr/offscreen-bridge.page.js";
-import { handleAsrDecodeCleanup, handleAsrDecodePrepare } from "../asr/offscreen-bridge.bg.js";
 import { resolveActiveAsrProviderId, type AsrProvider } from "../asr/asr-provider-store.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
+import { loadPreferredNativeSubtitle } from "../subtitle/body.js";
 import {
-  clearStaleAsrSubtitleCache,
   clearSubtitleCacheByKey,
   getSubtitleCacheKey,
   loadSubtitleFromCache,
-  saveSubtitleToCache
+  normalizeSubtitleItems,
+  persistAsrSubtitleToCache
 } from "../subtitle/cache.js";
 import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
-import {
-  buildSubtitleCandidates,
-  normalizeSubtitleItems
-} from "../subtitle/cache.js";
-import { normalizeSubtitleTracks, pickPreferredSubtitle } from "../subtitle/selection.js";
-import { trackIdentity } from "../subtitle/source-key.js";
+import type { TrackIdentity } from "../subtitle/source-key.js";
 import type {
   AgentBridgeCommentsResult,
   AgentBridgeContentSubtitlesResult,
@@ -63,26 +60,27 @@ export interface AgentBridgeVideoServiceDeps {
   transcribe?: (bvid: string, cid: string) => Promise<AgentBridgeSubtitleItem[]>;
 }
 
-function prepareOffscreenTask(): Promise<{ ok: boolean; ruleId?: number; error?: string }> {
-  return new Promise((resolve) => {
-    void handleAsrDecodePrepare({}, {}, resolve);
-  });
-}
-
-function cleanupOffscreenTask(ruleId: number): Promise<{ ok: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    void handleAsrDecodeCleanup({ ruleId }, {}, resolve);
-  });
-}
-
 async function defaultTranscribe(bvid: string, cid: string): Promise<AgentBridgeSubtitleItem[]> {
   return runAsrPipeline({
     bvid,
     cid,
     sourceTransport: bgFetchJson,
     chunkHost: createOffscreenChunkHost({
-      prepare: prepareOffscreenTask,
-      cleanup: cleanupOffscreenTask
+      prepare: async () => {
+        try {
+          return { ok: true, ruleId: await acquireBiliMediaSessionRule("audio-xhr", "o") };
+        } catch (error) {
+          return { ok: false, error: getErrorMessage(error) };
+        }
+      },
+      cleanup: async (ruleId: number) => {
+        try {
+          await releaseBiliMediaSessionRule(ruleId, "o");
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: getErrorMessage(error) };
+        }
+      }
     })
   });
 }
@@ -111,33 +109,30 @@ function normalizeItems(items: unknown): AgentBridgeSubtitleItem[] {
 }
 
 function resolveVideo(meta: VideoMeta, pageIndex = 1, cid = ""): ResolvedVideo {
-  const pages = Array.isArray(meta.pages) ? meta.pages : [];
-  const page = pages.find((item) => cid && item.cid === cid)
-    || pages.find((item) => item.page === pageIndex)
-    || pages[0]
-    || {
-      cid: cid || meta.defaultCid,
-      page: pageIndex,
-      part: "",
-      duration: meta.defaultDuration
-    };
-  const resolvedCid = String(cid || page.cid || meta.defaultCid || "");
-  if (!resolvedCid) throw new Error("视频信息缺少 cid，无法获取字幕或评论");
-  const resolvedPage = { ...page, cid: resolvedCid };
+  const resolved = resolveVideoPageFromMeta(meta, { cid, pageIndex });
+  if (!resolved.cid) throw new Error("视频信息缺少 cid，无法获取字幕或评论");
+  const resolvedPage: VideoPage = resolved.page
+    ? { ...resolved.page, cid: resolved.cid }
+    : {
+        cid: resolved.cid,
+        page: resolved.pageIndex,
+        part: resolved.pageTitle,
+        duration: resolved.duration
+      };
   return {
     meta,
     page: resolvedPage,
     video: {
       bvid: "",
       aid: meta.aid,
-      cid: resolvedCid,
+      cid: resolved.cid,
       title: meta.title,
       author: meta.author,
       description: meta.description,
       uploadDate: meta.uploadDate,
-      duration: Number(page.duration || meta.defaultDuration || 0),
-      page: Number(page.page || pageIndex || 1),
-      pageCount: pages.length
+      duration: resolved.duration,
+      page: resolved.pageIndex,
+      pageCount: resolved.pageCount
     }
   };
 }
@@ -163,61 +158,31 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
     return resolved;
   }
 
-  async function loadNativeTrack(
-    track: SubtitleTrack,
-    resolved: ResolvedVideo
-  ): Promise<AgentBridgeSubtitleItem[]> {
-    const { bvid, cid } = resolved.video;
-    const language = track.lanDoc || track.lan || "unknown";
-    const cacheKey = getSubtitleCacheKey({
-      bvid,
-      cid,
-      identity: trackIdentity(track.id, track.subtitleUrl, language)
-    });
-    const cached = await loadSubtitleFromCache(cacheKey);
-    if (cached?.length) {
-      const items = normalizeItems(cached);
-      if (validateSubtitleByDuration(items, resolved.video.duration).ok) return items;
-      await clearSubtitleCacheByKey(cacheKey);
-    }
-
-    const payload = await transport(track.subtitleUrl);
-    const items = normalizeItems((payload as { body?: unknown })?.body);
-    if (!items.length) throw new Error("字幕文件为空。");
-    if (!validateSubtitleByDuration(items, resolved.video.duration).ok) {
-      throw new Error("字幕时长与当前视频不匹配。");
-    }
-    await saveSubtitleToCache(cacheKey, items);
-    return items;
-  }
-
   async function loadNativeSubtitle(resolved: ResolvedVideo): Promise<{
     track: SubtitleTrack;
     chapters: Chapter[];
     items: AgentBridgeSubtitleItem[];
   } | null> {
-    const { bvid, cid, aid } = resolved.video;
+    const { bvid, cid, aid, duration } = resolved.video;
     const bundle = await fetchSubtitleBundle(transport, { bvid, cid, aid });
-    const tracks = normalizeSubtitleTracks(bundle.tracks);
-    const preferred = pickPreferredSubtitle(tracks);
-    const candidates = buildSubtitleCandidates(tracks, preferred);
-    if (!candidates.length) {
+    const loaded = await loadPreferredNativeSubtitle({
+      tracks: bundle.tracks,
+      bvid,
+      cid,
+      videoDuration: duration,
+      transport
+    });
+    if (!loaded) {
       if (bundle.upowerBlocked || resolved.meta.upowerBlocked) {
         throw new Error("该视频为充电专属视频，当前账号无法获取完整音轨，不能进行 ASR 转写");
       }
       return null;
     }
-
-    let lastError: unknown = null;
-    for (const track of candidates) {
-      try {
-        const items = await loadNativeTrack(track, resolved);
-        return { track, chapters: bundle.chapters, items };
-      } catch (error) {
-        lastError = error;
-      }
+    const items = normalizeItems(loaded.body);
+    if (!items.length) {
+      throw new Error("字幕文件为空。");
     }
-    throw lastError || new Error("这个视频暂时没有可用字幕。");
+    return { track: loaded.track, chapters: bundle.chapters, items };
   }
 
   async function loadAsrSubtitle(resolved: ResolvedVideo): Promise<{
@@ -234,16 +199,13 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
 
     const { bvid, cid } = resolved.video;
     const model = String(runtime.provider.model || "").trim();
-    const cacheKey = getSubtitleCacheKey({
-      bvid,
-      cid,
-      identity: {
-        kind: "asr",
-        providerId: runtime.provider.id,
-        model,
-        lang: runtime.language
-      }
-    });
+    const identity: TrackIdentity = {
+      kind: "asr",
+      providerId: runtime.provider.id,
+      model,
+      lang: runtime.language
+    };
+    const cacheKey = getSubtitleCacheKey({ bvid, cid, identity });
     const cached = await loadSubtitleFromCache(cacheKey);
     if (cached?.length) {
       const items = normalizeItems(cached);
@@ -258,8 +220,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       task = (async () => {
         const items = normalizeItems(await transcribe(bvid, cid));
         if (!items.length) throw new Error("ASR 转写完成，但未识别到语音内容。");
-        const saved = await saveSubtitleToCache(cacheKey, items);
-        if (saved.ok) await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
+        await persistAsrSubtitleToCache({ bvid, cid, identity, body: items });
         return items;
       })();
       activeAsr.set(cacheKey, task);

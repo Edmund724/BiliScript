@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  TARGET_LANG_NAME_MAP,
   buildSubtitleTranslateRequest,
   formatSubtitleNumberedLines,
   parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
+  resolveTargetLangDisplayName,
   translateSubtitleItems
 } from "../../extension/ai/subtitle-translate.js";
+import { providerFetchViaOffscreen } from "../../extension/core/provider-http-offscreen.js";
+import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
 import { resolveSubtitleTranslateProviderConfig } from "../../extension/ai/subtitle-translate-config.js";
 import { NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/provider-handlers.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
@@ -232,8 +236,9 @@ describe("字幕翻译请求装配与思考关闭 buildSubtitleTranslateRequest"
       thinkingLevel: "high"
     });
 
-    // 必须强制设为 off
+    // 必须强制设为 off，且默认走 offscreen 代发传输
     expect(request.thinkingLevel).toBe("off");
+    expect(request.fetchImpl).toBe(providerFetchViaOffscreen);
     expect(request.messages).toHaveLength(2);
     expect(request.provider.model).toBe("deepseek-chat");
 
@@ -350,11 +355,73 @@ describe("字幕翻译序号行协议", () => {
     });
 
     expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    expect(mockChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetchImpl: providerFetchViaOffscreen,
+        thinkingLevel: "off"
+      })
+    );
     expect(result).toEqual([
       { from: 0, to: 2.5, content: "你好" },
       { from: 2.5, to: 5.0, content: "你好吗" },
       { from: 5.0, to: 8.0, content: "学新知识" }
     ]);
+  });
+
+  it("translateSubtitleItems 默认 fallbackToOriginal=false，未译出行返回空串而不污染共享译文缓存", async () => {
+    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n3. 学新知识");
+    const result = await translateSubtitleItems({
+      items: originalItems,
+      targetLang: "zh",
+      providerResolution: {
+        provider: { id: "p1", name: "P1", baseUrl: "https://api.test", models: ["m1"], enabled: true, hasSavedKey: true },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(result).toEqual([
+      { from: 0, to: 2.5, content: "你好" },
+      { from: 2.5, to: 5.0, content: "" },
+      { from: 5.0, to: 8.0, content: "学新知识" }
+    ]);
+  });
+
+  it("translateSubtitleItems 显式开启 fallbackToOriginal=true 时回退原文", async () => {
+    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n3. 学新知识");
+    const result = await translateSubtitleItems({
+      items: originalItems,
+      targetLang: "zh",
+      fallbackToOriginal: true,
+      providerResolution: {
+        provider: { id: "p1", name: "P1", baseUrl: "https://api.test", models: ["m1"], enabled: true, hasSavedKey: true },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(result).toEqual([
+      { from: 0, to: 2.5, content: "你好" },
+      { from: 2.5, to: 5.0, content: "How are you today?" },
+      { from: 5.0, to: 8.0, content: "学新知识" }
+    ]);
+  });
+
+  it("目标语言展示名从 LIVE_INTERPRET_TARGET_LANG_OPTIONS 派生并覆盖全部 14 种语言", () => {
+    const expectedCodes = LIVE_INTERPRET_TARGET_LANG_OPTIONS.map((option) => option.value);
+    expect(Object.keys(TARGET_LANG_NAME_MAP)).toEqual(expectedCodes);
+    expect(resolveTargetLangDisplayName("en")).toBe("英文");
+    expect(resolveTargetLangDisplayName("ja")).toBe("日语");
+    expect(resolveTargetLangDisplayName("ZH")).toBe("中文");
+    expect(resolveTargetLangDisplayName("unknown-lang")).toBe("unknown-lang");
   });
 
   it("空列表直接返回空数组，不发起请求", async () => {

@@ -3,12 +3,25 @@ import { state, clipState } from "../core/state.js";
 import { getRuntimeVideoElement } from "./video-probe.js";
 import { contentFetchJson } from "./content-transport.js";
 import type { JsonTransport } from "./gateway-core.js";
-import { logInfo, logWarn } from "../shared/logging.js";
 import type { HotComment } from "./bili-api-shared.js";
 import { fetchHotCommentsJson } from "./hot-comments.js";
+import { fetchSubtitleBodyJson } from "./video-api.js";
 export { fetchHotCommentsJson } from "./hot-comments.js";
-export { fetchVideoMeta, fetchSubtitleBundle } from "./video-api.js";
-export type { VideoPage, VideoMeta, SubtitleTrack, Chapter } from "./video-api.js";
+export {
+  fetchVideoMeta,
+  fetchSubtitleBundle,
+  fetchSubtitleBodyJson,
+  resolveVideoPageFromMeta
+} from "./video-api.js";
+export type {
+  VideoPage,
+  VideoPageQuery,
+  VideoMetaLike,
+  ResolvedVideoPage,
+  VideoMeta,
+  SubtitleTrack,
+  Chapter
+} from "./video-api.js";
 
 declare global {
   interface Window {
@@ -49,7 +62,6 @@ export function readRuntimeVideoDuration(): number {
 }
 
 export async function fetchSubtitleBody<T = unknown>(url: string): Promise<{ body: T[] }> {
-  logInfo("[BILISCRIPT] fetch subtitle body", { url });
   const body = await fetchSubtitleBodyJson<T>(contentFetchJson, url);
   return { body };
 }
@@ -103,9 +115,4 @@ export async function fetchHotCommentsWithLedger(
     ledger.setHotComments([]);
     return { comments: [], note: getErrorMessage(error) };
   }
-}
-
-async function fetchSubtitleBodyJson<T>(transport: JsonTransport, url: string): Promise<T[]> {
-  const payload = await transport(url);
-  return Array.isArray((payload as { body?: unknown })?.body) ? (payload as { body: T[] }).body : [];
 }

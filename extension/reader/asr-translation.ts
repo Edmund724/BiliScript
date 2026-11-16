@@ -18,10 +18,8 @@
 // 换视频/换代次即收场：在飞翻译中止，进度清零，已落盘分片留在缓存里等下次命中。
 
 import { state, clipState } from "../core/state.js";
-import {
-  LIVE_INTERPRET_TARGET_LANG_OPTIONS,
-  type LiveInterpretTargetLang
-} from "../live/interpret-subtitle-preferences.js";
+import { normalizeLiveInterpretTargetLang } from "../core/validators.js";
+import type { LiveInterpretTargetLang } from "../live/interpret-subtitle-preferences.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
@@ -39,18 +37,12 @@ export function hasAsrPseudoTrack(
   );
 }
 
-const DEFAULT_TARGET_LANG: LiveInterpretTargetLang = "zh";
-
 export function resolveAsrTranslationLang(): LiveInterpretTargetLang {
-  const raw = String(state.settings.liveInterpretTargetLang || "").trim();
-  const found = LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === raw);
-  return (found?.value ?? DEFAULT_TARGET_LANG) as LiveInterpretTargetLang;
+  return normalizeLiveInterpretTargetLang(state.settings.liveInterpretTargetLang);
 }
 
 export function normalizeAsrTranslationLang(value: unknown): LiveInterpretTargetLang {
-  const raw = String(value ?? "").trim();
-  const found = LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === raw);
-  return (found?.value ?? DEFAULT_TARGET_LANG) as LiveInterpretTargetLang;
+  return normalizeLiveInterpretTargetLang(value);
 }
 
 // ===== 在飞与进度（本模块持有的唯一一份）=====

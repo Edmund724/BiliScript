@@ -13,6 +13,7 @@
 
 import { getRuntimeVideoElement as defaultGetVideo } from "../bilibili/video-probe.js";
 import { extractPageIndex } from "../bilibili/video-id-shared.js";
+import { resolveVideoPageFromMeta } from "../bilibili/video-api.js";
 
 interface PageItem {
   cid?: string | number;
@@ -59,40 +60,6 @@ function extractOid(url: string) {
   } catch {
     return "";
   }
-}
-
-function pickPageFromPages(pages: PageItem[], pageIndex: number) {
-  const safePageIndex = Number(pageIndex) > 0 ? Number(pageIndex) : 1;
-  const safePages = Array.isArray(pages) ? pages : [];
-  const pageByIndex = safePages[safePageIndex - 1];
-  if (pageByIndex?.cid) {
-    return pageByIndex;
-  }
-
-  const pageByNo = safePages.find((item) => Number(item.page) === safePageIndex);
-  if (pageByNo?.cid) {
-    return pageByNo;
-  }
-
-  return null;
-}
-
-function pickCidFromPages(pages: PageItem[], pageIndex: number, fallbackCid: string | number = "") {
-  const matchedPage = pickPageFromPages(pages, pageIndex);
-  if (matchedPage?.cid) {
-    return String(matchedPage.cid);
-  }
-
-  const safePages = Array.isArray(pages) ? pages : [];
-  if (safePages[0]?.cid) {
-    return String(safePages[0].cid);
-  }
-
-  if (fallbackCid) {
-    return String(fallbackCid);
-  }
-
-  throw new Error("没有找到当前分P的 CID。");
 }
 
 function pickPageIndexFromOid(pages: PageItem[], oid: string | number, options: PageContextOptions = {}) {
@@ -271,20 +238,6 @@ function readPageFromPlayerDom(pages: PageItem[], options: PageContextOptions = 
   return 0;
 }
 
-function pickDurationFromPages(pages: PageItem[], pageIndex: number, fallbackDuration: string | number = 0) {
-  const matchedPage = pickPageFromPages(pages, pageIndex);
-  if (matchedPage && Number(matchedPage.duration) > 0) {
-    return Number(matchedPage.duration);
-  }
-
-  const safePages = Array.isArray(pages) ? pages : [];
-  if (safePages[0] && Number(safePages[0].duration) > 0) {
-    return Number(safePages[0].duration);
-  }
-
-  return Number(fallbackDuration || 0) || 0;
-}
-
 // ===== resolvePageContext seam =====
 //
 // Single entry point for resolving the current multi-page context:
@@ -326,12 +279,15 @@ export function resolvePageContext(
     }
   }
 
-  const currentPage = pickPageFromPages(safePages, resolvedPageIndex);
+  const resolved = resolveVideoPageFromMeta(meta, { pageIndex: resolvedPageIndex });
+  if (!resolved.cid) {
+    throw new Error("没有找到当前分P的 CID。");
+  }
   return {
     pageIndex: resolvedPageIndex,
-    cid: currentPage?.cid || pickCidFromPages(safePages, resolvedPageIndex, meta.defaultCid ?? ""),
+    cid: resolved.cid,
     cidSource: "meta-pages",
-    duration: pickDurationFromPages(safePages, resolvedPageIndex, meta.defaultDuration),
-    pageTitle: currentPage?.part || ""
+    duration: resolved.duration,
+    pageTitle: resolved.pageTitle
   };
 }

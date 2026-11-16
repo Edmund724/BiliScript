@@ -522,12 +522,21 @@ describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", (
     lazy.calls = [];
     clipState.clearSecondarySubtitle();
     const synced = module.syncBilingualSettingsFromStorage({
-      secondarySubtitleLang: { oldValue: "en-US", newValue: "ai-en" }
+      secondarySubtitleLang: { oldValue: "en-US", newValue: "ai-en" },
+      liveInterpretTargetLang: { oldValue: "zh", newValue: "ja" }
     });
     expect(synced.changed).toBe(true);
     expect(state.settings.secondarySubtitleLang).toBe("ai-en");
+    expect(state.settings.liveInterpretTargetLang).toBe("ja");
     expect(synced.loadOutcome.kind).toBe("started");
     await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
+
+    const invalidSync = module.syncBilingualSettingsFromStorage({
+      liveInterpretTargetLang: { oldValue: "ja", newValue: "auto" }
+    });
+    expect(invalidSync.changed).toBe(true);
+    expect(state.settings.liveInterpretTargetLang).toBe("zh");
+    await started(invalidSync.loadOutcome).settled;
 
     // 重试：槽 error 时以 forceRefresh=true 重抓
     lazy.calls = [];

@@ -43,7 +43,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
     ...actual,
     fetchVideoMeta: vi.fn(),
     fetchSubtitleBundle: vi.fn(),
-    fetchSubtitleBody: vi.fn(),
+    contentFetchJson: vi.fn(),
     readRuntimeVideoDuration: vi.fn(() => 300)
   };
 });
@@ -78,7 +78,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
 // gateway.fetchSubtitleBody、commit.acceptSubtitle
 import * as fetcher from "../../extension/subtitle/fetcher.js";
 import {
-  fetchSubtitleBody as fetchBodyMock,
+  contentFetchJson as fetchBodyMock,
   fetchSubtitleBundle as fetchBundleMock,
   fetchVideoMeta as fetchMetaMock
 } from "../../extension/bilibili/gateway.js";

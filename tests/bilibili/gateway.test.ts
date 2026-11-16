@@ -13,9 +13,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchHotCommentsWithLedger,
+  fetchSubtitleBodyJson,
   fetchSubtitleBundle,
   fetchVideoMeta,
-  isBiliUrl
+  isBiliUrl,
+  resolveVideoPageFromMeta
 } from "../../extension/bilibili/gateway.js";
 import { clipState } from "../../extension/core/state.js";
 import { formatLocalDate } from "../../extension/shared/utils.js";
@@ -369,5 +371,67 @@ describe("fetchHotCommentsWithLedger：热评编排单源", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("fetchSubtitleBodyJson 与 resolveVideoPageFromMeta 单源辅助函数", () => {
+  it("fetchSubtitleBodyJson 提取 body 数组，非数组或缺失回落空数组", async () => {
+    const okTransport = vi.fn(async () => ({ body: [{ from: 0, to: 2, content: "hi" }] }));
+    await expect(fetchSubtitleBodyJson(okTransport, "https://i0.hdslb.com/sub.json")).resolves.toEqual([
+      { from: 0, to: 2, content: "hi" }
+    ]);
+
+    const badTransport = vi.fn(async () => ({ body: "invalid" }));
+    await expect(fetchSubtitleBodyJson(badTransport, "https://i0.hdslb.com/sub.json")).resolves.toEqual([]);
+  });
+
+  it("resolveVideoPageFromMeta 支持 cid 匹配、page === pageIndex 与 pages[pageIndex - 1] 回退", () => {
+    const meta = {
+      defaultCid: "100",
+      defaultDuration: 60,
+      pages: [
+        { cid: "200", page: 2, part: "乱序第二P", duration: 120 },
+        { cid: "100", page: 1, part: "乱序第一P", duration: 90 }
+      ]
+    };
+
+    expect(resolveVideoPageFromMeta(meta, { cid: "200", pageIndex: 1 })).toMatchObject({
+      cid: "200",
+      pageIndex: 2,
+      pageTitle: "乱序第二P",
+      duration: 120,
+      pageCount: 2
+    });
+
+    expect(resolveVideoPageFromMeta(meta, { pageIndex: 1 })).toMatchObject({
+      cid: "100",
+      pageIndex: 1,
+      pageTitle: "乱序第一P",
+      duration: 90
+    });
+
+    const sparseMeta = {
+      defaultCid: "100",
+      defaultDuration: 60,
+      pages: [
+        { cid: "100", page: 1, part: "P1", duration: 80 },
+        { cid: "300", page: 3, part: "位置2", duration: 150 }
+      ]
+    };
+    expect(resolveVideoPageFromMeta(sparseMeta, { pageIndex: 2 })).toMatchObject({
+      cid: "300",
+      pageIndex: 3,
+      pageTitle: "位置2",
+      duration: 150
+    });
+
+    expect(resolveVideoPageFromMeta({ defaultCid: "999", defaultDuration: 45, pages: [] }, { pageIndex: 2 })).toMatchObject({
+      page: null,
+      cid: "999",
+      pageIndex: 2,
+      pageTitle: "",
+      duration: 45,
+      pageCount: 0
+    });
   });
 });

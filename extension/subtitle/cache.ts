@@ -4,10 +4,11 @@ import { parseBvidFromCacheKey, readFamilyKeys, writeWithEviction, type Eviction
 // bilibili/native-payload.ts（架构评审「轨道身份」）。同一字段的两套归一此后只住一处，
 // 本模块 import 复用，不再另存一份。
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
-// 「字幕轨身份」编码单点与 ASR 变体判据（键位叶）：三种平台轨身份与 ASR 变体身份
+// 「字幕轨身份」编码单点与变体判据（键位叶）：平台轨身份、ASR 变体身份与译文副轨身份
 // 的编码、以及孤儿清理的匹配前缀都出自它——身份拼写不在此处定义。
 import {
   ASR_SOURCE_KEY_PREFIX,
+  TRANSLATED_SOURCE_KEY_PREFIX,
   buildSubtitleSourceKey,
   subtitleSourceKey,
   type TrackIdentity
@@ -21,7 +22,7 @@ const CACHE_KEY_PREFIX = "biliscript_subtitle_cache_";
 export interface SubtitleCacheKeyOptions {
   bvid: string;
   cid: string;
-  /** 字幕轨身份（track / url / lang / asr），构造与优先级裁定在 subtitle/source-key。 */
+  /** 字幕轨身份（track / url / lang / asr / translated），构造与优先级裁定在 subtitle/source-key。 */
   identity: TrackIdentity;
 }
 
@@ -99,14 +100,10 @@ export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: As
   }
 }
 
-// 译文副轨的缓存身份（票 asr-panel-translation）：轨 id 形如 `translate-<目标语言>`
-// （与播放器浮层同键，命中同一份已落盘译文）。前缀由组键同根派生，不手抄拼写。
-const TRANSLATED_TRACK_ID_PREFIX = "translate-";
-
 /**
  * 译文副轨失效清理：主轨被新一次转写替换后，同一目标语言键下的旧译文属于旧原文，
- * 必须整体作废（键形不含原文身份，这是兼容面，不动）。与 clearStaleAsrSubtitleCache
- * 同形：枚举走分键索引，失败 logWarn 并返回 []，不抛异常。
+ * 必须整体作废（匹配前缀由 subtitle/source-key 的 TRANSLATED_SOURCE_KEY_PREFIX 派生）。
+ * 枚举走分键索引，失败 logWarn 并返回 []，不抛异常。
  */
 export async function clearTranslatedSubtitleCache({
   bvid,
@@ -116,7 +113,7 @@ export async function clearTranslatedSubtitleCache({
   cid: string;
 }): Promise<string[]> {
   try {
-    const keyPrefix = `${CACHE_KEY_PREFIX}${bvid}_${cid}_id_${TRANSLATED_TRACK_ID_PREFIX}`;
+    const keyPrefix = `${CACHE_KEY_PREFIX}${bvid}_${cid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
     const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, bvid, keyPrefix);
     const all = indexKeys
       ? await chrome.storage.local.get(indexKeys)
@@ -132,6 +129,33 @@ export async function clearTranslatedSubtitleCache({
     logWarn("[BILISCRIPT] failed to clear translated subtitle cache entries", { bvid, cid, error });
     return [];
   }
+}
+
+export interface PersistAsrSubtitleOptions {
+  bvid: string;
+  cid: string;
+  identity: TrackIdentity;
+  body: unknown[];
+}
+
+/**
+ * 新 ASR 转写成果落盘事务：写入主轨缓存成功后，清理同 (bvid, cid) 的旧 ASR 变体与
+ * 依赖旧原文的译文副轨缓存；写入失败时保留旧副本，不执行后续清理。
+ */
+export async function persistAsrSubtitleToCache({
+  bvid,
+  cid,
+  identity,
+  body
+}: PersistAsrSubtitleOptions): Promise<SaveSubtitleResult> {
+  const cacheKey = getSubtitleCacheKey({ bvid, cid, identity });
+  const saveResult = await saveSubtitleToCache(cacheKey, body);
+  if (saveResult && saveResult.ok === false) {
+    return saveResult;
+  }
+  await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
+  await clearTranslatedSubtitleCache({ bvid, cid });
+  return saveResult;
 }
 
 export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {

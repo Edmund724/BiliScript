@@ -34,8 +34,8 @@ import {
 } from "../subtitle/selection.js";
 import { clearSecondary } from "../subtitle/slot.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
+import { normalizeLiveInterpretTargetLang } from "../core/validators.js";
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
-import { normalizeAsrTranslationLang } from "./asr-translation.js";
 
 // 目标轨投影：id/url 取自轨，lang 是目标轨语言（统一走 selection.ts 的规范投影
 // `lanDoc || lan || "unknown"`，作为 per-track 缓存键的 source key 分量）。
@@ -371,7 +371,7 @@ export function syncBilingualSettingsFromStorage(
     updates.secondarySubtitleLang = lang.newValue;
   }
   if (translateLang && typeof translateLang.newValue === "string") {
-    updates.liveInterpretTargetLang = normalizeAsrTranslationLang(translateLang.newValue);
+    updates.liveInterpretTargetLang = normalizeLiveInterpretTargetLang(translateLang.newValue);
   }
   state.setSettings({ ...state.settings, ...updates });
   const loadOutcome: SecondaryEnsureOutcome =
