@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createAgentBridge, testAgentBridgeConnection } from "../../extension/agent-bridge/background.js";
+import { AGENT_BRIDGE_ALARM } from "../../extension/agent-bridge/protocol.js";
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0;
@@ -109,6 +110,104 @@ describe("Agent Bridge 连接", () => {
       expect(await connecting).toBe(false);
       await vi.advanceTimersByTimeAsync(5000);
       expect(FakeWebSocket.instances).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("开启连接但 Daemon 未运行时，单次唤醒按退避重试并在达上限后静默交由定时唤醒", async () => {
+    vi.useFakeTimers();
+    const alarms = {
+      create: vi.fn(),
+      clear: vi.fn()
+    };
+    vi.stubGlobal("chrome", { ...globalThis.chrome, alarms });
+    try {
+      const bridge = createAgentBridge({
+        getConfig: async () => ({ enabled: true, url: "ws://127.0.0.1:18492" })
+      });
+      await bridge.sync();
+      expect(alarms.create).toHaveBeenCalledTimes(1);
+      expect(alarms.create).toHaveBeenCalledWith(AGENT_BRIDGE_ALARM, { periodInMinutes: 0.5 });
+      expect(FakeWebSocket.instances).toHaveLength(1);
+
+      // 第 1 次失败 -> 退避 1000ms
+      FakeWebSocket.instances[0].close();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+
+      // 第 2 次失败 -> 退避 2000ms（不再每秒重试）
+      FakeWebSocket.instances[1].close();
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+
+      // 第 3 次失败 -> 退避 4000ms
+      FakeWebSocket.instances[2].close();
+      await vi.advanceTimersByTimeAsync(3999);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(4);
+
+      // 第 4 次失败 -> 退避 8000ms
+      FakeWebSocket.instances[3].close();
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(FakeWebSocket.instances).toHaveLength(4);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWebSocket.instances).toHaveLength(5);
+
+      // 达到单次唤醒重试上限后静默等待定时唤醒，不再继续发包
+      FakeWebSocket.instances[4].close();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(FakeWebSocket.instances).toHaveLength(5);
+      expect(alarms.create).toHaveBeenCalledTimes(1);
+
+      // 模拟定时唤醒触发 sync，重新开启新一轮重连窗口
+      await bridge.sync();
+      expect(FakeWebSocket.instances).toHaveLength(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("重连成功后重置退避计数；关闭开关时立即停止连接并清除定时唤醒", async () => {
+    vi.useFakeTimers();
+    const alarms = {
+      create: vi.fn(),
+      clear: vi.fn()
+    };
+    vi.stubGlobal("chrome", { ...globalThis.chrome, alarms });
+    try {
+      const config = { enabled: true, url: "ws://127.0.0.1:18492" };
+      const bridge = createAgentBridge({ getConfig: async () => config });
+      await bridge.sync();
+
+      // 经历两次失败后再成功连接，退避计数应归零
+      FakeWebSocket.instances[0].close();
+      await vi.advanceTimersByTimeAsync(1000);
+      FakeWebSocket.instances[1].close();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      FakeWebSocket.instances[2].open();
+      expect(bridge.getStatus().connected).toBe(true);
+
+      // 后续断线（如 Daemon 空闲退出）应从初始 1000ms 重新开始退避
+      FakeWebSocket.instances[2].close();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(FakeWebSocket.instances).toHaveLength(4);
+      FakeWebSocket.instances[3].open();
+
+      // 关闭开关立即断开连接、取消待执行退避并清除定时唤醒
+      config.enabled = false;
+      await bridge.sync();
+      expect(FakeWebSocket.instances[3].readyState).toBe(FakeWebSocket.CLOSED);
+      expect(bridge.getStatus().connected).toBe(false);
+      expect(alarms.clear).toHaveBeenCalledWith(AGENT_BRIDGE_ALARM);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(FakeWebSocket.instances).toHaveLength(4);
     } finally {
       vi.useRealTimers();
     }

@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { connectWebSocket } from "../../skills/biliscript/scripts/biliscript.mjs";
 
 const port = 21000 + Math.floor(Math.random() * 1000);
+mkdirSync(join(process.cwd(), ".scratch"), { recursive: true });
 const scratch = mkdtempSync(join(process.cwd(), ".scratch", "agent-bridge-test-"));
 const script = resolve("skills/biliscript/scripts/biliscript.mjs");
 const env = {

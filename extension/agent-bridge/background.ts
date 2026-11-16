@@ -15,7 +15,7 @@ import {
   type AgentBridgeTabsResult
 } from "./protocol.js";
 
-const RECONNECT_DELAY_MS = 1000;
+const RECONNECT_BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000] as const;
 const TAB_SNAPSHOT_TIMEOUT_MS = 2000;
 const VIDEO_URL_PATTERNS = [
   "https://www.bilibili.com/video/*",
@@ -250,8 +250,11 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
   let socketUrl = "";
   let reconnectEnabled = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempt = 0;
+  let alarmEnsured = false;
   let syncTask: Promise<void> | null = null;
   let syncRequested = false;
+  let syncResetRequested = false;
 
   const send = (message: unknown): void => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -302,9 +305,12 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     return videoService.getSubtitles(target);
   };
 
-  const stop = (): void => {
+  const clearReconnectTimer = (): void => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
+  };
+
+  const closeSocket = (): void => {
     const active = socket;
     socket = null;
     socketUrl = "";
@@ -315,15 +321,25 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       active.onopen = null;
       try { active.close(); } catch {}
     }
+  };
+
+  const stop = (): void => {
+    clearReconnectTimer();
+    reconnectAttempt = 0;
+    alarmEnsured = false;
+    closeSocket();
     void Promise.resolve(chrome.alarms?.clear(AGENT_BRIDGE_ALARM)).catch(() => {});
   };
 
   const scheduleReconnect = (): void => {
     if (!reconnectEnabled || reconnectTimer) return;
+    if (reconnectAttempt >= RECONNECT_BACKOFF_DELAYS_MS.length) return;
+    const delay = RECONNECT_BACKOFF_DELAYS_MS[reconnectAttempt];
+    reconnectAttempt += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void sync();
-    }, RECONNECT_DELAY_MS);
+      void runSync(false);
+    }, delay);
   };
 
   const openSocket = (url: string): void => {
@@ -332,6 +348,7 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     socketUrl = url;
     active.onopen = () => {
       if (socket !== active) return;
+      reconnectAttempt = 0;
       send({ type: "hello", role: "extension", version: 1 });
     };
     active.onmessage = (event) => {
@@ -363,22 +380,38 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     };
   };
 
-  const sync = (): Promise<void> => {
+  const runSync = (resetBackoff: boolean): Promise<void> => {
     if (syncTask) {
       syncRequested = true;
+      if (resetBackoff) syncResetRequested = true;
       return syncTask;
     }
+    let pendingReset = resetBackoff;
     syncTask = (async () => {
       do {
+        const shouldReset = pendingReset || syncResetRequested;
+        pendingReset = false;
         syncRequested = false;
+        syncResetRequested = false;
         const { enabled, url } = await getConfig();
         reconnectEnabled = enabled;
         if (!enabled) {
           stop();
           continue;
         }
-        void Promise.resolve(chrome.alarms?.create(AGENT_BRIDGE_ALARM, { periodInMinutes: 0.5 })).catch(() => {});
-        if (socket && socketUrl !== url) stop();
+        if (!alarmEnsured) {
+          alarmEnsured = true;
+          void Promise.resolve(chrome.alarms?.create(AGENT_BRIDGE_ALARM, { periodInMinutes: 0.5 })).catch(() => {});
+        }
+        if (shouldReset) {
+          clearReconnectTimer();
+          reconnectAttempt = 0;
+        }
+        if (socket && socketUrl !== url) {
+          clearReconnectTimer();
+          reconnectAttempt = 0;
+          closeSocket();
+        }
         if (socket?.readyState === WebSocket.CLOSED) {
           socket = null;
           socketUrl = "";
@@ -397,14 +430,18 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     return syncTask;
   };
 
+  const sync = (): Promise<void> => runSync(true);
+
   return {
     sync,
     getStatus: () => ({ connected: socket?.readyState === WebSocket.OPEN }),
     connect: async (): Promise<boolean> => {
       if (syncTask) await syncTask;
+      clearReconnectTimer();
+      reconnectAttempt = 0;
       const { enabled, url } = await getConfig();
       reconnectEnabled = enabled;
-      if (socket && socketUrl !== url) stop();
+      if (socket && socketUrl !== url) closeSocket();
       if (socket?.readyState === WebSocket.CLOSED) {
         socket = null;
         socketUrl = "";

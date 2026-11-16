@@ -15,12 +15,21 @@ const EXTENSION_PROTOCOL = "biliscript-extension-v1";
 const CLI_PROTOCOL_PREFIX = "biliscript-cli-v1.";
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
+const DEFAULT_EXTENSION_GRACE_MS = 35 * 1000;
+const EXTENSION_OFFLINE_ERROR = "扩展未连接，请在扩展的「设置 → 本地 Agent」开启连接或点击「去连接」";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
 function configuredPort() {
   const port = Number(process.env.BILISCRIPT_BRIDGE_PORT || DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("BILISCRIPT_BRIDGE_PORT 无效");
   return port;
+}
+
+function configuredGraceMs() {
+  if (process.env.BILISCRIPT_BRIDGE_GRACE_MS === undefined) return DEFAULT_EXTENSION_GRACE_MS;
+  const graceMs = Number(process.env.BILISCRIPT_BRIDGE_GRACE_MS);
+  if (!Number.isFinite(graceMs) || graceMs < 0) throw new Error("BILISCRIPT_BRIDGE_GRACE_MS 无效");
+  return graceMs;
 }
 
 function tokenPath(port) {
@@ -255,10 +264,12 @@ export function connectWebSocket({ port = configuredPort(), protocol, origin, ti
         finish(new Error("本地 Bridge 握手校验失败"));
         return;
       }
-      finish(null, new WebSocketPeer(socket, {
+      const peer = new WebSocketPeer(socket, {
         masked: true,
         initialData: buffer.subarray(end + 4)
-      }));
+      });
+      finish(null, peer);
+      if (peer.buffer.length) queueMicrotask(() => peer.consume(Buffer.alloc(0)));
     };
     socket.on("error", onError);
     socket.on("data", readHandshake);
@@ -296,6 +307,10 @@ function selectRole(request, socket, token) {
   return null;
 }
 
+/**
+ * @param {string} command
+ * @param {{ port?: number, timeoutMs?: number, options?: Record<string, unknown> }} [config]
+ */
 export async function requestDaemon(command, { port = configuredPort(), timeoutMs = 8000, options } = {}) {
   const token = ensureToken(port);
   const peer = await connectWebSocket({
@@ -318,6 +333,7 @@ export async function requestDaemon(command, { port = configuredPort(), timeoutM
       } else {
         const error = new Error(String(message.error || "桥接命令执行失败"));
         error.remote = true;
+        if (message.extensionOnline === false) error.extensionOnline = false;
         reject(error);
       }
     };
@@ -339,13 +355,26 @@ function daemonStatus(command, extension) {
   };
 }
 
-export async function startDaemon({ port = configuredPort(), token = ensureToken(port), frameTimeoutMs = 50000 } = {}) {
+export async function startDaemon({
+  port = configuredPort(),
+  token = ensureToken(port),
+  frameTimeoutMs = 50000,
+  extensionGraceMs = configuredGraceMs()
+} = {}) {
   const idleMs = Number(process.env.BILISCRIPT_BRIDGE_IDLE_MS || DEFAULT_IDLE_MS);
+  const graceMs = Number.isFinite(extensionGraceMs) && extensionGraceMs >= 0
+    ? extensionGraceMs
+    : DEFAULT_EXTENSION_GRACE_MS;
+  const graceDeadline = Date.now() + graceMs;
   let extension = null;
+  let hasSeenExtension = false;
+  let graceExpired = graceMs === 0;
+  let graceTimer = null;
   let lastActivity = Date.now();
   let sequence = 0;
   const clients = new Set();
   const pendingTabs = new Map();
+  const waitingRequests = [];
   const server = http.createServer((request, response) => {
     response.writeHead(426, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ ok: false, error: "WebSocket upgrade required" }));
@@ -362,6 +391,54 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
       clearTimeout(pending.timer);
       pendingTabs.delete(requestId);
       respondToCli(client, pending.clientRequestId, { ok: false, error });
+    }
+  };
+
+  const removeWaitingFor = (client) => {
+    for (let index = waitingRequests.length - 1; index >= 0; index -= 1) {
+      if (waitingRequests[index].client === client) waitingRequests.splice(index, 1);
+    }
+  };
+
+  const dispatchToExtension = (client, clientRequestId, command, options) => {
+    if (command === "status") {
+      respondToCli(client, clientRequestId, { ok: true, result: daemonStatus(command, extension) });
+      return;
+    }
+    const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
+    const timer = command === "tabs" ? setTimeout(() => {
+      pendingTabs.delete(requestId);
+      respondToCli(client, clientRequestId, { ok: false, error: "等待扩展标签页快照超时" });
+    }, 6000) : command === "frame" ? setTimeout(() => {
+      pendingTabs.delete(requestId);
+      respondToCli(client, clientRequestId, { ok: false, error: `视频截帧超时（${frameTimeoutMs} 毫秒）` });
+    }, frameTimeoutMs) : null;
+    pendingTabs.set(requestId, { client, clientRequestId, command, timer });
+    extension.sendJSON({ type: "request", id: requestId, command, ...(options ? { options } : {}) });
+  };
+
+  const flushWaitingRequests = () => {
+    if (!extension || waitingRequests.length === 0) return;
+    const queued = waitingRequests.splice(0, waitingRequests.length);
+    lastActivity = Date.now();
+    for (const item of queued) {
+      if (!clients.has(item.client)) continue;
+      dispatchToExtension(item.client, item.clientRequestId, item.command, item.options);
+    }
+  };
+
+  const failWaitingRequests = () => {
+    graceExpired = true;
+    graceTimer = null;
+    if (waitingRequests.length === 0) return;
+    lastActivity = Date.now();
+    const queued = waitingRequests.splice(0, waitingRequests.length);
+    for (const item of queued) {
+      respondToCli(item.client, item.clientRequestId, {
+        ok: false,
+        error: EXTENSION_OFFLINE_ERROR,
+        extensionOnline: false
+      });
     }
   };
 
@@ -389,6 +466,12 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
     const peer = new WebSocketPeer(socket, { initialData: head });
 
     if (role.role === "extension") {
+      hasSeenExtension = true;
+      graceExpired = true;
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
       if (extension) extension.close();
       extension = peer;
       peer.onMessage = (message) => {
@@ -410,53 +493,68 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
           pendingTabs.delete(requestId);
           respondToCli(pending.client, pending.clientRequestId, { ok: false, error: "扩展连接已断开" });
         }
+        server.emit("extension-disconnected");
       };
+      flushWaitingRequests();
+      if (peer.buffer.length) queueMicrotask(() => peer.consume(Buffer.alloc(0)));
       return;
     }
 
     clients.add(peer);
     peer.onClose = () => {
       clients.delete(peer);
+      removeWaitingFor(peer);
       failPendingFor(peer, "CLI 连接已断开");
     };
     peer.onMessage = (message) => {
       lastActivity = Date.now();
       if (message?.type !== "request" || typeof message.id !== "string") return;
       const command = String(message.command || "");
-      if (command === "status") {
+      if (command === "status" && !message.options?.wait) {
         respondToCli(peer, message.id, { ok: true, result: daemonStatus(command, extension) });
         return;
       }
-      if (!["tabs", "subtitles", "comments", "frame"].includes(command)) {
+      if (!["status", "tabs", "subtitles", "comments", "frame"].includes(command)) {
         respondToCli(peer, message.id, { ok: false, error: "未知命令" });
         return;
       }
       if (!extension) {
-        if (command === "tabs") {
-          respondToCli(peer, message.id, { ok: true, result: { ...daemonStatus(command, extension), tabs: [] } });
-        } else {
-          respondToCli(peer, message.id, { ok: false, error: "扩展未连接，请在扩展的「设置 → 本地 Agent」点击「去连接」" });
+        const remainingGraceMs = hasSeenExtension || graceExpired ? 0 : graceDeadline - Date.now();
+        if (remainingGraceMs > 0) {
+          waitingRequests.push({
+            client: peer,
+            clientRequestId: message.id,
+            command,
+            options: message.options
+          });
+          if (!graceTimer) {
+            graceTimer = setTimeout(failWaitingRequests, remainingGraceMs);
+          }
+          server.emit("waiting-for-extension", command);
+          return;
         }
+        graceExpired = true;
+        respondToCli(peer, message.id, {
+          ok: false,
+          error: EXTENSION_OFFLINE_ERROR,
+          extensionOnline: false
+        });
         return;
       }
-      const requestId = `${process.pid}-${++sequence}-${randomBytes(6).toString("hex")}`;
-      const timer = command === "tabs" ? setTimeout(() => {
-        pendingTabs.delete(requestId);
-        respondToCli(peer, message.id, { ok: false, error: "等待扩展标签页快照超时" });
-      }, 6000) : command === "frame" ? setTimeout(() => {
-        pendingTabs.delete(requestId);
-        respondToCli(peer, message.id, { ok: false, error: `视频截帧超时（${frameTimeoutMs} 毫秒）` });
-      }, frameTimeoutMs) : null;
-      pendingTabs.set(requestId, { client: peer, clientRequestId: message.id, command, timer });
-      extension.sendJSON({ type: "request", id: requestId, command, ...(message.options ? { options: message.options } : {}) });
+      dispatchToExtension(peer, message.id, command, message.options);
     };
+    if (peer.buffer.length) queueMicrotask(() => peer.consume(Buffer.alloc(0)));
   });
 
   const heartbeat = setInterval(() => extension?.ping(), 20000);
   const idleTimer = setInterval(() => {
-    if (pendingTabs.size > 0 || Date.now() - lastActivity < idleMs) return;
+    if (pendingTabs.size > 0 || waitingRequests.length > 0 || Date.now() - lastActivity < idleMs) return;
     clearInterval(heartbeat);
     clearInterval(idleTimer);
+    if (graceTimer) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
     for (const client of clients) client.close();
     extension?.close();
     server.close(() => process.exit(0));
@@ -465,6 +563,19 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
   heartbeat.unref();
   idleTimer.unref();
 
+  server.on("close", () => {
+    clearInterval(heartbeat);
+    clearInterval(idleTimer);
+    if (graceTimer) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
+    for (const pending of pendingTabs.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+    }
+    pendingTabs.clear();
+  });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, HOST, resolve);
@@ -472,15 +583,16 @@ export async function startDaemon({ port = configuredPort(), token = ensureToken
   return server;
 }
 
-function commandTimeout(command) {
-  return ["subtitles", "comments", "frame"].includes(command) ? 0 : 8000;
+function commandTimeout(command, options, { initialProbe = false } = {}) {
+  if (command === "status" && !options?.wait) return initialProbe ? 1000 : 8000;
+  return 0;
 }
 
 async function waitForDaemon(command, port, options) {
   let lastError;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      return await requestDaemon(command, { port, options, timeoutMs: commandTimeout(command) });
+      return await requestDaemon(command, { port, options, timeoutMs: commandTimeout(command, options) });
     } catch (error) {
       if (error.remote) throw error;
       lastError = error;
@@ -494,7 +606,11 @@ async function runCommand(command, options) {
   const port = configuredPort();
   ensureToken(port);
   try {
-    return await requestDaemon(command, { port, options, timeoutMs: command === "status" || command === "tabs" ? 1000 : 0 });
+    return await requestDaemon(command, {
+      port,
+      options,
+      timeoutMs: commandTimeout(command, options, { initialProbe: true })
+    });
   } catch (error) {
     if (error.remote) throw error;
     const child = spawn(process.execPath, [SCRIPT_PATH, "--daemon"], {
@@ -535,7 +651,12 @@ function writeFrameFiles(result, out) {
 function parseCliArgs(args) {
   const command = args[0];
   if (!["status", "tabs", "subtitles", "comments", "frame"].includes(command)) return null;
-  if (command === "status" || command === "tabs") return args.length === 1 ? { command } : null;
+  if (command === "tabs") return args.length === 1 ? { command } : null;
+  if (command === "status") {
+    if (args.length === 1) return { command };
+    if (args.length === 2 && args[1] === "--wait") return { command, options: { wait: true } };
+    return null;
+  }
   const options = {};
   let out;
   for (let index = 1; index < args.length; index += 1) {
@@ -580,7 +701,7 @@ async function main() {
   }
   const parsed = parseCliArgs(args);
   if (!parsed) {
-    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
+    console.log(JSON.stringify({ ok: false, error: "用法：node biliscript.mjs <status [--wait]|tabs>；subtitles [--tab <id>|--bvid <BV/URL>] [--from <sec> --to <sec>]；comments [--tab <id>|--bvid <BV/URL>]；frame [--tab <id>|--bvid <BV/URL>] [--time <sec>] [--out <dir>]" }));
     process.exitCode = 1;
     return;
   }
@@ -601,7 +722,7 @@ async function main() {
       ok: false,
       command: parsed.command,
       bridgeOnline: error.remote === true,
-      ...(error.remote ? {} : { extensionOnline: false }),
+      ...(error.remote === true && error.extensionOnline !== false ? {} : { extensionOnline: false }),
       error: error.message
     }));
     process.exitCode = 1;
