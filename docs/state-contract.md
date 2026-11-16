@@ -117,8 +117,8 @@ Bilibili APIs, or a re-fetch), so nothing here is persisted to `chrome.storage.s
 Consequences of that attribution:
 
 - MV3 SW termination does not touch any namespace above (core namespaces and `playerAiState` alike).
-- The only module-level mutable state in the SW graph is the DNR session-rule id ledger in
-  `extension/asr/offscreen-bridge.bg.ts`. DNR session rules outlive SW instances while the ledger
+- The only module-level mutable state in the SW graph is the DNR session-rule id ledger held by
+  `extension/core/offscreen-host.ts` (backed by `extension/asr/session-rule-manager.ts`). DNR session rules outlive SW instances while the ledger
   resets on cold start, so the ledger reconciles against
   `chrome.declarativeNetRequest.getSessionRules()` before the first allocation in each SW
   instance — the platform is the source of truth.

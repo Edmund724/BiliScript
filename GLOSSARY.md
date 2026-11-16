@@ -18,12 +18,12 @@ _Avoid_: 伴看面板、全屏浮窗（不再限于全屏）
 
 **实时字幕翻译**:
 视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。译文目标语言与 `id_translate-<lang>` 缓存与阅读面板的译文副轨共用（见「字幕」的伪轨译文一段）。
-代码名：`live/interpret-session-controller.ts` / `live/interpret-subtitle-overlay.ts` / `liveInterpretTargetLang`（翻译目标语言，阅读面板的副列译文也读它）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语，只作用于播放器浮层）
+代码名：`live/interpret-session-controller.ts` / `live/player-interpret.ts` / `liveInterpretTargetLang`（翻译目标语言，阅读面板的副列译文也读它）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语，只作用于播放器浮层）
 _Avoid_: 同声传译、同传；把译文当作视频字幕轨，或复用副轨开关表示译文显示模式
 
 **直播间伴看**:
 在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂伴看浮窗与播放器内的开关按钮，不出现文摘面板，设置通过按需伴看设置对话框就地配置。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。
-代码名：`live/live-room-entry.ts` / `live/live-room-bridge.ts` / `live/live-room-settings.ts` / `MossLiveRoomContext` / `isLiveRoomPage` / `parseLiveRoomId`
+代码名：`live/live-room-entry.ts` / `live/live-overlay-binding.ts` / `live/live-room-settings.ts` / `MossLiveRoomContext` / `isLiveRoomPage` / `parseLiveRoomId`
 _Avoid_: 直播面板、直播总结、把房间号当 `bvid` 用
 
 **视频原声共享**:
@@ -50,7 +50,7 @@ _Avoid_: Part、页、集数
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
 同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。伪轨视频（无 CC、只有 `id=asr` 且 `subtitleUrl` 为空的伪轨）的双列卡照旧复用：主列是这条伪轨，副列列的是译文目标语言（14 种，词表与播放器「字幕」浮层同一份），副行是同一原文段的 LLM 译文——译文不是轨、不进 `clip.subtitles`，只进副轨槽；双语开关对这类视频可用（判据是伪轨身份，不是轨数），复制/导出/AI 上下文仍只吃主轨原文。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/asr-translation.js`（伪轨译文的面板侧在飞、进度与列模型：`hasAsrPseudoTrack` / `resolveAsrTranslationView` / `ensureAsrTranslation` / `cancelAsrTranslation` / `selectAsrTranslationLanguage`；零请求的缓存挂载与显式动作启动都经它）/ `subtitle/asr-translation.js`（伪轨译文的批量器：60 秒分片计划、缓存覆盖判定、逐片翻译与逐片合入副轨槽、整份落盘；零产出才落槽 error，部分失败保持 ready 并留补齐入口；主轨被新一次转写替换时经 `clearTranslatedSubtitleCache` 清掉旧译文）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)`——缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮的唯一一份，出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/asr-translation.js`（伪轨译文的面板侧在飞、进度与列模型：`hasAsrPseudoTrack` / `resolveAsrTranslationView` / `ensureAsrTranslation` / `cancelAsrTranslation` / `selectAsrTranslationLanguage`；零请求的缓存挂载与显式动作启动都经它）/ `subtitle/asr-translation.js`（伪轨译文的批量器：60 秒分片计划、缓存覆盖判定、逐片翻译与逐片合入副轨槽、整份落盘；零产出才落槽 error，部分失败保持 ready 并留补齐入口；主轨被新一次转写替换时经 `persistAsrSubtitleToCache` / `clearTranslatedSubtitleCache` 清掉旧译文）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)` 与 `loadPreferredNativeSubtitle`——上下文无关，显式注入视频身份与 `JsonTransport`，供 content 与 SW `agent-bridge/video-service` / `ai/context-resolver` 共用，集中缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮；content 侧出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
 _Avoid_: 转录、transcript、把副轨说成「第二条字幕」或「第三路轨」（两行是一条字幕条目）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:
@@ -75,10 +75,10 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 _Avoid_: 长记忆、向量库
 
 **字幕轨身份**:
-一条字幕轨在缓存键里的身份，封闭判别联合四态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>`），字节形状是对已落盘缓存的兼容面：逐字节不变、零迁移。
-「这是不是 ASR 变体键」这个判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨的组键侧（显式传 asr 身份）与识别侧（孤儿清理的匹配前缀）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
-与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 侧显式传 asr 身份（不再手拼字符串走 id 分支）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
-代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿清理前缀由此派生）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`（组键显式传 asr 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
+一条字幕轨在缓存键里的身份，封闭判别联合五态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）/ `translated`（伪轨译文：`targetLang`）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>` / `id_translate-<lang>`），字节形状是对已落盘缓存的兼容面：逐字节不变、零迁移。
+「这是不是 ASR 变体键 / 译文变体键」的判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨与译文副轨的组键侧和识别/清理侧（孤儿清理 / `clearTranslatedSubtitleCache`）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
+与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 与译文侧显式传 `asr` / `translated` 身份（不再手拼字符串）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
+代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX` / `translatedTrackId` + `isTranslatedVariantSourceKey` + `TRANSLATED_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿/译文清理前缀由此派生、`persistAsrSubtitleToCache`）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`、`subtitle/asr-translation.js`（组键显式传 `asr` / `translated` 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
 _Avoid_: 把身份写成三个散字段、在调用点手拼 `asr:<provider>:<model>:<lang>` 再去走 id 分支、另写一处 `id_asr:` 前缀、复制第二份 URL 归一（削 query 那份住在 `bilibili/native-payload.js`）
 
 **缓存宿主**:
@@ -268,7 +268,7 @@ _Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付�
 
 **凭据引用**:
 跨族读 Key 的单向借用机制：搜索侧 DeepSeek 记录（`search/deepseek`）与实时伴看侧 Gemini Live 记录（`live/gemini-live`）不设独立 Key 输入框，发请求或建立会话时实时读 AI 族「第一条启用、对应 `presetId`（`deepseek` 或 `gemini`）且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 消费侧立即跟随，删掉该记录消费侧自动降级（搜索链跳过 / 伴看启动或探测报三态提示文案）；不提供消费侧覆盖 Key。方向单向（搜索/伴看读 AI，绝不回写）；各族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys` / `liveProviderKeys`）隔离不变式的其余部分照旧。
-代码名：`AI_CREDENTIAL_REFERENCE_SPECS` / `resolveAiCredentialReference` / `resolveAiCredentialKey` / `queryAiCredentialKey` / `annotateAiCredentialRows` / `usesAiCredentialReference` / `getAiCredentialStatusText`（判定、取 Key 与 UI 状态文案注入的唯一单点，extension/core/ai-credential-reference.ts；搜索链装配在 search/resolve-search-provider-handler.ts 消费，伴看会话与模型探针在 live/live-session-tracker.ts 与 live/live-provider-store.ts 消费，行状态文案由 settings-panel 经 `annotateAiCredentialRows` 注入，Modal 字段显隐与搜索测试经 `usesAiCredentialReference` / `queryAiCredentialKey` 查询）
+代码名：`AI_CREDENTIAL_REFERENCE_SPECS` / `resolveAiCredentialReference` / `resolveAiCredentialKey` / `queryAiCredentialKey` / `annotateAiCredentialRows` / `usesAiCredentialReference` / `getAiCredentialStatusText`（判定、取 Key 与 UI 状态文案注入的唯一单点，extension/core/ai-credential-reference.ts；搜索链装配在 search/resolve-search-provider-handler.ts 消费，伴看会话与模型探针在 live/live-session-tracker.ts 与 live/live-provider-probe.ts 消费，行状态文案由 ui/provider-settings-host.ts 统一经 `queryAiCredentialKey` + `annotateAiCredentialRows` 注入，Modal 字段显隐与搜索测试经 `usesAiCredentialReference` / `queryAiCredentialKey` 查询）
 _Avoid_: 把 Key 复制进 `searchProviderKeys` 或 `liveProviderKeys`（双写腐化：AI 侧改/删后消费侧那份静默过期）、消费侧覆盖 Key 输入框、按渠道分叉手抄两套凭据引用模块
 
 **官方端点判定**:
@@ -288,7 +288,7 @@ _Avoid_: 热路径 handler 直读 storage、给快照加 write-through 写面、
 
 **消息入口守卫**:
 SW 的 `chrome.runtime.onMessage` 入口在**路由之后、处理器执行之前**的拒绝闸：只拦形状明显非法/来源不合法的请求，业务归一仍归处理器；被拒请求明确回 `{ ok:false, error }`（不静默吞、不让调用方空等）且**零副作用**。两项检查：①**来源标签**——注册表登记了 `sender` 标签的 2 个类型（`segment-cache` / `offscreen-request-close`，标签 = `offscreen`）要求发送者是 offscreen 文档本身（扩展级副作用能力只开放给 offscreen，即 SW 代执行的另一面），其余消息**默认放行**（发送者含 content，search-cache / search-health 显式在名单外；标签无对应判据时同样放行）；②**payload 最小 schema**——save-settings 的对象形状、三家 providers-save 的数组形状、player-ai-quick-action 的 tabId 有限数，只是形状判据，不替代处理器内的业务校验。
-代码名：`createMessageRouter`（core/message-router.ts，路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径的单点；零 chrome——判据本体与 handler 本体都在各自域，entry/background.ts 只注入 handler 表、来源判据与拒绝文案，监听器一行委派）/ `BACKGROUND_MESSAGE_REGISTRY`（shared/messaging-protocol.ts，SW 消息注册表：**一条消息一处登记**——声明 + 形状判据 + 回包口径 + 来源标签，守卫的两项检查与 `ResponseOf` 由它派生）/ `OFFSCREEN_ONLY_MESSAGE_TYPES`（同上，名单**单源**——由注册表逐条的 `sender` 标签派生，归属协议层：来源语义属协议契约）/ `isOffscreenDocumentSender`（asr/offscreen-bridge.bg.ts，只判来源、不持名单；组合根按 `offscreen` 标签注入 router）/ `ASR_OFFSCREEN_REJECTION_MESSAGE`（asr/protocol.ts，拒绝文案单源，守卫与关闭执行器共用）
+代码名：`createMessageRouter`（core/message-router.ts，路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径的单点；零 chrome——判据本体与 handler 本体都在各自域，entry/background.ts 只注入 handler 表、来源判据与拒绝文案，监听器一行委派）/ `BACKGROUND_MESSAGE_REGISTRY`（shared/messaging-protocol.ts，SW 消息注册表：**一条消息一处登记**——声明 + 形状判据 + 回包口径 + 来源标签，守卫的两项检查与 `ResponseOf` 由它派生）/ `OFFSCREEN_ONLY_MESSAGE_TYPES`（同上，名单**单源**——由注册表逐条的 `sender` 标签派生，归属协议层：来源语义属协议契约）/ `isOffscreenDocumentSender`（core/offscreen-host.ts，只判来源、不持名单；组合根按 `offscreen` 标签注入 router）/ `OFFSCREEN_SENDER_REJECTION_MESSAGE` / `ASR_OFFSCREEN_REJECTION_MESSAGE`（asr/protocol.ts，拒绝文案单源，守卫与关闭执行器共用）
 _Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `OffscreenRuntimeRequest` 是「offscreen 发出的请求」事实枚举，被误读成来源守卫名单）；在 core/message-router 回抄消息类型字面量或按 type 手写形状清单（源码结构锁在 tests/core/message-router.test.ts）；默认拒绝式白名单（名单外的 content 发信方会被拦掉）
 
 ### 模型目录（model-catalog）
