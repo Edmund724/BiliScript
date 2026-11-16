@@ -105,6 +105,7 @@ function makeChatStub() {
 interface ShellMountOptions {
   present?: boolean;
   open?: boolean;
+  hidden?: boolean;
   ready?: string;
   bodyAttr?: boolean;
   htmlAttr?: boolean;
@@ -113,6 +114,7 @@ interface ShellMountOptions {
 function mountShell({
   present = true,
   open = true,
+  hidden = false,
   ready = "1",
   bodyAttr = true,
   htmlAttr = true
@@ -120,6 +122,7 @@ function mountShell({
   if (present) {
     const shell = document.createElement("section");
     shell.id = "biliscript-reading-view";
+    shell.hidden = hidden;
     if (open) {
       shell.classList.add("open");
     }
@@ -281,6 +284,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
 describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试）", () => {
   it.each([
     ["壳节点被整树摘走", { present: false }],
+    ["hidden 未解除", { hidden: true }],
     [".open 掉了", { open: false }],
     ["ready 门控卡 0", { ready: "0" }],
     ["body 门控属性被清", { bodyAttr: false }],
@@ -516,13 +520,14 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
 });
 
 describe("isReaderShellIntact：壳完好性判定（restore 自愈与 script 按钮守卫的唯一判定）", () => {
-  it("五条件全真才完好", () => {
+  it("六条件全真才完好", () => {
     mountShell();
     expect(isReaderShellIntact()).toBe(true);
   });
 
   it.each([
     ["壳节点缺失", { present: false }],
+    ["hidden 未解除", { hidden: true }],
     [".open 缺失", { open: false }],
     ["ready=0", { ready: "0" }],
     ["body 属性缺失", { bodyAttr: false }],

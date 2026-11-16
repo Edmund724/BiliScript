@@ -205,19 +205,24 @@ describe("reader 生命周期", () => {
     // 关闭期间用户拖动了进度：第 300 条
     video.currentTime = 600;
 
+    const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    Object.defineProperty(list, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(list, "scrollHeight", { value: 1200, configurable: true });
+    const listScrollSpy = vi.fn();
+    list.scrollTo = listScrollSpy;
     const elementScrollSpy = vi.fn();
     Element.prototype.scrollIntoView = elementScrollSpy;
-    // jsdom 无布局：scrollHeight/clientHeight 恒 0，滚动走 window.scrollTo 分支
     const windowScrollSpy = vi.fn();
     window.scrollTo = windowScrollSpy;
 
     await shell.enterReaderMode();
 
-    // 进入当拍即定位：高亮 + 滚动落位，不等任何后续播放事件
+    // 进入当拍即定位：高亮 + 容器内滚动落位，不等任何后续播放事件，且不滚宿主页
     const active = document.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active?.dataset.index).toBe("300");
     expect(state.reader.readingActiveSubtitleIndex).toBe(300);
-    expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(elementScrollSpy.mock.calls.length + listScrollSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(windowScrollSpy).not.toHaveBeenCalled();
     // 同步 tick 已启动（视频事件绑定由 tick 兜底建立）
     expect(syncRunning()).toBe(true);
 
@@ -255,6 +260,9 @@ describe("reader 生命周期", () => {
     expect(state.reader.readingSettingsExpanded).toBe(false);
     expect(document.getElementById(ids.readingSettingsPanel)?.hidden).toBe(true);
     expect(readingView.classList.contains("open")).toBe(false);
+    expect(readingView.hidden).toBe(true);
+    expect(readingView.inert).toBe(false);
+    expect(readingView.hasAttribute("inert")).toBe(false);
     expect(readingView.getAttribute("aria-hidden")).toBe("true");
     expect(readingView.getAttribute(READER_READY_ATTR)).toBe("0");
     expect(document.body.getAttribute("data-biliscript-reading-active")).toBe(null);
@@ -267,6 +275,30 @@ describe("reader 生命周期", () => {
     expect(video.__biliscriptReadingSyncController).toBeUndefined();
 
     await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+
+  it("关闭过渡与收尾：beginClosing 移出焦点并保持 hidden=false，closeReadingView 后设 hidden=true 并解除 inert", async () => {
+    state.clip.bvid = "BV1test000000";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+    await shell.enterReaderMode();
+
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    expect(readingView.hidden).toBe(false);
+    expect(readingView.hasAttribute("inert")).toBe(false);
+    expect(readingView.contains(document.activeElement)).toBe(true);
+
+    const wasOpen = shell.beginClosingReadingView();
+    expect(wasOpen).toBe(true);
+    expect(readingView.contains(document.activeElement)).toBe(false);
+    expect(readingView.hidden).toBe(false);
+    expect(readingView.inert).toBe(true);
+    expect(readingView.hasAttribute("inert")).toBe(true);
+    expect(readingView.getAttribute("aria-hidden")).toBe("true");
+
+    shell.closeReadingView();
+    expect(readingView.hidden).toBe(true);
+    expect(readingView.inert).toBe(false);
+    expect(readingView.hasAttribute("inert")).toBe(false);
   });
 
   it("字幕缓存属上一个视频（bvid 与当前地址不符）：进入阅读模式触发后台重抓", async () => {

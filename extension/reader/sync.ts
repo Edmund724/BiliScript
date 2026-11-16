@@ -296,11 +296,9 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
     return;
   }
 
-  // PR2 统一 文摘面板：字幕列表常驻右侧面板「字幕」tab（自身即滚动容器），
-  // 原内联宿主分支（biliscript-reading-inline-host 的 scrollTo）随机制移除——跟随/
-  // 跳转滚动一律收敛为「优先列表容器内滚动，容器不可滚才滚页面兜底」。
-  // 列表容器或条目不可见（如其他标签页激活、条目尚未上屏）时退回
-  // scrollIntoView：对隐藏节点无操作，不产生程序化滚动窗口。
+  // 字幕列表常驻右侧面板「字幕」标签页自身滚动容器内：
+  // 列表容器不可见或条目尚未上屏时退回 scrollIntoView；
+  // 容器内容未溢出时条目已完整可见，不滚动宿主页 window。
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   const listRect = subtitleList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
@@ -313,18 +311,12 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
   setProgrammaticScrollUntil(Date.now() + (behavior === "auto" ? 120 : 800));
   state.reader.setNextScrollBehavior("smooth");
   if (subtitleList.scrollHeight <= subtitleList.clientHeight + 8) {
-    const desiredTop = listRect.top + Math.max(72, Math.min(listRect.height * 0.24, 220));
-    const nextTop = window.scrollY + itemRect.top - desiredTop;
-    window.scrollTo({
-      top: Math.max(0, Math.round(nextTop)),
-      behavior
-    });
     return;
   }
 
   const targetScrollTop =
     subtitleList.scrollTop + (itemRect.top - listRect.top) - Math.max(48, Math.min(listRect.height * 0.24, 180));
-  subtitleList.scrollTo({
+  subtitleList.scrollTo?.({
     top: Math.max(0, Math.round(targetScrollTop)),
     behavior
   });

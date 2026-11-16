@@ -279,6 +279,54 @@ describe("组合根装配与懒加载边界", () => {
     expect(lazyChat.isReaderChatTabLoaded()).toBe(true);
   });
 
+  it("首开异步等待平台列表途中关闭会话：迟到响应不污染已关闭面板，重开仍可干净初始化", async () => {
+    seedReadyContext();
+    const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
+    let releaseProviders: (value: unknown) => void = () => {};
+    const providersGate = new Promise((resolve) => {
+      releaseProviders = resolve;
+    });
+    chromeStub.runtime.sendMessage.mockImplementation((message: { type?: string }, callback?: (resp: unknown) => void) => {
+      const type = String(message?.type || "");
+      if (type === "ai-providers-list") {
+        void providersGate.then(() =>
+          callback?.({ ok: true, providers: [{ id: "p1", name: "平台一", model: "模型一", enabled: true }] })
+        );
+      } else if (type === "get-settings") {
+        callback?.({ ok: true, settings: {} });
+      } else {
+        callback?.({ ok: true });
+      }
+      return undefined;
+    });
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    const activation = chat.ensureChatTabActivated();
+    await waitFor(() =>
+      chromeStub.runtime.sendMessage.mock.calls.some((call) => (call[0] as { type?: string })?.type === "ai-providers-list")
+    );
+
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+
+    // 在途初始化尚未完成时关闭面板
+    chat.closeChatSession();
+    releaseProviders(null);
+    await activation;
+
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    expect(messages.querySelector(".chat-hero")).toBeNull();
+    expect(messages.querySelectorAll(".chat-chip")).toHaveLength(0);
+    expect(document.activeElement).not.toBe(input);
+    expect(document.activeElement).toBe(outside);
+
+    // 后续重新打开仍可正常完成初始化
+    await chat.ensureChatTabActivated();
+    expect(messages.querySelector(".chat-hero")).not.toBeNull();
+  });
+
   it("重复激活幂等：不重跑 init（storage 读取次数不变）", async () => {
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();

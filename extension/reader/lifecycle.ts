@@ -572,6 +572,20 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   }
 }
 
+function setReadingViewInert(readingView: HTMLElement, inert: boolean): void {
+  readingView.inert = inert;
+  readingView.toggleAttribute("inert", inert);
+}
+
+function blurActiveFocusInside(container: HTMLElement): boolean {
+  const active = document.activeElement;
+  const contained = active instanceof Node && container.contains(active);
+  if (contained && active instanceof HTMLElement) {
+    active.blur();
+  }
+  return contained;
+}
+
 function openReaderViewShell(
   readingView = getReaderElement(ids.readingView),
   mode: "open" | "restore" = "open"
@@ -585,6 +599,8 @@ function openReaderViewShell(
       readingView.removeAttribute("data-biliscript-reader-restore");
     });
   }
+  readingView.hidden = false;
+  setReadingViewInert(readingView, false);
   readingView.classList.remove("closing");
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
@@ -601,16 +617,23 @@ function openReaderViewShell(
 export function beginClosingReadingView(): boolean {
   const readingView = getReaderElement(ids.readingView);
   const wasOpen = readingView.classList.contains("open");
-  restoreReaderFocusOnClose = readingView.contains(document.activeElement);
+  restoreReaderFocusOnClose = blurActiveFocusInside(readingView);
+  // 退出过渡期维持 hidden=false，避免宿主 [hidden]{display:none!important} 截断收回动画；
+  // 先移出面板内焦点并设 inert，防止 aria-hidden 祖先锁住焦点或动画期抢焦滚页。
+  setReadingViewInert(readingView, true);
   readingView.classList.remove("open");
   readingView.classList.add("closing");
   readingView.setAttribute("aria-hidden", "true");
+  if (isReaderChatTabLoaded()) {
+    void closeChatSessionQuietly();
+  }
   return wasOpen;
 }
 
 export function closeReadingView() {
   const readingView = getReaderElement(ids.readingView);
-  readerFocusRestorePending = restoreReaderFocusOnClose || readingView.contains(document.activeElement);
+  const hadFocusInside = blurActiveFocusInside(readingView);
+  readerFocusRestorePending = restoreReaderFocusOnClose || hadFocusInside;
   restoreReaderFocusOnClose = false;
   if (!readerFocusRestorePending) {
     readerReturnFocus = null;
@@ -626,6 +649,9 @@ export function closeReadingView() {
   resetManualScrollPause();
   setProgrammaticScrollUntil(0);
   readingView.classList.remove("open", "closing", "reader-page");
+  readingView.hidden = true;
+  setReadingViewInert(readingView, false);
+  readingView.getAnimations?.().forEach((animation) => animation.cancel());
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute(READER_READY_ATTR, "0");
   readingView.removeAttribute("data-biliscript-reader-restore");

@@ -145,7 +145,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     if (!active && cancelRequested) {
       cancelRequested = false;
       deps.onNotice?.("已取消等待，草稿与图片已保留", 3000);
-      input.focus();
+      input.focus({ preventScroll: true });
       input.setSelectionRange(input.value.length, input.value.length);
     }
     updateSendBtnState();

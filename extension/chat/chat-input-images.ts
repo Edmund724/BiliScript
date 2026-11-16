@@ -256,7 +256,7 @@ export function createChatInputImages(deps: ChatInputImagesDeps): ChatInputImage
     const adjacent = items?.[Math.min(index, items.length - 1)];
     const focusTarget = adjacent?.querySelector<HTMLButtonElement>(".chat-image-preview, .chat-image-remove");
     if (focusTarget) {
-      focusTarget.focus();
+      focusTarget.focus({ preventScroll: true });
     } else {
       deps.focusInput?.();
     }

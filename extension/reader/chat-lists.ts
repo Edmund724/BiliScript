@@ -192,7 +192,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       openLiveHistoryId = id;
       renderHistoryList();
       historyList.scrollTop = 0;
-      historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus();
+      historyList.querySelector<HTMLButtonElement>(".chat-live-history-back")?.focus({ preventScroll: true });
       return;
     }
     if (!conversation) {
@@ -301,7 +301,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     if (nextFocusId) {
       focusHistoryOpen(nextFocusId);
     } else {
-      historyList.querySelector<HTMLButtonElement>(".chat-history-undo-button, .chat-history-start-new")?.focus();
+      historyList.querySelector<HTMLButtonElement>(".chat-history-undo-button, .chat-history-start-new")?.focus({ preventScroll: true });
     }
   }
 
@@ -430,7 +430,7 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       })
       .join("") + undoHtml();
     bindHistoryActions();
-    if (revealCurrent || currentAppeared) {
+    if ((revealCurrent || currentAppeared) && !historyList.closest("[hidden], [inert]")) {
       historyList.querySelector<HTMLElement>(".chat-history-item.is-active .chat-history-open")?.scrollIntoView({ block: "nearest" });
     }
   }

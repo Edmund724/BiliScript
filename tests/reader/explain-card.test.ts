@@ -701,7 +701,11 @@ describe("面板内解释卡片", () => {
 describe("解释卡片焦点管理（M3 Stage 2 P0）", () => {
   it("打开移入卡片焦点，Tab/Shift+Tab 在弹窗内循环，Esc/关闭归还触发前焦点并防后台重渲抢焦点", async () => {
     state.reader.readingViewOpen = true;
-    document.getElementById(ids.readingView)?.setAttribute("aria-hidden", "false");
+    const readingView = document.getElementById(ids.readingView) as HTMLElement | null;
+    if (readingView) {
+      readingView.hidden = false;
+      readingView.setAttribute("aria-hidden", "false");
+    }
     reader.renderReadingView();
 
     const triggerBtn = document.createElement("button");

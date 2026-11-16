@@ -741,7 +741,7 @@ export function initCustomSelect(
     setExpanded(false);
     searchableList.reset();
     if (!refocusTrigger) return;
-    trigger.focus();
+    trigger.focus({ preventScroll: true });
     // 归焦可能失败：trigger 被禁用时接不住焦点（原生行为），焦点会留在刚被隐藏的
     // <li> 上——那是「焦点在看不见的元素里」的陷阱。此时显式 blur，焦点落回 body，
     // 与「控件不可用」的语义一致（列表已收起、无可见焦点目标）。

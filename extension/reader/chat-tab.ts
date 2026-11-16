@@ -323,6 +323,8 @@ function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }:
 // aiThinkingLevel）收拢在 ../chat/chat-state.ts 的 chatSessionState，本文件与各
 // 子模块直接 import 读写。以下为纯局部单例。
 let initialized = false;
+let eventsBound = false;
+let sessionGeneration = 0;
 let initInFlight: Promise<void> | null = null;
 let syncMoreMenuSlidersFromState = (): void => {};
 // 会话收尾标志（closeChatSession 置位、激活路径复位）：闸住关闭后仍会兑现的
@@ -371,7 +373,7 @@ const inputImages = createChatInputImages({
   isStreaming: () => chatRuntime.isStreaming(),
   onReject: (message) => showConversationContextNotice(message, 4000),
   onPendingChange: () => composer.updateSendBtnState(),
-  focusInput: () => els.input.focus()
+  focusInput: () => els.input.focus({ preventScroll: true })
 });
 
 // 对话输入与发送区深 module（arch-review-batch4/01 号票）：收敛输入框常驻监听、
@@ -485,7 +487,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     }
     lists.renderHistoryList();
     if (change.historyCleared) {
-      els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus();
+      els.historyList.querySelector<HTMLButtonElement>(".chat-history-start-new")?.focus({ preventScroll: true });
     }
     if (change.resetView) {
       renderInitialState();
@@ -785,6 +787,9 @@ function onWindowEscapeKey(event: KeyboardEvent): void {
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
+  const generation = ++sessionGeneration;
+  sessionClosed = false;
+  const isStale = () => sessionClosed || generation !== sessionGeneration;
   requireShell();
   bindEvents();
   sessionTriggers.activate();
@@ -800,8 +805,16 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     loadContextState(),
     getLiveController()?.refreshTarget() ?? Promise.resolve()
   ]);
+  if (isStale()) {
+    sessionTriggers.deactivate();
+    return;
+  }
   // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
+  if (isStale()) {
+    sessionTriggers.deactivate();
+    return;
+  }
   renderInitialState();
   composer.autosizeInput();
   initialized = true;
@@ -816,14 +829,22 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 // 设置抽屉里的新增平台只能在此补读）→ 静默重取上下文 → 恢复匹配当前上下文的最近会话 →
 // 按会话历史重渲消息区（顺带清掉关闭时残留的流式半截节点）。
 async function restoreChatSession(): Promise<void> {
+  const generation = ++sessionGeneration;
+  const isStale = () => sessionClosed || generation !== sessionGeneration;
   bindLiveConsumerHooks();
   await modelPanel.reload().catch(() => null);
+  if (isStale()) {
+    return;
+  }
   void getLiveController()?.refreshTarget();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
-  if (!ok) {
+  if (!ok || isStale()) {
     return;
   }
   const restored = await conversationStore.restoreLatest();
+  if (isStale()) {
+    return;
+  }
   if (!restored && chatSessionState.liveContextData) {
     // 此前若有置顶旧会话，loadContextState 会走 APPLY_PINNED 只写 liveContextData；
     // 未命中新视频历史会话时 restoreLatest 只拆旧会话而不回填，需把 live 快照落回主上下文。
@@ -836,9 +857,12 @@ async function restoreChatSession(): Promise<void> {
 export async function ensureChatTabActivated({ consumeIntent = true }: { consumeIntent?: boolean } = {}): Promise<void> {
   if (!initialized) {
     if (!initInFlight) {
-      initInFlight = initChatTab({ consumeIntent }).finally(() => {
-        initInFlight = null;
+      const currentInit = initChatTab({ consumeIntent }).finally(() => {
+        if (initInFlight === currentInit) {
+          initInFlight = null;
+        }
       });
+      initInFlight = currentInit;
     }
     await initInFlight;
     return;
@@ -850,7 +874,7 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   }
   // 已初始化的普通激活（tab 切回）：消费可能新写入的待解释意图（解释卡片
   // 「去对话追问」在对话 tab 已装载时点击 / 上次挂起的意图重试）。无意图时为无害 no-op。
-  if (consumeIntent) {
+  if (consumeIntent && !sessionClosed) {
     await explainIntentController.consumeIfPending();
   }
 }
@@ -868,6 +892,9 @@ export function deactivateChatTabOverlays(): void {
 }
 
 export function closeChatSession(): void {
+  sessionGeneration += 1;
+  sessionClosed = true;
+  initInFlight = null;
   restartForContextFollow = false;
   quickActionGeneration += 1;
   invalidateReaderSetupFlows("chat");
@@ -879,9 +906,9 @@ export function closeChatSession(): void {
   liveStatus.setOpen(false);
   setLiveSessionHooks(null);
   if (!initialized) {
+    sessionTriggers.deactivate();
     return;
   }
-  sessionClosed = true;
   // 断流收口（chat-runtime 断连路径已兜底 UI 态）：断 port、清在途一问一答与
   // 慢响应计时器；未流式时为无害空操作。
   chatRuntime.resetStreamState();
@@ -892,8 +919,10 @@ export function closeChatSession(): void {
   sendGate.cancel();
   // 同步隐藏等待卡并恢复发送键。
   composer.setSubtitleWaitUi(false);
-  lists.settlePendingDeletion();
+  conversationReplay.invalidate();
   deactivateChatTabOverlays();
+  lists.cancelPendingSwitch();
+  lists.settlePendingDeletion();
   removeConversationContextNotice();
   sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
@@ -928,17 +957,17 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
     const text = String(prompt || "").trim();
     if (!text) {
       composer.autosizeInput();
-      els.input?.focus?.();
+      els.input?.focus?.({ preventScroll: true });
       return false;
     }
     if (chatRuntime.isTurnActive()) {
       showConversationContextNotice("当前对话正在生成或发送，请稍后再试。", 4000);
-      els.input?.focus?.();
+      els.input?.focus?.({ preventScroll: true });
       return false;
     }
     if (els.input.value || inputImages.count() > 0) {
       showConversationContextNotice("已保留未发送草稿，本次未自动发送。", 4000);
-      els.input?.focus?.();
+      els.input?.focus?.({ preventScroll: true });
       return false;
     }
     return composer.sendViaInputBox(text);
@@ -955,6 +984,11 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
 // ============================================================
 
 function bindEvents(): void {
+  if (eventsBound) {
+    bindLiveConsumerHooks();
+    return;
+  }
+  eventsBound = true;
   // 输入区常驻监听（keydown/paste/input/focus/blur 与发送钮点击）收敛进 composer 深 module
   composer.bind();
   // 滚动跟随与滚底按钮常驻监听（合帧防抖、近底判据、回底途中闸与放闸）收敛进 scrollFollow 深 module
@@ -1292,15 +1326,18 @@ function beginChatSetup(errorClass: OverviewSetupErrorClass, { providerId = "", 
 function resumeChatAfterSetup(mode: ChatSetupMode): void {
   closeReaderSettingsMode({ restoreFocus: false });
   composer.autosizeInput();
-  els.input?.focus?.();
+  els.input?.focus?.({ preventScroll: true });
   void (async () => {
     await modelPanel.reload().catch(() => null);
+    if (sessionClosed) {
+      return;
+    }
     if (mode === "blocked") {
       renderInitialState();
       chatSetupViewHold = false;
     }
     composer.autosizeInput();
-    els.input?.focus?.();
+    els.input?.focus?.({ preventScroll: true });
     showConversationContextNotice(CHAT_SETUP_READY_NOTICE, 0, {
       tone: "success",
       dismissible: true

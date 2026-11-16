@@ -85,16 +85,21 @@ describe("seekReadingTarget 规范序", () => {
     shell.noteManualReaderInteraction(5000);
     expect(scrollState.isManualScrollPaused()).toBe(true);
 
+    const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    Object.defineProperty(subtitleList, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(subtitleList, "scrollHeight", { value: 1200, configurable: true });
+    const listScrollToSpy = vi.fn();
+    subtitleList.scrollTo = listScrollToSpy;
     const scrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     const log = recordCurrentTimeAssignments(video);
     shell.seekReadingTarget(12, { resumePlayback: false });
 
     // currentTime 被赋值的瞬间，手动暂停必须已经清掉（规范序第 1 步先于第 3 步）
     expect(log).toEqual([{ pausedAtAssign: false, next: 12 }]);
-    // 跟随状态按规范序第 2 步落在 auto；seek 后事件驱动（seeked 直连 + 尾部
-    // force 同步）以 auto 行为滚动
+    // 跟随状态按规范序第 2 步落在 auto；seek 后事件驱动以 auto 行为滚容器内部，不滚宿主页
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+    expect(listScrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+    expect(scrollToSpy).not.toHaveBeenCalled();
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
   });
 

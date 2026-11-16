@@ -399,6 +399,11 @@ describe("播放同步与高亮", () => {
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
     // 视频继续播放到下一句（12s 在第二句）
+    const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    Object.defineProperty(subtitleList, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(subtitleList, "scrollHeight", { value: 1200, configurable: true });
+    const listScrollToSpy = vi.fn();
+    subtitleList.scrollTo = listScrollToSpy;
     video.currentTime = 12;
     const windowScrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 
@@ -407,12 +412,35 @@ describe("播放同步与高亮", () => {
     // 活跃状态正常前进，但列表不被强制滚动（不产生程序化滚动）
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
+    expect(listScrollToSpy).not.toHaveBeenCalled();
     expect(windowScrollToSpy).not.toHaveBeenCalled();
 
-    // 点击跟随播放恢复自动跟随并立即补上滚动
+    // 点击跟随播放恢复自动跟随并立即补上容器内滚动，不滚宿主页
     sync.resumeReaderFollowPlayback();
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
-    expect(windowScrollToSpy).toHaveBeenCalled();
+    expect(listScrollToSpy).toHaveBeenCalled();
+    expect(windowScrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("短字幕容器未溢出（scrollHeight <= clientHeight + 8）：同步与恢复跟随均不滚动宿主页 window", () => {
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    playerHost.bindReadingViewVideo(video);
+
+    const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    Object.defineProperty(subtitleList, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(subtitleList, "scrollHeight", { value: 200, configurable: true });
+    const listScrollToSpy = vi.fn();
+    subtitleList.scrollTo = listScrollToSpy;
+    const windowScrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+
+    video.currentTime = 12;
+    sync.syncReadingViewPlayback(true);
+    sync.resumeReaderFollowPlayback();
+
+    expect(state.reader.readingActiveSubtitleIndex).toBe(1);
+    expect(listScrollToSpy).not.toHaveBeenCalled();
+    expect(windowScrollToSpy).not.toHaveBeenCalled();
   });
 
   it("pointerdown 时存在文本选区：随后点击收起选区即使选区已空也不触发跳播", () => {

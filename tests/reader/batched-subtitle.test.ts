@@ -202,9 +202,13 @@ describe("字幕列表分批渲染", () => {
     shell.bindReadingViewVideo(video);
     video.currentTime = 2800; // 落点第 1400 条，远超 120+200 窗口
 
+    const list = subtitleList();
+    Object.defineProperty(list, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(list, "scrollHeight", { value: 4000, configurable: true });
+    const listScrollSpy = vi.fn();
+    list.scrollTo = listScrollSpy;
     const elementScrollSpy = vi.fn();
     Element.prototype.scrollIntoView = elementScrollSpy;
-    // jsdom 无布局：scrollHeight/clientHeight 恒 0，滚动会走 window.scrollTo 分支
     const windowScrollSpy = vi.fn();
     window.scrollTo = windowScrollSpy;
 
@@ -216,14 +220,16 @@ describe("字幕列表分批渲染", () => {
     flushAnimationFrames();
     expect(renderedItemCount()).toBe(1500);
     elementScrollSpy.mockClear();
+    listScrollSpy.mockClear();
     windowScrollSpy.mockClear();
 
-    // 生产 tick（非 force，视频暂停中 index 不再变化）：滚动必须补上
+    // 生产 tick（非 force，视频暂停中 index 不再变化）：滚动必须补上（且不滚宿主页）
     shell.syncReadingViewPlayback();
     shell.syncReadingViewPlayback();
     const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active.dataset.index).toBe("1400");
-    expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(elementScrollSpy.mock.calls.length + listScrollSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(windowScrollSpy).not.toHaveBeenCalled();
   });
 
   it("手动暂停中的激活计算照旧：不补渲染/滚动，恢复后下一拍补高亮", () => {

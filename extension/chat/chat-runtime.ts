@@ -1011,7 +1011,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activePort = null;
     }
     setStreamingUiState(false);
-    deps.input.focus();
+    if (!deps.input.inert && !deps.input.closest("[inert]")) {
+      deps.input.focus({ preventScroll: true });
+    }
     scrollToBottom();
     turn.resolve();
   }

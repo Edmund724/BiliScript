@@ -35,7 +35,7 @@ export function createChatImageViewer(): ChatImageViewer {
     const target = returnFocus;
     returnFocus = null;
     if (restoreFocus && target?.isConnected) {
-      target.focus();
+      target.focus({ preventScroll: true });
     }
   }
 
@@ -51,7 +51,7 @@ export function createChatImageViewer(): ChatImageViewer {
     }
     if (event.key === "Tab") {
       event.preventDefault();
-      overlay.querySelector<HTMLButtonElement>(".chat-image-viewer-close")?.focus();
+      overlay.querySelector<HTMLButtonElement>(".chat-image-viewer-close")?.focus({ preventScroll: true });
     }
   }
 
@@ -94,7 +94,7 @@ export function createChatImageViewer(): ChatImageViewer {
       viewer.setAttribute("open", "");
     }
     document.addEventListener("keydown", onKeydown, true);
-    closeButton.focus();
+    closeButton.focus({ preventScroll: true });
   }
 
   return { open, close };
