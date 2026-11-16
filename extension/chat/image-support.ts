@@ -25,7 +25,7 @@ import type { ImagePart } from "../ai/types.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
 import { loadModelCatalog } from "../ui/lazy-model-catalog.js";
 import { chatSessionState } from "./chat-state.js";
-import { parseModelOptionValue } from "./providers.js";
+import { parseModelOptionValue } from "../shared/selected-provider.js";
 
 // 查表结果只取 input 一个字段（能力事实）：结构上是目录元数据的窄面（Pick 单源，
 // 与 ai/ladder.ts 的 BudgetPlan 同款收窄），测试替身少填字段也能过编译。
@@ -38,9 +38,9 @@ export type ImageSupportLookup = (
 ) => Promise<ImageSupportMeta | null>;
 
 export interface ImageSupportGateDeps {
-  // 选中项的复合值（chat/providers.ts 的 MODEL_OPTION_SEPARATOR 编码）。平台记录
+  // 选中项的复合值（shared/selected-provider.ts 的 MODEL_OPTION_SEPARATOR 编码）。平台记录
   //（presetId / baseUrl）沿 chatSessionState.providers 读——与思考档位提示
-  //（reader/chat-tab.ts 的 refreshThinkingUi）同一套识别入参，不开新消息链。
+  //（reader/chat-model-panel.ts）同一套识别入参，不开新消息链。
   getSelectedModelValue: () => string;
   // 用户可见提示出口（组合根接消息区通知条 showConversationContextNotice）
   notify: (message: string) => void;

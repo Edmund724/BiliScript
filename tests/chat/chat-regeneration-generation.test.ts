@@ -447,4 +447,21 @@ describe("重新生成的原上下文与恢复", () => {
     expect(deps.ports).toHaveLength(4);
     expect(deps.ports[0].port.postMessage).toHaveBeenCalledTimes(1);
   });
+
+  it("重新生成零输出即停止时回滚原回答与原工具卡，历史不变", async () => {
+    const { deps, runtime } = await makeOriginalAnswer({ toolCard: true });
+    const originalHistory = [...state.chatSessionState.chatHistory];
+    const originalAssistant = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
+    const originalCard = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+
+    clickRegenerate(deps);
+    await waitForPort(deps, 2);
+    feed(runtime, { type: "stopped", reason: "用户停止" });
+
+    expect(state.chatSessionState.chatHistory).toEqual(originalHistory);
+    expect(deps.messages.querySelector(".chat-msg-assistant")).toBe(originalAssistant);
+    expect(deps.messages.querySelector(".chat-search-card")).toBe(originalCard);
+    expect(originalAssistant.textContent).toContain("原回答");
+    expect(originalAssistant.querySelector(".chat-msg-stopped")).toBeNull();
+  });
 });

@@ -278,7 +278,13 @@ describe("面板内解释卡片", () => {
     // 阅读不被打断：仍在字幕 tab，且没有写对话侧的待解释意图
     expect(tabBody("Subtitle").classList.contains("is-active")).toBe(true);
     expect(tabBody("Chat").classList.contains("is-active")).toBe(false);
-    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+    const probeSend = vi.fn().mockResolvedValue(true);
+    const probe = explainIntent.createExplainIntentController({
+      card: document.createElement("div"),
+      sendPrompt: probeSend
+    });
+    await probe.consumeIfPending();
+    expect(probeSend).not.toHaveBeenCalled();
   });
 
   // bilingual-subtitles/08 号票的回归锁：双语态下 `.biliscript-reading-text` 里还嵌着
@@ -520,17 +526,6 @@ describe("面板内解释卡片", () => {
 
     dispatchActionClick("ask-chat");
 
-    // 卡片内动作经 reader 动态域转发（异步），等落定再断言意图与 tab 态
-    let intent = explainIntent.peekPendingExplainIntent();
-    await vi.waitFor(() => {
-      intent = explainIntent.peekPendingExplainIntent();
-      expect(intent).not.toBe(null);
-    });
-    expect(intent!.content).toBe("我们习惯将其视为传递信息的工具");
-    expect(intent!.selection).toBe("传递信息的工具");
-    expect(intent!.explanation).toBe("这是模型给出的解释。");
-    expect(intent!.from).toBe(10);
-
     // 卡片自身收起（切 tab 后留在字幕 tab 里会残留）
     await vi.waitFor(() => expect(explainCard().hidden).toBe(true));
     // 切对话 tab 经标签激活属主（reader/script-tab-activation 的串行队列）落地：
@@ -542,10 +537,19 @@ describe("面板内解释卡片", () => {
     const quote = document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-quote`);
     expect(quote?.textContent).toContain("传递信息的工具");
     expect(quote?.textContent).toContain("我们习惯将其视为传递信息的工具");
+    expect(document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-time`)?.textContent).toBe(
+      "0:10"
+    );
     expect(document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-title`)?.textContent).toBe(
       "基于当前解释继续追问"
     );
     expect(document.activeElement).toBe(document.getElementById(ids.readingChatInput));
+
+    const probe = explainIntent.createExplainIntentController({
+      card: document.createElement("div"),
+      sendPrompt: vi.fn().mockResolvedValue(true)
+    });
+    expect(probe.buildFollowUpPrompt("继续问")).toContain("这是模型给出的解释。");
   });
 
   it("× / 遮罩 / Esc 都关闭卡片", async () => {
@@ -929,7 +933,13 @@ describe("Stage 2 同步与生命周期联动闭环（P0/P1）", () => {
 
     expect(reader.isReaderExplainCardOpen()).toBe(false);
     expect(explainCard().hidden).toBe(true);
-    expect(explainIntent.peekPendingExplainIntent()).toBeNull();
+    const probeSend = vi.fn().mockResolvedValue(true);
+    const probe = explainIntent.createExplainIntentController({
+      card: document.createElement("div"),
+      sendPrompt: probeSend
+    });
+    await probe.consumeIfPending();
+    expect(probeSend).not.toHaveBeenCalled();
     expect(resumeLeaf.peekExplainSetupResumeIntent()).toBeNull();
   });
 });

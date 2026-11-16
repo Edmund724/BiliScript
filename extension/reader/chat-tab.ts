@@ -60,12 +60,6 @@
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
-// 思考档位的显示视图（一级行 · chip 条目 · 提示文案）：一次解析（偏好 + 上下文）的产出，
-// 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
-// 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
-import { thinkingViewOf } from "../chat/thinking-picker.js";
-// 档位入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
-import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
@@ -74,18 +68,12 @@ import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
-// 对话域单一深入口（arch-review-2026-09/08）：内核链七件（pinned 补水解析器 +
-// conversation-store + context-load（含内联 createInProcessContextFetch 进程内
-// 直读装配策略）+ 发送闸 + chat-runtime + 历史回放）在 ../chat/tab-domain.ts
-// 组装；chat 域其余出口（状态单例、providers 工厂等）统一经该门面转出——
-// 本文件的 chat 域 import 面收敛为一处（10 → 1）。
+// 对话域单一深入口：内核链在 ../chat/tab-domain.ts 组装。
 import {
   OFFSCREEN_CHAT_PORT_NAME,
   applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
-  createProviderPrefs,
-  noteDefaultModelChoice,
   parseModelOptionValue,
   rebuildCurrentContextKeyFromContext,
   type ViewResetIntent
@@ -93,7 +81,6 @@ import {
 // pinned 判定单一谓词（context-policy.ts）：全仓统一严格 === true，两处真值读
 // 已并入。
 import { isPinnedContextStrict } from "../chat/context-policy.js";
-import { scheduleModelSelectWidthUpdate, updateModelSelectWidth, type ModelSelectWidthEls } from "../chat/model-select-width.js";
 // 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
 // 缓存落定时若建议区正开着，就地换成生成结果。
 import { subscribeQuickPromptsChange } from "../chat/quick-prompt-cache.js";
@@ -102,8 +89,8 @@ import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 // 转写中判定（与字幕 tab 横幅同源：相位 transcribing 且字幕体为空）。
 import { isReaderTranscribing } from "./transcribe-banner.js";
-// 待解释意图的对话侧消费：引用卡、提示词与受理后 consume 事务收在独立 module。
-import { createExplainIntentConsumption } from "./explain-intent-consumption.js";
+// 待解释意图的对话侧控制器：引用卡渲染、事件绑定、在途守卫与消费。
+import { createExplainIntentController } from "./explain-intent.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
@@ -418,17 +405,17 @@ const composer = createReaderChatComposer({
   onNotice: showConversationContextNotice,
   isImageProcessing: () => inputImages.isPending(),
   hasInputImages: () => inputImages.count() > 0,
-  prepareManualPrompt: (text) => explainIntentConsumption.buildFollowUpPrompt(text),
-  onManualPromptAccepted: () => explainIntentConsumption.completePendingFollowUp(),
+  prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
+  onManualPromptAccepted: () => explainIntentController.completePendingFollowUp(),
   getLiveState: () => getLiveController()?.getState() ?? "idle",
   onStartLive: () => {
     void startLiveCompanion();
   }
 });
 
-const explainIntentConsumption = createExplainIntentConsumption({
+const explainIntentController = createExplainIntentController({
   card: els.intentCard,
-  autoSendPrompt: composer.autoSendPrompt,
+  sendPrompt: (prompt) => composer.sendViaInputBox(prompt, { preserveDraft: true, restoreOnReject: true }),
   isTurnActive: () => chatRuntime.isTurnActive(),
   onNotice: showConversationContextNotice,
   onFocusInput: () => els.input?.focus?.({ preventScroll: true })
@@ -547,8 +534,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
   onWaitingChange: (waiting) => composer.setSubtitleWaitUi(waiting),
   getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
-  // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
-  // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
+  // 选中模型 id：随 chat 消息下发，offscreen 覆盖平台目录首项。
   getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
   getInputImages: () => inputImages.getImages(),
   takeInputImages: (snapshot) => {
@@ -639,8 +625,7 @@ const popovers = createReaderChatPopovers({
   renderModelPanel: () => modelPanel.renderPanel()
 });
 
-// 模型 chip + 面板的渲染（chip 是隐藏 select 的展示层）；hidePanel 惰性互引
-// popovers 实例（回调执行时实例已存在）。
+// 模型 chip、面板、思考强度、联网开关与平台/偏好加载控制器。
 const modelPanel = createReaderChatModelPanel({
   modelSelect: els.modelSelect,
   chip: els.modelChip,
@@ -651,17 +636,14 @@ const modelPanel = createReaderChatModelPanel({
   thinkingToggle: els.thinkingToggle,
   thinkingRow: els.thinkingRow,
   thinkingRowValue: els.thinkingRowValue,
-  // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）：随本次深化移入面板注入面——
-  // 本文件不再持有该元素、不写它的显隐/文案，也不知道「先画档位再画提示」这种调用顺序
-  // （面板 renderThinkingPicker 收整份视图值一次画完）。
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
+  webSearchPill: els.webSearchPill,
+  storage: chrome.storage.local,
   hidePanel: () => popovers.hideModelPanel(),
   openSettings: () => {
-    const { errorClass, providerId } = resolveChatSetupTarget();
+    const { errorClass, providerId } = modelPanel.resolveSetupTarget();
     beginChatSetup(errorClass, { providerId });
-  },
-  // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
-  pickLevel: (level) => pickThinkingLevel(level)
+  }
 });
 
 // 滚动跟随与回底闸状态机（chat-scroll-follow）：按帧合批 + 双阈值迟滞 + 物理手势即时断跟
@@ -674,80 +656,6 @@ const scrollFollow = createScrollFollowController({
   setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
   scrollToBottom: (smooth) => chatRuntime.scrollToBottom(smooth)
 });
-
-// 宽度度量专用 els 引用包（model-select-width 的契约键名 chip/chipModel/chipLevel；
-// 模块级 els 用 readingChat* 语义键名，二者在此显式对齐）。
-const widthEls: ModelSelectWidthEls = {
-  chip: els.modelChip,
-  chipModel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-model") as HTMLElement,
-  chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement
-};
-
-// 上下文状态加载编排壳（../chat/context-load.ts）与 chat 流状态机
-//（../chat/chat-runtime.ts）均已收进上面的 createChatTabDomain 组装；本文件
-// 经解构消费 contextLoad（loadContextState，见上）与
-// chatRuntime 实例方法。
-// AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
-// 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
-// 宽度）。思考档位区的判定在本文件（refreshThinkingUi：偏好 + 上下文 → 视图值），
-// DOM 全在面板（含提示行），baseUrl 识别入参由 providers 模块自 ai-providers-list
-// 载荷透传。
-const providerPrefs = createProviderPrefs({
-  modelSelect: els.modelSelect,
-  widthEls,
-  webSearchPill: els.webSearchPill
-});
-const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = providerPrefs;
-
-// ============================================================
-// 思考档位区刷新（解析 → 整份视图值交给面板）
-// ============================================================
-
-// 档位区刷新（06 号票：一次解析同时决定「哪些档位存在」与「提示文案」；候选 6 起这次
-// 解析直接产出视图值）。本函数只做「解析入参装配 → 交给面板」——思考强度标题行、滑块/重置键、
-// chip 的档位 span 与底部提示行都由面板从这**一份**视图值画出来，本文件不碰这些 DOM，也不再
-// 承担 chip 与面板的重渲顺序（面板 renderThinkingPicker 内部一次画完）。
-// 刷新点三处：模型选择 change、档位切换、平台列表重载（init 与
-// loadProvidersAndPrefs 之后）——模型/档位一变即重判。
-function refreshThinkingUi(): void {
-  // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
-  // ai-providers-list 载荷（providers.ts 已透传进 chatSessionState.providers，
-  // 不开新消息链）；模型名取选中项的模型 id（multi-model-catalog：选项值是
-  // 「平台 id\u0001模型 id」复合值，解析后取模型段，平台记录仅作回落）。
-  // stream 传 true：对话请求是流式，streamOnly 关闭规则（如 qwen3-235b 的
-  // enable_thinking:false）在对话里正常可用，不误报提示。
-  const selected = parseModelOptionValue(els.modelSelect.value);
-  const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
-  // 偏好 + 上下文 → 视图值（档位集合 = 只显示存在的档位、不置灰；思考强度行/chip 的显示名 =
-  // 口径 ③ 的实发档；底部提示行 = 口径①②的文案）。解析只发生这一次，显示口径与请求落线
-  // 同源——本文件不再自己判文案，也不手工摘解析字段。
-  const view = thinkingViewOf({
-    presetId: String(provider?.presetId || ""),
-    baseUrl: String(provider?.baseUrl || ""),
-    model: selected.model || String(provider?.model || ""),
-    level: chatSessionState.aiThinkingLevel,
-    stream: true
-  });
-  // 整份视图值交给面板（唯一画侧入口）：开关型模型在这里被收成 Off/On 两项、chip 与思考强度行
-  // 同步显示 On；偏好 ≠ 实发档时显示**实发档**（关不掉 → {high,max} 显示 High；档位型
-  // clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），不再显示线上没发的东西；
-  // 提示行（工单 03 / 05 号票）也随这次解析一起落 DOM。
-  modelPanel.renderThinkingPicker(view);
-}
-
-// 档位落盘出口（面板档位滑块 / ↻ 重置键 / 单档胶囊经 deps.pickLevel 回到这里）：setThinkingLevel
-// 首行同步写 chatSessionState.aiThinkingLevel，紧随的重判读到的是新档位（档位切走
-// 即收提示，切回 Off 再现）；chip 的档位文案、滑块选中态与提示行都随重判重渲。
-// **一次切换只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
-// renderThinkingPicker 内部的事），chip 的渲染路径收敛为 refreshThinkingUi 一条。
-// 调整思考档位或切换模型都不关面板。
-// 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
-// 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
-// 归一化在落盘入口做一次。
-function pickThinkingLevel(level: ThinkingLevelInput): void {
-  void setThinkingLevel(level);
-  refreshThinkingUi();
-}
 
 // 抓取/音频转写进行中（content 的 subtitleFetchState 为 loading 且字幕体为空）
 // 时等待其完成再放行发送流程——等待闸状态机与提示路由已随发送闸迁入
@@ -896,12 +804,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   // 失败不阻断 init（catch 吞掉，与每次发送前的 ensure 复用同一自愈路径）。
   await Promise.all([
     sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null),
-    loadProvidersAndPrefs().then(() => {
-      // 平台列表/档位落定后：首判档位区（「关不掉」提示 + 档位条目 + 模型 chip 首渲，
-      // renderModelSelect 已把选中项写进 select）——此后由模型切换/档位点击/外部刷新续判。
-      // chip 首渲不再单独调用（refreshThinkingUi 经面板内部画它），一次刷新只渲一遍。
-      refreshThinkingUi();
-    }),
+    modelPanel.reload(),
     conversationStore.loadAll(),
     loadContextState(),
     getLiveController()?.refreshTarget() ?? Promise.resolve()
@@ -914,21 +817,17 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   // PR3 契约消费：有待解释意图 → 渲染引用卡 + 自动发送（发送成功即 consume）。
   // 快捷动作路径传 consumeIntent:false 跳过（与快捷发送互不踩踏）。
   if (consumeIntent) {
-    await explainIntentConsumption.consumeIfPending();
+    await explainIntentController.consumeIfPending();
   }
 }
 
-// 重开/重进的恢复路径（工单 08：重开从会话历史恢复）：重取平台/偏好（会话关闭
-// 期间存储变更 watcher 已随触发源摘下，设置抽屉里的新增平台只能在此补读）→
-// 静默重取上下文（签名短路便宜）→ 恢复匹配当前上下文的最近会话 → 按会话历史
-// 重渲消息区（顺带清掉关闭时残留的流式半截节点）。
+// 重开/重进的恢复路径：重取平台/偏好（会话关闭期间存储变更 watcher 已摘除，
+// 设置抽屉里的新增平台只能在此补读）→ 静默重取上下文 → 恢复匹配当前上下文的最近会话 →
+// 按会话历史重渲消息区（顺带清掉关闭时残留的流式半截节点）。
 async function restoreChatSession(): Promise<void> {
-  // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
-  // 都由这一次重判画出来，不再另调 renderChip）。
   bindLiveConsumerHooks();
-  await loadProvidersAndPrefs().catch(() => null);
+  await modelPanel.reload().catch(() => null);
   void getLiveController()?.refreshTarget();
-  refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
     return;
@@ -961,7 +860,7 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   // 已初始化的普通激活（tab 切回）：消费可能新写入的待解释意图（解释卡片
   // 「去对话追问」在对话 tab 已装载时点击 / 上次挂起的意图重试）。无意图时为无害 no-op。
   if (consumeIntent) {
-    await explainIntentConsumption.consumeIfPending();
+    await explainIntentController.consumeIfPending();
   }
 }
 
@@ -1011,7 +910,7 @@ export function closeChatSession(): void {
   sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
   // 隐藏，下次激活按无意图渲染。
-  explainIntentConsumption.hide();
+  explainIntentController.hide();
   sessionTriggers.deactivate();
 }
 
@@ -1155,59 +1054,12 @@ function bindEvents(): void {
   ensureLiveController();
   bindLiveConsumerHooks();
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
-  els.modelSelect.addEventListener("change", () => {
-    // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
-    // 持久化 = 复合值进 chrome.storage.local（providers 模块的 setSelectedProvider，
-    // renderModelSelect 的选中回落直接消费）；sync settings 的 defaultModel 仍是
-    // 裸平台 id（SW 激活平台解析的消费口径不变），但落盘收编进 save-settings
-    // 通道（C5）：此前直写 chrome.storage.sync.set 绕过写白名单与
-    // normalizeDefaultModel（trim），也不触发 SW 设置快照的写后 inline 失效；
-    // 现与 aiThinkingLevel / webSearchEnabled 同一条口径（见 chat/providers.ts 的
-    // setThinkingLevel）。
-    const selected = parseModelOptionValue(els.modelSelect.value);
-    const providerId = selected.providerId;
-    if (providerId) {
-      providerPrefs.setSelectedProvider(els.modelSelect.value);
-      noteDefaultModelChoice(providerId);
-    } else {
-      noteDefaultModelChoice("");
-    }
-    void sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } }).catch(() => null);
-    updateModelSelectWidth(widthEls);
-    // 模型选择变化：重判档位区（chip 文案含模型名 + 档位显示名 + 提示行一起重渲，含从
-    // 「关不掉」模型切回可关模型时提示消失）。chip 不单独调用——refreshThinkingUi 经面板
-    // 内部画它，一次 change 只渲一遍。
-    refreshThinkingUi();
-  });
-  // 档位条目的点击接线在 reader/chat-model-panel.ts（条目现渲，静态 NodeList 不存在）：
-  // 面板点中条目 → pickLevel（下面的 pickThinkingLevel）→ 重判并原位刷新，面板保持打开。
-  // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
-  if (els.webSearchPill) {
-    els.webSearchPill.addEventListener("click", () => {
-      void setWebSearchEnabled(!chatSessionState.webSearchEnabled);
-    });
-  }
-  window.addEventListener("resize", onWindowResize);
-  // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换，
-  // 对齐 batched-render 头注的容器委托先例）：
-  //   1. 引用卡取消：[data-chat-intent-action="cancel"] 点击；
-  //   2. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；
-  //   3. 无平台空态 / 发送前拦截状态屏的「前往设置」：[id=readingChatOpenSettings]
-  //      点击 → 直达新增 AI 平台编辑器（票 03；原先只打开设置抽屉，用户在抽屉里
-  //      还得自己找平台分区）。链接由 renderInitialState / requestViewReset 用
-  //      innerHTML 后建，容器委托对每次重建的链接都生效。href="#" 的默认跳转一并
-  //      preventDefault。
+  // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换）：
+  //   1. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；
+  //   2. 无平台空态 / 发送前拦截状态屏的「前往设置」：[id=readingChatOpenSettings]
+  //      点击 → 直达新增 AI 平台编辑器。href="#" 的默认跳转一并 preventDefault。
   els.root.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
-    const intentBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
-    if (intentBtn?.dataset.chatIntentAction === "cancel") {
-      explainIntentConsumption.cancel();
-      return;
-    }
-    if (intentBtn?.dataset.chatIntentAction === "send") {
-      void explainIntentConsumption.consumeIfPending();
-      return;
-    }
     const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
     if (removeBtn) {
       inputImages.removeAt(Number(removeBtn.dataset.chatImageRemove));
@@ -1219,7 +1071,7 @@ function bindEvents(): void {
       // 关闭（与壳内 readingSettingsToggleBtn 的 stopPropagation 同一先例）。
       event.preventDefault();
       event.stopPropagation();
-      const { errorClass, providerId } = resolveChatSetupTarget();
+      const { errorClass, providerId } = modelPanel.resolveSetupTarget();
       beginChatSetup(errorClass, { providerId, mode: "blocked" });
     }
   });
@@ -1251,11 +1103,6 @@ function bindEvents(): void {
   }
 }
 
-function onWindowResize(): void {
-  // resize 路径读写交错（P2-3）：经 rAF 合帧，一帧至多跑一次「读布局 → 写宽度」。
-  scheduleModelSelectWidthUpdate(widthEls);
-}
-
 // 输入框高度上限常量（实现与逻辑收归 chat-tab-composer.ts，本处保留供测试与类型锁定）
 export const INPUT_MAX_HEIGHT = 320;
 
@@ -1267,15 +1114,10 @@ function isConversationViewActive(): boolean {
   return chatRuntime.isTurnActive();
 }
 
-// AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部
-// 设置变更 → 刷新」编排（流式守卫 + 重渲染留在组合根）。
+// 外部设置变更刷新平台/偏好、历史列表与初始态视图（流式守卫保留在组合根）。
 async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
-  // 选中平台回退取 providers 模块的 storage 闭包缓存。
-  const previousProviderId = String(els.modelSelect?.value || providerPrefs.getStoredSelectedProviderId() || "").trim();
-  await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重判档位区（chip + 档位
-  // 条目 + 提示行）。chip 不单独调用——refreshThinkingUi 经面板内部画它。
-  refreshThinkingUi();
+  const previousProviderId = String(els.modelSelect?.value || "").trim();
+  await modelPanel.reload({ preferredProviderId: previousProviderId || undefined });
   // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
   //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
   // 重建清场。普通问答覆盖 connectPort 前的受理窗口，MOSS-LIVE 连接态也视为活跃，
@@ -1308,7 +1150,7 @@ async function syncLiveContextState(forceRefresh = false, preserveInput = false)
     !ok
     || !chatSessionState.contextData
     || !chatSessionState.providers.length
-    || !hasSelectableChatModels()
+    || !modelPanel.hasSelectableModels()
     || !chatSessionState.chatHistory.length
   ) {
     renderInitialState();
@@ -1330,7 +1172,7 @@ export function renderInitialState(): void {
     resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
     return;
   }
-  if (!chatSessionState.providers.length || !hasSelectableChatModels()) {
+  if (!chatSessionState.providers.length || !modelPanel.hasSelectableModels()) {
     resetConversationView(setupStateHtml());
     return;
   }
@@ -1390,52 +1232,12 @@ function requestViewReset(intent: ViewResetIntent): void {
 }
 
 // ============================================================
-// AI 对话首配直达与返回（票 provider-onboarding-consistency/03）
+// AI 对话首配直达与返回
 // ============================================================
-
-function providerHasModels(provider: (typeof chatSessionState.providers)[number] | null | undefined): boolean {
-  if (!provider) {
-    return false;
-  }
-  const models = Array.isArray(provider.models) ? provider.models : [];
-  if (models.some((model) => String(model || "").trim() !== "")) {
-    return true;
-  }
-  return Boolean(String(provider.model || "").trim());
-}
-
-function hasSelectableChatModels(): boolean {
-  return chatSessionState.providers.some((provider) => providerHasModels(provider));
-}
-
-function resolveChatMissingModelProviderId(): string {
-  const providers = chatSessionState.providers;
-  if (!providers.length) {
-    return "";
-  }
-  const storedSelected = parseModelOptionValue(providerPrefs.getStoredSelectedProviderId()).providerId;
-  const preferredId = String(chatSessionState.aiPrefs.defaultModel || "").trim();
-  for (const candidate of [preferredId, storedSelected]) {
-    if (candidate && providers.some((provider) => String(provider.id || "") === candidate)) {
-      return candidate;
-    }
-  }
-  return String(providers[0]?.id || "").trim();
-}
-
-function resolveChatSetupTarget(): { errorClass: OverviewSetupErrorClass; providerId: string } {
-  if (chatSessionState.providers.length > 0 && !hasSelectableChatModels()) {
-    return {
-      errorClass: "no-model",
-      providerId: resolveChatMissingModelProviderId()
-    };
-  }
-  return { errorClass: "no-provider", providerId: "" };
-}
 
 // 无平台 / 缺模型状态屏（空态与「发送前拦截」共用一份）：配置动作直达对应平台编辑记录。
 function setupStateHtml(): string {
-  if (chatSessionState.providers.length > 0 && !hasSelectableChatModels()) {
+  if (chatSessionState.providers.length > 0 && !modelPanel.hasSelectableModels()) {
     return `当前 AI 平台还没有配置可用模型，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
   }
   return `还没有配置 AI 平台，<a href="#" id="${ids.readingChatOpenSettings}">前往设置</a>`;
@@ -1572,8 +1374,7 @@ function resumeChatAfterSetup(): void {
   els.input?.focus?.();
   void (async () => {
     // 新平台 / 新 Key / 新模型已落盘：重取平台列表与偏好，模型选择器与档位区随之就位。
-    await loadProvidersAndPrefs().catch(() => null);
-    refreshThinkingUi();
+    await modelPanel.reload().catch(() => null);
     if (intent.mode === "blocked") {
       // 受理前拦截停在状态屏：清掉状态屏回到初始态；输入框草稿与附件区不动。
       renderInitialState();
@@ -1596,10 +1397,11 @@ function showChatSetupAction(errorClass: OverviewSetupErrorClass, providerId: st
     resolvedClass === "no-provider"
     && !resolvedProviderId
     && chatSessionState.providers.length > 0
-    && !hasSelectableChatModels()
+    && !modelPanel.hasSelectableModels()
   ) {
-    resolvedClass = "no-model";
-    resolvedProviderId = resolveChatMissingModelProviderId();
+    const target = modelPanel.resolveSetupTarget();
+    resolvedClass = target.errorClass;
+    resolvedProviderId = target.providerId;
   }
   const message =
     resolvedClass === "missing-key"

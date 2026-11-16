@@ -19,7 +19,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 let mod: typeof import("../../extension/chat/image-support.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
-let buildModelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
+let buildModelOptionValue: typeof import("../../extension/shared/selected-provider.js").buildModelOptionValue;
 
 // 选中平台记录（providers.ts 自 ai-providers-list 载荷透传进 chatSessionState.providers
 // 的形状：id 必填，presetId / baseUrl 可选）。
@@ -71,7 +71,7 @@ beforeEach(async () => {
   mod = await import("../../extension/chat/image-support.js");
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
   chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
-  buildModelOptionValue = (await import("../../extension/chat/providers.js")).buildModelOptionValue;
+  buildModelOptionValue = (await import("../../extension/shared/selected-provider.js")).buildModelOptionValue;
 });
 
 describe("门控：乐观放行（目录明确登记不收图才提示）", () => {

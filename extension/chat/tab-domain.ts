@@ -39,9 +39,9 @@
 //     getTimestampNavDeps / normalizeMarkdownForSectionPaste / connectPort
 //    （闭包连着组合根的页面级状态与 DOM，留在 chat-tab）。
 //
-// 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState 与三个
-// B 档写方归并原语、offscreen 端口名、presets/providers 工厂）统一自本模块
-// 转出——chat-tab 的 chat 域 import 面收敛为本模块一处（工单 08 验收：10 → 1）。
+// 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState 与 B 档写方
+// 归并原语、offscreen 端口名、复合选项编解码）统一自本模块转出——chat-tab 的
+// chat 域 import 面收敛为本模块一处。
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
@@ -70,13 +70,10 @@ import type { ViewResetIntent } from "./view-intent.js";
 export {
   chatSessionState,
   applyLiveContextToMain,
-  noteDefaultModelChoice,
   rebuildCurrentContextKeyFromContext
 } from "./chat-state.js";
-// offscreen 聊天端口名单源（chat/protocol.ts，ticket 08，原裸写字面量收口）。
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
-export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
-// 视图意图词表（chat/view-intent.ts，视图重建决策面单源，候选 11 第一刀）。
+export { parseModelOptionValue } from "../shared/selected-provider.js";
 export type { ViewResetIntent } from "./view-intent.js";
 
 export interface CreateChatTabDomainDeps {

@@ -384,7 +384,6 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     expect(input.value).toBe("");
 
     // 发送成功即消费：一次意图只发一次，引用卡随之隐藏
-    expect(explainIntent.consumePendingExplainIntent()).toBe(null);
     expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
 
     await chat.ensureChatTabActivated();
@@ -408,12 +407,12 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     const intentCard = document.getElementById(ids.readingChatIntent) as HTMLElement;
     expect(intentCard.hidden).toBe(false);
 
-    // 容器层委托：对话 tab 根节点上的 [data-chat-intent-action] 点击
+    // 卡片直接绑定 [data-chat-intent-action] 点击
     const cancelBtn = intentCard.querySelector("[data-chat-intent-action='cancel']") as HTMLButtonElement;
     cancelBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
     expect(intentCard.hidden).toBe(true);
+    await chat.ensureChatTabActivated();
     expect(ports).toHaveLength(0); // 取消不触发发送
   });
 
@@ -446,7 +445,6 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     explainIntent.setPendingExplainIntent({ from: 10, content: "待解释句", createdAt: Date.now() });
     await chat.ensureChatTabActivated();
     expect(ports).toHaveLength(0);
-    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
     expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(false);
 
     // 闸放行：先发出的是闸里那条，不是解释提示词
@@ -461,7 +459,9 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     await chat.ensureChatTabActivated();
     await waitFor(() => ports.length === 2 && ports[1].postMessage.mock.calls.length === 1);
     expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toContain("待解释句");
-    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+    expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
+    await chat.ensureChatTabActivated();
+    expect(ports).toHaveLength(2);
   });
 });
 
@@ -490,7 +490,7 @@ describe("subtitle-wait kick 总线接线", () => {
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     await waitFor(() => Boolean(asrNotice.textContent?.includes("完成后自动开始总结")));
     expect(ports).toHaveLength(0);
-    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
+    expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(false);
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
 
     // 转写完成（字幕落账 + 相位 asr-done）→ kick 补轮放行
@@ -502,12 +502,13 @@ describe("subtitle-wait kick 总线接线", () => {
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string; context?: { subtitleBody?: unknown[] } };
     expect(posted.prompt).toContain("转写中句");
     expect(posted.context?.subtitleBody).toHaveLength(1); // 转写完成后的完整字幕
-    expect(explainIntent.consumePendingExplainIntent()).toBe(null);
     expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
     // 等待提示清理 + asr 提示行收起
     expect(messages.querySelector(".chat-context-notice")).toBeNull();
     expect(asrNotice.hidden).toBe(true);
     await activation;
+    await chat.ensureChatTabActivated();
+    expect(ports).toHaveLength(1);
   });
 
   it("抓取等待中转入转写相位：等待卡保留并显示转写状态行", async () => {
@@ -1380,10 +1381,14 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
 
     await chat.runQuickActionPrompt("总结提示词");
 
-    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
     expect(ports).toHaveLength(1);
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toBe("总结提示词");
+
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    await chat.ensureChatTabActivated();
+    await waitFor(() => ports.length === 2);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toContain("挂起句");
   });
 
   it("带 explanation 的追问意图：保留上下文并聚焦输入框，追问发送时拼入已有解释并消费", async () => {
@@ -1403,7 +1408,6 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     expect(intentCard.hidden).toBe(false);
     expect(intentCard.querySelector(".biliscript-reading-chat-intent-title")?.textContent).toBe("基于当前解释继续追问");
     expect(intentCard.querySelector<HTMLButtonElement>('[data-chat-intent-action="send"]')?.hidden).toBe(true);
-    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
 
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
     expect(document.activeElement).toBe(input);
@@ -1414,8 +1418,13 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toContain("已有释义正文");
     expect(posted.prompt).toContain("追问：请再举个例子");
-    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
     expect(intentCard.hidden).toBe(true);
+
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    input.value = "普通追问";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 2);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("普通追问");
   });
 
   it("无 explanation 且流式生成中：提示稍后可发送，流结束后点引用卡发送可发出并消费", async () => {
@@ -1440,7 +1449,9 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     sendAction.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await waitFor(() => ports.length === 2);
     expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toContain("忙时字幕句");
-    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+    expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
+    await chat.ensureChatTabActivated();
+    expect(ports).toHaveLength(2);
   });
 });
 
@@ -1885,7 +1896,7 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
     // jsdom canvas 降级 8px/字符：模型名「平台一·模型一」7 字符 + 档位 Default 7 字符
     // → 56 + 56 + 44 = 156，与直接调用 updateModelSelectWidth 同结果
     // （出厂默认 = `default`（不干预），chip 写 Default；2026-10-05 用户裁定前写的是 Off 3 字符）。
-    // tests/ui/model-select-width.test.ts 另锁「一帧至多一帧」的合帧计数与 [92, 420] 区间。
+    // tests/reader/chat-model-panel.test.ts 另锁「一帧至多一帧」的合帧计数与 [92, 420] 区间。
     expect(chip.style.width).toBe("156px");
   });
 });

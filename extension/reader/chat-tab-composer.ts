@@ -1,15 +1,15 @@
-// 对话 Composer 深 module（arch-review-batch4/01 号票）
+// 对话 Composer 深 module
 //
 // 职责：
 //   1. 常驻输入区元素级监听（keydown Enter/paste 图片/input/focus/blur/发送钮点击）；
 //   2. 输入框高度自适应（autosizeInput，行内 min-height 内容自然高，上限 320）；
 //   3. 发送态同步（updateSendBtnState/syncSendState、setStreamingUiState、setSubtitleWaitUi）；
-//   4. 发送芯闭包（sendViaInputBox / autoSendPrompt / sendFromUi）。
+//   4. 发送芯闭包（sendViaInputBox / sendFromUi）。
 //
 // 边界纪律（ADR-0005）：
 //   - 不搬状态袋：state.settings / state.session 由外部持有读写，composer 仅持有自身 UI 相位闭包；
 //   - 不动 send-gate 与 chatRuntime 接口；
-//   - 三个调用点（建议 chip / runQuickActionPrompt / autoSendPrompt）头部的业务闸保留在组合根。
+//   - 业务闸（建议 chip / runQuickActionPrompt / explain-intent）保留在各自调用方。
 
 import type { SendVerdict } from "../chat/turn-lifecycle.js";
 
@@ -67,7 +67,6 @@ export interface ReaderChatComposer {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   setSubtitleWaitUi: (active: boolean) => void;
   sendViaInputBox: (text: string, options?: SendViaInputBoxOptions) => Promise<boolean>;
-  autoSendPrompt: (text: string) => Promise<boolean>;
 }
 
 export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderChatComposer {
@@ -187,16 +186,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     updateSendBtnState();
   }
 
-  // 建议区属主的 onPick 落点：chip 点击与回车 / 发送键走同一条发送芯。
-  //
-  // 发送芯（建议 chip / runQuickActionPrompt / autoSendPrompt 的共同尾部）：填输入框
-  // → autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。三个调用
-  // 点头部的闸（新会话 vs 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
+  // 发送芯（建议 chip / runQuickActionPrompt / explain-intent 的共同尾部）：填输入框
+  // → autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。
   // 受理结论来自回合生命周期模块的 SendVerdict（accepted → true，blocked /
-  // ignored → false）：ignored 是「入口早退、什么都没发」——折算成受理成功会让
-  // 调用方（解释意图）把它消费掉而消息从未发出（时间轴只有一条空档）。回放让位
-  // 不再手抄：等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await
-  // replayInFlight）。
+  // ignored → false）：ignored 是入口早退且消息未发出，折算为 false。回放让位
+  // 收敛在发送闸（send-gate.ts 的 G7，放行路径统一 await replayInFlight）。
   function imageSendBlockReason(text: string): string | null {
     if (deps.isImageProcessing?.()) {
       return IMAGE_PROCESSING_NOTICE;
@@ -242,24 +236,8 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     return true;
   }
 
-  // 自动发送共用体：填输入框 → sendTurn → 折算是否受理。回合在途（受理窗口 ∪
-  // 流段，含「已受理、端口未建、用户消息尚未上屏」的那段窗口）时不注入第二次
-  // 发送（双发闸也会拦下并返回 ignored），返回 false 让意图保持 pending——被折算
-  // 成 true 就会「意图已消费、消息从未发出」，这正是本判据收口修掉的实证 bug。
-  async function autoSendPrompt(text: string): Promise<boolean> {
-    if (!text.trim()) {
-      return false;
-    }
-    if (chatRuntime.isTurnActive()) {
-      deps.onNotice?.("当前对话正在生成，待本轮结束后可继续追问或发送。", 4000);
-      return false;
-    }
-    return sendViaInputBox(text, { preserveDraft: true, restoreOnReject: true });
-  }
-
   // 发送入口（回车 / 发送键）直接交给 chatRuntime 的回合受理；
-  // 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
-  // await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
+  // 回放让位已收敛进发送闸的放行路径（send-gate.ts 统一 await replayInFlight）。
   async function sendFromUi(): Promise<void> {
     const blockReason = imageSendBlockReason(input.value);
     if (blockReason) {
@@ -327,7 +305,6 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     syncSendState: updateSendBtnState,
     setStreamingUiState,
     setSubtitleWaitUi,
-    sendViaInputBox,
-    autoSendPrompt
+    sendViaInputBox
   };
 }

@@ -82,8 +82,7 @@ function makeDeps(): {
       log.push(`assistant:${opts?.source}`);
       return fake.turn;
     }),
-    beginRegeneration: vi.fn(),
-    beginContinuation: vi.fn(),
+    beginInPlaceTurn: vi.fn(),
     setRegenerationDisabled: vi.fn()
   };
   const setAutoScroll = vi.fn();

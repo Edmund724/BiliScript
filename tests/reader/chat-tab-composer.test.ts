@@ -286,39 +286,36 @@ describe("图片发送守卫", () => {
     expect(onNotice).toHaveBeenCalledWith("图片处理中…", 3000);
   });
 
-  it("autoSendPrompt 保护未发送文字草稿与图片草稿，不静默覆盖", async () => {
+  it("sendViaInputBox（preserveDraft）保护未发送文字草稿与图片草稿，不静默覆盖", async () => {
     const onNotice = vi.fn();
     const { input, composer, chatRuntime } = setupComposer({ onNotice });
     input.value = "手写到一半的问题";
 
-    await expect(composer.autoSendPrompt("解释字幕句")).resolves.toBe(false);
+    await expect(composer.sendViaInputBox("解释字幕句", { preserveDraft: true, restoreOnReject: true })).resolves.toBe(false);
     expect(input.value).toBe("手写到一半的问题");
     expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
     expect(onNotice).toHaveBeenCalledWith("已保留未发送草稿，本次未自动发送。", 4000);
 
     const imageCase = setupComposer({ hasInputImages: () => true, onNotice });
     onNotice.mockClear();
-    await expect(imageCase.composer.autoSendPrompt("解释字幕句")).resolves.toBe(false);
+    await expect(
+      imageCase.composer.sendViaInputBox("解释字幕句", { preserveDraft: true, restoreOnReject: true })
+    ).resolves.toBe(false);
     expect(imageCase.chatRuntime.sendTurn).not.toHaveBeenCalled();
     expect(onNotice).toHaveBeenCalledWith("已保留未发送草稿，本次未自动发送。", 4000);
   });
 
-  it("autoSendPrompt 在生成中给明确提示，并在 sendTurn 拒发时还原输入框", async () => {
+  it("sendViaInputBox（restoreOnReject）在 sendTurn 拒发时还原输入框", async () => {
     const onNotice = vi.fn();
-    let turnActive = true;
     const { input, composer, chatRuntime } = setupComposer({
       onNotice,
       isImageProcessing: () => false
     });
-    chatRuntime.isTurnActive.mockImplementation(() => turnActive);
 
-    await expect(composer.autoSendPrompt("解释字幕句")).resolves.toBe(false);
-    expect(onNotice).toHaveBeenCalledWith("当前对话正在生成，待本轮结束后可继续追问或发送。", 4000);
-    expect(chatRuntime.sendTurn).not.toHaveBeenCalled();
-
-    turnActive = false;
     chatRuntime.sendTurn.mockResolvedValueOnce("ignored");
-    await expect(composer.autoSendPrompt("不应残留在输入框")).resolves.toBe(false);
+    await expect(
+      composer.sendViaInputBox("不应残留在输入框", { preserveDraft: true, restoreOnReject: true })
+    ).resolves.toBe(false);
     expect(input.value).toBe("");
   });
 

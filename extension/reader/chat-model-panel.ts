@@ -1,44 +1,144 @@
-// reader/chat-model-panel.ts — 模型 chip 与「模型 + 思考强度」面板的渲染
-// （发送框重构新增）：chip 是隐藏 <select>（值源，providers 渲染选项、change
-// 持久化链不变）的展示层；面板列表从 select 的 optgroup/option 派生，点击
-// 选项 = 写 select.value 并派生 change（既有持久化/提示重判链原样复用，
-// 不新开写路径）。面板的开合/互斥/外点/Esc 收口在 reader/chat-popovers.ts，
-// 本模块只渲染，不持有开合状态。
+// 模型 chip、「模型 + 思考强度」面板与联网搜索开关的渲染与偏好控制器。
 //
-// chip 内「平台名·模型名」与档位是两个独立 span：溢出截断只由 CSS 施加在
-// 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
-// 不参与截断）。
-//
-// 面板结构：上部分组模型列表（滚动，点选模型写值源、原位更新勾选并保持面板打开）；
-// 底部固定区内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与胶囊滑轨
-// （真实档位数 ≥ 2，含 Off/On 开关型与多档型）/ 单档胶囊（真实档位数 = 1）/
-// 仅标题行（真实档位数 = 0，ADR-0015 零档行照旧显示）。调整思考强度或点 ↻ 重置
-// 只更新档位并保持面板打开。
-// 条目、显示名与底部提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明）都由
-// chat/thinking-picker 的 thinkingViewOf 从一次解析给出（开关型模型收成 Off/On），
-// 本模块只负责画出来与交互接线，不自己推导档位、也不自己写提示文案与显隐。
-//
-// 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
-// chat/model-select-width、chat/thinking-picker 的标签表直接 import；DOM 元素与
-// 面板关闭 / 档位落盘回调（惰性互引 popovers 与 providers，组装点以箭头函数接线）
-// 经工厂 deps 注入。本模块不 import 组合根与 popovers。
-import { chatSessionState } from "../chat/chat-state.js";
-import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
-import { thinkingLevelValueLabel, type ThinkingPickerEntry, type ThinkingView } from "../chat/thinking-picker.js";
-import { escapeHtml } from "../shared/string-utils.js";
-// 档位出口入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
+// 职责：
+//   1. 从 core/messaging 并行拉取启用的平台列表、sync settings 与 chrome.storage.local 偏好，
+//      经 chat-state 的意图原语写入 chatSessionState，并自动解析/回落当前选中模型；
+//   2. 维护模型 chip（平台名·裸模型名 + 实发思考档位）及宽度自适应（canvas 度量 + rAF 合帧）；
+//   3. 维护模型面板（按平台分组渲染、键盘导航、打开时按 chip 可见宽快照设宽、内联思考强度
+//      滑轨/单档胶囊/重置键与底部提示行），以及隐藏 <select>（#readingChatModelSelect）的单向
+//      同步与外部 change 监听；
+//   4. 维护联网搜索开关 pill（状态渲染、点击切换持久化与旋转切换动画）与缺平台/缺模型诊断。
+import {
+  normalizeAiInitialQuickPrompts,
+  normalizeAiThinkingLevel
+} from "../core/validators.js";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
+import type { OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
+import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
+import { escapeHtml } from "../shared/string-utils.js";
+import {
+  SELECTED_PROVIDER_KEY,
+  MODEL_OPTION_SEPARATOR,
+  buildModelOptionValue,
+  parseModelOptionValue
+} from "../shared/selected-provider.js";
+import {
+  applyProviderPrefs,
+  chatSessionState,
+  noteDefaultModelChoice,
+  setAiThinkingLevel,
+  setWebSearchEnabled as setWebSearchEnabledState,
+  type ChatSessionProvider
+} from "../chat/chat-state.js";
+import {
+  thinkingLevelValueLabel,
+  thinkingViewOf,
+  type ThinkingPickerEntry,
+  type ThinkingView
+} from "../chat/thinking-picker.js";
 
-// 拖拽时的刻度磁吸半径（归一化档位间距的 10%，与 dsh-reasoning-slider 同口径）。
+export const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
+export { SELECTED_PROVIDER_KEY, MODEL_OPTION_SEPARATOR, buildModelOptionValue, parseModelOptionValue };
+
+export interface ProviderPrefsStorage {
+  get(keys: string[]): Promise<Record<string, unknown>>;
+  set(items: Record<string, unknown>): Promise<void>;
+}
+
+export type ChatSetupTarget = {
+  errorClass: OverviewSetupErrorClass;
+  providerId: string;
+};
+
+// 拖拽时的刻度磁吸半径（归一化档位间距的 10%）。
 const SNAP_THRESHOLD = 0.1;
 // 最高档（档位数 ≥ 3 的最右端）触发时的脉冲增亮时长（ms）。
 const ULTRA_BURST_MS = 420;
+const MODEL_CHIP_MAX_WIDTH = 420;
+const MODEL_CHIP_MIN_WIDTH = 92;
+const MODEL_PANEL_MIN_WIDTH = 240;
+const MODEL_PANEL_MAX_WIDTH = 320;
+
+let modelSelectMeasureCanvas: HTMLCanvasElement | null = null;
+
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"
     ? Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
     : false;
 }
 
+function measureTextWidth(text: string, style?: CSSStyleDeclaration | null): number {
+  if (!modelSelectMeasureCanvas) {
+    modelSelectMeasureCanvas = document.createElement("canvas");
+  }
+  const ctx = modelSelectMeasureCanvas.getContext("2d");
+  if (!ctx) {
+    return text.length * 8;
+  }
+  const fontStyle = style?.fontStyle || "normal";
+  const fontVariant = style?.fontVariant || "normal";
+  const fontWeight = style?.fontWeight || "400";
+  const fontSize = style?.fontSize || "13px";
+  const fontFamily = style?.fontFamily || "sans-serif";
+  ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
+  return ctx.measureText(text).width;
+}
+
+function normalizeProviderModels(provider: { models?: unknown; model?: unknown }): string[] {
+  if (Array.isArray(provider?.models)) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of provider.models) {
+      const id = String(entry ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      result.push(id);
+    }
+    return result;
+  }
+  const legacy = String(provider?.model || "").trim();
+  return legacy ? [legacy] : [];
+}
+
+function formatProviderLabel(provider: { name?: string; model?: unknown }): string {
+  const name = String(provider.name || "").trim();
+  if (name) {
+    return name;
+  }
+  return String(provider.model || "").trim();
+}
+
+// 集合站模型 id 带组织命名空间前缀时，显示层只展示最后一段裸名；值源保持完整。
+function displayModelName(model: string): string {
+  const slash = model.lastIndexOf("/");
+  if (slash < 0 || slash === model.length - 1) {
+    return model;
+  }
+  return model.slice(slash + 1);
+}
+
+interface ProviderGroup {
+  provider: ChatSessionProvider;
+  providerId: string;
+  label: string;
+  models: string[];
+}
+
+function resolveOptionValue(
+  saved: string,
+  groups: ProviderGroup[],
+  optionValues: Set<string>
+): string {
+  if (!saved) return "";
+  if (optionValues.has(saved)) return saved;
+  const group = groups.find((g) => g.providerId === saved);
+  if (group && group.models.length) {
+    return buildModelOptionValue(group.providerId, group.models[0]);
+  }
+  return "";
+}
 
 export interface CreateReaderChatModelPanelDeps {
   modelSelect: HTMLSelectElement;
@@ -46,37 +146,24 @@ export interface CreateReaderChatModelPanelDeps {
   chipModel: HTMLElement;
   chipLevel: HTMLElement;
   panelList: HTMLElement;
-  // 面板根（定位/宽度写在它身上：宽度 = 打开时按 chip 可见宽的快照）
   panel: HTMLElement;
-  // 思考档位交互容器（承载右上角 Default ↻ 按钮与胶囊滑轨/单档胶囊）
   thinkingToggle: HTMLElement;
-  // 底部固定区的思考强度区块根与它的当前值 span
   thinkingRow: HTMLElement;
   thinkingRowValue: HTMLElement;
-  // 提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明，模板默认 hidden）：由本模块按
-  // 视图值写文案与显隐——组合根不再持有该元素、也不再知道「谁先画、谁后画」。
-  // **可选（不传或传 null 即「没有提示行」）**：没有该元素时本模块静默跳过提示行，
-  // 档位与 chip 的渲染不受影响（面板其余消费方无需感知本字段）。
   thinkingHint?: HTMLElement | null;
-  // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
+  webSearchPill?: HTMLElement | null;
+  storage?: ProviderPrefsStorage;
   hidePanel: () => void;
   openSettings: () => void;
-  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + 视图重判）：入参是**未归一的
-  // 外部值**——本模块传的是档位条目的 dataset 值（DOM 来的脏值也可能到，宽容面见
-  // ai/thinking-levels.ts 的 ThinkingLevelInput），归一化在下游落盘入口做一次。
-  pickLevel: (level: ThinkingLevelInput) => void;
+  pickLevel?: (level: ThinkingLevelInput) => void;
 }
 
-// 面板对外的渲染入口：模型列表（renderPanel）/ chip（renderChip）各自成件，思考档位的
-// 显示面**只有一个入口** renderThinkingPicker——它收 chat/thinking-picker 的整份视图值
-//（显示名 + 条目 + 提示文案）一次画完：标题行当前值、↻ 重置键与滑轨/单档胶囊、chip 的
-// 档位 span 与底部提示行都出自同一次解析（调用点不再只传子集、不再自己写提示行、也不再有
-//「先画 chip 再重画」这类调用顺序知识）。
 export interface ReaderChatModelPanel {
-  // chip 的独立重渲入口：档位刷新（renderThinkingPicker）内部用它写档位 span（显示名由
-  // 那次解析写入）。2026-10 深化后**组合根不再直调它**——chip 的渲染路径收敛为
-  // refreshThinkingUi → renderThinkingPicker 一条（一次刷新/一次点击只渲一遍）；出口保留
-  // 供面板自身与直测使用。
+  reload: (opts?: { preferredProviderId?: string }) => Promise<void>;
+  setThinkingLevel: (level: ThinkingLevelInput) => Promise<void>;
+  setWebSearchEnabled: (enabled: boolean) => Promise<void>;
+  hasSelectableModels: () => boolean;
+  resolveSetupTarget: () => ChatSetupTarget;
   renderChip: () => void;
   renderPanel: () => void;
   renderThinkingPicker: (view: ThinkingView) => void;
@@ -93,26 +180,204 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thinkingToggle,
     thinkingRow,
     thinkingRowValue,
-    // 缺省 = 没有提示行（模板可没有该元素）：渲染时静默跳过，其余字段照画。
-    thinkingHint = null
+    thinkingHint = null,
+    webSearchPill = null
   } = deps;
 
-  // 显示名（chip 的档位 span 与思考强度行右侧共用）。由 renderThinkingPicker 写入；
-  // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
+  const storage =
+    deps.storage ||
+    (typeof chrome !== "undefined" && chrome?.storage?.local ? chrome.storage.local : undefined);
+
+  let storedSelectedProviderId = "";
+  let selectedValue = "";
+  let explicitlyCleared = false;
+  let lastCatalogKey: string | null = null;
+
   let chipLevelLabel: string | null = null;
   let committedView: ThinkingView | null = null;
-  // 当前已挂载的档位结构签名（同一模型切档时复用 DOM 节点：保持 CSS 过渡动画连续、
-  // 保持焦点不丢失，且点击事件冒泡到 document 时 target 仍在 panel 内不被误判为外点）。
   let renderedStructureKey = "";
   let currentTierEntries: ThinkingPickerEntry[] = [];
   let currentActiveIndex = -1;
   let lastThumbPct: number | null = null;
   let isDraggingThumb = false;
   let thumbTransitionCleanup: (() => void) | null = null;
-  // 最高档脉冲状态（420ms 增亮窗口）。
   let wasAtMax = false;
   let isBursting = false;
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
+  let renderedWebSearchEnabled: boolean | null = null;
+  let widthRafId = 0;
+
+  function getProviderGroups(): ProviderGroup[] {
+    return chatSessionState.providers
+      .map((provider) => ({
+        provider,
+        providerId: String(provider.id || ""),
+        label: formatProviderLabel(provider),
+        models: normalizeProviderModels(provider)
+      }))
+      .filter((group) => group.models.length > 0);
+  }
+
+  function hasSelectableModels(): boolean {
+    return chatSessionState.providers.some((provider) => normalizeProviderModels(provider).length > 0);
+  }
+
+  function resolveMissingModelProviderId(): string {
+    const providers = chatSessionState.providers;
+    if (!providers.length) {
+      return "";
+    }
+    const storedSelected = parseModelOptionValue(storedSelectedProviderId).providerId;
+    const preferredId = String(chatSessionState.aiPrefs.defaultModel || "").trim();
+    for (const candidate of [preferredId, storedSelected]) {
+      if (candidate && providers.some((provider) => String(provider.id || "") === candidate)) {
+        return candidate;
+      }
+    }
+    return String(providers[0]?.id || "").trim();
+  }
+
+  function resolveSetupTarget(): ChatSetupTarget {
+    if (chatSessionState.providers.length > 0 && !hasSelectableModels()) {
+      return {
+        errorClass: "no-model",
+        providerId: resolveMissingModelProviderId()
+      };
+    }
+    return { errorClass: "no-provider", providerId: "" };
+  }
+
+  function setSelectedProvider(value: string): void {
+    storedSelectedProviderId = String(value || "").trim();
+    if (storage) {
+      void storage.set({ [SELECTED_PROVIDER_KEY]: storedSelectedProviderId }).catch(() => {});
+    }
+  }
+
+  function syncModelSelectElement(groups: ProviderGroup[]): void {
+    if (!groups.length) {
+      const emptyLabel = chatSessionState.providers.length > 0 ? "未配置模型" : "未配置平台";
+      modelSelect.innerHTML = `<option value="">${emptyLabel}</option>`;
+      modelSelect.disabled = true;
+      modelSelect.style.width = "96px";
+      modelSelect.value = "";
+      return;
+    }
+
+    modelSelect.innerHTML = groups
+      .map((group) => {
+        const options = group.models
+          .map(
+            (model) =>
+              `<option value="${escapeHtml(buildModelOptionValue(group.providerId, model))}">${escapeHtml(model)}</option>`
+          )
+          .join("");
+        return `<optgroup label="${escapeHtml(group.label)}">${options}</optgroup>`;
+      })
+      .join("");
+    modelSelect.disabled = false;
+    modelSelect.value = selectedValue;
+  }
+
+  function syncCatalogFromState({
+    preferredProviderId = "",
+    persistFallback = false,
+    force = false
+  }: { preferredProviderId?: string; persistFallback?: boolean; force?: boolean } = {}): ProviderGroup[] {
+    const groups = getProviderGroups();
+    const catalogKey =
+      chatSessionState.providers.length === 0
+        ? "EMPTY_PROVIDERS"
+        : groups.length === 0
+          ? "NO_MODELS"
+          : groups.map((g) => `${g.providerId}\u0002${g.label}\u0002${g.models.join("\u0003")}`).join("\u0004");
+
+    if (!force && catalogKey === lastCatalogKey) {
+      return groups;
+    }
+    lastCatalogKey = catalogKey;
+
+    if (!groups.length) {
+      selectedValue = "";
+      explicitlyCleared = false;
+      syncModelSelectElement(groups);
+      return groups;
+    }
+
+    const optionValues = new Set(
+      groups.flatMap((group) => group.models.map((model) => buildModelOptionValue(group.providerId, model)))
+    );
+    const firstValue = buildModelOptionValue(groups[0].providerId, groups[0].models[0]);
+
+    if (explicitlyCleared && !preferredProviderId) {
+      selectedValue = "";
+      syncModelSelectElement(groups);
+      return groups;
+    }
+
+    const candidates = force
+      ? [preferredProviderId, storedSelectedProviderId, chatSessionState.aiPrefs.defaultModel || ""]
+      : [preferredProviderId, selectedValue, storedSelectedProviderId, chatSessionState.aiPrefs.defaultModel || ""];
+
+    let matched = "";
+    for (const candidate of candidates) {
+      matched = resolveOptionValue(String(candidate || "").trim(), groups, optionValues);
+      if (matched) break;
+    }
+    selectedValue = matched || firstValue;
+    explicitlyCleared = false;
+
+    if (persistFallback && selectedValue && selectedValue !== storedSelectedProviderId) {
+      setSelectedProvider(selectedValue);
+    }
+    syncModelSelectElement(groups);
+    return groups;
+  }
+
+  function measureChipContentWidth(): number {
+    const model = String(chipModel?.textContent || "").trim() || "未配置平台";
+    const level = String(chipLevel?.textContent || "").trim();
+    const computedStyle = chip ? window.getComputedStyle(chip) : null;
+    const measuredTextWidth =
+      measureTextWidth(model, computedStyle) + (level ? measureTextWidth(level, computedStyle) : 0);
+    const extraBuffer = modelSelectMeasureCanvas?.getContext("2d") ? 48 : 44;
+    return Math.ceil(measuredTextWidth + extraBuffer);
+  }
+
+  function getModelChipMaxWidth(): number {
+    const inputBar = chip?.closest<HTMLElement>(".chat-input-bar");
+    const barWidth = inputBar ? inputBar.clientWidth : 0;
+    if (barWidth > 0) {
+      return Math.max(MODEL_CHIP_MIN_WIDTH, Math.floor(barWidth * 0.6));
+    }
+    return MODEL_CHIP_MAX_WIDTH;
+  }
+
+  function updateChipWidth(): void {
+    if (!chip) {
+      return;
+    }
+    const desiredWidth = measureChipContentWidth();
+    const maxWidth = getModelChipMaxWidth();
+    const nextWidth = Math.max(MODEL_CHIP_MIN_WIDTH, Math.min(desiredWidth, maxWidth));
+    chip.style.width = `${nextWidth}px`;
+  }
+
+  function scheduleChipWidthUpdate(): void {
+    if (widthRafId) {
+      return;
+    }
+    widthRafId = window.requestAnimationFrame(() => {
+      widthRafId = 0;
+      updateChipWidth();
+    });
+  }
+
+  function measureModelPanelWidth(): number {
+    const visibleWidth = chip ? chip.getBoundingClientRect().width : 0;
+    const source = visibleWidth > 0 ? visibleWidth : measureChipContentWidth();
+    return Math.max(MODEL_PANEL_MIN_WIDTH, Math.min(Math.ceil(source), MODEL_PANEL_MAX_WIDTH));
+  }
 
   function syncUltraBurst(nextAtMax: boolean): void {
     if (nextAtMax && !wasAtMax && !prefersReducedMotion()) {
@@ -135,45 +400,35 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     wasAtMax = nextAtMax;
   }
 
-  // 模型名显示口径（2026-10-06 用户报障）：集合站（ModelScope / OpenRouter 等）回的
-  // 模型 id 带组织命名空间前缀（`deepseek-ai/DeepSeek-V4.1-Flash`），chip 与弹层列表
-  // 只显示最后一段裸名。**只碰显示层**——option 文本与复合值（值源）照旧完整，
-  // 请求体里的模型 id 因此也不变；无斜杠与尾斜杠（`org/`）原样返回（与
-  // ai/thinking-profiles.ts 的 stripOrgPrefix 同口径，那份是思考兜底匹配用，不共用）。
-  function displayModelName(model: string): string {
-    const slash = model.lastIndexOf("/");
-    if (slash < 0 || slash === model.length - 1) {
-      return model;
-    }
-    return model.slice(slash + 1);
-  }
-
-  // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
-  // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
-  // 标题同源），中点「·」分隔；optgroup 缺失/label 空则只显示模型名。
-  // 未配置平台时 chip 仍可打开空态面板，只清空无意义的档位文案。
-  // 平台名·模型名与档位分写两个 span：CSS 只对模型名 span 做溢出截断，档位恒完整。
   function renderChip(): void {
+    const groups = syncCatalogFromState();
     chip.disabled = false;
-    if (modelSelect.disabled) {
+    if (!groups.length) {
       chipModel.textContent = chatSessionState.providers.length > 0 ? "未配置模型" : "未配置平台";
       chipLevel.textContent = "";
-      updateModelSelectWidth({ chip, chipModel, chipLevel });
+      updateChipWidth();
       return;
     }
-    const option = modelSelect.options[modelSelect.selectedIndex];
-    const platform = String(option?.closest("optgroup")?.getAttribute("label") || "").trim();
-    const modelName = displayModelName(String(option?.textContent || "").trim() || "未配置平台");
+    const parsed = parseModelOptionValue(selectedValue);
+    const matchedGroup = groups.find((group) =>
+      group.providerId === parsed.providerId && group.models.includes(parsed.model)
+    );
+    if (!matchedGroup) {
+      chipModel.textContent = "未配置平台";
+      chipLevel.textContent = chipLevelLabel ?? thinkingLevelValueLabel(chatSessionState.aiThinkingLevel);
+      updateChipWidth();
+      return;
+    }
+    const platform = matchedGroup.label;
+    const modelName = displayModelName(parsed.model);
     chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
-    // 显示名优先用档位条派生的那一个（开关型模型是 On）——菜单里写 On、chip 写 High
-    // 是自相矛盾的（用户裁定）；未派生过时回落标签表。
     chipLevel.textContent = chipLevelLabel ?? thinkingLevelValueLabel(chatSessionState.aiThinkingLevel);
-    updateModelSelectWidth({ chip, chipModel, chipLevel });
+    updateChipWidth();
   }
 
   function syncSelectedModel(): void {
     panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option").forEach((btn) => {
-      const selected = btn.dataset.value === modelSelect.value;
+      const selected = btn.dataset.value === selectedValue;
       btn.classList.toggle("is-selected", selected);
       btn.setAttribute("aria-current", selected ? "true" : "false");
       if (selected) {
@@ -191,16 +446,43 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     btn.focus({ preventScroll: true });
   }
 
-  // 面板列表：按 select optgroup 分组渲染（平台名 = 组标题），当前选中项打勾并接管焦点。
-  // 点选项只写 value + 派生 change，再原位更新勾选；组合根仍负责持久化与思考视图重判。
-  //
-  // 宽度：打开时按 chip 可见宽快照写内联（[240, 320] 夹取见 chat/model-select-width
-  // 的 measureModelPanelWidth）——面板从 chip 上方呼出、宽度与「模型名显示区域」
-  // 同宽；打开期间不重算，故点档位改 chip 文案时面板宽度不抖，重开才更新。
+  function refreshThinkingUi(): void {
+    const selected = parseModelOptionValue(selectedValue);
+    const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
+    const view = thinkingViewOf({
+      presetId: String(provider?.presetId || ""),
+      baseUrl: String(provider?.baseUrl || ""),
+      model: selected.model || String(provider?.model || ""),
+      level: chatSessionState.aiThinkingLevel,
+      stream: true
+    });
+    renderThinkingPicker(view);
+  }
+
+  function applySelectedValue(nextValue: string): void {
+    const normalizedValue = String(nextValue || "");
+    const { providerId } = parseModelOptionValue(normalizedValue);
+    explicitlyCleared = !providerId;
+    selectedValue = normalizedValue;
+    if (modelSelect.value !== normalizedValue) {
+      modelSelect.value = normalizedValue;
+    }
+    if (providerId) {
+      setSelectedProvider(normalizedValue);
+      noteDefaultModelChoice(providerId);
+    } else {
+      noteDefaultModelChoice("");
+    }
+    void sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } }).catch(() => null);
+    syncSelectedModel();
+    refreshThinkingUi();
+  }
+
   function renderPanel(): void {
-    panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
+    const groups = syncCatalogFromState();
+    panel.style.width = `${measureModelPanelWidth()}px`;
     panelList.hidden = false;
-    if (modelSelect.disabled) {
+    if (!groups.length) {
       const emptyLabel = chatSessionState.providers.length > 0 ? "当前平台未配置可用模型" : "未配置平台";
       panelList.innerHTML =
         `<div class="chat-model-empty"><span>${emptyLabel}</span>` +
@@ -216,17 +498,17 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return;
     }
     thinkingRow.hidden = false;
-    const current = modelSelect.value;
+    const current = selectedValue;
     const parts: string[] = [];
-    for (const group of Array.from(modelSelect.querySelectorAll("optgroup"))) {
+    for (const group of groups) {
       parts.push(`<div class="chat-model-group">${escapeHtml(group.label)}</div>`);
-      for (const option of Array.from(group.querySelectorAll("option"))) {
-        const value = option.getAttribute("value") || "";
+      for (const model of group.models) {
+        const value = buildModelOptionValue(group.providerId, model);
         const isSelected = value === current;
         parts.push(
           `<button type="button" class="chat-model-option${isSelected ? " is-selected" : ""}"` +
             ` data-value="${escapeHtml(value)}" aria-current="${isSelected ? "true" : "false"}">` +
-            `<span class="chat-model-option-name">${escapeHtml(displayModelName(option.textContent || ""))}</span>` +
+            `<span class="chat-model-option-name">${escapeHtml(displayModelName(model))}</span>` +
             (isSelected ? '<span class="chat-model-check" aria-hidden="true">✓</span>' : "") +
             "</button>"
         );
@@ -236,11 +518,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     panelList.querySelectorAll<HTMLButtonElement>(".chat-model-option").forEach((btn) => {
       btn.addEventListener("click", () => {
         const value = btn.getAttribute("data-value") || "";
-        if (value && value !== modelSelect.value) {
-          modelSelect.value = value;
-          modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        if (value && value !== selectedValue) {
+          applySelectedValue(value);
         }
-        syncSelectedModel();
         btn.focus({ preventScroll: true });
       });
     });
@@ -282,28 +562,123 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     focusModelOption(options[nextIndex]);
   });
 
+  modelSelect.addEventListener("change", () => {
+    applySelectedValue(modelSelect.value);
+  });
+
   function commitButton(btn: HTMLElement | null | undefined): void {
     if (!btn) {
       return;
     }
     if (btn.dataset.writes === "true") {
-      deps.pickLevel(btn.dataset.level || "off");
+      const level = btn.dataset.level || "off";
+      if (deps.pickLevel) {
+        deps.pickLevel(level);
+      } else {
+        void setThinkingLevel(level);
+      }
     }
   }
 
-  // 内联思考强度区 + 面板底部提示行：一次画完整份视图值——条目来自调用方派生好的显示条目
-  //（首项 Default 渲染为右上角 ↻ 重置键，其余真实档位按数量渲染为胶囊滑轨 / 单档胶囊 / 空轨），
-  // 提示文案与显隐也来自同一次解析（`hint === null` = 不显示提示行，文案清空）。
-  // ADR-0015：`Default`（不干预）是恒在的首项，即便真实档位为空（A' = ∅）也照旧显示思考强度行。
-  // 2026-10-05 裁定 B：选中态 `is-active` / `aria-current` 由 `entry.effective`（**实发档**）决定；
-  // **点击判据是另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点实发档也写偏好（用户显式
-  // 接受本次 clamp），只有「已经是偏好落在的那一项」才不重复写。调整思考档位不关闭面板。
+  async function setThinkingLevel(level: ThinkingLevelInput): Promise<void> {
+    setAiThinkingLevel(normalizeAiThinkingLevel(level));
+    refreshThinkingUi();
+    if (storage) {
+      await storage.set({ [THINKING_LEVEL_KEY]: chatSessionState.aiThinkingLevel }).catch(() => {});
+    }
+    await sendRuntimeMessage({ type: "save-settings", settings: { aiThinkingLevel: chatSessionState.aiThinkingLevel } }).catch(() => null);
+  }
+
+  function spinWebSearchPill(enabled: boolean): void {
+    if (!webSearchPill) return;
+    webSearchPill.classList.remove("is-spinning-on", "is-spinning-off");
+    webSearchPill.classList.add(enabled ? "is-spinning-on" : "is-spinning-off");
+  }
+
+  function renderWebSearchEnabled(): void {
+    if (!webSearchPill) return;
+    const enabled = chatSessionState.webSearchEnabled;
+    const changed = renderedWebSearchEnabled !== null && renderedWebSearchEnabled !== enabled;
+    renderedWebSearchEnabled = enabled;
+    webSearchPill.classList.toggle("is-active", enabled);
+    webSearchPill.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (changed) spinWebSearchPill(enabled);
+  }
+
+  if (webSearchPill) {
+    webSearchPill.addEventListener("click", () => {
+      void setWebSearchEnabled(!chatSessionState.webSearchEnabled);
+    });
+    webSearchPill.addEventListener("animationend", (event) => {
+      if (event.animationName.startsWith("biliscript-web-search-meridian")) {
+        webSearchPill.classList.remove("is-spinning-on", "is-spinning-off");
+      }
+    });
+  }
+
+  async function setWebSearchEnabled(enabled: boolean): Promise<void> {
+    setWebSearchEnabledState(Boolean(enabled));
+    renderWebSearchEnabled();
+    await sendRuntimeMessage({ type: "save-settings", settings: { webSearchEnabled: chatSessionState.webSearchEnabled } }).catch(() => null);
+  }
+
+  async function loadStoredPrefs(): Promise<Record<string, unknown>> {
+    if (!storage) {
+      return {};
+    }
+    try {
+      return (await storage.get([SELECTED_PROVIDER_KEY, THINKING_LEVEL_KEY])) || {};
+    } catch {
+      return {};
+    }
+  }
+
+  async function reload({ preferredProviderId = "" }: { preferredProviderId?: string } = {}): Promise<void> {
+    const [providersResp, settingsResp, storedPrefs] = await Promise.all([
+      sendRuntimeMessage({ type: "ai-providers-list" }),
+      sendRuntimeMessage({ type: "get-settings" }).catch(
+        (): GetSettingsResponse => ({ ok: false, error: "" })
+      ),
+      loadStoredPrefs()
+    ]);
+    storedSelectedProviderId = String(storedPrefs[SELECTED_PROVIDER_KEY] || "").trim();
+    const providers = Array.isArray(providersResp?.providers) ? providersResp.providers : [];
+    const settings = settingsResp?.ok ? settingsResp.settings : null;
+    applyProviderPrefs({
+      providers: providers
+        .filter((p) => p.enabled)
+        .map((p) => ({
+          id: String(p.id || ""),
+          name: typeof p.name === "string" ? p.name : undefined,
+          model: p.model,
+          models: normalizeProviderModels(p),
+          baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : undefined,
+          presetId: typeof p.presetId === "string" ? p.presetId : undefined,
+          enabled: p.enabled
+        })),
+      aiPrefs: {
+        aiSystemPrompt: String(settings?.aiSystemPrompt || "").trim(),
+        aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
+        defaultModel: String(settings?.defaultModel || "").trim()
+      },
+      aiThinkingLevel: normalizeAiThinkingLevel(
+        settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY] ?? DEFAULT_SETTINGS.aiThinkingLevel
+      ),
+      webSearchEnabled: Boolean(settings?.webSearchEnabled)
+    });
+    explicitlyCleared = false;
+    syncCatalogFromState({ preferredProviderId, persistFallback: true, force: true });
+    renderWebSearchEnabled();
+    refreshThinkingUi();
+  }
+
   function renderThinkingPicker(view: ThinkingView): void {
+    const groups = syncCatalogFromState();
     committedView = view;
     const entries = view.entries;
     chipLevelLabel = view.label;
     thinkingRowValue.textContent = view.label;
-    thinkingRow.hidden = modelSelect.disabled;
+    thinkingRow.hidden = groups.length === 0;
 
     if (entries.length === 0) {
       syncUltraBurst(false);
@@ -383,7 +758,6 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         bindThinkingControls();
       }
 
-      // 同步所有档位按钮的生效态与点击判据属性（DOM 节点原地更新，不销毁重建）。
       const allBtns = Array.from(thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn"));
       entries.forEach((entry, idx) => {
         const btn = allBtns[idx];
@@ -430,10 +804,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       }
     }
 
-    // 显示名可能刚变（开关型的 On/Off、换模型的档位词）→ chip 的档位 span 同步重渲。
     renderChip();
-    // 提示行（工单 03 / 05 号票）：文案与显隐都取这次解析的视图值，写在 chip 之后（与
-    // 改造前组合根「档位区先落、提示行随后」的时序一致）。元素缺失时整块跳过。
     if (thinkingHint) {
       thinkingHint.textContent = view.hint ?? "";
       thinkingHint.hidden = view.hint === null;
@@ -695,5 +1066,22 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  return { renderChip, renderPanel, renderThinkingPicker };
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", () => {
+      if (chip?.isConnected) {
+        scheduleChipWidthUpdate();
+      }
+    });
+  }
+
+  return {
+    reload,
+    setThinkingLevel,
+    setWebSearchEnabled,
+    hasSelectableModels,
+    resolveSetupTarget,
+    renderChip,
+    renderPanel,
+    renderThinkingPicker
+  };
 }

@@ -1,76 +1,109 @@
 // tests/reader/chat-model-panel.test.ts
-// createReaderChatModelPanel（模型 chip + 「模型 + 思考强度」面板渲染，发送框
-// 重构新增）行为契约：chip 是隐藏 <select>（值源）的展示层；面板列表按 optgroup
-// 分组派生，点选项 = 写 select.value + 派生 change（组合根的 change 监听负责
-// 持久化——本文件只断「值源被写 + change 被派生」两件事实）。
-//
-// 面板底部固定区内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与
-// 胶囊滑轨（真实档位数 ≥ 2）/ 单档胶囊（真实档位数 = 1）/ 仅标题行（真实档位数 = 0）。
-// 本文件覆盖：
-//
-// - renderChip：文案 = 平台名·选中模型名 + 思考档位显示名（档位条派生过就用它的
-//   显示名——开关型模型是 On；未派生时回落标签表）；optgroup label 缺失时只显示
-//   模型名；select 禁用（未配置平台）→ chip 仍可打开空态并回落占位文案；集合站的
-//   org 前缀（`deepseek-ai/`）只在显示层剥掉（chip 与弹层条目同口径，2026-10-06），
-//   option 文本与值源照旧完整；
-// - renderPanel：按 optgroup 分组渲染、打开时聚焦当前项；点击/键盘选项写值源并派生
-//   change，原位换勾且保持面板与焦点稳定；空态提供「前往设置」；
-// - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
-//   变化不重算，重开才更新）；
-// - renderThinkingPicker：**整份视图值一次画完**——首项 Default 渲染为右上角 ↻ 重置键，
-//   真实档位按数量分三态（≥2 档胶囊滑轨、=1 档单档胶囊、0 档仅保留标题行）；
-//   标题行右侧 = 视图显示名；chip 的档位 span 同步；底部提示行按 `view.hint` 写文案与显隐；
-//   点刻度/拖拽/方向键调 `pickLevel`，普通滚轮不改档，pointercancel 恢复已提交值；
-//   所有非零档填充带 `.is-sparkle`（流动星点），仅档位数 ≥ 3 且处于最高档时加 `.is-max`（紫色渐变）。
+// createReaderChatModelPanel 行为契约：平台/偏好加载与思考档位落盘、模型 chip 与
+// 面板渲染、宽度度量与 resize rAF 合帧、联网搜索开关、思考强度滑轨/提示行接线。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ThinkingView } from "../../extension/chat/thinking-picker.js";
 
+const { sendRuntimeMessageMock } = vi.hoisted(() => ({
+  sendRuntimeMessageMock: vi.fn()
+}));
+
+vi.mock("../../extension/shared/messaging.js", () => ({
+  sendRuntimeMessage: sendRuntimeMessageMock
+}));
+
 let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;
+let buildModelOptionValue: typeof import("../../extension/reader/chat-model-panel.js").buildModelOptionValue;
+let parseModelOptionValue: typeof import("../../extension/reader/chat-model-panel.js").parseModelOptionValue;
+let SELECTED_PROVIDER_KEY: typeof import("../../extension/reader/chat-model-panel.js").SELECTED_PROVIDER_KEY;
+let THINKING_LEVEL_KEY: typeof import("../../extension/reader/chat-model-panel.js").THINKING_LEVEL_KEY;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let thinkingPickerEntries: typeof import("../../extension/chat/thinking-picker.js").thinkingPickerEntries;
 
 beforeEach(async () => {
   resetModuleState();
-  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
-  chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
-  createReaderChatModelPanel = (await import("../../extension/reader/chat-model-panel.js")).createReaderChatModelPanel;
+  sendRuntimeMessageMock.mockReset();
+  sendRuntimeMessageMock.mockImplementation(async () => ({ ok: true }));
+  const panelMod = await import("../../extension/reader/chat-model-panel.js");
+  createReaderChatModelPanel = panelMod.createReaderChatModelPanel;
+  buildModelOptionValue = panelMod.buildModelOptionValue;
+  parseModelOptionValue = panelMod.parseModelOptionValue;
+  SELECTED_PROVIDER_KEY = panelMod.SELECTED_PROVIDER_KEY;
+  THINKING_LEVEL_KEY = panelMod.THINKING_LEVEL_KEY;
+  const stateMod = await import("../../extension/chat/chat-state.js");
+  chatSessionState = stateMod.chatSessionState;
+  chatSessionStateForTests = stateMod.chatSessionStateForTests;
   thinkingPickerEntries = (await import("../../extension/chat/thinking-picker.js")).thinkingPickerEntries;
   document.body.innerHTML = "";
 });
 
-// multi-model-catalog 复合值分隔符（「平台 id\u0001模型 id」）。
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 const SEP = String.fromCharCode(1);
 
-// 值源 select：两个平台分组（p1 两个模型 / p2 一个模型），选中 p1 的 m1b。
-function makeSelect() {
-  const select = document.createElement("select");
-  select.innerHTML =
-    '<optgroup label="平台一">' +
-    `<option value="p1${SEP}m1a">m1a</option>` +
-    `<option value="p1${SEP}m1b" selected>m1b</option>` +
-    "</optgroup>" +
-    '<optgroup label="平台二">' +
-    `<option value="p2${SEP}m2">m2</option>` +
-    "</optgroup>";
-  document.body.appendChild(select);
-  return select;
+function makeStorageFake(initial: Record<string, unknown> = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    get: vi.fn(async (keys: string[]) =>
+      Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
+    ),
+    set: vi.fn(async (items: Record<string, unknown>) => {
+      Object.entries(items).forEach(([k, v]) => {
+        data.set(k, v);
+      });
+    })
+  };
 }
 
-// 视图值工厂（面板的思考档位入口收**整份** ThinkingView）：hint 缺省 null = 无提示行。
+function seedDefaultProviders(): void {
+  chatSessionStateForTests.providers = [
+    { id: "p1", name: "平台一", models: ["m1a", "m1b"], enabled: true },
+    { id: "p2", name: "平台二", models: ["m2"], enabled: true }
+  ];
+}
+
 function view(over: Pick<ThinkingView, "label" | "entries"> & Partial<ThinkingView>): ThinkingView {
   return { hint: null, ...over };
 }
 
-// 提示行注入面（2026-10 深化）：hintMode 覆盖三种现实——
-//   element = 注入模板里的提示行元素（生产形态）；
-//   null    = 消费方明确没有提示行；
-//   omitted = 消费方根本不认识这个字段（旧消费方 / 别的宿主）。
+function mockRuntimeReplies(options: {
+  providers?: Record<string, unknown>;
+  settings?: () => Promise<Record<string, unknown>>;
+}): void {
+  const routes: Record<string, () => Promise<unknown>> = {
+    "ai-providers-list": async () => options.providers ?? { providers: [] },
+    "get-settings": options.settings ?? (async () => ({ ok: true, settings: {} }))
+  };
+  sendRuntimeMessageMock.mockImplementation(async (message) => {
+    const handler = routes[String(message.type)];
+    return handler ? await handler() : { ok: true };
+  });
+}
+
 type HintMode = "element" | "null" | "omitted";
 
-function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
+function makeHarness(options: {
+  seedProviders?: boolean;
+  hintMode?: HintMode;
+  storage?: ReturnType<typeof makeStorageFake>;
+  withWebSearchPill?: boolean;
+  withInputBar?: boolean;
+} = {}) {
+  const {
+    seedProviders = true,
+    hintMode = "element",
+    storage = makeStorageFake(),
+    withWebSearchPill = false,
+    withInputBar = false
+  } = options;
+  void (seedProviders && seedDefaultProviders());
+  const select = document.createElement("select");
   const chip = document.createElement("button");
   const chipModel = document.createElement("span");
   const chipLevel = document.createElement("span");
@@ -81,13 +114,15 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
   const thinkingRow = document.createElement("div");
   const thinkingRowValue = document.createElement("span");
   thinkingRow.append(thinkingRowValue, thinkingToggle);
-  // 提示行与思考强度区同处底部固定区（模板 chat-template.ts 的 .chat-model-panel-foot 同构）。
   const panelFoot = document.createElement("div");
   const thinkingHint = document.createElement("div");
   thinkingHint.hidden = true;
   panelFoot.append(thinkingRow, thinkingHint);
   panel.append(panelList, panelFoot);
-  document.body.append(chip, panel);
+  const webSearchPill = withWebSearchPill ? document.createElement("button") : null;
+  const inputBar = withInputBar ? document.createElement("div") : null;
+  void (inputBar && ((inputBar.className = "chat-input-bar"), inputBar.append(chip)));
+  document.body.append(...[select, inputBar ?? chip, panel, ...(webSearchPill ? [webSearchPill] : [])]);
   const hidePanel = vi.fn();
   const openSettings = vi.fn();
   const pickLevel = vi.fn();
@@ -102,6 +137,8 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     thinkingRow,
     thinkingRowValue,
     ...(hintMode === "element" ? { thinkingHint } : hintMode === "null" ? { thinkingHint: null } : {}),
+    ...(webSearchPill ? { webSearchPill } : {}),
+    storage,
     hidePanel,
     openSettings,
     pickLevel
@@ -111,12 +148,15 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     chip,
     chipModel,
     chipLevel,
+    inputBar,
     panelList,
     panel,
     thinkingToggle,
     thinkingRow,
     thinkingRowValue,
     thinkingHint: hintMode === "element" ? thinkingHint : null,
+    webSearchPill,
+    storage,
     hidePanel,
     openSettings,
     pickLevel,
@@ -140,6 +180,242 @@ function renderedLabels(toggle: HTMLElement): string[] {
   return buttons(toggle).map((btn) => (btn.querySelector(".chat-thinking-btn-label") as HTMLElement).textContent || "");
 }
 
+function stubNoCanvas() {
+  vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+}
+
+describe("reload 与持久化状态水合", () => {
+  it("双消息并行拉取 + storage 读取，enabled 过滤后写 chatSessionState 并同步隐藏 select 与 chip", async () => {
+    mockRuntimeReplies({
+      providers: {
+        providers: [
+          { id: "p1", name: "平台一", enabled: true },
+          { id: "p2", name: "平台二", enabled: false },
+          { id: "p3", model: "模型三", enabled: true }
+        ]
+      },
+      settings: async () => ({
+        ok: true,
+        settings: {
+          aiSystemPrompt: "  系统提示  ",
+          aiInitialQuickPrompts: ["快速一"],
+          defaultModel: "p3",
+          aiThinkingLevel: "low"
+        }
+      })
+    });
+    const { select, chipModel, chipLevel, storage, modelPanel } = makeHarness({ seedProviders: false });
+
+    await modelPanel.reload();
+
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-list" });
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "get-settings" });
+    expect(storage.get).toHaveBeenCalledWith([SELECTED_PROVIDER_KEY, THINKING_LEVEL_KEY]);
+    expect(chatSessionState.providers.map((p) => p.id)).toEqual(["p1", "p3"]);
+    expect(chatSessionState.aiPrefs).toEqual({
+      aiSystemPrompt: "系统提示",
+      aiInitialQuickPrompts: ["快速一"],
+      defaultModel: "p3"
+    });
+    expect(chatSessionState.aiThinkingLevel).toBe("low");
+    expect(select.value).toBe(buildModelOptionValue("p3", "模型三"));
+    expect(select.disabled).toBe(false);
+    expect(chipModel.textContent).toBe("模型三·模型三");
+    expect(chipLevel.textContent).toBe("Low");
+  });
+
+  it("get-settings 失败不阻断：aiPrefs 与 aiThinkingLevel 走默认兜底", async () => {
+    mockRuntimeReplies({
+      providers: { providers: [{ id: "p1", enabled: true }] },
+      settings: async () => {
+        throw new Error("settings 通道断开");
+      }
+    });
+    const { modelPanel } = makeHarness({ seedProviders: false });
+
+    await expect(modelPanel.reload()).resolves.toBeUndefined();
+
+    expect(chatSessionState.aiPrefs.aiSystemPrompt).toBe("");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
+  });
+
+  it("aiThinkingLevel 兜底读 chrome.storage（settings 缺省时）", async () => {
+    const storage = makeStorageFake({ [THINKING_LEVEL_KEY]: "high" });
+    mockRuntimeReplies({ providers: { providers: [{ id: "p1", enabled: true }] } });
+    const { modelPanel } = makeHarness({ seedProviders: false, storage });
+
+    await modelPanel.reload();
+
+    expect(chatSessionState.aiThinkingLevel).toBe("high");
+  });
+
+  it.each(["off", "low", "high"] as const)("旧存储值 %s 原样读回，不被迁移或改写", async (legacy) => {
+    const storage = makeStorageFake({ [THINKING_LEVEL_KEY]: legacy });
+    mockRuntimeReplies({ providers: { providers: [{ id: "p1", enabled: true }] } });
+    const { modelPanel } = makeHarness({ seedProviders: false, storage });
+
+    await modelPanel.reload();
+
+    expect(chatSessionState.aiThinkingLevel).toBe(legacy);
+    expect(storage.data.get(THINKING_LEVEL_KEY)).toBe(legacy);
+  });
+
+  it.each(["minimal", "medium", "xhigh", "max"] as const)("settings 档位 %s 原样读回", async (level) => {
+    mockRuntimeReplies({
+      providers: { providers: [{ id: "p1", enabled: true }] },
+      settings: async () => ({ ok: true, settings: { aiThinkingLevel: level } })
+    });
+    const { modelPanel } = makeHarness({ seedProviders: false });
+
+    await modelPanel.reload();
+
+    expect(chatSessionState.aiThinkingLevel).toBe(level);
+  });
+
+  it("选中回落优先级：preferredProviderId > storage 复合值 > defaultModel > 首项；复合值编解码往返", async () => {
+    expect(parseModelOptionValue(buildModelOptionValue("p1", "gpt-4o-mini"))).toEqual({
+      providerId: "p1",
+      model: "gpt-4o-mini"
+    });
+    expect(parseModelOptionValue("p1")).toEqual({ providerId: "p1", model: "" });
+
+    mockRuntimeReplies({
+      providers: {
+        providers: [
+          { id: "p1", name: "平台一", models: ["m1", "m1b"], enabled: true },
+          { id: "p2", name: "平台二", models: ["m2"], enabled: true }
+        ]
+      },
+      settings: async () => ({ ok: true, settings: { defaultModel: "p1" } })
+    });
+
+    // preferredProviderId 优先
+    const prefStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
+    const h1 = makeHarness({ seedProviders: false, storage: prefStorage });
+    await h1.modelPanel.reload({ preferredProviderId: "p1" });
+    expect(h1.select.value).toBe(buildModelOptionValue("p1", "m1"));
+
+    // storage 复合值优先于 defaultModel（同平台非首模型不丢失）
+    const exactStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p1", "m1b") });
+    const h2 = makeHarness({ seedProviders: false, storage: exactStorage });
+    await h2.modelPanel.reload();
+    expect(h2.select.value).toBe(buildModelOptionValue("p1", "m1b"));
+
+    // storage 失效回落 defaultModel（再回落旧裸 id）
+    const staleStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p9", "m9") });
+    const h3 = makeHarness({ seedProviders: false, storage: staleStorage });
+    await h3.modelPanel.reload();
+    expect(h3.select.value).toBe(buildModelOptionValue("p1", "m1"));
+
+    // storage 旧裸平台 id 兼容
+    mockRuntimeReplies({
+      providers: {
+        providers: [
+          { id: "p1", name: "平台一", models: ["m1"], enabled: true },
+          { id: "p2", name: "平台二", models: ["m2"], enabled: true }
+        ]
+      },
+      settings: async () => ({ ok: true, settings: { defaultModel: "" } })
+    });
+    const legacyStorage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
+    const h4 = makeHarness({ seedProviders: false, storage: legacyStorage });
+    await h4.modelPanel.reload();
+    expect(h4.select.value).toBe(buildModelOptionValue("p2", "m2"));
+  });
+
+  it("零模型平台不进选择器，并经 hasSelectableModels / resolveSetupTarget 区分无平台与缺模型", async () => {
+    const h1 = makeHarness({ seedProviders: false });
+    chatSessionStateForTests.providers = [];
+    h1.modelPanel.renderChip();
+    expect(h1.modelPanel.hasSelectableModels()).toBe(false);
+    expect(h1.modelPanel.resolveSetupTarget()).toEqual({ errorClass: "no-provider", providerId: "" });
+    expect(h1.select.disabled).toBe(true);
+    expect(h1.select.innerHTML).toContain("未配置平台");
+
+    mockRuntimeReplies({
+      providers: { providers: [{ id: "p-empty", name: "空目录平台", models: [], enabled: true }] },
+      settings: async () => ({ ok: true, settings: { defaultModel: "p-empty" } })
+    });
+    await h1.modelPanel.reload();
+    expect(h1.modelPanel.hasSelectableModels()).toBe(false);
+    expect(h1.modelPanel.resolveSetupTarget()).toEqual({ errorClass: "no-model", providerId: "p-empty" });
+    expect(h1.select.disabled).toBe(true);
+    expect(h1.select.innerHTML).toContain("未配置模型");
+  });
+});
+
+describe("setThinkingLevel 与 webSearchPill 联网开关", () => {
+  it("setThinkingLevel 归一化非法值并同步状态、storage、save-settings 与 chip", async () => {
+    const { chipLevel, storage, modelPanel } = makeHarness();
+
+    await modelPanel.setThinkingLevel("high");
+    expect(chatSessionState.aiThinkingLevel).toBe("high");
+    expect(storage.set).toHaveBeenCalledWith({ [THINKING_LEVEL_KEY]: "high" });
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+      type: "save-settings",
+      settings: { aiThinkingLevel: "high" }
+    });
+    expect(chipLevel.textContent).toBe("High");
+
+    await modelPanel.setThinkingLevel("ultra");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
+
+    await modelPanel.setThinkingLevel("none");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
+  });
+
+  it.each(["default", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const)(
+    "8 档可选值 %s 状态/storage/save-settings 三处同值",
+    async (level) => {
+      sendRuntimeMessageMock.mockClear();
+      const { storage, modelPanel } = makeHarness();
+
+      await modelPanel.setThinkingLevel(level);
+
+      expect(chatSessionState.aiThinkingLevel).toBe(level);
+      expect(storage.data.get(THINKING_LEVEL_KEY)).toBe(level);
+      expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+        type: "save-settings",
+        settings: { aiThinkingLevel: level }
+      });
+    }
+  );
+
+  it("webSearchPill：水合首帧不转，点击切换发持久化并驱动旋转类与 animationend 清理", async () => {
+    mockRuntimeReplies({
+      providers: { ok: true, providers: [] },
+      settings: async () => ({ ok: true, settings: { aiThinkingLevel: "off", webSearchEnabled: true } })
+    });
+    const { webSearchPill, modelPanel } = makeHarness({ seedProviders: false, withWebSearchPill: true });
+    const pill = webSearchPill!;
+
+    await modelPanel.reload();
+    expect(chatSessionState.webSearchEnabled).toBe(true);
+    expect(pill.classList.contains("is-active")).toBe(true);
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+    expect(pill.classList.contains("is-spinning-on")).toBe(false);
+    expect(pill.classList.contains("is-spinning-off")).toBe(false);
+
+    click(pill);
+    await vi.waitFor(() => expect(chatSessionState.webSearchEnabled).toBe(false));
+    expect(pill.classList.contains("is-active")).toBe(false);
+    expect(pill.classList.contains("is-spinning-off")).toBe(true);
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+      type: "save-settings",
+      settings: { webSearchEnabled: false }
+    });
+
+    const animEnd = new Event("animationend", { bubbles: true });
+    Object.defineProperty(animEnd, "animationName", { value: "biliscript-web-search-meridian-off" });
+    pill.dispatchEvent(animEnd);
+    expect(pill.classList.contains("is-spinning-off")).toBe(false);
+
+    await modelPanel.setWebSearchEnabled(true);
+    expect(pill.classList.contains("is-active")).toBe(true);
+    expect(pill.classList.contains("is-spinning-on")).toBe(true);
+  });
+});
+
 describe("renderChip", () => {
   it("模型名带平台名前缀（中点分隔）与档位分写两个 span（默认 off → Off）", () => {
     chatSessionStateForTests.aiThinkingLevel = "off";
@@ -147,15 +423,14 @@ describe("renderChip", () => {
 
     modelPanel.renderChip();
 
-    expect(chipModel.textContent).toBe("平台一·m1b");
+    expect(chipModel.textContent).toBe("平台一·m1a");
     expect(chipLevel.textContent).toBe("Off");
     expect(chip.disabled).toBe(false);
   });
 
-  it("选中项不在 optgroup 内：只显示模型名，不拼前缀", () => {
-    const select = document.createElement("select");
-    select.innerHTML = '<option value="solo" selected>solo-model</option>';
-    const { chipModel, modelPanel } = makeHarness(select);
+  it("平台无名称时只显示模型名，不拼前缀", () => {
+    const { chipModel, modelPanel } = makeHarness({ seedProviders: false });
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["solo-model"], enabled: true }];
 
     modelPanel.renderChip();
 
@@ -168,35 +443,26 @@ describe("renderChip", () => {
 
     modelPanel.renderChip();
 
-    expect(chipModel.textContent).toBe("平台一·m1b");
+    expect(chipModel.textContent).toBe("平台一·m1a");
     expect(chipLevel.textContent).toBe("High");
   });
 
-  // 05 号票：档位词表扩到上游 7 档，标签表同步（口径 = 表内统一构词：首字母大写、
-  // 其余小写；2026-10-05 用户裁定 xhigh → Xhigh，不写 XHigh）。未渲染过档位条时
-  // chip 回落标签表。
-  it("7 档标签表：off/minimal/low/medium/high/xhigh/max → Off/Minimal/Low/Medium/High/Xhigh/Max", () => {
-    const expected: Array<[string, string]> = [
-      ["off", "Off"],
-      ["minimal", "Minimal"],
-      ["low", "Low"],
-      ["medium", "Medium"],
-      ["high", "High"],
-      ["xhigh", "Xhigh"],
-      ["max", "Max"]
-    ];
-    for (const [level, label] of expected) {
-      chatSessionStateForTests.aiThinkingLevel = level as never;
-      const { chipLevel, modelPanel } = makeHarness();
-      modelPanel.renderChip();
-      expect(chipLevel.textContent, level).toBe(label);
-    }
+  it.each([
+    ["off", "Off"],
+    ["minimal", "Minimal"],
+    ["low", "Low"],
+    ["medium", "Medium"],
+    ["high", "High"],
+    ["xhigh", "Xhigh"],
+    ["max", "Max"]
+  ] as const)("7 档标签表：%s → %s", (level, label) => {
+    chatSessionStateForTests.aiThinkingLevel = level;
+    const { chipLevel, modelPanel } = makeHarness();
+    modelPanel.renderChip();
+    expect(chipLevel.textContent).toBe(label);
   });
 
-  // 2026-10-05 用户裁定：菜单里写 On、chip 写 High 是自相矛盾的——chip 的档位
-  // span 优先用档位条派生的显示名（开关型模型即 On）。2026-10 深化后 chip 不再由调用点
-  // 单独重渲：这一次 renderThinkingPicker 内部就把它画了（一次解析只渲一遍 chip）。
-  it("档位条派生过显示名：chip 用它（开关型模型显示 On，即便偏好是别的非 off 档）", () => {
+  it("档位条派生过显示名：chip 用它（开关型模型显示 On）", () => {
     chatSessionStateForTests.aiThinkingLevel = "low";
     const { chipLevel, thinkingToggle, modelPanel } = makeHarness();
 
@@ -216,10 +482,9 @@ describe("renderChip", () => {
     expect(chipLevel.textContent).toBe("On");
   });
 
-  it("select 禁用（未配置平台）：chip 仍可打开空态，模型名回落占位、档位清空", () => {
-    const select = document.createElement("select");
-    select.disabled = true;
-    const { chip, chipModel, chipLevel, modelPanel } = makeHarness(select);
+  it("无可用平台时 chip 仍可打开空态，模型名回落占位、档位清空", () => {
+    const { chip, chipModel, chipLevel, modelPanel } = makeHarness({ seedProviders: false });
+    chatSessionStateForTests.providers = [];
 
     modelPanel.renderChip();
 
@@ -230,8 +495,11 @@ describe("renderChip", () => {
 });
 
 describe("renderPanel", () => {
-  it("按 optgroup 分组渲染，当前选中项 is-selected、带 ✓ 并接管焦点", () => {
-    const { panelList, modelPanel } = makeHarness();
+  it("按平台分组渲染，当前选中项 is-selected、带 ✓ 并接管焦点", () => {
+    const { select, panelList, modelPanel } = makeHarness();
+    modelPanel.renderChip();
+    select.value = `p1${SEP}m1b`;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
 
     modelPanel.renderPanel();
 
@@ -247,17 +515,24 @@ describe("renderPanel", () => {
     expect(document.activeElement).toBe(selected[0]);
   });
 
-  it("点击选项：写值源 + 派生 change，原位换勾且焦点与面板保持稳定", () => {
-    const { select, panelList, hidePanel, modelPanel } = makeHarness();
-    const onChange = vi.fn();
-    select.addEventListener("change", onChange);
+  it("点击选项：直接同步 select.value 并持久化（不派发合成冒泡 change），原位换勾且焦点与面板保持稳定", () => {
+    const { select, chipModel, panelList, storage, hidePanel, modelPanel } = makeHarness();
+    const onBubbledChange = vi.fn();
+    select.addEventListener("change", onBubbledChange);
 
     modelPanel.renderPanel();
-    const target = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p2${SEP}m2"]`) as HTMLButtonElement;
+    const target = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p2${SEP}m2"]`)!;
     click(target);
 
     expect(select.value).toBe(`p2${SEP}m2`);
-    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onBubbledChange).not.toHaveBeenCalled();
+    expect(chipModel.textContent).toBe("平台二·m2");
+    expect(storage.set).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: `p2${SEP}m2` });
+    expect(chatSessionState.aiPrefs.defaultModel).toBe("p2");
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+      type: "save-settings",
+      settings: { defaultModel: "p2" }
+    });
     expect(hidePanel).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(target);
     expect(panelList.querySelector(".chat-model-option.is-selected")).toBe(target);
@@ -265,17 +540,18 @@ describe("renderPanel", () => {
     expect(panelList.querySelectorAll(".chat-model-check")).toHaveLength(1);
   });
 
-  it("点击当前已选项：不重复派生 change，不关面板", () => {
-    const { select, panelList, hidePanel, modelPanel } = makeHarness();
-    const onChange = vi.fn();
-    select.addEventListener("change", onChange);
+  it("点击当前已选项：不重复持久化，不关面板", () => {
+    const { select, panelList, storage, hidePanel, modelPanel } = makeHarness();
 
     modelPanel.renderPanel();
-    const current = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p1${SEP}m1b"]`) as HTMLButtonElement;
+    sendRuntimeMessageMock.mockClear();
+    storage.set.mockClear();
+    const current = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p1${SEP}m1a"]`)!;
     click(current);
 
-    expect(select.value).toBe(`p1${SEP}m1b`);
-    expect(onChange).not.toHaveBeenCalled();
+    expect(select.value).toBe(`p1${SEP}m1a`);
+    expect(storage.set).not.toHaveBeenCalled();
+    expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
     expect(hidePanel).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(current);
   });
@@ -288,30 +564,28 @@ describe("renderPanel", () => {
       new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })
     );
 
-    expect(document.activeElement).toBe(options[1]);
+    expect(document.activeElement).toBe(options[0]);
     key("ArrowDown");
+    expect(document.activeElement).toBe(options[1]);
+    key("End");
     expect(document.activeElement).toBe(options[2]);
     key("Home");
     expect(document.activeElement).toBe(options[0]);
-    key("End");
-    expect(document.activeElement).toBe(options[2]);
-    key("ArrowUp");
-    expect(document.activeElement).toBe(options[1]);
+    key("ArrowDown");
     key("ArrowDown");
     key("Enter");
     expect(select.value).toBe(`p2${SEP}m2`);
     expect(document.activeElement).toBe(options[2]);
-    key("Home");
+    key("ArrowUp");
     key(" ");
-    expect(select.value).toBe(`p1${SEP}m1a`);
-    expect(document.activeElement).toBe(options[0]);
+    expect(select.value).toBe(`p1${SEP}m1b`);
+    expect(document.activeElement).toBe(options[1]);
     expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  it("select 禁用（未配置平台）：空态提供前往设置并隐藏思考强度行", () => {
-    const select = document.createElement("select");
-    select.disabled = true;
-    const { panelList, thinkingRow, hidePanel, openSettings, modelPanel } = makeHarness(select);
+  it("无平台空态提供前往设置并隐藏思考强度行", () => {
+    const { panelList, thinkingRow, hidePanel, openSettings, modelPanel } = makeHarness({ seedProviders: false });
+    chatSessionStateForTests.providers = [];
 
     modelPanel.renderPanel();
 
@@ -326,10 +600,8 @@ describe("renderPanel", () => {
   });
 
   it("已有启用平台但 models 为空：chip 与面板显示缺模型文案并可触发前往设置", () => {
+    const { chipModel, panelList, openSettings, hidePanel, modelPanel } = makeHarness({ seedProviders: false });
     chatSessionStateForTests.providers = [{ id: "p1", name: "空模型平台", models: [], enabled: true }];
-    const select = document.createElement("select");
-    select.disabled = true;
-    const { chipModel, panelList, openSettings, hidePanel, modelPanel } = makeHarness(select);
 
     modelPanel.renderChip();
     expect(chipModel.textContent).toBe("未配置模型");
@@ -343,38 +615,116 @@ describe("renderPanel", () => {
   });
 });
 
-describe("renderPanel 的面板宽度（打开时快照）", () => {
-  it("打开时按 chip 可见宽写面板内联宽", () => {
-    const { chip, panel, modelPanel } = makeHarness();
-    chip.getBoundingClientRect = () => ({ width: 252 } as DOMRect);
+describe("chip 宽度度量、面板宽度与 resize rAF 合帧", () => {
+  it("canvas 降级下按模型名 + 档位测宽并夹取 [92, 420] 与 .chat-input-bar 60% 上限", () => {
+    stubNoCanvas();
 
-    modelPanel.renderPanel();
+    // 「AI Off」: 2*8 + 3*8 + 44 = 84 → 触底 92px
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["AI"], enabled: true }];
+    chatSessionStateForTests.aiThinkingLevel = "off";
+    const shortH = makeHarness({ seedProviders: false });
+    shortH.modelPanel.renderChip();
+    expect(shortH.chip.style.width).toBe("92px");
 
-    expect(panel.style.width).toBe("252px");
+    // 「MODEL Off」: 5*8 + 3*8 + 44 = 108px（hug content）
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["MODEL"], enabled: true }];
+    const hugH = makeHarness({ seedProviders: false });
+    hugH.modelPanel.renderChip();
+    expect(hugH.chip.style.width).toBe("108px");
+
+    // 无档位时回落「未配置平台」+ 空档位：5*8 + 44 = 84 → 92px
+    chatSessionStateForTests.providers = [];
+    const emptyH = makeHarness({ seedProviders: false });
+    emptyH.modelPanel.renderChip();
+    expect(emptyH.chip.style.width).toBe("92px");
+
+    // 极端长名触顶 420px
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["x".repeat(60)], enabled: true }];
+    const longH = makeHarness({ seedProviders: false });
+    longH.modelPanel.renderChip();
+    expect(longH.chip.style.width).toBe("420px");
+
+    // .chat-input-bar 存在时上限取行宽 60%（500 * 0.6 = 300px）
+    const barH = makeHarness({ seedProviders: false, withInputBar: true });
+    Object.defineProperty(barH.inputBar!, "clientWidth", { value: 500, configurable: true });
+    barH.modelPanel.renderChip();
+    expect(barH.chip.style.width).toBe("300px");
   });
 
-  it("打开期间 chip 宽度变化不重算（再次 renderPanel 才更新）", () => {
+  it("面板宽度：打开时按 chip 可见宽夹在 [240, 320]，可见宽为 0 时回落内容度量宽，打开期间不抖动", () => {
+    stubNoCanvas();
     const { chip, panel, modelPanel } = makeHarness();
-    let visibleWidth = 252;
-    chip.getBoundingClientRect = () => ({ width: visibleWidth } as DOMRect);
 
+    chip.getBoundingClientRect = () => ({ width: 252.4 } as DOMRect);
     modelPanel.renderPanel();
-    expect(panel.style.width).toBe("252px");
+    expect(panel.style.width).toBe("253px");
 
-    // 档位切换走 refreshThinkingUi → renderThinkingPicker（内部重渲 chip，chip 自身宽度变了），
-    // 但面板未重开 → 宽度快照不动。
-    visibleWidth = 300;
+    // 打开期间重渲档位不重算面板宽度
+    chip.getBoundingClientRect = () => ({ width: 300 } as DOMRect);
     modelPanel.renderThinkingPicker(view({ label: "High", entries: [] }));
-    expect(panel.style.width).toBe("252px");
+    expect(panel.style.width).toBe("253px");
 
-    // 重开（再次 renderPanel）才取新值
+    // 重开取新值
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("300px");
+
+    // 低于 240 触底 240
+    chip.getBoundingClientRect = () => ({ width: 150 } as DOMRect);
+    modelPanel.renderPanel();
+    expect(panel.style.width).toBe("240px");
+
+    // 高于 320 截断 320
+    chip.getBoundingClientRect = () => ({ width: 500 } as DOMRect);
+    modelPanel.renderPanel();
+    expect(panel.style.width).toBe("320px");
+
+    // 未布局（可见宽 0）回落内容度量宽再夹取 [240, 320]
+    chip.getBoundingClientRect = () => ({ width: 0 } as DOMRect);
+    modelPanel.renderPanel();
+    expect(panel.style.width).toBe("240px");
+  });
+
+  it("window resize：一帧内多次触发只排一帧 rAF，帧回调才写 chip 宽度", () => {
+    stubNoCanvas();
+    const pending = new Map<number, FrameRequestCallback>();
+    let nextId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      nextId += 1;
+      pending.set(nextId, cb);
+      return nextId;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      pending.delete(id);
+    });
+
+    chatSessionStateForTests.providers = [{ id: "p1", name: "", models: ["AI"], enabled: true }];
+    chatSessionStateForTests.aiThinkingLevel = "off";
+    const { chip, modelPanel } = makeHarness({ seedProviders: false });
+    modelPanel.renderChip();
+    chip.style.width = "";
+
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("resize"));
+
+    expect(pending.size).toBe(1);
+    expect(chip.style.width).toBe("");
+
+    [...pending.entries()].forEach(([id, cb]) => {
+      pending.delete(id);
+      cb(0);
+    });
+    expect(chip.style.width).toBe("92px");
   });
 });
 
 describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置键）", () => {
-  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" } as const;
+  const FOUR_LEVELS = {
+    availableLevels: ["off", "low", "high", "max"],
+    switchOnly: false,
+    requestedLevel: "high",
+    effectiveLevel: "high"
+  } as const;
 
   it("逐条现渲：首项为 ↻ 重置键（Default），其余为滑轨刻度，只有实发档带 is-active + aria-current", () => {
     const { thinkingToggle, thinkingRowValue, thinkingRow, modelPanel } = makeHarness();
@@ -388,14 +738,13 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
 
     expect(renderedLevels(thinkingToggle)).toEqual(["default", "off", "low", "high", "max"]);
     expect(renderedLabels(thinkingToggle)).toEqual(["Default", "Off", "Low", "High", "Max"]);
-    for (const btn of buttons(thinkingToggle)) {
+    buttons(thinkingToggle).forEach((btn) => {
       const effective = btn.dataset.level === "high";
       expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(effective);
       expect(btn.getAttribute("aria-current"), btn.dataset.level).toBe(effective ? "true" : "false");
       expect(btn.dataset.effective, btn.dataset.level).toBe(effective ? "true" : "false");
-      // 点击判据与生效态分开：偏好落在 high → 只有 high 那一项不写偏好。
       expect(btn.dataset.writes, btn.dataset.level).toBe(effective ? "false" : "true");
-    }
+    });
     const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track");
     const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb");
     expect(track).not.toBe(null);
@@ -408,7 +757,9 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
 
   it("点非选中项：pickLevel(该档)，面板保持打开（hidePanel 不调用）", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
-    modelPanel.renderThinkingPicker(view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) }));
+    modelPanel.renderThinkingPicker(
+      view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) })
+    );
 
     click(buttons(thinkingToggle)[2]);
 
@@ -416,10 +767,11 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  // 05 号票「偏好保留不迁移」：已经是自己偏好的那一项不重写偏好。
   it("点已经是自己偏好的那一项：不重写偏好（pickLevel 不调用），面板保持打开", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
-    modelPanel.renderThinkingPicker(view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) }));
+    modelPanel.renderThinkingPicker(
+      view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) })
+    );
 
     click(buttons(thinkingToggle)[3]);
 
@@ -427,7 +779,6 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  // 2026-10-05 裁定 B（口径 ⑤）：偏好 ≠ 实发时点实发档写偏好（用户显式接受本次 clamp）。
   it("点生效的实发档而偏好 ≠ 实发：写偏好 + 面板保持打开", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker(
@@ -448,7 +799,6 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
   it("三态分支：Default 隐藏滑块圆点；单档渲染胶囊 pill；零档行只剩 Default ↻ 且不渲染滑轨", () => {
     const { thinkingToggle, thinkingRow, modelPanel } = makeHarness();
 
-    // 1. 多档且实发为 Default：滑轨在场，但白色滑块 hidden、填充为 0。
     modelPanel.renderThinkingPicker(
       view({
         label: "Default",
@@ -459,7 +809,6 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")?.hidden).toBe(true);
     expect(thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill")?.style.width).toBe("0px");
 
-    // 2. 单档（仅 1 个真实档位，无 off）：渲染 .chat-thinking-single 胶囊而非滑轨。
     modelPanel.renderThinkingPicker(
       view({
         label: "On",
@@ -470,7 +819,6 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(thinkingToggle.querySelector(".chat-thinking-track")).toBe(null);
     expect(renderedLabels(thinkingToggle)).toEqual(["Default", "On"]);
 
-    // 3. 零档行（A' = ∅）：只渲染 Default ↻ 按钮，无滑轨无单档行，但思考强度行照旧显示（ADR-0015）。
     modelPanel.renderThinkingPicker(
       view({
         label: "Default",
@@ -486,28 +834,26 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
   it("星点与最高档渐变：所有非零档（index > 0）带 is-sparkle，仅档位数 ≥ 3 的最右端带 is-max", () => {
     const { thinkingToggle, modelPanel } = makeHarness();
 
-    // 2 档开关型（Off / On）选中 On（index=1）：带星点 is-sparkle，不带紫色渐变 is-max。
     modelPanel.renderThinkingPicker(
       view({
         label: "On",
         entries: thinkingPickerEntries({ availableLevels: ["off", "high"], switchOnly: true, requestedLevel: "high", effectiveLevel: "high" })
       })
     );
-    let track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
-    expect(track.classList.contains("is-sparkle")).toBe(true);
-    expect(track.classList.contains("is-max")).toBe(false);
+    const twoTierTrack = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    expect(twoTierTrack.classList.contains("is-sparkle")).toBe(true);
+    expect(twoTierTrack.classList.contains("is-max")).toBe(false);
 
-    // 4 档选中最高档 Max（index=3，n=4 ≥ 3）：同时带 is-sparkle、is-max 与脉冲 is-ultra-burst。
     modelPanel.renderThinkingPicker(
       view({
         label: "Max",
         entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "max", effectiveLevel: "max" })
       })
     );
-    track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
-    expect(track.classList.contains("is-sparkle")).toBe(true);
-    expect(track.classList.contains("is-max")).toBe(true);
-    expect(track.classList.contains("is-ultra-burst")).toBe(true);
+    const fourTierTrack = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    expect(fourTierTrack.classList.contains("is-sparkle")).toBe(true);
+    expect(fourTierTrack.classList.contains("is-max")).toBe(true);
+    expect(fourTierTrack.classList.contains("is-ultra-burst")).toBe(true);
   });
 
   it("Default：aria-valuetext 不冒充实发档，重置键原生 disabled，刻度不进 Tab 顺序", () => {
@@ -523,10 +869,10 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(reset.disabled).toBe(true);
     expect(reset.getAttribute("aria-disabled")).toBe("true");
     expect(thinkingToggle.querySelector(".chat-thinking-track")?.getAttribute("aria-valuetext")).toBe("Default");
-    for (const tick of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-tick")) {
+    thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-tick").forEach((tick) => {
       expect(tick.tabIndex).toBe(-1);
       expect(tick.getAttribute("aria-hidden")).toBe("true");
-    }
+    });
     click(reset);
     expect(pickLevel).not.toHaveBeenCalled();
 
@@ -539,7 +885,7 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(reset.disabled).toBe(false);
   });
 
-  it("滑轨支持指针拖拽（实时预览 + 磁吸释放落盘）与键盘方向键，普通滚轮不改档位", () => {
+  it("滑轨支持指针拖拽与键盘方向键，普通滚轮不改档位", () => {
     const { thinkingToggle, thinkingRowValue, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker(
       view({
@@ -598,7 +944,7 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
     expect(track.classList.contains("is-dragging")).toBe(false);
   });
 
-  it("空条目：一个按钮都不渲染（fail-closed，面板只剩提示行）", () => {
+  it("空条目：一个按钮都不渲染", () => {
     const { thinkingToggle, modelPanel } = makeHarness();
 
     modelPanel.renderThinkingPicker(view({ label: "Off", entries: [] }));
@@ -607,11 +953,7 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
   });
 });
 
-// 2026-10 深化（hint 从组合根移入面板）：提示行的文案与显隐由**面板**按视图值写，
-// 组合根不再持有该元素、也不再知道调用顺序。显隐条件本身（何时 view.hint = null）是
-// chat/thinking-picker 的纯函数口径，由 tests/chat/thinking-picker.test.ts 锁定；本组
-// 用例钉的是「整份视图 → 提示行 DOM」的接线（真实 DOM 直测）。
-describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文案与显隐接线）", () => {
+describe("renderThinkingPicker 的底部提示行", () => {
   const HINT_UNAVAILABLE = "当前模型不支持关闭思考";
 
   it("hint 有文案：显示并写进提示行；同一次调用里档位、思考强度行与 chip 一起落定", () => {
@@ -635,7 +977,7 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
     expect(chipLevel.textContent).toBe("High");
   });
 
-  it("hint = null：隐藏并清空上一次的文案（每次解析都重写，不留残影）", () => {
+  it("hint = null：隐藏并清空上一次的文案", () => {
     const { thinkingHint, modelPanel } = makeHarness();
     const entries = thinkingPickerEntries({ availableLevels: ["off", "low", "high"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" });
 
@@ -648,48 +990,32 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
     expect(thinkingHint?.textContent).toBe("");
   });
 
-  it("不注入提示行元素（缺省字段）或明确传 null：档位与 chip 照画，不抛", () => {
-    for (const hintMode of ["omitted", "null"] as const) {
-      const { thinkingHint, thinkingToggle, thinkingRowValue, chipLevel, modelPanel } = makeHarness(makeSelect(), hintMode);
+  it.each(["omitted", "null"] as const)("不注入提示行元素（%s）：档位与 chip 照画，不抛", (hintMode) => {
+    const { thinkingHint, thinkingToggle, thinkingRowValue, chipLevel, modelPanel } = makeHarness({ hintMode });
 
-      expect(thinkingHint, hintMode).toBe(null);
-      expect(() =>
-        modelPanel.renderThinkingPicker(
-          view({
-            label: "Medium",
-            entries: thinkingPickerEntries({ availableLevels: ["off", "medium"], switchOnly: false, requestedLevel: "medium", effectiveLevel: "medium" }),
-            hint: HINT_UNAVAILABLE
-          })
-        )
-      ).not.toThrow();
+    expect(thinkingHint).toBe(null);
+    expect(() =>
+      modelPanel.renderThinkingPicker(
+        view({
+          label: "Medium",
+          entries: thinkingPickerEntries({ availableLevels: ["off", "medium"], switchOnly: false, requestedLevel: "medium", effectiveLevel: "medium" }),
+          hint: HINT_UNAVAILABLE
+        })
+      )
+    ).not.toThrow();
 
-      expect(renderedLevels(thinkingToggle), hintMode).toEqual(["default", "off", "medium"]);
-      expect(thinkingRowValue.textContent, hintMode).toBe("Medium");
-      expect(chipLevel.textContent, hintMode).toBe("Medium");
-    }
+    expect(renderedLevels(thinkingToggle)).toEqual(["default", "off", "medium"]);
+    expect(thinkingRowValue.textContent).toBe("Medium");
+    expect(chipLevel.textContent).toBe("Medium");
   });
 });
 
-// 2026-10-06 用户报障（截图 `ModelScope·deepseek-ai/DeepSeek-V4.1-…`）：集合站
-// （ModelScope / OpenRouter 等）回的模型 id 带组织命名空间前缀，chip 与弹层列表
-// 只显示最后一段裸名。**只碰显示层**：option 文本与 value（复合值）照旧完整，
-// 点选落盘值因此不变（剥前缀渗进值源 = 换错模型，本组用例专门钉住）。
 describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () => {
-  // select 形状与 providers.renderModelSelect 的产物同构：平台 optgroup +
-  // 完整 id 做选项文本、`平台 id\u0001模型 id` 复合值做 value。
-  function makeNamespacedSelect(): HTMLSelectElement {
-    const select = document.createElement("select");
-    select.innerHTML =
-      '<optgroup label="ModelScope">' +
-      `<option value="modelscope${SEP}deepseek-ai/DeepSeek-V4.1-Flash" selected>deepseek-ai/DeepSeek-V4.1-Flash</option>` +
-      `<option value="modelscope${SEP}Qwen/Qwen3-32B">Qwen/Qwen3-32B</option>` +
-      "</optgroup>" +
-      '<optgroup label="硅基流动">' +
-      `<option value="siliconflow${SEP}glm-4.6">glm-4.6</option>` +
-      `<option value="siliconflow${SEP}org/">org/</option>` +
-      "</optgroup>";
-    document.body.appendChild(select);
-    return select;
+  function seedNamespacedProviders(): void {
+    chatSessionStateForTests.providers = [
+      { id: "modelscope", name: "ModelScope", models: ["deepseek-ai/DeepSeek-V4.1-Flash", "Qwen/Qwen3-32B"], enabled: true },
+      { id: "siliconflow", name: "硅基流动", models: ["glm-4.6", "org/"], enabled: true }
+    ];
   }
 
   function optionNames(panelList: HTMLElement): string[] {
@@ -699,7 +1025,8 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
   }
 
   it("chip：命名空间 id 只显示裸名（平台名·裸名，不再带 org/）", () => {
-    const { chipModel, modelPanel } = makeHarness(makeNamespacedSelect());
+    const { chipModel, modelPanel } = makeHarness({ seedProviders: false });
+    seedNamespacedProviders();
 
     modelPanel.renderChip();
 
@@ -707,20 +1034,22 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
   });
 
   it("chip：无斜杠裸名与尾斜杠 id 原样显示（不误伤、不剥成空串）", () => {
-    const select = makeNamespacedSelect();
-    const { chipModel, modelPanel } = makeHarness(select);
+    const { select, chipModel, modelPanel } = makeHarness({ seedProviders: false });
+    seedNamespacedProviders();
+    modelPanel.renderChip();
 
     select.value = `siliconflow${SEP}glm-4.6`;
-    modelPanel.renderChip();
+    select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chipModel.textContent).toBe("硅基流动·glm-4.6");
 
     select.value = `siliconflow${SEP}org/`;
-    modelPanel.renderChip();
+    select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chipModel.textContent).toBe("硅基流动·org/");
   });
 
   it("弹层列表条目同样剥前缀，data-value 仍是完整复合值", () => {
-    const { panelList, modelPanel } = makeHarness(makeNamespacedSelect());
+    const { panelList, modelPanel } = makeHarness({ seedProviders: false });
+    seedNamespacedProviders();
 
     modelPanel.renderPanel();
 
@@ -735,16 +1064,17 @@ describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () =>
     ]);
   });
 
-  it("点被剥名的条目：值源写完整复合值（剥前缀不渗进落盘值）", () => {
-    const select = makeNamespacedSelect();
-    const { panelList, modelPanel } = makeHarness(select);
+  it("点被剥名的条目：值源与持久化落完整复合值（剥前缀不渗进落盘值）", () => {
+    const { select, panelList, storage, modelPanel } = makeHarness({ seedProviders: false });
+    seedNamespacedProviders();
     modelPanel.renderPanel();
 
     const qwen = panelList.querySelector<HTMLButtonElement>(
       `.chat-model-option[data-value="modelscope${SEP}Qwen/Qwen3-32B"]`
-    ) as HTMLButtonElement;
+    )!;
     click(qwen);
 
     expect(select.value).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
+    expect(storage.data.get(SELECTED_PROVIDER_KEY)).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
   });
 });

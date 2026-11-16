@@ -1,28 +1,15 @@
-// 待解释意图（PR3 契约叶子）：字幕侧「去对话追问」与 AI 对话 tab 之间的交接面。
+// 待解释意图契约与控制器：字幕侧「去对话追问」与 AI 对话 tab 之间的交接面。
 //
-// 生产方：解释卡片（reader/explain-card.js）底部的「去对话追问」按钮——用户在
-// 字幕句里选中词/句 → 选区下方浮出「解释」→ 点开后卡片就地给解释，想继续追问时
-// 点这个按钮，把选中片段 + 所在整句记进本叶子并切到 AI 对话 tab；
-// 消费方：reader/explain-intent-consumption.js 在 AI 对话 tab 激活时 peek → 渲染引用卡
-// → 自动发送 → 发送受理成功才 consume（一次意图只发一次，被闸拦下时保持 pending 可重试）。
+// 生产方：解释卡片（reader/explain-card.ts）底部的「去对话追问」按钮——把选中片段、
+// 所在整句（以及已生成的解释正文）记入本模块单槽 pending 后切到 AI 对话 tab。
+// 消费方：对话 tab 经 createExplainIntentController 驱动引用卡渲染、回合在途守卫、
+// 发送/取消按钮绑定、追问提示词拼接与受理后消费。
 //
-// 为什么是独立零依赖叶子（对照 ai/player-ai-state.ts 的 pending 请求模式）：
-// 写入方与读取方分属不同动态分包（卡片随 reader 域装载，对话组合根走
-// reader/lazy-chat-tab 的二级惰性），意图必须住在两边都买得起的常驻叶子上，
-// 任何一方都无需为读写一个意图装载对方重域。
-//
-// 单槽 pending（后写覆盖先写）：用户连着追问两句，以最后一句为准——对话 tab
-// 每次激活只自动发送一条待解释请求，语义明确。
+// 单槽 pending（后写覆盖先写）：仅保留最新一条待解释意图。
+import { formatClock } from "../shared/clock-text.js";
 
-// 形状契约（PR5 依赖，字段名勿随意改）：
-//   from      —— 选中句起始秒（条目 data-seconds），供对话侧时间戳 pill / 引用定位
-//   content   —— 选中所在整句纯文本（.biliscript-reading-text 的 textContent trim），
-//                始终是解释的上下文锚点
-//   selection   —— 用户实际选中的词/短语（选区文本 trim）；整句选中或无选区时省略，
-//                  消费方据此区分「解释一个词」与「解释整句」两种提示词
-//   explanation —— 解释卡已生成的正文（仅在「去对话追问」已有就绪解释时写入），
-//                  消费方据此保留上下文供用户直接输入追问，不重复生成同一段解释
-//   createdAt   —— 记录时间（Date.now()），供 PR5 判过期/排序（本 PR 不消费）
+const ACTIVE_TURN_INTENT_NOTICE = "当前对话正在生成，待本轮结束后可继续追问或发送。";
+
 export interface ReaderExplainIntent {
   from: number;
   content: string;
@@ -33,9 +20,7 @@ export interface ReaderExplainIntent {
 
 let pendingIntent: ReaderExplainIntent | null = null;
 
-// 记录/覆盖待解释意图（intent 外部对象后续变更不影响已存快照）。
-// selection 与整句相同（全选一句）时归一化掉：两种写法在消费端语义一致，
-// 不必让下游各自判等。
+// 记录或覆盖待解释意图；selection 与整句相同或为空白时不落字段，explanation 仅保留非空文本。
 export function setPendingExplainIntent(intent: ReaderExplainIntent): void {
   const content = String(intent?.content || "");
   const selection = String(intent?.selection || "").trim();
@@ -53,19 +38,132 @@ export function setPendingExplainIntent(intent: ReaderExplainIntent): void {
   }
 }
 
-// 只读窥视（占位卡渲染 / PR5 预检），不消费；返回副本防外部改写内部状态。
-export function peekPendingExplainIntent(): ReaderExplainIntent | null {
+export function clearPendingExplainIntent(): void {
+  pendingIntent = null;
+}
+
+function peekPending(): ReaderExplainIntent | null {
   return pendingIntent ? { ...pendingIntent } : null;
 }
 
-// 消费：取走并清空（保证一次意图只被发送一次）；无 pending 时返回 null。
-export function consumePendingExplainIntent(): ReaderExplainIntent | null {
-  const intent = pendingIntent;
-  pendingIntent = null;
-  return intent ? { ...intent } : null;
-}
+export function createExplainIntentController({
+  card,
+  sendPrompt,
+  isTurnActive,
+  onNotice,
+  onFocusInput
+}: {
+  card: HTMLElement | null;
+  sendPrompt: (text: string) => Promise<boolean>;
+  isTurnActive?: () => boolean;
+  onNotice?: (message: string, autoHideMs?: number) => void;
+  onFocusInput?: () => void;
+}) {
+  function buildPrompt(intent: ReaderExplainIntent): string {
+    const stamp = formatClock(intent.from, { hours: "auto" });
+    if (intent.selection) {
+      return `请结合视频上下文解释我选中的词句：「${intent.selection}」。它出自字幕句「${intent.content}」（${stamp}）。说明它的含义、背景，以及在这句话里指什么。`;
+    }
+    return `请结合视频上下文解释这句字幕：「${intent.content}」（${stamp}）。说明它的含义、背景，以及与前后文的关系。`;
+  }
 
-// 清除（关闭阅读视图等会话收尾时调用，避免跨会话残留旧意图）。
-export function clearPendingExplainIntent(): void {
-  pendingIntent = null;
+  function render(intent: ReaderExplainIntent): void {
+    if (!card) {
+      return;
+    }
+    const title = card.querySelector<HTMLElement>(".biliscript-reading-chat-intent-title");
+    if (title) {
+      title.textContent = intent.explanation ? "基于当前解释继续追问" : "待解释的字幕句";
+    }
+    const quote = card.querySelector<HTMLElement>(".biliscript-reading-chat-intent-quote");
+    if (quote) {
+      quote.textContent = intent.selection ? `「${intent.selection}」｜${intent.content}` : `「${intent.content}」`;
+    }
+    const stamp = card.querySelector<HTMLElement>(".biliscript-reading-chat-intent-time");
+    if (stamp) {
+      stamp.textContent = formatClock(intent.from, { hours: "auto" });
+    }
+    const sendBtn = card.querySelector<HTMLButtonElement>('[data-chat-intent-action="send"]');
+    if (sendBtn) {
+      sendBtn.hidden = Boolean(intent.explanation);
+    }
+    card.hidden = false;
+  }
+
+  function hide(): void {
+    if (card) {
+      card.hidden = true;
+    }
+  }
+
+  function cancel(): void {
+    clearPendingExplainIntent();
+    hide();
+    onFocusInput?.();
+  }
+
+  function buildFollowUpPrompt(question: string): string {
+    const intent = peekPending();
+    if (!intent || !intent.explanation || !intent.content) {
+      return question;
+    }
+    const stamp = formatClock(intent.from, { hours: "auto" });
+    const target = intent.selection
+      ? `选区「${intent.selection}」（出自字幕「${intent.content}」，${stamp}）`
+      : `字幕「${intent.content}」（${stamp}）`;
+    return `针对${target}的已有解释：\n${intent.explanation}\n\n追问：${question}`;
+  }
+
+  function completePendingFollowUp(): void {
+    if (pendingIntent?.explanation) {
+      pendingIntent = null;
+      hide();
+    }
+  }
+
+  async function consumeIfPending(): Promise<void> {
+    const intent = peekPending();
+    if (!intent || !intent.content) {
+      hide();
+      return;
+    }
+    render(intent);
+    if (intent.explanation) {
+      if (isTurnActive?.()) {
+        onNotice?.(ACTIVE_TURN_INTENT_NOTICE, 4000);
+      }
+      onFocusInput?.();
+      return;
+    }
+    if (isTurnActive?.()) {
+      onNotice?.(ACTIVE_TURN_INTENT_NOTICE, 4000);
+      return;
+    }
+    const prompt = buildPrompt(intent);
+    if (!prompt.trim()) {
+      return;
+    }
+    const currentSlot = pendingIntent;
+    const sent = await sendPrompt(prompt);
+    if (sent && pendingIntent === currentSlot) {
+      pendingIntent = null;
+      hide();
+    }
+  }
+
+  card?.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const actionBtn = target?.closest<HTMLElement>("[data-chat-intent-action]");
+    if (!actionBtn) {
+      return;
+    }
+    const action = actionBtn.dataset.chatIntentAction;
+    if (action === "cancel") {
+      cancel();
+    } else if (action === "send") {
+      void consumeIfPending();
+    }
+  });
+
+  return { consumeIfPending, cancel, hide, buildFollowUpPrompt, completePendingFollowUp };
 }

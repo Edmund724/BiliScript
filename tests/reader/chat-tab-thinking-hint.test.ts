@@ -165,9 +165,9 @@ let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
 // 复合选项值编码单源（multi-model-catalog）：modelSelect 选项值为
 // 「平台 id\u0001模型 id」，测试里切模型须用与渲染相同的编码。
-let modelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
-// 档位偏好的 storage 键（写点断言用；单源在 providers.ts）。
-let THINKING_LEVEL_KEY: typeof import("../../extension/chat/providers.js").THINKING_LEVEL_KEY;
+let modelOptionValue: typeof import("../../extension/reader/chat-model-panel.js").buildModelOptionValue;
+// 档位偏好的 storage 键。
+let THINKING_LEVEL_KEY: typeof import("../../extension/reader/chat-model-panel.js").THINKING_LEVEL_KEY;
 // 全局偏好档位（chip 显示名与落盘状态的同一处读点）。
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
@@ -176,9 +176,9 @@ async function loadShell() {
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
-  const providers = await import("../../extension/chat/providers.js");
-  modelOptionValue = providers.buildModelOptionValue;
-  THINKING_LEVEL_KEY = providers.THINKING_LEVEL_KEY;
+  const modelPanelMod = await import("../../extension/reader/chat-model-panel.js");
+  modelOptionValue = modelPanelMod.buildModelOptionValue;
+  THINKING_LEVEL_KEY = modelPanelMod.THINKING_LEVEL_KEY;
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
   const uiRenderer = await import("../../extension/ui/ui-renderer.js");
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");

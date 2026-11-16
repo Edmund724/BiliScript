@@ -86,7 +86,7 @@ import type { ViewResetIntent } from "./view-intent.js";
 // 产生，分类与概览/解释两条链共用同一零依赖叶子（票 03）。
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
-import { createChatStreamRenderer, type ChatAssistantTurn, type ChatRegenerationSession, type ChatContinuationSession } from "./chat-stream-render.js";
+import { createChatStreamRenderer, type ChatAssistantTurn, type ChatInPlaceSession } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
 import { imageUnsupportedErrorHint } from "./image-support.js";
 import { createChatSpeechController, type ChatSpeechEngine } from "./chat-speech.js";
@@ -276,28 +276,23 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 「节点引用」换成「节点句柄」——状态机不再出现选择器与节点创建，节点装配形状
   // 只有渲染片一个主人。思考节点的一代际状态随句柄持有（原本文件的
   // thinkingNode / thinkingEnded 两条字段随之消失）。
-  let activeTurn: ChatAssistantTurn | null = null;
-  let activeRegeneration: {
-    originalHistory: ChatSessionMessage[];
-    userIndex: number;
-    context: AiContext | null;
-    contextKey: string;
-    contextMismatched: boolean;
-    session: ChatRegenerationSession;
-  } | null = null;
-  let activeContinuation: {
+  type BranchKind = "regenerate" | "continue-empty" | "continue-append";
+  interface ActiveBranch {
+    kind: BranchKind;
     originalHistory: ChatSessionMessage[];
     userIndex: number;
     historyIndex: number;
     initialRaw: string;
     userPrompt: string;
-    branch: "A" | "B";
     hasNewOutput: boolean;
     context: AiContext | null;
     contextKey: string;
     contextMismatched: boolean;
-    session: ChatContinuationSession;
-  } | null = null;
+    session: ChatInPlaceSession;
+  }
+
+  let activeTurn: ChatAssistantTurn | null = null;
+  let activeBranch: ActiveBranch | null = null;
   let activeUserPrompt = "";
   let activeUserNode: HTMLDivElement | null = null;
   // 本回合实际请求的平台记录 id（票 03）：配置类回合错误（缺 Key）到达时已无处
@@ -379,7 +374,35 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // ---- internal helpers ----
   function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
     deps.ui.setStreamingUiState(isStreaming, { stopping });
-    messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeRegeneration !== null || activeContinuation !== null);
+    messageArea.setRegenerationDisabled(isStreaming || turn.isActive() || activeBranch !== null);
+  }
+  function noteBranchOutput(chunk: unknown): void {
+    if (activeBranch && String(chunk ?? "").length > 0) {
+      activeBranch.hasNewOutput = true;
+    }
+  }
+  function getBranchSliceEnd(branch: ActiveBranch): number {
+    return branch.kind === "continue-append" ? branch.historyIndex : branch.userIndex + 1;
+  }
+  function buildBranchRequestHistory(branch: ActiveBranch): ChatSessionMessage[] {
+    if (branch.kind === "continue-append") {
+      return [
+        ...branch.originalHistory.slice(0, branch.userIndex),
+        branch.originalHistory[branch.userIndex],
+        { role: "assistant", content: branch.initialRaw }
+      ];
+    }
+    return branch.originalHistory.slice(0, branch.userIndex);
+  }
+  function settleActiveBranchSession(committed: boolean): void {
+    if (!activeBranch) {
+      return;
+    }
+    if (committed) {
+      activeBranch.session.commit();
+    } else {
+      activeBranch.session.restore();
+    }
   }
   function abortAllVideoFrames(): void {
     const controllers = [...pendingVideoFrames.values()];
@@ -399,16 +422,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   });
   const { scrollToBottom, setAutoScroll, messageArea } = createChatStreamRenderer({
     ...deps,
-    onRegenerate: regenerateAssistant,
+    onRegenerate: (historyIndex, node) => startBranch("regenerate", historyIndex, node),
     onContinue: (historyIndex, node) => {
       deps.onContinue?.(historyIndex, node);
-      continueAssistant(historyIndex, node);
+      startBranch("continue", historyIndex, node);
     },
     onExport: exportAssistant,
     onNotice: (message) => deps.ui.showConversationContextNotice(message, 4000),
     onSpeak: (messageId, button, text) => speech.toggle(button, text, { messageId }),
     onClear: () => speech.stop(),
-    isRegenerationDisabled: () => turn.isActive() || activeRegeneration !== null || activeContinuation !== null
+    isRegenerationDisabled: () => turn.isActive() || activeBranch !== null
   });
   // =========================================================================
   // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
@@ -468,9 +491,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     if (msg.type === "reasoning") {
       handleFirstStreamToken();
-      if (activeContinuation && String(msg.data ?? "").length > 0) {
-        activeContinuation.hasNewOutput = true;
-      }
+      noteBranchOutput(msg.data);
       // 思考节点的一代际状态（是否已有打开的节点 / 是否已收尾）随回合句柄持有
       // （./chat-stream-render.ts 的 ChatAssistantTurn）：token 收尾后仍到达的
       // reasoning 收尾事件由句柄新建节点（附着当前在途回合的节点——跨消息时
@@ -478,9 +499,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeTurn?.appendThinking(msg.data);
     } else if (msg.type === "token") {
       handleFirstStreamToken();
-      if (activeContinuation && String(msg.data ?? "").length > 0) {
-        activeContinuation.hasNewOutput = true;
-      }
+      noteBranchOutput(msg.data);
       activeTurn?.appendToken(msg.data);
     } else if (msg.type === "token-batch") {
       // 07 票合帧：与逐 token 同一 appendToken 渲染收口（首个 token 注册帧，
@@ -488,9 +507,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       handleFirstStreamToken();
       for (const token of Array.isArray(msg.data) ? msg.data : []) {
         if (typeof token === "string") {
-          if (activeContinuation && token.length > 0) {
-            activeContinuation.hasNewOutput = true;
-          }
+          noteBranchOutput(token);
           activeTurn?.appendToken(token);
         }
       }
@@ -503,8 +520,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeToolGeneration = nextGeneration;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
-      if (activeContinuation) {
-        activeContinuation.hasNewOutput = false;
+      if (activeBranch) {
+        activeBranch.hasNewOutput = false;
       }
       activeToolCalls.clear();
       activeTurn?.reset();
@@ -621,50 +638,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     };
   }
 
-  function regenerateAssistant(historyIndex: number, node: HTMLDivElement): void {
-    if (turn.isActive() || activeRegeneration || activeContinuation) {
-      return;
-    }
-    const originalHistory = [...chatSessionState.chatHistory];
-    if (originalHistory[historyIndex]?.role !== "assistant") {
-      return;
-    }
-    let userIndex = historyIndex - 1;
-    while (userIndex >= 0 && originalHistory[userIndex]?.role !== "user") {
-      userIndex -= 1;
-    }
-    const prompt = userIndex >= 0 ? originalHistory[userIndex].content.trim() : "";
-    if (!prompt) {
-      return;
-    }
-    const branchContext = resolveBranchContext(originalHistory, userIndex);
-    if (!branchContext) {
-      deps.ui.showConversationContextNotice("原消息的视频或分P上下文不可用，无法重新生成。", 4000);
-      return;
-    }
-    speech.stop();
-    const regeneration = {
-      originalHistory,
-      userIndex,
-      context: branchContext.context,
-      contextKey: branchContext.contextKey,
-      contextMismatched: branchContext.contextMismatched,
-      session: messageArea.beginRegeneration(node)
-    };
-    activeRegeneration = regeneration;
-    messageArea.setRegenerationDisabled(true);
-    void turn.send(prompt).then((verdict) => {
-      if (verdict === "accepted" || activeRegeneration !== regeneration) {
-        return;
-      }
-      regeneration.session.restore();
-      activeRegeneration = null;
-      messageArea.setRegenerationDisabled(false);
-    });
-  }
-
-  function continueAssistant(historyIndex: number, node: HTMLDivElement): void {
-    if (turn.isActive() || activeRegeneration || activeContinuation) {
+  function startBranch(action: "regenerate" | "continue", historyIndex: number, node: HTMLDivElement): void {
+    if (turn.isActive() || activeBranch) {
       return;
     }
     const originalHistory = [...chatSessionState.chatHistory];
@@ -685,39 +660,50 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     const branchContext = resolveBranchContext(originalHistory, userIndex);
     if (!branchContext) {
-      deps.ui.showConversationContextNotice("原消息的视频或分P上下文不可用，无法继续生成。", 4000);
+      deps.ui.showConversationContextNotice(
+        action === "regenerate"
+          ? "原消息的视频或分P上下文不可用，无法重新生成。"
+          : "原消息的视频或分P上下文不可用，无法继续生成。",
+        4000
+      );
       return;
     }
     speech.stop();
-    const hasBody = Boolean(targetMessage.content?.trim());
-    const branch: "A" | "B" = hasBody ? "B" : "A";
-    const initialRaw = hasBody ? targetMessage.content! : "";
-    const initialThinking = targetMessage.thinking || "";
-    const continuation = {
+    const isRegenerate = action === "regenerate";
+    const hasBody = !isRegenerate && Boolean(targetMessage.content?.trim());
+    const kind: BranchKind = isRegenerate
+      ? "regenerate"
+      : hasBody
+        ? "continue-append"
+        : "continue-empty";
+    const initialRaw = kind === "continue-append" ? targetMessage.content! : "";
+    const initialThinking = isRegenerate ? "" : (targetMessage.thinking || "");
+    const branch: ActiveBranch = {
+      kind,
       originalHistory,
       userIndex,
       historyIndex,
       initialRaw,
       userPrompt,
-      branch,
       hasNewOutput: false,
       context: branchContext.context,
       contextKey: branchContext.contextKey,
       contextMismatched: branchContext.contextMismatched,
-      session: messageArea.beginContinuation(node, {
+      session: messageArea.beginInPlaceTurn(node, {
+        mode: isRegenerate ? "replace" : "continue",
         initialRaw,
         thinking: initialThinking
       })
     };
-    activeContinuation = continuation;
+    activeBranch = branch;
     messageArea.setRegenerationDisabled(true);
-    const sendPrompt = branch === "B" ? "继续" : userPrompt;
+    const sendPrompt = kind === "continue-append" ? "继续" : userPrompt;
     void turn.send(sendPrompt).then((verdict) => {
-      if (verdict === "accepted" || activeContinuation !== continuation) {
+      if (verdict === "accepted" || activeBranch !== branch) {
         return;
       }
-      continuation.session.restore();
-      activeContinuation = null;
+      branch.session.restore();
+      activeBranch = null;
       messageArea.setRegenerationDisabled(false);
     });
   }
@@ -778,13 +764,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         return "blocked";
       }
 
-      const regeneration = activeRegeneration;
-      const continuation = activeContinuation;
-      const branchRecord = regeneration || continuation;
-      const branched = branchRecord !== null;
+      const branch = activeBranch;
+      const branched = branch !== null;
       const inputSnapshot = deps.input.value;
       const imageSnapshot = branched ? null : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? null));
-      if (branchRecord?.contextMismatched) {
+      if (branch?.contextMismatched) {
         const confirmBranchContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
           message,
           confirmText: "继续生成"
@@ -796,7 +780,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           return "blocked";
         }
       }
-      const outcome = branchRecord?.contextMismatched
+      const outcome = branch?.contextMismatched
         ? { pass: true as const }
         : await deps.ensureCurrentContextForSend();
       if (epoch !== acceptanceEpoch) {
@@ -852,14 +836,14 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         activeUserNode = null;
       }
 
-      const images = branchRecord
-        ? (branchRecord.originalHistory[branchRecord.userIndex]?.images ?? [])
+      const images = branch
+        ? (branch.originalHistory[branch.userIndex]?.images ?? [])
         : retryDraft
           ? retryDraft.images
           : imageSnapshot
             ? deps.takeInputImages?.(imageSnapshot) ?? []
             : deps.takeInputImages?.() ?? [];
-      if (!branchRecord && !retryDraft) {
+      if (!branch && !retryDraft) {
         preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
       }
 
@@ -873,7 +857,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ensureConversationId(generateConversationId());
       }
       activeConversationId = chatSessionState.currentConversationId;
-      activeTurn = continuation?.session.turn ?? regeneration?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
+      activeTurn = branch?.session.turn ?? messageArea.appendAssistantMessage({ source: "live" });
       activeToolCalls.clear();
       startStreamSlowNoticeTimer();
       if (preserveSnapshotNotice) {
@@ -918,17 +902,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // contextKey 始终携带，offscreen 据此校验单槽匹配并在缺失时报错触发重置。
       // 重新生成/继续生成固定使用原消息快照；跨页确认后也不读取当前页上下文。
       const context = {
-        ...(branchRecord?.context || chatSessionState.contextData),
+        ...(branch?.context || chatSessionState.contextData),
         aiSystemPrompt: chatSessionState.aiPrefs.aiSystemPrompt
       };
-      const contextKey = branchRecord?.contextKey || String(chatSessionState.currentContextKey || "").trim();
+      const contextKey = branch?.contextKey || String(chatSessionState.currentContextKey || "").trim();
       activeUserContextKey = contextKey;
       if (contextKey && lastAckedContextKey === contextKey) {
         delete context.subtitleBody;
       }
       const livePageKey = String(chatSessionState.liveContextKey || "").trim();
       const sameLiveVideo = !livePageKey || !contextKey || contextKey === livePageKey;
-      const videoFrameToolEnabled = !branchRecord?.contextMismatched && sameLiveVideo && await deps.canUseVideoFrameTool?.() === true;
+      const videoFrameToolEnabled = !branch?.contextMismatched && sameLiveVideo && await deps.canUseVideoFrameTool?.() === true;
       if (epoch !== acceptanceEpoch) {
         try { port.disconnect(); } catch {}
         if (activePort === port) {
@@ -960,17 +944,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         ...(images.length ? { images } : {}),
         // 历史只走顶层 history（offscreen/ai 侧统一读 msg.history）；
         // 不再向 context 里塞 chatHistory 副本（无任何读取方的死负载）。
-        history: continuation
-          ? (continuation.branch === "B"
-              ? [
-                  ...continuation.originalHistory.slice(0, continuation.userIndex),
-                  continuation.originalHistory[continuation.userIndex],
-                  { role: "assistant", content: continuation.initialRaw }
-                ]
-              : continuation.originalHistory.slice(0, continuation.userIndex))
-          : (regeneration
-              ? regeneration.originalHistory.slice(0, regeneration.userIndex)
-              : chatSessionState.chatHistory)
+        history: branch ? buildBranchRequestHistory(branch) : chatSessionState.chatHistory
       });
 
       // 闸内登记的停流请求（settled 在端口就绪前收到，见 turn.stop）：端口已就绪、
@@ -1024,8 +998,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       renderStep(streamTurn);
     }
     pendingToolMessages = [];
-    activeRegeneration = null;
-    activeContinuation = null;
+    activeBranch = null;
     activeUserPrompt = "";
     activeUserNode = null;
     activeUserImages = [];
@@ -1044,16 +1017,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function getActiveAssistantHistoryIndex(): number {
-    if (activeContinuation) {
-      const baseIndex = activeContinuation.branch === "A"
-        ? activeContinuation.userIndex + 1
-        : activeContinuation.historyIndex;
-      return baseIndex + pendingToolMessages.length;
-    }
-    if (activeRegeneration) {
-      return activeRegeneration.userIndex + 1 + pendingToolMessages.length;
-    }
-    return chatSessionState.chatHistory.length + 1 + pendingToolMessages.length;
+    const baseIndex = activeBranch
+      ? getBranchSliceEnd(activeBranch)
+      : chatSessionState.chatHistory.length + 1;
+    return baseIndex + pendingToolMessages.length;
   }
 
   function commitAssistantTurn(
@@ -1076,36 +1043,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       assistantMsg.stopped = true;
     }
 
-    if (activeRegeneration) {
+    if (activeBranch) {
       if (!deps.store.isCurrent(activeConversationId)) {
         pendingToolMessages = [];
         return false;
       }
-      if (isStopped && !hasContent && !hasThinking) {
+      if (isStopped && (!activeBranch.hasNewOutput || (!hasContent && !hasThinking))) {
         pendingToolMessages = [];
         return false;
       }
-      const history = activeRegeneration.originalHistory.slice(0, activeRegeneration.userIndex + 1);
-      history.push(...pendingToolMessages, assistantMsg);
-      applyConversationIdentity({ history });
-      void deps.store.persistCurrent();
-      pendingToolMessages = [];
-      return true;
-    }
-
-    if (activeContinuation) {
-      if (!deps.store.isCurrent(activeConversationId)) {
-        pendingToolMessages = [];
-        return false;
-      }
-      if (isStopped && (!activeContinuation.hasNewOutput || (!hasContent && !hasThinking))) {
-        pendingToolMessages = [];
-        return false;
-      }
-      const sliceEnd = activeContinuation.branch === "A"
-        ? activeContinuation.userIndex + 1
-        : activeContinuation.historyIndex;
-      const history = activeContinuation.originalHistory.slice(0, sliceEnd);
+      const history = activeBranch.originalHistory.slice(0, getBranchSliceEnd(activeBranch));
       history.push(...pendingToolMessages, assistantMsg);
       applyConversationIdentity({ history });
       void deps.store.persistCurrent();
@@ -1136,26 +1083,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     endStream(streamTurn, (turn) => {
       const raw = turn.finish({
-        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
+        userPrompt: activeBranch?.userPrompt || activeUserPrompt,
         historyIndex: getActiveAssistantHistoryIndex()
       });
       const thinking = turn.getThinking?.();
       appendTruncatedBadge(turn);
       const committed = commitAssistantTurn(raw, { thinking });
-      if (activeRegeneration) {
-        if (committed) {
-          activeRegeneration.session.commit();
-        } else {
-          activeRegeneration.session.restore();
-        }
-      }
-      if (activeContinuation) {
-        if (committed) {
-          activeContinuation.session.commit();
-        } else {
-          activeContinuation.session.restore();
-        }
-      }
+      settleActiveBranchSession(committed);
     });
   }
 
@@ -1174,7 +1108,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     if (!streamTurn) {
       return;
     }
-    const isNewTurn = !activeRegeneration && !activeContinuation && (Boolean(activeUserPrompt) || activeUserImages.length > 0);
+    const isNewTurn = !activeBranch && (Boolean(activeUserPrompt) || activeUserImages.length > 0);
     const failedPrompt = activeUserPrompt;
     const failedImages = activeUserImages.map((img) => ({ ...img }));
     const failedUserNode = activeUserNode;
@@ -1202,11 +1136,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
           isSetupError
         });
       }
-      if (activeRegeneration) {
-        deps.ui.showConversationContextNotice(`重新生成失败：${message}`, 4000);
-      }
-      if (activeContinuation) {
-        deps.ui.showConversationContextNotice(`继续生成失败：${message}`, 4000);
+      if (activeBranch) {
+        const prefix = activeBranch.kind === "regenerate" ? "重新生成失败" : "继续生成失败";
+        deps.ui.showConversationContextNotice(`${prefix}：${message}`, 4000);
       }
     });
   }
@@ -1217,25 +1149,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     endStream(streamTurn, (turn) => {
       const { raw } = turn.stop(reason, {
-        userPrompt: activeContinuation?.userPrompt || activeUserPrompt,
+        userPrompt: activeBranch?.userPrompt || activeUserPrompt,
         historyIndex: getActiveAssistantHistoryIndex()
       });
       const thinking = turn.getThinking?.();
       const committed = commitAssistantTurn(raw, { thinking, stopped: true });
-      if (activeRegeneration) {
-        if (committed) {
-          activeRegeneration.session.commit();
-        } else {
-          activeRegeneration.session.restore();
-        }
-      }
-      if (activeContinuation) {
-        if (committed) {
-          activeContinuation.session.commit();
-        } else {
-          activeContinuation.session.restore();
-        }
-      }
+      settleActiveBranchSession(committed);
     });
   }
 
@@ -1374,10 +1293,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
     // activeTurn 为 null 时没有在途回合，无帧可撤。
     activeTurn?.discard();
-    activeRegeneration?.session.restore();
-    activeRegeneration = null;
-    activeContinuation?.session.restore();
-    activeContinuation = null;
+    activeBranch?.session.restore();
+    activeBranch = null;
     pendingToolMessages = [];
     clearStreamRuntimeState();
     if (activePort) {
