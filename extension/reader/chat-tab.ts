@@ -71,7 +71,6 @@ import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
-import type { LiveFailureKind } from "../live/live-session-tracker.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -264,11 +263,6 @@ function requireShell(): void {
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 
-type ExtendedLiveController = ReturnType<typeof getLiveController> & {
-  getLastError?: () => string | undefined;
-  getLastFailureKind?: () => LiveFailureKind | undefined;
-};
-
 function openChatSettings(target?: "asr" | "appearance"): void {
   chatRuntime.stopSpeech();
   popovers.hideHistoryPopover({ focus: "none" });
@@ -280,8 +274,8 @@ const liveStatus = createChatLiveStatus({
   root: els.liveStatus,
   getState: () => getLiveController()?.getState() ?? "idle",
   isReconnecting: () => getLiveController()?.isReconnecting?.() ?? false,
-  getLastError: () => (getLiveController() as ExtendedLiveController | null)?.getLastError?.(),
-  getLastFailureKind: () => (getLiveController() as ExtendedLiveController | null)?.getLastFailureKind?.(),
+  getLastError: () => getLiveController()?.getLastError(),
+  getLastFailureKind: () => getLiveController()?.getLastFailureKind(),
   getTimestampNavDeps,
   getTextToolRecords: () => getLiveController()?.getTextToolRecords?.() ?? [],
   subscribeTextToolRecords: (listener) => getLiveController()?.subscribeTextToolRecords?.(listener) ?? (() => {}),

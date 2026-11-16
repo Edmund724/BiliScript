@@ -243,3 +243,88 @@
 
 - 用户影响：金句卡整卡为原生 `<button type="button">`，内部嵌套两个 `<span role="button" tabindex="0">` 子操作按钮（分享与复制），属于交互元素嵌套交互元素；读屏聚焦整卡时会合并朗读正文与子操作语义，结构耦合。
 - 代码证据：`extension/reader/overview-ui.ts:356-375` 的 `quoteCardHtml` 使用外层 `<button type="button" class="biliscript-reading-ov-quote" ...>` 直接包裹 `.biliscript-reading-ov-quote-share` 与 `.biliscript-reading-ov-quote-copy` 两个 `role="button"` 节点。
+
+---
+
+## M5 深度复审
+
+范围：收录 M5 深度复审产出的 P2（10 项）/ P3（5 项）中低优先级问题（P0/P1 已修复）；以下只记录问题、用户影响与代码证据，不包含解决方案。
+
+### P2
+
+#### M5-P2-01｜工具时间线卡｜单回合混用多类工具共用单卡互相覆写标题与折叠态，且热评/当前帧工具无状态投影
+
+- 用户影响：同一助手回合先后调用联网搜索与历史视频帧工具时，所有步骤被挤进同一张时间线卡，后到事件直接覆写卡片标题与头部副文案，并互相沿用或冲突折叠态；同时模型调用当前帧截图或拉取热门评论工具时界面没有任何进行中或终态卡片投影，用户感知不到工具调用过程。
+- 代码证据：`extension/chat/chat-stream-render.ts:767,865,912-935,1076-1130` 的 `searchCardStates` 按 `assistantNode` 仅保存单个 `SearchCardState`，`createSearchCard` 仅按首条事件 `isVideoFrameStatus(msg)` 决定默认展开/折叠，`applySearchStatusToNode`（`1085-1092,1125-1126`）按最新事件覆写同一张卡的 `.chat-search-card-label`、`queryEl.textContent` 与状态；`extension/ai/tool-loop.ts:28-64,319-424` 仅在 `isHistoricalFrame` 分支（`334,361,391`）和搜索分支（`427,441,458`）上报 `onToolStatus`，`CAPTURE_CURRENT_VIDEO_FRAME_TOOL_NAME` 与 `FETCH_HOT_COMMENTS_TOOL_NAME`（`407-424`）均未触发 `onToolStatus`。
+
+#### M5-P2-02｜消息持久化｜max_tokens 截断状态未落库，重开面板或切回历史会话后丢失截断徽标与「继续生成」入口
+
+- 用户影响：助手回答因 `max_tokens` 截断时，当轮虽会展示截断提示徽标和「继续生成」按钮，但该状态仅存在于当轮内存中；重开文摘面板或切走再切回该历史会话后，截断徽标与「继续生成」入口均会消失，无法从断开处继续生成。
+- 代码证据：`extension/chat/chat-runtime.ts:321,536-537,1059-1077,1143-1144,1162-1167` 仅将 `notice(code: "truncated")` 文案保存在闭包变量 `turnTruncatedNotice`，在 `finalizeAssistant` 调用 `appendTruncatedBadge(turn)` / `turn.markTruncated(...)` 渲染实时 DOM，而 `commitAssistantTurn` 只向 `ChatSessionMessage` 写入 `thinking` 与 `stopped`；`extension/chat/chat-state.ts:77-88` 的 `ChatSessionMessage` 与 `extension/chat/conversation-store.ts:94-116` 的 `normalizeHistoryMessage` 未定义或保留截断字段；`extension/chat/replay.ts:137-148` 与 `extension/chat/chat-stream-render.ts:1677-1683` 在回放阶段未调用 `markTruncated`。
+
+#### M5-P2-03｜对话通知流｜消息区内流通知条通过 messages.prepend 插入弹性流，短对话或顶部阅读时引发布局跳动
+
+- 用户影响：系统在消息区顶部注入或撤除 `chat-context-notice`（如切换上下文、模型图片支持提示、正在加载上下文等）时，会直接插拔弹性列首子节点并挤压或拉回下方内容，导致空态居中欢迎区或阅读顶部消息时出现明显布局跳动。
+- 代码证据：`extension/reader/chat-notices.ts:162` 对非输入区通知直接执行 `(isInputSlot && inputCard ? inputCard : messages).prepend(notice)`；`extension/entry/styles/reader-chat.css:407-421,1415-1430` 中 `.chat-messages` 为纵向 `flex` 滚动容器（`gap: 10px`），而 `.chat-context-notice` 采用 `position: sticky; top: 10px;` 在文档流内占位。
+
+#### M5-P2-04｜对话视觉层级｜轮次间距小于段距、工具卡片白玻璃海拔过高喧宾夺主，且操作栏常驻占高与图标视感尺寸参差
+
+- 用户影响：消息轮次之间的垂直间距（`10px`）小于助手正文默认段距（`12px`），削弱了问答轮次边界感；工具时间线卡与输入卡共用白玻璃凸起阴影，在对话流中视觉层级过重；每条消息底部的操作栏常驻显露占用垂直空间，且各按钮 SVG 尺寸（`14px`–`20px`）与描边/填充风格不统一。
+- 代码证据：`extension/entry/styles/reader-chat.css:407-415` 设定 `.chat-messages { gap: 10px }`，而 `920-923` 设定 `.chat-msg-assistant p` 默认 `margin-bottom: var(--biliscript-chat-paragraph-spacing, 12px)`；`798-808` 的 `.chat-msg-actions` 常驻展示；`848-883` 中 `.chat-msg-action-btn svg` 基础为 `18px`，但复制 `20px`、朗读/导出 `19px`、重生成 `15px`、继续 `14px`（实心填充）；`2777-2785` 与 `extension/entry/styles/reader-gate.css:986-992` 为 `.chat-search-card` 赋予 `background: var(--biliscript-reader-card)` 与 `box-shadow: var(--biliscript-reader-card-highlight)`。
+
+#### M5-P2-05｜建议词与等待闸｜建议词预热完成原地硬切易致误触与失焦，ASR 等待期上下双提示重复且可编辑快照语义隐晦
+
+- 用户影响：视频刚打开时用户正准备点击或刚聚焦在默认 3 条建议词上，后台预热完成触发重渲后会原地无过渡整块替换成视频专属问题，容易导致误点或焦点丢失；无字幕语音转写等待发送期间，消息区顶部转写条与输入卡上方等待卡同时出现重复提示；等待期虽允许继续编辑输入框，但直到放行瞬间才以 4 秒通知条事后告知「已发送原文，保留了后来修改的草稿与图片」，等待前缺少明确预期。
+- 代码证据：`extension/reader/quick-prompts.ts:126-129` 写缓存后，经 `extension/reader/chat-lists.ts:90-108` 的 `renderSuggestions` 与 `extension/reader/chat-suggestions-slot.ts:70-92` 通过 `target.innerHTML = ...` 整体替换 `.chat-chip` DOM；`extension/chat/send-gate.ts:46-47,116-135` 与 `extension/reader/chat-template.ts:51,78-82` 在 ASR 等待期同时渲染 `#biliscript-reading-chat-asr-notice`（`ASR_WAITING_NOTICE`）与 `.chat-subtitle-wait`；`extension/chat/chat-runtime.ts:785-786,845-850,879-881` 在闸前快照 `inputSnapshot`/`imageSnapshot`，放行后仅当草稿变化时弹出 4 秒 `preserveSnapshotNotice`。
+
+#### M5-P2-06｜弹层键盘漫游｜模型面板与 ⋮ 菜单缺少焦点圈禁及 Roving Tabindex，历史列表缺少方向键漫游
+
+- 用户影响：纯键盘用户打开模型选择面板后，`Tab` 键会直接穿过面板落回宿主页面；`⋮` 更多操作菜单打开后仅聚焦首项，缺少焦点圈禁与 `ArrowUp`/`ArrowDown` 漫游；历史列表条目内包含「打开」和「删除」两个独立 Tab 停靠点且不支持方向键快速切换条目，长列表键盘操作成本较高。
+- 代码证据：`extension/reader/chat-model-panel.ts:253-283,366-378` 仅对 `.chat-model-option` 绑定方向键，未在整个 `#biliscript-reading-chat-model-panel` 建立 `createFocusScope` 或跨选项/滑轨/重置键的 Roving Tabindex；`extension/reader/chat-lists.ts:308-344,416-430` 渲染 `.chat-history-open` 与 `.chat-history-remove` 且未监听 `ArrowUp`/`ArrowDown`/`Home`/`End`；`extension/reader/chat-popovers.ts:92-96` 与 `extension/ui/ui-renderer.ts:129-189` 的 `.biliscript-reading-chat-more-menu` 仅在打开时聚焦首个控件，未绑定焦点圈禁与方向键导航。
+
+#### M5-P2-07｜模型与多模态线索｜思考强度滑块默认 Default 态隐藏圆钮且缺刻度标签，输入区缺少贴图/拖图提示且截断模型名缺 title
+
+- 用户影响：模型芯片上的较长模型名被省略号截断后，鼠标悬停没有 `title` 提示可查看完整名称；思考强度处于 `Default` 态时滑轨上的白色圆钮被强制隐藏且下方无档位文字刻度，用户不容易察觉滑轨可点击或当前所在档位区间；输入区及占位提示未告知支持粘贴或拖放图片，多模态能力发现成本较高。
+- 代码证据：`extension/reader/chat-model-panel.ts:164-172` 与 `extension/entry/styles/reader-chat.css:2148-2156` 对 `.chat-model-chip-model` 设 `text-overflow: ellipsis` 但未同步写入 `chipModel.title`；`extension/reader/chat-model-panel.ts:352-378,403-426` 与 `extension/entry/styles/reader-chat.css:314-331` 在 `Default` 态（`activeIndex < 0`）置 `thumb.hidden = true`（`display: none !important`），且 `.chat-thinking-tick` 内的 `.chat-thinking-btn-label` 带 `hidden` 属性；`extension/reader/chat-template.ts:85-94` 的 `#biliscript-reading-chat-input` `placeholder` 仅提示「回车发送，Shift+Enter 换行」。
+
+#### M5-P2-08｜历史记录视图｜历史弹层左右内缩不对称、标题与时间字号无梯度，且删除/清空悬停未对齐危险语义色
+
+- 用户影响：历史记录整页弹层在面板内部左右负外边距不对称，条目标题与时间戳/摘要信息采用同一字号缺乏主次层级，且「清空全部」与单条「删除」按钮悬停时使用强调蓝而非危险红语义色，削弱了破坏性操作的警示反馈。
+- 代码证据：`extension/entry/styles/reader-chat.css:2328-2337` 将 `.chat-history-popover` 设为 `inset: -10px -28px -14px -14px`（相对 `2354-2361` 头部 `padding: 0 12px 8px`、 `2533-2538` 条目 `padding-right: 12px` 与 `2566-2568` `padding: 8px 0 8px 12px` 左右不对称）；`2584-2615` 中 `.chat-history-title` 与 `.chat-history-meta` 同为 `font-size: var(--biliscript-font-size-base)`；`2518-2521` 的 `.chat-history-clear-btn:hover` 与 `2642-2645` 的 `.chat-history-remove:hover` 均使用 `color: var(--biliscript-reader-accent)` 与 `background: var(--biliscript-reader-accent-soft)`。
+
+#### M5-P2-09｜实时伴看浮窗｜浮窗缺少「AI 说话中 / 后台文本分析中」反馈与语音打断入口，顶栏 24×24px 最小化与挂断钮紧邻 4px 易误触
+
+- 用户影响：伴看连接后，浮窗仅能体现用户麦克风 VAD 说话态，不显示「AI 正在播报」或「后台文本模型正在分析」状态，也没有手动打断 AI 语音播报的按钮（即便控制器已提供 `interrupt()`）；顶栏最小化与关闭伴看按钮均只有 `24×24px` 且间距仅 `4px`，全屏或播放器边缘操作时极易误点挂断伴看。
+- 代码证据：`extension/live/live-chat-controller.ts:133,149,435-436,1263-1272` 已提供 `isSpeaking()`、`interrupt()` 与 `subscribeTextToolRecords()`，但 `extension/live/live-overlay-binding.ts:92-104,283-329` 的 `BoundLiveControllerCallbacks` 未透传 `onSpeakingChange` 亦未订阅文本分析记录；`extension/live/fullscreen-live-overlay.ts:308-369,875-892,936-953` 与 `extension/live/live-transcript-merger.ts:342-362` 无 AI 播报/文本分析指示与打断控件；`extension/live/fullscreen-live-overlay.ts:358-368` 与 `extension/entry/styles/player-ai.css:819-840,1289-1292` 中 `.live-overlay-min-btn` 与 `.live-overlay-close-btn` 在 `.live-overlay-header-actions`（`gap: 4px`）内最小尺寸为 `24px × 24px`。
+
+#### M5-P2-10｜伴看宿主与直播间弹窗｜浮窗与直播间 dialog 键盘事件向播放器冒泡误触快进/调音，且直播间设置缺全屏迁移、跨页 Gemini Key 监听与 overlayBinding.dispose()
+
+- 用户影响：焦点位于播放器伴看浮窗或直播间按需伴看设置弹窗内时，按空格、方向键等按键事件会继续向 B 站播放器冒泡，误触视频暂停、快进或调音；在直播间切换网页全屏/浏览器全屏时设置弹窗不会自动迁移至新全屏宿主，跨标签页修改官方 AI 平台 Gemini Key 时直播间伴看与弹窗不会即时刷新凭据状态，且停用直播间伴看模块时未释放浮窗绑定。
+- 代码证据：`extension/live/fullscreen-live-overlay.ts:458-605` 未对浮窗根节点或迷你胶囊拦截 `keydown` 冒泡；`extension/live/live-room-settings.ts:102,152-161,187-194` 仅在创建时挂载 `<dialog>` 未监听 `fullscreenchange`，`watchStorageKeys`（`152-161`）只监听 `liveProviders`/`activeLiveProviderId`/`liveProviderKeys` 而漏掉 `providers`/`aiProviderKeys`，且未阻断 `keydown` 冒泡；`extension/live/live-room-entry.ts:198-206,224-243` 的 `watchStorageKeys` 同缺 `providers`/`aiProviderKeys`，且 `stopLiveRoomCompanion` 未调用 `overlayBinding.dispose()`。
+
+### P3
+
+#### M5-P3-01｜流式与工具微交互｜思考流期间底部悬空残留三点光标，进行中图标与状态文字缺少呼吸脉冲及 sr-only 播报
+
+- 用户影响：模型尚在思考阶段、正文尚未输出时，三点脉冲光标已悬空显示在思考盒下方底部；思考图标与联网搜索/截帧进行中状态缺少温和的呼吸脉冲反馈，且工具进入进行中态时屏幕阅读器无法收到即时提示。
+- 代码证据：`extension/chat/chat-stream-render.ts:238-245,283-286,364-376,1495-1499` 在建消息壳时即追加 `.chat-msg-cursor`，而 `createThinkingNode` 将 `.chat-thinking` `prepend` 到节点顶部；`extension/entry/styles/reader-chat.css:654-664,1332-1356,2859-2865,2894-2899` 未给 `.chat-thinking-icon`、`.chat-search-card-status` 与 `.chat-search-step.is-running .chat-search-step-bullet` 定义脉冲动画；`extension/chat/chat-stream-render.ts:886-890,1100` 在 `status === "searching"` 时将 `announcerEl.textContent` 置空，且 `.chat-thinking` 无 `sr-only` 状态播报。
+
+#### M5-P3-02｜搜索来源与引用｜来源行与上标引用受测试契约锁定未用原生 a 链接（不支持中键后台打开/复制链接），悬停预览卡超长无空格标题缺断词且 pointer-events: none 移入即消失
+
+- 用户影响：用户无法对联网搜索来源行或正文 `[n]` 上标引用使用鼠标中键后台打开、右键复制链接地址或悬停查看浏览器原生链接预览；当来源标题包含超长无空格 URL/标识符时预览卡可能横向溢出，且因预览卡禁用指针事件，鼠标无法移入卡内选中文本或保持常亮阅读。
+- 代码证据：`extension/chat/chat-stream-render.ts:1020-1039,1257-1275` 使用 `<button type="button" class="chat-search-source-row">` 与 `<sup class="chat-cite" role="button" tabindex="0">`，由 `tests/chat/chat-search-ui.test.ts:461-485` 断言 `tagName === "BUTTON"` 与 `role === "button"` 锁定契约；`extension/entry/styles/reader-chat.css:3056-3078` 为 `.chat-search-preview` 设置 `pointer-events: none`，且 `.chat-search-preview-title` 未设置 `overflow-wrap: anywhere` / `word-break: break-word`。
+
+#### M5-P3-03｜语音朗读细节｜朗读中途调音量对当前分片不实时生效，且已渲染 Mermaid 图表被播报为「代码块，已跳过」
+
+- 用户影响：在朗读较长回答过程中拖动 `⋮` 菜单内的「对话朗读音量」滑块时，当前正在播报的片段音量不会立即变化，要到下一分段才会生效；回答中包含已水合渲染的 Mermaid 图表时，朗读会将其隐匿源码 `<pre>` 播报为「代码块，已跳过。」。
+- 代码证据：`extension/chat/chat-speech.ts:361-370` 仅在每次调用 `speakChunk` 启动 `engine.speak` 时读取一次 `deps.getVolume?.()`，控制器未提供在播期间实时更新音量的方法，且 `extension/reader/chat-tab.ts:582,1115-1129` 的 `speechVolumeSlider` 仅更新设置状态；`extension/chat/chat-speech.ts:188-194` 将所有 `<pre>` 节点替换为「代码块，已跳过。」并移除 `svg`，而 `extension/ui/markdown.ts:256-263` 将 Mermaid 源码留在 `.biliscript-md-mermaid > pre.biliscript-md-mermaid-src` 中。
+
+#### M5-P3-04｜菜单与意图卡排版｜⋮ 菜单保留重复次级标签、缺分区线与矮视口内滚兜底，待解释引用卡超长引文未限高，联网授权框默认聚焦拒绝键且非视频页空输入仍显伴看图标
+
+- 用户影响：`⋮` 更多菜单内同时展示三项排朗滑块与「更多显示设置」且各区之间缺少分隔线，在极矮浏览器窗口下菜单无内滚兜底；引用字幕句子追问时若选区文本很长，待解释引用卡会撑占大片可视区；首次开启联网搜索弹出的确认框默认焦点落在「关闭联网搜索」拒绝按钮上；在非视频页上下文空输入框下仍展示「开启实时伴看」麦克风图标。
+- 代码证据：`extension/ui/ui-renderer.ts:129-189` 与 `extension/entry/styles/reader-chat.css:3217-3313` 中 `.biliscript-reading-chat-more-menu` 未设置区隔线及 `max-height`/`overflow-y: auto`；`extension/entry/styles/reader.css:1609-1615` 的 `.biliscript-reading-chat-intent-quote` 未限制 `max-height` 与滚动；`extension/search/opt-in-notice.ts:91-99` 复用 `extension/ui/confirm-dialog.ts:178-186` 将 `initialFocus` 设为 `cancel ?? dialog`；`extension/reader/chat-tab-composer.ts:113-119` 与 `extension/reader/chat-tab.ts:430-432` 未排除非视频页上下文即向空输入主按钮添加 `.is-live`。
+
+#### M5-P3-05｜实时伴看微细节｜工具记录进行中双文案冗余、浮窗提示缺断词、换片胶囊文案被音轨回调提前冲掉、直播间通知缺 role="status"
+
+- 用户影响：伴看委托文本模型分析进行中，状态栏记录会同时出现「正在生成…」与「文本模型正在整理结果」两句相似提示；浮窗内含长链接或超长标题的通知条缺少断词约束；视频切 P 或换片后，迷你胶囊原本展示 4 秒的换片提示文案可能被随后到达的音轨状态回调提前覆盖为「正在伴看」；直播间控制栏浮出提示未带无障碍状态角色，读屏无法自动播报。
+- 代码证据：`extension/reader/chat-live-text-records.ts:25-28,44-46,62,67` 在 `status === "running"` 且无 `summary` 时同时输出 `statusLabel`（「正在生成…」）与兜底摘要（「文本模型正在整理结果」）；`extension/entry/styles/player-ai.css:1170-1175` 的 `.live-overlay-interpret-notice` 缺少 `overflow-wrap: anywhere` / `word-break: break-word`；`extension/live/fullscreen-live-overlay.ts:862-873,979-984` 与 `extension/live/live-overlay-binding.ts:324-327` 中 `showVideoContextSwitch` 写入的 `miniCapsuleStatusTextEl.textContent` 会在定时恢复前被 `onVideoAudioStatusChange` 触发的 `overlay?.syncState()` 覆写；`extension/live/live-room-entry.ts:83-92` 的 `showNotice` 未为 `.biliscript-live-room-notice` 设置 `role="status"` 或 `aria-live`。

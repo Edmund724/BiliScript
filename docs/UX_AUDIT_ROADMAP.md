@@ -1,6 +1,6 @@
 # BiliScript 信息架构与用户流程全景（UX Audit Roadmap）
 
-本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 / M3 / M4 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）及已落地的核心产品裁定。
+本文档记录 BiliScript 当前的全局信息架构（IA）、五大核心用户流程、UX 走查收官状态（Session 1–4 已完成，M2 / M3 / M4 / M5 深度复审 P0/P1 已修复、P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）及已落地的核心产品裁定。
 
 ---
 
@@ -92,6 +92,7 @@ flowchart TD
 * **会话管理与偏好同源**：标签行右侧保留 `⋮` 菜单收纳「开启新会话」「历史对话」「对话行高 / 段落间距 / 对话朗读音量」及「更多显示设置」深链；新建会话对草稿、图片与在途回合做合并确认；[`chat-popovers.ts`](../extension/reader/chat-popovers.ts) 将历史对话作为 `hidden` 单源驱动的内容模式（定位当前项、流式切换等待 `settleTurn()` 落定、单条删除 6 秒撤销）；7 项排版与音频偏好在设置抽屉与场景面板/浮窗间同源持久化、重置与同步。
 * **输入、模型与工具闭环**：[`send-gate.ts`](../extension/chat/send-gate.ts) 在字幕/转写等待期展示输入卡上方可取消等待卡，并按快照保护等待期间新输入的草稿与图片；[`chat-model-panel.ts`](../extension/reader/chat-model-panel.ts) 切模型后保持面板打开并同屏刷新思考强度与 clamp 说明；[`opt-in-notice.ts`](../extension/search/opt-in-notice.ts) 在确认框拒绝后关闭 `webSearchEnabled` 并无搜索继续，视图销毁走 `view-destroyed` 中止本回合；[`chat-stream-render.ts`](../extension/chat/chat-stream-render.ts) 为联网搜索与历史视频帧（[`tool-loop.ts`](../extension/ai/tool-loop.ts) `capture_video_frame_at_time`）提供进行中与统一终态，停止态支持复制/朗读/导出，截断支持继续生成，重新生成校验原视频上下文。
 * **独立伴看生命周期**：视频页由 [`live-companion-session.ts`](../extension/live/live-companion-session.ts) 持有伴看会话，关闭文摘面板仅终止文本流与发送闸、保留伴看连接与浮窗；AI 对话内置稳定状态条 `#biliscript-reading-chat-live-status`（[`chat-live-status.ts`](../extension/reader/chat-live-status.ts)）与独立只读「伴看记录」历史；播放器伴看浮窗（[`fullscreen-live-overlay.ts`](../extension/live/fullscreen-live-overlay.ts)）内聚连接卡、常驻错误卡、左右边缘吸附与全屏迁移；直播间（[`live-room-entry.ts`](../extension/live/live-room-entry.ts)）通过 [`live-room-settings.ts`](../extension/live/live-room-settings.ts) 提供按需 `<dialog>` 伴看设置闭环。
+* **M5 深度复审（P0/P1 已修复并验证，P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)）**：补齐 AI 对话流式可靠性、继续生成与图片附件/预览交互（[`chat-runtime.ts`](../extension/chat/chat-runtime.ts)、[`chat-stream-render.ts`](../extension/chat/chat-stream-render.ts)、[`chat-image-viewer.ts`](../extension/chat/chat-image-viewer.ts)、[`chat-input-images.ts`](../extension/chat/chat-input-images.ts)），完善滚动跟随双阈值迟滞与物理手势放闸（[`chat-scroll-follow.ts`](../extension/reader/chat-scroll-follow.ts)）、通知条/历史列表/弹层与引用卡取消后的焦点归还（[`chat-notices.ts`](../extension/reader/chat-notices.ts)、[`chat-lists.ts`](../extension/reader/chat-lists.ts)、[`chat-popovers.ts`](../extension/reader/chat-popovers.ts)、[`explain-intent-consumption.ts`](../extension/reader/explain-intent-consumption.ts)）、对话伴看状态与文本记录同步（[`chat-live-status.ts`](../extension/reader/chat-live-status.ts)、[`chat-live-text-records.ts`](../extension/reader/chat-live-text-records.ts)、[`chat-tab.ts`](../extension/reader/chat-tab.ts)）及朗读/Markdown 围栏/时间戳导航细节（[`chat-speech.ts`](../extension/chat/chat-speech.ts)、[`markdown.ts`](../extension/ui/markdown.ts)、[`timestamp-nav.ts`](../extension/ui/timestamp-nav.ts)）；双端实时伴看修复全屏宿主迁移、音频弹层定位裁切、错误恢复、快捷入口与直播间按需设置交互（[`fullscreen.ts`](../extension/bilibili/fullscreen.ts)、[`audio-popover.ts`](../extension/live/audio-popover.ts)、[`fullscreen-live-overlay.ts`](../extension/live/fullscreen-live-overlay.ts)、[`live-chat-controller.ts`](../extension/live/live-chat-controller.ts)、[`live-companion-session.ts`](../extension/live/live-companion-session.ts)、[`live-overlay-binding.ts`](../extension/live/live-overlay-binding.ts)、[`player-ai.ts`](../extension/ai/player-ai.ts)、[`live-room-entry.ts`](../extension/live/live-room-entry.ts)、[`live-room-settings.ts`](../extension/live/live-room-settings.ts)）；遗留 P2（10 项）/ P3（5 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)。
 
 ---
 
@@ -108,6 +109,7 @@ flowchart TD
 | **P0/P1** | **M2 深度复审**：首配冷启动、编辑器隔离与四族交互细节 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 对话模型选择器空态闭环与 `models: []` 导回编辑、首配空模型行校验、内联子视图/弹窗 `inert` 隔离与 Flyme 实底防透字、异步并发与防重入锁、错误语义色 `--biliscript-reader-danger` 与 `:user-valid` 作用域收窄、行内删除/单选/排序防吞错与搜索激活 ID 清理、动态跨族凭据引用、AI 设为默认与对话文案一致、搜索拖拽键盘排序、ASR 一次闭环、跨族恢复提示内置 Modal 与焦点不回抢已落地并通过构建验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
 | **P0/P1** | **M3 深度复审**：字幕精读、选区解释浮层/卡片与去对话追问闭环 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 指针按下选区消费防折叠误跳播、解释卡开启暂停自动跟滚、视频/分 P 切换重置解释卡与待处理/续跑意图、解释卡 `Tab` 焦点圈禁与关闭归还焦点及重渲不抢焦点、解释气泡底边翻转/尺寸校准重测/`Esc`/跨句与时间戳及非就绪副行过滤/双语已就绪全句上下文、长引文限高滚动与加载骨架、配置错仅留「去设置」与错误按钮间距、去对话保留已有解释上下文与草稿保护及 `:focus-visible` 焦点环已落地并通过验证；P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md) |
 | **P0/P1** | **M4 深度复审**：AI 概览生成、金句卡片交互与海报分享弹窗 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 修复 `no-model` 误接与配置错误条无效重试、`QuoteShareModal` 焦点闭环/`inert`/跨会话定时器与视图 `reset` 清理、小视口弹窗自适应、划词防误跳播、金句内嵌操作键盘可达性及状态条 live region 语义；4 项 P2 与 2 项 P3 归入 Backlog |
+| **P0/P1** | **M5 深度复审**：AI 对话交互闭环、流式/多媒体反馈与双端实时伴看细节 | ✅ P0/P1 已修复（P2/P3 已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)） | 对话流可靠性与继续生成/图片附件、滚动跟随与弹层/引用卡焦点闭环、伴看状态条与文本分析记录、全屏伴看浮窗/音频弹层/播放器入口与直播间按需设置 P0/P1 修复已落地；10 项 P2 与 5 项 P3 归入 Backlog |
 
 ### 3.2 已落地的核心产品决策
 
@@ -129,3 +131,5 @@ M2 深度复审产出的 P2（8 项）/ P3（4 项）已归入 [UX_AUDIT_BACKLOG
 M3 深度复审产出的 P2（7 项）/ P3（1 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
 
 M4 深度复审产出的 P2（4 项）/ P3（2 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。
+
+M5 深度复审产出的 P2（10 项）/ P3（5 项）已归入 [UX_AUDIT_BACKLOG.md](UX_AUDIT_BACKLOG.md)，作后续按需参考，不列入当前实施排期。

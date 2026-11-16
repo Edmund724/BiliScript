@@ -61,6 +61,7 @@ export function createExplainIntentConsumption({
   function cancel(): void {
     clearPendingExplainIntent();
     hide();
+    onFocusInput?.();
   }
 
   function buildFollowUpPrompt(question: string): string {

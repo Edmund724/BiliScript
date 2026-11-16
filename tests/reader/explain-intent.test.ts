@@ -5,14 +5,16 @@
 // 覆盖 set/peek（只读副本）/consume（取走即清）/clear 单槽语义与 selection 归一化。
 // 选区浮层与卡片交互的回归在 tests/reader/explain-card.test.ts。
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 let explainIntent: typeof import("../../extension/reader/explain-intent.js");
+let explainConsumption: typeof import("../../extension/reader/explain-intent-consumption.js");
 
 beforeEach(async () => {
   resetModuleState();
   explainIntent = await import("../../extension/reader/explain-intent.js");
+  explainConsumption = await import("../../extension/reader/explain-intent-consumption.js");
 });
 
 describe("待解释意图契约（reader/explain-intent）", () => {
@@ -88,5 +90,41 @@ describe("待解释意图契约（reader/explain-intent）", () => {
       createdAt: 200
     });
     expect(explainIntent.peekPendingExplainIntent()).not.toHaveProperty("explanation");
+  });
+
+  it("cancel：清空待解释意图、隐藏引用卡并归还焦点到输入框", async () => {
+    const card = document.createElement("div");
+    card.innerHTML = `
+      <span class="biliscript-reading-chat-intent-title"></span>
+      <blockquote class="biliscript-reading-chat-intent-quote"></blockquote>
+      <span class="biliscript-reading-chat-intent-time"></span>
+      <button type="button" data-chat-intent-action="send"></button>
+      <button type="button" data-chat-intent-action="cancel"></button>
+    `;
+    const onFocusInput = vi.fn();
+    const autoSendPrompt = vi.fn().mockResolvedValue(true);
+    const consumption = explainConsumption.createExplainIntentConsumption({
+      card,
+      autoSendPrompt,
+      onFocusInput
+    });
+
+    explainIntent.setPendingExplainIntent({
+      from: 12,
+      content: "测试字幕句",
+      explanation: "已有解释",
+      createdAt: 300
+    });
+    await consumption.consumeIfPending();
+    expect(card.hidden).toBe(false);
+    expect(onFocusInput).toHaveBeenCalledTimes(1);
+
+    onFocusInput.mockClear();
+    consumption.cancel();
+
+    expect(explainIntent.peekPendingExplainIntent()).toBeNull();
+    expect(card.hidden).toBe(true);
+    expect(onFocusInput).toHaveBeenCalledTimes(1);
+    expect(autoSendPrompt).not.toHaveBeenCalled();
   });
 });
