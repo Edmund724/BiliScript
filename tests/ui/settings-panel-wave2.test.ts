@@ -188,29 +188,15 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     expect(host.querySelector<HTMLElement>(".search-chain-footer-bar")?.hidden).toBe(false);
   });
 
-  it("AI 行内删除：同步刷新默认摘要、生效模型行与字幕翻译下拉选项", async () => {
+  it("AI 行内删除：同步刷新概览与翻译模型下拉选项", async () => {
     let currentAi = [...AI_PROVIDERS];
-    let resolveCalled = 0;
     const { host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: currentAi }),
       "ai-providers-delete": (msg) => {
         currentAi = currentAi.filter((item) => item.id !== msg.providerId);
         return { ok: true, providers: currentAi };
       },
-      "get-settings": () => ({ ok: true, settings: { defaultModel: "ai-1" } }),
-      "resolve-ai-provider": () => {
-        resolveCalled += 1;
-        if (currentAi.some((p) => p.id === "ai-1")) {
-          return { ok: true, provider: currentAi[0], apiKey: "sk" };
-        }
-        return { ok: true, isFallback: true, provider: currentAi[0], apiKey: "sk" };
-      },
-      "resolve-subtitle-translate-provider": () => ({
-        ok: true,
-        provider: currentAi[0],
-        model: currentAi[0]?.models?.[0] || "",
-        isFallback: false
-      })
+      "get-settings": () => ({ ok: true, settings: { defaultModel: "ai-1" } })
     });
 
     await vi.waitFor(() => {
@@ -218,20 +204,16 @@ describe("Wave 2 [P0-1]: 行内删除 IPC 校验、失败回滚与搜索/AI 联�
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(2);
 
-    const callsBeforeDelete = resolveCalled;
     const row = host.querySelector<HTMLElement>('.ai-provider-row[data-provider-id="ai-1"]')!;
     fireClick(row.querySelector(".provider-row-remove"));
     await confirmModalDelete();
 
     await vi.waitFor(() => {
-      expect(resolveCalled).toBeGreaterThan(callsBeforeDelete);
       expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
     });
     expect(host.querySelectorAll("#subtitleTranslateModel optgroup").length).toBe(1);
     expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-badge')).toBeNull();
-    expect(
-      host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-model')?.textContent
-    ).toBe("deepseek-chat");
+    expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-model')).toBeNull();
   });
 });
 
@@ -308,68 +290,42 @@ describe("Wave 2 [P0-2]: 动态跨族凭据引用与双击互斥锁", () => {
   });
 });
 
-describe("Wave 2 [P1-1]: AI 行内「设为默认」与失败回滚", () => {
-  it("点击 AI 行「设为默认」持久化 defaultModel 并刷新按钮状态与生效投影；失败则回滚", async () => {
-    let currentSettings: Record<string, unknown> = { defaultModel: "ai-1" };
+describe("Wave 2 [P1-1]: 概览与解释模型选择器及失败回滚", () => {
+  it("切换 #aiDefaultModel 持久化 defaultModel + defaultAiModel，失败则回滚；AI 行不渲染「设为默认」按钮", async () => {
+    let currentSettings: Record<string, unknown> = { defaultModel: "ai-1", defaultAiModel: "gpt-4o-mini" };
     let failSave = false;
     const { host, sent } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: AI_PROVIDERS }),
       "get-settings": () => ({ ok: true, settings: currentSettings }),
       "save-settings": (msg) => {
-        if (failSave) return { ok: false, error: "保存默认失败" };
+        if (failSave) return { ok: false, error: "保存模型失败" };
         currentSettings = { ...currentSettings, ...(msg.settings as Record<string, unknown>) };
         return { ok: true };
-      },
-      "resolve-ai-provider": () => {
-        const active =
-          AI_PROVIDERS.find((p) => p.id === currentSettings.defaultModel) || AI_PROVIDERS[0];
-        return { ok: true, provider: active, apiKey: "sk" };
-      },
-      "resolve-subtitle-translate-provider": () => {
-        const active =
-          AI_PROVIDERS.find((p) => p.id === currentSettings.defaultModel) || AI_PROVIDERS[0];
-        return { ok: true, provider: active, model: active.models[0], isFallback: false };
       }
     });
 
+    const select = host.querySelector<HTMLSelectElement>("#aiDefaultModel")!;
     await vi.waitFor(() => {
-      expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
+      expect(select.value).toBe(`ai-1${String.fromCharCode(1)}gpt-4o-mini`);
     });
+    expect(host.querySelector(".ai-provider-default-btn")).toBeNull();
 
-    const btn1 = host.querySelector<HTMLButtonElement>(
-      '.ai-provider-row[data-provider-id="ai-1"] .ai-provider-default-btn'
-    )!;
-    const btn2 = host.querySelector<HTMLButtonElement>(
-      '.ai-provider-row[data-provider-id="ai-2"] .ai-provider-default-btn'
-    )!;
-    expect(btn1.disabled).toBe(true);
-    expect(btn1.textContent).toBe("默认");
-    expect(btn2.disabled).toBe(false);
-    expect(btn2.textContent).toBe("设为默认");
-
-    fireClick(btn2);
+    select.value = `ai-2${String.fromCharCode(1)}deepseek-chat`;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => {
-      expect(btn2.disabled).toBe(true);
-      expect(btn2.textContent).toBe("默认");
-      expect(host.querySelector('.ai-provider-row[data-provider-id="ai-2"] .provider-row-model')?.textContent).toBe(
-        "deepseek-chat"
-      );
+      expect(sent.some((m) => m.type === "save-settings" && m.settings?.defaultModel === "ai-2")).toBe(true);
     });
-    expect(btn1.disabled).toBe(false);
-    expect(btn1.textContent).toBe("设为默认");
-    expect(sent.some((m) => m.type === "save-settings" && m.settings?.defaultModel === "ai-2")).toBe(true);
-    expect(host.querySelector<HTMLSelectElement>("#aiDefaultModel")?.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
 
     failSave = true;
-    fireClick(btn1);
+    select.value = `ai-1${String.fromCharCode(1)}gpt-4o-mini`;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => {
       expect(statusEl(host).dataset.error).toBe("true");
     });
-    expect(statusEl(host).textContent).toBe("保存默认失败");
-    expect(btn2.disabled).toBe(true);
-    expect(btn2.textContent).toBe("默认");
-    expect(btn1.disabled).toBe(false);
-    expect(btn1.textContent).toBe("设为默认");
+    expect(statusEl(host).textContent).toBe("保存模型失败");
+    await vi.waitFor(() => {
+      expect(select.value).toBe(`ai-2${String.fromCharCode(1)}deepseek-chat`);
+    });
   });
 });
 

@@ -8,7 +8,7 @@ beforeEach(() => {
 });
 
 describe("设置面板字幕翻译", () => {
-  it("提供翻译模型选择下拉框（含跟随默认模型及启用平台选项），即时保存且不改双语副轨偏好", async () => {
+  it("提供翻译模型选择下拉框（仅启用平台模型，不含跟随默认选项），即时保存且不改双语副轨偏好", async () => {
     document.body.innerHTML = `
       <div id="biliscript-reading-view">
         <section id="biliscript-reading-settings-panel">
@@ -55,8 +55,8 @@ describe("设置面板字幕翻译", () => {
     await vi.waitFor(() => expect(host.querySelector("#subtitleTranslateModel")).toBeTruthy());
 
     const select = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
-    expect(select.options[0]?.value).toBe("");
-    expect(select.options[0]?.textContent).toBe("跟随 AI 默认平台");
+    expect(Array.from(select.options).some((opt) => opt.value === "")).toBe(false);
+    expect(host.querySelector("#subtitleTranslateFollowHint")).toBeNull();
 
     const optgroups = Array.from(select.querySelectorAll("optgroup"));
     expect(optgroups).toHaveLength(2);
@@ -70,18 +70,11 @@ describe("设置面板字幕翻译", () => {
     select.value = "provider-2\u0001gpt-4o-mini";
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
-    select.value = "";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-
-    await vi.waitFor(() => expect(bus.sent.filter((message) => message.type === "save-settings")).toHaveLength(2));
+    await vi.waitFor(() => expect(bus.sent.filter((message) => message.type === "save-settings")).toHaveLength(1));
     const saves = bus.sent.filter((message) => message.type === "save-settings");
     expect(saves[0]?.settings).toEqual({
       subtitleTranslateProviderId: "provider-2",
       subtitleTranslateModel: "gpt-4o-mini"
-    });
-    expect(saves[1]?.settings).toEqual({
-      subtitleTranslateProviderId: "",
-      subtitleTranslateModel: ""
     });
   });
 });

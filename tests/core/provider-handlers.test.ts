@@ -484,23 +484,23 @@ describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-pr
     };
   }
 
-  it("未指定专属配置：正常跟随默认平台，不携带 isFallback", async () => {
+  it("未指定专属配置：回落首个启用平台且不携带 isFallback（不受 defaultModel 影响）", async () => {
     const handler = createSubtitleTranslateProviderHandler(makeSubtitleDeps({ defaultModel: "p2" }));
     const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
 
     handler({}, {}, sendResponse);
     const payload = await response;
-    expect(payload.provider.id).toBe("p2");
+    expect(payload.provider.id).toBe("p1");
     expect("isFallback" in payload).toBe(false);
   });
 
-  it("专属平台已删除：回落到默认平台并自报 isFallback", async () => {
+  it("专属平台已删除：回落首个启用平台并自报 isFallback", async () => {
     const handler = createSubtitleTranslateProviderHandler(
       makeSubtitleDeps({ subtitleTranslateProviderId: "ghost", defaultModel: "p2" })
     );
     const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
 
     handler({}, {}, sendResponse);
-    expect(await response).toMatchObject({ ok: true, isFallback: true, provider: { id: "p2" } });
+    expect(await response).toMatchObject({ ok: true, isFallback: true, provider: { id: "p1" } });
   });
 });

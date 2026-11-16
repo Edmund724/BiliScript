@@ -125,7 +125,6 @@ const AI_FAMILY: FamilyRowDeclaration = {
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || presets[presets.length - 1],
   displayName: (item, preset) => String(item.name || preset?.name || "自定义"),
   displayModel: () => "",
-  buildTailFields: () => '<button type="button" class="ai-provider-default-btn" aria-pressed="false">设为默认</button>',
   buildDeleteMessage: (providerId) => ({ type: "ai-providers-delete", providerId }),
   editor: {
     title: "AI 平台",

@@ -70,8 +70,7 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       sampleKeys,
       {
         subtitleTranslateProviderId: "openai-custom",
-        subtitleTranslateModel: "gpt-4o-mini",
-        defaultModel: "deepseek"
+        subtitleTranslateModel: "gpt-4o-mini"
       }
     );
 
@@ -88,8 +87,7 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       sampleKeys,
       {
         subtitleTranslateProviderId: "deepseek",
-        subtitleTranslateModel: "",
-        defaultModel: "openai-custom"
+        subtitleTranslateModel: ""
       }
     );
 
@@ -99,45 +97,30 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(resolution.apiKey).toBe("sk-deepseek-123");
   });
 
-  it("未指定专属平台时，平滑回落至全局默认激活 AI 平台（defaultModel + defaultAiModel）", () => {
+  it("未指定专属平台时，回落首个含模型的启用 AI 平台（不受 defaultModel 影响）", () => {
     const resolution = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
       {
         subtitleTranslateProviderId: "",
-        subtitleTranslateModel: "",
-        defaultModel: "openai-custom"
+        subtitleTranslateModel: ""
       }
     );
 
     expect(resolution.isFallback).toBe(true);
-    expect(resolution.provider.id).toBe("openai-custom");
-    expect(resolution.model).toBe("gpt-4o-mini");
-    expect(resolution.apiKey).toBe("sk-openai-456");
-
-    const withDefaultAiModel = resolveSubtitleTranslateProviderConfig(
-      sampleProviders,
-      sampleKeys,
-      {
-        subtitleTranslateProviderId: "",
-        subtitleTranslateModel: "",
-        defaultModel: "openai-custom",
-        defaultAiModel: "gpt-4o"
-      }
-    );
-    expect(withDefaultAiModel.provider.id).toBe("openai-custom");
-    expect(withDefaultAiModel.model).toBe("gpt-4o");
+    expect(resolution.provider.id).toBe("deepseek");
+    expect(resolution.model).toBe("deepseek-chat");
+    expect(resolution.apiKey).toBe("sk-deepseek-123");
   });
 
-  it("专属平台已被删除或禁用时，平滑回落至全局默认激活 AI 平台", () => {
+  it("专属平台已被删除或禁用时，平滑回落至首个含模型的启用 AI 平台", () => {
     // 目标平台已禁用
     const resDisabled = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
       {
         subtitleTranslateProviderId: "disabled-provider",
-        subtitleTranslateModel: "disabled-model",
-        defaultModel: "deepseek"
+        subtitleTranslateModel: "disabled-model"
       }
     );
     expect(resDisabled.isFallback).toBe(true);
@@ -150,29 +133,12 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       sampleKeys,
       {
         subtitleTranslateProviderId: "ghost-provider",
-        subtitleTranslateModel: "ghost-model",
-        defaultModel: "openai-custom"
+        subtitleTranslateModel: "ghost-model"
       }
     );
     expect(resNonExistent.isFallback).toBe(true);
-    expect(resNonExistent.provider.id).toBe("openai-custom");
-    expect(resNonExistent.model).toBe("gpt-4o-mini");
-  });
-
-  it("defaultModel 也未命中时，回退到首个启用的 AI 平台", () => {
-    const resolution = resolveSubtitleTranslateProviderConfig(
-      sampleProviders,
-      sampleKeys,
-      {
-        subtitleTranslateProviderId: "",
-        subtitleTranslateModel: "",
-        defaultModel: "ghost-default"
-      }
-    );
-
-    expect(resolution.isFallback).toBe(true);
-    expect(resolution.provider.id).toBe("deepseek");
-    expect(resolution.model).toBe("deepseek-chat");
+    expect(resNonExistent.provider.id).toBe("deepseek");
+    expect(resNonExistent.model).toBe("deepseek-chat");
   });
 
   it("无任何启用平台时抛出可读错误", () => {

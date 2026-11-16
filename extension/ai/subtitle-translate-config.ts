@@ -8,7 +8,7 @@
 
 import { NO_ACTIVE_PROVIDER_MESSAGE } from "../core/overview-setup-error.js";
 import type { ProviderListEntry } from "../shared/messaging-protocol.js";
-import { resolveCatalogModel } from "../shared/selected-provider.js";
+import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 
 export interface SubtitleTranslateProviderResolution {
@@ -24,14 +24,12 @@ export interface SubtitleTranslateProviderResolution {
 export interface SubtitleTranslateSettingsInput {
   subtitleTranslateProviderId?: unknown;
   subtitleTranslateModel?: unknown;
-  defaultModel?: unknown;
-  defaultAiModel?: unknown;
 }
 
 /**
  * 纯函数：根据已保存平台列表、密钥字典与设置，解析字幕翻译应使用的 AI 平台与模型。
  * - 专属配置优先：指定了 subtitleTranslateProviderId 且处于启用状态时优先匹配；
- * - 平滑回落：未指定或目标平台不存在/已禁用时，回落至全局默认激活 AI 平台；
+ * - 平滑回落：未指定或目标平台不存在/已禁用时，回落至首个含可用模型的启用 AI 平台；
  * - 错误判定：平台完全缺失抛出 NO_ACTIVE_PROVIDER_MESSAGE，需要 Key 却缺失抛出可读错误。
  */
 export function resolveSubtitleTranslateProviderConfig(
@@ -61,8 +59,7 @@ export function resolveSubtitleTranslateProviderConfig(
 
   if (!chosen) {
     isFallback = true;
-    const defaultId = String(settings?.defaultModel || "").trim();
-    chosen = enabled.find((item) => String(item.id) === defaultId) || enabled[0] || null;
+    chosen = enabled.find((item) => normalizeProviderModels(item).length > 0) || enabled[0] || null;
   }
 
   if (!chosen) {
@@ -75,14 +72,8 @@ export function resolveSubtitleTranslateProviderConfig(
     throw new Error("该平台 API Key 未配置");
   }
 
-  let model = "";
-  if (!isFallback && String(settings?.subtitleTranslateModel || "").trim()) {
-    model = String(settings?.subtitleTranslateModel).trim();
-  } else {
-    const defaultId = String(settings?.defaultModel || "").trim();
-    const defaultModelAllowed = !defaultId || chosenId === defaultId;
-    model = resolveCatalogModel(chosen, defaultModelAllowed ? settings?.defaultAiModel : "");
-  }
+  const preferredModel = !isFallback ? String(settings?.subtitleTranslateModel || "").trim() : "";
+  const model = preferredModel || resolveCatalogModel(chosen);
 
   return {
     provider: chosen,

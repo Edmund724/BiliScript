@@ -306,8 +306,6 @@ export interface SubtitleTranslateProviderHandlerDeps {
   getMergedSettings: () => Promise<{
     subtitleTranslateProviderId?: unknown;
     subtitleTranslateModel?: unknown;
-    defaultModel?: unknown;
-    defaultAiModel?: unknown;
   }>;
   loadProviders: () => Promise<ProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;

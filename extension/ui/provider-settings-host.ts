@@ -39,7 +39,6 @@ import {
   resolveAiCredentialPlan,
   type AiCredentialLinkTarget
 } from "./ai-credential-link.js";
-import { syncAiDefaultButtonState } from "./ai-active-projection.js";
 import { closeConfirmDialog } from "./confirm-dialog.js";
 import type {
   EditorDraft,
@@ -104,7 +103,6 @@ export interface ProviderSettingsHost {
   openEditor(request: OpenProviderEditorRequest): Promise<void>;
   openLinkedCredentialEditor(target: AiCredentialLinkTarget): Promise<void>;
   openLiveTarget(target: LiveSettingsTarget): Promise<void>;
-  syncDefaultAiProvider(defaultModelId: string): void;
   upsertProvider(kind: ProviderEditorKind, upsert: ProviderRowItem): Promise<MutationResult>;
   deleteProvider(kind: ProviderEditorKind, target: { id: string; baseUrl: string }): Promise<MutationResult>;
   dispose(): void;
@@ -189,7 +187,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
 
   let aiProviders: ProviderRowItem[] = [];
   let aiProvidersLoaded = false;
-  let defaultAiProviderId = "";
   let liveProviders: ProviderRowItem[] = [];
   let activeLiveId = "";
   let activeAsrId = "";
@@ -586,7 +583,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     familyRows.ai.render(aiNodes.listNode, aiNodes.emptyNode, providers, {
       presets: presetsForKind("ai")
     });
-    syncAiDefaultButtonState(aiNodes.listNode, defaultAiProviderId);
   }
 
   async function syncConsumerFamiliesAfterAiChange(
@@ -601,8 +597,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     ]);
     if (disposed || sessionGeneration !== generation) return;
     if (settings && aiNodes) {
-      defaultAiProviderId = String(settings.defaultModel || "").trim();
-      syncAiDefaultButtonState(aiNodes.listNode, defaultAiProviderId);
       options.onAiChanged?.(aiProviders, { settings });
     }
     if (nextLive !== null) {
@@ -948,43 +942,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
   if (aiNodes) {
     familyRows.ai.controller.setErrorHandler((msg) => reportStatus(msg, true));
     familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
-    aiNodes.listNode.addEventListener("click", async (event) => {
-      const btn = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(".ai-provider-default-btn");
-      if (!btn || btn.disabled) return;
-      const row = btn.closest<HTMLElement>(".ai-provider-row");
-      const providerId = String(row?.dataset.providerId || "").trim();
-      if (!providerId || providerId === defaultAiProviderId) return;
-
-      const prevDefaultId = defaultAiProviderId;
-      const prevDefaultAiModel = String(state.settings?.defaultAiModel || "").trim();
-      defaultAiProviderId = providerId;
-      state.patchSettings({ defaultModel: providerId, defaultAiModel: "" });
-      syncAiDefaultButtonState(aiNodes.listNode, providerId);
-
-      try {
-        const resp = await sendRuntimeMessage({
-          type: "save-settings",
-          settings: { defaultModel: providerId, defaultAiModel: "" }
-        });
-        if (!resp?.ok) {
-          throw new Error((resp as { error?: string } | undefined)?.error || "设置默认 AI 平台失败");
-        }
-        const [latestAi, settings] = await Promise.all([
-          aiProvidersLoaded ? Promise.resolve(aiProviders) : loadRows("ai"),
-          getSettings()
-        ]);
-        if (disposed) return;
-        aiProviders = latestAi;
-        aiProvidersLoaded = true;
-        options.onAiChanged?.(latestAi, { settings });
-        reportStatus("已设为默认 AI 平台");
-      } catch (error) {
-        defaultAiProviderId = prevDefaultId;
-        state.patchSettings({ defaultModel: prevDefaultId, defaultAiModel: prevDefaultAiModel });
-        syncAiDefaultButtonState(aiNodes.listNode, prevDefaultId);
-        reportStatus((error as Error)?.message || "设置默认 AI 平台失败", true);
-      }
-    });
     familyRows.ai.controller.setDeleteHandler(async (providerId) => {
       if (disposed) return;
       const [latestAi, latestLive, latestSearch, settings] = await Promise.all([
@@ -996,8 +953,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
       if (disposed) return;
       aiProviders = latestAi;
       aiProvidersLoaded = true;
-      defaultAiProviderId = String(settings.defaultModel || "").trim();
-      syncAiDefaultButtonState(aiNodes.listNode, defaultAiProviderId);
       options.onAiChanged?.(latestAi, { settings });
       if (latestLive !== null) {
         liveProviders = latestLive;
@@ -1099,7 +1054,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
         aiProvidersLoaded = true;
       }
       if (hasFamily("ai")) {
-        defaultAiProviderId = String(settings.defaultModel || "").trim();
         renderAiProviders(nextAi);
         options.onAiChanged?.(nextAi, { settings });
       }
@@ -1131,13 +1085,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     }
   }
 
-  function syncDefaultAiProvider(defaultModelId: string): void {
-    defaultAiProviderId = defaultModelId.trim();
-    if (aiNodes) {
-      syncAiDefaultButtonState(aiNodes.listNode, defaultAiProviderId);
-    }
-  }
-
   function dispose(): void {
     if (disposed) return;
     disposed = true;
@@ -1156,7 +1103,6 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     openEditor,
     openLinkedCredentialEditor,
     openLiveTarget,
-    syncDefaultAiProvider,
     upsertProvider,
     deleteProvider,
     dispose
