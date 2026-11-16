@@ -22,7 +22,7 @@
 // 点击行为：不发 background 消息。直接构造 reader-enter 消息交给
 // content 侧处理器（entry/message-handler.ts 已实现的阅读模式进入路径，
 // arch-slim-2/09 组合根归位 entry/），readerUrl 拼法单源在 bilibili/reader-url.ts
-// 的 buildReaderModeUrl（cleanVideoUrl 清成规范视频 URL 再加 biliscript_reader=1；
+// 的 buildReaderModeUrl（cleanVideoUrl 净化页面 URL 再加 biliscript_reader=1；
 // arch-slim-2/03 收口，原本地 buildReaderUrl 与 shell.ts 各抄一份）。经
 // dispatchContentScriptMessage 分发而非 chrome.runtime.sendMessage：content
 // script 的 sendMessage 不会回环到本文档自己的 onMessage 监听器，分发主体抽出

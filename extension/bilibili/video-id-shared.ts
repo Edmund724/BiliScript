@@ -130,6 +130,42 @@ export function extractBvid(url: string): string {
   return "";
 }
 
+const WATCHLATER_TRACKING_PARAM_NAMES = new Set([
+  "biliscript_reader",
+  "spm_id_from",
+  "vd_source",
+  "from_spmid",
+  "buvid",
+  "is_story_h5",
+  "plat_id",
+  "seid",
+  "search_source",
+  "unique_k",
+  "bbid",
+  "fbclid",
+  "gclid"
+]);
+
+const WATCHLATER_TRACKING_PARAM_PREFIXES = ["share_", "utm_"];
+
+function isWatchlaterTrackingParam(name: string): boolean {
+  const normalized = name.toLowerCase();
+  if (WATCHLATER_TRACKING_PARAM_NAMES.has(normalized)) {
+    return true;
+  }
+  return WATCHLATER_TRACKING_PARAM_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function cleanWatchlaterUrl(parsed: URL): string {
+  const cleaned = new URL("https://www.bilibili.com/list/watchlater");
+  for (const [key, value] of parsed.searchParams.entries()) {
+    if (!isWatchlaterTrackingParam(key)) {
+      cleaned.searchParams.append(key, value);
+    }
+  }
+  return cleaned.toString();
+}
+
 export function cleanVideoUrl(href: string = location.href): string {
   try {
     const parsed = new URL(href);
@@ -138,11 +174,7 @@ export function cleanVideoUrl(href: string = location.href): string {
     }
 
     if (parsed.pathname === "/list/watchlater" || parsed.pathname === "/list/watchlater/") {
-      const bvid = extractBvid(href);
-      if (bvid) {
-        return `https://www.bilibili.com/video/${bvid}/`;
-      }
-      return href;
+      return cleanWatchlaterUrl(parsed);
     }
 
     const bvid = extractBvid(href);
@@ -157,9 +189,10 @@ export function cleanVideoUrl(href: string = location.href): string {
   }
 }
 
-// biliscript_reader=1 阅读模式 URL 的唯一拼法：cleanVideoUrl 清成规范视频 URL 再加
-// biliscript_reader=1 查询参数；非 B 站/非视频 URL 原样返回（cleanVideoUrl 语义），
-// URL 解析失败回落 cleanVideoUrl 的结果，绝不抛出。
+// biliscript_reader=1 阅读模式 URL 的唯一拼法：先经 cleanVideoUrl 净化当前页面 URL
+// （/video/ 收敛为规范视频 URL，/list/watchlater 保留路径与上下文参数并去除尾部斜杠、
+// 追踪参数与旧 biliscript_reader）再加 biliscript_reader=1；非 B 站/非视频 URL 原样返回
+// （cleanVideoUrl 语义），URL 解析失败回落 cleanVideoUrl 的结果，绝不抛出。
 // 2026-09 工单 02-toolbar-icon-opens-script：工具栏 action 点击（SW 侧）与页内
 // 文摘按钮共用本单源——原住 bilibili/reader-url.ts，因该文件拖 core/state
 // （content 侧状态单例）不能进 SW 图，而本函数是纯 URL 计算，故收编到本模块

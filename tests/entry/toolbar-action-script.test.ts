@@ -93,14 +93,17 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     expect(payload).not.toHaveProperty("tabId");
   });
 
-  it("稍后再看页：同样派发，readerUrl 收敛为规范视频 URL", async () => {
-    onClickedListener({ id: 8, url: "https://www.bilibili.com/list/watchlater?bvid=BV1wl000001" });
+  it("稍后再看页：同样派发，readerUrl 保留 /list/watchlater 与上下文参数并剥离追踪参数", async () => {
+    onClickedListener({
+      id: 8,
+      url: "https://www.bilibili.com/list/watchlater/?bvid=BV1wl000001&oid=123&p=2&spm_id_from=333.1007"
+    });
 
     await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
 
     expect(sendMessageToTab).toHaveBeenCalledWith(8, {
       type: "reader-enter",
-      readerUrl: "https://www.bilibili.com/video/BV1wl000001/?biliscript_reader=1"
+      readerUrl: "https://www.bilibili.com/list/watchlater?bvid=BV1wl000001&oid=123&p=2&biliscript_reader=1"
     });
   });
 

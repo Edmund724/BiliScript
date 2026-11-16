@@ -244,6 +244,18 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     );
   });
 
+  it("稍后再看页空 readerUrl → 保留 /list/watchlater 与 oid/p 参数并剥离追踪参数", async () => {
+    setLocationUrl(
+      "https://www.bilibili.com/list/watchlater/?bvid=BV1test000000&oid=170001&p=2&spm_id_from=x"
+    );
+
+    await enterReaderShell({ readerUrl: "", intent: "open" });
+
+    expect(replaceReaderModeUrl).toHaveBeenCalledWith(
+      "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=170001&p=2&biliscript_reader=1"
+    );
+  });
+
   it("空 readerUrl 且视图已开 → 纯聚焦语义：不改写、不翻属性、不重进", async () => {
     state.reader.setViewOpen(true);
     const reader = makeReaderStub();
@@ -445,6 +457,22 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     // URL 收敛先于关闭（与原处理器「先收敛地址栏」的时序一致）
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
+  });
+
+  it("稍后再看阅读模式 URL 退出：仅移除 biliscript_reader，保留 /list/watchlater 与上下文参数", async () => {
+    setLocationUrl(
+      "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=170001&p=2&biliscript_reader=1"
+    );
+    mountShell();
+    const reader = makeReaderStub();
+    ensureReaderDomain.mockResolvedValue(reader);
+
+    await exitReaderShell();
+
+    expect(replaceReaderModeUrl).toHaveBeenCalledWith(
+      "https://www.bilibili.com/list/watchlater?bvid=BV1test000000&oid=170001&p=2"
+    );
+    expect(reader.closeReadingView).toHaveBeenCalledTimes(1);
   });
 
   it("补回页内按钮的关闭事件后再归还焦点", async () => {
