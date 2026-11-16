@@ -3,7 +3,6 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { isLiveRoomPage, parseLiveRoomId } from "../../extension/bilibili/video-id-shared.js";
-import { createLiveRoomBridge } from "../../extension/live/live-room-bridge.js";
 import {
   buildMinimalSessionUpdatePayload,
   buildVideoInstructions,
@@ -12,7 +11,11 @@ import {
 } from "../../extension/live/moss-live-protocol.js";
 import { buildGeminiSetupTools } from "../../extension/live/offscreen-gemini-live-client.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../../extension/ui/icons.js";
-import { startLiveRoomCompanion, stopLiveRoomCompanion } from "../../extension/live/live-room-entry.js";
+import {
+  createLiveRoomBridge,
+  startLiveRoomCompanion,
+  stopLiveRoomCompanion
+} from "../../extension/live/live-room-entry.js";
 
 const ROOM_URL = "https://live.bilibili.com/21452505?broadcast_type=0";
 

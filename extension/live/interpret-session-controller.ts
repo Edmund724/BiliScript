@@ -6,15 +6,13 @@ import type { SubtitleBodyItem } from "../core/state.js";
 import { findActiveSubtitleIndex } from "../subtitle/core.js";
 import { acceptSubtitle, acceptSecondarySubtitle } from "../subtitle/commit.js";
 import {
+  clearTranslatedSubtitleCache,
   getSubtitleCacheKey,
   loadSubtitleFromCache,
   saveSubtitleToCache
 } from "../subtitle/cache.js";
 import { buildSecondaryAlignment } from "../subtitle/alignment.js";
-import {
-  resolveInterpretSubtitleLines,
-  type InterpretSubtitleDisplayMode
-} from "./interpret-subtitle-lines.js";
+import type { InterpretSubtitleDisplayMode } from "./interpret-subtitle-preferences.js";
 import { runAsrPipeline, type RunAsrPipelineArgs } from "../asr/pipeline.js";
 import { loadActiveAsrFallback } from "../asr/active-fallback.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
@@ -48,6 +46,7 @@ export interface InterpretSessionControllerDeps {
   translateItems?: typeof translateSubtitleItems;
   loadCache?: typeof loadSubtitleFromCache;
   saveCache?: typeof saveSubtitleToCache;
+  clearTranslatedCache?: typeof clearTranslatedSubtitleCache;
   resolveTranslateProvider?: typeof resolveSubtitleTranslateProvider;
   loadAsrProviders?: () => Promise<any[]>;
 }
@@ -76,6 +75,7 @@ export function createInterpretSessionController(
   const translateItems = deps.translateItems ?? translateSubtitleItems;
   const loadCache = deps.loadCache ?? loadSubtitleFromCache;
   const saveCache = deps.saveCache ?? saveSubtitleToCache;
+  const clearTranslatedCache = deps.clearTranslatedCache ?? clearTranslatedSubtitleCache;
   const resolveTranslateProvider = deps.resolveTranslateProvider ?? resolveSubtitleTranslateProvider;
   const loadAsrProviders = deps.loadAsrProviders ?? (() => asrProviderStore.loadProviders());
 
@@ -104,6 +104,7 @@ export function createInterpretSessionController(
   let activeAsrLabel = buildAsrSubtitleLabel(undefined);
   let activeProviderRes: SubtitleTranslateProviderResolution | undefined;
   let lastTranslatingNoticeAt = -Infinity;
+  let needsTranslatedCacheInvalidation = false;
 
   function updateState(next: InterpretSessionState): void {
     stateVal = next;
@@ -301,7 +302,11 @@ export function createInterpretSessionController(
         skipHotComments: true
       });
       if (primaryCacheKey) {
-        await saveCache(primaryCacheKey, sortedPrimary);
+        const saveResult = await saveCache(primaryCacheKey, sortedPrimary);
+        if (saveResult?.ok !== false && needsTranslatedCacheInvalidation && activeBvid && activeCid) {
+          needsTranslatedCacheInvalidation = false;
+          await clearTranslatedCache({ bvid: activeBvid, cid: activeCid });
+        }
       }
     }
 
@@ -340,7 +345,8 @@ export function createInterpretSessionController(
         items,
         targetLang: activeTargetLang,
         providerResolution: activeProviderRes,
-        signal: abortController?.signal
+        signal: abortController?.signal,
+        fallbackToOriginal: false
       });
 
       if (currentGeneration !== generation) return;
@@ -412,6 +418,7 @@ export function createInterpretSessionController(
     failedTranslateChunks.clear();
     secondaryAlignmentCache = null;
     lastTranslatingNoticeAt = -Infinity;
+    needsTranslatedCacheInvalidation = false;
     activeAsrLabel = buildAsrSubtitleLabel(undefined);
   }
 
@@ -555,6 +562,7 @@ export function createInterpretSessionController(
       }
 
       // 需要 ASR 转写：启动滑动窗口调度与 ASR 流水线
+      needsTranslatedCacheInvalidation = true;
       updateState("connected");
       bindVideoLifecycle();
       showNotice("正在转写并翻译字幕...", 3000);

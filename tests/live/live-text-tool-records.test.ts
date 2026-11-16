@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createLiveTextToolCoordinator,
   createLiveTextToolRecordStore,
+  formatLiveOverviewMarkdown,
+  formatLiveOverviewRecordResult,
   summarizeLiveTextToolMarkdown,
   type LiveTextToolRecordEvent
 } from "../../extension/live/live-text-tool-records.js";
@@ -140,5 +143,72 @@ describe("LiveTextToolRecordStore", () => {
     expect(summary).not.toContain("https://example.com");
     expect(Array.from(summary).length).toBe(180);
     expect(summary.endsWith("…")).toBe(true);
+  });
+
+  it("formatLiveOverviewMarkdown 与 formatLiveOverviewRecordResult 共用全片概览 Markdown 拼装", () => {
+    const markdown = formatLiveOverviewMarkdown({
+      summary: "全片总结",
+      chapters: [{ from: 65, title: "开场", summary: "说明背景" }],
+      quotes: [{ from: 125, content: "核心原话" }]
+    });
+    expect(markdown).toBe(
+      "# 全片概览\n\n全片总结\n\n## 分章节详细笔记\n\n### [1:05] 开场\n说明背景\n\n## 关键原话\n\n- [2:05] 核心原话"
+    );
+
+    expect(formatLiveOverviewRecordResult({ ok: false, summary: "bad" })).toBeNull();
+    expect(
+      formatLiveOverviewRecordResult({
+        ok: true,
+        summary: "核心摘要",
+        chapters: [{ time: "01:05", title: "主题", summary: "内容" }],
+        quotes: [{ time: "02:05", content: "金句" }]
+      })
+    ).toEqual({
+      summary: "核心摘要",
+      markdown: "# 全片概览\n\n核心摘要\n\n## 分章节详细笔记\n\n### [01:05] 主题\n内容\n\n## 关键原话\n\n- [02:05] 金句"
+    });
+  });
+
+  it("createLiveTextToolCoordinator 管理尝试代次、重试、失败兜底、忽略与持久化去重", async () => {
+    const persisted: string[] = [];
+    let canRetry = false;
+    const retrySpy = vi.fn();
+    const coordinator = createLiveTextToolCoordinator({
+      canRetry: () => canRetry,
+      persistRecord: async (record) => {
+        persisted.push(`${record.callId}:${record.status}`);
+      }
+    });
+
+    const firstAttempt = coordinator.startAttempt({
+      callId: "c1",
+      source: "moss",
+      objective: "分析",
+      startedAt: 100,
+      onRetry: retrySpy
+    });
+    expect(firstAttempt).toBe(1);
+    expect(coordinator.startAttempt({
+      callId: "c1",
+      source: "moss",
+      objective: "分析",
+      startedAt: 110,
+      onRetry: retrySpy
+    })).toBeNull();
+    expect(coordinator.isCurrentAttempt("c1", 1)).toBe(true);
+
+    coordinator.failRunning("中断");
+    expect(coordinator.isCurrentAttempt("c1", 1)).toBe(false);
+    expect(coordinator.getSnapshot()[0].status).toBe("failed");
+    expect(coordinator.retry("c1")).toBe(false);
+
+    canRetry = true;
+    expect(coordinator.retry("c1")).toBe(true);
+    expect(retrySpy).toHaveBeenCalledTimes(1);
+
+    coordinator.dismiss("c1");
+    expect(coordinator.getSnapshot()).toHaveLength(0);
+    await Promise.resolve();
+    expect(persisted).toEqual(["c1:failed"]);
   });
 });

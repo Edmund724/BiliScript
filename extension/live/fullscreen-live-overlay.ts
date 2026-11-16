@@ -24,6 +24,58 @@ import { getFullscreenHost } from "./fullscreen-host.js";
 
 export type LiveSettingsTarget = "live" | "gemini-key";
 
+export interface LiveFailureActions {
+  kind: LiveFailureKind;
+  reason: string;
+  showSettings: boolean;
+  settingsLabel: string | null;
+  settingsTarget: LiveSettingsTarget;
+  settingsPrimary: boolean;
+  showRetry: boolean;
+  retryLabel: string;
+  retryPrimary: boolean;
+}
+
+const FAILURE_SETTINGS_LABELS: Partial<Record<LiveFailureKind, string>> = {
+  "provider-unconfigured": "设置伴看",
+  "key-missing": "填写 Key",
+  "key-rejected": "检查 Key",
+  "gemini-credential": "配置 Gemini Key",
+  "permission-denied": "设置伴看"
+};
+
+export function resolveLiveFailureActions(
+  failureKind?: LiveFailureKind,
+  error?: string
+): LiveFailureActions {
+  const kind: LiveFailureKind = failureKind || "unknown";
+  const settingsLabel = FAILURE_SETTINGS_LABELS[kind] ?? null;
+  const showSettings = settingsLabel !== null;
+  const settingsTarget: LiveSettingsTarget = kind === "gemini-credential" ? "gemini-key" : "live";
+  const settingsPrimary =
+    kind === "provider-unconfigured" ||
+    kind === "key-missing" ||
+    kind === "key-rejected" ||
+    kind === "gemini-credential";
+  const showRetry = kind !== "provider-unconfigured" && kind !== "key-missing";
+  const retryLabel = kind === "permission-denied" ? "重新授权" : "重试";
+  const reason =
+    kind === "unknown"
+      ? "实时伴看启动失败，请重试"
+      : error || "伴看连接失败，请重试";
+  return {
+    kind,
+    reason,
+    showSettings,
+    settingsLabel,
+    settingsTarget,
+    settingsPrimary,
+    showRetry,
+    retryLabel,
+    retryPrimary: showRetry && !settingsPrimary
+  };
+}
+
 export interface FullscreenLiveOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getLiveController: () => LiveChatController | null;
@@ -563,7 +615,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
 
     settingsBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
-      deps.onOpenLiveSettings?.(lastFailureKind === "gemini-credential" ? "gemini-key" : "live");
+      deps.onOpenLiveSettings?.(resolveLiveFailureActions(lastFailureKind, lastFailureError).settingsTarget);
     });
 
     retryBtnEl?.addEventListener("click", (e) => {
@@ -894,36 +946,20 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (failureCardEl) {
       failureCardEl.hidden = !showFailure;
       if (showFailure) {
-        const kind = lastFailureKind || "unknown";
-        failureCardEl.dataset.failureKind = kind;
+        const resolved = resolveLiveFailureActions(lastFailureKind, lastFailureError);
+        failureCardEl.dataset.failureKind = resolved.kind;
         if (failureReasonEl) {
-          failureReasonEl.textContent = kind === "unknown"
-            ? "实时伴看启动失败，请重试"
-            : lastFailureError || "伴看连接失败，请重试";
+          failureReasonEl.textContent = resolved.reason;
         }
         if (settingsBtnEl) {
-          const settingsLabel = kind === "provider-unconfigured"
-            ? "设置伴看"
-            : kind === "key-missing"
-              ? "填写 Key"
-              : kind === "key-rejected"
-                ? "检查 Key"
-                : kind === "gemini-credential"
-                  ? "配置 Gemini Key"
-                  : kind === "permission-denied"
-                    ? "设置伴看"
-                    : null;
-          settingsBtnEl.hidden = settingsLabel === null;
-          settingsBtnEl.textContent = settingsLabel || "设置伴看";
-          settingsBtnEl.dataset.primaryAction = String(
-            kind === "provider-unconfigured" || kind === "key-missing" || kind === "key-rejected" || kind === "gemini-credential"
-          );
+          settingsBtnEl.hidden = !resolved.showSettings;
+          settingsBtnEl.textContent = resolved.settingsLabel || "设置伴看";
+          settingsBtnEl.dataset.primaryAction = String(resolved.settingsPrimary);
         }
         if (retryBtnEl) {
-          const hideRetry = kind === "provider-unconfigured" || kind === "key-missing";
-          retryBtnEl.hidden = hideRetry;
-          retryBtnEl.textContent = kind === "permission-denied" ? "重新授权" : "重试";
-          retryBtnEl.dataset.primaryAction = String(!hideRetry && settingsBtnEl?.dataset.primaryAction !== "true");
+          retryBtnEl.hidden = !resolved.showRetry;
+          retryBtnEl.textContent = resolved.retryLabel;
+          retryBtnEl.dataset.primaryAction = String(resolved.retryPrimary);
         }
       } else {
         delete failureCardEl.dataset.failureKind;

@@ -21,10 +21,9 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
     getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
     isLiveCompanionActive: ReturnType<typeof vi.fn>;
-    syncPlayerInterpretQuickAction: ReturnType<typeof vi.fn>;
-    getInterpretSessionState: ReturnType<typeof vi.fn>;
-    applyInterpretMenuChoice: ReturnType<typeof vi.fn>;
   };
+  let mockApplyInterpretChoice: ReturnType<typeof vi.fn<(choice: any) => Promise<void>>>;
+  let mockSyncInterpretQuickAction: ReturnType<typeof vi.fn>;
   let mockOverlay: {
     show: ReturnType<typeof vi.fn>;
     hide: ReturnType<typeof vi.fn>;
@@ -72,11 +71,10 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       getLiveController: vi.fn(() => null),
       ensureFullscreenOverlay: vi.fn(() => mockOverlay),
       getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
-      isLiveCompanionActive: vi.fn(() => false),
-      syncPlayerInterpretQuickAction: vi.fn(),
-      getInterpretSessionState: vi.fn(() => "idle"),
-      applyInterpretMenuChoice: vi.fn(async () => {})
+      isLiveCompanionActive: vi.fn(() => false)
     };
+    mockApplyInterpretChoice = vi.fn(async () => {});
+    mockSyncInterpretQuickAction = vi.fn();
 
     mockEnsureUiReady = vi.fn(async () => {});
     mockEnsureReaderChatTab = vi.fn(async () => mockChatTab);
@@ -91,6 +89,22 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     }));
 
     vi.doMock("../../extension/live/live-companion-session.js", () => mockLiveSession);
+
+    vi.doMock("../../extension/live/player-interpret.js", async () => {
+      const actual = await vi.importActual<typeof import("../../extension/live/player-interpret.js")>(
+        "../../extension/live/player-interpret.js"
+      );
+      return {
+        ...actual,
+        syncPlayerInterpretQuickAction: mockSyncInterpretQuickAction,
+        togglePlayerInterpretMenu: (anchor: HTMLElement) =>
+          actual.toggleInterpretSubtitleMenu(anchor, {
+            getSessionState: () => "idle",
+            getPreferences: async () => ({ targetLang: "zh", displayMode: "auto" }),
+            applyChoice: (choice) => mockApplyInterpretChoice(choice)
+          })
+      };
+    });
 
     vi.doMock("../../extension/reader/state.js", () => ({
       isReaderViewOpen: () => isReaderOpen
@@ -118,6 +132,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     vi.doUnmock("../../extension/reader/lazy-shell.js");
     vi.doUnmock("../../extension/reader/lazy-chat-tab.js");
     vi.doUnmock("../../extension/live/live-companion-session.js");
+    vi.doUnmock("../../extension/live/player-interpret.js");
     vi.doUnmock("../../extension/reader/state.js");
     vi.doUnmock("../../extension/ui/lazy-ui.js");
     vi.doUnmock("../../extension/core/runtime.js");
@@ -192,7 +207,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 
     expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
     expect(mockLiveSession.ensureFullscreenOverlay).not.toHaveBeenCalled();
-    expect(mockLiveSession.applyInterpretMenuChoice).not.toHaveBeenCalled();
+    expect(mockApplyInterpretChoice).not.toHaveBeenCalled();
 
     const menu = document.getElementById("biliscript-interpret-menu");
     expect(menu).not.toBeNull();
@@ -205,7 +220,7 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     // 菜单内点语言 → 经 applyChoice 走会话侧；不启动伴看
     (menu?.querySelector('[data-lang="en"]') as HTMLButtonElement).click();
     await vi.advanceTimersByTimeAsync(20);
-    expect(mockLiveSession.applyInterpretMenuChoice).toHaveBeenCalledWith({ kind: "translation", targetLang: "en" });
+    expect(mockApplyInterpretChoice).toHaveBeenCalledWith({ kind: "translation", targetLang: "en" });
     expect(mockLiveSession.startLiveCompanion).not.toHaveBeenCalled();
 
     // 再点按钮收起菜单
@@ -412,16 +427,32 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
 });
 
 describe("live/live-companion-session: 独立伴看会话所有权、对话按需消费与页面关闭清理", () => {
+  let capturedControllerDeps: any = null;
+
   beforeEach(() => {
     resetModuleState();
+    capturedControllerDeps = null;
     document.body.innerHTML = "";
     const playerContainer = document.createElement("div");
     playerContainer.className = "bpx-player-container";
     document.body.appendChild(playerContainer);
+    vi.doMock("../../extension/live/live-chat-controller.js", async () => {
+      const actual = await vi.importActual<typeof import("../../extension/live/live-chat-controller.js")>(
+        "../../extension/live/live-chat-controller.js"
+      );
+      return {
+        ...actual,
+        createLiveChatController: vi.fn((deps) => {
+          capturedControllerDeps = deps;
+          return actual.createLiveChatController(deps);
+        })
+      };
+    });
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.doUnmock("../../extension/live/live-chat-controller.js");
     vi.restoreAllMocks();
   });
 
@@ -432,7 +463,7 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
 
     const startSpy = vi.spyOn(controller, "start").mockImplementation(async () => {
       vi.spyOn(controller, "getState").mockReturnValue("connected");
-      session.getLiveOverlayBinding().handleStateChange("connected");
+      capturedControllerDeps?.onStateChange?.("connected");
       return true;
     });
     const stopSpy = vi.spyOn(controller, "stop");
@@ -463,7 +494,7 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
 
     // 2.5 即使 AI 对话未加载或已关闭，跨标签页接管仍可停止独立伴看，并在播放器宿主提示
     stopSpy.mockImplementation(async () => {
-      session.getLiveOverlayBinding().handleStateChange("idle");
+      capturedControllerDeps?.onStateChange?.("idle");
     });
     const { requestLiveCompanionStop } = await import("../../extension/reader/reader-bus.js");
     requestLiveCompanionStop("takeover");
@@ -491,6 +522,7 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
 
   it("控制栏同传按钮跟随真实 CC 字幕状态，且不创建伴看浮窗", async () => {
     const session = await import("../../extension/live/live-companion-session.js");
+    const interpret = await import("../../extension/live/player-interpret.js");
     const { state } = await import("../../extension/core/state.js");
     const { notifyReaderPresenter } = await import("../../extension/reader/reader-bus.js");
     const wrap = document.createElement("div");
@@ -501,7 +533,7 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     document.body.appendChild(wrap);
 
     state.clip.setSubtitleFetchState("loading");
-    session.syncPlayerInterpretQuickAction();
+    interpret.syncPlayerInterpretQuickAction();
     expect(button.hidden).toBe(true);
 
     state.clip.setSubtitleFetchState("empty");

@@ -1,78 +1,136 @@
 // extension/live/live-overlay-binding.ts
-// 视频页与直播间共用的实时伴看浮窗、字幕翻译入口与音频偏好协调模块。
-// 统一管理：
-// 1. 播放器容器宿主查找与 FullscreenLiveOverlay 懒创建
-// 2. LiveChatController 的 VAD / 转写 / 重连 / 连接状态显隐与自动接线（bindControllerCallbacks）
-// 3. 伴看音频偏好（音量、语速、语音优先、分享视频原声）经 live-audio-settings 叶子持久化与跨端同步
-// 4. 视频页字幕翻译快捷按钮的连接状态与可用性同步
+// 视频页与直播间共用的实时伴看控制器装配、全屏浮窗绑定、音频偏好同步及控制栏按钮共享原语。
 
 import { state } from "../core/state.js";
-import { persistLiveAudioSettings } from "./live-audio-settings.js";
+import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
+import { watchStorageKeys } from "../shared/watch-storage-keys.js";
+import {
+  applyControlBarPlacement,
+  isControlBarItemMounted,
+  resolveControlBarPlacement,
+  type ControlBarPlacement
+} from "../bilibili/player-control-mount.js";
+import { persistLiveAudioSettings, watchLiveAudioSettings } from "./live-audio-settings.js";
 import {
   createFullscreenLiveOverlay,
   type FullscreenLiveOverlay,
   type FullscreenLiveOverlayDeps
 } from "./fullscreen-live-overlay.js";
-import type {
-  LiveChatController,
-  LiveChatControllerDeps,
-  LiveChatState,
-  LiveReconnectingInfo
+import {
+  createLiveChatController,
+  type LiveChatController,
+  type LiveChatControllerDeps,
+  type LiveChatState,
+  type LiveReconnectingInfo
 } from "./live-chat-controller.js";
-import type { MossLiveTranscriptEvent } from "./moss-live-protocol.js";
+import type { MossLiveSessionContext, MossLiveTranscriptEvent } from "./moss-live-protocol.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
-import type { InterpretSessionController } from "./interpret-session-controller.js";
 
 export const DEFAULT_LIVE_OVERLAY_HOST_SELECTOR =
   ".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap, #live-player, .live-player-mounter, #live-player-ctnr";
+
+export const PLAYER_LIVE_TOGGLE_THROTTLE_MS = 250;
+
+export function resolveLiveToggleLabel(liveState: LiveChatState | string): string {
+  if (liveState === "connecting") return "正在连接伴看，点击取消";
+  if (liveState === "connected") return "实时伴看 (已开启)";
+  return "实时伴看";
+}
+
+export interface SyncPlayerLiveToggleButtonOptions {
+  button: HTMLElement | null;
+  wrap?: HTMLElement | null;
+  active: boolean;
+  label?: string;
+  setDataTooltip?: boolean;
+  setTitle?: boolean;
+}
+
+export function syncPlayerLiveToggleButton({
+  button,
+  wrap,
+  active,
+  label = active ? "实时伴看 (已开启)" : "实时伴看",
+  setDataTooltip = false,
+  setTitle = true
+}: SyncPlayerLiveToggleButtonOptions): void {
+  const pressed = String(active);
+  if (button) {
+    if (button.classList.contains("is-active") !== active) {
+      button.classList.toggle("is-active", active);
+    }
+    if (button.getAttribute("aria-pressed") !== pressed) {
+      button.setAttribute("aria-pressed", pressed);
+    }
+    if (button.getAttribute("aria-label") !== label) {
+      button.setAttribute("aria-label", label);
+    }
+    if (setDataTooltip && button.getAttribute("data-tooltip") !== label) {
+      button.setAttribute("data-tooltip", label);
+    }
+    if (setTitle && button.title !== label) {
+      button.title = label;
+    } else if (!setTitle && button.hasAttribute("title") && button.title !== label) {
+      button.title = label;
+    }
+  }
+  if (wrap && wrap.classList.contains("is-active") !== active) {
+    wrap.classList.toggle("is-active", active);
+  }
+}
+
+export function createThrottledLiveToggleHandler(
+  onToggle: () => unknown,
+  throttleMs = PLAYER_LIVE_TOGGLE_THROTTLE_MS
+): { handleClick(): Promise<void>; reset(): void } {
+  let lastClickAt = -throttleMs;
+  return {
+    async handleClick() {
+      const now = Date.now();
+      if (now - lastClickAt < throttleMs) return;
+      lastClickAt = now;
+      await onToggle();
+    },
+    reset() {
+      lastClickAt = -throttleMs;
+    }
+  };
+}
+
+export interface ControlBarLiveTogglePlacementOptions {
+  fallbackToHost?: boolean;
+  preferLiveRoomExtNodes?: boolean;
+}
+
+export function mountControlBarLiveToggle(
+  node: HTMLElement,
+  host: HTMLElement,
+  options: ControlBarLiveTogglePlacementOptions = {}
+): ControlBarPlacement | null {
+  const placement = resolveControlBarPlacement({ host, ...options });
+  if (!placement) {
+    node.remove();
+    return null;
+  }
+  applyControlBarPlacement(node, placement);
+  return placement;
+}
+
+export function isControlBarLiveToggleMounted(
+  node: HTMLElement,
+  host: HTMLElement,
+  options: ControlBarLiveTogglePlacementOptions = {}
+): boolean {
+  const placement = resolveControlBarPlacement({ host, ...options });
+  return isControlBarItemMounted(node, placement);
+}
 
 export function syncPlayerLiveQuickActionState(active: boolean): void {
   if (typeof document === "undefined") return;
   document.body.toggleAttribute("data-biliscript-live-active", active);
   const btn = document.getElementById("biliscript-player-live-quick-action");
   const wrap = document.getElementById("biliscript-player-live-quick-action-wrap");
-  btn?.classList.toggle("is-active", active);
-  wrap?.classList.toggle("is-active", active);
-  btn?.setAttribute("aria-pressed", String(active));
-  if (btn) {
-    const label = active ? "实时伴看 (已开启)" : "实时伴看";
-    btn.title = label;
-    btn.setAttribute("aria-label", label);
-  }
-}
-
-export function syncPlayerInterpretQuickActionState(
-  controller: InterpretSessionController | null,
-  shouldShow: boolean
-): void {
-  const button = document.getElementById("biliscript-player-interpret-quick-action");
-  const wrap = document.getElementById("biliscript-player-interpret-quick-action-wrap");
-  if (!(button instanceof HTMLButtonElement) || !wrap) return;
-  wrap.hidden = !shouldShow;
-  button.hidden = !shouldShow;
-  if (!shouldShow || !controller) return;
-
-  const interpretState = controller.getState();
-  const availability = controller.getAvailability();
-  const active = interpretState === "connecting" || interpretState === "connected";
-  const unavailable = !availability.ok && !active;
-  button.classList.toggle("is-active", interpretState === "connected");
-  button.classList.toggle("is-connecting", interpretState === "connecting");
-  button.setAttribute("aria-pressed", String(interpretState === "connected"));
-  button.setAttribute("aria-busy", String(interpretState === "connecting"));
-  button.setAttribute("aria-disabled", String(unavailable));
-  if (!availability.ok) {
-    button.setAttribute("aria-description", availability.error);
-  } else {
-    button.removeAttribute("aria-description");
-  }
-  const label = interpretState === "connecting"
-    ? "正在连接实时翻译..."
-    : interpretState === "connected"
-      ? "关闭实时翻译"
-      : "字幕";
-  button.title = unavailable && !availability.ok ? availability.error : label;
-  button.setAttribute("aria-label", label);
+  syncPlayerLiveToggleButton({ button: btn, wrap, active });
 }
 
 export function findDefaultLiveOverlayHost(): HTMLElement | null {
@@ -80,7 +138,9 @@ export function findDefaultLiveOverlayHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(DEFAULT_LIVE_OVERLAY_HOST_SELECTOR);
 }
 
-export interface LiveOverlayControllerHooks {
+export interface LiveOverlayConsumerHooks {
+  showNotice?: (message: string, autoHideMs?: number) => void;
+  onBeforeStart?: () => void;
   onStateChange?: (liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind) => void;
   onReconnecting?: (info: LiveReconnectingInfo) => void;
   onVadStateChange?: (active: boolean) => void;
@@ -89,8 +149,7 @@ export interface LiveOverlayControllerHooks {
   onVideoAudioStatusChange?: LiveChatControllerDeps["onVideoAudioStatusChange"];
 }
 
-export type BoundLiveControllerCallbacks = Pick<
-  LiveChatControllerDeps,
+type BoundLiveControllerCallbackKey =
   | "onVadStateChange"
   | "onTranscript"
   | "onVideoContextSwitch"
@@ -100,74 +159,96 @@ export type BoundLiveControllerCallbacks = Pick<
   | "onSpeedChange"
   | "onVoicePriorityChange"
   | "onShareVideoAudioChange"
-  | "onVideoAudioStatusChange"
+  | "onVideoAudioStatusChange";
+
+type BoundLiveControllerCallbacks = Pick<LiveChatControllerDeps, BoundLiveControllerCallbackKey>;
+
+export type LiveOverlayControllerExtraDeps = Omit<
+  LiveChatControllerDeps,
+  | "initialVolume"
+  | "initialSpeed"
+  | "initialVoicePriority"
+  | "initialShareVideoAudio"
+  | BoundLiveControllerCallbackKey
 >;
 
 export interface LiveOverlayBindingOptions {
   getPlayerHost?: () => HTMLElement | null;
-  getLiveController: () => LiveChatController | null;
-  shouldAutoShow?: () => boolean;
-  onBeforeAutoShow?: () => void;
-  onVoicePrioritySync?: (enabled: boolean) => void;
-  onShareVideoAudioSync?: (enabled: boolean) => void;
-  getVolume?: () => number;
-  onVolumeSync?: (volumePercent: number) => void;
-  onSpeedSync?: (speed: number) => void;
   onOpenLiveSettings?: FullscreenLiveOverlayDeps["onOpenLiveSettings"];
-  createOverlay?: typeof createFullscreenLiveOverlay;
+  createController?: (deps: LiveChatControllerDeps) => LiveChatController;
+  createControllerDeps?: () => LiveOverlayControllerExtraDeps;
+  consumerHooks?: LiveOverlayConsumerHooks | null;
+  onStopTakeover?: () => void;
 }
 
 export interface LiveOverlayBinding {
+  ensureController(): LiveChatController;
+  ensureTargetReady(): Promise<LiveChatController>;
+  getController(): LiveChatController | null;
   getOverlay(): FullscreenLiveOverlay | null;
   ensureOverlay(): FullscreenLiveOverlay;
-  startOrRestoreCompanion(): Promise<boolean>;
+  isActive(): boolean;
+  setConsumerHooks(hooks: LiveOverlayConsumerHooks | null): void;
+  start(): Promise<boolean>;
+  stop(reason?: "takeover"): Promise<void>;
+  toggle(): Promise<boolean>;
   retry(): Promise<boolean>;
-  bindControllerCallbacks(hooks?: LiveOverlayControllerHooks): BoundLiveControllerCallbacks;
-  handleVadChange(active: boolean): void;
-  handleTranscript(event: MossLiveTranscriptEvent): void;
-  handleReconnecting(): void;
-  handleStateChange(liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind): void;
-  handleVoicePriorityChange(enabled: boolean): void;
-  handleShareVideoAudioChange(enabled: boolean): void;
-  clearMessages(): void;
+  reconnect(shouldContinue?: () => boolean): Promise<boolean>;
+  restoreOverlay(): void;
+  clearOverlay(): void;
   dispose(): void;
 }
 
-export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): LiveOverlayBinding {
+export function createLiveOverlayBinding(options: LiveOverlayBindingOptions = {}): LiveOverlayBinding {
   const getPlayerHost = options.getPlayerHost ?? findDefaultLiveOverlayHost;
-  const createOverlayFn = options.createOverlay ?? createFullscreenLiveOverlay;
+  const createControllerFn = options.createController ?? createLiveChatController;
+  let controller: LiveChatController | null = null;
   let overlay: FullscreenLiveOverlay | null = null;
+  let consumerHooks: LiveOverlayConsumerHooks | null = options.consumerHooks ?? null;
+  let unsubscribeStorageWatcher: (() => void) | null = null;
+  let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
+  let initialRefreshPromise: Promise<void> | null = null;
   let lastLiveState: LiveChatState = "idle";
   let retryInProgress = false;
 
   function isControllerLive(): boolean {
-    const liveState = options.getLiveController()?.getState();
+    const liveState = controller?.getState();
     return liveState === "connecting" || liveState === "connected";
   }
 
   function handleVolumeChange(volumePercent: number): void {
-    options.onVolumeSync?.(volumePercent);
     persistLiveAudioSettings({ liveVoiceVolume: volumePercent });
   }
 
   function handleSpeedChange(speed: number): void {
-    options.onSpeedSync?.(speed);
     if (state.settings?.liveVoiceSpeed !== speed) {
       persistLiveAudioSettings({ liveVoiceSpeed: speed });
     }
   }
 
+  function handleVoicePriorityChange(enabled: boolean): void {
+    if (state.settings?.liveVoicePriority !== enabled) {
+      persistLiveAudioSettings({ liveVoicePriority: enabled });
+    }
+  }
+
+  function handleShareVideoAudioChange(enabled: boolean): void {
+    if (state.settings?.liveShareVideoAudio !== enabled) {
+      persistLiveAudioSettings({ liveShareVideoAudio: enabled });
+    }
+  }
+
   function ensureOverlay(): FullscreenLiveOverlay {
     if (!overlay) {
-      overlay = createOverlayFn({
+      overlay = createFullscreenLiveOverlay({
         getPlayerHost,
-        getLiveController: options.getLiveController,
-        getVolume: options.getVolume ?? (() => state.settings?.liveVoiceVolume ?? 100),
+        getLiveController: () => controller,
+        getVolume: () => state.settings?.liveVoiceVolume ?? 100,
         onVolumeChange: handleVolumeChange,
         onSpeedChange: handleSpeedChange,
         onOpenLiveSettings: options.onOpenLiveSettings,
         onStopLive: () => {
-          void options.getLiveController()?.stop();
+          void stop();
         },
         onRetryLive: () => {
           void retry();
@@ -177,35 +258,7 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     return overlay;
   }
 
-  async function retry(): Promise<boolean> {
-    if (retryInProgress) return false;
-    const controller = options.getLiveController();
-    if (!controller) return false;
-    retryInProgress = true;
-    try {
-      await controller.stop();
-      return await startOrRestoreCompanion();
-    } finally {
-      retryInProgress = false;
-    }
-  }
-
-  function shouldAutoShowOverlay(): boolean {
-    if (options.shouldAutoShow) {
-      return options.shouldAutoShow();
-    }
-    return true;
-  }
-
-  function handleVadChange(active: boolean): void {
-    overlay?.updateVad(active);
-  }
-
-  function handleTranscript(event: MossLiveTranscriptEvent): void {
-    overlay?.updateTranscript(event);
-  }
-
-  function handleVideoContextSwitch(context: import("./moss-live-protocol.js").MossLiveSessionContext | null): void {
+  function handleVideoContextSwitch(context: MossLiveSessionContext | null): void {
     if (context) {
       overlay?.showVideoContextSwitch(context);
     } else {
@@ -213,27 +266,27 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     }
   }
 
-  function handleReconnecting(): void {
-    overlay?.syncState(options.getLiveController()?.getState(), true);
-  }
-
-  function handleStateChange(liveState: LiveChatState, error?: string, failureKind?: LiveFailureKind): void {
+  function handleStateChange(
+    liveState: LiveChatState,
+    error?: string,
+    failureKind?: LiveFailureKind
+  ): void {
     if (retryInProgress && liveState === "idle") {
       return;
+    }
+    if (error !== undefined || failureKind !== undefined) {
+      consumerHooks?.onStateChange?.(liveState, error, failureKind);
+    } else {
+      consumerHooks?.onStateChange?.(liveState);
     }
     const active = liveState === "connected" || liveState === "connecting";
     const shouldShowOverlay = active || liveState === "failure";
     syncPlayerLiveQuickActionState(active);
     if (shouldShowOverlay) {
-      if (shouldAutoShowOverlay()) {
-        options.onBeforeAutoShow?.();
-        const targetOverlay = ensureOverlay();
-        const forceExpand = (lastLiveState === "idle" && !retryInProgress) || !targetOverlay.isVisible();
-        targetOverlay.show({ forceExpand });
-        targetOverlay.syncState(liveState, false, error, failureKind);
-      } else {
-        overlay?.syncState(liveState, false, error, failureKind);
-      }
+      const targetOverlay = ensureOverlay();
+      const forceExpand = (lastLiveState === "idle" && !retryInProgress) || !targetOverlay.isVisible();
+      targetOverlay.show({ forceExpand });
+      targetOverlay.syncState(liveState, false, error, failureKind);
     } else {
       overlay?.syncState(liveState, false, undefined);
       if (!retryInProgress) overlay?.hide();
@@ -241,29 +294,93 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     lastLiveState = liveState;
   }
 
-  function handleVoicePriorityChange(enabled: boolean): void {
-    options.onVoicePrioritySync?.(enabled);
-    if (state.settings?.liveVoicePriority !== enabled) {
-      persistLiveAudioSettings({ liveVoicePriority: enabled });
+  function bindControllerCallbacks(): BoundLiveControllerCallbacks {
+    return {
+      onVadStateChange: (active) => {
+        consumerHooks?.onVadStateChange?.(active);
+        overlay?.updateVad(active);
+      },
+      onTranscript: (event: MossLiveTranscriptEvent) => {
+        overlay?.updateTranscript(event);
+      },
+      onVideoContextSwitch: handleVideoContextSwitch,
+      onReconnecting: (info) => {
+        consumerHooks?.onReconnecting?.(info);
+        overlay?.syncState(controller?.getState(), true);
+      },
+      onStateChange: handleStateChange,
+      onVolumeChange: () => {
+        overlay?.syncState();
+      },
+      onSpeedChange: (speed) => {
+        handleSpeedChange(speed);
+        overlay?.syncState();
+      },
+      onVoicePriorityChange: (enabled) => {
+        consumerHooks?.onVoicePriorityChange?.(enabled);
+        handleVoicePriorityChange(enabled);
+      },
+      onShareVideoAudioChange: (enabled) => {
+        consumerHooks?.onShareVideoAudioChange?.(enabled);
+        handleShareVideoAudioChange(enabled);
+      },
+      onVideoAudioStatusChange: (status) => {
+        consumerHooks?.onVideoAudioStatusChange?.(status);
+        overlay?.syncState();
+      }
+    };
+  }
+
+  function bindWatchers(): void {
+    if (!unsubscribeStorageWatcher) {
+      unsubscribeStorageWatcher = watchStorageKeys(
+        () => {
+          void controller?.refreshTarget();
+        },
+        {
+          sync: ["liveProviders", "activeLiveProviderId"],
+          local: ["liveProviderKeys"]
+        }
+      );
+    }
+    if (!unsubscribeAudioSettingsWatcher) {
+      unsubscribeAudioSettingsWatcher = watchLiveAudioSettings(
+        () => controller,
+        () => overlay?.syncState()
+      );
     }
   }
 
-  function handleShareVideoAudioChange(enabled: boolean): void {
-    options.onShareVideoAudioSync?.(enabled);
-    if (state.settings?.liveShareVideoAudio !== enabled) {
-      persistLiveAudioSettings({ liveShareVideoAudio: enabled });
+  function ensureController(): LiveChatController {
+    if (!controller) {
+      const extraDeps = options.createControllerDeps?.() ?? {};
+      const created = createControllerFn({
+        initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
+        initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
+        initialVoicePriority: state.settings?.liveVoicePriority !== false,
+        initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
+        ...extraDeps,
+        ...bindControllerCallbacks()
+      });
+      controller = created;
+      bindWatchers();
+      initialRefreshPromise = Promise.resolve(created.refreshTarget()).catch(() => {});
     }
+    return controller;
   }
 
-  async function startOrRestoreCompanion(): Promise<boolean> {
-    const controller = options.getLiveController();
-    if (!controller) return false;
+  async function ensureTargetReady(): Promise<LiveChatController> {
+    const current = ensureController();
+    await initialRefreshPromise;
+    return current;
+  }
 
+  async function startSelectedController(current: LiveChatController): Promise<boolean> {
     const alreadyLive = isControllerLive();
     const wasVisible = overlay?.isVisible() ?? false;
-    const started = alreadyLive ? true : await controller.start();
+    const started = alreadyLive ? true : await current.start();
     if (!started) {
-      if (controller.getState() === "failure" && shouldAutoShowOverlay()) {
+      if (current.getState() === "failure") {
         const targetOverlay = ensureOverlay();
         targetOverlay.show({ forceExpand: true });
         targetOverlay.syncState("failure");
@@ -280,77 +397,101 @@ export function createLiveOverlayBinding(options: LiveOverlayBindingOptions): Li
     return true;
   }
 
-  function bindControllerCallbacks(
-    hooks?: LiveOverlayControllerHooks
-  ): BoundLiveControllerCallbacks {
-    return {
-      onVadStateChange: (active) => {
-        hooks?.onVadStateChange?.(active);
-        handleVadChange(active);
-      },
-      onTranscript: handleTranscript,
-      onVideoContextSwitch: handleVideoContextSwitch,
-      onReconnecting: (info) => {
-        hooks?.onReconnecting?.(info);
-        handleReconnecting();
-      },
-      onStateChange: (liveState, error, failureKind) => {
-        if (retryInProgress && liveState === "idle") {
-          return;
-        }
-        if (error !== undefined) {
-          hooks?.onStateChange?.(liveState, error, failureKind);
-        } else {
-          hooks?.onStateChange?.(liveState);
-        }
-        handleStateChange(liveState, error, failureKind);
-      },
-      onVolumeChange: (volumePercent) => {
-        options.onVolumeSync?.(volumePercent);
-        overlay?.syncState();
-      },
-      onSpeedChange: (speed) => {
-        handleSpeedChange(speed);
-        overlay?.syncState();
-      },
-      onVoicePriorityChange: (enabled) => {
-        hooks?.onVoicePriorityChange?.(enabled);
-        handleVoicePriorityChange(enabled);
-      },
-      onShareVideoAudioChange: (enabled) => {
-        hooks?.onShareVideoAudioChange?.(enabled);
-        handleShareVideoAudioChange(enabled);
-      },
-      onVideoAudioStatusChange: (status) => {
-        hooks?.onVideoAudioStatusChange?.(status);
-        overlay?.syncState();
-      }
-    };
+  async function start(): Promise<boolean> {
+    const current = ensureController();
+    consumerHooks?.onBeforeStart?.();
+    return startSelectedController(current);
   }
 
-  function clearMessages(): void {
+  async function stop(reason?: "takeover"): Promise<void> {
+    const current = controller;
+    if (!current) return;
+    await current.stop();
+    if (reason === "takeover" && controller === current) {
+      options.onStopTakeover?.();
+    }
+  }
+
+  async function toggle(): Promise<boolean> {
+    if (isControllerLive()) {
+      await stop();
+      return false;
+    }
+    return start();
+  }
+
+  async function retry(): Promise<boolean> {
+    if (retryInProgress) return false;
+    const current = ensureController();
+    consumerHooks?.onBeforeStart?.();
+    retryInProgress = true;
+    try {
+      await current.stop();
+      return await startSelectedController(current);
+    } finally {
+      retryInProgress = false;
+    }
+  }
+
+  async function reconnect(shouldContinue?: () => boolean): Promise<boolean> {
+    const current = controller;
+    if (!current || (shouldContinue && !shouldContinue())) return false;
+    await current.refreshTarget();
+    if (controller !== current || (shouldContinue && !shouldContinue())) return false;
+    await current.stop();
+    if (controller !== current || (shouldContinue && !shouldContinue())) return false;
+    return current.start();
+  }
+
+  function restoreOverlay(): void {
+    if (!isControllerLive()) return;
+    ensureOverlay().restore();
+  }
+
+  function clearOverlay(): void {
     overlay?.clearMessages();
   }
 
   function dispose(): void {
+    unsubscribeStorageWatcher?.();
+    unsubscribeStorageWatcher = null;
+    unsubscribeAudioSettingsWatcher?.();
+    unsubscribeAudioSettingsWatcher = null;
+    const current = controller;
+    controller = null;
+    initialRefreshPromise = null;
+    if (current) {
+      if (typeof current.dispose === "function") {
+        current.dispose();
+      } else {
+        void current.stop();
+      }
+    }
     syncPlayerLiveQuickActionState(false);
     overlay?.dispose();
     overlay = null;
+    lastLiveState = "idle";
+    retryInProgress = false;
+    consumerHooks = null;
   }
 
   return {
+    ensureController,
+    ensureTargetReady,
+    getController: () => controller,
     getOverlay: () => overlay,
     ensureOverlay,
-    startOrRestoreCompanion,
+    isActive: isControllerLive,
+    setConsumerHooks(hooks) {
+      consumerHooks = hooks;
+    },
+    start,
+    stop,
+    toggle,
     retry,
-    bindControllerCallbacks,
-    handleVadChange,
-    handleTranscript,
-    handleReconnecting,
-    handleStateChange,
-    handleVoicePriorityChange,
-    handleShareVideoAudioChange,
-    clearMessages,
+    reconnect,
+    restoreOverlay,
+    clearOverlay,
     dispose
   };
 }

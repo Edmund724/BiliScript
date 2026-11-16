@@ -35,10 +35,10 @@ import {
   type VideoBackendTaskResult
 } from "./video-backend-task.js";
 import {
-  createLiveTextToolRecordStore,
+  createLiveTextToolCoordinator,
+  formatLiveOverviewRecordResult,
   summarizeLiveTextToolMarkdown,
-  type LiveTextToolRecord,
-  type LiveTextToolRecordEvent
+  type LiveTextToolRecord
 } from "./live-text-tool-records.js";
 import { normalizeLiveTextToolVideo } from "./live-text-tool-history.js";
 import {
@@ -199,71 +199,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   const resolveVideoContext = getVideoContext ?? defaultToolsBridge!.getVideoContext;
   const resolveExecuteTool = executeTool ?? defaultToolsBridge!.executeTool;
   const backendTasks = deps.videoBackendTaskManager ?? new VideoBackendTaskManager();
-  const textToolRecords = createLiveTextToolRecordStore();
-  const textToolAttempts = new Map<string, number>();
-  const textToolRetries = new Map<string, () => void>();
-  const textToolPersistence = new Map<string, string>();
-  textToolRecords.subscribe(() => {
-    if (!deps.persistTextToolRecord) return;
-    for (const record of textToolRecords.getSnapshot()) {
-      if (record.status !== "completed" && record.status !== "failed") continue;
-      const key = `${record.status}:${record.startedAt}:${record.endedAt ?? ""}`;
-      if (textToolPersistence.get(record.callId) === key) continue;
-      textToolPersistence.set(record.callId, key);
-      try {
-        void Promise.resolve(deps.persistTextToolRecord(record)).catch(() => {});
-      } catch {}
-    }
+  const textToolCoordinator = createLiveTextToolCoordinator({
+    persistRecord: deps.persistTextToolRecord,
+    canRetry: () => state === "connected" && Boolean(activePort)
   });
-
-  function nextTextToolAttempt(callId: string): number {
-    const attempt = (textToolAttempts.get(callId) ?? 0) + 1;
-    textToolAttempts.set(callId, attempt);
-    return attempt;
-  }
-
-  function applyTextToolRecord(attempt: number, event: LiveTextToolRecordEvent): void {
-    if (textToolAttempts.get(event.callId) !== attempt) return;
-    textToolRecords.apply(event);
-  }
-
-  function failTextToolRecord(callId: string, error: string): void {
-    if (!textToolRecords.getSnapshot().some((record) => record.callId === callId && record.status === "running")) {
-      return;
-    }
-    nextTextToolAttempt(callId);
-    textToolRecords.apply({ type: "failed", callId, error, endedAt: Date.now() });
-  }
-
-  function failRunningTextToolRecords(error: string): void {
-    for (const record of textToolRecords.getSnapshot()) {
-      if (record.status === "running") failTextToolRecord(record.callId, error);
-    }
-  }
-
-  function clearTextToolRecords(): void {
-    failRunningTextToolRecords("本次分析已取消。");
-    textToolAttempts.clear();
-    textToolRetries.clear();
-    textToolPersistence.clear();
-    textToolRecords.clear();
-  }
-
-  function retryTextToolRecord(callId: string): boolean {
-    const record = textToolRecords.getSnapshot().find((item) => item.callId === callId);
-    const retry = textToolRetries.get(callId);
-    if (record?.status !== "failed" || !retry || state !== "connected" || !activePort) return false;
-    retry();
-    return true;
-  }
-
-  function dismissTextToolRecord(callId: string): void {
-    const record = textToolRecords.getSnapshot().find((item) => item.callId === callId);
-    if (record?.status !== "failed") return;
-    textToolAttempts.delete(callId);
-    textToolRetries.delete(callId);
-    textToolRecords.apply({ type: "dismissed", callId });
-  }
 
   let state: LiveChatState = "idle";
   let lastError: string | undefined;
@@ -622,25 +561,23 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     retry = false
   ): Promise<void> {
     const callId = delegation.delegationId;
-    if (!retry && textToolRetries.has(callId)) return;
-    const attempt = nextTextToolAttempt(callId);
-    textToolRetries.set(callId, () => {
-      void runBackendDelegation(delegation, generation, true);
-    });
-    applyTextToolRecord(attempt, {
-      type: "started",
+    const attempt = textToolCoordinator.startAttempt({
       callId,
+      retry,
       source: activeTargetProviderType === "gemini-live" ? "gemini" : "moss",
       objective: delegation.objective,
       startedAt: Date.now(),
       video: currentTextToolVideo(),
-      retry
+      onRetry: () => {
+        void runBackendDelegation(delegation, generation, true);
+      }
     });
+    if (attempt === null) return;
 
     const controller = new AbortController();
     const timeout = delegation.purpose === "reasoning" && delegation.timeoutMs !== undefined
       ? setTimeout(() => {
-          if (textToolAttempts.get(callId) !== attempt) return;
+          if (!textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
           postDelegationResult(
             callId,
             "in_progress",
@@ -658,16 +595,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         timeRange: delegation.timeRange,
         signal: controller.signal,
         onSilentProgress: (content) => {
-          if (textToolAttempts.get(callId) !== attempt) return;
+          if (!textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
           postDelegationSilent(callId, content, generation);
         },
         onSpokenResult: (content) => {
-          if (textToolAttempts.get(callId) !== attempt || generation !== currentGeneration || !activePort) return;
+          if (!textToolCoordinator.isCurrentAttempt(callId, attempt) || generation !== currentGeneration || !activePort) return;
           pendingLongSummaryDelegations.add(callId);
           postDelegationResult(callId, "completed", content, generation);
         },
         onTextProgress: (markdown) => {
-          applyTextToolRecord(attempt, {
+          textToolCoordinator.apply(attempt, {
             type: "progress",
             callId,
             summary: summarizeLiveTextToolMarkdown(markdown),
@@ -675,13 +612,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           });
         },
         onError: (content) => {
-          if (textToolAttempts.get(callId) !== attempt) return;
+          if (!textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
           postDelegationResult(callId, "failed", content, generation);
-          applyTextToolRecord(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
+          textToolCoordinator.apply(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
         }
       });
       if (result) {
-        applyTextToolRecord(attempt, {
+        textToolCoordinator.apply(attempt, {
           type: "completed",
           callId,
           summary: summarizeLiveTextToolMarkdown(result.rawText),
@@ -689,50 +626,16 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           endedAt: Date.now()
         });
       } else if (!controller.signal.aborted) {
-        failTextToolRecord(callId, "后台视频任务未返回可用结果，请重试。");
+        textToolCoordinator.failRecord(callId, "后台视频任务未返回可用结果，请重试。");
       }
     } catch (error) {
-      if (controller.signal.aborted || textToolAttempts.get(callId) !== attempt) return;
+      if (controller.signal.aborted || !textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
       const content = (error as Error)?.message || String(error);
       postDelegationResult(callId, "failed", content, generation);
-      applyTextToolRecord(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
+      textToolCoordinator.apply(attempt, { type: "failed", callId, error: content, endedAt: Date.now() });
     } finally {
       if (timeout !== null) clearTimeout(timeout);
     }
-  }
-
-  function overviewRecordResult(result: unknown): { summary: string; markdown: string } | null {
-    if (!result || typeof result !== "object" || (result as Record<string, unknown>).ok !== true) {
-      return null;
-    }
-    const value = result as Record<string, unknown>;
-    const summary = typeof value.summary === "string" ? value.summary.trim() : "";
-    const sections = ["# 全片概览", summary];
-    if (Array.isArray(value.chapters)) {
-      const chapters = value.chapters.flatMap((raw) => {
-        if (!raw || typeof raw !== "object") return [];
-        const chapter = raw as Record<string, unknown>;
-        const title = typeof chapter.title === "string" ? chapter.title.trim() : "";
-        const time = typeof chapter.time === "string" ? chapter.time.trim() : "";
-        const detail = typeof chapter.summary === "string" ? chapter.summary.trim() : "";
-        if (!title && !detail) return [];
-        return [`### ${time ? `[${time}] ` : ""}${title}\n${detail}`.trim()];
-      });
-      if (chapters.length > 0) sections.push("## 分章节详细笔记", ...chapters);
-    }
-    if (Array.isArray(value.quotes)) {
-      const quotes = value.quotes.flatMap((raw) => {
-        if (!raw || typeof raw !== "object") return [];
-        const quote = raw as Record<string, unknown>;
-        const content = typeof quote.content === "string" ? quote.content.trim() : "";
-        const time = typeof quote.time === "string" ? quote.time.trim() : "";
-        return content ? [`- ${time ? `[${time}] ` : ""}${content}`] : [];
-      });
-      if (quotes.length > 0) sections.push("## 关键原话", ...quotes);
-    }
-    const markdown = sections.filter(Boolean).join("\n\n");
-    if (!markdown || markdown === "# 全片概览") return null;
-    return { summary: summarizeLiveTextToolMarkdown(summary || markdown), markdown };
   }
 
   function postPageToolResult(
@@ -772,39 +675,40 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       return;
     }
 
-    if (!retry && textToolRetries.has(callId)) return;
-    const attempt = nextTextToolAttempt(callId);
-    textToolRetries.set(callId, () => {
-      void runPageTool(call, generation, true, videoGeneration);
-    });
-    applyTextToolRecord(attempt, {
-      type: "started",
+    if (!retry) {
+      // textToolCoordinator.startAttempt returns null when an attempt was already recorded without retry
+    }
+    const attempt = textToolCoordinator.startAttempt({
       callId,
+      retry,
       source: "moss",
       objective: "生成当前视频全片总结",
       startedAt: Date.now(),
       video: currentTextToolVideo(),
-      retry
+      onRetry: () => {
+        void runPageTool(call, generation, true, videoGeneration);
+      }
     });
+    if (attempt === null) return;
 
     try {
       const result = await resolveExecuteTool(call);
-      if (textToolAttempts.get(callId) !== attempt) return;
+      if (!textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
       postPageToolResult(callId, result, generation, videoGeneration);
-      const completed = overviewRecordResult(result);
+      const completed = formatLiveOverviewRecordResult(result);
       if (completed) {
-        applyTextToolRecord(attempt, { type: "completed", callId, ...completed, endedAt: Date.now() });
+        textToolCoordinator.apply(attempt, { type: "completed", callId, ...completed, endedAt: Date.now() });
       } else {
         const error = result && typeof result === "object" && typeof (result as Record<string, unknown>).error === "string"
           ? String((result as Record<string, unknown>).error)
           : "全片概览生成失败，请重试。";
-        applyTextToolRecord(attempt, { type: "failed", callId, error, endedAt: Date.now() });
+        textToolCoordinator.apply(attempt, { type: "failed", callId, error, endedAt: Date.now() });
       }
     } catch (error) {
-      if (textToolAttempts.get(callId) !== attempt) return;
+      if (!textToolCoordinator.isCurrentAttempt(callId, attempt)) return;
       const message = `页面工具执行失败：${(error as Error)?.message || String(error)}`;
       postPageToolResult(callId, { ok: false, error: message }, generation, videoGeneration);
-      applyTextToolRecord(attempt, { type: "failed", callId, error: message, endedAt: Date.now() });
+      textToolCoordinator.apply(attempt, { type: "failed", callId, error: message, endedAt: Date.now() });
     }
   }
 
@@ -818,7 +722,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       currentVideoGeneration += 1;
       backendTasks.cancelAllTasks();
       clearLongSummaryControls();
-      clearTextToolRecords();
+      textToolCoordinator.clear();
       deps.onVideoContextSwitch?.(context);
     }
     lastDelegationVideoKey = nextDelegationVideoKey;
@@ -862,7 +766,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     activeSessionId = sessionId;
     muted = false;
     backendTasks.cancelAllTasks();
-    clearTextToolRecords();
+    textToolCoordinator.clear();
     stopActiveMedia();
     updateUi("connecting");
 
@@ -983,7 +887,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           microphoneFailed = true;
           const errorMsg = error.message || "麦克风连接已中断，请检查设备或浏览器权限后重试";
           stopActiveMedia();
-          failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
+          textToolCoordinator.failRunning("伴看连接已断开，本次分析已中断。");
           updateUi("failure", errorMsg, "microphone");
           disconnectPort();
           void cleanupSessionRule(sessionId);
@@ -1050,7 +954,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         handleVoiceFallback(msg.voiceId);
       } else if (msg.type === "connecting") {
         backendTasks.cancelAllTasks();
-        failRunningTextToolRecords("伴看连接中断，本次分析已取消，可重试。");
+        textToolCoordinator.failRunning("伴看连接中断，本次分析已取消，可重试。");
         updateUi("connecting");
       } else if (msg.type === "connected") {
         if (msg.sessionId) {
@@ -1089,11 +993,11 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       } else if (msg.type === "delegation_cancelled") {
         pendingLongSummaryDelegations.delete(msg.delegationId);
         backendTasks.cancelTask(msg.delegationId);
-        failTextToolRecord(msg.delegationId, "本次分析已取消，可重试。");
+        textToolCoordinator.failRecord(msg.delegationId, "本次分析已取消，可重试。");
       } else if (msg.type === "tool_call") {
         void runPageTool(msg.call, generation);
       } else if (msg.type === "tool_error") {
-        if (msg.callId) failTextToolRecord(msg.callId, msg.error);
+        if (msg.callId) textToolCoordinator.failRecord(msg.callId, msg.error);
         showNotice(msg.error, 4000);
       } else if (msg.type === "tool_status") {
         const event = msg.event;
@@ -1109,7 +1013,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
         }
       } else if (msg.type === "reconnecting") {
         backendTasks.cancelAllTasks();
-        failRunningTextToolRecords("伴看连接中断，本次分析已取消，可重试。");
+        textToolCoordinator.failRunning("伴看连接中断，本次分析已取消，可重试。");
         reconnecting = true;
         const notice = formatLiveCloseDiagnostics({
           isReconnect: true,
@@ -1139,7 +1043,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           : "平台拒绝了 API Key，请检查或更换后重试"
         : formatLiveCloseDiagnostics({ code: msg.code });
       stopActiveMedia();
-      failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
+      textToolCoordinator.failRunning("伴看连接已断开，本次分析已中断。");
       updateUi("failure", errorMsg, failureKind);
       disconnectPort();
       void cleanupSessionRule(sessionId);
@@ -1151,7 +1055,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       if (state === "connecting" || state === "connected") {
         const errorMsg = "后台伴看通道已断开。";
         stopActiveMedia();
-        failRunningTextToolRecords("伴看连接已断开，本次分析已中断。");
+        textToolCoordinator.failRunning("伴看连接已断开，本次分析已中断。");
         updateUi("failure", errorMsg, "network");
         disconnectPort();
         void cleanupSessionRule(sessionId);
@@ -1276,7 +1180,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     const stoppingSessionId = activeSessionId;
     activeSessionId = null;
     savedMossSessionId = null; // 用户主动点击结束伴看时清除 session_id
-    clearTextToolRecords();
+    textToolCoordinator.clear();
     stopActiveMedia();
     if (activePort) {
       try {
@@ -1334,10 +1238,10 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     toggleMute,
     interrupt,
     refreshTarget,
-    getTextToolRecords: textToolRecords.getSnapshot,
-    subscribeTextToolRecords: textToolRecords.subscribe,
-    retryTextToolRecord,
-    dismissTextToolRecord,
+    getTextToolRecords: textToolCoordinator.getSnapshot,
+    subscribeTextToolRecords: textToolCoordinator.subscribe,
+    retryTextToolRecord: textToolCoordinator.retry,
+    dismissTextToolRecord: textToolCoordinator.dismiss,
     start,
     stop,
     toggle,

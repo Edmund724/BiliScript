@@ -1,6 +1,9 @@
 import type { LiveChatState } from "../live/live-chat-controller.js";
 import type { LiveFailureKind } from "../live/live-session-tracker.js";
-import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
+import {
+  resolveLiveFailureActions,
+  type LiveSettingsTarget
+} from "../live/fullscreen-live-overlay.js";
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { createChatLiveTextRecords } from "./chat-live-text-records.js";
@@ -37,14 +40,6 @@ const ACTIONS: Record<string, LiveStatusAction[]> = {
   failure: ["retry", "settings", "stop"]
 };
 
-const SETTINGS_FAILURE_LABELS: Partial<Record<LiveFailureKind, string>> = {
-  "provider-unconfigured": "设置伴看",
-  "key-missing": "填写 Key",
-  "key-rejected": "检查 Key",
-  "gemini-credential": "配置 Gemini Key",
-  "permission-denied": "设置伴看"
-};
-
 export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
   const root = deps.root;
   const text = root?.querySelector<HTMLElement>(".chat-live-status-text") ?? null;
@@ -71,7 +66,7 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
       else if (action === "stop" || action === "cancel") deps.onStop();
       else if (action === "restore") deps.onRestore();
       else if (action === "settings") {
-        deps.onOpenSettings(currentFailureKind === "gemini-credential" ? "gemini-key" : "live");
+        deps.onOpenSettings(resolveLiveFailureActions(currentFailureKind, currentError).settingsTarget);
       }
     });
   });
@@ -96,23 +91,26 @@ export function createChatLiveStatus(deps: ChatLiveStatusDeps): ChatLiveStatus {
       text.textContent = currentError?.trim() ? `伴看连接失败：${currentError}` : "伴看连接失败";
     }
 
+    const failureActions = viewState === "failure"
+      ? resolveLiveFailureActions(currentFailureKind, currentError)
+      : null;
     const visibleActions = (ACTIONS[viewState] ?? []).filter((action) => {
-      if (viewState !== "failure") {
+      if (!failureActions) {
         return true;
       }
       if (action === "retry") {
-        return currentFailureKind !== "provider-unconfigured" && currentFailureKind !== "key-missing";
+        return failureActions.showRetry;
       }
       if (action === "settings") {
-        return currentFailureKind !== undefined && currentFailureKind in SETTINGS_FAILURE_LABELS;
+        return failureActions.showSettings;
       }
       return true;
     });
     buttons.forEach((button, action) => {
       const hidden = !visibleActions.includes(action);
       button.hidden = hidden;
-      if (!hidden && action === "settings" && currentFailureKind) {
-        button.textContent = SETTINGS_FAILURE_LABELS[currentFailureKind] || "打开设置";
+      if (!hidden && action === "settings" && failureActions?.settingsLabel) {
+        button.textContent = failureActions.settingsLabel;
       }
     });
   }

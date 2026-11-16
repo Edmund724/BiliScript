@@ -53,15 +53,18 @@ beforeEach(() => {
   vi.doMock("../../extension/live/live-chat-controller.js", () => ({
     createLiveChatController: vi.fn(() => controller)
   }));
-  vi.doMock("../../extension/live/live-overlay-binding.js", () => ({
-    createLiveOverlayBinding: vi.fn((deps: FullscreenLiveOverlayDeps) => {
-      overlayDeps = deps;
-      return {
-        bindControllerCallbacks: (callbacks: unknown) => callbacks,
-        clearMessages: vi.fn()
-      };
-    })
-  }));
+  vi.doMock("../../extension/live/live-overlay-binding.js", async () => {
+    const actual = await vi.importActual<typeof import("../../extension/live/live-overlay-binding.js")>(
+      "../../extension/live/live-overlay-binding.js"
+    );
+    return {
+      ...actual,
+      createLiveOverlayBinding: vi.fn((deps: any) => {
+        overlayDeps = deps;
+        return actual.createLiveOverlayBinding(deps);
+      })
+    };
+  });
   vi.doMock("../../extension/live/live-room-settings.js", () => ({
     openLiveRoomSettings: openSettings,
     closeLiveRoomSettings: closeSettings

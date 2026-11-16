@@ -3,16 +3,23 @@
 import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 import {
-  applyInterpretMenuChoice,
   ensureFullscreenOverlay,
-  getInterpretSessionState,
   getLiveController,
   isLiveCompanionActive,
   startLiveCompanion,
-  stopLiveCompanion,
-  syncPlayerInterpretQuickAction
+  stopLiveCompanion
 } from "../live/live-companion-session.js";
-import { closeInterpretSubtitleMenu, toggleInterpretSubtitleMenu } from "../live/interpret-subtitle-menu.js";
+import {
+  closePlayerInterpretMenu,
+  syncPlayerInterpretQuickAction,
+  togglePlayerInterpretMenu
+} from "../live/player-interpret.js";
+import {
+  createThrottledLiveToggleHandler,
+  isControlBarLiveToggleMounted,
+  mountControlBarLiveToggle,
+  syncPlayerLiveToggleButton
+} from "../live/live-overlay-binding.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -55,10 +62,35 @@ ensurePlayerAiStyles();
 // 走 requestAnimationFrame 而不是退避定时器——播放器容器已出现但尚未完成
 // 布局/被显隐门挡住的窗口只有几帧，定时器路径要等满 100ms 起步的退避拍。
 const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
-const LIVE_QUICK_ACTION_THROTTLE_MS = 250;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
-let lastLiveQuickActionClickAt = -LIVE_QUICK_ACTION_THROTTLE_MS;
+let liveQuickActionTargetButton: HTMLButtonElement | null = null;
+const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () => {
+  const liveButton = liveQuickActionTargetButton;
+  try {
+    const isCurrentlyActive = Boolean(
+      liveButton?.classList.contains("is-active") ||
+        document.body.hasAttribute("data-biliscript-live-active") ||
+        isLiveCompanionActive() ||
+        getLiveController()?.getState() === "connected" ||
+        getLiveController()?.getState() === "connecting"
+    );
+
+    if (isCurrentlyActive) {
+      stopLiveCompanion();
+    } else {
+      await startLiveCompanion();
+    }
+  } catch {
+    const errorMessage = "实时伴看启动失败，请重试";
+    try {
+      const overlay = ensureFullscreenOverlay();
+      overlay.show({ forceExpand: true });
+      overlay.syncState("failure", false, errorMessage, "unknown");
+    } catch {}
+    setMessage(errorMessage);
+  }
+});
 
 // 注入耗时观测（工单 button-injection-stability/01 可观测，默认开启）：模块
 // 求值到 AI 键首次挂载的耗时，只记一次。
@@ -111,8 +143,7 @@ function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean 
   if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
     return false;
   }
-  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
-  return isControlBarItemMounted(liveWrap, placement);
+  return isControlBarLiveToggleMounted(liveWrap, playerHost, { fallbackToHost: true });
 }
 
 function resolvePlayerInterpretQuickActionPlacement(playerHost: HTMLElement) {
@@ -226,7 +257,8 @@ export function stopPlayerAiQuickAction(): void {
   // 变化，新装载窗口应重新获得一次性复校保护，而不是只校准内容脚本存活期内
   // 的第一个视频。
   playerAiSubtitleControlCalibrated = false;
-  lastLiveQuickActionClickAt = -LIVE_QUICK_ACTION_THROTTLE_MS;
+  liveQuickActionToggleHandler.reset();
+  liveQuickActionTargetButton = null;
 }
 
 export function startPlayerAiQuickActionObserver(): void {
@@ -379,25 +411,17 @@ function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
     liveButton.id = "biliscript-player-live-quick-action";
     liveButton.type = "button";
     liveButton.className = "biliscript-player-live-quick-action";
-    const label = isActive ? "实时伴看 (已开启)" : "实时伴看";
-    liveButton.title = label;
-    liveButton.setAttribute("aria-label", label);
-    liveButton.setAttribute("aria-pressed", String(isActive));
     liveButton.innerHTML = buildPlayerLiveQuickActionIconSvg();
     liveButton.addEventListener("click", handlePlayerLiveQuickActionClick, true);
   }
 
-  liveButton.classList.toggle("is-active", isActive);
-  liveWrap.classList.toggle("is-active", isActive);
+  syncPlayerLiveToggleButton({ button: liveButton, wrap: liveWrap, active: isActive });
 
   if (liveButton.parentElement !== iconWrap) {
     iconWrap.replaceChildren(liveButton);
   }
 
-  const placement = resolveControlBarPlacement({ host: playerHost, fallbackToHost: true });
-  if (placement) {
-    applyControlBarPlacement(liveWrap, placement);
-  }
+  mountControlBarLiveToggle(liveWrap, playerHost, { fallbackToHost: true });
 }
 
 function mountPlayerInterpretQuickAction(playerHost: HTMLElement): void {
@@ -549,19 +573,11 @@ function syncPlayerAiQuickActionButton(): void {
 export function removePlayerAiQuickActionButton(): void {
   // 就位记录同步清空：按钮已摘，下次 sync 必须重跑完整路径才能补回。
   clearPlayerAiQuickActionMountRecord();
-  if (playerAiState.playerAiQuickActionRevealTimer) {
-    window.clearTimeout(playerAiState.playerAiQuickActionRevealTimer);
-    playerAiState.setRevealTimer(0);
-  }
-  if (playerAiState.playerAiQuickActionHideTimer) {
-    window.clearTimeout(playerAiState.playerAiQuickActionHideTimer);
-    playerAiState.setHideTimer(0);
-  }
   if (playerAiState.playerAiQuickActionCursorHideTimer) {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
-  closeInterpretSubtitleMenu();
+  closePlayerInterpretMenu();
   document.getElementById("biliscript-player-interpret-quick-action-wrap")?.remove();
   document.getElementById("biliscript-player-interpret-quick-action")?.remove();
   document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
@@ -778,50 +794,13 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
   if (!button || button.disabled) return;
   const wrap = button.parentElement;
   if (!(wrap instanceof HTMLElement)) return;
-  await toggleInterpretSubtitleMenu(wrap, {
-    getSessionState: getInterpretSessionState,
-    getPreferences: async () => {
-      const settings = await getSettings();
-      return {
-        targetLang: String(settings.liveInterpretTargetLang || "zh"),
-        displayMode: String(settings.liveInterpretDisplayMode || "auto")
-      };
-    },
-    applyChoice: applyInterpretMenuChoice
-  });
+  await togglePlayerInterpretMenu(wrap);
 }
 
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
   event.preventDefault();
   event.stopPropagation();
-  const now = Date.now();
-  if (now - lastLiveQuickActionClickAt < LIVE_QUICK_ACTION_THROTTLE_MS) {
-    return;
-  }
-  lastLiveQuickActionClickAt = now;
-
-  const liveButton = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
-  try {
-    const isCurrentlyActive = Boolean(
-      liveButton?.classList.contains("is-active") ||
-        document.body.hasAttribute("data-biliscript-live-active") ||
-        isLiveCompanionActive() ||
-        getLiveController()?.getState() === "connected" ||
-        getLiveController()?.getState() === "connecting"
-    );
-
-    if (isCurrentlyActive) {
-      stopLiveCompanion();
-    } else {
-      await startLiveCompanion();
-    }
-  } catch {
-    const errorMessage = "实时伴看启动失败，请重试";
-    try {
-      const overlay = ensureFullscreenOverlay();
-      overlay.show({ forceExpand: true });
-      overlay.syncState("failure", false, errorMessage, "unknown");
-    } catch {}
-    setMessage(errorMessage);
-  }
+  liveQuickActionTargetButton =
+    event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  await liveQuickActionToggleHandler.handleClick();
 }

@@ -38,7 +38,6 @@ import { isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 常驻包，四个 reading-view 分支与 URL 跳转入口改经 reader/lazy-shell.js 动态
 // 装载（reader-enter 本来就要装载 reader 域，shell 随行净增≈0）。
 import { ensureReaderShell } from "../reader/lazy-shell.js";
-import { ensureReaderChatTab, isReaderChatTabLoaded } from "../reader/lazy-chat-tab.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
 // 预抓取与 URL 换片刷新共用 subtitle/kick-subtitle-fetch 的起跑序列
 //（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
@@ -130,25 +129,18 @@ function handleReaderShellEnter(
   return true;
 }
 
-// 跨标签页会话接管（live-session-takeover）：停止被接管的实时伴看会话，
-// 并联动停止已装载的对话 tab。
+// 跨标签页会话接管（live-session-takeover）：经 reader-bus 通知当前页停止被接管的实时伴看会话。
 function handleLiveSessionTakeover(
   _message: Msg<"live-session-takeover">,
   sendResponse: SendResponse
 ): boolean {
-  (async () => {
-    try {
-      requestLiveCompanionStop("takeover");
-      if (isReaderChatTabLoaded()) {
-        const chatDomain = await ensureReaderChatTab();
-        chatDomain.stopLiveCompanion();
-      }
-      sendResponse({ ok: true });
-    } catch {
-      sendResponse({ ok: false });
-    }
-  })();
-  return true;
+  try {
+    requestLiveCompanionStop("takeover");
+    sendResponse({ ok: true });
+  } catch {
+    sendResponse({ ok: false });
+  }
+  return false;
 }
 
 // 退出阅读壳（工单 arch-slim/02）：reader-close 处理器退化为退出事务委托

@@ -252,7 +252,7 @@ describe("live-session-takeover 跨标签页接管伴看停止", () => {
     setLiveCompanionStopHandler(null);
   });
 
-  it("若对话 tab 已装载则调用 stopLiveCompanion 并执行伴看停止回调", async () => {
+  it("仅经 reader-bus 通知当前页伴看停止，不触碰或装载对话 tab", async () => {
     const { isReaderChatTabLoaded } = await import("../../extension/reader/lazy-chat-tab.js");
     (isReaderChatTabLoaded as any).mockReturnValue(true);
     const chat = makeChatStub();
@@ -262,10 +262,11 @@ describe("live-session-takeover 跨标签页接管伴看停止", () => {
 
     const sendResponse = vi.fn();
     const keepOpen = messageListener({ type: "live-session-takeover" }, {}, sendResponse);
-    expect(keepOpen).toBe(true);
+    expect(keepOpen).toBe(false);
 
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
     expect(companionStop).toHaveBeenCalledWith("takeover");
-    expect(chat.stopLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(ensureReaderChatTabMock).not.toHaveBeenCalled();
+    expect(chat.stopLiveCompanion).not.toHaveBeenCalled();
   });
 });

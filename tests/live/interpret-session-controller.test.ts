@@ -26,6 +26,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
     translateItems?: (args: any) => Promise<SubtitleBodyItem[]>;
     loadCache?: (key: string) => Promise<unknown[] | null>;
     saveCache?: (key: string, body: unknown[]) => Promise<any>;
+    clearTranslatedCache?: (args: { bvid: string; cid: string }) => Promise<string[]>;
     resolveTranslateProvider?: () => Promise<any>;
     currentTime?: number;
     paused?: boolean;
@@ -71,6 +72,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       cacheStorage.set(key, body);
       return { ok: true };
     });
+    const clearTranslatedCache = overrides.clearTranslatedCache || vi.fn(async () => []);
     const resolveTranslateProvider = overrides.resolveTranslateProvider || vi.fn(async () => ({
       provider: { id: "test-ai", name: "Test AI", baseUrl: "https://api.test", models: ["m1"], enabled: true },
       apiKey: "sk-test",
@@ -98,6 +100,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       translateItems,
       loadCache,
       saveCache,
+      clearTranslatedCache,
       resolveTranslateProvider,
       loadAsrProviders
     });
@@ -115,6 +118,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       translateItems,
       loadCache,
       saveCache,
+      clearTranslatedCache,
       resolveTranslateProvider,
       cacheStorage
     };
@@ -199,6 +203,9 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(runAsr).not.toHaveBeenCalled(); // 跳过 ASR
       // 窗口 [0, 1, 2] 内有两个分片需要翻译
       expect(translateItems).toHaveBeenCalledTimes(2);
+      expect(translateItems).toHaveBeenCalledWith(
+        expect.objectContaining({ fallbackToOriginal: false })
+      );
     });
   });
 
@@ -258,9 +265,20 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
   });
 
   describe("增量主/副轨合并与热评防重", () => {
-    it("分片逐片到达时增量合入主/副轨并落盘缓存，不重复触发热评", async () => {
+    it("分片逐片到达时增量合入主/副轨并落盘缓存，不重复触发热评；新 ASR 主轨持久化时仅失效旧译文一次", async () => {
       let chunkCb: any = null;
-      const { controller, runAsr, saveCache } = setupTest({
+      const callOrder: string[] = [];
+      const saveCache = vi.fn(async () => {
+        callOrder.push("saveCache");
+        return { ok: true };
+      });
+      const clearTranslatedCache = vi.fn(async () => {
+        callOrder.push("clearTranslatedCache");
+        return [];
+      });
+      const { controller, runAsr } = setupTest({
+        saveCache,
+        clearTranslatedCache,
         runAsr: vi.fn(async (args: any) => {
           chunkCb = args.onChunkResult;
         })
@@ -270,7 +288,7 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(runAsr).toHaveBeenCalled();
       expect(chunkCb).toBeDefined();
 
-      // 分片 0 到达
+      // 分片 0 到达：保存主轨 -> 失效旧译文 -> 保存新译文
       await chunkCb(
         { index: 0, startSec: 0, durationSec: 60, result: { text: "Chunk 0 ASR" } },
         [{ from: 0, to: 10, content: "Chunk 0 ASR" }]
@@ -282,7 +300,29 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       expect(state.clip.secondarySubtitle.body).toEqual([
         { from: 0, to: 10, content: "译: Chunk 0 ASR" }
       ]);
-      expect(saveCache).toHaveBeenCalledTimes(2); // primary and secondary
+      expect(saveCache).toHaveBeenCalledTimes(2);
+      expect(clearTranslatedCache).toHaveBeenCalledTimes(1);
+      expect(clearTranslatedCache).toHaveBeenCalledWith({ bvid: "BV1test000000", cid: "123456" });
+      expect(callOrder).toEqual(["saveCache", "clearTranslatedCache", "saveCache"]);
+
+      // 分片 1 到达：不再重复清理同轮已产生的译文缓存
+      await chunkCb(
+        { index: 1, startSec: 60, durationSec: 60, result: { text: "Chunk 1 ASR" } },
+        [{ from: 60, to: 70, content: "Chunk 1 ASR" }]
+      );
+      expect(clearTranslatedCache).toHaveBeenCalledTimes(1);
+    });
+
+    it("主轨已存在（只走翻译路径）时不失效其他语言的译文缓存", async () => {
+      clipState.setSubtitleBody([{ from: 0, to: 10, content: "Existing ASR" }]);
+      clipState.setSubtitleFetchState("ready");
+      const { controller, clearTranslatedCache, saveCache } = setupTest({
+        targetLang: "ja"
+      });
+
+      await controller.start();
+      await vi.waitFor(() => expect(saveCache).toHaveBeenCalled());
+      expect(clearTranslatedCache).not.toHaveBeenCalled();
     });
   });
 

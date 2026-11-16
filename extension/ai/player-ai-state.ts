@@ -8,8 +8,6 @@ type PlayerAiBusinessState = {
   playerAiQuickActionObserver: MutationObserver | null;
   playerAiQuickActionLayoutBound: boolean;
   playerAiQuickActionSyncTimer: number;
-  playerAiQuickActionRevealTimer: number;
-  playerAiQuickActionHideTimer: number;
   playerAiQuickActionCursorHideTimer: number;
   playerAiQuickActionSubmitting: boolean;
   playerAiQuickActionSuppressedUntil: number;
@@ -19,8 +17,6 @@ type PlayerAiSetters = {
   setObserver(value: MutationObserver | null): void;
   setLayoutBound(value: boolean): void;
   setSyncTimer(value: number): void;
-  setRevealTimer(value: number): void;
-  setHideTimer(value: number): void;
   setCursorHideTimer(value: number): void;
   setSubmitting(value: boolean): void;
   setSuppressedUntil(value: number): void;
@@ -33,16 +29,12 @@ export const playerAiState: PlayerAiStateWritable = {
   playerAiQuickActionObserver: null,
   playerAiQuickActionLayoutBound: false,
   playerAiQuickActionSyncTimer: 0,
-  playerAiQuickActionRevealTimer: 0,
-  playerAiQuickActionHideTimer: 0,
   playerAiQuickActionCursorHideTimer: 0,
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
   setObserver(value) { this.playerAiQuickActionObserver = value; },
   setLayoutBound(value) { this.playerAiQuickActionLayoutBound = value; },
   setSyncTimer(value) { this.playerAiQuickActionSyncTimer = value; },
-  setRevealTimer(value) { this.playerAiQuickActionRevealTimer = value; },
-  setHideTimer(value) { this.playerAiQuickActionHideTimer = value; },
   setCursorHideTimer(value) { this.playerAiQuickActionCursorHideTimer = value; },
   setSubmitting(value) { this.playerAiQuickActionSubmitting = value; },
   setSuppressedUntil(value) { this.playerAiQuickActionSuppressedUntil = value; }

@@ -1,209 +1,96 @@
 // extension/live/live-companion-session.ts
-// 视频页实时会话组装根：伴看与字幕翻译各自持有独立控制器，共享浮窗宿主与页面生命周期。
-// 播放器快捷按钮与 AI 对话面板均消费伴看控制器；关闭文摘面板不销毁会话；pagehide 统一释放。
+// 视频页实时伴看会话组合根：将控制器、浮窗绑定、音频同步与设置监听委托给 liveOverlayBinding，
+// 仅注入视频页工具桥与概览上下文；pagehide 时统一清理伴看与同传模块。
 
-import { state } from "../core/state.js";
-import { normalizeLiveVoiceSpeed, normalizeLiveVoiceVolume } from "../core/validators.js";
 import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
-import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import {
-  setLiveCompanionStopHandler,
-  subscribeReaderPresenter
-} from "../reader/reader-bus.js";
+import { ensureReaderShell } from "../reader/lazy-shell.js";
 import {
   cancelReaderOverviewSource,
   ensureReaderOverviewSource,
   getReaderOverviewSource,
   subscribeReaderOverviewSource
 } from "../reader/live-overview-source.js";
-import { ensureReaderShell } from "../reader/lazy-shell.js";
+import {
+  setLiveCompanionStopHandler,
+  subscribeReaderPresenter
+} from "../reader/reader-bus.js";
 import type { FullscreenLiveOverlay, LiveSettingsTarget } from "./fullscreen-live-overlay.js";
-import { createInterpretSubtitleOverlay } from "./interpret-subtitle-overlay.js";
-import {
-  closeInterpretSubtitleMenu,
-  syncInterpretSubtitleMenu,
-  type InterpretSubtitleMenuChoice
-} from "./interpret-subtitle-menu.js";
-import {
-  createInterpretSessionController,
-  type InterpretSessionController
-} from "./interpret-session-controller.js";
-import {
-  createLiveChatController,
-  type LiveChatController
-} from "./live-chat-controller.js";
+import type { LiveChatController } from "./live-chat-controller.js";
 import {
   createLiveOverlayBinding,
-  syncPlayerInterpretQuickActionState,
   type LiveOverlayBinding,
-  type LiveOverlayControllerHooks
+  type LiveOverlayConsumerHooks
 } from "./live-overlay-binding.js";
+import { persistLiveTextToolRecord } from "./live-text-tool-records.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
-import { persistLiveTextToolRecord } from "./live-text-tool-history-storage.js";
-import { watchLiveAudioSettings } from "./live-audio-settings.js";
+import {
+  disposePlayerInterpret,
+  setPlayerInterpretNoticeConsumer,
+  showPlayerInterpretNotice
+} from "./player-interpret.js";
 
-export interface LiveSessionConsumerHooks {
-  showNotice?: (message: string, autoHideMs?: number) => void;
-  onBeforeStart?: () => void;
-  onStateChange?: LiveOverlayControllerHooks["onStateChange"];
-  onReconnecting?: () => void;
-}
+export type LiveSessionConsumerHooks = LiveOverlayConsumerHooks;
 
-let liveController: LiveChatController | null = null;
-let interpretController: InterpretSessionController | null = null;
 let sessionHooks: LiveSessionConsumerHooks | null = null;
-let unsubscribeStorageWatcher: (() => void) | null = null;
-let unsubscribeAudioSettingsWatcher: (() => void) | null = null;
-let unsubscribeInterpretPresenter: (() => void) | null = null;
 let pageHideBound = false;
 
 function getPlayerHost(): HTMLElement | null {
   return document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
 }
 
-function shouldShowInterpret(): boolean {
-  const hasCc = state.clip.subtitles.some((track) =>
-    Boolean(track.subtitleUrl) && !String(track.lan || "").startsWith("asr-")
-  );
-  return !hasCc && (state.clip.subtitleFetchState === "empty" || state.clip.subtitleFetchState === "ready");
-}
-
-const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
-  getPlayerHost,
-  getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
-  getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto"
-});
-
-export function syncPlayerInterpretQuickAction(): void {
-  bindLifecycleListeners();
-  const shouldShow = shouldShowInterpret();
-  const controller = shouldShow ? ensureInterpretController() : interpretController;
-  syncPlayerInterpretQuickActionState(controller, shouldShow);
-  if (!shouldShow) {
-    closeInterpretSubtitleMenu();
-  } else {
-    void syncInterpretSubtitleMenu();
-  }
-}
-
-function ensureInterpretController(): InterpretSessionController {
-  if (!interpretController) {
-    interpretController = createInterpretSessionController({
-      getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
-      getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
-      showNotice: (message, autoHideMs) => {
-        if (sessionHooks?.showNotice) {
-          sessionHooks.showNotice(message, autoHideMs);
-        } else {
-          interpretSubtitleOverlay.showNotice(message, autoHideMs);
-        }
-      },
-      setSubtitle: interpretSubtitleOverlay.setSubtitle,
-      clearSubtitles: interpretSubtitleOverlay.clear,
-      clearSubtitlesOnSeek: interpretSubtitleOverlay.clearForSeek,
-      onStateChange: syncPlayerInterpretQuickAction,
-      onAvailabilityChange: syncPlayerInterpretQuickAction
-    });
-    bindLifecycleListeners();
-    void interpretController.refreshAvailability();
-  }
-  return interpretController;
-}
-
-export async function toggleInterpret(): Promise<void> {
-  await ensureInterpretController().toggle();
-}
-
-// ===== 播放器「字幕」菜单接线（interpret-subtitle-menu 的 deps 实现）=====
-
-export function getInterpretSessionState(): "idle" | "connecting" | "connected" {
-  return interpretController?.getState() ?? "idle";
-}
-
-export async function applyInterpretMenuChoice(
-  choice: InterpretSubtitleMenuChoice
-): Promise<void> {
-  const controller = ensureInterpretController();
-  if (choice.kind === "off") {
-    await controller.stop();
-    return;
-  }
-
-  const prevLang = String(state.settings?.liveInterpretTargetLang || "zh");
-  const langChanged = choice.targetLang !== prevLang;
-  const patch = {
-    liveInterpretTargetLang: choice.targetLang,
-    liveInterpretDisplayMode: (choice.kind === "bilingual" ? "bilingual" : "translation") as
-      | "bilingual"
-      | "translation"
+function createVideoLiveControllerDeps() {
+  const notifyConsumer = (message: string, autoHideMs?: number) => {
+    sessionHooks?.showNotice?.(message, autoHideMs);
   };
-  state.patchSettings(patch);
-  void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
-
-  const sessionState = controller.getState();
-  if (sessionState === "idle") {
-    // 选语言/开双语即开启会话；平台缺失时 start 内部提示可读错误
-    await controller.start();
-  } else if (langChanged) {
-    // 译文缓存按目标语言键命中，重启直接复用已翻分片
-    await controller.stop();
-    await controller.start();
-  }
-  // 同语言仅切显示模式：浮层按新设置即时重算，无需重启
+  const liveToolsBridge = createLiveToolsBridge({
+    showNotice: notifyConsumer,
+    getOverview: () => getReaderOverviewSource(),
+    ensureOverview: (options) => ensureReaderOverviewSource(options)
+  });
+  return {
+    showNotice: notifyConsumer,
+    getVideoContext: liveToolsBridge.getVideoContext,
+    executeTool: liveToolsBridge.executeTool,
+    persistTextToolRecord: (record: Parameters<typeof persistLiveTextToolRecord>[0]) =>
+      persistLiveTextToolRecord(record),
+    subscribeVideoContextChanges: (listener: () => void) => {
+      const unsubscribePresenter = subscribeReaderPresenter((event) => {
+        if (
+          event.kind === "reset" ||
+          event.kind === "rerender" ||
+          event.kind === "subtitle-ready"
+        ) {
+          listener();
+        }
+      });
+      const unsubscribeOverview = subscribeReaderOverviewSource(listener);
+      return () => {
+        unsubscribePresenter();
+        unsubscribeOverview();
+      };
+    }
+  };
 }
 
 const liveOverlayBinding = createLiveOverlayBinding({
   getPlayerHost,
-  getLiveController: () => liveController,
   onOpenLiveSettings: (target) => {
     void openLiveCompanionSettings(target);
-  }
+  },
+  onStopTakeover: () => {
+    showPlayerInterpretNotice("伴看已切换到另一个标签页");
+  },
+  createControllerDeps: createVideoLiveControllerDeps
 });
 
 function onWindowPageHide(): void {
   disposeLiveCompanionSession();
 }
 
-function bindLifecycleListeners(): void {
+function bindSessionPageLifecycle(): void {
   setLiveCompanionStopHandler((reason) => {
     stopLiveCompanion(reason);
   });
-  if (!unsubscribeInterpretPresenter) {
-    unsubscribeInterpretPresenter = subscribeReaderPresenter((event) => {
-      if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
-        syncPlayerInterpretQuickAction();
-      }
-    });
-  }
-  if (!unsubscribeStorageWatcher) {
-    unsubscribeStorageWatcher = watchStorageKeys(
-      () => {
-        void liveController?.refreshTarget();
-        void interpretController?.refreshAvailability();
-      },
-      {
-        sync: [
-          "liveProviders",
-          "activeLiveProviderId",
-          "asrProviders",
-          "activeAsrProviderId",
-          "aiProviders",
-          "activeAiProviderId",
-          "defaultModel",
-          "subtitleTranslateProviderId",
-          "subtitleTranslateModel"
-        ],
-        local: ["liveProviderKeys", "asrProviderKeys", "aiProviderKeys"]
-      }
-    );
-  }
-  if (!unsubscribeAudioSettingsWatcher) {
-    unsubscribeAudioSettingsWatcher = watchLiveAudioSettings(
-      () => liveController,
-      () => liveOverlayBinding.getOverlay()?.syncState()
-    );
-  }
   if (!pageHideBound && typeof window !== "undefined") {
     window.addEventListener("pagehide", onWindowPageHide);
     pageHideBound = true;
@@ -212,6 +99,9 @@ function bindLifecycleListeners(): void {
 
 export function setLiveSessionHooks(hooks: LiveSessionConsumerHooks | null): void {
   sessionHooks = hooks;
+  liveOverlayBinding.setConsumerHooks(hooks);
+  setPlayerInterpretNoticeConsumer(hooks?.showNotice ?? null);
+  bindSessionPageLifecycle();
 }
 
 export async function openLiveCompanionSettings(target: LiveSettingsTarget): Promise<void> {
@@ -221,59 +111,12 @@ export async function openLiveCompanionSettings(target: LiveSettingsTarget): Pro
 }
 
 export function ensureLiveController(): LiveChatController {
-  if (!liveController) {
-    const notifyConsumer = (message: string, autoHideMs?: number) => {
-      sessionHooks?.showNotice?.(message, autoHideMs);
-    };
-    const liveToolsBridge = createLiveToolsBridge({
-      showNotice: notifyConsumer,
-      getOverview: () => getReaderOverviewSource(),
-      ensureOverview: (options) => ensureReaderOverviewSource(options)
-    });
-    liveController = createLiveChatController({
-      initialVolume: normalizeLiveVoiceVolume(state.settings?.liveVoiceVolume) / 100,
-      initialSpeed: normalizeLiveVoiceSpeed(state.settings?.liveVoiceSpeed),
-      initialVoicePriority: state.settings?.liveVoicePriority !== false,
-      initialShareVideoAudio: state.settings?.liveShareVideoAudio === true,
-      ...liveOverlayBinding.bindControllerCallbacks({
-        onStateChange: (liveState, error, failureKind) => {
-          if (error !== undefined) {
-            sessionHooks?.onStateChange?.(liveState, error, failureKind);
-          } else {
-            sessionHooks?.onStateChange?.(liveState);
-          }
-        },
-        onReconnecting: () => sessionHooks?.onReconnecting?.()
-      }),
-      showNotice: notifyConsumer,
-      getVideoContext: liveToolsBridge.getVideoContext,
-      executeTool: liveToolsBridge.executeTool,
-      persistTextToolRecord: (record) => persistLiveTextToolRecord(record),
-      subscribeVideoContextChanges: (listener) => {
-        const unsubscribePresenter = subscribeReaderPresenter((event) => {
-          if (
-            event.kind === "reset" ||
-            event.kind === "rerender" ||
-            event.kind === "subtitle-ready"
-          ) {
-            listener();
-          }
-        });
-        const unsubscribeOverview = subscribeReaderOverviewSource(listener);
-        return () => {
-          unsubscribePresenter();
-          unsubscribeOverview();
-        };
-      }
-    });
-    bindLifecycleListeners();
-    void liveController.refreshTarget();
-  }
-  return liveController;
+  bindSessionPageLifecycle();
+  return liveOverlayBinding.ensureController();
 }
 
 export function getLiveController(): LiveChatController | null {
-  return liveController;
+  return liveOverlayBinding.getController();
 }
 
 export function getLiveOverlayBinding(): LiveOverlayBinding {
@@ -285,66 +128,42 @@ export function getFullscreenLiveOverlay(): FullscreenLiveOverlay | null {
 }
 
 export function ensureFullscreenOverlay(): FullscreenLiveOverlay {
-  ensureLiveController();
+  bindSessionPageLifecycle();
+  liveOverlayBinding.ensureController();
   return liveOverlayBinding.ensureOverlay();
 }
 
 export function isLiveCompanionActive(): boolean {
-  const s = liveController?.getState();
-  return s === "connecting" || s === "connected";
+  return liveOverlayBinding.isActive();
 }
 
 export async function startLiveCompanion(): Promise<boolean> {
-  ensureLiveController();
-  sessionHooks?.onBeforeStart?.();
-  return liveOverlayBinding.startOrRestoreCompanion();
+  bindSessionPageLifecycle();
+  return liveOverlayBinding.start();
 }
 
 export async function retryLiveCompanion(): Promise<boolean> {
-  ensureLiveController();
-  sessionHooks?.onBeforeStart?.();
+  bindSessionPageLifecycle();
   return liveOverlayBinding.retry();
 }
 
 export function restoreLiveCompanionOverlay(): void {
-  if (!isLiveCompanionActive()) return;
-  liveOverlayBinding.ensureOverlay().restore();
+  liveOverlayBinding.restoreOverlay();
 }
 
 export function stopLiveCompanion(reason?: "takeover"): void {
-  const controller = liveController;
-  if (!controller) return;
-  const stopping = controller.stop();
-  if (reason === "takeover") {
-    void stopping.then(() => {
-      if (liveController === controller) {
-        interpretSubtitleOverlay.showNotice("伴看已切换到另一个标签页");
-      }
-    });
-  }
+  void liveOverlayBinding.stop(reason);
 }
 
 export function disposeLiveCompanionSession(): void {
-  if (unsubscribeStorageWatcher) {
-    unsubscribeStorageWatcher();
-    unsubscribeStorageWatcher = null;
-  }
-  unsubscribeAudioSettingsWatcher?.();
-  unsubscribeAudioSettingsWatcher = null;
   if (pageHideBound && typeof window !== "undefined") {
     window.removeEventListener("pagehide", onWindowPageHide);
     pageHideBound = false;
   }
   setLiveCompanionStopHandler(null);
-  unsubscribeInterpretPresenter?.();
-  unsubscribeInterpretPresenter = null;
+  sessionHooks = null;
+  setPlayerInterpretNoticeConsumer(null);
   cancelReaderOverviewSource();
-  liveController?.dispose();
-  liveController = null;
-  interpretController?.dispose();
-  interpretController = null;
-  closeInterpretSubtitleMenu();
-  interpretSubtitleOverlay.clear();
-  interpretSubtitleOverlay.dispose();
   liveOverlayBinding.dispose();
+  disposePlayerInterpret();
 }

@@ -11,8 +11,10 @@ import {
   type StorageArea
 } from "../../extension/chat/conversation-store.js";
 import { isLiveTextToolHistoryEntry } from "../../extension/live/live-text-tool-history.js";
-import { persistLiveTextToolRecord } from "../../extension/live/live-text-tool-history-storage.js";
-import type { LiveTextToolRecord } from "../../extension/live/live-text-tool-records.js";
+import {
+  persistLiveTextToolRecord,
+  type LiveTextToolRecord
+} from "../../extension/live/live-text-tool-records.js";
 
 const KEY = "biliscript_ai_conversations_v1";
 const URL = "https://www.bilibili.com/video/BV1test000000/";

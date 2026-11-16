@@ -1,13 +1,26 @@
 // extension/bilibili/fullscreen.ts
 // B 站播放器全屏状态判定（浏览器全屏与网页全屏）
 
+function getFullscreenElement(): Element | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  return doc.fullscreenElement || doc.webkitFullscreenElement || null;
+}
+
+export function getFullscreenHost(): HTMLElement | null {
+  const fullscreenElement = getFullscreenElement();
+  return fullscreenElement instanceof HTMLElement ? fullscreenElement : null;
+}
+
 export function isPlayerFullscreen(targetHost?: Element | null): boolean {
   if (typeof document === "undefined") {
     return false;
   }
 
   // 1. 浏览器原生全屏判定
-  const fsEl = document.fullscreenElement || (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+  const fsEl = getFullscreenElement();
   if (fsEl) {
     if (!targetHost) {
       return true;
@@ -52,11 +65,9 @@ export async function exitPlayerFullscreenIfNeeded(): Promise<void> {
   }
 
   const doc = document as Document & {
-    webkitFullscreenElement?: Element | null;
     webkitExitFullscreen?: () => Promise<void> | void;
   };
-  const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
-  if (fsEl) {
+  if (getFullscreenElement()) {
     const exitPromise = doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.();
     await Promise.resolve(exitPromise).catch(() => {});
   }

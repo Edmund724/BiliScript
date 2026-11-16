@@ -11,7 +11,7 @@ import {
   isAbortNamedError,
   makeAbortedError
 } from "../shared/error-helpers.js";
-import { formatClock } from "../shared/clock-text.js";
+import { formatLiveOverviewMarkdown } from "./live-text-tool-records.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
 
 export const VIDEO_BACKEND_INJECTION_MAX_CHARS = 1799;
@@ -155,25 +155,6 @@ function sliceSubtitleItems(
   });
 }
 
-function overviewMarkdown(analysis: OverviewAnalysis): string {
-  const sections = ["# 全片概览", analysis.summary.trim()];
-  if (analysis.chapters.length > 0) {
-    sections.push("## 分章节详细笔记");
-    for (const chapter of analysis.chapters) {
-      const time = formatClock(chapter.from, { hours: "auto" });
-      sections.push(`### [${time}] ${chapter.title}\n${chapter.summary.trim()}`.trim());
-    }
-  }
-  if (analysis.quotes.length > 0) {
-    sections.push("## 关键原话");
-    for (const quote of analysis.quotes) {
-      const time = formatClock(quote.from, { hours: "auto" });
-      sections.push(`- [${time}] ${quote.content.trim()}`);
-    }
-  }
-  return sections.filter(Boolean).join("\n\n");
-}
-
 function overviewSpokenCore(analysis: OverviewAnalysis): string {
   const keyPoints = analysis.chapters
     .filter((chapter) => chapter.title || chapter.summary)
@@ -276,7 +257,7 @@ async function runFullOverviewTask(
   if (!spokenCore) throw new Error("概览没有生成可播报的核心内容，请重试。");
   return {
     rawText: analysis.summary,
-    detailText: analysis.chapters.length || analysis.quotes.length ? overviewMarkdown(analysis) : "",
+    detailText: analysis.chapters.length || analysis.quotes.length ? formatLiveOverviewMarkdown(analysis) : "",
     spokenCore,
     source: "overview"
   };

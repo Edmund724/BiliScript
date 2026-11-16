@@ -7,8 +7,10 @@ import {
   MAX_LIVE_TEXT_TOOL_RECORDS_PER_VIDEO,
   isLiveTextToolHistoryEntry
 } from "../../extension/live/live-text-tool-history.js";
-import { persistLiveTextToolRecord } from "../../extension/live/live-text-tool-history-storage.js";
-import type { LiveTextToolRecord } from "../../extension/live/live-text-tool-records.js";
+import {
+  persistLiveTextToolRecord,
+  type LiveTextToolRecord
+} from "../../extension/live/live-text-tool-records.js";
 
 const KEY = "biliscript_ai_conversations_v1";
 const VIDEO = {
