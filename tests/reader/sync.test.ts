@@ -217,7 +217,7 @@ describe("播放同步与高亮", () => {
     expect(rectSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("P3-1 字幕 tab 隐藏：tick 跳过高亮/滚动段，状态栏与跟随态照常收敛", () => {
+  it("P3-1 字幕 tab 隐藏：tick 跳过高亮/滚动段，跟随态照常收敛", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
@@ -234,10 +234,7 @@ describe("播放同步与高亮", () => {
     expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
 
-    // 状态行（面板 header）只承载事件文案（2026-09 决议：播放进度不再写入）；
     // 跟随态属性（header 标注消费）照常收敛
-    const status = document.getElementById(ids.readingStatus) as HTMLElement;
-    expect(status.textContent).toBe("");
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
   });
 
@@ -272,8 +269,6 @@ describe("播放同步与高亮", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
-    // 状态行不再被 tick 改写（抽屉展开与否都一样）
-    expect((document.getElementById(ids.readingStatus) as HTMLElement).textContent).toBe("");
   });
 
   it("播放稳态仅 interval 单路驱动：timeupdate 派发不触发同步（P3 单路化锁）", async () => {

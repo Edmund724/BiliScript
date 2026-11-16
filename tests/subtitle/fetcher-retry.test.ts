@@ -22,8 +22,7 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   notifyReaderPresenter: vi.fn()
 }));
 vi.mock("../../extension/core/ui-status.js", () => ({
-  setStatus: vi.fn(),
-  setMessage: vi.fn()
+  setStatus: vi.fn()
 }));
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
@@ -94,7 +93,6 @@ async function importEpoch() {
   commit.acceptSubtitle.mockReset().mockResolvedValue(undefined);
   commit.commitNoSubtitle.mockReset().mockResolvedValue(undefined);
   uiStatus.setStatus.mockReset();
-  uiStatus.setMessage.mockReset();
   readerBus.notifyReaderPresenter.mockReset();
 
   // meta 抓取成功（refreshClip 前置段），时长由 page-context 落 300
@@ -148,12 +146,7 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
       })
     );
     // 成功收尾（fetchState/selectedUrl 由字幕接受事务落位，本文件 mock 了事务，
-    // 终态断言只看状态栏文案与事务入参）。完成提示走 reader-bus "status" 通知
-    //（与渲染同通道），不再直写 setStatus。
-    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith({
-      kind: "status",
-      text: "抓取完成，可以复制或下载字幕。"
-    });
+    // 终态断言只看事务入参）。
   });
 
   it("SUBTITLE_DURATION_MISMATCH 触发：时长不匹配的 body 落到重试，新 bundle 重载成功", async () => {
@@ -170,10 +163,6 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
     expect(gateway.contentFetchJson).toHaveBeenCalledTimes(2);
     expect(commit.acceptSubtitle).toHaveBeenCalledTimes(1);
-    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith({
-      kind: "status",
-      text: "抓取完成，可以复制或下载字幕。"
-    });
   });
 
   it("重试仍失败：只重试一次，原始错误上抛并由 refreshClip 错误路径收尾", async () => {

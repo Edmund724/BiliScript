@@ -2,12 +2,9 @@ import { buildTxt } from "../notes/render.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { getSettings } from "../core/runtime.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
+import { logWarn } from "../shared/logging.js";
 import { state } from "../core/state.js";
 import { normalizeDownloadFormat } from "../core/validators.js";
-// 候选03 常驻瘦身：setMessage / setStatus 迁入 core/ui-status.js。
-import { setMessage, setStatus } from "../core/ui-status.js";
-import { announceReadingStatusLive } from "../core/reading-status-line.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
 import { ensureDerivedContent } from "./core.js";
@@ -18,8 +15,7 @@ import { createSecondaryLineResolver } from "./alignment.js";
 // copySubtitleTranscript / downloadSubtitle 只服务总结链与面板交互，留在
 // ui-renderer（常驻）会把它对 selection.js（isAiSubtitle）及 cache/cache-lru
 // 的依赖一并拖回常驻。
-// setStatus/setMessage 仍在 core/ui-status：URL 变化编排与本模块错误提示在
-// 启动期使用。
+// 失败（无内容 / 剪贴板拒绝）一律返回 false，由调用方在触发按钮上就地反馈。
 //（script-only-ui：经典侧栏面板删除后，renderMeta / renderSubtitleSelect /
 // setBusyState 三件「抓取结果渲染」已无目标节点——阅读视图的元信息/字幕轨由
 // reader 域的 renderReadingView/renderReadingSubtitleSelect 渲染，本节移除；
@@ -36,16 +32,14 @@ export async function copySubtitleTranscript(): Promise<boolean> {
   // 配对口径同源 alignment.js（双语关 / 副轨未就绪 ⇒ resolver 短路，文本与单轨逐字相同）。
   const text = buildTxt(state.clip.subtitleBody, state.settings, createSecondaryLineResolver());
   if (!text) {
-    setMessage("没有可复制的字幕，请先刷新抓取。");
     return false;
   }
 
   try {
     await navigator.clipboard.writeText(text);
-    announceReadingStatusLive("字幕已复制到剪贴板。");
     return true;
   } catch (error) {
-    setMessage(`复制失败：${getErrorMessage(error)}`);
+    logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
     return false;
   }
 }
@@ -57,7 +51,6 @@ export async function downloadSubtitle(): Promise<boolean> {
   const format = normalizeDownloadFormat(state.settings?.downloadFormat);
   const content = format === "txt" ? state.clip.txt : state.clip.srt;
   if (!content) {
-    setMessage("没有可下载的字幕，请先刷新抓取。");
     return false;
   }
 
@@ -77,7 +70,6 @@ export async function downloadSubtitle(): Promise<boolean> {
   a.remove();
   URL.revokeObjectURL(url);
 
-  announceReadingStatusLive(`已下载：${filename}`);
   return true;
 }
 

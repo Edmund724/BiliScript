@@ -19,10 +19,9 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
 }));
-// 候选03 常驻瘦身：setMessage / setStatus 已迁入 core/ui-status.js。
+// 候选03 常驻瘦身：setStatus 已迁入 core/ui-status.js。
 vi.mock("../../extension/core/ui-status.js", () => ({
-  setStatus: vi.fn(),
-  setMessage: vi.fn()
+  setStatus: vi.fn()
 }));
 // arch-slim-2/03：fetcher 的 fetchVideoMeta/fetchSubtitleBundle 纯直通包装已删
 // （日志下沉 gateway），refreshClip 的抓取断言/打桩改挂 gateway 的同名函数。

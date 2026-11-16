@@ -99,11 +99,6 @@ function overviewText(): string {
   return overviewBody().textContent || "";
 }
 
-// 金句复制反馈走 setMessage（script-only-ui：宿主收敛到 #biliscript-reading-status）
-function messageText(): string {
-  return (document.getElementById(ids.readingStatus) as HTMLElement).textContent || "";
-}
-
 // 概览渲染宿主上的手动委托（真实接线在 bindUiEvents，这里等价绑定以验证
 // closest 委托与 data-seconds/data-overview-action 分流）。
 function bindOverviewDelegation() {
@@ -251,8 +246,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(strip.textContent).toContain("热评没拿到");
     expect(strip.textContent).toContain("本次概览没有评论目录");
     expect(overviewText()).toContain("开场");
-    // 全局状态行不写这条任务反馈（06 号票归属收口）
-    expect(messageText()).not.toContain("热评没拿到");
   });
 
   it("热评提示条：字段为空（拉取成功）时 ready 产物不挂条", async () => {
@@ -756,7 +749,7 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
     expect(video.play).not.toHaveBeenCalled();
   });
 
-  it("点击 Copy 失败（剪贴板拒绝写入）：反馈「复制失败：…」", async () => {
+  it("点击 Copy 失败（剪贴板拒绝写入）：按钮闪现「复制失败」", async () => {
     const clipboardWriteText = vi.fn(async () => {
       throw new Error("denied");
     });
@@ -765,12 +758,11 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
       configurable: true
     });
 
-    overviewBody()
-      .querySelector<HTMLElement>("[data-overview-action='copy-quote']")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const copyBtn = overviewBody().querySelector<HTMLElement>("[data-overview-action='copy-quote']")!;
+    copyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    await vi.waitFor(() => expect(messageText()).toContain("复制失败"));
-    expect(messageText()).toContain("denied");
+    await vi.waitFor(() => expect(copyBtn.classList.contains("is-copy-failed")).toBe(true));
+    expect(copyBtn.getAttribute("aria-label")).toBe("复制失败");
   });
 
   it("金句卡选中文本（复制场景）时不跳转", () => {

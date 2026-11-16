@@ -26,16 +26,16 @@ import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
 import { ensureAsrTranslation } from "./asr-translation.js";
 
 // 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
-// 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
+// 启动期呈现（hydrate/apply）在常驻微模块
 // ./init-essentials.js、./presentation.js；本文件只保留 reader 域的重活：
 // 进入/退出生命周期、偏好更新与 reader-bus 通知处理体；列表/meta 等渲染投影
 // 知识收在 ./view-render.ts，本文件在装配点把会话态投影注进渲染驱动。
 import {
-  renderReadingStatus,
   hydrateReaderStateFromSettings,
   applyReadingViewPresentation
 } from "./presentation.js";
 import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js";
+import { clearSubtitleNotice, showSubtitleNotice } from "./subtitle-notice.js";
 
 // LAYOUT (state) functions this module drives:
 import { getReaderActiveScriptTab, ids } from "./state.js";
@@ -145,12 +145,12 @@ setReadingSubtitleBatchHook((fromIndex, toIndex) =>
 );
 bindReadingTranscribeBanner();
 // 选轨控件：深 module 实例持有工具条 UI 相位与事件接线。
-//   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（构造注入，跨壳重建存活）；
+//   - 结果通知回调：切轨失败经 reader-bus 的 "notice" 通道报错（构造注入，跨壳重建存活）；
 //   - 事件订阅（相位 / 双语偏好）由实例 bindEvents() 承载，绑一次语义由实例唯一性保证；
 //   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
 //     监听器随建壳接线（subtitle-tab-ui 经组件 initCustomSelect 的 onChange 交进去）。
 export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
-  onNotice: (text) => notifyReaderPresenter({ kind: "status", text })
+  onNotice: (text) => notifyReaderPresenter({ kind: "notice", text })
 });
 subtitleToolbar.bindEvents();
 
@@ -310,15 +310,13 @@ async function maybeRefreshReaderSubtitleInBackground() {
     onChainLoadFailed: (error) =>
       logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error }),
     continueAfterChainLoadFailed: true,
-    onRefreshFailed: (error) => renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`),
+    onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle refresh failed", { error }),
     onInHandOrInFlight: reconcileReaderAfterSubtitleFetch,
     afterRefreshSettled: reconcileReaderAfterSubtitleFetch
   });
 }
 
 export interface ReaderSubtitleReadyOptions {
-  /** 状态行文案（可选，通知路径传入；未传则不更新状态行） */
-  statusText?: string;
   /** 是否重启播放同步并立即定位（通知路径为 true，对账路径为 false） */
   syncPlayback?: boolean;
   /** 是否在视图未开时也尝试装载双语副轨（通知路径为 true，全局偏好且视图未开也照抓；对账路径为 false） */
@@ -332,7 +330,7 @@ export interface ReaderSubtitleReadyOptions {
 }
 
 // 字幕就绪副作用单一收口入口（工单 arch-review-batch3/01）：
-// 一处声明完整副作用串与次序：重投影 → 状态行 → 播放同步重启 → 概览触发 → 快捷问题预热。
+// 一处声明完整副作用串与次序：重投影 → 播放同步重启 → 概览触发 → 快捷问题预热。
 // 视图未开时整条跳过（reconcile 路径）或部分跳过（通知路径的双语装载在视图外）以显式参数表达。
 // 两路触发（subtitle-ready 通知、fetch 落定对账）共用同一份次序与守卫：
 //  - renderReadingView 是纯 state 投影（幂等）；
@@ -341,7 +339,6 @@ export interface ReaderSubtitleReadyOptions {
 //  - 双语副轨装载（视图未开也照抓，Q1 决议，通知路径独有）。
 export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) {
   const {
-    statusText,
     syncPlayback = false,
     ensureSecondarySubtitle = false,
     triggerMode = "always"
@@ -350,11 +347,6 @@ export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) 
   if (state.reader.readingViewOpen) {
     // PR2：字幕列表已常驻右侧面板「字幕」tab，纯 state 幂等重投影
     renderReadingView();
-
-    // 状态行：文案由调用方传入（通知路径独有）
-    if (statusText) {
-      renderReadingStatus(statusText);
-    }
 
     // 播放同步重启（通知路径独有）
     if (syncPlayback) {
@@ -428,6 +420,7 @@ type ReaderPresenterReceivers = {
 
 const readerPresenterReceivers: ReaderPresenterReceivers = {
   reset() {
+    clearSubtitleNotice();
     stopReadingViewSync();
     closeReaderExplainCard();
     closeQuoteShareModal({ restoreFocus: false });
@@ -437,7 +430,6 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
   },
   "subtitle-ready"(event) {
     onReaderSubtitleReady({
-      statusText: String(event.text || "") || "抓取完成，阅读视图已同步最新字幕。",
       syncPlayback: true,
       ensureSecondarySubtitle: true,
       triggerMode: "always"
@@ -450,14 +442,14 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
   },
   "secondary-subtitle-ready"() {
     // 双语副轨到站（bilingual-subtitles/05 号票）：**只**重渲视图，不复制
-    // subtitle-ready 那串副作用（状态行 / 播放同步重启 / 概览生成 / 快捷问题预热）
+    // subtitle-ready 那串副作用（播放同步重启 / 概览生成 / 快捷问题预热）
     // ——那些面只吃主轨（地图 Q6）。
     if (state.reader.readingViewOpen) {
       renderReadingView();
     }
   },
-  status(event) {
-    renderReadingStatus(String(event.text || ""));
+  notice(event) {
+    showSubtitleNotice(event.text);
   }
 };
 

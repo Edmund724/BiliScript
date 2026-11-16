@@ -636,9 +636,6 @@ describe("面板内解释卡片", () => {
     expect(explainCard().querySelector(".biliscript-reading-explain-card-notice")?.textContent).toBe(
       "联网搜索额度已用尽，本次仅按字幕回答。"
     );
-    // 全局状态行不写这条任务反馈（06 号票归属收口）
-    expect((document.getElementById(ids.readingStatus) as HTMLElement)?.textContent || "").not.toContain("额度");
-    expect(state.ui.messageText).not.toContain("额度");
   });
 
   it("换选区重复打开：只留最后一张卡，过期回执不覆盖新内容", async () => {

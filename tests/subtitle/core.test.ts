@@ -407,11 +407,10 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
   });
 
-  it("拉取失败（风控 / 网络）：落空数组 + 失败提示落 clip 字段（概览 tab 呈现），不写全局状态行", async () => {
+  it("拉取失败（风控 / 网络）：落空数组 + 失败提示落 clip 字段（概览 tab 呈现）", async () => {
     const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
     state.clip.setHotComments([]);
     state.clip.setHotCommentsNotice("");
-    state.ui.setMessageText("");
     gateway.fetchHotComments.mockRejectedValueOnce(
       new Error("B 站风控校验失败（-352），拿不到热评目录")
     );
@@ -419,11 +418,9 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     await refreshHotComments({ refreshComments: true });
 
     expect(state.clip.hotComments).toEqual([]);
-    // 反馈归属（06 号票）：热评的消费方是概览，失败提示写给概览 tab 的
-    // hotCommentsNotice，全局状态行不再出声
+    // 热评的消费方是概览，失败提示写给概览 tab 的 hotCommentsNotice
     expect(state.clip.hotCommentsNotice).toContain("热评没拿到");
     expect(state.clip.hotCommentsNotice).toContain("B 站风控校验失败（-352）");
-    expect(state.ui.messageText).not.toContain("热评没拿到");
   });
 
   it("评论被关闭（-404）：同样落 clip 字段，病因原样可读", async () => {

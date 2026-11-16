@@ -170,7 +170,7 @@ export async function ensureAsrTranslation(
     return { kind: result.kind === "pending" ? "pending" : "done" };
   } catch (error) {
     logWarn("[BILISCRIPT] asr translation failed", error);
-    notifyReaderPresenter({ kind: "status", text: `译文生成失败：${getErrorMessage(error)}` });
+    notifyReaderPresenter({ kind: "notice", text: `译文生成失败：${getErrorMessage(error)}` });
     return { kind: "skipped" };
   } finally {
     if (activeAbort === abort) {

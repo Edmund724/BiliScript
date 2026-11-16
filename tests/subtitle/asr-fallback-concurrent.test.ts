@@ -63,7 +63,6 @@ type DepsMock = {
   getSettings: Mock<CreateAsrFallbackDeps["getSettings"]>;
   loadProviders: Mock<CreateAsrFallbackDeps["loadProviders"]>;
   setStatus: Mock<CreateAsrFallbackDeps["setStatus"]>;
-  setMessage: Mock<CreateAsrFallbackDeps["setMessage"]>;
   acceptSubtitle: Mock<typeof realAcceptSubtitle>;
   commitNoSubtitle: Mock<typeof realCommitNoSubtitle>;
   runAsrPipeline: Mock<CreateAsrFallbackDeps["runAsrPipeline"]>;
@@ -104,7 +103,6 @@ beforeEach(() => {
     getSettings: vi.fn<CreateAsrFallbackDeps["getSettings"]>(async () => state.settings),
     loadProviders: vi.fn<CreateAsrFallbackDeps["loadProviders"]>(async () => [PROVIDER]),
     setStatus: vi.fn<CreateAsrFallbackDeps["setStatus"]>(),
-    setMessage: vi.fn<CreateAsrFallbackDeps["setMessage"]>(),
     // 字幕接受事务：vi.fn 包装真实实现（真实落 state + 可观察调用）
     acceptSubtitle: vi.fn(realAcceptSubtitle),
     commitNoSubtitle: vi.fn(realCommitNoSubtitle),

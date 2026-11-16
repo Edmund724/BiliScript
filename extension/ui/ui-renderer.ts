@@ -60,10 +60,8 @@ export function buildUiHtml(): string {
       <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
-           readingStatus 挪进面板 header 下方（id 不变，subtitle/ai/chat 各域
-           经 core/ui-status.js 持续写入：错误常驻、其余 5s 收起、空闲整行
-           hidden——策略见 core/reading-status-line.js）。三 tab body 的内容
-           模板随各自域叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
+           面板没有常驻状态行：正常流程不提示，失败在出错处就地提示。
+           三 tab body 的内容模板随各自域叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
       <aside id="${ids.readingScriptPanel}" class="biliscript-reading-script-panel" aria-label="文摘面板">
             <header class="biliscript-reading-header">
               <div class="biliscript-reading-header-copy">
@@ -85,8 +83,6 @@ export function buildUiHtml(): string {
                 </button>
               </div>
             </header>
-
-            <p id="${ids.readingStatus}" class="biliscript-reading-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
@@ -462,8 +458,7 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
 
 // renderMeta / renderSubtitleSelect / setBusyState 已随经典侧栏面板删除
 //（script-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
-// tab 工具条接线）；setStatus / setMessage 已迁往 ../core/ui-status.js，宿主
-// 收敛到 #biliscript-reading-status。
+// tab 工具条接线）；setStatus 已迁往 ../core/ui-status.js。
 // arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/
 // chat-template.ts + chat-tab.ts；字幕 reader/subtitle-tab-ui.ts；选区解释
 // reader/explain-pop-ui.ts + explain-card.ts；概览 reader/overview-ui.ts +

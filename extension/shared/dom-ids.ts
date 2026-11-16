@@ -10,13 +10,8 @@ export const ids = {
   root: "biliscript-root",
   // script-only-ui：经典侧栏面板 ids（panel/status/meta/subtitleSelect/preview/
   // message/copyBtn/downloadBtn/refreshBtn/closeBtn/settingsBtn）已随 A 形态壳
-  // 删除——文摘面板是唯一界面，状态/消息写入 #biliscript-reading-status。
+  // 删除——文摘面板是唯一界面。
   readingView: "biliscript-reading-view",
-  readingStatus: "biliscript-reading-status",
-  // 状态行的读屏镜像 live region：阅读视图根节点常驻 aria-hidden="true"（整个面板
-  // 不进无障碍树），面板内的 role="status" 不会被朗读；本节点挂在 document.body
-  // 下、视觉隐藏，由 core/reading-status-line.js 与可见状态行同口径同步文本。
-  readingStatusLive: "biliscript-reading-status-live",
   readingCloseBtn: "biliscript-reading-close-btn",
   readingThemeSelect: "biliscript-reading-theme-select",
   readingSettingsBtn: "biliscript-reading-settings-btn",
@@ -52,6 +47,8 @@ export const ids = {
   readingExportSubtitleBtn: "biliscript-reading-export-subtitle",
   readingFollowBtn: "biliscript-reading-follow-btn",
   readingTranscribeBanner: "biliscript-reading-transcribe-banner",
+  // 字幕区就地失败提示（reader/subtitle-notice.ts）：只在失败时显示，成功与进行中不提示。
+  readingSubtitleNotice: "biliscript-reading-subtitle-notice",
   // 转写横幅的标题与副文案：文案按相位取（reader/transcribe-banner.ts 的相位
   // 文案表），id 用于把「按相位写文案」落到具体节点——不靠 class 选择器走私
   // 字符串（样式类不是文案契约）。

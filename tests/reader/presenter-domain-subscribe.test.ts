@@ -35,16 +35,16 @@ afterEach(() => {
 });
 
 describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () => {
-  it("status 通知直达状态行：操作通知正常到达，抓取提示被抑制", () => {
-    presenter.notifyReaderPresenter({ kind: "status", text: "已连接远程会话。" });
+  it("notice 通知直达字幕提示节点，reset 清空", () => {
+    const notice = document.getElementById(ids.readingSubtitleNotice) as HTMLElement;
 
-    expect(document.getElementById(ids.readingStatus)?.textContent).toBe(
-      "已连接远程会话。"
-    );
+    presenter.notifyReaderPresenter({ kind: "notice", text: "字幕轨切换失败" });
 
-    presenter.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
+    expect(notice.textContent).toBe("字幕轨切换失败");
 
-    expect(document.getElementById(ids.readingStatus)?.textContent).toBe("");
+    presenter.notifyReaderPresenter({ kind: "reset" });
+
+    expect(notice.textContent).toBe("");
   });
 
   it("subtitle-ready 通知渲染字幕列表（域内处理体可达）", () => {

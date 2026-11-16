@@ -163,7 +163,7 @@ describe("字幕已落定后打开面板：建议区的预热触发", () => {
     state.clip.setSubtitleBody(SUBTITLE_BODY);
 
     await shell.enterReaderMode();
-    shell.handleReaderPresenterNotification({ kind: "subtitle-ready", text: "抓取完成" });
+    shell.handleReaderPresenterNotification({ kind: "subtitle-ready" });
 
     lists.renderSuggestions();
     await vi.waitFor(() => {

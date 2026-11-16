@@ -72,9 +72,9 @@ describe("reader-bus 槽表跨实例共享", () => {
       received.push(event);
     });
 
-    lazy.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
+    lazy.notifyReaderPresenter({ kind: "notice", text: "提示文案" });
 
-    expect(received).toEqual([{ kind: "status", text: "抓取完成，可以复制或下载字幕。" }]);
+    expect(received).toEqual([{ kind: "notice", text: "提示文案" }]);
   });
 
   it("未注册时消费端静默（不抛）", () => {

@@ -138,7 +138,6 @@ describe("① 风控 -352（真 x/v2/reply/main 报文）→ 出声，不静默�
     core.clipState.setAid(String(AID));
     core.clipState.setHotComments([]);
     core.clipState.setHotCommentsNotice("");
-    core.state.ui.setMessageText("");
 
     await subtitleCore.refreshHotComments();
 
@@ -150,7 +149,6 @@ describe("① 风控 -352（真 x/v2/reply/main 报文）→ 出声，不静默�
     expect(core.clipState.hotCommentsNotice).toBe(
       "热评没拿到（B 站风控校验失败（-352），拿不到热评目录 (code: -352)）：本次概览没有评论目录。"
     );
-    expect(core.state.ui.messageText).not.toContain("热评没拿到");
   });
 });
 

@@ -2,7 +2,7 @@
 // 依赖注入 seam：cache/cache-lru 直 import 真实模块，跑在测试内构造的内存版
 // chrome.storage.local（Map 承载，支持 get(null) 全量枚举）之上；runAsrPipeline、
 // getSettings、loadProviders（provider 列表，provider-store 形状）与 UI 回调
-// （setStatus / setMessage / broadcastSubtitleStatus）全部为测试内构造的假依赖。
+// （setStatus / broadcastSubtitleStatus）全部为测试内构造的假依赖。
 // 字幕接受事务（acceptSubtitle / commitNoSubtitle，subtitle/commit.js）注入
 // vi.fn 包装的真实实现：端到端 state 断言不变（事务真实落 state），同时锁
 // 「调用了 commit」；reader 通知职责在事务内（经真实 reader-bus 订阅观察）。
@@ -81,7 +81,6 @@ function buildDeps(overrides: Partial<Deps> = {}): Deps {
     getSettings: vi.fn<DepsFns["getSettings"]>(async () => state.settings),
     loadProviders: vi.fn<DepsFns["loadProviders"]>(async () => [PROVIDER]),
     setStatus: vi.fn<DepsFns["setStatus"]>(),
-    setMessage: vi.fn<DepsFns["setMessage"]>(),
     // 字幕接受事务：vi.fn 包装真实实现（真实落 state + 可观察调用）
     acceptSubtitle: vi.fn<DepsFns["acceptSubtitle"]>(realAcceptSubtitle),
     commitNoSubtitle: vi.fn<DepsFns["commitNoSubtitle"]>(realCommitNoSubtitle),
@@ -390,17 +389,14 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(storageHost.readEntry(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
   });
 
-  it("写缓存失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，不阻断收尾", async () => {
-    // storage.set 恒失败 → writeWithEviction 返回 ok:false → setMessage 上浮
+  it("写缓存失败（LRU 淘汰后重试仍失败）：不阻断收尾", async () => {
+    // storage.set 恒失败 → writeWithEviction 返回 ok:false
     vi.mocked(globalThis.chrome.storage.local.set).mockRejectedValue(new Error("quota exceeded"));
     deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
     expect(result).toBe("done");
-    expect(deps.setMessage).toHaveBeenCalledWith(
-      "语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。"
-    );
     // 写失败时孤儿清理不执行、收尾不受影响
     expect(state.clip.subtitleFetchState).toBe("ready");
   });
@@ -573,7 +569,6 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
 
     // 切视频前的 UI 写入基线（发起阶段的转写提示）
     const statusCallsAtSwitch = deps.setStatus.mock.calls.length;
-    const messageCallsAtSwitch = deps.setMessage.mock.calls.length;
     const acceptCallsAtSwitch = deps.acceptSubtitle.mock.calls.length;
 
     // 换视频：bvid 变化 → isStale 判真；任务不再被中止，转写照常到站
@@ -590,9 +585,8 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
       "asr-transcribing",
       "asr-done"
     ]);
-    // UI 零写入：切走后不碰状态栏/消息栏/clipState/reader（不执行 finishAsrFallback）
+    // UI 零写入：切走后不碰状态栏/clipState/reader（不执行 finishAsrFallback）
     expect(deps.setStatus).toHaveBeenCalledTimes(statusCallsAtSwitch);
-    expect(deps.setMessage).toHaveBeenCalledTimes(messageCallsAtSwitch);
     expect(deps.acceptSubtitle).toHaveBeenCalledTimes(acceptCallsAtSwitch);
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled();
     expect(state.clip.subtitleFetchState).toBe("idle");

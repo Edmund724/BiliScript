@@ -48,3 +48,34 @@ export function flashCopySuccess(
 
   copyTimers.set(btn, timer);
 }
+
+// 复制/导出失败的就地反馈：保留原图标，仅以 .is-copy-failed 着危险色并换无障碍文案，
+// 与成功态共用同一计时器表，两态互相覆盖时只剩最后一次的复原倒计时。
+export function flashCopyFailure(
+  btn: HTMLElement,
+  options: { originalLabel?: string; failedLabel?: string; durationMs?: number } = {}
+): void {
+  const existingTimer = copyTimers.get(btn);
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer);
+  }
+
+  const {
+    originalLabel = btn.getAttribute("aria-label") || btn.getAttribute("title") || "复制",
+    failedLabel = "复制失败",
+    durationMs = DEFAULT_COPY_FEEDBACK_MS
+  } = options;
+
+  btn.setAttribute("aria-label", failedLabel);
+  btn.setAttribute("title", failedLabel);
+  btn.classList.add("is-copy-failed");
+
+  const timer = window.setTimeout(() => {
+    btn.setAttribute("aria-label", originalLabel);
+    btn.setAttribute("title", originalLabel);
+    btn.classList.remove("is-copy-failed");
+    copyTimers.delete(btn);
+  }, durationMs);
+
+  copyTimers.set(btn, timer);
+}

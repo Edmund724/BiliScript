@@ -4,11 +4,7 @@ import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible, isLiveRoomPage } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
 import { logInfo, logWarn } from "../shared/logging.js";
-// 状态栏降级写入器（getSettings 水合失败的外层兜底，与 reader 链共用
-// #biliscript-reading-status 节点）
-import { setStatus } from "../core/ui-status.js";
 
 // 播放器 AI 模块经加载器按需引入（候选4 分包）：开关关闭态下该能力零装载，
 // start/stop/sync 全部走 loadPlayerAi() 的动态 import。默认开启（2026-09 起，
@@ -23,12 +19,12 @@ import { loadLiveRoom } from "../live/lazy-live-room.js";
 import { loadPlaybackRate, isPlaybackRateLoaded } from "../bilibili/lazy-playback-rate.js";
 
 // 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
-//（hydrateReaderStateFromSettings / applyReadingViewPresentation / renderReadingStatus）
+//（hydrateReaderStateFromSettings / applyReadingViewPresentation）
 // 已惰性化，只在面板打开或进入阅读模式时加载。普通页启动路径不再构建
 // #biliscript-root / #biliscript-reading-view 壳，也不应用阅读排版属性。
 import { ensureUiReady } from "../ui/lazy-ui.js";
 // 候选02 分层惰性 + 候选03 常驻瘦身：init() 的启动符号只保留真正常驻的轻量
-// 接线与页面状态守卫；设置水合/排版呈现/状态栏文案随阅读模式进入惰性装载。
+// 接线与页面状态守卫；设置水合/排版呈现随阅读模式进入惰性装载。
 import {
   installReaderDebugHelpers,
   bindSettingsWatcher
@@ -36,8 +32,7 @@ import {
 import { clearReaderModePageState, bindNormalPageStateGuard } from "../reader/state.js";
 import {
   hydrateReaderStateFromSettings,
-  applyReadingViewPresentation,
-  announceReadingStatus
+  applyReadingViewPresentation
 } from "../reader/lazy-reader-presentation.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 
@@ -194,15 +189,15 @@ function init(): void {
           const reader = await ensureReaderDomain();
           await reader.enterReaderMode();
         } catch (error) {
-          announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+          logWarn("[BILISCRIPT] reader mode direct entry failed", error);
         }
       }
       // 两分支（阅读直达 / 非阅读模式）的 script 工具栏按钮装载已上移到
       // init() 快路径（01：不等 getSettings 水合），此处不再重复装载。
     } catch (error) {
       // getSettings 水合拒绝的外层兜底（内层子链各有降级口径，不经此 catch）：
-      // 状态栏降级，避免 unhandled rejection。
-      setStatus(`设置加载失败：${getErrorMessage(error)}`);
+      // 记日志，避免 unhandled rejection。
+      logWarn("[BILISCRIPT] settings hydration failed", error);
     }
   })();
 }

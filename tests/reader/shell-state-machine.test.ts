@@ -110,13 +110,17 @@ describe("restore 与 URL 跳转连发：同队列串行", () => {
     const restoreGate = new Promise<void>((resolve) => {
       releaseRestore = resolve;
     });
+    const enterReaderMode = vi.fn(async () => {
+      order.push("restore-enter-start");
+      await restoreGate;
+      stateModule.transitionReaderShell("open");
+      order.push("restore-enter-done");
+    });
+    ensureUiReadyMock.mockImplementation(async () => {
+      order.push("ensure-ui");
+    });
     ensureReaderDomainMock.mockResolvedValue({
-      enterReaderMode: vi.fn(async () => {
-        order.push("restore-enter-start");
-        await restoreGate;
-        stateModule.transitionReaderShell("open");
-        order.push("restore-enter-done");
-      }),
+      enterReaderMode,
       beginClosingReadingView: vi.fn(() => false),
       closeReadingView: vi.fn()
     });
@@ -124,20 +128,15 @@ describe("restore 与 URL 跳转连发：同队列串行", () => {
     const restorePromise = shell.enterReaderShell({ readerUrl: READER_MODE_URL, intent: "restore" });
     await vi.waitFor(() => expect(order).toContain("restore-enter-start"));
 
-    const navPromise = shell.enterReaderShellOnUrlNavigation({
-      readerUrl: READER_MODE_URL,
-      announce: () => {
-        order.push(`announce:${stateModule.getReaderShellState()}`);
-      }
-    });
-    // 第一个事务未收敛 ⇒ 第二个事务连 announce 都没跑
+    const navPromise = shell.enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL });
+    // 第一个事务未收敛 ⇒ 第二个事务连进入链都没起跑
     await flushMicrotasks();
-    expect(order.filter((entry) => entry.startsWith("announce"))).toEqual([]);
+    expect(order).toEqual(["ensure-ui", "restore-enter-start"]);
 
     releaseRestore();
     await restorePromise;
     await navPromise;
-    expect(order).toEqual(["restore-enter-start", "restore-enter-done", "announce:open"]);
+    expect(order).toEqual(["ensure-ui", "restore-enter-start", "restore-enter-done", "ensure-ui"]);
     expect(stateModule.getReaderShellState()).toBe("open");
   });
 });

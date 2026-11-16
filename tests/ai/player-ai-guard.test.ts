@@ -213,12 +213,10 @@ describe("player-ai 启停守卫", () => {
     await flushMicrotasks();
 
     expect(finishQuickAction).toBeDefined();
-    expect(state.ui.messageText).not.toBe("已定位 AI 对话。");
     expect(button.disabled).toBe(true);
 
     finishQuickAction!();
     await flushMicrotasks();
-    expect(state.ui.messageText).toBe("已定位 AI 对话。");
     expect(button.disabled).toBe(false);
   });
 
@@ -251,7 +249,6 @@ describe("player-ai 启停守卫", () => {
     expect(button.classList.contains("is-error")).toBe(true);
     expect(button.title).toBe("AI 快捷操作失败：enter failed");
     expect(button.getAttribute("aria-label")).toBe("AI 快捷操作失败：enter failed");
-    expect(state.ui.messageText).toBe("AI 快捷操作失败：enter failed");
     expect(button.disabled).toBe(false);
 
     // 再次点击成功时清除错误状态并恢复默认标签与图标

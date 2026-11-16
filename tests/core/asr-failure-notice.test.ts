@@ -5,9 +5,8 @@
 //    契约，所以断言期望值一律写成字面量（独立真源），不从模块里回抄；
 // 2. 详情行口径：status 与报文怎么拼、换行怎么去、80 字符怎么截、无信息时整段
 //    不出现（不写「无」），以及只有四个 reason 允许带详情行；
-// 3. 常驻不变量（票 07 Q2）：状态栏拼装对每个非 null reason 都必须含基础句
-//    「当前视频无字幕。」——它命中 core/reading-status-line 的 /无字幕/ 常驻
-//    词表，是失败文案不被 5 秒自动收起的唯一依据。基础句丢失 = 用户看不到病因。
+// 3. 基础句不变量：状态文案拼装对每个非 null reason 都必须含基础句
+//    「当前视频无字幕。」；基础句丢失 = 用户看不到病因。
 //
 // 另有两条结构用例：模块是零运行时 import 的叶子（只 type-import
 // NoSubtitleReason），且未被静态拖进常驻图（它被 content 侧两侧消费，进常驻图会
@@ -26,7 +25,6 @@ import {
   getAsrFailureNotice,
   reasonFromFailureKind
 } from "../../extension/core/asr-failure-notice.js";
-import { isPersistentStatusText } from "../../extension/core/reading-status-line.js";
 import type { NoSubtitleReason } from "../../extension/core/state.js";
 // 构建脚本在 CJS 下无类型声明，`import type` 不产生运行时边（沿用既有对账用例的口径）。
 import type { diffDualInstanceAllowlist } from "../../scripts/build-guards.js";
@@ -369,26 +367,16 @@ describe("buildAsrNoSubtitleMessage：两个面各拼自己的前缀", () => {
   });
 });
 
-describe("常驻不变量：状态栏文案永远含基础句（票 07 Q2）", () => {
+describe("基础句不变量：状态文案永远含「当前视频无字幕。」", () => {
   for (const reason of ALL_REASONS) {
-    it(`${reason}：含基础句且命中常驻词表`, () => {
-      // 状态行写策略（core/reading-status-line）用词表决定 5 秒后是否收起：含
-      // 「无字幕」即常驻。基础句丢失不会有任何报错，只会让病因悄悄消失。
+    it(`${reason}：含基础句`, () => {
       const message = buildAsrNoSubtitleMessage("status-line", reason, { status: 500, detail: "boom" });
       expect(message).toContain(STATUS_LINE_BASE);
-      expect(isPersistentStatusText(message)).toBe(true);
     });
   }
 
-  it("null reason 同样常驻", () => {
-    const message = buildAsrNoSubtitleMessage("status-line", null);
-    expect(message).toContain(STATUS_LINE_BASE);
-    expect(isPersistentStatusText(message)).toBe(true);
-  });
-
-  it("词表未扩：不依赖「失败 / 错误 / 无法」以外的兜底词", () => {
-    // 不变量靠基础句成立，而不是靠给词表加词——扩表要改 core 显示策略，本图明确不做。
-    expect(isPersistentStatusText("当前视频无字幕。")).toBe(true);
+  it("null reason 同样含基础句", () => {
+    expect(buildAsrNoSubtitleMessage("status-line", null)).toContain(STATUS_LINE_BASE);
   });
 });
 

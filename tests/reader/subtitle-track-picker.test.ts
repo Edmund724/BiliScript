@@ -261,7 +261,7 @@ describe("08 选轨控件：模板与落点", () => {
     expect(triggerText()).toBe("English");
     expect(trigger().disabled).toBe(false);
     expect(trigger().getAttribute("aria-busy")).toBe("false");
-    expect(bus).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "status" }));
+    expect(bus).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "notice" }));
   });
 });
 
@@ -656,7 +656,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
     expect(listText()).toContain("中文轨正文"); // 正文仍是旧轨
   });
 
-  it("revert：装载失败 → trigger 回退到旧轨、恢复可用、经 status 通道报错；state 不变", async () => {
+  it("revert：装载失败 → trigger 回退到旧轨、恢复可用、经 notice 通道报错；state 不变", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     const bus = vi.spyOn(readerBus, "notifyReaderPresenter");
@@ -673,7 +673,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
     // state 未变：控件不得自说自话（Q14）
     expect(state.clip.selectedSubtitleId).toBe(SAMPLE_TRACKS[0].id);
     expect(listText()).toContain("中文轨正文");
-    expect(bus).toHaveBeenCalledWith({ kind: "status", text: expect.stringContaining("网络失败") });
+    expect(bus).toHaveBeenCalledWith({ kind: "notice", text: expect.stringContaining("网络失败") });
   });
 
   it("busy 期间的重渲不把乐观 trigger 拉回旧轨（一次只有一个请求在飞）", async () => {

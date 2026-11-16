@@ -77,7 +77,7 @@ import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
-import { flashCopySuccess } from "../ui/copy-feedback.js";
+import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 // 副轨（双语第二路轨）的目标解析、六态列模型、装载事务与同轨/偏好控制：本叶子只做
 // DOM 投影与在飞禁用。
 import {
@@ -172,6 +172,8 @@ export function buildSubtitleTabBodyHtml(): string {
               <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="复制字幕" aria-label="复制字幕">${READING_COPY_ICON}</button>
               <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="导出字幕" aria-label="导出字幕">${READING_DOWNLOAD_ICON}</button>
             </div>
+
+            <p id="${ids.readingSubtitleNotice}" class="biliscript-reading-subtitle-notice" role="alert" hidden></p>
 
             <!-- 转写中间态（PR3）：显隐与文案由 reader/transcribe-banner.ts 按
                  shared/subtitle-status-bus 的进程内相位驱动（标题/副文案按相位
@@ -1141,9 +1143,12 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
           originalSvg: READING_COPY_ICON,
           originalLabel: "复制字幕"
         });
+      } else {
+        flashCopyFailure(byId(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
       }
     } catch (error) {
       logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
+      flashCopyFailure(byId(ids.readingCopySubtitleBtn), { originalLabel: "复制字幕" });
     } finally {
       subtitleCopyInFlight = false;
     }
@@ -1160,9 +1165,18 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
           originalLabel: "导出字幕",
           copiedLabel: "已导出"
         });
+      } else {
+        flashCopyFailure(byId(ids.readingExportSubtitleBtn), {
+          originalLabel: "导出字幕",
+          failedLabel: "导出失败"
+        });
       }
     } catch (error) {
       logWarn("[BILISCRIPT] download subtitle failed", error);
+      flashCopyFailure(byId(ids.readingExportSubtitleBtn), {
+        originalLabel: "导出字幕",
+        failedLabel: "导出失败"
+      });
     } finally {
       subtitleExportInFlight = false;
     }

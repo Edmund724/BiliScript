@@ -38,8 +38,7 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   notifyReaderPresenter: vi.fn()
 }));
 vi.mock("../../extension/core/ui-status.js", () => ({
-  setStatus: vi.fn(),
-  setMessage: vi.fn()
+  setStatus: vi.fn()
 }));
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
@@ -120,7 +119,6 @@ async function importEpoch() {
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
   readerBus.notifyReaderPresenter.mockReset();
   uiStatus.setStatus.mockReset();
-  uiStatus.setMessage.mockReset();
 }
 
 function acceptSecondary(runId?: number) {

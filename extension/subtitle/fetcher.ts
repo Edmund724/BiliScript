@@ -1,5 +1,5 @@
-// 候选03 常驻瘦身：setMessage / setStatus 迁入 core/ui-status.js。
-import { setMessage, setStatus } from "../core/ui-status.js";
+// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js。
+import { setStatus } from "../core/ui-status.js";
 import { state, clipState } from "../core/state.js";
 import type { SubtitleOption } from "../core/state.js";
 import { extractBvid, computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
@@ -158,14 +158,8 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   state.reader.setActiveChapterIndex(-1);
   state.reader.readingVideoEl = null;
 
-  setMessage("");
   if (isReaderViewOpen()) {
     notifyReaderPresenter({ kind: "rerender" });
-    // 中性文案：resetClipState 的两个调用方里，URL 变化编排（entry/message-handler）
-    // 之后必有抓取接力（阅读模式分支自身刷新，普通页分支由预抓取起跑），而
-    // handleClipFetchError 的终态失败清场之后不再抓取——不承诺「自动重新抓取」
-    // 才不会在失败路径上说假话（该路径随后同步覆写为失败文案）。
-    notifyReaderPresenter({ kind: "status", text: "视频已切换，字幕将自动重新抓取。" });
   }
 }
 
@@ -173,7 +167,6 @@ export async function refreshClip(): Promise<void> {
   const runId = state.clip.fetchRunId + 1;
   clipState.setFetchRunId(runId);
   try {
-    setMessage("");
     setStatus("正在抓取视频信息...");
     clipState.setSubtitleFetchState("loading");
     if (isReaderViewOpen()) {
@@ -262,10 +255,7 @@ export async function refreshClip(): Promise<void> {
     // fetchState/reason 已由 tryLoadSubtitleCandidates → loadSubtitle 内的
     // 字幕接受事务（commit.acceptSubtitle）落位（ready + 清原因），渲染也由
     // 事务内的 subtitle-ready 通知驱动（唯一 emit 点，此处补发即双渲染），
-    // 这里只做完成提示。提示走 reader-bus "status" 通知（与渲染同通道、由
-    // reader 侧同序收敛），不经 setStatus 直写——直写会绕过门控，在渲染缺席
-    // 时先行宣告成功（「抓取完成但显示无字幕」的文案半边）。
-    notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
+    // 成功不提示：列表本身就是结果。
   } catch (error) {
     await handleClipFetchError(error, runId);
   }
@@ -458,7 +448,7 @@ const CACHE_SAVE_FAILED_MESSAGE =
   "字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。";
 
 function notifyCacheSaveFailed(): void {
-  setMessage(CACHE_SAVE_FAILED_MESSAGE);
+  logWarn(`[BILISCRIPT] ${CACHE_SAVE_FAILED_MESSAGE}`);
 }
 
 export async function loadSubtitle(

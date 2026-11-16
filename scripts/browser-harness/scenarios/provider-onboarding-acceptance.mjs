@@ -1129,8 +1129,7 @@ try {
     return {
       text,
       items: list.querySelectorAll(".biliscript-reading-item").length,
-      settingsOpen: document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open"),
-      status: document.getElementById("biliscript-reading-status")?.innerText || ""
+      settingsOpen: document.getElementById("biliscript-reading-script-panel")?.hasAttribute("data-biliscript-settings-open")
     };
   })()`), { timeoutMs: 90000 });
   const transcriptionDelta = transcriptions().length - transcriptionsBeforeSave;

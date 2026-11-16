@@ -26,8 +26,8 @@ import { ensureUiReady } from "../ui/lazy-ui.js";
 import { isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
 // reader 侧轻符号直接从 reader 状态微模块 import
-//（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫、
-// renderReadingStatus=状态栏文案写入），不拖入 reader 重文件；阅读壳经
+//（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫），
+// 不拖入 reader 重文件；阅读壳经
 // lazy-shell 按需装载。本文件不再装载 reader 动态域。
 // 阅读壳（工单 arch-slim/02）：reading-view 四个消息分支与 URL 跳转编排的
 // 进入/退出事务统一委托 reader/shell.ts（enterReaderShell / exitReaderShell /
@@ -46,9 +46,6 @@ import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/stat
 import { requestLiveCompanionStop, requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
-// 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
-// announceReadingStatus（吞错口径见 lazy-reader-presentation 内注）。
-import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
 import { collectAgentBridgeTabSnapshot } from "../agent-bridge/content.js";
@@ -257,11 +254,11 @@ export function startSubtitlePrefetch(): void {
   });
 }
 
-// URL 换片自动刷新的失败出口（链装载与刷新失败共用）：播报文案，stale（代次
-// 让位）静默。
+// URL 换片自动刷新的失败出口（链装载与刷新失败共用）：记日志（失败态由字幕列表
+// 空态呈现），stale（代次让位）静默。
 function reportAutoRefreshFailure(error: unknown): void {
   if (!isStaleRunError(error)) {
-    announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+    logWarn("[BILISCRIPT] auto refresh failed", error);
   }
 }
 
@@ -306,37 +303,19 @@ export function bindUrlChangeHandler() {
     syncPlayerAiQuickAction,
     // URL 跳转进入阅读壳：与消息意图三档共享同一条进入链（挂表 → 翻门控属性 →
     // enterReaderMode），但无 player-ai 前奏（URL 跳转没有用户点击在先，不抑制、
-    // 不摘快捷按钮）；进入前播报等落地（防反向覆盖 enterReaderMode 的「已就绪」
-    // 文案）。shell 经 lazy-shell 装载，装载失败与进入失败同口径写状态栏（本地
-    // chunk 装载 ~10ms，被跳转往返掩盖）；异常外抛，日志由事务统一收口。
+    // 不摘快捷按钮）。shell 经 lazy-shell 装载（本地 chunk 装载 ~10ms，被跳转往返
+    // 掩盖）；进入失败由壳默认口径记日志，装载失败异常外抛，日志由事务统一收口。
     enterReaderShellOnUrlNavigation: async (nextUrl) => {
-      try {
-        const shell = await ensureReaderShell();
-        await shell.enterReaderShellOnUrlNavigation({
-          readerUrl: nextUrl,
-          announce: () => renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式..."),
-          onEnterFailed: (error) => {
-            announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
-          }
-        });
-      } catch (error) {
-        announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
-        throw error;
-      }
+      const shell = await ensureReaderShell();
+      await shell.enterReaderShellOnUrlNavigation({ readerUrl: nextUrl });
     },
     // 阅读视图刷新：刷新链只等视频元数据，而该等待已出装配根到
     // bilibili/video-probe 叶子（ADR-0017 修订），本步骤不装载 reader 域。
     refreshReaderClip: async () => {
-      // 播报失败不阻断后续刷新链（与原 .catch(() => {}) 一致）。
-      try {
-        await renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
-      } catch {
-        // 播报失败静默
-      }
-      // waitForVideoMetadata 的失败口径保持同型：浮空执行、不进外层错误口径、
-      // 不写状态栏（该等待永不拒绝）；refreshClip 属总结链层，经
-      // kick-subtitle-fetch 装链后直调（本路径无 seam 约束），失败播报（代次
-      // 让位静默）。整条浮空：换片事务只等播报落定，不等抓取落定。
+      // waitForVideoMetadata 的失败口径保持同型：浮空执行、不进外层错误口径
+      //（该等待永不拒绝）；refreshClip 属总结链层，经 kick-subtitle-fetch 装链后
+      // 直调（本路径无 seam 约束），失败记日志（代次让位静默）。整条浮空：
+      // 换片事务不等抓取落定。
       void kickSubtitleFetch((chain) => chain.refreshClip(), {
         awaitVideoMetadata: true,
         onChainLoadFailed: reportAutoRefreshFailure,

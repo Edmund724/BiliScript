@@ -295,9 +295,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
 
 export interface EnterReaderShellOnUrlNavigationOptions {
   readerUrl: string;
-  /** 进入前播报（等它落地才进入，防止反向覆盖 enterReaderMode 的就绪文案） */
-  announce?: () => Promise<void> | void;
-  /** 进入失败的编排侧口径（如写状态栏）；缺省记日志 */
+  /** 进入失败的编排侧口径；缺省记日志 */
   onEnterFailed?: (error: unknown) => void;
 }
 
@@ -317,10 +315,6 @@ export function enterReaderShellOnUrlNavigation(
     }
   };
   return runReaderShellEnterTransaction(async () => {
-    if (options.announce) {
-      // 播报失败不阻断进入（与收口前 Promise.all 的吞错口径一致）
-      await Promise.resolve(options.announce()).catch(() => {});
-    }
     await runReaderEntrySequence({ readerUrl: options.readerUrl });
   }, onEnterFailed);
 }

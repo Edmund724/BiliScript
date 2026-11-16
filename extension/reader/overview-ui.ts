@@ -13,11 +13,9 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice, requiresAsrSetup } from "../core/asr-failure-notice.js";
 import { classifyOverviewSetupError, type OverviewSetupErrorClass } from "../core/overview-setup-error.js";
 import { formatClock } from "../shared/clock-text.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
-import { setMessage } from "../core/ui-status.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
-import { flashCopySuccess } from "../ui/copy-feedback.js";
+import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget, syncReadingOverviewActiveChapter } from "./sync.js";
@@ -443,15 +441,14 @@ async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
   const withHours = shouldShowHoursInNote(state, getClipBody());
   const text = `${formatClock(seconds, { hours: withHours })} 「${content}」`;
   if (!content) {
-    setMessage("没有可复制的金句。");
+    flashCopyFailure(quoteEl, { originalLabel: "复制该金句" });
     return;
   }
 
   try {
     await navigator.clipboard.writeText(text);
-    setMessage("金句已复制到剪贴板。");
     flashCopySuccess(quoteEl, { originalSvg: READING_COPY_ICON, originalLabel: "复制该金句" });
-  } catch (error) {
-    setMessage(`复制失败：${getErrorMessage(error)}`);
+  } catch {
+    flashCopyFailure(quoteEl, { originalLabel: "复制该金句" });
   }
 }

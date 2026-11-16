@@ -384,20 +384,16 @@ describe("enterReaderShell：chat 档（进对话）", () => {
 });
 
 describe("enterReaderShellOnUrlNavigation：URL 跳转编排入口", () => {
-  it("同一进入链：挂表 + 翻属性 + enterReaderMode；announce 先于 enterReaderMode 落地", async () => {
+  it("同一进入链：挂表 + 翻属性 + enterReaderMode", async () => {
     const reader = makeReaderStub();
     ensureReaderDomain.mockResolvedValue(reader);
-    const announce = vi.fn(async () => {});
 
-    await enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL, announce });
+    await enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL });
 
-    expect(announce).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
     expectReaderStylesMounted(true);
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
-    // 播报必须先落地：否则会反向覆盖 enterReaderMode 的「已就绪」文案
-    expect(announce.mock.invocationCallOrder[0]).toBeLessThan(reader.enterReaderMode.mock.invocationCallOrder[0]);
   });
 
   it("无 player-ai 前奏：URL 跳转没有用户点击在先，不抑制、不摘按钮", async () => {
@@ -424,18 +420,6 @@ describe("enterReaderShellOnUrlNavigation：URL 跳转编排入口", () => {
     ).rejects.toBe(failure);
 
     expect(onEnterFailed).toHaveBeenCalledWith(failure);
-  });
-
-  it("announce 失败不阻断进入（与原 Promise.all 的吞错口径一致）", async () => {
-    const reader = makeReaderStub();
-    ensureReaderDomain.mockResolvedValue(reader);
-    const announce = vi.fn(async () => {
-      throw new Error("announce failed");
-    });
-
-    await enterReaderShellOnUrlNavigation({ readerUrl: READER_MODE_URL, announce });
-
-    expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
   });
 });
 

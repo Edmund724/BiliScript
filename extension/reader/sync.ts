@@ -41,7 +41,7 @@ import {
 } from "./state.js";
 import { bindReadingViewVideo, unbindReadingViewVideoSync } from "./video-bind.js";
 // 候选02 分层惰性：状态栏文案属常驻微模块，直接 import（不再经 player-host 转发）。
-import { renderReadingStatus } from "./presentation.js";
+import { showSubtitleNotice } from "./subtitle-notice.js";
 // 候选06 端口半边：SYNC → LIFECYCLE 的字幕同步补渲染经 reader-bus 显式端口
 //（实现由 lifecycle.js 启动时单点注册，缺失即抛错）。
 import { readerPorts } from "./reader-bus.js";
@@ -87,7 +87,6 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
 
   const bound = bindReadingViewVideo(getRuntimeVideoElement() || state.reader.readingVideoEl);
   if (!bound) {
-    renderReadingStatus("当前页面没有找到可联动的视频播放器。");
     return;
   }
 
@@ -103,7 +102,7 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
   // DOM 写。索引状态刻意不更新：切回字幕 tab 后的首拍索引必与旧值不同，
   // shouldScroll 自然为真，补上高亮与滚动（最多延迟一拍）。跟随态属性
   //（#biliscript-reading-view，header「手动浏览中」标注常显）与转写横幅进度行
-  // 与 tab 无关，照常收敛；面板状态行只由事件文案驱动（播放进度已不再写它，见下）。
+  // 与 tab 无关，照常收敛。
   if (isReadingSubtitleBodyVisible()) {
     const subtitleIndex = findActiveSubtitleIndex(currentTime);
     const chapterIndex = findActiveChapterIndex(currentTime);
@@ -120,11 +119,10 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
     syncReadingOverviewActiveChapter(currentTime);
   }
   updateReaderFollowState();
-  // 播放进度不再写面板状态行（2026-09 用户决议）：原来每拍把「当前进度 0:12」
-  // 覆写进 header，位置反馈由字幕列表的自动高亮承担。
+  // 播放进度不写面板（2026-09 用户决议）：位置反馈由字幕列表的自动高亮承担。
   // PR3：转写横幅随 tick 收敛（转写期间 onProgress 持续改写状态文本
-  // state.ui.statusText——header 状态行不落它，见 core/reading-status-line.js；
-  // 进度行需要跟着该文本刷新；显隐脏检查在 updateReadingTranscribeBanner 内部）。
+  // state.ui.statusText，进度行需要跟着该文本刷新；显隐脏检查在
+  // updateReadingTranscribeBanner 内部）。
   updateReadingTranscribeBanner();
 }
 
@@ -356,7 +354,7 @@ export function seekReadingTarget(
 ) {
   const video = bindReadingViewVideo();
   if (!video) {
-    renderReadingStatus("当前页面没有找到可联动的视频播放器。");
+    showSubtitleNotice("当前页面没有找到可联动的视频播放器。");
     return null;
   }
 

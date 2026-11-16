@@ -321,22 +321,16 @@ describe("reader 生命周期", () => {
   });
 
   describe("字幕就绪副作用单一收口（arch-review-batch3/01）", () => {
-    it("subtitle-ready 通知：驱动全量副作用（重投影 + 状态行 + 播放同步 + 双语装载）", async () => {
+    it("subtitle-ready 通知：驱动全量副作用（重投影 + 播放同步 + 双语装载）", async () => {
       state.clip.bvid = "BV1test000000";
       state.clip.subtitleBody = [
         { from: 0, to: 5, content: "第一句字幕" },
         { from: 5, to: 10, content: "第二句字幕" }
       ];
       await shell.enterReaderMode();
-      const statusElem = document.getElementById(ids.readingStatus) as HTMLElement;
-      statusElem.textContent = "旧状态";
 
-      shell.handleReaderPresenterNotification({
-        kind: "subtitle-ready",
-        text: "自定义就绪文案"
-      });
+      shell.handleReaderPresenterNotification({ kind: "subtitle-ready" });
 
-      expect(statusElem.textContent).toBe("自定义就绪文案");
       const items = document.querySelectorAll(".biliscript-reading-item");
       expect(items.length).toBe(2);
       expect(syncRunning()).toBe(true);
@@ -344,20 +338,17 @@ describe("reader 生命周期", () => {
       shell.closeReadingView();
     });
 
-    it("抓取落定对账：纯幂等重投影与条件触发，不覆盖状态行且不重启双语装载", async () => {
+    it("抓取落定对账：纯幂等重投影与条件触发，不重启双语装载", async () => {
       state.clip.bvid = "BV1test000000";
       state.clip.subtitleBody = [
         { from: 0, to: 5, content: "对账重投影字幕" }
       ];
       await shell.enterReaderMode();
-      const statusElem = document.getElementById(ids.readingStatus) as HTMLElement;
-      statusElem.textContent = "保持当前状态";
 
       shell.onReaderSubtitleReady({
         triggerMode: "if-subtitles-present"
       });
 
-      expect(statusElem.textContent).toBe("保持当前状态");
       const items = document.querySelectorAll(".biliscript-reading-item");
       expect(items.length).toBe(1);
       expect(items[0].textContent).toContain("对账重投影字幕");

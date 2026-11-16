@@ -21,12 +21,11 @@
 //（selection.js 的排序注释）活在第三个文件里。本模块收口后一处持有事务：
 // bug 只会发生在一个地方、也只修一个地方。
 //
-// **无字幕出口是失败文案的唯一出口**（asr-error-reporting/07 Q1）：reader 通知
-// 与状态栏吃同一句 buildNoSubtitleStatusMessage()（= 基础句 + core/
-// asr-failure-notice 的病因/补救 + 可选详情行），skip 与失败不再分叉
-//（调用方 asr/fallback 自拼的失败/空结果文案已删——它们会在同一轮里被这里的
-// 基础句覆盖）。基础句恒在 → 恒命中 reading-status-line 的 /无字幕/ 常驻词表
-//（票 07 Q2 的不变量，由 tests/subtitle/commit.test.ts 钉住）。
+// **无字幕出口是失败文案的唯一出口**（asr-error-reporting/07 Q1）：状态文本吃
+// buildNoSubtitleStatusMessage()（= 基础句 + core/asr-failure-notice 的病因/补救 +
+// 可选详情行），skip 与失败不再分叉（调用方 asr/fallback 自拼的失败/空结果文案
+// 已删——它们会在同一轮里被这里的基础句覆盖）。基础句恒在（票 07 Q2 的不变量，
+// 由 tests/subtitle/commit.test.ts 钉住）。
 //
 // 静态图无环约束（本设计的核心）：本模块禁止静态 import ui/ui-renderer.js 与
 // subtitle/ui.js——二者是链层渲染/UI 模块（ui.js 还静态引用 fetcher），被
@@ -191,15 +190,14 @@ export async function commitNoSubtitle({ noSubtitleReason, runId }: CommitNoSubt
   slot.clearToEmpty(noSubtitleReason);
   clipState.setHotComments([]);
   invalidateDerived();
-  // 通知与状态栏同一句（失败文案的唯一出口）：reader 侧 renderReadingStatus
-  // 直接显示这句，状态栏不另拼——两处漂移的口子就此关闭。
+  // 状态文本取失败文案的唯一出口；reader 侧按 clip 状态把空态渲染到字幕区。
   // 发射无条件（同 acceptSubtitle）：裁决权归 reader 侧门控。
   const message = buildNoSubtitleStatusMessage();
-  notifyReaderPresenter({ kind: "subtitle-ready", text: message });
+  notifyReaderPresenter({ kind: "subtitle-ready" });
   commitUi.setStatus(message);
 }
 
-// 无字幕文案（状态栏面 + reader 通知面共用）：基础句「当前视频无字幕。」+ 病因 +
+// 无字幕文案（状态文本面）：基础句「当前视频无字幕。」+ 病因 +
 // 补救 +（可选）详情行。三段文案逐字来自单一真源 core/asr-failure-notice
 //（票 06 的文案表）；本函数只负责拼装与默认取值：reason/detailLine 缺省读
 // clipState（原因由 asr/fallback 各终态分支写入、详情由同一分支经该模块的

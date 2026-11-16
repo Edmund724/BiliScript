@@ -53,13 +53,13 @@ import type { ReaderScriptTab } from "./state.js";
 
 // Presenter 通道的封闭事件联合（一 kind 一格）：kind 在类型层封闭，拼错的 kind
 // 连编译都过不去；接收方因此按 kind 全量建表，不需要 default 静默分支。
-// text 只承载状态栏文案（"subtitle-ready" 缺省时接收方取自己的默认句）。
+// "notice" 只承载字幕区的就地失败提示文案。
 export type ReaderPresenterEvent =
   | { kind: "reset" }
   | { kind: "rerender" }
-  | { kind: "subtitle-ready"; text?: string | number | null }
+  | { kind: "subtitle-ready" }
   | { kind: "secondary-subtitle-ready" }
-  | { kind: "status"; text: string | number | null };
+  | { kind: "notice"; text: string | number | null };
 
 export type ReaderPresenterHandler = (event: ReaderPresenterEvent) => void;
 

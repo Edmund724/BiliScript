@@ -10,14 +10,14 @@
 //   - runAsrPipeline 的传递闭包含 offscreen-bridge.page → shared/messaging →
 //     fetcher，不能由 fallback.js 直 import——动态 import pipeline 的职责留在
 //     本叶子，不移进 fallback.js；
-//   - 其余装配依赖直取各单源：getSettings（core/runtime）、setStatus/setMessage
+//   - 其余装配依赖直取各单源：getSettings（core/runtime）、setStatus
 //    （core/ui-status）、acceptSubtitle / commitNoSubtitle（subtitle/commit，
 //     字幕接受事务唯一入口）、loadProviders（本文件 loadAsrProviderList）。
 // 本模块只被 subtitle/fetcher.js 动态 import；不 import extension/entry/ 与
 // extension/pages/ 的任何内容。
 
 import { getSettings } from "../core/runtime.js";
-import { setMessage, setStatus } from "../core/ui-status.js";
+import { setStatus } from "../core/ui-status.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
 // PR3：biliscript-subtitle-status 广播的进程内镜像（零依赖叶子）——reader 同进程的
@@ -81,7 +81,6 @@ const asrFallbackLoader = createLazyLoader(async () => {
     getSettings,
     loadProviders: loadAsrProviderList,
     setStatus,
-    setMessage,
     acceptSubtitle,
     commitNoSubtitle,
     runAsrPipeline,

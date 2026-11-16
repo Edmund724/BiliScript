@@ -35,11 +35,11 @@
  * #biliscript-reading-settings-panel 为前置，避免与宿主页面类名冲突。 */
 #biliscript-reading-view .biliscript-reading-settings-panel {
   max-height: calc(100vh - 150px);
-  /* 面板壳网格里的固定落位（第 3–4 行 = 标签条 + tab body，单列）：
+  /* 面板壳网格里的固定落位（第 2–3 行 = 标签条 + tab body，单列）：
    * 两态都声明，退出淡出期间抽屉才留在原位与标签区重叠——若只写在
    * :not([hidden]) 里，[hidden] 一翻转它就失去落位、被自动放置挤到新的
-   * 第 5 行，标签区反而瞬间弹动。 */
-  grid-row: 3 / 5;
+   * 第 4 行，标签区反而瞬间弹动。 */
+  grid-row: 2 / 4;
   grid-column: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -57,7 +57,7 @@
    *（renderReaderPanels），淡入从 display:none 首帧起（起点由 @starting-style
    * 提供），淡出走完再隐，旧引擎瞬时显隐（与改造前行为一致）。
    * 关闭不再「卡一下」的关键不在这条 transition，而在抽屉与标签区同占网格
-   * 第 3–4 行（见上）：淡出期间标签区已经按最终布局排好，抽屉在它上方淡走，
+   * 第 2–3 行（见上）：淡出期间标签区已经按最终布局排好，抽屉在它上方淡走，
    * 而不是留在流内把 tab body 挤到几十 px、等 display 延迟到点再弹回。 */
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
 }

@@ -30,10 +30,9 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
 }));
-// 候选03 常驻瘦身：setMessage / setStatus 已迁入 core/ui-status.js。
+// 候选03 常驻瘦身：setStatus 已迁入 core/ui-status.js。
 vi.mock("../../extension/core/ui-status.js", () => ({
-  setStatus: vi.fn(),
-  setMessage: vi.fn()
+  setStatus: vi.fn()
 }));
 // arch-slim-2/03：fetcher 的 fetchVideoMeta/fetchSubtitleBundle 纯直通包装已删
 // （日志下沉 gateway），refreshClip 的抓取打桩改挂 gateway 的同名函数。
@@ -84,7 +83,6 @@ import {
 } from "../../extension/bilibili/gateway.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import { trackIdentity } from "../../extension/subtitle/source-key.js";
-import { setMessage } from "../../extension/core/ui-status.js";
 import { acceptSubtitle, commitNoSubtitle } from "../../extension/subtitle/commit.js";
 
 // 时长合规字幕体：videoDuration=300 时 minCoverageRatio=0.22，maxTo=290 ≥ 66
@@ -130,7 +128,6 @@ beforeEach(() => {
   vi.mocked(fetchBodyMock).mockReset();
   vi.mocked(fetchBundleMock).mockReset();
   vi.mocked(fetchMetaMock).mockReset();
-  vi.mocked(setMessage).mockClear();
   vi.mocked(acceptSubtitle).mockClear();
   vi.mocked(commitNoSubtitle).mockClear();
 });
@@ -218,7 +215,7 @@ describe("noSubtitleReason 清除点", () => {
 
 // 缓存口是内存 storage，每条用例自己预置键面（beforeEach 已换新 storage）
 describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
-  it("网络成功但缓存写失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，接受事务照常收尾", async () => {
+  it("网络成功但缓存写失败（LRU 淘汰后重试仍失败）：接受事务照常收尾", async () => {
     // 只有这条正文键的落盘失败（LRU 索引/清单照常写）：writeWithEviction 淘汰后
     // 重试仍失败 → { ok: false }。索引也一起失败的话根本走不到正文写入那一步。
     vi.mocked(globalThis.chrome.storage.local.set).mockImplementation(async (entries) => {
@@ -234,9 +231,6 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
 
-    expect(setMessage).toHaveBeenCalledWith(
-      "字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。"
-    );
     // 缓存失败不阻断主流程：接受事务照常落位
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(clipState.subtitleFetchState).toBe("ready");

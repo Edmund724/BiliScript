@@ -345,7 +345,6 @@ type UiBusinessState = {
   normalPageStateGuardBound: boolean;
   urlWatcherStarted: boolean;
   statusText: string;
-  messageText: string;
 };
 
 type UiSetters = {
@@ -355,7 +354,6 @@ type UiSetters = {
   setNormalPageStateGuardBound(value: boolean): void;
   setUrlWatcherStarted(value: boolean): void;
   setStatusText(value: string): void;
-  setMessageText(value: string): void;
 };
 
 export type UiState = Readonly<UiBusinessState> & UiSetters;
@@ -368,14 +366,12 @@ const localUiState: UiStateWritable = {
   normalPageStateGuardBound: false,
   urlWatcherStarted: false,
   statusText: "准备就绪，点击“刷新抓取”开始。",
-  messageText: "",
   setEventsBound(value) { this.uiEventsBound = value; },
   setRuntimeEventsBound(value) { this.runtimeEventsBound = value; },
   setSettingsWatcherBound(value) { this.settingsWatcherBound = value; },
   setNormalPageStateGuardBound(value) { this.normalPageStateGuardBound = value; },
   setUrlWatcherStarted(value) { this.urlWatcherStarted = value; },
-  setStatusText(value) { this.statusText = value; },
-  setMessageText(value) { this.messageText = value; }
+  setStatusText(value) { this.statusText = value; }
 };
 
 // ===== State container =====

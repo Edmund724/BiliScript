@@ -257,12 +257,8 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     expect(state.clip.txt).toBe("");
     // 原因未显式传参：保留 maybeRunAsrFallback 终态分支写入的值，不覆盖
     expect(clipState.noSubtitleReason).toBe("asr-empty");
-    // 阅读视图的落空态渲染由 subtitle-ready 通知驱动（renderReadingView），
-    // 且通知带完整文案（票 07 Q1：失败文案唯一出口，reader 侧直接显示这句）
-    expect(notifyReaderPresenter).toHaveBeenCalledWith({
-      kind: "subtitle-ready",
-      text: buildNoSubtitleStatusMessage()
-    });
+    // 阅读视图的落空态渲染由 subtitle-ready 通知驱动（renderReadingView）
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
   });
 
   it("noSubtitleReason：显式传参写入（含 null 清空），undefined 保留现有值", async () => {
@@ -276,25 +272,19 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     expect(clipState.noSubtitleReason).toBe(null);
   });
 
-  it("通知发射无条件（同接受事务）：reader 关闭也通知（带完整文案）", async () => {
+  it("通知发射无条件（同接受事务）：reader 关闭也通知", async () => {
     clipState.setNoSubtitleReason("asr-empty");
     state.reader.setViewOpen(false);
     await commitNoSubtitle({});
-    expect(notifyReaderPresenter).toHaveBeenCalledWith({
-      kind: "subtitle-ready",
-      text: buildNoSubtitleStatusMessage()
-    });
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
 
     state.reader.setViewOpen(true);
     vi.mocked(notifyReaderPresenter).mockClear();
     await commitNoSubtitle({});
-    expect(notifyReaderPresenter).toHaveBeenCalledWith({
-      kind: "subtitle-ready",
-      text: buildNoSubtitleStatusMessage()
-    });
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
   });
 
-  it("状态栏无条件落同一句（skip 与失败不再分叉）：reader 通知与 setStatus 同文案", async () => {
+  it("状态栏无条件落同一句（skip 与失败不再分叉）：reader 同步通知", async () => {
     const commitUi = { setStatus: vi.fn() };
     configureCommitUi(commitUi);
 
@@ -308,7 +298,7 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
       const message = buildNoSubtitleStatusMessage();
       expect(commitUi.setStatus).toHaveBeenCalledTimes(1);
       expect(commitUi.setStatus).toHaveBeenCalledWith(message);
-      expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready", text: message });
+      expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
     }
   });
 });

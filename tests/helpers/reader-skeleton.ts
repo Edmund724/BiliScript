@@ -79,7 +79,7 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   doc.body.appendChild(readingView);
 
   // 统一 文摘面板壳（B 形态）：header / 设置面板 / 三标签 + tab body
-  // 与真实模板同构，readingStatus 挪进 header 下方；字幕列表 .biliscript-reading-main
+  // 与真实模板同构；字幕列表 .biliscript-reading-main
   // 挂在字幕 tab body 内。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管
   // 退役，不再搭建（章节列表由概览 tab 提供）。
   const scriptPanel = doc.createElement("aside");
@@ -91,12 +91,11 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   readingHeader.className = "biliscript-reading-header";
   scriptPanel.appendChild(readingHeader);
 
-  const readingStatus = doc.createElement("p");
-  readingStatus.id = ids.readingStatus;
-  readingStatus.setAttribute("role", "status");
-  readingStatus.setAttribute("aria-live", "polite");
-  readingStatus.setAttribute("aria-atomic", "true");
-  scriptPanel.appendChild(readingStatus);
+  const readingSubtitleNotice = doc.createElement("p");
+  readingSubtitleNotice.id = ids.readingSubtitleNotice;
+  readingSubtitleNotice.setAttribute("role", "alert");
+  readingSubtitleNotice.hidden = true;
+  scriptPanel.appendChild(readingSubtitleNotice);
 
   const readingMeta = doc.createElement("div");
   readingMeta.id = ids.readingMeta;

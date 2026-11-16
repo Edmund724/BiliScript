@@ -22,19 +22,13 @@ beforeEach(async () => {
 });
 
 describe("notifyReaderPresenter 透传", () => {
-  it("subtitle-ready + 状态文案：text 透传给 reader 侧 handler", () => {
-    presenter.notifyReaderPresenter({ kind: "subtitle-ready", text: "当前视频无字幕。" });
+  it("notice 提示文本：text 透传给 reader 侧 handler", () => {
+    presenter.notifyReaderPresenter({ kind: "notice", text: "字幕轨切换失败" });
 
-    expect(received).toEqual([{ kind: "subtitle-ready", text: "当前视频无字幕。" }]);
+    expect(received).toEqual([{ kind: "notice", text: "字幕轨切换失败" }]);
   });
 
-  it("status 提示文本：text 透传（resetClipState 的「请先点击刷新抓取」提示可达阅读视图）", () => {
-    presenter.notifyReaderPresenter({ kind: "status", text: "请先点击“刷新抓取”加载当前视频字幕。" });
-
-    expect(received).toEqual([{ kind: "status", text: "请先点击“刷新抓取”加载当前视频字幕。" }]);
-  });
-
-  it("无文案事件行为不变：handler 只收到 kind", () => {
+  it("无文案事件：handler 只收到 kind", () => {
     presenter.notifyReaderPresenter({ kind: "reset" });
     presenter.notifyReaderPresenter({ kind: "rerender" });
     presenter.notifyReaderPresenter({ kind: "subtitle-ready" });
@@ -51,8 +45,8 @@ describe("notifyReaderPresenter 透传", () => {
     presenter.subscribeReaderPresenter(ok);
 
     expect(() =>
-      presenter.notifyReaderPresenter({ kind: "subtitle-ready", text: "当前视频无字幕。" })
+      presenter.notifyReaderPresenter({ kind: "notice", text: "提示" })
     ).not.toThrow();
-    expect(ok).toHaveBeenCalledWith({ kind: "subtitle-ready", text: "当前视频无字幕。" });
+    expect(ok).toHaveBeenCalledWith({ kind: "notice", text: "提示" });
   });
 });

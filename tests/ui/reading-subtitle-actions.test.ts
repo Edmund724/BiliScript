@@ -3,7 +3,7 @@
 // 语义：复制 = 字幕纯文本（transcript，buildTxt 管线，copySubtitleTranscript）；
 // 导出 = SRT/TXT（downloadSubtitle，按 downloadFormat 设置，默认 srt）。
 // 逻辑全部在总结链（subtitle/ui.js），按钮经 ensureSummarizeChain 装载后调用，
-// 反馈走 setMessage（script-only-ui：宿主收敛到 #biliscript-reading-status）。
+// 反馈在按钮上就地呈现（flashCopySuccess / flashCopyFailure）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -37,13 +37,9 @@ function dispatchClick(elementId: string) {
   );
 }
 
-// script-only-ui：失败反馈走 #biliscript-reading-status；成功操作走按钮反馈 + live region，不展开可见状态行（防 CLS）。
-function messageText(): string {
-  return (document.getElementById(ids.readingStatus) as HTMLElement).textContent || "";
-}
-
-function liveText(): string {
-  return document.getElementById(ids.readingStatusLive)?.textContent || "";
+// script-only-ui：成功与失败都在按钮上就地反馈（is-copied / is-copy-failed + aria-label），无全局文本。
+function btn(id: string): HTMLElement {
+  return document.getElementById(id) as HTMLElement;
 }
 
 function seedSubtitleBody() {
@@ -102,25 +98,24 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     expect(copied).toContain("0:00");
     expect(copied).toContain("0:10");
 
-    await vi.waitFor(() => expect(liveText()).toBe("字幕已复制到剪贴板。"));
-    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
-    expect(document.getElementById(ids.readingCopySubtitleBtn)?.classList.contains("is-copied")).toBe(true);
+    await vi.waitFor(() => expect(btn(ids.readingCopySubtitleBtn).classList.contains("is-copied")).toBe(true));
   });
 
-  it("无字幕时复制：反馈「没有可复制的字幕」，不写剪贴板", async () => {
+  it("无字幕时复制：按钮就地提示复制失败，不写剪贴板", async () => {
     state.clip.subtitleBody = [];
     dispatchClick(ids.readingCopySubtitleBtn);
 
-    await vi.waitFor(() => expect(messageText()).toBe("没有可复制的字幕，请先刷新抓取。"));
+    await vi.waitFor(() => expect(btn(ids.readingCopySubtitleBtn).classList.contains("is-copy-failed")).toBe(true));
+    expect(btn(ids.readingCopySubtitleBtn).getAttribute("aria-label")).toBe("复制失败");
     expect(clipboardWriteText).not.toHaveBeenCalled();
   });
 
-  it("复制失败（剪贴板拒绝写入）：反馈「复制失败：…」", async () => {
+  it("复制失败（剪贴板拒绝写入）：按钮就地提示复制失败", async () => {
     clipboardWriteText.mockRejectedValueOnce(new Error("denied"));
     dispatchClick(ids.readingCopySubtitleBtn);
 
-    await vi.waitFor(() => expect(messageText()).toContain("复制失败"));
-    expect(messageText()).toContain("denied");
+    await vi.waitFor(() => expect(btn(ids.readingCopySubtitleBtn).classList.contains("is-copy-failed")).toBe(true));
+    expect(btn(ids.readingCopySubtitleBtn).getAttribute("aria-label")).toBe("复制失败");
   });
 
   // 双语（bilingual-subtitles/07）：复制 = 同一 buildTxt 管线，双语态下主行后接副行。
@@ -157,21 +152,17 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     // 副行不带时间戳：缩进行里没有任何时刻文本
     const secondaryLines = copied.split("\n").filter((line) => line.startsWith("  "));
     expect(secondaryLines).toEqual(["  English line", "  English line"]);
-    await vi.waitFor(() => expect(liveText()).toBe("字幕已复制到剪贴板。"));
-    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
-    expect(document.getElementById(ids.readingCopySubtitleBtn)?.classList.contains("is-copied")).toBe(true);
+    await vi.waitFor(() => expect(btn(ids.readingCopySubtitleBtn).classList.contains("is-copied")).toBe(true));
   });
 
-  it("点击「导出」：按默认 srt 格式触发下载并反馈文件名（live region + 按钮已导出，不顶开状态行）", async () => {
+  it("点击「导出」：按默认 srt 格式触发下载，按钮显示已导出", async () => {
     state.clip.uploadDate = "2026-11-15";
     dispatchClick(ids.readingExportSubtitleBtn);
 
     await vi.waitFor(() => expect(clickedAnchor).not.toBe(null));
     expect((clickedAnchor as HTMLAnchorElement | null)!.download.startsWith("2026-11-15-")).toBe(true);
     expect((clickedAnchor as HTMLAnchorElement | null)!.download.endsWith(".srt")).toBe(true);
-    await vi.waitFor(() => expect(liveText()).toContain("已下载"));
-    expect((document.getElementById(ids.readingStatus) as HTMLElement).hidden).toBe(true);
-    expect(document.getElementById(ids.readingExportSubtitleBtn)?.getAttribute("aria-label")).toBe("已导出");
+    await vi.waitFor(() => expect(btn(ids.readingExportSubtitleBtn).getAttribute("aria-label")).toBe("已导出"));
   });
 
   it("导出文件名设置 includeDateInFilename=false 时不加日期前缀", async () => {
@@ -196,11 +187,12 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     expect((clickedAnchor as HTMLAnchorElement | null)!.download.startsWith("2026-11-15-")).toBe(false);
   });
 
-  it("无字幕时导出：反馈「没有可下载的字幕」，不触发下载", async () => {
+  it("无字幕时导出：按钮就地提示导出失败，不触发下载", async () => {
     state.clip.subtitleBody = [];
     dispatchClick(ids.readingExportSubtitleBtn);
 
-    await vi.waitFor(() => expect(messageText()).toBe("没有可下载的字幕，请先刷新抓取。"));
+    await vi.waitFor(() => expect(btn(ids.readingExportSubtitleBtn).classList.contains("is-copy-failed")).toBe(true));
+    expect(btn(ids.readingExportSubtitleBtn).getAttribute("aria-label")).toBe("导出失败");
     expect(clickedAnchor).toBe(null);
   });
 });

@@ -1,6 +1,3 @@
-// 候选03 常驻瘦身：setMessage 迁入 core/ui-status.js，player-ai 动态 chunk
-// 不再把 ui/ui-renderer.js 拖为静态依赖。
-import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 import {
   ensureFullscreenOverlay,
@@ -88,7 +85,6 @@ const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () =
       overlay.show({ forceExpand: true });
       overlay.syncState("failure", false, errorMessage, "unknown");
     } catch {}
-    setMessage(errorMessage);
   }
 });
 
@@ -767,10 +763,8 @@ async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> 
       button.title = "用 AI 分析这期视频";
       button.setAttribute("aria-label", "用 AI 分析这期视频");
     }
-    setMessage("已定位 AI 对话。");
   } catch (error) {
     const message = `AI 快捷操作失败：${getErrorMessage(error)}`;
-    setMessage(message);
     if (button && buttonWrap && !button.isConnected && buttonHost?.isConnected) {
       buttonHost.appendChild(buttonWrap);
     }

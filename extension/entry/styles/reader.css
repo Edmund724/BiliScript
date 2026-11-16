@@ -119,8 +119,7 @@
   min-width: 0;
 }
 
-.biliscript-reading-meta,
-.biliscript-reading-status {
+.biliscript-reading-meta {
   font-size: var(--biliscript-font-size-md);
   line-height: 1.5;
   color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-gray-600));
@@ -128,14 +127,9 @@
 
 /* meta 行多行结构（2026-10-04 用户决议）：`UP主：…` 与 `P{n}：…` 各占一行，
  * 由 reader/lifecycle 的 buildReadingMetaLine 落 `\n`，这里只负责让换行可见
- *（长分P标题不再从中间折断）。不挂到上面的共用选择器：状态行不需要该语义。 */
+ *（长分P标题不再从中间折断）。 */
 .biliscript-reading-meta {
   white-space: pre-line;
-}
-
-/* 面板壳网格第 2 行（见 .biliscript-reading-script-panel）；其他容器里该属性无效 */
-.biliscript-reading-status {
-  grid-row: 2;
 }
 
 /* header 动作行：负 margin 把三个图标键往面板右上角收（用户决议，见
@@ -231,6 +225,11 @@
   color: var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-500));
 }
 
+.biliscript-reading-icon-btn.is-copy-failed,
+.biliscript-reading-ov-quote-copy.is-copy-failed {
+  color: var(--biliscript-reader-danger);
+}
+
 .biliscript-reading-icon-btn.is-copied svg,
 .biliscript-reading-ov-quote-copy.is-copied svg {
   animation: biliscript-copy-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -293,13 +292,13 @@
  * --biliscript-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
 .biliscript-reading-script-panel {
   min-height: 0;
-  /* 四行网格（header / status / tabs / tab-body）替代原 flex 列：设置抽屉与
-   * 标签区同占第 3–4 行（抽屉 span 两行），抽屉退出时两者重叠而非同时在流内
+  /* 三行网格（header / tabs / tab-body）替代原 flex 列：设置抽屉与
+   * 标签区同占第 2–3 行（抽屉 span 两行），抽屉退出时两者重叠而非同时在流内
    * 把 tab-body 挤扁再弹回（详见 reader-settings-shell.css 开合过渡注释）。
    * 原 flex 属性对网格项无效，行尺寸由 grid-template-rows 接管；三个
-   * tab-body 同占第 4 行（同一时刻只有一个 is-active 在显示）。 */
+   * tab-body 同占第 3 行（同一时刻只有一个 is-active 在显示）。 */
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   /* 显式单列：不写的话自动放置会把标签区排到第 2 列去避让跨行的抽屉
    *（网格项不重叠），重叠语义随之失效。
    * 列宽必须写 minmax(0, 1fr) 而不是 1fr：1fr 隐含的 auto 下限 = min-content，
@@ -333,41 +332,12 @@
    * header 直接落在面板页面灰上，与 tab 区连成同一层。 */
 }
 
-/* 状态行（错误/操作反馈文案；播放进度与提示类已按 2026-09 用户决议不再写入）与
- * header 内容左右对齐（script-only-ui）：
- * header/tab-body 各自带 16px 水平内边距，而状态行原是撑满面板宽度的裸
- * block（文本左缘贴面板边缘），与 header 内容不在同一垂直线上——补同款
- * 水平边距 + 与下方 tab 控件的小间距。空闲态由 core/reading-status-line.js 落
- * hidden：display:none 让面板网格第 2 行（auto）塌为 0，不占位；本元素没有
- * display 覆盖规则，[hidden] 直通 UA 默认。 */
-.biliscript-reading-script-panel .biliscript-reading-status {
-  margin: 0 16px 8px;
-  line-height: 1.4;
-}
-
-/* 状态行的读屏镜像 live region（core/reading-status-line.js 按 id 取或建，挂在
- * document.body 下）：阅读视图根节点常驻 aria-hidden，面板内文案不进无障碍树，
- * 镜像节点走经典 sr-only 配方——视觉隐藏但保留在无障碍树内，aria-live="polite"
- * 在文案变化时礼貌播报（clip 双写覆盖新旧引擎）。 */
-.biliscript-reading-status-live {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
  * 对话工具键（更多操作）脱流绝对定位在行右侧，不占据弹性流，
  * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
 .biliscript-reading-tabs-row {
   position: relative;
-  grid-row: 3;
+  grid-row: 2;
   grid-column: 1;
   display: flex;
   align-items: center;
@@ -495,7 +465,7 @@
 }
 
 .biliscript-reading-tab-body {
-  grid-row: 4;
+  grid-row: 3;
   grid-column: 1;
   min-height: 0;
   display: flex;
@@ -793,14 +763,12 @@
  * 基础段覆盖不到的排版修正。 */
 #biliscript-reading-view,
 #biliscript-reading-view .biliscript-reading-meta,
-#biliscript-reading-view .biliscript-reading-status,
 #biliscript-reading-view .biliscript-reading-item,
 #biliscript-reading-view .biliscript-reading-panel {
   color: var(--biliscript-reader-text);
 }
 
-#biliscript-reading-view .biliscript-reading-meta,
-#biliscript-reading-view .biliscript-reading-status {
+#biliscript-reading-view .biliscript-reading-meta {
   font-size: var(--biliscript-font-size-md);
   color: var(--biliscript-reader-muted);
 }
@@ -1093,6 +1061,15 @@
 #biliscript-reading-view .biliscript-reading-item.is-active.search-current {
   background: var(--biliscript-reader-highlight);
   box-shadow: 0 0 0 1.5px var(--biliscript-reader-accent);
+}
+
+/* 字幕区就地失败提示（reader/subtitle-notice.ts）：[hidden] 直通 UA 默认，不占位 */
+.biliscript-reading-subtitle-notice {
+  flex: 0 0 auto;
+  margin: 0 0 10px;
+  font-size: var(--biliscript-font-size-md);
+  line-height: 1.4;
+  color: var(--biliscript-reader-danger);
 }
 
 /* 转写中间态：横幅（highlight 底）+ 不确定进度动画 + 列表淡出禁用 */

@@ -342,11 +342,8 @@ describe("设置与弹层逐层退出", () => {
     expect(state.reader.readingSettingsExpanded).toBe(true);
   });
 
-  it("状态条与设置空白不退出；宿主页外点保留链接行为和焦点", () => {
+  it("设置空白不退出；宿主页外点保留链接行为和焦点", () => {
     openFromGear();
-    const status = element(ids.readingStatus);
-    status.hidden = false;
-    status.click();
     element(ids.readingSettingsPanel).click();
     expect(state.reader.readingSettingsExpanded).toBe(true);
 

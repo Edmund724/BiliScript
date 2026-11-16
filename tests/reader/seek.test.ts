@@ -160,13 +160,13 @@ describe("seekReadingTarget 播放策略（resumePlayback 参数化）", () => {
     expect(shell.seekReadingTarget(Number.NaN, { resumePlayback: false })).toBe(0);
   });
 
-  it("无可用视频：返回 null 并写状态栏，不抛错", () => {
+  it("无可用视频：返回 null 并写字幕提示节点，不抛错", () => {
     document.getElementById("playerWrap")?.remove();
 
     const seekedTo = shell.seekReadingTarget(12, { resumePlayback: false });
 
     expect(seekedTo).toBeNull();
-    const status = document.getElementById(ids.readingStatus) as HTMLElement;
-    expect(status.textContent).toBe("当前页面没有找到可联动的视频播放器。");
+    const notice = document.getElementById(ids.readingSubtitleNotice) as HTMLElement;
+    expect(notice.textContent).toBe("当前页面没有找到可联动的视频播放器。");
   });
 });

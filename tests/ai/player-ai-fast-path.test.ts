@@ -24,17 +24,13 @@ vi.mock("../../extension/ui/lazy-ui.js", () => ({
 }));
 vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
   hydrateReaderStateFromSettings: vi.fn(() => new Promise(() => {})),
-  applyReadingViewPresentation: vi.fn(() => new Promise(() => {})),
-  renderReadingStatus: vi.fn(() => new Promise(() => {})),
-  // 浮空播报包装（吞错口径）：mock 同为空实现
-  announceReadingStatus: vi.fn()
+  applyReadingViewPresentation: vi.fn(() => new Promise(() => {}))
 }));
 
 import { ensureUiReady } from "../../extension/ui/lazy-ui.js";
 import {
   hydrateReaderStateFromSettings,
-  applyReadingViewPresentation,
-  renderReadingStatus
+  applyReadingViewPresentation
 } from "../../extension/reader/lazy-reader-presentation.js";
 
 const storageChangeListeners = new Set();
@@ -85,7 +81,6 @@ beforeEach(() => {
   vi.mocked(ensureUiReady).mockClear();
   vi.mocked(hydrateReaderStateFromSettings).mockClear();
   vi.mocked(applyReadingViewPresentation).mockClear();
-  vi.mocked(renderReadingStatus).mockClear();
   vi.useFakeTimers();
 });
 
@@ -115,7 +110,6 @@ describe("player-ai 快路径与惰性装载解耦", () => {
     expect(ensureUiReady).not.toHaveBeenCalled();
     expect(hydrateReaderStateFromSettings).not.toHaveBeenCalled();
     expect(applyReadingViewPresentation).not.toHaveBeenCalled();
-    expect(renderReadingStatus).not.toHaveBeenCalled();
   });
 
   it("storage.onChanged false→true：同样不触发惰性 UI / reader 装载", async () => {
@@ -146,6 +140,5 @@ describe("player-ai 快路径与惰性装载解耦", () => {
     expect(ensureUiReady).not.toHaveBeenCalled();
     expect(hydrateReaderStateFromSettings).not.toHaveBeenCalled();
     expect(applyReadingViewPresentation).not.toHaveBeenCalled();
-    expect(renderReadingStatus).not.toHaveBeenCalled();
   });
 });

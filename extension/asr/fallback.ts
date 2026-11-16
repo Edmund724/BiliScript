@@ -14,7 +14,7 @@
 //   - 注入 deps（传递闭包含 runtime.js→fetcher 或随 UI/上下文成环）：
 //     getSettings、loadProviders（provider 列表，asrProviders 已摘出 settings，
 //     fetcher 经 asr-providers-list 消息直读 provider-store）、setStatus、
-//     setMessage、acceptSubtitle / commitNoSubtitle（字幕接受事务的唯一入口，
+//     acceptSubtitle / commitNoSubtitle（字幕接受事务的唯一入口，
 //     subtitle/commit.js，沿用依赖注入 seam——本模块对 subtitle 的直 import
 //     只保留 cache / duration-validation / labels 三枚轻叶子，事务层闭包含
 //     core→gateway/messaging，仍不走静态边）、runAsrPipeline（pipeline 闭包经
@@ -151,7 +151,6 @@ export interface CreateAsrFallbackDeps {
   getSettings: () => Promise<AsrSettings>;
   loadProviders: () => Promise<AsrProviderMeta[]>;
   setStatus: (message: string) => void;
-  setMessage: (message: string) => void;
   acceptSubtitle: (args: AcceptSubtitleArgs) => Promise<unknown>;
   commitNoSubtitle: (args: CommitNoSubtitleArgs) => Promise<unknown>;
   runAsrPipeline: (args: AsrPipelineArgs) => Promise<SubtitleItem[]>;
@@ -187,7 +186,6 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     getSettings,
     loadProviders,
     setStatus,
-    setMessage,
     acceptSubtitle,
     commitNoSubtitle,
     runAsrPipeline,
@@ -358,8 +356,8 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         if (body.length > 0) {
           const saveResult = await persistAsrSubtitleToCache({ bvid, cid, identity, body });
           if (saveResult && saveResult.ok === false) {
-            // 淘汰后重试仍失败：经既有消息栏一次性上浮，不阻断主流程。
-            setMessage("语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
+            // 淘汰后重试仍失败：结果仅本次会话有效，记日志，不阻断主流程。
+            logWarn("[BILISCRIPT] 语音识别结果已生成，但本地缓存写入失败（已自动清理旧缓存仍失败），仅本次会话有效。");
           }
         }
         return { body, outcome };

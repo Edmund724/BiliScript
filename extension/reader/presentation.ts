@@ -2,7 +2,8 @@
 //
 // 这里只收拢「启动路径必需」的轻呈现函数：阅读视图的排版应用
 //（applyReadingViewPresentation）、设置水合（hydrateReaderStateFromSettings）与
-// 状态栏文案（renderReadingStatus）。它们是启动路径
+// 设置水合（hydrateReaderStateFromSettings）与排版应用（applyReadingViewPresentation）。
+// 它们是启动路径
 //（content.js init 的 hydrate/apply）的直接依赖——留在 lifecycle.js 会把整个
 // reader 域拖回常驻。
 //
@@ -25,19 +26,9 @@ import {
   normalizeChatInputGlow
 } from "../core/validators.js";
 import { ids } from "./state.js";
-import { writeReadingStatusLine } from "../core/reading-status-line.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { READER_APPLY_FIELDS } from "./presentation-fields.js";
-
-// ===== 状态栏文案（自 player-host.js 迁入；sync/lifecycle 域内继续经本模块取用） =====
-
-export function renderReadingStatus(text: string | number | null | undefined) {
-  // 节点缺失时仍按原样经 byId 抛错（行为不变）；写入与显隐口径集中在
-  // core/reading-status-line.js（错误常驻、其余 5s 收起、空闲整行 hidden）。
-  const node = getReaderElement(ids.readingStatus);
-  writeReadingStatusLine(node, text);
-}
 
 // ===== 内联宿主呈现（PR2 移除） =====
 //

@@ -942,8 +942,7 @@ async function main() {
       itemCount: list ? list.querySelectorAll('.biliscript-reading-item').length : null,
       emptyText: list?.querySelector('.biliscript-reading-empty')?.textContent ?? null,
       triggerText: trigger?.querySelector('.custom-select-value')?.textContent ?? null,
-      triggerDisabled: trigger?.disabled ?? null,
-      statusLine: document.getElementById('biliscript-reading-status')?.textContent ?? null
+      triggerDisabled: trigger?.disabled ?? null
     };
   })()`);
   log(`PHASE 1 抓取落定：${JSON.stringify(evidence.phase1.afterFetch)}`);
@@ -1750,7 +1749,6 @@ async function captureDiagnostics() {
           url: location.href,
           viewOpen: view ? view.classList.contains('open') : null,
           itemCount: list ? list.querySelectorAll('.biliscript-reading-item').length : null,
-          statusLine: document.getElementById('biliscript-reading-status')?.textContent ?? null,
           subDropdownDisplay: (() => { const d = document.querySelector('#biliscript-reading-view .biliscript-bilingual-col[data-col="sub"] .custom-select-dropdown'); return d ? getComputedStyle(d).display : null; })()
         };
       })()`);
