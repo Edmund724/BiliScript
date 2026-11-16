@@ -488,10 +488,7 @@ export function buildSettingsHtml(): string {
           <span class="biliscript-agent-bridge-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 4 17m0 0v-5m0 5h5M15 12l5-5m0 0v5m0-5h-5"/></svg>
           </span>
-          <div class="biliscript-agent-bridge-connection-copy">
-            <span class="biliscript-set-label">连接状态</span>
-            <p>连接后可通过 Kimi 等本地 Agent 远程操控 BiliScript 浏览器扩展</p>
-          </div>
+          <span class="biliscript-set-label biliscript-agent-bridge-connection-copy">连接状态</span>
           <button id="${ids.agentBridgeConnectBtn}" type="button" class="biliscript-agent-bridge-connect">去连接</button>
         </div>
         <button id="${ids.agentBridgeAddressBtn}" type="button" class="biliscript-set-row biliscript-entry-row">

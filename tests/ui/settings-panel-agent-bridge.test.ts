@@ -4,8 +4,24 @@ import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../
 
 let clipboardWrite: ReturnType<typeof vi.fn>;
 
+function setHostPlatform(options: { uaDataPlatform?: string; platform?: string; userAgent?: string }): void {
+  Object.defineProperty(navigator, "userAgentData", {
+    configurable: true,
+    value: options.uaDataPlatform !== undefined ? { platform: options.uaDataPlatform } : undefined
+  });
+  Object.defineProperty(navigator, "platform", {
+    configurable: true,
+    value: options.platform ?? ""
+  });
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: options.userAgent ?? ""
+  });
+}
+
 beforeEach(() => {
   resetModuleState();
+  setHostPlatform({ uaDataPlatform: "Windows", platform: "Win32", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
   clipboardWrite = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -184,6 +200,17 @@ describe("本地 Agent 设置", () => {
     expect(sent.filter((message) => message.type === "save-settings")).toHaveLength(1);
   });
 
+  it("精简本地 Agent 设置卡片次级说明，保留开关、连接操作与地址入口", async () => {
+    const { host } = await mountPanel();
+    const card = host.querySelector<HTMLElement>('[data-settings-section="agent"] .biliscript-agent-bridge-card')!;
+    expect(card).not.toBeNull();
+    expect(card.querySelector("p")).toBeNull();
+    expect(card.textContent).not.toContain("远程操控 BiliScript");
+    expect(card.querySelector("#enableAgentBridge")).not.toBeNull();
+    expect(card.querySelector("#agentBridgeConnectBtn")).not.toBeNull();
+    expect(card.querySelector("#agentBridgeAddressBtn")).not.toBeNull();
+  });
+
   it("失败 Prompt 对自定义端口附带 CLI 环境变量", async () => {
     await mountPanel({
       "get-settings": () => ({ ok: true, settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } }),
@@ -197,5 +224,112 @@ describe("本地 Agent 设置", () => {
       return element;
     });
     expect(prompt.value).toContain("$env:BILISCRIPT_BRIDGE_PORT='19000'; irm ");
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+  });
+
+  it("复制指令后播报 role=status 并延时复位，重复点击重置计时且不禁用按钮", async () => {
+    vi.useFakeTimers();
+    await mountPanel({
+      "agent-bridge-connect": () => ({ ok: true, connected: false })
+    });
+    document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
+    });
+
+    const copyButton = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
+    const status = document.querySelector<HTMLElement>('.agent-bridge-install-dialog [role="status"]')!;
+    const prompt = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt")!;
+    expect(copyButton.textContent).toBe("复制指令");
+    expect(status.textContent).toBe("");
+
+    copyButton.click();
+    await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
+    expect(clipboardWrite).toHaveBeenLastCalledWith(prompt.value);
+    expect(copyButton.textContent).toBe("已复制");
+    expect(copyButton.disabled).toBe(false);
+    expect(status.textContent).toContain("已复制");
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(copyButton.textContent).toBe("已复制");
+
+    copyButton.click();
+    await vi.waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(2));
+    expect(copyButton.disabled).toBe(false);
+    expect(copyButton.textContent).toBe("已复制");
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(copyButton.textContent).toBe("已复制");
+
+    await vi.advanceTimersByTimeAsync(600);
+    expect(copyButton.textContent).toBe("复制指令");
+    expect(status.textContent).toBe("");
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+  });
+
+  it("剪贴板写入被拒时选中文本、提示手动复制并向 status 区域播报失败", async () => {
+    clipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+    await mountPanel({
+      "agent-bridge-connect": () => ({ ok: true, connected: false })
+    });
+    document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".agent-bridge-install-dialog")).not.toBeNull();
+    });
+
+    const copyButton = document.querySelector<HTMLButtonElement>('[data-agent-install-action="copy"]')!;
+    const status = document.querySelector<HTMLElement>('.agent-bridge-install-dialog [role="status"]')!;
+    const prompt = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt")!;
+
+    copyButton.click();
+    await vi.waitFor(() => expect(copyButton.textContent).toBe("请手动复制"));
+    expect(copyButton.disabled).toBe(false);
+    expect(document.activeElement).toBe(prompt);
+    expect(prompt.selectionStart).toBe(0);
+    expect(prompt.selectionEnd).toBe(prompt.value.length);
+    expect(status.textContent).toContain("复制失败");
+    expect(status.textContent).toContain("手动复制");
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
+  });
+
+  it("按宿主系统生成 Windows / macOS / Linux 安装 Prompt（含默认与自定义端口）", async () => {
+    const { buildAgentBridgeInstallPrompt } = await import("../../extension/ui/agent-bridge-install-dialog.js");
+
+    setHostPlatform({ uaDataPlatform: "macOS", platform: "MacIntel", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)" });
+    const macDefault = buildAgentBridgeInstallPrompt("ws://127.0.0.1:18492");
+    const macCustom = buildAgentBridgeInstallPrompt("ws://127.0.0.1:19000");
+    expect(macDefault).toContain("macOS 宿主机");
+    expect(macDefault).toContain("非沙箱、非容器");
+    expect(macDefault).toContain("curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | sh");
+    expect(macDefault).not.toContain("BILISCRIPT_BRIDGE_PORT");
+    expect(macDefault.length).toBeLessThan(300);
+    expect(macCustom).toContain("curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | BILISCRIPT_BRIDGE_PORT=19000 sh");
+    expect(macCustom.length).toBeLessThan(300);
+
+    setHostPlatform({ uaDataPlatform: "Linux", platform: "Linux x86_64", userAgent: "Mozilla/5.0 (X11; Linux x86_64)" });
+    const linuxDefault = buildAgentBridgeInstallPrompt("ws://127.0.0.1:18492");
+    const linuxCustom = buildAgentBridgeInstallPrompt("ws://127.0.0.1:19000");
+    expect(linuxDefault).toContain("Linux 宿主机");
+    expect(linuxDefault).toContain("非沙箱、非容器");
+    expect(linuxDefault).toContain("curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | sh");
+    expect(linuxDefault.length).toBeLessThan(300);
+    expect(linuxCustom).toContain("BILISCRIPT_BRIDGE_PORT=19000 sh");
+    expect(linuxCustom.length).toBeLessThan(300);
+
+    // 弹窗实际打开时也按当前宿主系统生成对应指令
+    await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { agentBridgeUrl: "ws://127.0.0.1:19000" } }),
+      "agent-bridge-connect": () => ({ ok: true, connected: false })
+    });
+    document.querySelector<HTMLButtonElement>("#agentBridgeConnectBtn")!.click();
+    const dialogPrompt = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt");
+      if (!element) throw new Error("安装 Prompt 弹窗未打开");
+      return element;
+    });
+    expect(dialogPrompt.value).toBe(linuxCustom);
+    document.querySelector<HTMLButtonElement>(".agent-bridge-install-close")!.click();
   });
 });
