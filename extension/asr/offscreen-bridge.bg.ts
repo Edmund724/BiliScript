@@ -1,281 +1,109 @@
-// Offscreen 媒体的 background 侧执行器：offscreen 文档创建（prepare 时
-// 确保文档存在）、ASR 音频与 Agent 视频帧的防盗链 dnr 规则生命周期（id 池簿记、
-// SW 冷启动对账、prepare 前死标签页残留回收、安装/更新整池清理）、prepare/cleanup
-// 任务 handler，以及 offscreen 文档自关闭请求的代执行（offscreen 无
-// chrome.offscreen，自关经 "offscreen-request-close" 消息委托本模块，发送者
-// 校验 + 明确回成功/失败）。仅在 background service worker 环境加载
-// （entry/background.js 注册到 offload-task 消息路由），顶层不触碰
-// worker-only API——chrome.declarativeNetRequest / chrome.offscreen 只在
-// handler 函数体内访问（保持既有习惯）。协议常量与契约注释唯一地址见
-// asr/protocol.js。
-// chrome.declarativeNetRequest / chrome.offscreen.createDocument 的最小表面
-// 声明见本目录 chrome-asr-types.d.ts（共享 chrome-types.d.ts 未覆盖）。
+// Offscreen media background handlers delegating document & DNR lifecycle to core/offscreen-host.ts.
 
-import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASONS } from "../shared/offscreen-constants.js";
-import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "./protocol.js";
+import {
+  BILI_MEDIA_CDN_DOMAINS,
+  BILI_MEDIA_ORIGIN_PAGE,
+  OFFSCREEN_SENDER_REJECTION_MESSAGE,
+  acquireBiliMediaSessionRule,
+  closeOffscreenDocument,
+  isOffscreenDocumentSender,
+  reapAllBiliMediaSessionRules,
+  releaseBiliMediaSessionRule
+} from "../core/offscreen-host.js";
 import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
-
-// 防盗链规则的目标域与来源页（工单 04：域名唯一事实源，代码与文档注释、
-// manifest host_permissions、测试三处共用同一取值）：
-// - 目标 host：无字幕 ASR 的音轨请求全部落在 playurl（api.bilibili.com）返回
-//   的 data.dash.audio[].baseUrl/backupUrl 上，仓库内真实样本均为
-//   bilivideo.com 的子域（upx.bilivideo.com / upos-sz-mirror08.bilivideo.com，
-//   见 tests/asr/audio-source.test.ts 与 eval/ 音频夹具）。规则条件用
-//   requestDomains 精确匹配该域及其子域（比 "||bilivideo.com" 的 urlFilter
-//   收窄：不会误命中 "bilivideo.com.evil.com" 这类拼接域）。
-// - 来源页：offscreen 文档（扩展自身 context）fetch 音轨；Referer/Origin 伪
-//   装成 B 站视频页以过 CDN 防盗链。规则 resourceTypes 仅 xmlhttprequest。
-// - 海外镜像域（如 upos-hz-mirrorakam.akamaized.net）在仓库代码链与夹具中
-//   零证据，不声明权限、不写规则（最窄原则）；若未来 playurl 返回该域导致
-//   403，属真实浏览器验收（工单 06）的观察项。
-export const ASR_AUDIO_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
-export const ASR_AUDIO_CDN_DOMAIN = ASR_AUDIO_CDN_DOMAINS[0];
-export const ASR_AUDIO_ORIGIN_PAGE = "https://www.bilibili.com" as const;
-
 import {
   ASR_AUDIO_SESSION_RULE_ID_BASE,
   ASR_AUDIO_SESSION_RULE_ID_MAX,
   createAsrSessionRuleManager
 } from "./session-rule-manager.js";
 
+export const ASR_AUDIO_CDN_DOMAINS = BILI_MEDIA_CDN_DOMAINS;
+export const ASR_AUDIO_CDN_DOMAIN = BILI_MEDIA_CDN_DOMAINS[0];
+export const ASR_AUDIO_ORIGIN_PAGE = BILI_MEDIA_ORIGIN_PAGE;
+
 export {
   ASR_AUDIO_SESSION_RULE_ID_BASE,
   ASR_AUDIO_SESSION_RULE_ID_MAX,
-  createAsrSessionRuleManager
+  createAsrSessionRuleManager,
+  isOffscreenDocumentSender
 };
 
-// 防盗链规则管理器实例（会话生命周期内单例，闭包内聚全部簿记状态与对账逻辑）
-const sessionRuleManager = createAsrSessionRuleManager();
-
-// 安装 / 更新路径的整池清理（entry/background.ts 的 onInstalled 接线，逻辑
-// 实现收在本模块）：把池区间内平台上现存的全部会话规则清掉，并重置账本——
-// 之后首次 prepare 经 ensureReconciled 以平台事实源重建。
-// 会话规则跨浏览器重启与扩展更新由平台自动清空，本函数是防御性兜底（行为
-// 随 Chrome 版本有差异的路径不依赖平台语义）；删除不存在的 id 由 Chrome 忽略。
-export async function reapAllSessionRules(): Promise<void> {
-  await sessionRuleManager.clearAll();
-}
-
-// 任务准备：创建（或复用）offscreen 文档 + 分配独立规则 id。ASR 与后台视频
-// 截帧共用文档和 id 池，分别写 xmlhttprequest / media 规则；cleanup 只删自己这条。
-async function prepareOffscreenMediaTask(
-  sender: MessageSender,
-  sendResponse: (response: OffloadTaskResponse) => void,
-  videoFrame: boolean
-): Promise<void> {
-  let ruleId = 0;
-  try {
-    // 首次分配前对账一次（实例内幂等缓存），避免与上一 SW 实例残留的会话
-    // 规则撞 id；对账失败照下方 catch 的既有错误路径上报。
-    await sessionRuleManager.ensureReconciled();
-    // 泄漏兜底：回收归属标签页已关闭的残留规则（cleanup 消息随页面死亡
-    // 丢失的异常取消 / 后台终止路径）。
-    await sessionRuleManager.reapOrphans();
-    ruleId = await sessionRuleManager.allocate(taskOwnerKey(sender));
-    await ensureAsrOffscreenDocument();
-    await (videoFrame ? addVideoFrameRules(ruleId) : addDownloadRules(ruleId));
-    sendResponse({ ok: true, ruleId });
-  } catch (error) {
-    // updateSessionRules 失败照既有错误路径上报不吞；该 id 未成功占用
-    // （updateSessionRules 原子生效），归还空闲池避免失败一次泄漏一个 id。
-    if (ruleId) {
-      sessionRuleManager.release(ruleId);
-    }
-    sendResponse({ ok: false, error: String((error as { message?: string })?.message || error) });
-  }
-}
-
-export async function handleAsrDecodePrepare(_message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
-  await prepareOffscreenMediaTask(sender, sendResponse, false);
-}
-
-export async function handleVideoFramePrepare(_message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
-  await prepareOffscreenMediaTask(sender, sendResponse, true);
-}
-
-// 任务收尾：删掉本次解码任务自己的防盗链规则（成功失败都要调，页面侧用
-// try/finally 或 .finally 兜底）。只删消息携带的 ruleId，不影响并发任务
-// 的规则；删除不存在的 id 由 Chrome 忽略，重复/未知 id 的 cleanup 幂等不抛。
-// 持久化决策（工单 04）：规则配置不写入 storage——会话规则的平台副本
-// （getSessionRules）就是可恢复事实源，SW 重启后 prepare 首次分配前按其对账
-// 重建账本，storage 副本只会引入与平台的一致性负担；页面侧 cleanup 丢失
-//（标签页关闭/崩溃）的泄漏由 prepare 前的死标签页回收兜底。
-// 标签页归属校验（工单 03）：ruleId 在本实例簿记中有主时，只接受同一来源的
-// cleanup——跨标签页/跨上下文的删除请求回 { ok:false } 且不删规则。簿记不在
-// （SW 冷启动后上一实例的 ruleId：账本对账只收活跃集、无法区分原属）时保持
-// 幂等放行，与冷启动对账语义一致。
-export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
-  try {
-    const ruleId = Number((message as { ruleId?: number } | null)?.ruleId) || 0;
-    if (ruleId > 0) {
-      // 标签页归属（工单 03）：ruleId 在本实例簿记中有主时只接受同一来源的
-      // cleanup——跨标签页/跨上下文的删除请求回 { ok:false } 且不删规则。
-      // 簿记为 ""（SW 冷启动对账收编的上一实例残留 id）时幂等放行。
-      const owner = sessionRuleManager.getOwner(ruleId);
-      if (owner && owner !== taskOwnerKey(sender)) {
-        sendResponse({ ok: false, error: "防盗链规则不属于当前来源" });
-        return;
-      }
-      await removeDownloadRules(ruleId);
-      sessionRuleManager.release(ruleId);
-    }
-    sendResponse({ ok: true });
-  } catch (error) {
-    sendResponse({ ok: false, error: String((error as { message?: string })?.message || error) });
-  }
-}
-
-// ===== offscreen 文档自关闭的 SW 代执行（工单 03） =====
-
-// offscreen 文档没有 chrome.offscreen（平台只开放 chrome.runtime），任务终态
-// 后的自关闭经 "offscreen-request-close" 消息委托本执行器：校验发送者确为
-// offscreen 文档（sender.url 精确等于文档 URL 且无 sender.tab），执行
-// chrome.offscreen.closeDocument 并明确回成功/失败。
-export async function handleOffscreenRequestClose(_message: unknown, sender: MessageSender, sendResponse: (response: OffscreenRequestCloseResponse) => void): Promise<void> {
-  if (!isOffscreenDocumentSender(sender)) {
-    sendResponse({ ok: false, error: ASR_OFFSCREEN_REJECTION_MESSAGE });
-    return;
-  }
-  try {
-    await chrome.offscreen.closeDocument();
-    sendResponse({ ok: true });
-  } catch (error) {
-    sendResponse({ ok: false, error: String((error as { message?: string })?.message || error) });
-  }
-}
-
-// 发送者是否为 offscreen 文档本身（入口守卫与关闭执行器共用同一判定）。
-export function isOffscreenDocumentSender(sender: MessageSender): boolean {
-  return !sender?.tab && sender?.url === chrome.runtime.getURL(OFFSCREEN_URL);
-}
-
-// 任务来源键：有 sender.tab 的来源（content script）按标签页记账（"t<id>"），
-// 无 tab（offscreen 文档 / 未知上下文）统一记 "o"。
 function taskOwnerKey(sender: MessageSender): string {
   const tabId = sender?.tab?.id;
   return tabId != null ? "t" + String(tabId) : "o";
 }
 
-// offscreen 文档列表项的最小形状（self.clients 在 ServiceWorkerGlobalScope
-// 上，DOM lib 的 self 未覆盖，访问处按此断言）
-type ServiceWorkerScopeLike = {
-  clients: {
-    matchAll(options: { includeUncontrolled: boolean }): Promise<Array<{ url?: string }>>;
-  };
-};
+function toErrorText(error: unknown): string {
+  return String((error as { message?: string } | null)?.message || error);
+}
 
-// 有活跃文档就复用，没有则创建一个（offscreen 文档常驻 sidepanel 创建的
-// "offscreen-chat" 实例，新端口与之并存互不干扰）。创建失败不再吞掉（工单
-// 03）：matchAll 探测失败降级为直接尝试创建；createDocument 的原始错误向上
-// 抛，沿 prepare 的 catch 回 { ok:false, error } 进入页面侧可读错误处理——
-// 只有「文档已存在」（探测降级路径下的并发创建竞态）视同成功。
-async function ensureAsrOffscreenDocument(): Promise<void> {
-  let hasDoc = false;
+/** Clears all pooled Bilibili media session rules and resets rule ledger state. */
+export async function reapAllSessionRules(): Promise<void> {
+  await reapAllBiliMediaSessionRules();
+}
+
+async function prepareOffscreenMediaTask(
+  sender: MessageSender,
+  sendResponse: (response: OffloadTaskResponse) => void,
+  kind: "audio-xhr" | "video-media"
+): Promise<void> {
   try {
-    // 注意：SW 标准全局是 self.clients（ServiceWorkerGlobalScope.clients），
-    // 没有 chrome.clients 这个命名空间。
-    const clients = await (self as unknown as ServiceWorkerScopeLike).clients.matchAll({ includeUncontrolled: true });
-    hasDoc = clients.some((client) => client.url?.includes(OFFSCREEN_URL));
-  } catch {
-    // 探测失败不阻塞创建尝试：createDocument 的 already-exists 兜底
-    hasDoc = false;
-  }
-  if (hasDoc) {
-    return;
-  }
-  try {
-    await chrome.offscreen.createDocument({
-      url: chrome.runtime.getURL(OFFSCREEN_URL),
-      // 不用 AUDIO_PLAYBACK：Chrome 对无真实播放的 AUDIO_PLAYBACK 文档
-      // 30 秒强制关闭（长视频解码 >30s 会「音频解码中断」）；本文档实际
-      // 是解码 + 转写（WAV Blob 仅在本 context 内经 FormData 上传）以及
-      // MOSS-LIVE WebSocket 伴看连接。取值统一收拢在 shared/offscreen-constants.js
-      //（与聊天通道的创建方共用同一 reasons 列表）。
-      reasons: [...OFFSCREEN_CREATE_REASONS],
-      justification: "Download, decode, slice and transcribe video audio for ASR subtitles."
-    });
+    const ruleId = await acquireBiliMediaSessionRule(kind, taskOwnerKey(sender));
+    sendResponse({ ok: true, ruleId });
   } catch (error) {
-    if (OFFSCREEN_ALREADY_EXISTS_RE.test(String((error as { message?: string })?.message || error))) {
-      return;
+    sendResponse({ ok: false, error: toErrorText(error) });
+  }
+}
+
+/** Handles ASR offscreen decode preparation (ensure offscreen document + audio-xhr DNR rule). */
+export async function handleAsrDecodePrepare(
+  _message: unknown,
+  sender: MessageSender,
+  sendResponse: (response: OffloadTaskResponse) => void
+): Promise<void> {
+  await prepareOffscreenMediaTask(sender, sendResponse, "audio-xhr");
+}
+
+/** Handles video frame capture preparation (ensure offscreen document + video-media DNR rule). */
+export async function handleVideoFramePrepare(
+  _message: unknown,
+  sender: MessageSender,
+  sendResponse: (response: OffloadTaskResponse) => void
+): Promise<void> {
+  await prepareOffscreenMediaTask(sender, sendResponse, "video-media");
+}
+
+/** Handles cleanup of a task-scoped Bilibili media DNR rule after verifying sender ownership. */
+export async function handleAsrDecodeCleanup(
+  message: unknown,
+  sender: MessageSender,
+  sendResponse: (response: OffloadTaskResponse) => void
+): Promise<void> {
+  try {
+    const ruleId = Number((message as { ruleId?: number } | null)?.ruleId) || 0;
+    if (ruleId > 0) {
+      await releaseBiliMediaSessionRule(ruleId, taskOwnerKey(sender));
     }
-    throw error;
+    sendResponse({ ok: true });
+  } catch (error) {
+    sendResponse({ ok: false, error: toErrorText(error) });
   }
 }
 
-// Chrome createDocument 的「offscreen 文档已存在」错误判定（探测降级路径下
-// 的并发创建竞态用）：真实文案是 "Only a single offscreen document may be
-// created."（r1 审查核实，不含 "already exist"）；正则同时兼容 "already
-// exist" 变体与 "single offscreen"，不放宽到任意错误。
-const OFFSCREEN_ALREADY_EXISTS_RE = /already exist|single offscreen/i;
-
-// ===== 防盗链下载规则（dnr 为 MV3 专属 API，仅 background 可用） =====
-
-// 为单个解码任务添加 Referer/Origin 会话规则（offscreen 文档 fetch 音轨时
-// 绕防盗链；规则内容与旧固定 id 版本一致，仅 id 按任务独立）。保留先删后加
-// 的幂等：同 id 已有规则时覆盖写为新内容，而非因 id 已存在而报错。
-// 作用范围（工单 04 收窄）：requestDomains 精确匹配 ASR 音频 CDN 域
-// （ASR_AUDIO_CDN_DOMAIN 及其子域）+ 仅 xmlhttprequest——规则只改写 offscreen
-// 文档对 playurl 返回音轨地址的 fetch 的 Referer/Origin，不触碰浏览器其他流量。
-export async function addDownloadRules(ruleId: number): Promise<void> {
-  const id = Number(ruleId) || 0;
-  if (id <= 0) {
-    throw new Error("缺少防盗链规则 id");
-  }
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [id],
-    addRules: [
-      {
-        id,
-        priority: 1,
-        action: {
-          type: "modifyHeaders",
-          requestHeaders: [
-            { header: "Referer", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE },
-            { header: "Origin", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE }
-          ]
-        },
-        condition: {
-          requestDomains: [...ASR_AUDIO_CDN_DOMAINS],
-          resourceTypes: ["xmlhttprequest"]
-        }
-      }
-    ]
-  });
-}
-
-export async function addVideoFrameRules(ruleId: number): Promise<void> {
-  const id = Number(ruleId) || 0;
-  if (id <= 0) throw new Error("缺少防盗链规则 id");
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [id],
-    addRules: [{
-      id,
-      priority: 1,
-      action: {
-        type: "modifyHeaders",
-        requestHeaders: [
-          { header: "Referer", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE },
-          { header: "Origin", operation: "set", value: ASR_AUDIO_ORIGIN_PAGE }
-        ],
-        responseHeaders: [
-          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
-        ]
-      },
-      condition: {
-        requestDomains: [...ASR_AUDIO_CDN_DOMAINS],
-        resourceTypes: ["media"]
-      }
-    }]
-  });
-}
-
-// 清掉指定任务 id 的规则（updateSessionRules 同时支持移除与添加）
-export async function removeDownloadRules(ruleId: number): Promise<void> {
-  const id = Number(ruleId) || 0;
-  if (id <= 0) {
+/** Executes offscreen document self-close on behalf of verified offscreen senders. */
+export async function handleOffscreenRequestClose(
+  _message: unknown,
+  sender: MessageSender,
+  sendResponse: (response: OffscreenRequestCloseResponse) => void
+): Promise<void> {
+  if (!isOffscreenDocumentSender(sender)) {
+    sendResponse({ ok: false, error: OFFSCREEN_SENDER_REJECTION_MESSAGE });
     return;
   }
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [id]
-  });
+  try {
+    await closeOffscreenDocument();
+    sendResponse({ ok: true });
+  } catch (error) {
+    sendResponse({ ok: false, error: toErrorText(error) });
+  }
 }

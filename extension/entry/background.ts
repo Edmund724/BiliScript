@@ -94,11 +94,15 @@ import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
 // script-only-ui：侧边栏设置面板的 host 权限代申请（collectOrigins 纯函数）与
 // content 侧 offscreen 代发的权限代查（hasHostPermission）
 import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
-// PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
-import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import {
+  ensureOffscreenDocument,
+  isOffscreenDocumentSender,
+  OFFSCREEN_SENDER_REJECTION_MESSAGE,
+  reapAllBiliMediaSessionRules
+} from "../core/offscreen-host.js";
 import { attachChatSpeechPort } from "../chat/chat-speech-bg.js";
-import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
-import { ASR_OFFSCREEN_REJECTION_MESSAGE, ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
+import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose } from "../asr/offscreen-bridge.bg.js";
+import { ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
 // 消息入口策略（路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径）：组合根只注入
 // handler 表、来源判据与拒绝文案。
 import { createMessageRouter } from "../core/message-router.js";
@@ -234,15 +238,13 @@ function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sende
   void hasHostPermission(message.origin).then((granted) => sendResponse({ granted }));
 }
 
-// PR5：对话 tab（content script）发送前的 offscreen 文档自愈 ensure。chrome.offscreen
+// 对话 tab（content script）发送前的 offscreen 文档自愈 ensure。chrome.offscreen
 // / chrome.runtime.getContexts 仅扩展上下文可用，content script 经此消息委托
-// background 幂等创建（sidepanel 扩展页内直调 ensureChatOffscreenDocument 的
-// 等价通道）。ensure 失败不再吞掉（工单 03）：ensureChatOffscreenDocument 的
-// 原始错误经 withOkResponse 回 { ok:false, error }——调用方 catch 后仍由
-// connect 结果兜底（发送链不中断），但失败原因不再无声丢失。
+// background 幂等创建（core/offscreen-host.ts）。ensure 失败时原始错误经
+// withOkResponse 回 { ok:false, error }。
 function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: Reply<"ensure-offscreen-chat">): void {
   withOkResponse(
-    (async () => ({ ok: true, ensured: await ensureChatOffscreenDocument() }))(),
+    (async () => ({ ok: true, ensured: await ensureOffscreenDocument() }))(),
     sendResponse
   );
 }
@@ -605,11 +607,11 @@ const messageHandlerTable = {
 //（arch-slim-3/04 收编，本文件经 import 消费）。
 
 chrome.runtime.onInstalled.addListener(async () => {
-  // ASR 防盗链会话规则整池清理（工单 04，逻辑在 asr/offscreen-bridge.bg.ts）：
+  // B 站媒体防盗链会话规则整池清理（逻辑在 core/offscreen-host.ts）：
   // 安装/更新后把池区间内平台现存规则清掉并重置账本，防旧规则泄漏（会话规则
   // 跨浏览器重启由平台自动清空，本清理是对扩展 reload/update 行为差异的兜底）。
   try {
-    await reapAllSessionRules();
+    await reapAllBiliMediaSessionRules();
     await clearMossLiveWsAuthRule();
   } catch (error) {
     // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
@@ -743,8 +745,8 @@ watchStorageKeys((changes) => {
 // 路由 / 来源守卫 / payload 形状守卫 / 派发 / 回包口径全在 core/message-router 的
 // createMessageRouter（零 chrome 的策略单点）——本文件只接线三样：按键 handler 表、
 // 来源判据（标签 → 判据；判据本体 isOffscreenDocumentSender 住
-// asr/offscreen-bridge.bg.ts）与拒绝文案（字面量单源在 asr/protocol.ts，router
-// 不持文案）。两项检查的判据逐条登记在协议层的 SW 消息注册表
+// core/offscreen-host.ts）与拒绝文案（字面量单源在 asr/protocol.ts，经
+// core/offscreen-host.ts 导出，router 不持文案）。两项检查的判据逐条登记在协议层的 SW 消息注册表
 // （shared/messaging-protocol.ts 的 BACKGROUND_MESSAGE_REGISTRY，一条消息一处
 // 登记）：
 //   ① 来源标签：注册表逐条 sender 登记派生的 OFFSCREEN_ONLY_MESSAGE_TYPES
@@ -756,7 +758,7 @@ watchStorageKeys((changes) => {
 const messageRouter = createMessageRouter({
   handlers: messageHandlerTable,
   senders: { offscreen: isOffscreenDocumentSender },
-  rejectionMessage: ASR_OFFSCREEN_REJECTION_MESSAGE
+  rejectionMessage: OFFSCREEN_SENDER_REJECTION_MESSAGE
 });
 
 // 入口监听：一行委派（MV3：监听器顶层同步注册）。

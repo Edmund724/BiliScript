@@ -9,13 +9,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 import type { createAsrDecodeHandler } from "../../extension/entry/offscreen-asr.js";
+import type { captureAgentBridgeFrames } from "../../extension/agent-bridge/frame.js";
 
-const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({
-  createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>()
+const { createAsrDecodeHandlerMock, captureAgentBridgeFramesMock } = vi.hoisted(() => ({
+  createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>(),
+  captureAgentBridgeFramesMock: vi.fn<typeof captureAgentBridgeFrames>()
 }));
 
 vi.mock("../../extension/entry/offscreen-asr.js", () => ({
   createAsrDecodeHandler: createAsrDecodeHandlerMock
+}));
+
+vi.mock("../../extension/agent-bridge/frame.js", () => ({
+  captureAgentBridgeFrames: captureAgentBridgeFramesMock
 }));
 
 type OnMessageListener = (
@@ -119,6 +125,7 @@ function armTerminalEcho() {
 
 beforeEach(() => {
   createAsrDecodeHandlerMock.mockReset();
+  captureAgentBridgeFramesMock.mockReset();
   fetchMock = vi.fn(async () => ({ status: 200, body: bodyStream(["ok"]) }));
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -212,5 +219,36 @@ describe("offscreen 概览代发端口", () => {
     expect(relay.port.postMessage.mock.calls.map(([message]) => message)).toEqual([
       { ok: true, accepted: true }
     ]);
+  });
+
+  it("后台截帧在飞期间 ASR 终态不自关文档，截帧完成后才触发自关", async () => {
+    armTerminalEcho();
+    let resolveCapture!: (value: { bvid: string; cid: string; frames: [] }) => void;
+    captureAgentBridgeFramesMock.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveCapture = resolve;
+      })
+    );
+    await importOffscreen();
+
+    const frameReply = vi.fn();
+    onMessageListeners.forEach((fn) =>
+      fn({ type: "agent-bridge-offscreen-frame", bvid: "BV1", cid: "1", targetTime: 5 }, {}, frameReply)
+    );
+    await vi.waitFor(() => expect(captureAgentBridgeFramesMock).toHaveBeenCalledTimes(1));
+
+    const asr = makePort("asr-decode");
+    host.onConnectListeners[0](asr.port);
+    asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(closeRequests()).toEqual([]);
+
+    resolveCapture({ bvid: "BV1", cid: "1", frames: [] });
+    await vi.waitFor(() =>
+      expect(frameReply).toHaveBeenCalledWith({ ok: true, result: { bvid: "BV1", cid: "1", frames: [] } })
+    );
+    await vi.waitFor(() => expect(closeRequests()).toHaveLength(1));
   });
 });

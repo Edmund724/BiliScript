@@ -312,30 +312,70 @@ describe("attachMossLivePort", () => {
     ]);
   });
 
-  it("uses loadGeminiClient when provided and providerType is 'gemini-live'", async () => {
+  it("dispatches 'moss-live' by default when providerType is omitted", async () => {
     const port = new FakePort();
-    let geminiSession: FakeMossSession | null = null;
-    const loadClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => new FakeMossSession(opts));
-    const loadGeminiClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => {
-      geminiSession = new FakeMossSession(opts);
-      return geminiSession;
+    let mossSession: FakeMossSession | null = null;
+    const loadClient = vi.fn(async () => (opts: { onEvent: (ev: MossLiveServerEvent) => void }) => {
+      mossSession = new FakeMossSession(opts);
+      return mossSession;
     });
 
-    attachMossLivePort(port as any, { loadClient, loadGeminiClient });
+    attachMossLivePort(port as any, { loadClient });
 
     port.simulateMessage({
       action: "start",
-      wsUrl: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
-      providerType: "gemini-live",
-      model: "gemini-3.1-flash-live-preview"
+      wsUrl: "wss://api.mosi.cn/v1/realtime",
+      model: "moss-live-1.0"
     });
 
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(loadGeminiClient).toHaveBeenCalledTimes(1);
-    expect(loadClient).not.toHaveBeenCalled();
-    expect(geminiSession).not.toBeNull();
+    expect(loadClient).toHaveBeenCalledWith("moss-live");
+    expect(mossSession).not.toBeNull();
+  });
+
+  it("regression: forwards initial speed and start options to client without dropping fields", async () => {
+    const port = new FakePort();
+    let createdSession: FakeMossSession | null = null;
+
+    attachMossLivePort(port as any, {
+      loadClient: async () => (opts) => {
+        createdSession = new FakeMossSession(opts);
+        return createdSession;
+      }
+    });
+
+    port.simulateMessage({
+      action: "start",
+      wsUrl: "wss://api.mosi.cn/v1/realtime",
+      providerType: "moss-live",
+      model: "moss-live-1.0",
+      voiceId: "voice-1",
+      volume: 0.8,
+      speed: 1.5,
+      lowBandwidth: true,
+      sessionId: "sess-1"
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(createdSession).not.toBeNull();
+    expect(createdSession!.actions).toEqual([
+      {
+        action: "start",
+        wsUrl: "wss://api.mosi.cn/v1/realtime",
+        providerType: "moss-live",
+        model: "moss-live-1.0",
+        voiceId: "voice-1",
+        volume: 0.8,
+        speed: 1.5,
+        lowBandwidth: true,
+        sessionId: "sess-1",
+        videoContext: null
+      }
+    ]);
   });
 });
 

@@ -1,11 +1,4 @@
-// createOffscreenLifetime（offscreen 文档寿命：三通道存活簿记 + asr 终态自关判决）
-// 测试：
-// - 三条件穷举（聊天端口 / 其他 asr-decode 端口 / 在飞概览代发端口）：三通道全空
-//   才关文档，任一非空即保留；任一通道随后释放，计数回到全空后照常关；
-// - 先删自身端口再判：终态端口还连着也关，已被断连移出也关（Set.delete 幂等）；
-// - 计数异常（NaN/undefined）→ 保守保留（判定叶 shouldCloseAfterAsrTask）。
-//
-// 模块只认识端口的最小结构面（onDisconnect），用例用假端口驱动，不依赖 chrome。
+// createOffscreenLifetime (offscreen document lease tracking & ASR-terminal close arbitration) tests.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -14,7 +7,6 @@ import {
   type LifetimePort
 } from "../../extension/entry/offscreen-lifecycle.js";
 
-// 假端口：只提供模块用到的那一面，并暴露手动触发断连的入口
 function makePort() {
   const disconnectListeners: Array<() => void> = [];
   const port: LifetimePort = {
@@ -27,7 +19,7 @@ function makePort() {
   return {
     port,
     fireDisconnect: () => {
-      for (const listener of disconnectListeners) listener();
+      disconnectListeners.forEach((listener) => listener());
     }
   };
 }
@@ -39,61 +31,40 @@ function setup() {
 
 const CHANNEL_SIZES = [0, 1, 2];
 
-describe("三条件穷举：只有三条通道全空才关文档", () => {
-  const combos = CHANNEL_SIZES.flatMap((chatPorts) =>
-    CHANNEL_SIZES.flatMap((otherAsrPorts) =>
-      CHANNEL_SIZES.map((providerPorts) => ({ chatPorts, otherAsrPorts, providerPorts }))
-    )
+describe("三条件穷举：只有活跃端口、其他解码端口与在飞任务全空才关文档", () => {
+  const combos = CHANNEL_SIZES.flatMap((activePorts) =>
+    CHANNEL_SIZES.map((otherAsrPorts) => ({ activePorts, otherAsrPorts }))
   );
 
   it.each(combos)(
-    "聊天 $chatPorts / 其他解码 $otherAsrPorts / 在飞代发 $providerPorts",
-    ({ chatPorts, otherAsrPorts, providerPorts }) => {
+    "活跃端口 $activePorts / 其他解码 $otherAsrPorts",
+    ({ activePorts, otherAsrPorts }) => {
       const { closeSelf, lifetime } = setup();
-      for (let i = 0; i < chatPorts; i += 1) lifetime.trackChatPort(makePort().port);
-      for (let i = 0; i < otherAsrPorts; i += 1) lifetime.trackAsrPort(makePort().port);
-      for (let i = 0; i < providerPorts; i += 1) lifetime.trackProviderPort(makePort().port);
+      Array.from({ length: activePorts }).forEach(() => lifetime.trackPort(makePort().port));
+      Array.from({ length: otherAsrPorts }).forEach(() => lifetime.trackAsrPort(makePort().port));
 
       const self = makePort();
       lifetime.trackAsrPort(self.port);
       lifetime.noteAsrTerminal(self.port);
 
-      const expectedClose = chatPorts === 0 && otherAsrPorts === 0 && providerPorts === 0;
+      const expectedClose = activePorts === 0 && otherAsrPorts === 0;
       expect(closeSelf).toHaveBeenCalledTimes(expectedClose ? 1 : 0);
     }
   );
 });
 
 describe("通道释放：任一保留条件消失后，计数回到全空即关", () => {
-  it("聊天端口断连出集后再来终态 → 关", () => {
+  it("活跃端口断连出集后再来终态 → 关", () => {
     const { closeSelf, lifetime } = setup();
-    const chat = makePort();
-    lifetime.trackChatPort(chat.port);
+    const port = makePort();
+    lifetime.trackPort(port.port);
 
     const first = makePort();
     lifetime.trackAsrPort(first.port);
     lifetime.noteAsrTerminal(first.port);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    chat.fireDisconnect();
-
-    const second = makePort();
-    lifetime.trackAsrPort(second.port);
-    lifetime.noteAsrTerminal(second.port);
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("概览代发端口断连出集后再来终态 → 关", () => {
-    const { closeSelf, lifetime } = setup();
-    const relay = makePort();
-    lifetime.trackProviderPort(relay.port);
-
-    const first = makePort();
-    lifetime.trackAsrPort(first.port);
-    lifetime.noteAsrTerminal(first.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    relay.fireDisconnect();
+    port.fireDisconnect();
 
     const second = makePort();
     lifetime.trackAsrPort(second.port);
@@ -150,8 +121,102 @@ describe("自身的终态端口：判定前先移出集合，两种时序都正�
   });
 });
 
+describe("withTask 非端口异步任务租约与自关竞态保护", () => {
+  it("任务在飞期间 ASR 终态不关闭文档；最后一个任务结束后补触发关闭", async () => {
+    const { closeSelf, lifetime } = setup();
+    let resolveTask1!: () => void;
+    let resolveTask2!: () => void;
+
+    const task1 = lifetime.withTask(() => new Promise<string>((resolve) => {
+      resolveTask1 = () => resolve("t1");
+    }));
+    const task2 = lifetime.withTask(() => new Promise<string>((resolve) => {
+      resolveTask2 = () => resolve("t2");
+    }));
+
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+    lifetime.noteAsrTerminal(asr.port);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    resolveTask1();
+    await expect(task1).resolves.toBe("t1");
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    resolveTask2();
+    await expect(task2).resolves.toBe("t2");
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+  });
+
+  it("任务抛错仍递减计数并执行待决自关，且原样透传错误", async () => {
+    const { closeSelf, lifetime } = setup();
+    let rejectTask!: (error: Error) => void;
+
+    const task = lifetime.withTask(() => new Promise<never>((_resolve, reject) => {
+      rejectTask = reject;
+    }));
+
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+    lifetime.noteAsrTerminal(asr.port);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    rejectTask(new Error("frame capture timeout"));
+    await expect(task).rejects.toThrow("frame capture timeout");
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+  });
+
+  it("无 ASR 终态待决时，withTask 结束不会自行关闭文档", async () => {
+    const { closeSelf, lifetime } = setup();
+    await expect(lifetime.withTask(async () => "done")).resolves.toBe("done");
+    expect(closeSelf).not.toHaveBeenCalled();
+  });
+
+  it("任务期间新连入常规端口或新 ASR 端口时，任务结束不再触发待决关闭", async () => {
+    const { closeSelf, lifetime } = setup();
+    let resolveTask!: () => void;
+
+    const task = lifetime.withTask(() => new Promise<void>((resolve) => {
+      resolveTask = resolve;
+    }));
+
+    const asr1 = makePort();
+    lifetime.trackAsrPort(asr1.port);
+    lifetime.noteAsrTerminal(asr1.port);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    const chat = makePort();
+    lifetime.trackPort(chat.port);
+
+    resolveTask();
+    await task;
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    chat.fireDisconnect();
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    let resolveTask2!: () => void;
+    const task2 = lifetime.withTask(() => new Promise<void>((resolve) => {
+      resolveTask2 = resolve;
+    }));
+    const asr2 = makePort();
+    lifetime.trackAsrPort(asr2.port);
+    lifetime.noteAsrTerminal(asr2.port);
+
+    const asr3 = makePort();
+    lifetime.trackAsrPort(asr3.port);
+
+    resolveTask2();
+    await task2;
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    lifetime.noteAsrTerminal(asr3.port);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("判定叶 shouldCloseAfterAsrTask：计数异常保守保留", () => {
-  it("聊天计数与在飞代发都为 0 → 关", () => {
+  it("活跃端口与任务计数都为 0 → 关", () => {
     expect(shouldCloseAfterAsrTask(0, 0)).toBe(true);
   });
 
@@ -162,11 +227,9 @@ describe("判定叶 shouldCloseAfterAsrTask：计数异常保守保留", () => {
     expect(shouldCloseAfterAsrTask(0, 2)).toBe(false);
   });
 
-  it("计数异常（NaN/undefined）→ 保守保留文档", () => {
-    for (const bad of [NaN, undefined]) {
-      expect(shouldCloseAfterAsrTask(bad, 0)).toBe(false);
-      expect(shouldCloseAfterAsrTask(0, bad)).toBe(false);
-      expect(shouldCloseAfterAsrTask(bad, bad)).toBe(false);
-    }
+  it.each([NaN, undefined])("计数异常（%s）→ 保守保留文档", (bad) => {
+    expect(shouldCloseAfterAsrTask(bad, 0)).toBe(false);
+    expect(shouldCloseAfterAsrTask(0, bad)).toBe(false);
+    expect(shouldCloseAfterAsrTask(bad, bad)).toBe(false);
   });
 });

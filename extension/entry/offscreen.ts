@@ -85,14 +85,14 @@ try {
 chrome.runtime.onMessage?.addListener((rawMessage: unknown, _sender, sendResponse) => {
   if ((rawMessage as { type?: unknown } | null)?.type !== "agent-bridge-offscreen-frame") return false;
   const message = rawMessage as AgentBridgeOffscreenFrameMessage;
-  void (async () => {
+  void lifetime.withTask(async () => {
     try {
       const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
       sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
     } catch (error) {
       sendResponse({ ok: false, error: getErrorMessage(error) });
     }
-  })();
+  });
   return true;
 });
 
@@ -221,20 +221,20 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port && port.name === PROVIDER_HTTP_OFFSCREEN_PORT_NAME) {
     // 概览代发端口：入集即算「文档有承载」（ASR 终态不关本文档），请求执行与
     // 断连 abort 全在 attachProviderHttpPort 内；本文件只经 lifetime 簿记生命周期。
-    lifetime.trackProviderPort(port);
+    lifetime.trackPort(port);
     attachProviderHttpPort(port);
     return;
   }
   if (port && port.name === MOSS_LIVE_PORT_NAME) {
-    lifetime.trackLivePort(port);
+    lifetime.trackPort(port);
     attachMossLivePort(port, {
-      loadClient: async () => {
+      loadClient: async (providerType) => {
+        if (providerType === "gemini-live") {
+          const GeminiClientClass = await geminiLiveLoader.load();
+          return (opts) => new GeminiClientClass(opts);
+        }
         const MossClientClass = await mossLiveLoader.load();
         return (opts) => new MossClientClass(opts);
-      },
-      loadGeminiClient: async () => {
-        const GeminiClientClass = await geminiLiveLoader.load();
-        return (opts) => new GeminiClientClass(opts);
       },
       postMessage: safePostMessage
     });
@@ -245,7 +245,7 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   // 聊天通道计数：asr-decode 终态自关判定的输入（见 lifetime.noteAsrTerminal）
-  lifetime.trackChatPort(port);
+  lifetime.trackPort(port);
 
   port.onMessage.addListener(async (rawMsg) => {
     const msg = rawMsg as OffscreenChatPortMessage;

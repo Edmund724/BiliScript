@@ -51,8 +51,6 @@ export interface AgentBridgeOffscreenFrameResponse {
   error?: string;
 }
 
-export const AGENT_BRIDGE_FRAME_TASK_PREPARE = "agent-bridge-frame-prepare";
-
 export interface AgentBridgeSubtitleItem {
   from: number;
   to: number;

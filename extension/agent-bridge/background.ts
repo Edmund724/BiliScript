@@ -1,12 +1,11 @@
 import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
 import type { AgentBridgeFrameResponse, AgentBridgeSnapshotResponse, AgentBridgeSubtitlesResponse } from "../shared/messaging-protocol.js";
-import { handleAsrDecodeCleanup, handleVideoFramePrepare } from "../asr/offscreen-bridge.bg.js";
+import { withBiliMediaSessionRule } from "../core/offscreen-host.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { createAgentBridgeVideoService } from "./video-service.js";
 import { parseAgentBridgeUrl } from "../core/validators.js";
 import {
   AGENT_BRIDGE_ALARM,
-  AGENT_BRIDGE_FRAME_TASK_PREPARE,
   AGENT_BRIDGE_PROTOCOL,
   type AgentBridgeContentSubtitlesResult,
   type AgentBridgeFramesResult,
@@ -190,46 +189,21 @@ function requestContentFrames(
   });
 }
 
-function prepareVideoFrameTask(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    void handleVideoFramePrepare({ taskType: AGENT_BRIDGE_FRAME_TASK_PREPARE }, {}, (result) => {
-      if (!result.ok || !result.ruleId) {
-        reject(new Error(result.error || "后台截帧准备失败"));
-        return;
-      }
-      resolve(result.ruleId);
-    });
-  });
-}
-
-function cleanupVideoFrameTask(ruleId: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    void handleAsrDecodeCleanup({ ruleId }, {}, (result) => {
-      if (!result.ok) {
-        reject(new Error(result.error || "后台截帧规则清理失败"));
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
 async function captureOffscreenFrames(input: { bvid: string; cid: string; targetTime: number }): Promise<AgentBridgeFramesResult> {
-  const ruleId = await prepareVideoFrameTask();
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "agent-bridge-offscreen-frame",
-      ...input
-    }) as AgentBridgeOffscreenFrameResponse | undefined;
-    if (!response?.ok || !response.result) {
-      throw new Error(response?.error || "Offscreen 文档未完成视频截帧");
+  return withBiliMediaSessionRule("video-media", async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "agent-bridge-offscreen-frame",
+        ...input
+      }) as AgentBridgeOffscreenFrameResponse | undefined;
+      if (!response?.ok || !response.result) {
+        throw new Error(response?.error || "Offscreen 文档未完成视频截帧");
+      }
+      return response.result;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
     }
-    return response.result;
-  } catch (error) {
-    throw new Error(getErrorMessage(error));
-  } finally {
-    await cleanupVideoFrameTask(ruleId);
-  }
+  });
 }
 
 const CONNECTION_TIMEOUT_MS = 3000;

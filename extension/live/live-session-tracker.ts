@@ -2,7 +2,7 @@
 // MOSS-LIVE / Gemini Live 会话所有权追踪与 DNR 鉴权规则（ruleId: 9002）单点管理模块：
 // 防止乱序 prepare、过期 cleanup 与残留标签页锁踩踏在途 WebSocket 鉴权规则。
 
-import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
+import { ensureOffscreenDocument } from "../core/offscreen-host.js";
 import {
   getAiCredentialStatusText,
   isOfficialAiCredentialEndpoint,
@@ -204,7 +204,7 @@ function resolvePrepareDeps(overrides?: Partial<LiveSessionPrepareDeps>): Requir
     hasPermission: overrides?.hasPermission ?? hasHostPermission,
     setAuthRule: overrides?.setAuthRule ?? setMossLiveWsAuthRule,
     clearAuthRule: overrides?.clearAuthRule ?? clearMossLiveWsAuthRule,
-    ensureOffscreen: overrides?.ensureOffscreen ?? ensureChatOffscreenDocument,
+    ensureOffscreen: overrides?.ensureOffscreen ?? ensureOffscreenDocument,
     resolveActiveId: overrides?.resolveActiveId ?? resolveActiveLiveProviderId,
     isTabAlive: overrides?.isTabAlive ?? isTabAliveByChromeTabs,
     notifyTabTakeover: overrides?.notifyTabTakeover ?? notifyTabTakeoverByChromeTabs

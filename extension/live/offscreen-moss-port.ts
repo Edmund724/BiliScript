@@ -32,7 +32,6 @@ export interface AttachMossLivePortOptions<
   TEvent = MossLiveServerEvent
 > {
   loadClient: (providerType?: LiveClientProviderType) => Promise<MossLiveClientFactory<TAction, TEvent>>;
-  loadGeminiClient?: () => Promise<MossLiveClientFactory<TAction, TEvent>>;
   postMessage?: (port: chrome.runtime.Port, message: unknown) => void;
 }
 
@@ -116,10 +115,7 @@ export function attachMossLivePort<
         msg.providerType === "gemini-live" ? "gemini-live" : "moss-live";
 
       try {
-        const createClient =
-          providerType === "gemini-live" && options.loadGeminiClient
-            ? await options.loadGeminiClient()
-            : await loadClient(providerType);
+        const createClient = await loadClient(providerType);
         if (disposed || generation !== currentGeneration) {
           return;
         }
@@ -140,17 +136,7 @@ export function attachMossLivePort<
         liveClient = client;
         activeLiveSession = { port, client, postMessage };
         client.handleAction({
-          action: "start",
-          wsUrl: msg.wsUrl,
-          ...(msg.providerType !== undefined ? { providerType: msg.providerType } : {}),
-          ...(msg.model !== undefined ? { model: msg.model } : {}),
-          ...(msg.liveGeminiNativeSearch !== undefined
-            ? { liveGeminiNativeSearch: msg.liveGeminiNativeSearch }
-            : {}),
-          ...(msg.lowBandwidth !== undefined ? { lowBandwidth: msg.lowBandwidth } : {}),
-          ...(msg.voiceId !== undefined ? { voiceId: msg.voiceId } : {}),
-          ...(msg.volume !== undefined ? { volume: msg.volume } : {}),
-          ...(msg.sessionId !== undefined ? { sessionId: msg.sessionId } : {}),
+          ...msg,
           videoContext: latestVideoContext
         } as unknown as TAction);
       } catch (error) {
