@@ -15,6 +15,10 @@ declare module "node:http" {
     listen(port: number, host: string, callback: () => void): void;
     address(): string | { port: number } | null;
     close(callback: () => void): void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    on(event: string, listener: (...args: any[]) => void): this;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    once(event: string, listener: (...args: any[]) => void): this;
   }
   export function createServer(
     listener: (req: IncomingMessage, res: ServerResponse) => void

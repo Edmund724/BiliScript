@@ -29,7 +29,7 @@ description: 通过本机 BiliScript 浏览器扩展读取 B 站视频字幕、�
 node "<skill-dir>/scripts/biliscript.mjs" tabs
 ```
 
-`tabs` 返回已打开视频的 `tabId`、`bvid`、`title`、`currentTime`、`duration` 与 `subtitlesReady`。
+`tabs` 返回已打开视频的 `tabId`、`bvid`、`title`、`currentTime`、`duration` 与 `subtitlesReady`（当前活动标签带 `active: true`）。同时连接多个浏览器实例时，`tabs` 会聚合所有在线实例并分配不冲突的 `tabId`；`--tab` 路由到所属实例，`--bvid` 优先命中已打开该视频的实例，省略参数时优先选活动视频标签页。
 
 **完成判据**：已确定目标参数（`--bvid <BV/URL>`、`--tab <tabId>` 或省略以指向当前活动标签页）；若任务涉及当前播放进度，已记录对应的 `currentTime`。
 
