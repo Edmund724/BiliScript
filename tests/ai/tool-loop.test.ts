@@ -172,7 +172,7 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai", callId: "call_1" });
   });
 
-  it("本轮次数达上限：摘除 tools + system 次数提示注入 + notice，后续轮无工具", async () => {
+  it("本轮次数达上限：摘除 tools + system 次数提示注入，不向用户发 notice，后续轮无工具", async () => {
     capture = makeCapture();
     // maxToolCalls=1：首轮搜索后计数达上限，第二轮不带 tools 出最终回答。
     await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
@@ -182,7 +182,7 @@ describe("runToolLoop 工具调用循环", () => {
     const followup = capture.calls[1].messages;
     // 同名收口（§6.4）：本条只讲「本轮的搜索次数」，平台额度另有文案
     expect(followup.some((m) => m.role === "system" && m.content === "本轮的搜索次数已达上限（1 次），请基于已有搜索结果作答。")).toBe(true);
-    expect(capture.notices).toContain("本轮的搜索次数已达上限，请基于已有结果作答");
+    expect(capture.notices).toEqual([]);
   });
 
   it("搜索失败降级：「搜索失败」tool 消息 + failed 状态 + notice，回答不中断", async () => {
@@ -1025,7 +1025,7 @@ describe("热门评论工具", () => {
     expect(capture.calls[1].tools).toEqual([
       expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })
     ]);
-    expect(capture.notices).not.toContain("本轮的搜索次数已达上限，请基于已有结果作答");
+    expect(capture.notices).toEqual([]);
   });
 
   it("拉取失败：错误回填工具消息并提示，回答不中断", async () => {

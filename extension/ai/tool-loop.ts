@@ -482,13 +482,12 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     ]);
 
     if (includeWebSearchTool && toolCallCount >= maxToolCalls && !quotaNoticeInjected) {
-      // 本轮次数达上限：摘除搜索工具，注入提示后继续作答。
+      // 本轮次数达上限：摘除搜索工具，仅向模型注入 system 提示以收口作答，不向用户发 notice。
       // 同名收口（§6.4）：全局「额度」只指平台额度，「次数」只指本轮调用。
       messages.push({
         role: "system",
         content: `本轮的搜索次数已达上限（${maxToolCalls} 次），请基于已有搜索结果作答。`
       });
-      onNotice?.("本轮的搜索次数已达上限，请基于已有结果作答");
       quotaNoticeInjected = true;
     }
   }
