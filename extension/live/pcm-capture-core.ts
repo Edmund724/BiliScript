@@ -17,6 +17,7 @@ export const PCM_WORKLET_BATCH_BYTES = PCM_WORKLET_BATCH_SAMPLES * 2;
 
 export const PCM_CAPTURE_PROCESSOR_NAME = "biliscript-pcm-capture-processor";
 export const PCM_CAPTURE_WORKLET_REL_PATH = "entry/chunks/pcm-capture-worklet.mjs";
+export const DEFAULT_WORKLET_QUANTUM_FRAMES = 128;
 
 export const DEFAULT_VAD_RMS_THRESHOLD = 0.015;
 export const DEFAULT_VAD_HANGOVER_MS = 2000;
@@ -202,7 +203,8 @@ export interface PcmCaptureCore {
   processQuantum(
     micChannel?: Float32Array,
     videoChannels?: readonly Float32Array[],
-    quantumSampleRate?: number
+    quantumSampleRate?: number,
+    quantumFrames?: number
   ): void;
   reset(): void;
 }
@@ -338,37 +340,43 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
   function processQuantum(
     micChannel?: Float32Array,
     videoChannels?: readonly Float32Array[],
-    quantumSampleRate: number = defaultSampleRate
+    quantumSampleRate: number = defaultSampleRate,
+    quantumFrames?: number
   ): void {
     const effectiveRate =
       Number.isFinite(quantumSampleRate) && quantumSampleRate > 0
         ? quantumSampleRate
         : defaultSampleRate;
 
-    updateMicVad(micChannel, effectiveRate);
-
-    const hasVideo = Boolean(config.mixVideo && videoChannels && videoChannels.length > 0);
-    if (config.muted && !hasVideo) {
+    if (config.muted) {
+      resetVadAndSpeech();
       chunker.reset();
       return;
     }
 
+    updateMicVad(micChannel, effectiveRate);
+
+    const hasVideo = Boolean(config.mixVideo && videoChannels && videoChannels.length > 0);
     const micLen = micChannel?.length ?? 0;
     const videoCh0 = hasVideo ? videoChannels![0] : undefined;
     const videoCh1 = hasVideo && videoChannels!.length > 1 ? videoChannels![1] : undefined;
     const videoLen = Math.max(videoCh0?.length ?? 0, videoCh1?.length ?? 0);
-    const len = Math.max(micLen, videoLen);
+    const fallbackFrames =
+      typeof quantumFrames === "number" && Number.isFinite(quantumFrames) && quantumFrames > 0
+        ? Math.round(quantumFrames)
+        : 0;
+    const len = Math.max(micLen, videoLen, fallbackFrames);
     if (len === 0) return;
 
     if (mixScratch.length !== len) {
       mixScratch = new Float32Array(len);
     }
 
-    const videoGain = !config.muted && vadSpeaking ? config.upstreamVideoDuckGain : 1;
+    const videoGain = vadSpeaking ? config.upstreamVideoDuckGain : 1;
     const hasStereoVideo = Boolean(videoCh0 && videoCh1);
 
     for (let i = 0; i < len; i++) {
-      const micSample = !config.muted && micChannel && i < micLen ? micChannel[i] : 0;
+      const micSample = micChannel && i < micLen ? micChannel[i] : 0;
       let rawVideo = 0;
       if (hasVideo) {
         if (hasStereoVideo) {

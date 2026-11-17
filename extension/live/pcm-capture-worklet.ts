@@ -4,6 +4,7 @@
 // 16kHz 重采样与 40ms（1280 字节）S16LE 分帧，并通过 Transferable ArrayBuffer 零拷贝传回主线程。
 
 import {
+  DEFAULT_WORKLET_QUANTUM_FRAMES,
   PCM_CAPTURE_PROCESSOR_NAME,
   PCM_WORKLET_BATCH_SAMPLES,
   createPcmCaptureCore,
@@ -80,7 +81,7 @@ class PcmCaptureWorkletProcessor extends AudioWorkletProcessor {
     };
   }
 
-  process(inputs: Float32Array[][]): boolean {
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     if (this.stopped) {
       return false;
     }
@@ -90,7 +91,8 @@ class PcmCaptureWorkletProcessor extends AudioWorkletProcessor {
       typeof sampleRate === "number" && Number.isFinite(sampleRate) && sampleRate > 0
         ? sampleRate
         : undefined;
-    this.core.processQuantum(micChannel, videoChannels, currentRate);
+    const quantumFrames = outputs[0]?.[0]?.length || DEFAULT_WORKLET_QUANTUM_FRAMES;
+    this.core.processQuantum(micChannel, videoChannels, currentRate, quantumFrames);
     return true;
   }
 }

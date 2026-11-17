@@ -523,12 +523,10 @@ export async function createPageAudioCapture(
     }
 
     if (msg.type === "pcm") {
-      if (msg.hadSpeech && !muted) {
+      // 闭麦后立即拦截在途 Worklet 批量帧（含开启视频原声共享场景），防止残留采样泄漏。
+      if (muted) return;
+      if (msg.hadSpeech) {
         lastVoiceActivityTimestamp = Date.now();
-      }
-      // 当麦克风静音且视频原声未分享或静音时，静默不推帧
-      if (muted && (!shareVideoAudio || videoPipeline.getStatus() !== "已获取音轨")) {
-        return;
       }
       const pcmBytes = new Uint8Array(msg.pcmBuffer);
       if (pcmBytes.byteLength > 0) {
@@ -539,7 +537,9 @@ export async function createPageAudioCapture(
 
   function setMuted(nextMuted: boolean): void {
     if (stopped) return;
-    muted = Boolean(nextMuted);
+    const next = Boolean(nextMuted);
+    if (muted === next) return;
+    muted = next;
     for (const track of micStream.getAudioTracks()) {
       track.enabled = !muted;
     }

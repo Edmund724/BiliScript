@@ -405,11 +405,11 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
   onMicStateChanged(
     enabled: boolean,
-    _previousEnabled: boolean,
+    previousEnabled: boolean,
     connected: boolean,
     transport: LiveWireTransport
   ): void {
-    if (connected) {
+    if (previousEnabled !== enabled && connected) {
       transport.sendJson({ action: "mic_state", enabled });
     }
   }

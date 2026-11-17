@@ -170,14 +170,19 @@ class FakeCaptureAudioContext implements PageAudioContextLike {
     };
   }
 
-  emitSamples(samples: Float32Array, videoSamples?: Float32Array | Float32Array[]) {
+  emitSamples(samples?: Float32Array, videoSamples?: Float32Array | Float32Array[], quantumFrames?: number) {
     if (this.workletStopped || !this.workletCore) return;
     const videoChannels = Array.isArray(videoSamples)
       ? videoSamples
       : videoSamples
         ? [videoSamples]
         : undefined;
-    this.workletCore.processQuantum(samples, videoChannels, this.sampleRate);
+    this.workletCore.processQuantum(samples, videoChannels, this.sampleRate, quantumFrames);
+  }
+
+  simulateWorkletMessage(msg: PcmCaptureWorkletToMainMessage) {
+    if (this.workletStopped) return;
+    this.workletPort?.onmessage?.({ data: msg } as MessageEvent<PcmCaptureWorkletToMainMessage>);
   }
 }
 
@@ -289,6 +294,41 @@ describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
     expect(batches).toHaveLength(0);
     core.processQuantum(new Float32Array(384).fill(0.5), undefined, 16000);
     expect(batches).toHaveLength(1);
+  });
+
+  it("continuously outputs 1280-byte zero PCM frames on silence, after VAD release, and when micChannel is empty with quantumFrames = 128", () => {
+    const batches: ArrayBuffer[] = [];
+    const core = createPcmCaptureCore({
+      sampleRate: 16000,
+      initialConfig: { vadReleaseMs: 300 },
+      onPcmBatch: (buffer) => batches.push(buffer)
+    });
+
+    // 1. 说话激活 VAD（1 帧）
+    core.processQuantum(new Float32Array(640).fill(0.25), undefined, 16000);
+    expect(core.isVadActive()).toBe(true);
+    expect(batches).toHaveLength(1);
+
+    // 2. 低能量静音触发 VAD 释放（4800 采样 = 300ms -> 5120 采样跨过释放门槛，共输出 8 帧）
+    core.processQuantum(new Float32Array(640).fill(0), undefined, 16000);
+    core.processQuantum(new Float32Array(4480).fill(0), undefined, 16000);
+    expect(core.isVadActive()).toBe(false);
+    expect(batches).toHaveLength(9);
+
+    // 3. VAD 释放后的纯静音输入依然继续产帧
+    core.processQuantum(new Float32Array(640).fill(0), undefined, 16000);
+    expect(batches).toHaveLength(10);
+
+    // 4. WebAudio 传入空通道（micChannel=undefined）但 quantumFrames=128 时，5 个量子产出 1 帧全零 1280B PCM
+    core.processQuantum(undefined, undefined, 16000, 128);
+    core.processQuantum(undefined, undefined, 16000, 128);
+    core.processQuantum(undefined, undefined, 16000, 128);
+    core.processQuantum(undefined, undefined, 16000, 128);
+    core.processQuantum(undefined, undefined, 16000, 128);
+
+    expect(batches).toHaveLength(11);
+    expect(batches[10].byteLength).toBe(PCM_WORKLET_BATCH_BYTES);
+    expect(new Uint8Array(batches[10])).toEqual(new Uint8Array(PCM_WORKLET_BATCH_BYTES));
   });
 });
 
@@ -585,6 +625,55 @@ describe("createPageAudioCapture", () => {
     capture.setShareVideoAudio(false);
     expect(capture.getVideoAudioStatus()).toBe("未开启");
     expect(capture.isSharingVideoAudio()).toBe(false);
+
+    capture.stop();
+  });
+
+  it("blocks muted in-flight worklet PCM frames even when shareVideoAudio is enabled, and resumes after unmute", async () => {
+    const fakeStream = new FakeMediaStream();
+    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
+    const frames: Uint8Array[] = [];
+
+    const fakeVideoTrack = new FakeMediaStreamTrack();
+    const fakeVideoStream = new FakeMediaStream([fakeVideoTrack]);
+    const fakeVideo = {
+      muted: false,
+      volume: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      captureStream: () => fakeVideoStream
+    } as unknown as HTMLVideoElement;
+
+    const capture = await createPageAudioCapture({
+      onPcmFrame: (pcm) => frames.push(pcm),
+      shareVideoAudio: true,
+      getVideoElement: () => fakeVideo,
+      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
+      getUserMedia: async () => fakeStream as unknown as MediaStream,
+      createAudioContext: () => fakeAudioCtx
+    });
+
+    expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
+
+    // 开麦期间正常产出
+    fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.2), new Float32Array(640).fill(0.4));
+    expect(frames).toHaveLength(1);
+
+    // 闭麦后立即停推，且对 Worklet 端口迟到的在途 pcm 消息及新量子采样全面拦截
+    capture.setMuted(true);
+    fakeAudioCtx.simulateWorkletMessage({
+      type: "pcm",
+      pcmBuffer: new Uint8Array(PCM_WORKLET_BATCH_BYTES).fill(0x55).buffer,
+      hadSpeech: true
+    });
+    fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.3), new Float32Array(640).fill(0.4));
+    expect(frames).toHaveLength(1);
+
+    // 取消静音后恢复正常推帧
+    capture.setMuted(false);
+    fakeAudioCtx.emitSamples(new Float32Array(640).fill(0), new Float32Array(640).fill(0.4));
+    expect(frames).toHaveLength(2);
+    expect(decodePcmS16LEToFloat32(frames[1].buffer)[0]).toBeCloseTo(0.4, 2);
 
     capture.stop();
   });

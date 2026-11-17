@@ -522,6 +522,7 @@ export class OffscreenLiveSessionRuntime {
   handleAction(msg: MossLiveClientAction): void {
     switch (msg.action) {
       case "start":
+        this.micEnabled = true;
         this.serverSpeedUnsupported = false;
         if (this.adapter.configureOutput) this.audioPlayer.setPlaybackRate(1);
         if (msg.wsUrl !== undefined) {
@@ -1213,6 +1214,7 @@ export class OffscreenLiveSessionRuntime {
   setMicEnabled(enabled: boolean): void {
     const next = Boolean(enabled);
     const prev = this.micEnabled;
+    if (next === prev) return;
     this.micEnabled = next;
     this.adapter.onMicStateChanged(next, prev, this.state === "connected", this.transport);
   }

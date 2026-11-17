@@ -934,7 +934,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           void cleanupSessionRule(sessionId);
         },
         onPcmFrame: (pcmBytes) => {
-          if (generation !== currentGeneration || state !== "connected" || !activePort) {
+          if (muted || generation !== currentGeneration || state !== "connected" || !activePort) {
             return;
           }
           try {
@@ -1157,7 +1157,9 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
 
   function setMuted(nextMuted: boolean): void {
     if (state !== "connected") return;
-    muted = Boolean(nextMuted);
+    const next = Boolean(nextMuted);
+    if (muted === next) return;
+    muted = next;
     activeAudioCapture?.setMuted(muted);
     updateMuteUi();
     updateSpeakingUi();
