@@ -166,6 +166,7 @@ export type AsrChunkResultMessage = {
   index: number;
   startSec: number;
   durationSec: number;
+  overlapLeadSec?: number;
   result: unknown;
 };
 export interface AsrDoneMessage extends AsrFailureFields {

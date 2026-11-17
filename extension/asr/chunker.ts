@@ -15,16 +15,31 @@ export interface ChunkPlan {
   chunkSeconds: number;
 }
 
-// 切片时间戳：startSec 连续无缝隙，最后一片短于标准片长属正常
+// 切片时间戳：startSec / durationSec / overlapLeadSec 显式表达采样区间；
+// 有重叠时下一片会回退 overlapLeadSec，无重叠时 overlapLeadSec 为 0
 export interface ChunkSpec {
   index: number;
   startSec: number;
   durationSec: number;
+  overlapLeadSec: number;
 }
 
 // buildWavChunks 的产出：切片时间戳 + 本片 WAV Blob
 export interface WavChunk extends ChunkSpec {
   wavBlob: Blob;
+}
+
+// RMS 软切分与无静音回退重叠参数（16kHz 单声道为主口径）
+export const SOFT_CUT_LOOKBACK_SEC = 8;
+export const SOFT_CUT_WINDOW_SEC = 0.28;
+export const SOFT_CUT_STEP_SEC = 0.02;
+export const SILENCE_RMS_THRESHOLD = 0.008;
+export const SILENCE_MEDIAN_RATIO = 0.15;
+export const FALLBACK_OVERLAP_SEC = 1.5;
+
+export interface AudioChunkCutDecision {
+  cutSamples: number;
+  nextOverlapSamples: number;
 }
 
 // 解码诊断（可选 {durationSec, peak}）
@@ -62,11 +77,124 @@ export function decideChunks(totalDurationSec: number, plan: ChunkPlan): ChunkSp
   let index = 0;
   while (total - start > 1e-9) {
     const end = Math.min(start + chunkSec, total);
-    chunks.push({ index, startSec: start, durationSec: end - start });
+    chunks.push({ index, startSec: start, durationSec: end - start, overlapLeadSec: 0 });
     start = end;
     index += 1;
   }
   return chunks;
+}
+
+// 在目标分片缓冲区末尾 [target - 8s, target] 窗口内以 20ms 步长滑动计算 280ms 窗 RMS：
+// - 找到低于静音阈值（< 0.008 或 < 当前分片中位能量 15%）的最深静音波谷 → 切点落波谷中心，下片无缝接续；
+// - 全窗均为连续高密度口播 → 在缓冲区末尾切分，下一分片回退 1.5s 防止边界吞词。
+export function decideAudioChunkCut(
+  chunkSamplesBuf: Float32Array,
+  sampleRate = 16000
+): AudioChunkCutDecision {
+  const targetSamples = chunkSamplesBuf.length;
+  const rate = Number(sampleRate) > 0 ? Number(sampleRate) : 16000;
+  const winSamples = Math.max(1, Math.round(SOFT_CUT_WINDOW_SEC * rate));
+  const stepSamples = Math.max(1, Math.round(SOFT_CUT_STEP_SEC * rate));
+  const fallbackOverlapSamples = Math.max(0, Math.round(FALLBACK_OVERLAP_SEC * rate));
+
+  // 极短分片（如单测短片）不足以安全支撑 1.5s 重叠与双倍窗长，直接整片切出
+  if (targetSamples <= fallbackOverlapSamples * 2 || targetSamples < winSamples * 2) {
+    return { cutSamples: targetSamples, nextOverlapSamples: 0 };
+  }
+
+  // 计算当前分片非重叠 280ms 窗的中位 RMS 能量
+  const blockRms: number[] = [];
+  for (let pos = 0; pos + winSamples <= targetSamples; pos += winSamples) {
+    let sumSq = 0;
+    for (let j = pos; j < pos + winSamples; j += 1) {
+      const v = chunkSamplesBuf[j];
+      sumSq += v * v;
+    }
+    blockRms.push(Math.sqrt(sumSq / winSamples));
+  }
+  blockRms.sort((a, b) => a - b);
+  const midIdx = Math.floor(blockRms.length / 2);
+  const medianRms =
+    blockRms.length === 0
+      ? 0
+      : blockRms.length % 2 === 1
+        ? blockRms[midIdx]
+        : (blockRms[midIdx - 1] + blockRms[midIdx]) / 2;
+
+  const lookbackSamples = Math.min(targetSamples, Math.round(SOFT_CUT_LOOKBACK_SEC * rate));
+  const searchStart = targetSamples - lookbackSamples;
+  if (lookbackSamples < winSamples) {
+    return { cutSamples: targetSamples, nextOverlapSamples: 0 };
+  }
+
+  // 用平方前缀和计算 [searchStart, targetSamples) 内以 20ms 步长滑动的 280ms 窗 RMS
+  const prefixSq = new Float64Array(lookbackSamples + 1);
+  for (let i = 0; i < lookbackSamples; i += 1) {
+    const v = chunkSamplesBuf[searchStart + i];
+    prefixSq[i + 1] = prefixSq[i] + v * v;
+  }
+
+  const offsets: number[] = [];
+  const rmsValues: number[] = [];
+  let minRms = Infinity;
+  for (let offset = 0; offset + winSamples <= lookbackSamples; offset += stepSamples) {
+    const sumSq = Math.max(0, prefixSq[offset + winSamples] - prefixSq[offset]);
+    const rms = Math.sqrt(sumSq / winSamples);
+    offsets.push(offset);
+    rmsValues.push(rms);
+    if (rms < minRms) {
+      minRms = rms;
+    }
+  }
+
+  const effectiveThreshold = Math.max(SILENCE_RMS_THRESHOLD, medianRms * SILENCE_MEDIAN_RATIO);
+  if (rmsValues.length > 0 && minRms < effectiveThreshold) {
+    // 选出包含全局最深波谷的连续低能量区间，切点落在该区间的中心位置
+    const valleyCutoff = Math.min(effectiveThreshold, Math.max(minRms * 1.05, minRms + 1e-6));
+    let bestStart = -1;
+    let bestEnd = -1;
+    let bestContainsMin = false;
+    let bestLen = -1;
+
+    let i = 0;
+    while (i < rmsValues.length) {
+      if (rmsValues[i] < effectiveThreshold && rmsValues[i] <= valleyCutoff) {
+        const rStart = i;
+        let containsMin = false;
+        while (i < rmsValues.length && rmsValues[i] < effectiveThreshold && rmsValues[i] <= valleyCutoff) {
+          if (rmsValues[i] <= minRms + 1e-9) {
+            containsMin = true;
+          }
+          i += 1;
+        }
+        const rEnd = i - 1;
+        const rLen = rEnd - rStart + 1;
+        const better =
+          (containsMin && !bestContainsMin) ||
+          (containsMin === bestContainsMin && rLen >= bestLen);
+        if (better) {
+          bestStart = rStart;
+          bestEnd = rEnd;
+          bestContainsMin = containsMin;
+          bestLen = rLen;
+        }
+      } else {
+        i += 1;
+      }
+    }
+
+    if (bestStart >= 0) {
+      const valleyLeft = searchStart + offsets[bestStart];
+      const valleyRight = searchStart + offsets[bestEnd] + winSamples;
+      const cutSamples = Math.max(1, Math.min(targetSamples, Math.round((valleyLeft + valleyRight) / 2)));
+      return { cutSamples, nextOverlapSamples: 0 };
+    }
+  }
+
+  return {
+    cutSamples: targetSamples,
+    nextOverlapSamples: Math.min(fallbackOverlapSamples, targetSamples - 1)
+  };
 }
 
 // 按 provider 类型计算切片计划：
@@ -136,23 +264,65 @@ export function validateDecodedAudio(audioBuffer: DecodedAudioBuffer): number {
 // ===== 切片编码：校验 → 切片 → 编码 =====
 
 // 直接按切片计划把已解码音频切成 WAV 块（全量切片语义；offscreen 主链路已改
-// 走 stream-chunker 流式切片，本函数留作其测试基准）。
-// 返回 [{ index, startSec, durationSec, wavBlob }]，durationSec 由
-// decideChunks 产出（转写结果合并依赖该字段推算片边界）。
+// 走 stream-chunker 流式切片，本函数留作其测试基准，并与流式切片共用同一
+// 软切分与微重叠决策 decideAudioChunkCut）。
+// 返回 [{ index, startSec, durationSec, overlapLeadSec, wavBlob }]。
 export function buildWavChunks(audioBuffer: DecodedAudioBuffer, plan: ChunkPlan): WavChunk[] {
   const totalDurationSec = validateDecodedAudio(audioBuffer);
   const channelData = audioBuffer.getChannelData(0);
-  return decideChunks(totalDurationSec, plan).map((chunk): WavChunk => {
-    const startSample = Math.round(chunk.startSec * audioBuffer.sampleRate);
-    const sampleCount = Math.round(chunk.durationSec * audioBuffer.sampleRate);
-    return {
-      index: chunk.index,
-      startSec: chunk.startSec,
-      durationSec: chunk.durationSec,
-      wavBlob: encodeWav(
-        channelData.subarray(startSample, startSample + sampleCount),
-        audioBuffer.sampleRate
-      )
-    };
-  });
+  const sampleRate = audioBuffer.sampleRate;
+  const chunkSec = plan?.chunkSeconds > 0 ? plan.chunkSeconds : 0;
+
+  if (!(chunkSec > 0)) {
+    return decideChunks(totalDurationSec, plan).map((chunk): WavChunk => {
+      const startSample = Math.round(chunk.startSec * sampleRate);
+      const sampleCount = Math.round(chunk.durationSec * sampleRate);
+      return {
+        index: chunk.index,
+        startSec: chunk.startSec,
+        durationSec: chunk.durationSec,
+        overlapLeadSec: 0,
+        wavBlob: encodeWav(
+          channelData.subarray(startSample, startSample + sampleCount),
+          sampleRate
+        )
+      };
+    });
+  }
+
+  const targetSamples = Math.round(chunkSec * sampleRate);
+  const chunks: WavChunk[] = [];
+  let cursorSamples = 0;
+  let pendingOverlapSamples = 0;
+  let index = 0;
+
+  while (channelData.length - cursorSamples >= targetSamples) {
+    const windowBuf = channelData.subarray(cursorSamples, cursorSamples + targetSamples);
+    const { cutSamples, nextOverlapSamples } = decideAudioChunkCut(windowBuf, sampleRate);
+    const part = cutSamples === targetSamples ? windowBuf : windowBuf.subarray(0, cutSamples);
+    chunks.push({
+      index,
+      startSec: cursorSamples / sampleRate,
+      durationSec: cutSamples / sampleRate,
+      overlapLeadSec: pendingOverlapSamples / sampleRate,
+      wavBlob: encodeWav(part, sampleRate)
+    });
+    const advanceSamples = Math.max(1, cutSamples - nextOverlapSamples);
+    cursorSamples += advanceSamples;
+    pendingOverlapSamples = nextOverlapSamples;
+    index += 1;
+  }
+
+  const remainingSamples = channelData.length - cursorSamples;
+  if (remainingSamples > 0 && (index === 0 || remainingSamples > pendingOverlapSamples)) {
+    chunks.push({
+      index,
+      startSec: cursorSamples / sampleRate,
+      durationSec: remainingSamples / sampleRate,
+      overlapLeadSec: pendingOverlapSamples / sampleRate,
+      wavBlob: encodeWav(channelData.subarray(cursorSamples), sampleRate)
+    });
+  }
+
+  return chunks;
 }

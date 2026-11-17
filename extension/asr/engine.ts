@@ -59,12 +59,13 @@ export interface AsrTranscribeResult {
 }
 
 // 调度引擎消费的单片形状：index/durationSec 由引擎与合并逻辑使用；
-// startSec/wavBlob 是透传字段（引擎自身不消费，随对象原样交给注入的
+// startSec/overlapLeadSec/wavBlob 是透传字段（引擎自身不消费，随对象原样交给注入的
 // transcribe）——与 chunker.WavChunk 结构同构，切片产出可直接 push。
 export interface TranscribeChunk {
   index: number;
   startSec: number;
   durationSec: number;
+  overlapLeadSec?: number;
   wavBlob: Blob;
 }
 

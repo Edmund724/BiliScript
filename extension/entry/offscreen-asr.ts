@@ -365,6 +365,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
             index: chunk.index,
             startSec: chunk.startSec,
             durationSec,
+            overlapLeadSec: chunk.overlapLeadSec ?? 0,
             result: adapterResult
           });
         },

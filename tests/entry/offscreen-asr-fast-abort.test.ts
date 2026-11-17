@@ -319,9 +319,9 @@ describe("票 08 C5：首片确定性失败即中止整轮（真 offscreen 链�
 
     expect(payload.type).toBe("done");
     // 与 401 用例互为对照：可重试类（isRetryableNetworkError）不触发中止，
-    // 切片照常推进——两段都切出片（totalChunks: 2），每片按 1 次首发 + 2 次
-    // 重试共 3 次上传，故请求数远多于中止路径的那 1 次。
-    expect(payload.totalChunks).toBe(2);
+    // 切片照常推进——两段 60s 连续正弦波触发 1.5s 微重叠共切出 3 片（0..60 / 58.5..118.5 / 117..120），
+    // 每片按 1 次首发 + 2 次重试上传，故请求数远多于中止路径的那 1 次。
+    expect(payload.totalChunks).toBe(3);
     expect(transcriptionRequests.length).toBeGreaterThan(1);
     expect(payload.failedKind).toBe("asr-server");
     expect(payload.failedStatus).toBe(500);

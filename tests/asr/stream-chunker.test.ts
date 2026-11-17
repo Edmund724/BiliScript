@@ -97,6 +97,7 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
       expect(out[i].index).toBe(baseline[i].index);
       expect(out[i].startSec).toBeCloseTo(baseline[i].startSec, 6);
       expect(out[i].durationSec).toBeCloseTo(baseline[i].durationSec, 6);
+      expect(out[i].overlapLeadSec).toBeCloseTo(baseline[i].overlapLeadSec, 6);
       const got = await wavPcm16(out[i].wavBlob);
       const want = await wavPcm16(baseline[i].wavBlob);
       expectPcmMatches(got, want);
@@ -104,8 +105,8 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
     expect(meta.totalDurationSec).toBeCloseTo(totalSec, 6);
   }, 60000);
 
-  it("非整除时长：最后残余一片短片，边界与基准一致", async () => {
-    const totalSec = 1250; // 1200 + 50
+  it("非整除无静音时长：启用 1.5s 微重叠，边界与基准一致", async () => {
+    const totalSec = 1250; // 首片 1200s，次片回退 1.5s 从 1198.5s 起切 51.5s
     const chunkSec = 1200;
     const segSec = 30;
     const { out, promise } = collectStream(makeSegments(totalSec, segSec), { chunkSeconds: chunkSec });
@@ -114,8 +115,10 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
     const baseline = baselineChunks(totalSec, chunkSec);
     expect(meta.totalChunks).toBe(2);
     expect(out.length).toBe(2);
-    expect(out[1].startSec).toBeCloseTo(1200, 6);
-    expect(out[1].durationSec).toBeCloseTo(50, 6);
+    expect(out[0].overlapLeadSec).toBe(0);
+    expect(out[1].startSec).toBeCloseTo(1198.5, 6);
+    expect(out[1].durationSec).toBeCloseTo(51.5, 6);
+    expect(out[1].overlapLeadSec).toBeCloseTo(1.5, 6);
     for (let i = 0; i < 2; i += 1) {
       const got = await wavPcm16(out[i].wavBlob);
       const want = await wavPcm16(baseline[i].wavBlob);
@@ -177,7 +180,99 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
       }
     });
     expect(out.map((c) => c.index)).toEqual([0, 1, 2]);
-    expect(out[2].durationSec).toBeCloseTo(40, 6);
+    expect(out[1].startSec).toBeCloseTo(1198.5, 6);
+    expect(out[1].overlapLeadSec).toBeCloseTo(1.5, 6);
+    expect(out[2].startSec).toBeCloseTo(2397, 6);
+    expect(out[2].durationSec).toBeCloseTo(43, 6);
+    expect(out[2].overlapLeadSec).toBeCloseTo(1.5, 6);
+  });
+});
+
+describe("合成波形 RMS 静音波谷软切分与微重叠", () => {
+  function makeSpeechWave(totalSec: number, amplitude = 0.35, freqHz = 220): Float32Array {
+    const len = Math.round(totalSec * RATE);
+    const wave = new Float32Array(len);
+    for (let i = 0; i < len; i += 1) {
+      wave[i] = amplitude * Math.sin((2 * Math.PI * freqHz * i) / RATE);
+    }
+    return wave;
+  }
+
+  function splitIntoSegments(wave: Float32Array, segSec: number): Float32Array[] {
+    const segSamples = Math.round(segSec * RATE);
+    const out: Float32Array[] = [];
+    for (let off = 0; off < wave.length; off += segSamples) {
+      out.push(wave.subarray(off, Math.min(wave.length, off + segSamples)));
+    }
+    return out;
+  }
+
+  it("56.2s 处插入 300ms 静音段（以 56.2s 为中心或起点）→ 在 56.2s 附近精准软切且下片 startSec 严丝合缝", async () => {
+    const wave = makeSpeechWave(80, 0.35, 220);
+    // [56.05s, 56.35s] 为以 56.2s 为中心的 300ms 全零静音
+    wave.fill(0, Math.round(56.05 * RATE), Math.round(56.35 * RATE));
+
+    const { out, promise } = collectStream(splitIntoSegments(wave, 17), { chunkSeconds: 60 });
+    const meta = await promise;
+
+    expect(meta.totalChunks).toBe(2);
+    expect(out).toHaveLength(2);
+    expect(out[0].startSec).toBe(0);
+    expect(Math.abs(out[0].durationSec - 56.2)).toBeLessThanOrEqual(0.03);
+    expect(out[0].overlapLeadSec).toBe(0);
+    expect(out[1].overlapLeadSec).toBe(0);
+    expect(out[1].startSec).toBeCloseTo(out[0].startSec + out[0].durationSec, 9);
+    expect(out[1].startSec + out[1].durationSec).toBeCloseTo(80, 6);
+
+    const baseline = buildWavChunks(makeDecodedBuffer(wave, { sampleRate: RATE }), { chunkSeconds: 60 });
+    expect(baseline).toHaveLength(2);
+    expectPcmMatches(await wavPcm16(out[0].wavBlob), await wavPcm16(baseline[0].wavBlob));
+    expectPcmMatches(await wavPcm16(out[1].wavBlob), await wavPcm16(baseline[1].wavBlob));
+
+    // 另一构造：从 56.2s 起插入 300ms 低底噪（RMS = 0.012 > 0.008 但低于中位能量 15%）
+    const noisyWave = makeSpeechWave(80, 0.4, 240);
+    const valleyStart = Math.round(56.2 * RATE);
+    const valleyEnd = Math.round(56.5 * RATE);
+    for (let i = valleyStart; i < valleyEnd; i += 1) {
+      noisyWave[i] = 0.012 * Math.sin((2 * Math.PI * 100 * i) / RATE);
+    }
+    const { out: noisyOut, promise: noisyPromise } = collectStream(splitIntoSegments(noisyWave, 20), {
+      chunkSeconds: 60
+    });
+    await noisyPromise;
+    expect(noisyOut).toHaveLength(2);
+    expect(noisyOut[0].durationSec).toBeGreaterThanOrEqual(56.2);
+    expect(noisyOut[0].durationSec).toBeLessThanOrEqual(56.5);
+    expect(noisyOut[0].overlapLeadSec).toBe(0);
+    expect(noisyOut[1].overlapLeadSec).toBe(0);
+    expect(noisyOut[1].startSec).toBeCloseTo(noisyOut[0].durationSec, 9);
+  });
+
+  it("全程满幅正弦波无静音 → 自动回退 1.5s 重叠，且整除片长不产出纯重叠幽灵尾片", async () => {
+    const fullSine80 = makeSpeechWave(80, 1.0, 440);
+    const { out, promise } = collectStream(splitIntoSegments(fullSine80, 23), { chunkSeconds: 60 });
+    const meta = await promise;
+
+    expect(meta.totalChunks).toBe(2);
+    expect(out[0].startSec).toBe(0);
+    expect(out[0].durationSec).toBeCloseTo(60, 6);
+    expect(out[0].overlapLeadSec).toBe(0);
+    expect(out[1].startSec).toBeCloseTo(58.5, 6);
+    expect(out[1].durationSec).toBeCloseTo(21.5, 6);
+    expect(out[1].overlapLeadSec).toBeCloseTo(1.5, 6);
+
+    // 验证重叠区 [58.5s, 60s] 的采样字节逐位相等
+    const pcm0 = await wavPcm16(out[0].wavBlob);
+    const pcm1 = await wavPcm16(out[1].wavBlob);
+    const overlapSamples = Math.round(1.5 * RATE);
+    expectPcmMatches(pcm0.subarray(pcm0.length - overlapSamples), pcm1.subarray(0, overlapSamples));
+
+    // 恰好 60s 整时长：只产 1 片，不产生多余的 [58.5s, 60s] 纯重叠幽灵片
+    const exact60 = makeSpeechWave(60, 1.0, 440);
+    const { out: out60, promise: promise60 } = collectStream(splitIntoSegments(exact60, 30), { chunkSeconds: 60 });
+    await promise60;
+    expect(out60).toHaveLength(1);
+    expect(out60[0]).toMatchObject({ index: 0, startSec: 0, durationSec: 60, overlapLeadSec: 0 });
   });
 });
 

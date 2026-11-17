@@ -19,10 +19,24 @@ import type { OffscreenChunkHost, AsrChunkRecord, AsrChunkResult } from "./offsc
 import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
-import { joinSubtitleText } from "../subtitle/text-classification.js";
+import { isNonSpeechSegment, joinSubtitleText } from "../subtitle/text-classification.js";
 
 // 中英文句末标点（。！？!?… 以及非小数点的英文句号 .）与换行符正则，保留紧随其后的闭合引号/括号
 const SENTENCE_DELIMITER_RE = /(?:[。！？!?…]+|\.+(?!\d)(?=\s|$|["'”’」』）\)\]]))["'”’」』）\)\]]*|\r?\n+/g;
+// 跨分片尾句未闭合判据：句末终止标点（含全角/半角闭合引号与括号）
+const SENTENCE_END_PUNCT_RE = /[。！？.!?…]["'”’」』）\)\]]*$/;
+// 重叠区归一化字符流：剔除空白、标点与符号
+const STRIP_NORM_RE = /[\s\p{P}\p{S}]/u;
+const NO_SPACE_CHAR_RE =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Tibetan}]/u;
+const ASCII_WORD_CHAR_RE = /^[a-z0-9]$/;
+const LEADING_TRIM_PUNCT_RE = /^[，。！？、；：,.!?;:」』）\)\]”’\s]+/;
+const TRAILING_DANGLING_PUNCT_RE = /[，,、；;：:（\(\[「『“‘\s]+$/;
+
+const OVERLAP_WINDOW_SEC = 1.8;
+const MAX_NORM_OVERLAP_CHARS = 48;
+const STITCH_BOUNDARY_GAP_SEC = 0.45;
+const STITCH_MAX_DURATION_SEC = 10;
 
 // 合并过短碎句（默认长度 < 4 字符，如单字或纯语气助词加标点）
 export function mergeShortSentences(sentences: string[], minChars = 4): string[] {
@@ -134,9 +148,15 @@ export function interpolateSentenceTimestamps({
   return out;
 }
 
+function clampChunkTime(startSec: number, relSec: number, chunkDur: number): number {
+  const abs = Number(startSec) + relSec;
+  return chunkDur > 0 ? Math.min(abs, Number(startSec) + chunkDur) : abs;
+}
+
 // 把单片的转写结果合成 {from,to,content}[]：
-//   有有效 segments → 每条 = startSec + seg.start/end，to 不超过片末边界；
-//   无 segments → 按句末标点与换行切分句子并合并碎句，按字符长度在起止时间窗内线性插值。
+//   有有效 segments → 每条 = startSec + seg.start/end，to 不超过片末边界（若同时携带 words 则透传词级时间戳）；
+//   无 segments 但有 words → 按词级时间戳输出（由下游断句合并）；
+//   无 segments 且无 words → 按句末标点与换行切分句子并合并碎句，按字符长度在起止时间窗内线性插值。
 // 空白片段返回 []。
 export function synthesizeChunk({ startSec, durationSec, result }: {
   startSec: number;
@@ -145,18 +165,38 @@ export function synthesizeChunk({ startSec, durationSec, result }: {
 }): SubtitleItem[] {
   const out: SubtitleItem[] = [];
   const chunkDur = Number(result?.durationSec || 0) || Number(durationSec) || 0;
+  const normalizedWords = Array.isArray(result?.words) && result.words.length > 0
+    ? result.words
+        .map((w) => {
+          const word = String(w?.word ?? "").trim();
+          const wStart = Math.max(0, Number(w?.start));
+          const wEnd = Number(w?.end);
+          if (!word || !Number.isFinite(Number(w?.start)) || !Number.isFinite(wEnd)) {
+            return null;
+          }
+          const from = Number(startSec) + wStart;
+          const to = Math.max(from, clampChunkTime(startSec, wEnd, chunkDur));
+          return { word, start: from, end: to };
+        })
+        .filter((item): item is { word: string; start: number; end: number } => item !== null)
+    : [];
+
   if (result?.segments && result.segments.length > 0) {
     for (const seg of result.segments) {
       const content = String(seg.text || "").trim();
       if (!content) {
         continue;
       }
-      const from = Number(startSec) + Number(seg.start);
-      const segEnd = Number(seg.end);
-      const to = chunkDur > 0
-        ? Math.min(Number(startSec) + segEnd, Number(startSec) + chunkDur)
-        : Number(startSec) + segEnd;
-      out.push({ from, to, content });
+      const from = Number(startSec) + Math.max(0, Number(seg.start) || 0);
+      const to = Math.max(from, clampChunkTime(startSec, Number(seg.end) || 0, chunkDur));
+      const segWords = normalizedWords.length > 0
+        ? normalizedWords.filter((w) => w.end > from && w.start < to)
+        : [];
+      out.push(segWords.length > 0 ? { from, to, content, words: segWords } as SubtitleItem : { from, to, content });
+    }
+  } else if (normalizedWords.length > 0) {
+    for (const w of normalizedWords) {
+      out.push({ from: w.start, to: w.end, content: w.word });
     }
   } else {
     const text = String(result?.text || "").trim();
@@ -172,20 +212,766 @@ export function synthesizeChunk({ startSec, durationSec, result }: {
   return out;
 }
 
-// 全部片段合成 → 按 from 排序 → content 拼接 trim 为空返回 []（上层提示
-// "未识别到语音内容"）。chunkResults 为按片 index 对齐的单片记录
-// [{ index, startSec, durationSec, result }]（offscreen 桥 done 后已排序）；
-// 转写失败片 / 解码失败段不在其中（offscreen 引擎跳过并计数），不参与合并。
-export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
-  const merged: SubtitleItem[] = [];
-  for (const record of chunkResults) {
-    if (!record?.result) {
+type SynthesizedWord = {
+  word: string;
+  start: number;
+  end: number;
+};
+
+type RichSubtitleItem = SubtitleItem & {
+  words?: SynthesizedWord[];
+};
+
+function cloneRichItem(item: RichSubtitleItem): RichSubtitleItem {
+  const cloned: RichSubtitleItem = {
+    from: item.from,
+    to: item.to,
+    content: item.content
+  };
+  if (Array.isArray(item.words) && item.words.length > 0) {
+    cloned.words = item.words.map((w) => ({ ...w }));
+  }
+  return cloned;
+}
+
+function countNormChars(text: string): number {
+  let count = 0;
+  for (let i = 0; i < text.length; ) {
+    const cp = text.codePointAt(i)!;
+    const ch = String.fromCodePoint(cp);
+    if (!STRIP_NORM_RE.test(ch)) {
+      count += ch.toLowerCase().length;
+    }
+    i += ch.length;
+  }
+  return count;
+}
+
+function takeRawPrefixByNormCount(text: string, keepNorm: number): string {
+  if (keepNorm <= 0) return "";
+  let count = 0;
+  let endIdx = 0;
+  for (let i = 0; i < text.length; ) {
+    const cp = text.codePointAt(i)!;
+    const ch = String.fromCodePoint(cp);
+    const next = i + ch.length;
+    if (!STRIP_NORM_RE.test(ch)) {
+      const len = ch.toLowerCase().length;
+      if (count + len > keepNorm) break;
+      count += len;
+    }
+    endIdx = next;
+    i = next;
+    if (count >= keepNorm) break;
+  }
+  const closingMatch = text.slice(endIdx).match(/^[。！？.!?…]["'”’」』）\)\]]*/);
+  if (closingMatch) {
+    endIdx += closingMatch[0].length;
+  }
+  return text.slice(0, endIdx).replace(TRAILING_DANGLING_PUNCT_RE, "").trim();
+}
+
+function dropRawPrefixByNormCount(text: string, dropNorm: number): string {
+  if (dropNorm <= 0) return text;
+  let count = 0;
+  let i = 0;
+  while (i < text.length && count < dropNorm) {
+    const cp = text.codePointAt(i)!;
+    const ch = String.fromCodePoint(cp);
+    const next = i + ch.length;
+    if (!STRIP_NORM_RE.test(ch)) {
+      count += ch.toLowerCase().length;
+    }
+    i = next;
+  }
+  return text.slice(i).replace(LEADING_TRIM_PUNCT_RE, "").trim();
+}
+
+function trimWordsKeepPrefix(
+  words: SynthesizedWord[] | undefined,
+  keepNormChars: number
+): SynthesizedWord[] | undefined {
+  if (!Array.isArray(words) || words.length === 0 || keepNormChars <= 0) {
+    return undefined;
+  }
+  const kept: SynthesizedWord[] = [];
+  let remaining = keepNormChars;
+  for (const w of words) {
+    if (remaining <= 0) break;
+    const n = countNormChars(w.word);
+    if (n <= remaining) {
+      kept.push({ ...w });
+      remaining -= n;
+    } else {
+      const sliced = takeRawPrefixByNormCount(w.word, remaining);
+      if (sliced) {
+        kept.push({ ...w, word: sliced });
+      }
+      remaining = 0;
+    }
+  }
+  return kept.length > 0 ? kept : undefined;
+}
+
+function trimWordsDropPrefix(
+  words: SynthesizedWord[] | undefined,
+  dropNormChars: number
+): SynthesizedWord[] | undefined {
+  if (!Array.isArray(words) || words.length === 0) {
+    return undefined;
+  }
+  if (dropNormChars <= 0) {
+    return words.map((w) => ({ ...w }));
+  }
+  const kept: SynthesizedWord[] = [];
+  let remainingToDrop = dropNormChars;
+  for (const w of words) {
+    if (remainingToDrop <= 0) {
+      kept.push({ ...w });
       continue;
     }
-    merged.push(...synthesizeChunk({ startSec: record.startSec, durationSec: record.durationSec, result: record.result }));
+    const n = countNormChars(w.word);
+    if (n <= remainingToDrop) {
+      remainingToDrop -= n;
+    } else {
+      const sliced = dropRawPrefixByNormCount(w.word, remainingToDrop);
+      remainingToDrop = 0;
+      if (sliced) {
+        kept.push({ ...w, word: sliced });
+      }
+    }
   }
-  merged.sort((a, b) => a.from - b.from);
-  return merged;
+  return kept.length > 0 ? kept : undefined;
+}
+
+interface NormCharRef {
+  itemIdx: number;
+  rawIdx: number;
+  rawEndIdx: number;
+}
+
+interface NormalizedStream {
+  norm: string;
+  refs: NormCharRef[];
+}
+
+function buildNormalizedStream(items: RichSubtitleItem[]): NormalizedStream {
+  let norm = "";
+  const refs: NormCharRef[] = [];
+  for (let itemIdx = 0; itemIdx < items.length; itemIdx += 1) {
+    const content = items[itemIdx].content;
+    for (let rawIdx = 0; rawIdx < content.length; ) {
+      const cp = content.codePointAt(rawIdx)!;
+      const rawCh = String.fromCodePoint(cp);
+      const nextRawIdx = rawIdx + rawCh.length;
+      if (!STRIP_NORM_RE.test(rawCh)) {
+        const lower = rawCh.toLowerCase();
+        for (let k = 0; k < lower.length; k += 1) {
+          norm += lower[k];
+          refs.push({ itemIdx, rawIdx, rawEndIdx: nextRawIdx });
+        }
+      }
+      rawIdx = nextRawIdx;
+    }
+  }
+  return { norm, refs };
+}
+
+function isSameRawToken(refs: NormCharRef[], leftIdx: number, rightIdx: number): boolean {
+  return (
+    refs[leftIdx].itemIdx === refs[rightIdx].itemIdx &&
+    refs[leftIdx].rawEndIdx === refs[rightIdx].rawIdx
+  );
+}
+
+interface OverlapMatchResult {
+  tStart: number;
+  tEnd: number;
+  tTailSlack: number;
+  hStart: number;
+  hEnd: number;
+  hHeadSlack: number;
+}
+
+function alignMatchToWordBoundaries(
+  tNorm: string,
+  tRefs: NormCharRef[],
+  hNorm: string,
+  hRefs: NormCharRef[],
+  rawStartT: number,
+  rawStartH: number,
+  rawLen: number
+): { startT: number; startH: number; len: number } {
+  let startT = rawStartT;
+  let startH = rawStartH;
+  let endT = rawStartT + rawLen;
+  let endH = rawStartH + rawLen;
+
+  // 若左边界切在英文/数字单词内部，向后收缩到词边界
+  while (startT < endT && startH < endH) {
+    const leftInsideT =
+      startT > 0 &&
+      ASCII_WORD_CHAR_RE.test(tNorm[startT]) &&
+      ASCII_WORD_CHAR_RE.test(tNorm[startT - 1]) &&
+      isSameRawToken(tRefs, startT - 1, startT);
+    const leftInsideH =
+      startH > 0 &&
+      ASCII_WORD_CHAR_RE.test(hNorm[startH]) &&
+      ASCII_WORD_CHAR_RE.test(hNorm[startH - 1]) &&
+      isSameRawToken(hRefs, startH - 1, startH);
+    if (!leftInsideT && !leftInsideH) break;
+    startT += 1;
+    startH += 1;
+  }
+
+  // 若右边界切在英文/数字单词内部，向前收缩到词边界
+  while (endT > startT && endH > startH) {
+    const rightInsideT =
+      endT < tNorm.length &&
+      ASCII_WORD_CHAR_RE.test(tNorm[endT - 1]) &&
+      ASCII_WORD_CHAR_RE.test(tNorm[endT]) &&
+      isSameRawToken(tRefs, endT - 1, endT);
+    const rightInsideH =
+      endH < hNorm.length &&
+      ASCII_WORD_CHAR_RE.test(hNorm[endH - 1]) &&
+      ASCII_WORD_CHAR_RE.test(hNorm[endH]) &&
+      isSameRawToken(hRefs, endH - 1, endH);
+    if (!rightInsideT && !rightInsideH) break;
+    endT -= 1;
+    endH -= 1;
+  }
+
+  return { startT, startH, len: Math.min(endT - startT, endH - startH) };
+}
+
+function findBestOverlapMatch(
+  tailSlice: RichSubtitleItem[],
+  headSlice: RichSubtitleItem[]
+): OverlapMatchResult | null {
+  const tStream = buildNormalizedStream(tailSlice);
+  const hStream = buildNormalizedStream(headSlice);
+  if (!tStream.norm || !hStream.norm) {
+    return null;
+  }
+
+  const tBase = Math.max(0, tStream.norm.length - MAX_NORM_OVERLAP_CHARS);
+  const hLimit = Math.min(hStream.norm.length, MAX_NORM_OVERLAP_CHARS);
+  const tNorm = tStream.norm.slice(tBase);
+  const tRefs = tStream.refs.slice(tBase);
+  const hNorm = hStream.norm.slice(0, hLimit);
+  const hRefs = hStream.refs.slice(0, hLimit);
+
+  const tLen = tNorm.length;
+  const hLen = hNorm.length;
+  let prevRow = new Int32Array(hLen + 1);
+  let currRow = new Int32Array(hLen + 1);
+
+  let bestScore = -1;
+  let bestSlack = Infinity;
+  let bestEndT = -1;
+  let bestResult: OverlapMatchResult | null = null;
+
+  for (let i = 1; i <= tLen; i += 1) {
+    currRow.fill(0);
+    const tc = tNorm[i - 1];
+    for (let j = 1; j <= hLen; j += 1) {
+      if (tc !== hNorm[j - 1]) {
+        continue;
+      }
+      const rawLen = prevRow[j - 1] + 1;
+      currRow[j] = rawLen;
+
+      const rawStartT = i - rawLen;
+      const rawStartH = j - rawLen;
+      if (tLen - i > 3 || rawStartH > 3) {
+        continue;
+      }
+
+      const aligned = alignMatchToWordBoundaries(tNorm, tRefs, hNorm, hRefs, rawStartT, rawStartH, rawLen);
+      if (aligned.len <= 0) {
+        continue;
+      }
+      const { startT, startH, len } = aligned;
+      const tTailSlack = tLen - (startT + len);
+      const hHeadSlack = startH;
+      if (tTailSlack > 3 || hHeadSlack > 3) {
+        continue;
+      }
+
+      const prevFrom = tailSlice[tRefs[startT].itemIdx].from;
+      const prevTo = tailSlice[tRefs[startT + len - 1].itemIdx].to;
+      const nextFrom = headSlice[hRefs[startH].itemIdx].from;
+      const nextTo = headSlice[hRefs[startH + len - 1].itemIdx].to;
+      const timeOverlap = Math.min(prevTo, nextTo) - Math.max(prevFrom, nextFrom);
+      if (timeOverlap <= -0.25) {
+        continue;
+      }
+
+      const matchedStr = tNorm.slice(startT, startT + len);
+      const hasNoSpace = NO_SPACE_CHAR_RE.test(matchedStr);
+      const exactEdge = tTailSlack === 0 && hHeadSlack === 0;
+      if (exactEdge) {
+        if (hasNoSpace) {
+          if (len < 1 || (len === 1 && timeOverlap < 0.1)) continue;
+        } else if (len < 2) {
+          continue;
+        }
+      } else {
+        const minLen = hasNoSpace ? 3 : 5;
+        if (len < minLen || len <= tTailSlack + hHeadSlack) {
+          continue;
+        }
+      }
+
+      const slack = tTailSlack + hHeadSlack;
+      const score = len * 10 - slack;
+      const endT = startT + len;
+      if (
+        score > bestScore ||
+        (score === bestScore && (slack < bestSlack || (slack === bestSlack && endT > bestEndT)))
+      ) {
+        bestScore = score;
+        bestSlack = slack;
+        bestEndT = endT;
+        bestResult = {
+          tStart: tBase + startT,
+          tEnd: tBase + endT,
+          tTailSlack,
+          hStart: startH,
+          hEnd: startH + len,
+          hHeadSlack
+        };
+      }
+    }
+    const tmp = prevRow;
+    prevRow = currRow;
+    currRow = tmp;
+  }
+
+  return bestResult;
+}
+
+// 相邻重叠分片去重：对前片末尾 1.8s 与后片开头 1.8s 内的片段做时间戳交集与
+// 归一化文本前后缀最长公共子串比对，剔除重复识别词句并在中间时间点平滑衔接。
+function deduplicateOverlapBetweenChunks(
+  prevRecord: AsrChunkRecord,
+  prevItems: RichSubtitleItem[],
+  nextRecord: AsrChunkRecord,
+  nextItems: RichSubtitleItem[]
+): {
+  prevItems: RichSubtitleItem[];
+  nextItems: RichSubtitleItem[];
+  seamSec?: number;
+} {
+  if (prevItems.length === 0 || nextItems.length === 0) {
+    return { prevItems, nextItems };
+  }
+
+  const prevEnd = (Number(prevRecord.startSec) || 0) + (Number(prevRecord.durationSec) || 0);
+  const nextStart = Number(nextRecord.startSec) || 0;
+  let tailStartIdx = prevItems.findIndex((item) => item.to > prevEnd - OVERLAP_WINDOW_SEC);
+  if (tailStartIdx < 0) {
+    tailStartIdx = prevItems.length;
+  }
+  let headEndIdx = 0;
+  while (headEndIdx < nextItems.length && nextItems[headEndIdx].from < nextStart + OVERLAP_WINDOW_SEC) {
+    headEndIdx += 1;
+  }
+
+  let outPrev = prevItems.map(cloneRichItem);
+  let outNext = nextItems.map(cloneRichItem);
+  let textDedupApplied = false;
+  let nFirstTrimmed = false;
+  let droppedHeadMaxTo = -Infinity;
+
+  if (tailStartIdx < outPrev.length && headEndIdx > 0) {
+    const tailSlice = outPrev.slice(tailStartIdx);
+    const headSlice = outNext.slice(0, headEndIdx);
+    const match = findBestOverlapMatch(tailSlice, headSlice);
+
+    if (match) {
+      textDedupApplied = true;
+      const tStream = buildNormalizedStream(tailSlice);
+      const hStream = buildNormalizedStream(headSlice);
+
+      // 若前片在匹配串之后还有边界残损字（tTailSlack > 0），截除该尾缀并同步维护 words
+      if (match.tTailSlack > 0 && match.tEnd > 0) {
+        const lastRef = tStream.refs[match.tEnd - 1];
+        const keepCount = tailStartIdx + lastRef.itemIdx + 1;
+        outPrev = outPrev.slice(0, keepCount);
+        const keptTail = outPrev[keepCount - 1];
+        let keepNormInLast = 0;
+        for (let idx = match.tEnd - 1; idx >= 0 && tStream.refs[idx].itemIdx === lastRef.itemIdx; idx -= 1) {
+          keepNormInLast += 1;
+        }
+        const nextDroppedRef = match.tEnd < tStream.refs.length ? tStream.refs[match.tEnd] : undefined;
+        const cutLimit =
+          nextDroppedRef && nextDroppedRef.itemIdx === lastRef.itemIdx
+            ? nextDroppedRef.rawIdx
+            : keptTail.content.length;
+        const closingPunct = keptTail.content
+          .slice(lastRef.rawEndIdx, cutLimit)
+          .match(/^[。！？.!?…]["'”’」』）\)\]]*/);
+        const sliceEnd = lastRef.rawEndIdx + (closingPunct ? closingPunct[0].length : 0);
+        keptTail.content = keptTail.content
+          .slice(0, sliceEnd)
+          .replace(TRAILING_DANGLING_PUNCT_RE, "")
+          .trim();
+        if (keptTail.words) {
+          const trimmedWords = trimWordsKeepPrefix(keptTail.words, keepNormInLast);
+          if (trimmedWords) {
+            keptTail.words = trimmedWords;
+          } else {
+            delete keptTail.words;
+          }
+        }
+        if (!keptTail.content) {
+          outPrev.pop();
+        }
+      }
+
+      // 裁除后片头部已被前片覆盖的重复文本并同步维护 words
+      if (match.hEnd >= hStream.norm.length) {
+        for (let i = 0; i < headEndIdx; i += 1) {
+          if (outNext[i].to > droppedHeadMaxTo) {
+            droppedHeadMaxTo = outNext[i].to;
+          }
+        }
+        outNext = outNext.slice(headEndIdx);
+      } else {
+        const firstRef = hStream.refs[match.hEnd];
+        const firstKeptHeadIdx = firstRef.itemIdx;
+        for (let i = 0; i < firstKeptHeadIdx; i += 1) {
+          if (outNext[i].to > droppedHeadMaxTo) {
+            droppedHeadMaxTo = outNext[i].to;
+          }
+        }
+        let dropNormInFirst = 0;
+        for (let idx = match.hEnd - 1; idx >= 0 && hStream.refs[idx].itemIdx === firstKeptHeadIdx; idx -= 1) {
+          dropNormInFirst += 1;
+        }
+        const target = outNext[firstKeptHeadIdx];
+        const trimmedContent = target.content
+          .slice(firstRef.rawIdx)
+          .replace(LEADING_TRIM_PUNCT_RE, "")
+          .trim();
+        if (trimmedContent) {
+          target.content = trimmedContent;
+          if (target.words) {
+            const trimmedWords = trimWordsDropPrefix(target.words, dropNormInFirst);
+            if (trimmedWords) {
+              target.words = trimmedWords;
+            } else {
+              delete target.words;
+            }
+          }
+          nFirstTrimmed = firstRef.rawIdx > 0;
+          outNext = outNext.slice(firstKeptHeadIdx);
+        } else {
+          if (target.to > droppedHeadMaxTo) {
+            droppedHeadMaxTo = target.to;
+          }
+          outNext = outNext.slice(firstKeptHeadIdx + 1);
+        }
+      }
+    }
+  }
+
+  let seamSec: number | undefined;
+  const pLast = outPrev[outPrev.length - 1];
+  const nFirst = outNext[0];
+  if (pLast && nFirst) {
+    const needMidpointSmooth =
+      pLast.to > nFirst.from ||
+      (textDedupApplied && (nFirstTrimmed || droppedHeadMaxTo === -Infinity));
+    if (needMidpointSmooth) {
+      const rawMid = (Math.max(pLast.from, nFirst.from) + Math.min(pLast.to, nFirst.to)) / 2;
+      const mid = Math.min(Math.max(pLast.from, nFirst.to), Math.max(pLast.from, rawMid));
+      pLast.to = mid;
+      if (pLast.words?.length) {
+        pLast.words = pLast.words.map((w) => {
+          const start = Math.min(w.start, mid);
+          const end = Math.max(start, Math.min(w.end, mid));
+          return { ...w, start, end };
+        });
+      }
+      nFirst.from = mid;
+      nFirst.to = Math.max(nFirst.from, nFirst.to);
+      if (nFirst.words?.length) {
+        nFirst.words = nFirst.words.map((w) => {
+          const start = Math.max(w.start, mid);
+          const end = Math.max(start, w.end);
+          return { ...w, start, end };
+        });
+      }
+      seamSec = mid;
+    } else if (droppedHeadMaxTo > -Infinity) {
+      pLast.to = Math.min(Math.max(pLast.to, droppedHeadMaxTo), nFirst.from);
+      seamSec = Math.max(pLast.to, prevEnd);
+    }
+  } else if (pLast && droppedHeadMaxTo > -Infinity) {
+    pLast.to = Math.max(pLast.to, droppedHeadMaxTo);
+  }
+
+  return { prevItems: outPrev, nextItems: outNext, seamSec };
+}
+
+function findLastNonSpeechExcludedIdx(items: RichSubtitleItem[]): number {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (!isNonSpeechSegment(items[i].content)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findFirstNonSpeechExcludedIdx(items: RichSubtitleItem[]): number {
+  for (let i = 0; i < items.length; i += 1) {
+    if (!isNonSpeechSegment(items[i].content)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// 跨分片未闭合尾句缝合（借鉴 kiss-translator 软边界思想）：
+// 若第 k 片末条非音效片段末尾无句末标点、距右边界 < 0.45s，且第 k+1 片首条非音效
+// 片段距左边界 < 0.45s、合并后总时长 <= 10s，则自动缝合为一条完整跨片字幕。
+function stitchUnclosedTrailingSentence(
+  prevRecord: AsrChunkRecord,
+  prevItems: RichSubtitleItem[],
+  nextRecord: AsrChunkRecord,
+  nextItems: RichSubtitleItem[],
+  seamSec?: number
+): { prevItems: RichSubtitleItem[]; nextItems: RichSubtitleItem[] } {
+  if (prevItems.length === 0 || nextItems.length === 0) {
+    return { prevItems, nextItems };
+  }
+
+  const lastNonSfxIdx = findLastNonSpeechExcludedIdx(prevItems);
+  const firstNonSfxIdx = findFirstNonSpeechExcludedIdx(nextItems);
+  if (lastNonSfxIdx < 0 || firstNonSfxIdx < 0) {
+    return { prevItems, nextItems };
+  }
+
+  const prevItem = prevItems[lastNonSfxIdx];
+  const nextItem = nextItems[firstNonSfxIdx];
+  if (SENTENCE_END_PUNCT_RE.test(prevItem.content.trim())) {
+    return { prevItems, nextItems };
+  }
+
+  const prevEnd = (Number(prevRecord.startSec) || 0) + (Number(prevRecord.durationSec) || 0);
+  const nextStart = Number(nextRecord.startSec) || 0;
+  const nextEnd = nextStart + (Number(nextRecord.durationSec) || 0);
+  const overlapLead = Math.max(0, Number(nextRecord.overlapLeadSec) || 0);
+
+  let prevBoundaryGap: number;
+  let nextBoundaryGap: number;
+  if (overlapLead > 0) {
+    if (nextStart > prevEnd + 0.5 || nextEnd < prevEnd - 0.5) {
+      return { prevItems, nextItems };
+    }
+    if (seamSec !== undefined) {
+      prevBoundaryGap = Math.abs(seamSec - prevItem.to);
+      nextBoundaryGap = Math.abs(nextItem.from - seamSec);
+    } else {
+      prevBoundaryGap = prevEnd - prevItem.to;
+      nextBoundaryGap = Math.min(
+        Math.abs(nextItem.from - nextStart),
+        Math.abs(nextItem.from - prevItem.to),
+        Math.abs(nextItem.from - prevEnd)
+      );
+    }
+  } else {
+    if (Math.abs(nextStart - prevEnd) >= 0.5) {
+      return { prevItems, nextItems };
+    }
+    prevBoundaryGap = prevEnd - prevItem.to;
+    nextBoundaryGap = nextItem.from - nextStart;
+  }
+
+  if (prevBoundaryGap >= STITCH_BOUNDARY_GAP_SEC || nextBoundaryGap >= STITCH_BOUNDARY_GAP_SEC) {
+    return { prevItems, nextItems };
+  }
+
+  const stitchedTo = Math.max(prevItem.to, nextItem.to);
+  if (stitchedTo - prevItem.from > STITCH_MAX_DURATION_SEC) {
+    return { prevItems, nextItems };
+  }
+
+  const stitchedItem: RichSubtitleItem = {
+    from: prevItem.from,
+    to: stitchedTo,
+    content: joinSubtitleText(prevItem.content, nextItem.content)
+  };
+  // 仅当两侧同时携带 words 时拼接词时间戳，避免下游 expandCoarseEvents 只展开半句
+  if (prevItem.words?.length && nextItem.words?.length) {
+    stitchedItem.words = [
+      ...prevItem.words.map((w) => ({ ...w })),
+      ...nextItem.words.map((w) => ({ ...w }))
+    ];
+  }
+  return {
+    prevItems: [...prevItems.slice(0, lastNonSfxIdx), stitchedItem],
+    nextItems: nextItems.slice(firstNonSfxIdx + 1)
+  };
+}
+
+export interface AsrProgressiveMergeSnapshot {
+  mergedItems: SubtitleItem[];
+  chunkItems: Map<number, SubtitleItem[]>;
+  updatedChunkIndices: number[];
+}
+
+function wordsEqual(a: SynthesizedWord[] | undefined, b: SynthesizedWord[] | undefined): boolean {
+  const lenA = a?.length ?? 0;
+  const lenB = b?.length ?? 0;
+  if (lenA !== lenB) return false;
+  for (let i = 0; i < lenA; i += 1) {
+    if (a![i].word !== b![i].word || a![i].start !== b![i].start || a![i].end !== b![i].end) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function itemsEqual(a: RichSubtitleItem[] | undefined, b: RichSubtitleItem[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].from !== b[i].from ||
+      a[i].to !== b[i].to ||
+      a[i].content !== b[i].content ||
+      !wordsEqual(a[i].words, b[i].words)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// 按 chunkIndex 有序组装已就绪分片：先在各相邻已就绪分片间执行重叠去重与跨片
+// 未闭合尾句缝合，再输出按时间单调不重叠的最终合并数组。
+function assembleOrderedChunks(records: AsrChunkRecord[]): {
+  mergedItems: SubtitleItem[];
+  chunkItems: Map<number, SubtitleItem[]>;
+} {
+  const ordered = records
+    .filter((record): record is AsrChunkRecord => Boolean(record && record.result))
+    .slice()
+    .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+
+  const chunkItems = new Map<number, SubtitleItem[]>();
+  const synthesized: RichSubtitleItem[][] = ordered.map((record) =>
+    synthesizeChunk({
+      startSec: record.startSec,
+      durationSec: record.durationSec,
+      result: record.result
+    }) as RichSubtitleItem[]
+  );
+
+  for (let i = 0; i + 1 < ordered.length; i += 1) {
+    const prevRecord = ordered[i];
+    const nextRecord = ordered[i + 1];
+    if ((Number(nextRecord.index) || 0) !== (Number(prevRecord.index) || 0) + 1) {
+      continue;
+    }
+
+    let prevList = synthesized[i];
+    let nextList = synthesized[i + 1];
+    let seamSec: number | undefined;
+
+    if ((Number(nextRecord.overlapLeadSec) || 0) > 0) {
+      const deduped = deduplicateOverlapBetweenChunks(prevRecord, prevList, nextRecord, nextList);
+      prevList = deduped.prevItems;
+      nextList = deduped.nextItems;
+      seamSec = deduped.seamSec;
+    }
+
+    const stitched = stitchUnclosedTrailingSentence(prevRecord, prevList, nextRecord, nextList, seamSec);
+    synthesized[i] = stitched.prevItems;
+    synthesized[i + 1] = stitched.nextItems;
+  }
+
+  const mergedItems: SubtitleItem[] = [];
+  for (let i = 0; i < ordered.length; i += 1) {
+    const chunkIndex = Number(ordered[i].index) || 0;
+    const list = synthesized[i];
+    for (const item of list) {
+      if (mergedItems.length > 0 && item.from < mergedItems[mergedItems.length - 1].to) {
+        const clampedFrom = mergedItems[mergedItems.length - 1].to;
+        item.from = clampedFrom;
+        item.to = Math.max(clampedFrom, item.to);
+        if (item.words?.length) {
+          item.words = item.words.map((w) => {
+            const start = Math.max(w.start, clampedFrom);
+            const end = Math.max(start, w.end);
+            return { ...w, start, end };
+          });
+        }
+      }
+      mergedItems.push(item);
+    }
+    chunkItems.set(chunkIndex, list);
+  }
+
+  return { mergedItems, chunkItems };
+}
+
+// 有序合并视图管理器：10 并发乱序到达时增量暂存已就绪分片，并在相邻分片齐备时
+// 自动重算重叠去重与跨片尾句缝合，返回受影响的分片索引以便下游无感更新。
+export function createProgressiveChunkMerger(): {
+  push(record: AsrChunkRecord): AsrProgressiveMergeSnapshot;
+  getSnapshot(): AsrProgressiveMergeSnapshot;
+} {
+  const received = new Map<number, AsrChunkRecord>();
+  let prevChunkItems = new Map<number, SubtitleItem[]>();
+  let latestMerged: SubtitleItem[] = [];
+
+  function recompute(forceIncludeIndex?: number): AsrProgressiveMergeSnapshot {
+    const { mergedItems, chunkItems } = assembleOrderedChunks(Array.from(received.values()));
+    const updatedSet = new Set<number>();
+    if (forceIncludeIndex !== undefined) {
+      updatedSet.add(forceIncludeIndex);
+    }
+    for (const [idx, items] of chunkItems.entries()) {
+      if (
+        !prevChunkItems.has(idx) ||
+        !itemsEqual(prevChunkItems.get(idx) as RichSubtitleItem[] | undefined, items as RichSubtitleItem[])
+      ) {
+        updatedSet.add(idx);
+      }
+    }
+    prevChunkItems = chunkItems;
+    latestMerged = mergedItems;
+    return {
+      mergedItems,
+      chunkItems,
+      updatedChunkIndices: Array.from(updatedSet).sort((a, b) => a - b)
+    };
+  }
+
+  return {
+    push(record: AsrChunkRecord): AsrProgressiveMergeSnapshot {
+      const idx = Number(record.index) || 0;
+      received.set(idx, record);
+      return recompute(idx);
+    },
+    getSnapshot(): AsrProgressiveMergeSnapshot {
+      return {
+        mergedItems: latestMerged,
+        chunkItems: prevChunkItems,
+        updatedChunkIndices: []
+      };
+    }
+  };
+}
+
+// 全部片段合成 → 重叠区去重 + 跨片未闭合尾句缝合 → 按 from 单调不重叠排序。
+// chunkResults 为按片记录 [{ index, startSec, durationSec, overlapLeadSec?, result }]；
+// 转写失败片 / 解码失败段不在其中（offscreen 引擎跳过并计数），不参与合并。
+export function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
+  return assembleOrderedChunks(chunkResults).mergedItems;
 }
 
 // ===== 主入口 =====
@@ -207,7 +993,11 @@ export interface RunAsrPipelineArgs {
   sourceTransport?: JsonTransport;
   onEmptyDiagnostic?: (diagText: string) => void;
   onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
-  onChunkResult?: (record: AsrChunkRecord, items: SubtitleItem[]) => void;
+  onChunkResult?: (
+    record: AsrChunkRecord,
+    items: SubtitleItem[],
+    snapshot?: AsrProgressiveMergeSnapshot
+  ) => void;
   signal?: AbortSignal | null;
 }
 
@@ -239,6 +1029,7 @@ export async function runAsrPipeline({
   // 每片完成即把文本结果经 port 发回；音频字节与 API Key 都不出 offscreen。
   // 防盗链规则由 prepare 阶段在 background 加上。
   onProgress?.("音频下载与解码中…");
+  const progressiveMerger = createProgressiveChunkMerger();
   const hostResult = await host({
     audioUrl: source.url,
     backupUrls: source.backupUrls || [],
@@ -246,13 +1037,10 @@ export async function runAsrPipeline({
     signal,
     onChunkResult: (record) => {
       if (onChunkResult) {
-        const items = synthesizeChunk({
-          startSec: record.startSec,
-          durationSec: record.durationSec,
-          result: record.result
-        });
+        const snapshot = progressiveMerger.push(record);
+        const items = snapshot.chunkItems.get(Number(record.index) || 0) ?? [];
         try {
-          onChunkResult(record, items);
+          onChunkResult(record, items, snapshot);
         } catch {
           // ignore
         }

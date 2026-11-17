@@ -95,15 +95,16 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     port._emit({
       type: "chunk-result",
       index: 1,
-      startSec: 1200,
-      durationSec: 300,
+      startSec: 58.5,
+      durationSec: 60,
+      overlapLeadSec: 1.5,
       result: { text: "片二", segments: [{ start: 0, end: 1, text: "第三句" }] }
     });
     port._emit({
       type: "chunk-result",
       index: 0,
       startSec: 0,
-      durationSec: 1200,
+      durationSec: 60,
       result: { text: "片一", _asrDiag: { request: 2 } }
     });
     port._emit({ type: "done", totalChunks: 2, skippedSegments: 1, failedChunks: 0 });
@@ -113,13 +114,15 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     expect(out.skippedSegments).toBe(1);
     expect(out.failedChunks).toBe(0);
     expect(out.results.map((r) => r.index)).toEqual([0, 1]);
-    // result 原样透传（纯 JSON 文本结果，无 Blob/base64 还原）
+    // result 原样透传（纯 JSON 文本结果，无 Blob/base64 还原）；未附带 overlapLeadSec 时不多出键
     expect(out.results[0]).toEqual({
       index: 0,
       startSec: 0,
-      durationSec: 1200,
+      durationSec: 60,
       result: { text: "片一", _asrDiag: { request: 2 } }
     });
+    expect("overlapLeadSec" in out.results[0]).toBe(false);
+    expect(out.results[1].overlapLeadSec).toBe(1.5);
     expect(out.results[1].result).toEqual({
       text: "片二",
       segments: [{ start: 0, end: 1, text: "第三句" }]

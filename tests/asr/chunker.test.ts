@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   encodeWav,
   decideChunks,
+  decideAudioChunkCut,
   buildChunkPlan,
   buildWavChunks,
   assertDecodedAudioNotSilent,
@@ -109,12 +110,12 @@ describe("buildChunkPlan 各平台规则", () => {
 describe("decideChunks 边界与连续性", () => {
   it("不切（chunkSeconds 0）：整段一个片段", () => {
     const chunks = decideChunks(600, { chunkSeconds: 0 });
-    expect(chunks).toEqual([{ index: 0, startSec: 0, durationSec: 600 }]);
+    expect(chunks).toEqual([{ index: 0, startSec: 0, durationSec: 600, overlapLeadSec: 0 }]);
   });
 
   it("总时长不足一片时只有 1 片（durationSec=总时长）", () => {
     expect(decideChunks(120, { chunkSeconds: 600 })).toEqual([
-      { index: 0, startSec: 0, durationSec: 120 }
+      { index: 0, startSec: 0, durationSec: 120, overlapLeadSec: 0 }
     ]);
   });
 
@@ -127,14 +128,14 @@ describe("decideChunks 边界与连续性", () => {
   it("61 分钟音频 10 分钟片 → 7 片，最后一片 1 分钟", () => {
     const chunks = decideChunks(61 * 60, { chunkSeconds: 10 * 60 });
     expect(chunks.length).toBe(7);
-    expect(chunks[6]).toEqual({ index: 6, startSec: 60 * 60, durationSec: 60 });
+    expect(chunks[6]).toEqual({ index: 6, startSec: 60 * 60, durationSec: 60, overlapLeadSec: 0 });
   });
 
   it("26 分钟 25 分钟片 → 2 片（25 + 1）", () => {
     const chunks = decideChunks(26 * 60, { chunkSeconds: 25 * 60 });
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toEqual({ index: 0, startSec: 0, durationSec: 25 * 60 });
-    expect(chunks[1]).toEqual({ index: 1, startSec: 25 * 60, durationSec: 60 });
+    expect(chunks[0]).toEqual({ index: 0, startSec: 0, durationSec: 25 * 60, overlapLeadSec: 0 });
+    expect(chunks[1]).toEqual({ index: 1, startSec: 25 * 60, durationSec: 60, overlapLeadSec: 0 });
   });
 
   it("8 分钟 3 分钟片 → 3 片（3 + 3 + 2）", () => {
@@ -151,6 +152,7 @@ describe("decideChunks 边界与连续性", () => {
     let covered = 0;
     for (const c of chunks) {
       expect(c.startSec).toBeCloseTo(expectedStart, 9);
+      expect(c.overlapLeadSec).toBe(0);
       expectedStart += c.durationSec;
       covered += c.durationSec;
     }
@@ -162,8 +164,36 @@ describe("decideChunks 边界与连续性", () => {
   });
 });
 
+describe("decideAudioChunkCut 软切分与微重叠决策", () => {
+  it("[52s, 60s] 内在 56.2s 处存在 300ms 静音谷时，切点精准落在波谷中心且无重叠", () => {
+    const rate = 16000;
+    const buf = new Float32Array(60 * rate);
+    for (let i = 0; i < buf.length; i += 1) {
+      buf[i] = 0.4 * Math.sin((2 * Math.PI * 300 * i) / rate);
+    }
+    // 插入以 56.2s 为中心的 300ms 静音段 [56.05s, 56.35s]
+    buf.fill(0, Math.round(56.05 * rate), Math.round(56.35 * rate));
+
+    const decision = decideAudioChunkCut(buf, rate);
+    expect(decision.nextOverlapSamples).toBe(0);
+    expect(decision.cutSamples / rate).toBeCloseTo(56.2, 2);
+  });
+
+  it("全程满幅正弦波无静音波谷时，在 60s 切分并指示下片回退 1.5s 重叠", () => {
+    const rate = 16000;
+    const buf = new Float32Array(60 * rate);
+    for (let i = 0; i < buf.length; i += 1) {
+      buf[i] = Math.sin((2 * Math.PI * 440 * i) / rate);
+    }
+
+    const decision = decideAudioChunkCut(buf, rate);
+    expect(decision.cutSamples).toBe(60 * rate);
+    expect(decision.nextOverlapSamples).toBe(Math.round(1.5 * rate));
+  });
+});
+
 describe("buildWavChunks 直测", () => {
-  it("按 plan 切片并编码：8 分钟 3 分钟片 → 3 片，头部 16k 单声道", () => {
+  it("连续非静音 8 分钟按 3 分钟切片：第 2/3 片自动回退 1.5s 重叠，头部 16k 单声道", () => {
     const data = new Float32Array(8 * 60 * 16000).fill(0.25);
     const audioBuffer = {
       sampleRate: 16000,
@@ -173,16 +203,23 @@ describe("buildWavChunks 直测", () => {
     const chunks = buildWavChunks(audioBuffer, { chunkSeconds: 3 * 60 });
 
     expect(chunks).toHaveLength(3);
-    chunks.forEach((c, i) => {
-      expect(c.index).toBe(i);
-      expect(c.startSec).toBeCloseTo(i * 3 * 60, 9);
-      expect(c.durationSec).toBeCloseTo(i < 2 ? 3 * 60 : 2 * 60, 9);
+    expect(chunks.map((c) => ({
+      index: c.index,
+      startSec: c.startSec,
+      durationSec: c.durationSec,
+      overlapLeadSec: c.overlapLeadSec
+    }))).toEqual([
+      { index: 0, startSec: 0, durationSec: 180, overlapLeadSec: 0 },
+      { index: 1, startSec: 178.5, durationSec: 180, overlapLeadSec: 1.5 },
+      { index: 2, startSec: 357, durationSec: 123, overlapLeadSec: 1.5 }
+    ]);
+    chunks.forEach((c) => {
       expect(c.wavBlob).toBeInstanceOf(Blob);
       expect(c.wavBlob.type).toBe("audio/wav");
     });
   });
 
-  it("每片 WAV 头部校验：16k 采样率 / 单声道 / 16bit，最后一片体积正确", async () => {
+  it("每片 WAV 头部校验：16k 采样率 / 单声道 / 16bit，最后一片（含 1.5s 重叠）体积正确", async () => {
     const data = new Float32Array(8 * 60 * 16000).fill(0.25);
     const audioBuffer = {
       sampleRate: 16000,
@@ -196,8 +233,8 @@ describe("buildWavChunks 直测", () => {
     expect(h.sampleRate).toBe(16000);
     expect(h.numChannels).toBe(1);
     expect(h.bitsPerSample).toBe(16);
-    // 最后一片 2 分钟：44 + 16000*2*120
-    expect(bytes.byteLength).toBe(44 + 16000 * 2 * 120);
+    // 最后一片 123 秒（120s 新采样 + 1.5s * 2 重叠折算：357s ~ 480s）：44 + 16000*2*123
+    expect(bytes.byteLength).toBe(44 + 16000 * 2 * 123);
   });
 
   it("不切（chunkSeconds 0）：整段一片且时长=总时长", () => {
@@ -210,6 +247,7 @@ describe("buildWavChunks 直测", () => {
     const chunks = buildWavChunks(audioBuffer, { chunkSeconds: 0 });
     expect(chunks).toHaveLength(1);
     expect(chunks[0].durationSec).toBeCloseTo(60, 9);
+    expect(chunks[0].overlapLeadSec).toBe(0);
   });
 });
 

@@ -1047,3 +1047,347 @@ describe("工单 01：synthesizeChunk 与多分片合并排序", () => {
     expect(merged).toEqual([{ from: 60, to: 120, content: "有效单句。" }]);
   });
 });
+
+describe("重叠区去重与跨分片未闭合尾句缝合", () => {
+  it("全程满幅正弦波触发 1.5s 微重叠时，pipeline 正确去重并平滑取中间时间点衔接", async () => {
+    const { streamWavChunks } = await import("../../extension/asr/stream-chunker.js");
+    const { mergeChunkResults } = await import("../../extension/asr/pipeline.js");
+
+    const rate = 16000;
+    const totalSec = 80;
+    const sine = new Float32Array(totalSec * rate);
+    for (let i = 0; i < sine.length; i += 1) {
+      sine[i] = Math.sin((2 * Math.PI * 440 * i) / rate);
+    }
+
+    const emitted: Array<{ index: number; startSec: number; durationSec: number; overlapLeadSec: number }> = [];
+    await streamWavChunks([sine], {
+      chunkSeconds: 60,
+      sampleRate: rate,
+      decodeSegment: async (seg) => seg as Float32Array,
+      onChunk: (chunk) => {
+        emitted.push({
+          index: chunk.index,
+          startSec: chunk.startSec,
+          durationSec: chunk.durationSec,
+          overlapLeadSec: chunk.overlapLeadSec
+        });
+      }
+    });
+
+    expect(emitted).toHaveLength(2);
+    expect(emitted[1].startSec).toBeCloseTo(58.5, 6);
+    expect(emitted[1].overlapLeadSec).toBeCloseTo(1.5, 6);
+
+    // 场景 A：重叠区完全重复的句段 + 跨重叠边界后续句段，且携带 words 时同步裁剪
+    const mergedExact = mergeChunkResults([
+      {
+        ...emitted[0],
+        result: {
+          text: "前面正常内容。今天我们要讲解",
+          segments: [
+            { start: 10, end: 15, text: "前面正常内容。" },
+            { start: 58.6, end: 60, text: "今天我们要讲解。" }
+          ],
+          words: [
+            { word: "今天", start: 58.6, end: 59.1 },
+            { word: "我们要", start: 59.1, end: 59.6 },
+            { word: "讲解。", start: 59.6, end: 60.0 }
+          ]
+        }
+      },
+      {
+        ...emitted[1],
+        result: {
+          text: "今天我们要讲解核心原理。",
+          segments: [
+            // 相对 emitted[1].startSec=58.5：0.1~1.5s 对应全局 58.6~60.0s
+            { start: 0.1, end: 3.5, text: "今天我们要讲解核心原理。" }
+          ],
+          words: [
+            { word: "今天", start: 0.1, end: 0.6 },
+            { word: "我们要", start: 0.6, end: 1.1 },
+            { word: "讲解", start: 1.1, end: 1.5 },
+            { word: "核心", start: 1.6, end: 2.4 },
+            { word: "原理。", start: 2.4, end: 3.5 }
+          ]
+        }
+      }
+    ]);
+
+    expect(mergedExact).toHaveLength(3);
+    expect(mergedExact[1].content).toBe("今天我们要讲解。");
+    expect(mergedExact[2].content).toBe("核心原理。");
+    expect(mergedExact[1].to).toBeCloseTo(59.3, 6);
+    expect(mergedExact[2].from).toBeCloseTo(59.3, 6);
+    expect(mergedExact[2].to).toBeCloseTo(62.0, 6);
+    expect((mergedExact[2] as { words?: Array<{ word: string }> }).words?.map((w) => w.word)).toEqual([
+      "核心",
+      "原理。"
+    ]);
+
+    // 场景 B：硬切边界导致尾字微残损（近边界 LCS 容错），去重后与未闭合尾句协同修复断词并缝合
+    const mergedFuzzy = mergeChunkResults([
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: {
+          text: "welcome to the sh",
+          segments: [{ start: 58.6, end: 59.95, text: "welcome to the sh" }]
+        }
+      },
+      {
+        index: 1,
+        startSec: 58.5,
+        durationSec: 21.5,
+        overlapLeadSec: 1.5,
+        result: {
+          text: "welcome to the show today.",
+          segments: [{ start: 0.1, end: 3.0, text: "welcome to the show today." }]
+        }
+      }
+    ]);
+
+    expect(mergedFuzzy).toEqual([
+      { from: 58.6, to: 61.5, content: "welcome to the show today." }
+    ]);
+
+    // 场景 C：闭合句子后的尾缀残损被 LCS 裁剪后保留句末标点，各自独立并在中点平滑衔接
+    const mergedClosedFuzzy = mergeChunkResults([
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: {
+          text: "nice show. wh",
+          segments: [{ start: 58.6, end: 59.95, text: "nice show. wh" }]
+        }
+      },
+      {
+        index: 1,
+        startSec: 58.5,
+        durationSec: 21.5,
+        overlapLeadSec: 1.5,
+        result: {
+          text: "nice show. what is next?",
+          segments: [{ start: 0.1, end: 3.0, text: "nice show. what is next?" }]
+        }
+      }
+    ]);
+
+    expect(mergedClosedFuzzy).toHaveLength(2);
+    expect(mergedClosedFuzzy[0].content).toBe("nice show.");
+    expect(mergedClosedFuzzy[1].content).toBe("what is next?");
+    expect(mergedClosedFuzzy[0].to).toBeCloseTo(mergedClosedFuzzy[1].from, 6);
+    expect(mergedClosedFuzzy[0].to).toBeCloseTo((58.6 + 59.95) / 2, 6);
+  });
+
+  it("乱序到达（分片 1 先于分片 0，或 0/2 先到、1 后到）：暂态可先展示，两片齐备后准确缝合并保持时间单调不重叠", async () => {
+    const { createProgressiveChunkMerger } = await import("../../extension/asr/pipeline.js");
+    const merger = createProgressiveChunkMerger();
+
+    // 1) 分片 1 先到（无重叠，左边界 0.1s 距 60s < 0.45s）
+    const snap1 = merger.push({
+      index: 1,
+      startSec: 60,
+      durationSec: 60,
+      overlapLeadSec: 0,
+      result: {
+        text: "第二片内容",
+        segments: [
+          { start: 0.05, end: 0.15, text: "[掌声]" },
+          { start: 0.2, end: 3.0, text: "构建高可用架构。" },
+          { start: 4.0, end: 7.0, text: "这是下一句。" }
+        ]
+      }
+    });
+    expect(snap1.mergedItems).toHaveLength(3);
+
+    // 2) 分片 0 后到：末尾非音效句未闭合（距 60s < 0.45s），跳过末尾瞬间 [音乐] 与分片 1 首条缝合
+    const snap2 = merger.push({
+      index: 0,
+      startSec: 0,
+      durationSec: 60,
+      overlapLeadSec: 0,
+      result: {
+        text: "第一片内容",
+        segments: [
+          { start: 1.0, end: 4.0, text: "大家好。" },
+          { start: 57.5, end: 59.75, text: "今天我们一起来学习如何" },
+          { start: 59.8, end: 59.95, text: "[音乐]" }
+        ]
+      }
+    });
+    expect(snap2.updatedChunkIndices).toEqual([0, 1]);
+    expect(snap2.mergedItems).toEqual([
+      { from: 1.0, to: 4.0, content: "大家好。" },
+      { from: 57.5, to: 63.0, content: "今天我们一起来学习如何构建高可用架构。" },
+      { from: 64.0, to: 67.0, content: "这是下一句。" }
+    ]);
+    for (let i = 1; i < snap2.mergedItems.length; i += 1) {
+      expect(snap2.mergedItems[i].from).toBeGreaterThanOrEqual(snap2.mergedItems[i - 1].to);
+    }
+
+    // 3) 分片 0 先到时先正常展示未闭合尾句，分片 1 后到再无感更新（英文自动补空格）
+    const progressive = createProgressiveChunkMerger();
+    const firstView = progressive.push({
+      index: 0,
+      startSec: 0,
+      durationSec: 60,
+      overlapLeadSec: 0,
+      result: {
+        text: "We are going to",
+        segments: [{ start: 57.0, end: 59.8, text: "We are going to" }],
+        words: [
+          { word: "We", start: 57.0, end: 57.5 },
+          { word: "are", start: 57.5, end: 58.2 },
+          { word: "going", start: 58.2, end: 59.0 },
+          { word: "to", start: 59.0, end: 59.8 }
+        ]
+      }
+    });
+    expect(firstView.mergedItems).toHaveLength(1);
+    expect(firstView.mergedItems[0].content).toBe("We are going to");
+
+    const updatedView = progressive.push({
+      index: 1,
+      startSec: 60,
+      durationSec: 60,
+      overlapLeadSec: 0,
+      result: {
+        text: "build this system.",
+        segments: [{ start: 0.1, end: 2.5, text: "build this system." }],
+        words: [
+          { word: "build", start: 0.1, end: 0.8 },
+          { word: "this", start: 0.8, end: 1.5 },
+          { word: "system.", start: 1.5, end: 2.5 }
+        ]
+      }
+    });
+    expect(updatedView.updatedChunkIndices).toEqual([0, 1]);
+    expect(updatedView.mergedItems).toHaveLength(1);
+    expect(updatedView.mergedItems[0].from).toBe(57.0);
+    expect(updatedView.mergedItems[0].to).toBe(62.5);
+    expect(updatedView.mergedItems[0].content).toBe("We are going to build this system.");
+    expect((updatedView.mergedItems[0] as { words?: Array<{ word: string }> }).words).toHaveLength(7);
+  });
+
+  it("跨片缝合守卫：句末含标点、距边界 >= 0.45s 或合并后 > 10s 时不误缝合", async () => {
+    const { mergeChunkResults } = await import("../../extension/asr/pipeline.js");
+
+    // 1) 末尾已有句末标点（含闭合引号）不缝合
+    const closed = mergeChunkResults([
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "他说：“结束了。”", segments: [{ start: 57, end: 59.8, text: "他说：“结束了。”" }] }
+      },
+      {
+        index: 1,
+        startSec: 60,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "下一句。", segments: [{ start: 0.1, end: 2.0, text: "下一句。" }] }
+      }
+    ]);
+    expect(closed).toHaveLength(2);
+
+    // 2) 距右边界 >= 0.45s 不缝合
+    const farFromEdge = mergeChunkResults([
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "未闭合但离边界太远", segments: [{ start: 56, end: 59.4, text: "未闭合但离边界太远" }] }
+      },
+      {
+        index: 1,
+        startSec: 60,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "接不上", segments: [{ start: 0.1, end: 2.0, text: "接不上。" }] }
+      }
+    ]);
+    expect(farFromEdge).toHaveLength(2);
+
+    // 3) 合并后总时长 > 10s 不缝合
+    const tooLong = mergeChunkResults([
+      {
+        index: 0,
+        startSec: 0,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "很长的半句", segments: [{ start: 52, end: 59.9, text: "很长的半句" }] }
+      },
+      {
+        index: 1,
+        startSec: 60,
+        durationSec: 60,
+        overlapLeadSec: 0,
+        result: { text: "也很长的后半句。", segments: [{ start: 0.1, end: 4.0, text: "也很长的后半句。" }] }
+      }
+    ]);
+    expect(tooLong).toHaveLength(2);
+  });
+
+  it("runAsrPipeline 乱序分片回传：onChunkResult 携带增量重算 snapshot 且最终产出时间单调不重叠", async () => {
+    const snapshots: Array<{ index: number; updated: number[]; mergedLen: number }> = [];
+    const body = await pipeline.runAsrPipeline({
+      bvid: "BV1test",
+      cid: "101",
+      chunkHost: async ({ onChunkResult }) => {
+        const rec1 = {
+          index: 1,
+          startSec: 58.5,
+          durationSec: 21.5,
+          overlapLeadSec: 1.5,
+          result: {
+            text: "后半段内容继续说下去。",
+            segments: [
+              { start: 0.2, end: 1.5, text: "先讲前半句" },
+              { start: 1.5, end: 4.0, text: "再讲后半句。" }
+            ]
+          }
+        };
+        const rec0 = {
+          index: 0,
+          startSec: 0,
+          durationSec: 60,
+          overlapLeadSec: 0,
+          result: {
+            text: "开头。先讲前半句",
+            segments: [
+              { start: 1.0, end: 3.0, text: "开头。" },
+              { start: 58.7, end: 59.9, text: "先讲前半句" }
+            ]
+          }
+        };
+        onChunkResult?.(rec1);
+        onChunkResult?.(rec0);
+        return { results: [rec1, rec0], totalChunks: 2, skippedSegments: 0, failedChunks: 0 };
+      },
+      onChunkResult: (record, _items, snapshot) => {
+        snapshots.push({
+          index: record.index,
+          updated: snapshot?.updatedChunkIndices ?? [],
+          mergedLen: snapshot?.mergedItems.length ?? 0
+        });
+      }
+    });
+
+    expect(snapshots).toEqual([
+      { index: 1, updated: [1], mergedLen: 2 },
+      { index: 0, updated: [0, 1], mergedLen: 2 }
+    ]);
+    expect(body).toEqual([
+      { from: 1.0, to: 3.0, content: "开头。" },
+      { from: 58.7, to: 62.5, content: "先讲前半句再讲后半句。" }
+    ]);
+  });
+});

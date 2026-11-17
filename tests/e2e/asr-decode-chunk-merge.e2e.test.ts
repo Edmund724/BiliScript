@@ -340,7 +340,14 @@ interface ChainLayout {
   decodedDurationSec: number;
   sampleRate: number;
   /** 真流式切片的产出（片边界 + WAV 字节 + 片内采样数） */
-  chunks: Array<{ index: number; startSec: number; durationSec: number; wavBytes: Uint8Array; samples: number }>;
+  chunks: Array<{
+    index: number;
+    startSec: number;
+    durationSec: number;
+    overlapLeadSec: number;
+    wavBytes: Uint8Array;
+    samples: number;
+  }>;
   /** 同一份 PCM 走全量切片（buildWavChunks）的基线产出 */
   wholeChunks: WavChunk[];
   pcm: Float32Array;
@@ -387,6 +394,7 @@ async function buildChainLayout(chunkSeconds = WALKTHROUGH_CHUNK_SECONDS): Promi
         index: chunk.index,
         startSec: chunk.startSec,
         durationSec: chunk.durationSec,
+        overlapLeadSec: chunk.overlapLeadSec,
         wavBytes,
         samples: parseWavHeader(wavBytes).dataSize / 2
       });
@@ -410,33 +418,36 @@ async function buildChainLayout(chunkSeconds = WALKTHROUGH_CHUNK_SECONDS): Promi
 }
 
 describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切片与全量切片对账）", () => {
-  it("生产片长下 60s 分片多片；自选 45s 片长下多片边界连续无缝、末片收尾", async () => {
+  it("生产片长下 60s 分片多片；自选 45s 片长下多片边界连续且重叠区间严丝合缝", async () => {
     const layout = await buildChainLayout();
     const productionPlan = chunker.buildChunkPlan("openai-transcriptions");
     expect(productionPlan).toEqual({ chunkSeconds: 60 });
     expect(layout.decodedDurationSec).toBeGreaterThan(productionPlan.chunkSeconds);
     expect(chunker.decideChunks(layout.decodedDurationSec, productionPlan)).toHaveLength(3);
 
-    const expected = chunker.decideChunks(layout.decodedDurationSec, { chunkSeconds: WALKTHROUGH_CHUNK_SECONDS });
-    expect(layout.chunks.length).toBe(expected.length);
+    expect(layout.chunks.length).toBe(layout.wholeChunks.length);
     expect(layout.chunks.length).toBeGreaterThan(1);
-    for (let i = 0; i < expected.length; i += 1) {
-      expect(layout.chunks[i].index).toBe(expected[i].index);
-      expect(layout.chunks[i].startSec).toBeCloseTo(expected[i].startSec, 9);
-      expect(layout.chunks[i].durationSec).toBeCloseTo(expected[i].durationSec, 9);
+    for (let i = 0; i < layout.wholeChunks.length; i += 1) {
+      expect(layout.chunks[i].index).toBe(layout.wholeChunks[i].index);
+      expect(layout.chunks[i].startSec).toBeCloseTo(layout.wholeChunks[i].startSec, 9);
+      expect(layout.chunks[i].durationSec).toBeCloseTo(layout.wholeChunks[i].durationSec, 9);
+      expect(layout.chunks[i].overlapLeadSec).toBeCloseTo(layout.wholeChunks[i].overlapLeadSec, 9);
     }
-    // 连续无缝：片首尾相接，总时长等于真解码时长
-    const totalDuration = layout.chunks.reduce((sum, chunk) => sum + chunk.durationSec, 0);
-    expect(totalDuration).toBeCloseTo(layout.decodedDurationSec, 9);
+    // 连续且带重叠回退：第 i 片起点 = 第 i-1 片终点 - overlapLeadSec[i]，去重总时长等于真解码时长
+    const coveredDuration = layout.chunks.reduce(
+      (sum, chunk) => sum + chunk.durationSec - chunk.overlapLeadSec,
+      0
+    );
+    expect(coveredDuration).toBeCloseTo(layout.decodedDurationSec, 9);
     for (let i = 1; i < layout.chunks.length; i += 1) {
       expect(layout.chunks[i].startSec).toBeCloseTo(
-        layout.chunks[i - 1].startSec + layout.chunks[i - 1].durationSec,
+        layout.chunks[i - 1].startSec + layout.chunks[i - 1].durationSec - layout.chunks[i].overlapLeadSec,
         9
       );
     }
   });
 
-  it("每片 WAV：真编码头字段正确，与全量切片逐字节一致，片内采样数之和等于真解码采样数", async () => {
+  it("每片 WAV：真编码头字段正确，与全量切片逐字节一致，去重片内采样数之和等于真解码采样数", async () => {
     const layout = await buildChainLayout();
     const { wholeChunks } = layout;
     expect(wholeChunks.length).toBe(layout.chunks.length);
@@ -458,9 +469,13 @@ describe("② 真音频时长 → 真切片计划 / 真 WAV 编码（流式切�
       expect(firstByteDifference(layout.chunks[i].wavBytes, wholeBytes)).toBe(-1);
     }
 
-    // 片内采样数（WAV dataSize/2）之和等于真解码采样数：无空隙、无重复
+    // 扣除重叠前导采样后之和等于真解码采样数：无空隙、不漏帧
     expect(layout.chunks.every((chunk) => Number.isInteger(chunk.samples))).toBe(true);
-    expect(layout.chunks.reduce((sum, chunk) => sum + chunk.samples, 0)).toBe(layout.decodedSamples);
+    const uniqueSamples = layout.chunks.reduce(
+      (sum, chunk) => sum + chunk.samples - Math.round(chunk.overlapLeadSec * layout.sampleRate),
+      0
+    );
+    expect(uniqueSamples).toBe(layout.decodedSamples);
     expect(wholeChunks.map((chunk) => chunk.startSec)).toEqual(layout.chunks.map((chunk) => chunk.startSec));
     expect(wholeChunks.map((chunk) => chunk.index)).toEqual(layout.chunks.map((chunk) => chunk.index));
   });
@@ -491,18 +506,20 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
         index: third.index,
         startSec: third.startSec,
         durationSec: third.durationSec,
-        result: { text: "片三", segments: [{ start: 1, end: 3, text: "片三句" }] }
+        overlapLeadSec: third.overlapLeadSec,
+        result: { text: "片三", segments: [{ start: 1, end: 3, text: "片三句。" }] }
       },
       {
         index: first.index,
         startSec: first.startSec,
         durationSec: first.durationSec,
+        overlapLeadSec: first.overlapLeadSec,
         result: {
           text: "片一",
           segments: [
-            { start: 0.5, end: 2, text: "片一句甲" },
+            { start: 0.5, end: 2, text: "片一句甲。" },
             // 片内越界：合并必须按片长截断
-            { start: first.durationSec - 1, end: 9999, text: "片一句乙" }
+            { start: first.durationSec - 1, end: 9999, text: "片一句乙。" }
           ]
         }
       },
@@ -510,8 +527,9 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
         index: second.index,
         startSec: second.startSec,
         durationSec: second.durationSec,
+        overlapLeadSec: second.overlapLeadSec,
         // 无 segments（json 降级形状）→ 整片一条粗粒度字幕
-        result: { text: "片二整段" }
+        result: { text: "片二整段。" }
       }
     ];
 
@@ -535,16 +553,18 @@ describe("③ 真 pipeline 合并：全局偏移 / 整片降级 / 越界截断�
     expect(hostCalls[0].audioUrl).toBe(selected.baseUrl);
     expect(hostCalls[0].backupUrls).toEqual(selected.backupUrl);
 
-    // 合并：全局偏移 = 片起点 + 片内相对秒；越界按片长截断；无 segments 走整片降级；
-    // 输入乱序 → 输出按 from 升序
+    // 合并：全局偏移 = 片起点 + 片内相对秒；越界按片长截断；重叠边界平滑取中点衔接；
+    // 无 segments 走整片降级；输入乱序 → 输出按 from 升序且单调不重叠
+    const seam01 = (first.startSec + first.durationSec - 1 + first.startSec + first.durationSec) / 2;
+    const seam12 = (third.startSec + 1 + second.startSec + second.durationSec) / 2;
     expect(body).toEqual([
-      { from: first.startSec + 0.5, to: first.startSec + 2, content: "片一句甲" },
-      { from: first.startSec + first.durationSec - 1, to: first.startSec + first.durationSec, content: "片一句乙" },
-      { from: second.startSec, to: second.startSec + second.durationSec, content: "片二整段" },
-      { from: third.startSec + 1, to: third.startSec + 3, content: "片三句" }
+      { from: first.startSec + 0.5, to: first.startSec + 2, content: "片一句甲。" },
+      { from: first.startSec + first.durationSec - 1, to: seam01, content: "片一句乙。" },
+      { from: seam01, to: seam12, content: "片二整段。" },
+      { from: seam12, to: third.startSec + 3, content: "片三句。" }
     ]);
     for (let i = 1; i < body.length; i += 1) {
-      expect(body[i].from).toBeGreaterThan(body[i - 1].from);
+      expect(body[i].from).toBeGreaterThanOrEqual(body[i - 1].to);
     }
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]).toMatchObject({ totalChunks: 3, failedChunks: 0 });
@@ -726,11 +746,11 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账
         `- 解码采样数（由真帧数推出）：${layout.decodedSamples}（${layout.sampleCounts.join(" + ")}）`,
         `- 解码时长：${layout.decodedDurationSec.toFixed(6)}s`,
         "",
-        "| 片 | index | startSec | durationSec | 片内采样 | WAV 字节 | 与全量切片逐字节一致 |",
-        "|---|---|---|---|---|---|---|",
+        "| 片 | index | startSec | durationSec | overlapLeadSec | 片内采样 | WAV 字节 | 与全量切片逐字节一致 |",
+        "|---|---|---|---|---|---|---|---|",
         ...layout.chunks.map(
           (chunk, i) =>
-            `| ${i} | ${chunk.index} | ${chunk.startSec} | ${chunk.durationSec} | ${chunk.samples} | ${
+            `| ${i} | ${chunk.index} | ${chunk.startSec} | ${chunk.durationSec} | ${chunk.overlapLeadSec} | ${chunk.samples} | ${
               chunk.wavBytes.length
             } | ${firstByteDifference(chunk.wavBytes, wholeBytesByChunk[i]) === -1 ? "是" : "否"} |`
         ),
@@ -738,12 +758,18 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账
         "## ③ 真 pipeline 合并（片边界同上；片内文本是替身，见测试文件头 ②）",
         "| from | to | content |",
         "|---|---|---|",
-        `| ${layout.chunks[0].startSec + 0.5} | ${layout.chunks[0].startSec + 2} | 片一句甲 |`,
+        `| ${layout.chunks[0].startSec + 0.5} | ${layout.chunks[0].startSec + 2} | 片一句甲。 |`,
         `| ${layout.chunks[0].startSec + layout.chunks[0].durationSec - 1} | ${
-          layout.chunks[0].startSec + layout.chunks[0].durationSec
-        } | 片一句乙（片内越界 → 按片长截断） |`,
-        `| ${layout.chunks[1].startSec} | ${layout.chunks[1].startSec + layout.chunks[1].durationSec} | 片二整段（无 segments → 整片降级） |`,
-        `| ${layout.chunks[2].startSec + 1} | ${layout.chunks[2].startSec + 3} | 片三句 |`,
+          (layout.chunks[0].startSec + layout.chunks[0].durationSec - 1 + layout.chunks[0].startSec + layout.chunks[0].durationSec) / 2
+        } | 片一句乙（片内越界 → 按片长截断并取重叠中点衔接） |`,
+        `| ${
+          (layout.chunks[0].startSec + layout.chunks[0].durationSec - 1 + layout.chunks[0].startSec + layout.chunks[0].durationSec) / 2
+        } | ${
+          (layout.chunks[2].startSec + 1 + layout.chunks[1].startSec + layout.chunks[1].durationSec) / 2
+        } | 片二整段（无 segments → 整片降级） |`,
+        `| ${
+          (layout.chunks[2].startSec + 1 + layout.chunks[1].startSec + layout.chunks[1].durationSec) / 2
+        } | ${layout.chunks[2].startSec + 3} | 片三句。 |`,
         "",
         "## ④ 适配器边界（真线上失败报文，tests/fixtures/asr/）",
         `- siliconflow-transcriptions-401.json：HTTP ${SF_401.status} / ${SF_401.contentType} / ${SF_401.byteLength} 字节 → kind=asr-auth（不发第二次 POST）`,
@@ -771,7 +797,7 @@ describe("⑤ 走查工件（重跑逐字节一致，末尾与真实产物对账
     expect(artifact).toContain(`真音频时长：${layout.audioDurationSec.toFixed(6)}s`);
     expect(artifact).toContain(`- 解码采样数（由真帧数推出）：${layout.decodedSamples}`);
     expect(artifact).toContain(
-      `| 0 | 0 | 0 | ${layout.chunks[0].durationSec} | ${layout.chunks[0].samples} | ${layout.chunks[0].wavBytes.length} | 是 |`
+      `| 0 | 0 | 0 | ${layout.chunks[0].durationSec} | ${layout.chunks[0].overlapLeadSec} | ${layout.chunks[0].samples} | ${layout.chunks[0].wavBytes.length} | 是 |`
     );
   });
 });

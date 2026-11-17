@@ -50,6 +50,7 @@ export interface AsrChunkRecord {
   index: number;
   startSec: number;
   durationSec: number;
+  overlapLeadSec?: number;
   result: AsrChunkResult | null;
 }
 
@@ -158,10 +159,13 @@ export function createOffscreenChunkHost(deps: OffscreenChunkHostDeps = {}): Off
           return;
         }
         if (msg.type === ASR_MSG_CHUNK_RESULT) {
+          const hasOverlap =
+            msg.overlapLeadSec !== undefined && Number.isFinite(Number(msg.overlapLeadSec));
           const record: AsrChunkRecord = {
             index: Number(msg.index) || 0,
             startSec: Number(msg.startSec) || 0,
             durationSec: Number(msg.durationSec) || 0,
+            ...(hasOverlap ? { overlapLeadSec: Math.max(0, Number(msg.overlapLeadSec)) } : {}),
             result: msg.result as AsrChunkResult | null
           };
           results.push(record);

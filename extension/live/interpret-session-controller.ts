@@ -92,6 +92,7 @@ export function createInterpretSessionController(
 
   // 滑动窗口分片状态跟踪
   const chunkPrimaryItems = new Map<number, SubtitleBodyItem[]>();
+  const chunkPrimaryRevision = new Map<number, number>();
   const chunkSecondaryItems = new Map<number, SubtitleBodyItem[]>();
   const isTranslatingChunk = new Set<number>();
   const isTranslateDoneChunk = new Set<number>();
@@ -340,6 +341,7 @@ export function createInterpretSessionController(
     }
 
     isTranslatingChunk.add(chunkIndex);
+    const primaryRevisionAtStart = chunkPrimaryRevision.get(chunkIndex) ?? 0;
     try {
       const translated = await translateItems({
         items,
@@ -353,7 +355,9 @@ export function createInterpretSessionController(
 
       failedTranslateChunks.delete(chunkIndex);
       chunkSecondaryItems.set(chunkIndex, translated);
-      isTranslateDoneChunk.add(chunkIndex);
+      if ((chunkPrimaryRevision.get(chunkIndex) ?? 0) === primaryRevisionAtStart) {
+        isTranslateDoneChunk.add(chunkIndex);
+      }
       await mergeAndPersistProgress();
     } catch (err) {
       // 中止或单片失败不崩溃整条流水
@@ -411,6 +415,7 @@ export function createInterpretSessionController(
 
   function resetBuffers(): void {
     chunkPrimaryItems.clear();
+    chunkPrimaryRevision.clear();
     chunkSecondaryItems.clear();
     isTranslatingChunk.clear();
     isTranslateDoneChunk.clear();
@@ -574,16 +579,49 @@ export function createInterpretSessionController(
         bvid,
         cid,
         signal: abortController?.signal,
-        onChunkResult: async (record, items) => {
+        onChunkResult: async (record, items, snapshot) => {
           if (currentGeneration !== generation) return;
           const chunkIdx = record.index;
-          chunkPrimaryItems.set(chunkIdx, items as SubtitleBodyItem[]);
-          isAsrDoneChunk.add(chunkIdx);
-
           const currentVideo = boundVideo || getVideoElement();
           const currentChunk = currentVideo ? Math.floor(currentVideo.currentTime / CHUNK_DURATION_SEC) : initialChunk;
-          if (chunkIdx >= currentChunk && chunkIdx <= currentChunk + SLIDING_WINDOW_SIZE) {
-            await translateChunk(chunkIdx, currentGeneration);
+
+          if (!snapshot) {
+            chunkPrimaryItems.set(chunkIdx, items as SubtitleBodyItem[]);
+            chunkPrimaryRevision.set(chunkIdx, (chunkPrimaryRevision.get(chunkIdx) ?? 0) + 1);
+            isAsrDoneChunk.add(chunkIdx);
+
+            if (chunkIdx >= currentChunk && chunkIdx <= currentChunk + SLIDING_WINDOW_SIZE) {
+              await translateChunk(chunkIdx, currentGeneration);
+            }
+            return;
+          }
+
+          const changedIndices = Array.from(
+            new Set<number>([chunkIdx, ...snapshot.updatedChunkIndices])
+          ).sort((a, b) => a - b);
+          let hasUnwindowedUpdate = false;
+          for (const idx of changedIndices) {
+            const nextItems = (snapshot.chunkItems.get(idx) ?? (idx === chunkIdx ? items : [])) as SubtitleBodyItem[];
+            chunkPrimaryItems.set(idx, nextItems);
+            chunkPrimaryRevision.set(idx, (chunkPrimaryRevision.get(idx) ?? 0) + 1);
+            isAsrDoneChunk.add(idx);
+            if (idx !== chunkIdx) {
+              isTranslateDoneChunk.delete(idx);
+              chunkSecondaryItems.delete(idx);
+              failedTranslateChunks.delete(idx);
+              hasUnwindowedUpdate = true;
+            }
+          }
+
+          let triggeredTranslation = false;
+          for (const idx of changedIndices) {
+            if (idx >= currentChunk && idx <= currentChunk + SLIDING_WINDOW_SIZE) {
+              await translateChunk(idx, currentGeneration);
+              triggeredTranslation = true;
+            }
+          }
+          if (hasUnwindowedUpdate && !triggeredTranslation) {
+            await mergeAndPersistProgress();
           }
         }
       }).catch((error) => {
