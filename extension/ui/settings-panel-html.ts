@@ -65,6 +65,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveShareVideoAudio: "liveShareVideoAudio",
   liveVoicePriority: "liveVoicePriority",
   subtitleTranslateModel: "subtitleTranslateModel",
+  subtitleSegmentationStrategy: "subtitleSegmentationStrategy",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
   addAsrProviderBtn: "addAsrProviderBtn",
@@ -437,6 +438,21 @@ export function buildSettingsHtml(): string {
     </div>
 
     <div id="${ids.subpageSubtitle}" class="biliscript-settings-view" hidden>
+      <section class="biliscript-set-group" data-settings-section="segmentation">
+        <div class="biliscript-set-h">字幕断句</div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.subtitleSegmentationStrategy}">断句策略</label>
+            <select id="${ids.subtitleSegmentationStrategy}" class="biliscript-set-select">
+              <option value="auto">智能识别（AI / 语音转写）</option>
+              <option value="rule">规则重断句</option>
+              <option value="stats">统计分布断句</option>
+              <option value="off">关闭</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
       <section class="biliscript-set-group" data-settings-section="subtitle">
         <div class="biliscript-set-header-row">
           <div class="biliscript-set-h">字幕翻译</div>

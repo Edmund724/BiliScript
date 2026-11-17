@@ -37,10 +37,12 @@
 // 模块，纯 state 读取）、shared/subtitle-status-bus（零依赖叶子）、shared/logging。
 //（script-only-ui：经典侧栏面板的预览 textarea 已删除，commit 不再清空它。）
 
-import { clipState } from "../core/state.js";
+import { state, clipState } from "../core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
-import { sortSubtitleBodyByFrom } from "./selection.js";
+import { normalizeSubtitleSegmentationStrategy } from "../core/validators.js";
+import { findTrackByRef, sortSubtitleBodyByFrom } from "./selection.js";
+import { segmentSubtitles, type CoarseSubtitleInput } from "./segmentation.js";
 import { refreshHotComments, invalidateDerived } from "./core.js";
 import { slot } from "./slot.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
@@ -96,7 +98,21 @@ export async function acceptSubtitle({
   if (runId !== undefined) {
     ensureRunActive(runId, clipState.fetchRunId);
   }
-  const sortedBody = sortSubtitleBodyByFrom(body);
+  const sortedInput = sortSubtitleBodyByFrom(body);
+  const matchedTrack = findTrackByRef(state.clip.subtitles, {
+    id: selectedSubtitleId,
+    url: selectedSubtitleUrl
+  });
+  const strategy = normalizeSubtitleSegmentationStrategy(state.settings?.subtitleSegmentationStrategy);
+  const segmentedBody = Array.isArray(sortedInput)
+    ? segmentSubtitles(sortedInput as CoarseSubtitleInput[], {
+        strategy,
+        selectedSubtitleId,
+        selectedSubtitleLang,
+        trackLan: typeof matchedTrack?.lan === "string" ? matchedTrack.lan : undefined
+      })
+    : sortedInput;
+  const sortedBody = sortSubtitleBodyByFrom(segmentedBody);
   slot.install(
     {
       id: selectedSubtitleId,

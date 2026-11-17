@@ -256,9 +256,12 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(pipelineArgs.runId).toBeUndefined();
     expect(pipelineArgs.isStale).toBeUndefined();
 
-    // 伪轨道收尾：subtitles 首项为 asr 伪轨，body/选中态/ready 全部落位
+    // 伪轨道收尾：subtitles 首项为 asr 伪轨，body/选中态/ready 全部落位（auto 断句合并相邻无标点碎句）
     expect(state.clip.subtitleFetchState).toBe("ready");
-    expect(state.clip.subtitleBody).toEqual(TRANSCRIBED_BODY);
+    expect(state.clip.subtitleBody).toEqual([
+      { from: 0, to: 2.4, content: "你好世界" },
+      { from: 3, to: 290, content: "收尾长句" }
+    ]);
     // ready 收尾清除无字幕原因
     expect(clipState.noSubtitleReason).toBe(null);
     // 伪轨的来源串自产即显示串（2026-09 用户决议）：语言档位 auto 不附语言，
@@ -695,7 +698,10 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.sleepFor).toHaveBeenCalledWith(2000);
     // 重试成果落缓存 + 事务收尾
     expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
-    expect(state.clip.subtitleBody).toEqual(TRANSCRIBED_BODY);
+    expect(state.clip.subtitleBody).toEqual([
+      { from: 0, to: 2.4, content: "你好世界" },
+      { from: 3, to: 290, content: "收尾长句" }
+    ]);
     expect(clipState.noSubtitleReason).toBe(null);
     // 终态广播只在真正终态一次：首轮失败不提前 asr-done/failed（横幅/等待不闪断）
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([

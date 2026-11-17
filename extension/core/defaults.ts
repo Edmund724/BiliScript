@@ -12,6 +12,8 @@ import type {
   InterpretSubtitleDisplayMode,
   LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
+import type { SubtitleSegmentationStrategy } from "../subtitle/segmentation.js";
+export type { SubtitleSegmentationStrategy };
 
 // ===== Version =====
 // Single source of truth for the extension version; consumed by the content
@@ -92,6 +94,7 @@ export interface KnownSettings {
   // ===== 双语字幕 =====
   bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关
   secondarySubtitleLang: string;  // 副字幕语言标签（BCP-47，如 en-US），默认 en-US
+  subtitleSegmentationStrategy: SubtitleSegmentationStrategy; // 字幕本地断句策略（auto/rule/stats/off）
   // ===== 文摘排版 =====
   readerFontSizeScale: number;    // 文摘面板字体大小（百分比，70–130），默认 100
   chatLineHeight: number;         // 对话行高（百分比，120–200），默认 160
@@ -169,6 +172,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // ===== 双语字幕 =====
   bilingualSubtitles: false,     // 主字幕之外再叠一路译文轨（面板弹层开关的全局偏好），默认关
   secondarySubtitleLang: "en-US", // 副字幕语言标签（BCP-47，如 en-US / zh-CN）
+  subtitleSegmentationStrategy: "auto", // 字幕本地断句策略：默认仅对 ai- 与 asr 轨智能重断句
   // ===== 文摘排版 =====
   readerFontSizeScale: 100,
   chatLineHeight: 160,

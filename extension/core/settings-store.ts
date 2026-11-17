@@ -45,6 +45,7 @@ import {
   normalizeAllowPaidSearchProviders,
   normalizeBilingualSubtitles,
   normalizeSecondarySubtitleLang,
+  normalizeSubtitleSegmentationStrategy,
   normalizeCustomPanelWidthEnabled,
   normalizeCustomPanelWidth,
   normalizeAutoOpenReader,
@@ -118,6 +119,7 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   // 「恢复默认」与快照而存在。
   bilingualSubtitles: normalizeBilingualSubtitles,
   secondarySubtitleLang: normalizeSecondarySubtitleLang,
+  subtitleSegmentationStrategy: normalizeSubtitleSegmentationStrategy,
   readerFontSizeScale: normalizeReaderFontSizeScale,
   chatLineHeight: normalizeChatLineHeight,
   chatParagraphSpacing: normalizeChatParagraphSpacing,

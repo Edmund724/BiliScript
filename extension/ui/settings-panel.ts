@@ -21,6 +21,7 @@ import {
 } from "../core/default-prompts.js";
 import {
   normalizeDownloadFormat,
+  normalizeSubtitleSegmentationStrategy,
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
   normalizeChatInputGlow,
@@ -248,6 +249,7 @@ function collectElements(host: HTMLElement) {
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
     subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
+    subtitleSegmentationStrategy: byIdIn<HTMLSelectElement>(dom.subtitleSegmentationStrategy),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
@@ -348,6 +350,12 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "downloadFormat",
     getElement: (el) => el.downloadFormat,
     normalize: normalizeDownloadFormat
+  },
+  {
+    kind: "select",
+    key: "subtitleSegmentationStrategy",
+    getElement: (el) => el.subtitleSegmentationStrategy,
+    normalize: normalizeSubtitleSegmentationStrategy
   },
   {
     kind: "select",
@@ -1386,6 +1394,7 @@ function setBusy(elements: SettingsElements, isBusy: boolean): void {
 function buildDefaultPreferencePayload() {
   return {
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,
+    subtitleSegmentationStrategy: DEFAULT_SETTINGS.subtitleSegmentationStrategy,
     includeDateInFilename: DEFAULT_SETTINGS.includeDateInFilename,
     enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
     playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,

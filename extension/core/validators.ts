@@ -19,7 +19,8 @@ import {
 } from "./default-prompts.js";
 import {
   DEFAULT_SETTINGS,
-  type Settings
+  type Settings,
+  type SubtitleSegmentationStrategy
 } from "./defaults.js";
 import {
   LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
@@ -264,6 +265,20 @@ export function normalizeSecondarySubtitleLang(value: unknown): string {
     return DEFAULT_SETTINGS.secondarySubtitleLang;
   }
   return normalized;
+}
+
+const SUBTITLE_SEGMENTATION_STRATEGIES: ReadonlySet<SubtitleSegmentationStrategy> = new Set([
+  "auto",
+  "rule",
+  "stats",
+  "off"
+]);
+
+export function normalizeSubtitleSegmentationStrategy(value: unknown): SubtitleSegmentationStrategy {
+  const normalized = toString(value).trim().toLowerCase() as SubtitleSegmentationStrategy;
+  return SUBTITLE_SEGMENTATION_STRATEGIES.has(normalized)
+    ? normalized
+    : DEFAULT_SETTINGS.subtitleSegmentationStrategy;
 }
 
 interface ValidationResult {
