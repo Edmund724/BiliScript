@@ -70,12 +70,14 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
 // 对话域单一深入口：内核链在 ../chat/tab-domain.ts 组装。
 import {
+  CONVERSATIONS_STORAGE_KEY,
   OFFSCREEN_CHAT_PORT_NAME,
   applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
   parseModelOptionValue,
   rebuildCurrentContextKeyFromContext,
+  syncSavedConversationsFromStorage,
   type ViewResetIntent
 } from "../chat/tab-domain.js";
 // pinned 判定单一谓词（context-policy.ts）：全仓统一严格 === true，两处真值读
@@ -753,7 +755,18 @@ const sessionTriggers = createReaderChatSessionTriggers({
     }, {
       sync: ["chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume"]
     });
+    const unwatchConversations = watchStorageKeys((changes) => {
+      if (
+        CONVERSATIONS_STORAGE_KEY in changes &&
+        syncSavedConversationsFromStorage(changes[CONVERSATIONS_STORAGE_KEY]?.newValue)
+      ) {
+        lists.renderHistoryList();
+      }
+    }, {
+      local: [CONVERSATIONS_STORAGE_KEY]
+    });
     return () => {
+      unwatchConversations();
       unwatchPresentation();
       unwatchProviders();
     };

@@ -7,9 +7,24 @@ export const HISTORY_STORAGE_KEY = "biliscript_ai_conversations_v1";
 
 const queues = new WeakMap<StorageArea, Promise<unknown>>();
 
+function isBrowserLocalStorage(storage: StorageArea): boolean {
+  return typeof chrome !== "undefined" && storage === chrome.storage?.local;
+}
+
+function runWithCrossTabLock<T>(storage: StorageArea, task: () => Promise<T>): Promise<T> {
+  if (
+    isBrowserLocalStorage(storage) &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.locks?.request === "function"
+  ) {
+    return navigator.locks.request(HISTORY_STORAGE_KEY, () => task());
+  }
+  return task();
+}
+
 function enqueue<T>(storage: StorageArea, task: () => Promise<T>): Promise<T> {
   const previous = queues.get(storage) || Promise.resolve();
-  const next = previous.catch(() => {}).then(task);
+  const next = previous.catch(() => {}).then(() => runWithCrossTabLock(storage, task));
   queues.set(storage, next);
   return next.finally(() => {
     if (queues.get(storage) === next) queues.delete(storage);

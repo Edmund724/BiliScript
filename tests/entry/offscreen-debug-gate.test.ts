@@ -36,6 +36,7 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 
 const OFFSCREEN_SOURCES = [
   "../../extension/entry/offscreen.ts",
+  "../../extension/entry/offscreen-chat-port.ts",
   "../../extension/entry/offscreen-asr.ts",
   "../../extension/entry/offscreen-lifecycle.ts",
   "../../extension/entry/offscreen-subtitle-slot.ts",

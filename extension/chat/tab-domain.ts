@@ -73,6 +73,10 @@ export {
   rebuildCurrentContextKeyFromContext
 } from "./chat-state.js";
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
+export {
+  CONVERSATIONS_STORAGE_KEY,
+  syncSavedConversationsFromStorage
+} from "./conversation-store.js";
 export { parseModelOptionValue } from "../shared/selected-provider.js";
 export type { ViewResetIntent } from "./view-intent.js";
 

@@ -63,7 +63,8 @@ import {
   detachConversationIdentity,
   pinCurrentContextKey,
   setSavedConversations,
-  type ChatSessionMessage
+  type ChatSessionMessage,
+  type ChatSessionSavedConversation
 } from "./chat-state.js";
 
 // ---------------------------------------------------------------------------
@@ -490,13 +491,40 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return true;
   }
 
-  async function saveConversations(): Promise<void> {
-    const ordinary = saved().filter((item) => !isLiveTextToolHistoryEntry(item)).slice(0, maxSavedConversations);
+  async function saveHydratedConversation(hydrated: Conversation): Promise<void> {
     if (storage) {
-      await updateConversationHistory(storage, (current) => [
-        ...ordinary,
-        ...current.filter(isLiveTextToolHistoryEntry)
-      ] as StoredConversation[]);
+      await updateConversationHistory(storage, (current) => {
+        const hasTarget = current.some((item) => !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id);
+        if (hasTarget) {
+          return current.map((item) =>
+            !isLiveTextToolHistoryEntry(item) && item.id === hydrated.id
+              ? (hydrated as StoredConversation)
+              : item
+          );
+        }
+        const localOrdinary = saved().filter((item) => !isLiveTextToolHistoryEntry(item));
+        const localIds = new Set(localOrdinary.map((item) => item.id));
+        const extraCurrentOrdinary = current.filter(
+          (item) => !isLiveTextToolHistoryEntry(item) && !localIds.has(item.id)
+        );
+        const mergedOrdinary = [...localOrdinary, ...extraCurrentOrdinary].slice(0, maxSavedConversations);
+        return [...mergedOrdinary, ...current.filter(isLiveTextToolHistoryEntry)] as StoredConversation[];
+      });
+    }
+    emitChange({});
+  }
+
+  async function savePersistedConversation(nextConversation: Conversation): Promise<void> {
+    if (storage) {
+      await updateConversationHistory(storage, (current) => {
+        const currentOrdinary = current.filter((item) => !isLiveTextToolHistoryEntry(item));
+        const liveEntries = current.filter(isLiveTextToolHistoryEntry);
+        const mergedOrdinary = [
+          nextConversation as StoredConversation,
+          ...currentOrdinary.filter((item) => item.id !== nextConversation.id)
+        ].slice(0, maxSavedConversations);
+        return [...mergedOrdinary, ...liveEntries];
+      });
     }
     emitChange({});
   }
@@ -519,7 +547,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     // 其余列表项保持存档原样）。补水有变更先落盘（历史列表重渲），apply 随后
     // 再发一次 change；无变更则保持原编排的单次发火。
     if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
-      await saveConversations();
+      await saveHydratedConversation(latest);
     }
     apply(latest);
     return true;
@@ -722,7 +750,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context }
       }
     });
-    await saveConversations();
+    await savePersistedConversation(nextConversation);
   }
 
   async function hydratePinned({ silent = false, preserveInput = false }: HydratePinnedOptions = {}): Promise<boolean> {
@@ -821,4 +849,45 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     detachForRestart,
     hydratePinned
   };
+}
+
+function areSavedConversationsEquivalent(
+  left: readonly ChatSessionSavedConversation[],
+  right: readonly ChatSessionSavedConversation[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.id !== b.id ||
+      Number(a.updatedAt) !== Number(b.updatedAt) ||
+      a.title !== b.title ||
+      a.contextKey !== b.contextKey ||
+      (Array.isArray(a.messages) ? a.messages.length : 0) !== (Array.isArray(b.messages) ? b.messages.length : 0)
+    ) {
+      return false;
+    }
+    const aRecords = Array.isArray(a.records) ? a.records.length : -1;
+    const bRecords = Array.isArray(b.records) ? b.records.length : -1;
+    if (aRecords !== bRecords) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 将外部 storage.onChanged 传入的会话列表快照幂等合入本页内存存档镜像。
+ * 内容等价时直接返回 false，消除本页自写回声导致的重复重渲。
+ */
+export function syncSavedConversationsFromStorage(rawValue: unknown): boolean {
+  const next = normalizeConversations(rawValue) as Conversation[];
+  if (areSavedConversationsEquivalent(chatSessionState.savedConversations, next)) {
+    return false;
+  }
+  setSavedConversations(next);
+  return true;
 }

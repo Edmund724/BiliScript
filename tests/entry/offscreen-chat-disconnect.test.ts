@@ -234,7 +234,7 @@ describe("offscreen 聊天通道断连容错", () => {
     }
   });
 
-  it("旧端口迟到断连不会中止已接管的新回合", async () => {
+  it("双端口并发互不中止，旧端口断连只中止自身不影响另一端口", async () => {
     const signals: AbortSignal[] = [];
     runLadderChatMock.mockImplementation(async ({ signal }: { signal: AbortSignal }) => {
       signals.push(signal);
@@ -248,10 +248,11 @@ describe("offscreen 聊天通道断连容错", () => {
     const second = connectChat();
     second.send(CHAT_MSG);
     await vi.waitFor(() => expect(runLadderChatMock).toHaveBeenCalledTimes(2));
-    expect(signals[0].aborted).toBe(true);
+    expect(signals[0].aborted).toBe(false);
     expect(signals[1].aborted).toBe(false);
 
     first.fireDisconnect();
+    expect(signals[0].aborted).toBe(true);
     expect(signals[1].aborted).toBe(false);
   });
 

@@ -62,18 +62,86 @@ describe("createSubtitleBodySlot", () => {
     expect((result as Extract<SettleResult, { ok: false }>).code).toBe(SUBTITLE_BODY_MISSING_CODE);
   });
 
-  it("换视频的全量消息覆盖槽后，新 key 的未携带消息可补齐", () => {
+  it("多个不同 contextKey 并存时各自追问均可命中对应字幕体", () => {
     const slot = createSubtitleBodySlot();
     const bodyA = [{ from: 0, to: 5, content: "A" }];
     const bodyB = [{ from: 0, to: 5, content: "B" }];
     slot.settle({ action: "chat", contextKey: "video:BVA|1", context: { subtitleBody: bodyA } });
     slot.settle({ action: "chat", contextKey: "video:BVB|2", context: { subtitleBody: bodyB } });
 
-    const followup: ChatMessage = { action: "chat", contextKey: "video:BVB|2", context: { title: "T" } };
-    slot.settle(followup);
-    // 单槽只保留最近一份：旧 key 已被覆盖，不能拿到 A
-    expect(slot.settle({ action: "chat", contextKey: "video:BVA|1", context: {} }).ok).toBe(false);
-    expect(followup.context!.subtitleBody).toBe(bodyB);
+    const followupA: ChatMessage = { action: "chat", contextKey: "video:BVA|1", context: { title: "A" } };
+    const followupB: ChatMessage = { action: "chat", contextKey: "video:BVB|2", context: { title: "B" } };
+
+    expect(slot.settle(followupA)).toEqual({ ok: true, contextKey: "video:BVA|1" });
+    expect(slot.settle(followupB)).toEqual({ ok: true, contextKey: "video:BVB|2" });
+    expect(followupA.context!.subtitleBody).toBe(bodyA);
+    expect(followupB.context!.subtitleBody).toBe(bodyB);
+  });
+
+  it("超过 maxEntries 上限时按 LRU 淘汰最久未使用的条目，命中读取会刷新活跃度", () => {
+    const slot = createSubtitleBodySlot({ maxEntries: 2 });
+    const bodyA = [{ from: 0, to: 5, content: "A" }];
+    const bodyB = [{ from: 0, to: 5, content: "B" }];
+    const bodyC = [{ from: 0, to: 5, content: "C" }];
+
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
+    // 读取 A 使 A 成为最近使用，B 变为最旧
+    expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(true);
+    // 写入 C 超过容量 2 → 淘汰 B，保留 A 与 C
+    slot.settle({ action: "chat", contextKey: "video:C|3", context: { subtitleBody: bodyC } });
+
+    const missB = slot.settle({ action: "chat", contextKey: "video:B|2", context: {} });
+    expect(missB.ok).toBe(false);
+    expect((missB as Extract<SettleResult, { ok: false }>).code).toBe(SUBTITLE_BODY_MISSING_CODE);
+
+    const hitA: ChatMessage = { action: "chat", contextKey: "video:A|1", context: {} };
+    const hitC: ChatMessage = { action: "chat", contextKey: "video:C|3", context: {} };
+    expect(slot.settle(hitA).ok).toBe(true);
+    expect(slot.settle(hitC).ok).toBe(true);
+    expect(hitA.context!.subtitleBody).toBe(bodyA);
+    expect(hitC.context!.subtitleBody).toBe(bodyC);
+  });
+
+  it("超过 maxTotalChars 上限时淘汰最旧条目，但单条超大时仍保底保留自身", () => {
+    const slot = createSubtitleBodySlot({ maxTotalChars: 10 });
+    const bodyA = [{ from: 0, to: 5, content: "123456" }];
+    const bodyB = [{ from: 0, to: 5, content: "abcdef" }];
+    const bodyOversized = [{ from: 0, to: 5, content: "0123456789AB" }];
+
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
+    // A(6) + B(6) = 12 > 10 → 淘汰 A，保留 B
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
+
+    expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(false);
+    const hitB: ChatMessage = { action: "chat", contextKey: "video:B|2", context: {} };
+    expect(slot.settle(hitB).ok).toBe(true);
+    expect(hitB.context!.subtitleBody).toBe(bodyB);
+
+    // 单条 12 字超过 10 上限 → 淘汰 B，保底保留当次刚写入的超大条目
+    slot.settle({ action: "chat", contextKey: "video:BIG|3", context: { subtitleBody: bodyOversized } });
+    expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(false);
+    const hitBig: ChatMessage = { action: "chat", contextKey: "video:BIG|3", context: {} };
+    expect(slot.settle(hitBig).ok).toBe(true);
+    expect(hitBig.context!.subtitleBody).toBe(bodyOversized);
+  });
+
+  it("同 key 重复携带全量字幕体时更新内容并扣减旧字符数，不触发误淘汰", () => {
+    const slot = createSubtitleBodySlot({ maxTotalChars: 10 });
+    const bodyALarge = [{ from: 0, to: 5, content: "12345678" }];
+    const bodyASmall = [{ from: 0, to: 5, content: "1234" }];
+    const bodyB = [{ from: 0, to: 5, content: "abcde" }];
+
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyALarge } });
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyASmall } });
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
+
+    const hitA: ChatMessage = { action: "chat", contextKey: "video:A|1", context: {} };
+    const hitB: ChatMessage = { action: "chat", contextKey: "video:B|2", context: {} };
+    expect(slot.settle(hitA).ok).toBe(true);
+    expect(slot.settle(hitB).ok).toBe(true);
+    expect(hitA.context!.subtitleBody).toBe(bodyASmall);
+    expect(hitB.context!.subtitleBody).toBe(bodyB);
   });
 
   it("context 缺失/非对象的异常消息 → 回字幕体缺失错误", () => {
