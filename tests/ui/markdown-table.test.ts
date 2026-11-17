@@ -63,9 +63,12 @@ describe("Markdown 长文本表格卡片布局", () => {
 
     expect(root.querySelector(".biliscript-md-table")?.classList.contains("biliscript-md-table-cards")).toBe(true);
     const cells = root.querySelectorAll("tbody td");
-    expect(cells[0].querySelector(".biliscript-md-table-cell-label")).toBeNull();
+    expect(cells[0].querySelectorAll(".biliscript-md-table-cell-label")).toHaveLength(1);
+    expect(cells[0].querySelector(".biliscript-md-table-cell-label")?.textContent).toBe("名称");
+    expect(cells[0].querySelector(".biliscript-md-table-cell-label-wide")).toBeNull();
     expect(cells[1].querySelectorAll(".biliscript-md-table-cell-label")).toHaveLength(1);
     expect(cells[1].querySelector(".biliscript-md-table-cell-label")?.textContent).toBe("说明");
+    expect(cells[1].querySelector(".biliscript-md-table-cell-label-wide")).not.toBeNull();
   });
 
   it("短文本表格和五列表格保留标准布局", () => {

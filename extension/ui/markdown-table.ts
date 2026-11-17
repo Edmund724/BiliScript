@@ -5,6 +5,8 @@ const TABLE_CELL_LABEL_CLASS = "biliscript-md-table-cell-label";
 const TABLE_EXPAND_CLASS = "biliscript-md-table-expand";
 const TABLE_DIALOG_CLASS = "biliscript-md-table-dialog";
 const CARD_LONG_TEXT_CHARS = 40;
+const TABLE_CELL_LABEL_WIDE_CLASS = "biliscript-md-table-cell-label-wide";
+const CELL_WIDE_TEXT_CHARS = 16;
 const EXPAND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 let activeDialog: HTMLDialogElement | null = null;
@@ -38,9 +40,6 @@ function syncTable(table: HTMLTableElement, shell: HTMLElement): void {
   for (const tbody of Array.from(table.tBodies)) {
     for (const row of Array.from(tbody.rows)) {
       Array.from(row.cells).forEach((cell, index) => {
-        if (index === 0) {
-          return;
-        }
         let label = Array.from(cell.children).find((child) => child.classList.contains(TABLE_CELL_LABEL_CLASS));
         if (!label) {
           label = cell.ownerDocument.createElement("span");
@@ -48,6 +47,7 @@ function syncTable(table: HTMLTableElement, shell: HTMLElement): void {
           cell.insertBefore(label, cell.firstChild);
         }
         label.textContent = headers[index] || `第 ${index + 1} 列`;
+        label.classList.toggle(TABLE_CELL_LABEL_WIDE_CLASS, cellContentText(cell).length >= CELL_WIDE_TEXT_CHARS);
       });
     }
   }

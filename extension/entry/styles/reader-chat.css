@@ -1282,21 +1282,30 @@
   #biliscript-reading-view .biliscript-reading-chat .markdown-body .biliscript-md-table-cards table tbody td {
     min-width: 0;
     max-width: none;
-    padding: 10px 0;
+    position: relative;
+    padding: 6px 0 6px 6em;
   }
 
-  #biliscript-reading-view .biliscript-reading-chat .markdown-body .biliscript-md-table-cards table tbody td:first-child {
-    font-family: var(--biliscript-reader-font-sans-medium);
-    font-weight: 600;
+  #biliscript-reading-view .markdown-body .biliscript-md-table-cards table tbody td:has(> .biliscript-md-table-cell-label-wide) {
+    padding-left: 0;
   }
 
-  #biliscript-reading-view .markdown-body .biliscript-md-table-cards table tbody td:not(:first-child) .biliscript-md-table-cell-label {
+  #biliscript-reading-view .markdown-body .biliscript-md-table-cards table tbody td .biliscript-md-table-cell-label {
     display: block;
-    margin-bottom: 4px;
+    position: absolute;
+    top: 6px;
+    left: 0;
+    width: 5.5em;
     color: var(--biliscript-reader-muted);
     font-family: var(--biliscript-reader-font-sans-medium);
     font-size: var(--biliscript-font-size-sm);
     font-weight: 500;
+  }
+
+  #biliscript-reading-view .markdown-body .biliscript-md-table-cards table tbody td .biliscript-md-table-cell-label-wide {
+    position: static;
+    width: auto;
+    margin-bottom: 4px;
   }
 }
 
