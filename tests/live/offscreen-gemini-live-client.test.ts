@@ -652,6 +652,10 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       "web_search"
     ]);
     expect(declarations[0]).not.toHaveProperty("behavior");
+    expect(declarations[0].parameters.properties.command.enum).toEqual(["seek", "pause", "play", "rate", "volume"]);
+    expect(Object.keys(declarations[0].parameters.properties)).toEqual(
+      expect.arrayContaining(["volume", "delta", "muted"])
+    );
     expect(declarations[1]).not.toHaveProperty("behavior");
     for (const declaration of declarations.slice(2, 4)) {
       expect(declaration.behavior).toBe("NON_BLOCKING");

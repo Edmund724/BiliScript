@@ -44,6 +44,9 @@ function createVideoLiveControllerDeps() {
   };
   const liveToolsBridge = createLiveToolsBridge({
     showNotice: notifyConsumer,
+    getVideoBaseVolume: () => liveOverlayBinding.getController()?.getVideoBaseVolume() ?? null,
+    setVideoBaseVolume: (volume) => liveOverlayBinding.getController()?.setVideoBaseVolume(volume) ?? null,
+    isSharingVideoAudio: () => liveOverlayBinding.getController()?.isSharingVideoAudio() ?? false,
     getOverview: () => getReaderOverviewSource(),
     ensureOverview: (options) => ensureReaderOverviewSource(options)
   });

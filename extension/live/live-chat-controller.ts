@@ -140,6 +140,8 @@ export interface LiveChatController {
   setVoicePriority(enabled: boolean): void;
   isVoicePriority(): boolean;
   isDucked(): boolean;
+  getVideoBaseVolume(): number | null;
+  setVideoBaseVolume(volume: number): number | null;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
   getVolume(): number;
@@ -194,7 +196,13 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   } = deps;
 
   const defaultToolsBridge = (!getVideoContext || !executeTool)
-    ? createLiveToolsBridge({ showNotice })
+    ? createLiveToolsBridge({
+        showNotice,
+        getPlayer: () => resolveVideoElement(),
+        getVideoBaseVolume: () => getVideoBaseVolume(),
+        setVideoBaseVolume: (nextVolume) => setVideoBaseVolume(nextVolume),
+        isSharingVideoAudio: () => shareVideoAudio
+      })
     : null;
   const resolveVideoContext = getVideoContext ?? defaultToolsBridge!.getVideoContext;
   const resolveExecuteTool = executeTool ?? defaultToolsBridge!.executeTool;
@@ -250,6 +258,33 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       originalVideoVolume = null;
       isDucked = false;
     }
+  }
+
+  function getVideoBaseVolume(): number | null {
+    if (isDucked && originalVideoVolume !== null) {
+      return originalVideoVolume;
+    }
+    const video = resolveVideoElement();
+    return video && Number.isFinite(video.volume) ? Math.max(0, Math.min(1, video.volume)) : null;
+  }
+
+  function setVideoBaseVolume(nextVolume: number): number | null {
+    if (!Number.isFinite(nextVolume)) return null;
+    const clamped = Math.max(0, Math.min(1, nextVolume));
+    const video = resolveVideoElement();
+    if (!video) return null;
+    if (isDucked) {
+      originalVideoVolume = clamped;
+      const targetVol = Math.max(0, Math.min(1, clamped * effectiveDuckRatio));
+      try {
+        video.volume = targetVol;
+      } catch {}
+    } else {
+      try {
+        video.volume = clamped;
+      } catch {}
+    }
+    return clamped;
   }
 
   const pendingLongSummaryDelegations = new Set<string>();
@@ -1230,6 +1265,8 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     setVoicePriority,
     isVoicePriority: () => voicePriority,
     isDucked: () => isDucked,
+    getVideoBaseVolume,
+    setVideoBaseVolume,
     setMuted,
     setVolume,
     getVolume: () => volume,

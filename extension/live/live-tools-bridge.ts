@@ -16,6 +16,9 @@ export interface LiveToolsBridgeDeps {
   getUrl?: () => string;
   getCurrentTime?: () => number;
   getPlayer?: () => HTMLVideoElement | null;
+  getVideoBaseVolume?: () => number | null;
+  setVideoBaseVolume?: (volume: number) => number | null;
+  isSharingVideoAudio?: () => boolean;
   getOverview?: () => LiveOverviewSource | null;
   ensureOverview?: (options?: { forceRefresh?: boolean }) => Promise<LiveOverviewSource | null>;
   showNotice?: (message: string, autoHideMs?: number) => void;
@@ -149,6 +152,24 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       call.video.pageIndex === context.pageIndex);
   }
 
+  function readBaseVolume(video: HTMLVideoElement): number {
+    const provided = deps.getVideoBaseVolume?.();
+    if (typeof provided === "number" && Number.isFinite(provided)) {
+      return clamp(provided, 0, 1);
+    }
+    return Number.isFinite(video.volume) ? clamp(video.volume, 0, 1) : 1;
+  }
+
+  function writeBaseVolume(video: HTMLVideoElement, nextVolume: number): number {
+    const clamped = clamp(nextVolume, 0, 1);
+    const applied = deps.setVideoBaseVolume?.(clamped);
+    if (typeof applied === "number" && Number.isFinite(applied)) {
+      return clamp(applied, 0, 1);
+    }
+    video.volume = clamped;
+    return clamped;
+  }
+
   function playerSnapshot(command: string, video: HTMLVideoElement, context: MossLiveVideoContext, message: string) {
     return {
       ok: true,
@@ -157,7 +178,9 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       video: projectVideoIdentity(context),
       currentTime: video.currentTime,
       paused: video.paused,
-      playbackRate: video.playbackRate
+      playbackRate: video.playbackRate,
+      volume: Math.round(readBaseVolume(video) * 100),
+      muted: Boolean(video.muted)
     };
   }
 
@@ -168,12 +191,15 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   ): Promise<Record<string, unknown>> {
     const command = String(args.command || "").trim();
     if (!command) throw new Error("control_bilibili_player 缺少 command");
-    if (command !== "seek" && command !== "pause" && command !== "play" && command !== "rate") {
+    if (command !== "seek" && command !== "pause" && command !== "play" && command !== "rate" && command !== "volume") {
       throw new Error(`不支持的播放器命令：${command}`);
     }
 
     let targetTime = 0;
     let targetRate = 0;
+    const hasVolume = args.volume !== undefined;
+    const hasDelta = args.delta !== undefined;
+    const hasMuted = args.muted !== undefined;
     if (command === "seek") {
       if (typeof args.time !== "number" || !Number.isFinite(args.time) || args.time < 0) {
         throw new Error("seek 需要有限且非负的 time（秒）");
@@ -184,6 +210,22 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
         throw new Error(`rate 需要有效倍速：${PLAYER_RATES.join("、")}`);
       }
       targetRate = args.rate;
+    } else if (command === "volume") {
+      if (!hasVolume && !hasDelta && !hasMuted) {
+        throw new Error("volume 需要至少提供 volume、delta 或 muted 之一");
+      }
+      if (hasVolume && hasDelta) {
+        throw new Error("volume 与 delta 不能同时指定");
+      }
+      if (hasVolume && (typeof args.volume !== "number" || !Number.isFinite(args.volume) || args.volume < 0 || args.volume > 100)) {
+        throw new Error("volume 需要 0 到 100 之间的有限数值");
+      }
+      if (hasDelta && (typeof args.delta !== "number" || !Number.isFinite(args.delta) || args.delta < -100 || args.delta > 100)) {
+        throw new Error("delta 需要 -100 到 100 之间的有限数值");
+      }
+      if (hasMuted && typeof args.muted !== "boolean") {
+        throw new Error("muted 需要布尔值");
+      }
     }
 
     const video = getPlayer();
@@ -197,6 +239,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
     }
 
     let message = "";
+    let notice = "";
     if (command === "pause") {
       video.pause();
       message = "已暂停播放";
@@ -212,13 +255,39 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
     } else if (command === "rate") {
       video.playbackRate = targetRate;
       message = `已切换到 ${targetRate} 倍速`;
+    } else if (command === "volume") {
+      if (hasVolume || hasDelta) {
+        const currentPercent = Math.round(readBaseVolume(video) * 100);
+        const targetPercent = hasVolume
+          ? Math.round(clamp(args.volume as number, 0, 100))
+          : Math.round(clamp(currentPercent + (args.delta as number), 0, 100));
+        writeBaseVolume(video, targetPercent / 100);
+        if (!hasMuted && video.muted && (hasVolume ? targetPercent > 0 : (args.delta as number) > 0)) {
+          video.muted = false;
+        }
+      }
+      if (hasMuted) {
+        video.muted = args.muted as boolean;
+      }
+      const nextPercent = Math.round(readBaseVolume(video) * 100);
+      if (video.muted) {
+        notice = "已静音视频";
+      } else if (hasMuted && !hasVolume && !hasDelta) {
+        notice = `已取消视频静音（当前音量 ${nextPercent}%）`;
+      } else {
+        notice = `已将视频音量调至 ${nextPercent}%`;
+      }
+      const shareMutedWarning = Boolean(deps.isSharingVideoAudio?.()) && (video.muted || nextPercent === 0);
+      message = shareMutedWarning
+        ? `${notice}（当前已开启分享视频声音，静音后 AI 将暂时听不到视频原声）`
+        : notice;
     } else {
       video.currentTime = targetTime;
       message = `已跳转到 ${formatClock(targetTime, { hours: "auto" })}`;
     }
 
     const result = playerSnapshot(command, video, context, message);
-    showNotice(message, 1800);
+    showNotice(notice || message, 1800);
     return result;
   }
 

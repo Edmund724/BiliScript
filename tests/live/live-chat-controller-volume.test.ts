@@ -360,6 +360,23 @@ describe("LiveChatController voice priority and ducking", () => {
     expect(video.volume).toBeCloseTo(0.8, 5);
   });
 
+  it("updates base video volume proportionally while ducked and restores to the new volume", async () => {
+    const { controller, port, video } = await setupWithVideo({ videoVolume: 0.8 });
+
+    port.emit({ type: "speaking_state", speaking: true });
+    expect(controller.isDucked()).toBe(true);
+    expect(video.volume).toBeCloseTo(0.16, 5);
+    expect(controller.getVideoBaseVolume()).toBeCloseTo(0.8, 5);
+
+    expect(controller.setVideoBaseVolume(0.5)).toBeCloseTo(0.5, 5);
+    expect(controller.getVideoBaseVolume()).toBeCloseTo(0.5, 5);
+    expect(video.volume).toBeCloseTo(0.1, 5);
+
+    port.emit({ type: "speaking_state", speaking: false });
+    expect(controller.isDucked()).toBe(false);
+    expect(video.volume).toBeCloseTo(0.5, 5);
+  });
+
   it("supports toggling shareVideoAudio and tracks status", async () => {
     const onStatusChange = vi.fn();
     const port = new FakePort();

@@ -595,7 +595,8 @@ describe("subtitle-aware session and tool calls", () => {
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
     expect(payload.session.instructions).toContain("0s 开场");
     expect(payload.session.instructions).toContain("time 时刻文本");
-    expect(payload.session.instructions).toContain("控制播放器（跳转进度、暂停/播放/倍速）");
+    expect(payload.session.instructions).toContain("控制播放器（跳转进度、暂停/播放/倍速/调节视频音量或静音）");
+    expect(payload.session.instructions).toContain("仅控制 B 站视频播放器音量，不影响伴看 AI 语音音量");
     expect(payload.session.instructions).toContain("总结全片或片段内容");
     expect(payload.session.instructions).toContain("不得声称操作已成功");
   });
@@ -720,6 +721,11 @@ describe("subtitle-aware session and tool calls", () => {
       "control_bilibili_player",
       "get_subtitles_around_time"
     ]);
+    const playerTool = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS[0];
+    expect(playerTool.parameters.properties.command.enum).toEqual(["seek", "pause", "play", "rate", "volume"]);
+    expect(Object.keys(playerTool.parameters.properties)).toEqual(
+      expect.arrayContaining(["volume", "delta", "muted"])
+    );
     expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => tool.type === "function")).toBe(true);
     expect(
       MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.filter((tool) => "read_only" in tool).map((tool) => tool.name)

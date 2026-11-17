@@ -59,14 +59,14 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     name: "control_bilibili_player",
     description:
-      "控制当前 B 站视频播放器（跳转时间点 seek、暂停 pause、播放 play、调整倍速 rate）。",
+      "控制当前 B 站视频播放器（跳转时间点 seek、暂停 pause、播放 play、调整倍速 rate、调整视频音量或静音 volume；仅控制视频播放器音量，不影响伴看 AI 语音音量）。",
     parameters: {
       type: "OBJECT",
       properties: {
         command: {
           type: "STRING",
-          enum: ["seek", "pause", "play", "rate"],
-          description: "播放器控制动作：seek（跳转）、pause（暂停）、play（播放）、rate（倍速）。"
+          enum: ["seek", "pause", "play", "rate", "volume"],
+          description: "播放器控制动作：seek（跳转）、pause（暂停）、play（播放）、rate（倍速）、volume（视频音量/静音）。"
         },
         time: {
           type: "NUMBER",
@@ -75,6 +75,18 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
         rate: {
           type: "NUMBER",
           description: "播放倍速（仅 command 为 rate 时必填，可选值 0.5/0.75/1/1.25/1.5/2）。"
+        },
+        volume: {
+          type: "NUMBER",
+          description: "视频音量百分比（0–100，仅 command 为 volume 时使用；不能与 delta 同时传入）。"
+        },
+        delta: {
+          type: "NUMBER",
+          description: "相对音量变化量（-100 到 100，如 -15 降低 15%、15 提高 15%，仅 command 为 volume 时使用；不能与 volume 同时传入）。"
+        },
+        muted: {
+          type: "BOOLEAN",
+          description: "是否静音视频播放器（true 静音，false 取消静音，仅 command 为 volume 时使用）。"
         }
       },
       required: ["command"]

@@ -219,6 +219,81 @@ describe("control_bilibili_player", () => {
     expect(play).toHaveBeenCalledTimes(1);
   });
 
+  it("sets absolute volume, applies relative delta, toggles mute, and warns when sharing video audio", async () => {
+    const { bridge, video } = setupPlayer();
+    video.volume = 0.6;
+    video.muted = false;
+
+    await expect(bridge.executeTool({
+      callId: "vol-abs",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", volume: 35 }
+    })).resolves.toMatchObject({ ok: true, command: "volume", volume: 35, muted: false });
+    expect(video.volume).toBeCloseTo(0.35, 5);
+
+    await expect(bridge.executeTool({
+      callId: "vol-delta-down",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", delta: -50 }
+    })).resolves.toMatchObject({ ok: true, command: "volume", volume: 0, muted: false });
+    expect(video.volume).toBe(0);
+
+    await expect(bridge.executeTool({
+      callId: "vol-mute",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", muted: true }
+    })).resolves.toMatchObject({ ok: true, command: "volume", volume: 0, muted: true });
+    expect(video.muted).toBe(true);
+
+    // Increasing volume while muted unmutes automatically when muted is not explicitly passed
+    await expect(bridge.executeTool({
+      callId: "vol-delta-up",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", delta: 25 }
+    })).resolves.toMatchObject({ ok: true, command: "volume", volume: 25, muted: false });
+    expect(video.muted).toBe(false);
+    expect(video.volume).toBeCloseTo(0.25, 5);
+
+    const sharingVideo = document.createElement("video");
+    Object.defineProperty(sharingVideo, "readyState", { configurable: true, value: 1 });
+    document.body.append(sharingVideo);
+    const sharingBridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getPlayer: () => sharingVideo,
+      isSharingVideoAudio: () => true
+    });
+    await expect(sharingBridge.executeTool({
+      callId: "vol-share-mute",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", muted: true }
+    })).resolves.toMatchObject({
+      ok: true,
+      muted: true,
+      message: expect.stringContaining("AI 将暂时听不到视频原声")
+    });
+
+    let baseVol = 0.8;
+    const duckedBridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getPlayer: () => sharingVideo,
+      getVideoBaseVolume: () => baseVol,
+      setVideoBaseVolume: (next) => {
+        baseVol = next;
+        sharingVideo.volume = next * 0.2;
+        return baseVol;
+      }
+    });
+    await expect(duckedBridge.executeTool({
+      callId: "vol-ducked-delta",
+      name: "control_bilibili_player",
+      arguments: { command: "volume", delta: -30 }
+    })).resolves.toMatchObject({ ok: true, volume: 50 });
+    expect(baseVol).toBeCloseTo(0.5, 5);
+    expect(sharingVideo.volume).toBeCloseTo(0.1, 5);
+  });
+
   it("uses a subtitle search result timestamp for semantic navigation", async () => {
     const { bridge, video } = setupPlayer();
     const found = await bridge.executeTool({
@@ -284,7 +359,14 @@ describe("control_bilibili_player", () => {
     { command: "rate", rate: 1.2 },
     { command: "rate", rate: 3 },
     { command: "rate", rate: "2" },
-    { command: "volume" }
+    { command: "volume" },
+    { command: "volume", volume: -1 },
+    { command: "volume", volume: 101 },
+    { command: "volume", volume: "50" },
+    { command: "volume", delta: -101 },
+    { command: "volume", delta: 101 },
+    { command: "volume", volume: 40, delta: 10 },
+    { command: "volume", muted: "true" }
   ])("rejects invalid or missing arguments without changing the player: %j", async (args) => {
     const { bridge, video, play, pause } = setupPlayer();
     video.currentTime = 12;
