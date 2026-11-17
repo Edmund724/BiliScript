@@ -334,7 +334,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     expect(messages.textContent).toContain("已发送原文，保留了后来修改的草稿与图片");
   });
 
-  it("快捷动作遇到草稿与图片附件：只定位，不覆盖、不发送、不消费附件", async () => {
+  it("快捷动作遇到草稿与图片附件：直接发出纯文本快捷提示词，文字草稿与图片附件均原样保留", async () => {
     await activateChat();
     const chat = await lazyChat.ensureReaderChatTab();
     const input = inputEl();
@@ -343,13 +343,16 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     await waitForImageReady(strip);
     input.value = "草稿与图片都保留";
 
-    const accepted = await chat.runQuickActionPrompt("不得发送快捷提示词");
+    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
 
-    expect(accepted).toBe(false);
+    expect(accepted).toBe(true);
     expect(input.value).toBe("草稿与图片都保留");
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
     expect(strip.hidden).toBe(false);
-    expect(ports).toHaveLength(0);
+    expect(ports).toHaveLength(1);
+    const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string; images?: unknown[] };
+    expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
+    expect(posted.images).toBeUndefined();
   });
 
   it("会话已激活时确认新会话：附件随输入框一起清空", async () => {

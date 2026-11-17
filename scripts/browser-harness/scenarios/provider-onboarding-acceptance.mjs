@@ -217,7 +217,7 @@ function installSwFixtures(handle) {
         // 非流式链路（选区解释）在 SW 侧直发 fetch；流式链路走 offscreen。
         let body = {};
         try { body = JSON.parse(params.request.postData || "{}"); } catch {}
-        requestLog.push({ kind: "completion", url, model: body?.model || "", promptKind: completionKind(body), prompt: JSON.stringify(body?.messages || []).slice(0, 240), at: Date.now() });
+        requestLog.push({ kind: "completion", url, model: body?.model || "", promptKind: completionKind(body), hasImageParts: JSON.stringify(body?.messages || []).includes("image_url"), prompt: JSON.stringify(body?.messages || []).slice(0, 240), at: Date.now() });
         const fixture = completionFixture(body, url);
         sseBody = fixture.body;
         responseHeaders = fixture.headers;
@@ -260,7 +260,7 @@ function installOffscreenFixtures(cdp) {
         if (url.includes("/chat/completions")) {
           let body = {};
           try { body = JSON.parse(params.request.postData || "{}"); } catch {}
-          requestLog.push({ kind: "completion", url, model: body?.model || "", promptKind: completionKind(body), prompt: JSON.stringify(body?.messages || []).slice(0, 240), at: Date.now() });
+          requestLog.push({ kind: "completion", url, model: body?.model || "", promptKind: completionKind(body), hasImageParts: JSON.stringify(body?.messages || []).includes("image_url"), prompt: JSON.stringify(body?.messages || []).slice(0, 240), at: Date.now() });
           const fixture = completionFixture(body, url);
           await cdp.send("Fetch.fulfillRequest", {
             requestId,
@@ -1271,7 +1271,7 @@ try {
   check("M1-C4-退出过渡后外部点击不抢焦", outsideFocus.activeId === "m1-outside" && !outsideFocus.readerOpen, outsideFocus);
 
   // ============================================================
-  // M1-D：AI 快捷入口保留文字 / 图片草稿且不自动发送
+  // M1-D：AI 快捷入口直接发送且保留文字 / 图片草稿
   // ============================================================
   await page.cdp.evaluate(`document.getElementById("biliscript-script-button")?.focus()`);
   await pressKey(page.cdp, "Enter", "Enter", 13);
@@ -1287,26 +1287,29 @@ try {
   await clickCenter(page.cdp, "#biliscript-reading-close-btn");
   await waitReaderClosed(page.cdp);
   await openReader(page.cdp);
-  await waitFor("M1-D 文字草稿保护提示", () => page.cdp.evaluate(`Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 15000 });
-  await sleep(500);
-  const textAfter = await page.cdp.evaluate(`(() => ({
-    draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
-    notice: Array.from(document.querySelectorAll(".chat-context-notice")).map((node) => node.textContent).join("\\n"),
-    userMessages: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
-    images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length
-  }))()`);
+  const textAfter = await waitFor("M1-D 文字草稿下快捷发送完成", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    const userMessages = messages?.querySelectorAll(".chat-msg-user").length || 0;
+    const sendBtn = document.getElementById("biliscript-reading-chat-send-btn");
+    if (userMessages !== ${textBefore.userMessages + 1} || sendBtn?.classList.contains("is-stop") || !(messages?.innerText || "").includes("受控对话回答")) {
+      return null;
+    }
+    return {
+      draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
+      userMessages,
+      images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length
+    };
+  })()`), { timeoutMs: 45000 });
   results.m1TextDraft = { before: textBefore, after: textAfter, completionDelta: completions().length - textBefore.completions };
   check(
-    "M1-D1-文字草稿保留且不自动发送",
+    "M1-D1-文字草稿保留且快捷总结直接发出",
     textAfter.draft === textDraft &&
-      textAfter.notice.includes("已保留未发送草稿，本次未自动发送。") &&
-      textAfter.userMessages === textBefore.userMessages &&
-      completions().length === textBefore.completions &&
+      textAfter.userMessages === textBefore.userMessages + 1 &&
+      completions().length === textBefore.completions + 1 &&
       textAfter.images === 0,
     results.m1TextDraft
   );
   await screenshot(page.cdp, path.join(OUT_DIR, "18-m1-text-draft-preserved.png"));
-  await waitFor("M1-D 文字提示消失", () => page.cdp.evaluate(`!Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 10000 });
   await fillField(page.cdp, "#biliscript-reading-chat-input", "");
 
   const version = await (await fetch(`http://127.0.0.1:${browser.port}/json/version`)).json();
@@ -1340,22 +1343,34 @@ try {
   await clickCenter(page.cdp, "#biliscript-reading-close-btn");
   await waitReaderClosed(page.cdp);
   await openReader(page.cdp);
-  await waitFor("M1-D 图片草稿保护提示", () => page.cdp.evaluate(`Array.from(document.querySelectorAll(".chat-context-notice")).some((node) => node.textContent.includes("已保留未发送草稿，本次未自动发送。"))`), { timeoutMs: 15000 });
-  await sleep(500);
-  const imageAfter = await page.cdp.evaluate(`(() => ({
-    draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
-    notice: Array.from(document.querySelectorAll(".chat-context-notice")).map((node) => node.textContent).join("\\n"),
-    userMessages: document.querySelectorAll("#biliscript-reading-chat-messages .chat-msg-user").length,
-    images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length,
-    imageBusy: document.getElementById("biliscript-reading-chat-image-strip")?.getAttribute("aria-busy") || null
-  }))()`);
-  results.m1ImageDraft = { before: imageBefore, after: imageAfter, completionDelta: completions().length - imageBefore.completions, clipboard: "Browser.grantPermissions + navigator.clipboard.write + CDP Ctrl+V" };
+  const imageAfter = await waitFor("M1-D 图片草稿下快捷发送完成", () => page.cdp.evaluate(`(() => {
+    const messages = document.getElementById("biliscript-reading-chat-messages");
+    const userMessages = messages?.querySelectorAll(".chat-msg-user").length || 0;
+    const sendBtn = document.getElementById("biliscript-reading-chat-send-btn");
+    if (userMessages !== ${imageBefore.userMessages + 1} || sendBtn?.classList.contains("is-stop")) {
+      return null;
+    }
+    return {
+      draft: document.getElementById("biliscript-reading-chat-input")?.value || "",
+      userMessages,
+      images: document.querySelectorAll("#biliscript-reading-chat-image-strip .chat-image-item").length,
+      imageBusy: document.getElementById("biliscript-reading-chat-image-strip")?.getAttribute("aria-busy") || null
+    };
+  })()`), { timeoutMs: 45000 });
+  const latestImageDraftCompletion = completions().at(-1);
+  results.m1ImageDraft = {
+    before: imageBefore,
+    after: imageAfter,
+    completionDelta: completions().length - imageBefore.completions,
+    hasImageParts: latestImageDraftCompletion?.hasImageParts,
+    clipboard: "Browser.grantPermissions + navigator.clipboard.write + CDP Ctrl+V"
+  };
   check(
-    "M1-D2-图片草稿保留且不自动发送",
+    "M1-D2-图片草稿保留且快捷总结纯文本发出",
     imageAfter.draft === "" &&
-      imageAfter.notice.includes("已保留未发送草稿，本次未自动发送。") &&
-      imageAfter.userMessages === imageBefore.userMessages &&
-      completions().length === imageBefore.completions &&
+      imageAfter.userMessages === imageBefore.userMessages + 1 &&
+      completions().length === imageBefore.completions + 1 &&
+      latestImageDraftCompletion?.hasImageParts === false &&
       imageAfter.images === 1 &&
       imageAfter.imageBusy === "false",
     results.m1ImageDraft

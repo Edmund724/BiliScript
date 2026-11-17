@@ -333,4 +333,35 @@ describe("图片发送守卫", () => {
     await vi.waitFor(() => expect(chatRuntime.sendTurn).toHaveBeenCalledWith("[上下文]\n追问细节"));
     expect(onManualPromptAccepted).toHaveBeenCalledTimes(1);
   });
+
+  it("sendDetachedPrompt 以 preserveInputDraft 直发，不受草稿或图片处理中阻断", async () => {
+    const onNotice = vi.fn();
+    const { input, composer, chatRuntime } = setupComposer({
+      onNotice,
+      isImageProcessing: () => true,
+      hasInputImages: () => true
+    });
+    input.value = "保留我的文字草稿";
+    chatRuntime.sendTurn.mockResolvedValueOnce("accepted");
+
+    await expect(composer.sendDetachedPrompt("快捷总结")).resolves.toBe(true);
+    expect(chatRuntime.sendTurn).toHaveBeenCalledWith("快捷总结", { preserveInputDraft: true });
+    expect(input.value).toBe("保留我的文字草稿");
+    expect(onNotice).not.toHaveBeenCalled();
+  });
+
+  it("无草稿时取消等待仅提示「已取消等待」", () => {
+    let composer!: ReturnType<typeof createReaderChatComposer>;
+    const onCancelSubtitleWait = vi.fn(() => composer.setSubtitleWaitUi(false));
+    const onNotice = vi.fn();
+    const harness = setupComposer({ onCancelSubtitleWait, onNotice });
+    composer = harness.composer;
+    composer.setSubtitleWaitUi(true);
+
+    harness.input.closest(".chat-input-card")!.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel")!.click();
+
+    expect(onCancelSubtitleWait).toHaveBeenCalledTimes(1);
+    expect(onNotice).toHaveBeenCalledWith("已取消等待", 3000);
+    expect(harness.input.value).toBe("");
+  });
 });

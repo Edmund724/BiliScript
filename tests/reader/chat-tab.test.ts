@@ -1297,7 +1297,7 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     ]);
   });
 
-  it("设置中唤起且有草稿：退出设置并定位，草稿原样保留且不发送", async () => {
+  it("设置中唤起且有草稿：退出设置并直接发送快捷提示词，原有文字草稿保留在输入框", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -1306,17 +1306,19 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     const settingsMode = await import("../../extension/reader/settings-mode.js");
     settingsMode.openReaderSettingsMode();
 
-    const accepted = await chat.runQuickActionPrompt("不得覆盖草稿");
+    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
 
-    expect(accepted).toBe(false);
+    expect(accepted).toBe(true);
     expect(input.value).toBe("尚未发送的草稿");
     expect(state.reader.readingSettingsExpanded).toBe(false);
     expect((document.getElementById(ids.readingTabBodyChat) as HTMLElement).classList.contains("is-active")).toBe(true);
-    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
-    expect(ports).toHaveLength(0);
+    expect(ports).toHaveLength(1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("整理这期视频的内容，输出结构化总结。");
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    expect(input.value).toBe("尚未发送的草稿");
   });
 
-  it("已有图片草稿：只定位并提示保留，图片不丢失且不发送", async () => {
+  it("已有图片草稿：直接发送纯文本快捷提示词，草稿图片不附带也不丢失", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -1330,12 +1332,16 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     const imageStrip = document.getElementById(ids.readingChatImageStrip) as HTMLElement;
     await waitFor(() => imageStrip.querySelectorAll(".chat-image-item").length === 1);
 
-    const accepted = await chat.runQuickActionPrompt("不得覆盖图片草稿");
+    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
 
-    expect(accepted).toBe(false);
+    expect(accepted).toBe(true);
     expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
-    expect(document.getElementById(ids.readingChatMessages)?.textContent).toContain("已保留未发送草稿，本次未自动发送");
-    expect(ports).toHaveLength(0);
+    expect(ports).toHaveLength(1);
+    const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string; images?: unknown[] };
+    expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
+    expect(posted.images).toBeUndefined();
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    expect(imageStrip.querySelectorAll(".chat-image-item")).toHaveLength(1);
   });
 
   it("流式生成中：只定位并提示稍后再试，不停止或并发发送", async () => {
@@ -1402,7 +1408,7 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("只发送这个提示词");
   });
 
-  it("runQuickActionPrompt 被无字幕闸拦下：返回 false、无 port、输入框保留（受理结论来自返回值）", async () => {
+  it("runQuickActionPrompt 被无字幕闸拦下：返回 false、无 port、不把总结提示词留进输入框", async () => {
     state.clip.title = "测试视频";
     state.clip.bvid = "BV1test000000";
     state.clip.cid = "101";
@@ -1415,7 +1421,35 @@ describe("player-ai 快捷动作 seam（无损续问）", () => {
     expect(accepted).toBe(false);
     expect(ports).toHaveLength(0);
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
-    expect(input.value).toBe("整理这期视频的内容，输出结构化总结。");
+    expect(input.value).toBe("");
+  });
+
+  it("字幕等待期间取消快捷发送后不残留提示词，转写完成后再次触发可正常发送", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const waitCard = document.querySelector<HTMLElement>(".chat-subtitle-wait")!;
+    const cancel = waitCard.querySelector<HTMLButtonElement>(".chat-subtitle-wait-cancel")!;
+
+    const first = chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+    await waitFor(() => waitCard.hidden === false);
+    cancel.click();
+    await expect(first).resolves.toBe(false);
+    expect(input.value).toBe("");
+    expect(ports).toHaveLength(0);
+
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "字幕" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+
+    await expect(chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。")).resolves.toBe(true);
+    expect(ports).toHaveLength(1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("整理这期视频的内容，输出结构化总结。");
   });
 
   it("快捷动作不消费待解释意图（与解释自动发送互不踩踏）", async () => {

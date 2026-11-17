@@ -386,10 +386,10 @@ const composer = createReaderChatComposer({
     sendBtn: els.sendBtn
   },
   chatRuntime: {
-    sendTurn: (text) => {
+    sendTurn: (text, options) => {
       // 用户自己按下了发送：首配返回的视图守卫到此为止（视图重建恢复常规）。
       chatSetupViewHold = false;
-      return chatRuntime.sendTurn(text);
+      return chatRuntime.sendTurn(text, options);
     },
     isTurnActive: () => chatRuntime.isTurnActive(),
     stopActiveStream: () => {
@@ -945,8 +945,8 @@ export function closeChatSession(): void {
 }
 
 // ============================================================
-// player-ai 快捷动作消费 seam：定位/聚焦对话 tab，空闲且无草稿时在当前会话
-// 发送提示词；忙碌或已有输入时只定位。PR4b 概览「生成完整笔记」按钮同 seam。
+// player-ai 快捷动作消费 seam：定位/聚焦对话 tab，空闲时在当前会话以独立
+// 快捷发送直发提示词，不覆盖或消费输入框里的文字与图片草稿；忙碌时只定位。
 // ============================================================
 
 let quickActionInFlight: Promise<boolean> | null = null;
@@ -978,12 +978,7 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
       els.input?.focus?.({ preventScroll: true });
       return false;
     }
-    if (els.input.value || inputImages.count() > 0) {
-      showConversationContextNotice("已保留未发送草稿，本次未自动发送。", 4000);
-      els.input?.focus?.({ preventScroll: true });
-      return false;
-    }
-    return composer.sendViaInputBox(text);
+    return composer.sendDetachedPrompt(text);
   })();
   try {
     return await quickActionInFlight;

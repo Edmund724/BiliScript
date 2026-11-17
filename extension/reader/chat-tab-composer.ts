@@ -11,6 +11,7 @@
 //   - 不动 send-gate 与 chatRuntime 接口；
 //   - 业务闸（建议 chip / runQuickActionPrompt / explain-intent）保留在各自调用方。
 
+import type { SendTurnOptions } from "../chat/chat-runtime.js";
 import type { SendVerdict } from "../chat/turn-lifecycle.js";
 
 // 输入框高度只随内容走：scrollHeight（内容自然高）写回 min-height，上限 320。
@@ -33,7 +34,7 @@ export interface ReaderChatComposerEls {
 }
 
 export interface ReaderChatComposerRuntime {
-  sendTurn: (text: string) => Promise<SendVerdict | string>;
+  sendTurn: (text: string, options?: SendTurnOptions) => Promise<SendVerdict | string>;
   isTurnActive: () => boolean;
   stopActiveStream: () => void;
 }
@@ -67,6 +68,7 @@ export interface ReaderChatComposer {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   setSubtitleWaitUi: (active: boolean) => void;
   sendViaInputBox: (text: string, options?: SendViaInputBoxOptions) => Promise<boolean>;
+  sendDetachedPrompt: (text: string) => Promise<boolean>;
 }
 
 export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderChatComposer {
@@ -144,7 +146,8 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     }
     if (!active && cancelRequested) {
       cancelRequested = false;
-      deps.onNotice?.("已取消等待，草稿与图片已保留", 3000);
+      const hasDraft = Boolean(input.value.trim()) || Boolean(deps.hasInputImages?.());
+      deps.onNotice?.(hasDraft ? "已取消等待，草稿与图片已保留" : "已取消等待", 3000);
       input.focus({ preventScroll: true });
       input.setSelectionRange(input.value.length, input.value.length);
     }
@@ -236,6 +239,12 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     return true;
   }
 
+  /** 独立快捷发送：不占用、不读取也不清空输入框文本与草稿附件。 */
+  async function sendDetachedPrompt(text: string): Promise<boolean> {
+    const verdict = await chatRuntime.sendTurn(text, { preserveInputDraft: true });
+    return verdict === "accepted";
+  }
+
   // 发送入口（回车 / 发送键）直接交给 chatRuntime 的回合受理；
   // 回放让位已收敛进发送闸的放行路径（send-gate.ts 统一 await replayInFlight）。
   async function sendFromUi(): Promise<void> {
@@ -305,6 +314,7 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     syncSendState: updateSendBtnState,
     setStreamingUiState,
     setSubtitleWaitUi,
-    sendViaInputBox
+    sendViaInputBox,
+    sendDetachedPrompt
   };
 }

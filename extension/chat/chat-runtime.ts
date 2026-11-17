@@ -97,6 +97,11 @@ const STREAM_SLOW_NOTICE_MS = 15000;
 // 保持既有 import 面（自 chat-runtime 取 SendVerdict 的调用方零改动）。
 export type { SendVerdict };
 
+export interface SendTurnOptions {
+  /** 独立发送：不读取也不清空输入区文本与草稿附件。 */
+  preserveInputDraft?: boolean;
+}
+
 // 在途回合结算（C′，见 isTurnActive / settleTurn）的看门狗兜底窗口（含「为什么
 // 必须有」的推证）已随结算协议收进 ./turn-lifecycle.ts 的 TURN_SETTLE_FALLBACK_MS。
 
@@ -341,6 +346,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let sendInFlight = false;
   let acceptanceEpoch = 0;
   let pendingRetryDraft: { images: ImagePart[] } | null = null;
+  let pendingSendOptions: SendTurnOptions | null = null;
+  let activePreserveInputDraft = false;
   // 候选5：offscreen 侧已确认缓存字幕体的 contextKey（从其每次回执的
   // cachedContextKey 读到）。追问消息据此省略整份 subtitleBody——长视频单份
   // 字幕体可达数 MB，逐条追问经 port 重传纯属浪费。null = 未确认（首条消息、
@@ -603,13 +610,22 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 发送受理入口（唯一）：受理时序（空文本/在途早退、受理窗口开关、blocked 的
   // 终态结算）归 ./turn-lifecycle.ts；本文件的 runAcceptance 是受理体本体——
   // 从 provider 检查到 postMessage 的副作用链，逐字节保持原次序。
-  async function sendTurn(text: string): Promise<SendVerdict> {
-    messageArea.setRegenerationDisabled(true);
-    const verdict = await turn.send(text);
-    if (!turn.isActive()) {
-      messageArea.setRegenerationDisabled(false);
+  async function sendTurn(text: string, options?: SendTurnOptions): Promise<SendVerdict> {
+    const canAttempt = Boolean(String(text ?? "").trim()) && !turn.isActive();
+    if (canAttempt) {
+      pendingSendOptions = options ?? null;
     }
-    return verdict;
+    messageArea.setRegenerationDisabled(true);
+    try {
+      return await turn.send(text);
+    } finally {
+      if (canAttempt) {
+        pendingSendOptions = null;
+      }
+      if (!turn.isActive()) {
+        messageArea.setRegenerationDisabled(false);
+      }
+    }
   }
 
   function resolveBranchContext(originalHistory: ChatSessionMessage[], userIndex: number): {
@@ -752,6 +768,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     const epoch = acceptanceEpoch;
     const retryDraft = pendingRetryDraft;
     pendingRetryDraft = null;
+    const sendOptions = pendingSendOptions;
+    pendingSendOptions = null;
+    const preserveInputDraft = Boolean(sendOptions?.preserveInputDraft);
     try {
       deps.ui.hideHistoryPopover();
 
@@ -767,7 +786,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const branch = activeBranch;
       const branched = branch !== null;
       const inputSnapshot = deps.input.value;
-      const imageSnapshot = branched ? null : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? null));
+      const imageSnapshot = branched || preserveInputDraft
+        ? null
+        : (retryDraft ? retryDraft.images : (deps.getInputImages?.() ?? null));
       if (branch?.contextMismatched) {
         const confirmBranchContext = deps.confirmRegenerationContext || ((message: string) => confirmDialog({
           message,
@@ -814,7 +835,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         messageArea.clearUncommittedFailedTurns?.();
         const appendedUserNode = messageArea.appendUserMessage(text, { source: "live", images: imageSnapshot ?? [] });
         activeUserNode = appendedUserNode instanceof HTMLDivElement ? appendedUserNode : null;
-        if (retryDraft) {
+        if (preserveInputDraft) {
+          // 独立快捷发送不占用输入区草稿，也不清空原有内容。
+        } else if (retryDraft) {
           if (deps.input.value === text) {
             deps.input.value = "";
             deps.ui.autosizeInput();
@@ -838,18 +861,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const images = branch
         ? (branch.originalHistory[branch.userIndex]?.images ?? [])
-        : retryDraft
-          ? retryDraft.images
-          : imageSnapshot
-            ? deps.takeInputImages?.(imageSnapshot) ?? []
-            : deps.takeInputImages?.() ?? [];
-      if (!branch && !retryDraft) {
+        : preserveInputDraft
+          ? []
+          : retryDraft
+            ? retryDraft.images
+            : imageSnapshot
+              ? deps.takeInputImages?.(imageSnapshot) ?? []
+              : deps.takeInputImages?.() ?? [];
+      if (!branch && !retryDraft && !preserveInputDraft) {
         preserveSnapshotNotice ||= (deps.getInputImages?.().length ?? 0) > 0;
       }
 
       setStreamingUiState(true);
       activeUserPrompt = text;
       activeUserImages = images;
+      activePreserveInputDraft = preserveInputDraft;
       activeTurnProviderId = providerId;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
@@ -1002,6 +1028,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserPrompt = "";
     activeUserNode = null;
     activeUserImages = [];
+    activePreserveInputDraft = false;
     activeUserContextKey = "";
     activeTurnProviderId = "";
     activeToolCalls.clear();
@@ -1113,6 +1140,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     const isNewTurn = !activeBranch && (Boolean(activeUserPrompt) || activeUserImages.length > 0);
     const failedPrompt = activeUserPrompt;
     const failedImages = activeUserImages.map((img) => ({ ...img }));
+    const restoreDraftOnFail = !activePreserveInputDraft;
     const failedUserNode = activeUserNode;
     const errorText = String(error ?? "");
     const isSetupError = classifyOverviewSetupError(errorText) !== null;
@@ -1132,11 +1160,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         if (turn.node) {
           turn.node.dataset.uncommittedFailedTurn = "1";
         }
-        (deps.onTurnFailedRestoreDraft ?? deps.ui.onTurnFailedRestoreDraft)?.({
-          text: failedPrompt,
-          images: failedImages,
-          isSetupError
-        });
+        if (restoreDraftOnFail) {
+          (deps.onTurnFailedRestoreDraft ?? deps.ui.onTurnFailedRestoreDraft)?.({
+            text: failedPrompt,
+            images: failedImages,
+            isSetupError
+          });
+        }
       }
       if (activeBranch) {
         const prefix = activeBranch.kind === "regenerate" ? "重新生成失败" : "继续生成失败";
@@ -1289,6 +1319,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   function resetStreamState(): void {
     acceptanceEpoch += 1;
     pendingRetryDraft = null;
+    pendingSendOptions = null;
     speech.stop();
     abortAllVideoFrames();
     // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
@@ -1307,6 +1338,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     activeUserPrompt = "";
     activeUserNode = null;
     activeUserImages = [];
+    activePreserveInputDraft = false;
     activeUserContextKey = "";
     activeTurnProviderId = "";
     activeToolCalls.clear();

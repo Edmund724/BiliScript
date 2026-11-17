@@ -2407,4 +2407,34 @@ describe("历史截帧的回合生命周期与慢响应守卫", () => {
     expect(labelBtn.disabled).toBe(false);
     expect(labelBtn.getAttribute("aria-expanded")).toBe("true");
   });
+
+  it("sendTurn({ preserveInputDraft: true })：不读取也不清空输入框草稿与图片，错误时也不回填进空输入框", async () => {
+    const restoredDrafts: Array<{ text: string; images: Array<{ mime: string; data: string }>; isSetupError: boolean }> = [];
+    const currentImages: Array<{ mime: string; data: string }> = [{ mime: "image/webp", data: "IMG_DRAFT" }];
+    const deps = makeDeps();
+    deps.getInputImages = () => [...currentImages];
+    deps.takeInputImages = () => currentImages.splice(0, currentImages.length);
+    deps.onTurnFailedRestoreDraft = (draft) => {
+      restoredDrafts.push(draft);
+    };
+    const runtime = createChatRuntime(deps);
+
+    deps.input.value = "未发送的文字草稿";
+    await expect(runtime.sendTurn("快捷总结", { preserveInputDraft: true })).resolves.toBe("accepted");
+    expect(deps.input.value).toBe("未发送的文字草稿");
+    expect(currentImages).toEqual([{ mime: "image/webp", data: "IMG_DRAFT" }]);
+    expect(deps.ports[0].port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "快捷总结" })
+    );
+    expect((deps.ports[0].port.postMessage.mock.calls[0][0] as { images?: unknown[] }).images).toBeUndefined();
+    feed(runtime, { type: "done" });
+    expect(deps.input.value).toBe("未发送的文字草稿");
+    expect(currentImages).toHaveLength(1);
+
+    deps.input.value = "";
+    await expect(runtime.sendTurn("失败的快捷总结", { preserveInputDraft: true })).resolves.toBe("accepted");
+    feed(runtime, { type: "error", error: "网络异常" });
+    expect(restoredDrafts).toEqual([]);
+    expect(deps.input.value).toBe("");
+  });
 });
