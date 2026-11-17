@@ -57,6 +57,15 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1001;
 }
 
+/* 评论区图片预览让位：B 站评论区点击图片后在 body 下挂载 PhotoSwipe 浮层
+ * （.pswp.pswp--open，原生 z-index: 100000；伴生商品浮层 z-index: 100001）。
+ * 预览开启期间将文摘面板（含贴栏与浮层两态）压至 1003（仍高于吸顶顶栏 1002
+ * 与页面常规层，避免半透明黑纱下顶栏反盖面板顶栏），使图片预览始终完整
+ * 叠在文摘面板上方。 */
+body[data-biliscript-reader-mode="1"]:has(.pswp.pswp--open) #biliscript-reading-view {
+  z-index: 1003;
+}
+
 /* 评论区展开笔记与记笔记浮窗让位：B 站原生右侧笔记抽屉（.video-note-sidebar-panel）
  * 激活时由内部 .video-note-sidebar-content 展开呈现，外层 z-index 原生设为 99；
  * 记笔记浮窗（.note-pc）原生 z-index 为 1000。
