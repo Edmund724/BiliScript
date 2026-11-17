@@ -128,11 +128,10 @@ describe("openai-transcriptions 适配器", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("json 降级路径：响应无 segments（SiliconFlow）→ 重试 json 只产 text", async () => {
+  it("2xx 仅返回 { text }（无 segments，如 SiliconFlow SenseVoiceSmall）→ 直接复用 text，只 fetch 1 次不重复上传", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ text: "纯文本" }) })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ text: "纯文本" }) });
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ text: "单行第一句。单行第二句！" }) });
     vi.stubGlobal("fetch", fetchMock);
     const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
     const result = await adapter.transcribe({
@@ -142,9 +141,105 @@ describe("openai-transcriptions 适配器", () => {
       provider: OPENAI_PROVIDER
     });
 
-    expect(result.text).toBe("纯文本");
+    expect(result).toEqual({ text: "单行第一句。单行第二句！" });
     expect(result.segments).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const items = pipeline.synthesizeChunk({ startSec: 0, durationSec: 60, result });
+    expect(items).toHaveLength(2);
+    expect(items[0].content).toBe("单行第一句。");
+    expect(items[1].content).toBe("单行第二句！");
+    expect(items[0].from).toBeLessThan(items[0].to);
+    expect(items[1].from).toBe(items[0].to);
+    expect(items[1].from).toBeLessThan(items[1].to);
+  });
+
+  it("verbose_json 返回 HTTP 400 / 422（不支持 verbose_json）→ 降级重发 response_format=json（共 2 次 fetch）", async () => {
+    for (const status of [400, 422]) {
+      const formats: string[] = [];
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+          formats.push(String((init.body as FormData).get("response_format")));
+          return {
+            ok: false,
+            status,
+            text: async () => '{"error":{"message":"response_format verbose_json is not supported"}}'
+          };
+        })
+        .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+          formats.push(String((init.body as FormData).get("response_format")));
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ text: `降级成功-${status}` })
+          };
+        });
+      vi.stubGlobal("fetch", fetchMock);
+      const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
+      const result = await adapter.transcribe({
+        wavBlob: new Blob([new Uint8Array(8)]),
+        startSec: 0,
+        durationSec: 60,
+        provider: OPENAI_PROVIDER
+      });
+
+      expect(result).toEqual({ text: `降级成功-${status}` });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(formats).toEqual(["verbose_json", "json"]);
+    }
+  });
+
+  it("verbose_json 同时返回 words 数组：归一化保留 { word, start, end }，缺省时不附带 words 键", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          text: "Hello world",
+          segments: [{ start: 0, end: 1.5, text: "Hello world" }],
+          words: [
+            { word: " Hello", start: "0.1", end: 0.6 },
+            { word: "   ", start: 0.6, end: 0.7 },
+            { word: "invalid", start: Number.NaN, end: 0.8 },
+            { word: "world", start: 0.7, end: 1.4 }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          text: "星辰结果",
+          segments: [{ start: 0, end: 1, text: "星辰结果" }]
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
+
+    const withWords = await adapter.transcribe({
+      wavBlob: new Blob([new Uint8Array(8)]),
+      provider: OPENAI_PROVIDER
+    });
+    expect(withWords).toEqual({
+      text: "Hello world",
+      segments: [{ start: 0, end: 1.5, text: "Hello world" }],
+      words: [
+        { word: "Hello", start: 0.1, end: 0.6 },
+        { word: "world", start: 0.7, end: 1.4 }
+      ]
+    });
+
+    const withoutWords = await adapter.transcribe({
+      wavBlob: new Blob([new Uint8Array(8)]),
+      provider: OPENAI_PROVIDER
+    });
+    expect(withoutWords).toEqual({
+      text: "星辰结果",
+      segments: [{ start: 0, end: 1, text: "星辰结果" }]
+    });
+    expect("words" in withoutWords).toBe(false);
   });
 
   it("2xx 但响应体不是合法 JSON（status=-1）：仍走 json 降级（平台兼容问题，共 2 次 fetch）", async () => {
@@ -358,12 +453,11 @@ describe("openai-transcriptions 适配器", () => {
       provider: OPENAI_PROVIDER
     });
 
-    // json 降级路径只产 text：verbose_json 一次 + json 一次（无 segments → 降级）
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    // FormData 捕获最后一次请求（json 降级那次）
+    // 2xx 含 text 时不再发第二次 json 降级请求
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(captured!.body).toBeInstanceOf(FormData);
     expect(captured!.body.get("model")).toBe("FunAudioLLM/SenseVoiceSmall");
-    expect(captured!.body.get("response_format")).toBe("json");
+    expect(captured!.body.get("response_format")).toBe("verbose_json");
     // 语言不放在 multipart 字段里（SiliconFlow 只认查询参数）
     expect(captured!.body.get("language")).toBeNull();
     expect(captured!.body.get("file")).toBeInstanceOf(Blob);
@@ -389,9 +483,7 @@ describe("openai-transcriptions 适配器", () => {
       provider: { ...OPENAI_PROVIDER, language: "en" }
     });
 
-    // 两次请求（verbose_json + json 降级）都带 ?language=english
     expect(capturedUrls).toEqual([
-      "https://api.siliconflow.cn/v1/audio/transcriptions?language=english",
       "https://api.siliconflow.cn/v1/audio/transcriptions?language=english"
     ]);
   });
@@ -790,6 +882,24 @@ describe("工单 01：纯文本分句与过短碎句合并 (splitTextIntoSentenc
     const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
     expect(splitTextIntoSentences("")).toEqual([]);
     expect(splitTextIntoSentences("   \n\t  ")).toEqual([]);
+  });
+
+  it("单行无换行混合中英文标点、省略号、域名（Node.js）与闭合引号/方括号切分正确，英文短句合并保留空格", async () => {
+    const { splitTextIntoSentences } = await import("../../extension/asr/pipeline.js");
+    expect(splitTextIntoSentences('He said "Hi." Node.js works... Really?! Yes……')).toEqual([
+      'He said "Hi."',
+      "Node.js works...",
+      "Really?!",
+      "Yes……"
+    ]);
+    expect(splitTextIntoSentences("First sentence. OK. Second sentence.")).toEqual([
+      "First sentence. OK.",
+      "Second sentence."
+    ]);
+    expect(splitTextIntoSentences("他说：“太精彩了！”[注]真的吗？")).toEqual([
+      "他说：“太精彩了！”",
+      "[注]真的吗？"
+    ]);
   });
 });
 

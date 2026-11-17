@@ -9,10 +9,11 @@
 //   - 转写语言：provider.language 为 zh/en 时以查询参数 ?language=zh|english
 //     传给平台（SiliconFlow 辰星/SenseVoice 的英文识别依赖该参数）；auto 省略，
 //     交服务端自动检测；
-//   - 成功/降级/失败三分（契约）：2xx 且有 segments → 成功返回；2xx 但无
-//     segments（平台不支持 verbose_json，如 SiliconFlow 只回 { text }）→ 以
-//     response_format=json 降级 POST 一次（只取 text），返回里省略 segments
-//     表达"无时间戳"，调用方据此合成整片粗粒度字幕；HTTP 非 2xx → 直接抛
+//   - 成功/降级/失败三分（契约）：2xx 且 JSON 解析成功 → 直接返回（有 segments
+//     带句级时间戳，有 words 可选保留词级时间戳，仅含 text 如 SiliconFlow
+//     SenseVoiceSmall 直接复用 text，不再重传同一份 WAV）；仅当服务端返回 HTTP
+//     400/422（不支持 verbose_json 参数）或 2xx 非合法 JSON（兼容哨兵 -1）时，
+//     才降级重发 response_format=json（只取 text）；其余 HTTP 非 2xx → 直接抛
 //     `HTTP <status>`（err.status 带状态码），不再降级——重试与否交给调用方
 //     retryAsync 按状态码判定（408/429/5xx 可重试，其余 4xx 不重试），避免
 //     38MB 级 wav 对注定失败的请求做第二次全量重传。
@@ -35,13 +36,21 @@ export interface TranscriptSegment {
   text: string;
 }
 
+// 词级时间戳条目（verbose_json words 归一化后的形状）
+export interface TranscriptWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
 // 单片转写结果：segments 缺省表示该平台无时间戳，调用方（pipeline）据此
-// 合成整片粗粒度字幕。带索引签名：结果以「未知字段的 JSON 记录」视角跨
-// port/接线层透传（entry/offscreen-asr 的 transcribe 闭包以
-// Promise<Record<string, unknown>> 承接）。
+// 合成整片粗粒度字幕。words 可选保留词级时间戳供下游精细断句消费。带索引
+// 签名：结果以「未知字段的 JSON 记录」视角跨 port/接线层透传
+// （entry/offscreen-asr 的 transcribe 闭包以 Promise<Record<string, unknown>> 承接）。
 export interface TranscriptionResult {
   text: string;
   segments?: TranscriptSegment[];
+  words?: TranscriptWord[];
   [key: string]: unknown;
 }
 
@@ -66,6 +75,7 @@ interface PostTranscriptionResult {
   raw: string;
   text: string;
   segments?: TranscriptSegment[];
+  words?: TranscriptWord[];
 }
 
 // 适配器抛出物的失败信号（票 03）：status 供重试判定（isRetryableNetworkError），
@@ -158,7 +168,27 @@ function normalizeSegments(segments: unknown): TranscriptSegment[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-// 单次 POST 请求。HTTP 2xx 且 JSON 解析成功 → status=0 并带 text/segments；
+// 归一化 words 列表：只保留 { word, start, end } 且 word 非空白，
+// start/end 转数字；无有效 words 返回 undefined。
+function normalizeWords(words: unknown): TranscriptWord[] | undefined {
+  if (!Array.isArray(words) || words.length === 0) {
+    return undefined;
+  }
+  const list = words as Array<{ word?: unknown; start?: unknown; end?: unknown }>;
+  const normalized: TranscriptWord[] = [];
+  for (const item of list) {
+    const start = Number(item?.start);
+    const end = Number(item?.end);
+    const word = String(item?.word ?? "").trim();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || !word) {
+      continue;
+    }
+    normalized.push({ word, start, end });
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+// 单次 POST 请求。HTTP 2xx 且 JSON 解析成功 → status=0 并带 text/segments/words；
 // 否则 status=HTTP 码（-1 表示响应体解析失败）并附响应体片段 detail 与原文 raw。
 // 不抛错，交给调用方决定降级或重试（网络错误/Abort 除外）。
 async function postTranscription({ wavBlob, provider, signal, responseFormat }: {
@@ -221,13 +251,14 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
   }
 
   try {
-    const data: { text?: unknown; segments?: unknown } = await response.json();
+    const data: { text?: unknown; segments?: unknown; words?: unknown } = await response.json();
     return {
       status: 0,
       detail: "",
       raw: "",
       text: String(data?.text || "").trim(),
-      segments: normalizeSegments(data?.segments)
+      segments: normalizeSegments(data?.segments),
+      words: normalizeWords(data?.words)
     };
   } catch {
     return { status: -1, detail: "响应体不是合法 JSON", raw: "", text: "", segments: undefined };
@@ -237,33 +268,37 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
 // 错误对象的可读文本（网络层失败的关键词判定）走 shared/error-helpers 的单源
 // 实现——不在这里另抄一份近似版本；它是 shared 叶子，本 context 的 engine 已引它。
 
-// 统一入口。返回 { text, segments? }；segments 缺省表示该平台无时间戳，
+// 统一入口。返回 { text, segments?, words? }；segments 缺省表示该平台无时间戳，
 // 调用方（pipeline）据此合成整片粗粒度字幕。
 //
 // 成功/降级/失败三分（契约）：
-//   - 2xx 且有 segments → 成功返回（带句级时间戳）；
-//   - 2xx 但无 segments，或 2xx 但响应体不是合法 JSON（响应到了、体不符，
-//     属平台兼容问题）→ json 降级第二次 POST（降级的唯一合法场景）；
-//   - HTTP 非 2xx（status>0）→ 直接抛 `HTTP <status>: <detail>`（err.status
-//     带状态码，消息格式与降级失败路径一致），不发第二次 POST；
+//   - 2xx 且 JSON 解析成功 → 直接返回（有 segments/words 则保留；仅含 text 时
+//     直接复用，避免无 segments 平台对同一份 WAV 做第二次重传）；
+//   - HTTP 400 / 422（服务端不支持 verbose_json 参数）或 2xx 但响应体不是合法
+//     JSON（status=-1，兼容降级）→ 以 response_format=json 降级重发一次；
+//   - 其余 HTTP 非 2xx（status>0）→ 直接抛 `HTTP <status>: <detail>`（err.status
+//     带状态码），不发第二次 POST；
 //   - fetch 抛错（网络层）→ 原样上抛，保持可被 isRetryableNetworkError
 //     消息启发式命中的形态（如 "Failed to fetch"）。
 export async function transcribe({ wavBlob, startSec, durationSec, provider, signal, onProgress }: TranscribeArgs): Promise<TranscriptionResult> {
   // 进度通知：引擎注入的 onProgress thunk 自带文案闭包，适配器仅以零参触发
   //（注入面签名见 entry/offscreen-asr 的 TranscriptionEngineOptions）。
   const notifyProgress = onProgress as (() => void) | undefined;
-  // 首次尝试 verbose_json：平台支持则带句级时间戳。
+  // 首次尝试 verbose_json：平台支持则带句级/词级时间戳。
   const first = await postTranscription({ wavBlob, provider, signal, responseFormat: "verbose_json" });
-  if (first.status === 0 && first.segments) {
+  if (first.status === 0) {
     notifyProgress?.();
-    return { text: first.text, segments: first.segments };
+    return {
+      text: first.text,
+      ...(first.segments ? { segments: first.segments } : {}),
+      ...(first.words ? { words: first.words } : {})
+    };
   }
 
-  // HTTP 非 2xx：确定性失败直接抛，不再发第二次全量 POST（单片 wav 38MB 级，
-  // 对 401/403/400 这类重试也注定失败的请求是纯浪费）。可重试性（408/429/5xx）
-  // 由调用方 retryAsync 按 err.status 判定；kind 的判定在**完整报文**上做完
-  //（first.raw 未截断），消息格式与 err.status 保持不变（既有断言锁定）。
-  if (first.status > 0) {
+  // 仅当服务端明确返回 400/422（不支持 verbose_json 参数）或 status=-1（2xx
+  // 非合法 JSON）时降级 json；其余 HTTP 非 2xx（401/403/404/429/5xx 等）属于
+  // 确定性失败或应由外层按状态码重试的错误，绝不重传第二次全量 WAV。
+  if (first.status > 0 && first.status !== 400 && first.status !== 422) {
     throw makeTranscriptionError(`HTTP ${first.status}${first.detail ? `: ${first.detail}` : ""}`, {
       status: first.status,
       detail: first.detail,
@@ -271,13 +306,15 @@ export async function transcribe({ wavBlob, startSec, durationSec, provider, sig
     });
   }
 
-  // 兼容性降级（唯一合法场景）：2xx 但响应体无 segments（平台不支持
-  // verbose_json，如 SiliconFlow 只回 { text }），或 2xx 但响应体不是合法
-  // JSON（status=-1，体不符）→ 以 response_format=json 重试一次，只取 text。
+  // 兼容性降级：以 response_format=json 重试一次，只取 text。
   const second = await postTranscription({ wavBlob, provider, signal, responseFormat: "json" });
-  notifyProgress?.();
   if (second.status === 0) {
-    return { text: second.text };
+    notifyProgress?.();
+    return {
+      text: second.text,
+      ...(second.segments ? { segments: second.segments } : {}),
+      ...(second.words ? { words: second.words } : {})
+    };
   }
 
   // json 降级也失败：抛 HTTP 错误（5xx/网络错误由调用方 retryAsync 重试）。

@@ -156,25 +156,22 @@ describe("探针走真链路：host 权限预检与实际转写同源", () => {
 });
 
 describe("探针走真链路：请求构造与实际转写逐字同源", () => {
-  it("已授权 → 打真适配器：同 URL / 同 Authorization / 同 FormData 字段，含 json 降级的第二次 POST", async () => {
+  it("已授权 → 打真适配器：同 URL / 同 Authorization / 同 FormData 字段（2xx 无 segments 不重复上传）", async () => {
     await loadOffscreen();
 
     const { payload } = await runProbe();
 
     expect(payload).toEqual({ type: "probe-result", ok: true });
-    // 平台只回 { text }（无 segments）→ 适配器按真实转写的兼容路径再发一次
-    // response_format=json，两次都打同一 endpoint
-    expect(requests).toHaveLength(2);
-    for (const { url, init } of requests) {
-      expect(url).toBe(`${BASE_URL}/audio/transcriptions`);
-      expect(init.method).toBe("POST");
-      expect(init.headers.Authorization).toBe("Bearer sk-draft");
-      expect(init.body).toBeInstanceOf(FormData);
-      expect(init.headers["Content-Type"]).toBeUndefined();
-      expect((init.body as FormData).get("model")).toBe(MODEL);
-    }
-    expect((requests[0].init.body as FormData).get("response_format")).toBe("verbose_json");
-    expect((requests[1].init.body as FormData).get("response_format")).toBe("json");
+    // 2xx 返回 { text }（即使无 segments）也不再重复发第二次 POST
+    expect(requests).toHaveLength(1);
+    const { url, init } = requests[0];
+    expect(url).toBe(`${BASE_URL}/audio/transcriptions`);
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer sk-draft");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(init.headers["Content-Type"]).toBeUndefined();
+    expect((init.body as FormData).get("model")).toBe(MODEL);
+    expect((init.body as FormData).get("response_format")).toBe("verbose_json");
   });
 
   it("语言档位 en → ?language=english 由适配器的 URL 构造给出（探针不再自抄一份）", async () => {

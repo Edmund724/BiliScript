@@ -40,6 +40,7 @@ import type {
 export interface AsrChunkResult {
   text?: unknown;
   segments?: Array<{ start?: unknown; end?: unknown; text?: unknown }>;
+  words?: Array<{ word?: unknown; start?: unknown; end?: unknown }>;
   _asrDiag?: unknown;
   durationSec?: unknown;
 }

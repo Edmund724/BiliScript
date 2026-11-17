@@ -45,9 +45,16 @@ export interface AsrTranscribeSegment {
   text: string;
 }
 
+export interface AsrTranscribeWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
 export interface AsrTranscribeResult {
   text: string;
   segments?: AsrTranscribeSegment[];
+  words?: AsrTranscribeWord[];
   _asrDiag?: unknown;
 }
 

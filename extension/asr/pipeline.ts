@@ -19,20 +19,10 @@ import type { OffscreenChunkHost, AsrChunkRecord, AsrChunkResult } from "./offsc
 import { readAsrFailureSummary, projectAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import type { SubtitleItem } from "./fallback.js";
+import { joinSubtitleText } from "../subtitle/text-classification.js";
 
-// 中英文句末标点（。！？!? 以及非数字后小数点的 .）与换行符正则
-const SENTENCE_DELIMITER_RE = /(?:[。！？!?]+|\.+(?!\d))["'”’」』）\)]*|\r?\n+/g;
-
-function joinWithOptionalSpace(a: string, b: string): string {
-  if (!a) return b;
-  if (!b) return a;
-  const lastChar = a[a.length - 1];
-  const firstChar = b[0];
-  if (/[a-zA-Z0-9.!?]/.test(lastChar) && /[a-zA-Z0-9]/.test(firstChar)) {
-    return `${a} ${b}`;
-  }
-  return `${a}${b}`;
-}
+// 中英文句末标点（。！？!?… 以及非小数点的英文句号 .）与换行符正则，保留紧随其后的闭合引号/括号
+const SENTENCE_DELIMITER_RE = /(?:[。！？!?…]+|\.+(?!\d)(?=\s|$|["'”’」』）\)\]]))["'”’」』）\)\]]*|\r?\n+/g;
 
 // 合并过短碎句（默认长度 < 4 字符，如单字或纯语气助词加标点）
 export function mergeShortSentences(sentences: string[], minChars = 4): string[] {
@@ -46,10 +36,10 @@ export function mergeShortSentences(sentences: string[], minChars = 4): string[]
       merged.push(s);
     } else if (s.length < minChars) {
       // 当前句过短：合入前一句
-      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+      merged[merged.length - 1] = joinSubtitleText(merged[merged.length - 1], s);
     } else if (merged[merged.length - 1].length < minChars) {
       // 前一句（首句）过短：把当前句合入前一句
-      merged[merged.length - 1] = joinWithOptionalSpace(merged[merged.length - 1], s);
+      merged[merged.length - 1] = joinSubtitleText(merged[merged.length - 1], s);
     } else {
       merged.push(s);
     }
@@ -67,10 +57,9 @@ export function splitTextIntoSentences(text: string, minChars = 4): string[] {
 
   const rawSentences: string[] = [];
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
 
-  while ((match = SENTENCE_DELIMITER_RE.exec(trimmed)) !== null) {
-    const end = match.index + match[0].length;
+  for (const match of trimmed.matchAll(SENTENCE_DELIMITER_RE)) {
+    const end = (match.index ?? 0) + match[0].length;
     const piece = trimmed.slice(lastIndex, end).trim();
     if (piece) {
       rawSentences.push(piece);
