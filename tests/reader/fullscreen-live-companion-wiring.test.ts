@@ -79,6 +79,7 @@ describe("reader/chat-tab: 全屏实时伴看浮窗联动与全屏自适应", ()
       turnId: "turn-1",
       text: "这是主角"
     });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages");
     expect(messages?.querySelector(".live-overlay-bubble-user")?.textContent).toBe("视频里这个人是谁？");

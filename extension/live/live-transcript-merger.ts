@@ -12,6 +12,8 @@ export interface LiveOverlayTranscriptMergerDeps {
   getMessagesContainer: () => HTMLElement | null;
   scrollToBottom: () => void;
   isVoiceRecentlyActive?: () => boolean;
+  requestFrame?: (cb: FrameRequestCallback) => number;
+  cancelFrame?: (id: number) => void;
 }
 
 export interface LiveTranscriptMerger {
@@ -310,6 +312,83 @@ function createTranscriptTurnStateMachine<TUserHandle, TAssistantHandle>(
 export function createLiveOverlayTranscriptMerger(
   deps: LiveOverlayTranscriptMergerDeps
 ): LiveTranscriptMerger {
+  const requestFrame =
+    deps.requestFrame ??
+    ((cb: FrameRequestCallback) =>
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(cb)
+        : window.setTimeout(() => cb(0), 16));
+  const cancelFrame =
+    deps.cancelFrame ??
+    ((id: number) => {
+      if (typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(id);
+      } else {
+        clearTimeout(id);
+      }
+    });
+
+  const pendingTexts = new Map<HTMLDivElement, string>();
+  let needsScroll = false;
+  let rafId = 0;
+
+  function cancelPendingFrame(): void {
+    if (rafId) {
+      cancelFrame(rafId);
+      rafId = 0;
+    }
+  }
+
+  function flushPendingWrites(): void {
+    cancelPendingFrame();
+    if (pendingTexts.size > 0) {
+      for (const [bubble, text] of pendingTexts) {
+        if (bubble.textContent !== text) {
+          bubble.textContent = text;
+        }
+      }
+      pendingTexts.clear();
+    }
+    if (needsScroll) {
+      needsScroll = false;
+      deps.scrollToBottom();
+    }
+  }
+
+  function scheduleFlush(): void {
+    if (rafId) return;
+    rafId = requestFrame(() => {
+      rafId = 0;
+      flushPendingWrites();
+    });
+  }
+
+  function settleBubbleAndFlush(
+    bubble: HTMLDivElement,
+    finalText: string | null,
+    shouldScroll: boolean
+  ): void {
+    pendingTexts.delete(bubble);
+    if (finalText !== null && bubble.textContent !== finalText) {
+      bubble.textContent = finalText;
+    }
+    if (pendingTexts.size > 0) {
+      for (const [pendingBubble, pendingText] of pendingTexts) {
+        if (pendingBubble.textContent !== pendingText) {
+          pendingBubble.textContent = pendingText;
+        }
+      }
+      pendingTexts.clear();
+    }
+    cancelPendingFrame();
+    if (shouldScroll || needsScroll) {
+      needsScroll = false;
+      if (shouldScroll) {
+        deps.scrollToBottom();
+      }
+    }
+  }
+
   return createTranscriptTurnStateMachine<HTMLDivElement, HTMLDivElement>({
     isVoiceRecentlyActive: deps.isVoiceRecentlyActive,
     createUserTurn() {
@@ -321,19 +400,30 @@ export function createLiveOverlayTranscriptMerger(
       return bubble;
     },
     updateUserTurn(bubble, text) {
-      bubble.textContent = text;
-      deps.scrollToBottom();
+      pendingTexts.set(bubble, text);
+      needsScroll = true;
+      scheduleFlush();
+    },
+    commitPendingUserBeforeAssistant(bubble, text) {
+      pendingTexts.delete(bubble);
+      if (bubble.textContent !== text) {
+        bubble.textContent = text;
+      }
     },
     finalizeUserTurn(bubble, finalText) {
-      bubble.textContent = finalText;
       bubble.classList.remove("is-pending");
-      deps.scrollToBottom();
+      settleBubbleAndFlush(bubble, finalText, true);
     },
     discardUserTurn(bubble, wasCommittedEarly) {
+      pendingTexts.delete(bubble);
       if (!wasCommittedEarly) {
         bubble.remove();
       } else {
         bubble.classList.remove("is-pending");
+      }
+      if (pendingTexts.size === 0) {
+        needsScroll = false;
+        cancelPendingFrame();
       }
     },
     settleEarlyCommittedUserTurnOnAssistantFinish(bubble) {
@@ -348,20 +438,26 @@ export function createLiveOverlayTranscriptMerger(
       return bubble;
     },
     updateAssistantTurn(bubble, _prevText, nextText) {
-      bubble.textContent = nextText;
-      deps.scrollToBottom();
+      pendingTexts.set(bubble, nextText);
+      needsScroll = true;
+      scheduleFlush();
     },
     finalizeAssistantTurn(bubble, finalText, interrupted) {
-      if (finalText) {
-        bubble.textContent = finalText;
-      }
       bubble.classList.remove("is-streaming");
-      if (!interrupted) {
-        deps.scrollToBottom();
-      }
+      settleBubbleAndFlush(bubble, finalText || null, !interrupted);
     },
     discardAssistantTurn(bubble) {
+      pendingTexts.delete(bubble);
       bubble.remove();
+      if (pendingTexts.size === 0) {
+        needsScroll = false;
+        cancelPendingFrame();
+      }
+    },
+    onReset() {
+      cancelPendingFrame();
+      pendingTexts.clear();
+      needsScroll = false;
     }
   });
 }

@@ -987,6 +987,34 @@ describe("OffscreenMossLiveClient", () => {
       expect(ws.sentData).toHaveLength(4);
     });
 
+    it("splits a 40ms (1280-byte) upstream PCM batch into two 20ms (641-byte tagged) MOSS frames", () => {
+      const client = new OffscreenMossLiveClient();
+      client.connect();
+      const ws = (client as any).ws as FakeWebSocket;
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ action: "session_attached" }));
+      ws.simulateMessage(JSON.stringify({ action: "session.updated", data: { error: "" } }));
+
+      ws.sentData.length = 0;
+
+      const pcm1280 = new Uint8Array(1280);
+      pcm1280.fill(0x11, 0, 640);
+      pcm1280.fill(0x22, 640, 1280);
+
+      expect(client.sendAudioPcm(pcm1280.buffer)).toBe(true);
+      expect(ws.sentData).toHaveLength(2);
+      const frame1 = ws.sentData[0] as Uint8Array;
+      const frame2 = ws.sentData[1] as Uint8Array;
+      expect(frame1.byteLength).toBe(641);
+      expect(frame1[0]).toBe(MossBinaryTag.AudioPcm);
+      expect(frame1[1]).toBe(0x11);
+      expect(frame1[640]).toBe(0x11);
+      expect(frame2.byteLength).toBe(641);
+      expect(frame2[0]).toBe(MossBinaryTag.AudioPcm);
+      expect(frame2[1]).toBe(0x22);
+      expect(frame2[640]).toBe(0x22);
+    });
+
     it("sends video JPEG frames on tagged-v1 screen channel 0x02 while connected", () => {
       const client = new OffscreenMossLiveClient();
       client.connect();
@@ -1214,11 +1242,11 @@ describe("OffscreenMossLiveClient", () => {
         })
       );
 
-      // Verify gapless scheduling on FakeAudioContext
+      // Verify gapless scheduling on FakeAudioContext (with cold-start 30ms lead time)
       expect(fakeAudioCtx.sources).toHaveLength(2);
       expect(fakeAudioCtx.sources[0].buffer?.sampleRate).toBe(MOSS_DOWNSTREAM_SAMPLE_RATE);
-      expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.0, 5);
-      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.1, 5); // 1.0 + 0.1s duration
+      expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.03, 5);
+      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.13, 5); // 1.03 + 0.1s duration
 
       // No receipts sent before playback finishes
       expect(ws.sentData).toHaveLength(0);
@@ -1286,7 +1314,7 @@ describe("OffscreenMossLiveClient", () => {
       }
       emitChunk("c2");
 
-      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(0.1, 5);
+      expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(0.13, 5);
     });
 
     it("sends playback.completed when response.audio.done arrives AFTER all chunks already finished playing", () => {
@@ -1370,7 +1398,7 @@ describe("OffscreenMossLiveClient", () => {
       );
       ws.simulateMessage(pcmChunk2.buffer);
 
-      // Chunk 1 finishes at t = 0.1s; chunk 2 plays halfway to t = 0.15s (50ms into chunk 2)
+      // Chunk 1 starts at 0.03s and finishes at 0.13s; chunk 2 plays from 0.13s to 0.15s (20ms into chunk 2)
       fakeAudioCtx.currentTime = 0.1;
       fakeAudioCtx.sources[0].finishPlayback();
       fakeAudioCtx.currentTime = 0.15;
@@ -1388,7 +1416,7 @@ describe("OffscreenMossLiveClient", () => {
         action: "playback.stopped",
         run_id: "r1",
         turn_id: "t1",
-        played_audio_ms: 150
+        played_audio_ms: 120
       });
     });
 
@@ -1514,7 +1542,7 @@ describe("OffscreenMossLiveClient", () => {
 
       expect(fakeAudioCtx.sources).toHaveLength(1);
       expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
-        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 50 }
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 20 }
       ]);
     });
 
@@ -1581,8 +1609,8 @@ describe("OffscreenMossLiveClient", () => {
       expect(fakeAudioCtx.sources[0].stopped).toBe(true);
       expect(fakeAudioCtx.sources[1].stopped).toBe(true);
       expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
-        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 50 },
-        { action: "playback.stopped", run_id: "r2", turn_id: "t2", played_audio_ms: 30 },
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 20 },
+        { action: "playback.stopped", run_id: "r2", turn_id: "t2", played_audio_ms: 0 },
         { action: "playback.chunk.completed", chunk_id: "c3", run_id: "r3", turn_id: "t3" },
         { action: "playback.completed", run_id: "r3", turn_id: "t3" }
       ]);
@@ -1639,7 +1667,7 @@ describe("OffscreenMossLiveClient", () => {
       expect(duckStates).toEqual([true, false]);
       expect(fakeAudioCtx.sources[1].stopped).toBe(false);
       expect(ws.sentData.map((data) => JSON.parse(data))).toEqual([
-        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 20 }
+        { action: "playback.stopped", run_id: "r1", turn_id: "t1", played_audio_ms: 0 }
       ]);
       client.close();
     });
@@ -2561,10 +2589,10 @@ describe("MossAudioPlayer parameterized sampleRate & enablePlaybackReceipts", ()
     expect(fakeAudioCtx.sources).toHaveLength(2);
     expect(fakeAudioCtx.sources[0].buffer?.sampleRate).toBe(24000);
     expect(fakeAudioCtx.sources[0].buffer?.duration).toBeCloseTo(0.1, 5);
-    expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.0, 5);
+    expect(fakeAudioCtx.sources[0].startedAt).toBeCloseTo(1.03, 5);
     expect(fakeAudioCtx.sources[1].buffer?.sampleRate).toBe(24000);
     expect(fakeAudioCtx.sources[1].buffer?.duration).toBeCloseTo(0.2, 5);
-    expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.1, 5);
+    expect(fakeAudioCtx.sources[1].startedAt).toBeCloseTo(1.13, 5);
 
     fakeAudioCtx.sources[0].finishPlayback();
     expect(onSendJson).not.toHaveBeenCalled();

@@ -11,6 +11,18 @@
 
 import { formatClock } from "../shared/clock-text.js";
 import {
+  MOSS_DOWNSTREAM_SAMPLE_RATE,
+  MOSS_FRAME_DURATION_MS,
+  MOSS_UPSTREAM_FRAME_BYTES,
+  MOSS_UPSTREAM_FRAME_SAMPLES,
+  MOSS_UPSTREAM_SAMPLE_RATE,
+  createPcm16kFrameChunker,
+  decodePcmS16LEToFloat32,
+  encodeFloat32ToPcmS16LE,
+  resampleMonoFloat32,
+  type Pcm16kFrameChunker
+} from "./pcm-capture-core.js";
+import {
   LIVE_CONTEXT_CHARS_PER_TOKEN,
   LIVE_CONTEXT_COMPACT_MAX_CHARS,
   LIVE_CONTEXT_HARD_MAX_CHARS,
@@ -53,20 +65,25 @@ export const DEFAULT_MOSS_RECONNECT_DELAY_MS = 500;
 /** 会话附着握手等待上限 */
 export const DEFAULT_LIVE_HANDSHAKE_TIMEOUT_MS = 10000;
 
-/** 上行麦克风音频采样率（16 kHz 单声道 S16LE） */
-export const MOSS_UPSTREAM_SAMPLE_RATE = 16000;
-/** 下行 AI 语音音频采样率（48 kHz 单声道 S16LE） */
-export const MOSS_DOWNSTREAM_SAMPLE_RATE = 48000;
-/** 上行音频分帧时长（20 ms） */
-export const MOSS_FRAME_DURATION_MS = 20;
-/** 每帧 20 ms 对应的 16 kHz 单声道采样点数（320） */
-export const MOSS_UPSTREAM_FRAME_SAMPLES = (MOSS_UPSTREAM_SAMPLE_RATE * MOSS_FRAME_DURATION_MS) / 1000;
-/** 每帧 20 ms 对应的 S16LE 字节数（640 字节） */
-export const MOSS_UPSTREAM_FRAME_BYTES = MOSS_UPSTREAM_FRAME_SAMPLES * 2;
+export {
+  MOSS_UPSTREAM_SAMPLE_RATE,
+  MOSS_DOWNSTREAM_SAMPLE_RATE,
+  MOSS_FRAME_DURATION_MS,
+  MOSS_UPSTREAM_FRAME_SAMPLES,
+  MOSS_UPSTREAM_FRAME_BYTES,
+  encodeFloat32ToPcmS16LE,
+  decodePcmS16LEToFloat32,
+  resampleMonoFloat32,
+  createPcm16kFrameChunker,
+  type Pcm16kFrameChunker
+};
 
 /** 打包 tagged-v1 二进制帧（首字节 Tag + 原始二进制 Payload） */
-export function packTaggedBinary(tag: MossBinaryTag, payload: ArrayBufferLike): Uint8Array<ArrayBuffer> {
-  const src = new Uint8Array(payload);
+export function packTaggedBinary(
+  tag: MossBinaryTag,
+  payload: ArrayBufferLike | Uint8Array
+): Uint8Array<ArrayBuffer> {
+  const src = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
   const out = new Uint8Array(src.byteLength + 1);
   out[0] = tag;
   out.set(src, 1);
@@ -114,98 +131,6 @@ export function decodeBase64Bytes(base64: string): Uint8Array<ArrayBuffer> {
   } catch {
     return new Uint8Array(0);
   }
-}
-
-/** 将 [-1, 1] Float32 采样编码为小端序 PCM S16LE 字节流 */
-export function encodeFloat32ToPcmS16LE(samples: Float32Array): Uint8Array<ArrayBuffer> {
-  const buffer = new ArrayBuffer(samples.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < samples.length; i++) {
-    const raw = Number.isFinite(samples[i]) ? samples[i] : 0;
-    const clamped = Math.max(-1, Math.min(1, raw));
-    const int16 = clamped < 0 ? Math.round(clamped * 0x8000) : Math.floor(clamped * 0x7fff);
-    view.setInt16(i * 2, int16, true);
-  }
-  return new Uint8Array(buffer);
-}
-
-/** 将小端序 PCM S16LE 字节流解码为 [-1, 1] Float32 采样 */
-export function decodePcmS16LEToFloat32(pcmBuffer: ArrayBufferLike): Float32Array {
-  const sampleCount = Math.floor(pcmBuffer.byteLength / 2);
-  if (sampleCount <= 0) {
-    return new Float32Array(0);
-  }
-  const view = new DataView(pcmBuffer);
-  const out = new Float32Array(sampleCount);
-  for (let i = 0; i < sampleCount; i++) {
-    const int16 = view.getInt16(i * 2, true);
-    out[i] = int16 / 0x8000;
-  }
-  return out;
-}
-
-/** 单声道 Float32 线性插值重采样（例如浏览器 AudioContext 48kHz -> 16kHz） */
-export function resampleMonoFloat32(
-  samples: Float32Array,
-  srcSampleRate: number,
-  targetSampleRate: number = MOSS_UPSTREAM_SAMPLE_RATE
-): Float32Array {
-  if (samples.length === 0) return new Float32Array(0);
-  if (!Number.isFinite(srcSampleRate) || srcSampleRate <= 0 || srcSampleRate === targetSampleRate) {
-    return samples;
-  }
-  const ratio = srcSampleRate / targetSampleRate;
-  const outLength = Math.max(0, Math.round(samples.length / ratio));
-  if (outLength === 0) return new Float32Array(0);
-
-  const out = new Float32Array(outLength);
-  for (let i = 0; i < outLength; i++) {
-    const srcPos = i * ratio;
-    const leftIndex = Math.floor(srcPos);
-    const rightIndex = Math.min(samples.length - 1, leftIndex + 1);
-    const frac = srcPos - leftIndex;
-    out[i] = samples[leftIndex] * (1 - frac) + samples[rightIndex] * frac;
-  }
-  return out;
-}
-
-export interface Pcm16kFrameChunker {
-  push(samples: Float32Array, sampleRate?: number): void;
-  reset(): void;
-}
-
-/**
- * 将任意块大小的 Float32 音频流按 16kHz / 20ms（320 采样 = 640 字节 S16LE）切帧输出。
- */
-export function createPcm16kFrameChunker(
-  onFrame: (pcmBytes: Uint8Array<ArrayBuffer>) => void
-): Pcm16kFrameChunker {
-  const ring = new Float32Array(MOSS_UPSTREAM_FRAME_SAMPLES);
-  let offset = 0;
-
-  return {
-    push(samples: Float32Array, sampleRate: number = MOSS_UPSTREAM_SAMPLE_RATE): void {
-      if (!samples || samples.length === 0) return;
-      const resampled = resampleMonoFloat32(samples, sampleRate, MOSS_UPSTREAM_SAMPLE_RATE);
-      let readIndex = 0;
-      while (readIndex < resampled.length) {
-        const needed = MOSS_UPSTREAM_FRAME_SAMPLES - offset;
-        const available = resampled.length - readIndex;
-        const copyCount = Math.min(needed, available);
-        ring.set(resampled.subarray(readIndex, readIndex + copyCount), offset);
-        offset += copyCount;
-        readIndex += copyCount;
-
-        if (offset === MOSS_UPSTREAM_FRAME_SAMPLES) {
-          offset = 0;
-          onFrame(encodeFloat32ToPcmS16LE(ring));
-        }
-      }
-    },
-    reset(): void {
-      offset = 0;
-    }
-  };
 }
 
 /** 由 baseUrl 与 model 计算 WebSocket 连接地址 */

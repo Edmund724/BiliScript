@@ -8,6 +8,8 @@ import {
   decodePcmS16LEToFloat32
 } from "./moss-live-protocol.js";
 
+export const DEFAULT_AUDIO_LEAD_TIME_SEC = 0.03;
+
 export interface AudioBufferLike {
   readonly duration: number;
   readonly length: number;
@@ -53,6 +55,13 @@ interface ActiveSourceEntry {
   source: AudioBufferSourceNodeLike;
   startAt: number;
   sampleCount: number;
+  playbackRate: number;
+}
+
+interface PendingPlaybackChunk {
+  context: PendingAudioContextItem;
+  samples: Float32Array;
+  isCurrent: () => boolean;
 }
 
 interface TurnPlaybackTracker {
@@ -73,6 +82,7 @@ export interface MossAudioPlayerOptions {
   sampleRate?: number;
   volume?: number;
   speed?: number;
+  leadTimeSec?: number;
   enablePlaybackReceipts?: boolean;
   createAudioContext?: () => AudioContextLike | null;
   onSendJson?: (payload: unknown) => void;
@@ -111,11 +121,14 @@ export class MossAudioPlayer {
   private outputGain: AudioGainNodeLike | null = null;
   private volume: number;
   private nextPlayTime = 0;
+  private resumeInFlight: Promise<void> | null = null;
   private readonly pendingAudioContexts: PendingAudioContextItem[] = [];
   private readonly pendingAudioFrames: ArrayBufferLike[] = [];
+  private readonly pendingChunks: PendingPlaybackChunk[] = [];
   private readonly turnPlaybacks = new Map<string, TurnPlaybackTracker>();
   private readonly options: MossAudioPlayerOptions;
   private readonly sampleRate: number;
+  private readonly leadTimeSec: number;
   private readonly enablePlaybackReceipts: boolean;
   private playbackRate: number = 1;
 
@@ -126,6 +139,11 @@ export class MossAudioPlayer {
       typeof rawRate === "number" && Number.isFinite(rawRate) && rawRate > 0
         ? rawRate
         : MOSS_DOWNSTREAM_SAMPLE_RATE;
+    const rawLeadTime = options.leadTimeSec;
+    this.leadTimeSec =
+      typeof rawLeadTime === "number" && Number.isFinite(rawLeadTime) && rawLeadTime >= 0
+        ? rawLeadTime
+        : DEFAULT_AUDIO_LEAD_TIME_SEC;
     this.volume = clampVolume(options.volume ?? 1);
     this.playbackRate = clampPlaybackRate(options.speed ?? 1);
     this.enablePlaybackReceipts = options.enablePlaybackReceipts !== false;
@@ -155,10 +173,86 @@ export class MossAudioPlayer {
         this.outputGain.connect(this.audioCtx.destination);
       }
     }
-    if (this.audioCtx && this.audioCtx.state === "suspended") {
-      void this.audioCtx.resume?.().catch(() => {});
+    if (this.audioCtx && typeof this.audioCtx.state === "string" && this.audioCtx.state !== "running") {
+      this.ensureAudioContextResumed(this.audioCtx);
     }
     return this.audioCtx;
+  }
+
+  private ensureAudioContextResumed(audioCtx: AudioContextLike): void {
+    if (this.resumeInFlight || audioCtx.state === "closed" || typeof audioCtx.resume !== "function") {
+      return;
+    }
+    let resumePromise: Promise<void>;
+    try {
+      resumePromise = Promise.resolve(audioCtx.resume());
+    } catch {
+      this.discardPendingChunksOnResumeFailure();
+      return;
+    }
+    const trackedPromise = resumePromise.then(
+      () => {
+        if (this.resumeInFlight === trackedPromise) {
+          this.resumeInFlight = null;
+        }
+        if (this.audioCtx !== audioCtx) {
+          return;
+        }
+        if (typeof audioCtx.state === "string" && audioCtx.state !== "running") {
+          this.discardPendingChunksOnResumeFailure();
+          return;
+        }
+        this.flushPendingChunks();
+      },
+      () => {
+        if (this.resumeInFlight === trackedPromise) {
+          this.resumeInFlight = null;
+        }
+        if (this.audioCtx !== audioCtx) {
+          return;
+        }
+        this.discardPendingChunksOnResumeFailure();
+      }
+    );
+    this.resumeInFlight = trackedPromise;
+  }
+
+  private discardPendingChunksOnResumeFailure(): void {
+    if (this.pendingChunks.length === 0) return;
+    while (this.pendingChunks.length > 0) {
+      const item = this.pendingChunks.shift()!;
+      const tracker = this.turnPlaybacks.get(this.getTurnKey(item.context.runId, item.context.turnId));
+      if (!tracker || tracker.stopped || item.context.discard) continue;
+      tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
+      this.sendTurnCompletedIfReady(tracker);
+    }
+    this.options.onStateChange();
+  }
+
+  private flushPendingChunks(): void {
+    const audioCtx = this.audioCtx;
+    if (!audioCtx || (typeof audioCtx.state === "string" && audioCtx.state !== "running")) {
+      return;
+    }
+    while (this.pendingChunks.length > 0) {
+      if (this.audioCtx !== audioCtx) return;
+      if (typeof audioCtx.state === "string" && audioCtx.state !== "running") {
+        this.ensureAudioContextResumed(audioCtx);
+        return;
+      }
+      const item = this.pendingChunks.shift()!;
+      const tracker = this.getOrCreateTurnTracker(item.context.runId, item.context.turnId);
+      if (item.context.discard || tracker.stopped) {
+        continue;
+      }
+      if (!item.isCurrent()) {
+        tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
+        this.sendTurnCompletedIfReady(tracker);
+        this.options.onStateChange();
+        continue;
+      }
+      this.scheduleDecodedChunk(item.context, item.samples, audioCtx, item.isCurrent);
+    }
   }
 
   private getTurnKey(runId: string, turnId: string): string {
@@ -188,7 +282,13 @@ export class MossAudioPlayer {
   }
 
   isPlaying(): boolean {
-    if (this.pendingAudioContexts.length > 0 || this.pendingAudioFrames.length > 0) return true;
+    if (
+      this.pendingAudioContexts.length > 0 ||
+      this.pendingAudioFrames.length > 0 ||
+      this.pendingChunks.length > 0
+    ) {
+      return true;
+    }
     for (const tracker of this.turnPlaybacks.values()) {
       if (tracker.stopped || tracker.completedSent) continue;
       if (tracker.activeSources.size > 0 || tracker.inFlightChunks > 0) {
@@ -267,6 +367,13 @@ export class MossAudioPlayer {
     for (const context of this.pendingAudioContexts) {
       if (context.runId === runId && context.turnId === turnId) context.discard = true;
     }
+    for (let i = this.pendingChunks.length - 1; i >= 0; i--) {
+      const pending = this.pendingChunks[i];
+      if (pending.context.runId === runId && pending.context.turnId === turnId) {
+        pending.context.discard = true;
+        this.pendingChunks.splice(i, 1);
+      }
+    }
 
     const now = this.audioCtx ? this.audioCtx.currentTime : 0;
     for (const entry of tracker.activeSources) {
@@ -275,7 +382,7 @@ export class MossAudioPlayer {
         const elapsedSec = Math.max(0, now - entry.startAt);
         tracker.playedSamples += Math.min(
           entry.sampleCount,
-          Math.round(elapsedSec * this.sampleRate)
+          Math.round(elapsedSec * this.sampleRate * entry.playbackRate)
         );
       }
       try {
@@ -291,15 +398,18 @@ export class MossAudioPlayer {
     this.options.onStateChange();
     tracker.stopped = true;
 
-    this.nextPlayTime = now;
+    let maxRemainingEnd = 0;
+    let hasOtherActiveSources = false;
     for (const other of this.turnPlaybacks.values()) {
       for (const entry of other.activeSources) {
-        this.nextPlayTime = Math.max(
-          this.nextPlayTime,
-          entry.startAt + entry.sampleCount / this.sampleRate
+        hasOtherActiveSources = true;
+        maxRemainingEnd = Math.max(
+          maxRemainingEnd,
+          entry.startAt + entry.sampleCount / (this.sampleRate * entry.playbackRate)
         );
       }
     }
+    this.nextPlayTime = hasOtherActiveSources ? Math.max(now, maxRemainingEnd) : 0;
     this.options.onTurnFinished(runId, turnId);
   }
 
@@ -327,10 +437,11 @@ export class MossAudioPlayer {
   stopAll(): void {
     this.pendingAudioContexts.length = 0;
     this.pendingAudioFrames.length = 0;
+    this.pendingChunks.length = 0;
     for (const tracker of [...this.turnPlaybacks.values()]) {
       this.stopTurn(tracker.runId, tracker.turnId);
     }
-    this.nextPlayTime = this.audioCtx ? this.audioCtx.currentTime : 0;
+    this.nextPlayTime = 0;
     this.options.onStateChange();
   }
 
@@ -338,6 +449,7 @@ export class MossAudioPlayer {
     this.stopAll();
     this.turnPlaybacks.clear();
     this.nextPlayTime = 0;
+    this.resumeInFlight = null;
     if (this.audioCtx) {
       const ctx = this.audioCtx;
       this.audioCtx = null;
@@ -404,24 +516,58 @@ export class MossAudioPlayer {
       return;
     }
 
+    if (typeof audioCtx.state === "string" && audioCtx.state !== "running") {
+      if (audioCtx.state === "closed" || typeof audioCtx.resume !== "function") {
+        tracker.inFlightChunks = Math.max(0, tracker.inFlightChunks - 1);
+        this.sendTurnCompletedIfReady(tracker);
+        this.options.onStateChange();
+        return;
+      }
+      this.pendingChunks.push({ context, samples, isCurrent });
+      this.options.onStateChange();
+      this.ensureAudioContextResumed(audioCtx);
+      return;
+    }
+
+    if (this.pendingChunks.length > 0) {
+      this.flushPendingChunks();
+    }
+
+    this.scheduleDecodedChunk(context, samples, audioCtx, isCurrent);
+  }
+
+  private scheduleDecodedChunk(
+    context: PendingAudioContextItem,
+    samples: Float32Array,
+    audioCtx: AudioContextLike,
+    isCurrent: () => boolean
+  ): void {
+    const tracker = this.getOrCreateTurnTracker(context.runId, context.turnId);
+    if (context.discard || tracker.stopped) return;
+
     const audioBuffer = audioCtx.createBuffer(1, samples.length, this.sampleRate);
     audioBuffer.getChannelData(0).set(samples);
 
     const source = audioCtx.createBufferSource();
     source.buffer = audioBuffer;
+    const rate = this.playbackRate;
     if (source.playbackRate) {
-      source.playbackRate.value = this.playbackRate;
+      source.playbackRate.value = rate;
     }
     source.connect(this.outputGain!);
 
-    const startAt = Math.max(audioCtx.currentTime, this.nextPlayTime);
-    const durationSec = samples.length / (this.sampleRate * this.playbackRate);
+    const startAt =
+      this.nextPlayTime <= audioCtx.currentTime
+        ? audioCtx.currentTime + this.leadTimeSec
+        : this.nextPlayTime;
+    const durationSec = samples.length / (this.sampleRate * rate);
     this.nextPlayTime = startAt + durationSec;
 
     const entry: ActiveSourceEntry = {
       source,
       startAt,
-      sampleCount: samples.length
+      sampleCount: samples.length,
+      playbackRate: rate
     };
     tracker.activeSources.add(entry);
     this.options.onStateChange();

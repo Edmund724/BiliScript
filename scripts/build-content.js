@@ -54,6 +54,8 @@ const outDir = path.join(extensionRoot, "entry");
 const mainOutfile = path.join(outDir, "content-main.mjs");
 const bootstrapOutfile = path.join(outDir, "content-bootstrap.iife.js");
 const chunksDir = path.join(outDir, "chunks");
+const workletEntry = path.join(extensionRoot, "live", "pcm-capture-worklet.ts");
+const workletOutfile = path.join(chunksDir, "pcm-capture-worklet.mjs");
 // 分包前的单文件产物（已废弃）：构建前清掉，避免它混进 release zip。
 // 不是死分支——它在下方 cleanPreviousOutput() 里真的被删；清的是「旧机器/旧
 // checkout 遗留的那一枚」，本地新构建不会再生它。arch-slim-2/01 与 02
@@ -309,6 +311,21 @@ const bootstrapOptions = {
   plugins: [localImportGuard],
 };
 
+// AudioWorklet 处理器独立单文件产物（落入 entry/chunks/，由 WAR 通配覆盖，
+// 供页面侧 Content Script 通过 chrome.runtime.getURL 安全加载）。
+const workletOptions = {
+  entryPoints: [workletEntry],
+  outfile: workletOutfile,
+  bundle: true,
+  splitting: false,
+  format: "esm",
+  platform: "browser",
+  minify: true,
+  sourcemap: true,
+  target: BUILD_TARGET,
+  plugins: [localImportGuard],
+};
+
 // watch 重建日志：首轮（rebuild()）由下方自检/报表覆盖，只在后续增量重建时
 // 打一行；构建错误由 esbuild 自身输出，这里不重复。
 const watchRebuildLog = {
@@ -333,6 +350,7 @@ async function main() {
     // 先跑轮 B（懒加载区），再跑轮 A（常驻区 external 指向轮 B 产物路径——
     // 路径由 lazyTargets 的 key 决定、无 hash，两轮互不依赖对方的产物存在）。
     const lazyResult = await build(lazyChunkOptions);
+    await build(workletOptions);
     await build(mainPackageOptions);
     await build(bootstrapOptions);
     if (!selfCheck()) {
@@ -345,6 +363,10 @@ async function main() {
     ...lazyChunkOptions,
     plugins: [...lazyChunkOptions.plugins, watchRebuildLog],
   });
+  const workletCtx = await context({
+    ...workletOptions,
+    plugins: [...workletOptions.plugins, watchRebuildLog],
+  });
   const mainCtx = await context({
     ...mainPackageOptions,
     plugins: [...mainPackageOptions.plugins, watchRebuildLog],
@@ -354,13 +376,14 @@ async function main() {
     plugins: [...bootstrapOptions.plugins, watchRebuildLog],
   });
   const lazyRebuild = await lazyCtx.rebuild();
+  await workletCtx.rebuild();
   await mainCtx.rebuild();
   await bootstrapCtx.rebuild();
   if (!selfCheck()) {
     process.exit(1);
   }
   report(lazyRebuild.metafile);
-  await Promise.all([lazyCtx.watch(), mainCtx.watch(), bootstrapCtx.watch()]);
+  await Promise.all([lazyCtx.watch(), workletCtx.watch(), mainCtx.watch(), bootstrapCtx.watch()]);
   console.log("[watch] build-content watching for changes...");
 }
 
@@ -393,6 +416,21 @@ function selfCheck() {
         syntaxCheck(path.join(chunksDir, chunkFile));
       }
     }
+  }
+
+  // AudioWorklet 产物守卫：必须存在、调用 registerProcessor 且不含主线程 DOM 全局符号。
+  if (!fs.existsSync(workletOutfile)) {
+    console.error(`Self-check failed: missing AudioWorklet output ${workletOutfile}`);
+    process.exitCode = 1;
+    return false;
+  }
+  const workletText = fs.readFileSync(workletOutfile, "utf8");
+  if (!workletText.includes("registerProcessor") || /\b(?:window|document)\b/.test(workletText)) {
+    console.error(
+      `Self-check failed: ${workletOutfile} 缺少 registerProcessor 或包含主线程 DOM 全局符号`
+    );
+    process.exitCode = 1;
+    return false;
   }
 
   // 主包守卫（仿 build.js 的 offscreen splitting 守卫）：content-main.mjs

@@ -64,14 +64,16 @@ export function buildLensDisplacementMap(
   const maxOffset = 1.1 * edge;
   const scale = 2 * maxOffset;
 
-  for (let y = 0; y < height; y++) {
+  const rowStride = width * 4;
+  const fillRow = (y: number) => {
     const py = y + 0.5 - halfH;
     const absPy = Math.abs(py);
     const qy = absPy - by;
     const signY = py < 0 ? -1 : 1;
+    const rowOffset = y * rowStride;
 
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
+      const idx = rowOffset + x * 4;
       const px = x + 0.5 - halfW;
       const absPx = Math.abs(px);
       const qx = absPx - bx;
@@ -112,6 +114,26 @@ export function buildLensDisplacementMap(
       data[idx + 2] = 128;
       data[idx + 3] = 255;
     }
+  };
+
+  // 圆角矩形 SDF 在纵向中段 y ∈ [capRows, height - capRows) 每行水平分布完全恒等，
+  // 仅需计算首行模板并用 TypedArray.set 整行复制，消除约 90% 的逐像素三角与幂次计算。
+  const capRows = Math.min(Math.floor(height / 2), Math.ceil(Math.max(r, edge)));
+  const midStart = capRows;
+  const midEnd = height - capRows;
+
+  for (let y = 0; y < capRows; y++) {
+    fillRow(y);
+  }
+  if (midStart < midEnd) {
+    fillRow(midStart);
+    const templateRow = data.subarray(midStart * rowStride, (midStart + 1) * rowStride);
+    for (let y = midStart + 1; y < midEnd; y++) {
+      data.set(templateRow, y * rowStride);
+    }
+  }
+  for (let y = Math.max(capRows, midEnd); y < height; y++) {
+    fillRow(y);
   }
 
   ctx.putImageData(imgData, 0, 0);
@@ -145,7 +167,6 @@ export function createLiquidGlassLens(deps: LiquidGlassLensDeps): LiquidGlassLen
   let lensResizeObserver: ResizeObserver | null = null;
   let observedOverlay: HTMLElement | null = null;
   let lastLensSizeKey = "";
-  let lensUpdateSeq = 0;
 
   function ensureLensSvg(host: HTMLElement): SVGSVGElement | null {
     if (!supportsBackdropSvgLens()) {
@@ -222,40 +243,26 @@ export function createLiquidGlassLens(deps: LiquidGlassLensDeps): LiquidGlassLen
     }
 
     lastLensSizeKey = sizeKey;
-    const seq = ++lensUpdateSeq;
-
-    const applyDecodedMap = () => {
-      if (seq !== lensUpdateSeq || !overlay.isConnected || !lensSvgEl) {
-        return;
-      }
-      const feImg = lensSvgEl.querySelector(".live-glass-lens-feimage");
-      const dispR = lensSvgEl.querySelector(".live-glass-lens-disp-r");
-      const dispG = lensSvgEl.querySelector(".live-glass-lens-disp-g");
-      const dispB = lensSvgEl.querySelector(".live-glass-lens-disp-b");
-
-      if (feImg) {
-        feImg.setAttribute("width", String(width));
-        feImg.setAttribute("height", String(height));
-        feImg.setAttribute("href", mapped.dataUrl);
-      }
-      // 三遍色散处理：红色偏移 +15%，绿色基准，蓝色偏移 -15%
-      dispR?.setAttribute("scale", (mapped.scale * 1.15).toFixed(2));
-      dispG?.setAttribute("scale", mapped.scale.toFixed(2));
-      dispB?.setAttribute("scale", (mapped.scale * 0.85).toFixed(2));
-
-      overlay.style.setProperty("--biliscript-live-glass-lens", `url(#${lensFilterId})`);
-      overlay.dataset.glassLens = "ready";
-    };
-
-    if (typeof Image !== "undefined") {
-      const img = new Image();
-      img.src = mapped.dataUrl;
-      if (typeof img.decode === "function") {
-        img.decode().then(applyDecodedMap, applyDecodedMap);
-        return;
-      }
+    if (!overlay.isConnected || !lensSvgEl) {
+      return;
     }
-    applyDecodedMap();
+    const feImg = lensSvgEl.querySelector(".live-glass-lens-feimage");
+    const dispR = lensSvgEl.querySelector(".live-glass-lens-disp-r");
+    const dispG = lensSvgEl.querySelector(".live-glass-lens-disp-g");
+    const dispB = lensSvgEl.querySelector(".live-glass-lens-disp-b");
+
+    if (feImg) {
+      feImg.setAttribute("width", String(width));
+      feImg.setAttribute("height", String(height));
+      feImg.setAttribute("href", mapped.dataUrl);
+    }
+    // 三遍色散处理：红色偏移 +15%，绿色基准，蓝色偏移 -15%
+    dispR?.setAttribute("scale", (mapped.scale * 1.15).toFixed(2));
+    dispG?.setAttribute("scale", mapped.scale.toFixed(2));
+    dispB?.setAttribute("scale", (mapped.scale * 0.85).toFixed(2));
+
+    overlay.style.setProperty("--biliscript-live-glass-lens", `url(#${lensFilterId})`);
+    overlay.dataset.glassLens = "ready";
   }
 
   function observeResize(overlay: HTMLElement): void {
@@ -272,7 +279,6 @@ export function createLiquidGlassLens(deps: LiquidGlassLensDeps): LiquidGlassLen
   }
 
   function dispose(): void {
-    lensUpdateSeq += 1;
     if (lensResizeObserver) {
       lensResizeObserver.disconnect();
       lensResizeObserver = null;

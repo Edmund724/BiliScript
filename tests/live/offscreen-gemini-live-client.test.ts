@@ -393,8 +393,8 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
 
     expect(audioContext.sources).toHaveLength(2);
     expect(audioContext.sources[0].buffer?.sampleRate).toBe(24000);
-    expect(audioContext.sources[0].startedAt).toBeCloseTo(1, 5);
-    expect(audioContext.sources[1].startedAt).toBeCloseTo(1.1, 5);
+    expect(audioContext.sources[0].startedAt).toBeCloseTo(1.03, 5);
+    expect(audioContext.sources[1].startedAt).toBeCloseTo(1.13, 5);
     expect(speakingStates).toEqual([true]);
 
     ws.simulateMessage(serverContent({ turnComplete: true }));

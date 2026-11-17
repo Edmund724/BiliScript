@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFullscreenLiveOverlay } from "../../extension/live/fullscreen-live-overlay.js";
+import { createLiveOverlayTranscriptMerger } from "../../extension/live/live-transcript-merger.js";
+import { buildLensDisplacementMap } from "../../extension/live/liquid-glass-lens.js";
+import { encodeBase64Bytes } from "../../extension/live/moss-live-protocol.js";
 import type { LiveChatController } from "../../extension/live/live-chat-controller.js";
+
+function flushAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
 
 describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
   let playerHost: HTMLElement;
@@ -801,7 +808,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     overlay.dispose();
   });
 
-  it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，浮窗不提供清空按钮", () => {
+  it("纯语音对话流转写更新：用户绿气泡与 Agent 流式气泡，浮窗不提供清空按钮", async () => {
     const overlay = createFullscreenLiveOverlay({
       getPlayerHost: () => playerHost,
       getLiveController: () => mockController as LiveChatController,
@@ -814,6 +821,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       kind: "input.updated",
       text: "你能看到画面吗？"
     });
+    await flushAnimationFrame();
 
     const messages = overlay.getElement()?.querySelector(".live-overlay-messages") as HTMLElement;
     let userBubble = messages.querySelector(".live-overlay-bubble-user");
@@ -841,6 +849,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
       turnId: "turn-1",
       text: "我看到了，是一只橘猫！"
     });
+    await flushAnimationFrame();
 
     let assistantBubble = messages.querySelector(".live-overlay-bubble-assistant");
     expect(assistantBubble).not.toBeNull();
@@ -860,7 +869,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     expect(messages.children.length).toBe(0);
   });
 
-  it("麦克风未激活（isVoiceRecentlyActive 为 false）时拦截纯背景原声的 input 转写", () => {
+  it("麦克风未激活（isVoiceRecentlyActive 为 false）时拦截纯背景原声的 input 转写", async () => {
     let voiceActive = false;
     mockController.isVoiceRecentlyActive = () => voiceActive;
 
@@ -881,6 +890,7 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
     // 2. 麦克风激活后正常上屏
     voiceActive = true;
     overlay.updateTranscript({ kind: "input.updated", text: "我在说话" });
+    await flushAnimationFrame();
     expect(messages.querySelector(".live-overlay-bubble-user")?.textContent).toBe("我在说话");
   });
 
@@ -1334,5 +1344,174 @@ describe("live/fullscreen-live-overlay 全屏伴看浮窗", () => {
         Reflect.deleteProperty(globalThis, "ResizeObserver");
       }
     }
+  });
+
+  it("rAF 流式合批状态机：同帧高频 updated 原位复用气泡并合批一次写/滚，终态同步落定且清场取消挂起帧", () => {
+    const messages = document.createElement("div");
+    const scheduled = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    const cancelFrame = vi.fn((id: number) => {
+      scheduled.delete(id);
+    });
+    const scrollToBottom = vi.fn();
+
+    const merger = createLiveOverlayTranscriptMerger({
+      getMessagesContainer: () => messages,
+      scrollToBottom,
+      requestFrame: (cb) => {
+        const id = nextFrameId++;
+        scheduled.set(id, cb);
+        return id;
+      },
+      cancelFrame
+    });
+
+    // 同帧高频到达 4 次增量转写
+    merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第" });
+    merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第一" });
+    merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第一句" });
+    merger.handleEvent({ kind: "output.updated", runId: "r-batch", turnId: "t-1", text: "第一句完整增量" });
+
+    const bubble = messages.querySelector(".live-overlay-bubble-assistant") as HTMLDivElement;
+    expect(bubble).not.toBeNull();
+    expect(messages.children).toHaveLength(1);
+    expect(scheduled.size).toBe(1);
+    expect(bubble.textContent).toBe("");
+    expect(scrollToBottom).not.toHaveBeenCalled();
+
+    // 触发本帧 rAF：复用同一节点且仅写末态文本、仅滚底一次
+    const [frameId, frameCb] = [...scheduled.entries()][0];
+    scheduled.delete(frameId);
+    frameCb(16);
+    expect(messages.querySelector(".live-overlay-bubble-assistant")).toBe(bubble);
+    expect(bubble.textContent).toBe("第一句完整增量");
+    expect(scrollToBottom).toHaveBeenCalledTimes(1);
+
+    // 下一帧内先到 updated 后直达 output.done：终态同步冲刷并取消挂起 rAF
+    merger.handleEvent({
+      kind: "output.updated",
+      runId: "r-batch",
+      turnId: "t-1",
+      text: "中间半截"
+    });
+    expect(scheduled.size).toBe(1);
+    merger.handleEvent({
+      kind: "output.done",
+      runId: "r-batch",
+      turnId: "t-1",
+      text: "完整终态回复"
+    });
+    expect(cancelFrame).toHaveBeenCalledTimes(1);
+    expect(scheduled.size).toBe(0);
+    expect(bubble.textContent).toBe("完整终态回复");
+    expect(bubble.classList.contains("is-streaming")).toBe(false);
+    expect(scrollToBottom).toHaveBeenCalledTimes(2);
+
+    // 清场/销毁时取消尚未执行的 rAF，不让迟到帧回写
+    merger.handleEvent({
+      kind: "output.updated",
+      runId: "r-batch",
+      turnId: "t-2",
+      text: "将被清空的流式分片"
+    });
+    expect(scheduled.size).toBe(1);
+    merger.dispose();
+    expect(scheduled.size).toBe(0);
+    expect(cancelFrame).toHaveBeenCalledTimes(2);
+  });
+
+  function buildReferenceLensBytes(width: number, height: number, radius: number, edge: number): Uint8ClampedArray {
+    const data = new Uint8ClampedArray(width * height * 4);
+    const halfW = width / 2;
+    const halfH = height / 2;
+    const r = Math.min(radius, halfW, halfH);
+    const bx = Math.max(0, halfW - r);
+    const by = Math.max(0, halfH - r);
+    const maxOffset = 1.1 * edge;
+    for (let y = 0; y < height; y++) {
+      const py = y + 0.5 - halfH;
+      const absPy = Math.abs(py);
+      const qy = absPy - by;
+      const signY = py < 0 ? -1 : 1;
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const px = x + 0.5 - halfW;
+        const absPx = Math.abs(px);
+        const qx = absPx - bx;
+        const signX = px < 0 ? -1 : 1;
+        const outX = Math.max(qx, 0);
+        const outY = Math.max(qy, 0);
+        const outLen = Math.hypot(outX, outY);
+        const sdf = outLen + Math.min(Math.max(qx, qy), 0) - r;
+        const d = -sdf;
+        if (d <= 0 || d >= edge) {
+          data[idx] = 128;
+          data[idx + 1] = 128;
+          data[idx + 2] = 128;
+          data[idx + 3] = 255;
+          continue;
+        }
+        let nx = 0;
+        let ny = 0;
+        if (outLen > 1e-4) {
+          nx = signX * (outX / outLen);
+          ny = signY * (outY / outLen);
+        } else if (qx > qy) {
+          nx = signX;
+        } else {
+          ny = signY;
+        }
+        const offset = maxOffset * Math.pow(1 - d / edge, 2.6);
+        data[idx] = Math.max(0, Math.min(255, Math.round(128 + (-nx * offset / maxOffset) * 127)));
+        data[idx + 1] = Math.max(0, Math.min(255, Math.round(128 + (-ny * offset / maxOffset) * 127)));
+        data[idx + 2] = 128;
+        data[idx + 3] = 255;
+      }
+    }
+    return data;
+  }
+
+  function installLensCanvasCaptureMock(): void {
+    const capturedByCanvas = new WeakMap<HTMLCanvasElement, Uint8ClampedArray>();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (
+      this: HTMLCanvasElement,
+      type: string
+    ) {
+      if (type !== "2d") return null;
+      const canvas = this;
+      return {
+        createImageData: (w: number, h: number) => ({
+          width: w,
+          height: h,
+          data: new Uint8ClampedArray(w * h * 4)
+        }),
+        putImageData: (imgData: ImageData) => {
+          capturedByCanvas.set(canvas, new Uint8ClampedArray(imgData.data));
+        }
+      } as unknown as CanvasRenderingContext2D;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(function (this: HTMLCanvasElement) {
+      const bytes = capturedByCanvas.get(this) ?? new Uint8ClampedArray(0);
+      return `data:image/png;base64,${encodeBase64Bytes(bytes.buffer)}`;
+    });
+  }
+
+  it("buildLensDisplacementMap 扫描线中段复用与逐像素参考实现字节级等价", () => {
+    installLensCanvasCaptureMock();
+
+    const oddBox = buildLensDisplacementMap(321, 241, 14, 12);
+    expect(oddBox?.dataUrl).toBe(
+      `data:image/png;base64,${encodeBase64Bytes(buildReferenceLensBytes(321, 241, 14, 12).buffer)}`
+    );
+
+    const evenBox = buildLensDisplacementMap(320, 121, 14, 12);
+    expect(evenBox?.dataUrl).toBe(
+      `data:image/png;base64,${encodeBase64Bytes(buildReferenceLensBytes(320, 121, 14, 12).buffer)}`
+    );
+
+    const capsuleBox = buildLensDisplacementMap(220, 28, 14, 8);
+    expect(capsuleBox?.dataUrl).toBe(
+      `data:image/png;base64,${encodeBase64Bytes(buildReferenceLensBytes(220, 28, 14, 8).buffer)}`
+    );
   });
 });

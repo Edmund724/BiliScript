@@ -24,6 +24,7 @@ import {
 } from "./offscreen-live-session-runtime.js";
 import {
   DEFAULT_MOSS_LIVE_WS_URL,
+  MOSS_UPSTREAM_FRAME_BYTES,
   MossBinaryTag,
   buildClientContextUpdatePayload,
   buildChangeVoicePayload,
@@ -367,7 +368,18 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
     pcmBytes: Uint8Array<ArrayBuffer>,
     transport: LiveWireTransport
   ): boolean {
-    return this.sendTaggedBinary(MossBinaryTag.AudioPcm, pcmBytes.buffer, transport);
+    if (pcmBytes.byteLength === 0) return false;
+    if (pcmBytes.byteLength <= MOSS_UPSTREAM_FRAME_BYTES) {
+      return this.sendTaggedBinary(MossBinaryTag.AudioPcm, pcmBytes, transport);
+    }
+    let allSent = true;
+    for (let offset = 0; offset < pcmBytes.byteLength; offset += MOSS_UPSTREAM_FRAME_BYTES) {
+      const end = Math.min(offset + MOSS_UPSTREAM_FRAME_BYTES, pcmBytes.byteLength);
+      if (!this.sendTaggedBinary(MossBinaryTag.AudioPcm, pcmBytes.subarray(offset, end), transport)) {
+        allSent = false;
+      }
+    }
+    return allSent;
   }
 
   sendVideo(
@@ -385,7 +397,7 @@ export class MossWireAdapter implements LiveWireProtocolAdapter {
 
   sendTaggedBinary(
     tag: MossBinaryTag,
-    payload: ArrayBufferLike,
+    payload: ArrayBufferLike | Uint8Array,
     transport: LiveWireTransport
   ): boolean {
     return transport.sendBinary(packTaggedBinary(tag, payload));
@@ -477,11 +489,12 @@ export class OffscreenMossLiveClient extends OffscreenLiveSessionRuntime {
     super.handleAction(msg);
   }
 
-  sendAudioPcm(pcmBuffer: ArrayBufferLike): boolean {
+  sendAudioPcm(pcmBuffer: ArrayBufferLike | Uint8Array): boolean {
     if (!this.micEnabled || this.state !== "connected") {
       return false;
     }
-    return this.sendBinary(MossBinaryTag.AudioPcm, pcmBuffer);
+    const bytes = pcmBuffer instanceof Uint8Array ? pcmBuffer : new Uint8Array(pcmBuffer);
+    return this.mossAdapter.sendAudio("", bytes as Uint8Array<ArrayBuffer>, this.transport);
   }
 
   sendVideoJpeg(jpegBuffer: ArrayBufferLike): boolean {
@@ -491,7 +504,7 @@ export class OffscreenMossLiveClient extends OffscreenLiveSessionRuntime {
     return this.mossAdapter.sendVideoBuffer(jpegBuffer, this.transport);
   }
 
-  sendBinary(tag: MossBinaryTag, payload: ArrayBufferLike): boolean {
+  sendBinary(tag: MossBinaryTag, payload: ArrayBufferLike | Uint8Array): boolean {
     return this.mossAdapter.sendTaggedBinary(tag, payload, this.transport);
   }
 }

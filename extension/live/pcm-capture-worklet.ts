@@ -1,0 +1,98 @@
+// extension/live/pcm-capture-worklet.ts
+// 运行在 AudioWorklet 独立音频渲染线程的采集处理器：
+// 接收麦克风（input 0）与视频原声（input 1），调用 pcm-capture-core 完成混音、纯麦 VAD、
+// 16kHz 重采样与 40ms（1280 字节）S16LE 分帧，并通过 Transferable ArrayBuffer 零拷贝传回主线程。
+
+import {
+  PCM_CAPTURE_PROCESSOR_NAME,
+  PCM_WORKLET_BATCH_SAMPLES,
+  createPcmCaptureCore,
+  type PcmCaptureConfig,
+  type PcmCaptureMainToWorkletMessage,
+  type PcmCaptureWorkletToMainMessage
+} from "./pcm-capture-core.js";
+
+declare abstract class AudioWorkletProcessor {
+  readonly port: MessagePort;
+  constructor(options?: AudioWorkletNodeOptions);
+  abstract process(
+    inputs: Float32Array[][],
+    outputs: Float32Array[][],
+    parameters: Record<string, Float32Array>
+  ): boolean;
+}
+
+declare function registerProcessor(
+  name: string,
+  processorCtor: new (options?: AudioWorkletNodeOptions) => AudioWorkletProcessor
+): void;
+
+declare const sampleRate: number;
+
+class PcmCaptureWorkletProcessor extends AudioWorkletProcessor {
+  private stopped = false;
+  private readonly core;
+
+  constructor(options?: AudioWorkletNodeOptions) {
+    super(options);
+    const initialConfig = options?.processorOptions as Partial<PcmCaptureConfig> | undefined;
+    const workletRate =
+      typeof sampleRate === "number" && Number.isFinite(sampleRate) && sampleRate > 0
+        ? sampleRate
+        : undefined;
+
+    const post = (msg: PcmCaptureWorkletToMainMessage, transfer?: Transferable[]): void => {
+      if (this.stopped) return;
+      if (transfer && transfer.length > 0) {
+        this.port.postMessage(msg, transfer);
+      } else {
+        this.port.postMessage(msg);
+      }
+    };
+
+    this.core = createPcmCaptureCore({
+      batchSamples: PCM_WORKLET_BATCH_SAMPLES,
+      sampleRate: workletRate,
+      initialConfig,
+      onVadChange: (active) => {
+        post({ type: "vad", active });
+      },
+      onSpeechHeartbeat: () => {
+        post({ type: "speech" });
+      },
+      onPcmBatch: (pcmBuffer, hadSpeech) => {
+        post({ type: "pcm", pcmBuffer, hadSpeech }, [pcmBuffer]);
+      }
+    });
+
+    this.port.onmessage = (event: MessageEvent<PcmCaptureMainToWorkletMessage>) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "stop") {
+        this.stopped = true;
+        this.core.reset();
+        this.port.onmessage = null;
+        return;
+      }
+      if (msg.type === "config") {
+        this.core.setConfig(msg);
+      }
+    };
+  }
+
+  process(inputs: Float32Array[][]): boolean {
+    if (this.stopped) {
+      return false;
+    }
+    const micChannel = inputs[0]?.[0];
+    const videoChannels = inputs[1];
+    const currentRate =
+      typeof sampleRate === "number" && Number.isFinite(sampleRate) && sampleRate > 0
+        ? sampleRate
+        : undefined;
+    this.core.processQuantum(micChannel, videoChannels, currentRate);
+    return true;
+  }
+}
+
+registerProcessor(PCM_CAPTURE_PROCESSOR_NAME, PcmCaptureWorkletProcessor);

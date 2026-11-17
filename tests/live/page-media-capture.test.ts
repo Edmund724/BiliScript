@@ -1,17 +1,26 @@
 // tests/live/page-media-capture.test.ts
-// 页面侧麦克风 16kHz PCM 采集、权限拒绝反馈、静音与释放单元测试
+// 页面侧 AudioWorklet 采集与 DSP 纯内核（混音、VAD、重采样、1280B 批量分帧）单元测试
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   createPageAudioCapture,
-  createVideoAudioCapture,
   formatMediaCaptureError,
   formatMicCaptureError,
-  type VideoAudioTrackStatus,
-  type PageAudioContextLike
+  type PageAudioContextLike,
+  type PageAudioWorkletNodeLike,
+  type VideoAudioTrackStatus
 } from "../../extension/live/page-media-capture.js";
-import { decodePcmS16LEToFloat32, MOSS_UPSTREAM_FRAME_BYTES, MOSS_UPSTREAM_SAMPLE_RATE } from "../../extension/live/moss-live-protocol.js";
+import {
+  MOSS_UPSTREAM_SAMPLE_RATE,
+  PCM_CAPTURE_PROCESSOR_NAME,
+  PCM_WORKLET_BATCH_BYTES,
+  createPcmCaptureCore,
+  decodePcmS16LEToFloat32,
+  type PcmCaptureConfig,
+  type PcmCaptureMainToWorkletMessage,
+  type PcmCaptureWorkletToMainMessage
+} from "../../extension/live/pcm-capture-core.js";
 
 class FakeMediaStreamTrack {
   enabled = true;
@@ -54,14 +63,28 @@ class FakeCaptureAudioContext implements PageAudioContextLike {
   destination = {};
   closed = false;
   sourceConnected = false;
-  processorConnected = false;
+  workletConnected = false;
   gainConnected = false;
   gainValue = 1;
-  onaudioprocess: ((ev: { inputBuffer: { numberOfChannels?: number; getChannelData(ch: number): Float32Array } }) => void) | null = null;
+  addedModuleUrls: string[] = [];
+  postedToWorklet: PcmCaptureMainToWorkletMessage[] = [];
+  workletStopped = false;
+  addModuleError: Error | null = null;
+  private workletCore: ReturnType<typeof createPcmCaptureCore> | null = null;
+  private workletPort: PageAudioWorkletNodeLike["port"] | null = null;
 
   constructor(sampleRate = MOSS_UPSTREAM_SAMPLE_RATE) {
     this.sampleRate = sampleRate;
   }
+
+  readonly audioWorklet = {
+    addModule: async (moduleURL: string): Promise<void> => {
+      this.addedModuleUrls.push(moduleURL);
+      if (this.addModuleError) {
+        throw this.addModuleError;
+      }
+    }
+  };
 
   async resume(): Promise<void> {
     this.state = "running";
@@ -82,22 +105,46 @@ class FakeCaptureAudioContext implements PageAudioContextLike {
     };
   }
 
-  createScriptProcessor(_bufferSize: number, _inChannels: number, _outChannels: number) {
-    const self = this;
+  createWorkletNode(name: string, options?: AudioWorkletNodeOptions): PageAudioWorkletNodeLike {
+    expect(name).toBe(PCM_CAPTURE_PROCESSOR_NAME);
+    const initialConfig = options?.processorOptions as Partial<PcmCaptureConfig> | undefined;
+    const postToMain = (msg: PcmCaptureWorkletToMainMessage) => {
+      if (this.workletStopped) return;
+      this.workletPort?.onmessage?.({ data: msg } as MessageEvent<PcmCaptureWorkletToMainMessage>);
+    };
+
+    const core = createPcmCaptureCore({
+      sampleRate: this.sampleRate,
+      initialConfig,
+      onVadChange: (active) => postToMain({ type: "vad", active }),
+      onSpeechHeartbeat: () => postToMain({ type: "speech" }),
+      onPcmBatch: (pcmBuffer, hadSpeech) => postToMain({ type: "pcm", pcmBuffer, hadSpeech })
+    });
+    this.workletCore = core;
+
+    const port: PageAudioWorkletNodeLike["port"] = {
+      onmessage: null,
+      postMessage: (msg: PcmCaptureMainToWorkletMessage) => {
+        this.postedToWorklet.push(msg);
+        if (msg.type === "stop") {
+          this.workletStopped = true;
+          core.reset();
+          return;
+        }
+        if (msg.type === "config") {
+          core.setConfig(msg);
+        }
+      }
+    };
+    this.workletPort = port;
+
     return {
-      set onaudioprocess(
-        fn: ((ev: { inputBuffer: { getChannelData(ch: number): Float32Array } }) => void) | null
-      ) {
-        self.onaudioprocess = fn;
-      },
-      get onaudioprocess() {
-        return self.onaudioprocess;
-      },
+      port,
       connect: (_dest: unknown) => {
-        self.processorConnected = true;
+        this.workletConnected = true;
       },
       disconnect: () => {
-        self.processorConnected = false;
+        this.workletConnected = false;
       }
     };
   }
@@ -123,33 +170,130 @@ class FakeCaptureAudioContext implements PageAudioContextLike {
     };
   }
 
-  createChannelMerger(_inputs = 2) {
-    return {
-      connect: () => {},
-      disconnect: () => {}
-    };
-  }
-
-  emitSamples(samples: Float32Array, videoSamples?: Float32Array) {
-    this.onaudioprocess?.({
-      inputBuffer: {
-        numberOfChannels: videoSamples ? 2 : 1,
-        getChannelData: (ch: number) => {
-          if (ch === 1 && videoSamples) return videoSamples;
-          return samples;
-        }
-      }
-    });
+  emitSamples(samples: Float32Array, videoSamples?: Float32Array | Float32Array[]) {
+    if (this.workletStopped || !this.workletCore) return;
+    const videoChannels = Array.isArray(videoSamples)
+      ? videoSamples
+      : videoSamples
+        ? [videoSamples]
+        : undefined;
+    this.workletCore.processQuantum(samples, videoChannels, this.sampleRate);
   }
 }
 
 beforeEach(() => {
-  resetModuleState();
   vi.unstubAllGlobals();
+  resetModuleState();
+});
+
+function feedQuanta(
+  core: ReturnType<typeof createPcmCaptureCore>,
+  quantaCount: number,
+  sampleRate: number,
+  micFill: number,
+  videoLeftFill?: number,
+  videoRightFill?: number
+): void {
+  const videoChannels =
+    videoLeftFill !== undefined && videoRightFill !== undefined
+      ? [new Float32Array(128).fill(videoLeftFill), new Float32Array(128).fill(videoRightFill)]
+      : undefined;
+  for (let i = 0; i < quantaCount; i++) {
+    core.processQuantum(new Float32Array(128).fill(micFill), videoChannels, sampleRate);
+  }
+}
+
+describe("createPcmCaptureCore (AudioWorklet DSP pure core)", () => {
+  it("resamples 48kHz 128-sample quanta continuously into exact 40ms (1280-byte) batches", () => {
+    const batches: Array<{ buffer: ArrayBuffer; hadSpeech: boolean }> = [];
+    const core = createPcmCaptureCore({
+      sampleRate: 48000,
+      onPcmBatch: (buffer, hadSpeech) => batches.push({ buffer, hadSpeech })
+    });
+
+    // 15 quanta * 128 samples = 1920 samples @ 48kHz = exact 40ms (640 samples @ 16kHz = 1280B)
+    feedQuanta(core, 14, 48000, 0.25);
+    expect(batches).toHaveLength(0);
+
+    core.processQuantum(new Float32Array(128).fill(0.25), undefined, 48000);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].buffer.byteLength).toBe(PCM_WORKLET_BATCH_BYTES);
+    expect(batches[0].hadSpeech).toBe(true);
+
+    const decoded = decodePcmS16LEToFloat32(batches[0].buffer);
+    expect(decoded.length).toBe(640);
+    expect(decoded[0]).toBeCloseTo(0.25, 2);
+    expect(decoded[639]).toBeCloseTo(0.25, 2);
+  });
+
+  it("downmixes stereo video audio, ducks video to 0.15 during mic VAD, and releases via sample count", () => {
+    const batches: ArrayBuffer[] = [];
+    const vadStates: boolean[] = [];
+    const heartbeats: number[] = [];
+
+    const core = createPcmCaptureCore({
+      sampleRate: 16000,
+      initialConfig: {
+        mixVideo: true,
+        vadReleaseMs: 300,
+        upstreamVideoDuckGain: 0.15
+      },
+      onPcmBatch: (buffer) => batches.push(buffer),
+      onVadChange: (active) => vadStates.push(active),
+      onSpeechHeartbeat: () => heartbeats.push(1)
+    });
+
+    // 1. Silent mic, stereo video (0.2 and 0.6 -> average 0.4 at 100% gain)
+    // 5 quanta * 128 = 640 samples = 40ms batch
+    feedQuanta(core, 5, 16000, 0, 0.2, 0.6);
+    expect(vadStates).toEqual([]);
+    expect(batches).toHaveLength(1);
+    expect(decodePcmS16LEToFloat32(batches[0])[0]).toBeCloseTo(0.4, 2);
+
+    // 2. Mic speaking (0.2 >= 0.015) + stereo video (avg 0.4) -> ducked to 0.2 + 0.4 * 0.15 = 0.26
+    // 1st quantum activates VAD (heartbeat counter starts at 0); 25 additional quanta * 128 = 3200 samples (200ms) trigger heartbeat
+    feedQuanta(core, 26, 16000, 0.2, 0.2, 0.6);
+    expect(vadStates).toEqual([true]);
+    expect(heartbeats).toEqual([1]);
+    const duckedSamples = decodePcmS16LEToFloat32(batches[1]);
+    expect(duckedSamples[0]).toBeCloseTo(0.26, 2);
+
+    // 3. Silence below vadReleaseMs (300ms @ 16kHz = 4800 samples): 37 * 128 = 4736 < 4800
+    feedQuanta(core, 37, 16000, 0.001);
+    expect(core.isVadActive()).toBe(true);
+
+    // 38th quantum (4864 >= 4800) releases VAD without setTimeout
+    core.processQuantum(new Float32Array(128).fill(0.001), undefined, 16000);
+    expect(core.isVadActive()).toBe(false);
+    expect(vadStates).toEqual([true, false]);
+  });
+
+  it("drops output and resets buffered samples when muted without mixVideo", () => {
+    const batches: ArrayBuffer[] = [];
+    const core = createPcmCaptureCore({
+      sampleRate: 16000,
+      onPcmBatch: (buffer) => batches.push(buffer)
+    });
+
+    // Partial buffer (384 < 640)
+    feedQuanta(core, 3, 16000, 0.5);
+    expect(batches).toHaveLength(0);
+
+    core.setConfig({ muted: true });
+    core.processQuantum(new Float32Array(640).fill(0.5), undefined, 16000);
+    expect(batches).toHaveLength(0);
+
+    // Unmute: stale 384 samples were dropped, so 256 new samples do not flush yet
+    core.setConfig({ muted: false });
+    core.processQuantum(new Float32Array(256).fill(0.5), undefined, 16000);
+    expect(batches).toHaveLength(0);
+    core.processQuantum(new Float32Array(384).fill(0.5), undefined, 16000);
+    expect(batches).toHaveLength(1);
+  });
 });
 
 describe("createPageAudioCapture", () => {
-  it("requests 16kHz mono getUserMedia with AEC/ANS/AGC and emits 640-byte 20ms PCM frames", async () => {
+  it("loads the WAR AudioWorklet module via chrome.runtime.getURL and emits 1280-byte 40ms PCM frames", async () => {
     const fakeStream = new FakeMediaStream();
     const getUserMedia = vi.fn().mockResolvedValue(fakeStream);
     const fakeAudioCtx = new FakeCaptureAudioContext(48000);
@@ -172,18 +316,37 @@ describe("createPageAudioCapture", () => {
         channelCount: 1
       }
     });
-
-    // Zero-gain node prevents mic loopback to speakers
+    expect(fakeAudioCtx.addedModuleUrls).toEqual([
+      "chrome-extension://test/entry/chunks/pcm-capture-worklet.mjs"
+    ]);
     expect(fakeAudioCtx.gainValue).toBe(0);
     expect(capture.isMuted()).toBe(false);
 
-    // Emit 1024 samples @ 48kHz -> ~341 samples @ 16kHz -> 1 frame of 320 samples (640 bytes) + 21 buffered
-    fakeAudioCtx.emitSamples(new Float32Array(1024).fill(0.4));
+    // 1920 samples @ 48kHz -> 640 samples @ 16kHz -> 1280-byte batch
+    fakeAudioCtx.emitSamples(new Float32Array(1920).fill(0.4));
     expect(frames).toHaveLength(1);
-    expect(frames[0].byteLength).toBe(MOSS_UPSTREAM_FRAME_BYTES);
+    expect(frames[0].byteLength).toBe(PCM_WORKLET_BATCH_BYTES);
+    capture.stop();
   });
 
-  it("setMuted(true) disables audio tracks and stops emitting PCM frames until unmuted", async () => {
+  it("releases microphone tracks and closes AudioContext if audioWorklet.addModule fails", async () => {
+    const fakeStream = new FakeMediaStream();
+    const fakeAudioCtx = new FakeCaptureAudioContext(48000);
+    fakeAudioCtx.addModuleError = new DOMException("CSP blocked worklet", "AbortError");
+
+    await expect(
+      createPageAudioCapture({
+        onPcmFrame: () => {},
+        getUserMedia: async () => fakeStream as unknown as MediaStream,
+        createAudioContext: () => fakeAudioCtx
+      })
+    ).rejects.toThrow("CSP blocked worklet");
+
+    expect(fakeStream.tracks[0].stopped).toBe(true);
+    expect(fakeAudioCtx.closed).toBe(true);
+  });
+
+  it("setMuted(true) disables audio tracks, updates worklet config, and suppresses frames until unmuted", async () => {
     const fakeStream = new FakeMediaStream();
     const fakeAudioCtx = new FakeCaptureAudioContext(16000);
     const frames: Uint8Array[] = [];
@@ -197,6 +360,7 @@ describe("createPageAudioCapture", () => {
     capture.setMuted(true);
     expect(capture.isMuted()).toBe(true);
     expect(fakeStream.tracks[0].enabled).toBe(false);
+    expect(fakeAudioCtx.postedToWorklet.at(-1)).toMatchObject({ type: "config", muted: true });
 
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
     expect(frames).toHaveLength(0);
@@ -205,12 +369,13 @@ describe("createPageAudioCapture", () => {
     expect(capture.isMuted()).toBe(false);
     expect(fakeStream.tracks[0].enabled).toBe(true);
 
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.5));
+    fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
     expect(frames).toHaveLength(1);
-    expect(frames[0].byteLength).toBe(640);
+    expect(frames[0].byteLength).toBe(PCM_WORKLET_BATCH_BYTES);
+    capture.stop();
   });
 
-  it("stop() stops all MediaStreamTracks, disconnects audio graph, closes AudioContext, and ignores late callbacks", async () => {
+  it("stop() posts stop to worklet, stops all tracks, disconnects nodes, closes AudioContext, and ignores late callbacks", async () => {
     const fakeStream = new FakeMediaStream();
     const fakeAudioCtx = new FakeCaptureAudioContext(16000);
     const frames: Uint8Array[] = [];
@@ -223,12 +388,12 @@ describe("createPageAudioCapture", () => {
 
     capture.stop();
 
+    expect(fakeAudioCtx.postedToWorklet.at(-1)).toEqual({ type: "stop" });
     expect(fakeStream.tracks[0].stopped).toBe(true);
     expect(fakeAudioCtx.closed).toBe(true);
     expect(fakeAudioCtx.sourceConnected).toBe(false);
-    expect(fakeAudioCtx.processorConnected).toBe(false);
+    expect(fakeAudioCtx.workletConnected).toBe(false);
 
-    // Late audio callback produces no frames
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
     expect(frames).toHaveLength(0);
   });
@@ -253,7 +418,7 @@ describe("createPageAudioCapture", () => {
     expect(onMicrophoneError.mock.calls[0][0]).toBeInstanceOf(Error);
     expect(fakeAudioCtx.closed).toBe(true);
     expect(fakeAudioCtx.sourceConnected).toBe(false);
-    expect(fakeAudioCtx.processorConnected).toBe(false);
+    expect(fakeAudioCtx.workletConnected).toBe(false);
     fakeAudioCtx.emitSamples(new Float32Array(640).fill(0.5));
     expect(frames).toHaveLength(0);
     capture.stop();
@@ -303,23 +468,18 @@ describe("createPageAudioCapture", () => {
   });
 
   it("covers all 5 media and permission error scenarios with actionable Chinese messages", () => {
-    // 1. 麦克风授权弹窗被关闭
     expect(formatMediaCaptureError({ name: "NotAllowedError", message: "Permission prompt dismissed" })).toContain(
       "麦克风授权弹窗被关闭"
     );
-    // 2. 麦克风或摄像头权限被拒绝
     expect(formatMediaCaptureError({ name: "NotAllowedError", message: "Permission denied" })).toContain(
       "麦克风或摄像头权限被拒绝"
     );
-    // 3. 没有找到可用设备
     expect(formatMediaCaptureError({ name: "NotFoundError", message: "Requested device not found" })).toContain(
       "没有找到可用设备"
     );
-    // 4. 设备被其他应用占用
     expect(formatMediaCaptureError({ name: "NotReadableError", message: "Could not start audio source" })).toContain(
       "设备被其他应用占用"
     );
-    // 5. 屏幕共享被取消
     expect(formatMediaCaptureError({ name: "AbortError", message: "Screen capture user cancelled" })).toContain(
       "屏幕共享被取消"
     );
@@ -391,13 +551,12 @@ describe("createPageAudioCapture", () => {
       createAudioContext: () => fakeAudioCtx
     });
 
-    // Successfully acquired video track
     expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
 
     // 1. Mic silent (0), video active (0.4): video passes at 100% gain (0.4)
     fakeAudioCtx.emitSamples(
-      new Float32Array(320).fill(0),
-      new Float32Array(320).fill(0.4)
+      new Float32Array(640).fill(0),
+      new Float32Array(640).fill(0.4)
     );
     expect(frames).toHaveLength(1);
     expect(capture.isMicVadActive()).toBe(false);
@@ -406,8 +565,8 @@ describe("createPageAudioCapture", () => {
 
     // 2. Mic speaking (0.2 >= 0.015) and video (0.4): video is ducked to 15% (0.2 + 0.4 * 0.15 = 0.26)
     fakeAudioCtx.emitSamples(
-      new Float32Array(320).fill(0.2),
-      new Float32Array(320).fill(0.4)
+      new Float32Array(640).fill(0.2),
+      new Float32Array(640).fill(0.4)
     );
     expect(frames).toHaveLength(2);
     expect(capture.isMicVadActive()).toBe(true);
@@ -428,124 +587,5 @@ describe("createPageAudioCapture", () => {
     expect(capture.isSharingVideoAudio()).toBe(false);
 
     capture.stop();
-  });
-});
-
-describe("createVideoAudioCapture (interpret uplink, no mic)", () => {
-  function createFakeVideo() {
-    const fakeVideoTrack = new FakeMediaStreamTrack();
-    const fakeVideoStream = new FakeMediaStream([fakeVideoTrack]);
-    const fakeVideo = {
-      muted: false,
-      volume: 1,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      captureStream: () => fakeVideoStream
-    } as unknown as HTMLVideoElement;
-    return { fakeVideo, fakeVideoStream };
-  }
-
-  it("captures video original audio into 20ms PCM frames without touching getUserMedia", () => {
-    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
-    const frames: Uint8Array[] = [];
-    const { fakeVideo, fakeVideoStream } = createFakeVideo();
-    const getUserMedia = vi.fn();
-    vi.stubGlobal("navigator", {
-      mediaDevices: {
-        getUserMedia
-      }
-    });
-
-    const capture = createVideoAudioCapture({
-      onPcmFrame: (pcm) => frames.push(pcm),
-      getVideoElement: () => fakeVideo,
-      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
-      createAudioContext: () => fakeAudioCtx
-    });
-
-    expect(getUserMedia).not.toHaveBeenCalled();
-    expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
-
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
-    expect(frames).toHaveLength(1);
-    expect(frames[0].byteLength).toBe(MOSS_UPSTREAM_FRAME_BYTES);
-    const samples = decodePcmS16LEToFloat32(frames[0].buffer);
-    expect(samples[0]).toBeCloseTo(0.4, 2);
-
-    capture.stop();
-  });
-
-  it("pushes silence frames continuously even with no video element (静音也推)", () => {
-    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
-    const frames: Uint8Array[] = [];
-    const statuses: VideoAudioTrackStatus[] = [];
-
-    const capture = createVideoAudioCapture({
-      onPcmFrame: (pcm) => frames.push(pcm),
-      onVideoAudioStatusChange: (status) => statuses.push(status),
-      getVideoElement: () => null,
-      createAudioContext: () => fakeAudioCtx
-    });
-
-    expect(capture.getVideoAudioStatus()).toBe("未检测到音轨");
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
-    expect(frames).toHaveLength(2);
-    const samples = decodePcmS16LEToFloat32(frames[0].buffer);
-    expect(samples.every((s) => s === 0)).toBe(true);
-
-    capture.stop();
-  });
-
-  it("keeps pushing silence frames while the video is muted and recovers on unmute", () => {
-    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
-    const frames: Uint8Array[] = [];
-    const { fakeVideo, fakeVideoStream } = createFakeVideo();
-
-    const capture = createVideoAudioCapture({
-      onPcmFrame: (pcm) => frames.push(pcm),
-      getVideoElement: () => fakeVideo,
-      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
-      createAudioContext: () => fakeAudioCtx
-    });
-
-    fakeVideo.muted = true;
-    const volChangeHandler = (fakeVideo.addEventListener as any).mock.calls.find(
-      (call: any[]) => call[0] === "volumechange"
-    )?.[1];
-    volChangeHandler?.();
-    expect(capture.getVideoAudioStatus()).toBe("视频已静音");
-
-    // 静音期间仍然推帧（内容为空音）
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0));
-    expect(frames).toHaveLength(1);
-
-    fakeVideo.muted = false;
-    volChangeHandler?.();
-    expect(capture.getVideoAudioStatus()).toBe("已获取音轨");
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
-    expect(frames).toHaveLength(2);
-    expect(decodePcmS16LEToFloat32(frames[1].buffer)[0]).toBeCloseTo(0.4, 2);
-
-    capture.stop();
-  });
-
-  it("stop() disconnects the graph, closes the AudioContext and ignores late callbacks", () => {
-    const fakeAudioCtx = new FakeCaptureAudioContext(16000);
-    const frames: Uint8Array[] = [];
-    const { fakeVideo, fakeVideoStream } = createFakeVideo();
-
-    const capture = createVideoAudioCapture({
-      onPcmFrame: (pcm) => frames.push(pcm),
-      getVideoElement: () => fakeVideo,
-      captureVideoStream: () => fakeVideoStream as unknown as MediaStream,
-      createAudioContext: () => fakeAudioCtx
-    });
-
-    capture.stop();
-    expect(fakeAudioCtx.closed).toBe(true);
-    expect(fakeAudioCtx.processorConnected).toBe(false);
-    fakeAudioCtx.emitSamples(new Float32Array(320).fill(0.4));
-    expect(frames).toHaveLength(0);
   });
 });

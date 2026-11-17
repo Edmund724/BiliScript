@@ -1231,6 +1231,8 @@
 .live-overlay-messages {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
   padding: 10px;
   display: flex;
   flex-direction: column;
