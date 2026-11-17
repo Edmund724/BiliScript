@@ -598,7 +598,8 @@ describe("subtitle-aware session and tool calls", () => {
     expect(Object.keys(payload.session).sort()).toEqual(["instructions", "persona", "tools"]);
     expect(payload.session.instructions).toContain("实时语音原理");
     expect(payload.session.instructions).toContain("P2 工具调用 / 共3P");
-    expect(payload.session.instructions).toContain("0s 开场");
+    expect(payload.session.instructions).toContain("0:00 开场");
+    expect(payload.session.instructions).toContain("常规脉络与章节大意直接根据上下文中的概览或章节骨架秒答");
     expect(payload.session.instructions).toContain("time 时刻文本");
     expect(payload.session.instructions).toContain("控制播放器（跳转进度、暂停/播放/倍速/调节视频音量或静音）");
     expect(payload.session.instructions).toContain("仅控制 B 站视频播放器音量，不影响伴看 AI 语音音量");

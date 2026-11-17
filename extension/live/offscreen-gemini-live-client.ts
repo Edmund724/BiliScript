@@ -120,13 +120,13 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     name: "summarize_video",
     description:
-      "在后台总结当前视频全片或指定时间段，梳理核心观点、内容脉络与关键细节。调用后可继续实时对话，完成后会自动播报结果。",
+      "在后台总结当前视频全片或指定时间段，梳理核心观点、内容脉络与关键细节。常规脉络请直接根据上下文概览或章节骨架秒答；仅在概览未就绪或需要按时间段深入总结时调用，完成后会自动播报结果。",
     parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
   },
   {
     name: "analyze_video_transcript",
     description:
-      "在后台检索并深入分析当前视频全片字幕，回答需要跨片段查证的具体问题。调用后可继续实时对话，完成后会自动播报结果。",
+      "在后台检索并深入分析当前视频全片字幕，回答需要跨片段查证的具体台词与细节问题。常规脉络请直接根据上下文概览或章节骨架秒答；仅在用户追问具体某段原话细节需跨片查证时调用，完成后会自动播报结果。",
     parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
   }
 ] as const;
