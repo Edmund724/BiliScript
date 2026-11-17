@@ -561,9 +561,14 @@ describe("resolveMossLiveWsUrl & buildMinimalSessionUpdatePayload", () => {
     expect(payload.session.instructions).toContain("不得编造外部事实");
     expect(payload.session.instructions).toContain("请通过后台委派（delegation）交由后台文本模型处理");
     expect(payload.session.instructions).toContain("普通日常闲聊或常识问题请直接回答");
+    expect(payload.session.instructions).toContain("仅当用户明确表达播放控制意图时才调用 control_bilibili_player");
+    expect(payload.session.instructions).toContain("绝不擅自跳播");
+    expect(payload.session.instructions).toContain("seekBy");
     expect(payload.session.instructions).toContain("跳到刚才总结或分析中的某一点");
     expect(payload.session.instructions).toContain("把时间戳换算成秒数后调用 control_bilibili_player 的 seek");
     expect(payload.session.tools).toEqual(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS);
+    expect(JSON.stringify(payload)).not.toContain("NON_BLOCKING");
+    expect(JSON.stringify(payload)).not.toContain("scheduling");
   });
 
   it("builds client_context.update with only the device time zone", () => {
@@ -722,11 +727,12 @@ describe("subtitle-aware session and tool calls", () => {
       "get_subtitles_around_time"
     ]);
     const playerTool = MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS[0];
-    expect(playerTool.parameters.properties.command.enum).toEqual(["seek", "pause", "play", "rate", "volume"]);
+    expect(playerTool.parameters.properties.command.enum).toEqual(["seek", "seekBy", "pause", "play", "rate", "volume"]);
     expect(Object.keys(playerTool.parameters.properties)).toEqual(
-      expect.arrayContaining(["volume", "delta", "muted"])
+      expect.arrayContaining(["time", "offset", "rate", "volume", "delta", "muted"])
     );
     expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => tool.type === "function")).toBe(true);
+    expect(MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.every((tool) => !("behavior" in tool))).toBe(true);
     expect(
       MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS.filter((tool) => "read_only" in tool).map((tool) => tool.name)
     ).toEqual(["get_subtitles_around_time"]);

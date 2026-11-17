@@ -263,13 +263,27 @@ export const MOSS_LIVE_PAGE_FUNCTION_DECLARATIONS = [
     type: "function",
     name: "control_bilibili_player",
     description:
-      "控制当前B站视频播放器：暂停/继续播放、调整倍速、跳转到指定秒数，或调整视频音量/静音（仅控制视频播放器音量，不影响伴看AI语音音量）。后台委派返回定位结果后，可使用其时间戳执行跳转。",
+      "控制当前B站视频播放器：暂停/继续播放、调整倍速、精确跳转到指定秒数、按相对秒数快进/快退，或调整视频音量/静音（仅控制视频播放器音量，不影响伴看AI语音音量）。仅在用户明确要求控制播放时调用；后台委派或章节概览提供定位时间戳后，可使用 seek 执行跳转。",
     parameters: {
       type: "object",
       properties: {
-        command: { type: "string", enum: ["seek", "pause", "play", "rate", "volume"], description: "控制命令" },
-        time: { type: "number", description: "seek 的目标播放位置（秒），必须为非负数且不超出视频时长" },
-        rate: { type: "number", enum: [0.5, 0.75, 1, 1.25, 1.5, 2], description: "rate 的目标倍速" },
+        command: {
+          type: "string",
+          enum: ["seek", "seekBy", "pause", "play", "rate", "volume"],
+          description: "控制命令"
+        },
+        time: {
+          type: "number",
+          description: "seek 的目标播放位置（秒），超出 [0, 视频时长] 时自动钳制"
+        },
+        offset: {
+          type: "number",
+          description: "seekBy 的相对时间偏移秒数（正数快进、负数快退，如 15 快进 15 秒、-15 快退 15 秒），自动钳制在 [0, 视频时长] 内"
+        },
+        rate: {
+          type: "number",
+          description: "rate 的目标倍速（合法区间 0.5–4.0，如 0.5、0.75、1、1.25、1.5、2、3、4）"
+        },
         volume: { type: "number", description: "volume 的目标视频音量百分比（0-100）；不能与 delta 同时传入" },
         delta: { type: "number", description: "volume 的相对音量变化量（-100 到 100，如 -15 降低 15%、15 提高 15%）；不能与 volume 同时传入" },
         muted: { type: "boolean", description: "volume 时是否静音视频播放器（true 静音，false 取消静音）" }
@@ -384,6 +398,7 @@ export interface MossLiveToolCall {
   callId: string;
   name: string;
   arguments: unknown;
+  turnId?: string;
   video?: MossLiveVideoIdentity | null;
 }
 
@@ -420,9 +435,10 @@ export function buildVideoInstructions(
   const shortClock = formatClock(5, { hours: "auto" });
   const longClock = formatClock(3725, { hours: "auto" });
   const volumeBoundary = "control_bilibili_player 的 volume 仅控制 B 站视频播放器音量，不影响伴看 AI 语音音量；若用户觉得伴看 AI 自身说话太大声或太小声，请提示用户在伴看浮窗音频设置中调节「伴看音量」，不要误调视频音量。";
+  const playerControlRule = "仅当用户明确表达播放控制意图时才调用 control_bilibili_player，普通讲解、回答或提及时间点时绝不擅自跳播或改变播放状态；快进或快退相对秒数请调用 seekBy（offset 正数快进、负数快退），上下文已有章节时间点时可直接调用 seek 跳章。";
   const taskRouting = clientDelegation
-    ? `当用户要求控制播放器（跳转进度、暂停/播放/倍速/调节视频音量或静音）时，请直接调用前台工具；${volumeBoundary}当用户要求总结全片或片段内容、梳理视频脉络、或询问需要检索全片字幕才能回答的视频细节时，请通过后台委派（delegation）交由后台文本模型处理；普通日常闲聊或常识问题请直接回答。用户要求跳到刚才总结或分析中的某一点、某一章节时，直接读取该次后台委派已注入的带时间戳笔记，按播报顺序定位对应内容，把时间戳换算成秒数后调用 control_bilibili_player 的 seek，不要重复总结或重新检索全片。只有当前播放位置附近的局部字幕查询可使用 get_subtitles_around_time；不得用前台字幕工具或 web_search 代替后台委派。若上下文中已有覆盖完整的全片概览，可直接读取并回答，无需重复委派；概览覆盖不完整时必须明确说明。后台委派被取消或失败时如实说明，不得编造视频内容。`
-    : `需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速、调节视频音量/静音或指定时间跳转时调用 control_bilibili_player。${volumeBoundary}跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。遇到全片总结、这期讲了什么、内容脉络或核心观点类问题时：若全片概览尚未生成或未就绪，调用 summarize_video 生成概览并等待结果，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；无字幕、生成失败或取消时按工具返回如实说明并给出等待或重试方式，不得编造全片内容。`;
+    ? `当用户要求控制播放器（跳转进度、暂停/播放/倍速/调节视频音量或静音）时，请直接调用前台工具；${playerControlRule}${volumeBoundary}当用户要求总结全片或片段内容、梳理视频脉络、或询问需要检索全片字幕才能回答的视频细节时，请通过后台委派（delegation）交由后台文本模型处理；普通日常闲聊或常识问题请直接回答。用户要求跳到刚才总结或分析中的某一点、某一章节时，直接读取该次后台委派已注入的带时间戳笔记，按播报顺序定位对应内容，把时间戳换算成秒数后调用 control_bilibili_player 的 seek，不要重复总结或重新检索全片。只有当前播放位置附近的局部字幕查询可使用 get_subtitles_around_time；不得用前台字幕工具或 web_search 代替后台委派。若上下文中已有覆盖完整的全片概览，可直接读取并回答，无需重复委派；概览覆盖不完整时必须明确说明。后台委派被取消或失败时如实说明，不得编造视频内容。`
+    : `需要回顾、定位或检索视频内容时调用字幕工具，不要猜测字幕内容。需要暂停、继续、倍速、调节视频音量/静音、快进/快退或指定时间跳转时调用 control_bilibili_player。${playerControlRule}${volumeBoundary}跳到某类内容或章节时必须先调用 search_video_subtitles，选择匹配结果并将其 from 作为 seek 的 time；检索无结果或失败时不得跳转。遇到全片总结、这期讲了什么、内容脉络或核心观点类问题时：若全片概览尚未生成或未就绪，调用 summarize_video 生成概览并等待结果，不得改用 web_search、search_video_subtitles 或平台内置联网搜索（如 googleSearch）拼凑全片结论；概览覆盖不完整（coverage=partial）时必须明确说明覆盖不完整，不得当作完整全片总结；无字幕、生成失败或取消时按工具返回如实说明并给出等待或重试方式，不得编造全片内容。`;
   const base = `当前正在观看B站视频伴看会话。实时视频画面来自B站播放器屏幕抽帧（screen通道），并非用户摄像头（camera）；回答画面相关问题时直接依据当前屏幕帧，切勿提示用户打开摄像头。若上行音频中同时包含视频原声与用户麦克风声音：当检测到用户麦克风说话时，系统会自动把上行混音中的视频原声音量突然压低，因此只要听到背景视频声音突然被压低且出现前景人声，即代表是用户本人在对你说话；未发生音量压低的连续人声则是视频原声，不要误判为用户提问。${taskRouting}需要视频之外的外部事实、时效性信息或联网查证时调用 web_search。任何工具返回 ok:false、无结果、失败或超时时必须明确告知用户，不得声称操作已成功，不得编造外部事实。引用具体字幕时在回答中保留工具返回的 time 时刻文本（如 ${shortClock} 或 ${longClock}）。`;
   if (!context) {
     return `${base} 当前视频上下文尚未就绪或正在换片；此时不得沿用旧视频信息，工具不可用时明确说明并请用户稍后重试。`;

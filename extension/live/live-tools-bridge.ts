@@ -1,5 +1,5 @@
 import { state, type ClipState } from "../core/state.js";
-import { extractBvid, extractPageIndex, isWatchlaterPage } from "../bilibili/video-id-shared.js";
+import { extractBvid, extractPageIndex, isWatchlaterPage, parseLiveRoomId } from "../bilibili/video-id-shared.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getReadingSubtitleItems, type ReadingSubtitleItem } from "../subtitle/core.js";
@@ -22,6 +22,7 @@ export interface LiveToolsBridgeDeps {
   getOverview?: () => LiveOverviewSource | null;
   ensureOverview?: (options?: { forceRefresh?: boolean }) => Promise<LiveOverviewSource | null>;
   showNotice?: (message: string, autoHideMs?: number) => void;
+  now?: () => number;
 }
 
 export interface LiveToolsBridge {
@@ -129,7 +130,55 @@ function projectSubtitle(item: ReadingSubtitleItem): Record<string, unknown> {
   };
 }
 
-const PLAYER_RATES: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
+export const MIN_PLAYER_PLAYBACK_RATE = 0.5;
+export const MAX_PLAYER_PLAYBACK_RATE = 4;
+export const PLAYER_CONTROL_DEDUP_WINDOW_MS = 500;
+
+type PlayerCommand = "seek" | "seekBy" | "pause" | "play" | "rate" | "volume";
+type PlayerControlAxis = "time" | "playstate" | "rate" | "volume";
+
+interface RecentPlayerControlEntry {
+  videoKey: string;
+  signature: string;
+  turnId: string;
+  at: number;
+  promise: Promise<Record<string, unknown>>;
+}
+
+function normalizePlayerCommand(raw: unknown): PlayerCommand {
+  const command = String(raw || "").trim();
+  if (!command) throw new Error("control_bilibili_player 缺少 command");
+  switch (command) {
+    case "seek":
+    case "seekTo":
+      return "seek";
+    case "seekBy":
+    case "seek_by":
+      return "seekBy";
+    case "pause":
+    case "play":
+    case "volume":
+      return command;
+    case "rate":
+    case "setPlaybackRate":
+      return "rate";
+    default:
+      throw new Error(`不支持的播放器命令：${command}`);
+  }
+}
+
+function clampVideoTime(targetSeconds: number, video: HTMLVideoElement): number {
+  const maxTime = Number.isFinite(video.duration) && video.duration >= 0
+    ? video.duration
+    : Number.POSITIVE_INFINITY;
+  return clamp(targetSeconds, 0, maxTime);
+}
+
+function playerCommandAxis(command: PlayerCommand): PlayerControlAxis {
+  if (command === "seek" || command === "seekBy") return "time";
+  if (command === "pause" || command === "play") return "playstate";
+  return command;
+}
 
 export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveToolsBridge {
   const getClip = deps.getClip || (() => state.clip);
@@ -139,6 +188,8 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
   const showNotice = deps.showNotice || (() => {});
   const getOverview = deps.getOverview || getReaderOverviewSource;
   const ensureOverview = deps.ensureOverview || ensureReaderOverviewSource;
+  const now = deps.now || Date.now;
+  const recentPlayerControls = new Map<PlayerControlAxis, RecentPlayerControlEntry>();
 
   function getVideoContext(): MossLiveVideoContext | null {
     return projectVideoContext(getClip(), getUrl(), getOverview());
@@ -189,25 +240,33 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
     call: MossLiveToolCall,
     context: MossLiveVideoContext
   ): Promise<Record<string, unknown>> {
-    const command = String(args.command || "").trim();
-    if (!command) throw new Error("control_bilibili_player 缺少 command");
-    if (command !== "seek" && command !== "pause" && command !== "play" && command !== "rate" && command !== "volume") {
-      throw new Error(`不支持的播放器命令：${command}`);
-    }
+    const command = normalizePlayerCommand(args.command);
 
     let targetTime = 0;
+    let offsetSeconds = 0;
     let targetRate = 0;
     const hasVolume = args.volume !== undefined;
     const hasDelta = args.delta !== undefined;
     const hasMuted = args.muted !== undefined;
     if (command === "seek") {
-      if (typeof args.time !== "number" || !Number.isFinite(args.time) || args.time < 0) {
-        throw new Error("seek 需要有限且非负的 time（秒）");
+      if (typeof args.time !== "number" || !Number.isFinite(args.time)) {
+        throw new Error("seek 需要有限数值 time（秒）");
       }
       targetTime = args.time;
+    } else if (command === "seekBy") {
+      const rawOffset = args.offset !== undefined ? args.offset : args.delta;
+      if (typeof rawOffset !== "number" || !Number.isFinite(rawOffset)) {
+        throw new Error("seekBy 需要有限数值 offset（秒）");
+      }
+      offsetSeconds = rawOffset;
     } else if (command === "rate") {
-      if (typeof args.rate !== "number" || !PLAYER_RATES.includes(args.rate)) {
-        throw new Error(`rate 需要有效倍速：${PLAYER_RATES.join("、")}`);
+      if (
+        typeof args.rate !== "number" ||
+        !Number.isFinite(args.rate) ||
+        args.rate < MIN_PLAYER_PLAYBACK_RATE ||
+        args.rate > MAX_PLAYER_PLAYBACK_RATE
+      ) {
+        throw new Error(`rate 需要 ${MIN_PLAYER_PLAYBACK_RATE} 到 ${MAX_PLAYER_PLAYBACK_RATE} 之间的有限倍速`);
       }
       targetRate = args.rate;
     } else if (command === "volume") {
@@ -234,74 +293,130 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       showNotice(error, 4000);
       return { ok: false, error };
     }
-    if (command === "seek" && Number.isFinite(video.duration) && targetTime > video.duration) {
-      throw new Error(`跳转时间不能超出视频时长（${video.duration} 秒）`);
+
+    const axis = playerCommandAxis(command);
+    const signature = command === "seek"
+      ? `seek:${targetTime}`
+      : command === "seekBy"
+        ? `seekBy:${offsetSeconds}`
+        : command === "rate"
+          ? `rate:${targetRate}`
+          : command === "volume"
+            ? `volume:${hasVolume ? args.volume : ""}:${hasDelta ? args.delta : ""}:${hasMuted ? args.muted : ""}`
+            : command;
+    const videoKey = `${context.bvid}:${context.cid}:${context.pageIndex}`;
+    const turnId = String(call.turnId || "").trim();
+    const timestamp = now();
+    const prev = recentPlayerControls.get(axis);
+    if (
+      prev &&
+      prev.videoKey === videoKey &&
+      prev.signature === signature &&
+      (Boolean(turnId && prev.turnId && turnId === prev.turnId) ||
+        (timestamp - prev.at >= 0 && timestamp - prev.at < PLAYER_CONTROL_DEDUP_WINDOW_MS))
+    ) {
+      const cached = await prev.promise;
+      if (cached.ok === true) {
+        return { ...cached };
+      }
     }
 
-    let message = "";
-    let notice = "";
-    if (command === "pause") {
-      video.pause();
-      message = "已暂停播放";
-    } else if (command === "play") {
-      await video.play();
-      const currentContext = getVideoContext();
-      if (getPlayer() !== video || !currentContext || !contextMatchesCall(call, currentContext)) {
-        const error = "播放期间视频已切换，本次控制结果已失效。";
-        showNotice(error, 4000);
-        return { ok: false, error };
-      }
-      message = "已继续播放";
-    } else if (command === "rate") {
-      video.playbackRate = targetRate;
-      message = `已切换到 ${targetRate} 倍速`;
-    } else if (command === "volume") {
-      if (hasVolume || hasDelta) {
-        const currentPercent = Math.round(readBaseVolume(video) * 100);
-        const targetPercent = hasVolume
-          ? Math.round(clamp(args.volume as number, 0, 100))
-          : Math.round(clamp(currentPercent + (args.delta as number), 0, 100));
-        writeBaseVolume(video, targetPercent / 100);
-        if (!hasMuted && video.muted && (hasVolume ? targetPercent > 0 : (args.delta as number) > 0)) {
-          video.muted = false;
+    let entry!: RecentPlayerControlEntry;
+    const executePromise = (async (): Promise<Record<string, unknown>> => {
+      try {
+        let message = "";
+        let notice = "";
+        if (command === "pause") {
+          video.pause();
+          message = "已暂停播放";
+        } else if (command === "play") {
+          await video.play();
+          const currentContext = getVideoContext();
+          if (getPlayer() !== video || !currentContext || !contextMatchesCall(call, currentContext)) {
+            const error = "播放期间视频已切换，本次控制结果已失效。";
+            showNotice(error, 4000);
+            if (recentPlayerControls.get(axis) === entry) {
+              recentPlayerControls.delete(axis);
+            }
+            return { ok: false, error };
+          }
+          message = "已继续播放";
+        } else if (command === "rate") {
+          video.playbackRate = targetRate;
+          message = `已切换到 ${targetRate} 倍速`;
+        } else if (command === "volume") {
+          if (hasVolume || hasDelta) {
+            const currentPercent = Math.round(readBaseVolume(video) * 100);
+            const targetPercent = hasVolume
+              ? Math.round(clamp(args.volume as number, 0, 100))
+              : Math.round(clamp(currentPercent + (args.delta as number), 0, 100));
+            writeBaseVolume(video, targetPercent / 100);
+            if (!hasMuted && video.muted && (hasVolume ? targetPercent > 0 : (args.delta as number) > 0)) {
+              video.muted = false;
+            }
+          }
+          if (hasMuted) {
+            video.muted = args.muted as boolean;
+          }
+          const nextPercent = Math.round(readBaseVolume(video) * 100);
+          if (video.muted) {
+            notice = "已静音视频";
+          } else if (hasMuted && !hasVolume && !hasDelta) {
+            notice = `已取消视频静音（当前音量 ${nextPercent}%）`;
+          } else {
+            notice = `已将视频音量调至 ${nextPercent}%`;
+          }
+          const shareMutedWarning = Boolean(deps.isSharingVideoAudio?.()) && (video.muted || nextPercent === 0);
+          message = shareMutedWarning
+            ? `${notice}（当前已开启分享视频声音，静音后 AI 将暂时听不到视频原声）`
+            : notice;
+        } else if (command === "seekBy") {
+          const baseTime = Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0;
+          const finalTime = clampVideoTime(baseTime + offsetSeconds, video);
+          video.currentTime = finalTime;
+          const directionText = offsetSeconds >= 0
+            ? `已快进 ${Math.abs(offsetSeconds)} 秒`
+            : `已快退 ${Math.abs(offsetSeconds)} 秒`;
+          message = `${directionText}，当前位于 ${formatClock(finalTime, { hours: "auto" })}`;
+        } else {
+          const finalTime = clampVideoTime(targetTime, video);
+          video.currentTime = finalTime;
+          message = `已跳转到 ${formatClock(finalTime, { hours: "auto" })}`;
         }
-      }
-      if (hasMuted) {
-        video.muted = args.muted as boolean;
-      }
-      const nextPercent = Math.round(readBaseVolume(video) * 100);
-      if (video.muted) {
-        notice = "已静音视频";
-      } else if (hasMuted && !hasVolume && !hasDelta) {
-        notice = `已取消视频静音（当前音量 ${nextPercent}%）`;
-      } else {
-        notice = `已将视频音量调至 ${nextPercent}%`;
-      }
-      const shareMutedWarning = Boolean(deps.isSharingVideoAudio?.()) && (video.muted || nextPercent === 0);
-      message = shareMutedWarning
-        ? `${notice}（当前已开启分享视频声音，静音后 AI 将暂时听不到视频原声）`
-        : notice;
-    } else {
-      video.currentTime = targetTime;
-      message = `已跳转到 ${formatClock(targetTime, { hours: "auto" })}`;
-    }
 
-    const result = playerSnapshot(command, video, context, message);
-    showNotice(notice || message, 1800);
-    return result;
+        const result = playerSnapshot(command, video, context, message);
+        showNotice(notice || message, 1800);
+        return result;
+      } catch (error) {
+        if (recentPlayerControls.get(axis) === entry) {
+          recentPlayerControls.delete(axis);
+        }
+        throw error;
+      }
+    })();
+
+    entry = { videoKey, signature, turnId, at: timestamp, promise: executePromise };
+    recentPlayerControls.set(axis, entry);
+    return executePromise;
   }
 
   async function executeTool(call: MossLiveToolCall): Promise<Record<string, unknown>> {
     const toolName = String(call?.name || "").trim();
     const isPlayerControl = toolName === "control_bilibili_player";
     const isSummarizeVideo = toolName === "summarize_video";
-    const statusNotice = isPlayerControl
-      ? "正在控制当前视频播放器..."
-      : isSummarizeVideo
+    if (!isPlayerControl) {
+      const statusNotice = isSummarizeVideo
         ? "正在生成全片概览..."
         : "正在查阅当前视频字幕...";
-    showNotice(statusNotice, 1800);
+      showNotice(statusNotice, 1800);
+    }
     try {
+      const url = getUrl();
+      if (parseLiveRoomId(url)) {
+        const result = { ok: false, error: "直播间伴看模式不支持点播播放器控制与字幕工具。" };
+        showNotice(result.error, 4000);
+        return result;
+      }
       if (
         !isPlayerControl &&
         !isSummarizeVideo &&
@@ -312,7 +427,7 @@ export function createLiveToolsBridge(deps: LiveToolsBridgeDeps = {}): LiveTools
       }
       const args = parseArguments(call.arguments);
       const clip = getClip();
-      const context = projectVideoContext(clip, getUrl(), getOverview());
+      const context = projectVideoContext(clip, url, getOverview());
       if (!context || !contextMatchesCall(call, context)) {
         const result = { ok: false, error: "视频已切换或视频上下文尚未就绪，请稍后再试；不要沿用上一个视频的内容。" };
         showNotice(result.error, 4000);

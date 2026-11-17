@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
 import {
+  DEFAULT_GEMINI_LIVE_MODEL,
   OffscreenGeminiLiveClient,
+  buildGeminiSetupTools,
+  resolveGeminiToolResponseScheduling,
+  supportsGeminiNonBlockingTools,
   type GeminiLiveClientOptions
 } from "../../extension/live/offscreen-gemini-live-client.js";
+import { createLiveToolsBridge } from "../../extension/live/live-tools-bridge.js";
 
 vi.mock("../../extension/search/search-runtime.js", () => ({
   resolveWebSearchRuntime: vi.fn()
@@ -636,33 +641,74 @@ describe("OffscreenGeminiLiveClient context update", () => {
 });
 
 describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle", () => {
-  it("declares fast tools synchronously and video analysis tools as NON_BLOCKING", () => {
-    const { client } = createClient();
-    const ws = connect(client);
-    const setup = ws.jsonFrames()[0].setup;
+  it("gates NON_BLOCKING behavior by model capability across 3.8, 2.5, and 3.1 series", () => {
+    expect(supportsGeminiNonBlockingTools(DEFAULT_GEMINI_LIVE_MODEL)).toBe(true);
+    expect(supportsGeminiNonBlockingTools("gemini-3.8-live")).toBe(true);
+    expect(supportsGeminiNonBlockingTools("gemini-3.8-live-extended-thinking")).toBe(true);
+    expect(supportsGeminiNonBlockingTools("gemini-2.5-flash-native-audio-preview-12-2025")).toBe(true);
+    expect(supportsGeminiNonBlockingTools("gemini-3.1-flash-live-preview")).toBe(false);
+    expect(supportsGeminiNonBlockingTools("models/gemini-3.1-flash-live-preview")).toBe(false);
 
-    expect(setup.tools).toHaveLength(1);
-    expect(setup.tools[0]).not.toHaveProperty("googleSearch");
-    const declarations = setup.tools[0].functionDeclarations;
-    expect(declarations.map((fn: { name: string }) => fn.name)).toEqual([
-      "control_bilibili_player",
-      "get_subtitles_around_time",
-      "summarize_video",
-      "analyze_video_transcript",
-      "web_search"
-    ]);
-    expect(declarations[0]).not.toHaveProperty("behavior");
-    expect(declarations[0].parameters.properties.command.enum).toEqual(["seek", "pause", "play", "rate", "volume"]);
-    expect(Object.keys(declarations[0].parameters.properties)).toEqual(
-      expect.arrayContaining(["volume", "delta", "muted"])
-    );
-    expect(declarations[1]).not.toHaveProperty("behavior");
-    for (const declaration of declarations.slice(2, 4)) {
-      expect(declaration.behavior).toBe("NON_BLOCKING");
-      expect(declaration.parameters.properties.scope.enum).toEqual(["full", "time_range", "query"]);
-      expect(declaration.parameters.properties.query.type).toBe("STRING");
-      expect(declaration.parameters.properties.start_sec.type).toBe("NUMBER");
-      expect(declaration.parameters.properties.end_sec.type).toBe("NUMBER");
+    expect(resolveGeminiToolResponseScheduling("control_bilibili_player", "gemini-3.8-live")).toBe("SILENT");
+    expect(resolveGeminiToolResponseScheduling("get_subtitles_around_time", "gemini-3.8-live")).toBe("WHEN_IDLE");
+    expect(resolveGeminiToolResponseScheduling("web_search", "gemini-3.8-live-extended-thinking")).toBe("WHEN_IDLE");
+    expect(resolveGeminiToolResponseScheduling("control_bilibili_player", "gemini-3.1-flash-live-preview")).toBeUndefined();
+
+    for (const model of [
+      "gemini-3.8-live",
+      "gemini-3.8-live-extended-thinking",
+      "gemini-2.5-flash-native-audio-preview-12-2025"
+    ]) {
+      const { client } = createClient({ model });
+      const ws = connect(client);
+      const setup = ws.jsonFrames()[0].setup;
+
+      expect(setup.tools).toHaveLength(1);
+      expect(setup.tools[0]).not.toHaveProperty("googleSearch");
+      const declarations = setup.tools[0].functionDeclarations;
+      expect(declarations.map((fn: { name: string }) => fn.name)).toEqual([
+        "control_bilibili_player",
+        "get_subtitles_around_time",
+        "summarize_video",
+        "analyze_video_transcript",
+        "web_search"
+      ]);
+      for (const declaration of declarations) {
+        expect(declaration.behavior).toBe("NON_BLOCKING");
+      }
+      expect(declarations[0].parameters.properties.command.enum).toEqual([
+        "seek",
+        "seekBy",
+        "pause",
+        "play",
+        "rate",
+        "volume"
+      ]);
+      expect(Object.keys(declarations[0].parameters.properties)).toEqual(
+        expect.arrayContaining(["time", "offset", "rate", "volume", "delta", "muted"])
+      );
+      for (const declaration of declarations.slice(2, 4)) {
+        expect(declaration.parameters.properties.scope.enum).toEqual(["full", "time_range", "query"]);
+        expect(declaration.parameters.properties.query.type).toBe("STRING");
+        expect(declaration.parameters.properties.start_sec.type).toBe("NUMBER");
+        expect(declaration.parameters.properties.end_sec.type).toBe("NUMBER");
+      }
+    }
+
+    const { client: syncClient } = createClient({ model: "gemini-3.1-flash-live-preview" });
+    const syncWs = connect(syncClient);
+    const syncDeclarations = syncWs.jsonFrames()[0].setup.tools[0].functionDeclarations;
+    expect(syncDeclarations).toHaveLength(5);
+    for (const declaration of syncDeclarations) {
+      expect(declaration).not.toHaveProperty("behavior");
+    }
+
+    const nativeSyncTools = buildGeminiSetupTools(true, videoContext, "models/gemini-3.1-flash-live-preview") as Array<{
+      functionDeclarations?: Array<Record<string, unknown>>;
+    }>;
+    expect(nativeSyncTools[1].functionDeclarations).toHaveLength(4);
+    for (const declaration of nativeSyncTools[1].functionDeclarations ?? []) {
+      expect(declaration).not.toHaveProperty("behavior");
     }
   });
 
@@ -687,8 +733,9 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       "summarize_video",
       "analyze_video_transcript"
     ]);
-    expect(declarations[2].behavior).toBe("NON_BLOCKING");
-    expect(declarations[3].behavior).toBe("NON_BLOCKING");
+    for (const declaration of declarations) {
+      expect(declaration.behavior).toBe("NON_BLOCKING");
+    }
     expect(declarations.some((fn: { name: string }) => fn.name === "web_search")).toBe(false);
   });
 
@@ -773,7 +820,8 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
             {
               id: "call-web-1",
               name: "web_search",
-              response: { result: "已检索：Gemini Live BidiGenerateContent" }
+              response: { result: "已检索：Gemini Live BidiGenerateContent" },
+              scheduling: "WHEN_IDLE"
             }
           ]
         }
@@ -786,7 +834,211 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
               name: "search_video_subtitles",
               response: {
                 result: { ok: true, matches: [{ from: 5, time: "00:05", content: "握手" }] }
-              }
+              },
+              scheduling: "WHEN_IDLE"
+            }
+          ]
+        }
+      }
+    ]);
+  });
+
+  it("serializes FunctionResponse.scheduling as SILENT for player control and WHEN_IDLE for subtitle lookup, omitting it on gemini-3.1-*", async () => {
+    const { client: nonBlockingClient } = createClient({ model: "gemini-3.8-live-extended-thinking" });
+    const ws = connect(nonBlockingClient);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "ctrl-1", name: "control_bilibili_player", args: { command: "seek", time: 90 } },
+            { id: "sub-1", name: "get_subtitles_around_time", args: { current_time: 90 } }
+          ]
+        }
+      })
+    );
+    nonBlockingClient.handleAction({
+      action: "tool_result",
+      callId: "ctrl-1",
+      result: { ok: true, currentTime: 90 }
+    });
+    nonBlockingClient.handleAction({
+      action: "tool_result",
+      callId: "sub-1",
+      result: { ok: true, items: [] }
+    });
+
+    expect(ws.jsonFrames()).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "ctrl-1",
+              name: "control_bilibili_player",
+              response: { result: { ok: true, currentTime: 90 } },
+              scheduling: "SILENT"
+            }
+          ]
+        }
+      },
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "sub-1",
+              name: "get_subtitles_around_time",
+              response: { result: { ok: true, items: [] } },
+              scheduling: "WHEN_IDLE"
+            }
+          ]
+        }
+      }
+    ]);
+
+    const { client: syncClient } = createClient({ model: "gemini-3.1-flash-live-preview" });
+    const syncWs = connect(syncClient);
+    syncWs.sentData.length = 0;
+    syncWs.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "sync-ctrl", name: "control_bilibili_player", args: { command: "pause" } },
+            { id: "sync-sum", name: "summarize_video", args: { scope: "full" } }
+          ]
+        }
+      })
+    );
+    syncClient.handleAction({
+      action: "tool_result",
+      callId: "sync-ctrl",
+      result: { ok: true, paused: true }
+    });
+    syncClient.handleAction({
+      action: "delegation_silent",
+      delegationId: "sync-sum",
+      content: "分片笔记"
+    });
+    expect(syncWs.jsonFrames()).toHaveLength(1);
+    syncClient.handleAction({
+      action: "delegation_result",
+      delegationId: "sync-sum",
+      status: "completed",
+      content: "完整总结"
+    });
+
+    const syncFrames = syncWs.jsonFrames();
+    expect(syncFrames).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "sync-ctrl",
+              name: "control_bilibili_player",
+              response: { result: { ok: true, paused: true } }
+            }
+          ]
+        }
+      },
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "sync-sum",
+              name: "summarize_video",
+              response: { spokenBriefing: "完整总结", factText: "分片笔记" }
+            }
+          ]
+        }
+      }
+    ]);
+  });
+
+  it("deduplicates duplicate same-turn control_bilibili_player calls on the video element while responding SILENT to every call id", async () => {
+    const video = document.createElement("video");
+    document.body.append(video);
+    Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
+    Object.defineProperty(video, "duration", { configurable: true, value: 600 });
+    let currentTimeVal = 30;
+    const timeSetter = vi.fn((val: number) => {
+      currentTimeVal = val;
+    });
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      get: () => currentTimeVal,
+      set: timeSetter
+    });
+
+    const bridge = createLiveToolsBridge({
+      getClip: () => ({
+        bvid: videoContext.bvid,
+        cid: videoContext.cid,
+        pageIndex: videoContext.pageIndex,
+        title: videoContext.title,
+        subtitleFetchState: "ready",
+        subtitleBody: []
+      }),
+      getUrl: () => videoContext.url,
+      getPlayer: () => video
+    });
+
+    const { client } = createClient({
+      model: "gemini-3.8-live",
+      onToolCall: (call) => {
+        void bridge.executeTool(call).then((result) => {
+          client.handleAction({ action: "tool_result", callId: call.callId, result });
+        });
+      }
+    });
+    const ws = connect(client);
+    ws.sentData.length = 0;
+
+    ws.simulateMessage(
+      JSON.stringify({
+        toolCall: {
+          functionCalls: [
+            { id: "dup-seek-1", name: "control_bilibili_player", args: { command: "seekBy", offset: 15 } },
+            { id: "dup-seek-2", name: "control_bilibili_player", args: { command: "seekBy", offset: 15 } }
+          ]
+        }
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(ws.jsonFrames()).toHaveLength(2);
+    });
+
+    expect(timeSetter).toHaveBeenCalledTimes(1);
+    expect(currentTimeVal).toBe(45);
+    const framesSortedById = ws
+      .jsonFrames()
+      .slice()
+      .sort((a, b) =>
+        String(a.toolResponse?.functionResponses?.[0]?.id || "").localeCompare(
+          String(b.toolResponse?.functionResponses?.[0]?.id || "")
+        )
+      );
+    expect(framesSortedById).toEqual([
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "dup-seek-1",
+              name: "control_bilibili_player",
+              response: { result: expect.objectContaining({ ok: true, command: "seekBy", currentTime: 45 }) },
+              scheduling: "SILENT"
+            }
+          ]
+        }
+      },
+      {
+        toolResponse: {
+          functionResponses: [
+            {
+              id: "dup-seek-2",
+              name: "control_bilibili_player",
+              response: { result: expect.objectContaining({ ok: true, command: "seekBy", currentTime: 45 }) },
+              scheduling: "SILENT"
             }
           ]
         }
@@ -908,7 +1160,8 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
               name: "control_bilibili_player",
               response: {
                 result: { ok: false, error: "页面工具执行超时，请稍后重试" }
-              }
+              },
+              scheduling: "SILENT"
             }
           ]
         }
@@ -1157,7 +1410,8 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
             {
               id: "keep-page",
               name: "control_bilibili_player",
-              response: { result: { ok: true, playing: true } }
+              response: { result: { ok: true, playing: true } },
+              scheduling: "SILENT"
             }
           ]
         }

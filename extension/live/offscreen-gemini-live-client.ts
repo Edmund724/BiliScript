@@ -59,22 +59,26 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   {
     name: "control_bilibili_player",
     description:
-      "控制当前 B 站视频播放器（跳转时间点 seek、暂停 pause、播放 play、调整倍速 rate、调整视频音量或静音 volume；仅控制视频播放器音量，不影响伴看 AI 语音音量）。",
+      "控制当前 B 站视频播放器（精确跳转 seek、相对快进/快退 seekBy、暂停 pause、播放 play、调整倍速 rate、调整视频音量或静音 volume；仅控制视频播放器音量，不影响伴看 AI 语音音量）。仅在用户明确要求控制播放时调用。",
     parameters: {
       type: "OBJECT",
       properties: {
         command: {
           type: "STRING",
-          enum: ["seek", "pause", "play", "rate", "volume"],
-          description: "播放器控制动作：seek（跳转）、pause（暂停）、play（播放）、rate（倍速）、volume（视频音量/静音）。"
+          enum: ["seek", "seekBy", "pause", "play", "rate", "volume"],
+          description: "播放器控制动作：seek（精确跳转到指定秒数）、seekBy（按相对秒数快进/快退）、pause（暂停）、play（播放）、rate（倍速）、volume（视频音量/静音）。"
         },
         time: {
           type: "NUMBER",
-          description: "跳转目标秒数（仅 command 为 seek 时必填）。"
+          description: "跳转目标秒数（仅 command 为 seek 时必填；超出 [0, 视频时长] 时自动钳制）。"
+        },
+        offset: {
+          type: "NUMBER",
+          description: "相对时间偏移秒数（仅 command 为 seekBy 时必填；正数快进、负数快退，如 15 或 -15）。"
         },
         rate: {
           type: "NUMBER",
-          description: "播放倍速（仅 command 为 rate 时必填，可选值 0.5/0.75/1/1.25/1.5/2）。"
+          description: "播放倍速（仅 command 为 rate 时必填，合法区间 0.5–4.0）。"
         },
         volume: {
           type: "NUMBER",
@@ -115,14 +119,12 @@ export const GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS = [
   },
   {
     name: "summarize_video",
-    behavior: "NON_BLOCKING",
     description:
       "在后台总结当前视频全片或指定时间段，梳理核心观点、内容脉络与关键细节。调用后可继续实时对话，完成后会自动播报结果。",
     parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
   },
   {
     name: "analyze_video_transcript",
-    behavior: "NON_BLOCKING",
     description:
       "在后台检索并深入分析当前视频全片字幕，回答需要跨片段查证的具体问题。调用后可继续实时对话，完成后会自动播报结果。",
     parameters: GEMINI_LIVE_VIDEO_TASK_PARAMETERS
@@ -145,27 +147,57 @@ export const GEMINI_LIVE_WEB_SEARCH_DECLARATION = {
   }
 } as const;
 
+export type GeminiFunctionResponseScheduling = "SILENT" | "WHEN_IDLE";
+
+/** 判断当前 Gemini Live 模型是否支持并启用 NON_BLOCKING 异步工具调度（仅 gemini-3.1-* 为同步工具）。 */
+export function supportsGeminiNonBlockingTools(model?: string | null): boolean {
+  const raw = typeof model === "string" ? model.trim() : "";
+  const normalized = (raw || DEFAULT_GEMINI_LIVE_MODEL).replace(/^models\//i, "").toLowerCase();
+  return normalized !== "gemini-3.1" && !normalized.startsWith("gemini-3.1-");
+}
+
+/** 根据模型能力与工具类别解析 FunctionResponse.scheduling 策略。 */
+export function resolveGeminiToolResponseScheduling(
+  toolName: string,
+  model?: string | null
+): GeminiFunctionResponseScheduling | undefined {
+  if (!supportsGeminiNonBlockingTools(model)) return undefined;
+  if (toolName === "control_bilibili_player") return "SILENT";
+  return "WHEN_IDLE";
+}
+
+function withGeminiToolBehavior<T extends Record<string, unknown>>(
+  declarations: readonly T[],
+  nonBlocking: boolean
+): Array<T & { behavior?: "NON_BLOCKING" }> {
+  return declarations.map((decl) =>
+    nonBlocking ? { ...decl, behavior: "NON_BLOCKING" as const } : { ...decl }
+  );
+}
+
 export function buildGeminiSetupTools(
   liveGeminiNativeSearch: boolean,
-  context?: MossLiveSessionContext | null
+  context?: MossLiveSessionContext | null,
+  model: string = DEFAULT_GEMINI_LIVE_MODEL
 ): unknown[] {
+  const nonBlocking = supportsGeminiNonBlockingTools(model);
   if (isLiveRoomContext(context)) {
     return liveGeminiNativeSearch
       ? [{ googleSearch: {} }]
-      : [{ functionDeclarations: [GEMINI_LIVE_WEB_SEARCH_DECLARATION] }];
+      : [{ functionDeclarations: withGeminiToolBehavior([GEMINI_LIVE_WEB_SEARCH_DECLARATION], nonBlocking) }];
   }
   if (liveGeminiNativeSearch) {
     return [
       { googleSearch: {} },
-      { functionDeclarations: [...GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS] }
+      { functionDeclarations: withGeminiToolBehavior(GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS, nonBlocking) }
     ];
   }
   return [
     {
-      functionDeclarations: [
-        ...GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS,
-        GEMINI_LIVE_WEB_SEARCH_DECLARATION
-      ]
+      functionDeclarations: withGeminiToolBehavior(
+        [...GEMINI_LIVE_PAGE_FUNCTION_DECLARATIONS, GEMINI_LIVE_WEB_SEARCH_DECLARATION],
+        nonBlocking
+      )
     }
   ];
 }
@@ -274,6 +306,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   private currentTurn: GeminiTurn | null = null;
   private discardOutputUntilInput = false;
   private readonly activeVideoTaskCalls = new Map<string, string>();
+  private readonly pendingSyncVideoTaskFacts = new Map<string, string>();
   private delegationVideoKey = "";
 
   constructor(options: { model?: string; liveGeminiNativeSearch?: boolean } = {}) {
@@ -297,12 +330,14 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     this.toolCallCounter = 0;
     this.audioChunkCounter = 0;
     this.activeVideoTaskCalls.clear();
+    this.pendingSyncVideoTaskFacts.clear();
     this.runId = `gemini-live-${generation}`;
   }
 
   onResetPlayback(): void {
     this.currentTurn = null;
     this.activeVideoTaskCalls.clear();
+    this.pendingSyncVideoTaskFacts.clear();
   }
 
   onSocketOpen(context: LiveWireSocketOpenContext): void {
@@ -318,7 +353,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
         systemInstruction: {
           parts: [{ text: buildVideoInstructions(context.videoContext, true) }]
         },
-        tools: buildGeminiSetupTools(this.liveGeminiNativeSearch, context.videoContext),
+        tools: buildGeminiSetupTools(this.liveGeminiNativeSearch, context.videoContext, this.model),
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         sessionResumption: context.sessionId ? { handle: context.sessionId } : {}
@@ -540,6 +575,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
       callbacks.cancelDelegation(callId);
     }
     this.activeVideoTaskCalls.clear();
+    this.pendingSyncVideoTaskFacts.clear();
     const turn = this.currentTurn;
     if (!turn) return null;
     this.currentTurn = null;
@@ -604,6 +640,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     const rawIds = Array.isArray(cancellation.ids) ? cancellation.ids : [];
     const ids = rawIds.filter((id): id is string => typeof id === "string" && id.length > 0);
     for (const id of ids) {
+      this.pendingSyncVideoTaskFacts.delete(id);
       if (this.activeVideoTaskCalls.delete(id)) {
         callbacks.cancelDelegation(id);
       }
@@ -650,6 +687,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
       : "";
     if (nextVideoKey !== this.delegationVideoKey) {
       this.activeVideoTaskCalls.clear();
+      this.pendingSyncVideoTaskFacts.clear();
       this.delegationVideoKey = nextVideoKey;
     }
   }
@@ -666,7 +704,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   private sendVideoTaskResponse(
     delegationId: string,
     response: Record<string, unknown>,
-    scheduling: "SILENT" | "WHEN_IDLE",
+    scheduling: GeminiFunctionResponseScheduling,
     transport: LiveWireTransport
   ): boolean {
     const name = this.activeVideoTaskCalls.get(delegationId);
@@ -691,6 +729,15 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     content: string,
     transport: LiveWireTransport
   ): boolean {
+    if (!this.activeVideoTaskCalls.has(delegationId)) return false;
+    if (!supportsGeminiNonBlockingTools(this.model)) {
+      const prev = this.pendingSyncVideoTaskFacts.get(delegationId);
+      this.pendingSyncVideoTaskFacts.set(
+        delegationId,
+        prev ? `${prev}\n${content}` : content
+      );
+      return true;
+    }
     return this.sendVideoTaskResponse(delegationId, { factText: content }, "SILENT", transport);
   }
 
@@ -700,6 +747,27 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     content: string,
     transport: LiveWireTransport
   ): boolean {
+    if (!supportsGeminiNonBlockingTools(this.model)) {
+      const name = this.activeVideoTaskCalls.get(delegationId);
+      if (!name) return false;
+      this.activeVideoTaskCalls.delete(delegationId);
+      const factText = this.pendingSyncVideoTaskFacts.get(delegationId);
+      this.pendingSyncVideoTaskFacts.delete(delegationId);
+      const response: Record<string, unknown> = status === "completed"
+        ? { spokenBriefing: content, ...(factText ? { factText } : {}) }
+        : { error: content };
+      return transport.sendJson({
+        toolResponse: {
+          functionResponses: [
+            {
+              id: delegationId,
+              name,
+              response
+            }
+          ]
+        }
+      });
+    }
     return this.sendVideoTaskResponse(
       delegationId,
       status === "completed" ? { spokenBriefing: content } : { error: content },
@@ -713,13 +781,15 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     result: unknown,
     transport: LiveWireTransport
   ): boolean {
+    const scheduling = resolveGeminiToolResponseScheduling(call.name, this.model);
     return transport.sendJson({
       toolResponse: {
         functionResponses: [
           {
             id: call.callId,
             name: call.name,
-            response: { result }
+            response: { result },
+            ...(scheduling ? { scheduling } : {})
           }
         ]
       }

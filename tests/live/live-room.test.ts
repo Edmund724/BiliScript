@@ -108,13 +108,25 @@ describe("直播间提示词与工具声明", () => {
     expect(toolCallVideoIdentity(video)).toEqual({ bvid: "BV1xx", cid: "7", pageIndex: 2 });
   });
 
-  it("Gemini 直播间只声明联网搜索，视频页声明全集", () => {
-    const roomTools = JSON.stringify(buildGeminiSetupTools(false, room));
-    expect(roomTools).toContain("web_search");
-    expect(roomTools).not.toContain("get_subtitles_around_time");
-    expect(roomTools).not.toContain("control_bilibili_player");
+  it("直播间只声明联网搜索（按 Gemini 模型门控 NON_BLOCKING），绝不声明点播控制工具并安全拦截执行", async () => {
+    for (const model of [
+      "gemini-3.8-live",
+      "gemini-3.8-live-extended-thinking",
+      "gemini-3.1-flash-live-preview"
+    ]) {
+      const roomTools = JSON.stringify(buildGeminiSetupTools(false, room, model));
+      expect(roomTools).toContain("web_search");
+      expect(roomTools).not.toContain("get_subtitles_around_time");
+      expect(roomTools).not.toContain("control_bilibili_player");
+      expect(roomTools).not.toContain("seekBy");
+    }
     expect(JSON.stringify(buildGeminiSetupTools(true, room))).toBe(JSON.stringify([{ googleSearch: {} }]));
     expect(JSON.stringify(buildGeminiSetupTools(false, null))).toContain("get_subtitles_around_time");
+
+    const bridge = createLiveRoomBridge({ getUrl: () => ROOM_URL });
+    await expect(
+      bridge.executeTool({ callId: "room-seek", name: "control_bilibili_player", arguments: { command: "seek", time: 10 } })
+    ).rejects.toThrow("直播间不支持页面工具：control_bilibili_player");
   });
 });
 

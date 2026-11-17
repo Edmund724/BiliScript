@@ -350,14 +350,17 @@ describe("control_bilibili_player", () => {
   it.each([
     {},
     { command: "seek" },
-    { command: "seek", time: -1 },
     { command: "seek", time: Number.NaN },
     { command: "seek", time: Number.POSITIVE_INFINITY },
-    { command: "seek", time: 4001 },
     { command: "seek", time: "12" },
+    { command: "seekBy" },
+    { command: "seekBy", offset: Number.NaN },
+    { command: "seekBy", offset: Number.NEGATIVE_INFINITY },
+    { command: "seekBy", offset: "15" },
     { command: "rate" },
-    { command: "rate", rate: 1.2 },
-    { command: "rate", rate: 3 },
+    { command: "rate", rate: 0.4 },
+    { command: "rate", rate: 4.5 },
+    { command: "rate", rate: Number.NaN },
     { command: "rate", rate: "2" },
     { command: "volume" },
     { command: "volume", volume: -1 },
@@ -373,6 +376,172 @@ describe("control_bilibili_player", () => {
     const result = await bridge.executeTool({ callId: "invalid", name: "control_bilibili_player", arguments: args });
     expect(result).toMatchObject({ ok: false, error: expect.any(String) });
     expect(video.currentTime).toBe(12);
+    expect(video.playbackRate).toBe(1);
+    expect(play).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("clamps seek/seekTo within [0, duration], supports seekBy relative offsets, and supports 0.5-4.0 playback rates", async () => {
+    const { bridge, video } = setupPlayer();
+    video.currentTime = 100;
+
+    await expect(bridge.executeTool({
+      callId: "seek-neg",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: -25 }
+    })).resolves.toMatchObject({ ok: true, command: "seek", currentTime: 0, message: "已跳转到 0:00" });
+    expect(video.currentTime).toBe(0);
+
+    await expect(bridge.executeTool({
+      callId: "seek-over",
+      name: "control_bilibili_player",
+      arguments: { command: "seekTo", time: 5000 }
+    })).resolves.toMatchObject({ ok: true, command: "seek", currentTime: 4000, message: "已跳转到 1:06:40" });
+    expect(video.currentTime).toBe(4000);
+
+    video.currentTime = 100;
+    await expect(bridge.executeTool({
+      callId: "seekby-fwd",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: 15 }
+    })).resolves.toMatchObject({ ok: true, command: "seekBy", currentTime: 115, message: "已快进 15 秒，当前位于 1:55" });
+    expect(video.currentTime).toBe(115);
+
+    await expect(bridge.executeTool({
+      callId: "seekby-back-clamp",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: -200 }
+    })).resolves.toMatchObject({ ok: true, command: "seekBy", currentTime: 0, message: "已快退 200 秒，当前位于 0:00" });
+    expect(video.currentTime).toBe(0);
+
+    video.currentTime = 3985;
+    await expect(bridge.executeTool({
+      callId: "seekby-fwd-clamp",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: 30 }
+    })).resolves.toMatchObject({ ok: true, command: "seekBy", currentTime: 4000, message: "已快进 30 秒，当前位于 1:06:40" });
+    expect(video.currentTime).toBe(4000);
+
+    for (const rate of [0.5, 1.2, 1.5, 3, 4]) {
+      await expect(bridge.executeTool({
+        callId: `rate-${rate}`,
+        name: "control_bilibili_player",
+        arguments: { command: "setPlaybackRate", rate }
+      })).resolves.toMatchObject({ ok: true, command: "rate", playbackRate: rate });
+      expect(video.playbackRate).toBe(rate);
+    }
+  });
+
+  it("deduplicates identical player controls within the same turn or 500ms window while returning every call result", async () => {
+    let clock = 1000;
+    const showNotice = vi.fn();
+    const wrap = document.createElement("div");
+    wrap.className = "bpx-player-video-wrap";
+    const video = document.createElement("video");
+    wrap.append(video);
+    document.body.append(wrap);
+    Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
+    Object.defineProperty(video, "duration", { configurable: true, value: 4000 });
+    let currentTimeVal = 60;
+    const timeSetter = vi.fn((v: number) => {
+      currentTimeVal = v;
+    });
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      get: () => currentTimeVal,
+      set: timeSetter
+    });
+    const playSpy = vi.spyOn(video, "play").mockResolvedValue();
+
+    const bridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => URL,
+      getPlayer: () => video,
+      showNotice,
+      now: () => clock
+    });
+
+    // 同一 500ms 短窗口内重复 seekBy(+15) 只执行一次
+    const r1 = await bridge.executeTool({
+      callId: "c1",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: 15 }
+    });
+    clock = 1300;
+    const r2 = await bridge.executeTool({
+      callId: "c2",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: 15 }
+    });
+    expect(r1).toMatchObject({ ok: true, currentTime: 75 });
+    expect(r2).toMatchObject({ ok: true, currentTime: 75 });
+    expect(timeSetter).toHaveBeenCalledTimes(1);
+    expect(showNotice).toHaveBeenCalledTimes(1);
+
+    // 超过 500ms 窗口后再次 seekBy(+15) 正常生效
+    clock = 1600;
+    const r3 = await bridge.executeTool({
+      callId: "c3",
+      name: "control_bilibili_player",
+      arguments: { command: "seekBy", offset: 15 }
+    });
+    expect(r3).toMatchObject({ ok: true, currentTime: 90 });
+    expect(timeSetter).toHaveBeenCalledTimes(2);
+
+    // 同回合（相同 turnId）即使超过 500ms 仍去重
+    clock = 5000;
+    await bridge.executeTool({
+      callId: "t1-a",
+      turnId: "turn-9",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: 150 }
+    });
+    clock = 6200;
+    const dupTurnRes = await bridge.executeTool({
+      callId: "t1-b",
+      turnId: "turn-9",
+      name: "control_bilibili_player",
+      arguments: { command: "seek", time: 150 }
+    });
+    expect(dupTurnRes).toMatchObject({ ok: true, currentTime: 150 });
+    expect(timeSetter).toHaveBeenCalledTimes(3);
+
+    // 并发同参数 play 只调用一次 video.play()
+    const [p1, p2] = await Promise.all([
+      bridge.executeTool({ callId: "p1", turnId: "turn-10", name: "control_bilibili_player", arguments: { command: "play" } }),
+      bridge.executeTool({ callId: "p2", turnId: "turn-10", name: "control_bilibili_player", arguments: { command: "play" } })
+    ]);
+    expect(p1).toMatchObject({ ok: true, command: "play" });
+    expect(p2).toMatchObject({ ok: true, command: "play" });
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks VOD player controls on live room pages without touching the video element", async () => {
+    const showNotice = vi.fn();
+    const { video, play, pause } = setupPlayer();
+    video.currentTime = 42;
+    const liveRoomBridge = createLiveToolsBridge({
+      getClip: () => makeClip(),
+      getUrl: () => "https://live.bilibili.com/21452505",
+      getPlayer: () => video,
+      showNotice
+    });
+
+    for (const args of [
+      { command: "seek", time: 10 },
+      { command: "seekBy", offset: 15 },
+      { command: "pause" },
+      { command: "rate", rate: 1.5 },
+      { command: "volume", volume: 50 }
+    ]) {
+      const res = await liveRoomBridge.executeTool({
+        callId: `room-${args.command}`,
+        name: "control_bilibili_player",
+        arguments: args
+      });
+      expect(res).toMatchObject({ ok: false, error: expect.stringContaining("直播间伴看模式不支持") });
+    }
+    expect(video.currentTime).toBe(42);
     expect(video.playbackRate).toBe(1);
     expect(play).not.toHaveBeenCalled();
     expect(pause).not.toHaveBeenCalled();
