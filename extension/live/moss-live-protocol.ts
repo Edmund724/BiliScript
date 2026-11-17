@@ -777,6 +777,8 @@ export type MossLiveClientAction =
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }
   | { action: "video"; jpegBase64: string }
+  | { action: "realtime_text"; text: string }
+  | { action: "user_text"; text: string; jpegBase64?: string }
   | { action: "mic_state"; enabled: boolean };
 
 /** Offscreen 端口下行（Offscreen -> Client）消息 */

@@ -3,9 +3,11 @@ import { resetModuleState } from "../setup.js";
 import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
 import {
   DEFAULT_GEMINI_LIVE_MODEL,
+  GEMINI_LIVE_TURN_COVERAGE,
   OffscreenGeminiLiveClient,
   buildGeminiSetupTools,
   resolveGeminiToolResponseScheduling,
+  supportsGeminiClientContentMidSession,
   supportsGeminiNonBlockingTools,
   type GeminiLiveClientOptions
 } from "../../extension/live/offscreen-gemini-live-client.js";
@@ -248,6 +250,7 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
     expect(setup).toMatchObject({
       model: "models/gemini-3.8-live",
       generationConfig: { responseModalities: ["AUDIO"] },
+      realtimeInputConfig: { turnCoverage: GEMINI_LIVE_TURN_COVERAGE },
       inputAudioTranscription: {},
       outputAudioTranscription: {}
     });
@@ -307,13 +310,29 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
     );
   });
 
-  it("sends base64 PCM and JPEG as realtimeInput and flushes VAD only on mute transition", () => {
+  it.each([
+    "gemini-2.5-flash-native-audio-preview-12-2025",
+    "gemini-3.1-flash-live-preview",
+    "gemini-3.8-live"
+  ])("explicitly sets TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO in setup for %s", (model) => {
+    const { client } = createClient({ model });
+    client.connect();
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.simulateOpen();
+
+    expect(ws.jsonFrames()[0].setup.realtimeInputConfig).toEqual({
+      turnCoverage: "TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO"
+    });
+  });
+
+  it("sends base64 PCM, JPEG Blob, and plain text string as realtimeInput without deprecated mediaChunks", () => {
     const { client } = createClient();
     const ws = connect(client);
     ws.sentData.length = 0;
 
     client.handleAction({ action: "audio", pcmBase64: "AQIDBA==" });
     client.handleAction({ action: "video", jpegBase64: "/9j/2Q==" });
+    client.handleAction({ action: "realtime_text", text: "实时文本提示" });
     expect(ws.jsonFrames()).toEqual([
       {
         realtimeInput: {
@@ -324,13 +343,21 @@ describe("OffscreenGeminiLiveClient handshake and media", () => {
         realtimeInput: {
           video: { mimeType: "image/jpeg", data: "/9j/2Q==" }
         }
+      },
+      {
+        realtimeInput: {
+          text: "实时文本提示"
+        }
       }
     ]);
+    expect(ws.jsonFrames()[0].realtimeInput).not.toHaveProperty("mediaChunks");
+    expect(ws.jsonFrames()[1].realtimeInput).not.toHaveProperty("mediaChunks");
+    expect(typeof ws.jsonFrames()[2].realtimeInput.text).toBe("string");
 
     client.handleAction({ action: "mic_state", enabled: false });
     client.handleAction({ action: "mic_state", enabled: false });
     client.handleAction({ action: "audio", pcmBase64: "BQYG" });
-    expect(ws.jsonFrames()).toHaveLength(3);
+    expect(ws.jsonFrames()).toHaveLength(4);
     expect(ws.jsonFrames().at(-1)).toEqual({ realtimeInput: { audioStreamEnd: true } });
     expect(ws.jsonFrames().filter((frame) => frame.realtimeInput?.audioStreamEnd)).toHaveLength(1);
 
@@ -539,31 +566,43 @@ describe("OffscreenGeminiLiveClient playback and transcripts", () => {
   });
 });
 
-describe("OffscreenGeminiLiveClient context update", () => {
-  it("injects changed video context without reconnecting and deduplicates unchanged context", () => {
-    const { client } = createClient();
-    const ws = connect(client);
-    ws.sentData.length = 0;
-    const nextContext = {
-      ...videoContext,
-      cid: "200",
-      pageIndex: 2,
-      pageTitle: "进阶",
-      title: "实时语音原理（下）"
-    };
+describe("OffscreenGeminiLiveClient context update and discrete user prompts", () => {
+  it("stores same-video silent context updates in memory without emitting clientContent and includes them on reconnect", () => {
+    const { client } = createClient({ reconnectDelayMs: 0 });
+    const ws1 = connect(client);
+    ws1.simulateMessage(
+      JSON.stringify({
+        sessionResumptionUpdate: { resumable: true, newHandle: "resume-handle-same-video" }
+      })
+    );
+    ws1.sentData.length = 0;
 
-    client.handleAction({ action: "context_update", videoContext: nextContext });
-    client.handleAction({ action: "context_update", videoContext: nextContext });
+    const withOverview = {
+      ...videoContext,
+      overview: {
+        phase: "ready" as const,
+        coverage: "complete" as const,
+        summary: "全片介绍实时语音链路。",
+        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
+        quotes: [],
+        statusText: ""
+      }
+    };
+    client.handleAction({ action: "context_update", videoContext: withOverview });
+    client.handleAction({ action: "context_update", videoContext: withOverview });
 
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(client.getState()).toBe("connected");
-    expect(ws.sentData).toHaveLength(1);
-    const frame = ws.jsonFrames()[0];
-    expect(frame.clientContent.turnComplete).toBe(false);
-    expect(frame.clientContent.turns).toHaveLength(1);
-    expect(frame.clientContent.turns[0].role).toBe("user");
-    expect(frame.clientContent.turns[0].parts[0].text).toContain("P2 进阶");
-    expect(frame.clientContent.turns[0].parts[0].text).toContain("CID：200");
+    expect(ws1.sentData).toHaveLength(0);
+
+    ws1.close(1006, "network lost");
+    const ws2 = FakeWebSocket.instances[1];
+    ws2.simulateOpen();
+    const setup2 = ws2.jsonFrames()[0].setup;
+    expect(setup2.sessionResumption).toEqual({ handle: "resume-handle-same-video" });
+    expect(setup2.systemInstruction.parts[0].text).toContain("全片概览状态：ready（覆盖：complete）");
+    expect(setup2.systemInstruction.parts[0].text).toContain("全片简介：全片介绍实时语音链路。");
+    expect(setup2.systemInstruction.parts[0].text).toContain("0:00 开场：为什么需要实时");
   });
 
   it("uses the latest pre-handshake context in setup and stop closes the session cleanly", () => {
@@ -576,67 +615,136 @@ describe("OffscreenGeminiLiveClient context update", () => {
     });
     ws.simulateOpen();
 
+    expect(FakeWebSocket.instances).toHaveLength(1);
     expect(ws.jsonFrames()[0].setup.systemInstruction.parts[0].text).toContain("CID：300");
     ws.simulateMessage(JSON.stringify({ setupComplete: {} }));
     client.handleAction({ action: "stop" });
     expect(client.getState()).toBe("idle");
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
-  it("pushes a completed overview into instructions mid-session and deduplicates it", () => {
-    const { client } = createClient();
-    const ws = connect(client);
-    ws.sentData.length = 0;
-    const withOverview = {
-      ...videoContext,
-      overview: {
-        phase: "ready" as const,
-        coverage: "complete" as const,
-        summary: "全片介绍实时语音链路。",
-        chapters: [{ from: 0, to: 120, time: "0:00", title: "开场", summary: "为什么需要实时" }],
-        quotes: [],
-        statusText: ""
-      }
-    };
 
-    client.handleAction({ action: "context_update", videoContext: withOverview });
-    client.handleAction({ action: "context_update", videoContext: withOverview });
-
-    expect(ws.sentData).toHaveLength(1);
-    const text = ws.jsonFrames()[0].clientContent.turns[0].parts[0].text;
-    expect(text).toContain("全片概览状态：ready（覆盖：complete）");
-    expect(text).toContain("全片简介：全片介绍实时语音链路。");
-    expect(text).toContain("0:00 开场：为什么需要实时");
-  });
-
-  it("interrupts playback and immediately applies only the latest context on a video switch", () => {
+  it("interrupts playback, clears resumption handle, and rebuilds setup once when video identity changes", () => {
     const { client, audioContext, transcripts } = createClient();
-    const ws = connect(client);
-
-    ws.simulateMessage(serverContent({
+    const ws1 = connect(client);
+    ws1.simulateMessage(
+      JSON.stringify({
+        sessionResumptionUpdate: { resumable: true, newHandle: "old-video-handle" }
+      })
+    );
+    ws1.simulateMessage(serverContent({
       outputTranscription: { text: "旧视频回答中" },
       modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(2400) } }] }
     }));
     expect(client.isSpeaking()).toBe(true);
 
-    ws.sentData.length = 0;
+    ws1.sentData.length = 0;
     const nextContext = { ...videoContext, pageIndex: 3 };
     client.handleAction({ action: "context_update", videoContext: nextContext });
     const latestContext = { ...nextContext, cid: "300", title: "最新视频" };
     client.handleAction({ action: "context_update", videoContext: latestContext });
 
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    expect(client.getState()).toBe("connected");
     expect(audioContext.sources[0].stopped).toBe(true);
     expect(client.isSpeaking()).toBe(false);
-    const contentFrames = ws.jsonFrames().filter((frame) => frame.clientContent);
-    expect(contentFrames).toHaveLength(2);
-    expect(contentFrames.at(-1).clientContent.turns[0].parts[0].text).toContain("CID：300");
+    expect(client.getSessionId()).toBeNull();
+    expect(ws1.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(ws1.jsonFrames().filter((frame) => frame.clientContent)).toHaveLength(0);
+
+    // 连续两次换片合并为一次新连接握手（未 open 的中间套接字会被替换）
+    const wsLatest = FakeWebSocket.instances.at(-1)!;
+    wsLatest.simulateOpen();
+    expect(wsLatest.jsonFrames()[0].setup.sessionResumption).toEqual({});
+    expect(wsLatest.jsonFrames()[0].setup.systemInstruction.parts[0].text).toContain("CID：300");
+    wsLatest.simulateMessage(JSON.stringify({ setupComplete: {} }));
+    expect(client.getState()).toBe("connected");
     expect(transcripts.some((event) =>
       event.kind === "output.done" && event.text.includes("旧视频回答中")
     )).toBe(false);
+  });
 
-    ws.simulateMessage(serverContent({ turnComplete: true, interactionStatus: "IDLE" }));
-    expect(ws.jsonFrames().filter((frame) => frame.clientContent)).toHaveLength(2);
+  it.each([
+    "gemini-3.8-live",
+    "gemini-2.5-flash-native-audio-preview-12-2025"
+  ])("for %s, sends realtimeInput.video before text-only clientContent(turnComplete:true) and accepts subsequent output", (model) => {
+    expect(supportsGeminiClientContentMidSession(model)).toBe(true);
+    const { client, audioContext, transcripts } = createClient({ model });
+    const ws = connect(client);
+
+    // 先触发一次本地打断，验证离散文本提问会复位 discardOutputUntilInput 并打断在途播报
+    ws.simulateMessage(serverContent({
+      outputTranscription: { text: "旧播报" },
+      modelTurn: { parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: audioPart(2400) } }] }
+    }));
+    client.handleAction({ action: "interrupt" });
+    ws.sentData.length = 0;
+
+    client.handleAction({
+      action: "user_text",
+      text: "[当前播放时刻：1:25]\n画面右上角是什么？",
+      jpegBase64: "/9j/2Q=="
+    });
+
+    expect(audioContext.sources[0].stopped).toBe(true);
+    expect(ws.jsonFrames()).toEqual([
+      {
+        realtimeInput: {
+          video: { mimeType: "image/jpeg", data: "/9j/2Q==" }
+        }
+      },
+      {
+        clientContent: {
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: "[当前播放时刻：1:25]\n画面右上角是什么？" }]
+            }
+          ],
+          turnComplete: true
+        }
+      }
+    ]);
+    expect(ws.jsonFrames()[1].clientContent.turns[0].parts[0]).not.toHaveProperty("inlineData");
+
+    ws.simulateMessage(serverContent({ outputTranscription: { text: "右上角是状态栏。" } }));
+    ws.simulateMessage(serverContent({ turnComplete: true }));
+    expect(transcripts).toContainEqual(
+      expect.objectContaining({ kind: "output.done", text: "右上角是状态栏。" })
+    );
+  });
+
+  it("for gemini-3.1-*, routes discrete user prompts after realtimeInput.video via realtimeInput.text to avoid 1007", () => {
+    expect(supportsGeminiClientContentMidSession("gemini-3.1-flash-live-preview")).toBe(false);
+    expect(supportsGeminiClientContentMidSession("models/gemini-3.1-flash-live-preview")).toBe(false);
+
+    const { client, transcripts } = createClient({ model: "gemini-3.1-flash-live-preview" });
+    const ws = connect(client);
+    client.handleAction({ action: "interrupt" });
+    ws.sentData.length = 0;
+
+    client.handleAction({
+      action: "user_text",
+      text: "[当前播放时刻：2:10]\n总结这一页PPT",
+      jpegBase64: "/9j/2Q=="
+    });
+
+    expect(ws.jsonFrames()).toEqual([
+      {
+        realtimeInput: {
+          video: { mimeType: "image/jpeg", data: "/9j/2Q==" }
+        }
+      },
+      {
+        realtimeInput: {
+          text: "[当前播放时刻：2:10]\n总结这一页PPT"
+        }
+      }
+    ]);
+    expect(ws.jsonFrames().some((frame) => frame.clientContent)).toBe(false);
+
+    ws.simulateMessage(serverContent({ outputTranscription: { text: "这页展示了架构图。" } }));
+    ws.simulateMessage(serverContent({ turnComplete: true }));
+    expect(transcripts).toContainEqual(
+      expect.objectContaining({ kind: "output.done", text: "这页展示了架构图。" })
+    );
   });
 });
 
@@ -1319,16 +1427,19 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       }
     }));
     client.updateVideoContext({ ...videoContext, cid: "200", pageIndex: 2 });
-    ws.sentData.length = 0;
+    const switchedWs = FakeWebSocket.instances.at(-1)!;
+    switchedWs.simulateOpen();
+    switchedWs.simulateMessage(JSON.stringify({ setupComplete: {} }));
+    switchedWs.sentData.length = 0;
     client.handleAction({
       action: "delegation_result",
       delegationId: "call-switch",
       status: "completed",
       content: "旧视频结果"
     });
-    expect(ws.jsonFrames()).toHaveLength(0);
+    expect(switchedWs.jsonFrames()).toHaveLength(0);
 
-    ws.simulateMessage(JSON.stringify({
+    switchedWs.simulateMessage(JSON.stringify({
       toolCall: {
         functionCalls: [
           { id: "call-close", name: "analyze_video_transcript", args: { scope: "query", query: "细节" } }
@@ -1342,7 +1453,7 @@ describe("OffscreenGeminiLiveClient tools, web_search, and native search toggle"
       status: "completed",
       content: "关闭后的结果"
     });
-    expect(ws.jsonFrames()).toHaveLength(0);
+    expect(switchedWs.jsonFrames()).toHaveLength(0);
   });
 
   it("cancels specific in-flight web_search and page tool calls on toolCallCancellation.ids", async () => {

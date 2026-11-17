@@ -153,6 +153,7 @@ export interface LiveWireProtocolAdapter {
   readonly handshakeTimeoutMessage: string;
   readonly audioSampleRate?: number;
   readonly enablePlaybackReceipts?: boolean;
+  readonly reconnectOnIdentityChange?: boolean;
   onStartAction?(msg: Extract<MossLiveClientAction, { action: "start" }>): void;
   onConnectReset(generation: number): void;
   onSocketOpen(context: LiveWireSocketOpenContext): void;
@@ -167,6 +168,8 @@ export interface LiveWireProtocolAdapter {
     jpegBytes: Uint8Array<ArrayBuffer>,
     transport: LiveWireTransport
   ): boolean;
+  sendRealtimeText?(text: string, transport: LiveWireTransport): boolean;
+  sendUserText?(text: string, transport: LiveWireTransport): boolean;
   onMicStateChanged(
     enabled: boolean,
     previousEnabled: boolean,
@@ -596,6 +599,14 @@ export class OffscreenLiveSessionRuntime {
         }
         break;
       }
+
+      case "realtime_text":
+        this.sendRealtimeText(msg.text);
+        break;
+
+      case "user_text":
+        this.sendUserText(msg.text, msg.jpegBase64);
+        break;
 
       case "mic_state":
         this.setMicEnabled(Boolean(msg.enabled));
@@ -1206,12 +1217,58 @@ export class OffscreenLiveSessionRuntime {
     this.adapter.onMicStateChanged(next, prev, this.state === "connected", this.transport);
   }
 
+  sendRealtimeText(text: string): boolean {
+    if (this.disposed || this.state !== "connected") return false;
+    if (typeof text !== "string" || text.trim().length === 0) return false;
+    return this.adapter.sendRealtimeText?.(text, this.transport) ?? false;
+  }
+
+  sendUserText(text: string, jpegBase64?: string): boolean {
+    if (this.disposed || this.state !== "connected") return false;
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    if (!trimmed) return false;
+    if (this.isSpeaking()) {
+      this.interrupt();
+    }
+    if (jpegBase64) {
+      const bytes = decodeBase64Bytes(jpegBase64);
+      if (bytes.byteLength > 0) {
+        this.adapter.sendVideo(jpegBase64, bytes, this.transport);
+      }
+    }
+    return this.adapter.sendUserText?.(trimmed, this.transport) ?? false;
+  }
+
   updateVideoContext(context: MossLiveSessionContext | null): void {
     const nextIdentityKey = videoContextIdentityKey(context);
     const identityChanged = nextIdentityKey !== this.videoIdentityKey;
     this.videoIdentityKey = nextIdentityKey;
     this.videoContext = context;
     this.adapter.onVideoContextUpdated?.(context);
+    if (this.adapter.reconnectOnIdentityChange) {
+      if (!identityChanged) {
+        this.lastSentContextKey = JSON.stringify(context);
+        return;
+      }
+      this.sessionId = null;
+      this.reconnectAttempts = 0;
+      this.clearReconnectTimer();
+      this.hasPendingContext = false;
+      this.pendingVideoContext = null;
+      if (this.state === "connected") {
+        this.interrupt(true);
+        this.audioPlayer.reset();
+        this.webSearchCallCounts.clear();
+        this.connect();
+      } else if (this.state === "connecting") {
+        this.cancelAllToolCalls();
+        this.stopAndResetAllPlayback();
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.connect();
+        }
+      }
+      return;
+    }
     if (this.state !== "connected") return;
     const contextKey = JSON.stringify(context);
     if (contextKey === this.lastSentContextKey) return;

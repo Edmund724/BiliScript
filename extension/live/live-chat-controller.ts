@@ -6,6 +6,7 @@ import {
   MOSS_LIVE_PORT_NAME,
   formatLiveCloseDiagnostics,
   encodeBase64Bytes,
+  isLiveRoomContext,
   resolveGeminiLiveWsUrl,
   resolveMossLivePermissionOrigins,
   resolveMossLiveWsUrl,
@@ -48,6 +49,7 @@ import {
   type VideoAudioTrackStatus
 } from "./page-media-capture.js";
 import {
+  capturePageVideoFrame,
   createPageVideoFrameCapture,
   type PageVideoFrameCaptureOptions,
   type PageVideoFrameCaptureSession
@@ -56,6 +58,7 @@ import { resolveMossVideoConfig, type MossVideoCaptureConfig } from "./moss-vide
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage as defaultSendRuntimeMessage } from "../shared/messaging.js";
 
 export type LiveChatState = "idle" | "connecting" | "connected" | "failure";
@@ -149,6 +152,7 @@ export interface LiveChatController {
   getSpeed(): number;
   toggleMute(): void;
   interrupt(): void;
+  sendUserPrompt(prompt: string, options?: { includeVideoFrame?: boolean }): Promise<boolean>;
   refreshTarget(): Promise<void>;
   getTextToolRecords(): LiveTextToolRecord[];
   subscribeTextToolRecords(listener: () => void): () => void;
@@ -423,7 +427,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       reconnecting = false;
     }
     if (nextState !== "connected") {
-      muted = false;
+      muted = nextState === "connecting" && activeAudioCapture ? activeAudioCapture.isMuted() : false;
       speaking = false;
       micVadActive = false;
       clearLongSummaryControls();
@@ -485,6 +489,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activeVideoCapture = startVideoCapture({
         getVideo: resolveVideoElement,
         config: videoCaptureConfig,
+        pauseWhenStatic: activeTargetProviderType === "gemini-live",
         onJpegFrame: (jpegBytes) => {
           if (generation !== currentGeneration || state !== "connected" || !activePort) return;
           try {
@@ -755,6 +760,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       nextDelegationVideoKey !== lastDelegationVideoKey
     ) {
       currentVideoGeneration += 1;
+      savedMossSessionId = null;
       backendTasks.cancelAllTasks();
       clearLongSummaryControls();
       textToolCoordinator.clear();
@@ -1210,6 +1216,63 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     syncVideoDucking();
   }
 
+  async function sendUserPrompt(
+    prompt: string,
+    options?: { includeVideoFrame?: boolean }
+  ): Promise<boolean> {
+    const trimmed = typeof prompt === "string" ? prompt.trim() : "";
+    if (!trimmed || state !== "connected" || !activePort) return false;
+    const generation = currentGeneration;
+    const video = resolveVideoElement();
+    const context = readVideoContext();
+    const formattedText =
+      video && !isLiveRoomContext(context) && Number.isFinite(video.currentTime) && video.currentTime >= 0
+        ? `[当前播放时刻：${formatClock(video.currentTime, { hours: "auto" })}]\n${trimmed}`
+        : trimmed;
+    const shouldIncludeFrame =
+      options?.includeVideoFrame ??
+      (activeVideoCapture?.isSuspended?.() ??
+        Boolean(
+          video &&
+            (video.paused ||
+              video.ended ||
+              (typeof document !== "undefined" && document.hidden))
+        ));
+
+    let jpegBase64 = "";
+    if (shouldIncludeFrame) {
+      try {
+        if (activeVideoCapture?.captureSnapshot) {
+          const snapshot = await activeVideoCapture.captureSnapshot();
+          if (snapshot && snapshot.byteLength > 0) {
+            jpegBase64 = encodeBase64Bytes(snapshot);
+          }
+        } else if (video) {
+          const snapshot = await capturePageVideoFrame({ getVideo: () => video });
+          if (snapshot.jpegBytes.byteLength > 0) {
+            jpegBase64 = encodeBase64Bytes(snapshot.jpegBytes);
+          }
+        }
+      } catch {
+        // 单帧截取失败时降级为纯文本追问，不阻塞提问发送。
+      }
+    }
+
+    if (generation !== currentGeneration || state !== "connected" || !activePort) {
+      return false;
+    }
+    try {
+      activePort.postMessage({
+        action: "user_text",
+        text: formattedText,
+        ...(jpegBase64 ? { jpegBase64 } : {})
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function stop(): Promise<void> {
     currentGeneration += 1;
     const stoppingSessionId = activeSessionId;
@@ -1274,6 +1337,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     getSpeed: () => speed,
     toggleMute,
     interrupt,
+    sendUserPrompt,
     refreshTarget,
     getTextToolRecords: textToolCoordinator.getSnapshot,
     subscribeTextToolRecords: textToolCoordinator.subscribe,

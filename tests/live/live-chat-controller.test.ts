@@ -107,16 +107,28 @@ class FakeAudioCapture implements PageAudioCaptureSession {
 
 class FakeVideoCapture implements PageVideoFrameCaptureSession {
   stopped = false;
+  suspended = false;
+  snapshotBytes: Uint8Array<ArrayBuffer> | null = new Uint8Array([0xff, 0xd8, 0x99, 0xff, 0xd9]);
   config: Partial<MossVideoCaptureConfig> | null = null;
+  pauseWhenStatic: boolean | undefined;
   onJpegFrame: (bytes: Uint8Array<ArrayBuffer>) => void;
 
   constructor(options: PageVideoFrameCaptureOptions) {
     this.onJpegFrame = options.onJpegFrame;
     this.config = options.config ?? null;
+    this.pauseWhenStatic = options.pauseWhenStatic;
   }
 
   configure(next: Partial<MossVideoCaptureConfig>): void {
     this.config = { ...this.config, ...next };
+  }
+
+  isSuspended(): boolean {
+    return this.suspended;
+  }
+
+  async captureSnapshot(): Promise<Uint8Array<ArrayBuffer> | null> {
+    return this.snapshotBytes;
   }
 
   stop(): void {
@@ -138,6 +150,7 @@ describe("LiveChatController", () => {
     getTargetOrigin?: () => string;
     getTargetModel?: () => string;
     getTargetProviderType?: () => LiveProviderType;
+    getVideoElement?: () => HTMLVideoElement | null;
     requestOrigins?: (origins: string[]) => Promise<{ ok: boolean; error?: string }>;
     sendRuntimeMessage?: (msg: any) => Promise<any>;
     startAudioCapture?: (opts: PageAudioCaptureOptions) => Promise<PageAudioCaptureSession>;
@@ -210,6 +223,7 @@ describe("LiveChatController", () => {
       getTargetOrigin: overrides.getTargetOrigin,
       getTargetModel: overrides.getTargetModel,
       getTargetProviderType: overrides.getTargetProviderType,
+      getVideoElement: overrides.getVideoElement,
       getVideoContext: overrides.getVideoContext,
       executeTool: overrides.executeTool,
       subscribeVideoContextChanges: overrides.subscribeVideoContextChanges
@@ -548,6 +562,7 @@ describe("LiveChatController", () => {
     fakePort.simulateMessage({ type: "connected" });
     const firstCapture = getVideoCapture()!;
     expect(startVideoCapture).toHaveBeenCalledTimes(1);
+    expect(firstCapture.pauseWhenStatic).toBe(false);
 
     fakePort.postedMessages.length = 0;
     firstCapture.emitFrame(new Uint8Array([0xff, 0xd8, 7, 0xff, 0xd9]));
@@ -564,6 +579,76 @@ describe("LiveChatController", () => {
 
     getVideoCapture()!.emitFrame(new Uint8Array([2]));
     expect(fakePort.postedMessages).toEqual([{ action: "video", jpegBase64: expect.any(String) }]);
+    await controller.stop();
+  });
+
+  it("enables pauseWhenStatic for gemini-live while keeping mic audio streaming when video pauses, and routes discrete prompts with frame snapshot only when suspended", async () => {
+    const fakeVideo = document.createElement("video");
+    Object.defineProperty(fakeVideo, "currentTime", { configurable: true, get: () => 85 });
+    Object.defineProperty(fakeVideo, "paused", { configurable: true, get: () => true });
+    const { controller, fakePort, getAudioCapture, getVideoCapture } = setupTest({
+      getTargetProviderType: () => "gemini-live",
+      getTargetOrigin: () => "https://generativelanguage.googleapis.com",
+      getTargetModel: () => "gemini-3.8-live",
+      getVideoElement: () => fakeVideo,
+      getVideoContext: () => ({
+        url: "https://www.bilibili.com/video/BV1test000000/",
+        bvid: "BV1test000000",
+        cid: "123",
+        title: "测试视频",
+        pageIndex: 1,
+        pageCount: 1,
+        pageTitle: "",
+        chapters: []
+      }),
+      sendRuntimeMessage: async (msg: any) => {
+        if (msg.type === "live-session-prepare") {
+          return {
+            ok: true,
+            provider: {
+              id: "gemini-live-1",
+              type: "gemini-live",
+              baseUrl: "https://generativelanguage.googleapis.com",
+              model: "gemini-3.8-live"
+            }
+          };
+        }
+        return { ok: true };
+      }
+    });
+
+    await controller.start();
+    fakePort.simulateMessage({ type: "connected" });
+    const videoCapture = getVideoCapture()!;
+    expect(videoCapture.pauseWhenStatic).toBe(true);
+
+    // 视频暂停停推期间，麦克风音频帧照常上行
+    videoCapture.suspended = true;
+    fakePort.postedMessages.length = 0;
+    getAudioCapture()!.emitFrame(new Uint8Array([1, 2, 3, 4]));
+    expect(fakePort.postedMessages).toEqual([{ action: "audio", pcmBase64: expect.any(String) }]);
+
+    // 暂停停推态离散提问：自动补单帧快照 + 含当前播放时刻的纯文本
+    fakePort.postedMessages.length = 0;
+    expect(await controller.sendUserPrompt("这个图表说明了什么？")).toBe(true);
+    expect(fakePort.postedMessages).toEqual([
+      {
+        action: "user_text",
+        text: "[当前播放时刻：1:25]\n这个图表说明了什么？",
+        jpegBase64: expect.any(String)
+      }
+    ]);
+
+    // 播放态离散提问：不重复补图，仅发带时刻上下文的纯文本
+    videoCapture.suspended = false;
+    fakePort.postedMessages.length = 0;
+    expect(await controller.sendUserPrompt("继续解释下一步")).toBe(true);
+    expect(fakePort.postedMessages).toEqual([
+      {
+        action: "user_text",
+        text: "[当前播放时刻：1:25]\n继续解释下一步"
+      }
+    ]);
     await controller.stop();
   });
 

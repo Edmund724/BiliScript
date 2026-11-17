@@ -1,11 +1,58 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_VIDEO_SEEK_CAPTURE_DEBOUNCE_MS,
+  MIN_LIVE_VIDEO_CAPTURE_INTERVAL_MS,
   MOSS_VIDEO_FRAME_MAX_EDGE,
   capturePageVideoFrame,
   createPageVideoFrameCapture,
   getVideoFrameSize
 } from "../../extension/live/page-video-frame-capture.js";
 import { MOSS_STANDARD_VIDEO_CONFIG } from "../../extension/live/moss-video-config.js";
+
+function createFakeDomVideo(initial: {
+  currentTime?: number;
+  paused?: boolean;
+  ended?: boolean;
+  currentSrc?: string;
+} = {}) {
+  const listeners = new Map<string, Set<() => void>>();
+  return {
+    currentSrc: initial.currentSrc ?? "blob:https://www.bilibili.com/video-live",
+    src: "",
+    readyState: 4,
+    videoWidth: 1920,
+    videoHeight: 1080,
+    currentTime: initial.currentTime ?? 10,
+    paused: initial.paused ?? false,
+    ended: initial.ended ?? false,
+    addEventListener: vi.fn((type: string, fn: () => void) => {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(fn);
+    }),
+    removeEventListener: vi.fn((type: string, fn: () => void) => {
+      listeners.get(type)?.delete(fn);
+    }),
+    dispatch(type: string) {
+      listeners.get(type)?.forEach((fn) => fn());
+    }
+  };
+}
+
+function createFakeCanvasHarness() {
+  const drawImage = vi.fn();
+  let seq = 0x20;
+  const toBlob = vi.fn((callback: BlobCallback, _mime?: string, _quality?: number) => {
+    seq += 1;
+    callback(new Blob([new Uint8Array([0xff, 0xd8, seq, 0xff, 0xd9])], { type: "image/jpeg" }));
+  });
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: vi.fn(() => ({ drawImage })),
+    toBlob
+  } as unknown as HTMLCanvasElement;
+  return { canvas, drawImage, toBlob };
+}
 
 describe("capturePageVideoFrame", () => {
   it("截取当前播放位置并返回 960px JPEG 字节与 currentTime", async () => {
@@ -179,6 +226,124 @@ describe("createPageVideoFrameCapture", () => {
     expect(fakeCanvas.height).toBe(288);
     expect(lastQuality).toBe(0.75);
     expect(frames).toHaveLength(2);
+
+    session.stop();
+  });
+
+  it("pauseWhenStatic 下钳制采样率不超过 1 FPS，暂停/结束/隐藏即停推并支持恢复与 snapshot", async () => {
+    vi.useFakeTimers();
+    const fakeVideo = createFakeDomVideo({ paused: false, currentTime: 5 });
+    const { canvas, drawImage, toBlob } = createFakeCanvasHarness();
+    let hidden = false;
+    const frames: Uint8Array[] = [];
+
+    const session = createPageVideoFrameCapture({
+      getVideo: () => fakeVideo as unknown as HTMLVideoElement,
+      createCanvas: () => canvas,
+      config: { intervalMs: 250 },
+      pauseWhenStatic: true,
+      isDocumentHidden: () => hidden,
+      onJpegFrame: (bytes) => frames.push(bytes)
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames).toHaveLength(1);
+    expect(session.isSuspended?.()).toBe(false);
+
+    // 钳制到 1000ms（<= 1 FPS），500ms 内不得再出第二帧
+    await vi.advanceTimersByTimeAsync(500);
+    expect(frames).toHaveLength(1);
+    fakeVideo.currentTime = 6;
+    await vi.advanceTimersByTimeAsync(MIN_LIVE_VIDEO_CAPTURE_INTERVAL_MS - 500);
+    expect(frames).toHaveLength(2);
+
+    // configure 试图降到 300ms 仍被钳制在 1000ms，2000ms 正常放宽
+    session.configure({ intervalMs: 300 });
+    fakeVideo.currentTime = 7;
+    await vi.advanceTimersByTimeAsync(999);
+    expect(frames).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(frames).toHaveLength(3);
+
+    // 暂停后彻底停推重复帧（不编码也不触发 onJpegFrame）
+    fakeVideo.paused = true;
+    fakeVideo.dispatch("pause");
+    const countAfterPause = frames.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(frames).toHaveLength(countAfterPause);
+    expect(session.isSuspended?.()).toBe(true);
+
+    // 暂停态主动抓单帧快照（不走周期 onJpegFrame 通道）
+    fakeVideo.currentTime = 7.5;
+    const snapshot = await session.captureSnapshot?.();
+    expect(snapshot).not.toBeNull();
+    expect(frames).toHaveLength(countAfterPause);
+    expect(drawImage).toHaveBeenCalledTimes(countAfterPause + 1);
+    expect(toBlob).toHaveBeenCalledTimes(countAfterPause + 1);
+
+    // 恢复播放后恢复 1 FPS 采样
+    fakeVideo.paused = false;
+    fakeVideo.currentTime = 8;
+    fakeVideo.dispatch("play");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames).toHaveLength(countAfterPause + 1);
+
+    // 页面隐藏（document.hidden）同样停推，恢复可见时恢复采样
+    hidden = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(session.isSuspended?.()).toBe(true);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(frames).toHaveLength(countAfterPause + 1);
+
+    hidden = false;
+    fakeVideo.currentTime = 12;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames).toHaveLength(countAfterPause + 2);
+
+    // 视频结束（ended）立即停推
+    fakeVideo.ended = true;
+    fakeVideo.dispatch("ended");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(frames).toHaveLength(countAfterPause + 2);
+
+    session.stop();
+  });
+
+  it("pauseWhenStatic 下 seeked 经防抖仅补推一帧新画面，暂停态拖动也补推单帧但保持停推", async () => {
+    vi.useFakeTimers();
+    const fakeVideo = createFakeDomVideo({ paused: true, currentTime: 20 });
+    const { canvas, drawImage } = createFakeCanvasHarness();
+    const frames: Uint8Array[] = [];
+
+    const session = createPageVideoFrameCapture({
+      getVideo: () => fakeVideo as unknown as HTMLVideoElement,
+      createCanvas: () => canvas,
+      pauseWhenStatic: true,
+      seekDebounceMs: DEFAULT_VIDEO_SEEK_CAPTURE_DEBOUNCE_MS,
+      onJpegFrame: (bytes) => frames.push(bytes)
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames).toHaveLength(0);
+
+    // 连续拖动触发多次 seeked：防抖窗口内不发帧
+    fakeVideo.currentTime = 45;
+    fakeVideo.dispatch("seeked");
+    await vi.advanceTimersByTimeAsync(100);
+    fakeVideo.currentTime = 90;
+    fakeVideo.dispatch("seeked");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(frames).toHaveLength(0);
+
+    // 落定满 200ms 后立即补推 1 帧新位置画面
+    await vi.advanceTimersByTimeAsync(100);
+    expect(drawImage).toHaveBeenCalledTimes(1);
+    expect(frames).toHaveLength(1);
+
+    // 保持暂停期间后续不再周期推帧
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(frames).toHaveLength(1);
 
     session.stop();
   });
