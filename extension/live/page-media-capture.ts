@@ -6,15 +6,25 @@
 
 import {
   DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN,
+  DEFAULT_VAD_BARGE_IN_MS,
   DEFAULT_VAD_HANGOVER_MS,
   DEFAULT_VAD_RELEASE_MS,
   DEFAULT_VAD_RMS_THRESHOLD,
+  DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN,
+  DEFAULT_VIDEO_SEND_DISABLED_GAIN,
+  DEFAULT_VIDEO_SEND_DUCK_TIME_CONSTANT_SEC,
+  DEFAULT_VIDEO_SEND_NORMAL_GAIN,
+  DEFAULT_VIDEO_SEND_RESTORE_TIME_CONSTANT_SEC,
   MOSS_UPSTREAM_SAMPLE_RATE,
   PCM_CAPTURE_PROCESSOR_NAME,
   PCM_CAPTURE_WORKLET_REL_PATH,
+  resolveVideoSendGainTarget,
   type PcmCaptureConfig,
   type PcmCaptureMainToWorkletMessage,
-  type PcmCaptureWorkletToMainMessage
+  type PcmCaptureWorkletToMainMessage,
+  type VideoSendGainOptions,
+  type VideoSendGainState,
+  type VideoSendGainTransition
 } from "./pcm-capture-core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 
@@ -24,7 +34,17 @@ export {
   DEFAULT_VAD_RMS_THRESHOLD,
   DEFAULT_VAD_HANGOVER_MS,
   DEFAULT_VAD_RELEASE_MS,
-  DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN
+  DEFAULT_VAD_BARGE_IN_MS,
+  DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN,
+  DEFAULT_VIDEO_SEND_NORMAL_GAIN,
+  DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN,
+  DEFAULT_VIDEO_SEND_DISABLED_GAIN,
+  DEFAULT_VIDEO_SEND_DUCK_TIME_CONSTANT_SEC,
+  DEFAULT_VIDEO_SEND_RESTORE_TIME_CONSTANT_SEC,
+  resolveVideoSendGainTarget,
+  type VideoSendGainOptions,
+  type VideoSendGainState,
+  type VideoSendGainTransition
 };
 
 export interface PageAudioWorkletPortLike {
@@ -38,8 +58,16 @@ export interface PageAudioWorkletNodeLike {
   disconnect(): void;
 }
 
+export interface PageAudioGainParamLike {
+  value: number;
+  cancelScheduledValues?(cancelTime: number): void;
+  cancelAndHoldAtTime?(holdTime: number): void;
+  setValueAtTime?(value: number, startTime: number): void;
+  setTargetAtTime?(target: number, startTime: number, timeConstant: number): void;
+}
+
 export interface PageAudioGainNodeLike {
-  gain: { value: number };
+  gain: PageAudioGainParamLike;
   connect(destination: unknown, outputIndex?: number, inputIndex?: number): void;
   disconnect(): void;
 }
@@ -51,6 +79,7 @@ export interface PageAudioSourceNodeLike {
 
 export interface PageAudioContextLike {
   readonly sampleRate: number;
+  readonly currentTime?: number;
   readonly state?: string;
   readonly destination: unknown;
   readonly audioWorklet?: {
@@ -66,14 +95,21 @@ export interface PageAudioContextLike {
 export interface PageAudioCaptureOptions {
   onPcmFrame: (pcmBytes: Uint8Array<ArrayBuffer>) => void;
   initialMuted?: boolean;
+  initialAiSpeaking?: boolean;
   shareVideoAudio?: boolean;
   upstreamVideoDuckGain?: number;
   vadRmsThreshold?: number;
   vadHangoverMs?: number;
   vadReleaseMs?: number;
+  vadBargeInMs?: number;
+  videoSendNormalGain?: number;
+  videoSendAiSpeakingGain?: number;
+  videoSendDuckTimeConstantSec?: number;
+  videoSendRestoreTimeConstantSec?: number;
   workletModuleUrl?: string;
   onVideoAudioStatusChange?: (status: VideoAudioTrackStatus) => void;
   onVadStateChange?: (active: boolean) => void;
+  onBargeInSpeechChange?: (active: boolean) => void;
   onMicrophoneError?: (error: Error) => void;
   getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   createAudioContext?: () => PageAudioContextLike | null;
@@ -86,9 +122,13 @@ export interface PageAudioCaptureSession {
   isMuted(): boolean;
   setShareVideoAudio(enabled: boolean): void;
   isSharingVideoAudio(): boolean;
+  setAiSpeaking?(speaking: boolean): void;
+  isAiSpeaking?(): boolean;
   getVideoAudioStatus(): VideoAudioTrackStatus;
   isMicVadActive(): boolean;
+  isBargeInSpeechActive?(): boolean;
   isVoiceRecentlyActive(): boolean;
+  getVideoSendGainTarget?(): number;
   stop(): void;
 }
 
@@ -362,20 +402,29 @@ export async function createPageAudioCapture(
     throw new Error(formatMediaCaptureError(error));
   }
 
-  const audioCtx = options.createAudioContext
+  const rawAudioCtx = options.createAudioContext
     ? options.createAudioContext()
     : createDefaultPageAudioContext();
 
-  if (!audioCtx) {
+  if (!rawAudioCtx) {
     stopStreamTracks(micStream);
     throw new Error("当前浏览器环境不支持 WebAudio 音频处理");
   }
+  const audioCtx: PageAudioContextLike = rawAudioCtx;
 
   let muted = Boolean(options.initialMuted);
+  let aiSpeaking = Boolean(options.initialAiSpeaking);
   let shareVideoAudio = options.shareVideoAudio ?? false;
   const vadThreshold = options.vadRmsThreshold ?? DEFAULT_VAD_RMS_THRESHOLD;
   const vadHangoverMs = options.vadHangoverMs ?? DEFAULT_VAD_HANGOVER_MS;
   const vadReleaseMs = options.vadReleaseMs ?? DEFAULT_VAD_RELEASE_MS;
+  const vadBargeInMs = options.vadBargeInMs ?? DEFAULT_VAD_BARGE_IN_MS;
+  const videoSendGainOptions: VideoSendGainOptions = {
+    normalGain: options.videoSendNormalGain,
+    aiSpeakingGain: options.videoSendAiSpeakingGain,
+    duckTimeConstantSec: options.videoSendDuckTimeConstantSec,
+    restoreTimeConstantSec: options.videoSendRestoreTimeConstantSec
+  };
   const upstreamVideoDuckGain =
     typeof options.upstreamVideoDuckGain === "number" &&
     Number.isFinite(options.upstreamVideoDuckGain)
@@ -399,7 +448,8 @@ export async function createPageAudioCapture(
         mixVideo: false,
         upstreamVideoDuckGain,
         vadRmsThreshold: vadThreshold,
-        vadReleaseMs
+        vadReleaseMs,
+        vadBargeInMs
       } satisfies PcmCaptureConfig
     };
 
@@ -427,12 +477,21 @@ export async function createPageAudioCapture(
   let stopped = false;
   let lastVoiceActivityTimestamp = 0;
   let vadSpeaking = false;
+  let bargeInSpeaking = false;
 
   function reportVadState(active: boolean): void {
     if (vadSpeaking === active) return;
     vadSpeaking = active;
     try {
       options.onVadStateChange?.(active);
+    } catch {}
+  }
+
+  function reportBargeInState(active: boolean): void {
+    if (bargeInSpeaking === active) return;
+    bargeInSpeaking = active;
+    try {
+      options.onBargeInSpeechChange?.(active);
     } catch {}
   }
 
@@ -450,17 +509,55 @@ export async function createPageAudioCapture(
     track.addEventListener("ended", handleMicrophoneEnded);
   }
 
-  // 节点拓扑：
-  // 1. micSource (micStream) -> workletNode input 0
-  // 2. videoSource (videoStream) -> workletNode input 1
-  // 3. workletNode output 0 -> silentGain (gain=0) -> destination
+  // 严格前级分路节点拓扑：
+  // 1. 分支 A（纯人声检测）：micSource (micStream) -> workletNode input 0（绝不混入视频音轨）
+  // 2. 分支 B（混音上行）：micSource -> workletNode input 0，videoSource -> videoSendGain -> workletNode input 1
+  // 3. 静音负载：workletNode output 0 -> silentGain (gain=0) -> destination
   const micSource = audioCtx.createMediaStreamSource(micStream);
+  const videoSendGain = audioCtx.createGain();
+  const initialGainTransition = resolveVideoSendGainTarget(
+    { shareVideoAudio, aiSpeaking, userSpeaking: false },
+    videoSendGainOptions
+  );
+  let appliedVideoSendGain = initialGainTransition.targetGain;
+  videoSendGain.gain.value = appliedVideoSendGain;
+
   const silentGain = audioCtx.createGain();
   silentGain.gain.value = 0;
 
   micSource.connect(workletNode, 0, 0);
+  videoSendGain.connect(workletNode, 0, 1);
   workletNode.connect(silentGain);
   silentGain.connect(audioCtx.destination);
+
+  function syncVideoSendGain(): void {
+    if (stopped) return;
+    const transition = resolveVideoSendGainTarget(
+      {
+        shareVideoAudio,
+        aiSpeaking,
+        userSpeaking: !muted && bargeInSpeaking
+      },
+      videoSendGainOptions
+    );
+    if (transition.targetGain === appliedVideoSendGain) return;
+    appliedVideoSendGain = transition.targetGain;
+
+    if (typeof videoSendGain.gain.setTargetAtTime === "function") {
+      const now =
+        typeof audioCtx.currentTime === "number" && Number.isFinite(audioCtx.currentTime)
+          ? Math.max(0, audioCtx.currentTime)
+          : 0;
+      videoSendGain.gain.cancelAndHoldAtTime?.(now);
+      videoSendGain.gain.setTargetAtTime(
+        transition.targetGain,
+        now,
+        transition.timeConstantSec
+      );
+      return;
+    }
+    videoSendGain.gain.value = transition.targetGain;
+  }
 
   let videoPipeline!: VideoAudioPipeline;
 
@@ -474,7 +571,8 @@ export async function createPageAudioCapture(
         mixVideo,
         upstreamVideoDuckGain,
         vadRmsThreshold: vadThreshold,
-        vadReleaseMs
+        vadReleaseMs,
+        vadBargeInMs
       });
     } catch {}
   }
@@ -491,12 +589,13 @@ export async function createPageAudioCapture(
       } catch {}
     },
     connectSource: (sourceNode) => {
-      sourceNode.connect(workletNode, 0, 1);
+      sourceNode.connect(videoSendGain);
     },
     isStopped: () => stopped
   });
 
   syncWorkletConfig();
+  syncVideoSendGain();
 
   workletNode.port.onmessage = (event: MessageEvent<PcmCaptureWorkletToMainMessage>) => {
     if (stopped) return;
@@ -512,6 +611,20 @@ export async function createPageAudioCapture(
         lastVoiceActivityTimestamp = Date.now();
       }
       reportVadState(Boolean(msg.active));
+      return;
+    }
+
+    if (msg.type === "barge_in") {
+      if (muted) {
+        reportBargeInState(false);
+        syncVideoSendGain();
+        return;
+      }
+      if (msg.active) {
+        lastVoiceActivityTimestamp = Date.now();
+      }
+      reportBargeInState(Boolean(msg.active));
+      syncVideoSendGain();
       return;
     }
 
@@ -546,8 +659,10 @@ export async function createPageAudioCapture(
     if (muted) {
       lastVoiceActivityTimestamp = 0;
       reportVadState(false);
+      reportBargeInState(false);
     }
     syncWorkletConfig();
+    syncVideoSendGain();
   }
 
   function setShareVideoAudio(enabled: boolean): void {
@@ -555,6 +670,21 @@ export async function createPageAudioCapture(
     shareVideoAudio = Boolean(enabled);
     videoPipeline.sync();
     syncWorkletConfig();
+    syncVideoSendGain();
+  }
+
+  function setAiSpeaking(speaking: boolean): void {
+    if (stopped) return;
+    const next = Boolean(speaking);
+    if (aiSpeaking === next) return;
+    aiSpeaking = next;
+    try {
+      workletNode.port.postMessage({ type: "ai_speaking", speaking: aiSpeaking });
+    } catch {}
+    if (aiSpeaking && !vadSpeaking && bargeInSpeaking) {
+      reportBargeInState(false);
+    }
+    syncVideoSendGain();
   }
 
   function stop(): void {
@@ -562,6 +692,7 @@ export async function createPageAudioCapture(
     stopped = true;
     lastVoiceActivityTimestamp = 0;
     reportVadState(false);
+    reportBargeInState(false);
 
     try {
       workletNode.port.postMessage({ type: "stop" });
@@ -572,6 +703,9 @@ export async function createPageAudioCapture(
 
     try {
       micSource.disconnect();
+    } catch {}
+    try {
+      videoSendGain.disconnect();
     } catch {}
     try {
       workletNode.disconnect();
@@ -591,13 +725,17 @@ export async function createPageAudioCapture(
     isMuted: () => muted,
     setShareVideoAudio,
     isSharingVideoAudio: () => shareVideoAudio,
+    setAiSpeaking,
+    isAiSpeaking: () => aiSpeaking,
     getVideoAudioStatus: () => videoPipeline.getStatus(),
     isMicVadActive: () => !muted && !stopped && vadSpeaking,
+    isBargeInSpeechActive: () => !muted && !stopped && bargeInSpeaking,
     isVoiceRecentlyActive: () => {
       if (muted || stopped) return false;
-      if (vadSpeaking) return true;
+      if (vadSpeaking || bargeInSpeaking) return true;
       return lastVoiceActivityTimestamp > 0 && Date.now() - lastVoiceActivityTimestamp <= vadHangoverMs;
     },
+    getVideoSendGainTarget: () => appliedVideoSendGain,
     stop
   };
 }

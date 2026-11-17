@@ -698,6 +698,7 @@ export type MossLiveClientAction =
       status: "in_progress" | "completed" | "failed";
       content: string;
     }
+  | { action: "barge_in" }
   | { action: "interrupt" }
   | { action: "stop" }
   | { action: "audio"; pcmBase64: string }

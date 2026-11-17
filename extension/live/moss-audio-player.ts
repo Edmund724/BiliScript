@@ -283,7 +283,7 @@ export class MossAudioPlayer {
 
   isPlaying(): boolean {
     if (
-      this.pendingAudioContexts.length > 0 ||
+      this.pendingAudioContexts.some((item) => !item.discard) ||
       this.pendingAudioFrames.length > 0 ||
       this.pendingChunks.length > 0
     ) {
@@ -305,6 +305,36 @@ export class MossAudioPlayer {
 
   markResponseEnded(runId: string, turnId: string): void {
     this.getOrCreateTurnTracker(runId, turnId).responseEnded = true;
+  }
+
+  enqueueAudioChunk(
+    chunkId: string,
+    runId: string,
+    turnId: string,
+    pcmBuffer: ArrayBufferLike,
+    isCurrent: () => boolean
+  ): boolean {
+    const tracker = this.getOrCreateTurnTracker(runId, turnId);
+    const duplicate = Boolean(chunkId && tracker.claimedChunkIds.has(chunkId));
+    const discard = tracker.stopped || tracker.audioDoneReceived || tracker.responseEnded || duplicate;
+    if (chunkId && !duplicate) {
+      tracker.claimedChunkIds.add(chunkId);
+    }
+    if (discard) {
+      return false;
+    }
+    tracker.inFlightChunks += 1;
+    this.playAudioChunk(
+      {
+        chunkId,
+        runId,
+        turnId,
+        discard: false
+      },
+      pcmBuffer,
+      isCurrent
+    );
+    return true;
   }
 
   enqueueAudioContext(
@@ -414,6 +444,12 @@ export class MossAudioPlayer {
   }
 
   interruptActiveTurns(): Array<{ runId: string; turnId: string }> {
+    // 保留 pendingAudioContexts 槽位并标 discard，以 1:1 吸收并丢弃跨打断边界晚到的分离二进制帧。
+    for (const context of this.pendingAudioContexts) {
+      context.discard = true;
+    }
+    this.pendingChunks.length = 0;
+
     const interrupted: Array<{ runId: string; turnId: string }> = [];
     for (const tracker of [...this.turnPlaybacks.values()]) {
       if (!tracker.stopped && !tracker.completedSent) {
@@ -431,6 +467,8 @@ export class MossAudioPlayer {
         interrupted.push({ runId: tracker.runId, turnId: tracker.turnId });
       }
     }
+    this.nextPlayTime = 0;
+    this.options.onStateChange();
     return interrupted;
   }
 

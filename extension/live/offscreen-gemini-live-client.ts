@@ -314,6 +314,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   private audioChunkCounter = 0;
   private currentTurn: GeminiTurn | null = null;
   private discardOutputUntilInput = false;
+  private awaitingInterruptedTurnSeal = false;
+  private pendingBargeInServerAck = false;
   private readonly activeVideoTaskCalls = new Map<string, string>();
   private readonly pendingSyncVideoTaskFacts = new Map<string, string>();
   private delegationVideoKey = "";
@@ -335,6 +337,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   onConnectReset(generation: number): void {
     this.currentTurn = null;
     this.discardOutputUntilInput = false;
+    this.awaitingInterruptedTurnSeal = false;
+    this.pendingBargeInServerAck = false;
     this.turnCounter = 0;
     this.toolCallCounter = 0;
     this.audioChunkCounter = 0;
@@ -345,6 +349,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
 
   onResetPlayback(): void {
     this.currentTurn = null;
+    this.awaitingInterruptedTurnSeal = false;
+    this.pendingBargeInServerAck = false;
     this.activeVideoTaskCalls.clear();
     this.pendingSyncVideoTaskFacts.clear();
   }
@@ -493,9 +499,15 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     }
 
     const output = asRecord(content.outputTranscription);
-    if (output && typeof output.text === "string" && output.text) {
+    if (
+      !this.awaitingInterruptedTurnSeal &&
+      output &&
+      typeof output.text === "string" &&
+      output.text
+    ) {
       const turn = this.getOrCreateTurn("output", callbacks);
       if (turn) {
+        this.pendingBargeInServerAck = false;
         turn.hasOutput = true;
         turn.outputText += output.text;
         callbacks.emitTranscript({
@@ -508,20 +520,35 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     }
 
     const modelTurn = asRecord(content.modelTurn);
-    if (modelTurn && Array.isArray(modelTurn.parts)) {
+    if (!this.awaitingInterruptedTurnSeal && modelTurn && Array.isArray(modelTurn.parts)) {
       this.handleModelTurn(modelTurn.parts, callbacks);
     }
 
     if (content.interrupted === true) {
+      if (this.awaitingInterruptedTurnSeal || this.pendingBargeInServerAck) {
+        this.cancelAllVideoTaskDelegations(callbacks);
+        this.awaitingInterruptedTurnSeal = false;
+        this.pendingBargeInServerAck = false;
+        this.discardOutputUntilInput = !(this.currentTurn && !this.currentTurn.hasOutput);
+        return;
+      }
       callbacks.interrupt();
       return;
     }
 
-    if (content.turnComplete === true && this.currentTurn) {
+    if (content.turnComplete === true) {
       const interactionStatus =
         typeof content.interactionStatus === "string" ? content.interactionStatus : "";
       if (interactionStatus !== "IN_PROGRESS") {
-        this.finishCompletedTurn(callbacks);
+        if (this.awaitingInterruptedTurnSeal) {
+          this.awaitingInterruptedTurnSeal = false;
+          this.pendingBargeInServerAck = false;
+          this.discardOutputUntilInput = !(this.currentTurn && !this.currentTurn.hasOutput);
+          return;
+        }
+        if (this.currentTurn) {
+          this.finishCompletedTurn(callbacks);
+        }
       }
     }
   }
@@ -529,6 +556,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
   private handleModelTurn(parts: unknown[], callbacks: LiveWireRuntimeCallbacks): void {
     const turn = this.getOrCreateTurn("output", callbacks);
     if (!turn) return;
+    this.pendingBargeInServerAck = false;
     turn.hasOutput = true;
     for (const rawPart of parts) {
       const part = asRecord(rawPart);
@@ -539,9 +567,7 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
       const bytes = decodeBase64Bytes(data);
       if (bytes.byteLength === 0) continue;
       const chunkId = `gemini-audio-${++this.audioChunkCounter}`;
-      if (callbacks.enqueueAudioContext(chunkId, turn.runId, turn.turnId)) {
-        callbacks.enqueueAudioFrame(bytes.buffer);
-      }
+      callbacks.enqueueAudioChunk(chunkId, turn.runId, turn.turnId, bytes.buffer);
     }
   }
 
@@ -579,19 +605,18 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     });
   }
 
-  onBeforeInterrupt(
-    callbacks: LiveWireRuntimeCallbacks
-  ): { runId: string; turnId: string } | null {
-    this.discardOutputUntilInput = true;
+  private cancelAllVideoTaskDelegations(callbacks: LiveWireRuntimeCallbacks): void {
     for (const callId of this.activeVideoTaskCalls.keys()) {
       callbacks.cancelDelegation(callId);
     }
     this.activeVideoTaskCalls.clear();
     this.pendingSyncVideoTaskFacts.clear();
-    const turn = this.currentTurn;
-    if (!turn) return null;
-    this.currentTurn = null;
+  }
 
+  private settleTurnTranscriptsOnInterrupt(
+    turn: GeminiTurn,
+    callbacks: LiveWireRuntimeCallbacks
+  ): { runId: string; turnId: string } {
     const fullInputText = (turn.inputText + turn.interimInputText).trim();
     if (!turn.inputDone && fullInputText) {
       turn.inputDone = true;
@@ -610,6 +635,44 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
       });
     }
     return { runId: turn.runId, turnId: turn.turnId };
+  }
+
+  hasActiveOutputTurn(): boolean {
+    return Boolean(this.currentTurn?.hasOutput);
+  }
+
+  onBeforeLocalBargeIn(
+    callbacks: LiveWireRuntimeCallbacks
+  ): { runId: string; turnId: string } | null {
+    this.cancelAllVideoTaskDelegations(callbacks);
+    this.pendingBargeInServerAck = true;
+
+    const turn = this.currentTurn;
+    if (turn?.hasOutput) {
+      this.currentTurn = null;
+      this.awaitingInterruptedTurnSeal = true;
+      this.discardOutputUntilInput = true;
+      return this.settleTurnTranscriptsOnInterrupt(turn, callbacks);
+    }
+
+    this.awaitingInterruptedTurnSeal = false;
+    if (!turn) {
+      this.discardOutputUntilInput = true;
+    }
+    return null;
+  }
+
+  onBeforeInterrupt(
+    callbacks: LiveWireRuntimeCallbacks
+  ): { runId: string; turnId: string } | null {
+    this.awaitingInterruptedTurnSeal = false;
+    this.pendingBargeInServerAck = false;
+    this.discardOutputUntilInput = true;
+    this.cancelAllVideoTaskDelegations(callbacks);
+    const turn = this.currentTurn;
+    if (!turn) return null;
+    this.currentTurn = null;
+    return this.settleTurnTranscriptsOnInterrupt(turn, callbacks);
   }
 
   private handleToolCall(
@@ -686,6 +749,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
     if (typeof text !== "string" || !text.trim()) return false;
     // 离散文本输入不会产生服务端 inputTranscription，需复位防丢弃标记以免吞掉新回复。
     this.discardOutputUntilInput = false;
+    this.awaitingInterruptedTurnSeal = false;
+    this.pendingBargeInServerAck = false;
     this.currentTurn = null;
     return transport.sendJson({
       realtimeInput: { text }
@@ -698,6 +763,8 @@ export class GeminiWireAdapter implements LiveWireProtocolAdapter {
       return this.sendRealtimeText(text, transport);
     }
     this.discardOutputUntilInput = false;
+    this.awaitingInterruptedTurnSeal = false;
+    this.pendingBargeInServerAck = false;
     this.currentTurn = null;
     return transport.sendJson({
       clientContent: {

@@ -22,9 +22,90 @@ export const DEFAULT_WORKLET_QUANTUM_FRAMES = 128;
 export const DEFAULT_VAD_RMS_THRESHOLD = 0.015;
 export const DEFAULT_VAD_HANGOVER_MS = 2000;
 export const DEFAULT_VAD_RELEASE_MS = 300;
+export const DEFAULT_VAD_BARGE_IN_MS = 60;
 export const DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN = 0.15;
+export const DEFAULT_VIDEO_SEND_NORMAL_GAIN = 1;
+export const DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN = 0.06;
+export const DEFAULT_VIDEO_SEND_DISABLED_GAIN = 0;
+export const DEFAULT_VIDEO_SEND_DUCK_TIME_CONSTANT_SEC = 0.015;
+export const DEFAULT_VIDEO_SEND_RESTORE_TIME_CONSTANT_SEC = 0.02;
 
 const SPEECH_HEARTBEAT_INTERVAL_MS = 200;
+
+export interface VideoSendGainState {
+  shareVideoAudio: boolean;
+  aiSpeaking: boolean;
+  userSpeaking: boolean;
+}
+
+export interface VideoSendGainOptions {
+  normalGain?: number;
+  aiSpeakingGain?: number;
+  disabledGain?: number;
+  duckTimeConstantSec?: number;
+  restoreTimeConstantSec?: number;
+}
+
+export interface VideoSendGainTransition {
+  targetGain: number;
+  timeConstantSec: number;
+  attenuated: boolean;
+}
+
+function clampUnitGain(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : fallback;
+}
+
+function positiveTimeConstant(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+/**
+ * 解析送往混音总线的视频支路增益节点（videoSendGain）目标值：
+ * 1. 未开启视频原声共享 -> 0
+ * 2. 开启共享 + AI 正在播报 + 真人未说话 -> 平滑压低至 0.06（防视频对白误触发云端 VAD）
+ * 3. 开启共享 + (AI 未播报 或 真人已开口) -> 平滑恢复至正常混音比例 1
+ */
+export function resolveVideoSendGainTarget(
+  state: VideoSendGainState,
+  options: VideoSendGainOptions = {}
+): VideoSendGainTransition {
+  const normalGain = clampUnitGain(options.normalGain, DEFAULT_VIDEO_SEND_NORMAL_GAIN);
+  const aiSpeakingGain = clampUnitGain(options.aiSpeakingGain, DEFAULT_VIDEO_SEND_AI_SPEAKING_GAIN);
+  const disabledGain = clampUnitGain(options.disabledGain, DEFAULT_VIDEO_SEND_DISABLED_GAIN);
+  const duckTimeConstantSec = positiveTimeConstant(
+    options.duckTimeConstantSec,
+    DEFAULT_VIDEO_SEND_DUCK_TIME_CONSTANT_SEC
+  );
+  const restoreTimeConstantSec = positiveTimeConstant(
+    options.restoreTimeConstantSec,
+    DEFAULT_VIDEO_SEND_RESTORE_TIME_CONSTANT_SEC
+  );
+
+  if (!state.shareVideoAudio) {
+    return {
+      targetGain: disabledGain,
+      timeConstantSec: duckTimeConstantSec,
+      attenuated: false
+    };
+  }
+  if (state.aiSpeaking && !state.userSpeaking) {
+    return {
+      targetGain: aiSpeakingGain,
+      timeConstantSec: duckTimeConstantSec,
+      attenuated: true
+    };
+  }
+  return {
+    targetGain: normalGain,
+    timeConstantSec: restoreTimeConstantSec,
+    attenuated: false
+  };
+}
 
 export interface PcmCaptureConfig {
   muted: boolean;
@@ -32,14 +113,17 @@ export interface PcmCaptureConfig {
   upstreamVideoDuckGain: number;
   vadRmsThreshold: number;
   vadReleaseMs: number;
+  vadBargeInMs: number;
 }
 
 export type PcmCaptureMainToWorkletMessage =
   | ({ type: "config" } & Partial<PcmCaptureConfig>)
+  | { type: "ai_speaking"; speaking: boolean }
   | { type: "stop" };
 
 export type PcmCaptureWorkletToMainMessage =
   | { type: "vad"; active: boolean }
+  | { type: "barge_in"; active: boolean }
   | { type: "speech" }
   | { type: "pcm"; pcmBuffer: ArrayBuffer; hadSpeech: boolean };
 
@@ -193,6 +277,7 @@ export interface PcmCaptureCoreOptions {
   initialConfig?: Partial<PcmCaptureConfig>;
   onPcmBatch: (pcmBuffer: ArrayBuffer, hadSpeech: boolean) => void;
   onVadChange?: (active: boolean) => void;
+  onBargeInChange?: (active: boolean) => void;
   onSpeechHeartbeat?: () => void;
 }
 
@@ -200,6 +285,8 @@ export interface PcmCaptureCore {
   setConfig(patch: Partial<PcmCaptureConfig>): void;
   getConfig(): PcmCaptureConfig;
   isVadActive(): boolean;
+  isBargeInActive(): boolean;
+  notifyAiSpeaking(speaking: boolean): void;
   processQuantum(
     micChannel?: Float32Array,
     videoChannels?: readonly Float32Array[],
@@ -217,6 +304,7 @@ function normalizeConfig(
   const rawGain = patch.upstreamVideoDuckGain;
   const rawThreshold = patch.vadRmsThreshold;
   const rawRelease = patch.vadReleaseMs;
+  const rawBargeIn = patch.vadBargeInMs;
   return {
     muted: patch.muted !== undefined ? Boolean(patch.muted) : base.muted,
     mixVideo: patch.mixVideo !== undefined ? Boolean(patch.mixVideo) : base.mixVideo,
@@ -231,7 +319,11 @@ function normalizeConfig(
     vadReleaseMs:
       typeof rawRelease === "number" && Number.isFinite(rawRelease) && rawRelease >= 0
         ? rawRelease
-        : base.vadReleaseMs
+        : base.vadReleaseMs,
+    vadBargeInMs:
+      typeof rawBargeIn === "number" && Number.isFinite(rawBargeIn) && rawBargeIn >= 0
+        ? rawBargeIn
+        : base.vadBargeInMs
   };
 }
 
@@ -249,7 +341,8 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
       mixVideo: false,
       upstreamVideoDuckGain: DEFAULT_UPSTREAM_VIDEO_DUCK_GAIN,
       vadRmsThreshold: DEFAULT_VAD_RMS_THRESHOLD,
-      vadReleaseMs: DEFAULT_VAD_RELEASE_MS
+      vadReleaseMs: DEFAULT_VAD_RELEASE_MS,
+      vadBargeInMs: DEFAULT_VAD_BARGE_IN_MS
     },
     options.initialConfig
   );
@@ -257,6 +350,11 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
   let vadSpeaking = false;
   let silenceSamples = 0;
   let speechHeartbeatSamples = 0;
+  let bargeInActive = false;
+  let bargeInWindowSumSq = 0;
+  let bargeInWindowCount = 0;
+  let bargeInConsecutiveSamples = 0;
+  let bargeInSilenceSamples = 0;
   let hadSpeechInBatch = false;
   let mixScratch = new Float32Array(128);
 
@@ -272,18 +370,103 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
     options.onVadChange?.(active);
   }
 
+  function setBargeInActive(active: boolean): void {
+    if (bargeInActive === active) return;
+    bargeInActive = active;
+    options.onBargeInChange?.(active);
+  }
+
+  function resetBargeInState(): void {
+    bargeInWindowSumSq = 0;
+    bargeInWindowCount = 0;
+    bargeInConsecutiveSamples = 0;
+    bargeInSilenceSamples = 0;
+    setBargeInActive(false);
+  }
+
   function resetVadAndSpeech(): void {
     silenceSamples = 0;
     speechHeartbeatSamples = 0;
     hadSpeechInBatch = false;
     setVadSpeaking(false);
+    resetBargeInState();
   }
 
-  function updateMicVad(micSamples: Float32Array | undefined, sampleRate: number): void {
+  function advanceBargeInDetection(
+    micSamples: Float32Array | undefined,
+    zeroFrames: number,
+    sampleRate: number
+  ): void {
+    const frameSamples = Math.max(1, Math.round((MOSS_FRAME_DURATION_MS / 1000) * sampleRate));
+    const requiredBargeInSamples = Math.max(
+      frameSamples,
+      Math.round((config.vadBargeInMs / 1000) * sampleRate)
+    );
+    const releaseSamples = Math.round((config.vadReleaseMs / 1000) * sampleRate);
+
+    const commitWindow = (): void => {
+      const frameRms = Math.sqrt(bargeInWindowSumSq / bargeInWindowCount);
+      const windowLen = bargeInWindowCount;
+      bargeInWindowSumSq = 0;
+      bargeInWindowCount = 0;
+
+      if (frameRms >= config.vadRmsThreshold) {
+        bargeInConsecutiveSamples += windowLen;
+        bargeInSilenceSamples = 0;
+        if (!bargeInActive && bargeInConsecutiveSamples >= requiredBargeInSamples) {
+          setBargeInActive(true);
+        }
+        return;
+      }
+
+      bargeInConsecutiveSamples = 0;
+      if (bargeInActive) {
+        bargeInSilenceSamples += windowLen;
+        if (bargeInSilenceSamples >= releaseSamples) {
+          bargeInSilenceSamples = 0;
+          setBargeInActive(false);
+        }
+      }
+    };
+
+    if (micSamples && micSamples.length > 0) {
+      for (let i = 0; i < micSamples.length; i++) {
+        const s = micSamples[i];
+        bargeInWindowSumSq += s * s;
+        bargeInWindowCount += 1;
+        if (bargeInWindowCount >= frameSamples) {
+          commitWindow();
+        }
+      }
+      return;
+    }
+
+    if (zeroFrames > 0 && (bargeInActive || bargeInWindowCount > 0 || bargeInConsecutiveSamples > 0)) {
+      let remaining = zeroFrames;
+      while (remaining > 0) {
+        const needed = frameSamples - bargeInWindowCount;
+        const take = Math.min(needed, remaining);
+        bargeInWindowCount += take;
+        remaining -= take;
+        if (bargeInWindowCount >= frameSamples) {
+          commitWindow();
+        }
+      }
+    }
+  }
+
+  function updateMicVad(
+    micSamples: Float32Array | undefined,
+    sampleRate: number,
+    fallbackFrames: number
+  ): void {
     if (config.muted) {
       resetVadAndSpeech();
       return;
     }
+
+    advanceBargeInDetection(micSamples, fallbackFrames, sampleRate);
+
     const len = micSamples?.length ?? 0;
     if (len === 0) return;
 
@@ -325,6 +508,16 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
     }
   }
 
+  function notifyAiSpeaking(speaking: boolean): void {
+    if (!speaking) return;
+    if (bargeInConsecutiveSamples === 0) {
+      bargeInWindowSumSq = 0;
+      bargeInWindowCount = 0;
+      bargeInSilenceSamples = 0;
+      setBargeInActive(false);
+    }
+  }
+
   function setConfig(patch: Partial<PcmCaptureConfig>): void {
     const prevMuted = config.muted;
     config = normalizeConfig(config, patch);
@@ -354,17 +547,17 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
       return;
     }
 
-    updateMicVad(micChannel, effectiveRate);
+    const fallbackFrames =
+      typeof quantumFrames === "number" && Number.isFinite(quantumFrames) && quantumFrames > 0
+        ? Math.round(quantumFrames)
+        : 0;
+    updateMicVad(micChannel, effectiveRate, fallbackFrames);
 
     const hasVideo = Boolean(config.mixVideo && videoChannels && videoChannels.length > 0);
     const micLen = micChannel?.length ?? 0;
     const videoCh0 = hasVideo ? videoChannels![0] : undefined;
     const videoCh1 = hasVideo && videoChannels!.length > 1 ? videoChannels![1] : undefined;
     const videoLen = Math.max(videoCh0?.length ?? 0, videoCh1?.length ?? 0);
-    const fallbackFrames =
-      typeof quantumFrames === "number" && Number.isFinite(quantumFrames) && quantumFrames > 0
-        ? Math.round(quantumFrames)
-        : 0;
     const len = Math.max(micLen, videoLen, fallbackFrames);
     if (len === 0) return;
 
@@ -403,6 +596,8 @@ export function createPcmCaptureCore(options: PcmCaptureCoreOptions): PcmCapture
     setConfig,
     getConfig: () => ({ ...config }),
     isVadActive: () => !config.muted && vadSpeaking,
+    isBargeInActive: () => !config.muted && bargeInActive,
+    notifyAiSpeaking,
     processQuantum,
     reset
   };

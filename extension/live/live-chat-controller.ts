@@ -430,6 +430,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       muted = nextState === "connecting" && activeAudioCapture ? activeAudioCapture.isMuted() : false;
       speaking = false;
       micVadActive = false;
+      activeAudioCapture?.setAiSpeaking?.(false);
       clearLongSummaryControls();
     }
     syncVideoDucking();
@@ -904,6 +905,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
     try {
       captureSession = await startAudioCapture({
         initialMuted: false,
+        initialAiSpeaking: speaking,
         shareVideoAudio,
         getVideoElement: resolveVideoElement,
         onVadStateChange: (active) => {
@@ -911,6 +913,19 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           micVadActive = Boolean(active);
           onVadStateChange?.(active);
           syncVideoDucking();
+        },
+        onBargeInSpeechChange: (active) => {
+          if (generation !== currentGeneration || !active || muted || state !== "connected") return;
+          try {
+            activePort?.postMessage({ action: "barge_in" });
+          } catch {}
+          if (speaking) {
+            speaking = false;
+            activeAudioCapture?.setAiSpeaking?.(false);
+            endLongSummaryControl();
+            updateSpeakingUi();
+            syncVideoDucking();
+          }
         },
         onVideoAudioStatusChange: (status) => {
           if (generation !== currentGeneration) return;
@@ -1021,6 +1036,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
           const nextSpeaking = Boolean(msg.speaking);
           if (nextSpeaking && !speaking) beginLongSummaryControl();
           speaking = nextSpeaking;
+          activeAudioCapture?.setAiSpeaking?.(speaking);
           if (!nextSpeaking) endLongSummaryControl();
           updateSpeakingUi();
           syncVideoDucking();
@@ -1213,6 +1229,7 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
       activePort.postMessage({ action: "interrupt" });
     } catch {}
     speaking = false;
+    activeAudioCapture?.setAiSpeaking?.(false);
     endLongSummaryControl();
     updateSpeakingUi();
     syncVideoDucking();

@@ -58,6 +58,9 @@ class PcmCaptureWorkletProcessor extends AudioWorkletProcessor {
       onVadChange: (active) => {
         post({ type: "vad", active });
       },
+      onBargeInChange: (active) => {
+        post({ type: "barge_in", active });
+      },
       onSpeechHeartbeat: () => {
         post({ type: "speech" });
       },
@@ -73,6 +76,10 @@ class PcmCaptureWorkletProcessor extends AudioWorkletProcessor {
         this.stopped = true;
         this.core.reset();
         this.port.onmessage = null;
+        return;
+      }
+      if (msg.type === "ai_speaking") {
+        this.core.notifyAiSpeaking(Boolean(msg.speaking));
         return;
       }
       if (msg.type === "config") {

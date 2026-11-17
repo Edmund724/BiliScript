@@ -126,6 +126,12 @@ export interface LiveWireRuntimeCallbacks extends LiveWireTransport {
   emitTranscript(event: MossLiveTranscriptEvent, options?: { duckInput?: boolean }): void;
   enqueueAudioContext(chunkId: string, runId: string, turnId: string): boolean;
   enqueueAudioFrame(pcmBuffer: ArrayBufferLike): void;
+  enqueueAudioChunk(
+    chunkId: string,
+    runId: string,
+    turnId: string,
+    pcmBuffer: ArrayBufferLike
+  ): boolean;
   markResponseEnded(runId: string, turnId: string): void;
   handleAudioDone(runId: string, turnId: string): void;
   handleAudioStop(runId: string, turnId: string): void;
@@ -197,6 +203,8 @@ export interface LiveWireProtocolAdapter {
       | { ok: false; error: string; emptyQuery?: boolean },
     transport: LiveWireTransport
   ): void;
+  hasActiveOutputTurn?(): boolean;
+  onBeforeLocalBargeIn?(callbacks: LiveWireRuntimeCallbacks): { runId: string; turnId: string } | null;
   onBeforeInterrupt?(callbacks: LiveWireRuntimeCallbacks): { runId: string; turnId: string } | null;
   onResetPlayback?(): void;
 }
@@ -270,6 +278,8 @@ export class OffscreenLiveSessionRuntime {
   protected readonly handledToolCallIds = new Set<string>();
   protected readonly webSearchCallCounts = new Map<string, number>();
   protected readonly discardedTurnKeys = new Set<string>();
+  protected readonly interruptedTurnKeys = new Set<string>();
+  protected interruptEpoch = 0;
   protected suppressAdapterTranscripts = false;
   protected wsUrl: string;
   protected readonly handshakeTimeoutMs: number;
@@ -346,6 +356,10 @@ export class OffscreenLiveSessionRuntime {
 
   getState(): LiveSessionClientState {
     return this.state;
+  }
+
+  getInterruptEpoch(): number {
+    return this.interruptEpoch;
   }
 
   protected emit(event: MossLiveServerEvent): void {
@@ -430,8 +444,35 @@ export class OffscreenLiveSessionRuntime {
     }
   }
 
+  protected static readonly MAX_TRACKED_INTERRUPTED_TURNS = 256;
+
   protected getTurnKey(runId: string, turnId: string): string {
     return `${runId}:${turnId}`;
+  }
+
+  protected recordInterruptedTurnKey(turnKey: string): boolean {
+    if (!turnKey) return false;
+    const isFirst = !this.interruptedTurnKeys.has(turnKey);
+    if (isFirst) {
+      if (this.interruptedTurnKeys.size >= OffscreenLiveSessionRuntime.MAX_TRACKED_INTERRUPTED_TURNS) {
+        const oldest = this.interruptedTurnKeys.values().next().value;
+        if (oldest !== undefined) {
+          this.interruptedTurnKeys.delete(oldest);
+        }
+      }
+      this.interruptedTurnKeys.add(turnKey);
+    }
+    return isFirst;
+  }
+
+  protected markTurnInterrupted(runId: string, turnId: string): boolean {
+    if ((runId || turnId) && this.audioPlayer.canActivateTurn(runId, turnId)) {
+      this.audioPlayer.stopTurn(runId, turnId);
+    }
+    if (!runId && !turnId) {
+      return true;
+    }
+    return this.recordInterruptedTurnKey(this.getTurnKey(runId, turnId));
   }
 
   isSpeaking(): boolean {
@@ -506,6 +547,7 @@ export class OffscreenLiveSessionRuntime {
     this.audioPlayer.reset();
     this.activeTurnKey = null;
     this.inputDucked = false;
+    this.interruptedTurnKeys.clear();
     this.webSearchCallCounts.clear();
     this.setVideoDucked(false);
     this.syncSpeakingState();
@@ -613,6 +655,10 @@ export class OffscreenLiveSessionRuntime {
         this.setMicEnabled(Boolean(msg.enabled));
         break;
 
+      case "barge_in":
+        this.handleLocalBargeIn();
+        break;
+
       case "interrupt":
         this.interrupt();
         break;
@@ -638,6 +684,7 @@ export class OffscreenLiveSessionRuntime {
     this.pendingVideoContext = null;
     this.handledToolCallIds.clear();
     this.discardedTurnKeys.clear();
+    this.interruptedTurnKeys.clear();
     this.activeTurnKey = null;
     this.videoIdentityKey = videoContextIdentityKey(this.videoContext);
     this.socketGeneration += 1;
@@ -774,12 +821,10 @@ export class OffscreenLiveSessionRuntime {
       },
       emitTranscript: (event, options) => {
         if (!isCurrent() || this.suppressAdapterTranscripts) return;
-        if (
-          (event.kind === "output.updated" ||
-            event.kind === "output.done" ||
-            event.kind === "response.ended") &&
-          this.discardedTurnKeys.has(this.getTurnKey(event.runId, event.turnId))
-        ) return;
+        if (event.kind === "output.updated" || event.kind === "output.done") {
+          const key = this.getTurnKey(event.runId, event.turnId);
+          if (this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) return;
+        }
         if (event.kind === "input.updated" || event.kind === "input.done") {
           if (options?.duckInput !== false) {
             this.inputDucked = true;
@@ -788,16 +833,30 @@ export class OffscreenLiveSessionRuntime {
         } else if (event.kind === "output.updated" || event.kind === "output.done") {
           this.activateTurn(event.runId, event.turnId);
         } else if (event.kind === "response.ended") {
+          const key = this.getTurnKey(event.runId, event.turnId);
+          if (this.discardedTurnKeys.has(key)) return;
           this.audioPlayer.markResponseEnded(event.runId, event.turnId);
           this.finishActiveTurn(event.runId, event.turnId);
+          if (this.interruptedTurnKeys.has(key)) return;
         } else if (event.kind === "response.interrupted") {
-          this.audioPlayer.stopTurn(event.runId, event.turnId);
+          const isFirst = this.markTurnInterrupted(event.runId, event.turnId);
           this.cancelInterruptedToolCalls(event.runId, event.turnId);
+          this.finishActiveTurn(event.runId, event.turnId);
+          if (!isFirst) return;
         }
         this.emit({ type: "transcript", event });
       },
       enqueueAudioContext: (chunkId, runId, turnId) => {
-        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) {
+        if (!isCurrent()) {
+          return false;
+        }
+        const key = this.getTurnKey(runId, turnId);
+        if (this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) {
+          if (this.audioPlayer.canActivateTurn(runId, turnId)) {
+            this.audioPlayer.stopTurn(runId, turnId);
+          }
+          // 已打断回合的元数据仍入队并标 discard，保证随后在途二进制帧被 1:1 消费不串轮。
+          this.audioPlayer.enqueueAudioContext(chunkId, runId, turnId, isCurrent);
           return false;
         }
         const accepted = this.audioPlayer.enqueueAudioContext(chunkId, runId, turnId, isCurrent);
@@ -810,12 +869,37 @@ export class OffscreenLiveSessionRuntime {
         if (!isCurrent()) return;
         this.audioPlayer.enqueueAudioFrame(pcmBuffer, isCurrent);
       },
+      enqueueAudioChunk: (chunkId, runId, turnId, pcmBuffer) => {
+        if (!isCurrent()) {
+          return false;
+        }
+        const key = this.getTurnKey(runId, turnId);
+        if (this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) {
+          if (this.audioPlayer.canActivateTurn(runId, turnId)) {
+            this.audioPlayer.stopTurn(runId, turnId);
+          }
+          return false;
+        }
+        const accepted = this.audioPlayer.enqueueAudioChunk(
+          chunkId,
+          runId,
+          turnId,
+          pcmBuffer,
+          isCurrent
+        );
+        if (accepted) {
+          this.activateTurn(runId, turnId);
+        }
+        return accepted;
+      },
       markResponseEnded: (runId, turnId) => {
-        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
+        const key = this.getTurnKey(runId, turnId);
+        if (!isCurrent() || this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) return;
         this.audioPlayer.markResponseEnded(runId, turnId);
       },
       handleAudioDone: (runId, turnId) => {
-        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
+        const key = this.getTurnKey(runId, turnId);
+        if (!isCurrent() || this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) return;
         this.audioPlayer.handleAudioDone(runId, turnId);
       },
       handleAudioStop: (runId, turnId) => {
@@ -823,7 +907,8 @@ export class OffscreenLiveSessionRuntime {
         this.audioPlayer.handleAudioStop(runId, turnId);
       },
       finishActiveTurn: (runId, turnId) => {
-        if (!isCurrent() || this.discardedTurnKeys.has(this.getTurnKey(runId, turnId))) return;
+        const key = this.getTurnKey(runId, turnId);
+        if (!isCurrent() || this.discardedTurnKeys.has(key) || this.interruptedTurnKeys.has(key)) return;
         this.finishActiveTurn(runId, turnId);
       },
       startDelegation: (delegation) => {
@@ -1307,19 +1392,55 @@ export class OffscreenLiveSessionRuntime {
     );
   }
 
+  handleLocalBargeIn(): boolean {
+    if (this.disposed || this.state !== "connected") return false;
+    const hasActiveOutput =
+      this.audioPlayer.isPlaying() ||
+      this.activeTurnKey !== null ||
+      (this.adapter.hasActiveOutputTurn?.() ?? false);
+    if (!hasActiveOutput) {
+      if (this.isSpeaking()) {
+        this.emit({ type: "speaking_state", speaking: true });
+      }
+      return false;
+    }
+
+    this.applyTurnInterruption({
+      discardInterruptedTranscripts: false,
+      localBargeIn: true
+    });
+    return true;
+  }
+
   interrupt(discardInterruptedTranscripts = false): void {
     if (this.disposed || this.state !== "connected") return;
+    this.applyTurnInterruption({
+      discardInterruptedTranscripts,
+      localBargeIn: false
+    });
+  }
+
+  protected applyTurnInterruption(options: {
+    discardInterruptedTranscripts: boolean;
+    localBargeIn: boolean;
+  }): void {
+    const { discardInterruptedTranscripts, localBargeIn } = options;
+    this.interruptEpoch += 1;
     this.cancelAllToolCalls();
 
     const activeTurnBeforeStop = this.activeTurnKey;
     if (discardInterruptedTranscripts && activeTurnBeforeStop) {
       this.discardedTurnKeys.add(activeTurnBeforeStop);
     }
+
     const callbacks = this.createRuntimeCallbacks(this.socketGeneration);
     this.suppressAdapterTranscripts = discardInterruptedTranscripts;
     let adapterInterruptedTurn: { runId: string; turnId: string } | null;
     try {
-      adapterInterruptedTurn = this.adapter.onBeforeInterrupt?.(callbacks) ?? null;
+      const hook = localBargeIn && this.adapter.onBeforeLocalBargeIn
+        ? this.adapter.onBeforeLocalBargeIn
+        : this.adapter.onBeforeInterrupt;
+      adapterInterruptedTurn = hook?.call(this.adapter, callbacks) ?? null;
     } finally {
       this.suppressAdapterTranscripts = false;
     }
@@ -1327,41 +1448,14 @@ export class OffscreenLiveSessionRuntime {
     const interruptedTurns = this.audioPlayer.interruptActiveTurns();
     const emittedTurnKeys = new Set<string>();
 
-    for (const turn of interruptedTurns) {
-      const key = this.getTurnKey(turn.runId, turn.turnId);
-      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
-      emittedTurnKeys.add(key);
-      this.emit({
-        type: "transcript",
-        event: {
-          kind: "response.interrupted",
-          runId: turn.runId,
-          turnId: turn.turnId
-        }
-      });
-    }
-
-    if (adapterInterruptedTurn) {
-      const key = this.getTurnKey(adapterInterruptedTurn.runId, adapterInterruptedTurn.turnId);
-      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(key);
-      if (!emittedTurnKeys.has(key)) {
-        emittedTurnKeys.add(key);
-        this.emit({
-          type: "transcript",
-          event: {
-            kind: "response.interrupted",
-            runId: adapterInterruptedTurn.runId,
-            turnId: adapterInterruptedTurn.turnId
-          }
-        });
+    const recordAndEmit = (runId: string, turnId: string): void => {
+      const key = this.getTurnKey(runId, turnId);
+      if (discardInterruptedTranscripts) {
+        this.discardedTurnKeys.add(key);
       }
-    }
-
-    const fallbackTurnKey = this.activeTurnKey || activeTurnBeforeStop;
-    if (fallbackTurnKey && !emittedTurnKeys.has(fallbackTurnKey)) {
-      if (discardInterruptedTranscripts) this.discardedTurnKeys.add(fallbackTurnKey);
-      const [runId, turnId] = fallbackTurnKey.split(":");
-      if (runId && turnId) {
+      const isFirst = this.markTurnInterrupted(runId, turnId);
+      if (isFirst && !emittedTurnKeys.has(key)) {
+        emittedTurnKeys.add(key);
         this.emit({
           type: "transcript",
           event: {
@@ -1371,9 +1465,29 @@ export class OffscreenLiveSessionRuntime {
           }
         });
       }
+    };
+
+    for (const turn of interruptedTurns) {
+      recordAndEmit(turn.runId, turn.turnId);
     }
 
-    this.stopAllPlayback();
+    if (adapterInterruptedTurn) {
+      recordAndEmit(adapterInterruptedTurn.runId, adapterInterruptedTurn.turnId);
+    }
+
+    const fallbackTurnKey = this.activeTurnKey || activeTurnBeforeStop;
+    if (fallbackTurnKey && !emittedTurnKeys.has(fallbackTurnKey)) {
+      const sep = fallbackTurnKey.indexOf(":");
+      const runId = sep >= 0 ? fallbackTurnKey.slice(0, sep) : fallbackTurnKey;
+      const turnId = sep >= 0 ? fallbackTurnKey.slice(sep + 1) : "";
+      if (runId && turnId) {
+        recordAndEmit(runId, turnId);
+      }
+    }
+
+    this.activeTurnKey = null;
+    this.inputDucked = false;
+    this.setVideoDucked(false);
     this.syncSpeakingState();
     this.flushPendingVideoContextIfIdle();
   }
