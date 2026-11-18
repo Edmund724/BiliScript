@@ -77,6 +77,7 @@ const cssEntries = fs
 // 原样拷贝的文件（产物路径与源路径一致 → html/manifest 零改写）。
 const copyFiles = [
   "manifest.json",
+  "onboarding.html",
   "entry/offscreen.html",
   // content 构建产物（build-content.js 跑完后的最新产物；.map 为 linked
   // sourcemap，devtools 调试用，release zip 由 build_release.py 剔除）。

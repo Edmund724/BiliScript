@@ -14,6 +14,7 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 // collectElements() 严格一一对应收集。
 
 const CHEVRON_RIGHT_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+const EXTERNAL_LINK_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 
 export const SETTINGS_PANEL_DOM_IDS = {
   readingSettingsBackBtn: "biliscript-reading-settings-back-btn",
@@ -46,6 +47,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   agentSettingsSummary: "agentSettingsSummary",
   openAdvancedSettingsBtn: "openAdvancedSettingsBtn",
   advancedSettingsSummary: "advancedSettingsSummary",
+  openOnboardingBtn: "openOnboardingBtn",
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
@@ -222,6 +224,13 @@ export function buildSettingsHtml(): string {
             <span class="biliscript-entry-summary">
               <span id="${ids.advancedSettingsSummary}" class="biliscript-entry-summary-text">常规</span>
               ${CHEVRON_RIGHT_SVG}
+            </span>
+          </button>
+          <button id="${ids.openOnboardingBtn}" type="button" class="biliscript-set-row biliscript-action-entry-row">
+            <span class="biliscript-set-label">新手引导 / 快速上手</span>
+            <span class="biliscript-entry-summary">
+              <span class="biliscript-entry-summary-text">配置向导</span>
+              ${EXTERNAL_LINK_SVG}
             </span>
           </button>
         </div>

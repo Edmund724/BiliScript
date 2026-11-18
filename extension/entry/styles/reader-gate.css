@@ -117,9 +117,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   right: auto;
   bottom: auto;
   height: min(76vh, 860px);
-  transform-origin: center;
+  transform-origin: var(--biliscript-float-origin, top right);
   translate: -50% -50%;
-  scale: 0.98;
+  scale: 0.94;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   box-shadow: var(--biliscript-reader-shadow);
@@ -138,7 +138,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].closing {
   translate: -50% -50%;
-  scale: 0.98;
+  scale: 0.94;
   pointer-events: none;
   transition:
     scale 280ms cubic-bezier(0.4, 0, 1, 1),
@@ -148,7 +148,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 @starting-style {
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].open {
     translate: -50% -50%;
-    scale: 0.98;
+    scale: 0.94;
     opacity: 0;
   }
 }
@@ -215,6 +215,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * 分开）/font-sans、font-mono（面板字体栈）。 */
 html[data-biliscript-reader-mode="1"],
 body[data-biliscript-reader-mode="1"],
+:root[data-biliscript-onboarding="1"],
 #biliscript-reading-view {
   /* ==========================================================================
      1. 度量语义体系（METRIC SCALES）
@@ -519,6 +520,7 @@ body[data-biliscript-reader-mode="1"],
 /* 深色档：Flyme 深色雾玻璃板。选择器只带 data-biliscript-reader-theme="dark"
  * （面板节点用 [data-theme="dark"]），特异性高于基础块，不依赖书写顺序；
  * 动效曲线与 mist-filter 不在此块出现，从基础块继承。 */
+:root[data-biliscript-onboarding="1"][data-theme="dark"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 #biliscript-reading-view[data-theme="dark"] {
@@ -617,6 +619,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
  * accent 实底上 4.82。
  * 选择器特异性 (0,2,1) 与 flyme 两档同权，书写在两者之后：editorial+light 组合
  * 由本块定稿；editorial+dark 组合再叠下方深色块 (0,3,1) 定稿。 */
+:root[data-biliscript-onboarding="1"][data-palette="editorial"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"],
 #biliscript-reading-view[data-palette="editorial"] {
@@ -664,6 +667,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
  * 特异性 (0,3,1) 恒高于单轴块，editorial+dark 组合由本块定稿。对比度：
  * text #ECE6DF 三层 ≥12.1 / muted #9E9489 最洼层（surface-3 #2A2622）5.02 /
  * accent #E07A5F 最洼层 5.09 / 深墨 accent-ink 在 accent 实底上 6.17。 */
+:root[data-biliscript-onboarding="1"][data-theme="dark"][data-palette="editorial"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-biliscript-reader-palette="editorial"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-biliscript-reader-palette="editorial"],
 #biliscript-reading-view[data-theme="dark"][data-palette="editorial"] {

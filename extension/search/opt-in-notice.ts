@@ -55,7 +55,14 @@ async function chainMayHitPaidPlatform(): Promise<boolean> {
   }
 }
 
-export async function resolveWebSearchOptIn(enabled?: boolean): Promise<WebSearchOptInResult> {
+export interface ResolveWebSearchOptInOptions {
+  mountHost?: HTMLElement | null;
+}
+
+export async function resolveWebSearchOptIn(
+  enabled?: boolean,
+  options: ResolveWebSearchOptInOptions = {}
+): Promise<WebSearchOptInResult> {
   if (enabled === false) {
     return "skipped";
   }
@@ -79,7 +86,7 @@ export async function resolveWebSearchOptIn(enabled?: boolean): Promise<WebSearc
   if (typeof document === "undefined") {
     return "skipped";
   }
-  const view = document.getElementById(ids.readingView);
+  const view = options.mountHost ?? document.getElementById(ids.readingView);
   // 没有可弹的界面：按本轮不搜索降级，不关闭偏好。
   if (!view) {
     return "skipped";
@@ -115,6 +122,9 @@ export async function resolveWebSearchOptIn(enabled?: boolean): Promise<WebSearc
   return getConfirmDialogViewGeneration() === viewGeneration ? "declined" : "view-destroyed";
 }
 
-export async function ensureWebSearchOptIn(enabled?: boolean): Promise<boolean> {
-  return await resolveWebSearchOptIn(enabled) === "granted";
+export async function ensureWebSearchOptIn(
+  enabled?: boolean,
+  options: ResolveWebSearchOptInOptions = {}
+): Promise<boolean> {
+  return await resolveWebSearchOptIn(enabled, options) === "granted";
 }

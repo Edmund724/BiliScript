@@ -59,18 +59,29 @@
    * 关闭不再「卡一下」的关键不在这条 transition，而在抽屉与标签区同占网格
    * 第 2–3 行（见上）：淡出期间标签区已经按最终布局排好，抽屉在它上方淡走，
    * 而不是留在流内把 tab body 挤到几十 px、等 display 延迟到点再弹回。 */
-  transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
+  transform-origin: var(--biliscript-settings-origin, top right);
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.2s var(--biliscript-reader-ease-spring, ease),
+    transform 0.2s var(--biliscript-reader-ease-spring, ease),
+    display 0.2s allow-discrete;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-panel[hidden] {
   display: none;
   opacity: 0;
-  transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
+  transform: scale(0.95);
+  transition:
+    opacity 0.16s ease-out,
+    transform 0.16s ease-out,
+    display 0.16s allow-discrete;
 }
 
 @starting-style {
   #biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) {
     opacity: 0;
+    transform: scale(0.95);
   }
 }
 
@@ -389,7 +400,8 @@
   box-shadow: none;
   background: var(--biliscript-reader-surface-2);
 }
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row {
   /* 原生 button 复位：行外观与原来 div 一致（票 06：可键盘聚焦的原生按钮语义）。
      内边距由 .biliscript-set-card > .biliscript-set-row 规则提供，此处不复写。 */
   width: 100%;
@@ -406,13 +418,21 @@
   transition: background 0.15s ease-out;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row:hover {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row:hover,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row:hover {
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row:focus-visible {
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row:focus-visible,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row:focus-visible {
   outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
   outline-offset: 2px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row > .biliscript-set-label,
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-action-entry-row > .biliscript-set-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-entry-summary {
@@ -429,11 +449,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-entry-row > .biliscript-set-label {
-  flex: 0 0 auto;
   white-space: nowrap;
 }
 

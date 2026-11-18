@@ -126,6 +126,23 @@ describe("设置抽屉三级总览与子页导航", () => {
     expect(document.activeElement).toBe(openAgentBtn);
   });
 
+  it("点击设置总览中的「新手引导 / 快速上手」发送 open-onboarding 消息", async () => {
+    const sentMessages: unknown[] = [];
+    const host = await mountPanel({
+      "open-onboarding": (message) => {
+        sentMessages.push(message);
+        return { ok: true };
+      }
+    });
+    const btn = host.querySelector<HTMLButtonElement>("#openOnboardingBtn")!;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("新手引导 / 快速上手");
+    btn.click();
+    await vi.waitFor(() => {
+      expect(sentMessages).toContainEqual({ type: "open-onboarding" });
+    });
+  });
+
   it("伴看语音与混音在实时伴看子页内直接平铺展示，无折叠触发器", async () => {
     const host = await mountPanel();
     host.querySelector<HTMLButtonElement>("#openLiveSettingsBtn")!.click();

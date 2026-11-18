@@ -201,6 +201,7 @@ function collectElements(host: HTMLElement) {
     agentSettingsSummary: byIdIn<HTMLElement>(dom.agentSettingsSummary),
     openAdvancedSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAdvancedSettingsBtn),
     advancedSettingsSummary: byIdIn<HTMLElement>(dom.advancedSettingsSummary),
+    openOnboardingBtn: byIdIn<HTMLButtonElement>(dom.openOnboardingBtn),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
@@ -1886,6 +1887,15 @@ function bindSettingsEvents(host: HTMLElement): void {
   );
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
+  elements.openOnboardingBtn?.addEventListener("click", () => {
+    void sendRuntimeMessage({ type: "open-onboarding" }).then((resp) => {
+      if (resp && !resp.ok) {
+        setStatus(elements, resp.error || "打开引导页失败", true);
+      }
+    }).catch(() => {
+      setStatus(elements, "打开引导页失败", true);
+    });
+  });
 
   // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。
   const watchedSyncBindings = SCALAR_FIELD_BINDINGS.filter((binding) => binding.watchSync);

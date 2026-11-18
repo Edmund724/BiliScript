@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN" data-biliscript-onboarding="1" data-theme="light" data-palette="flyme">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>欢迎使用 BiliScript｜B站视频文摘</title>
+    <link rel="icon" type="image/png" href="./icons/icon32.png" />
+    <link rel="stylesheet" href="./entry/styles/tokens-primitive.css" />
+    <link rel="stylesheet" href="./entry/styles/reader-gate.css" />
+    <link rel="stylesheet" href="./entry/styles/onboarding.css" />
+  </head>
+  <body class="onboarding-page">
+    <div class="onboarding-backdrop" aria-hidden="true"></div>
+    <header class="onboarding-topbar">
+      <div class="onboarding-brand">
+        <svg class="onboarding-logo" viewBox="0 0 128 128" width="32" height="32" aria-hidden="true">
+          <defs>
+            <linearGradient id="bsLogoBg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#FB7299" />
+              <stop offset="1" stop-color="#F0508A" />
+            </linearGradient>
+          </defs>
+          <rect width="128" height="128" rx="28" fill="url(#bsLogoBg)" />
+          <path fill="#fff" transform="translate(30,72) scale(0.76)" d="M23.10-48.05Q23.10-44.92 20.58-42.58Q18.07-40.23 14.65-40.23Q9.28-40.23 6.40-43.80Q3.52-47.36 3.52-53.66Q3.52-59.52 8.47-65.48Q13.43-71.44 20.41-74.51L22.56-71.04Q17.04-68.36 13.92-64.79Q10.79-61.23 10.30-56.15L13.04-56.15Q16.06-56.15 17.97-55.47Q19.87-54.79 21.04-53.56Q22.17-52.39 22.63-50.98Q23.10-49.56 23.10-48.05M47.17-48.05Q47.17-44.92 44.65-42.58Q42.14-40.23 38.72-40.23Q33.35-40.23 30.47-43.80Q27.59-47.36 27.59-53.66Q27.59-59.52 32.54-65.48Q37.50-71.44 44.48-74.51L46.63-71.04Q41.11-68.36 37.99-64.79Q34.86-61.23 34.38-56.15L37.11-56.15Q40.14-56.15 42.04-55.47Q43.95-54.79 45.12-53.56Q46.24-52.39 46.70-50.98Q47.17-49.56 47.17-48.05Z" />
+          <rect x="34" y="84" width="60" height="9" rx="4.5" fill="#fff" />
+          <rect x="34" y="100" width="38" height="9" rx="4.5" fill="#fff" opacity=".55" />
+        </svg>
+        <span class="onboarding-brand-title">BiliScript｜B站视频文摘</span>
+        <span id="onboardingVersion" class="onboarding-version-pill"></span>
+      </div>
+      <div class="onboarding-topbar-actions">
+        <button id="onboardingThemeBtn" type="button" class="onboarding-icon-btn" aria-label="切换明暗模式" title="切换明暗模式">
+          <svg class="theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+          </svg>
+          <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="onboarding-shell">
+      <section class="onboarding-hero" aria-labelledby="onboardingHeroTitle">
+        <span class="onboarding-step-badge">1 · 固定扩展与唤起文摘面板</span>
+        <h1 id="onboardingHeroTitle" class="onboarding-hero-title">固定扩展图标，在任意 B 站视频页展开文摘面板</h1>
+
+        <div class="onboarding-visual-grid">
+          <article class="onboarding-card visual-card">
+            <div class="visual-svg-frame" aria-hidden="true">
+              <svg viewBox="0 0 360 156" width="100%" height="156" fill="none">
+                <rect x="8" y="10" width="344" height="36" rx="10" class="svg-surface-2" stroke="currentColor" stroke-opacity="0.14" />
+                <circle cx="28" cy="28" r="5" fill="#FB7299" opacity="0.85" />
+                <circle cx="44" cy="28" r="5" fill="#FF9F0A" opacity="0.85" />
+                <circle cx="60" cy="28" r="5" fill="#3FB950" opacity="0.85" />
+                <rect x="80" y="18" width="176" height="20" rx="10" class="svg-surface" stroke="currentColor" stroke-opacity="0.1" />
+                <rect x="270" y="18" width="22" height="20" rx="6" class="svg-accent-soft" />
+                <rect x="275" y="22" width="12" height="12" rx="3" fill="#FB7299" />
+                <path d="M304 22h12v12h-12z" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.5" />
+                <rect x="218" y="54" width="134" height="90" rx="12" class="svg-card" stroke="currentColor" stroke-opacity="0.14" />
+                <text x="232" y="76" class="svg-text" font-size="11" font-weight="600">扩展程序</text>
+                <rect x="228" y="86" width="114" height="24" rx="7" class="svg-accent-soft" />
+                <rect x="234" y="92" width="12" height="12" rx="3" fill="#FB7299" />
+                <text x="252" y="102" class="svg-text" font-size="11" font-weight="600">BiliScript</text>
+                <path d="M326 92l4 4-3 3 2 4-4-2-3 3-2-4 3-3-3-3z" class="svg-accent-fill" />
+                <path d="M310 40 L310 54" class="svg-accent-stroke" stroke-width="1.8" stroke-dasharray="3 2" />
+                <text x="232" y="128" class="svg-muted" font-size="10">点击图钉固定到工具栏</text>
+              </svg>
+            </div>
+            <h2 class="visual-title">右上角固定扩展图标</h2>
+            <p class="visual-copy">点浏览器拼图图标固定 BiliScript，随时一键唤起面板。</p>
+          </article>
+
+          <article class="onboarding-card visual-card">
+            <div class="visual-svg-frame" aria-hidden="true">
+              <svg viewBox="0 0 360 156" width="100%" height="156" fill="none">
+                <rect x="8" y="10" width="212" height="136" rx="12" class="svg-surface-2" stroke="currentColor" stroke-opacity="0.14" />
+                <rect x="20" y="22" width="188" height="92" rx="8" fill="#17181A" opacity="0.88" />
+                <polygon points="106,56 106,80 126,68" fill="#FFFFFF" opacity="0.9" />
+                <rect x="20" y="122" width="66" height="14" rx="7" class="svg-accent-soft" />
+                <text x="31" y="132" class="svg-accent-fill" font-size="9.5" font-weight="600">文摘面板</text>
+                <rect x="228" y="10" width="124" height="136" rx="12" class="svg-card" stroke="currentColor" stroke-opacity="0.18" />
+                <rect x="236" y="18" width="34" height="16" rx="8" class="svg-accent-fill" />
+                <text x="243" y="29" fill="#FFFFFF" font-size="8.5" font-weight="600">字幕</text>
+                <text x="276" y="29" class="svg-muted" font-size="8.5">概览</text>
+                <text x="303" y="29" class="svg-muted" font-size="8.5">AI 对话</text>
+                <rect x="236" y="42" width="108" height="18" rx="6" class="svg-surface-2" />
+                <text x="242" y="54" class="svg-accent-fill" font-size="8.5" font-weight="600">02:14</text>
+                <rect x="272" y="48" width="62" height="5" rx="2.5" class="svg-muted-fill" opacity="0.45" />
+                <rect x="236" y="66" width="108" height="18" rx="6" class="svg-surface-2" />
+                <text x="242" y="78" class="svg-muted" font-size="8.5">05:40</text>
+                <rect x="272" y="72" width="54" height="5" rx="2.5" class="svg-muted-fill" opacity="0.35" />
+                <rect x="236" y="92" width="108" height="44" rx="8" class="svg-accent-soft" />
+                <text x="244" y="107" class="svg-text" font-size="8.5" font-weight="600">AI 章节概览 · 多模态对话</text>
+                <rect x="244" y="116" width="84" height="4" rx="2" class="svg-muted-fill" opacity="0.4" />
+                <rect x="244" y="124" width="62" height="4" rx="2" class="svg-muted-fill" opacity="0.3" />
+              </svg>
+            </div>
+            <h2 class="visual-title">右侧展开「文摘面板」</h2>
+            <p class="visual-copy">边看视频边精读字幕、生成 AI 章节概览与多模态对话。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="onboarding-setup" aria-labelledby="onboardingSetupTitle">
+        <div class="section-head">
+          <div>
+            <span class="onboarding-step-badge">2 · 当场配置 AI 平台与转写</span>
+            <h2 id="onboardingSetupTitle" class="section-title">直连本机存储，保存后文摘面板立即生效</h2>
+          </div>
+          <span class="privacy-badge">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span>API Key 仅存本机，请求直连服务商</span>
+          </span>
+        </div>
+
+        <div class="setup-grid">
+          <form id="onboardingAiForm" class="onboarding-card setup-card" aria-labelledby="aiCardTitle" novalidate>
+            <div class="card-head">
+              <h3 id="aiCardTitle" class="card-title">总结与对话 AI 平台</h3>
+              <span id="aiReadyBadge" class="status-pill" data-ready="false">未配置</span>
+            </div>
+
+            <div class="field-row-2">
+              <div class="field-group">
+                <label for="aiPresetSelect">平台预设</label>
+                <select id="aiPresetSelect" name="aiPreset"></select>
+              </div>
+              <div class="field-group">
+                <label for="aiProtocolSelect">接口协议</label>
+                <select id="aiProtocolSelect" name="aiProtocol"></select>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label for="aiBaseUrlInput">API 地址 <span aria-hidden="true">*</span></label>
+              <input
+                id="aiBaseUrlInput"
+                name="aiBaseUrl"
+                type="url"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                placeholder="https://api-inference.modelscope.cn/v1"
+                data-error="aiBaseUrlError"
+                required
+              />
+              <span id="aiBaseUrlError" class="field-error" hidden></span>
+            </div>
+
+            <div class="field-group">
+              <div class="label-row">
+                <label for="aiApiKeyInput">API Key</label>
+                <a
+                  id="aiCredentialLink"
+                  class="helper-link"
+                  href="https://modelscope.cn/my/myaccesstoken"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >获取 ModelScope ms- Token ↗</a>
+              </div>
+              <div class="input-with-toggle">
+                <input
+                  id="aiApiKeyInput"
+                  name="aiApiKey"
+                  type="password"
+                  autocomplete="new-password"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  placeholder="ms- 开头的 SDK Token"
+                  data-error="aiApiKeyError"
+                />
+                <button
+                  id="aiApiKeyToggle"
+                  type="button"
+                  class="key-visibility-btn"
+                  aria-pressed="false"
+                  aria-label="显示 API Key"
+                >显示</button>
+              </div>
+              <span id="aiApiKeyError" class="field-error" hidden></span>
+            </div>
+
+            <div class="field-group">
+              <label for="aiModelInput">默认模型 <span aria-hidden="true">*</span></label>
+              <div class="model-input-row">
+                <input
+                  id="aiModelInput"
+                  name="aiModel"
+                  type="text"
+                  list="aiModelSuggestions"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  placeholder="例如 Qwen/Qwen3-235B-A22B-Instruct-2507"
+                  data-error="aiModelError"
+                  required
+                />
+                <datalist id="aiModelSuggestions"></datalist>
+                <button id="aiFetchModelsBtn" type="button" class="btn-secondary">拉取模型</button>
+              </div>
+              <span id="aiModelError" class="field-error" hidden></span>
+            </div>
+
+            <div class="card-actions">
+              <button id="aiTestBtn" type="button" class="btn-secondary">测试连接</button>
+              <button id="aiSaveBtn" type="submit" class="btn-primary">保存 AI 配置</button>
+            </div>
+            <p id="aiStatus" class="card-status" role="status" aria-live="polite"></p>
+          </form>
+
+          <div class="setup-side-column">
+            <form id="onboardingAsrForm" class="onboarding-card setup-card" aria-labelledby="asrCardTitle" novalidate>
+              <div class="card-head">
+                <h3 id="asrCardTitle" class="card-title">无字幕语音转写（ASR）</h3>
+                <span id="asrReadyBadge" class="status-pill" data-ready="false">可选</span>
+              </div>
+
+              <div class="field-group">
+                <label for="asrPresetSelect">转写平台</label>
+                <select id="asrPresetSelect" name="asrPreset"></select>
+              </div>
+
+              <div class="field-group">
+                <label for="asrModelInput">转写模型 <span aria-hidden="true">*</span></label>
+                <input
+                  id="asrModelInput"
+                  name="asrModel"
+                  type="text"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  data-error="asrModelError"
+                  required
+                />
+                <span id="asrModelError" class="field-error" hidden></span>
+              </div>
+
+              <div class="field-group">
+                <label for="asrBaseUrlInput">转写 API 地址 <span aria-hidden="true">*</span></label>
+                <input
+                  id="asrBaseUrlInput"
+                  name="asrBaseUrl"
+                  type="url"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  data-error="asrBaseUrlError"
+                  required
+                />
+                <span id="asrBaseUrlError" class="field-error" hidden></span>
+              </div>
+
+              <div class="field-group">
+                <div class="label-row">
+                  <label for="asrApiKeyInput">硅基流动 API Key</label>
+                  <a
+                    id="asrCredentialLink"
+                    class="helper-link"
+                    href="https://cloud.siliconflow.cn/account/ak"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >获取硅基流动 Key ↗</a>
+                </div>
+                <div class="input-with-toggle">
+                  <input
+                    id="asrApiKeyInput"
+                    name="asrApiKey"
+                    type="password"
+                    autocomplete="new-password"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    placeholder="填写 SiliconFlow API Key"
+                    data-error="asrApiKeyError"
+                  />
+                  <button
+                    id="asrApiKeyToggle"
+                    type="button"
+                    class="key-visibility-btn"
+                    aria-pressed="false"
+                    aria-label="显示 API Key"
+                  >显示</button>
+                </div>
+                <span id="asrApiKeyError" class="field-error" hidden></span>
+              </div>
+
+              <div class="biliscript-set-check biliscript-toggle-row onboarding-toggle-row">
+                <span class="biliscript-toggle-text">无字幕视频自动语音转写</span>
+                <label class="biliscript-toggle-switch">
+                  <input
+                    id="asrAutoFallbackToggle"
+                    type="checkbox"
+                    class="biliscript-toggle-input"
+                    aria-label="无字幕视频自动语音转写"
+                    checked
+                  />
+                  <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+                </label>
+              </div>
+
+              <div class="card-actions">
+                <button id="asrTestBtn" type="button" class="btn-secondary">测试连接</button>
+                <button id="asrSaveBtn" type="submit" class="btn-primary">保存转写配置</button>
+              </div>
+              <p id="asrStatus" class="card-status" role="status" aria-live="polite"></p>
+            </form>
+
+            <section class="onboarding-card setup-card" aria-labelledby="searchCardTitle">
+              <div class="card-head">
+                <h3 id="searchCardTitle" class="card-title">免 Key 联网搜索</h3>
+                <span id="searchReadyBadge" class="status-pill" data-ready="false">已关闭</span>
+              </div>
+
+              <div class="biliscript-set-check biliscript-toggle-row onboarding-toggle-row">
+                <span class="biliscript-toggle-text">开启联网搜索（内置 Tavily / Firecrawl / AnySearch / Parallel）</span>
+                <label class="biliscript-toggle-switch">
+                  <input
+                    id="webSearchToggle"
+                    type="checkbox"
+                    class="biliscript-toggle-input"
+                    aria-label="开启免 Key 联网搜索"
+                  />
+                  <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+                </label>
+              </div>
+              <p id="searchStatus" class="card-status" role="status" aria-live="polite"></p>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="onboarding-cta-section" aria-labelledby="onboardingTryTitle">
+        <div class="onboarding-card cta-card">
+          <div class="cta-copy">
+            <span class="onboarding-step-badge">3 · 立即体验</span>
+            <h2 id="onboardingTryTitle" class="section-title">前往 B 站视频页实测「文摘面板」</h2>
+            <p class="cta-note">未配置 Key 也可直接使用字幕精读、时间轴跳转、多格式导出与内置字幕翻译。</p>
+          </div>
+          <div class="cta-actions">
+            <a
+              id="tryBilibiliBtn"
+              class="btn-primary btn-cta"
+              href="https://www.bilibili.com/video/BV1GJ411x7h7"
+              target="_blank"
+              rel="noopener noreferrer"
+            >前往 B 站视频页实测</a>
+            <a
+              id="skipToBilibiliBtn"
+              class="btn-secondary btn-cta"
+              href="https://www.bilibili.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >打开 B 站首页</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="onboarding-footer">
+      <nav aria-label="进阶文档与隐私政策">
+        <a href="https://edmund724.github.io/BiliScript/docs/guide.html" target="_blank" rel="noopener noreferrer">配置与排障指南</a>
+        <a href="https://edmund724.github.io/BiliScript/docs/agent-bridge.html" target="_blank" rel="noopener noreferrer">本地 Agent 桥接指南</a>
+        <a href="https://edmund724.github.io/BiliScript/privacy.html" target="_blank" rel="noopener noreferrer">隐私政策</a>
+      </nav>
+    </footer>
+
+    <div id="onboardingAnnouncer" class="visually-hidden" aria-live="polite"></div>
+    <script type="module" src="./entry/chunks/onboarding.mjs"></script>
+  </body>
+</html>

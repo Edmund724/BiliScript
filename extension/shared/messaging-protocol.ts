@@ -612,6 +612,10 @@ export type GetDebugLogGateResponse = {
   error?: string;
 };
 
+// 在新标签页打开扩展内置引导页 onboarding.html（content script 无 chrome.tabs 权限，由 SW 代开）。
+export type OpenOnboardingMessage = { type: "open-onboarding" };
+export type OpenOnboardingResponse = { ok: boolean; error?: string };
+
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
@@ -651,7 +655,8 @@ export type BackgroundMessage =
   | SubtitleCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
-  | GetDebugLogGateMessage;
+  | GetDebugLogGateMessage
+  | OpenOnboardingMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
 
@@ -1109,6 +1114,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "get-debug-log-gate": registerBackgroundMessage<
     GetDebugLogGateMessage,
     GetDebugLogGateResponse
+  >({
+    reply: "async"
+  }),
+  "open-onboarding": registerBackgroundMessage<
+    OpenOnboardingMessage,
+    OpenOnboardingResponse
   >({
     reply: "async"
   })

@@ -3,6 +3,7 @@ import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedBilibiliPage } from "../bilibili/video-id-shared.js";
+import { openOnboardingPage, runOnInstalled } from "./on-installed.js";
 import {
   EXPECTED_CONTENT_SCRIPT_VERSION,
   injectReaderContent,
@@ -560,6 +561,20 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
   );
 }
 
+function handleOpenOnboarding(_message: Msg<"open-onboarding">, _sender: MessageSender, sendResponse: Reply<"open-onboarding">): void {
+  withOkResponse(
+    (async () => {
+      const opened = await openOnboardingPage({
+        getURL: (path) => chrome.runtime.getURL(path),
+        createTab: (createProperties) => chrome.tabs.create(createProperties),
+        logWarn
+      });
+      return opened ? { ok: true } : { ok: false, error: "打开引导页失败" };
+    })(),
+    sendResponse
+  );
+}
+
 // 编译期穷尽路由表（arch-slim-2/02；handler 面按消息键收型：message-registry/02）：
 // 字面量表经 satisfies 对 { [K in BackgroundMessageType]: BackgroundMessageHandler<K> }
 // 校验——消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
@@ -610,38 +625,32 @@ const messageHandlerTable = {
   "subtitle-cache": handleSubtitleCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
-  "get-debug-log-gate": handleGetDebugLogGate
+  "get-debug-log-gate": handleGetDebugLogGate,
+  "open-onboarding": handleOpenOnboarding
 } satisfies BackgroundMessageHandlers;
 
 // EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts
 //（arch-slim-3/04 收编，本文件经 import 消费）。
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   // B 站媒体防盗链会话规则整池清理（逻辑在 core/offscreen-host.ts）：
   // 安装/更新后把池区间内平台现存规则清掉并重置账本，防旧规则泄漏（会话规则
   // 跨浏览器重启由平台自动清空，本清理是对扩展 reload/update 行为差异的兜底）。
-  try {
-    await reapAllBiliMediaSessionRules();
-    await clearMossLiveWsAuthRule();
-    await ensureIndexTranslateSessionRule();
-  } catch (error) {
-    // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
-    logWarn("[BILISCRIPT] asr session rule reap on install/update failed", error);
-  }
-  try {
-    await initializeSettingsStorage();
-  } catch (error) {
-    // 安装/更新迁移失败不进 SW unhandled rejection，只记日志（下次安装/更新
-    // 会重试整段迁移）。
-    logWarn("[BILISCRIPT] settings storage init on install/update failed", error);
-  }
-  try {
-    await autoActivateSearchPresets();
-  } catch (error) {
-    // 自动激活失败只记日志：flag 最后写，任一步失败都留着 flag 未置位，下一次
-    // 安装/更新重试整段；判据按 presetId 查缺使重试安全（已补的不会重复写）。
-    logWarn("[BILISCRIPT] search presets auto activation on install/update failed", error);
-  }
+  // 仅首次安装（INSTALL）时打开内置引导页，版本更新（update）不弹窗打扰老用户。
+  await runOnInstalled(details, {
+    installReason:
+      (chrome.runtime as unknown as { OnInstalledReason?: { INSTALL?: string } }).OnInstalledReason?.INSTALL ?? "install",
+    getURL: (path) => chrome.runtime.getURL(path),
+    createTab: (createProperties) => chrome.tabs.create(createProperties),
+    logWarn,
+    reapSessionRules: async () => {
+      await reapAllBiliMediaSessionRules();
+      await clearMossLiveWsAuthRule();
+      await ensureIndexTranslateSessionRule();
+    },
+    initializeSettingsStorage,
+    autoActivateSearchPresets
+  });
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {

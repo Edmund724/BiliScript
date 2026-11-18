@@ -55,6 +55,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "subtitle-cache": "async",
   "offscreen-request-close": "async",
   "get-debug-log-gate": "async",
+  "open-onboarding": "async",
   "live-providers-list": "async",
   "live-providers-save": "async",
   "live-providers-delete": "async",
