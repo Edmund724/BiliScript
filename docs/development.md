@@ -45,7 +45,7 @@ extension/
 ├── live/                  # 实时伴看（MOSS Live / Gemini Live 会话、音画同步与浮窗）
 ├── search/                # 联网搜索（多平台适配器、智能回退链与缓存执行器）
 ├── core/                  # 核心状态管理、运行时与消息分发
-├── notes/                 # 导出渲染（Markdown、SRT、TXT）
+├── notes/                 # 导出渲染（Markdown、SRT、WebVTT、TXT）
 ├── subtitle/              # 字幕抓取、双语轨道事务、翻译与缓存
 ├── reader/                # 文摘面板视图生命周期、跟随同步与布局
 ├── ui/                    # 通用 UI 组件、Markdown / 公式 / 图表渲染与时间戳导航
