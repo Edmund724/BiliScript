@@ -31,6 +31,15 @@ import {
 } from "../subtitle/segmentation.js";
 import { isNonSpeechSegment } from "../subtitle/text-classification.js";
 import {
+  isAbortNamedError,
+  isAbortedMarkerError,
+  isCancelledError
+} from "../shared/error-helpers.js";
+import {
+  createStreamingSubtitleParser,
+  type StreamingSubtitleCue
+} from "../subtitle/streaming-parser.js";
+import {
   finalizeAiCues,
   formatBoundaryEvents,
   formatCcSubtitleItems,
@@ -40,6 +49,8 @@ import {
   splitEventsIntoAiChunks,
   type BoundaryCue
 } from "../subtitle/boundary-protocol.js";
+
+export type { StreamingSubtitleCue };
 
 export type SubtitleTranslateProtocolMode = "boundary-v3" | "cc-json";
 
@@ -108,16 +119,19 @@ export interface SubtitleTranslateRequestInput {
   };
   messages: ChatMessage[];
   stream?: boolean;
+  retries?: number;
   signal?: AbortSignal | null;
   maxTokens?: number | null;
   fetchImpl?: ProviderTransport;
+  onEvent?: ChatCompletionInput["onEvent"];
+  onStreamReset?: ChatCompletionInput["onStreamReset"];
   /** 外部传入的任何思考档位将被显式忽略，强制收敛为 "off"。 */
   thinkingLevel?: unknown;
 }
 
 /**
  * 装配字幕翻译模型请求：
- * 固定将思考档位设为关闭（`off`），不继承对话面板的高思考强度档位，
+ * 默认开启流式（`stream: true`）并固定将思考档位设为关闭（`off`），不继承对话面板的高思考强度档位，
  * 降低首字延迟与 token 消耗；传输默认走 offscreen 代发通道以绕过页面 CORS 预检。
  */
 export function buildSubtitleTranslateRequest(
@@ -132,10 +146,13 @@ export function buildSubtitleTranslateRequest(
       protocol: input.provider.protocol || "openai"
     },
     messages: input.messages,
-    stream: input.stream ?? false,
+    stream: input.stream ?? true,
+    ...(input.retries !== undefined ? { retries: input.retries } : {}),
     signal: input.signal ?? null,
     maxTokens: input.maxTokens ?? null,
     fetchImpl: input.fetchImpl ?? providerFetchViaOffscreen,
+    ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+    ...(input.onStreamReset ? { onStreamReset: input.onStreamReset } : {}),
     // 固定将思考档位设为关闭（off），不继承对话面板的高思考强度档位
     thinkingLevel: "off"
   };
@@ -395,6 +412,8 @@ export interface TranslateSubtitleItemsInput extends SubtitleTranslatePromptCont
   context?: SubtitleTranslatePromptContext;
   maxChunkChars?: number;
   providerResolution?: SubtitleTranslateProviderResolution;
+  stream?: boolean;
+  onCueReady?: (cue: StreamingSubtitleCue) => void;
   signal?: AbortSignal | null;
   fallbackToOriginal?: boolean;
   chatCompletionFn?: typeof chatCompletion;
@@ -467,25 +486,97 @@ function throwIfAborted(signal?: AbortSignal | null): void {
 async function invokeTranslationLlm(args: {
   resolved: SubtitleTranslateProviderResolution;
   messages: ChatMessage[];
+  stream?: boolean;
   signal?: AbortSignal | null;
   fetchImpl: ProviderTransport;
   chatCompletionFn: typeof chatCompletion;
+  onDelta?: (delta: string) => void;
+  onStreamReset?: () => void;
 }): Promise<string> {
   throwIfAborted(args.signal);
-  const request = buildSubtitleTranslateRequest({
-    provider: {
-      baseUrl: args.resolved.baseUrl,
-      apiKey: args.resolved.apiKey,
-      model: args.resolved.model,
-      presetId: args.resolved.presetId,
-      protocol: args.resolved.protocol
-    },
+  const useStream = args.stream ?? true;
+  const providerConfig = {
+    baseUrl: args.resolved.baseUrl,
+    apiKey: args.resolved.apiKey,
+    model: args.resolved.model,
+    presetId: args.resolved.presetId,
+    protocol: args.resolved.protocol
+  };
+
+  if (!useStream) {
+    const request = buildSubtitleTranslateRequest({
+      provider: providerConfig,
+      messages: args.messages,
+      stream: false,
+      signal: args.signal,
+      fetchImpl: args.fetchImpl
+    });
+    const rawResult = await args.chatCompletionFn(request);
+    const text = typeof rawResult === "string" ? rawResult : "";
+    if (text) {
+      args.onDelta?.(text);
+    }
+    return text;
+  }
+
+  let streamedText = "";
+  const streamRequest = buildSubtitleTranslateRequest({
+    provider: providerConfig,
     messages: args.messages,
+    stream: true,
+    retries: 0,
     signal: args.signal,
-    fetchImpl: args.fetchImpl
+    fetchImpl: args.fetchImpl,
+    onEvent: (event) => {
+      if (event.type === "token" && event.data) {
+        streamedText += event.data;
+        args.onDelta?.(event.data);
+      }
+    },
+    onStreamReset: () => {
+      streamedText = "";
+      args.onStreamReset?.();
+    }
   });
-  const rawResult = await args.chatCompletionFn(request);
-  return typeof rawResult === "string" ? rawResult : "";
+
+  try {
+    const rawResult = await args.chatCompletionFn(streamRequest);
+    if (typeof rawResult === "string") {
+      if (!streamedText && rawResult) {
+        args.onDelta?.(rawResult);
+        return rawResult;
+      }
+      return streamedText || rawResult;
+    }
+    return streamedText;
+  } catch (err) {
+    if (
+      args.signal?.aborted ||
+      isAbortedMarkerError(err) ||
+      isAbortNamedError(err) ||
+      isCancelledError(err)
+    ) {
+      throw err;
+    }
+
+    // 流式异常无感降级：清空流式解析缓冲后无缝回退调用一次非流式 stream: false
+    args.onStreamReset?.();
+    throwIfAborted(args.signal);
+
+    const fallbackRequest = buildSubtitleTranslateRequest({
+      provider: providerConfig,
+      messages: args.messages,
+      stream: false,
+      signal: args.signal,
+      fetchImpl: args.fetchImpl
+    });
+    const fallbackResult = await args.chatCompletionFn(fallbackRequest);
+    const fallbackText = typeof fallbackResult === "string" ? fallbackResult : "";
+    if (fallbackText) {
+      args.onDelta?.(fallbackText);
+    }
+    return fallbackText;
+  }
 }
 
 async function translateCcBatchWithRetry(args: {
@@ -493,22 +584,30 @@ async function translateCcBatchWithRetry(args: {
   targetLang: string;
   context?: SubtitleTranslatePromptContext;
   resolved: SubtitleTranslateProviderResolution;
+  stream?: boolean;
   signal?: AbortSignal | null;
   fallbackToOriginal: boolean;
   chatCompletionFn: typeof chatCompletion;
   fetchImpl: ProviderTransport;
   allowMissingRetry: boolean;
+  batchOffset?: number;
+  emittedKeys?: Set<string>;
+  onCueReady?: (cue: StreamingSubtitleCue) => void;
 }): Promise<{ items: SubtitleBodyItem[]; translations: SubtitleBodyItem[] }> {
   const {
     batch,
     targetLang,
     context,
     resolved,
+    stream,
     signal,
     fallbackToOriginal,
     chatCompletionFn,
     fetchImpl,
-    allowMissingRetry
+    allowMissingRetry,
+    batchOffset = 0,
+    emittedKeys = new Set<string>(),
+    onCueReady
   } = args;
 
   const normalizedItems: SubtitleBodyItem[] = batch.map((item) => ({
@@ -518,12 +617,24 @@ async function translateCcBatchWithRetry(args: {
   }));
 
   const primaryMessages = buildCcTranslateMessages(normalizedItems, targetLang, context);
+  const primaryParser = onCueReady
+    ? createStreamingSubtitleParser({
+        items: normalizedItems,
+        mode: "cc-json",
+        indexOffset: batchOffset,
+        emittedKeys,
+        onCueReady
+      })
+    : null;
   const primaryRaw = await invokeTranslationLlm({
     resolved,
     messages: primaryMessages,
+    stream,
     signal,
     fetchImpl,
-    chatCompletionFn
+    chatCompletionFn,
+    onDelta: primaryParser ? (delta) => primaryParser.feed(delta) : undefined,
+    onStreamReset: primaryParser ? () => primaryParser.resetStreamAttempt() : undefined
   });
 
   const translationMap = parseCcTranslationMap(primaryRaw, normalizedItems.length);
@@ -547,6 +658,7 @@ async function translateCcBatchWithRetry(args: {
         const retryRaw = await invokeTranslationLlm({
           resolved,
           messages: retryMessages,
+          stream,
           signal,
           fetchImpl,
           chatCompletionFn
@@ -556,6 +668,21 @@ async function translateCcBatchWithRetry(args: {
           const origIdx = missingIndices[retryIdx];
           if (origIdx !== undefined && translatedText) {
             translationMap.set(origIdx, translatedText);
+            if (onCueReady) {
+              const globalIdx = origIdx + batchOffset;
+              const dedupeKey = `${globalIdx}:${globalIdx}`;
+              if (!emittedKeys.has(dedupeKey)) {
+                emittedKeys.add(dedupeKey);
+                onCueReady({
+                  startIndex: globalIdx,
+                  endIndex: globalIdx,
+                  from: normalizedItems[origIdx].from,
+                  to: normalizedItems[origIdx].to,
+                  text: normalizedItems[origIdx].content,
+                  translation: translatedText
+                });
+              }
+            }
           }
         }
       } catch (err) {
@@ -590,10 +717,14 @@ async function translateBoundaryChunkWithRecovery(args: {
   sourceLang?: string;
   context?: SubtitleTranslatePromptContext;
   resolved: SubtitleTranslateProviderResolution;
+  stream?: boolean;
   signal?: AbortSignal | null;
   fallbackToOriginal: boolean;
   chatCompletionFn: typeof chatCompletion;
   fetchImpl: ProviderTransport;
+  eventOffset?: number;
+  emittedKeys?: Set<string>;
+  onCueReady?: (cue: StreamingSubtitleCue) => void;
 }): Promise<{ items: SubtitleBodyItem[]; translations: SubtitleBodyItem[] }> {
   const {
     chunkEvents,
@@ -601,19 +732,36 @@ async function translateBoundaryChunkWithRecovery(args: {
     sourceLang,
     context,
     resolved,
+    stream,
     signal,
     fallbackToOriginal,
     chatCompletionFn,
-    fetchImpl
+    fetchImpl,
+    eventOffset = 0,
+    emittedKeys = new Set<string>(),
+    onCueReady
   } = args;
 
   const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, context);
+  const primaryParser = onCueReady
+    ? createStreamingSubtitleParser({
+        events: chunkEvents,
+        sourceLang,
+        mode: "boundary-v3",
+        indexOffset: eventOffset,
+        emittedKeys,
+        onCueReady
+      })
+    : null;
   const primaryRaw = await invokeTranslationLlm({
     resolved,
     messages: primaryMessages,
+    stream,
     signal,
     fetchImpl,
-    chatCompletionFn
+    chatCompletionFn,
+    onDelta: primaryParser ? (delta) => primaryParser.feed(delta) : undefined,
+    onStreamReset: primaryParser ? () => primaryParser.resetStreamAttempt() : undefined
   });
 
   // 第 1 重 & 第 2 重：截断 JSON 抢救 + 连续无跳号前缀回填
@@ -630,12 +778,25 @@ async function translateBoundaryChunkWithRecovery(args: {
     const tailEvents = chunkEvents.slice(offset);
     try {
       const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, context);
+      const tailParser = onCueReady
+        ? createStreamingSubtitleParser({
+            events: tailEvents,
+            sourceLang,
+            mode: "boundary-v3",
+            indexOffset: eventOffset + offset,
+            emittedKeys,
+            onCueReady
+          })
+        : null;
       const retryRaw = await invokeTranslationLlm({
         resolved,
         messages: retryMessages,
+        stream,
         signal,
         fetchImpl,
-        chatCompletionFn
+        chatCompletionFn,
+        onDelta: tailParser ? (delta) => tailParser.feed(delta) : undefined,
+        onStreamReset: tailParser ? () => tailParser.resetStreamAttempt() : undefined
       });
       const salvagedRetry = salvageTruncatedSubtitleJson(retryRaw);
       if (salvagedRetry) {
@@ -671,6 +832,7 @@ async function translateBoundaryChunkWithRecovery(args: {
         targetLang,
         context,
         resolved,
+        stream,
         signal,
         fallbackToOriginal: false,
         chatCompletionFn,
@@ -682,6 +844,25 @@ async function translateBoundaryChunkWithRecovery(args: {
   });
 
   throwIfAborted(signal);
+  if (onCueReady) {
+    for (const cue of finalized.cues) {
+      const globalStart = cue.startIndex + eventOffset;
+      const globalEnd = cue.endIndex + eventOffset;
+      const dedupeKey = `${globalStart}:${globalEnd}`;
+      if (!emittedKeys.has(dedupeKey)) {
+        emittedKeys.add(dedupeKey);
+        onCueReady({
+          startIndex: globalStart,
+          endIndex: globalEnd,
+          from: cue.from,
+          to: cue.to,
+          text: cue.text,
+          translation: cue.translation
+        });
+      }
+    }
+  }
+
   return {
     items: finalized.items.map((item) => ({ ...item })),
     translations: finalized.translations.map((item) => ({ ...item }))
@@ -706,6 +887,8 @@ export async function translateSubtitleTrack(
     trackLan,
     maxChunkChars = DEFAULT_MAX_CHUNK_CHARS,
     providerResolution,
+    stream,
+    onCueReady,
     signal,
     fallbackToOriginal = false,
     chatCompletionFn = chatCompletion,
@@ -730,6 +913,7 @@ export async function translateSubtitleTrack(
 
   const effectiveSourceLang = sourceLang ?? trackLan ?? selectedSubtitleLang;
   const context = mergePromptContext(input);
+  const emittedKeys = new Set<string>();
 
   if (resolvedMode === "boundary-v3") {
     const atomicEvents = hasExplicitEvents
@@ -744,6 +928,7 @@ export async function translateSubtitleTrack(
     const chunks = splitEventsIntoAiChunks(atomicEvents, maxChunkChars);
     const outItems: SubtitleBodyItem[] = [];
     const outTranslations: SubtitleBodyItem[] = [];
+    let eventOffset = 0;
 
     for (const chunkEvents of chunks) {
       throwIfAborted(signal);
@@ -753,13 +938,18 @@ export async function translateSubtitleTrack(
         sourceLang: effectiveSourceLang,
         context,
         resolved,
+        stream,
         signal,
         fallbackToOriginal,
         chatCompletionFn,
-        fetchImpl
+        fetchImpl,
+        eventOffset,
+        emittedKeys,
+        onCueReady
       });
       outItems.push(...chunkResult.items);
       outTranslations.push(...chunkResult.translations);
+      eventOffset += chunkEvents.length;
     }
 
     return {
@@ -774,6 +964,7 @@ export async function translateSubtitleTrack(
   const batches = splitCcItemsIntoBatches(items, maxChunkChars);
   const outItems: SubtitleBodyItem[] = [];
   const outTranslations: SubtitleBodyItem[] = [];
+  let batchOffset = 0;
 
   for (const batch of batches) {
     throwIfAborted(signal);
@@ -782,14 +973,19 @@ export async function translateSubtitleTrack(
       targetLang,
       context,
       resolved,
+      stream,
       signal,
       fallbackToOriginal,
       chatCompletionFn,
       fetchImpl,
-      allowMissingRetry: true
+      allowMissingRetry: true,
+      batchOffset,
+      emittedKeys,
+      onCueReady
     });
     outItems.push(...batchResult.items);
     outTranslations.push(...batchResult.translations);
+    batchOffset += batch.length;
   }
 
   return {

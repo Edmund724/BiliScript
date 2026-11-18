@@ -187,7 +187,7 @@ function stripMarkdownCodeFences(raw: string): string {
 /**
  * 在 JSON 字符串字面量之外安全移除尾部多余逗号（如 `,}` 与 `,]`）。
  */
-function stripTrailingCommasOutsideStrings(input: string): string {
+export function stripTrailingCommasOutsideStrings(input: string): string {
   let out = "";
   let inString = false;
   let escaped = false;
@@ -362,7 +362,7 @@ export function salvageTruncatedSubtitleJson<T = unknown>(raw: string): T | null
   return null;
 }
 
-function parseSingleEventId(rawId: unknown): number | null {
+export function parseSingleEventId(rawId: unknown): number | null {
   if (typeof rawId === "number") {
     return Number.isInteger(rawId) && rawId >= 0 ? rawId : null;
   }
@@ -376,7 +376,7 @@ function parseSingleEventId(rawId: unknown): number | null {
   return null;
 }
 
-function parseGroupIdRange(ids: unknown): { startIndex: number; endIndex: number } | null {
+export function parseGroupIdRange(ids: unknown): { startIndex: number; endIndex: number } | null {
   if (!Array.isArray(ids) || ids.length === 0) {
     return null;
   }
@@ -462,7 +462,7 @@ function extractRawGroups(groupsInput: unknown): RawBoundaryGroup[] {
   return [];
 }
 
-function joinEventsSliceText(
+export function joinEventsSliceText(
   slice: readonly AtomicSubtitleEvent[],
   sourceLang?: string
 ): string {

@@ -201,8 +201,8 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       const started = await controller.start();
       expect(started).toBe(true);
       expect(runAsr).not.toHaveBeenCalled(); // 跳过 ASR
-      // 窗口 [0, 1, 2] 内有两个分片需要翻译
-      expect(translateItems).toHaveBeenCalledTimes(2);
+      // 首屏块完成后立即解锁第 2 块，90s 窗口内共两个分片
+      await vi.waitFor(() => expect(translateItems).toHaveBeenCalledTimes(2));
       expect(translateItems).toHaveBeenCalledWith(
         expect.objectContaining({ fallbackToOriginal: false })
       );
@@ -430,6 +430,123 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       video.currentTime = 3;
       video.dispatchEvent(new Event("timeupdate"));
       expect(showNotice).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("流式逐句上屏与浮层防闪烁校验", () => {
+    it("当前分片流式 cue 命中播放激活项时立即局部刷新浮层，后台预载分片返回不触发浮层闪烁", async () => {
+      clipState.setSubtitleBody([
+        { from: 0, to: 10, content: "P0-first" },
+        { from: 12, to: 20, content: "P0-second" },
+        { from: 65, to: 75, content: "P1-preload" }
+      ]);
+      clipState.setSubtitleFetchState("ready");
+
+      const chunkResolvers = new Map<number, (items: SubtitleBodyItem[]) => void>();
+      const cueEmitters = new Map<number, (cue: any) => void>();
+
+      const { controller, setSubtitle } = setupTest({
+        currentTime: 5,
+        translateItems: ({ items, onCueReady }: any) => {
+          const chunkIdx = Math.floor((items[0]?.from || 0) / 60);
+          cueEmitters.set(chunkIdx, onCueReady);
+          return new Promise<SubtitleBodyItem[]>((resolve) => {
+            chunkResolvers.set(chunkIdx, resolve);
+          });
+        }
+      });
+
+      await controller.start();
+      await vi.waitFor(() => expect(cueEmitters.has(0)).toBe(true));
+      // 初始未翻译时浮层只显示原文
+      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "");
+      setSubtitle.mockClear();
+
+      // 块 0 非当前句（12s–20s）流式到达：未命中当前播放点 5s，不刷新浮层
+      cueEmitters.get(0)!({
+        startIndex: 1,
+        endIndex: 1,
+        from: 12,
+        to: 20,
+        text: "P0-second",
+        translation: "流式译文0-后句"
+      });
+      expect(setSubtitle).not.toHaveBeenCalled();
+
+      // 块 0 当前播放激活句（0s–10s）流式到达：命中当前激活项，立即局部上屏
+      cueEmitters.get(0)!({
+        startIndex: 0,
+        endIndex: 0,
+        from: 0,
+        to: 10,
+        text: "P0-first",
+        translation: "流式译文0-首句"
+      });
+      expect(setSubtitle).toHaveBeenCalledTimes(1);
+      expect(setSubtitle).toHaveBeenLastCalledWith("P0-first", "流式译文0-首句");
+      setSubtitle.mockClear();
+
+      // 完成块 0 后，90s 窗口解锁并启动后台预载块 1（65s–75s）
+      chunkResolvers.get(0)!([
+        { from: 0, to: 10, content: "流式译文0-首句" },
+        { from: 12, to: 20, content: "流式译文0-后句" }
+      ]);
+      await vi.waitFor(() => expect(cueEmitters.has(1)).toBe(true));
+      setSubtitle.mockClear();
+
+      // 块 1 流式到达及整块完成均不命中 5s 激活项，浮层 DOM 零闪烁
+      cueEmitters.get(1)!({
+        startIndex: 0,
+        endIndex: 0,
+        from: 65,
+        to: 75,
+        text: "P1-preload",
+        translation: "流式译文1-预载"
+      });
+      expect(setSubtitle).not.toHaveBeenCalled();
+
+      chunkResolvers.get(1)!([{ from: 65, to: 75, content: "流式译文1-预载" }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(setSubtitle).not.toHaveBeenCalled();
+    });
+
+    it("会话 stop 推进代次后，迟到的流式 onCueReady 回调被拦截，不污染浮层或副轨槽", async () => {
+      clipState.setSubtitleBody([{ from: 0, to: 10, content: "P0" }]);
+      clipState.setSubtitleFetchState("ready");
+
+      let staleOnCueReady: ((cue: any) => void) | undefined;
+      let releaseChunk!: (items: SubtitleBodyItem[]) => void;
+
+      const { controller, setSubtitle } = setupTest({
+        currentTime: 5,
+        translateItems: ({ onCueReady }: any) => {
+          staleOnCueReady = onCueReady;
+          return new Promise<SubtitleBodyItem[]>((resolve) => {
+            releaseChunk = resolve;
+          });
+        }
+      });
+
+      await controller.start();
+      await vi.waitFor(() => expect(staleOnCueReady).toBeDefined());
+
+      await controller.stop();
+      setSubtitle.mockClear();
+
+      staleOnCueReady!({
+        startIndex: 0,
+        endIndex: 0,
+        from: 0,
+        to: 10,
+        text: "P0",
+        translation: "过期译文"
+      });
+      releaseChunk([{ from: 0, to: 10, content: "过期译文" }]);
+      await Promise.resolve();
+
+      expect(setSubtitle).not.toHaveBeenCalled();
+      expect(state.clip.secondarySubtitle.state).toBe("idle");
     });
   });
 });

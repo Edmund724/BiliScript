@@ -23,14 +23,18 @@ import {
   translateSubtitleItems
 } from "../ai/subtitle-translate.js";
 import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
+import {
+  createSubtitleChunkScheduler,
+  PAUSE_TIMEOUT_MS,
+  type SubtitleChunkScheduler
+} from "../subtitle/chunk-scheduler.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 
 export type InterpretSessionState = "idle" | "connecting" | "connected";
 export type InterpretAvailability = { ok: true } | { ok: false; error: string };
 
 export const CHUNK_DURATION_SEC = 60;
-export const SLIDING_WINDOW_SIZE = 3;
-export const PAUSE_TIMEOUT_MS = 300_000;
+export { PAUSE_TIMEOUT_MS };
 
 export interface InterpretSessionControllerDeps {
   getVideoElement?: () => HTMLVideoElement | null;
@@ -84,20 +88,20 @@ export function createInterpretSessionController(
   let activeClipSignature = "";
   let activeBvid = "";
   let activeCid = "";
-  let pauseTimer: ReturnType<typeof setTimeout> | null = null;
   let boundVideo: HTMLVideoElement | null = null;
   let availability: InterpretAvailability = { ok: false, error: "正在检查平台配置..." };
   let availabilityGeneration = 0;
   let abortController: AbortController | null = null;
+  let scheduler: SubtitleChunkScheduler<void> | null = null;
 
-  // 滑动窗口分片状态跟踪
+  // 播放游标优先调度分片状态跟踪
   const chunkPrimaryItems = new Map<number, SubtitleBodyItem[]>();
   const chunkPrimaryRevision = new Map<number, number>();
   const chunkSecondaryItems = new Map<number, SubtitleBodyItem[]>();
-  const isTranslatingChunk = new Set<number>();
+  const chunkStreamingCues = new Map<number, Map<string, SubtitleBodyItem>>();
+  const activeChunkPromises = new Map<number, Promise<void>>();
   const isTranslateDoneChunk = new Set<number>();
   const isAsrDoneChunk = new Set<number>();
-  const failedTranslateChunks = new Map<number, number>();
   let secondaryAlignmentCache: ReturnType<typeof buildSecondaryAlignment> | null = null;
   let primaryCacheKey = "";
   let secondaryCacheKey = "";
@@ -106,6 +110,8 @@ export function createInterpretSessionController(
   let activeProviderRes: SubtitleTranslateProviderResolution | undefined;
   let lastTranslatingNoticeAt = -Infinity;
   let needsTranslatedCacheInvalidation = false;
+  let lastOverlayOriginal: string | null = null;
+  let lastOverlayTranslation: string | null = null;
 
   function updateState(next: InterpretSessionState): void {
     stateVal = next;
@@ -176,53 +182,90 @@ export function createInterpretSessionController(
     }
   }
 
-  function clearPauseTimer(): void {
-    if (pauseTimer !== null) clearTimeout(pauseTimer);
-    pauseTimer = null;
-  }
-
   function handlePause(): void {
-    clearPauseTimer();
-    if (!boundVideo?.paused || stateVal !== "connected") return;
-    const pausedGeneration = generation;
-    pauseTimer = setTimeout(() => {
-      pauseTimer = null;
-      if (pausedGeneration !== generation || !boundVideo?.paused) return;
-      void stop();
-      showNotice("视频暂停超过 5 分钟，实时翻译已自动关闭", 6000);
-    }, PAUSE_TIMEOUT_MS);
+    if (!boundVideo?.paused || stateVal !== "connected") {
+      scheduler?.notifyPlay();
+      return;
+    }
+    scheduler?.notifyPause();
   }
 
   function handlePlay(): void {
-    clearPauseTimer();
+    scheduler?.notifyPlay();
+  }
+
+  function emitSubtitleIfChanged(original: string, translation: string): void {
+    if (lastOverlayOriginal === original && lastOverlayTranslation === translation) {
+      return;
+    }
+    lastOverlayOriginal = original;
+    lastOverlayTranslation = translation;
+    setSubtitle(original, translation);
+  }
+
+  function doesRangeHitActivePlayback(rangeFrom: number, rangeTo: number, currentTime: number): boolean {
+    if (!(rangeTo > rangeFrom)) {
+      return false;
+    }
+    const body = state.clip.subtitleBody;
+    const activeIdx = findActiveSubtitleIndex(currentTime);
+    if (activeIdx >= 0 && activeIdx < body.length) {
+      const activeItem = body[activeIdx];
+      return Math.min(rangeTo, activeItem.to) > Math.max(rangeFrom, activeItem.from);
+    }
+    return rangeFrom <= currentTime && currentTime < rangeTo;
+  }
+
+  function computeItemsRange(items: readonly SubtitleBodyItem[]): { from: number; to: number } | undefined {
+    let minFrom = Infinity;
+    let maxTo = -Infinity;
+    for (const item of items) {
+      const from = Number(item.from);
+      const to = Number(item.to);
+      if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+        if (from < minFrom) minFrom = from;
+        if (to > maxTo) maxTo = to;
+      }
+    }
+    return Number.isFinite(minFrom) && Number.isFinite(maxTo) && maxTo > minFrom
+      ? { from: minFrom, to: maxTo }
+      : undefined;
+  }
+
+  function collectSortedSecondaryItems(): SubtitleBodyItem[] {
+    return Array.from(chunkSecondaryItems.entries())
+      .sort(([a], [b]) => a - b)
+      .flatMap(([, items]) => items)
+      .sort((a, b) => a.from - b.from);
   }
 
   function handleSeek(): void {
     clearSubtitlesOnSeek();
+    lastOverlayOriginal = null;
+    lastOverlayTranslation = null;
     setSubtitle("", "");
     const video = boundVideo || getVideoElement();
     if (!video) return;
     const currentTime = video.currentTime;
     const currentChunkIndex = Math.floor(currentTime / CHUNK_DURATION_SEC);
     if (isTranslateDoneChunk.has(currentChunkIndex)) {
-      syncCurrentSubtitles(currentTime);
+      syncCurrentSubtitles(currentTime, generation);
     } else {
       showNotice("正在转写并翻译字幕...", 2000);
     }
-    ensureWindowChunks(currentChunkIndex);
+    scheduler?.seek(currentTime);
   }
 
   function handleTimeUpdate(): void {
     const video = boundVideo || getVideoElement();
     if (!video) return;
     const currentTime = video.currentTime;
-    syncCurrentSubtitles(currentTime);
-    const currentChunkIndex = Math.floor(currentTime / CHUNK_DURATION_SEC);
-    ensureWindowChunks(currentChunkIndex);
+    syncCurrentSubtitles(currentTime, generation);
+    scheduler?.updatePlaybackTime(currentTime);
   }
 
   function unbindVideoLifecycle(): void {
-    clearPauseTimer();
+    scheduler?.notifyPlay();
     if (boundVideo) {
       boundVideo.removeEventListener("pause", handlePause);
       boundVideo.removeEventListener("play", handlePlay);
@@ -244,7 +287,10 @@ export function createInterpretSessionController(
     }
   }
 
-  function syncCurrentSubtitles(currentTime: number): void {
+  function syncCurrentSubtitles(currentTime: number, expectedGeneration = generation): void {
+    if (expectedGeneration !== generation || stateVal !== "connected") {
+      return;
+    }
     const body = state.clip.subtitleBody;
     const activeIdx = findActiveSubtitleIndex(currentTime);
     if (activeIdx >= 0 && activeIdx < body.length) {
@@ -257,7 +303,7 @@ export function createInterpretSessionController(
           to: originalItem.to
         }) || "";
       }
-      setSubtitle(originalText, translationText);
+      emitSubtitleIfChanged(originalText, translationText);
       return;
     }
 
@@ -269,7 +315,7 @@ export function createInterpretSessionController(
         showNotice("正在转写并翻译字幕...", 2000);
       }
     }
-    setSubtitle("", "");
+    emitSubtitleIfChanged("", "");
   }
 
   function seedAsrPseudoTrackIfNeeded(label = activeAsrLabel): void {
@@ -282,16 +328,20 @@ export function createInterpretSessionController(
     }
   }
 
-  async function mergeAndPersistProgress(): Promise<void> {
+  async function mergeAndPersistProgress(options: {
+    currentGeneration: number;
+    updatedRange?: { from: number; to: number };
+    syncOverlay?: boolean;
+  }): Promise<void> {
+    if (options.currentGeneration !== generation || stateVal !== "connected") {
+      return;
+    }
     const sortedPrimary = Array.from(chunkPrimaryItems.entries())
       .sort(([a], [b]) => a - b)
       .flatMap(([, items]) => items)
       .sort((a, b) => a.from - b.from);
 
-    const sortedSecondary = Array.from(chunkSecondaryItems.entries())
-      .sort(([a], [b]) => a - b)
-      .flatMap(([, items]) => items)
-      .sort((a, b) => a.from - b.from);
+    const sortedSecondary = collectSortedSecondaryItems();
 
     if (sortedPrimary.length > 0) {
       seedAsrPseudoTrackIfNeeded(activeAsrLabel);
@@ -325,13 +375,20 @@ export function createInterpretSessionController(
 
     notifyReaderPresenter({ kind: "rerender" });
     const video = boundVideo || getVideoElement();
-    if (video) {
-      syncCurrentSubtitles(video.currentTime);
+    if (!video) {
+      return;
+    }
+    const shouldSync =
+      options.syncOverlay ??
+      (!options.updatedRange ||
+        doesRangeHitActivePlayback(options.updatedRange.from, options.updatedRange.to, video.currentTime));
+    if (shouldSync) {
+      syncCurrentSubtitles(video.currentTime, options.currentGeneration);
     }
   }
 
   async function translateChunk(chunkIndex: number, currentGeneration: number): Promise<void> {
-    if (currentGeneration !== generation || isTranslatingChunk.has(chunkIndex) || isTranslateDoneChunk.has(chunkIndex)) {
+    if (currentGeneration !== generation || isTranslateDoneChunk.has(chunkIndex)) {
       return;
     }
     const items = chunkPrimaryItems.get(chunkIndex) || [];
@@ -340,55 +397,146 @@ export function createInterpretSessionController(
       return;
     }
 
-    isTranslatingChunk.add(chunkIndex);
     const primaryRevisionAtStart = chunkPrimaryRevision.get(chunkIndex) ?? 0;
-    try {
-      const translated = await translateItems({
-        items,
-        targetLang: activeTargetLang,
-        providerResolution: activeProviderRes,
-        signal: abortController?.signal,
-        fallbackToOriginal: false
-      });
+    const prevSecondary = chunkSecondaryItems.get(chunkIndex);
+    const taskPromise = (async () => {
+      try {
+        const translated = await translateItems({
+          items,
+          targetLang: activeTargetLang,
+          selectedSubtitleId: "asr",
+          providerResolution: activeProviderRes,
+          signal: abortController?.signal,
+          fallbackToOriginal: false,
+          onCueReady: (cue) => {
+            if (
+              currentGeneration !== generation ||
+              stateVal !== "connected" ||
+              abortController?.signal.aborted ||
+              state.clip.bvid !== activeBvid ||
+              state.clip.cid !== activeCid
+            ) {
+              return;
+            }
+            if ((chunkPrimaryRevision.get(chunkIndex) ?? 0) !== primaryRevisionAtStart) {
+              return;
+            }
+            const translation = String(cue.translation ?? "").trim();
+            if (!translation || !(cue.to > cue.from)) {
+              return;
+            }
+            let cueMap = chunkStreamingCues.get(chunkIndex);
+            if (!cueMap) {
+              cueMap = new Map<string, SubtitleBodyItem>();
+              chunkStreamingCues.set(chunkIndex, cueMap);
+            }
+            cueMap.set(`${cue.startIndex}:${cue.endIndex}`, {
+              from: cue.from,
+              to: cue.to,
+              content: translation
+            });
+            chunkSecondaryItems.set(
+              chunkIndex,
+              Array.from(cueMap.values()).sort((a, b) => a.from - b.from)
+            );
+            const sortedSecondary = collectSortedSecondaryItems();
+            if (sortedSecondary.length > 0) {
+              secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
+              void acceptSecondarySubtitle({
+                body: sortedSecondary,
+                subtitleId: `translate-${activeTargetLang}`,
+                subtitleUrl: ""
+              })
+                .then(() => {
+                  if (currentGeneration === generation && stateVal === "connected") {
+                    notifyReaderPresenter({ kind: "rerender" });
+                  }
+                })
+                .catch(() => {});
+            }
+            const video = boundVideo || getVideoElement();
+            if (video && doesRangeHitActivePlayback(cue.from, cue.to, video.currentTime)) {
+              syncCurrentSubtitles(video.currentTime, currentGeneration);
+            }
+          }
+        });
 
-      if (currentGeneration !== generation) return;
+        if (currentGeneration !== generation || abortController?.signal.aborted) {
+          return;
+        }
 
-      failedTranslateChunks.delete(chunkIndex);
-      chunkSecondaryItems.set(chunkIndex, translated);
-      if ((chunkPrimaryRevision.get(chunkIndex) ?? 0) === primaryRevisionAtStart) {
-        isTranslateDoneChunk.add(chunkIndex);
+        chunkStreamingCues.delete(chunkIndex);
+        chunkSecondaryItems.set(chunkIndex, translated);
+        if ((chunkPrimaryRevision.get(chunkIndex) ?? 0) === primaryRevisionAtStart) {
+          isTranslateDoneChunk.add(chunkIndex);
+        }
+        const range = computeItemsRange(translated.length > 0 ? translated : items);
+        await mergeAndPersistProgress({
+          currentGeneration,
+          updatedRange: range,
+          syncOverlay: range ? undefined : false
+        });
+      } catch (err) {
+        chunkStreamingCues.delete(chunkIndex);
+        if (prevSecondary !== undefined) {
+          chunkSecondaryItems.set(chunkIndex, prevSecondary);
+        } else {
+          chunkSecondaryItems.delete(chunkIndex);
+        }
+        const sortedSecondary = collectSortedSecondaryItems();
+        secondaryAlignmentCache =
+          sortedSecondary.length > 0 ? buildSecondaryAlignment(sortedSecondary) : null;
+        if (currentGeneration !== generation || abortController?.signal.aborted) {
+          return;
+        }
+        throw err;
       }
-      await mergeAndPersistProgress();
-    } catch (err) {
-      // 中止或单片失败不崩溃整条流水
-      if (currentGeneration !== generation || abortController?.signal.aborted) return;
-      failedTranslateChunks.set(chunkIndex, Date.now());
-      showNotice("当前片段字幕翻译失败，将保留原文", 3000);
+    })();
+
+    activeChunkPromises.set(chunkIndex, taskPromise);
+    try {
+      await taskPromise;
     } finally {
-      isTranslatingChunk.delete(chunkIndex);
+      if (activeChunkPromises.get(chunkIndex) === taskPromise) {
+        activeChunkPromises.delete(chunkIndex);
+      }
     }
   }
 
-  function ensureWindowChunks(currentChunkIndex: number): void {
-    if (stateVal !== "connected") return;
-    const currentGeneration = generation;
-    const windowChunks: number[] = [];
-    for (let i = 0; i < SLIDING_WINDOW_SIZE; i++) {
-      windowChunks.push(currentChunkIndex + i);
-    }
-
-    for (const chunkIdx of windowChunks) {
-      if (!isAsrDoneChunk.has(chunkIdx) || isTranslateDoneChunk.has(chunkIdx) || isTranslatingChunk.has(chunkIdx)) {
-        continue;
+  function createSessionScheduler(
+    currentGeneration: number,
+    initialTimeSec: number,
+    initialChunks: Array<{ index: number; startSec: number; endSec: number; status?: "pending" | "done" }>
+  ): SubtitleChunkScheduler<void> {
+    return createSubtitleChunkScheduler<void>({
+      chunks: initialChunks,
+      preloadWindowSec: 90,
+      maxConcurrency: 2,
+      firstScreenSolo: true,
+      fillBackground: false,
+      failureCooldownMs: 15_000,
+      maxRateLimitRetries: 0,
+      pauseTimeoutMs: PAUSE_TIMEOUT_MS,
+      initialTimeSec,
+      getCurrentTimeSec: () => (boundVideo || getVideoElement())?.currentTime ?? initialTimeSec,
+      signal: abortController?.signal,
+      runChunk: async (chunk) => {
+        await translateChunk(chunk.index, currentGeneration);
+      },
+      onChunkError: () => {
+        if (currentGeneration !== generation || abortController?.signal.aborted) {
+          return;
+        }
+        showNotice("当前片段字幕翻译失败，将保留原文", 3000);
+      },
+      onPauseTimeout: () => {
+        if (currentGeneration !== generation) {
+          return;
+        }
+        void stop();
+        showNotice("视频暂停超过 5 分钟，实时翻译已自动关闭", 6000);
       }
-      const lastFailAt = failedTranslateChunks.get(chunkIdx);
-      if (lastFailAt !== undefined && Date.now() - lastFailAt <= 15_000) {
-        continue;
-      }
-      if (chunkPrimaryItems.has(chunkIdx)) {
-        void translateChunk(chunkIdx, currentGeneration);
-      }
-    }
+    });
   }
 
   function partitionItemsIntoChunks(items: SubtitleBodyItem[]): void {
@@ -417,22 +565,28 @@ export function createInterpretSessionController(
     chunkPrimaryItems.clear();
     chunkPrimaryRevision.clear();
     chunkSecondaryItems.clear();
-    isTranslatingChunk.clear();
+    chunkStreamingCues.clear();
+    activeChunkPromises.clear();
     isTranslateDoneChunk.clear();
     isAsrDoneChunk.clear();
-    failedTranslateChunks.clear();
     secondaryAlignmentCache = null;
     lastTranslatingNoticeAt = -Infinity;
     needsTranslatedCacheInvalidation = false;
     activeAsrLabel = buildAsrSubtitleLabel(undefined);
+    lastOverlayOriginal = null;
+    lastOverlayTranslation = null;
   }
 
   async function stop(): Promise<void> {
     generation += 1;
+    scheduler?.stop();
+    scheduler = null;
     abortController?.abort();
     abortController = null;
     unbindVideoLifecycle();
     clearSubtitles();
+    lastOverlayOriginal = null;
+    lastOverlayTranslation = null;
     setSubtitle("", "");
     resetBuffers();
     updateState("idle");
@@ -534,11 +688,25 @@ export function createInterpretSessionController(
         updateState("connected");
         bindVideoLifecycle();
         const video = boundVideo || getVideoElement();
-        if (video) syncCurrentSubtitles(video.currentTime);
+        const initialTime = video?.currentTime ?? 0;
+        const initialChunks = Array.from(chunkPrimaryItems.keys())
+          .sort((a, b) => a - b)
+          .map((idx) => ({
+            index: idx,
+            startSec: idx * CHUNK_DURATION_SEC,
+            endSec: (idx + 1) * CHUNK_DURATION_SEC,
+            status: "done" as const
+          }));
+        scheduler = createSessionScheduler(currentGeneration, initialTime, initialChunks);
+        scheduler.start();
+        if (boundVideo?.paused) {
+          scheduler.notifyPause();
+        }
+        if (video) syncCurrentSubtitles(video.currentTime, currentGeneration);
         return true;
       }
 
-      // 主轨已就绪仅缺译文：跳过 ASR，仅按播放游标滑动窗口调度 LLM 翻译
+      // 主轨已就绪仅缺译文：跳过 ASR，按 [currentTime, +90s] 优先队列调度 LLM 翻译
       if (primaryItems && primaryItems.length > 0) {
         partitionItemsIntoChunks(primaryItems);
         seedAsrPseudoTrackIfNeeded(activeAsrLabel);
@@ -552,9 +720,21 @@ export function createInterpretSessionController(
         updateState("connected");
         bindVideoLifecycle();
         const video = boundVideo || getVideoElement();
-        const currentChunk = video ? Math.floor(video.currentTime / CHUNK_DURATION_SEC) : 0;
-        ensureWindowChunks(currentChunk);
-        if (video) syncCurrentSubtitles(video.currentTime);
+        const initialTime = video?.currentTime ?? 0;
+        const initialChunks = Array.from(chunkPrimaryItems.keys())
+          .sort((a, b) => a - b)
+          .map((idx) => ({
+            index: idx,
+            startSec: idx * CHUNK_DURATION_SEC,
+            endSec: (idx + 1) * CHUNK_DURATION_SEC,
+            status: isTranslateDoneChunk.has(idx) ? ("done" as const) : ("pending" as const)
+          }));
+        scheduler = createSessionScheduler(currentGeneration, initialTime, initialChunks);
+        scheduler.start();
+        if (boundVideo?.paused) {
+          scheduler.notifyPause();
+        }
+        if (video) syncCurrentSubtitles(video.currentTime, currentGeneration);
         return true;
       }
 
@@ -566,14 +746,19 @@ export function createInterpretSessionController(
         return false;
       }
 
-      // 需要 ASR 转写：启动滑动窗口调度与 ASR 流水线
+      // 需要 ASR 转写：启动统一调度器与 ASR 流水线
       needsTranslatedCacheInvalidation = true;
       updateState("connected");
       bindVideoLifecycle();
       showNotice("正在转写并翻译字幕...", 3000);
 
       const video = boundVideo || getVideoElement();
-      const initialChunk = video ? Math.floor(video.currentTime / CHUNK_DURATION_SEC) : 0;
+      const initialTime = video?.currentTime ?? 0;
+      scheduler = createSessionScheduler(currentGeneration, initialTime, []);
+      scheduler.start();
+      if (boundVideo?.paused) {
+        scheduler.notifyPause();
+      }
 
       void runAsr({
         bvid,
@@ -582,16 +767,23 @@ export function createInterpretSessionController(
         onChunkResult: async (record, items, snapshot) => {
           if (currentGeneration !== generation) return;
           const chunkIdx = record.index;
-          const currentVideo = boundVideo || getVideoElement();
-          const currentChunk = currentVideo ? Math.floor(currentVideo.currentTime / CHUNK_DURATION_SEC) : initialChunk;
 
           if (!snapshot) {
             chunkPrimaryItems.set(chunkIdx, items as SubtitleBodyItem[]);
             chunkPrimaryRevision.set(chunkIdx, (chunkPrimaryRevision.get(chunkIdx) ?? 0) + 1);
             isAsrDoneChunk.add(chunkIdx);
 
-            if (chunkIdx >= currentChunk && chunkIdx <= currentChunk + SLIDING_WINDOW_SIZE) {
-              await translateChunk(chunkIdx, currentGeneration);
+            scheduler?.upsertChunk(
+              {
+                index: chunkIdx,
+                startSec: chunkIdx * CHUNK_DURATION_SEC,
+                endSec: (chunkIdx + 1) * CHUNK_DURATION_SEC
+              },
+              { resetStatus: true }
+            );
+            const activePromise = activeChunkPromises.get(chunkIdx);
+            if (scheduler?.getChunkStatus(chunkIdx) === "running" && activePromise) {
+              await activePromise;
             }
             return;
           }
@@ -608,20 +800,26 @@ export function createInterpretSessionController(
             if (idx !== chunkIdx) {
               isTranslateDoneChunk.delete(idx);
               chunkSecondaryItems.delete(idx);
-              failedTranslateChunks.delete(idx);
+              chunkStreamingCues.delete(idx);
               hasUnwindowedUpdate = true;
             }
+            scheduler?.upsertChunk(
+              {
+                index: idx,
+                startSec: idx * CHUNK_DURATION_SEC,
+                endSec: (idx + 1) * CHUNK_DURATION_SEC
+              },
+              { resetStatus: true }
+            );
           }
 
-          let triggeredTranslation = false;
-          for (const idx of changedIndices) {
-            if (idx >= currentChunk && idx <= currentChunk + SLIDING_WINDOW_SIZE) {
-              await translateChunk(idx, currentGeneration);
-              triggeredTranslation = true;
-            }
-          }
-          if (hasUnwindowedUpdate && !triggeredTranslation) {
-            await mergeAndPersistProgress();
+          const runningPromises = changedIndices
+            .filter((idx) => scheduler?.getChunkStatus(idx) === "running" && activeChunkPromises.has(idx))
+            .map((idx) => activeChunkPromises.get(idx)!);
+          if (runningPromises.length > 0) {
+            await Promise.all(runningPromises);
+          } else if (hasUnwindowedUpdate) {
+            await mergeAndPersistProgress({ currentGeneration });
           }
         }
       }).catch((error) => {

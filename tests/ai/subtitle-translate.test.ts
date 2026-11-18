@@ -521,3 +521,170 @@ describe("字幕翻译序号行协议", () => {
     expect(mockChatCompletion).not.toHaveBeenCalled();
   });
 });
+
+function emitSseDeltas(
+  onEvent: ((event: { type: "token"; data: string }) => void) | undefined,
+  deltas: readonly string[]
+): void {
+  deltas.forEach((data) => {
+    onEvent?.({ type: "token", data });
+  });
+}
+
+function createStreamErrorThenNonStreamSuccessMock(nonStreamPayload: string) {
+  let calls = 0;
+  return vi.fn(async (request: { stream?: boolean }) => {
+    calls += 1;
+    if (calls === 1 && request.stream === true) {
+      throw new Error("HTTP 400: streaming unsupported by relay");
+    }
+    return nonStreamPayload;
+  });
+}
+
+function createAbortingStreamMock(abortError: Error) {
+  return vi.fn(async (_request: { stream?: boolean }) => {
+    throw abortError;
+  });
+}
+
+describe("流式 SSE 逐句即出与异常无感降级", () => {
+  const providerResolution = {
+    provider: {
+      id: "p1",
+      name: "P1",
+      baseUrl: "https://api.test",
+      models: ["m1"],
+      enabled: true,
+      hasSavedKey: true
+    },
+    apiKey: "test-key",
+    baseUrl: "https://api.test",
+    model: "m1",
+    presetId: "custom",
+    isFallback: false
+  };
+
+  it("buildSubtitleTranslateRequest 默认开启 stream: true，显式传 false 时保持关闭", () => {
+    const defaultReq = buildSubtitleTranslateRequest({
+      provider: {
+        baseUrl: "https://api.deepseek.com",
+        apiKey: "sk-test",
+        model: "deepseek-chat"
+      },
+      messages: [{ role: "user", content: "hello" }]
+    });
+    expect(defaultReq.stream).toBe(true);
+
+    const nonStreamReq = buildSubtitleTranslateRequest({
+      provider: {
+        baseUrl: "https://api.deepseek.com",
+        apiKey: "sk-test",
+        model: "deepseek-chat"
+      },
+      messages: [{ role: "user", content: "hello" }],
+      stream: false
+    });
+    expect(nonStreamReq.stream).toBe(false);
+  });
+
+  it("流式请求途中抛非中止错误时，自动无感降级调用一次 stream: false 并成功返回", async () => {
+    const items = [
+      { from: 0, to: 2, content: "First sentence." },
+      { from: 2, to: 5, content: "Second sentence." }
+    ];
+    const mockChatCompletion = createStreamErrorThenNonStreamSuccessMock(
+      JSON.stringify([
+        { id: "0", translation: "第一句。" },
+        { id: "1", translation: "第二句。" }
+      ])
+    );
+    const onCueReady = vi.fn();
+
+    const result = await translateSubtitleItems({
+      items,
+      targetLang: "zh",
+      providerResolution,
+      onCueReady,
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(2);
+    expect(mockChatCompletion.mock.calls[0]?.[0]?.stream).toBe(true);
+    expect(mockChatCompletion.mock.calls[1]?.[0]?.stream).toBe(false);
+    expect(result).toEqual([
+      { from: 0, to: 2, content: "第一句。" },
+      { from: 2, to: 5, content: "第二句。" }
+    ]);
+    expect(onCueReady).toHaveBeenCalledTimes(2);
+  });
+
+  it("流式请求触发 AbortError 时直接中止抛出，不触发非流式降级重试", async () => {
+    const abortError = Object.assign(new Error("The operation was aborted."), {
+      name: "AbortError"
+    });
+    const mockChatCompletion = createAbortingStreamMock(abortError);
+
+    await expect(
+      translateSubtitleItems({
+        items: [{ from: 0, to: 2, content: "Hello world." }],
+        targetLang: "zh",
+        providerResolution,
+        chatCompletionFn: mockChatCompletion as any
+      })
+    ).rejects.toThrow("aborted");
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    expect(mockChatCompletion.mock.calls[0]?.[0]?.stream).toBe(true);
+  });
+
+  it("SSE delta 分片到达时在响应完成前即逐句触发 onCueReady，且完整返回后不重复触发", async () => {
+    const items = [
+      { from: 0, to: 2, content: "Hello" },
+      { from: 2, to: 4, content: "World" }
+    ];
+    const onCueReady = vi.fn();
+    let releaseStream!: () => void;
+    const streamGate = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+
+    const mockChatCompletion = vi.fn(async (req: any) => {
+      emitSseDeltas(req.onEvent, [
+        '{"groups":[{"ids":["0"],"text":"Hello","trans',
+        'lation":"你好"},'
+      ]);
+      await streamGate;
+      emitSseDeltas(req.onEvent, ['{"ids":["1"],"text":"World","translation":"世界"}]}']);
+      return { done: true };
+    });
+
+    const runPromise = translateSubtitleItems({
+      items,
+      mode: "boundary-v3",
+      targetLang: "zh",
+      providerResolution,
+      onCueReady,
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    await vi.waitFor(() => expect(onCueReady).toHaveBeenCalledTimes(1));
+    expect(onCueReady).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ startIndex: 0, endIndex: 0, translation: "你好" })
+    );
+
+    releaseStream();
+    const result = await runPromise;
+
+    expect(onCueReady).toHaveBeenCalledTimes(2);
+    expect(onCueReady).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ startIndex: 1, endIndex: 1, translation: "世界" })
+    );
+    expect(result).toEqual([
+      { from: 0, to: 2, content: "你好" },
+      { from: 2, to: 4, content: "世界" }
+    ]);
+  });
+});

@@ -137,9 +137,9 @@ export function createInterpretSubtitleOverlay(
   }
 
   function clearCurrent(): void {
-    if (originalEl) originalEl.textContent = "";
-    if (translationEl) translationEl.textContent = "";
-    if (rootEl) rootEl.hidden = true;
+    if (originalEl && originalEl.textContent !== "") originalEl.textContent = "";
+    if (translationEl && translationEl.textContent !== "") translationEl.textContent = "";
+    if (rootEl && !rootEl.hidden) rootEl.hidden = true;
   }
 
   function clear(): void {
@@ -178,12 +178,13 @@ export function createInterpretSubtitleOverlay(
     const lines = resolveInterpretSubtitleLines(original, deps.getTargetLang(), deps.getDisplayMode());
     const showOriginal = lines.showOriginal && Boolean(original.trim());
     const showTranslation = lines.showTranslation && Boolean(translation.trim());
+    const nextRootHidden = !showOriginal && !showTranslation;
 
-    originalEl.textContent = original;
-    translationEl.textContent = translation;
-    originalEl.hidden = !showOriginal;
-    translationEl.hidden = !showTranslation;
-    root.hidden = !showOriginal && !showTranslation;
+    if (originalEl.textContent !== original) originalEl.textContent = original;
+    if (translationEl.textContent !== translation) translationEl.textContent = translation;
+    if (originalEl.hidden !== !showOriginal) originalEl.hidden = !showOriginal;
+    if (translationEl.hidden !== !showTranslation) translationEl.hidden = !showTranslation;
+    if (root.hidden !== nextRootHidden) root.hidden = nextRootHidden;
   }
 
   function dispose(): void {

@@ -14,14 +14,16 @@
 //   - 写入只走 acceptSecondarySubtitle（独立通知 kind，不复制主轨副作用）；
 //   - 缓存键沿用浮层的 `id_translate-<目标语言>`（键形是已落盘缓存的兼容面，不改）。
 //
-// 分片口径：与播放器浮层同一条时间轴语义——按 `from` 落在 60 秒窗口内归片，逐片
-// 翻译。差别在调度：浮层按播放游标滑窗（只翻当前窗口），面板是阅读面，一次把全片
-// 补齐（滑窗会留「远景空白」的残文本）。已翻片命中缓存，只补未覆盖的分片。
+// 分片口径：与播放器浮层同一条时间轴语义——按 `from` 落在 60 秒窗口内归片，通过
+// `createSubtitleChunkScheduler` 优先调度当前播放游标 `[currentTime, +90s]` 窗口并
+// 后台抖动退避补齐全片。已翻片命中缓存，只补未覆盖的分片。
 
 import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
+import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { logWarn } from "../shared/logging.js";
 import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "./cache.js";
+import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { acceptSecondarySubtitle } from "./commit.js";
 import { translatedTrackId } from "./source-key.js";
 
@@ -190,30 +192,45 @@ export async function ensureAsrSecondarySubtitle(
   let failed = 0;
   report(done, failed);
 
-  for (const chunk of pending) {
-    if (isStale()) {
-      return { kind: "aborted", total: chunks.length, done, failed };
-    }
-    try {
-      const translated = await translateSubtitleItems({
-        items: chunk.items,
-        targetLang,
-        fallbackToOriginal: false,
-        signal: args.signal ?? null
-      });
-      if (isStale()) {
-        return { kind: "aborted", total: chunks.length, done, failed };
+  if (isStale()) {
+    return { kind: "aborted", total: chunks.length, done, failed };
+  }
+
+  if (cached.length > 0) {
+    await acceptSecondarySubtitle({ body: cached, subtitleId: trackId, subtitleUrl: "", runId });
+  }
+
+  const inFlightPartials = new Map<number, Map<string, SubtitleBodyItem>>();
+  let persistQueue: Promise<void> = Promise.resolve();
+
+  function buildMergedBody(): SubtitleBodyItem[] {
+    const partialItems: SubtitleBodyItem[] = [];
+    for (const cueMap of inFlightPartials.values()) {
+      for (const item of cueMap.values()) {
+        partialItems.push(item);
       }
-      const usable = (Array.isArray(translated) ? translated : []).filter(isUsableItem);
-      if (usable.length > 0) {
-        accumulated = sortByFrom([...accumulated, ...usable]);
-        await acceptSecondarySubtitle({
-          body: accumulated,
-          subtitleId: trackId,
-          subtitleUrl: "",
-          runId
-        });
-        const saveResult = await saveSubtitleToCache(cacheKey, accumulated);
+    }
+    return partialItems.length > 0
+      ? sortByFrom([...accumulated, ...partialItems])
+      : accumulated;
+  }
+
+  function enqueuePersist(
+    displayBody: SubtitleBodyItem[],
+    cacheBodyToSave?: SubtitleBodyItem[]
+  ): Promise<void> {
+    persistQueue = persistQueue.then(async () => {
+      if (isStale()) {
+        return;
+      }
+      await acceptSecondarySubtitle({
+        body: displayBody,
+        subtitleId: trackId,
+        subtitleUrl: "",
+        runId
+      });
+      if (cacheBodyToSave) {
+        const saveResult = await saveSubtitleToCache(cacheKey, cacheBodyToSave);
         if (saveResult && saveResult.ok === false) {
           logWarn("[BILISCRIPT] failed to persist translated subtitle cache", {
             bvid,
@@ -221,22 +238,115 @@ export async function ensureAsrSecondarySubtitle(
             targetLang
           });
         }
-        done += 1;
       }
-    } catch (error) {
-      if (args.signal?.aborted) {
-        return { kind: "aborted", total: chunks.length, done, failed };
+    });
+    return persistQueue;
+  }
+
+  const runtimeVideo = getRuntimeVideoElement();
+  const scheduler = createSubtitleChunkScheduler<TranslationChunk>({
+    chunks: pending.map((chunk) => ({
+      index: Math.floor(chunk.start / TRANSLATION_CHUNK_SEC),
+      startSec: chunk.start,
+      endSec: chunk.end,
+      payload: chunk
+    })),
+    video: runtimeVideo,
+    getCurrentTimeSec: () => getRuntimeVideoElement()?.currentTime ?? 0,
+    preloadWindowSec: 90,
+    maxConcurrency: 2,
+    firstScreenSolo: true,
+    fillBackground: true,
+    backgroundJitterRangeMs: [300, 600],
+    maxRateLimitRetries: 2,
+    rateLimitBaseDelayMs: 250,
+    pauseTimeoutMs: 0,
+    signal: args.signal,
+    runChunk: async (scheduled, chunkSignal) => {
+      const chunk = scheduled.payload;
+      if (!chunk) {
+        return;
+      }
+      if (isStale()) {
+        scheduler.stop();
+        return;
+      }
+      const chunkIndex = scheduled.index;
+      const translated = await translateSubtitleItems({
+        items: chunk.items,
+        targetLang,
+        selectedSubtitleId: "asr",
+        fallbackToOriginal: false,
+        signal: chunkSignal,
+        onCueReady: (cue) => {
+          if (isStale()) {
+            scheduler.stop();
+            return;
+          }
+          const text = String(cue.translation ?? "").trim();
+          if (!text || !(cue.to > cue.from)) {
+            return;
+          }
+          let cueMap = inFlightPartials.get(chunkIndex);
+          if (!cueMap) {
+            cueMap = new Map<string, SubtitleBodyItem>();
+            inFlightPartials.set(chunkIndex, cueMap);
+          }
+          cueMap.set(`${cue.startIndex}:${cue.endIndex}`, {
+            from: cue.from,
+            to: cue.to,
+            content: text
+          });
+          const previewBody = buildMergedBody();
+          if (previewBody.length > 0) {
+            void enqueuePersist(previewBody).catch(() => {});
+          }
+        }
+      });
+
+      inFlightPartials.delete(chunkIndex);
+      if (isStale()) {
+        scheduler.stop();
+        return;
+      }
+
+      const usable = (Array.isArray(translated) ? translated : []).filter(isUsableItem);
+      if (usable.length > 0) {
+        accumulated = sortByFrom([
+          ...accumulated.filter((item) => item.from < chunk.start || item.from >= chunk.end),
+          ...usable
+        ]);
+        done += 1;
+        const displayBody = buildMergedBody();
+        const cacheSnapshot = accumulated;
+        await enqueuePersist(displayBody, cacheSnapshot);
+      }
+      report(done, failed);
+    },
+    onChunkError: (scheduled, error) => {
+      inFlightPartials.delete(scheduled.index);
+      if (isStale()) {
+        scheduler.stop();
+        return;
       }
       failed += 1;
       logWarn("[BILISCRIPT] failed to translate subtitle chunk", {
         bvid,
         cid,
         targetLang,
-        start: chunk.start,
+        start: scheduled.payload?.start ?? scheduled.startSec,
         error
       });
+      report(done, failed);
     }
-    report(done, failed);
+  });
+
+  scheduler.start();
+  await scheduler.waitForIdle();
+  await persistQueue.catch(() => {});
+
+  if (isStale()) {
+    return { kind: "aborted", total: chunks.length, done, failed };
   }
 
   // 零产出（全片无一条译文）才落失败态：副行出「译文加载失败」，重试入口在副列。
