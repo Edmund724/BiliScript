@@ -68,7 +68,7 @@ function cacheKeyFor(lang: string): string {
   return cache.getSubtitleCacheKey({
     bvid: "BV1test000000",
     cid: "100",
-    identity: { kind: "track", trackId: `translate-${lang}` }
+    identity: { kind: "translated", targetLang: lang }
   });
 }
 
