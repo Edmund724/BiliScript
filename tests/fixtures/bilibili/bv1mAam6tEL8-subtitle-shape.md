@@ -3,15 +3,6 @@
 **这是转写的记录，不是响应副本。** 原始响应正文（`subtitle_url` 的签名 URL 与语料）没有随记录保留。本文件保留的是
 2026-10-06 真机实测得到的**轨条目形状、body 形状、条数与对齐数字**。需要真响应就按下面「取数路径」重抓。
 
-来源两处，都在 gitignore 的 `.scratch/` 里，本文件是它们的入库转写：
-
-- `.scratch/tickets/bilingual-subtitles/research/03-track-alignment.md`（真机实测原始记录）
-- `.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 的 `trackEntry` / `bundleFor`
-
-同一份 drive.mjs 的注释自述其 bundle 形状「取自 `research/01-track-shape.md`（`lan` / `lan_doc` / `id_str` /
-`subtitle_url` 逐字同形）」，但**那个文件已经不在了**（`research/` 目录只剩 03）。所以下面的轨条目形状是从
-drive.mjs 的实时代码转写的。
-
 ## 样本
 
 | 项 | 值 |
@@ -71,7 +62,7 @@ drive.mjs 的实时代码转写的。
 
 ## 实测到的 8 条轨
 
-`lan` / `lan_doc` / `ai_type` 为实测值；`id` / `id_str` 转写自 drive.mjs（原响应未保留，无法二次复核）。
+`lan` / `lan_doc` / `ai_type` 为实测值；原响应未保留，`id` / `id_str` 无法二次复核。
 
 | # | `lan` | `lan_doc` | `ai_type` | `id_str` |
 |---|---|---|---|---|
@@ -131,6 +122,4 @@ en 侧：40.69~51.54 一段盖住上面两段 + 空档
 
 ## 拿它造 fixture
 
-按上面 9 个区间把省下的段并起来，就能用合成语料造出「zh 197 段 ↔ 译文 188 段」的 fixture。当年那份生成器在
-`.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 的 `buildTimeline` / `buildFixtureBodies` 里，随那份
-一次性走查脚本留在 `.scratch/`（不入库）。要在真机场景里用，照本文件重建，不要从 `.scratch` 引。
+按上面 9 个区间把省下的段并起来，即可用合成语料构造「zh 197 段 ↔ 译文 188 段」的 fixture。
