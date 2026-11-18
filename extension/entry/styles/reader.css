@@ -1205,6 +1205,7 @@
 .biliscript-reading-explain-pop {
   position: absolute;
   z-index: 7;
+  transform-origin: top center;
 }
 
 #biliscript-reading-view .biliscript-reading-explain-btn {
@@ -1265,6 +1266,7 @@
   right: 12px;
   top: 16%;
   max-height: 76%;
+  transform-origin: bottom center;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2050,6 +2052,7 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
+  transform-origin: center;
   width: min(320px, calc(100% - 48px));
   max-height: calc(100% - 48px);
   overflow-y: auto;
@@ -2267,6 +2270,11 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
 
+#biliscript-reading-view .biliscript-quote-share-host[data-biliscript-closing="1"],
+.biliscript-quote-share-host[data-biliscript-closing="1"] {
+  pointer-events: none;
+}
+
 @starting-style {
   #biliscript-reading-view .biliscript-quote-share-host,
   .biliscript-quote-share-host {
@@ -2289,6 +2297,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-share-dialog {
   position: relative;
   z-index: 1;
+  transform-origin: top right;
   width: 90%;
   max-width: 460px;
   max-height: calc(100% - 24px);
@@ -2873,6 +2882,12 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-explain-pop,
+  .biliscript-reading-explain-pop[hidden] {
+    transition: none;
+    transform: none;
+  }
+
   .biliscript-quote-share-host,
   .biliscript-quote-share-close,
   .biliscript-quote-preset-btn,

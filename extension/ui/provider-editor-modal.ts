@@ -80,6 +80,11 @@ import {
   type FocusScope
 } from "./focus-scope.js";
 import {
+  animateTriggerEnter,
+  cancelTriggerExit,
+  resolveTriggerElement
+} from "./trigger-motion.js";
+import {
   beginEditorValidation,
   focusEditorField,
   isEditorValidationAttempted,
@@ -757,6 +762,9 @@ export function ensureHost(mountHost?: HTMLElement): HTMLElement | null {
   if (!view) {
     return null;
   }
+  view.querySelectorAll<HTMLElement>('.provider-editor-host[data-biliscript-closing="1"]').forEach((el) => {
+    cancelTriggerExit(el);
+  });
   const host = document.createElement("div");
   host.className = "provider-editor-host";
   view.appendChild(host);
@@ -1063,6 +1071,7 @@ export function wireDialog(): void {
 }
 
 export function openProviderEditor(options: ProviderEditorOpenOptions): void {
+  const trigger = resolveTriggerElement();
   // 幂等重置：重复打开（编辑 A 中改开 B）先作废旧 Modal 的在飞回执与监听
   closeProviderEditor(true);
   const host = ensureHost(options.mountHost);
@@ -1075,6 +1084,7 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   beginEditorSession({
     kind: options.kind,
     host,
+    trigger,
     presets: options.presets,
     onSave: options.onSave,
     onDelete: options.onDelete || null,
@@ -1109,6 +1119,14 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   // 控件；确认框与模型拉取子视图打开期间本层让位（一次输入只结算最上层）
   const dialog = getDialog();
   if (dialog) {
+    animateTriggerEnter({
+      target: dialog,
+      mask: host.querySelector<HTMLElement>(".provider-editor-mask"),
+      trigger,
+      fallbackOrigin: "top right",
+      fromScale: 0.94,
+      durationMs: 200
+    });
     focusScope = createFocusScope(dialog, {
       initialFocus: dialog,
       isActive: () => !isConfirmDialogOpen() && !getFetchDialog()

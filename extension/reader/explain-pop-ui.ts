@@ -21,6 +21,12 @@ import {
   getSubtextNode,
   SUBTITLE_SUBTEXT_CLASS
 } from "./subtitle-item-dom.js";
+import {
+  animateTriggerExit,
+  cancelTriggerExit,
+  prefersReducedMotion,
+  TRIGGER_ENTER_EASING
+} from "../ui/trigger-motion.js";
 
 // 选区「解释」浮层：单实例、绝对定位在 tab body（不进列表滚动容器，避免随
 // 滚动裁剪/漂移），在字幕句内选中词/句后定位到选区下方。
@@ -75,6 +81,7 @@ export function bindReadingExplainEvents(): void {
   let popWidth = POP_WIDTH_FALLBACK;
   let popHeight = POP_HEIGHT_FALLBACK;
   let popSizeMeasured = false;
+  let lastSelectionRect: DOMRect | null = null;
   const cancelExplainPopFrames = () => {
     if (showFrameId) {
       window.cancelAnimationFrame(showFrameId);
@@ -98,9 +105,23 @@ export function bindReadingExplainEvents(): void {
     if (readingExplainPop.hidden && !pendingExplainSelection) {
       return;
     }
-    readingExplainPop.hidden = true;
     delete readingExplainPop.dataset.itemIndex;
     pendingExplainSelection = null;
+    const savedRect = lastSelectionRect;
+    lastSelectionRect = null;
+    if (readingExplainPop.hidden) {
+      return;
+    }
+    animateTriggerExit({
+      target: readingExplainPop,
+      trigger: savedRect,
+      fallbackOrigin: "top center",
+      toScale: 0.9,
+      durationMs: 110,
+      onFinish: () => {
+        readingExplainPop.hidden = true;
+      }
+    });
   };
   // 选区矩形：jsdom 无 Range.getBoundingClientRect，取不到时退回条目矩形
   //（测试环境两者都是零矩形，定位数值不参与断言）。
@@ -129,11 +150,22 @@ export function bindReadingExplainEvents(): void {
     const aboveTop = Math.round(rect.top - bodyRect.top) - height - POP_GAP;
     const maxTop = Math.max(POP_MARGIN, Math.round(bodyRect.height) - height - POP_MARGIN);
     let top = belowTop;
+    let placedAbove = false;
     if (belowTop + height > bodyRect.height - POP_MARGIN) {
-      top = aboveTop >= POP_MARGIN ? aboveTop : Math.min(Math.max(POP_MARGIN, belowTop), maxTop);
+      if (aboveTop >= POP_MARGIN) {
+        top = aboveTop;
+        placedAbove = true;
+      } else {
+        top = Math.min(Math.max(POP_MARGIN, belowTop), maxTop);
+      }
     } else {
       top = Math.max(POP_MARGIN, belowTop);
     }
+    const ox = Math.max(-24, Math.min(width + 24, selectionCenter - left));
+    const oy = placedAbove ? Math.round(rect.top - bodyRect.top) - top : Math.round(rect.bottom - bodyRect.top) - top;
+    const wasHidden = readingExplainPop.hidden || readingExplainPop.hasAttribute("data-biliscript-closing");
+    cancelTriggerExit(readingExplainPop);
+    lastSelectionRect = rect as DOMRect;
     pendingExplainSelection = {
       itemIndex: target.item.dataset.index || "",
       selection: target.selection,
@@ -143,7 +175,19 @@ export function bindReadingExplainEvents(): void {
     readingExplainPop.dataset.itemIndex = pendingExplainSelection.itemIndex;
     readingExplainPop.style.left = `${left}px`;
     readingExplainPop.style.top = `${top}px`;
+    readingExplainPop.style.transformOrigin = `${Math.round(ox)}px ${Math.round(oy)}px`;
     readingExplainPop.hidden = false;
+    if (wasHidden && !prefersReducedMotion() && typeof readingExplainPop.animate === "function") {
+      try {
+        readingExplainPop.animate(
+          [
+            { opacity: 0, scale: "0.9" },
+            { opacity: 1, scale: "1" }
+          ],
+          { duration: 150, easing: TRIGGER_ENTER_EASING, fill: "none" }
+        );
+      } catch {}
+    }
   };
   const runExplainPopFrame = () => {
     showFrameId = 0;

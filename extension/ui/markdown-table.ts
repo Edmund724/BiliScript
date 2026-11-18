@@ -1,3 +1,9 @@
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "./trigger-motion.js";
+
 export const TABLE_SHELL_CLASS = "biliscript-md-table";
 const TABLE_SCROLL_CLASS = "biliscript-md-table-scroll";
 const TABLE_CARDS_CLASS = "biliscript-md-table-cards";
@@ -53,10 +59,45 @@ function syncTable(table: HTMLTableElement, shell: HTMLElement): void {
   }
 }
 
+function closeTableDialog(
+  dialog: HTMLDialogElement,
+  trigger?: HTMLElement,
+  restoreFocus = true
+): void {
+  if (dialog.hasAttribute("data-biliscript-closing")) {
+    return;
+  }
+  const isCurrent = activeDialog === dialog;
+  if (isCurrent) {
+    activeDialog = null;
+  }
+  if (isCurrent && restoreFocus && trigger?.isConnected) {
+    trigger.focus();
+  }
+  animateTriggerExit({
+    target: dialog,
+    trigger,
+    fallbackOrigin: "top right",
+    toScale: 0.94,
+    durationMs: 140,
+    onFinish: () => {
+      if (typeof dialog.close === "function") {
+        dialog.close();
+      }
+      dialog.remove();
+    }
+  });
+}
+
 function openTableDialog(table: HTMLTableElement, trigger?: HTMLElement): void {
   const previousDialog = activeDialog;
   activeDialog = null;
-  previousDialog?.close();
+  if (previousDialog) {
+    if (previousDialog.open && typeof previousDialog.close === "function") {
+      previousDialog.close();
+    }
+    previousDialog.remove();
+  }
   const doc = table.ownerDocument;
   const dialog = doc.createElement("dialog");
   dialog.className = TABLE_DIALOG_CLASS;
@@ -72,7 +113,7 @@ function openTableDialog(table: HTMLTableElement, trigger?: HTMLElement): void {
   close.setAttribute("title", "关闭");
   close.innerHTML = CLOSE_ICON;
   close.autofocus = true;
-  close.addEventListener("click", () => dialog.close());
+  close.addEventListener("click", () => closeTableDialog(dialog, trigger, true));
   header.append(title, close);
   const body = doc.createElement("div");
   body.className = "biliscript-md-table-dialog-body markdown-body";
@@ -88,9 +129,13 @@ function openTableDialog(table: HTMLTableElement, trigger?: HTMLElement): void {
   scroll.appendChild(clone);
   body.appendChild(scroll);
   dialog.append(header, body);
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeTableDialog(dialog, trigger, true);
+  });
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
-      dialog.close();
+      closeTableDialog(dialog, trigger, true);
     }
   });
   dialog.addEventListener("close", () => {
@@ -105,8 +150,18 @@ function openTableDialog(table: HTMLTableElement, trigger?: HTMLElement): void {
   });
   activeDialog = dialog;
   const host = table.closest("#biliscript-reading-view") || doc.body;
+  host.querySelectorAll<HTMLElement>(`.${TABLE_DIALOG_CLASS}[data-biliscript-closing="1"]`).forEach((el) => {
+    cancelTriggerExit(el);
+  });
   host.appendChild(dialog);
   dialog.showModal();
+  animateTriggerEnter({
+    target: dialog,
+    trigger,
+    fallbackOrigin: "top right",
+    fromScale: 0.93,
+    durationMs: 190
+  });
 }
 
 function createExpandButton(doc: Document, table: HTMLTableElement): HTMLButtonElement {

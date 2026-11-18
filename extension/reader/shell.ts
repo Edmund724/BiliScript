@@ -47,6 +47,7 @@ import { ids, isReaderViewOpen } from "./state.js";
 import { READER_READY_ATTR } from "./presentation-fields.js";
 import { requestUiCommand } from "./reader-bus.js";
 import type { LiveSettingsTarget } from "../live/fullscreen-live-overlay.js";
+import { captureTriggerRect, resolveTriggerElement } from "../ui/trigger-motion.js";
 
 export type ReaderShellIntent = "open" | "restore" | "chat";
 
@@ -108,6 +109,7 @@ interface ReaderEntrySequenceOptions {
   readerUrl: string;
   intent?: ReaderShellIntent;
   beforeEntry?: () => Promise<void>;
+  triggerRect?: DOMRect | null;
 }
 
 // ===== 进入/退出事务单飞队列 =====
@@ -170,7 +172,10 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     // 候选02：enterReaderMode 属 reader 重域，经 ensureReaderDomain 装载后
     // 进入（点击路径的本地动态装载对用户无感）。
     const reader = await ensureReaderDomain();
-    await reader.enterReaderMode(options.intent === "restore" ? "restore" : "open");
+    await reader.enterReaderMode(
+      options.intent === "restore" ? "restore" : "open",
+      options.triggerRect ? { triggerRect: options.triggerRect } : undefined
+    );
   } else if (options.intent === "open") {
     const reader = await ensureReaderDomain();
     reader.focusReadingView();
@@ -258,6 +263,12 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
     );
   };
 
+  const launchTriggerRect = captureTriggerRect(
+    resolveTriggerElement() ??
+      document.getElementById("biliscript-script-button") ??
+      document.getElementById("biliscript-player-ai-quick-action")
+  );
+
   // 前奏一（八步第 1 步）：抑制 player-ai 快捷按钮 2.5s（等阅读模式 URL 翻转
   // 与重域装载完成，防止过渡期重复触发）。restore 档同样抑制（与收口前一致）。
   // 前奏在排队外同步执行：抑制窗口按点击时刻起算，不随后到事务延后。
@@ -274,7 +285,8 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
     await runReaderEntrySequence({
       readerUrl,
       intent,
-      beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined
+      beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined,
+      triggerRect: launchTriggerRect
     });
     if (intent === "chat") {
       // 进入事务收敛后激活对话 tab（带 prompt 时另按会话状态发送快捷提示词）。两条

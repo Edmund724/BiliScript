@@ -7,6 +7,12 @@
 // 弹层打开时整体停手，一次键盘或外点输入只结算最上层。
 
 import { ids } from "../shared/dom-ids.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit,
+  resolveTriggerElement
+} from "./trigger-motion.js";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -147,6 +153,7 @@ export interface PanelModalShellOptions {
   hostClassName: string;
   html: string;
   dialogSelector: string;
+  maskSelector?: string;
   mountHost?: HTMLElement | null;
   initialFocusSelector?: string;
   returnFocus?: HTMLElement | null;
@@ -181,6 +188,12 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
   if (!mountHost) {
     throw new Error("Panel modal mount host not found");
   }
+  const trigger = resolveTriggerElement(options.returnFocus);
+  mountHost.querySelectorAll<HTMLElement>('[data-panel-modal-host="1"][data-biliscript-closing="1"]').forEach((el) => {
+    if (el.querySelector(options.dialogSelector)) {
+      cancelTriggerExit(el);
+    }
+  });
   const host = document.createElement("div");
   host.className = options.hostClassName;
   host.dataset.panelModalHost = "1";
@@ -212,6 +225,7 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
     options.onRequestDismiss("escape");
   };
 
+  const mask = host.querySelector<HTMLElement>(options.maskSelector ?? ".confirm-dialog-mask");
   const dialog = host.querySelector<HTMLElement>(options.dialogSelector);
   const initialFocus =
     (options.initialFocusSelector ? host.querySelector<HTMLElement>(options.initialFocusSelector) : null) ??
@@ -223,6 +237,17 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
         isActive: isTopLayer
       })
     : null;
+
+  if (dialog) {
+    animateTriggerEnter({
+      target: dialog,
+      mask,
+      trigger,
+      fallbackOrigin: "top right",
+      fromScale: 0.93,
+      durationMs: 190
+    });
+  }
 
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
@@ -241,10 +266,23 @@ export function mountPanelModalShell(options: PanelModalShellOptions): PanelModa
       stopObservingHidden();
       document.removeEventListener("click", onDocumentClickCapture, true);
       document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-      host.remove();
       // 先解除同级 inert 再归还焦点，避免 returnTarget 仍处于 inert 无法接收焦点。
       restoreSiblings();
       focusScope?.dispose(restoreFocus);
+      if (dialog) {
+        animateTriggerExit({
+          target: dialog,
+          host,
+          mask,
+          trigger,
+          fallbackOrigin: "top right",
+          toScale: 0.94,
+          durationMs: 130,
+          onFinish: () => host.remove()
+        });
+      } else {
+        host.remove();
+      }
     }
   };
 }

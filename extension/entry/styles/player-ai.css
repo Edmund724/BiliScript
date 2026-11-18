@@ -420,6 +420,7 @@
   right: -8px;
   scrollbar-color: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.25) transparent;
   scrollbar-width: thin;
+  transform-origin: bottom right;
   z-index: 70;
 }
 
@@ -700,6 +701,7 @@
   overflow: hidden;
   box-sizing: border-box;
   user-select: none;
+  transform-origin: top right;
   transition:
     opacity 0.2s ease,
     transform 0.2s ease,
@@ -987,6 +989,7 @@
   z-index: 1000;
   flex-direction: column;
   gap: 8px;
+  transform-origin: top right;
 }
 
 .live-overlay-audio-popover.is-open {
@@ -1468,7 +1471,8 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  transform-origin: bottom center;
+  transform: translateX(-50%) scale(0.92);
   padding: 5px 8px;
   background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.85);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
@@ -1481,7 +1485,10 @@
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
+  transition:
+    opacity 0.15s ease-out,
+    transform 0.16s var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    visibility 0.15s ease-out;
   z-index: 100;
 }
 
@@ -1493,6 +1500,7 @@
 .biliscript-live-room-toggle:focus-visible::after {
   opacity: 1;
   visibility: visible;
+  transform: translateX(-50%) scale(1);
 }
 .biliscript-live-room-notice {
   position: absolute;
@@ -1528,6 +1536,19 @@
 .biliscript-live-room-settings::backdrop {
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.55);
   backdrop-filter: blur(4px);
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+
+.biliscript-live-room-settings[data-biliscript-closing="1"]::backdrop {
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+
+@starting-style {
+  .biliscript-live-room-settings[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 .biliscript-live-room-settings-close {
@@ -1706,5 +1727,16 @@
   .biliscript-live-room-gemini-configure-btn:active:not(:disabled),
   .biliscript-live-room-settings-reconnect-btn:active:not(:disabled) {
     transform: none;
+  }
+
+  .biliscript-live-room-toggle::after,
+  .biliscript-live-room-toggle:hover::after,
+  .biliscript-live-room-toggle:focus-visible::after {
+    transform: translateX(-50%);
+    transition: opacity 0.15s ease-out, visibility 0.15s ease-out;
+  }
+
+  .biliscript-live-room-settings::backdrop {
+    transition: none;
   }
 }

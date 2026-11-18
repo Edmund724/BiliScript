@@ -27,6 +27,7 @@ import { requestProviderOriginsViaBackground } from "../core/host-permissions.js
 import type { AiProtocol } from "../ai/protocol-vocab.js";
 import type { LiveVoice } from "../live/live-provider-store.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
+import { animateTriggerExit } from "./trigger-motion.js";
 
 export type ProviderEditorKind = "ai" | "asr" | "search" | "live";
 
@@ -177,6 +178,7 @@ export interface EditorState {
   // 代际号：测试探针/保存回执落定前比对，Modal 已关/已重开则丢弃过期回执
   readonly generation: number;
   readonly host: HTMLElement | null;
+  readonly trigger: Element | null;
   // 平台音色列表（MOSS-LIVE 编辑器下拉的数据源）：每次打开 Modal 取一次，
   // voicesLoaded 标记「本次会话已取过」，避免预设切换时重复请求。
   readonly voices: readonly LiveVoice[];
@@ -205,6 +207,7 @@ const bag: MutableEditorState = {
   baselineDraft: null,
   generation: 0,
   host: null,
+  trigger: null,
   voices: [],
   voicesLoaded: false
 };
@@ -217,6 +220,7 @@ export const state: Readonly<EditorState> = bag;
 export interface EditorSessionInit {
   kind: ProviderEditorKind;
   host?: HTMLElement | null;
+  trigger?: Element | null;
   presets?: readonly ProviderRowPreset[];
   onSave?: ProviderEditorSave;
   onDelete?: ProviderEditorDelete | null;
@@ -240,6 +244,7 @@ export function beginEditorSession(init: EditorSessionInit): void {
   bag.open = true;
   bag.kind = init.kind;
   bag.host = init.host ?? null;
+  bag.trigger = init.trigger ?? null;
   bag.presets = init.presets ?? [];
   bag.onSave = init.onSave ?? (async () => ({ ok: false, error: "保存回调未注入" }));
   bag.onDelete = init.onDelete ?? null;
@@ -264,6 +269,8 @@ export function beginEditorSession(init: EditorSessionInit): void {
 // 保存成功路径此时意图已被消费，回调落到空槽）。
 export function endEditorSession(): void {
   const onSessionEnd = bag.onSessionEnd;
+  const closingHost = bag.host;
+  const closingTrigger = bag.trigger;
   bag.generation += 1;
   bag.open = false;
   bag.firstSetup = false;
@@ -274,10 +281,28 @@ export function endEditorSession(): void {
   bag.linkedCredential = null;
   bag.resolveLinkedCredential = null;
   bag.setupContextBanner = null;
-  bag.host?.remove();
   bag.host = null;
+  bag.trigger = null;
   bag.draft = null;
   bag.baselineDraft = null;
+  if (closingHost) {
+    const dialog = closingHost.querySelector<HTMLElement>(".provider-editor-dialog");
+    const mask = closingHost.querySelector<HTMLElement>(".provider-editor-mask");
+    if (dialog) {
+      animateTriggerExit({
+        target: dialog,
+        host: closingHost,
+        mask,
+        trigger: closingTrigger,
+        fallbackOrigin: "top right",
+        toScale: 0.94,
+        durationMs: 140,
+        onFinish: () => closingHost.remove()
+      });
+    } else {
+      closingHost.remove();
+    }
+  }
   if (onSessionEnd) {
     try {
       onSessionEnd();

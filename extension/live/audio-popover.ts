@@ -3,6 +3,12 @@
 // 与喇叭点击/外点焦点争夺；不支持时移到全屏宿主或 body 以 fixed 定位避开裁切。
 
 import { getFullscreenHost } from "./fullscreen-host.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  applyElementTriggerOrigin,
+  cancelTriggerExit
+} from "../ui/trigger-motion.js";
 
 export interface AudioPopoverHandle {
   syncHost(): void;
@@ -83,6 +89,7 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     popover.style.top = `${top}px`;
     popover.style.right = "auto";
     popover.style.bottom = "auto";
+    applyElementTriggerOrigin(popover, anchorRect, placeBelow ? "top right" : "bottom right");
   }
 
   function finalizeClose(restoreFocus: boolean): void {
@@ -97,12 +104,27 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
 
   function close(restoreFocus = true): void {
     if (!open) return;
-    if (nativeOpen && typeof popoverEl.hidePopover === "function" && !popover.hidden) {
-      try {
-        popoverEl.hidePopover();
-      } catch {}
+    open = false;
+    button.setAttribute("aria-expanded", "false");
+    if (restoreFocus && button.isConnected) {
+      button.focus({ preventScroll: true });
     }
-    finalizeClose(restoreFocus);
+    const fallbackOrigin = popover.dataset.placement === "top" ? "bottom right" : "top right";
+    animateTriggerExit({
+      target: popover,
+      trigger: button,
+      fallbackOrigin,
+      toScale: 0.94,
+      durationMs: 120,
+      onFinish: () => {
+        if (nativeOpen && typeof popoverEl.hidePopover === "function" && !popover.hidden) {
+          try {
+            popoverEl.hidePopover();
+          } catch {}
+        }
+        finalizeClose(false);
+      }
+    });
   }
 
   function focusFirstControl(): void {
@@ -114,6 +136,7 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
 
   function show(showOptions?: { focusFirst?: boolean }): void {
     if (disposed || open) return;
+    cancelTriggerExit(popover);
     onOpen();
     popover.hidden = false;
     syncOpenState(true);
@@ -128,6 +151,13 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     nativeOpen = nativeShown;
     syncFallbackHost();
     position();
+    animateTriggerEnter({
+      target: popover,
+      trigger: button,
+      fallbackOrigin: popover.dataset.placement === "top" ? "bottom right" : "top right",
+      fromScale: 0.93,
+      durationMs: 160
+    });
     if (showOptions?.focusFirst) {
       focusFirstControl();
     }
@@ -179,7 +209,13 @@ export function bindAudioPopover(options: AudioPopoverOptions): AudioPopoverHand
     close,
     dispose() {
       disposed = true;
-      close(false);
+      cancelTriggerExit(popover);
+      if (nativeOpen && typeof popoverEl.hidePopover === "function" && !popover.hidden) {
+        try {
+          popoverEl.hidePopover();
+        } catch {}
+      }
+      finalizeClose(false);
       button.removeEventListener("click", onButtonClick);
       popover.removeEventListener("click", onPopoverClick);
       document.removeEventListener("pointerdown", onDocumentPointerDown);

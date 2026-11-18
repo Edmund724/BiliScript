@@ -25,6 +25,11 @@ import {
 } from "./quote-share-export.js";
 import { ids } from "./state.js";
 import { createFocusScope, isolateHostSiblings, type FocusScope } from "../ui/focus-scope.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "../ui/trigger-motion.js";
 
 export interface OpenQuoteShareModalOptions {
   content: string;
@@ -49,6 +54,7 @@ interface QuoteShareModalState {
   activePreset: string;
   activePattern: QuotePatternId;
   host: HTMLElement | null;
+  triggerEl: HTMLElement | null;
   spring: Spring2DInstance | null;
   resizeObserver: ResizeObserver | null;
   lastCardWidth: number;
@@ -66,6 +72,7 @@ const state: QuoteShareModalState = {
   activePreset: "mist-deep-sea",
   activePattern: "none",
   host: null,
+  triggerEl: null,
   spring: null,
   resizeObserver: null,
   lastCardWidth: 0,
@@ -326,8 +333,12 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   setupMotionAndParallax(host);
 
   const container = document.getElementById(ids.readingView) || document.body;
+  container.querySelectorAll<HTMLElement>('.biliscript-quote-share-host[data-biliscript-closing="1"]').forEach((el) => {
+    cancelTriggerExit(el);
+  });
   container.appendChild(host);
   state.host = host;
+  state.triggerEl = triggerEl;
 
   if (container.id === ids.readingView) {
     state.restoreSiblings = isolateHostSiblings(host);
@@ -338,6 +349,14 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
     dialog?.querySelector<HTMLElement>(".biliscript-quote-share-close") ??
     dialog;
   if (dialog) {
+    animateTriggerEnter({
+      target: dialog,
+      mask: host.querySelector<HTMLElement>(".biliscript-quote-share-mask"),
+      trigger: triggerEl,
+      fallbackOrigin: "top right",
+      fromScale: 0.93,
+      durationMs: 200
+    });
     state.focusScope = createFocusScope(dialog, {
       initialFocus,
       returnFocus: triggerEl
@@ -377,12 +396,33 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
   state.restoreSiblings = null;
 
   document.removeEventListener("keydown", onDocumentKeyDown, true);
-  state.host?.remove();
+  const closingHost = state.host;
+  const closingTrigger = state.triggerEl;
   state.host = null;
+  state.triggerEl = null;
 
   const scope = state.focusScope;
   state.focusScope = null;
   scope?.dispose(options?.restoreFocus !== false);
+
+  if (closingHost) {
+    const dialog = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-dialog");
+    const mask = closingHost.querySelector<HTMLElement>(".biliscript-quote-share-mask");
+    if (dialog) {
+      animateTriggerExit({
+        target: dialog,
+        host: closingHost,
+        mask,
+        trigger: closingTrigger,
+        fallbackOrigin: "top right",
+        toScale: 0.94,
+        durationMs: 140,
+        onFinish: () => closingHost.remove()
+      });
+    } else {
+      closingHost.remove();
+    }
+  }
 }
 
 let quoteTextMeasurer: QuoteCardTextMeasurer | null | undefined;

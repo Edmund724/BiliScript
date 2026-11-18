@@ -56,6 +56,7 @@ import {
   closeReaderSettingsMode,
   focusWithoutScroll
 } from "./settings-mode.js";
+import { captureTriggerRect, computeRelativeOrigin } from "../ui/trigger-motion.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -524,8 +525,14 @@ export function restoreReadingViewFocus(): void {
   }
 }
 
-export async function enterReaderMode(mode: "open" | "restore" = "open") {
+export async function enterReaderMode(
+  mode: "open" | "restore" = "open",
+  options: { triggerRect?: DOMRect | null } = {}
+) {
   const readingView = getReaderElement(ids.readingView);
+  const launchTriggerRect =
+    captureTriggerRect(options.triggerRect) ??
+    captureTriggerRect(document.activeElement instanceof Element ? document.activeElement : null);
   captureReaderReturnFocus(readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
   transitionReaderShell("open");
@@ -554,6 +561,16 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   // B 形态：面板贴右栏 fixed 定位（script-host 负责算 rect/降级浮层）；
   // 播放器保持 B 站原生布局不动，无需等挂载。
   openScriptHost();
+  if (readingView && readingView.getAttribute("data-biliscript-script-float") === "1") {
+    const floatOrigin = computeRelativeOrigin(
+      readingView.getBoundingClientRect(),
+      launchTriggerRect,
+      "top right"
+    );
+    readingView.style.setProperty("--biliscript-float-origin", floatOrigin);
+  } else if (readingView) {
+    readingView.style.removeProperty("--biliscript-float-origin");
+  }
   // 字幕未抓取时的后台兜底抓取（原 finishEnterReaderMode 链保留项）：B 形态
   // 面板以字幕为主内容，不依赖播放器挂载成功，直达路径也必须有数据来源。
   maybeRefreshReaderSubtitleInBackground();
@@ -655,6 +672,7 @@ export function closeReadingView() {
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute(READER_READY_ATTR, "0");
   readingView.removeAttribute("data-biliscript-reader-restore");
+  readingView.style.removeProperty("--biliscript-float-origin");
   // 移除清单从呈现属性表派生（presentation-fields.js 的 clearOnClose 标志），
   // 不再手抄。视图就绪态 ready 在主表中声明为 clearViewOnClose:false（close 时复位基线
   // 值 "0" 而非 removeAttribute）；移除清单含 theme/follow。

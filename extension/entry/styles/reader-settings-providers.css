@@ -729,6 +729,10 @@
   visibility: hidden;
 }
 
+#biliscript-reading-view .provider-editor-dialog:has(> .provider-editor-fetch-dialog[data-biliscript-closing="1"]) > :is(.provider-editor-head, .provider-editor-form) {
+  visibility: visible;
+}
+
 /* 「获取可用模型」内联子视图（票 09）：渲染在 .provider-editor-dialog 内
  *（inset 覆盖编辑器内容，不再生成第二张遮罩）；Esc/取消/返回只退回平台编辑器
  *（拍板 Q5 的逐层退出语义不变）。 */
@@ -1083,8 +1087,10 @@
  * 按压缩放对减少动态用户关停，颜色/背景类短过渡保留。custom-select 的
  * option/trigger:active 两条随组件住 styles/custom-select.css（2026-10 抽出）。 */
 @media (prefers-reduced-motion: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-panel {
+  #biliscript-reading-view .biliscript-reading-settings-panel,
+  #biliscript-reading-view .biliscript-reading-settings-panel[hidden] {
     transition: opacity 0.2s ease, display 0.2s allow-discrete;
+    transform: none;
   }
 
   #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,

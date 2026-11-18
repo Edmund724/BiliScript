@@ -24,6 +24,11 @@ import { isSavedKeyReconfirmRequired } from "./provider-editor-projection.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 import { isConfirmDialogOpen } from "./confirm-dialog.js";
 import { createFocusScope, type FocusScope } from "./focus-scope.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "./trigger-motion.js";
 import { beginEditorValidation, focusEditorField, revalidateEditorFields } from "./provider-editor-validation.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 
@@ -44,6 +49,7 @@ let fetchGeneration = 0;
 let fetchInFlight = false;
 // 子视图焦点约束：打开时把焦点圈禁在子视图内部，关闭时恢复底层再归还焦点
 let fetchFocusScope: FocusScope | null = null;
+let fetchTrigger: HTMLElement | null = null;
 
 function setUnderlyingEditorIsolated(isolated: boolean): void {
   const dialog = getDialog();
@@ -80,13 +86,15 @@ function setFetchState(subview: HTMLElement, nextState: FetchDialogState): void 
 
 // 子视图同宿主同生共死（closeProviderEditor 摘除 host 时一并消失）
 export function getFetchDialog(): HTMLElement | null {
-  return state.host?.querySelector<HTMLElement>(".provider-editor-fetch-dialog") || null;
+  return state.host?.querySelector<HTMLElement>('.provider-editor-fetch-dialog:not([data-biliscript-closing="1"])') || null;
 }
 
 export function closeFetchDialog(restoreFocus = true): void {
   fetchGeneration += 1;
   fetchInFlight = false;
-  getFetchDialog()?.remove();
+  const closingSubview = getFetchDialog();
+  const trigger = fetchTrigger;
+  fetchTrigger = null;
   fetchModelsCache = [];
   fetchSelected.clear();
   fetchFilter = "";
@@ -94,6 +102,16 @@ export function closeFetchDialog(restoreFocus = true): void {
   setUnderlyingEditorIsolated(false);
   fetchFocusScope?.dispose(restoreFocus && state.open);
   fetchFocusScope = null;
+  if (closingSubview) {
+    animateTriggerExit({
+      target: closingSubview,
+      trigger,
+      fallbackOrigin: "bottom right",
+      toScale: 0.94,
+      durationMs: 130,
+      onFinish: () => closingSubview.remove()
+    });
+  }
 }
 
 export function renderFetchSkeleton(): void {
@@ -101,7 +119,11 @@ export function renderFetchSkeleton(): void {
   if (!dialog) return;
   // 重建子视图不先归还焦点：新骨架随后把焦点放回子视图自身
   closeFetchDialog(false);
+  dialog.querySelectorAll<HTMLElement>('.provider-editor-fetch-dialog[data-biliscript-closing="1"]').forEach((el) => {
+    cancelTriggerExit(el);
+  });
   const triggerBtn = dialog.querySelector<HTMLElement>(".provider-editor-fetch");
+  fetchTrigger = triggerBtn;
   dialog.insertAdjacentHTML("beforeend", `
     <section class="provider-editor-fetch-dialog" role="group" aria-label="获取可用模型" tabindex="-1" data-fetch-state="loading">
       <header class="provider-editor-fetch-head">
@@ -128,6 +150,13 @@ export function renderFetchSkeleton(): void {
     </section>`);
   const subview = getFetchDialog();
   if (!subview) return;
+  animateTriggerEnter({
+    target: subview,
+    trigger: triggerBtn,
+    fallbackOrigin: "bottom right",
+    fromScale: 0.93,
+    durationMs: 180
+  });
   setUnderlyingEditorIsolated(true);
   const backBtn = subview.querySelector<HTMLElement>(".provider-editor-fetch-back");
   fetchFocusScope = createFocusScope(subview, {

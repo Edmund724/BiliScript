@@ -13,6 +13,11 @@ import {
   getAiCredentialStatusText,
   type AiCredentialStatus
 } from "../core/ai-credential-reference.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "../ui/trigger-motion.js";
 
 export interface LiveRoomSettingsDeps {
   getState: () => LiveChatState;
@@ -101,7 +106,11 @@ function createDialog(getPlayerHost: () => HTMLElement | null): HTMLDialogElemen
       </section>
     </div>
   `;
-  (getFullscreenHost() || getPlayerHost() || document.body).appendChild(dialog);
+  const host = getFullscreenHost() || getPlayerHost() || document.body;
+  host.querySelectorAll<HTMLElement>('.biliscript-live-room-settings[data-biliscript-closing="1"]').forEach((el) => {
+    cancelTriggerExit(el);
+  });
+  host.appendChild(dialog);
   return dialog;
 }
 
@@ -200,7 +209,20 @@ export async function openLiveRoomSettings(
   await ensureLiveRoomSettingsStyles();
   if (session !== current) return;
   if (!current.dialog.open) {
+    const host = current.dialog.parentElement;
+    if (host) {
+      host.querySelectorAll<HTMLElement>('.biliscript-live-room-settings[data-biliscript-closing="1"]').forEach((el) => {
+        cancelTriggerExit(el);
+      });
+    }
     current.dialog.showModal();
+    animateTriggerEnter({
+      target: current.dialog,
+      trigger: current.trigger,
+      fallbackOrigin: "top right",
+      fromScale: 0.94,
+      durationMs: 200
+    });
     current.dialog.focus({ preventScroll: true });
   }
   await current.panel.load();
@@ -215,7 +237,16 @@ export function closeLiveRoomSettings(): void {
   nextSessionId += 1;
   current.unsubscribeStorage();
   current.panel.dispose();
-  if (current.dialog.open) current.dialog.close();
-  current.dialog.remove();
   if (current.trigger?.isConnected) current.trigger.focus({ preventScroll: true });
+  animateTriggerExit({
+    target: current.dialog,
+    trigger: current.trigger,
+    fallbackOrigin: "top right",
+    toScale: 0.95,
+    durationMs: 140,
+    onFinish: () => {
+      if (current.dialog.open) current.dialog.close();
+      current.dialog.remove();
+    }
+  });
 }

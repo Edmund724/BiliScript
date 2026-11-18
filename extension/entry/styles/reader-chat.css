@@ -1230,12 +1230,26 @@
   font-family: var(--biliscript-reader-font-sans);
   font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
+  transform-origin: top right;
 }
 
 #biliscript-reading-view .biliscript-md-table-dialog::backdrop {
   background: var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.36));
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+
+#biliscript-reading-view .biliscript-md-table-dialog[data-biliscript-closing="1"]::backdrop {
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+
+@starting-style {
+  #biliscript-reading-view .biliscript-md-table-dialog[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 #biliscript-reading-view .biliscript-md-table-dialog-header {
@@ -2059,6 +2073,19 @@ dialog.chat-image-viewer::backdrop {
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.78);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+
+dialog.chat-image-viewer[data-biliscript-closing="1"]::backdrop {
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+
+@starting-style {
+  dialog.chat-image-viewer[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 .chat-image-viewer-image {
@@ -2068,6 +2095,12 @@ dialog.chat-image-viewer::backdrop {
   object-fit: contain;
   border-radius: var(--biliscript-radius-panel, 28px);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  transform-origin: bottom right;
+}
+
+dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
 }
 
 .chat-image-viewer-close {
@@ -3143,6 +3176,7 @@ dialog.chat-image-viewer::backdrop {
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-muted);
   pointer-events: none;
+  transform-origin: top left;
 }
 
 .biliscript-reading-chat .chat-search-preview-title {
@@ -3531,6 +3565,8 @@ dialog.chat-image-viewer::backdrop {
   #biliscript-reading-view .markdown-body .biliscript-md-code-copy,
   #biliscript-reading-view .markdown-body .biliscript-md-table-expand,
   #biliscript-reading-view .biliscript-md-table-dialog-close,
+  #biliscript-reading-view .biliscript-md-table-dialog::backdrop,
+  dialog.chat-image-viewer::backdrop,
   .chat-image-viewer-close,
   .biliscript-reading-chat .chat-history-clear-btn,
   .biliscript-reading-chat .chat-history-remove {

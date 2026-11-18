@@ -43,6 +43,13 @@ import {
 } from "./settings-mode.js";
 import { findSubtitleItem } from "./subtitle-item-dom.js";
 import { activateScriptTab } from "./script-tab-activation.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  applyElementTriggerOrigin,
+  cancelTriggerExit,
+  captureTriggerRect
+} from "../ui/trigger-motion.js";
 
 type ExplainCardPhase = "loading" | "ready" | "error";
 
@@ -98,6 +105,8 @@ const CARD_FOCUSABLE_SELECTOR =
 
 let returnFocusEl: HTMLElement | null = null;
 let pendingInitialFocus = false;
+let pendingCardEnterAnimation = false;
+let cardTriggerRect: DOMRect | null = null;
 
 function isElementFocusable(element: HTMLElement | null | undefined): element is HTMLElement {
   if (!element || !element.isConnected) {
@@ -217,6 +226,23 @@ function renderCard(): void {
 
   // 作答块里的图表与数学公式：卡片每次整卡重建，水合随时机同走一次
   hydrateMarkdownContent(root);
+
+  const dialogForMotion = root.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+  if (dialogForMotion) {
+    if (pendingCardEnterAnimation) {
+      pendingCardEnterAnimation = false;
+      animateTriggerEnter({
+        target: dialogForMotion,
+        mask: root.querySelector<HTMLElement>(".biliscript-reading-explain-card-mask"),
+        trigger: cardTriggerRect,
+        fallbackOrigin: "bottom center",
+        fromScale: 0.92,
+        durationMs: 190
+      });
+    } else {
+      applyElementTriggerOrigin(dialogForMotion, cardTriggerRect, "bottom center");
+    }
+  }
 
   // 仅在首次打开或聚焦本来就在卡片内时接管/恢复焦点；设置层盖在上方或后台阶段变化不抢焦点。
   const overlayBlocked = state.reader.readingSettingsExpanded || hasReaderSettingsOverlayOpen();
@@ -426,20 +452,27 @@ export function openReaderExplainCard(payload: ReaderExplainCardPayload): void {
   }
   const root = getCardRoot();
   const pop = document.getElementById(ids.readingExplainPop);
+  const popBtn = pop?.querySelector<HTMLElement>(".biliscript-reading-explain-btn") ?? null;
+  const subtitleList = document.getElementById(ids.readingSubtitleList);
+  const nextIndex = Number.isFinite(Number(payload?.index)) ? Number(payload.index) : -1;
+  const fallbackItem = nextIndex >= 0 ? findSubtitleItem(subtitleList, nextIndex) : null;
+  if (root) {
+    cancelTriggerExit(root);
+  }
+  const popRect = pop && !pop.hidden ? captureTriggerRect(popBtn || pop) : null;
+  cardTriggerRect = popRect ?? captureTriggerRect(fallbackItem) ?? cardTriggerRect;
   if (pop) {
     pop.hidden = true;
     delete pop.dataset.itemIndex;
   }
-  const subtitleList = document.getElementById(ids.readingSubtitleList);
-  const nextIndex = Number.isFinite(Number(payload?.index)) ? Number(payload.index) : -1;
   if (!card.open) {
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const fromCardOrPop = Boolean(active && ((root && root.contains(active)) || (pop && pop.contains(active))));
-    const fallbackItem = nextIndex >= 0 ? findSubtitleItem(subtitleList, nextIndex) : null;
     returnFocusEl =
       active && active.isConnected && !fromCardOrPop && active !== document.body && active !== document.documentElement
         ? active
         : fallbackItem;
+    pendingCardEnterAnimation = true;
   }
   pendingInitialFocus = true;
   invalidateReaderSetupFlows("explain");
@@ -474,7 +507,30 @@ export function closeReaderExplainCard(options?: { restoreFocus?: boolean }): vo
   card.error = "";
   card.searching = false;
   card.notice = "";
-  renderCard();
+  pendingCardEnterAnimation = false;
+  const savedTriggerRect = cardTriggerRect;
+  cardTriggerRect = null;
+  const root = getCardRoot();
+  const dialog = root?.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog");
+  const mask = root?.querySelector<HTMLElement>(".biliscript-reading-explain-card-mask") ?? null;
+  if (root && dialog) {
+    animateTriggerExit({
+      target: dialog,
+      host: root,
+      mask,
+      trigger: savedTriggerRect,
+      fallbackOrigin: "bottom center",
+      toScale: 0.93,
+      durationMs: 130,
+      onFinish: () => {
+        if (!card.open) {
+          renderCard();
+        }
+      }
+    });
+  } else {
+    renderCard();
+  }
   if (shouldRestoreFocus && !state.reader.readingSettingsExpanded && !hasReaderSettingsOverlayOpen()) {
     const subtitleList = document.getElementById(ids.readingSubtitleList);
     const fallbackItem = savedIndex >= 0 ? findSubtitleItem(subtitleList, savedIndex) : null;

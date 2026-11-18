@@ -40,6 +40,11 @@ import {
   type InterpretAiRefineMode,
   type InterpretSessionController
 } from "./interpret-session-controller.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "../ui/trigger-motion.js";
 
 ensureInterpretSubtitleStyles();
 
@@ -1110,9 +1115,10 @@ export function isInterpretSubtitleMenuOpen(): boolean {
 }
 
 export function closeInterpretSubtitleMenu(restoreFocus = false): void {
+  const closingMenu = menuEl;
+  const savedTrigger = triggerEl ?? anchorEl;
   const triggerToFocus = restoreFocus ? triggerEl : null;
   openGeneration += 1;
-  menuEl?.remove();
   menuEl = null;
   anchorEl = null;
   triggerEl?.setAttribute("aria-expanded", "false");
@@ -1121,6 +1127,20 @@ export function closeInterpretSubtitleMenu(restoreFocus = false): void {
   document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
   document.removeEventListener("keydown", handleDocumentKeyDown, true);
   triggerToFocus?.focus();
+  if (closingMenu) {
+    if (closingMenu.style.opacity === "0") {
+      closingMenu.remove();
+    } else {
+      animateTriggerExit({
+        target: closingMenu,
+        trigger: savedTrigger,
+        fallbackOrigin: "bottom right",
+        toScale: 0.95,
+        durationMs: 120,
+        onFinish: () => closingMenu.remove()
+      });
+    }
+  }
 }
 
 export const closePlayerInterpretMenu = closeInterpretSubtitleMenu;
@@ -1130,15 +1150,29 @@ export async function openInterpretSubtitleMenu(
   deps: InterpretSubtitleMenuDeps
 ): Promise<void> {
   closeInterpretSubtitleMenu();
+  cancelTriggerExit(document.getElementById(MENU_ID));
   anchorEl = anchor;
   triggerEl = anchor.querySelector<HTMLElement>("#biliscript-player-interpret-quick-action, button");
   triggerEl?.setAttribute("aria-expanded", "true");
   activeDeps = deps;
-  menuEl = buildMenuShell();
-  anchor.appendChild(menuEl);
+  const currentMenu = buildMenuShell();
+  currentMenu.style.opacity = "0";
+  menuEl = currentMenu;
+  anchor.appendChild(currentMenu);
   document.addEventListener("pointerdown", handleDocumentPointerDown, true);
   document.addEventListener("keydown", handleDocumentKeyDown, true);
   await renderMenu();
+  if (menuEl !== currentMenu || !currentMenu.isConnected) {
+    return;
+  }
+  currentMenu.style.opacity = "";
+  animateTriggerEnter({
+    target: currentMenu,
+    trigger: triggerEl ?? anchor,
+    fallbackOrigin: "bottom right",
+    fromScale: 0.93,
+    durationMs: 160
+  });
 }
 
 export async function toggleInterpretSubtitleMenu(

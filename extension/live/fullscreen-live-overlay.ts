@@ -21,6 +21,12 @@ import {
 } from "./viewport-drag.js";
 import { bindAudioPopover, type AudioPopoverHandle } from "./audio-popover.js";
 import { getFullscreenHost } from "./fullscreen-host.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit,
+  captureTriggerRect
+} from "../ui/trigger-motion.js";
 
 export type LiveSettingsTarget = "live" | "gemini-key";
 
@@ -777,6 +783,10 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     minBtnEl?.setAttribute("aria-expanded", String(!isMin));
   }
 
+  function resolveLiveLaunchTrigger(): Element | null {
+    return document.querySelector("#biliscript-player-live-quick-action, .biliscript-live-room-toggle");
+  }
+
   function applyPresentation(minimized: boolean, moveFocus = false): void {
     const focused = document.activeElement;
     const focusInRoot = rootEl?.contains(focused) ?? false;
@@ -784,22 +794,80 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     isMin = minimized;
 
     if (minimized) {
+      const overlayRect = rootEl && !rootEl.hidden ? captureTriggerRect(rootEl) : null;
       if (miniCapsuleEl) {
+        const wasHidden = miniCapsuleEl.hidden;
+        cancelTriggerExit(miniCapsuleEl);
         setElementHidden(miniCapsuleEl, false);
         if (savedOffset) applyOffset(miniCapsuleEl, savedOffset);
+        if (wasHidden) {
+          animateTriggerEnter({
+            target: miniCapsuleEl,
+            trigger: overlayRect ?? resolveLiveLaunchTrigger(),
+            fallbackOrigin: "top right",
+            fromScale: 0.9,
+            durationMs: 180
+          });
+        }
       }
       if (rootEl) {
-        setElementHidden(rootEl, true);
-        delete rootEl.dataset.popoverOpen;
+        if (!rootEl.hidden) {
+          animateTriggerExit({
+            target: rootEl,
+            trigger: miniCapsuleEl && !miniCapsuleEl.hidden ? miniCapsuleEl : resolveLiveLaunchTrigger(),
+            fallbackOrigin: "top right",
+            toScale: 0.92,
+            durationMs: 140,
+            onFinish: () => {
+              if (rootEl) {
+                setElementHidden(rootEl, true);
+                delete rootEl.dataset.popoverOpen;
+              }
+            }
+          });
+        } else {
+          setElementHidden(rootEl, true);
+          delete rootEl.dataset.popoverOpen;
+        }
       }
       audioPopoverHandle?.close(false);
     } else {
+      const capsuleTrigger =
+        miniCapsuleEl && !miniCapsuleEl.hidden
+          ? captureTriggerRect(miniCapsuleEl)
+          : captureTriggerRect(resolveLiveLaunchTrigger());
       if (rootEl) {
+        const wasHidden = rootEl.hidden;
+        cancelTriggerExit(rootEl);
         setElementHidden(rootEl, false);
         if (savedOffset) applyOffset(rootEl, savedOffset);
         glassLens.sync(rootEl);
+        if (wasHidden) {
+          animateTriggerEnter({
+            target: rootEl,
+            trigger: capsuleTrigger,
+            fallbackOrigin: "top right",
+            fromScale: 0.92,
+            durationMs: 200
+          });
+        }
       }
-      if (miniCapsuleEl) setElementHidden(miniCapsuleEl, true);
+      if (miniCapsuleEl) {
+        if (!miniCapsuleEl.hidden) {
+          animateTriggerExit({
+            target: miniCapsuleEl,
+            trigger: rootEl && !rootEl.hidden ? rootEl : resolveLiveLaunchTrigger(),
+            fallbackOrigin: "top right",
+            toScale: 0.92,
+            durationMs: 120,
+            onFinish: () => {
+              if (miniCapsuleEl) setElementHidden(miniCapsuleEl, true);
+            }
+          });
+        } else {
+          setElementHidden(miniCapsuleEl, true);
+        }
+      }
     }
     syncExpansionAria();
 
@@ -833,6 +901,7 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     if (rootEl?.contains(focused) || miniCapsuleEl?.contains(focused)) {
       (focused as HTMLElement).blur();
     }
+    const trigger = resolveLiveLaunchTrigger();
     isMin = true;
     lastSyncedState = "idle";
     lastIsReconnecting = false;
@@ -840,10 +909,41 @@ export function createFullscreenLiveOverlay(deps: FullscreenLiveOverlayDeps): Fu
     failureActive = false;
     restoreMiniAfterFailure = false;
     if (rootEl) {
-      setElementHidden(rootEl, true);
-      delete rootEl.dataset.popoverOpen;
+      if (!rootEl.hidden) {
+        animateTriggerExit({
+          target: rootEl,
+          trigger,
+          fallbackOrigin: "top right",
+          toScale: 0.92,
+          durationMs: 140,
+          onFinish: () => {
+            if (rootEl) {
+              setElementHidden(rootEl, true);
+              delete rootEl.dataset.popoverOpen;
+            }
+          }
+        });
+      } else {
+        setElementHidden(rootEl, true);
+        delete rootEl.dataset.popoverOpen;
+      }
     }
-    if (miniCapsuleEl) setElementHidden(miniCapsuleEl, true);
+    if (miniCapsuleEl) {
+      if (!miniCapsuleEl.hidden) {
+        animateTriggerExit({
+          target: miniCapsuleEl,
+          trigger,
+          fallbackOrigin: "top right",
+          toScale: 0.92,
+          durationMs: 120,
+          onFinish: () => {
+            if (miniCapsuleEl) setElementHidden(miniCapsuleEl, true);
+          }
+        });
+      } else {
+        setElementHidden(miniCapsuleEl, true);
+      }
+    }
     audioPopoverHandle?.close(false);
     if (scrollBottomBtnEl) scrollBottomBtnEl.hidden = true;
     syncExpansionAria();

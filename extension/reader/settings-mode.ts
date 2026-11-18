@@ -2,6 +2,7 @@ import { state } from "../core/state.js";
 import { getReaderActiveScriptTab, ids } from "./state.js";
 import { invalidateReaderSetupFlows } from "./setup-resume.js";
 import { closeQuoteShareModal, isQuoteShareModalOpen } from "./quote-share-modal.js";
+import { captureTriggerRect, computeRelativeOrigin } from "../ui/trigger-motion.js";
 
 const TAB_BUTTON_IDS = {
   subtitle: ids.readingTabSubtitle,
@@ -52,7 +53,17 @@ export function projectReaderSettingsMode(): void {
   const settingsPanel = document.getElementById(ids.readingSettingsPanel);
   const settingsButton = document.getElementById(ids.readingSettingsBtn);
   const scriptPanel = document.getElementById(ids.readingScriptPanel);
-  if (settingsPanel) settingsPanel.hidden = !expanded;
+  if (settingsPanel) {
+    if (expanded) {
+      const triggerRect = captureTriggerRect(settingsButton);
+      settingsPanel.hidden = false;
+      const panelRect = settingsPanel.getBoundingClientRect();
+      const origin = computeRelativeOrigin(panelRect, triggerRect, "top right");
+      settingsPanel.style.setProperty("--biliscript-settings-origin", origin);
+    } else {
+      settingsPanel.hidden = true;
+    }
+  }
   settingsButton?.classList.toggle("is-active", expanded);
   settingsButton?.setAttribute("aria-pressed", expanded ? "true" : "false");
   if (expanded) {
@@ -85,7 +96,7 @@ export function hasReaderSettingsDropdownOpen(): boolean {
 
 export function hasReaderSettingsOverlayOpen(): boolean {
   return hasReaderSettingsDropdownOpen() || document.querySelector(
-    ".provider-editor-host, [data-panel-modal-host=\"1\"], .confirm-dialog-host"
+    '.provider-editor-host:not([data-biliscript-closing="1"]), [data-panel-modal-host="1"]:not([data-biliscript-closing="1"]), .confirm-dialog-host:not([data-biliscript-closing="1"])'
   ) !== null;
 }
 

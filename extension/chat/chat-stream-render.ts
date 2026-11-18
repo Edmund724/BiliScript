@@ -30,6 +30,11 @@ import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timesta
 import { READING_CHEVRON_DOWN_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_PLAY_ICON, READING_RESET_ICON, READING_SPEAKER_ICON } from "../ui/reading-icons.js";
 
 import { flashCopySuccess } from "../ui/copy-feedback.js";
+import {
+  animateTriggerEnter,
+  animateTriggerExit,
+  cancelTriggerExit
+} from "../ui/trigger-motion.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { formatClock } from "../shared/clock-text.js";
 import type { ImagePart } from "../ai/types.js";
@@ -841,10 +846,29 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     const top = Math.min(Math.max(preferAbove ? aboveTop : belowTop, minTop), maxTop);
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
+    animateTriggerEnter({
+      target: card,
+      trigger: anchor,
+      fallbackOrigin: preferAbove ? "bottom left" : "top left",
+      fromScale: 0.94,
+      durationMs: 150
+    });
   }
 
   function hideSourcePreview(container: HTMLElement): void {
-    container.querySelectorAll("[data-chat-search-preview]").forEach((el) => el.remove());
+    container.querySelectorAll<HTMLElement>("[data-chat-search-preview]").forEach((el) => {
+      if (el.hasAttribute("data-biliscript-closing")) {
+        cancelTriggerExit(el);
+        return;
+      }
+      animateTriggerExit({
+        target: el,
+        fallbackOrigin: "top left",
+        toScale: 0.96,
+        durationMs: 110,
+        onFinish: () => el.remove()
+      });
+    });
   }
 
   function bindSourcePreview(anchor: HTMLElement, source: ChatSearchSource): void {
