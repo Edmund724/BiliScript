@@ -13,9 +13,19 @@ import { providerFetchViaOffscreen } from "../../extension/core/provider-http-of
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
 import {
   INDEX_TRANSLATE_DEFAULT_MODEL,
+  INDEX_TRANSLATE_MODELS,
   INDEX_TRANSLATE_PROVIDER_ID,
+  isIndexTranslateModelId,
+  normalizeIndexTranslateModel,
   resolveSubtitleTranslateProviderConfig
 } from "../../extension/ai/subtitle-translate-config.js";
+import {
+  INDEX_TRANSLATE_DEFAULT_MODEL as SHARED_DEFAULT_MODEL,
+  INDEX_TRANSLATE_MODELS as SHARED_MODELS,
+  isIndexTranslateModelId as sharedIsIndexTranslateModelId,
+  normalizeIndexTranslateModel as sharedNormalizeIndexTranslateModel
+} from "../../extension/shared/subtitle-glossary.js";
+import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import type { ProviderListEntry } from "../../extension/shared/messaging-protocol.js";
 
@@ -693,6 +703,107 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     expect(result).toEqual([
       { from: 0, to: 2, content: "你好" },
       { from: 2, to: 4, content: "世界" }
+    ]);
+  });
+});
+
+describe("单源模型归一与 boundary-v3 分块 L1 章节上下文注入", () => {
+  it("INDEX_TRANSLATE_MODELS 与 normalizeIndexTranslateModel 从 shared/subtitle-glossary 单源导出", () => {
+    expect(INDEX_TRANSLATE_MODELS).toBe(SHARED_MODELS);
+    expect(INDEX_TRANSLATE_DEFAULT_MODEL).toBe(SHARED_DEFAULT_MODEL);
+    expect(isIndexTranslateModelId).toBe(sharedIsIndexTranslateModelId);
+    expect(normalizeIndexTranslateModel).toBe(sharedNormalizeIndexTranslateModel);
+    expect(normalizeIndexTranslateModel("index-translate-2b")).toBe("Index-Translate-2B");
+    expect(normalizeIndexTranslateModel("unknown")).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
+  });
+
+  it("boundary-v3 模式按 AtomicSubtitleEvent 毫秒时间窗从 l1Index 分片注入当前章节与参考实体", async () => {
+    const l1Index = buildL1VideoIndex({
+      bvid: "BV1bnd0001",
+      cid: "111",
+      subtitleId: "ai-en",
+      subtitleLang: "ai-en",
+      subtitleSignature: "sig1",
+      videoDuration: 150,
+      globalSummary: "讨论大模型推理加速。",
+      chapters: [
+        {
+          from: 0,
+          to: 60,
+          title: "KV Cache 基础",
+          coreThesis: "减少自回归解码重复计算",
+          keyEntities: ["KV Cache", "Prefill"]
+        },
+        {
+          from: 60,
+          to: 150,
+          title: "PagedAttention",
+          coreThesis: "显存分页管理避免碎片",
+          keyEntities: ["PagedAttention", "vLLM"]
+        }
+      ]
+    });
+
+    const mockChat = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          groups: [{ ids: ["0"], text: "Prefill fills KV Cache", translation: "预填充阶段填充 KV Cache" }]
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          groups: [{ ids: ["0"], text: "PagedAttention powers vLLM", translation: "PagedAttention 驱动 vLLM" }]
+        })
+      );
+
+    const translated = await translateSubtitleItems({
+      items: [],
+      events: [
+        { text: "Prefill fills KV Cache", startMs: 5_000, endMs: 12_000 },
+        { text: "PagedAttention powers vLLM", startMs: 70_000, endMs: 78_000 }
+      ],
+      mode: "boundary-v3",
+      targetLang: "zh",
+      maxChunkChars: 28,
+      l1Index,
+      glossary: "KV Cache = 键值缓存",
+      providerResolution: {
+        provider: {
+          id: "p1",
+          name: "P1",
+          baseUrl: "https://api.test",
+          models: ["m1"],
+          enabled: true,
+          hasSavedKey: true
+        },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChat as any
+    });
+
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    const firstSys = mockChat.mock.calls[0][0].messages[0].content as string;
+    const firstChapterLine = firstSys
+      .split("\n")
+      .find((line) => line.startsWith("当前章节："));
+    expect(firstChapterLine).toBe("当前章节：KV Cache 基础：减少自回归解码重复计算");
+    expect(firstSys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：Prefill");
+    expect(firstSys).toContain("- KV Cache -> 键值缓存");
+
+    const secondSys = mockChat.mock.calls[1][0].messages[0].content as string;
+    const secondChapterLine = secondSys
+      .split("\n")
+      .find((line) => line.startsWith("当前章节："));
+    expect(secondChapterLine).toBe("当前章节：PagedAttention：显存分页管理避免碎片");
+    expect(secondSys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：PagedAttention、vLLM");
+    expect(translated.map((item) => item.content)).toEqual([
+      "预填充阶段填充 KV Cache",
+      "PagedAttention 驱动 vLLM"
     ]);
   });
 });

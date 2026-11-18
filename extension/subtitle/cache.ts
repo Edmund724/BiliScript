@@ -20,6 +20,13 @@ import {
 } from "./source-key.js";
 import { getLangFamily, toCanonicalTargetLangBcp47 } from "./selection.js";
 import {
+  matchesGlossarySourceInText,
+  normalizeModelForSignature,
+  parseSubtitleGlossary,
+  type SubtitleGlossaryEntry,
+  type SubtitleGlossaryInput
+} from "../shared/subtitle-glossary.js";
+import {
   DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
   DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES,
   SUBTITLE_IDB_NAME,
@@ -135,11 +142,7 @@ export function buildSegmentationSignature(input: SegmentationSignatureInput = {
   return `seg_${fnv1a32(basis).toString(36)}`;
 }
 
-export interface TranslationSignatureGlossaryEntry {
-  source: string;
-  target: string;
-  note?: string;
-}
+export type TranslationSignatureGlossaryEntry = SubtitleGlossaryEntry;
 
 export interface TranslationSignatureInput {
   model?: unknown;
@@ -152,95 +155,11 @@ export interface TranslationSignatureInput {
   [key: string]: unknown;
 }
 
-function normalizeModelForSignature(rawModel: unknown): string {
-  const trimmed = String(rawModel ?? "").trim();
-  if (!trimmed) {
-    return "";
-  }
-  const lower = trimmed.toLowerCase();
-  if (lower === "index-translate-35b-a3b") return "Index-Translate-35B-A3B";
-  if (lower === "index-translate-9b") return "Index-Translate-9B";
-  if (lower === "index-translate-2b") return "Index-Translate-2B";
-  return trimmed;
-}
-
-function parseGlossaryEntriesForSignature(rawGlossary: unknown): TranslationSignatureGlossaryEntry[] {
-  if (!rawGlossary) {
-    return [];
-  }
-  const deduped = new Map<string, TranslationSignatureGlossaryEntry>();
-  const upsert = (rawSource: unknown, rawTarget: unknown, rawNote?: unknown) => {
-    const source = String(rawSource ?? "").replace(/\s+/g, " ").trim();
-    if (!source || /^[=\-_*~`]+$/.test(source)) {
-      return;
-    }
-    const target = String(rawTarget ?? "").replace(/\s+/g, " ").trim();
-    const note = String(rawNote ?? "").replace(/\s+/g, " ").trim();
-    const key = source.toLowerCase();
-    if (deduped.has(key)) {
-      deduped.delete(key);
-    }
-    deduped.set(key, note ? { source, target, note } : { source, target });
-  };
-
-  if (typeof rawGlossary === "string") {
-    for (const rawLine of rawGlossary.split(/\r?\n/)) {
-      const trimmed = rawLine.trim();
-      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
-        continue;
-      }
-      let eqIdx = trimmed.indexOf("=");
-      if (eqIdx === -1) eqIdx = trimmed.indexOf("＝");
-      if (eqIdx === -1) {
-        upsert(trimmed, "");
-      } else {
-        upsert(trimmed.slice(0, eqIdx), trimmed.slice(eqIdx + 1));
-      }
-    }
-    return [...deduped.values()];
-  }
-
-  if (Array.isArray(rawGlossary)) {
-    for (const item of rawGlossary) {
-      if (item && typeof item === "object") {
-        const rec = item as { source?: unknown; target?: unknown; note?: unknown };
-        upsert(rec.source, rec.target, rec.note);
-      }
-    }
-    return [...deduped.values()];
-  }
-
-  if (typeof rawGlossary === "object") {
-    for (const [source, target] of Object.entries(rawGlossary as Record<string, unknown>)) {
-      upsert(source, target);
-    }
-  }
-  return [...deduped.values()];
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function matchesGlossarySourceInText(source: string, text: string): boolean {
-  const escapedParts = source
-    .trim()
-    .split(/\s+/)
-    .map((part) => escapeRegExp(part));
-  const body = escapedParts.join("\\s+");
-  const hasWordStart = /^[A-Za-z0-9_]/.test(source);
-  const hasWordEnd = /[A-Za-z0-9_]$/.test(source);
-  const allowPluralS = hasWordEnd && source.length >= 3 && /[A-Za-rt-z]$/.test(source);
-  const prefix = hasWordStart ? "(?<![A-Za-z0-9_])" : "";
-  const suffix = hasWordEnd ? "(?![A-Za-z0-9_])" : "";
-  return new RegExp(`${prefix}${body}${allowPluralS ? "s?" : ""}${suffix}`, "i").test(text);
-}
-
-function resolveMatchedGlossaryForSignature(input: TranslationSignatureInput): TranslationSignatureGlossaryEntry[] {
+function resolveMatchedGlossaryForSignature(input: TranslationSignatureInput): SubtitleGlossaryEntry[] {
   if (Array.isArray(input.matchedGlossary)) {
-    return parseGlossaryEntriesForSignature(input.matchedGlossary);
+    return parseSubtitleGlossary(input.matchedGlossary as SubtitleGlossaryInput);
   }
-  const entries = parseGlossaryEntriesForSignature(input.glossary);
+  const entries = parseSubtitleGlossary(input.glossary as SubtitleGlossaryInput | null | undefined);
   if (entries.length === 0) {
     return [];
   }

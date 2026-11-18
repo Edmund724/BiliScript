@@ -1,30 +1,39 @@
 // extension/ai/subtitle-context.ts
-// 字幕翻译语境提取、简介清洗、概览摘要复用、跨块前情提要与按需术语过滤。
+// 字幕翻译语境提取、简介清洗、概览摘要/L1 章节索引复用、跨块前情提要与按需术语过滤。
 //
 // 职责：
 // 1. 从已加载的视频元数据（VideoMeta / clipState）提取主标题、多 P 拼接标题、UP 主与清洗截断后的简介；
-// 2. 零额外 API 开销复用概览标签页已生成的内存快照或本地缓存摘要；
+// 2. 零额外 API 开销复用概览内存快照、整份概览缓存及长视频 L1 章节目录索引（含当前章节主旨与消歧实体）；
 // 3. 维护紧邻上一分块末尾最多 2 条只读双语前情对照；
-// 4. 对用户自定义术语表做大小写不敏感匹配过滤，仅注入当前分块命中的术语及严格输出约束。
+// 4. 委托 shared/subtitle-glossary 对用户自定义术语表做大小写不敏感匹配过滤，保证用户术语规则优先级高于参考实体。
 
 import { state } from "../core/state.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";
 import { resolveChapterSource } from "../shared/chapter-outline.js";
+import {
+  filterGlossaryForText,
+  parseSubtitleGlossary,
+  type SubtitleGlossaryEntry,
+  type SubtitleGlossaryInput
+} from "../shared/subtitle-glossary.js";
 import { buildSubtitleSignature } from "../subtitle/cache.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import {
-  parseSubtitleGlossary,
-  resolveSubtitleTranslateGlossary,
-  type SubtitleGlossaryEntry,
-  type SubtitleGlossaryInput
-} from "./subtitle-translate-config.js";
+  L1_INDEX_CACHE_PREFIX,
+  findL1ChapterForTime,
+  isL1VideoIndexCacheRecord
+} from "./l1-directory.js";
+import type { L1ChapterNode, L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
+import { resolveSubtitleTranslateGlossary } from "./subtitle-translate-config.js";
 import type { SubtitleBodyItem } from "./types.js";
 
 export type { SubtitleGlossaryEntry, SubtitleGlossaryInput };
-export { parseSubtitleGlossary, resolveSubtitleTranslateGlossary };
+export { filterGlossaryForText, parseSubtitleGlossary, resolveSubtitleTranslateGlossary };
 
 export const SUBTITLE_CONTEXT_DESCRIPTION_MAX_CHARS = 400;
 export const SUBTITLE_CONTEXT_SUMMARY_MAX_CHARS = 600;
+export const SUBTITLE_CONTEXT_CHAPTER_MAX_CHARS = 240;
+export const SUBTITLE_CONTEXT_REFERENCE_ENTITIES_MAX = 12;
 export const SUBTITLE_CONTEXT_PREVIOUS_LINES_MAX = 2;
 
 const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
@@ -41,6 +50,8 @@ export interface SubtitleTranslatePromptContext {
   ownerName?: string;
   description?: string;
   summary?: string;
+  chapterContext?: string;
+  referenceEntities?: readonly string[];
   glossary?: SubtitleGlossaryInput;
   previousLines?: readonly SubtitlePreviousLine[];
 }
@@ -246,8 +257,107 @@ export function formatOverviewSummaryBrief(
   return combined ? truncateTextSafe(combined, maxChars) : "";
 }
 
+function formatL1IndexSummaryBrief(
+  index: L1VideoIndexCacheRecord | null | undefined,
+  maxChars = SUBTITLE_CONTEXT_SUMMARY_MAX_CHARS
+): string {
+  if (!index) {
+    return "";
+  }
+  return formatOverviewSummaryBrief(
+    {
+      summary: index.globalSummary,
+      chapters: index.chapters.map((ch) => ({
+        title: ch.title,
+        summary: ch.coreThesis
+      }))
+    },
+    maxChars
+  );
+}
+
+function resolveSubtitleCacheIdentityKeys(
+  input: ReadCachedOverviewSummaryInput | null | undefined
+): { finalKey: string; l1Key: string } | null {
+  if (!input) {
+    return null;
+  }
+  const bvid = String(input.bvid ?? "").trim();
+  const cid = String(input.cid ?? "").trim();
+  const body = Array.isArray(input.subtitleBody) ? input.subtitleBody : [];
+  if (!bvid || !cid || body.length === 0) {
+    return null;
+  }
+  const chapterSource = resolveChapterSource(
+    input.description,
+    input.hotComments,
+    input.chapters
+  );
+  const signature = buildSubtitleSignature({
+    lang: input.selectedSubtitleLang,
+    subtitleId: input.selectedSubtitleId,
+    subtitleUrl: input.selectedSubtitleUrl,
+    body,
+    chapters: chapterSource.signatureChapters,
+    chapterOutline: chapterSource.chapters
+  });
+  const sourceKey = buildSubtitleSourceKey(
+    input.selectedSubtitleId,
+    input.selectedSubtitleUrl,
+    input.selectedSubtitleLang
+  );
+  return {
+    finalKey: `${ANALYSIS_FINAL_PREFIX}${bvid}_${cid}_${sourceKey}_${signature}`,
+    l1Key: `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_${signature}`
+  };
+}
+
+function unwrapL1IndexEnvelope(raw: unknown): L1VideoIndexCacheRecord | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = (raw as { index?: unknown }).index;
+  return isL1VideoIndexCacheRecord(candidate) ? candidate : null;
+}
+
+async function readCachedStorageOverviewArtifacts(
+  input: ReadCachedOverviewSummaryInput | null | undefined
+): Promise<{ finalSummary: string; l1Index: L1VideoIndexCacheRecord | null }> {
+  const keys = resolveSubtitleCacheIdentityKeys(input);
+  if (!keys || !globalThis.chrome?.storage?.local) {
+    return { finalSummary: "", l1Index: null };
+  }
+  try {
+    const stored = await chrome.storage.local.get([keys.finalKey, keys.l1Key]);
+    const finalRecord = stored?.[keys.finalKey] as { analysis?: OverviewSummarySourceInput } | undefined;
+    const finalSummary = formatOverviewSummaryBrief(finalRecord?.analysis);
+    const l1Index = unwrapL1IndexEnvelope(stored?.[keys.l1Key]);
+    return { finalSummary, l1Index };
+  } catch {
+    return { finalSummary: "", l1Index: null };
+  }
+}
+
 /**
- * 读取当前视频已生成的概览摘要缓存（优先内存快照，次选 chrome.storage.local 整份概览缓存），零额外 LLM 请求。
+ * 读取当前视频已缓存的长视频 L1 章节目录索引（仅本地 chrome.storage.local，零 LLM 请求）。
+ */
+export async function readCachedL1VideoIndex(
+  input: ReadCachedOverviewSummaryInput | null = state.clip
+): Promise<L1VideoIndexCacheRecord | null> {
+  const keys = resolveSubtitleCacheIdentityKeys(input);
+  if (!keys || !globalThis.chrome?.storage?.local) {
+    return null;
+  }
+  try {
+    const stored = await chrome.storage.local.get(keys.l1Key);
+    return unwrapL1IndexEnvelope(stored?.[keys.l1Key]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读取当前视频已生成的概览摘要缓存（优先内存快照，次选整份概览缓存，再次回落 L1 章节索引缓存），零额外 LLM 请求。
  */
 export async function readCachedOverviewSummary(
   input: ReadCachedOverviewSummaryInput | null | undefined
@@ -278,37 +388,11 @@ export async function readCachedOverviewSummary(
     }
   }
 
-  const body = Array.isArray(input.subtitleBody) ? input.subtitleBody : [];
-  if (!bvid || !cid || body.length === 0 || !globalThis.chrome?.storage?.local) {
-    return "";
+  const { finalSummary, l1Index } = await readCachedStorageOverviewArtifacts(input);
+  if (finalSummary) {
+    return finalSummary;
   }
-
-  try {
-    const chapterSource = resolveChapterSource(
-      input.description,
-      input.hotComments,
-      input.chapters
-    );
-    const signature = buildSubtitleSignature({
-      lang: input.selectedSubtitleLang,
-      subtitleId: input.selectedSubtitleId,
-      subtitleUrl: input.selectedSubtitleUrl,
-      body,
-      chapters: chapterSource.signatureChapters,
-      chapterOutline: chapterSource.chapters
-    });
-    const sourceKey = buildSubtitleSourceKey(
-      input.selectedSubtitleId,
-      input.selectedSubtitleUrl,
-      input.selectedSubtitleLang
-    );
-    const finalKey = `${ANALYSIS_FINAL_PREFIX}${bvid}_${cid}_${sourceKey}_${signature}`;
-    const stored = await chrome.storage.local.get(finalKey);
-    const record = stored?.[finalKey] as { analysis?: OverviewSummarySourceInput } | undefined;
-    return formatOverviewSummaryBrief(record?.analysis);
-  } catch {
-    return "";
-  }
+  return formatL1IndexSummaryBrief(l1Index);
 }
 
 /**
@@ -405,38 +489,186 @@ export function extractPreviousBilingualLinesBeforeTime(
   return collected.reverse();
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export interface SubtitleTimeItemHint {
+  from?: unknown;
+  to?: unknown;
+  startMs?: unknown;
+  endMs?: unknown;
 }
 
-function compileGlossaryMatcher(source: string): RegExp {
-  const escapedParts = source
-    .trim()
-    .split(/\s+/)
-    .map((part) => escapeRegExp(part));
-  const body = escapedParts.join("\\s+");
-  const hasWordStart = /^[A-Za-z0-9_]/.test(source);
-  const hasWordEnd = /[A-Za-z0-9_]$/.test(source);
-  const allowPluralS = hasWordEnd && source.length >= 3 && /[A-Za-rt-z]$/.test(source);
-  const prefix = hasWordStart ? "(?<![A-Za-z0-9_])" : "";
-  const suffix = hasWordEnd ? "(?![A-Za-z0-9_])" : "";
-  return new RegExp(`${prefix}${body}${allowPluralS ? "s?" : ""}${suffix}`, "i");
+export interface ResolveL1ChapterContextInput {
+  l1Index?: L1VideoIndexCacheRecord | null;
+  chunkFromSec?: number;
+  chunkToSec?: number;
+  items?: ReadonlyArray<SubtitleTimeItemHint>;
+  glossary?: SubtitleGlossaryInput | null;
+  maxEntities?: number;
+}
+
+export interface L1ChapterTranslateContext {
+  chapterContext?: string;
+  referenceEntities?: string[];
+}
+
+function normalizeReferenceEntities(
+  entities: readonly unknown[] | null | undefined,
+  glossary?: SubtitleGlossaryInput | null,
+  maxEntities = SUBTITLE_CONTEXT_REFERENCE_ENTITIES_MAX
+): string[] {
+  if (!Array.isArray(entities) || entities.length === 0 || maxEntities <= 0) {
+    return [];
+  }
+  const glossarySourcesLower = new Set(
+    parseSubtitleGlossary(glossary).map((entry) => entry.source.toLowerCase())
+  );
+  const seenLower = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of entities) {
+    const clean = normalizeSingleLine(raw);
+    if (!clean) {
+      continue;
+    }
+    const lower = clean.toLowerCase();
+    if (glossarySourcesLower.has(lower) || seenLower.has(lower)) {
+      continue;
+    }
+    seenLower.add(lower);
+    result.push(clean);
+    if (result.length >= maxEntities) {
+      break;
+    }
+  }
+  return result;
+}
+
+function resolveChunkTimeBounds(input: ResolveL1ChapterContextInput): {
+  fromSec: number;
+  toSec: number;
+} | null {
+  let itemMinFrom = Infinity;
+  let itemMaxTo = -Infinity;
+  if (Array.isArray(input.items)) {
+    for (const item of input.items) {
+      const hasSec = item?.from !== undefined && item?.from !== null;
+      const from = hasSec
+        ? Number(item.from)
+        : item?.startMs !== undefined && item?.startMs !== null
+          ? Number(item.startMs) / 1000
+          : NaN;
+      const rawTo = hasSec
+        ? Number(item?.to)
+        : item?.endMs !== undefined && item?.endMs !== null
+          ? Number(item.endMs) / 1000
+          : NaN;
+      if (Number.isFinite(from) && from >= 0) {
+        if (from < itemMinFrom) itemMinFrom = from;
+        const effectiveEnd = Number.isFinite(rawTo) && rawTo >= from ? rawTo : from;
+        if (effectiveEnd > itemMaxTo) itemMaxTo = effectiveEnd;
+      }
+    }
+  }
+
+  const hasExplicitFrom =
+    input.chunkFromSec !== undefined &&
+    input.chunkFromSec !== null &&
+    Number.isFinite(Number(input.chunkFromSec));
+  const hasExplicitTo =
+    input.chunkToSec !== undefined &&
+    input.chunkToSec !== null &&
+    Number.isFinite(Number(input.chunkToSec));
+
+  const fromSec = hasExplicitFrom
+    ? Math.max(0, Number(input.chunkFromSec))
+    : Number.isFinite(itemMinFrom)
+      ? itemMinFrom
+      : hasExplicitTo
+        ? Math.max(0, Number(input.chunkToSec))
+        : NaN;
+  const toSec = hasExplicitTo
+    ? Math.max(fromSec, Number(input.chunkToSec))
+    : Number.isFinite(itemMaxTo)
+      ? Math.max(fromSec, itemMaxTo)
+      : fromSec;
+
+  if (!Number.isFinite(fromSec) || !Number.isFinite(toSec)) {
+    return null;
+  }
+  return { fromSec, toSec };
+}
+
+function collectOverlappingL1Chapters(
+  chapters: readonly L1ChapterNode[],
+  fromSec: number,
+  toSec: number
+): L1ChapterNode[] {
+  if (chapters.length === 0) {
+    return [];
+  }
+  // 右端点做微小内缩，避免紧邻分片边界（如 [0, 60) 的 60s 边界）误命中下一章
+  const probeEnd = toSec > fromSec ? Math.max(fromSec, toSec - 0.001) : fromSec;
+  const startCh = findL1ChapterForTime(chapters, fromSec);
+  const endCh = findL1ChapterForTime(chapters, probeEnd);
+  if (!startCh && !endCh) {
+    return [];
+  }
+  const startPos = startCh ? chapters.indexOf(startCh) : 0;
+  const endPos = endCh ? chapters.indexOf(endCh) : startPos;
+  if (startPos < 0 || endPos < 0 || endPos < startPos) {
+    return startCh ? [startCh] : endCh ? [endCh] : [];
+  }
+  return chapters.slice(startPos, endPos + 1);
 }
 
 /**
- * 按当前分块原文（大小写不敏感）过滤实际出现过的术语条目，避免全量词表浪费 Token。
+ * 基于已缓存的 L1 章节目录索引与当前分块时间窗口，定位所属章节并提取：
+ * 1) 简洁单行当前章节主旨（title + coreThesis）；
+ * 2) 已消歧的关键实体词（排除用户显式术语表已覆盖的词条，保证用户规则绝对优先）。
  */
-export function filterGlossaryForText(
-  glossary: SubtitleGlossaryInput | null | undefined,
-  text: string
-): SubtitleGlossaryEntry[] {
-  const entries = parseSubtitleGlossary(glossary);
-  const targetText = String(text ?? "");
-  if (entries.length === 0 || !targetText.trim()) {
-    return [];
+export function resolveL1ChapterTranslateContext(
+  input: ResolveL1ChapterContextInput | null | undefined
+): L1ChapterTranslateContext {
+  const index = input?.l1Index;
+  if (!index || !Array.isArray(index.chapters) || index.chapters.length === 0) {
+    return {};
+  }
+  const bounds = resolveChunkTimeBounds(input);
+  if (!bounds) {
+    return {};
+  }
+  const activeChapters = collectOverlappingL1Chapters(index.chapters, bounds.fromSec, bounds.toSec);
+  if (activeChapters.length === 0) {
+    return {};
   }
 
-  return entries.filter((entry) => compileGlossaryMatcher(entry.source).test(targetText));
+  const chapterParts: string[] = [];
+  const rawEntities: string[] = [];
+  for (const ch of activeChapters) {
+    const title = normalizeSingleLine(ch.title);
+    const coreThesis = normalizeSingleLine(ch.coreThesis);
+    const brief = [title, coreThesis].filter(Boolean).join("：");
+    if (brief) {
+      chapterParts.push(brief);
+    }
+    if (Array.isArray(ch.keyEntities)) {
+      rawEntities.push(...ch.keyEntities);
+    }
+  }
+
+  const chapterContext =
+    chapterParts.length > 0
+      ? truncateTextSafe(chapterParts.join("；"), SUBTITLE_CONTEXT_CHAPTER_MAX_CHARS)
+      : undefined;
+  const referenceEntities = normalizeReferenceEntities(
+    rawEntities,
+    input.glossary,
+    input.maxEntities ?? SUBTITLE_CONTEXT_REFERENCE_ENTITIES_MAX
+  );
+
+  return {
+    ...(chapterContext ? { chapterContext } : {}),
+    ...(referenceEntities.length > 0 ? { referenceEntities } : {})
+  };
 }
 
 /**
@@ -482,6 +714,11 @@ export function buildSubtitleContextPromptBlock(
   const ownerName = normalizeSingleLine(context.ownerName);
   const description = cleanVideoDescription(context.description);
   const summary = String(context.summary ?? "").trim();
+  const chapterContext = normalizeSingleLine(context.chapterContext);
+  const referenceEntities = normalizeReferenceEntities(
+    context.referenceEntities,
+    context.glossary
+  );
   const previousLines = normalizePreviousLines(context.previousLines);
 
   if (title) {
@@ -495,6 +732,14 @@ export function buildSubtitleContextPromptBlock(
   }
   if (summary) {
     contextLines.push(`内容摘要：${summary}`);
+  }
+  if (chapterContext) {
+    contextLines.push(`当前章节：${chapterContext}`);
+  }
+  if (referenceEntities.length > 0) {
+    contextLines.push(
+      `参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：${referenceEntities.join("、")}`
+    );
   }
   if (previousLines.length > 0) {
     contextLines.push(
@@ -540,6 +785,11 @@ export function buildChunkSubtitleContext(
   const effectivePrevious =
     previousLines !== undefined ? normalizePreviousLines(previousLines) : normalizePreviousLines(baseContext?.previousLines);
   const filteredGlossary = filterGlossaryForText(baseContext?.glossary, chunkText);
+  const chapterContext = normalizeSingleLine(baseContext?.chapterContext);
+  const referenceEntities = normalizeReferenceEntities(
+    baseContext?.referenceEntities,
+    baseContext?.glossary
+  );
 
   const hasBaseStatic = Boolean(
     baseContext &&
@@ -547,7 +797,9 @@ export function buildChunkSubtitleContext(
         normalizeSingleLine(baseContext.partTitle) ||
         normalizeSingleLine(baseContext.ownerName) ||
         cleanVideoDescription(baseContext.description) ||
-        String(baseContext.summary ?? "").trim())
+        String(baseContext.summary ?? "").trim() ||
+        chapterContext ||
+        referenceEntities.length > 0)
   );
 
   if (!hasBaseStatic && filteredGlossary.length === 0 && effectivePrevious.length === 0) {
@@ -561,6 +813,8 @@ export function buildChunkSubtitleContext(
     ...(baseContext?.ownerName ? { ownerName: baseContext.ownerName } : {}),
     ...(baseContext?.description ? { description: baseContext.description } : {}),
     ...(baseContext?.summary ? { summary: baseContext.summary } : {}),
+    ...(chapterContext ? { chapterContext } : {}),
+    ...(referenceEntities.length > 0 ? { referenceEntities } : {}),
     ...(filteredGlossary.length > 0 ? { glossary: filteredGlossary } : {}),
     ...(effectivePrevious.length > 0 ? { previousLines: effectivePrevious } : {})
   };
@@ -568,11 +822,15 @@ export function buildChunkSubtitleContext(
 
 export interface ResolveRuntimeSubtitleContextInput extends SubtitleTranslatePromptContext {
   context?: SubtitleTranslatePromptContext;
+  l1Index?: L1VideoIndexCacheRecord | null;
+  chunkFromSec?: number;
+  chunkToSec?: number;
+  items?: ReadonlyArray<SubtitleTimeItemHint>;
 }
 
 /**
  * 解析当前视频字幕翻译上下文：
- * 显式传入字段优先；缺省字段自动从 state.clip、概览缓存与 state.settings.subtitleTranslateGlossary 补充。
+ * 显式传入字段优先；缺省字段自动从 state.clip、概览/L1 缓存与 state.settings.subtitleTranslateGlossary 补充。
  */
 export async function resolveRuntimeSubtitleContext(
   input: ResolveRuntimeSubtitleContextInput = {}
@@ -586,6 +844,8 @@ export async function resolveRuntimeSubtitleContext(
   const explicitOwner = input.ownerName ?? base?.ownerName;
   const explicitDescription = input.description ?? base?.description;
   const explicitSummary = input.summary ?? base?.summary;
+  const explicitChapterContext = input.chapterContext ?? base?.chapterContext;
+  const explicitReferenceEntities = input.referenceEntities ?? base?.referenceEntities;
   const explicitGlossary = input.glossary ?? base?.glossary;
   const explicitPreviousLines = input.previousLines ?? base?.previousLines;
 
@@ -599,14 +859,65 @@ export async function resolveRuntimeSubtitleContext(
     explicitDescription !== undefined
       ? cleanVideoDescription(explicitDescription)
       : clipStatic.description;
-  const summary =
-    explicitSummary !== undefined
-      ? String(explicitSummary ?? "").trim()
-      : await readCachedOverviewSummary(state.clip);
   const glossary =
     explicitGlossary !== undefined
       ? explicitGlossary
       : resolveSubtitleTranslateGlossary(state.settings);
+
+  const hasChunkTimeHint =
+    input.chunkFromSec !== undefined ||
+    input.chunkToSec !== undefined ||
+    (Array.isArray(input.items) && input.items.length > 0);
+  const needsL1ForChapter =
+    (explicitChapterContext === undefined || explicitReferenceEntities === undefined) &&
+    hasChunkTimeHint;
+
+  let cachedArtifacts: { finalSummary: string; l1Index: L1VideoIndexCacheRecord | null } | null = null;
+  const loadArtifacts = async () => {
+    if (!cachedArtifacts) {
+      cachedArtifacts = await readCachedStorageOverviewArtifacts(state.clip);
+    }
+    return cachedArtifacts;
+  };
+
+  let summary = "";
+  if (explicitSummary !== undefined) {
+    summary = String(explicitSummary ?? "").trim();
+  } else {
+    const liveSnapshot = getReaderOverviewSource();
+    const liveBrief = formatOverviewSummaryBrief(liveSnapshot?.analysis);
+    if (liveBrief) {
+      summary = liveBrief;
+    } else {
+      const artifacts = await loadArtifacts();
+      summary = artifacts.finalSummary || formatL1IndexSummaryBrief(artifacts.l1Index ?? input.l1Index);
+    }
+  }
+
+  let effectiveL1Index: L1VideoIndexCacheRecord | null = input.l1Index ?? null;
+  if (effectiveL1Index === null && input.l1Index === undefined && needsL1ForChapter) {
+    const artifacts = await loadArtifacts();
+    effectiveL1Index = artifacts.l1Index;
+  }
+
+  const l1ChapterCtx = needsL1ForChapter
+    ? resolveL1ChapterTranslateContext({
+        l1Index: effectiveL1Index,
+        chunkFromSec: input.chunkFromSec,
+        chunkToSec: input.chunkToSec,
+        items: input.items,
+        glossary
+      })
+    : {};
+
+  const chapterContext =
+    explicitChapterContext !== undefined
+      ? normalizeSingleLine(explicitChapterContext)
+      : l1ChapterCtx.chapterContext ?? "";
+  const referenceEntities =
+    explicitReferenceEntities !== undefined
+      ? normalizeReferenceEntities(explicitReferenceEntities, glossary)
+      : l1ChapterCtx.referenceEntities ?? [];
   const previousLines = normalizePreviousLines(explicitPreviousLines);
 
   const hasGlossary = parseSubtitleGlossary(glossary).length > 0;
@@ -615,6 +926,8 @@ export async function resolveRuntimeSubtitleContext(
     !ownerName &&
     !description &&
     !summary &&
+    !chapterContext &&
+    referenceEntities.length === 0 &&
     !hasGlossary &&
     previousLines.length === 0
   ) {
@@ -626,6 +939,8 @@ export async function resolveRuntimeSubtitleContext(
     ...(ownerName ? { ownerName } : {}),
     ...(description ? { description } : {}),
     ...(summary ? { summary } : {}),
+    ...(chapterContext ? { chapterContext } : {}),
+    ...(referenceEntities.length > 0 ? { referenceEntities } : {}),
     ...(hasGlossary ? { glossary } : {}),
     ...(previousLines.length > 0 ? { previousLines } : {})
   };

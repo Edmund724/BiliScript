@@ -79,12 +79,16 @@ import {
   buildChunkSubtitleContext,
   buildSubtitleContextPromptBlock,
   extractPreviousBilingualLines,
+  readCachedL1VideoIndex,
+  resolveL1ChapterTranslateContext,
   resolveRuntimeSubtitleContext,
   type SubtitleGlossaryEntry,
   type SubtitleGlossaryInput,
   type SubtitlePreviousLine,
+  type SubtitleTimeItemHint,
   type SubtitleTranslatePromptContext
 } from "./subtitle-context.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 
 export type {
   IndexTranslateModelId,
@@ -424,6 +428,9 @@ export interface TranslateSubtitleItemsInput extends SubtitleTranslatePromptCont
   selectedSubtitleLang?: string;
   trackLan?: string;
   context?: SubtitleTranslatePromptContext;
+  l1Index?: L1VideoIndexCacheRecord | null;
+  chunkFromSec?: number;
+  chunkToSec?: number;
   maxChunkChars?: number;
   providerResolution?: SubtitleTranslateProviderResolution;
   stream?: boolean;
@@ -1039,6 +1046,45 @@ async function translateBoundaryChunkWithRecovery(args: {
   };
 }
 
+function resolveChunkPromptContext(
+  baseContext: SubtitleTranslatePromptContext | undefined,
+  l1Index: L1VideoIndexCacheRecord | null,
+  chunkItems: ReadonlyArray<SubtitleTimeItemHint>,
+  chunkFromSec: number | undefined,
+  chunkToSec: number | undefined,
+  explicitChapterContext: unknown,
+  explicitReferenceEntities: unknown
+): SubtitleTranslatePromptContext | undefined {
+  if (
+    !l1Index ||
+    (explicitChapterContext !== undefined && explicitReferenceEntities !== undefined)
+  ) {
+    return baseContext;
+  }
+  const l1Chapter = resolveL1ChapterTranslateContext({
+    l1Index,
+    items: chunkItems,
+    ...(chunkFromSec !== undefined ? { chunkFromSec } : {}),
+    ...(chunkToSec !== undefined ? { chunkToSec } : {}),
+    glossary: baseContext?.glossary
+  });
+  if (
+    !l1Chapter.chapterContext &&
+    (!l1Chapter.referenceEntities || l1Chapter.referenceEntities.length === 0)
+  ) {
+    return baseContext;
+  }
+  return {
+    ...(baseContext ?? {}),
+    ...(explicitChapterContext === undefined && l1Chapter.chapterContext
+      ? { chapterContext: l1Chapter.chapterContext }
+      : {}),
+    ...(explicitReferenceEntities === undefined && l1Chapter.referenceEntities?.length
+      ? { referenceEntities: l1Chapter.referenceEntities }
+      : {})
+  };
+}
+
 /**
  * 双通道字幕翻译主入口：
  * 返回协议模式 `mode`、重组后的主轨 `items` 与对齐的译文副轨 `translations`。
@@ -1083,7 +1129,24 @@ export async function translateSubtitleTrack(
   }
 
   const effectiveSourceLang = sourceLang ?? trackLan ?? selectedSubtitleLang;
-  const context = await resolveRuntimeSubtitleContext(input);
+  const explicitChapterContext = input.chapterContext ?? input.context?.chapterContext;
+  const explicitReferenceEntities = input.referenceEntities ?? input.context?.referenceEntities;
+  const needsL1Lookup =
+    input.l1Index === undefined &&
+    (explicitChapterContext === undefined || explicitReferenceEntities === undefined);
+  const l1Index =
+    input.l1Index !== undefined
+      ? input.l1Index
+      : needsL1Lookup
+        ? await readCachedL1VideoIndex()
+        : null;
+  const baseContext = await resolveRuntimeSubtitleContext({
+    ...input,
+    items: undefined,
+    chunkFromSec: undefined,
+    chunkToSec: undefined,
+    l1Index
+  });
   const emittedKeys = new Set<string>();
 
   if (resolvedMode === "boundary-v3") {
@@ -1100,15 +1163,24 @@ export async function translateSubtitleTrack(
     const outItems: SubtitleBodyItem[] = [];
     const outTranslations: SubtitleBodyItem[] = [];
     let eventOffset = 0;
-    let rollingPreviousLines = context?.previousLines;
+    let rollingPreviousLines = baseContext?.previousLines;
 
     for (const chunkEvents of chunks) {
       throwIfAborted(signal);
+      const chunkContext = resolveChunkPromptContext(
+        baseContext,
+        l1Index,
+        chunkEvents,
+        input.chunkFromSec,
+        input.chunkToSec,
+        explicitChapterContext,
+        explicitReferenceEntities
+      );
       const chunkResult = await translateBoundaryChunkWithRecovery({
         chunkEvents,
         targetLang,
         sourceLang: effectiveSourceLang,
-        context,
+        context: chunkContext,
         previousLines: rollingPreviousLines,
         resolved,
         stream,
@@ -1143,14 +1215,23 @@ export async function translateSubtitleTrack(
   const outItems: SubtitleBodyItem[] = [];
   const outTranslations: SubtitleBodyItem[] = [];
   let batchOffset = 0;
-  let rollingPreviousLines = context?.previousLines;
+  let rollingPreviousLines = baseContext?.previousLines;
 
   for (const batch of batches) {
     throwIfAborted(signal);
+    const batchContext = resolveChunkPromptContext(
+      baseContext,
+      l1Index,
+      batch,
+      input.chunkFromSec,
+      input.chunkToSec,
+      explicitChapterContext,
+      explicitReferenceEntities
+    );
     const batchResult = await translateCcBatchWithRetry({
       batch,
       targetLang,
-      context,
+      context: batchContext,
       previousLines: rollingPreviousLines,
       resolved,
       stream,

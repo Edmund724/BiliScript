@@ -3,10 +3,17 @@ import { resetModuleState } from "../setup.js";
 import { clipState, state } from "../../extension/core/state.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { normalizeSettings } from "../../extension/core/settings-store.js";
-import { buildSubtitleSignature, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
+import { buildSubtitleSignature, buildTranslationSignature, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 import { buildSubtitleSourceKey } from "../../extension/subtitle/source-key.js";
 import { resolveChapterSource } from "../../extension/shared/chapter-outline.js";
 import {
+  filterGlossaryForText as sharedFilterGlossaryForText,
+  normalizeModelForSignature,
+  parseSubtitleGlossary as sharedParseSubtitleGlossary
+} from "../../extension/shared/subtitle-glossary.js";
+import { buildL1VideoIndex, L1_INDEX_CACHE_PREFIX } from "../../extension/ai/l1-directory.js";
+import {
+  buildChunkSubtitleContext,
   buildSubtitleContextPromptBlock,
   cleanVideoDescription,
   extractPreviousBilingualLines,
@@ -15,10 +22,15 @@ import {
   filterGlossaryForText,
   formatMultiPartTitle,
   parseSubtitleGlossary,
-  readCachedOverviewSummary
+  readCachedL1VideoIndex,
+  readCachedOverviewSummary,
+  resolveL1ChapterTranslateContext
 } from "../../extension/ai/subtitle-context.js";
 import { translateSubtitleItems } from "../../extension/ai/subtitle-translate.js";
-import type { SubtitleTranslateProviderResolution } from "../../extension/ai/subtitle-translate-config.js";
+import {
+  parseSubtitleGlossary as configParseSubtitleGlossary,
+  type SubtitleTranslateProviderResolution
+} from "../../extension/ai/subtitle-translate-config.js";
 
 const PROVIDER_RESOLUTION: SubtitleTranslateProviderResolution = {
   provider: {
@@ -363,5 +375,274 @@ describe("术语表解析容错、保留原词模式与按分块原文过滤", (
         .subtitleTranslateGlossary
     ).toBe("CUDA = CUDA\nTensor Core =");
     expect(normalizeSettings({ subtitleTranslateGlossary: 12345 }).subtitleTranslateGlossary).toBe("");
+  });
+});
+
+describe("单源术语/模型叶与 L1 章节索引翻译上下文复用", () => {
+  it("subtitle-context、subtitle-translate-config 与 shared/subtitle-glossary 共享单源术语函数并保持签名归一一致", () => {
+    expect(parseSubtitleGlossary).toBe(sharedParseSubtitleGlossary);
+    expect(configParseSubtitleGlossary).toBe(sharedParseSubtitleGlossary);
+    expect(filterGlossaryForText).toBe(sharedFilterGlossaryForText);
+
+    expect(normalizeModelForSignature("index-translate-9b")).toBe("Index-Translate-9B");
+    expect(normalizeModelForSignature("INDEX-TRANSLATE-2B")).toBe("Index-Translate-2B");
+    expect(normalizeModelForSignature("gpt-4o-mini")).toBe("gpt-4o-mini");
+    expect(normalizeModelForSignature("")).toBe("");
+
+    const sigLower = buildTranslationSignature({
+      model: "index-translate-35b-a3b",
+      protocolVersion: "cc-json",
+      targetLang: "zh",
+      glossary: "Warp Scheduler = 线程束调度器",
+      sourceText: "Warp Scheduler runs."
+    });
+    const sigCanonical = buildTranslationSignature({
+      model: "Index-Translate-35B-A3B",
+      protocolVersion: "cc-json",
+      targetLang: "zh-CN",
+      glossary: [{ source: "warp scheduler", target: "线程束调度器" }],
+      sourceText: "Warp Scheduler runs."
+    });
+    expect(sigLower).toBe(sigCanonical);
+  });
+
+  it("analysis_final 未命中时回落读取 L1 章节索引，并提取当前分块章节主旨与消歧实体（不覆盖用户术语）", async () => {
+    const body = [
+      { from: 5, to: 15, content: "Welcome to CUDA architecture overview." },
+      { from: 65, to: 75, content: "The warp scheduler dispatches warps to tensor cores." },
+      { from: 130, to: 140, content: "NVLink connects multiple GPUs." }
+    ];
+    clipState.setBvid("BV1l1ctx0001");
+    clipState.setCid("654321");
+    clipState.setTitle("GPU 架构长视频");
+    clipState.setSelectedSubtitleId("cc-en");
+    clipState.setSelectedSubtitleLang("en");
+    clipState.setSubtitleBody(body);
+
+    const chapterSource = resolveChapterSource(clipState.description, [], []);
+    const signature = buildSubtitleSignature({
+      lang: "en",
+      subtitleId: "cc-en",
+      subtitleUrl: "",
+      body,
+      chapters: chapterSource.signatureChapters,
+      chapterOutline: chapterSource.chapters
+    });
+    const sourceKey = buildSubtitleSourceKey("cc-en", "", "en");
+    const l1Key = `${L1_INDEX_CACHE_PREFIX}BV1l1ctx0001_654321_${sourceKey}_${signature}`;
+
+    const l1Index = buildL1VideoIndex({
+      bvid: "BV1l1ctx0001",
+      cid: "654321",
+      subtitleId: "cc-en",
+      subtitleLang: "en",
+      subtitleSignature: signature,
+      videoDuration: 180,
+      globalSummary: "全片系统梳理 GPU 执行模型与多卡互联。",
+      lines: body,
+      chapters: [
+        {
+          from: 0,
+          to: 60,
+          title: "CUDA 架构总览",
+          coreThesis: "介绍 SM 与流式多处理器组成",
+          keyEntities: ["CUDA", "SM"]
+        },
+        {
+          from: 60,
+          to: 120,
+          title: "Warp 调度原理",
+          coreThesis: "双发射与记分牌机制掩盖延迟",
+          keyEntities: ["Warp Scheduler", "Tensor Core", "Scoreboard"]
+        },
+        {
+          from: 120,
+          to: 180,
+          title: "NVLink 互联",
+          coreThesis: "多卡高速缓存一致性通信",
+          keyEntities: ["NVLink", "PCIe"]
+        }
+      ]
+    });
+
+    await chrome.storage.local.set({
+      [l1Key]: { index: l1Index, timestamp: Date.now() }
+    });
+
+    const loadedIndex = await readCachedL1VideoIndex(clipState);
+    expect(loadedIndex?.bvid).toBe("BV1l1ctx0001");
+
+    const fallbackSummary = await readCachedOverviewSummary(clipState);
+    expect(fallbackSummary).toContain("全片系统梳理 GPU 执行模型与多卡互联。");
+    expect(fallbackSummary).toContain("Warp 调度原理：双发射与记分牌机制掩盖延迟");
+
+    // 边界 [0, 60) 不应误命中第二章
+    const ch0Ctx = resolveL1ChapterTranslateContext({
+      l1Index: loadedIndex,
+      chunkFromSec: 0,
+      chunkToSec: 60
+    });
+    expect(ch0Ctx).toEqual({
+      chapterContext: "CUDA 架构总览：介绍 SM 与流式多处理器组成",
+      referenceEntities: ["CUDA", "SM"]
+    });
+
+    // 用户显式术语表覆盖的实体（忽略大小写）从 referenceEntities 中排除
+    const ch1Ctx = resolveL1ChapterTranslateContext({
+      l1Index: loadedIndex,
+      chunkFromSec: 60,
+      chunkToSec: 120,
+      glossary: "warp scheduler = 线程束调度器"
+    });
+    expect(ch1Ctx).toEqual({
+      chapterContext: "Warp 调度原理：双发射与记分牌机制掩盖延迟",
+      referenceEntities: ["Tensor Core", "Scoreboard"]
+    });
+
+    // 跨章分块合并涉及章节且实体大小写去重
+    const overlapCtx = resolveL1ChapterTranslateContext({
+      l1Index: loadedIndex,
+      chunkFromSec: 50,
+      chunkToSec: 75,
+      glossary: "CUDA = CUDA"
+    });
+    expect(overlapCtx.chapterContext).toBe(
+      "CUDA 架构总览：介绍 SM 与流式多处理器组成；Warp 调度原理：双发射与记分牌机制掩盖延迟"
+    );
+    expect(overlapCtx.referenceEntities).toEqual(["SM", "Warp Scheduler", "Tensor Core", "Scoreboard"]);
+  });
+
+  it("buildSubtitleContextPromptBlock 与 buildChunkSubtitleContext 区分渲染参考实体与硬性术语表", () => {
+    const chunkContext = buildChunkSubtitleContext(
+      {
+        title: "GPU 架构公开课",
+        chapterContext: "Warp 调度原理：双发射与记分牌机制",
+        referenceEntities: ["Warp Scheduler", "Tensor Core", "Scoreboard"],
+        glossary: "Warp Scheduler = 线程束调度器\nUnused = 无关词"
+      },
+      "The warp scheduler works with scoreboard."
+    );
+
+    expect(chunkContext?.chapterContext).toBe("Warp 调度原理：双发射与记分牌机制");
+    expect(chunkContext?.referenceEntities).toEqual(["Tensor Core", "Scoreboard"]);
+
+    const block = buildSubtitleContextPromptBlock(chunkContext);
+    const contextSection = block.slice(0, block.indexOf("# Glossary"));
+    const glossarySection = block.slice(block.indexOf("# Glossary"));
+
+    expect(contextSection).toContain("当前章节：Warp 调度原理：双发射与记分牌机制");
+    expect(contextSection).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：Tensor Core、Scoreboard");
+    expect(contextSection).not.toContain("Warp Scheduler");
+    expect(glossarySection).toContain("- Warp Scheduler -> 线程束调度器");
+    expect(glossarySection).not.toContain("Scoreboard");
+  });
+
+  it("translateSubtitleItems 多分块翻译自动从本地 L1 缓存按分块时间窗注入对应章节与参考实体", async () => {
+    const items = [
+      { from: 5, to: 15, content: "CUDA uses streaming multiprocessors." },
+      { from: 65, to: 75, content: "The warp scheduler feeds tensor cores." }
+    ];
+    clipState.setBvid("BV1l1e2e0002");
+    clipState.setCid("222333");
+    clipState.setTitle("CUDA 进阶");
+    clipState.setSelectedSubtitleId("cc-en");
+    clipState.setSelectedSubtitleLang("en");
+    clipState.setSubtitleBody(items);
+    state.setSettings({
+      ...DEFAULT_SETTINGS,
+      subtitleTranslateGlossary: "Warp Scheduler = 线程束调度器"
+    });
+
+    const chapterSource = resolveChapterSource(clipState.description, [], []);
+    const signature = buildSubtitleSignature({
+      lang: "en",
+      subtitleId: "cc-en",
+      subtitleUrl: "",
+      body: items,
+      chapters: chapterSource.signatureChapters,
+      chapterOutline: chapterSource.chapters
+    });
+    const sourceKey = buildSubtitleSourceKey("cc-en", "", "en");
+    const l1Key = `${L1_INDEX_CACHE_PREFIX}BV1l1e2e0002_222333_${sourceKey}_${signature}`;
+
+    const l1Index = buildL1VideoIndex({
+      bvid: "BV1l1e2e0002",
+      cid: "222333",
+      subtitleId: "cc-en",
+      subtitleLang: "en",
+      subtitleSignature: signature,
+      videoDuration: 120,
+      globalSummary: "讲解 CUDA SM 与线程束调度器。",
+      lines: items,
+      chapters: [
+        {
+          from: 0,
+          to: 60,
+          title: "SM 基础",
+          coreThesis: "流式多处理器架构概述",
+          keyEntities: ["CUDA", "SM"]
+        },
+        {
+          from: 60,
+          to: 120,
+          title: "Warp 调度",
+          coreThesis: "线程束指令发射机制",
+          keyEntities: ["Warp Scheduler", "Tensor Core"]
+        }
+      ]
+    });
+
+    await chrome.storage.local.set({
+      [l1Key]: { index: l1Index, timestamp: Date.now() }
+    });
+
+    const sigBefore = buildTranslationSignature({
+      model: PROVIDER_RESOLUTION.model,
+      protocolVersion: "cc-json",
+      targetLang: "zh-CN",
+      glossary: state.settings.subtitleTranslateGlossary,
+      sourceText: items.map((item) => item.content).join("\n")
+    });
+
+    const mockChat = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ id: "0", translation: "CUDA 使用流式多处理器。" }]))
+      .mockResolvedValueOnce(JSON.stringify([{ id: "0", translation: "线程束调度器驱动 Tensor Core。" }]));
+
+    await translateSubtitleItems({
+      items,
+      targetLang: "zh",
+      maxChunkChars: 40,
+      providerResolution: PROVIDER_RESOLUTION,
+      chatCompletionFn: mockChat as any
+    });
+
+    expect(mockChat).toHaveBeenCalledTimes(2);
+
+    const chunk1Sys = mockChat.mock.calls[0][0].messages[0].content as string;
+    const chunk1ChapterLine = chunk1Sys
+      .split("\n")
+      .find((line) => line.startsWith("当前章节："));
+    expect(chunk1Sys).toContain("内容摘要：讲解 CUDA SM 与线程束调度器。");
+    expect(chunk1ChapterLine).toBe("当前章节：SM 基础：流式多处理器架构概述");
+    expect(chunk1Sys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：CUDA、SM");
+
+    const chunk2Sys = mockChat.mock.calls[1][0].messages[0].content as string;
+    const chunk2ChapterLine = chunk2Sys
+      .split("\n")
+      .find((line) => line.startsWith("当前章节："));
+    expect(chunk2ChapterLine).toBe("当前章节：Warp 调度：线程束指令发射机制");
+    expect(chunk2Sys).toContain("参考实体（已纠偏专有名词，仅作同音消歧与语境参考）：Tensor Core");
+    expect(chunk2Sys).toContain("- Warp Scheduler -> 线程束调度器");
+
+    // 确认 L1 动态上下文不影响缓存签名
+    const sigAfter = buildTranslationSignature({
+      model: PROVIDER_RESOLUTION.model,
+      protocolVersion: "cc-json",
+      targetLang: "zh-CN",
+      glossary: state.settings.subtitleTranslateGlossary,
+      sourceText: items.map((item) => item.content).join("\n")
+    });
+    expect(sigAfter).toBe(sigBefore);
   });
 });

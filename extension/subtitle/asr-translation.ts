@@ -45,6 +45,8 @@ import {
 } from "./source-key.js";
 import {
   extractPreviousBilingualLinesBeforeTime,
+  readCachedL1VideoIndex,
+  resolveL1ChapterTranslateContext,
   resolveRuntimeSubtitleContext
 } from "../ai/subtitle-context.js";
 
@@ -268,10 +270,11 @@ export async function ensureAsrSecondarySubtitle(
     String(state.clip.selectedSubtitleUrl || "").trim() !== selectedUrl ||
     args.isStale?.() === true;
 
-  const [translateModule, baseContext] = await Promise.all([
+  const [translateModule, l1Index] = await Promise.all([
     import("../ai/subtitle-translate.js"),
-    resolveRuntimeSubtitleContext()
+    readCachedL1VideoIndex(state.clip)
   ]);
+  const baseContext = await resolveRuntimeSubtitleContext({ l1Index });
   const { translateSubtitleItems } = translateModule;
   const resolveProviderFn = readOptionalModuleExport<
     () => Promise<{ model?: string } | null>
@@ -429,6 +432,22 @@ export async function ensureAsrSecondarySubtitle(
         chunk.start,
         2
       );
+      const chunkL1 = l1Index
+        ? resolveL1ChapterTranslateContext({
+            l1Index,
+            chunkFromSec: chunk.start,
+            chunkToSec: chunk.end,
+            items: chunk.items,
+            glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary
+          })
+        : {};
+      const chunkContext =
+        baseContext || chunkL1.chapterContext || chunkL1.referenceEntities?.length
+          ? {
+              ...(baseContext ?? {}),
+              ...chunkL1
+            }
+          : undefined;
       const translated = await translateSubtitleItems({
         items: chunk.items,
         targetLang,
@@ -436,7 +455,10 @@ export async function ensureAsrSecondarySubtitle(
         selectedSubtitleLang: isAsrSource ? undefined : selectedLang,
         trackLan: isAsrSource ? "asr-zh" : matchedTrack?.lan,
         fallbackToOriginal: false,
-        ...(baseContext ? { context: baseContext } : {}),
+        chunkFromSec: chunk.start,
+        chunkToSec: chunk.end,
+        ...(l1Index ? { l1Index } : {}),
+        ...(chunkContext ? { context: chunkContext } : {}),
         ...(previousLines.length > 0 ? { previousLines } : {}),
         signal: chunkSignal,
         onCueReady: (cue) => {

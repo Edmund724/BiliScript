@@ -46,7 +46,12 @@ import {
   resolveSubtitleTranslateProvider,
   translateSubtitleItems
 } from "../ai/subtitle-translate.js";
-import { extractPreviousBilingualLinesBeforeTime } from "../ai/subtitle-context.js";
+import {
+  extractPreviousBilingualLinesBeforeTime,
+  readCachedL1VideoIndex,
+  resolveL1ChapterTranslateContext
+} from "../ai/subtitle-context.js";
+import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
 import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
 import {
   createSubtitleChunkScheduler,
@@ -170,6 +175,7 @@ export function createInterpretSessionController(
   let activeSecondarySlotId = "translate-zh";
   let activeAsrLabel = buildAsrSubtitleLabel(undefined);
   let activeProviderRes: SubtitleTranslateProviderResolution | undefined;
+  let activeL1Index: L1VideoIndexCacheRecord | null = null;
   let lastTranslatingNoticeAt = -Infinity;
   let needsTranslatedCacheInvalidation = false;
   let lastOverlayOriginal: string | null = null;
@@ -622,15 +628,26 @@ export function createInterpretSessionController(
       try {
         const prevPrimary = chunkIndex > 0 ? chunkPrimaryItems.get(chunkIndex - 1) : undefined;
         const prevSecondary = chunkIndex > 0 ? chunkSecondaryItems.get(chunkIndex - 1) : undefined;
+        const chunkFromSec = chunkIndex * CHUNK_DURATION_SEC;
+        const chunkToSec = (chunkIndex + 1) * CHUNK_DURATION_SEC;
         const previousLines =
           prevPrimary && prevSecondary && prevSecondary.length > 0
             ? extractPreviousBilingualLinesBeforeTime(
                 prevPrimary,
                 prevSecondary,
-                chunkIndex * CHUNK_DURATION_SEC,
+                chunkFromSec,
                 2
               )
             : [];
+        const l1ChapterCtx = activeL1Index
+          ? resolveL1ChapterTranslateContext({
+              l1Index: activeL1Index,
+              chunkFromSec,
+              chunkToSec,
+              items,
+              glossary: state.settings?.subtitleTranslateGlossary
+            })
+          : {};
         const translated = await translateItems({
           items,
           targetLang: activeTargetLang,
@@ -638,6 +655,13 @@ export function createInterpretSessionController(
           selectedSubtitleLang: activeSessionKind === "asr" ? undefined : activeSourceTrackLang,
           trackLan: activeSessionKind === "asr" ? "asr-zh" : activeSourceTrackLan,
           providerResolution: activeProviderRes,
+          chunkFromSec,
+          chunkToSec,
+          ...(activeL1Index ? { l1Index: activeL1Index } : {}),
+          ...(l1ChapterCtx.chapterContext ? { chapterContext: l1ChapterCtx.chapterContext } : {}),
+          ...(l1ChapterCtx.referenceEntities?.length
+            ? { referenceEntities: l1ChapterCtx.referenceEntities }
+            : {}),
           ...(previousLines.length > 0 ? { previousLines } : {}),
           signal: processingAbortController?.signal,
           fallbackToOriginal: false,
@@ -832,6 +856,7 @@ export function createInterpretSessionController(
     activeSecondarySlotId = "translate-zh";
     lastTranslatingNoticeAt = -Infinity;
     needsTranslatedCacheInvalidation = false;
+    activeL1Index = null;
     activeAsrLabel = buildAsrSubtitleLabel(undefined);
     lastOverlayOriginal = null;
     lastOverlayTranslation = null;
@@ -989,6 +1014,8 @@ export function createInterpretSessionController(
 
         const primaryItems = [...(state.clip.subtitleBody || [])];
         resolveSessionTranslationMetadata(primaryItems);
+        activeL1Index = await readCachedL1VideoIndex(state.clip);
+        if (isSessionStale(currentGeneration)) return false;
         const cachedSecondary = await loadSecondaryFromStoreOrMock();
         if (isSessionStale(currentGeneration)) return false;
         const secondaryItems =
@@ -1146,6 +1173,8 @@ export function createInterpretSessionController(
           selectedSubtitleLang: activeAsrLabel,
           skipHotComments: true
         });
+        if (isSessionStale(currentGeneration)) return false;
+        activeL1Index = await readCachedL1VideoIndex(state.clip);
         if (isSessionStale(currentGeneration)) return false;
         updateState("connected");
         bindVideoLifecycle();
