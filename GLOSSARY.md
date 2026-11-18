@@ -17,9 +17,9 @@ _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互�
 _Avoid_: 伴看面板、全屏浮窗（不再限于全屏）
 
 **实时字幕翻译**:
-视频无 CC 字幕时基于播放游标滑动窗口（当前分片起往后 3 片）调度 ASR 音频切片转写与 LLM 逐句翻译生成的播放器内实时字幕。播放器「字幕」按钮只在无 CC 时显示，手动开关、不自动启动；已缓存的原/译文直接命中，增量合入主/副轨并持久化缓存，暂停超过 5 分钟自动关闭，恢复播放重置计时，seek 清空浮层，换片与离页关闭会话。其「双语」是同一原文段的原文行与译文行，与字幕轨偏好 `bilingualSubtitles` 无关。译文目标语言与 `id_translate-<lang>` 缓存与阅读面板的译文副轨共用（见「字幕」的伪轨译文一段）。
-代码名：`live/interpret-session-controller.ts` / `live/player-interpret.ts` / `liveInterpretTargetLang`（翻译目标语言，阅读面板的副列译文也读它）/ `liveInterpretDisplayMode`（`auto` 自动 / `translation` 仅译文 / `bilingual` 双语，只作用于播放器浮层）
-_Avoid_: 同声传译、同传；把译文当作视频字幕轨，或复用副轨开关表示译文显示模式
+播放器内承载的双语/译文字幕叠层与控制菜单：无原生 CC 轨时基于播放游标滑动窗口调度 ASR 音频切片转写与 LLM 逐句翻译；已有跨语种原生多轨时默认零 Token 直接时间交集配对两条原生轨（支持手动切至 AI 精翻或基于原版人工外语轨 AI 精翻）；单语种原生轨（含繁简同族多轨）按需流式翻译且严格过滤同语种族目标语言。有原生 CC 时播放器控制栏按钮以「双语」与原生「字幕」区分，未主动开启会话时不发起任何请求、不接管原生字幕层；仅在叠层会话激活时无损隐藏原生字幕 DOM，关闭即恢复。上下行顺序与文摘面板及导出共用 `bilingualDisplayOrder`。
+代码名：`live/interpret-session-controller.ts` / `live/player-interpret.ts` / `liveInterpretTargetLang` / `liveInterpretDisplayMode` / `bilingualDisplayOrder` / `syncNativePlayerSubtitleTakeover`
+_Avoid_: 同声传译、同传；把译文写入 `clip.subtitles` 或把原生 CC 主轨篡改为 `asr` 伪轨
 
 **直播间伴看**:
 在 B 站直播间（`live.bilibili.com/<数字房间号>` 及其 `/blanc/<数字房间号>` 同源内嵌播放器）使用实时伴看：页面只挂伴看浮窗与播放器内的开关按钮，不出现文摘面板，设置通过按需伴看设置对话框就地配置。会话身份是房间号，每次进入都是新会话；上下文只有实时音视频流加房间标题与主播名，没有字幕、概览与章节，也不抓弹幕。与视频页的实时伴看共用同一条 live 模型链路。ADR-0024。
@@ -49,9 +49,9 @@ _Avoid_: Part、页、集数
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
-同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。伪轨视频（无 CC、只有 `id=asr` 且 `subtitleUrl` 为空的伪轨）的双列卡照旧复用：主列是这条伪轨，副列列的是译文目标语言（14 种，词表与播放器「字幕」浮层同一份），副行是同一原文段的 LLM 译文——译文不是轨、不进 `clip.subtitles`，只进副轨槽；双语开关对这类视频可用（判据是伪轨身份，不是轨数），复制/导出/AI 上下文仍只吃主轨原文。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）/ `reader/asr-translation.js`（伪轨译文的面板侧在飞、进度与列模型：`hasAsrPseudoTrack` / `resolveAsrTranslationView` / `ensureAsrTranslation` / `cancelAsrTranslation` / `selectAsrTranslationLanguage`；零请求的缓存挂载与显式动作启动都经它）/ `subtitle/asr-translation.js`（伪轨译文的批量器：60 秒分片计划、缓存覆盖判定、逐片翻译与逐片合入副轨槽、整份落盘；零产出才落槽 error，部分失败保持 ready 并留补齐入口；主轨被新一次转写替换时经 `persistAsrSubtitleToCache` / `clearTranslatedSubtitleCache` 清掉旧译文）/ `reader/secondary-subtitle.js`（副轨目标解析 + 装载事务的唯一落点：`resolveSecondaryTarget` 纯判定（偏好 × 轨列 × 主轨身份 → 目标 / 三态空态 reason）、`ensureSecondarySubtitleLoaded` 事务（守卫 → ensureSummarizeChain → loadSecondarySubtitle；在飞登记唯一一份）、`isSecondarySubtitleLoadInFlight`——自动装载 / 开关打开 / 副列改选 / 重试四入口都经它，目标轨语言 `lanDoc || lan` 只有这一个解析点、不落槽）/ `subtitle/body.js`（取体深 module：`loadTrackBody(请求, 钩子)` 与 `loadPreferredNativeSubtitle`——上下文无关，显式注入视频身份与 `JsonTransport`，供 content 与 SW `agent-bridge/video-service` / `ai/context-resolver` 共用，集中缓存键装配 / 命中与时长校验 / 坏缓存清键 / 网络取体 / 落缓存与写失败上浮；content 侧出口（主轨接受事务 / 副轨乐观写槽）由调用壳注入，两条接受事务仍在 commit.js 并列；asr/fallback 的取体因键身份快照、转写管线边界、孤儿清理后置等真实差异保持独立）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
-_Avoid_: 转录、transcript、把副轨说成「第二条字幕」或「第三路轨」（两行是一条字幕条目）、把副轨与主轨写成同一份 body 或同一个装载态
+同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目，上下行语序由 `bilingualDisplayOrder`（`original-first` 主轨/原文在上、`translation-first` 副轨/译文在上）统一控制文摘面板、播放器叠层与 TXT/Markdown/SRT 导出。轨道按性质分为原生人工轨（`manual-cc`）、B 站机器轨（`bili-ai`，混源列表显式标 `（B 站 AI）`，紧凑 trigger 保持裸语言名）与本扩展转写伪轨（`asr`）；语种族经 `getLangFamily` 归一（如繁简及 `ai-zh`/`asr-zh` 同属 `"zh"` 族）。跨语种原生多轨默认零 Token 配对两条原生真轨，并支持手动切至「改用 AI 重新精翻」或混源场景下的「基于原版外语轨 AI 精翻」；单语种视频（单条 CC、纯繁简同族多轨）与 ASR 伪轨视频开启双语时进入 AI 译文副轨模式，目标语言经 `resolveTargetLang` 自动剔除与源轨同语种族的选项（源轨属 `"zh"` 族时默认切为英语）。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `ReadingSubtitleItem` / `clip.secondarySubtitle` / `bilingualSubtitles` / `secondarySubtitleLang` / `bilingualDisplayOrder` / `getLangFamily` / `classifySubtitleTrack` / `resolveTargetLang` / `findTrackByPreferredLang` / `secondaryContentFor` / `reader/asr-translation.js` / `subtitle/asr-translation.js` / `reader/secondary-subtitle.js` / `subtitle/body.js`
+_Avoid_: 转录、transcript、把同语种族繁简轨配成假双语、同语种族自翻译（如 `zh -> zh`）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:
 视频自带的分段 `{from, to, title}`。
@@ -75,7 +75,7 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 _Avoid_: 长记忆、向量库
 
 **字幕轨身份**:
-一条字幕轨在缓存键里的身份，封闭判别联合五态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）/ `translated`（伪轨译文：`targetLang`）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>` / `id_translate-<lang>`），字节形状是对已落盘缓存的兼容面：逐字节不变、零迁移。
+一条字幕轨在缓存键里的身份，封闭判别联合六态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）/ `translated`（ASR 伪轨译文：`targetLang`）/ `track-translated`（特定原生源轨的 AI 精翻译文：`sourceKey` + 规范目标语言，产出 `${sourceKey}_translate-<lang>`，与原生轨及 ASR 译文键严格隔离）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>` / `id_translate-<lang>` / `<sourceKey>_translate-<lang>`）。
 「这是不是 ASR 变体键 / 译文变体键」的判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨与译文副轨的组键侧和识别/清理侧（孤儿清理 / `clearTranslatedSubtitleCache`）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
 与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 与译文侧显式传 `asr` / `translated` 身份（不再手拼字符串）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
 代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX` / `translatedTrackId` + `isTranslatedVariantSourceKey` + `TRANSLATED_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿/译文清理前缀由此派生、`persistAsrSubtitleToCache`）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`、`subtitle/asr-translation.js`（组键显式传 `asr` / `translated` 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）

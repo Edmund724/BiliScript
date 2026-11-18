@@ -210,11 +210,12 @@ function createMenuDeps(overrides: {
     getPreferences: async () => ({ ...prefs }),
     applyChoice: async (choice) => {
       choices.push(choice);
-      const next = choice.kind === "off"
-        ? prefs
-        : { targetLang: choice.targetLang, displayMode: choice.kind };
-      prefs.targetLang = next.targetLang;
-      prefs.displayMode = next.displayMode;
+      if (choice.kind === "translation" || choice.kind === "bilingual") {
+        prefs.targetLang = choice.targetLang;
+        prefs.displayMode = choice.kind;
+      } else if (choice.kind === "native-bilingual") {
+        prefs.displayMode = "bilingual";
+      }
     }
   };
   return { deps, choices };
@@ -412,13 +413,18 @@ describe("player-interpret: 仿原生字幕菜单与控制栏联动", () => {
     state.clip.setSubtitles([{ id: "cc-1", lan: "zh-CN", subtitleUrl: "https://example.com/cc.json" }]);
     state.clip.setSubtitleFetchState("ready");
     notifyReaderPresenter({ kind: "subtitle-ready" });
-    expect(button.hidden).toBe(true);
-    expect(wrap.hidden).toBe(true);
-    expect(document.getElementById("biliscript-interpret-menu")).toBeNull();
+    // 有原生 CC 时保持挂载但文案区分为「双语」且默认 idle 不接管原生字幕层
+    expect(button.hidden).toBe(false);
+    expect(wrap.hidden).toBe(false);
+    expect(button.textContent).toBe("双语");
+    expect(button.getAttribute("aria-label")).toBe("双语字幕");
+    expect(playerHost.hasAttribute("data-biliscript-subtitle-takeover")).toBe(false);
+    interpret.closeInterpretSubtitleMenu();
 
     state.clip.setSubtitles([{ id: "asr-1", lan: "asr-zh", subtitleUrl: "" }]);
     notifyReaderPresenter({ kind: "subtitle-ready" });
     expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe("字幕");
 
     window.dispatchEvent(new Event("pagehide"));
   });

@@ -17,12 +17,35 @@ export const LIVE_INTERPRET_TARGET_LANG_OPTIONS = [
 
 export type LiveInterpretTargetLang = (typeof LIVE_INTERPRET_TARGET_LANG_OPTIONS)[number]["value"];
 
+export const LIVE_INTERPRET_TARGET_BCP47: Record<LiveInterpretTargetLang, string> = {
+  zh: "zh-CN",
+  en: "en-US",
+  ja: "ja-JP",
+  ko: "ko-KR",
+  de: "de-DE",
+  fr: "fr-FR",
+  es: "es-ES",
+  ru: "ru-RU",
+  it: "it-IT",
+  pt: "pt-PT",
+  tr: "tr-TR",
+  el: "el-GR",
+  id: "id-ID",
+  ms: "ms-MY"
+};
+
 export const LIVE_INTERPRET_DISPLAY_MODE_OPTIONS = [
   { value: "auto", label: "自动" },
   { value: "translation", label: "仅译文" },
   { value: "bilingual", label: "双语" }
 ] as const;
 export type InterpretSubtitleDisplayMode = (typeof LIVE_INTERPRET_DISPLAY_MODE_OPTIONS)[number]["value"];
+
+export const BILINGUAL_DISPLAY_ORDER_OPTIONS = [
+  { value: "original-first", label: "主轨/原文在上" },
+  { value: "translation-first", label: "副轨/译文在上" }
+] as const;
+export type BilingualDisplayOrder = (typeof BILINGUAL_DISPLAY_ORDER_OPTIONS)[number]["value"];
 
 export const LIVE_INTERPRET_LATIN_TARGET_LANGS = new Set<LiveInterpretTargetLang>([
   "en", "fr", "de", "es", "it", "pt", "tr", "id", "ms"

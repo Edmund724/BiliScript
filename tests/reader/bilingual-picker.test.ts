@@ -388,10 +388,10 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     // 页脚开关仍是列表底部那一行，且翻到 on
     expect(switchButton().getAttribute("aria-checked")).toBe("true");
     expect(switchButton().dataset.on).toBe("true");
-    // 徽标：主轨名 + 「双语」；值区仍是裸语言名（徽标不在 .custom-select-value 里）。
-    // 主列这条轨道列表混了 ASR 伪轨 ⇒ 主列自己的 [AI] 标照旧（上一张图的口径，未动）。
+    // 徽标：主轨名 + 「双语」；紧凑 trigger 保持裸语言名防 120px 截断，主列下拉项标（B 站 AI）。
     expect(badge()?.textContent).toBe("双语");
-    expect(triggerValueText()).toBe("中文 [AI]");
+    expect(triggerValueText()).toBe("中文");
+    expect(colTexts("main")).toContain("中文（B 站 AI）");
   });
 
   it("打开开关那一刻立即抓目标轨（forceRefresh=false，参数取轨道身份）", async () => {
@@ -606,19 +606,17 @@ describe("副列的三套空态 + 单轨禁用", () => {
     expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
   });
 
-  it("单轨禁用（真轨，非伪轨）：开关禁用 + 说明进列表区、页脚只留「双语字幕 + 开关」，不出双列", () => {
-    // 有 CC 但只有一条轨的视频不进译文场景（票 asr-panel-translation 的范围裁决）：
-    // 判据是伪轨身份，不是轨数。
-    loadTracks([SAMPLE_TRACKS[0]], "zh-CN");
+  it("单轨真轨解锁双语：开关可用，进入译文副列且自动过滤同语种族选项（中文源轨默认切为 English）", () => {
+    loadTracks([SAMPLE_TRACKS[0]], "ai-zh");
     setBilingual(true, "en-US");
     shell.renderReadingView();
 
-    expect(switchButton().disabled).toBe(true);
-    expect(hintText()).toBe("本视频只有一条字幕轨");
-    expect(footer().textContent?.trim()).toBe("双语字幕"); // 说明没挤进页脚（硬约束 §5.4）
-    expect(col("sub")).toBeNull();
-    // 双语偏好没被改写：还是开着的（本视频不可配对而已）
-    expect(state.settings.bilingualSubtitles).toBe(true);
+    expect(switchButton().disabled).toBe(false);
+    expect(hintText()).toBe("");
+    expect(footer().textContent?.trim()).toBe("双语字幕");
+    expect(col("sub")).not.toBeNull();
+    expect(colTexts("sub")).not.toContain("中文");
+    expect(secondarySelect().value).toBe("en");
     expect(lazy.secondaryCalls).toHaveLength(0);
   });
 

@@ -118,11 +118,26 @@ describe("判据（伪轨身份，不按轨数）", () => {
 });
 
 describe("ensureAsrTranslation（装载入口）", () => {
-  it("非伪轨视频：skipped，链层一次都不装载", async () => {
-    seedAsrClip([REAL_TRACK]);
+  it("跨语种原生多轨视频（未开启 AI 精翻覆盖）：skipped，零 LLM 请求；单语种真轨进入译文模式并剔除同族语言", async () => {
+    const enTrack = {
+      id: "t-en",
+      lan: "en-US",
+      lanDoc: "English",
+      subtitleUrl: "https://sub/en.json",
+      source: "player"
+    };
+    seedAsrClip([REAL_TRACK, enTrack]);
+    clipState.setSelectedSubtitleId(REAL_TRACK.id);
 
     await expect(module.ensureAsrTranslation("translate")).resolves.toEqual({ kind: "skipped" });
     expect(lazy.calls).toHaveLength(0);
+
+    // 单语种中文真轨：允许手动开启双语外译，且默认目标语言由 zh 自动切为 en
+    seedAsrClip([REAL_TRACK]);
+    clipState.setSelectedSubtitleId(REAL_TRACK.id);
+    await expect(module.ensureAsrTranslation("translate")).resolves.toEqual({ kind: "done" });
+    expect(lazy.calls).toHaveLength(1);
+    expect(lazy.calls[0].targetLang).toBe("en");
   });
 
   it("cache-only 缺片 ⇒ pending（不自动花钱）", async () => {

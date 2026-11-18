@@ -1,6 +1,7 @@
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../core/state.js";
 import { findActiveSubtitleIndex } from "../subtitle/core.js";
@@ -12,6 +13,23 @@ import {
   saveSubtitleToCache
 } from "../subtitle/cache.js";
 import { buildSecondaryAlignment } from "../subtitle/alignment.js";
+import { ensureSummarizeChain } from "../subtitle/lazy.js";
+import {
+  findManualForeignTrackForAiRefine,
+  findSecondaryTrackByPreferredLang,
+  findTrackByRef,
+  getLangFamily,
+  isLoadableNativeTrack,
+  isMonolingualNativeTracks,
+  isSameLangFamily,
+  resolveTargetLang,
+  resolveTrackTarget,
+  toCanonicalTargetLangBcp47
+} from "../subtitle/selection.js";
+import {
+  buildSubtitleSourceKey,
+  trackTranslatedSlotId
+} from "../subtitle/source-key.js";
 import type { InterpretSubtitleDisplayMode } from "./interpret-subtitle-preferences.js";
 import { runAsrPipeline, type RunAsrPipelineArgs } from "../asr/pipeline.js";
 import { loadActiveAsrFallback } from "../asr/active-fallback.js";
@@ -33,6 +51,7 @@ import { notifyReaderPresenter } from "../reader/reader-bus.js";
 
 export type InterpretSessionState = "idle" | "connecting" | "connected";
 export type InterpretAvailability = { ok: true } | { ok: false; error: string };
+export type InterpretAiRefineMode = "off" | "manual-refine" | "foreign-refine";
 
 export const CHUNK_DURATION_SEC = 60;
 export { PAUSE_TIMEOUT_MS };
@@ -41,6 +60,7 @@ export interface InterpretSessionControllerDeps {
   getVideoElement?: () => HTMLVideoElement | null;
   getTargetLang?: () => string;
   getDisplayMode?: () => InterpretSubtitleDisplayMode;
+  getAiRefineMode?: () => InterpretAiRefineMode;
   showNotice?: (message: string, autoHideMs?: number) => void;
   setSubtitle?: (original: string, translation: string) => void;
   clearSubtitles?: () => void;
@@ -54,6 +74,8 @@ export interface InterpretSessionControllerDeps {
   clearTranslatedCache?: typeof clearTranslatedSubtitleCache;
   resolveTranslateProvider?: typeof resolveSubtitleTranslateProvider;
   loadAsrProviders?: () => Promise<any[]>;
+  loadNativePrimaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
+  loadNativeSecondaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
 }
 
 export interface InterpretSessionController {
@@ -72,6 +94,7 @@ export function createInterpretSessionController(
   const getVideoElement = deps.getVideoElement ?? getRuntimeVideoElement;
   const getTargetLang = deps.getTargetLang ?? (() => state.settings?.liveInterpretTargetLang || "zh");
   const getDisplayMode = deps.getDisplayMode ?? (() => state.settings?.liveInterpretDisplayMode || "auto");
+  const getAiRefineMode = deps.getAiRefineMode ?? (() => "off");
   const showNotice = deps.showNotice ?? (() => {});
   const setSubtitle = deps.setSubtitle ?? (() => {});
   const clearSubtitles = deps.clearSubtitles ?? (() => {});
@@ -83,6 +106,18 @@ export function createInterpretSessionController(
   const clearTranslatedCache = deps.clearTranslatedCache ?? clearTranslatedSubtitleCache;
   const resolveTranslateProvider = deps.resolveTranslateProvider ?? resolveSubtitleTranslateProvider;
   const loadAsrProviders = deps.loadAsrProviders ?? (() => asrProviderStore.loadProviders());
+  const loadNativePrimaryTrack =
+    deps.loadNativePrimaryTrack ??
+    (async (target) => {
+      const chain = await ensureSummarizeChain();
+      await chain.loadSubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
+    });
+  const loadNativeSecondaryTrack =
+    deps.loadNativeSecondaryTrack ??
+    (async (target) => {
+      const chain = await ensureSummarizeChain();
+      await chain.loadSecondarySubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
+    });
 
   let stateVal: InterpretSessionState = "idle";
   let generation = 0;
@@ -104,9 +139,15 @@ export function createInterpretSessionController(
   const isTranslateDoneChunk = new Set<number>();
   const isAsrDoneChunk = new Set<number>();
   let secondaryAlignmentCache: ReturnType<typeof buildSecondaryAlignment> | null = null;
+  let secondaryBodyRefForCache: readonly SubtitleBodyItem[] | null = null;
   let primaryCacheKey = "";
   let secondaryCacheKey = "";
   let activeTargetLang = "zh";
+  let activeSessionKind: "asr" | "native-pair" | "cc-translate" = "asr";
+  let activeSourceTrackId = "asr";
+  let activeSourceTrackLang = "";
+  let activeSourceTrackLan = "";
+  let activeSecondarySlotId = "translate-zh";
   let activeAsrLabel = buildAsrSubtitleLabel(undefined);
   let activeProviderRes: SubtitleTranslateProviderResolution | undefined;
   let lastTranslatingNoticeAt = -Infinity;
@@ -125,7 +166,23 @@ export function createInterpretSessionController(
     return availability;
   }
 
+  function currentNativeTracks() {
+    return (state.clip.subtitles || []).filter((track) => isLoadableNativeTrack(track));
+  }
+
+  function isZeroTokenNativePairScenario(): boolean {
+    const nativeTracks = currentNativeTracks();
+    return (
+      nativeTracks.length >= 2 &&
+      !isMonolingualNativeTracks(nativeTracks) &&
+      getAiRefineMode() === "off"
+    );
+  }
+
   function hasPrimaryReadyInMemoryOrCache(): boolean {
+    if (currentNativeTracks().length > 0) {
+      return true;
+    }
     if (state.clip.subtitleFetchState === "ready" && Array.isArray(state.clip.subtitleBody) && state.clip.subtitleBody.length > 0) {
       return true;
     }
@@ -135,6 +192,11 @@ export function createInterpretSessionController(
   async function refreshAvailability(): Promise<InterpretAvailability> {
     const currentGeneration = ++availabilityGeneration;
     try {
+      // 跨语种原生双轨（未强制开启 AI 精翻）零 Token 直接配对，无需任何 AI 或 ASR 密钥
+      if (isZeroTokenNativePairScenario()) {
+        return updateAvailability({ ok: true });
+      }
+
       // 1. 检查字幕翻译 AI 平台（或默认 AI 平台）
       try {
         await resolveTranslateProvider();
@@ -146,7 +208,7 @@ export function createInterpretSessionController(
         });
       }
 
-      // 2. 检查语音识别 (ASR) 平台（若内存中已有主轨则可跳过 ASR 检查）
+      // 2. 检查语音识别 (ASR) 平台（已有原生 CC 或内存中已有主轨则可跳过 ASR 检查）
       if (!hasPrimaryReadyInMemoryOrCache()) {
         const [providers, settings] = await Promise.all([
           loadAsrProviders(),
@@ -248,11 +310,18 @@ export function createInterpretSessionController(
     const video = boundVideo || getVideoElement();
     if (!video) return;
     const currentTime = video.currentTime;
+    if (activeSessionKind === "native-pair") {
+      syncCurrentSubtitles(currentTime, generation);
+      return;
+    }
     const currentChunkIndex = Math.floor(currentTime / CHUNK_DURATION_SEC);
     if (isTranslateDoneChunk.has(currentChunkIndex)) {
       syncCurrentSubtitles(currentTime, generation);
     } else {
-      showNotice("正在转写并翻译字幕...", 2000);
+      showNotice(
+        activeSessionKind === "cc-translate" ? "正在翻译字幕..." : "正在转写并翻译字幕...",
+        2000
+      );
     }
     scheduler?.seek(currentTime);
   }
@@ -292,6 +361,13 @@ export function createInterpretSessionController(
     if (expectedGeneration !== generation || stateVal !== "connected") {
       return;
     }
+    if (activeSessionKind === "native-pair") {
+      const slotBody = state.clip.secondarySubtitle?.body;
+      if (Array.isArray(slotBody) && slotBody !== secondaryBodyRefForCache) {
+        secondaryBodyRefForCache = slotBody;
+        secondaryAlignmentCache = slotBody.length > 0 ? buildSecondaryAlignment(slotBody) : null;
+      }
+    }
     const body = state.clip.subtitleBody;
     const activeIdx = findActiveSubtitleIndex(currentTime);
     if (activeIdx >= 0 && activeIdx < body.length) {
@@ -309,7 +385,7 @@ export function createInterpretSessionController(
     }
 
     const currentChunk = Math.floor(currentTime / CHUNK_DURATION_SEC);
-    if (!isAsrDoneChunk.has(currentChunk) && body.length === 0) {
+    if (activeSessionKind === "asr" && !isAsrDoneChunk.has(currentChunk) && body.length === 0) {
       const now = Date.now();
       if (now - lastTranslatingNoticeAt > 2000) {
         lastTranslatingNoticeAt = now;
@@ -344,7 +420,8 @@ export function createInterpretSessionController(
 
     const sortedSecondary = collectSortedSecondaryItems();
 
-    if (sortedPrimary.length > 0) {
+    // 仅在无原生 CC 的 ASR 模式下改写主轨为 asr 伪轨；原生 CC 模式下严格保留原 CC 主轨身份
+    if (activeSessionKind === "asr" && sortedPrimary.length > 0) {
       seedAsrPseudoTrackIfNeeded(activeAsrLabel);
       await acceptSubtitle({
         body: sortedPrimary,
@@ -366,7 +443,7 @@ export function createInterpretSessionController(
       secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
       await acceptSecondarySubtitle({
         body: sortedSecondary,
-        subtitleId: `translate-${activeTargetLang}`,
+        subtitleId: activeSecondarySlotId,
         subtitleUrl: ""
       });
       if (secondaryCacheKey) {
@@ -416,7 +493,9 @@ export function createInterpretSessionController(
         const translated = await translateItems({
           items,
           targetLang: activeTargetLang,
-          selectedSubtitleId: "asr",
+          selectedSubtitleId: activeSessionKind === "asr" ? "asr" : activeSourceTrackId,
+          selectedSubtitleLang: activeSessionKind === "asr" ? undefined : activeSourceTrackLang,
+          trackLan: activeSessionKind === "asr" ? "asr-zh" : activeSourceTrackLan,
           providerResolution: activeProviderRes,
           ...(previousLines.length > 0 ? { previousLines } : {}),
           signal: abortController?.signal,
@@ -457,7 +536,7 @@ export function createInterpretSessionController(
               secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
               void acceptSecondarySubtitle({
                 body: sortedSecondary,
-                subtitleId: `translate-${activeTargetLang}`,
+                subtitleId: activeSecondarySlotId,
                 subtitleUrl: ""
               })
                 .then(() => {
@@ -583,6 +662,12 @@ export function createInterpretSessionController(
     isTranslateDoneChunk.clear();
     isAsrDoneChunk.clear();
     secondaryAlignmentCache = null;
+    secondaryBodyRefForCache = null;
+    activeSessionKind = "asr";
+    activeSourceTrackId = "asr";
+    activeSourceTrackLang = "";
+    activeSourceTrackLan = "";
+    activeSecondarySlotId = "translate-zh";
     lastTranslatingNoticeAt = -Infinity;
     needsTranslatedCacheInvalidation = false;
     activeAsrLabel = buildAsrSubtitleLabel(undefined);
@@ -621,12 +706,164 @@ export function createInterpretSessionController(
         return false;
       }
 
-      activeTargetLang = getTargetLang();
       activeClipSignature = computeCurrentClipSignature();
       const bvid = state.clip.bvid;
       const cid = state.clip.cid;
       activeBvid = bvid;
       activeCid = cid;
+
+      const nativeTracks = currentNativeTracks();
+      const refineMode = getAiRefineMode();
+
+      // ===== 分支 1：跨语种原生多轨零 Token 配对（场景 A / 默认场景 C）=====
+      if (nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks) && refineMode === "off") {
+        activeSessionKind = "native-pair";
+        const mainRef =
+          findTrackByRef(nativeTracks, {
+            id: state.clip.selectedSubtitleId,
+            url: state.clip.selectedSubtitleUrl
+          }) ?? nativeTracks[0];
+        const mainTarget = resolveTrackTarget(mainRef, nativeTracks);
+        if (
+          !Array.isArray(state.clip.subtitleBody) ||
+          state.clip.subtitleBody.length === 0 ||
+          String(state.clip.selectedSubtitleId || "") !== mainTarget.id
+        ) {
+          await loadNativePrimaryTrack(mainTarget);
+          if (currentGeneration !== generation) return false;
+        }
+        const pick = String(state.settings?.secondarySubtitleLang || DEFAULT_SETTINGS.secondarySubtitleLang).trim();
+        let partnerTrack = findSecondaryTrackByPreferredLang(nativeTracks, pick, mainTarget.id);
+        if (
+          !partnerTrack &&
+          isSameLangFamily(pick, mainRef.lan) &&
+          getLangFamily(mainRef.lan) !== "zh"
+        ) {
+          partnerTrack = findSecondaryTrackByPreferredLang(nativeTracks, "zh-CN", mainTarget.id);
+        }
+        if (!partnerTrack) {
+          partnerTrack =
+            nativeTracks.find(
+              (item) =>
+                String(item.id || "") !== mainTarget.id &&
+                !isSameLangFamily(item.lan, mainRef.lan)
+            ) ?? null;
+        }
+        if (partnerTrack) {
+          const secondaryTarget = resolveTrackTarget(partnerTrack, nativeTracks);
+          if (
+            state.clip.secondarySubtitle.state !== "ready" ||
+            String(state.clip.secondarySubtitle.id || "") !== secondaryTarget.id ||
+            state.clip.secondarySubtitle.body.length === 0
+          ) {
+            await loadNativeSecondaryTrack(secondaryTarget);
+            if (currentGeneration !== generation) return false;
+          }
+        }
+        const slotBody = state.clip.secondarySubtitle.body || [];
+        secondaryBodyRefForCache = slotBody;
+        secondaryAlignmentCache = slotBody.length > 0 ? buildSecondaryAlignment(slotBody) : null;
+        updateState("connected");
+        bindVideoLifecycle();
+        const video = boundVideo || getVideoElement();
+        if (video) syncCurrentSubtitles(video.currentTime, currentGeneration);
+        return true;
+      }
+
+      // ===== 分支 2：原生 CC 主轨 → AI 流式翻译（单轨 CC / 纯中文外译 / 场景 A&C 精翻覆盖）=====
+      if (nativeTracks.length > 0) {
+        activeSessionKind = "cc-translate";
+        const foreignSource =
+          refineMode === "foreign-refine" ? findManualForeignTrackForAiRefine(nativeTracks) : null;
+        const sourceTrack =
+          foreignSource ??
+          findTrackByRef(nativeTracks, {
+            id: state.clip.selectedSubtitleId,
+            url: state.clip.selectedSubtitleUrl
+          }) ??
+          nativeTracks[0];
+        const sourceTarget = resolveTrackTarget(sourceTrack, nativeTracks);
+        if (
+          !Array.isArray(state.clip.subtitleBody) ||
+          state.clip.subtitleBody.length === 0 ||
+          (sourceTarget.id && String(state.clip.selectedSubtitleId || "") !== sourceTarget.id)
+        ) {
+          await loadNativePrimaryTrack(sourceTarget);
+          if (currentGeneration !== generation) return false;
+        }
+
+        activeSourceTrackId = String(state.clip.selectedSubtitleId || sourceTarget.id || "");
+        activeSourceTrackLang = String(state.clip.selectedSubtitleLang || sourceTarget.lang || "");
+        activeSourceTrackLan = String(sourceTrack.lan || "");
+        activeTargetLang = foreignSource
+          ? "zh"
+          : resolveTargetLang(activeSourceTrackLan, getTargetLang());
+        const sourceKey = buildSubtitleSourceKey(
+          activeSourceTrackId,
+          state.clip.selectedSubtitleUrl || sourceTarget.url,
+          activeSourceTrackLang
+        );
+        const canonicalBcp47 = toCanonicalTargetLangBcp47(activeTargetLang);
+        activeSecondarySlotId = trackTranslatedSlotId(sourceKey, canonicalBcp47);
+        primaryCacheKey = "";
+        secondaryCacheKey = getSubtitleCacheKey({
+          bvid,
+          cid,
+          identity: {
+            kind: "track-translated",
+            sourceKey,
+            targetLang: canonicalBcp47
+          }
+        });
+
+        activeProviderRes = await resolveTranslateProvider();
+        if (currentGeneration !== generation) return false;
+
+        const primaryItems = [...(state.clip.subtitleBody || [])];
+        const cachedSecondary = await loadCache(secondaryCacheKey);
+        const secondaryItems =
+          Array.isArray(cachedSecondary) && cachedSecondary.length > 0
+            ? (cachedSecondary as SubtitleBodyItem[])
+            : null;
+
+        partitionItemsIntoChunks(primaryItems);
+        if (secondaryItems && secondaryItems.length > 0) {
+          partitionSecondaryItemsIntoChunks(secondaryItems);
+          secondaryAlignmentCache = buildSecondaryAlignment(secondaryItems);
+          await acceptSecondarySubtitle({
+            body: secondaryItems,
+            subtitleId: activeSecondarySlotId,
+            subtitleUrl: ""
+          });
+        } else {
+          clipState.clearSecondarySubtitle();
+        }
+
+        updateState("connected");
+        bindVideoLifecycle();
+        const video = boundVideo || getVideoElement();
+        const initialTime = video?.currentTime ?? 0;
+        const initialChunks = Array.from(chunkPrimaryItems.keys())
+          .sort((a, b) => a - b)
+          .map((idx) => ({
+            index: idx,
+            startSec: idx * CHUNK_DURATION_SEC,
+            endSec: (idx + 1) * CHUNK_DURATION_SEC,
+            status: isTranslateDoneChunk.has(idx) ? ("done" as const) : ("pending" as const)
+          }));
+        scheduler = createSessionScheduler(currentGeneration, initialTime, initialChunks);
+        scheduler.start();
+        if (boundVideo?.paused) {
+          scheduler.notifyPause();
+        }
+        if (video) syncCurrentSubtitles(video.currentTime, currentGeneration);
+        return true;
+      }
+
+      // ===== 分支 3：无原生 CC 轨 → ASR 语音转写 + LLM 翻译 =====
+      activeSessionKind = "asr";
+      activeTargetLang = getTargetLang();
+      activeSecondarySlotId = `translate-${activeTargetLang}`;
 
       const [providers, settings] = await Promise.all([
         loadAsrProviders(),

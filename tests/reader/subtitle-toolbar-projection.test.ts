@@ -46,7 +46,7 @@ import type { SubtitleToolbarFacts } from "../../extension/reader/subtitle-tab-u
 const SENTINEL_EMPTY = "暂无字幕";
 const SENTINEL_LOADING = "抓取中…";
 const SENTINEL_TRANSCRIBING = "转写中…";
-const AI_MARK = "[AI]";
+const AI_MARK = "（B 站 AI）";
 const SECONDARY_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 
 // 轨样本：lan 与 lanDoc 逐条不同（断言「选项文字 = lanDoc 原文」时不会与 lan 同解），
@@ -522,10 +522,10 @@ describe("[AI] 标：marked 事实", () => {
 
     expect(optionTexts()).toEqual([
       SAMPLE_TRACKS[0].lanDoc,
-      `${SAMPLE_TRACKS[1].lanDoc} ${AI_MARK}`,
-      `${SAMPLE_TRACKS[2].lanDoc} ${AI_MARK}`
+      `${SAMPLE_TRACKS[1].lanDoc}${AI_MARK}`,
+      `${SAMPLE_TRACKS[2].lanDoc}${AI_MARK}`
     ]);
-    // trigger 显示当前行（当前行非 AI ⇒ 无标）
+    // 紧凑 trigger 保持裸语言名防 120px 截断
     expect(triggerText()).toBe(SAMPLE_TRACKS[0].lanDoc);
 
     render(makeFacts({ tracks: SAMPLE_TRACKS, selectedTrackId: SAMPLE_TRACKS[1].id, marked: false }));

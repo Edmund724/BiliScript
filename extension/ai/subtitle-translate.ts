@@ -228,8 +228,12 @@ export const TARGET_LANG_NAME_MAP: Record<string, string> = Object.fromEntries(
 
 export function resolveTargetLangDisplayName(lang: string): string {
   const code = String(lang || "").trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(TARGET_LANG_NAME_MAP, code)
-    ? TARGET_LANG_NAME_MAP[code]
+  if (Object.prototype.hasOwnProperty.call(TARGET_LANG_NAME_MAP, code)) {
+    return TARGET_LANG_NAME_MAP[code];
+  }
+  const primary = code.replace(/^(ai|asr)[-_]/, "").split(/[-_]/)[0] || "";
+  return Object.prototype.hasOwnProperty.call(TARGET_LANG_NAME_MAP, primary)
+    ? TARGET_LANG_NAME_MAP[primary]
     : lang;
 }
 

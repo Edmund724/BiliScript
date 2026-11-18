@@ -544,12 +544,14 @@ describe("live/live-companion-session: 独立伴看会话所有权、对话按�
     state.clip.setSubtitles([{ id: "cc-1", lan: "zh-CN", subtitleUrl: "https://example.com/cc.json" }]);
     state.clip.setSubtitleFetchState("ready");
     notifyReaderPresenter({ kind: "subtitle-ready" });
-    expect(button.hidden).toBe(true);
-    expect(wrap.hidden).toBe(true);
+    expect(button.hidden).toBe(false);
+    expect(wrap.hidden).toBe(false);
+    expect(button.textContent).toBe("双语");
 
     state.clip.setSubtitles([{ id: "asr-1", lan: "asr-zh", subtitleUrl: "" }]);
     notifyReaderPresenter({ kind: "subtitle-ready" });
     expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe("字幕");
     expect(session.getFullscreenLiveOverlay()).toBeNull();
     window.dispatchEvent(new Event("pagehide"));
   });

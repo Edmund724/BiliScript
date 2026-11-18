@@ -114,8 +114,12 @@ function buildReadingSubtextHtml(item: ReadingSubtitleItem): string {
 }
 
 export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHours: boolean) {
-  // 副行节点内嵌在 text span 内、主文之后；无副行时是空串 ⇒ 单轨形态的输出
-  // 与双语能力上线前**逐字节相同**。
+  const subtextHtml = buildReadingSubtextHtml(item);
+  const mainHtml = escapeHtml(item.content);
+  const textBodyHtml =
+    subtextHtml && state.settings.bilingualDisplayOrder === "translation-first"
+      ? `${subtextHtml}${mainHtml}`
+      : `${mainHtml}${subtextHtml}`;
   return `
     <button
       type="button"
@@ -126,7 +130,7 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
       <span class="biliscript-reading-time">${escapeHtml(
         formatClock(item.from, { hours: withHours })
       )}</span>
-      <span class="${SUBTITLE_TEXT_CLASS}">${escapeHtml(item.content)}${buildReadingSubtextHtml(item)}</span>
+      <span class="${SUBTITLE_TEXT_CLASS}">${textBodyHtml}</span>
     </button>
   `;
 }

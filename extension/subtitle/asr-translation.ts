@@ -25,7 +25,17 @@ import { logWarn } from "../shared/logging.js";
 import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "./cache.js";
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { acceptSecondarySubtitle } from "./commit.js";
-import { translatedTrackId } from "./source-key.js";
+import {
+  classifySubtitleTrack,
+  findTrackByRef,
+  toCanonicalTargetLangBcp47
+} from "./selection.js";
+import {
+  buildSubtitleSourceKey,
+  trackTranslatedSlotId,
+  translatedTrackId,
+  type TrackIdentity
+} from "./source-key.js";
 import {
   extractPreviousBilingualLinesBeforeTime,
   resolveRuntimeSubtitleContext
@@ -136,7 +146,29 @@ export async function ensureAsrSecondarySubtitle(
   const runId = args.runId;
   const body = (state.clip.subtitleBody || []) as SubtitleBodyItem[];
   const chunks = planTranslationChunks(body);
-  const trackId = translatedTrackId(targetLang);
+
+  const selectedId = String(state.clip.selectedSubtitleId || "").trim();
+  const selectedUrl = String(state.clip.selectedSubtitleUrl || "").trim();
+  const selectedLang = String(state.clip.selectedSubtitleLang || "").trim();
+  const matchedTrack = findTrackByRef(state.clip.subtitles, {
+    id: selectedId,
+    url: selectedUrl
+  });
+  const trackKind = classifySubtitleTrack(
+    matchedTrack ?? { id: selectedId, lan: selectedLang, subtitleUrl: selectedUrl }
+  );
+  const isAsrSource = trackKind === "asr" || (!selectedUrl && (!selectedId || selectedId === "asr"));
+  const sourceKey = isAsrSource
+    ? "asr"
+    : buildSubtitleSourceKey(selectedId, selectedUrl, selectedLang);
+  const canonicalBcp47 = toCanonicalTargetLangBcp47(targetLang);
+  const trackId = isAsrSource
+    ? translatedTrackId(targetLang)
+    : trackTranslatedSlotId(sourceKey, canonicalBcp47);
+  const cacheIdentity: TrackIdentity = isAsrSource
+    ? { kind: "translated", targetLang }
+    : { kind: "track-translated", sourceKey, targetLang: canonicalBcp47 };
+
   const empty: AsrTranslationResult = { kind: "done", total: chunks.length, done: 0, failed: 0 };
   if (chunks.length === 0) {
     return empty;
@@ -147,7 +179,7 @@ export async function ensureAsrSecondarySubtitle(
   const cacheKey = getSubtitleCacheKey({
     bvid,
     cid,
-    identity: { kind: "translated", targetLang }
+    identity: cacheIdentity
   });
   const cached = await loadTranslatedBody(cacheKey);
 
@@ -188,6 +220,8 @@ export async function ensureAsrSecondarySubtitle(
     (runId !== undefined && runId !== clipState.fetchRunId) ||
     state.clip.bvid !== bvid ||
     state.clip.cid !== cid ||
+    String(state.clip.selectedSubtitleId || "").trim() !== selectedId ||
+    String(state.clip.selectedSubtitleUrl || "").trim() !== selectedUrl ||
     args.isStale?.() === true;
 
   const [{ translateSubtitleItems }, baseContext] = await Promise.all([
@@ -288,7 +322,9 @@ export async function ensureAsrSecondarySubtitle(
       const translated = await translateSubtitleItems({
         items: chunk.items,
         targetLang,
-        selectedSubtitleId: "asr",
+        selectedSubtitleId: isAsrSource ? "asr" : selectedId,
+        selectedSubtitleLang: isAsrSource ? undefined : selectedLang,
+        trackLan: isAsrSource ? "asr-zh" : matchedTrack?.lan,
         fallbackToOriginal: false,
         ...(baseContext ? { context: baseContext } : {}),
         ...(previousLines.length > 0 ? { previousLines } : {}),

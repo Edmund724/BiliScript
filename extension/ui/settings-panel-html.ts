@@ -67,6 +67,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   subtitleTranslateSource: "subtitleTranslateSource",
   subtitleTranslateModel: "subtitleTranslateModel",
   subtitleTranslateGlossary: "subtitleTranslateGlossary",
+  bilingualDisplayOrder: "bilingualDisplayOrder",
   subtitleSegmentationStrategy: "subtitleSegmentationStrategy",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
@@ -471,6 +472,13 @@ export function buildSettingsHtml(): string {
             <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
             <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
               <option value="Index-Translate-35B-A3B">Index-Translate-35B-A3B</option>
+            </select>
+          </div>
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.bilingualDisplayOrder}">双语上下顺序</label>
+            <select id="${ids.bilingualDisplayOrder}" class="biliscript-set-select">
+              <option value="original-first">主轨/原文在上</option>
+              <option value="translation-first">副轨/译文在上</option>
             </select>
           </div>
           <div class="biliscript-set-row biliscript-set-row-stack">

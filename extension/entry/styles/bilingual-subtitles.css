@@ -244,7 +244,8 @@
 }
 
 /* 失败重试入口（02 号票 Q6）：只在副列里、accent 色、可点；不做自动重试。 */
-#biliscript-reading-view .biliscript-bilingual-retry {
+#biliscript-reading-view .biliscript-bilingual-retry,
+#biliscript-reading-view .biliscript-bilingual-ai-refine {
   width: 100%;
   box-sizing: border-box;
   min-height: 38px;
@@ -264,8 +265,14 @@
   text-overflow: ellipsis;
 }
 
-#biliscript-reading-view .biliscript-bilingual-retry:hover {
+#biliscript-reading-view .biliscript-bilingual-retry:hover,
+#biliscript-reading-view .biliscript-bilingual-ai-refine:hover {
   background: var(--biliscript-reader-accent-soft);
+}
+
+#biliscript-reading-view .biliscript-bilingual-ai-refine[hidden],
+#biliscript-reading-view .biliscript-bilingual-retry[hidden] {
+  display: none;
 }
 
 /* 页脚：固定的一行「双语字幕 + 状态提示 + 开关」（不进设置抽屉、不随列表滚）。
@@ -399,6 +406,11 @@
   font-size: var(--biliscript-font-size-sm);
   line-height: 18px;
   color: var(--biliscript-reader-faint);
+}
+
+#biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext:first-child {
+  margin-top: 0;
+  margin-bottom: 1px;
 }
 
 /* 占位文案（加载中 / 失败）斜体且禁止划词：与正文区分，说明这一行还不是译文。 */

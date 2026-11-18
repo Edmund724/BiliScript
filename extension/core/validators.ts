@@ -23,8 +23,10 @@ import {
   type SubtitleSegmentationStrategy
 } from "./defaults.js";
 import {
+  BILINGUAL_DISPLAY_ORDER_OPTIONS,
   LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
   LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type BilingualDisplayOrder,
   type InterpretSubtitleDisplayMode,
   type LiveInterpretTargetLang
 } from "../live/interpret-subtitle-preferences.js";
@@ -269,6 +271,12 @@ export function normalizeSecondarySubtitleLang(value: unknown): string {
     return DEFAULT_SETTINGS.secondarySubtitleLang;
   }
   return normalized;
+}
+
+export function normalizeBilingualDisplayOrder(value: unknown): BilingualDisplayOrder {
+  const normalized = toString(value).trim();
+  return BILINGUAL_DISPLAY_ORDER_OPTIONS.find((option) => option.value === normalized)?.value
+    ?? DEFAULT_SETTINGS.bilingualDisplayOrder;
 }
 
 const SUBTITLE_SEGMENTATION_STRATEGIES: ReadonlySet<SubtitleSegmentationStrategy> = new Set([

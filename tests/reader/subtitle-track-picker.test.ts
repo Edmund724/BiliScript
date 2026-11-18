@@ -312,11 +312,11 @@ describe("08 选轨控件：列表 ≡ clip.subtitles", () => {
     expect(triggerText()).not.toContain("字幕");
   });
 
-  it("[AI] 标：单源列表（8 条全 ai-*）不标；混源（人工轨/ASR 伪轨 + AI 轨）才标", () => {
+  it("（B 站 AI）标：单源列表（8 条全 ai-*）不标；混源下拉项显式标（B 站 AI），trigger 保持裸语言名", () => {
     loadTracks();
     shell.renderReadingView();
-    expect(optionTexts().every((text) => !text.includes("[AI]"))).toBe(true);
-    expect(listTexts().every((text) => !text.includes("[AI]"))).toBe(true);
+    expect(optionTexts().every((text) => !text.includes("（B 站 AI）"))).toBe(true);
+    expect(listTexts().every((text) => !text.includes("（B 站 AI）"))).toBe(true);
 
     // 混源：人工上传轨 + B站 AI 轨 → AI 轨挂标，人工轨不挂
     loadTracks([
@@ -324,7 +324,7 @@ describe("08 选轨控件：列表 ≡ clip.subtitles", () => {
       { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player" }
     ], "zh-CN");
     shell.renderReadingView();
-    expect(optionTexts()).toEqual(["中文", "English [AI]"]);
+    expect(optionTexts()).toEqual(["中文", "English（B 站 AI）"]);
 
     // 混源：ASR 伪轨（asr-zh）与 AI 轨同列 → AI 轨挂标，伪轨（自带来源串）不挂
     loadTracks([
@@ -332,7 +332,7 @@ describe("08 选轨控件：列表 ≡ clip.subtitles", () => {
       { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player" }
     ], "asr");
     shell.renderReadingView();
-    expect(optionTexts()).toEqual(["自配平台转写（中文）", "English [AI]"]);
+    expect(optionTexts()).toEqual(["自配平台转写（中文）", "English（B 站 AI）"]);
   });
 
   it("ASR 缓存命中态：列表有伪轨且选中它，面板不出现「暂无字幕」（Q4/07 号票）", () => {
@@ -424,9 +424,9 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
     await Promise.resolve();
 
     expect(loadSpy).not.toHaveBeenCalled();
-    // 收敛回 state 的当前轨。trigger 与列表项同文（显示 = 现值）：混源列表下
-    // 当前轨是 AI 轨，故带 [AI] 标（Q5′ 的标只在混源时出现）。
-    expect(triggerText()).toBe("English [AI]");
+    // 收敛回 state 的当前轨；紧凑 trigger 保持裸语言名防 120px 截断，下拉项带（B 站 AI）
+    expect(triggerText()).toBe("English");
+    expect(optionTexts()[0]).toBe("English（B 站 AI）");
     expect(trigger().disabled).toBe(false);
     expect(trigger().getAttribute("aria-busy")).toBe("false");
     expect(state.clip.selectedSubtitleId).toBe("2");

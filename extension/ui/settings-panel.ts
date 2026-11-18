@@ -21,6 +21,7 @@ import {
 } from "../core/default-prompts.js";
 import {
   normalizeDownloadFormat,
+  normalizeBilingualDisplayOrder,
   normalizeSubtitleSegmentationStrategy,
   normalizeSubtitleTranslateGlossary,
   normalizePlayerAiQuickPrompt,
@@ -259,6 +260,7 @@ function collectElements(host: HTMLElement) {
     subtitleTranslateSource: byIdIn<HTMLSelectElement>(dom.subtitleTranslateSource),
     subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
     subtitleTranslateGlossary: byIdIn<HTMLTextAreaElement>(dom.subtitleTranslateGlossary),
+    bilingualDisplayOrder: byIdIn<HTMLSelectElement>(dom.bilingualDisplayOrder),
     subtitleSegmentationStrategy: byIdIn<HTMLSelectElement>(dom.subtitleSegmentationStrategy),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
@@ -366,6 +368,13 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "subtitleSegmentationStrategy",
     getElement: (el) => el.subtitleSegmentationStrategy,
     normalize: normalizeSubtitleSegmentationStrategy
+  },
+  {
+    kind: "select",
+    key: "bilingualDisplayOrder",
+    getElement: (el) => el.bilingualDisplayOrder,
+    normalize: normalizeBilingualDisplayOrder,
+    watchSync: true
   },
   {
     kind: "debounced-text",
@@ -1549,6 +1558,7 @@ function buildDefaultPreferencePayload() {
     aiInitialQuickPrompts: [],
     bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
     secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
+    bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,

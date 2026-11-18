@@ -17,7 +17,7 @@
 // 依赖方向：reader → subtitle 叶子（subtitle/selection 的目标投影与匹配叶子 +
 // subtitle/slot 的副轨槽动词 + subtitle/lazy 的链装载器）；subtitle/* 不得反向 import 本模块。
 
-import type { Settings } from "../core/defaults.js";
+import { DEFAULT_SETTINGS, type Settings } from "../core/defaults.js";
 import { state } from "../core/state.js";
 import type { SecondarySubtitleState } from "../core/state.js";
 import { logWarn } from "../shared/logging.js";
@@ -27,14 +27,26 @@ import {
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
   findTrackByRef,
+  getLangFamily,
   isMainSubtitleTrack,
+  isMonolingualNativeTracks,
+  isSameLangFamily,
   resolveTrackTarget,
   type SubtitleTrackRef,
   type SubtitleTrackTarget
 } from "../subtitle/selection.js";
 import { clearSecondary } from "../subtitle/slot.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-import { normalizeLiveInterpretTargetLang } from "../core/validators.js";
+import {
+  normalizeBilingualDisplayOrder,
+  normalizeLiveInterpretTargetLang
+} from "../core/validators.js";
+import {
+  cancelAsrTranslation,
+  ensureAsrTranslation,
+  isTranslationSecondaryScenario,
+  setAiRefineOverride
+} from "./asr-translation.js";
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
 
 // 目标轨投影：id/url 取自轨，lang 是目标轨语言（统一走 selection.ts 的规范投影
@@ -86,9 +98,16 @@ function currentTracks(): SubtitleTrack[] {
 //   点击之间轨列被换过）时沿用选项行自己的身份与 lang 兜底。
 export function resolveSecondaryTarget(ref?: SecondaryTrackRef): SecondaryTargetResolution {
   const tracks = currentTracks();
+  const mainId = state.clip.selectedSubtitleId;
+  const mainTrack = mainId
+    ? tracks.find((item) => String(item?.id || "") === String(mainId)) ?? null
+    : null;
   if (ref) {
     const track = findTrackByRef(tracks, ref);
-    if (isMainSubtitleTrack(track ?? ref, state.clip.selectedSubtitleId)) {
+    if (
+      isMainSubtitleTrack(track ?? ref, mainId) ||
+      (mainTrack && isSameLangFamily((track ?? ref)?.lan ?? ref.lang, mainTrack.lan))
+    ) {
       return { kind: "none", reason: "main-track" };
     }
     if (!track && !String(ref.url || "")) {
@@ -97,17 +116,32 @@ export function resolveSecondaryTarget(ref?: SecondaryTrackRef): SecondaryTarget
     return { kind: "target", target: resolveTrackTarget(track ?? ref) };
   }
 
+  // 同语种族多轨（如繁简双轨 zh-Hans + zh-Hant）或单轨视频整体视为单语种，不自动配对原生轨。
+  if (isMonolingualNativeTracks(tracks)) {
+    return { kind: "none", reason: "no-track" };
+  }
+
   const pick = String(state.settings.secondarySubtitleLang || "").trim();
   if (!pick) {
     return { kind: "none", reason: "no-preference" };
   }
-  const mainId = state.clip.selectedSubtitleId;
   const track = findSecondaryTrackByPreferredLang(tracks, pick, mainId);
   if (track) {
     return { kind: "target", target: resolveTrackTarget(track) };
   }
-  // 「没命中」要分两态（副列文案不同）：命中的是主轨 ⇒ main-track，本视频根本没有该语言
-  // 的真轨 ⇒ no-track。用未排除主轨的基础匹配判据，与副列投影同一份实现。
+  // 当主轨为外语（如 en-US）且副轨偏好仍停在出厂默认 en-US 时，自动配对可用的中文轨（场景 A / C）。
+  if (
+    mainTrack &&
+    pick === DEFAULT_SETTINGS.secondarySubtitleLang &&
+    isSameLangFamily(pick, mainTrack.lan) &&
+    getLangFamily(mainTrack.lan) !== "zh"
+  ) {
+    const zhPartner = findSecondaryTrackByPreferredLang(tracks, "zh-CN", mainId);
+    if (zhPartner) {
+      return { kind: "target", target: resolveTrackTarget(zhPartner) };
+    }
+  }
+  // 「没命中」分两态：命中的轨与主轨同轨或同语种族 ⇒ main-track；本视频根本没有该语言的真轨 ⇒ no-track。
   return { kind: "none", reason: findTrackByPreferredLang(tracks, pick) ? "main-track" : "no-track" };
 }
 
@@ -247,6 +281,9 @@ export function ensureSecondarySubtitleLoaded(options?: EnsureSecondaryOptions):
   if (state.settings.bilingualSubtitles !== true) {
     return { kind: "skipped", reason: "bilingual-off" };
   }
+  if (isTranslationSecondaryScenario(currentTracks())) {
+    return { kind: "skipped", reason: "no-track" };
+  }
   const slot = state.clip.secondarySubtitle;
   if (!slot || slot.state !== "idle") {
     return { kind: "skipped", reason: "slot-busy" };
@@ -260,12 +297,16 @@ export function ensureSecondarySubtitleLoaded(options?: EnsureSecondaryOptions):
 
 // ===== 双语同轨防呆（Q8）与偏好控制 =====
 
-// 主轨切到了副轨槽当前装着的同一条轨 ⇒ 清副轨槽（Q8 反方向；全局偏好 secondarySubtitleLang
-// 保持不动，投影据此出第三套空态文案「主副字幕相同」）。判据复用 isMainSubtitleTrack
-//（两侧 id 非空且相等），读主轨接受事务之后的 state——切轨失败时 state 未变，不会误清。
+// 主轨切到了副轨槽当前装着的同一条轨或同一语种族轨 ⇒ 清副轨槽。
 export function clearSecondarySubtitleIfShadowedByMain(): boolean {
   const slot = state.clip.secondarySubtitle;
-  if (!isMainSubtitleTrack(slot, state.clip.selectedSubtitleId)) {
+  const tracks = currentTracks();
+  const mainTrack = findTrackByRef(tracks, { id: state.clip.selectedSubtitleId, url: state.clip.selectedSubtitleUrl });
+  const subTrack = slot.url ? findTrackByRef(tracks, { id: slot.id, url: slot.url }) : null;
+  if (
+    !isMainSubtitleTrack(slot, state.clip.selectedSubtitleId) &&
+    !(mainTrack && subTrack && isSameLangFamily(mainTrack.lan, subTrack.lan))
+  ) {
     return false;
   }
   clearSecondary();
@@ -290,6 +331,8 @@ export function selectSecondarySubtitleTrack(ref: SecondaryTrackRef): SecondaryS
   if (!url) {
     return { kind: "skipped", reason: "no-track" };
   }
+  setAiRefineOverride(false);
+  cancelAsrTranslation();
   const lang = String(ref.lang || "");
   state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
   persistReaderSettingsThroughSeam();
@@ -316,13 +359,32 @@ function activatePreferredSecondaryTarget(): SecondaryEnsureOutcome {
   return ensureSecondarySubtitleLoaded();
 }
 
-// 页脚双语开关切换：写全局偏好并立即落盘，打开时按偏好激活目标轨（关闭只停显示、
-// 不清副轨槽），并通知列表属主重渲。
+export function exitAiRefineAndLoadNativeSecondary(): SecondaryEnsureOutcome {
+  setAiRefineOverride(false);
+  cancelAsrTranslation();
+  clearSecondary();
+  const outcome = activatePreferredSecondaryTarget();
+  notifyReaderPresenter({ kind: "rerender" });
+  return outcome;
+}
+
+// 页脚双语开关切换：写全局偏好并立即落盘；跨语种多轨默认零 Token 配对原生副轨，
+// 单语种/伪轨/已选精翻覆盖时启动或中止 AI 译文副轨。
 export function toggleBilingualSubtitles(
   enabled: boolean = state.settings.bilingualSubtitles !== true
 ): SecondaryEnsureOutcome {
   state.setSettings({ ...state.settings, bilingualSubtitles: enabled });
   persistReaderSettingsThroughSeam();
+  const translationScenario = isTranslationSecondaryScenario(currentTracks());
+  if (translationScenario) {
+    if (enabled) {
+      void ensureAsrTranslation("translate");
+    } else {
+      cancelAsrTranslation();
+    }
+    notifyReaderPresenter({ kind: "rerender" });
+    return { kind: "skipped", reason: enabled ? "no-track" : "bilingual-off" };
+  }
   const outcome: SecondaryEnsureOutcome = enabled
     ? activatePreferredSecondaryTarget()
     : { kind: "skipped", reason: "bilingual-off" };
@@ -357,7 +419,8 @@ export function syncBilingualSettingsFromStorage(
   const bilingual = changes["bilingualSubtitles"];
   const lang = changes["secondarySubtitleLang"];
   const translateLang = changes["liveInterpretTargetLang"];
-  if (!bilingual && !lang && !translateLang) {
+  const displayOrder = changes["bilingualDisplayOrder"];
+  if (!bilingual && !lang && !translateLang && !displayOrder) {
     return {
       changed: false,
       loadOutcome: { kind: "skipped", reason: "bilingual-off" }
@@ -373,10 +436,16 @@ export function syncBilingualSettingsFromStorage(
   if (translateLang && typeof translateLang.newValue === "string") {
     updates.liveInterpretTargetLang = normalizeLiveInterpretTargetLang(translateLang.newValue);
   }
+  if (displayOrder && typeof displayOrder.newValue === "string") {
+    updates.bilingualDisplayOrder = normalizeBilingualDisplayOrder(displayOrder.newValue);
+  }
   state.setSettings({ ...state.settings, ...updates });
   const loadOutcome: SecondaryEnsureOutcome =
     state.settings.bilingualSubtitles === true
       ? activatePreferredSecondaryTarget()
       : { kind: "skipped", reason: "bilingual-off" };
+  if (displayOrder) {
+    notifyReaderPresenter({ kind: "rerender" });
+  }
   return { changed: true, loadOutcome };
 }

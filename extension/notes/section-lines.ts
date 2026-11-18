@@ -39,6 +39,7 @@ interface SubtitleBodyItemLike {
 // 调用方（ai/subtitle-prompt）只构造该字段。
 interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
+  bilingualDisplayOrder?: "original-first" | "translation-first";
 }
 
 // 双语副行解析器（07 号票）：由消费点（subtitle/core 的派生重建 / subtitle/ui 的复制）
@@ -140,14 +141,14 @@ function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSett
   if (!text) {
     return "";
   }
-  const main = settings.includeTimestampInBody
-    ? `\`${formatClock(item.from as number, { hours: withHours })}\` ${text}`
-    : text;
-  // 双语副行（07 号票裁定）：紧随主行、**缩进两格**、**不带时间戳**——时间戳属于「段」
-  // 不属于「行」，两行共用一个时间戳才不重复。副轨缺失段 / 未就绪 ⇒ 折叠（没有副行），
-  // 该段输出与单轨逐字相同；双语关时 secondaryFor 为 undefined，本函数一次调用都不多。
   const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
-  return secondary ? `${main}\n  ${secondary}` : main;
+  const translationFirst = Boolean(secondary && settings.bilingualDisplayOrder === "translation-first");
+  const topText = translationFirst ? secondary : text;
+  const bottomText = translationFirst ? text : secondary;
+  const firstLine = settings.includeTimestampInBody
+    ? `\`${formatClock(item.from as number, { hours: withHours })}\` ${topText}`
+    : topText;
+  return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
 }
 
 // withHours 元数据级判定（arch-slim-2/08）：聚合（字幕末尾 / 章节边界 / 视频时长

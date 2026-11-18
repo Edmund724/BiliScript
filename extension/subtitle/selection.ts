@@ -14,6 +14,241 @@
 
 import { normalizeSubtitleUrlForCache, type RawSubtitleTrack } from "../bilibili/native-payload.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
+import {
+  LIVE_INTERPRET_TARGET_BCP47,
+  LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type LiveInterpretTargetLang
+} from "../live/interpret-subtitle-preferences.js";
+
+// 语种族别名映射（BCP-47 / ISO-639-2/3 / 地区方言码 → 统一语种族短码）。
+const LANG_FAMILY_ALIASES: Record<string, string> = {
+  zh: "zh",
+  zho: "zh",
+  chi: "zh",
+  cmn: "zh",
+  yue: "zh",
+  wuu: "zh",
+  nan: "zh",
+  hak: "zh",
+  en: "en",
+  eng: "en",
+  ja: "ja",
+  jp: "ja",
+  jpn: "ja",
+  ko: "ko",
+  kor: "ko",
+  de: "de",
+  deu: "de",
+  ger: "de",
+  fr: "fr",
+  fra: "fr",
+  fre: "fr",
+  es: "es",
+  spa: "es",
+  ru: "ru",
+  rus: "ru",
+  it: "it",
+  ita: "it",
+  pt: "pt",
+  por: "pt",
+  tr: "tr",
+  tur: "tr",
+  el: "el",
+  ell: "el",
+  gre: "el",
+  id: "id",
+  ind: "id",
+  in: "id",
+  ms: "ms",
+  msa: "ms",
+  may: "ms"
+};
+
+/**
+ * 语种族归一化：将 `zh-CN`/`zh-Hans`/`zh-TW`/`zh-HK`/`zh-Hant`/`ai-zh`/`asr-zh` 归为 `"zh"`，
+ * `en-US`/`en-GB`/`ai-en` 归为 `"en"`，`ja`/`ja-JP`/`ai-ja` 归为 `"ja"` 等。
+ */
+export function getLangFamily(lan: unknown): string {
+  const cleaned = String(lan || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(ai|asr)[-_]/, "");
+  if (!cleaned || cleaned === "auto" || cleaned === "unknown") {
+    return "";
+  }
+  const primary = cleaned.split(/[-_]/)[0] || "";
+  if (!primary) {
+    return "";
+  }
+  return Object.prototype.hasOwnProperty.call(LANG_FAMILY_ALIASES, primary)
+    ? LANG_FAMILY_ALIASES[primary]
+    : primary;
+}
+
+export function isSameLangFamily(lanA: unknown, lanB: unknown): boolean {
+  const familyA = getLangFamily(lanA);
+  const familyB = getLangFamily(lanB);
+  return Boolean(familyA && familyB && familyA === familyB);
+}
+
+/**
+ * 轨道性质分类：
+ * - `manual-cc`：UP 主或字幕组上传的原生人工轨（`!lan.startsWith("ai-") && id !== "asr"`）；
+ * - `bili-ai`：B 站官方自动生成的机器轨（`lan.startsWith("ai-")`）；
+ * - `asr`：BiliScript Offscreen 语音转写伪轨（`id === "asr"` 或 `asr-*` 伪轨）。
+ */
+export type SubtitleTrackKind = "manual-cc" | "bili-ai" | "asr";
+
+export function classifySubtitleTrack(
+  track: { id?: unknown; lan?: unknown; subtitleUrl?: unknown } | null | undefined
+): SubtitleTrackKind {
+  const id = String(track?.id ?? "").trim();
+  const lan = String(track?.lan ?? "").trim().toLowerCase();
+  if (id === "asr" || lan === "asr" || lan.startsWith("asr-")) {
+    return "asr";
+  }
+  if (lan.startsWith("ai-")) {
+    return "bili-ai";
+  }
+  return "manual-cc";
+}
+
+export function isLoadableNativeTrack(
+  track: { id?: unknown; lan?: unknown; subtitleUrl?: unknown } | null | undefined
+): boolean {
+  return classifySubtitleTrack(track) !== "asr" && String(track?.subtitleUrl ?? "").trim().length > 0;
+}
+
+/**
+ * 判定视频的所有可用原生真轨是否均属同一语种族（如单条 `en-US`、单条 `zh-CN`、或
+ * `zh-Hans` + `zh-Hant` / `zh-CN` + `ai-zh` 同族多轨）。
+ * 同语种族多轨整体视为「单语种视频」，禁止自动配成上简下繁假双语。
+ */
+export function isMonolingualNativeTracks(
+  tracks: readonly { id?: unknown; lan?: unknown; subtitleUrl?: unknown }[] | null | undefined
+): boolean {
+  const nativeTracks = (tracks || []).filter(isLoadableNativeTrack);
+  if (nativeTracks.length === 0) {
+    return false;
+  }
+  const families = new Set<string>();
+  for (const track of nativeTracks) {
+    const family = getLangFamily(track.lan);
+    if (family) {
+      families.add(family);
+    }
+  }
+  return families.size <= 1;
+}
+
+/**
+ * 判定视频是否存在跨语种族的真人工多轨（场景 A：如人工 `en-US` + 人工 `zh-CN`）。
+ */
+export function hasCrossLangManualTracks(
+  tracks: readonly { id?: unknown; lan?: unknown; subtitleUrl?: unknown }[] | null | undefined
+): boolean {
+  const manualTracks = (tracks || []).filter(
+    (track) => isLoadableNativeTrack(track) && classifySubtitleTrack(track) === "manual-cc"
+  );
+  const families = new Set(manualTracks.map((track) => getLangFamily(track.lan)).filter(Boolean));
+  return families.size >= 2;
+}
+
+/**
+ * 查找场景 C（存在高质量人工外语 CC，而中文仅有机器 `ai-zh`、无人工中文 CC）中的原版人工外语轨。
+ */
+export function findManualForeignTrackForAiRefine<
+  T extends { id?: string; lan?: string; lanDoc?: string; subtitleUrl?: string }
+>(tracks: readonly T[] | null | undefined): T | null {
+  const nativeTracks = (tracks || []).filter(isLoadableNativeTrack);
+  const hasManualZh = nativeTracks.some(
+    (track) => classifySubtitleTrack(track) === "manual-cc" && getLangFamily(track.lan) === "zh"
+  );
+  if (hasManualZh) {
+    return null;
+  }
+  const hasAiZh = nativeTracks.some(
+    (track) => classifySubtitleTrack(track) === "bili-ai" && getLangFamily(track.lan) === "zh"
+  );
+  if (!hasAiZh) {
+    return null;
+  }
+  return (
+    nativeTracks.find(
+      (track) => classifySubtitleTrack(track) === "manual-cc" && getLangFamily(track.lan) !== "zh"
+    ) ?? null
+  );
+}
+
+/**
+ * 将任意目标语言输入（短码 `zh`/`en` 或 BCP-47 `zh-CN`/`en-US`）解析为词表内的短码。
+ */
+export function parseInterpretTargetLang(value: unknown): LiveInterpretTargetLang | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+  const exact = LIVE_INTERPRET_TARGET_LANG_OPTIONS.find(
+    (option) => option.value === raw.toLowerCase()
+  );
+  if (exact) {
+    return exact.value;
+  }
+  const family = getLangFamily(raw);
+  if (!family) {
+    return null;
+  }
+  return LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === family)?.value ?? null;
+}
+
+export function toCanonicalTargetLangBcp47(targetLang: unknown): string {
+  const parsed = parseInterpretTargetLang(targetLang);
+  if (parsed) {
+    return LIVE_INTERPRET_TARGET_BCP47[parsed];
+  }
+  return String(targetLang ?? "").trim() || "zh-CN";
+}
+
+/**
+ * 返回剔除与源轨同语种族后的候选翻译目标语言列表（根除 `zh -> zh` / `en -> en` 同族自翻译）。
+ */
+export function getAvailableTargetLangOptions(
+  sourceLan: unknown
+): ReadonlyArray<(typeof LIVE_INTERPRET_TARGET_LANG_OPTIONS)[number]> {
+  const sourceFamily = getLangFamily(sourceLan);
+  if (!sourceFamily) {
+    return LIVE_INTERPRET_TARGET_LANG_OPTIONS;
+  }
+  return LIVE_INTERPRET_TARGET_LANG_OPTIONS.filter(
+    (option) => getLangFamily(option.value) !== sourceFamily
+  );
+}
+
+/**
+ * 解析翻译目标语言（短码）：自动过滤掉与 `sourceLan` 同语种族的偏好；
+ * 源轨属 `"zh"` 族时默认回落 `"en"`（`en-US`），非 `"zh"` 族默认回落 `"zh"`（`zh-CN`）。
+ */
+export function resolveTargetLang(
+  sourceLan: unknown,
+  preferredTargetLan?: unknown
+): LiveInterpretTargetLang {
+  const sourceFamily = getLangFamily(sourceLan);
+  const preferred = parseInterpretTargetLang(preferredTargetLan);
+  if (preferred && (!sourceFamily || getLangFamily(preferred) !== sourceFamily)) {
+    return preferred;
+  }
+  return sourceFamily === "zh" ? "en" : "zh";
+}
+
+/**
+ * 解析翻译目标语言的规范 BCP-47 标签（如 `"zh-CN"` / `"en-US"`）。
+ */
+export function resolveTargetLangBcp47(
+  sourceLan: unknown,
+  preferredTargetLan?: unknown
+): string {
+  return LIVE_INTERPRET_TARGET_BCP47[resolveTargetLang(sourceLan, preferredTargetLan)];
+}
 
 export interface PreferredSubtitleContext {
   previousId?: string;
@@ -171,30 +406,40 @@ export function pickPreferredSubtitle(
 // 只考虑 `subtitleUrl` 非空的真轨：ASR 伪轨是主轨的兜底，不是可对照的第二语言。
 // 返回 `null` = 本视频没有可用的目标语言轨，调用方据此留空（不替用户猜）。
 export function subtitlePrimaryLangTag(lan: unknown): string {
-  return String(lan || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^(ai|asr)-/, "")
-    .split("-")[0];
+  return getLangFamily(lan);
 }
 
-export function findTrackByPreferredLang<T extends { lan?: string; subtitleUrl?: string }>(
+export function findTrackByPreferredLang<T extends { id?: string; lan?: string; subtitleUrl?: string }>(
   tracks: readonly T[] | null | undefined,
   preference: unknown
 ): T | null {
   const wanted = String(preference || "")
     .trim()
     .toLowerCase();
-  const target = subtitlePrimaryLangTag(wanted);
+  const target = getLangFamily(wanted);
   if (!target) {
     return null;
   }
-  const loadable = (tracks || []).filter((track) => String(track.subtitleUrl || "").trim().length > 0);
-  return (
-    loadable.find((track) => String(track.lan || "").trim().toLowerCase() === wanted) ||
-    loadable.find((track) => subtitlePrimaryLangTag(track.lan) === target) ||
-    null
+  const loadable = (tracks || []).filter((track) => isLoadableNativeTrack(track));
+  const exactManual = loadable.find(
+    (track) =>
+      classifySubtitleTrack(track) === "manual-cc" &&
+      String(track.lan || "").trim().toLowerCase() === wanted
   );
+  if (exactManual) {
+    return exactManual;
+  }
+  const exactAny = loadable.find((track) => String(track.lan || "").trim().toLowerCase() === wanted);
+  if (exactAny) {
+    return exactAny;
+  }
+  const familyManual = loadable.find(
+    (track) => classifySubtitleTrack(track) === "manual-cc" && getLangFamily(track.lan) === target
+  );
+  if (familyManual) {
+    return familyManual;
+  }
+  return loadable.find((track) => getLangFamily(track.lan) === target) || null;
 }
 
 // 主轨判据（两侧 id 都非空才可能同轨）：任一侧为空串都不算——未选轨（主列哨兵）与
@@ -204,13 +449,8 @@ export function isMainSubtitleTrack(track: { id?: string } | null | undefined, m
   return !!id && id === String(mainTrackId || "");
 }
 
-// 副字幕的目标轨 = 上面的语言两级命中 + **排除主轨**（bilingual-subtitles/06 +
-// 2026-10-06 图外回访）。命中主轨时返回 null，而**不是**顺位退到同语言的另一条轨：
-// 偏好 zh-CN、主轨是人工 zh-CN 时退到 ai-zh 仍是两份中文，用户要的是「没有可对照的
-// 第二语言」这个结论。
-// 判据必须住在这个共享叶子里：目标轨的装载入口有两条（弹层副列与 reader 生命周期
-// 的自动装载），只在一处加，另一处就会把主轨抓进副轨槽 ⇒ 列表出两份一样的正文，
-// 而弹层副列同时写着「主副字幕相同」（文案与 state 两说）。
+// 副字幕的目标轨 = 语言两级命中 + 排除主轨本身 + 排除与主轨同一语种族的轨（严禁将
+// 同属 "zh" 族的 zh-Hans 与 zh-Hant 或 zh-CN 与 ai-zh 自动配成假双语）。
 export function findSecondaryTrackByPreferredLang<T extends { id?: string; lan?: string; subtitleUrl?: string }>(
   tracks: readonly T[] | null | undefined,
   preference: unknown,
@@ -218,6 +458,13 @@ export function findSecondaryTrackByPreferredLang<T extends { id?: string; lan?:
 ): T | null {
   const track = findTrackByPreferredLang(tracks, preference);
   if (!track || isMainSubtitleTrack(track, mainTrackId)) {
+    return null;
+  }
+  const mainIdStr = String(mainTrackId || "");
+  const mainTrack = mainIdStr
+    ? (tracks || []).find((item) => String(item?.id || "") === mainIdStr) ?? null
+    : null;
+  if (mainTrack && isSameLangFamily(track.lan, mainTrack.lan)) {
     return null;
   }
   return track;

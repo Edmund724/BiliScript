@@ -30,7 +30,8 @@ export type TrackIdentity =
   | { kind: "url"; url: unknown } // → url_<缓存键分量；归一后非空>
   | { kind: "lang"; lang: unknown } // → lang_<小写；空为 unknown>
   | { kind: "asr"; providerId: unknown; model: unknown; lang: unknown } // → id_asr:<p>:<m>:<l>
-  | { kind: "translated"; targetLang: unknown }; // → id_translate-<目标语言>
+  | { kind: "translated"; targetLang: unknown } // → id_translate-<目标语言>（ASR 伪轨译文兼容键）
+  | { kind: "track-translated"; sourceKey: unknown; targetLang: unknown }; // → <sourceTrackKey>_translate-<目标语言>
 
 // ASR 伪轨 id 的根名（叶内唯一根常量）：变体前缀与变体判据都从它派生。
 const ASR_VARIANT_ROOT = "asr";
@@ -45,6 +46,11 @@ export const TRANSLATED_SOURCE_KEY_PREFIX = `id_${TRANSLATED_VARIANT_ROOT}`;
 // 译文副轨的轨身份串（缓存键分量与副轨槽 id 同源）：`translate-<目标语言>`。
 export function translatedTrackId(targetLang: unknown): string {
   return `${TRANSLATED_VARIANT_ROOT}${String(targetLang || "").trim()}`;
+}
+
+// 原生源轨 AI 精翻副轨的身份串：`<sourceTrackKey>_translate-<目标语言>`。
+export function trackTranslatedSlotId(sourceKey: unknown, targetLang: unknown): string {
+  return `${String(sourceKey || "").trim()}_${translatedTrackId(targetLang)}`;
 }
 
 // id_ 分支分量（track / asr / translated 共用同一语义：整体 trim 后进键）。
@@ -84,6 +90,8 @@ export function subtitleSourceKey(identity: TrackIdentity): string {
       );
     case "translated":
       return trackIdComponent(translatedTrackId(identity.targetLang));
+    case "track-translated":
+      return trackTranslatedSlotId(identity.sourceKey, identity.targetLang);
   }
 }
 

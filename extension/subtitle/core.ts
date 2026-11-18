@@ -213,7 +213,7 @@ export function rebuildDerivedContent(): void {
   // 渲染函数仍可单测；双语关时 resolver 为 undefined，单轨输出逐字节不变。
   const secondaryFor = createSecondaryLineResolver();
   clipState.setMarkdown(buildMarkdown(state as State, body, state.settings, secondaryFor));
-  clipState.setSrt(buildSrt(body, secondaryFor));
+  clipState.setSrt(buildSrt(body, secondaryFor, state.settings));
   clipState.setTxt(buildTxt(body, state.settings, secondaryFor));
 }
 

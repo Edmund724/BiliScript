@@ -140,9 +140,10 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
   });
 
   it("槽语言统一 lanDoc || lan || unknown（轨 id 为空时它是缓存 source key 的分量）", () => {
-    // 偏好路径：有 lan 才能被两级匹配命中 ⇒ 取 lanDoc
+    // 偏好路径：跨语种下有 lan 才能被两级匹配命中 ⇒ 取 lanDoc / lan
     setBilingual(true, "en-US");
-    clipState.setSubtitles([{ id: "", lan: "ai-en", subtitleUrl: "https://sub/ai-en.json" }]);
+    clipState.setSubtitles([ZH_TRACK, { id: "", lan: "ai-en", subtitleUrl: "https://sub/ai-en.json" }]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
 
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
@@ -173,7 +174,7 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
     expect(module.resolveSecondaryTarget()).toEqual({ kind: "none", reason: "main-track" });
   });
 
-  it("对照：主轨是另一条同语言轨时照常给目标（排除按轨身份，不按语言）", () => {
+  it("同语种族防呆：主轨是另一条同族中文轨（如 zh-CN 与 ai-zh）时按 main-track 拦截，跨语种族照常命中", () => {
     setBilingual(true, "ai-zh");
     const CC_ZH = {
       id: "cc-zh",
@@ -183,11 +184,14 @@ describe("resolveSecondaryTarget（目标解析：偏好 × 轨列 × 主轨身�
       source: "player-wbi-v2"
     };
     clipState.setSubtitles([ZH_TRACK, CC_ZH, EN_TRACK]);
-    clipState.setSelectedSubtitleId(CC_ZH.id); // 主轨 = 人工 zh-CN，副轨目标 = ai-zh
+    clipState.setSelectedSubtitleId(CC_ZH.id); // 主轨 = 人工 zh-CN，副轨偏好 = ai-zh（同属 zh 族）
 
+    expect(module.resolveSecondaryTarget()).toEqual({ kind: "none", reason: "main-track" });
+
+    setBilingual(true, "ai-en");
     expect(module.resolveSecondaryTarget()).toEqual({
       kind: "target",
-      target: { id: ZH_TRACK.id, url: ZH_TRACK.subtitleUrl, lang: ZH_TRACK.lanDoc }
+      target: { id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: EN_TRACK.lanDoc }
     });
   });
 

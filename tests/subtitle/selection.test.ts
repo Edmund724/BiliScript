@@ -221,9 +221,10 @@ describe("副轨目标 = 语言命中 + 排除主轨（findSecondaryTrackByPrefe
     expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "ai-zh", "1")).toBe(null);
   });
 
-  it("按**轨身份**排除、不按语言：主轨是另一条同语言轨时照常命中", () => {
-    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "ai-zh", "4")?.id).toBe("1");
-    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", "1")?.id).toBe("4");
+  it("按轨身份与语种族双重排除：同属 zh 族的另一条轨严禁配成假双语，跨语种族照常命中", () => {
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "ai-zh", "4")).toBe(null);
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", "1")).toBe(null);
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiEn], "en-US", "4")?.id).toBe("2");
   });
 
   it("主轨身份为空（未选轨 / 伪轨）/ 偏好命中不了 ⇒ 与基础匹配同结果", () => {

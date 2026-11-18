@@ -168,13 +168,14 @@ export function replaceMainLineContent(
     return false;
   }
   const subtext = getSubtextNode(item);
+  const subtextFirst = Boolean(subtext && textNode.firstChild === subtext);
   for (const child of Array.from(textNode.childNodes)) {
     if (child === subtext) {
       continue;
     }
     textNode.removeChild(child);
   }
-  if (subtext) {
+  if (subtext && !subtextFirst) {
     textNode.insertBefore(fragment, subtext);
   } else {
     textNode.appendChild(fragment);

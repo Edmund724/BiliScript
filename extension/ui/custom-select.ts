@@ -578,6 +578,9 @@ function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
   const li = document.createElement("li");
   li.className = "custom-select-option";
   li.dataset.value = option.value;
+  if (option.dataset.triggerLabel) {
+    li.dataset.triggerLabel = option.dataset.triggerLabel;
+  }
   li.textContent = option.textContent || option.value;
   li.setAttribute("role", "option");
   li.tabIndex = -1;
@@ -647,7 +650,7 @@ export function initCustomSelect(
     trigger.setAttribute("aria-labelledby", `${fieldLabel.id} ${valueSpan.id}`);
   }
   const currentOption = Array.from(select.options).find((o) => o.value === currentValue) ?? select.options[0];
-  valueSpan.textContent = currentOption?.textContent || "";
+  valueSpan.textContent = currentOption?.dataset.triggerLabel || currentOption?.textContent || "";
   // label 路径：名字由「字段标签 + 当前值」两个节点拼成（aria-labelledby），值改名字
   // 自动重算，无需在写回处同步。aria-label 路径：无字段 label 时用它当字段名，按
   // 「字段名 + 当前值」拼成 trigger 的 aria-label，随 syncDisplayFromValue 按现值重算。
@@ -713,10 +716,10 @@ export function initCustomSelect(
   const syncDisplayFromValue = (): void => {
     const option = optionNodes.find((o) => o.dataset.value === select.value);
     if (option) {
-      valueSpan.textContent = option.textContent || "";
+      valueSpan.textContent = option.dataset.triggerLabel || option.textContent || "";
       markSelected(option);
     } else {
-      valueSpan.textContent = optionNodes[0]?.textContent || "";
+      valueSpan.textContent = optionNodes[0]?.dataset.triggerLabel || optionNodes[0]?.textContent || "";
       optionNodes.forEach((o) => {
         o.dataset.selected = "false";
         o.setAttribute("aria-selected", "false");

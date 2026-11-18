@@ -12,11 +12,22 @@ import { subscribeReaderPresenter } from "../reader/reader-bus.js";
 import {
   LIVE_INTERPRET_LATIN_TARGET_LANGS,
   LIVE_INTERPRET_TARGET_LANG_OPTIONS,
+  type BilingualDisplayOrder,
   type InterpretSubtitleDisplayMode,
   type LiveInterpretTargetLang
 } from "./interpret-subtitle-preferences.js";
 import {
+  classifySubtitleTrack,
+  findManualForeignTrackForAiRefine,
+  findTrackByRef,
+  getAvailableTargetLangOptions,
+  isLoadableNativeTrack,
+  isMonolingualNativeTracks,
+  resolveTargetLang
+} from "../subtitle/selection.js";
+import {
   createInterpretSessionController,
+  type InterpretAiRefineMode,
   type InterpretSessionController
 } from "./interpret-session-controller.js";
 
@@ -87,6 +98,31 @@ export interface InterpretSubtitleOverlayDeps {
   getPlayerHost: () => HTMLElement | null;
   getTargetLang: () => LiveInterpretTargetLang;
   getDisplayMode: () => InterpretSubtitleDisplayMode;
+  getDisplayOrder?: () => BilingualDisplayOrder;
+}
+
+const NATIVE_SUBTITLE_TAKEOVER_ATTR = "data-biliscript-subtitle-takeover";
+
+export function syncNativePlayerSubtitleTakeover(
+  active: boolean,
+  explicitHost?: HTMLElement | null
+): void {
+  if (!active) {
+    document
+      .querySelectorAll<HTMLElement>(`[${NATIVE_SUBTITLE_TAKEOVER_ATTR}]`)
+      .forEach((node) => node.removeAttribute(NATIVE_SUBTITLE_TAKEOVER_ATTR));
+    return;
+  }
+  const hosts = [
+    explicitHost ?? null,
+    getFullscreenHost(),
+    document.querySelector<HTMLElement>(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap")
+  ].filter((node): node is HTMLElement => node instanceof HTMLElement);
+  for (const host of hosts) {
+    if (host.getAttribute(NATIVE_SUBTITLE_TAKEOVER_ATTR) !== "true") {
+      host.setAttribute(NATIVE_SUBTITLE_TAKEOVER_ATTR, "true");
+    }
+  }
 }
 
 export interface InterpretSubtitleOverlay {
@@ -175,6 +211,13 @@ export function createInterpretSubtitleOverlay(
   function setSubtitle(original: string, translation: string): void {
     const root = ensureMounted();
     if (!root || !originalEl || !translationEl) return;
+    const order = deps.getDisplayOrder?.() || "original-first";
+    const expectedFirst = order === "translation-first" ? translationEl : originalEl;
+    const expectedSecond = order === "translation-first" ? originalEl : translationEl;
+    if (root.firstElementChild !== expectedFirst) {
+      root.insertBefore(expectedFirst, expectedSecond);
+    }
+
     const lines = resolveInterpretSubtitleLines(original, deps.getTargetLang(), deps.getDisplayMode());
     const showOriginal = lines.showOriginal && Boolean(original.trim());
     const showTranslation = lines.showTranslation && Boolean(translation.trim());
@@ -205,12 +248,18 @@ export type InterpretSubtitleMenuSessionState = "idle" | "connecting" | "connect
 
 export type InterpretSubtitleMenuChoice =
   | { kind: "off" }
+  | { kind: "native-bilingual" }
+  | { kind: "ai-refine"; refineMode: "manual-refine" | "foreign-refine" }
   | { kind: "translation"; targetLang: LiveInterpretTargetLang }
   | { kind: "bilingual"; targetLang: LiveInterpretTargetLang };
 
 export interface InterpretSubtitleMenuPreferences {
   targetLang: string;
   displayMode: string;
+  sourceLan?: string;
+  nativePairAvailable?: boolean;
+  foreignRefineAvailable?: boolean;
+  aiRefineMode?: InterpretAiRefineMode;
 }
 
 export interface InterpretSubtitleMenuDeps {
@@ -286,17 +335,28 @@ function buildMenuShell(): HTMLElement {
 }
 
 async function renderMenu(): Promise<void> {
-  if (!menuEl || !activeDeps) return;
+  const deps = activeDeps;
+  if (!menuEl || !deps) return;
   const generation = ++openGeneration;
-  const [{ targetLang, displayMode }, sessionState] = [
-    await activeDeps.getPreferences(),
-    activeDeps.getSessionState()
-  ];
-  if (generation !== openGeneration || !menuEl) return;
+  const prefs = await deps.getPreferences();
+  if (generation !== openGeneration || !menuEl || activeDeps !== deps) return;
+  const sessionState = deps.getSessionState();
 
+  const {
+    targetLang,
+    displayMode,
+    sourceLan = "",
+    nativePairAvailable = false,
+    foreignRefineAvailable = false,
+    aiRefineMode = "off"
+  } = prefs;
   const running = sessionState === "connected" || sessionState === "connecting";
   const bilingualOn = running && displayMode !== "translation";
-  const currentLang = normalizeTargetLang(targetLang);
+  const availableOptions = getAvailableTargetLangOptions(sourceLan);
+  const currentLang = sourceLan
+    ? resolveTargetLang(sourceLan, targetLang)
+    : normalizeTargetLang(targetLang);
+  const inNativePairMode = nativePairAvailable && aiRefineMode === "off";
 
   menuEl.replaceChildren();
 
@@ -319,10 +379,35 @@ async function renderMenu(): Promise<void> {
   offItem.addEventListener("click", () => void choose({ kind: "off" }));
   menuEl.appendChild(offItem);
 
-  if (!bilingualOn) {
+  if (nativePairAvailable) {
+    const refineItem = document.createElement("button");
+    refineItem.type = "button";
+    refineItem.className = "biliscript-interpret-menu-item";
+    if (aiRefineMode !== "off") {
+      refineItem.dataset.action = "native-bilingual";
+      const label = document.createElement("span");
+      label.className = "biliscript-interpret-menu-item-label";
+      label.textContent = "返回原生双轨配对";
+      refineItem.appendChild(label);
+      refineItem.addEventListener("click", () => void choose({ kind: "native-bilingual" }));
+    } else {
+      const mode = foreignRefineAvailable ? "foreign-refine" : "manual-refine";
+      refineItem.dataset.action = mode;
+      const label = document.createElement("span");
+      label.className = "biliscript-interpret-menu-item-label";
+      label.textContent = foreignRefineAvailable ? "基于原版外语轨 AI 精翻" : "改用 AI 重新精翻";
+      refineItem.append(label, buildAiBadge());
+      refineItem.addEventListener("click", () =>
+        void choose({ kind: "ai-refine", refineMode: mode })
+      );
+    }
+    menuEl.appendChild(refineItem);
+  }
+
+  if (!bilingualOn && !inNativePairMode) {
     const list = document.createElement("div");
     list.className = "biliscript-interpret-menu-langs";
-    for (const option of LIVE_INTERPRET_TARGET_LANG_OPTIONS) {
+    for (const option of availableOptions) {
       const selected = running && option.value === currentLang;
       const item = buildLangItem(option.value, selected);
       item.addEventListener("click", () => void choose({ kind: "translation", targetLang: option.value }));
@@ -349,6 +434,10 @@ async function renderMenu(): Promise<void> {
   toggle.appendChild(document.createElement("span"));
   if (bilingualOn) toggle.classList.add("is-on");
   toggle.addEventListener("click", () => {
+    if (inNativePairMode) {
+      void choose(bilingualOn ? { kind: "off" } : { kind: "native-bilingual" });
+      return;
+    }
     void choose(
       bilingualOn
         ? { kind: "translation", targetLang: currentLang }
@@ -358,7 +447,7 @@ async function renderMenu(): Promise<void> {
   bilingualRow.append(bilingualLabel, toggle);
   menuEl.appendChild(bilingualRow);
 
-  if (bilingualOn) {
+  if (bilingualOn && !inNativePairMode) {
     const grid = document.createElement("div");
     grid.className = "biliscript-interpret-menu-grid";
 
@@ -368,7 +457,7 @@ async function renderMenu(): Promise<void> {
     primaryTitle.className = "biliscript-interpret-menu-grid-title";
     primaryTitle.textContent = "主字幕";
     primaryCol.appendChild(primaryTitle);
-    for (const option of LIVE_INTERPRET_TARGET_LANG_OPTIONS) {
+    for (const option of availableOptions) {
       const item = buildLangItem(option.value, option.value === currentLang);
       item.addEventListener("click", () =>
         void choose({ kind: "bilingual", targetLang: option.value })
@@ -481,6 +570,12 @@ export function syncPlayerInterpretQuickActionState(
   button.hidden = !shouldShow;
   if (!shouldShow || !controller) return;
 
+  const hasCc = state.clip.subtitles.some((track) => isLoadableNativeTrack(track));
+  const buttonText = hasCc ? "双语" : "字幕";
+  if (button.textContent !== buttonText) {
+    button.textContent = buttonText;
+  }
+
   const interpretState = controller.getState();
   const availability = controller.getAvailability();
   const active = interpretState === "connecting" || interpretState === "connected";
@@ -495,11 +590,17 @@ export function syncPlayerInterpretQuickActionState(
   } else {
     button.removeAttribute("aria-description");
   }
-  const label = interpretState === "connecting"
-    ? "正在连接实时翻译..."
-    : interpretState === "connected"
-      ? "关闭实时翻译"
-      : "字幕";
+  const label = hasCc
+    ? interpretState === "connecting"
+      ? "正在准备双语字幕..."
+      : interpretState === "connected"
+        ? "关闭双语字幕"
+        : "双语字幕"
+    : interpretState === "connecting"
+      ? "正在连接实时翻译..."
+      : interpretState === "connected"
+        ? "关闭实时翻译"
+        : "字幕";
   button.title = unavailable && !availability.ok ? availability.error : label;
   button.setAttribute("aria-label", label);
 }
@@ -509,22 +610,55 @@ let noticeConsumer: ((message: string, autoHideMs?: number) => void) | null = nu
 let unsubscribePresenter: (() => void) | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
 let pageHideBound = false;
+let playerAiRefineMode: InterpretAiRefineMode = "off";
+let playerAiRefineVideoKey = "";
+
+function getPlayerAiRefineMode(): InterpretAiRefineMode {
+  const key = `${state.clip.bvid}|${state.clip.cid}`;
+  if (playerAiRefineVideoKey !== key) {
+    playerAiRefineVideoKey = key;
+    playerAiRefineMode = "off";
+  }
+  return playerAiRefineMode;
+}
+
+function setPlayerAiRefineMode(mode: InterpretAiRefineMode): void {
+  playerAiRefineVideoKey = `${state.clip.bvid}|${state.clip.cid}`;
+  playerAiRefineMode = mode;
+}
+
+function resolveCurrentPlayerSourceLan(): string {
+  const tracks = state.clip.subtitles || [];
+  const current =
+    findTrackByRef(tracks, {
+      id: state.clip.selectedSubtitleId,
+      url: state.clip.selectedSubtitleUrl
+    }) ??
+    tracks[0] ??
+    null;
+  if (!current) {
+    return "";
+  }
+  if (classifySubtitleTrack(current) === "asr") {
+    const asrLang = String(state.settings?.asrLanguage || "auto").trim().toLowerCase();
+    return asrLang === "zh" || asrLang === "en" ? `asr-${asrLang}` : "";
+  }
+  return String(current.lan || "");
+}
 
 function getPlayerHost(): HTMLElement | null {
   return document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
 }
 
 function shouldShowInterpret(): boolean {
-  const hasCc = state.clip.subtitles.some((track) =>
-    Boolean(track.subtitleUrl) && !String(track.lan || "").startsWith("asr-")
-  );
-  return !hasCc && (state.clip.subtitleFetchState === "empty" || state.clip.subtitleFetchState === "ready");
+  return state.clip.subtitleFetchState === "empty" || state.clip.subtitleFetchState === "ready";
 }
 
 const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
   getPlayerHost,
   getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
-  getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto"
+  getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
+  getDisplayOrder: () => state.settings?.bilingualDisplayOrder || "original-first"
 });
 
 export function showPlayerInterpretNotice(message: string, autoHideMs?: number): void {
@@ -544,14 +678,28 @@ function onWindowPageHide(): void {
 function bindInterpretLifecycleListeners(): void {
   if (!unsubscribePresenter) {
     unsubscribePresenter = subscribeReaderPresenter((event) => {
+      if (event.kind === "reset") {
+        setPlayerAiRefineMode("off");
+      }
       if (event.kind === "reset" || event.kind === "rerender" || event.kind === "subtitle-ready") {
         syncPlayerInterpretQuickAction();
+        if (event.kind === "subtitle-ready" && shouldShowInterpret()) {
+          void interpretController?.refreshAvailability();
+        }
       }
     });
   }
   if (!unsubscribeStorageWatcher) {
     unsubscribeStorageWatcher = watchStorageKeys(
-      () => {
+      (changes) => {
+        if (changes.bilingualDisplayOrder && typeof changes.bilingualDisplayOrder.newValue === "string") {
+          state.patchSettings({
+            bilingualDisplayOrder:
+              changes.bilingualDisplayOrder.newValue === "translation-first"
+                ? "translation-first"
+                : "original-first"
+          });
+        }
         void interpretController?.refreshAvailability();
       },
       {
@@ -561,7 +709,8 @@ function bindInterpretLifecycleListeners(): void {
           "aiProviders",
           "activeAiProviderId",
           "subtitleTranslateProviderId",
-          "subtitleTranslateModel"
+          "subtitleTranslateModel",
+          "bilingualDisplayOrder"
         ],
         local: ["asrProviderKeys", "aiProviderKeys"]
       }
@@ -576,8 +725,10 @@ function bindInterpretLifecycleListeners(): void {
 function ensureInterpretController(): InterpretSessionController {
   if (!interpretController) {
     interpretController = createInterpretSessionController({
-      getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
+      getTargetLang: () =>
+        resolveTargetLang(resolveCurrentPlayerSourceLan(), state.settings?.liveInterpretTargetLang || "zh"),
       getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
+      getAiRefineMode: getPlayerAiRefineMode,
       showNotice: (message, autoHideMs) => {
         if (noticeConsumer) {
           noticeConsumer(message, autoHideMs);
@@ -588,7 +739,13 @@ function ensureInterpretController(): InterpretSessionController {
       setSubtitle: interpretSubtitleOverlay.setSubtitle,
       clearSubtitles: interpretSubtitleOverlay.clear,
       clearSubtitlesOnSeek: interpretSubtitleOverlay.clearForSeek,
-      onStateChange: syncPlayerInterpretQuickAction,
+      onStateChange: (nextState) => {
+        syncNativePlayerSubtitleTakeover(
+          nextState === "connecting" || nextState === "connected",
+          getPlayerHost()
+        );
+        syncPlayerInterpretQuickAction();
+      },
       onAvailabilityChange: syncPlayerInterpretQuickAction
     });
     bindInterpretLifecycleListeners();
@@ -618,14 +775,52 @@ export async function applyInterpretMenuChoice(
 ): Promise<void> {
   const controller = ensureInterpretController();
   if (choice.kind === "off") {
+    setPlayerAiRefineMode("off");
     await controller.stop();
+    syncNativePlayerSubtitleTakeover(false);
     return;
   }
 
+  if (choice.kind === "native-bilingual") {
+    setPlayerAiRefineMode("off");
+    const patch = { liveInterpretDisplayMode: "bilingual" as const };
+    state.patchSettings(patch);
+    void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
+    if (controller.getState() !== "idle") {
+      await controller.stop();
+    }
+    await controller.start();
+    return;
+  }
+
+  if (choice.kind === "ai-refine") {
+    setPlayerAiRefineMode(choice.refineMode);
+    const sourceLan =
+      choice.refineMode === "foreign-refine"
+        ? (findManualForeignTrackForAiRefine(state.clip.subtitles)?.lan ?? resolveCurrentPlayerSourceLan())
+        : resolveCurrentPlayerSourceLan();
+    const resolvedLang =
+      choice.refineMode === "foreign-refine"
+        ? "zh"
+        : resolveTargetLang(sourceLan, state.settings?.liveInterpretTargetLang || "zh");
+    const patch = {
+      liveInterpretTargetLang: resolvedLang,
+      liveInterpretDisplayMode: "bilingual" as const
+    };
+    state.patchSettings(patch);
+    void sendRuntimeMessage({ type: "save-settings", settings: patch }).catch(() => null);
+    if (controller.getState() !== "idle") {
+      await controller.stop();
+    }
+    await controller.start();
+    return;
+  }
+
+  const resolvedLang = resolveTargetLang(resolveCurrentPlayerSourceLan(), choice.targetLang);
   const prevLang = String(state.settings?.liveInterpretTargetLang || "zh");
-  const langChanged = choice.targetLang !== prevLang;
+  const langChanged = resolvedLang !== prevLang;
   const patch = {
-    liveInterpretTargetLang: choice.targetLang,
+    liveInterpretTargetLang: resolvedLang,
     liveInterpretDisplayMode: (choice.kind === "bilingual" ? "bilingual" : "translation") as
       | "bilingual"
       | "translation"
@@ -647,9 +842,17 @@ export async function togglePlayerInterpretMenu(anchor: HTMLElement): Promise<vo
     getSessionState: getInterpretSessionState,
     getPreferences: async () => {
       const settings = await getSettings();
+      const tracks = state.clip.subtitles || [];
+      const nativeTracks = tracks.filter((track) => isLoadableNativeTrack(track));
+      const nativePairAvailable =
+        nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks);
       return {
         targetLang: String(settings.liveInterpretTargetLang || "zh"),
-        displayMode: String(settings.liveInterpretDisplayMode || "auto")
+        displayMode: String(settings.liveInterpretDisplayMode || "auto"),
+        sourceLan: resolveCurrentPlayerSourceLan(),
+        nativePairAvailable,
+        foreignRefineAvailable: Boolean(findManualForeignTrackForAiRefine(nativeTracks)),
+        aiRefineMode: getPlayerAiRefineMode()
       };
     },
     applyChoice: applyInterpretMenuChoice
@@ -665,6 +868,8 @@ export function disposePlayerInterpret(): void {
     window.removeEventListener("pagehide", onWindowPageHide);
     pageHideBound = false;
   }
+  setPlayerAiRefineMode("off");
+  syncNativePlayerSubtitleTakeover(false);
   interpretController?.dispose();
   interpretController = null;
   closeInterpretSubtitleMenu();

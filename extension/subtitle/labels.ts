@@ -11,7 +11,9 @@
 // 语言名的查表键复用 subtitlePrimaryLangTag（selection.ts 的匹配口径）：能匹配上
 // `ai-ja` 的偏好，名字也取同一格——文案与匹配同口径，故本叶 import selection。
 
-import { subtitlePrimaryLangTag } from "./selection.js";
+import { classifySubtitleTrack, subtitlePrimaryLangTag } from "./selection.js";
+
+export const BILI_AI_TRACK_SUFFIX = "（B 站 AI）";
 
 // ===== 来源标签（2026-09 用户决议，2026-10-04 收窄） =====
 // 面板 meta 行的「字幕：来源（语言）」投影已按 2026-10-04 用户决议整条删除（不再
@@ -45,12 +47,12 @@ export function resolveSubtitleTrackLabel(track: { lan?: string; lanDoc?: string
 // `asr-zh`、人工上传轨）时才需要区分来源。单源列表一律不标——本仓样本 8 条
 // 全是 ai-*，旧实现（判据只看单条 lan 前缀）会给出 8 个零信息量的 [AI]。
 export function shouldMarkAiSubtitleTracks(
-  tracks: Array<{ lan?: string } | null | undefined> | null | undefined
+  tracks: Array<{ id?: string; lan?: string; subtitleUrl?: string } | null | undefined> | null | undefined
 ): boolean {
   let hasAi = false;
   let hasOther = false;
   for (const track of tracks || []) {
-    if (String(track?.lan || "").toLowerCase().startsWith("ai-")) {
+    if (classifySubtitleTrack(track) === "bili-ai") {
       hasAi = true;
     } else {
       hasOther = true;
@@ -61,6 +63,16 @@ export function shouldMarkAiSubtitleTracks(
     }
   }
   return false;
+}
+
+export function formatSubtitleTrackOptionLabel(
+  track: { id?: string; lan?: string; lanDoc?: string; subtitleUrl?: string } | null | undefined,
+  marked: boolean
+): string {
+  const label = resolveSubtitleTrackLabel(track);
+  return marked && classifySubtitleTrack(track) === "bili-ai"
+    ? `${label}${BILI_AI_TRACK_SUFFIX}`
+    : label;
 }
 
 // `lan` → 用户可读的语言名（唯一消费点：副列 ②「本视频没有 xx 轨」的文案，2026-10-06

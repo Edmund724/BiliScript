@@ -33,6 +33,7 @@ interface SubtitleBodyItemLike {
 // 字幕段行渲染（arch-review-2026-09/04 起在 ./section-lines.ts）同口径。
 interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
+  bilingualDisplayOrder?: "original-first" | "translation-first";
 }
 
 function buildChapterLines(chapters: unknown[] | null | undefined, withHours = false): string[] {
@@ -78,32 +79,44 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
 // SRT 的双语形态（07 号票裁定）：**同一个 cue 两行**（主行 + 副行，SRT 原生支持多行）。
 // 副行**不缩进**——SRT 的行首空白会被播放器原样渲染成字幕里的缩进，不是文本可读性标记
 //（TXT / Markdown 的「缩进两格」是给纯文本读者的区分标记，落点不同）。副轨缺失段折叠。
-export function buildSrt(body: SubtitleBodyItemLike[] | null | undefined, secondaryFor?: SecondaryLineResolver): string {
+export function buildSrt(
+  body: SubtitleBodyItemLike[] | null | undefined,
+  secondaryFor?: SecondaryLineResolver,
+  settings?: NoteRenderSettings
+): string {
+  const translationFirst = settings?.bilingualDisplayOrder === "translation-first";
   return (body || [])
     .map((item, index) => {
       const from = formatTimestamp(item.from as number, true);
       const to = formatTimestamp(item.to as number, true);
       const text = String(item.content || "").trim();
       const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
-      return `${index + 1}\n${from} --> ${to}\n${secondary ? `${text}\n${secondary}` : text}`;
+      const cueBody = secondary
+        ? translationFirst
+          ? `${secondary}\n${text}`
+          : `${text}\n${secondary}`
+        : text;
+      return `${index + 1}\n${from} --> ${to}\n${cueBody}`;
     })
     .join("\n\n");
 }
 
 export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings, secondaryFor?: SecondaryLineResolver): string {
   const withHours = shouldShowHoursInSubtitle(body);
+  const translationFirst = settings?.bilingualDisplayOrder === "translation-first";
   return (body || [])
     .map((item) => {
       const text = String(item?.content || "").trim();
       if (!text) {
         return "";
       }
-      const main = settings?.includeTimestampInBody
-        ? `${formatClock(item.from as number, { hours: withHours })} ${text}`
-        : text;
-      // 副行缩进两格、不带时间戳（与 Markdown 字幕节同一口径，见 section-lines.ts）。
       const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
-      return secondary ? `${main}\n  ${secondary}` : main;
+      const topText = secondary && translationFirst ? secondary : text;
+      const bottomText = secondary && translationFirst ? text : secondary;
+      const firstLine = settings?.includeTimestampInBody
+        ? `${formatClock(item.from as number, { hours: withHours })} ${topText}`
+        : topText;
+      return secondary ? `${firstLine}\n  ${bottomText}` : firstLine;
     })
     .filter(Boolean)
     .join("\n");
