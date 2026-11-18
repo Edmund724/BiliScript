@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeLocalTextSimilarity,
   createL0Bm25Index,
   expandAndMergeHitWindows,
+  findLineIndexByLineNumber,
+  findNearestLineIndexBySeconds,
   normalizeL0SubtitleLines,
+  parseL0SecondsValue,
   tokenizeLexicalText
 } from "../../extension/ai/l0-bm25.js";
 import type { L0SubtitleLine } from "../../extension/ai/long-video-hybrid-types.js";
@@ -197,6 +201,74 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       expect(res.hits[0].score).toBeGreaterThan(0);
       expect(Number.isFinite(res.hits[0].score)).toBe(true);
       expect(res.hits[0].window.lines).toHaveLength(1);
+    });
+  });
+
+  describe("L0 局部相似度、行号/时间戳二分定位与秒级时间戳解析", () => {
+    it("computeLocalTextSimilarity 支持忽略标点空格的大小写无关子串与容错相似匹配", () => {
+      expect(computeLocalTextSimilarity("Transformer 架构！", "transformer架构")).toBe(1);
+      expect(computeLocalTextSimilarity("FlashAttention 分块", "现在来看板书上的 FlashAttention 分块矩阵计算图解")).toBeGreaterThan(0.55);
+
+      const closeScore = computeLocalTextSimilarity(
+        "没有行号锚定的金句回填，迟早会在改写里走样",
+        "没有行号锚定的金句回填，迟早会在二次改写里走样。"
+      );
+      const unrelatedScore = computeLocalTextSimilarity(
+        "没有行号锚定的金句回填，迟早会在改写里走样",
+        "今天天气真不错我们去散步吧"
+      );
+      expect(closeScore).toBeGreaterThan(0.7);
+      expect(closeScore).toBeGreaterThan(unrelatedScore);
+      expect(computeLocalTextSimilarity("", "非空")).toBe(0);
+      expect(computeLocalTextSimilarity("...", "非空")).toBe(0);
+    });
+
+    it("findLineIndexByLineNumber 同时支持连续数组与稀疏切片数组二分查找", () => {
+      const dense = normalizeL0SubtitleLines([
+        { from: 0, to: 2, content: "L0" },
+        { from: 2, to: 4, content: "L1" },
+        { from: 4, to: 6, content: "L2" }
+      ]);
+      expect(findLineIndexByLineNumber(dense, 0)).toBe(0);
+      expect(findLineIndexByLineNumber(dense, 2)).toBe(2);
+      expect(findLineIndexByLineNumber(dense, 3)).toBe(-1);
+      expect(findLineIndexByLineNumber(dense, -1)).toBe(-1);
+      expect(findLineIndexByLineNumber(dense, 1.5)).toBe(-1);
+
+      const sparse = [dense[1], dense[2]];
+      expect(findLineIndexByLineNumber(sparse, 1)).toBe(0);
+      expect(findLineIndexByLineNumber(sparse, 2)).toBe(1);
+      expect(findLineIndexByLineNumber(sparse, 0)).toBe(-1);
+      expect(findLineIndexByLineNumber([], 0)).toBe(-1);
+    });
+
+    it("findNearestLineIndexBySeconds 精确命中覆盖行或间距最近行并安全钳制边界", () => {
+      const lines: L0SubtitleLine[] = [
+        { lineNumber: 0, from: 0, to: 5, content: "第一句" },
+        { lineNumber: 1, from: 15, to: 20, content: "第二句" },
+        { lineNumber: 2, from: 20, to: 30, content: "第三句" }
+      ];
+      expect(findNearestLineIndexBySeconds(lines, 3)).toBe(0);
+      expect(findNearestLineIndexBySeconds(lines, 6)).toBe(0);
+      expect(findNearestLineIndexBySeconds(lines, 12)).toBe(1);
+      expect(findNearestLineIndexBySeconds(lines, 24)).toBe(2);
+      expect(findNearestLineIndexBySeconds(lines, 99)).toBe(2);
+      expect(findNearestLineIndexBySeconds([], 10)).toBe(-1);
+      expect(findNearestLineIndexBySeconds(lines, Number.NaN)).toBe(-1);
+    });
+
+    it("parseL0SecondsValue 统一解析数字、数字串与 M:SS / H:MM:SS 时刻文本", () => {
+      expect(parseL0SecondsValue(42.9)).toBe(42);
+      expect(parseL0SecondsValue(0)).toBe(0);
+      expect(parseL0SecondsValue(" 125.7 ")).toBe(125);
+      expect(parseL0SecondsValue("2:30")).toBe(150);
+      expect(parseL0SecondsValue("1:02:05")).toBe(3725);
+      expect(parseL0SecondsValue(-1)).toBeNull();
+      expect(parseL0SecondsValue("")).toBeNull();
+      expect(parseL0SecondsValue("   ")).toBeNull();
+      expect(parseL0SecondsValue("99:99")).toBeNull();
+      expect(parseL0SecondsValue("not-a-time")).toBeNull();
+      expect(parseL0SecondsValue(null)).toBeNull();
     });
   });
 });

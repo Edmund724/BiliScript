@@ -1,11 +1,13 @@
 // extension/ai/l0-bm25.ts
-// L0 本地轻量 BM25 词法检索引擎（ADR-0027）：
+// L0 词法基础原语与本地轻量 BM25 词法检索引擎（ADR-0027）：
 // - 使用浏览器原生 Intl.Segmenter（granularity: "word"）切分中英混合与数字词元；
 // - 内置精简常见中英文停用词过滤（中文停用词复用 ./stop-words.ts 单源）；
+// - 局部文本相似度（bigram Dice + 词元重合）与 L0 行号/时间戳二分定位、秒级时间戳容错解析；
 // - 纯 TypeScript 内存级 Okapi BM25 倒排索引，支持时间区间过滤与 Top-K 召回；
 // - 命中行前后扩窗（支持 N 句或 M 秒窗口）与重叠/相邻时间片段去重合并。
 // 零外部依赖、零 chrome/DOM/storage 依赖。
 
+import { parseClock } from "../shared/clock-text.js";
 import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { STOP_WORDS } from "./stop-words.js";
 import type {
@@ -145,7 +147,105 @@ interface RawExpandedSpan {
   bestScore: number;
 }
 
-function findLineIndexByLineNumber(lines: readonly L0SubtitleLine[], lineNumber: number): number {
+const STRIP_FOR_SIM_RE = /[\s\p{P}\p{S}]+/gu;
+
+function normalizeForSimilarity(text: string): string {
+  return text.toLowerCase().replace(STRIP_FOR_SIM_RE, "");
+}
+
+function extractBigrams(norm: string): Set<string> {
+  const grams = new Set<string>();
+  if (norm.length <= 1) {
+    if (norm) grams.add(norm);
+    return grams;
+  }
+  for (let i = 0; i < norm.length - 1; i += 1) {
+    grams.add(norm.slice(i, i + 2));
+  }
+  return grams;
+}
+
+/**
+ * 计算模型提示片段与候选 L0 字幕行的局部相似度（0..1），用于行号轻微偏移与锚点容错对齐。
+ */
+export function computeLocalTextSimilarity(hint: string, candidate: string): number {
+  const normHint = normalizeForSimilarity(hint);
+  const normCand = normalizeForSimilarity(candidate);
+  if (!normHint || !normCand) {
+    return 0;
+  }
+  if (normCand.includes(normHint) || normHint.includes(normCand)) {
+    const minLen = Math.min(normHint.length, normCand.length);
+    const maxLen = Math.max(normHint.length, normCand.length);
+    return 0.55 + 0.45 * (minLen / maxLen);
+  }
+
+  const hintBigrams = extractBigrams(normHint);
+  const candBigrams = extractBigrams(normCand);
+  let bigramInter = 0;
+  for (const g of hintBigrams) {
+    if (candBigrams.has(g)) {
+      bigramInter += 1;
+    }
+  }
+  const dice = (2 * bigramInter) / (hintBigrams.size + candBigrams.size);
+
+  const hintTokens = new Set(tokenizeLexicalText(hint));
+  const candTokens = new Set(tokenizeLexicalText(candidate));
+  let tokenOverlap = 0;
+  if (hintTokens.size > 0 && candTokens.size > 0) {
+    let tokenInter = 0;
+    for (const t of hintTokens) {
+      if (candTokens.has(t)) {
+        tokenInter += 1;
+      }
+    }
+    tokenOverlap = tokenInter / Math.min(hintTokens.size, candTokens.size);
+  }
+
+  return Math.max(dice, dice * 0.6 + tokenOverlap * 0.4);
+}
+
+/**
+ * 解析非负秒级时间戳：支持数字、纯数字字符串（向下取整）或 `M:SS` / `H:MM:SS` 时刻文本；
+ * 非法或负值返回 `null`。
+ */
+export function parseL0SecondsValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      const n = Number(trimmed);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+    }
+    const clock = parseClock(trimmed);
+    if (clock !== null) {
+      return clock;
+    }
+  }
+  return null;
+}
+
+/**
+ * 按 0-based `lineNumber` 在按行号升序排列的 `L0SubtitleLine[]` 中定位数组下标；未命中返回 `-1`。
+ */
+export function findLineIndexByLineNumber(lines: readonly L0SubtitleLine[], lineNumber: number): number {
+  if (!Array.isArray(lines) || lines.length === 0 || typeof lineNumber !== "number" || !Number.isFinite(lineNumber)) {
+    return -1;
+  }
+  if (
+    Number.isInteger(lineNumber) &&
+    lineNumber >= 0 &&
+    lineNumber < lines.length &&
+    lines[lineNumber]?.lineNumber === lineNumber
+  ) {
+    return lineNumber;
+  }
   let lo = 0;
   let hi = lines.length - 1;
   while (lo <= hi) {
@@ -161,6 +261,39 @@ function findLineIndexByLineNumber(lines: readonly L0SubtitleLine[], lineNumber:
     }
   }
   return -1;
+}
+
+/**
+ * 二分定位覆盖 `targetSeconds` 或起始时间距离最近的 L0 字幕行下标；空列表或非法时间戳返回 `-1`。
+ */
+export function findNearestLineIndexBySeconds(
+  lines: readonly L0SubtitleLine[],
+  targetSeconds: number
+): number {
+  if (!Array.isArray(lines) || lines.length === 0 || !Number.isFinite(targetSeconds)) {
+    return -1;
+  }
+  let lo = 0;
+  let hi = lines.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].to < targetSeconds) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  if (lo > 0) {
+    const prev = lines[lo - 1];
+    const curr = lines[lo];
+    if (targetSeconds >= prev.from && targetSeconds <= prev.to) {
+      return lo - 1;
+    }
+    if (Math.abs(prev.from - targetSeconds) < Math.abs(curr.from - targetSeconds)) {
+      return lo - 1;
+    }
+  }
+  return lo;
 }
 
 function expandSpanForAnchor(

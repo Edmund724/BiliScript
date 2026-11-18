@@ -1,11 +1,14 @@
 // extension/ai/long-video-hybrid-types.ts
-// 长视频「滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回」纯类型契约（ADR-0027）。
+// 长视频「滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回」基础契约与阈值常量（ADR-0027）。
 //
 // 约束：
-// 1. 纯类型模块：零运行时 import、零运行时逻辑、零打包体积增量；
+// 1. 零运行时 import、零外部依赖（仅含纯类型契约与静态阈值常量），零 chrome/DOM/storage 依赖；
 // 2. 领域命名对齐根目录 GLOSSARY.md（字幕 / 章节 / 金句 / 分段小结 / 压缩摘要 / 原始字幕缓存）；
 // 3. 所有时间戳单位统一为秒（与 SubtitleBodyItem / AnalysisChapter / AnalysisQuote 一致），
 //    行号（lineNumber）统一为归一化主轨字幕数组内的 0-based 下标。
+
+/** 长视频分流时长阈值（秒）：字幕跨度或视频时长超过 30 分钟（1800s）即启用状态接力与混合召回。 */
+export const LONG_VIDEO_DURATION_THRESHOLD_SECONDS = 1800;
 
 // ============================================================
 // 1. L0 词法层：原始字幕行、邻近扩窗片段与 BM25 检索命中

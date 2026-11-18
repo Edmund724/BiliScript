@@ -15,27 +15,31 @@ import { chatCompletion } from "./completion.js";
 import { RAW_INJECTION_MAX_CHARS } from "./followup-context.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
 import {
+  computeLocalTextSimilarity,
   createL0Bm25Index,
   expandAndMergeHitWindows,
+  findLineIndexByLineNumber,
+  findNearestLineIndexBySeconds,
   normalizeL0SubtitleLines,
+  parseL0SecondsValue,
   type L0Bm25Index
 } from "./l0-bm25.js";
 import { findL1ChapterForTime, serializeL1DirectoryPrompt } from "./l1-directory.js";
 import { matchChapterByTitle, parseTimestampSeconds } from "./raw-retrieval.js";
-import { computeLocalTextSimilarity, OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS } from "./state-relay.js";
-import type {
-  ChatRetrievalDegradeReason,
-  DirectAnswerRoutePlan,
-  HybridSingleHopRoutePlan,
-  InteractionAnchorKind,
-  InteractionAnchorPoint,
-  InteractionAnchorRoutePlan,
-  L0ContextWindow,
-  L0LexicalSearchResult,
-  L0SubtitleLine,
-  L1ChapterNode,
-  L1VideoIndexCacheRecord,
-  RetrievalTimeRange
+import {
+  LONG_VIDEO_DURATION_THRESHOLD_SECONDS,
+  type ChatRetrievalDegradeReason,
+  type DirectAnswerRoutePlan,
+  type HybridSingleHopRoutePlan,
+  type InteractionAnchorKind,
+  type InteractionAnchorPoint,
+  type InteractionAnchorRoutePlan,
+  type L0ContextWindow,
+  type L0LexicalSearchResult,
+  type L0SubtitleLine,
+  type L1ChapterNode,
+  type L1VideoIndexCacheRecord,
+  type RetrievalTimeRange
 } from "./long-video-hybrid-types.js";
 import type { ChatMessage, ProviderRequest } from "./types.js";
 
@@ -118,11 +122,11 @@ export function isLongVideoForHybridChat(
   const firstFrom = Math.max(0, l0Lines[0].from);
   const lastTo = Math.max(firstFrom, l0Lines[l0Lines.length - 1].to);
   const spanSeconds = Math.floor(lastTo - firstFrom);
-  if (spanSeconds > OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS) {
+  if (spanSeconds > LONG_VIDEO_DURATION_THRESHOLD_SECONDS) {
     return true;
   }
   const duration = Number(context?.videoDuration);
-  return Number.isFinite(duration) && duration > OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS;
+  return Number.isFinite(duration) && duration > LONG_VIDEO_DURATION_THRESHOLD_SECONDS;
 }
 
 function shouldUsePlaybackCursorAnchor(
@@ -216,14 +220,11 @@ function findLineIndexForAnchor(
   if (lines.length === 0) {
     return -1;
   }
-  if (
-    typeof anchor.lineNumber === "number" &&
-    Number.isInteger(anchor.lineNumber) &&
-    anchor.lineNumber >= 0 &&
-    anchor.lineNumber < lines.length &&
-    lines[anchor.lineNumber]?.lineNumber === anchor.lineNumber
-  ) {
-    return anchor.lineNumber;
+  if (typeof anchor.lineNumber === "number" && Number.isInteger(anchor.lineNumber) && anchor.lineNumber >= 0) {
+    const byLineNumber = findLineIndexByLineNumber(lines, anchor.lineNumber);
+    if (byLineNumber >= 0) {
+      return byLineNumber;
+    }
   }
 
   const targetSec = Math.max(0, Number(anchor.from) || 0);
@@ -238,28 +239,7 @@ function findLineIndexForAnchor(
     }
   }
 
-  // 二分定位覆盖 targetSec 或距离最近的字幕行
-  let lo = 0;
-  let hi = lines.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (lines[mid].to < targetSec) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  if (lo > 0) {
-    const prev = lines[lo - 1];
-    const curr = lines[lo];
-    if (targetSec >= prev.from && targetSec <= prev.to) {
-      return lo - 1;
-    }
-    if (Math.abs(prev.from - targetSec) < Math.abs(curr.from - targetSec)) {
-      return lo - 1;
-    }
-  }
-  return lo;
+  return findNearestLineIndexBySeconds(lines, targetSec);
 }
 
 function formatChapterHeaderSummary(
@@ -609,27 +589,6 @@ export function buildL1RouterMessages(input: {
   ];
 }
 
-function parseTimeValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.floor(value);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-      const n = Number(trimmed);
-      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
-    }
-    const clock = parseClock(trimmed);
-    if (clock !== null) {
-      return clock;
-    }
-  }
-  return null;
-}
-
 function resolveRangeFromRouterItem(
   rawItem: unknown,
   l1Index: L1VideoIndexCacheRecord
@@ -678,9 +637,9 @@ function resolveRangeFromRouterItem(
   }
 
   const from =
-    parseTimeValue(obj.from ?? obj.start ?? obj.startTime ?? obj.fromSeconds ?? obj.startSeconds);
+    parseL0SecondsValue(obj.from ?? obj.start ?? obj.startTime ?? obj.fromSeconds ?? obj.startSeconds);
   const to =
-    parseTimeValue(obj.to ?? obj.end ?? obj.endTime ?? obj.toSeconds ?? obj.endSeconds);
+    parseL0SecondsValue(obj.to ?? obj.end ?? obj.endTime ?? obj.toSeconds ?? obj.endSeconds);
   if (from !== null) {
     const owner = findL1ChapterForTime(chapters, from);
     const resolvedTo =

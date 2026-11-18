@@ -7,19 +7,26 @@ import { truncateWithEllipsis } from "../shared/text-primitives.js";
 import { joinSubtitleText } from "../subtitle/text-classification.js";
 import { MATERIAL_BUDGET_CHARS, SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
-import { estimateCompactPromptTokens, normalizeL0SubtitleLines, tokenizeLexicalText } from "./l0-bm25.js";
+import {
+  computeLocalTextSimilarity,
+  estimateCompactPromptTokens,
+  findLineIndexByLineNumber,
+  normalizeL0SubtitleLines,
+  parseL0SecondsValue
+} from "./l0-bm25.js";
 import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter, type AnalysisQuote } from "./analysis-validate.js";
 import type { ChapterPlan } from "./chapter-plan.js";
-import type {
-  L0SubtitleLine,
-  L1ChapterNode,
-  L1QuoteRef,
-  RelayActiveTopic,
-  StateRelayCard
+import {
+  LONG_VIDEO_DURATION_THRESHOLD_SECONDS,
+  type L0SubtitleLine,
+  type L1ChapterNode,
+  type L1QuoteRef,
+  type RelayActiveTopic,
+  type StateRelayCard
 } from "./long-video-hybrid-types.js";
 
 /** 时长分流阈值：字幕覆盖跨度超过 30 分钟（1800s）即进入状态卡接力分段。 */
-export const OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS = 1800;
+export const OVERVIEW_RELAY_DURATION_THRESHOLD_SECONDS = LONG_VIDEO_DURATION_THRESHOLD_SECONDS;
 /** 字符分流阈值：与 ADR-0001 / ADR-0027 素材预算 200k 字符保持同源。 */
 export const OVERVIEW_RELAY_CHARS_THRESHOLD = MATERIAL_BUDGET_CHARS;
 /** 5 分钟（300s）语音转写分片对齐基准。 */
@@ -444,25 +451,9 @@ function parseLineRangeFromRaw(raw: Record<string, unknown>): { startLine: numbe
 
 function parseSecondsField(raw: Record<string, unknown>, keys: readonly string[]): number | null {
   for (const key of keys) {
-    const value = raw[key];
-    if (value === undefined || value === null || value === "") {
-      continue;
-    }
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-      return Math.floor(value);
-    }
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-        const n = Number(trimmed);
-        if (Number.isFinite(n) && n >= 0) {
-          return Math.floor(n);
-        }
-      }
-      const parsedClock = parseClock(trimmed);
-      if (parsedClock !== null) {
-        return parsedClock;
-      }
+    const parsed = parseL0SecondsValue(raw[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
   return null;
@@ -496,67 +487,8 @@ function parseStringArray(value: unknown, maxItems: number, maxItemLen: number):
 }
 
 // ============================================================
-// L0 本地相似度打分与金句逐字回填
+// L0 金句逐字回填（相似度打分与行定位原语见 ./l0-bm25.ts）
 // ============================================================
-
-const STRIP_FOR_SIM_RE = /[\s\p{P}\p{S}]+/gu;
-
-function normalizeForSimilarity(text: string): string {
-  return text.toLowerCase().replace(STRIP_FOR_SIM_RE, "");
-}
-
-function extractBigrams(norm: string): Set<string> {
-  const grams = new Set<string>();
-  if (norm.length <= 1) {
-    if (norm) grams.add(norm);
-    return grams;
-  }
-  for (let i = 0; i < norm.length - 1; i += 1) {
-    grams.add(norm.slice(i, i + 2));
-  }
-  return grams;
-}
-
-/**
- * 计算模型提示片段与候选 L0 字幕行的局部相似度（0..1），用于行号轻微偏移时的容错对齐。
- */
-export function computeLocalTextSimilarity(hint: string, candidate: string): number {
-  const normHint = normalizeForSimilarity(hint);
-  const normCand = normalizeForSimilarity(candidate);
-  if (!normHint || !normCand) {
-    return 0;
-  }
-  if (normCand.includes(normHint) || normHint.includes(normCand)) {
-    const minLen = Math.min(normHint.length, normCand.length);
-    const maxLen = Math.max(normHint.length, normCand.length);
-    return 0.55 + 0.45 * (minLen / maxLen);
-  }
-
-  const hintBigrams = extractBigrams(normHint);
-  const candBigrams = extractBigrams(normCand);
-  let bigramInter = 0;
-  for (const g of hintBigrams) {
-    if (candBigrams.has(g)) {
-      bigramInter += 1;
-    }
-  }
-  const dice = (2 * bigramInter) / (hintBigrams.size + candBigrams.size);
-
-  const hintTokens = new Set(tokenizeLexicalText(hint));
-  const candTokens = new Set(tokenizeLexicalText(candidate));
-  let tokenOverlap = 0;
-  if (hintTokens.size > 0 && candTokens.size > 0) {
-    let tokenInter = 0;
-    for (const t of hintTokens) {
-      if (candTokens.has(t)) {
-        tokenInter += 1;
-      }
-    }
-    tokenOverlap = tokenInter / Math.min(hintTokens.size, candTokens.size);
-  }
-
-  return Math.max(dice, dice * 0.6 + tokenOverlap * 0.4);
-}
 
 function joinL0RangeContent(slice: readonly L0SubtitleLine[]): string {
   let acc = "";
@@ -564,31 +496,6 @@ function joinL0RangeContent(slice: readonly L0SubtitleLine[]): string {
     acc = joinSubtitleText(acc, line.content);
   }
   return acc.trim();
-}
-
-function findLineIndexByNumber(allLines: readonly L0SubtitleLine[], lineNumber: number): number {
-  if (
-    lineNumber >= 0 &&
-    lineNumber < allLines.length &&
-    allLines[lineNumber]?.lineNumber === lineNumber
-  ) {
-    return lineNumber;
-  }
-  let lo = 0;
-  let hi = allLines.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const current = allLines[mid].lineNumber;
-    if (current === lineNumber) {
-      return mid;
-    }
-    if (current < lineNumber) {
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return -1;
 }
 
 /**
@@ -610,17 +517,17 @@ export function backfillQuoteFromL0(
 
   const minIdx =
     bounds?.minLineNumber !== undefined
-      ? Math.max(0, findLineIndexByNumber(allLines, bounds.minLineNumber))
+      ? Math.max(0, findLineIndexByLineNumber(allLines, bounds.minLineNumber))
       : 0;
   const maxIdx =
     bounds?.maxLineNumber !== undefined
-      ? Math.min(allLines.length - 1, Math.max(minIdx, findLineIndexByNumber(allLines, bounds.maxLineNumber)))
+      ? Math.min(allLines.length - 1, Math.max(minIdx, findLineIndexByLineNumber(allLines, bounds.maxLineNumber)))
       : allLines.length - 1;
 
   // 1. 显式行号区间主路径 + 轻微偏移容错对齐
   if (range) {
-    const sIdx = findLineIndexByNumber(allLines, range.startLine);
-    const eIdx = findLineIndexByNumber(allLines, range.endLine);
+    const sIdx = findLineIndexByLineNumber(allLines, range.startLine);
+    const eIdx = findLineIndexByLineNumber(allLines, range.endLine);
     if (sIdx >= 0 && eIdx >= sIdx) {
       // 防止越界选中前情只读行
       if (bounds?.minLineNumber !== undefined && allLines[sIdx].lineNumber < bounds.minLineNumber) {
@@ -1033,7 +940,7 @@ export function parseStateRelayOutput(
       let from = parseSecondsField(ch, ["timestampSeconds", "from", "startSeconds", "startTime", "timestamp"]);
       const lineRef = parseLineNumberToken(ch.startLine ?? ch.startLineNumber ?? ch.lineNumber ?? ch.line);
       if (from === null && lineRef !== null) {
-        const idx = findLineIndexByNumber(ctx.allLines, lineRef);
+        const idx = findLineIndexByLineNumber(ctx.allLines, lineRef);
         if (idx >= 0) {
           from = Math.floor(ctx.allLines[idx].from);
         }
