@@ -9,7 +9,6 @@
 
 import { state } from "../core/state.js";
 import { getReaderOverviewSource } from "../reader/live-overview-source.js";
-import { resolveChapterSource } from "../shared/chapter-outline.js";
 import {
   filterGlossaryForText,
   parseSubtitleGlossary,
@@ -17,13 +16,11 @@ import {
   type SubtitleGlossaryInput
 } from "../shared/subtitle-glossary.js";
 import { truncateWithEllipsis } from "../shared/text-primitives.js";
-import { buildSubtitleSignature } from "../subtitle/cache.js";
-import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import {
-  L1_INDEX_CACHE_PREFIX,
   findL1ChapterForTime,
-  isL1VideoIndexCacheRecord
-} from "./l1-directory.js";
+  readCachedClipL1Index,
+  readCachedClipOverviewArtifacts
+} from "./l1-chapter-index.js";
 import type { L1ChapterNode, L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import { resolveSubtitleTranslateGlossary } from "./subtitle-translate-config.js";
 import type { SubtitleBodyItem } from "./types.js";
@@ -36,8 +33,6 @@ export const SUBTITLE_CONTEXT_SUMMARY_MAX_CHARS = 600;
 export const SUBTITLE_CONTEXT_CHAPTER_MAX_CHARS = 240;
 export const SUBTITLE_CONTEXT_REFERENCE_ENTITIES_MAX = 12;
 export const SUBTITLE_CONTEXT_PREVIOUS_LINES_MAX = 2;
-
-const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
 
 export interface SubtitlePreviousLine {
   original: string;
@@ -261,84 +256,23 @@ function formatL1IndexSummaryBrief(
   );
 }
 
-function resolveSubtitleCacheIdentityKeys(
-  input: ReadCachedOverviewSummaryInput | null | undefined
-): { finalKey: string; l1Key: string } | null {
-  if (!input) {
-    return null;
-  }
-  const bvid = String(input.bvid ?? "").trim();
-  const cid = String(input.cid ?? "").trim();
-  const body = Array.isArray(input.subtitleBody) ? input.subtitleBody : [];
-  if (!bvid || !cid || body.length === 0) {
-    return null;
-  }
-  const chapterSource = resolveChapterSource(
-    input.description,
-    input.hotComments,
-    input.chapters
-  );
-  const signature = buildSubtitleSignature({
-    lang: input.selectedSubtitleLang,
-    subtitleId: input.selectedSubtitleId,
-    subtitleUrl: input.selectedSubtitleUrl,
-    body,
-    chapters: chapterSource.signatureChapters,
-    chapterOutline: chapterSource.chapters
-  });
-  const sourceKey = buildSubtitleSourceKey(
-    input.selectedSubtitleId,
-    input.selectedSubtitleUrl,
-    input.selectedSubtitleLang
-  );
-  return {
-    finalKey: `${ANALYSIS_FINAL_PREFIX}${bvid}_${cid}_${sourceKey}_${signature}`,
-    l1Key: `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_${signature}`
-  };
-}
-
-function unwrapL1IndexEnvelope(raw: unknown): L1VideoIndexCacheRecord | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-  const candidate = (raw as { index?: unknown }).index;
-  return isL1VideoIndexCacheRecord(candidate) ? candidate : null;
-}
-
 async function readCachedStorageOverviewArtifacts(
   input: ReadCachedOverviewSummaryInput | null | undefined
 ): Promise<{ finalSummary: string; l1Index: L1VideoIndexCacheRecord | null }> {
-  const keys = resolveSubtitleCacheIdentityKeys(input);
-  if (!keys || !globalThis.chrome?.storage?.local) {
-    return { finalSummary: "", l1Index: null };
-  }
-  try {
-    const stored = await chrome.storage.local.get([keys.finalKey, keys.l1Key]);
-    const finalRecord = stored?.[keys.finalKey] as { analysis?: OverviewSummarySourceInput } | undefined;
-    const finalSummary = formatOverviewSummaryBrief(finalRecord?.analysis);
-    const l1Index = unwrapL1IndexEnvelope(stored?.[keys.l1Key]);
-    return { finalSummary, l1Index };
-  } catch {
-    return { finalSummary: "", l1Index: null };
-  }
+  const { analysisFinal, l1Index } = await readCachedClipOverviewArtifacts(input);
+  return {
+    finalSummary: formatOverviewSummaryBrief(analysisFinal),
+    l1Index
+  };
 }
 
 /**
- * 读取当前视频已缓存的长视频 L1 章节目录索引（仅本地 chrome.storage.local，零 LLM 请求）。
+ * 读取当前视频已缓存的长视频 L1 章节目录索引（经 `ai/l1-chapter-index.ts` 优先命中内存 LRU，未命中再读 local，零 LLM 请求）。
  */
 export async function readCachedL1VideoIndex(
   input: ReadCachedOverviewSummaryInput | null = state.clip
 ): Promise<L1VideoIndexCacheRecord | null> {
-  const keys = resolveSubtitleCacheIdentityKeys(input);
-  if (!keys || !globalThis.chrome?.storage?.local) {
-    return null;
-  }
-  try {
-    const stored = await chrome.storage.local.get(keys.l1Key);
-    return unwrapL1IndexEnvelope(stored?.[keys.l1Key]);
-  } catch {
-    return null;
-  }
+  return readCachedClipL1Index(input);
 }
 
 /**

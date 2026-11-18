@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ANALYSIS_FINAL_PREFIX,
+  buildAnalysisFinalCacheKey,
+  buildClipOverviewIdentity,
   buildL1IndexCacheKey,
   buildL1VideoIndex,
   clearL1IndexMemoryCache,
@@ -7,7 +10,12 @@ import {
   estimateCompactPromptTokens,
   L1_INDEX_CACHE_PREFIX,
   L1_INDEX_SCHEMA_VERSION,
-  serializeL1DirectoryPrompt
+  loadAnalysisFinal,
+  readCachedClipL1Index,
+  readCachedClipOverviewArtifacts,
+  saveAnalysisFinal,
+  serializeL1DirectoryPrompt,
+  unwrapL1IndexEnvelope
 } from "../../extension/ai/l1-chapter-index.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 
@@ -261,6 +269,119 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
         buildL1VideoIndex({ bvid: "", cid: "", subtitleSignature: "s" })
       );
       expect(invalidSave.ok).toBe(false);
+    });
+  });
+
+  describe("概览整份产物与 L1 目录统一身份、封包拆包及单趟读取", () => {
+    it("buildClipOverviewIdentity 兼容 clipState 与 AiContext 两种字段名并产出逐字节一致的双族缓存键", () => {
+      const body = [
+        { from: 0, to: 10, content: "第一句字幕" },
+        { from: 10, to: 20, content: "第二句字幕" }
+      ];
+      const timelineDesc = "00:00 开场\n00:10 深入";
+
+      const fromClipState = buildClipOverviewIdentity({
+        bvid: "BV1id001",
+        cid: "888",
+        description: timelineDesc,
+        selectedSubtitleId: "sub-id",
+        selectedSubtitleLang: "zh-CN",
+        subtitleBody: body
+      });
+      const fromAiContext = buildClipOverviewIdentity({
+        bvid: "BV1id001",
+        cid: "888",
+        videoDescription: timelineDesc,
+        selectedSubtitleId: "sub-id",
+        subtitleLang: "zh-CN",
+        subtitleBody: body
+      });
+
+      expect(fromClipState.hasCacheIdentity).toBe(true);
+      expect(fromClipState.signature).toBe(fromAiContext.signature);
+      expect(fromClipState.finalKey).toBe(fromAiContext.finalKey);
+      expect(fromClipState.l1Key).toBe(fromAiContext.l1Key);
+      expect(fromClipState.finalKey.startsWith(ANALYSIS_FINAL_PREFIX)).toBe(true);
+      expect(fromClipState.finalKey).toBe(
+        buildAnalysisFinalCacheKey(
+          { bvid: "BV1id001", cid: "888", selectedSubtitleId: "sub-id", subtitleLang: "zh-CN" },
+          fromClipState.signature
+        )
+      );
+
+      expect(buildClipOverviewIdentity({ bvid: "", cid: "888", subtitleBody: body }).hasCacheIdentity).toBe(false);
+      expect(buildClipOverviewIdentity({ bvid: "BV1id001", cid: "888", subtitleBody: [] }).hasCacheIdentity).toBe(false);
+    });
+
+    it("unwrapL1IndexEnvelope 安全校验并拆包 L1 缓存封包", () => {
+      const validRecord = buildL1VideoIndex({
+        bvid: "BV1env1",
+        cid: "1",
+        subtitleSignature: "sig",
+        globalSummary: "摘要"
+      });
+      expect(unwrapL1IndexEnvelope({ index: validRecord, timestamp: 1 })).toEqual(validRecord);
+      expect(unwrapL1IndexEnvelope(null)).toBeNull();
+      expect(unwrapL1IndexEnvelope("bad")).toBeNull();
+      expect(unwrapL1IndexEnvelope({ index: { ...validRecord, schemaVersion: 999 } })).toBeNull();
+    });
+
+    it("saveAnalysisFinal/loadAnalysisFinal 与 readCachedClipOverviewArtifacts 复用内存 LRU 且不触碰 sync", async () => {
+      const clipInput = {
+        bvid: "BV1art1",
+        cid: "77",
+        description: "测试简介",
+        selectedSubtitleId: "cc-1",
+        selectedSubtitleLang: "en",
+        subtitleBody: [{ from: 0, to: 5, content: "Hello world" }]
+      };
+      const identity = buildClipOverviewIdentity(clipInput);
+      const analysis = {
+        summary: "整片摘要",
+        chapters: [{ from: 0, to: 5, title: "开篇", summary: "介绍" }],
+        quotes: []
+      };
+      const l1Record = buildL1VideoIndex({
+        bvid: "BV1art1",
+        cid: "77",
+        subtitleId: "cc-1",
+        subtitleLang: "en",
+        subtitleSignature: identity.signature,
+        globalSummary: "L1 摘要"
+      });
+
+      const saveRes = await saveAnalysisFinal(identity.finalKey, analysis);
+      expect(saveRes.ok).toBe(true);
+      expect(host.syncMap.size).toBe(0);
+      expect(await loadAnalysisFinal(identity.finalKey)).toEqual(analysis);
+
+      await host.local.set({ [identity.l1Key]: { index: l1Record, timestamp: Date.now() } });
+      host.local.get.mockClear();
+
+      // 冷读取：单趟批量读取 [finalKey, l1Key] 并回填内存 LRU
+      const firstArtifacts = await readCachedClipOverviewArtifacts(clipInput);
+      expect(firstArtifacts).toEqual({ analysisFinal: analysis, l1Index: l1Record });
+      expect(host.local.get).toHaveBeenCalledTimes(1);
+      expect(host.local.get).toHaveBeenCalledWith([identity.finalKey, identity.l1Key]);
+
+      // 热读取：readCachedClipL1Index 命中内存 LRU 零 storage 读；artifacts 仅读 [finalKey]
+      host.local.get.mockClear();
+      expect(await readCachedClipL1Index(clipInput)).toEqual(l1Record);
+      expect(host.local.get).not.toHaveBeenCalled();
+
+      const secondArtifacts = await readCachedClipOverviewArtifacts(clipInput);
+      expect(secondArtifacts).toEqual({ analysisFinal: analysis, l1Index: l1Record });
+      expect(host.local.get).toHaveBeenCalledTimes(1);
+      expect(host.local.get).toHaveBeenCalledWith([identity.finalKey]);
+
+      // 缺少身份时静默返回空产物而不查 storage
+      host.local.get.mockClear();
+      expect(await readCachedClipOverviewArtifacts({ bvid: "", cid: "77", subtitleBody: [] })).toEqual({
+        analysisFinal: null,
+        l1Index: null
+      });
+      expect(await readCachedClipL1Index(null)).toBeNull();
+      expect(host.local.get).not.toHaveBeenCalled();
     });
   });
 });

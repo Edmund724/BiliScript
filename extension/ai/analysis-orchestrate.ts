@@ -5,7 +5,7 @@
 
 // source key（轨身份编码单点）归键位叶 subtitle/source-key；签名族仍在 subtitle/cache。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { buildSubtitleSignature, normalizeSubtitleItems } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/cache.js";
 import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createCacheFamily } from "../core/cache-lru.js";
@@ -25,7 +25,7 @@ import { buildProgressNotice } from "./map-reduce.js";
 import { budgetScaleSuffix } from "./segment-cache.js";
 // 段缓存键位字段清单与命名投影的单源（零依赖叶，候选 5）：概览族的键位装配不再手抄
 // 字段名或强转口径，与 SW 段缓存装配 / offscreen 出站点 / 协议载荷类型同一份表。
-import { segmentCacheKeyStringFields, type SegmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
+import { segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
 // 成本护栏 token 数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与阶梯链
 // （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
 import { estimateTokensFromChars } from "./usage-stats.js";
@@ -44,16 +44,19 @@ import {
 // 分章计划单源（arch-review-2026-09 候选 2）：来源裁定的解释、越界过滤、切段输入与
 // 末章界全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
 import { resolveChapterPlan, flagMissingChapterSummaries, type ChapterPlan } from "./chapter-plan.js";
-// 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
-// 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
-import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import { normalizeL0SubtitleLines } from "./l0-bm25.js";
 import {
-  buildL1IndexCacheKey,
+  buildAnalysisFinalCacheKey,
+  buildClipOverviewIdentity,
   buildL1VideoIndex,
+  isOverviewShape,
+  loadAnalysisFinal,
   loadL1Index,
-  saveL1Index
+  saveAnalysisFinal,
+  saveL1Index,
+  type ClipOverviewIdentity
 } from "./l1-chapter-index.js";
+export { buildAnalysisFinalCacheKey };
 import {
   advanceFallbackStateCard,
   decideOverviewRelaySplit,
@@ -67,24 +70,13 @@ import type { ChatMessage, ProviderRequest } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 
-// 整份概览结果缓存键前缀（键形：前缀 + bvid + cid + 字幕轨 source key + 字幕签名）。
-const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
 // 概览分段产物缓存键前缀（键形与 biliscript_lvs_summary_ 同族：…+ 段序号 [+ 预算代]）。
-// 两族都已注册进 core/cache-lru.ts 的 CACHE_FAMILIES。
+// 两族（整份概览产物在 ai/l1-chapter-index.ts）均已注册进 core/cache-lru.ts 的 CACHE_FAMILIES。
 const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
 
 // ============================================================
 // 缓存（chrome.storage.local + 统一 LRU 淘汰；读取失败静默返回 null）
 // ============================================================
-
-function isOverviewShape(value: unknown): value is OverviewAnalysis {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      Array.isArray((value as { chapters?: unknown }).chapters) &&
-      Array.isArray((value as { quotes?: unknown }).quotes)
-  );
-}
 
 interface RelaySegmentCacheEntry extends OverviewAnalysis {
   relayVersion: 1;
@@ -106,14 +98,6 @@ function isRelaySegmentCacheEntry(value: unknown): value is RelaySegmentCacheEnt
   );
 }
 
-const analysisFinalFamily = createCacheFamily<OverviewAnalysis>({
-  prefix: ANALYSIS_FINAL_PREFIX,
-  payloadField: "analysis",
-  toSourceKey: buildSubtitleSourceKey,
-  validate: isOverviewShape,
-  logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
-});
-
 const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
   prefix: ANALYSIS_SEGMENT_PREFIX,
   payloadField: "analysis",
@@ -121,18 +105,6 @@ const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
   validate: isOverviewShape,
   logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
-
-function contextKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyStringFields {
-  return segmentCacheKeyStringFields(context);
-}
-
-/**
- * 整份概览结果缓存键：bvid + cid + 字幕轨 source key + 字幕签名。
- * 签名随字幕内容（条数/首末时间戳/文本量）与轨道变化，重抓字幕/换轨/切分P 自然 miss。
- */
-export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | undefined | null, signature: unknown): string {
-  return analysisFinalFamily.key(contextKeyFields(context), String(signature ?? ""));
-}
 
 /**
  * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]，
@@ -145,7 +117,7 @@ export function buildAnalysisSegmentCacheKey(
   budgetScale: number | string | unknown = 1
 ): string {
   return analysisSegmentFamily.key(
-    contextKeyFields(context),
+    segmentCacheKeyStringFields(context),
     `${segmentIndex}${budgetScaleSuffix(budgetScale)}_${String(signature ?? "")}`
   );
 }
@@ -312,79 +284,59 @@ function selectRelaySystemPrompt(chapterPlan: ChapterPlan): string {
 }
 
 async function persistL1IndexForOverview({
-  ctx,
-  signature,
+  identity,
+  videoDuration,
   l0Lines,
   analysis,
   l1Chapters,
   l1Quotes,
   fallbackGlobalSummary
 }: {
-  ctx: Record<string, unknown>;
-  signature: string;
+  identity: ClipOverviewIdentity;
+  videoDuration: unknown;
   l0Lines: readonly L0SubtitleLine[];
   analysis: OverviewAnalysis;
   l1Chapters?: readonly L1ChapterNode[];
   l1Quotes?: readonly L1QuoteRef[];
   fallbackGlobalSummary?: string;
 }): Promise<void> {
-  const bvid = String(ctx.bvid ?? "").trim();
-  const cid = String(ctx.cid ?? "").trim();
-  if (!bvid || !cid) {
+  if (!identity.bvid || !identity.cid) {
     return;
   }
-  const l1Key = buildL1IndexCacheKey({
-    bvid,
-    cid,
-    subtitleId: ctx.selectedSubtitleId,
-    subtitleUrl: ctx.selectedSubtitleUrl,
-    subtitleLang: ctx.subtitleLang,
-    subtitleSignature: signature
-  });
   const globalSummary = String(analysis.summary || fallbackGlobalSummary || "").trim();
   const record = buildL1VideoIndex({
-    bvid,
-    cid,
-    subtitleId: ctx.selectedSubtitleId,
-    subtitleUrl: ctx.selectedSubtitleUrl,
-    subtitleLang: ctx.subtitleLang,
-    subtitleSignature: signature,
-    videoDuration: Number(ctx.videoDuration) || undefined,
+    bvid: identity.bvid,
+    cid: identity.cid,
+    subtitleId: identity.subtitleId,
+    subtitleUrl: identity.subtitleUrl,
+    subtitleLang: identity.subtitleLang,
+    subtitleSignature: identity.signature,
+    videoDuration: Number(videoDuration) || undefined,
     globalSummary,
     lines: l0Lines,
     chapters: l1Chapters ?? analysis.chapters,
     quotes: l1Quotes ?? analysis.quotes
   });
-  await saveL1Index(l1Key, record);
+  await saveL1Index(identity.l1Key, record);
 }
 
 async function ensureL1IndexOnCacheHit({
-  ctx,
-  signature,
+  identity,
+  videoDuration,
   l0Lines,
   analysis
 }: {
-  ctx: Record<string, unknown>;
-  signature: string;
+  identity: ClipOverviewIdentity;
+  videoDuration: unknown;
   l0Lines: readonly L0SubtitleLine[];
   analysis: OverviewAnalysis;
 }): Promise<void> {
-  const bvid = String(ctx.bvid ?? "").trim();
-  const cid = String(ctx.cid ?? "").trim();
-  if (!bvid || !cid) {
+  if (!identity.bvid || !identity.cid) {
     return;
   }
-  const l1Key = buildL1IndexCacheKey({
-    bvid,
-    cid,
-    subtitleId: ctx.selectedSubtitleId,
-    subtitleUrl: ctx.selectedSubtitleUrl,
-    subtitleLang: ctx.subtitleLang,
-    subtitleSignature: signature
-  });
-  const existing = await loadL1Index(l1Key);
+  const existing = await loadL1Index(identity.l1Key);
   if (!existing) {
-    await persistL1IndexForOverview({ ctx, signature, l0Lines, analysis });
+    await persistL1IndexForOverview({ identity, videoDuration, l0Lines, analysis });
   }
 }
 
@@ -400,18 +352,8 @@ export function runOverviewAnalysis(
   deps: RunOverviewAnalysisDeps = {}
 ): Promise<OverviewAnalysis> {
   const ctx = context || {};
-  const body = Array.isArray(ctx.subtitleBody) ? (ctx.subtitleBody as unknown[]) : [];
-  const chapterSource = resolveChapterSource(ctx.videoDescription, ctx.hotComments, ctx.chapters);
-
-  const signature = buildSubtitleSignature({
-    lang: ctx.subtitleLang,
-    subtitleId: ctx.selectedSubtitleId,
-    subtitleUrl: ctx.selectedSubtitleUrl,
-    body,
-    chapters: chapterSource.signatureChapters,
-    chapterOutline: chapterSource.chapters
-  });
-  const finalKey = buildAnalysisFinalCacheKey(ctx, signature);
+  const identity = buildClipOverviewIdentity(ctx);
+  const { finalKey } = identity;
 
   const inflight = forceRefresh ? undefined : inflightOverviews.get(finalKey);
   if (inflight) {
@@ -421,10 +363,7 @@ export function runOverviewAnalysis(
   const promise = executeOverviewRun({
     provider: runProvider,
     ctx,
-    body,
-    chapterSource,
-    signature,
-    finalKey,
+    identity,
     signal,
     thinkingLevel,
     forceRefresh,
@@ -456,10 +395,7 @@ export function runOverviewAnalysis(
 interface ExecuteOverviewRunArgs {
   provider: ProviderRequest;
   ctx: Record<string, unknown>;
-  body: unknown[];
-  chapterSource: ChapterSource;
-  signature: string;
-  finalKey: string;
+  identity: ClipOverviewIdentity;
   signal?: AbortSignal | null;
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh: boolean;
@@ -472,10 +408,7 @@ interface ExecuteOverviewRunArgs {
 async function executeOverviewRun({
   provider,
   ctx,
-  body,
-  chapterSource,
-  signature,
-  finalKey,
+  identity,
   signal,
   thinkingLevel,
   forceRefresh,
@@ -484,6 +417,7 @@ async function executeOverviewRun({
   askCostGuard,
   onProgress
 }: ExecuteOverviewRunArgs): Promise<OverviewAnalysis> {
+  const { body, chapterSource, signature, finalKey } = identity;
   const normalizedItems = normalizeSubtitleItems(body);
   if (normalizedItems.length === 0) {
     throw new Error("没有可用的字幕");
@@ -493,7 +427,7 @@ async function executeOverviewRun({
   const expectsChapterSummaries = chapterPlan.hasGivenChapters && !chapterPlan.titlesOnly;
 
   if (!forceRefresh) {
-    const cached = await analysisFinalFamily.load(finalKey);
+    const cached = await loadAnalysisFinal(finalKey);
     if (cached) {
       const allSummariesEmpty =
         expectsChapterSummaries &&
@@ -501,7 +435,7 @@ async function executeOverviewRun({
         cached.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
       if (!allSummariesEmpty) {
         const result = expectsChapterSummaries ? flagMissingChapterSummaries(cached) : cached;
-        await ensureL1IndexOnCacheHit({ ctx, signature, l0Lines, analysis: result });
+        await ensureL1IndexOnCacheHit({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis: result });
         return result;
       }
     }
@@ -543,8 +477,8 @@ async function executeOverviewRun({
     if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
       throw makeEmptyAnalysisError();
     }
-    await analysisFinalFamily.save(finalKey, analysis);
-    await persistL1IndexForOverview({ ctx, signature, l0Lines, analysis });
+    await saveAnalysisFinal(finalKey, analysis);
+    await persistL1IndexForOverview({ identity, videoDuration: ctx.videoDuration, l0Lines, analysis });
     return analysis;
   }
 
@@ -712,10 +646,10 @@ async function executeOverviewRun({
     throw makeEmptyAnalysisError();
   }
 
-  await analysisFinalFamily.save(finalKey, analysis);
+  await saveAnalysisFinal(finalKey, analysis);
   await persistL1IndexForOverview({
-    ctx,
-    signature,
+    identity,
+    videoDuration: ctx.videoDuration,
     l0Lines,
     analysis,
     l1Chapters: merged.l1Chapters,

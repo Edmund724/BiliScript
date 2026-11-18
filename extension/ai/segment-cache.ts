@@ -14,7 +14,7 @@ import { defaultSubtitleIdbStore } from "../subtitle/idb-store.js";
 import { createCacheFamily, readFamilyKeys } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 import { buildBudgetPlan, SEGMENT_INPUT_CHARS } from "./budgeter.js";
-import { L1_INDEX_CACHE_PREFIX, isL1VideoIndexCacheRecord } from "./l1-directory.js";
+import { L1_INDEX_CACHE_PREFIX, unwrapL1IndexEnvelope } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶：SW 侧装配 / offscreen
 // 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
@@ -327,8 +327,8 @@ export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUr
       if (!key.startsWith(keyPrefix)) {
         continue;
       }
-      const candidate = (envelope as { index?: unknown } | undefined)?.index;
-      if (!isL1VideoIndexCacheRecord(candidate)) {
+      const candidate = unwrapL1IndexEnvelope(envelope);
+      if (!candidate) {
         continue;
       }
       if (!best || (candidate.updatedAt || 0) >= (best.updatedAt || 0)) {

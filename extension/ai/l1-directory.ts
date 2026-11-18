@@ -490,3 +490,12 @@ export function isL1VideoIndexCacheRecord(value: unknown): value is L1VideoIndex
     Array.isArray(rec.quotes)
   );
 }
+
+/** 从 `{ index, timestamp }` 缓存封包中拆包并校验 L1VideoIndexCacheRecord。 */
+export function unwrapL1IndexEnvelope(raw: unknown): L1VideoIndexCacheRecord | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = (raw as { index?: unknown }).index;
+  return isL1VideoIndexCacheRecord(candidate) ? candidate : null;
+}
