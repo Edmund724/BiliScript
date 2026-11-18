@@ -232,22 +232,31 @@
 }
 
 .biliscript-player-live-quick-action-wrap {
-  margin: 0;
+  margin: 0 4px 0 0;
   padding: 0;
   position: relative;
   z-index: 10;
 }
 
-/* 左邻 Hi-Res 带 20px 右外距，右邻清晰度无左外距；非全屏下左移 13px 使图标两侧留白相等 */
-.bpx-player-container:not([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
-  .biliscript-player-live-quick-action-wrap {
+/* 仅当紧邻的左侧可见兄弟节点自身带有大右外距（Hi-Res 常态 20px / ≥750px 全屏 24px、杜比 14px）时才左移补偿；
+ * 若左邻是无右外距节点（如沉浸式翻译按钮、选集按钮或空首项），绝不施加负左外距，否则其左缘越过左邻右缘
+ * （rect.left < prev.right - 1）会触发 B 站 bpx-player createOverflowCheck 误判并折叠整条控制栏。 */
+.bpx-player-ctrl-flac:not([data-control-collapsed="true"], [hidden], .bpx-state-hide, [style*="display: none"], [style*="display:none"])
+  + .biliscript-player-live-quick-action-wrap {
   margin: 0 13px 0 -13px;
 }
 
-/* 全屏下 Hi-Res 右外距为 24px，多出的 4px 由左移量分担一半 */
-.bpx-player-container:is([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
-  .biliscript-player-live-quick-action-wrap {
-  margin: 0 15px 0 -15px;
+@media screen and (min-width: 750px) {
+  .bpx-player-container:is([data-screen="full"], [data-screen="web"], .bpx-state-fullscreen, .bpx-state-web-fullscreen)
+    .bpx-player-ctrl-flac:not([data-control-collapsed="true"], [hidden], .bpx-state-hide, [style*="display: none"], [style*="display:none"])
+    + .biliscript-player-live-quick-action-wrap {
+    margin: 0 15px 0 -15px;
+  }
+}
+
+.bpx-player-ctrl-dolby:not([data-control-collapsed="true"], [hidden], .bpx-state-hide, [style*="display: none"], [style*="display:none"])
+  + .biliscript-player-live-quick-action-wrap {
+  margin: 0 7px 0 -7px;
 }
 
 .biliscript-player-live-quick-action-wrap .bpx-player-ctrl-btn-icon {
