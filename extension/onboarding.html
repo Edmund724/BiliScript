@@ -51,22 +51,56 @@
           <article class="onboarding-card visual-card">
             <div class="visual-svg-frame" aria-hidden="true">
               <svg viewBox="0 0 360 156" width="100%" height="156" fill="none">
-                <rect x="8" y="10" width="344" height="36" rx="10" class="svg-surface-2" stroke="currentColor" stroke-opacity="0.14" />
-                <circle cx="28" cy="28" r="5" fill="#FB7299" opacity="0.85" />
-                <circle cx="44" cy="28" r="5" fill="#FF9F0A" opacity="0.85" />
-                <circle cx="60" cy="28" r="5" fill="#3FB950" opacity="0.85" />
-                <rect x="80" y="18" width="176" height="20" rx="10" class="svg-surface" stroke="currentColor" stroke-opacity="0.1" />
-                <rect x="270" y="18" width="22" height="20" rx="6" class="svg-accent-soft" />
-                <rect x="275" y="22" width="12" height="12" rx="3" fill="#FB7299" />
-                <path d="M304 22h12v12h-12z" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.5" />
-                <rect x="218" y="54" width="134" height="90" rx="12" class="svg-card" stroke="currentColor" stroke-opacity="0.14" />
-                <text x="232" y="76" class="svg-text" font-size="11" font-weight="600">扩展程序</text>
-                <rect x="228" y="86" width="114" height="24" rx="7" class="svg-accent-soft" />
-                <rect x="234" y="92" width="12" height="12" rx="3" fill="#FB7299" />
-                <text x="252" y="102" class="svg-text" font-size="11" font-weight="600">BiliScript</text>
-                <path d="M326 92l4 4-3 3 2 4-4-2-3 3-2-4 3-3-3-3z" class="svg-accent-fill" />
-                <path d="M310 40 L310 54" class="svg-accent-stroke" stroke-width="1.8" stroke-dasharray="3 2" />
-                <text x="232" y="128" class="svg-muted" font-size="10">点击图钉固定到工具栏</text>
+                <defs>
+                  <linearGradient id="bsMiniLogoBg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#FB7299" />
+                    <stop offset="1" stop-color="#F0508A" />
+                  </linearGradient>
+                  <symbol id="bsMiniIcon" viewBox="0 0 24 24">
+                    <rect width="24" height="24" rx="6" fill="url(#bsMiniLogoBg)" />
+                    <path fill="#fff" d="M6.2 11.4c0-1.9 1.3-3.6 3.3-4.5l.6 1c-1.3.7-2 1.6-2.1 2.7.9.1 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6-1.1 0-1.8-.9-1.8-2.4zm5.4 0c0-1.9 1.3-3.6 3.3-4.5l.6 1c-1.3.7-2 1.6-2.1 2.7.9.1 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6-1.1 0-1.8-.9-1.8-2.4z" />
+                    <rect x="6.5" y="15.4" width="11" height="1.8" rx="0.9" fill="#fff" />
+                    <rect x="6.5" y="18.4" width="7" height="1.8" rx="0.9" fill="#fff" opacity=".6" />
+                  </symbol>
+                  <filter id="bsSvgShadow" x="-10%" y="-10%" width="125%" height="135%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.1" />
+                  </filter>
+                  <linearGradient id="bsMistPanelBg" x1="0" y1="0" x2="0.4" y2="1">
+                    <stop offset="0" class="svg-mist-stop-top" />
+                    <stop offset="1" class="svg-mist-stop-bot" />
+                  </linearGradient>
+                  <radialGradient id="bsMistGlowTL" cx="0.18" cy="0.05" r="0.65">
+                    <stop offset="0" class="svg-mist-glow-1" />
+                    <stop offset="1" class="svg-mist-glow-clear" />
+                  </radialGradient>
+                  <radialGradient id="bsMistGlowBR" cx="0.88" cy="0.92" r="0.6">
+                    <stop offset="0" class="svg-mist-glow-2" />
+                    <stop offset="1" class="svg-mist-glow-clear" />
+                  </radialGradient>
+                </defs>
+                <!-- 浏览器顶栏 -->
+                <rect x="8" y="10" width="344" height="36" rx="10" class="svg-popover" stroke="currentColor" stroke-opacity="0.1" filter="url(#bsSvgShadow)" />
+                <circle cx="26" cy="28" r="4.5" fill="#FF5F57" opacity="0.85" />
+                <circle cx="40" cy="28" r="4.5" fill="#FEBC2E" opacity="0.85" />
+                <circle cx="54" cy="28" r="4.5" fill="#28C840" opacity="0.85" />
+                <rect x="72" y="18" width="190" height="20" rx="10" class="svg-surface-2" stroke="currentColor" stroke-opacity="0.08" />
+                <text x="84" y="31" class="svg-muted" font-size="8.5">bilibili.com/video/...</text>
+                <!-- 工具栏扩展图标槽 -->
+                <rect x="272" y="17" width="22" height="22" rx="6" class="svg-accent-soft" />
+                <use href="#bsMiniIcon" x="276" y="21" width="14" height="14" />
+                <!-- 拼图扩展菜单按钮 -->
+                <path d="M305 23.5h3a1.5 1.5 0 0 1 3 0h3v3a1.5 1.5 0 0 1 0 3v3h-9v-9z" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.3" stroke-linejoin="round" />
+                <circle cx="328" cy="28" r="6" class="svg-surface-2" />
+                <!-- 扩展弹出列表 -->
+                <path d="M309.5 38 L309.5 52" class="svg-accent-stroke" stroke-width="1.5" stroke-dasharray="2.5 2" />
+                <rect x="210" y="52" width="142" height="92" rx="14" class="svg-popover" stroke="currentColor" stroke-opacity="0.1" filter="url(#bsSvgShadow)" />
+                <text x="224" y="72" class="svg-text" font-size="10.5" font-weight="600">扩展程序</text>
+                <rect x="220" y="81" width="122" height="28" rx="9" class="svg-accent-soft" />
+                <use href="#bsMiniIcon" x="227" y="87" width="16" height="16" />
+                <text x="249" y="99" class="svg-text" font-size="10.5" font-weight="600">BiliScript</text>
+                <!-- 图钉固定图标 -->
+                <path d="M324.5 89.5h6l-.8 3.2 1.6 1.5v1h-3.1v3.3l-.7.8-.7-.8v-3.3h-3.1v-1l1.6-1.5-.8-3.2z" class="svg-accent-fill" />
+                <text x="224" y="128" class="svg-muted" font-size="9.5">点击图钉固定到工具栏</text>
               </svg>
             </div>
             <h2 class="visual-title">右上角固定扩展图标</h2>
@@ -76,30 +110,74 @@
           <article class="onboarding-card visual-card">
             <div class="visual-svg-frame" aria-hidden="true">
               <svg viewBox="0 0 360 156" width="100%" height="156" fill="none">
-                <rect x="8" y="10" width="212" height="136" rx="12" class="svg-surface-2" stroke="currentColor" stroke-opacity="0.14" />
-                <rect x="20" y="22" width="188" height="92" rx="8" fill="#17181A" opacity="0.88" />
-                <polygon points="106,56 106,80 126,68" fill="#FFFFFF" opacity="0.9" />
-                <rect x="20" y="122" width="66" height="14" rx="7" class="svg-accent-soft" />
-                <text x="31" y="132" class="svg-accent-fill" font-size="9.5" font-weight="600">文摘面板</text>
-                <rect x="228" y="10" width="124" height="136" rx="12" class="svg-card" stroke="currentColor" stroke-opacity="0.18" />
-                <rect x="236" y="18" width="34" height="16" rx="8" class="svg-accent-fill" />
-                <text x="243" y="29" fill="#FFFFFF" font-size="8.5" font-weight="600">字幕</text>
-                <text x="276" y="29" class="svg-muted" font-size="8.5">概览</text>
-                <text x="303" y="29" class="svg-muted" font-size="8.5">AI 对话</text>
-                <rect x="236" y="42" width="108" height="18" rx="6" class="svg-surface-2" />
-                <text x="242" y="54" class="svg-accent-fill" font-size="8.5" font-weight="600">02:14</text>
-                <rect x="272" y="48" width="62" height="5" rx="2.5" class="svg-muted-fill" opacity="0.45" />
-                <rect x="236" y="66" width="108" height="18" rx="6" class="svg-surface-2" />
-                <text x="242" y="78" class="svg-muted" font-size="8.5">05:40</text>
-                <rect x="272" y="72" width="54" height="5" rx="2.5" class="svg-muted-fill" opacity="0.35" />
-                <rect x="236" y="92" width="108" height="44" rx="8" class="svg-accent-soft" />
-                <text x="244" y="107" class="svg-text" font-size="8.5" font-weight="600">AI 章节概览 · 多模态对话</text>
-                <rect x="244" y="116" width="84" height="4" rx="2" class="svg-muted-fill" opacity="0.4" />
-                <rect x="244" y="124" width="62" height="4" rx="2" class="svg-muted-fill" opacity="0.3" />
+                <!-- 左侧：B站视频页（播放器 + 弹幕栏 + 下方工具栏右侧粉色「文摘」按钮） -->
+                <rect x="8" y="8" width="200" height="140" rx="12" class="svg-surface" stroke="currentColor" stroke-opacity="0.1" />
+                <!-- 播放器主体 -->
+                <rect x="14" y="14" width="188" height="88" rx="7" fill="#17181A" />
+                <polygon points="101,45 101,67 119,56" fill="#FFFFFF" opacity="0.92" />
+                <!-- 播放器底部进度条 -->
+                <rect x="20" y="92" width="176" height="2.5" rx="1.25" fill="#FFFFFF" opacity="0.22" />
+                <rect x="20" y="92" width="68" height="2.5" rx="1.25" fill="#FB7299" />
+                <circle cx="88" cy="93.25" r="2.8" fill="#FB7299" />
+                <!-- 弹幕输入条 -->
+                <rect x="14" y="106" width="188" height="14" rx="4" class="svg-surface-2" />
+                <text x="20" y="116" class="svg-muted" font-size="7">发个友善的弹幕见证当下</text>
+                <rect x="176" y="108" width="22" height="10" rx="3" fill="currentColor" fill-opacity="0.12" />
+                <text x="181" y="115.5" class="svg-muted" font-size="6.5">发送</text>
+                <!-- 视频下方工具栏：左侧三连分享 + 右侧粉色「文摘」按钮 + 举报/笔记 -->
+                <circle cx="23" cy="133" r="4.5" class="svg-muted-fill" opacity="0.32" />
+                <rect x="30" y="131.5" width="10" height="3" rx="1.5" class="svg-muted-fill" opacity="0.25" />
+                <circle cx="48" cy="133" r="4.5" class="svg-muted-fill" opacity="0.32" />
+                <rect x="55" y="131.5" width="8" height="3" rx="1.5" class="svg-muted-fill" opacity="0.25" />
+                <circle cx="71" cy="133" r="4.5" class="svg-muted-fill" opacity="0.32" />
+                <rect x="78" y="131.5" width="10" height="3" rx="1.5" class="svg-muted-fill" opacity="0.25" />
+                <!-- 真实「文摘」按钮：工具栏右侧、稿件举报左侧，#FB7299 圆角矩形（8px）白字 -->
+                <rect x="122" y="124.5" width="32" height="16" rx="4" fill="#FB7299" />
+                <text x="138" y="135.5" text-anchor="middle" fill="#FFFFFF" font-size="8" font-weight="600">文摘</text>
+                <!-- 右侧：稿件举报 / 记笔记占位 -->
+                <rect x="159" y="130" width="16" height="5" rx="2" class="svg-muted-fill" opacity="0.26" />
+                <rect x="179" y="130" width="16" height="5" rx="2" class="svg-muted-fill" opacity="0.26" />
+                <!-- 右侧：真实 Flyme 蓝雾「文摘面板」 -->
+                <rect x="215" y="8" width="137" height="140" rx="14" fill="url(#bsMistPanelBg)" stroke="currentColor" stroke-opacity="0.1" filter="url(#bsSvgShadow)" />
+                <rect x="215" y="8" width="137" height="140" rx="14" fill="url(#bsMistGlowTL)" />
+                <rect x="215" y="8" width="137" height="140" rx="14" fill="url(#bsMistGlowBR)" />
+                <!-- 面板顶栏：UP主 + 主题/设置/关闭三键 -->
+                <text x="225" y="23" class="svg-muted" font-size="7.5">UP主：...</text>
+                <!-- 主题（太阳）/ 设置（齿轮）/ 关闭（×） -->
+                <circle cx="317" cy="20.5" r="1.8" stroke="currentColor" stroke-opacity="0.5" stroke-width="0.95" />
+                <path d="M317 17v.9m0 5.2v.9m-3.5-3.5h.9m5.2 0h.9m-5.6-2.5.6.6m3.8 3.8.6.6m0-5-.6.6m-3.8 3.8-.6.6" stroke="currentColor" stroke-opacity="0.45" stroke-width="0.85" stroke-linecap="round" />
+                <circle cx="329" cy="20.5" r="1.5" stroke="currentColor" stroke-opacity="0.5" stroke-width="0.95" />
+                <circle cx="329" cy="20.5" r="3" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.9" stroke-dasharray="1.3 1.1" />
+                <path d="M339.5 18.5l4 4m0-4l-4 4" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.1" stroke-linecap="round" />
+                <!-- 分段控件：透明底 + 白色液态玻璃选中卡 + 蓝色字 -->
+                <rect x="223" y="30" width="40" height="16" rx="8" class="svg-glass-card" filter="url(#bsSvgShadow)" />
+                <text x="243" y="40.8" text-anchor="middle" class="svg-accent-fill" font-size="8" font-weight="700">字幕</text>
+                <text x="283" y="40.8" text-anchor="middle" class="svg-muted" font-size="8">概览</text>
+                <text x="324" y="40.8" text-anchor="middle" class="svg-muted" font-size="8">AI 对话</text>
+                <!-- 搜索框 + 选轨 + 复制导出 -->
+                <rect x="223" y="51" width="66" height="13" rx="6.5" class="svg-glass-card" />
+                <text x="229" y="59.8" class="svg-muted" font-size="6.8">搜索字幕...</text>
+                <rect x="293" y="51" width="28" height="13" rx="6.5" class="svg-glass-card" />
+                <text x="298" y="59.8" class="svg-text" font-size="6.8">中文</text>
+                <path d="M313.5 56.8l1.8 1.8 1.8-1.8" stroke="currentColor" stroke-opacity="0.45" stroke-width="0.95" stroke-linecap="round" stroke-linejoin="round" />
+                <rect x="326" y="54" width="6" height="7" rx="1.2" stroke="currentColor" stroke-opacity="0.4" stroke-width="1" />
+                <path d="M339 54v5m-2-2l2 2 2-2" stroke="currentColor" stroke-opacity="0.4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+                <!-- 活动字幕行：白色凸起玻璃卡 + 柔蓝时间胶囊 -->
+                <rect x="223" y="70" width="121" height="22" rx="8" class="svg-glass-card" filter="url(#bsSvgShadow)" />
+                <rect x="228" y="75" width="27" height="12" rx="6" class="svg-time-bg" />
+                <text x="241.5" y="83.5" text-anchor="middle" class="svg-time-text" font-size="7.5" font-weight="700">00:24</text>
+                <rect x="261" y="78" width="75" height="5" rx="2.5" class="svg-text" opacity="0.72" />
+                <!-- 后续字幕行：透明直落蓝雾底（无灰框） -->
+                <text x="241.5" y="106" text-anchor="middle" class="svg-muted" font-size="7.2">01:12</text>
+                <rect x="261" y="101" width="72" height="4.5" rx="2.25" class="svg-muted-fill" opacity="0.38" />
+                <rect x="261" y="109" width="48" height="4.5" rx="2.25" class="svg-muted-fill" opacity="0.28" />
+                <text x="241.5" y="128" text-anchor="middle" class="svg-muted" font-size="7.2">02:08</text>
+                <rect x="261" y="123" width="64" height="4.5" rx="2.25" class="svg-muted-fill" opacity="0.32" />
+                <rect x="261" y="131" width="54" height="4.5" rx="2.25" class="svg-muted-fill" opacity="0.22" />
               </svg>
             </div>
             <h2 class="visual-title">右侧展开「文摘面板」</h2>
-            <p class="visual-copy">边看视频边精读字幕、生成 AI 章节概览与多模态对话。</p>
+            <p class="visual-copy">点击视频工具栏右侧粉色「文摘」按钮，边看视频边精读字幕、生成 AI 概览与多模态对话。</p>
           </article>
         </div>
       </section>
@@ -351,7 +429,7 @@
             <a
               id="tryBilibiliBtn"
               class="btn-primary btn-cta"
-              href="https://www.bilibili.com/video/BV1GJ411x7h7"
+              href="https://www.bilibili.com/video/BV1zwWh61E8D"
               target="_blank"
               rel="noopener noreferrer"
             >前往 B 站视频页实测</a>

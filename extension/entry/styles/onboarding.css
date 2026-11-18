@@ -61,11 +61,17 @@ body.onboarding-page {
   align-items: center;
   justify-content: space-between;
   gap: var(--biliscript-space-md);
-  max-width: 1080px;
+  width: 100%;
   margin: 0 auto;
-  padding: var(--biliscript-space-lg) var(--biliscript-space-xl);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  padding: var(--biliscript-space-lg) max(var(--biliscript-space-xl), calc((100% - 1080px) / 2 + var(--biliscript-space-xl)));
+  background: linear-gradient(
+    to bottom,
+    var(--biliscript-reader-topbar-bg, rgba(var(--biliscript-primitive-color-blue-mist-top-light-rgb), 0.96)) 0%,
+    var(--biliscript-reader-topbar-bg, rgba(var(--biliscript-primitive-color-blue-mist-top-light-rgb), 0.96)) calc(100% - 10px),
+    transparent 100%
+  );
+  backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px) saturate(1.2));
+  -webkit-backdrop-filter: var(--biliscript-reader-mist-filter, blur(24px) saturate(1.2));
 }
 
 .onboarding-brand {
@@ -183,6 +189,11 @@ body.onboarding-page {
   padding: var(--biliscript-space-xl);
 }
 
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .onboarding-card {
+  border-color: transparent;
+  box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border);
+}
+
 .onboarding-visual-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -197,10 +208,16 @@ body.onboarding-page {
 
 .visual-svg-frame {
   border-radius: var(--biliscript-radius-lg);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface-2);
   border: 1px solid var(--biliscript-reader-border);
   padding: var(--biliscript-space-sm);
   overflow: hidden;
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .visual-svg-frame {
+  border-color: transparent;
+  box-shadow: var(--biliscript-reader-fine-border);
 }
 
 .svg-surface {
@@ -211,8 +228,72 @@ body.onboarding-page {
   fill: var(--biliscript-reader-surface-2);
 }
 
-.svg-card {
+.svg-card,
+.svg-popover {
   fill: var(--biliscript-reader-popover-bg, var(--biliscript-reader-surface));
+}
+
+.svg-glass-card {
+  fill: rgba(var(--biliscript-primitive-color-white-rgb), 0.9);
+}
+
+:root[data-theme="dark"] .svg-glass-card {
+  fill: rgba(var(--biliscript-primitive-color-white-rgb), 0.12);
+}
+
+:root[data-palette="editorial"] .svg-glass-card {
+  fill: var(--biliscript-reader-card);
+}
+
+.svg-mist-stop-top {
+  stop-color: var(--biliscript-primitive-color-blue-mist-top-light);
+}
+
+.svg-mist-stop-bot {
+  stop-color: var(--biliscript-primitive-color-blue-mist-bot-light);
+}
+
+.svg-mist-glow-1 {
+  stop-color: rgb(var(--biliscript-primitive-color-blue-blob-l1-rgb));
+  stop-opacity: 0.45;
+}
+
+.svg-mist-glow-2 {
+  stop-color: rgb(var(--biliscript-primitive-color-blue-blob-l4-rgb));
+  stop-opacity: 0.45;
+}
+
+.svg-mist-glow-clear {
+  stop-color: rgb(var(--biliscript-primitive-color-blue-blob-l1-rgb));
+  stop-opacity: 0;
+}
+
+:root[data-theme="dark"] .svg-mist-stop-top {
+  stop-color: var(--biliscript-primitive-color-blue-mist-top-dark);
+}
+
+:root[data-theme="dark"] .svg-mist-stop-bot {
+  stop-color: var(--biliscript-primitive-color-dark-gray-950);
+}
+
+:root[data-theme="dark"] .svg-mist-glow-1 {
+  stop-color: rgb(var(--biliscript-primitive-color-blue-blob-d1-rgb));
+  stop-opacity: 0.25;
+}
+
+:root[data-theme="dark"] .svg-mist-glow-2 {
+  stop-color: rgb(var(--biliscript-primitive-color-blue-blob-d4-rgb));
+  stop-opacity: 0.2;
+}
+
+:root[data-palette="editorial"] .svg-mist-stop-top,
+:root[data-palette="editorial"] .svg-mist-stop-bot {
+  stop-color: var(--biliscript-reader-surface);
+}
+
+:root[data-palette="editorial"] .svg-mist-glow-1,
+:root[data-palette="editorial"] .svg-mist-glow-2 {
+  stop-opacity: 0;
 }
 
 .svg-accent-soft {
@@ -225,6 +306,15 @@ body.onboarding-page {
 
 .svg-accent-stroke {
   stroke: var(--biliscript-reader-accent);
+}
+
+.svg-time-bg {
+  fill: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
+}
+
+.svg-time-text {
+  fill: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  font-family: var(--biliscript-reader-font-mono);
 }
 
 .svg-text {
@@ -383,11 +473,47 @@ body.onboarding-page {
   height: 36px;
   padding: 0 12px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-md);
+  border-radius: var(--biliscript-radius-lg);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-surface);
   color: var(--biliscript-reader-text);
   font: inherit;
   font-size: var(--biliscript-font-size-base);
+}
+
+.onboarding-page select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--biliscript-reader-faint) 50%),
+    linear-gradient(135deg, var(--biliscript-reader-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% - 1px),
+    calc(100% - 11px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input[type="text"],
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input[type="url"],
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input[type="password"],
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) select {
+  border-color: transparent;
+  background-color: var(--biliscript-reader-surface);
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05),
+    inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7),
+    var(--biliscript-reader-fine-border);
+}
+
+:root[data-biliscript-onboarding="1"][data-theme="dark"]:not([data-palette="editorial"]) input[type="text"],
+:root[data-biliscript-onboarding="1"][data-theme="dark"]:not([data-palette="editorial"]) input[type="url"],
+:root[data-biliscript-onboarding="1"][data-theme="dark"]:not([data-palette="editorial"]) input[type="password"],
+:root[data-biliscript-onboarding="1"][data-theme="dark"]:not([data-palette="editorial"]) select {
+  background-color: var(--biliscript-reader-surface-2);
+  box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3),
+    inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07),
+    var(--biliscript-reader-fine-border);
 }
 
 .onboarding-page input:focus,
@@ -397,9 +523,23 @@ body.onboarding-page {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input:focus,
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) select:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft),
+    0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05),
+    inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
+}
+
 .onboarding-page input[aria-invalid="true"],
 .onboarding-page input:user-invalid {
   border-color: var(--biliscript-reader-danger);
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input[aria-invalid="true"],
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) input:user-invalid {
+  border-color: transparent;
+  box-shadow: 0 0 0 1.5px var(--biliscript-reader-danger);
 }
 
 .field-error {
@@ -423,19 +563,26 @@ body.onboarding-page {
 .key-visibility-btn {
   flex: 0 0 auto;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-md);
+  border-radius: var(--biliscript-radius-pill);
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font: inherit;
   font-size: var(--biliscript-font-size-sm);
   cursor: pointer;
+  transition: background var(--biliscript-reader-duration-fast) ease-out,
+    color var(--biliscript-reader-duration-fast) ease-out,
+    transform 100ms ease-out;
 }
 
 .key-visibility-btn:hover {
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-fill-hover);
+}
+
+.key-visibility-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
 .key-visibility-btn:focus-visible,
@@ -471,6 +618,7 @@ body.onboarding-page {
   white-space: nowrap;
   transition: filter var(--biliscript-reader-duration-fast) ease-out,
     background var(--biliscript-reader-duration-fast) ease-out,
+    color var(--biliscript-reader-duration-fast) ease-out,
     transform 100ms ease-out;
 }
 
@@ -492,6 +640,19 @@ body.onboarding-page {
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--biliscript-reader-fill-hover);
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .btn-secondary,
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .key-visibility-btn {
+  border-color: transparent;
+  background: var(--biliscript-reader-card);
+  box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border);
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .btn-secondary:hover:not(:disabled),
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .key-visibility-btn:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
 .btn-primary:active:not(:disabled),
@@ -671,6 +832,12 @@ body.onboarding-page {
   padding: var(--biliscript-space-xl);
 }
 
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .confirm-dialog {
+  border-color: transparent;
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
 .confirm-dialog:focus {
   outline: none;
 }
@@ -711,6 +878,14 @@ body.onboarding-page {
   border: 1px solid var(--biliscript-reader-border);
   background: transparent;
   color: var(--biliscript-reader-muted);
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .confirm-dialog-cancel {
+  border: 0;
+}
+
+:root[data-biliscript-onboarding="1"]:not([data-palette="editorial"]) .confirm-dialog-cancel:hover {
+  background: var(--biliscript-reader-fill-hover);
 }
 
 .confirm-dialog-confirm {
