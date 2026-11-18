@@ -9,6 +9,7 @@
 
 import { formatClock, parseClock, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError, makeAbortedError } from "../shared/error-helpers.js";
+import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
 import { MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
 import { RAW_INJECTION_MAX_CHARS } from "./followup-context.js";
@@ -227,20 +228,11 @@ function findLineIndexForAnchor(
 
   const targetSec = Math.max(0, Number(anchor.from) || 0);
   if (anchor.lineContent) {
-    let bestIdx = -1;
-    let bestScore = Number.NEGATIVE_INFINITY;
-    for (let i = 0; i < lines.length; i += 1) {
-      const dist = Math.abs(lines[i].from - targetSec);
-      if (dist > 20) {
-        continue;
-      }
-      const sim = computeLocalTextSimilarity(anchor.lineContent, lines[i].content);
-      const score = sim * 100 - dist * 0.5;
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
+    const lineContent = anchor.lineContent;
+    const bestIdx = findNearestTimedLineIndex(lines, targetSec, {
+      maxTimeDistanceSeconds: 20,
+      scoreLine: (line, dist) => computeLocalTextSimilarity(lineContent, line.content) * 100 - dist * 0.5
+    });
     if (bestIdx >= 0) {
       return bestIdx;
     }
@@ -594,8 +586,7 @@ function buildRecentTurnHint(history: readonly ChatMessage[]): string {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const msg = history[i];
     if (msg?.role === "user" && typeof msg.content === "string" && msg.content.trim()) {
-      const clean = msg.content.replace(/\s+/g, " ").trim();
-      return clean.length > 140 ? `${clean.slice(0, 139)}…` : clean;
+      return truncateWithEllipsis(msg.content, 140, { singleLine: true });
     }
   }
   return "";

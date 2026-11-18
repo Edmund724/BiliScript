@@ -3,6 +3,7 @@
 // 约束：纯 TypeScript 算法模块，零 chrome/DOM/storage 依赖，零第三方依赖。
 
 import { formatClock, parseClock } from "../shared/clock-text.js";
+import { truncateWithEllipsis } from "../shared/text-primitives.js";
 import { joinSubtitleText } from "../subtitle/text-classification.js";
 import { MATERIAL_BUDGET_CHARS, SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
@@ -99,14 +100,7 @@ export interface MergedRelayResult {
 }
 
 function clampText(value: unknown, maxLen: number): string {
-  const clean = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLen) {
-    return clean;
-  }
-  if (maxLen <= 1) {
-    return clean.slice(0, maxLen);
-  }
-  return `${clean.slice(0, maxLen - 1)}…`;
+  return truncateWithEllipsis(value, maxLen, { singleLine: true });
 }
 
 function extractChapterStarts(chapters?: ReadonlyArray<{ from?: unknown }>): number[] {

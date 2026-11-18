@@ -6,6 +6,7 @@
 //   - breakSubtitlesByStats：模式 B（MAD + Z-Score 统计分布断句）；
 //   - shouldSegmentTrack / segmentSubtitles：按轨道类型与设置策略智能分派。
 
+import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { isNonSpeechSegment, isNoSpaceLanguage, joinSubtitleText } from "./text-classification.js";
 
 export type SubtitleSegmentationStrategy = "auto" | "rule" | "stats" | "off";
@@ -175,11 +176,6 @@ const DEFAULT_STATS_MIN_DURATION_MS = 500;
 const CJK_MAX_ATOMIC_CHARS = 8;
 const CJK_TARGET_ATOMIC_CHARS = 6;
 
-const wordSegmenter =
-  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
-    ? new Intl.Segmenter("zh", { granularity: "word" })
-    : null;
-
 function secToMs(sec: unknown): number {
   const n = Number(sec ?? 0);
   if (!Number.isFinite(n) || n <= 0) {
@@ -296,6 +292,7 @@ function distributeTimeWindow(
 }
 
 function segmentCjkWords(text: string): string[] {
+  const wordSegmenter = getSharedZhWordSegmenter();
   if (!wordSegmenter) {
     return Array.from(text);
   }

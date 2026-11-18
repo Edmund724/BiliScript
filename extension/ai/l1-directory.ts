@@ -7,6 +7,7 @@
 // 约束：零 chrome/DOM/storage/cache-lru 依赖，可安全进入 offscreen ladder chunk 与 SW。
 
 import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
+import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { estimateCompactPromptTokens, normalizeL0SubtitleLines, tokenizeLexicalText } from "./l0-bm25.js";
 export { estimateCompactPromptTokens };
@@ -131,27 +132,21 @@ function findNearestL0LineNumber(lines: readonly L0SubtitleLine[], targetFrom: n
     return -1;
   }
   const quoteTokens = new Set(tokenizeLexicalText(quoteContent));
-  let bestLine = lines[0].lineNumber;
-  let bestScore = Number.NEGATIVE_INFINITY;
-
-  for (const line of lines) {
-    const distance = Math.abs(line.from - targetFrom);
-    // 优先时间接近（30 秒内给予强权重），同区间内再看词元重合度
-    let overlap = 0;
-    if (quoteTokens.size > 0 && distance <= 30) {
-      for (const token of tokenizeLexicalText(line.content)) {
-        if (quoteTokens.has(token)) {
-          overlap += 1;
+  const bestIdx = findNearestTimedLineIndex(lines, targetFrom, {
+    scoreLine: (line, distance) => {
+      // 优先时间接近（30 秒内给予强权重），同区间内再看词元重合度
+      let overlap = 0;
+      if (quoteTokens.size > 0 && distance <= 30) {
+        for (const token of tokenizeLexicalText(line.content)) {
+          if (quoteTokens.has(token)) {
+            overlap += 1;
+          }
         }
       }
+      return overlap * 10 - distance;
     }
-    const score = overlap * 10 - distance;
-    if (score > bestScore) {
-      bestScore = score;
-      bestLine = line.lineNumber;
-    }
-  }
-  return bestLine;
+  });
+  return bestIdx >= 0 ? lines[bestIdx].lineNumber : -1;
 }
 
 function findOwnerChapterIndex(chapters: readonly L1ChapterNode[], seconds: number): number | undefined {
@@ -341,14 +336,7 @@ export interface SerializeL1PromptOptions {
 }
 
 function clampSingleLine(text: string, maxLen: number): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLen) {
-    return clean;
-  }
-  if (maxLen <= 1) {
-    return clean.slice(0, maxLen);
-  }
-  return `${clean.slice(0, maxLen - 1)}…`;
+  return truncateWithEllipsis(text, maxLen, { singleLine: true });
 }
 
 function formatChapterRange(from: number, to: number, withHours: boolean): string {

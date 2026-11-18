@@ -6,6 +6,7 @@
 // - 命中行前后扩窗（支持 N 句或 M 秒窗口）与重叠/相邻时间片段去重合并。
 // 零外部依赖、零 chrome/DOM/storage 依赖。
 
+import { getSharedZhWordSegmenter } from "../shared/text-primitives.js";
 import { STOP_WORDS } from "./stop-words.js";
 import type {
   L0ContextWindow,
@@ -48,11 +49,6 @@ const EN_STOP_WORDS: ReadonlySet<string> = new Set([
 const ZH_STOP_WORDS: ReadonlySet<string> = new Set([...STOP_WORDS, ...ZH_EXTRA_STOP_WORDS]);
 const HAS_WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
-const wordSegmenter =
-  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
-    ? new Intl.Segmenter("zh", { granularity: "word" })
-    : null;
-
 function isStopWord(token: string): boolean {
   return ZH_STOP_WORDS.has(token) || EN_STOP_WORDS.has(token);
 }
@@ -67,6 +63,7 @@ export function tokenizeLexicalText(text: unknown): string[] {
     return [];
   }
 
+  const wordSegmenter = getSharedZhWordSegmenter();
   const tokens: string[] = [];
   if (wordSegmenter) {
     for (const seg of wordSegmenter.segment(raw)) {

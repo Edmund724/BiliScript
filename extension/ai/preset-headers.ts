@@ -14,6 +14,7 @@
 // 「每个对话一个稳定会话 id」。没有会话身份的调用（选区解释、连通性探针、
 // 旧宿主）现造一个随机 id：这些调用本身就不构成「一个对话」。
 
+import { fnv1a32 } from "../shared/text-primitives.js";
 import { quirkWireValue } from "./compat-vocab.js";
 import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
 
@@ -44,19 +45,10 @@ export function sessionIdFor(identity: unknown): string {
 // 实际不可区分到同一结果），再置 UUIDv4 的版本/变体位收口形状。
 const SESSION_SEEDS = [0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f] as const;
 
-function fnv1a(input: string, seed: number): number {
-  let hash = (seed ^ 0x811c9dc5) >>> 0;
-  for (let index = 0; index < input.length; index += 1) {
-    hash = (hash ^ input.charCodeAt(index)) >>> 0;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
-
 function uuidFromSeed(input: string): string {
   const bytes = new Uint8Array(16);
   for (let word = 0; word < SESSION_SEEDS.length; word += 1) {
-    const value = fnv1a(input, SESSION_SEEDS[word]);
+    const value = fnv1a32(input, SESSION_SEEDS[word]);
     bytes[word * 4] = value & 0xff;
     bytes[word * 4 + 1] = (value >>> 8) & 0xff;
     bytes[word * 4 + 2] = (value >>> 16) & 0xff;

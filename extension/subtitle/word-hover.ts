@@ -5,6 +5,7 @@
 import { state } from "../core/state.js";
 import { normalizeSpeechVoiceVolume } from "../core/validators.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { fnv1a32 } from "../shared/text-primitives.js";
 import { ensureWordHoverStyles } from "../shared/style-injector.js";
 import { getFullscreenHost } from "../bilibili/fullscreen.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
@@ -302,12 +303,7 @@ const memoryLookupCache = new Map<string, WordLookupResult>();
 
 export function computeContextHash(text: string): string {
   const normalized = String(text ?? "").trim().toLowerCase();
-  let hash = 2166136261;
-  for (let i = 0; i < normalized.length; i += 1) {
-    hash ^= normalized.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+  return fnv1a32(normalized).toString(36);
 }
 
 function makeLookupCacheKey(word: string, sentence: string): string {
