@@ -12,7 +12,10 @@
 
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
-import { applyPlayerAiQuickActionDefaultOnMigration } from "../../extension/entry/settings-migration.js";
+import {
+  applyPlayerAiQuickActionDefaultOnMigration,
+  applySubtitleTranslateDefaultMigration
+} from "../../extension/entry/settings-migration.js";
 
 describe("AI 键默认开一次性迁移", () => {
   it("存量显式 false + 旗标未置位 → 改写回 true + 旗标置位", () => {
@@ -62,5 +65,51 @@ describe("AI 键默认开一次性迁移", () => {
     const afterUserTurnsOff = { ...freshInstall, enablePlayerAiQuickAction: false };
     const rerun = applyPlayerAiQuickActionDefaultOnMigration(afterUserTurnsOff);
     expect(rerun.enablePlayerAiQuickAction).toBe(false);
+  });
+});
+
+describe("字幕翻译默认源迁移（applySubtitleTranslateDefaultMigration）", () => {
+  it("存量空配置/缺键时迁移到免 Key Index-Translate 35B-A3B，且不改动通用 AI 默认配置", () => {
+    const syncCurrent = {
+      ...DEFAULT_SETTINGS,
+      defaultModel: "deepseek-1",
+      defaultAiModel: "deepseek-chat",
+      subtitleTranslateProviderId: "",
+      subtitleTranslateModel: ""
+    };
+
+    const result = applySubtitleTranslateDefaultMigration(syncCurrent);
+
+    expect(result).toBe(syncCurrent);
+    expect(result.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(result.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+    expect(result.defaultModel).toBe("deepseek-1");
+    expect(result.defaultAiModel).toBe("deepseek-chat");
+  });
+
+  it("已选 Index-Translate 档位时按规范归一化（如 9B/2B 保留，未知模型回落 35B-A3B）", () => {
+    const nineB = applySubtitleTranslateDefaultMigration({
+      subtitleTranslateProviderId: "bilibili-index-translate",
+      subtitleTranslateModel: "index-translate-9b"
+    });
+    expect(nineB.subtitleTranslateModel).toBe("Index-Translate-9B");
+
+    const unknown = applySubtitleTranslateDefaultMigration({
+      subtitleTranslateProviderId: "bilibili-index-translate",
+      subtitleTranslateModel: "legacy-model"
+    });
+    expect(unknown.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+  });
+
+  it("用户已显式配置自定义翻译平台时原样保留，不被 Index-Translate 覆盖", () => {
+    const custom = {
+      subtitleTranslateProviderId: "openai-custom",
+      subtitleTranslateModel: "gpt-4o-mini"
+    };
+
+    const result = applySubtitleTranslateDefaultMigration(custom);
+
+    expect(result.subtitleTranslateProviderId).toBe("openai-custom");
+    expect(result.subtitleTranslateModel).toBe("gpt-4o-mini");
   });
 });

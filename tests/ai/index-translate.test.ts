@@ -27,7 +27,6 @@ import {
   computeIndexTranslateBackoffMs,
   runWithIndexTranslateRetry
 } from "../../extension/ai/index-translate.js";
-import { NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/provider-handlers.js";
 import {
   INDEX_TRANSLATE_DOMAIN,
   INDEX_TRANSLATE_ORIGIN_HEADER,
@@ -67,7 +66,7 @@ describe("Bilibili Index-Translate 内置配置解析", () => {
     expect(resolution.protocol).toBe("openai");
   });
 
-  it("支持 3 个模型枚举，显式选择或未知模型时按规范归一化，且不改动默认空选回落行为", () => {
+  it("支持 3 个模型枚举，显式选择、缺省空选或未知模型时均按规范归一化并免 Key 解析", () => {
     expect(INDEX_TRANSLATE_DEFAULT_MODEL).toBe("Index-Translate-35B-A3B");
     expect([...INDEX_TRANSLATE_MODELS]).toEqual([
       "Index-Translate-35B-A3B",
@@ -98,10 +97,11 @@ describe("Bilibili Index-Translate 内置配置解析", () => {
       expect(resolved.apiKey).toBe("");
     }
 
-    // 暂不改设置页默认选中逻辑：空 subtitleTranslateProviderId 且无平台时仍按原契约报错
-    expect(() => resolveSubtitleTranslateProviderConfig([], {}, { subtitleTranslateProviderId: "" })).toThrow(
-      NO_ACTIVE_PROVIDER_MESSAGE
-    );
+    const defaultResolved = resolveSubtitleTranslateProviderConfig([], {}, { subtitleTranslateProviderId: "" });
+    expect(defaultResolved.isFallback).toBe(false);
+    expect(defaultResolved.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(defaultResolved.model).toBe("Index-Translate-35B-A3B");
+    expect(defaultResolved.apiKey).toBe("");
   });
 
   it("isIndexTranslateProvider 支持按 id / presetId / baseUrl 域名识别", () => {

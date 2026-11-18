@@ -147,6 +147,36 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
       const res = await controller.refreshAvailability();
       expect(res.ok).toBe(true);
     });
+
+    it("零 API Key 新用户默认走免 Key Index-Translate 通过可用性检查；切回未填 Key 自定义平台时提示配置", async () => {
+      clipState.setSubtitleBody([{ from: 0, to: 5, content: "Hello" }]);
+      clipState.setSubtitleFetchState("ready");
+
+      const { resolveSubtitleTranslateProvider } = await import("../../extension/ai/subtitle-translate.js");
+      let settingsState: Record<string, unknown> = {};
+      const customProviders = [
+        { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat"], requiresKey: true, hasSavedKey: false, enabled: true }
+      ];
+
+      const { controller } = setupTest({
+        resolveTranslateProvider: () =>
+          resolveSubtitleTranslateProvider({
+            getSettings: async () => settingsState,
+            loadProviders: async () => customProviders,
+            loadKeys: async () => ({})
+          })
+      });
+
+      const defaultRes = await controller.refreshAvailability();
+      expect(defaultRes).toEqual({ ok: true });
+
+      settingsState = { subtitleTranslateProviderId: "deepseek", subtitleTranslateModel: "deepseek-chat" };
+      const customMissingKeyRes = await controller.refreshAvailability();
+      expect(customMissingKeyRes.ok).toBe(false);
+      if (!customMissingKeyRes.ok) {
+        expect(customMissingKeyRes.error).toContain("该平台 API Key 未配置");
+      }
+    });
   });
 
   describe("缓存命中短路", () => {

@@ -20,12 +20,25 @@ describe("同声传译字幕设置归一化", () => {
     expect(normalizeSettings({ liveInterpretDisplayMode: "original" }).liveInterpretDisplayMode).toBe("auto");
   });
 
-  it("字幕翻译平台与模型偏好缺省为空串，非法值自动归一化", () => {
-    expect(DEFAULT_SETTINGS.subtitleTranslateProviderId).toBe("");
-    expect(DEFAULT_SETTINGS.subtitleTranslateModel).toBe("");
+  it("字幕翻译平台与模型默认内置免 Key Index-Translate，自定义与非法值按规归一化", () => {
+    expect(DEFAULT_SETTINGS.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(DEFAULT_SETTINGS.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
 
-    expect(normalizeSettings({}).subtitleTranslateProviderId).toBe("");
-    expect(normalizeSettings({}).subtitleTranslateModel).toBe("");
+    expect(normalizeSettings({}).subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(normalizeSettings({}).subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+
+    const indexCustomTier = normalizeSettings({
+      subtitleTranslateProviderId: "bilibili-index-translate",
+      subtitleTranslateModel: "index-translate-9b"
+    });
+    expect(indexCustomTier.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(indexCustomTier.subtitleTranslateModel).toBe("Index-Translate-9B");
+
+    const indexUnknownModel = normalizeSettings({
+      subtitleTranslateProviderId: "bilibili-index-translate",
+      subtitleTranslateModel: "gpt-4o-mini"
+    });
+    expect(indexUnknownModel.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
 
     const custom = normalizeSettings({
       subtitleTranslateProviderId: "  provider-custom  ",
@@ -34,11 +47,18 @@ describe("同声传译字幕设置归一化", () => {
     expect(custom.subtitleTranslateProviderId).toBe("provider-custom");
     expect(custom.subtitleTranslateModel).toBe("gpt-4o-mini");
 
+    const customEmptyModel = normalizeSettings({
+      subtitleTranslateProviderId: "provider-custom",
+      subtitleTranslateModel: ""
+    });
+    expect(customEmptyModel.subtitleTranslateProviderId).toBe("provider-custom");
+    expect(customEmptyModel.subtitleTranslateModel).toBe("");
+
     const fallback = normalizeSettings({
       subtitleTranslateProviderId: 12345,
       subtitleTranslateModel: null
     });
-    expect(fallback.subtitleTranslateProviderId).toBe("");
-    expect(fallback.subtitleTranslateModel).toBe("");
+    expect(fallback.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(fallback.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
   });
 });

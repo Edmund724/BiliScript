@@ -23,6 +23,10 @@
 
 import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
 import { SMART_SEARCH_ACTIVE_ID, isSmartSearchActive } from "../core/search-mode.js";
+import {
+  INDEX_TRANSLATE_PROVIDER_ID,
+  normalizeIndexTranslateModel
+} from "../ai/subtitle-translate-config.js";
 
 // 旗标未置位 → 无条件置旗标（存量显式 false 一并改写回 true）；旗标已置位 →
 // 原样返回。旗标键
@@ -36,6 +40,24 @@ export function applyPlayerAiQuickActionDefaultOnMigration(
       syncCurrent.enablePlayerAiQuickAction = true;
     }
     syncCurrent.aiBtnDefaultOnMigrated = true;
+  }
+  return syncCurrent;
+}
+
+/**
+ * 字幕翻译默认源迁移：存量未配置专属翻译平台（空串/缺失）或已指向内置 Index-Translate 时，
+ * 收敛到免 Key 的 `bilibili-index-translate` 与归一化模型（默认 `Index-Translate-35B-A3B`）；
+ * 用户显式选定的自定义 AI 平台与模型原样保留。
+ */
+export function applySubtitleTranslateDefaultMigration(
+  syncCurrent: Record<string, unknown>
+): Record<string, unknown> {
+  const rawProviderId = typeof syncCurrent.subtitleTranslateProviderId === "string"
+    ? syncCurrent.subtitleTranslateProviderId.trim()
+    : "";
+  if (!rawProviderId || rawProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
+    syncCurrent.subtitleTranslateProviderId = INDEX_TRANSLATE_PROVIDER_ID;
+    syncCurrent.subtitleTranslateModel = normalizeIndexTranslateModel(syncCurrent.subtitleTranslateModel);
   }
   return syncCurrent;
 }

@@ -6,9 +6,9 @@
 // 静态引用。请求装配（buildSubtitleTranslateRequest / translateSubtitleItems）
 // 留在 ai/subtitle-translate.ts，只允许页面/offscreen 侧按需加载。
 
-import { NO_ACTIVE_PROVIDER_MESSAGE } from "../core/overview-setup-error.js";
+import { MISSING_PROVIDER_KEY_MESSAGE } from "../core/overview-setup-error.js";
 import type { ProviderListEntry } from "../shared/messaging-protocol.js";
-import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
+import { resolveCatalogModel } from "../shared/selected-provider.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 
 export interface SubtitleTranslateProviderResolution {
@@ -247,9 +247,9 @@ export function resolveSubtitleTranslateGlossary(
 
 /**
  * 纯函数：根据已保存平台列表、密钥字典与设置，解析字幕翻译应使用的 AI 平台与模型。
- * - 专属配置优先：指定了 subtitleTranslateProviderId 且处于启用状态时优先匹配；
- * - 平滑回落：未指定或目标平台不存在/已禁用时，回落至首个含可用模型的启用 AI 平台；
- * - 错误判定：平台完全缺失抛出 NO_ACTIVE_PROVIDER_MESSAGE，需要 Key 却缺失抛出可读错误。
+ * - 默认与内置通道：未指定平台或指定 `bilibili-index-translate` 时，直接使用免 Key 的内置 Index-Translate 通道；
+ * - 专属自定义平台：指定了自定义平台 id 且处于启用状态时精确匹配，需要 Key 却缺失时抛出可读错误；
+ * - 平滑回落：指定的自定义平台已被删除或禁用时，平滑回落至内置 Index-Translate 默认模型（并标记 `isFallback: true`）。
  */
 export function resolveSubtitleTranslateProviderConfig(
   providers: ProviderListEntry[],
@@ -268,54 +268,45 @@ export function resolveSubtitleTranslateProviderConfig(
   const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
   const preferredModel = String(settings?.subtitleTranslateModel || "").trim();
 
-  if (preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
-    const explicitEntry = providerList.find(
-      (item) => Boolean(item) && typeof item === "object" && String(item.id || "").trim() === INDEX_TRANSLATE_PROVIDER_ID
-    );
-    if (!explicitEntry) {
-      return createIndexTranslateResolution(preferredModel);
+  if (!preferredProviderId || preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
+    if (preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
+      const explicitEntry = providerList.find(
+        (item) => Boolean(item) && typeof item === "object" && String(item.id || "").trim() === INDEX_TRANSLATE_PROVIDER_ID
+      );
+      if (explicitEntry) {
+        if (explicitEntry.enabled === false) {
+          return { ...createIndexTranslateResolution(), isFallback: true };
+        }
+        const apiKey = String(keys?.[INDEX_TRANSLATE_PROVIDER_ID] || "").trim();
+        return {
+          provider: explicitEntry,
+          apiKey,
+          baseUrl: String(explicitEntry.baseUrl || "").trim() || INDEX_TRANSLATE_BASE_URL,
+          model: normalizeIndexTranslateModel(preferredModel || resolveCatalogModel(explicitEntry)),
+          presetId: String(explicitEntry.presetId || INDEX_TRANSLATE_PROVIDER_ID),
+          protocol: (explicitEntry.protocol as AiProtocol | undefined) ?? "openai",
+          isFallback: false
+        };
+      }
     }
-    if (explicitEntry.enabled !== false) {
-      const apiKey = String(keys?.[INDEX_TRANSLATE_PROVIDER_ID] || "").trim();
-      return {
-        provider: explicitEntry,
-        apiKey,
-        baseUrl: String(explicitEntry.baseUrl || "").trim() || INDEX_TRANSLATE_BASE_URL,
-        model: normalizeIndexTranslateModel(preferredModel || resolveCatalogModel(explicitEntry)),
-        presetId: String(explicitEntry.presetId || INDEX_TRANSLATE_PROVIDER_ID),
-        protocol: (explicitEntry.protocol as AiProtocol | undefined) ?? "openai",
-        isFallback: false
-      };
-    }
+    return createIndexTranslateResolution(preferredModel);
   }
 
-  if (enabled.length === 0) {
-    throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
-  }
-
-  let chosen: ProviderListEntry | null = null;
-  let isFallback = false;
-
-  if (preferredProviderId) {
-    chosen = enabled.find((item) => String(item.id) === preferredProviderId) || null;
-  }
-
+  const chosen = enabled.find((item) => String(item.id) === preferredProviderId) || null;
   if (!chosen) {
-    isFallback = true;
-    chosen = enabled.find((item) => normalizeProviderModels(item).length > 0) || enabled[0] || null;
-  }
-
-  if (!chosen) {
-    throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
+    return {
+      ...createIndexTranslateResolution(),
+      isFallback: true
+    };
   }
 
   const chosenId = String(chosen.id);
   const apiKey = String(keys?.[chosenId] || "").trim();
   if (chosen.requiresKey !== false && !apiKey) {
-    throw new Error("该平台 API Key 未配置");
+    throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
   }
 
-  const model = (!isFallback ? preferredModel : "") || resolveCatalogModel(chosen);
+  const model = resolveCatalogModel(chosen, preferredModel) || preferredModel;
 
   return {
     provider: chosen,
@@ -324,6 +315,6 @@ export function resolveSubtitleTranslateProviderConfig(
     model,
     presetId: String(chosen.presetId || ""),
     protocol: chosen.protocol as AiProtocol | undefined,
-    isFallback
+    isFallback: false
   };
 }

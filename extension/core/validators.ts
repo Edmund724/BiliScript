@@ -182,7 +182,7 @@ export const normalizeLiveGeminiNativeSearch = booleanField(false);
 export const normalizeLiveLowBandwidth = booleanField(false);
 
 export function normalizeSubtitleTranslateProviderId(value: unknown): string {
-  return toString(value).trim();
+  return toString(value).trim() || DEFAULT_SETTINGS.subtitleTranslateProviderId;
 }
 
 export function normalizeSubtitleTranslateModel(value: unknown): string {

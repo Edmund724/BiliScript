@@ -484,23 +484,41 @@ describe("createSubtitleTranslateProviderHandler（resolve-subtitle-translate-pr
     };
   }
 
-  it("未指定专属配置：回落首个启用平台且不携带 isFallback（不受 defaultModel 影响）", async () => {
+  it("未指定专属配置：使用默认内置 Index-Translate 且不携带 isFallback（不受 defaultModel 影响）", async () => {
     const handler = createSubtitleTranslateProviderHandler(makeSubtitleDeps({ defaultModel: "p2" }));
-    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string }; model?: string }>();
 
     handler({}, {}, sendResponse);
     const payload = await response;
-    expect(payload.provider.id).toBe("p1");
+    expect(payload.provider.id).toBe("bilibili-index-translate");
+    expect(payload.model).toBe("Index-Translate-35B-A3B");
     expect("isFallback" in payload).toBe(false);
   });
 
-  it("专属平台已删除：回落首个启用平台并自报 isFallback", async () => {
+  it("专属平台已删除：平滑回落内置 Index-Translate 并自报 isFallback", async () => {
     const handler = createSubtitleTranslateProviderHandler(
       makeSubtitleDeps({ subtitleTranslateProviderId: "ghost", defaultModel: "p2" })
     );
-    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string } }>();
+    const { sendResponse, response } = makeChannel<{ ok: boolean; isFallback?: boolean; provider: { id: string }; model?: string }>();
 
     handler({}, {}, sendResponse);
-    expect(await response).toMatchObject({ ok: true, isFallback: true, provider: { id: "p1" } });
+    expect(await response).toMatchObject({
+      ok: true,
+      isFallback: true,
+      provider: { id: "bilibili-index-translate" },
+      model: "Index-Translate-35B-A3B"
+    });
+  });
+
+  it("显式切回自定义平台且未填 Key 时返回缺 Key 错误", async () => {
+    const handler = createSubtitleTranslateProviderHandler({
+      getMergedSettings: vi.fn(async () => ({ subtitleTranslateProviderId: "p1", subtitleTranslateModel: "m1" })),
+      loadProviders: vi.fn(async () => SUBTITLE_PROVIDERS),
+      loadKeys: vi.fn(async () => ({}))
+    });
+    const { sendResponse, response } = makeChannel<{ ok: boolean; error?: string }>();
+
+    handler({}, {}, sendResponse);
+    expect(await response).toEqual({ ok: false, error: "该平台 API Key 未配置" });
   });
 });

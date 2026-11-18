@@ -11,8 +11,11 @@ import {
 } from "../../extension/ai/subtitle-translate.js";
 import { providerFetchViaOffscreen } from "../../extension/core/provider-http-offscreen.js";
 import { LIVE_INTERPRET_TARGET_LANG_OPTIONS } from "../../extension/live/interpret-subtitle-preferences.js";
-import { resolveSubtitleTranslateProviderConfig } from "../../extension/ai/subtitle-translate-config.js";
-import { NO_ACTIVE_PROVIDER_MESSAGE } from "../../extension/core/provider-handlers.js";
+import {
+  INDEX_TRANSLATE_DEFAULT_MODEL,
+  INDEX_TRANSLATE_PROVIDER_ID,
+  resolveSubtitleTranslateProviderConfig
+} from "../../extension/ai/subtitle-translate-config.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import type { ProviderListEntry } from "../../extension/shared/messaging-protocol.js";
 
@@ -98,7 +101,7 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
     expect(resolution.apiKey).toBe("sk-deepseek-123");
   });
 
-  it("未指定专属平台时，回落首个含模型的启用 AI 平台（不受 defaultModel 影响）", () => {
+  it("未指定专属平台时，默认使用免 Key 的内置 Index-Translate（不受已配置自定义平台或 defaultModel 影响）", () => {
     const resolution = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
       sampleKeys,
@@ -108,13 +111,13 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       }
     );
 
-    expect(resolution.isFallback).toBe(true);
-    expect(resolution.provider.id).toBe("deepseek");
-    expect(resolution.model).toBe("deepseek-chat");
-    expect(resolution.apiKey).toBe("sk-deepseek-123");
+    expect(resolution.isFallback).toBe(false);
+    expect(resolution.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(resolution.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
+    expect(resolution.apiKey).toBe("");
   });
 
-  it("专属平台已被删除或禁用时，平滑回落至首个含模型的启用 AI 平台", () => {
+  it("专属自定义平台已被删除或禁用时，平滑回落至内置免 Key Index-Translate 默认模型", () => {
     // 目标平台已禁用
     const resDisabled = resolveSubtitleTranslateProviderConfig(
       sampleProviders,
@@ -125,8 +128,9 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       }
     );
     expect(resDisabled.isFallback).toBe(true);
-    expect(resDisabled.provider.id).toBe("deepseek");
-    expect(resDisabled.model).toBe("deepseek-chat");
+    expect(resDisabled.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(resDisabled.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
+    expect(resDisabled.apiKey).toBe("");
 
     // 目标平台不存在
     const resNonExistent = resolveSubtitleTranslateProviderConfig(
@@ -138,14 +142,17 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
       }
     );
     expect(resNonExistent.isFallback).toBe(true);
-    expect(resNonExistent.provider.id).toBe("deepseek");
-    expect(resNonExistent.model).toBe("deepseek-chat");
+    expect(resNonExistent.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(resNonExistent.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
+    expect(resNonExistent.apiKey).toBe("");
   });
 
-  it("无任何启用平台时抛出可读错误", () => {
-    expect(() =>
-      resolveSubtitleTranslateProviderConfig([], {}, {})
-    ).toThrow(NO_ACTIVE_PROVIDER_MESSAGE);
+  it("无任何已配置自定义平台时默认开箱即用走内置 Index-Translate（无需 API Key）", () => {
+    const emptyRes = resolveSubtitleTranslateProviderConfig([], {}, {});
+    expect(emptyRes.isFallback).toBe(false);
+    expect(emptyRes.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(emptyRes.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
+    expect(emptyRes.apiKey).toBe("");
 
     const allDisabled: ProviderListEntry[] = [
       {
@@ -155,9 +162,10 @@ describe("字幕翻译平台与模型解析 resolveSubtitleTranslateProviderConf
         hasSavedKey: false
       }
     ];
-    expect(() =>
-      resolveSubtitleTranslateProviderConfig(allDisabled, {}, {})
-    ).toThrow(NO_ACTIVE_PROVIDER_MESSAGE);
+    const disabledRes = resolveSubtitleTranslateProviderConfig(allDisabled, {}, {});
+    expect(disabledRes.isFallback).toBe(false);
+    expect(disabledRes.provider.id).toBe(INDEX_TRANSLATE_PROVIDER_ID);
+    expect(disabledRes.model).toBe(INDEX_TRANSLATE_DEFAULT_MODEL);
   });
 
   it("需要 Key 但未配置时抛出可读错误", () => {

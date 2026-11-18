@@ -155,8 +155,8 @@ export const DEFAULT_SETTINGS: Settings = {
   liveShareVideoAudio: false, // 实时伴看是否分享视频原声（默认关闭）
   liveGeminiNativeSearch: false, // Gemini 伴看是否使用原生 Google 搜索（默认 false 走扩展搜索链）
   liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
-  subtitleTranslateProviderId: "", // 专属字幕翻译 AI 平台 id，空串表示跟随全局默认平台
-  subtitleTranslateModel: "",      // 专属字幕翻译模型，空串表示跟随全局默认模型
+  subtitleTranslateProviderId: "bilibili-index-translate", // 字幕翻译引擎 id，默认使用内置免 Key 的 Index-Translate
+  subtitleTranslateModel: "Index-Translate-35B-A3B",      // 字幕翻译模型，默认 Index-Translate-35B-A3B
   subtitleTranslateGlossary: "",   // 字幕翻译自定义术语对照表（多行，原文 = 译文 或 仅原文保留原词）
   liveInterpretTargetLang: "zh",
   liveInterpretDisplayMode: "auto",

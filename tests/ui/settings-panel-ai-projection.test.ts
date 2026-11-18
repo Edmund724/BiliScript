@@ -137,7 +137,7 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
     expect(overviewSelect.value).toBe(`p2${String.fromCharCode(1)}Qwen3-8B`);
   });
 
-  it("无可用模型时两个下拉框禁用并显示「暂无可用模型」", async () => {
+  it("无自定义平台时通用模型下拉禁用并显示「暂无可用模型」，字幕翻译仍默认启用 Index-Translate", async () => {
     aiProvidersReply = { ok: true, providers: [] };
     installBus();
     const host = await mountPanel();
@@ -146,8 +146,14 @@ describe("设置面板独立模型选择器（无默认按钮/提示）", () => 
       expect(defaultModelSelect(host).disabled).toBe(true);
     });
     expect(defaultModelSelect(host).options[0]?.textContent).toBe("暂无可用模型");
-    expect(subtitleModelSelect(host).disabled).toBe(true);
-    expect(subtitleModelSelect(host).options[0]?.textContent).toBe("暂无可用模型");
+    expect(host.querySelector<HTMLSelectElement>("#subtitleTranslateSource")!.value).toBe("bilibili-index-translate");
+    expect(subtitleModelSelect(host).disabled).toBe(false);
+    expect(Array.from(subtitleModelSelect(host).options).map((o) => o.textContent)).toEqual([
+      "Index-Translate-35B-A3B",
+      "Index-Translate-9B",
+      "Index-Translate-2B"
+    ]);
+    expect(subtitleModelSelect(host).value).toBe(`bilibili-index-translate${String.fromCharCode(1)}Index-Translate-35B-A3B`);
   });
 
   it("对话选中变化（local）不影响设置页两个下拉框", async () => {

@@ -120,4 +120,76 @@ describe("设置面板字幕翻译", () => {
     );
     expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("3 条术语");
   });
+
+  it("未配置任何 AI 平台时默认选中免 Key Index-Translate，支持切换 35B-A3B/9B/2B 与自定义来源互切", async () => {
+    document.body.innerHTML = `
+      <div id="biliscript-reading-view">
+        <section id="biliscript-reading-settings-panel">
+          <div id="biliscript-reading-settings-host"></div>
+        </section>
+      </div>`;
+    let currentSettings: Record<string, unknown> = {};
+    const bus = installSettingsPanelBus<BusMessage & { settings?: Record<string, unknown> }>({
+      "get-settings": () => ({ ok: true, settings: currentSettings }),
+      "save-settings": (msg: BusMessage & { settings?: Record<string, unknown> }) => {
+        currentSettings = { ...currentSettings, ...(msg.settings || {}) };
+        return { ok: true };
+      },
+      "ai-providers-list": () => ({
+        ok: true,
+        providers: [
+          { id: "provider-1", name: "DeepSeek 官方", enabled: true, models: ["deepseek-chat"] }
+        ]
+      })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    const host = document.getElementById("biliscript-reading-settings-host")!;
+
+    await vi.waitFor(() => expect(host.querySelector("#subtitleTranslateSource")).toBeTruthy());
+    const sourceSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateSource")!;
+    const modelSelect = host.querySelector<HTMLSelectElement>("#subtitleTranslateModel")!;
+
+    await vi.waitFor(() => expect(modelSelect.disabled).toBe(false));
+    expect(sourceSelect.value).toBe("bilibili-index-translate");
+    expect(Array.from(modelSelect.options).map((o) => o.textContent)).toEqual([
+      "Index-Translate-35B-A3B",
+      "Index-Translate-9B",
+      "Index-Translate-2B"
+    ]);
+    expect(modelSelect.value).toBe("bilibili-index-translate\u0001Index-Translate-35B-A3B");
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("Index-Translate-35B-A3B");
+
+    // 切换模型档位到 9B
+    modelSelect.value = "bilibili-index-translate\u0001Index-Translate-9B";
+    modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateModel === "Index-Translate-9B")).toBe(true)
+    );
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("Index-Translate-9B");
+
+    // 切回自定义 AI 平台
+    sourceSelect.value = "custom";
+    sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateProviderId === "provider-1")).toBe(true)
+    );
+    expect(modelSelect.value).toBe("provider-1\u0001deepseek-chat");
+    expect(modelSelect.querySelectorAll("optgroup")).toHaveLength(1);
+
+    // 切回内置 Index-Translate
+    sourceSelect.value = "bilibili-index-translate";
+    sourceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(
+        bus.sent.some(
+          (m) =>
+            m.type === "save-settings" &&
+            m.settings?.subtitleTranslateProviderId === "bilibili-index-translate" &&
+            m.settings?.subtitleTranslateModel === "Index-Translate-35B-A3B"
+        )
+      ).toBe(true)
+    );
+    expect(modelSelect.value).toBe("bilibili-index-translate\u0001Index-Translate-35B-A3B");
+  });
 });

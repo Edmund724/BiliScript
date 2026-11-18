@@ -64,6 +64,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveVoiceSpeedResetBtn: "liveVoiceSpeedResetBtn",
   liveShareVideoAudio: "liveShareVideoAudio",
   liveVoicePriority: "liveVoicePriority",
+  subtitleTranslateSource: "subtitleTranslateSource",
   subtitleTranslateModel: "subtitleTranslateModel",
   subtitleTranslateGlossary: "subtitleTranslateGlossary",
   subtitleSegmentationStrategy: "subtitleSegmentationStrategy",
@@ -460,9 +461,16 @@ export function buildSettingsHtml(): string {
         </div>
         <div class="biliscript-set-card">
           <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.subtitleTranslateSource}">翻译来源</label>
+            <select id="${ids.subtitleTranslateSource}" class="biliscript-set-select">
+              <option value="bilibili-index-translate">Index-Translate（免 Key）</option>
+              <option value="custom">自定义 AI 平台</option>
+            </select>
+          </div>
+          <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.subtitleTranslateModel}">翻译模型</label>
             <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
-              <option value="">暂无可用模型</option>
+              <option value="Index-Translate-35B-A3B">Index-Translate-35B-A3B</option>
             </select>
           </div>
           <div class="biliscript-set-row biliscript-set-row-stack">

@@ -9,6 +9,10 @@
 
 import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "./defaults.js";
 import { normalizeAsrLanguage } from "./presets.js";
+import {
+  INDEX_TRANSLATE_PROVIDER_ID,
+  normalizeIndexTranslateModel
+} from "../ai/subtitle-translate-config.js";
 // 超时原语单源（arch-slim-2/03）：原手搓 Promise.race + setTimeout 改走
 // withTimeout 的硬超时（timeoutError 拒绝），reject 仍被 .catch 回落空对象——
 // 软超时语义与原实现一致。
@@ -145,6 +149,9 @@ export function normalizeSettings(merged: Record<string, unknown>): Settings {
   for (const [key, normalizeField] of SETTINGS_NORMALIZER_ENTRIES) {
     normalized[key] = normalizeField(source[key]);
   }
+  if (normalized.subtitleTranslateProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
+    normalized.subtitleTranslateModel = normalizeIndexTranslateModel(normalized.subtitleTranslateModel);
+  }
   return normalized as Settings;
 }
 
@@ -193,6 +200,12 @@ export async function saveSettings(settings: unknown): Promise<void> {
   const source: Record<string, unknown> = { ...syncPayload };
   for (const [key, normalizeField] of SETTINGS_NORMALIZER_ENTRIES) {
     if (key in syncPayload) syncPayload[key] = normalizeField(source[key]);
+  }
+  if (
+    syncPayload.subtitleTranslateProviderId === INDEX_TRANSLATE_PROVIDER_ID &&
+    "subtitleTranslateModel" in syncPayload
+  ) {
+    syncPayload.subtitleTranslateModel = normalizeIndexTranslateModel(syncPayload.subtitleTranslateModel);
   }
   // 写入边界（白名单）：只落盘 settings 键面内的 key，payload 里的非设置键
   // （如 content.js 整对象写回里的 asrProviders）不再经 save-settings 落盘、

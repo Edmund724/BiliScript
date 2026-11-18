@@ -64,7 +64,13 @@ import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectState, set
 import { escapeHtml } from "../shared/string-utils.js";
 import { buildModelOptionValue, normalizeProviderModels, parseModelOptionValue, resolveCatalogModel } from "../shared/selected-provider.js";
 import { AI_PROVIDERS_STORAGE } from "../core/ai-provider-store.js";
-import { parseSubtitleGlossary } from "../ai/subtitle-translate-config.js";
+import {
+  INDEX_TRANSLATE_DEFAULT_MODEL,
+  INDEX_TRANSLATE_MODEL_OPTIONS,
+  INDEX_TRANSLATE_PROVIDER_ID,
+  normalizeIndexTranslateModel,
+  parseSubtitleGlossary
+} from "../ai/subtitle-translate-config.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import type { ProviderRowItem } from "./provider-row.js";
@@ -250,6 +256,7 @@ function collectElements(host: HTMLElement) {
     liveVoiceFallbackHint: byIdIn<HTMLElement>(dom.liveVoiceFallbackHint),
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
+    subtitleTranslateSource: byIdIn<HTMLSelectElement>(dom.subtitleTranslateSource),
     subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
     subtitleTranslateGlossary: byIdIn<HTMLTextAreaElement>(dom.subtitleTranslateGlossary),
     subtitleSegmentationStrategy: byIdIn<HTMLSelectElement>(dom.subtitleSegmentationStrategy),
@@ -1321,14 +1328,62 @@ function renderProviderModelSelect(
   setCustomSelectState(selectEl, { disabled: false });
 }
 
+function renderIndexTranslateModelSelect(selectEl: HTMLSelectElement | null, currentModel?: unknown): void {
+  if (!selectEl) return;
+  selectEl.disabled = false;
+  selectEl.innerHTML = INDEX_TRANSLATE_MODEL_OPTIONS.map((option) => {
+    const val = buildModelOptionValue(INDEX_TRANSLATE_PROVIDER_ID, option.id);
+    return `<option value="${escapeHtml(val)}">${escapeHtml(option.id)}</option>`;
+  }).join("");
+  const resolvedModel = normalizeIndexTranslateModel(currentModel);
+  const selectedValue = buildModelOptionValue(INDEX_TRANSLATE_PROVIDER_ID, resolvedModel);
+  selectEl.value = selectedValue;
+  rebuildCustomSelectOptions(selectEl);
+  setCustomSelectValue(selectEl, selectedValue);
+  initCustomSelect(selectEl, "custom-select-wrapper");
+  setCustomSelectState(selectEl, { disabled: false });
+}
+
+function setSubtitleTranslateSourceValue(
+  selectEl: HTMLSelectElement | null,
+  value: typeof INDEX_TRANSLATE_PROVIDER_ID | "custom"
+): void {
+  if (!selectEl) return;
+  selectEl.value = value;
+  setCustomSelectValue(selectEl, value);
+  initCustomSelect(selectEl, "custom-select-wrapper");
+}
+
+function renderSubtitleTranslateSelects(
+  elements: SettingsElements,
+  aiProviders: ProviderRowItem[],
+  s: Partial<Settings>
+): void {
+  const groups = buildEnabledModelSelectGroups(aiProviders);
+  const preferredProviderId = String(s.subtitleTranslateProviderId || "").trim();
+  const preferredModel = String(s.subtitleTranslateModel || "").trim();
+  const isCustomProvider = Boolean(
+    preferredProviderId &&
+      preferredProviderId !== INDEX_TRANSLATE_PROVIDER_ID &&
+      groups.some((group) => group.providerId === preferredProviderId)
+  );
+
+  if (!isCustomProvider) {
+    setSubtitleTranslateSourceValue(elements.subtitleTranslateSource, INDEX_TRANSLATE_PROVIDER_ID);
+    renderIndexTranslateModelSelect(
+      elements.subtitleTranslateModel,
+      preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID ? preferredModel : ""
+    );
+    return;
+  }
+
+  setSubtitleTranslateSourceValue(elements.subtitleTranslateSource, "custom");
+  renderProviderModelSelect(elements.subtitleTranslateModel, aiProviders, preferredProviderId, preferredModel);
+}
+
 function renderAiModelSelects(elements: SettingsElements, providers: ProviderRowItem[], s: Partial<Settings>): void {
   renderProviderModelSelect(elements.aiDefaultModel, providers, s.defaultModel, s.defaultAiModel);
-  renderProviderModelSelect(
-    elements.subtitleTranslateModel,
-    providers,
-    s.subtitleTranslateProviderId,
-    s.subtitleTranslateModel
-  );
+  renderSubtitleTranslateSelects(elements, providers, s);
   syncAllSummaries(elements);
 }
 
@@ -1336,7 +1391,8 @@ function bindProviderModelSelect(
   selectEl: HTMLSelectElement | null,
   providerKey: "defaultModel" | "subtitleTranslateProviderId",
   modelKey: "defaultAiModel" | "subtitleTranslateModel",
-  elements: SettingsElements
+  elements: SettingsElements,
+  onRollback?: (providers: ProviderRowItem[], prevProviderId: string, prevModel: string) => void
 ): void {
   selectEl?.addEventListener("change", () => {
     const { providerId, model } = parseModelOptionValue(selectEl.value || "");
@@ -1350,7 +1406,68 @@ function bindProviderModelSelect(
       if (saved) return;
       state.patchSettings({ [providerKey]: prevProviderId, [modelKey]: prevModel });
       void loadAiProviders().then((providers) => {
-        renderProviderModelSelect(selectEl, providers, prevProviderId, prevModel);
+        if (onRollback) {
+          onRollback(providers, prevProviderId, prevModel);
+        } else {
+          renderProviderModelSelect(selectEl, providers, prevProviderId, prevModel);
+        }
+        syncAllSummaries(elements);
+      });
+    });
+  });
+}
+
+function bindSubtitleTranslateSourceSelect(elements: SettingsElements): void {
+  elements.subtitleTranslateSource?.addEventListener("change", () => {
+    const source = elements.subtitleTranslateSource.value;
+    const prevProviderId = String(state.settings?.subtitleTranslateProviderId || "").trim();
+    const prevModel = String(state.settings?.subtitleTranslateModel || "").trim();
+
+    if (source === INDEX_TRANSLATE_PROVIDER_ID) {
+      const patch = {
+        subtitleTranslateProviderId: INDEX_TRANSLATE_PROVIDER_ID,
+        subtitleTranslateModel: INDEX_TRANSLATE_DEFAULT_MODEL
+      };
+      renderIndexTranslateModelSelect(elements.subtitleTranslateModel, INDEX_TRANSLATE_DEFAULT_MODEL);
+      state.patchSettings(patch);
+      syncAllSummaries(elements);
+      void saveSettingField(elements, patch).then((saved) => {
+        if (saved) return;
+        state.patchSettings({ subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel });
+        void loadAiProviders().then((providers) => {
+          renderSubtitleTranslateSelects(elements, providers, {
+            subtitleTranslateProviderId: prevProviderId,
+            subtitleTranslateModel: prevModel
+          });
+          syncAllSummaries(elements);
+        });
+      });
+      return;
+    }
+
+    void loadAiProviders().then((providers) => {
+      const groups = buildEnabledModelSelectGroups(providers);
+      if (!groups.length) {
+        renderProviderModelSelect(elements.subtitleTranslateModel, providers);
+        syncAllSummaries(elements);
+        return;
+      }
+      const chosenGroup = groups[0];
+      const chosenModel = resolveCatalogModel(chosenGroup.provider);
+      const patch = {
+        subtitleTranslateProviderId: chosenGroup.providerId,
+        subtitleTranslateModel: chosenModel
+      };
+      renderProviderModelSelect(elements.subtitleTranslateModel, providers, chosenGroup.providerId, chosenModel);
+      state.patchSettings(patch);
+      syncAllSummaries(elements);
+      void saveSettingField(elements, patch).then((saved) => {
+        if (saved) return;
+        state.patchSettings({ subtitleTranslateProviderId: prevProviderId, subtitleTranslateModel: prevModel });
+        renderSubtitleTranslateSelects(elements, providers, {
+          subtitleTranslateProviderId: prevProviderId,
+          subtitleTranslateModel: prevModel
+        });
         syncAllSummaries(elements);
       });
     });
@@ -1743,11 +1860,18 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
 
   bindProviderModelSelect(elements.aiDefaultModel, "defaultModel", "defaultAiModel", elements);
+  bindSubtitleTranslateSourceSelect(elements);
   bindProviderModelSelect(
     elements.subtitleTranslateModel,
     "subtitleTranslateProviderId",
     "subtitleTranslateModel",
-    elements
+    elements,
+    (providers, prevProviderId, prevModel) => {
+      renderSubtitleTranslateSelects(elements, providers, {
+        subtitleTranslateProviderId: prevProviderId,
+        subtitleTranslateModel: prevModel
+      });
+    }
   );
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));

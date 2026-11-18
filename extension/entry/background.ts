@@ -40,6 +40,7 @@ import {
 // 预设自动激活的决策半边）
 import {
   applyPlayerAiQuickActionDefaultOnMigration,
+  applySubtitleTranslateDefaultMigration,
   planSearchPresetsAutoActivation
 } from "./settings-migration.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
@@ -781,6 +782,7 @@ async function initializeSettingsStorage() {
   // 2026-09 AI 键默认开一次性迁移：存量显式 false 清位（清位后下方合并以新
   // 默认 true 写回），旗标随本次全量写落盘（语义见 entry/settings-migration.ts）。
   applyPlayerAiQuickActionDefaultOnMigration(syncCurrent);
+  applySubtitleTranslateDefaultMigration(syncCurrent);
   // 安装/更新迁移：合并结果先经 normalizeSettings 收口再落盘，存量 LEGACY
   // 默认提示词等旧值在此一次性改写为当前值，而不是每次读取时重复映射。
   await writeSnapshotKeys(normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));

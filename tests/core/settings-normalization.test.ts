@@ -520,6 +520,29 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(persisted.aiInitialQuickPrompts).toEqual([]);
+    expect(persisted.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(persisted.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+  });
+
+  it("onInstalled 存量空翻译配置迁入免 Key Index-Translate 且不覆盖通用 AI 默认平台", async () => {
+    await import("../../extension/entry/background.js");
+    const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
+      .calls[0][0] as unknown as () => unknown;
+    syncGetMock.mockImplementation(async (defaults) => ({
+      ...defaults,
+      defaultModel: "deepseek-p1",
+      defaultAiModel: "deepseek-chat",
+      subtitleTranslateProviderId: "",
+      subtitleTranslateModel: ""
+    }));
+
+    await onInstalledListener();
+
+    const persisted = syncSetMock.mock.calls[0][0];
+    expect(persisted.subtitleTranslateProviderId).toBe("bilibili-index-translate");
+    expect(persisted.subtitleTranslateModel).toBe("Index-Translate-35B-A3B");
+    expect(persisted.defaultModel).toBe("deepseek-p1");
+    expect(persisted.defaultAiModel).toBe("deepseek-chat");
   });
 });
 
