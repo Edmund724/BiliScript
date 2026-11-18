@@ -16,6 +16,7 @@ import {
   type SubtitleGlossaryEntry,
   type SubtitleGlossaryInput
 } from "../shared/subtitle-glossary.js";
+import { truncateWithEllipsis } from "../shared/text-primitives.js";
 import { buildSubtitleSignature } from "../subtitle/cache.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import {
@@ -102,23 +103,7 @@ function normalizeSingleLine(value: unknown): string {
  * UTF-16 代理对安全截断，保证返回值长度不超过 maxChars。
  */
 export function truncateTextSafe(text: string, maxChars: number): string {
-  const limit = Math.max(0, Math.floor(Number(maxChars) || 0));
-  if (limit === 0 || !text) {
-    return "";
-  }
-  if (text.length <= limit) {
-    return text;
-  }
-  if (limit === 1) {
-    return "…";
-  }
-  let end = limit - 1;
-  const prev = text.charCodeAt(end - 1);
-  if (prev >= 0xd800 && prev <= 0xdbff) {
-    end -= 1;
-  }
-  const prefix = text.slice(0, end).trimEnd();
-  return prefix ? `${prefix}…` : "…";
+  return truncateWithEllipsis(text, maxChars);
 }
 
 /**

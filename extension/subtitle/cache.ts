@@ -1,5 +1,6 @@
 import { logWarn, logError } from "../shared/logging.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import { fnv1a32 } from "../shared/text-primitives.js";
 import {
   registerSubtitleSessionBoundaryHooks,
   type SubtitleSessionBoundaryHook
@@ -84,15 +85,6 @@ export function getSubtitleCacheKey({ bvid, cid, identity }: SubtitleCacheKeyOpt
 }
 
 // ===== 抗干扰内容签名（segmentationSig / translationSig）=====
-
-function fnv1a32(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
 
 function stableNumericField(value: unknown): string {
   const num = Number(value);
