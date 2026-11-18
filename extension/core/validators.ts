@@ -24,6 +24,8 @@ import {
 } from "./defaults.js";
 import {
   BILINGUAL_DISPLAY_ORDER_OPTIONS,
+  INTERPRET_SUBTITLE_SCALE_MAX,
+  INTERPRET_SUBTITLE_SCALE_MIN,
   LIVE_INTERPRET_DISPLAY_MODE_OPTIONS,
   LIVE_INTERPRET_TARGET_LANG_OPTIONS,
   type BilingualDisplayOrder,
@@ -206,6 +208,14 @@ export function normalizeLiveInterpretDisplayMode(value: unknown): InterpretSubt
   return LIVE_INTERPRET_DISPLAY_MODE_OPTIONS.find((option) => option.value === normalized)?.value
     ?? DEFAULT_SETTINGS.liveInterpretDisplayMode;
 }
+
+export const normalizeLiveInterpretFontScale = clampedIntField(
+  INTERPRET_SUBTITLE_SCALE_MIN,
+  INTERPRET_SUBTITLE_SCALE_MAX,
+  DEFAULT_SETTINGS.liveInterpretFontScale
+);
+
+export const normalizeLiveInterpretBlurSecondary = booleanField(false);
 
 export const normalizeWebSearchEnabled = booleanField(false);
 

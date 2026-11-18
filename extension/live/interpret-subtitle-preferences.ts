@@ -50,3 +50,43 @@ export type BilingualDisplayOrder = (typeof BILINGUAL_DISPLAY_ORDER_OPTIONS)[num
 export const LIVE_INTERPRET_LATIN_TARGET_LANGS = new Set<LiveInterpretTargetLang>([
   "en", "fr", "de", "es", "it", "pt", "tr", "id", "ms"
 ]);
+
+export const INTERPRET_SUBTITLE_SCALE_STEPS = [
+  75, 80, 90, 100, 110, 120, 130, 140, 150
+] as const;
+
+export const INTERPRET_SUBTITLE_SCALE_MIN = 75;
+export const INTERPRET_SUBTITLE_SCALE_MAX = 150;
+export const INTERPRET_SUBTITLE_SCALE_DEFAULT = 100;
+
+export function normalizeInterpretFontScale(value: unknown): number {
+  if (value === null || value === undefined || value === "") {
+    return INTERPRET_SUBTITLE_SCALE_DEFAULT;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return INTERPRET_SUBTITLE_SCALE_DEFAULT;
+  }
+  return Math.min(
+    INTERPRET_SUBTITLE_SCALE_MAX,
+    Math.max(INTERPRET_SUBTITLE_SCALE_MIN, Math.round(parsed))
+  );
+}
+
+export function stepInterpretFontScale(current: number, direction: -1 | 1): number {
+  const normalized = normalizeInterpretFontScale(current);
+  if (direction < 0) {
+    for (let i = INTERPRET_SUBTITLE_SCALE_STEPS.length - 1; i >= 0; i -= 1) {
+      if (INTERPRET_SUBTITLE_SCALE_STEPS[i] < normalized) {
+        return INTERPRET_SUBTITLE_SCALE_STEPS[i];
+      }
+    }
+    return INTERPRET_SUBTITLE_SCALE_MIN;
+  }
+  for (let i = 0; i < INTERPRET_SUBTITLE_SCALE_STEPS.length; i += 1) {
+    if (INTERPRET_SUBTITLE_SCALE_STEPS[i] > normalized) {
+      return INTERPRET_SUBTITLE_SCALE_STEPS[i];
+    }
+  }
+  return INTERPRET_SUBTITLE_SCALE_MAX;
+}

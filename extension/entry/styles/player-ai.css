@@ -567,6 +567,68 @@
   padding: 6px 16px;
 }
 
+.biliscript-interpret-menu-scale-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 6px 16px;
+}
+
+.biliscript-interpret-menu-scale-stepper {
+  align-items: center;
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.08);
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.biliscript-interpret-menu-scale-btn,
+.biliscript-interpret-menu-scale-value {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--biliscript-radius-xs, var(--biliscript-primitive-radius-4, 4px));
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--biliscript-font-size-sm, 12px);
+  line-height: 22px;
+  margin: 0;
+  padding: 0 6px;
+}
+
+.biliscript-interpret-menu-scale-btn {
+  min-width: 24px;
+  text-align: center;
+}
+
+.biliscript-interpret-menu-scale-value {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.biliscript-interpret-menu-scale-btn:hover:not(:disabled),
+.biliscript-interpret-menu-scale-value:hover {
+  background: rgba(var(--biliscript-primitive-color-white-rgb, 255, 255, 255), 0.14);
+}
+
+.biliscript-interpret-menu-scale-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.biliscript-interpret-menu-scale-btn:focus-visible,
+.biliscript-interpret-menu-scale-value:focus-visible {
+  outline: 2px solid var(--bpx-primary-color, var(--biliscript-primitive-color-blue-500, rgb(var(--biliscript-primitive-color-blue-500-rgb, 0, 140, 255))));
+  outline-offset: 1px;
+}
+
 .biliscript-fullscreen-live-overlay {
   /* 液体玻璃材质令牌（全屏视频深色场景 + 实时视频密集色调兜底） */
   --biliscript-live-glass-tint-scale: 1;

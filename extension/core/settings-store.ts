@@ -43,6 +43,8 @@ import {
   normalizeSubtitleTranslateGlossary,
   normalizeLiveInterpretTargetLang,
   normalizeLiveInterpretDisplayMode,
+  normalizeLiveInterpretFontScale,
+  normalizeLiveInterpretBlurSecondary,
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
@@ -107,6 +109,8 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   subtitleTranslateGlossary: normalizeSubtitleTranslateGlossary,
   liveInterpretTargetLang: normalizeLiveInterpretTargetLang,
   liveInterpretDisplayMode: normalizeLiveInterpretDisplayMode,
+  liveInterpretFontScale: normalizeLiveInterpretFontScale,
+  liveInterpretBlurSecondary: normalizeLiveInterpretBlurSecondary,
   asrAutoFallback: booleanField(true),
   asrLanguage: normalizeAsrLanguage,
   // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，

@@ -4,7 +4,7 @@ import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../core/state.js";
-import { findActiveSubtitleIndex } from "../subtitle/core.js";
+import { findActiveSubtitleIndex, findActiveSubtitleIndexInItems } from "../subtitle/core.js";
 import { acceptSubtitle, acceptSecondarySubtitle } from "../subtitle/commit.js";
 import {
   clearTranslatedSubtitleCache,
@@ -66,6 +66,7 @@ export interface InterpretSessionControllerDeps {
   clearSubtitles?: () => void;
   clearSubtitlesOnSeek?: () => void;
   onStateChange?: (state: InterpretSessionState) => void;
+  onGenerationChange?: (generation: number) => void;
   onAvailabilityChange?: (availability: InterpretAvailability) => void;
   runAsr?: (args: RunAsrPipelineArgs) => Promise<unknown>;
   translateItems?: typeof translateSubtitleItems;
@@ -139,7 +140,7 @@ export function createInterpretSessionController(
   const isTranslateDoneChunk = new Set<number>();
   const isAsrDoneChunk = new Set<number>();
   let secondaryAlignmentCache: ReturnType<typeof buildSecondaryAlignment> | null = null;
-  let secondaryBodyRefForCache: readonly SubtitleBodyItem[] | null = null;
+  let activeSecondaryItems: SubtitleBodyItem[] = [];
   let primaryCacheKey = "";
   let secondaryCacheKey = "";
   let activeTargetLang = "zh";
@@ -361,31 +362,45 @@ export function createInterpretSessionController(
     if (expectedGeneration !== generation || stateVal !== "connected") {
       return;
     }
-    if (activeSessionKind === "native-pair") {
-      const slotBody = state.clip.secondarySubtitle?.body;
-      if (Array.isArray(slotBody) && slotBody !== secondaryBodyRefForCache) {
-        secondaryBodyRefForCache = slotBody;
-        secondaryAlignmentCache = slotBody.length > 0 ? buildSecondaryAlignment(slotBody) : null;
-      }
-    }
-    const body = state.clip.subtitleBody;
-    const activeIdx = findActiveSubtitleIndex(currentTime);
-    if (activeIdx >= 0 && activeIdx < body.length) {
-      const originalItem = body[activeIdx];
-      const originalText = String(originalItem?.content || "").trim();
-      let translationText = "";
-      if (secondaryAlignmentCache) {
-        translationText = secondaryAlignmentCache.query({
+    const primaryBody = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
+    const primaryIdx = findActiveSubtitleIndexInItems(primaryBody, currentTime);
+    const originalText =
+      primaryIdx >= 0 && primaryIdx < primaryBody.length
+        ? String(primaryBody[primaryIdx]?.content || "").trim()
+        : "";
+
+    const secondaryBody =
+      activeSessionKind === "native-pair"
+        ? (Array.isArray(state.clip.secondarySubtitle?.body) ? state.clip.secondarySubtitle.body : [])
+        : activeSecondaryItems;
+    const secondaryIdx = findActiveSubtitleIndexInItems(secondaryBody, currentTime);
+    let translationText =
+      secondaryIdx >= 0 && secondaryIdx < secondaryBody.length
+        ? String(secondaryBody[secondaryIdx]?.content || "").trim()
+        : "";
+
+    if (
+      !translationText &&
+      activeSessionKind !== "native-pair" &&
+      primaryIdx >= 0 &&
+      primaryIdx < primaryBody.length &&
+      secondaryAlignmentCache
+    ) {
+      const originalItem = primaryBody[primaryIdx];
+      translationText =
+        secondaryAlignmentCache.query({
           from: originalItem.from,
           to: originalItem.to
         }) || "";
-      }
+    }
+
+    if (originalText || translationText) {
       emitSubtitleIfChanged(originalText, translationText);
       return;
     }
 
     const currentChunk = Math.floor(currentTime / CHUNK_DURATION_SEC);
-    if (activeSessionKind === "asr" && !isAsrDoneChunk.has(currentChunk) && body.length === 0) {
+    if (activeSessionKind === "asr" && !isAsrDoneChunk.has(currentChunk) && primaryBody.length === 0) {
       const now = Date.now();
       if (now - lastTranslatingNoticeAt > 2000) {
         lastTranslatingNoticeAt = now;
@@ -439,6 +454,7 @@ export function createInterpretSessionController(
       }
     }
 
+    activeSecondaryItems = sortedSecondary;
     if (sortedSecondary.length > 0) {
       secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
       await acceptSecondarySubtitle({
@@ -532,6 +548,7 @@ export function createInterpretSessionController(
               Array.from(cueMap.values()).sort((a, b) => a.from - b.from)
             );
             const sortedSecondary = collectSortedSecondaryItems();
+            activeSecondaryItems = sortedSecondary;
             if (sortedSecondary.length > 0) {
               secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
               void acceptSecondarySubtitle({
@@ -576,6 +593,7 @@ export function createInterpretSessionController(
           chunkSecondaryItems.delete(chunkIndex);
         }
         const sortedSecondary = collectSortedSecondaryItems();
+        activeSecondaryItems = sortedSecondary;
         secondaryAlignmentCache =
           sortedSecondary.length > 0 ? buildSecondaryAlignment(sortedSecondary) : null;
         if (currentGeneration !== generation || abortController?.signal.aborted) {
@@ -662,7 +680,7 @@ export function createInterpretSessionController(
     isTranslateDoneChunk.clear();
     isAsrDoneChunk.clear();
     secondaryAlignmentCache = null;
-    secondaryBodyRefForCache = null;
+    activeSecondaryItems = [];
     activeSessionKind = "asr";
     activeSourceTrackId = "asr";
     activeSourceTrackLang = "";
@@ -677,6 +695,7 @@ export function createInterpretSessionController(
 
   async function stop(): Promise<void> {
     generation += 1;
+    deps.onGenerationChange?.(generation);
     scheduler?.stop();
     scheduler = null;
     abortController?.abort();
@@ -695,6 +714,7 @@ export function createInterpretSessionController(
 
     generation += 1;
     const currentGeneration = generation;
+    deps.onGenerationChange?.(currentGeneration);
     abortController = new AbortController();
     updateState("connecting");
 
@@ -760,9 +780,6 @@ export function createInterpretSessionController(
             if (currentGeneration !== generation) return false;
           }
         }
-        const slotBody = state.clip.secondarySubtitle.body || [];
-        secondaryBodyRefForCache = slotBody;
-        secondaryAlignmentCache = slotBody.length > 0 ? buildSecondaryAlignment(slotBody) : null;
         updateState("connected");
         bindVideoLifecycle();
         const video = boundVideo || getVideoElement();
@@ -829,6 +846,7 @@ export function createInterpretSessionController(
         partitionItemsIntoChunks(primaryItems);
         if (secondaryItems && secondaryItems.length > 0) {
           partitionSecondaryItemsIntoChunks(secondaryItems);
+          activeSecondaryItems = [...secondaryItems].sort((a, b) => a.from - b.from);
           secondaryAlignmentCache = buildSecondaryAlignment(secondaryItems);
           await acceptSecondarySubtitle({
             body: secondaryItems,
@@ -921,6 +939,7 @@ export function createInterpretSessionController(
       if (primaryItems && primaryItems.length > 0 && secondaryItems && secondaryItems.length > 0) {
         partitionItemsIntoChunks(primaryItems);
         partitionSecondaryItemsIntoChunks(secondaryItems);
+        activeSecondaryItems = [...secondaryItems].sort((a, b) => a.from - b.from);
         secondaryAlignmentCache = buildSecondaryAlignment(secondaryItems);
         seedAsrPseudoTrackIfNeeded(activeAsrLabel);
         await acceptSubtitle({

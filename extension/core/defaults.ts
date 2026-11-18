@@ -72,6 +72,8 @@ export interface KnownSettings {
   subtitleTranslateGlossary: string;
   liveInterpretTargetLang: LiveInterpretTargetLang;
   liveInterpretDisplayMode: InterpretSubtitleDisplayMode;
+  liveInterpretFontScale: number;
+  liveInterpretBlurSecondary: boolean;
   asrAutoFallback: boolean;
   asrLanguage: string;
   // ===== 联网搜索（spec §3.2）=====
@@ -162,6 +164,8 @@ export const DEFAULT_SETTINGS: Settings = {
   subtitleTranslateGlossary: "",   // 字幕翻译自定义术语对照表（多行，原文 = 译文 或 仅原文保留原词）
   liveInterpretTargetLang: "zh",
   liveInterpretDisplayMode: "auto",
+  liveInterpretFontScale: 100,
+  liveInterpretBlurSecondary: false,
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
   asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====

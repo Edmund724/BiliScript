@@ -1,7 +1,24 @@
+.biliscript-interpret-subtitle-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  container-type: inline-size;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+  --biliscript-interpret-font-scale: 1;
+  --biliscript-font-size-interpret: calc(clamp(15px, 2.1cqw, 38px) * var(--biliscript-interpret-font-scale, 1));
+}
+
+.biliscript-interpret-subtitle-container[hidden] {
+  display: none !important;
+}
+
 .biliscript-interpret-subtitle-overlay {
   position: absolute;
   left: 50%;
-  bottom: 72px;
+  bottom: 40px;
   z-index: 60;
   display: flex;
   flex-direction: column;
@@ -9,10 +26,19 @@
   gap: 4px;
   width: max-content;
   max-width: 84%;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: grab;
+  font-size: var(--biliscript-font-size-interpret);
   opacity: 1;
   transform: translateX(-50%);
-  transition: opacity 300ms ease-out;
+  transition: bottom 0.2s ease, opacity 300ms ease-out;
+}
+
+.biliscript-interpret-subtitle-overlay.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: none;
 }
 
 .biliscript-interpret-subtitle-overlay[hidden] {
@@ -33,7 +59,7 @@
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.68);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
   font-family: inherit;
-  font-size: var(--biliscript-font-size-xl, 20px);
+  font-size: var(--biliscript-font-size-interpret);
   line-height: 1.45;
   text-align: center;
   text-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.9);
@@ -41,8 +67,19 @@
   overflow-wrap: anywhere;
 }
 
-.biliscript-interpret-subtitle-original {
-  font-size: var(--biliscript-font-size-lg, 18px);
+.biliscript-interpret-subtitle-original[data-subtitle-role="secondary"],
+.biliscript-interpret-subtitle-translation[data-subtitle-role="secondary"] {
+  font-size: calc(var(--biliscript-font-size-interpret) * 0.86);
+}
+
+.biliscript-interpret-subtitle-overlay[data-blur-secondary="true"] [data-subtitle-role="secondary"] {
+  filter: blur(6px);
+  transition: filter 0.18s ease;
+}
+
+.biliscript-interpret-subtitle-overlay[data-blur-secondary="true"]:hover [data-subtitle-role="secondary"],
+.biliscript-interpret-subtitle-overlay[data-blur-secondary="true"] [data-subtitle-role="secondary"]:hover {
+  filter: none;
 }
 
 .biliscript-interpret-subtitle-original[hidden],
@@ -70,7 +107,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .biliscript-interpret-subtitle-overlay {
+  .biliscript-interpret-subtitle-overlay,
+  .biliscript-interpret-subtitle-overlay[data-blur-secondary="true"] [data-subtitle-role="secondary"] {
     transition: none;
   }
 }

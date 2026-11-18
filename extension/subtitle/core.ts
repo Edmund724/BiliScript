@@ -148,8 +148,13 @@ function subtitleActiveRange(item: SubtitleBodyItemLike): { from: number; to: nu
   return { from, to: rawTo > from ? rawTo : from + 2 };
 }
 
-export function findActiveSubtitleIndex(currentTime: number): number {
-  const items = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
+export function findActiveSubtitleIndexInItems(
+  items: readonly SubtitleBodyItemLike[],
+  currentTime: number
+): number {
+  if (!Array.isArray(items) || items.length === 0 || !Number.isFinite(currentTime)) {
+    return -1;
+  }
   // 二分定位最后一个 from <= currentTime 的条目（subtitleBody 按 from 升序，
   // 由写入端 sortSubtitleBodyByFrom 保证）。旧实现为线性扫描，长视频 1500+
   // 条时每拍 250ms 全量扫一遍，是阅读视图常驻开销的大头之一。
@@ -175,6 +180,11 @@ export function findActiveSubtitleIndex(currentTime: number): number {
     }
   }
   return -1;
+}
+
+export function findActiveSubtitleIndex(currentTime: number): number {
+  const items = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
+  return findActiveSubtitleIndexInItems(items, currentTime);
 }
 
 export function findActiveChapterIndex(currentTime: number): number {

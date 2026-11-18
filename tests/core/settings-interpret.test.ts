@@ -6,8 +6,18 @@ describe("同声传译字幕设置归一化", () => {
   it("默认中文自动模式，仅接受 14 种目标语言与三种显示模式", () => {
     expect(DEFAULT_SETTINGS.liveInterpretTargetLang).toBe("zh");
     expect(DEFAULT_SETTINGS.liveInterpretDisplayMode).toBe("auto");
+    expect(DEFAULT_SETTINGS.liveInterpretFontScale).toBe(100);
+    expect(DEFAULT_SETTINGS.liveInterpretBlurSecondary).toBe(false);
     expect(normalizeSettings({}).liveInterpretTargetLang).toBe("zh");
     expect(normalizeSettings({}).liveInterpretDisplayMode).toBe("auto");
+    expect(normalizeSettings({}).liveInterpretFontScale).toBe(100);
+    expect(normalizeSettings({}).liveInterpretBlurSecondary).toBe(false);
+
+    expect(normalizeSettings({ liveInterpretFontScale: 50 }).liveInterpretFontScale).toBe(75);
+    expect(normalizeSettings({ liveInterpretFontScale: 200 }).liveInterpretFontScale).toBe(150);
+    expect(normalizeSettings({ liveInterpretFontScale: 120 }).liveInterpretFontScale).toBe(120);
+    expect(normalizeSettings({ liveInterpretBlurSecondary: true }).liveInterpretBlurSecondary).toBe(true);
+    expect(normalizeSettings({ liveInterpretBlurSecondary: "yes" }).liveInterpretBlurSecondary).toBe(false);
 
     for (const lang of ["zh", "en", "ja", "ko", "de", "fr", "es", "ru", "it", "pt", "tr", "el", "id", "ms"]) {
       expect(normalizeSettings({ liveInterpretTargetLang: lang }).liveInterpretTargetLang).toBe(lang);
