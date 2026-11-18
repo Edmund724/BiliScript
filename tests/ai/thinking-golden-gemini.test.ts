@@ -1,15 +1,13 @@
 // tests/ai/thinking-golden-gemini.test.ts
 // 思考参数 golden（Gemini 原生 generateContent 通道）——与 openai / anthropic 共用同一套
-// 按类断言与六道防线（tests/ai/thinking-golden-defenses.ts）。
+// 按类断言与四道防线（tests/ai/thinking-golden-defenses.ts）。
 //
 // 口径：
 //   - 用例 = (valuesetId, 代表模型) × 7 档 → 逐字节整 body（contents + generationConfig）；
 //   - 思考片段的形态是 `{ thinkingConfig: { thinkingLevel, includeThoughts? } }`，没有字段时
 //     整个 generationConfig 不发射（2.5 系只有预算区间、toggle 值集、目录外模型都落这一格）；
 //   - 通道只承载 `protocol: "gemini"` 的预设（跨协议组合不是产品路径）；
-//   - 字面表由 scripts/artifacts/gen-golden-tables.ts 生成（留痕
-//     07-golden-cases.generated.ts），生成器先与 06 请求体矩阵工件的 gemini:off/low/high
-//     三列逐格对账；测试期由 F3 再对一次。
+//   - 字面表由 scripts/sync-thinking-golden.ts（pnpm catalog:sync:golden）生成回写。
 //
 // 独立期望（本表之外的第二层）：tests/ai/adapter-gemini.test.ts 的逐族表手工钉住
 // 「哪个模型家族发什么」，本表只钉「类 × 出口形态 → 整 body」的 7 档快照。
@@ -19,7 +17,7 @@ import { registerByClassDefenses, registerByClassGolden } from "./thinking-golde
 
 const HARNESS = channelHarness("gemini");
 
-// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm artifacts:sync）=====
+// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm catalog:sync:golden）=====
 // 字段序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max）；{} = 不发任何字段。
 const CASES: readonly ByClassCase[] = [
   { valuesetId: "b:128-32768", presetId: "gemini", model: "gemini-2.5-pro", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },

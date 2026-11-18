@@ -3,10 +3,8 @@
 //   `(valuesetId = 02 值集 id, 档位) → 请求体`，逐字节整 body（不做包含式）。
 //
 // 用例数据的来源（不手抄）：类与代表平台/模型来自 02 号票产物（ASSIGNMENTS / VALUESETS /
-// MODEL_ID_ALIASES），字面片段由 scripts/artifacts/gen-golden-tables.ts 生成
-// （留痕 artifacts/07-golden-cases.generated.ts），生成器先与 06 请求体矩阵工件
-// （artifacts/06-request-matrix.tsv，gen-request-matrix.ts 跑出，399 行）逐格对账，测试期
-// 再对一次（F3）。baseUrl 一律走 PRESETS（protocolBaseUrls.anthropic，缺省回落 baseUrl），
+// MODEL_ID_ALIASES），字面片段由 scripts/sync-thinking-golden.ts（pnpm catalog:sync:golden）
+// 生成回写。baseUrl 一律走 PRESETS（protocolBaseUrls.anthropic，缺省回落 baseUrl），
 // 不在本文件手抄 URL；`max_tokens` 走 adapter 默认 DEFAULT_MAX_TOKENS = 32768，由
 // expectedBody 钉住字面值。
 //
@@ -21,8 +19,6 @@
 // 先列系统可能失败的方式（每条都有对应防线，注册在 thinking-golden-defenses.ts）：
 //   F1 覆盖防线：02 产物新增值集而 golden 没加用例 → 红；
 //   F2 归纳完整性：某 (类, 平台) 实现的行为没有用例承载 → 红；
-//   F3 来源防线：用例字面值与 06 矩阵工件不一致（runtime 漂移 / 手抄漂移）→ 红；
-//   F4 验收工件：07-golden-coverage.tsv 与用例表不符 → 红；
 //   F5 表自洽：用例声明的 valuesetId / A' 与实际解析不符 → 红；
 //   F6 塌陷：effort 血统 low==high（缺陷），或开关型/budget-only 的正当塌陷被改 → 红。
 //
@@ -48,7 +44,7 @@ import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT } from "../../extension/ai/thinki
 
 const HARNESS = channelHarness("anthropic");
 
-// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm artifacts:sync）=====
+// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm catalog:sync:golden）=====
 // 字段序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max）；{} = 不发任何字段。
 // 注意两格带票面注记语义：
 //   `low-high-max · opencodego/deepseek-v4-flash` = 13 号票 canonical 优先 + 18 号票删平台

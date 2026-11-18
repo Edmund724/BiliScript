@@ -1,12 +1,10 @@
 // tests/ai/models-dev-catalog-check.test.ts
 // 票据 03（upstream-model-facts/03）：只读命令 pnpm catalog:check 的漂移 + 分歧报告。
 //
-// 两条接缝（seam）：
-//   A. 脚本 scripts/check-models-dev-catalog.mjs 的 CLI —— fixture 离线跑，观察面 =
-//      退出码 + stdout/stderr + 写出的报告文本。01/02 的产物用**真生成脚本**在临时
-//      目录现生成（不手搓产物），检查脚本与生成器的裁剪口径必须逐字节等效。
-//   B. 提交进仓库的真实输入 + 提交的快照（.scratch 工件，离线）——钉住票面点名的
-//      三条已知冲突与 qwen3-max 的"不是分歧"。
+// 接缝：
+//   脚本 scripts/check-models-dev-catalog.mjs 的 CLI —— fixture 离线跑，观察面 =
+//   退出码 + stdout/stderr + 写出的报告文本。01/02 的产物用**真生成脚本**在临时
+//   目录现生成（不手搓产物），检查脚本与生成器的裁剪口径必须逐字节等效。
 //
 // 先列系统可能失败的方式（每条都有对应用例）：
 //   1. 漂移漏报：上游子集变了却退出 0 / 报 in sync（裁剪字段、键序、哈希口径与 01 不一致）；
@@ -27,7 +25,6 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { hasArtifact } from "../helpers/artifacts.js";
 
 const SCRIPT = "scripts/check-models-dev-catalog.mjs";
 const FIXTURE_API = "tests/fixtures/models-dev/check-api.json";
@@ -39,8 +36,7 @@ const FIXTURE_ALIASES = "tests/fixtures/models-dev/check-aliases.json";
 const FIXTURE_MODELS = 14;
 const FIXTURE_COUNTS = "14/12/10/2/6";
 
-// 提交进仓库的快照（01/02 的抓取工件，离线可读）与真产物。
-const SNAPSHOT = ".scratch/tickets/upstream-model-facts/artifacts/models-dev-api.json";
+// 仓库真实产物（只读性校验用）与默认报告落点。
 const REPO_CATALOG = "extension/ai/catalog/models-dev-catalog.generated.ts";
 const REPO_ASSIGNMENTS = "extension/ai/catalog/models-dev-thinking.generated.ts";
 const REPO_PROFILES = "extension/ai/thinking-profiles.ts";
@@ -102,11 +98,6 @@ function runCheck(name: string, overrides: Overrides = {}): Run {
     overrides.profiles ?? FIXTURE_PROFILES,
     ...(overrides.extra ?? [])
   ]);
-}
-
-// 真实文件跑：只换 --input（默认产物路径就是仓库里的真产物/真手写表）。
-function realFileCheck(name: string, extraArgs: string[] = []): Run {
-  return runWith(name, ["--input", SNAPSHOT, ...extraArgs]);
 }
 
 function fileContent(file: string): string {
@@ -427,63 +418,7 @@ describe("catalog:check CLI（上游 vs 手写分歧）", () => {
   });
 });
 
-// ─────────────── 接缝 B：真实文件 + 提交快照（离线，票面验收） ───────────────
-
-// 提交的快照在 `.scratch/`（本仓 gitignore 的构建/抓取工件区，与 01/02 的产物同处），
-// 新克隆里可能没有：没有就跳过这一组（判定读 tests/helpers/artifacts.ts 的登记表，
-// 缺席状态由 artifact-preflight.test.ts 显式报出；那两个模型 id 与真表同名，
-// 已知冲突的形状已由接缝 A 的 fixture 钉住）。
-const hasSnapshot = hasArtifact(SNAPSHOT);
-
-describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () => {
-  it("快照与提交产物一致 → in sync；两条已知冲突落在 upstream-wins，qwen3-max 落注记", () => {
-    // 提交的快照就是 01/02 产物的来源，所以这里必然 in sync（也顺带钉住裁剪口径
-    // 与 01 生成器逐字节等效）。
-    const run = realFileCheck("real-snapshot");
-    expect(run.status, `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`).toBe(0);
-    expect(run.stdout).toContain("in sync");
-
-    const wins = sectionOf(run.report, "## 2. upstream-wins");
-    // 票面 §5 点名的三条（04 号票删掉手写条目后，这里的断言要跟着改）。13 号票 canonical
-    // 优先后 kimi-code-plan-cn/k3 的上游事实从 toggle+low-high-max 变为 low-high-max ——
-    // 手写专条（always + effort，无 off）与上游不再矛盾，k3 因此离开 upstream-wins
-    // （分歧条数 3 → 2；该行的现状由 13 号票验收与 13-canonical-priority 验证器覆盖）。
-    expect(wins).toContain("zhipuai/glm-5.2");
-    expect(wins).toContain("zhipuai/glm-5.3");
-    expect(wins).not.toContain("kimi-code-plan-cn/k3");
-    // 上游侧证据：真实 last_updated 与 provider doc URL。
-    expect(wins).toContain("last_updated 2026-06-13");
-    expect(wins).toContain("last_updated 2026-08-14");
-    expect(wins).toContain("https://docs.z.ai/");
-
-    // 本仓出处（手写表注释里的域名）也要带上。
-    expect(wins).toContain("docs.bigmodel.cn");
-
-    // qwen3-max：上游 [toggle, budget_tokens max 81920] 无 effort → 不是分歧。
-    const notes = sectionOf(run.report, "## 5. 注记：不是分歧");
-    expect(notes).toContain("alibaba-cn/qwen3-max");
-    expect(notes).toContain("81920");
-    expect(notes).toContain("不是分歧");
-    expect(wins).not.toContain("alibaba-cn/qwen3-max");
-    // k3-256k（同 provider 的另一个 id）落 upstream-new（手写侧没有任何条目命中）。
-    const news = sectionOf(run.report, "## 3. upstream-new");
-    expect(news).toContain("kimi-code-plan-cn/k3-256k");
-    expect(news).toContain("last_updated 2026-07-16");
-    expect(news).toContain("https://www.kimi.com/code/docs");
-
-    // 三类分区都在且有计数（报告可读性）。
-    expect(run.report).toMatch(/## 3\. upstream-new[^\n]*\d+ 条/);
-    expect(run.report).toMatch(/## 4\. hand-only[^\n]*\d+ 条/);
-    expect(run.report).toMatch(/## 7\. 双方都无结论/);
-    // 手写表解析口径写进报告（人能看到解析了多少条目）。
-    // CLASSES 22 / EXCEPTIONS 7 = 19 号票收尾删掉 kimi-k3* 专条 + 随之孤儿化的 class；
-    // PROVIDERS 15 = 04 号票 gemini 双轨（08eab76）在手写表登记的 provider 条目。
-    expect(run.report).toMatch(/CLASSES 22 \/ TAXONOMY 16 \/ EXCEPTIONS 7 \/ PROVIDERS 15/);
-  });
-
-});
-
-// 接线与红线：不依赖快照，任何克隆都必须跑。
+// 接线与红线：不依赖外部快照，任何克隆都必须跑。
 describe("catalog:check 接线与红线", () => {
   it("package.json 接线：catalog:check 只加一行，既有两条命令不动（11 号票删 pi-ai 后 catalog:sync 已移除）", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8"));

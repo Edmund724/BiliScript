@@ -1,20 +1,18 @@
 // tests/ai/thinking-golden-classes.ts
-// 07 号票（golden 按类重构）的**纯数据件**：产物枚举、出口形态命名、工件解析、覆盖矩阵口径、
-// 三条通道的调用缝。刻意不 import vitest/expect——同一份枚举与调用缝要同时服务 golden
-// 用例与生成器（scripts/artifacts/gen-golden-tables.ts）；生成器是 node 脚本，不能把
-// vitest 塞进它的 bundle。断言注册在 thinking-golden-defenses.ts。
+// 按类 golden 用例的**纯数据件**：产物枚举、出口形态命名、三条通道的调用缝。
+// 刻意不 import vitest/expect——同一份枚举与调用缝要同时服务 golden 用例与同步脚本
+// （scripts/sync-thinking-golden.ts）；断言注册在 thinking-golden-defenses.ts。
 //
-// 口径（与 scripts/artifacts/gen-request-matrix.ts 逐字同源）：
+// 口径：
 // - 平台 = UPSTREAM_PROVIDER_BY_PRESET 的 12 家（preset → 上游 provider）；
 // - 模型 = 02 指派表 ASSIGNMENTS 的 (provider, modelId)，有别名时换成本仓口径 localId
-//   （MODEL_ID_ALIASES），保证与矩阵工件的行键逐字一致；
+//   （MODEL_ID_ALIASES）；
 // - 类 = 值集 id（02 产物 VALUESETS 的键）；
 // - 「实现」= (类, 平台) 对，每对取排序首个模型做代表——用例只按类 × 出口形态写，
 //   每个实现的行为由归纳完整性防线扫（见 thinking-golden-defenses.ts 的 F2）。
 // - gemini 通道只承载 `protocol: "gemini"` 的预设（目前只有 gemini 一家）：其它平台
 //   不会用这条协议发请求，跨协议组合不是产品路径。
 
-import { readFileSync } from "node:fs";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { geminiAdapter } from "../../extension/ai/adapters/gemini.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
@@ -24,12 +22,6 @@ import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, type ThinkingLevel } f
 import { DEFAULT_MAX_TOKENS } from "../../extension/ai/output-budget.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 import { PRESETS } from "../../extension/core/presets.js";
-
-const ARTIFACTS = ".scratch/tickets/upstream-model-facts/artifacts";
-/** gen-request-matrix.ts 的产物（pnpm artifacts:sync 跑出；只读）——来源防线（F3）的对账对象。 */
-export const REQUEST_MATRIX = `${ARTIFACTS}/06-request-matrix.tsv`;
-/** 本票（07）的验收工件：valuesetId × 通道 × 出口形态 → 用例归属。 */
-export const COVERAGE_MATRIX = `${ARTIFACTS}/07-golden-coverage.tsv`;
 
 /** 三条通道共用的请求消息常量（与既有 golden 逐字一致）。 */
 const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];
@@ -245,7 +237,7 @@ export function exitFormOf(fields: Record<string, unknown>): string {
   return parts.length > 0 ? parts.join("+") : "none";
 }
 
-/** 请求体里与思考无关的包装键（矩阵工件保留了 model 与 token 上限，去掉后才是思考片段）。 */
+/** 请求体里与思考无关的包装键（去掉后才是思考片段）。 */
 const BODY_WRAPPER_KEYS = ["model", "messages", "stream", "max_tokens", "max_completion_tokens"];
 
 export function thinkingFragment(body: Record<string, unknown>): Record<string, unknown> {
@@ -255,41 +247,6 @@ export function thinkingFragment(body: Record<string, unknown>): Record<string, 
     out[key] = value;
   }
   return out;
-}
-
-/** 矩阵工件的单元格（JSON 文本）→ 思考字段片段。 */
-export function thinkingFragmentOfCell(cell: string): Record<string, unknown> {
-  return thinkingFragment(JSON.parse(cell) as Record<string, unknown>);
-}
-
-/** 按通道取思考片段（gemini 的字段嵌在 generationConfig 里）。 */
-export function thinkingFragmentFor(channel: Channel, body: Record<string, unknown>): Record<string, unknown> {
-  return channelHarness(channel).fragmentOf(body);
-}
-
-export function thinkingFragmentOfCellFor(channel: Channel, cell: string): Record<string, unknown> {
-  return thinkingFragmentFor(channel, JSON.parse(cell) as Record<string, unknown>);
-}
-
-export interface RequestMatrix {
-  readonly header: readonly string[];
-  /** `${platform}\u0001${model}` → 单元格文本（列名见 header）。 */
-  readonly rows: ReadonlyMap<string, readonly string[]>;
-}
-
-function parseRequestMatrix(text: string): RequestMatrix {
-  const lines = text.split("\n").filter((line) => line.length > 0);
-  const header = lines[0].split("\t");
-  const rows = new Map<string, readonly string[]>();
-  for (const line of lines.slice(1)) {
-    const cells = line.split("\t");
-    rows.set(`${cells[0]}\u0001${cells[1]}`, cells);
-  }
-  return { header, rows };
-}
-
-export function readRequestMatrix(path: string = REQUEST_MATRIX): RequestMatrix {
-  return parseRequestMatrix(readFileSync(path, "utf8"));
 }
 
 /** 值集表全部键（覆盖防线 F1 的右侧）。 */
@@ -314,39 +271,4 @@ export function coveredValuesetIds(cases: readonly ByClassCase[]): string[] {
 /** 用例的 7 档片段签名（同签名 = 同一出口形态组合，用于归纳完整性对账 F2）。 */
 export function fieldsSignature(fields: readonly Record<string, unknown>[]): string {
   return JSON.stringify(fields);
-}
-
-/** 覆盖矩阵表头（生成器与 F4 防线共用；改这里两边一起改）。 */
-export const COVERAGE_HEADER = [
-  "valuesetId",
-  "channel",
-  "level",
-  "exitForm",
-  "presetId",
-  "model",
-  "inAvailableSet",
-  "caseTitle"
-] as const;
-
-/** 覆盖矩阵的期望行：valuesetId × 通道 × 档位（出口形态）→ 用例归属。 */
-export function coverageRows(channel: Channel, cases: readonly ByClassCase[]): string[] {
-  const rows: string[] = [];
-  for (const case_ of cases) {
-    for (const level of AI_THINKING_LEVELS) {
-      const index = AI_THINKING_LEVELS.indexOf(level);
-      rows.push(
-        [
-          case_.valuesetId,
-          channel,
-          level,
-          exitFormOf(case_.fields[index]),
-          case_.presetId,
-          case_.model,
-          case_.available.includes(level) ? "1" : "0",
-          `${case_.valuesetId} · ${case_.presetId}/${case_.model}`
-        ].join("\t")
-      );
-    }
-  }
-  return rows;
 }

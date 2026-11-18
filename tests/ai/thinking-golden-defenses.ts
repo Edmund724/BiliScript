@@ -1,43 +1,30 @@
 // tests/ai/thinking-golden-defenses.ts
-// 07 号票（golden 按类重构）的**断言注册件**：按类 golden 主体 + 六道防线。
+// 按类 golden 的**断言注册件**：按类 golden 主体 + 四道防线。
 // 三条通道（openai chat / anthropic messages / gemini generateContent）共用这一份，
 // 避免防线代码各抄一遍；纯数据口径在 thinking-golden-classes.ts（那边不 import vitest，
-// 生成器也要用）。
+// 同步脚本也要用）。
 //
-// 防线清单（票面「先列失败方式」的对应）：
+// 防线清单：
 //   F1 覆盖防线   产物新增 valuesetId 而没加用例 → 红（值集表集合 == 用例覆盖集合；
 //                 gemini 通道只看自家预设落地的那部分值集）；
 //   F2 归纳完整性 某个 (类, 平台) 实现的行为没有同签名用例承载 → 红；
-//   F3 来源防线   用例数据与 06 请求体矩阵工件不一致（runtime 漂移 / 手抄漂移）→ 红；
-//   F4 验收工件   07-golden-coverage.tsv 的（valuesetId × 通道 × 档位出口形态 → 用例）不符 → 红；
 //   F5 表自洽     用例声明的类不是该 (平台, 模型) 实际命中的值集 / A' 与解析结果不符 → 红；
 //   F6 塌陷区分   effort 血统 low≠high；开关型与 budget-only 的 low==high 是上游事实 → 两侧都钉。
-// 工件缺失时跳过对账：判定读 tests/helpers/artifacts.ts 的登记表（缺席状态由
-// tests/ai/artifact-preflight.test.ts 显式报出），同 thinking-chips.test.ts /
-// models-dev-catalog-check.test.ts 先例。
 
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { hasArtifact } from "../helpers/artifacts.js";
 import { VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingAdjustment, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 import { MESSAGES_TIER_EXIT } from "../../extension/ai/thinking-wire-map.js";
 import type { PlatformKey } from "../../extension/ai/platform-identity-vocab.js";
 import {
-  COVERAGE_HEADER,
-  COVERAGE_MATRIX,
-  REQUEST_MATRIX,
   allValuesetIds,
   assignedValuesetIds,
   baseUrlFor,
   channelValuesetIds,
-  coverageRows,
   coveredValuesetIds,
   exitFormOf,
   fieldsSignature,
   productRealizationsFor,
-  readRequestMatrix,
-  thinkingFragmentOfCellFor,
   valuesetOf,
   type ByClassCase,
   type Channel,
@@ -76,7 +63,7 @@ export function registerByClassGolden(harness: ChannelHarness, cases: readonly B
   });
 }
 
-/** 六道防线。 */
+/** 四道防线。 */
 export function registerByClassDefenses(harness: ChannelHarness, cases: readonly ByClassCase[]): void {
   const channel = harness.channel;
 
@@ -136,41 +123,6 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         const label = `${realization.valuesetId} · ${realization.presetId}/${realization.model}`;
         expect(signatures.get(realization.valuesetId)?.has(fieldsSignature(actual)), `${label}：${fieldsSignature(actual)}`).toBe(true);
       }
-    });
-  });
-
-  // F3 来源防线：用例数据 == 06 请求体矩阵工件（gen-request-matrix.ts 产物，只读）。
-  // 工件只含 off/low/high 三列——余下 4 档由用例字面 + 02 上游投影用例（thinking-upstream-facts）承接。
-  describe.skipIf(!hasArtifact(REQUEST_MATRIX))(`07 防线（${channel}）：来源（06 请求体矩阵工件）`, () => {
-    it("每条用例的代表行都在矩阵里，且 off/low/high 的思考字段逐字节相同", () => {
-      const matrix = readRequestMatrix(REQUEST_MATRIX);
-      expect(matrix.rows.size).toBeGreaterThanOrEqual(370);
-      let compared = 0;
-      for (const case_ of cases) {
-        const cells = matrix.rows.get(`${case_.presetId}\u0001${case_.model}`);
-        expect(cells, `${case_.presetId}/${case_.model} 不在矩阵工件里`).toBeTruthy();
-        for (const level of ["off", "low", "high"] as const) {
-          const column = matrix.header.indexOf(`${channel}:${level}`);
-          expect(column, `矩阵缺列 ${channel}:${level}`).toBeGreaterThanOrEqual(0);
-          expect(thinkingFragmentOfCellFor(channel, cells![column]), `${case_.valuesetId} · ${case_.presetId}/${case_.model} · ${level}`).toEqual(
-            case_.fields[AI_THINKING_LEVELS.indexOf(level)]
-          );
-          compared += 1;
-        }
-      }
-      expect(compared).toBe(cases.length * 3);
-    });
-  });
-
-  // F4 验收工件：07-golden-coverage.tsv = valuesetId × 通道 × 档位（出口形态）→ 用例归属。
-  describe.skipIf(!hasArtifact(COVERAGE_MATRIX))(`07 防线（${channel}）：验收工件 07-golden-coverage.tsv`, () => {
-    it("工件行 == 用例表逐档推导的覆盖矩阵", () => {
-      const lines = readFileSync(COVERAGE_MATRIX, "utf8").split("\n").filter((line) => line.length > 0);
-      expect(lines[0].split("\t")).toEqual([...COVERAGE_HEADER]);
-      const all = lines.slice(1);
-      // 通道列只有三条通道（防止工件多出第四条通道却无人对账——每个文件只看自己那半）。
-      expect([...new Set(all.map((line) => line.split("\t")[1]))].sort()).toEqual(["anthropic", "gemini", "openai"]);
-      expect(all.filter((line) => line.split("\t")[1] === channel)).toEqual(coverageRows(channel, cases));
     });
   });
 
