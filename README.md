@@ -72,6 +72,8 @@ pnpm install && pnpm run dev   # 监听构建到 dist/，在浏览器扩展管�
 
 ## 文档
 
+在线文档站：[edmund724.github.io/BiliScript](https://edmund724.github.io/BiliScript/)（下方保留仓库相对路径，方便在 GitHub 直接查阅）。
+
 | 文档 | 内容归属 |
 | :--- | :--- |
 | [配置与排障指南](docs/guide.md) | 支持平台清单与 ASR 模型对比，联网搜索、实时伴看配置及常见问题（FAQ） |

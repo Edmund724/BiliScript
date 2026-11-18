@@ -7,6 +7,7 @@ node_modules/
 /release/
 /dist/
 /coverage/
+/.pages-dist/
 
 # Generated extension files（候选4 分包：classic bootstrap + ESM 主包 + 动态 chunk）
 /extension/entry/content-bootstrap.iife.js
