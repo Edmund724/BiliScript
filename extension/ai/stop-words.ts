@@ -1,5 +1,5 @@
 // 停用词数据模块：中文功能词 / 口语提问高频词。
-// 供 ai/raw-retrieval.ts 使用：关键词命中时过滤，并兼作伪分词切分点，避免泛词误命中。
+// 供 ai/l0-bm25.ts 使用：分词阶段过滤高频中文停用词，避免泛词干扰 BM25 打分。
 // 纯数据、无逻辑；只导出 STOP_WORDS 数组。
 
 export const STOP_WORDS: string[] = [

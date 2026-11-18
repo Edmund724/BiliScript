@@ -7,12 +7,11 @@
 //
 // 约束：零 chrome/DOM/storage/cache-lru 依赖，可安全进 offscreen ladder chunk。
 
-import { formatClock, parseClock, shouldUseHoursForRange } from "../shared/clock-text.js";
+import { formatClock, parseClock, parseTimestampSeconds, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { isAbortedMarkerError, isAbortNamedError, makeAbortedError } from "../shared/error-helpers.js";
 import { findNearestTimedLineIndex, truncateWithEllipsis } from "../shared/text-primitives.js";
 import { MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
-import { RAW_INJECTION_MAX_CHARS } from "./followup-context.js";
 import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
 import {
   computeLocalTextSimilarity,
@@ -20,12 +19,12 @@ import {
   expandAndMergeHitWindows,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
+  matchChapterByTitle,
   normalizeL0SubtitleLines,
   parseL0SecondsValue,
   type L0Bm25Index
 } from "./l0-bm25.js";
 import { findL1ChapterForTime, serializeL1DirectoryPrompt } from "./l1-directory.js";
-import { matchChapterByTitle, parseTimestampSeconds } from "./raw-retrieval.js";
 import {
   LONG_VIDEO_DURATION_THRESHOLD_SECONDS,
   type ChatRetrievalDegradeReason,
@@ -54,7 +53,7 @@ export const HYBRID_BM25_RADIUS_LINES = 4;
 export const HYBRID_BM25_RADIUS_SECONDS = 15;
 export const HYBRID_BM25_MAX_CHARS = 15_000;
 export const ROUTED_RANGE_MAX_CHARS = 15_000;
-export const STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = RAW_INJECTION_MAX_CHARS;
+export const STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 30_000;
 
 const SIMPLE_GREETING_RE =
   /^(?:你好|您好|嗨|哈喽|早上好|中午好|晚上好|早安|晚安|谢谢|感谢|多谢|好的|好哒|行|收到|明白|了解|知道了|再见|拜拜|在吗|你是谁|你能做什么|帮我看看|hi+|hello+|hey+|thanks?|thank you|ok+|okay|bye)[!！。.~～？?、，,\s]*$/i;

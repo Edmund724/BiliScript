@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatClock,
   parseClock,
+  parseTimestampSeconds,
   shouldUseHours,
   shouldUseHoursForRange
 } from "../../extension/shared/clock-text.js";
@@ -94,5 +95,31 @@ describe("withHours 两档谓词", () => {
     expect(shouldUseHoursForRange(3599, 3601)).toBe(true);
     expect(shouldUseHoursForRange(3600, 3600)).toBe(true);
     expect(shouldUseHoursForRange(0, 3599)).toBe(false);
+  });
+});
+
+describe("parseTimestampSeconds：从文本提取升序去重时间戳", () => {
+  it("提取 MM:SS、HH:MM:SS 与 H:MM:SS 并升序去重", () => {
+    expect(parseTimestampSeconds("09:15 那段讲了什么")).toEqual([555]);
+    expect(parseTimestampSeconds("视频的 02:30 处")).toEqual([150]);
+    expect(parseTimestampSeconds("01:09:15")).toEqual([4155]);
+    expect(parseTimestampSeconds("1:09:15 说了啥")).toEqual([4155]);
+    expect(parseTimestampSeconds("09:15 和 09:15 和 01:09:15")).toEqual([555, 4155]);
+    expect(parseTimestampSeconds("10:00 之后是 00:30")).toEqual([30, 600]);
+  });
+
+  it("忽略非时间文本、非法数值与超限小时位，非字符串输入不抛错", () => {
+    expect(parseTimestampSeconds("这段讲了什么内容")).toEqual([]);
+    expect(parseTimestampSeconds("")).toEqual([]);
+    expect(parseTimestampSeconds("   ")).toEqual([]);
+    expect(parseTimestampSeconds("99:99")).toEqual([]);
+    expect(parseTimestampSeconds("2:0")).toEqual([]);
+    expect(parseTimestampSeconds("2023:15")).toEqual([]);
+    expect(parseTimestampSeconds("12:34:5")).toEqual([754]);
+    expect(parseTimestampSeconds("24:00:00")).toEqual([]);
+    expect(parseTimestampSeconds("23:59:59")).toEqual([86399]);
+    expect(parseTimestampSeconds(null)).toEqual([]);
+    expect(parseTimestampSeconds(undefined)).toEqual([]);
+    expect(parseTimestampSeconds(123)).toEqual([]);
   });
 });

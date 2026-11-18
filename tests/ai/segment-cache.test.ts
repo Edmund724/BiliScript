@@ -1,29 +1,20 @@
 // ai/segment-cache.js 段缓存测试：
 // 覆盖分段小结落盘读写（命中/未命中/批量枚举 loadStoredSegmentSummaries）、
-// 跨会话原始字幕段读取（主路径 IndexedDB + 遗留 biliscript_lvs_raw_* 回退）、
 // 换轨不串、键含 bvid+cid+段、预算代隔离与读写容错。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
-import { buildLruIndexEntryKey } from "../../extension/core/cache-lru.js";
 import { buildSubtitleSourceKey } from "../../extension/subtitle/source-key.js";
 
 let mod: typeof import("../../extension/ai/segment-cache.js");
-let idbStore: typeof import("../../extension/subtitle/idb-store.js")["defaultSubtitleIdbStore"];
 let storage: ChromeHost;
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
   storage = installChromeHost();
-  idbStore = (await import("../../extension/subtitle/idb-store.js")).defaultSubtitleIdbStore;
-  await idbStore.clearAll();
   mod = await import("../../extension/ai/segment-cache.js");
-}
-
-function legacyRawKey(bvid: string, cid: string, subtitleId: string, segmentIndex: number): string {
-  return `biliscript_lvs_raw_${bvid}_${cid}_${buildSubtitleSourceKey(subtitleId, "", "")}_${segmentIndex}`;
 }
 
 beforeEach(async () => {
@@ -80,60 +71,6 @@ describe("loadStoredSegmentSummaries：直接枚举分段小结", () => {
 
     storage.local.get.mockRejectedValue(new Error("boom"));
     expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual([]);
-  });
-});
-
-describe("loadStoredRawSegments：IndexedDB 主路径 + 遗留键回退", () => {
-  it("优先读取 IndexedDB 原始轨并切段返回 { index, from, to, items }", async () => {
-    const sourceKey = buildSubtitleSourceKey("sub-idb", "", "");
-    await idbStore.putRawTrack({
-      bvid: "BV1idb",
-      cid: "2",
-      trackKey: sourceKey,
-      items: [
-        { from: 0, to: 10, content: "a".repeat(50000) },
-        { from: 10, to: 20, content: "b".repeat(1000) }
-      ]
-    });
-
-    const segments = await mod.loadStoredRawSegments({ bvid: "BV1idb", cid: "2", subtitleId: "sub-idb" });
-    expect(segments).toHaveLength(2);
-    expect(segments[0]).toMatchObject({ index: 1, from: 0, to: 10 });
-    expect(segments[1]).toMatchObject({ index: 2, from: 10, to: 20 });
-    // 命中 IndexedDB 时无需扫描 chrome.storage.local
-    expect(storage.local.get).not.toHaveBeenCalled();
-  });
-
-  it("IndexedDB 无原始轨且遗留键有分键索引 → 索引枚举 1 次 + 批量 get 1 次", async () => {
-    const k0 = legacyRawKey("BV1a", "1", "sub-1", 0);
-    const k1 = legacyRawKey("BV1a", "1", "sub-1", 1);
-    const k2 = legacyRawKey("BV1a", "1", "sub-1", 2);
-    await storage.local.set({
-      [k0]: { segments: [{ from: 0, to: 5, content: "段0" }], timestamp: 1 },
-      [k1]: { segments: [{ from: 5, to: 10, content: "段1" }], timestamp: 1 },
-      [k2]: { segments: [{ from: 10, to: 15, content: "段2" }], timestamp: 1 },
-      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k0)]: { ts: 1 },
-      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k1)]: { ts: 1 },
-      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k2)]: { ts: 1 }
-    });
-    storage.local.get.mockClear();
-
-    const restored = await mod.loadStoredRawSegments({ bvid: "BV1a", cid: "1", subtitleId: "sub-1" });
-    expect(restored.map((seg) => seg.index)).toEqual([0, 1, 2]);
-    expect(restored[1]).toMatchObject({ index: 1, from: 5, to: 10, items: [{ from: 5, to: 10, content: "段1" }] });
-    expect(storage.local.get.mock.calls.map(([k]) => k)).toEqual([
-      null,
-      expect.arrayContaining([k0, k1, k2])
-    ]);
-  });
-
-  it("遗留键存在但索引缺失 → 回退 get(null) 前缀扫描兜底", async () => {
-    const key = legacyRawKey("BV1a", "1", "sub-1", 0);
-    await storage.local.set({ [key]: { segments: [{ from: 0, to: 5, content: "x" }], timestamp: 1 } });
-
-    const restored = await mod.loadStoredRawSegments({ bvid: "BV1a", cid: "1", subtitleId: "sub-1" });
-    expect(restored).toEqual([{ index: 0, from: 0, to: 5, items: [{ from: 0, to: 5, content: "x" }] }]);
-    expect(storage.local.get).toHaveBeenCalledWith(null);
   });
 });
 

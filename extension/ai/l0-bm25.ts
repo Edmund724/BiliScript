@@ -2,7 +2,7 @@
 // L0 词法基础原语与本地轻量 BM25 词法检索引擎（ADR-0027）：
 // - 使用浏览器原生 Intl.Segmenter（granularity: "word"）切分中英混合与数字词元；
 // - 内置精简常见中英文停用词过滤（中文停用词复用 ./stop-words.ts 单源）；
-// - 局部文本相似度（bigram Dice + 词元重合）与 L0 行号/时间戳二分定位、秒级时间戳容错解析；
+// - 局部文本相似度（bigram Dice + 词元重合）、章节标题匹配与 L0 行号/时间戳二分定位、秒级时间戳容错解析；
 // - 纯 TypeScript 内存级 Okapi BM25 倒排索引，支持时间区间过滤与 Top-K 召回；
 // - 命中行前后扩窗（支持 N 句或 M 秒窗口）与重叠/相邻时间片段去重合并。
 // 零外部依赖、零 chrome/DOM/storage 依赖。
@@ -19,6 +19,7 @@ import type {
   RetrievalTimeRange
 } from "./long-video-hybrid-types.js";
 import type { L1ChapterNode } from "./long-video-hybrid-types.js";
+import type { ChapterItem } from "./types.js";
 
 const DEFAULT_BM25_K1 = 1.2;
 const DEFAULT_BM25_B = 0.75;
@@ -149,8 +150,29 @@ interface RawExpandedSpan {
 
 const STRIP_FOR_SIM_RE = /[\s\p{P}\p{S}]+/gu;
 
-function normalizeForSimilarity(text: string): string {
-  return text.toLowerCase().replace(STRIP_FOR_SIM_RE, "");
+function normalizeForSimilarity(text: unknown): string {
+  return String(text ?? "").toLowerCase().replace(STRIP_FOR_SIM_RE, "");
+}
+
+/**
+ * 章节名匹配：prompt 规整（小写、去空白与标点）后包含某章节 title 即命中。
+ * 返回命中的章节项数组（原样引用输入元素）；空/无效输入返回 []，永不抛错。
+ */
+export function matchChapterByTitle(prompt: unknown, chapters: readonly unknown[]): ChapterItem[] {
+  try {
+    const needle = normalizeForSimilarity(prompt);
+    if (!needle || !Array.isArray(chapters)) return [];
+    const hits: ChapterItem[] = [];
+    for (const chapter of chapters) {
+      if (!chapter || typeof chapter !== "object") continue;
+      const title = normalizeForSimilarity((chapter as ChapterItem).title);
+      if (!title) continue;
+      if (needle.includes(title)) hits.push(chapter as ChapterItem);
+    }
+    return hits;
+  } catch {
+    return [];
+  }
 }
 
 function extractBigrams(norm: string): Set<string> {

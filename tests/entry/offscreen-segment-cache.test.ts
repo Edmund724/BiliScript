@@ -4,7 +4,7 @@
 // storage）」的环境，跑通真实 ladder → map-reduce → segment-cache-proxy →
 // 消息 → segment-cache 链路，断言：
 // - 分段小结读写全部经 segment-cache 消息族落 SW（内存 store 可见）；
-// - map-reduce 不再双写 biliscript_lvs_raw_* 到 chrome.storage.local；
+// - map-reduce 仅写 biliscript_lvs_summary_*，不写 biliscript_lvs_raw_* 到 chrome.storage.local；
 // - LRU 索引登记了 biliscript_lvs_summary_ 族；
 // - 全程无「本地字幕缓存写入失败」提示。
 
@@ -144,7 +144,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "done")).toBe(true);
     });
 
-    // 仅读写分段小结（5 次 load-summary + 5 次 save-summary），不再写 biliscript_lvs_raw_*
+    // 仅读写分段小结（5 次 load-summary + 5 次 save-summary）
     const ops = sendMessageMock.mock.calls
       .map((c) => c[0])
       .filter((m) => m?.type === "segment-cache")
@@ -163,7 +163,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
 
-  it("用户停止（abort）：编排收束为 stopped，无原始段双写也无未完成小结落盘", async () => {
+  it("用户停止（abort）：编排收束为 stopped，无原始段写入也无未完成小结落盘", async () => {
     let segmentCalls = 0;
     chatCompletionMock.mockImplementation(async (input) => {
       if (String(input.messages?.at(-1)?.content || "").includes("连续片段")) {
@@ -285,12 +285,9 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
 
-  it("空闲超时：中断仍报超时错误；段缓存写入不再有超时 flush 调用点", async () => {
+  it("空闲超时：中断仍报超时错误，且单次路径不产生段缓存写入", async () => {
     // 单次流式路径（≤200k）：空闲计时不被 ladder 的 map-reduce 暂停，超时可真实触发；
     // 模型调用挂起不返回 → 90 秒窗口到点即 abort + error 回吐。
-    // 注：map-reduce 期间计时被 ladder 暂停（offscreen-map-reduce-idle-timeout 回归），
-    // 故「空闲超时 × 原始段缓冲」不可同时发生——残留落盘的唯一出口是编排收尾的
-    // close（用户停止用例已覆盖同一 abort 路径）。
     chatCompletionMock.mockImplementation(() => new Promise(() => {}));
 
     vi.resetModules();
@@ -322,7 +319,6 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     const posted = session.port.postMessage.mock.calls.map((c) => c[0]);
     expect(posted.some((m) => m?.type === "error" && String(m.error || "").includes("请求超时"))).toBe(true);
 
-    // 超时路径不再 flush（写单元收口后无 flush 调用点）：本路径也没有任何段缓存写入
     const ops = sendMessageMock.mock.calls.map((c) => c[0]).filter((m) => m?.type === "segment-cache");
     expect(ops).toHaveLength(0);
   });

@@ -12,11 +12,9 @@ import {
   loadSegmentSummariesByKeys,
   saveSegmentSummary,
   loadStoredSegmentSummaries,
-  loadStoredRawSegments,
   loadStoredL1Index,
   segmentCacheKeyStringFields
 } from "./segment-cache.js";
-import { retrieveRawSegments } from "./raw-retrieval.js";
 import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
 
 // 回包形参按本条消息收型（段缓存响应形状），返回 void——segment-cache 登记为
@@ -52,23 +50,6 @@ export function createSegmentCacheHandler(): (
           budgetScale: message.budgetScale
         });
         return { ok: true, summaries };
-      },
-      "load-stored-raw": async (message) => {
-        const stored = await loadStoredRawSegments(segmentCacheKeyStringFields(message.context));
-        const prompt = typeof message.prompt === "string" ? message.prompt : "";
-        if (!prompt.trim()) {
-          return { ok: true, storedSegments: stored };
-        }
-        const hits = retrieveRawSegments({
-          prompt,
-          chapters: Array.isArray(message.context?.chapters) ? message.context.chapters : [],
-          rawSegments: stored
-        });
-        const hitIndexes = new Set(hits.map((seg) => seg.index));
-        return {
-          ok: true,
-          storedSegments: stored.map((seg) => (hitIndexes.has(seg.index) ? seg : { ...seg, items: [] }))
-        };
       },
       "load-l1-index": async (message) => {
         const l1Index = await loadStoredL1Index(segmentCacheKeyStringFields(message.context));

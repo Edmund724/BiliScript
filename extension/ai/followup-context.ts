@@ -1,29 +1,21 @@
-// 「追问上下文」模块（05 票 + 06 票）：总结完成后继续追问时，不再每轮重发整篇原始字幕，
-// 常驻上下文改为「压缩摘要（分段小结 + 成稿笔记）+ 近 N 轮 verbatim + 本轮问题」，
-// 保证 token 随追问近乎常数。术语与上限对齐 GLOSSARY.md 与 ADR-0001（追问压缩路径）；
-// 原始字幕段按需检索注入（06）由下半部编排函数接入 ladder 的 Map-Reduce 分派链：
-// 超预算视频总结完成后继续追问时不再重跑 Map-Reduce，改走「压缩摘要（从段缓存加载的
-// 分段小结 + 上一轮成稿笔记）+ 命中时间戳/章节/关键词注入的原始段」+ 单次调用；
+// 「追问上下文」模块：超预算视频总结完成后继续追问时，不再重跑 Map-Reduce，
+// 常驻上下文改为「压缩摘要（从段缓存加载的分段小结 + 上一轮成稿笔记）+ 近 N 轮 verbatim + 本轮问题」，
+// 配合 L0+L1 混合单跳召回保证 token 随追问近乎常数（ADR-0001 / ADR-0027）。
 // 首轮 / 尚未成稿（无笔记或无分段小结）→ 返回 null，交回上层跑完整 Map-Reduce。
 //
 // 文件组织：上半部是常量与纯函数（压缩摘要的取舍与上限，无 side effect）；
-// 下半部是编排函数（装配压缩 + 检索）。段缓存宿主在 SW（arch-review-2026-09/05），
+// 下半部是编排函数（加载分段小结并组装纯压缩摘要）。段缓存宿主在 SW，
 // 缺省 loader 走 segment-cache-proxy 消息代理。
-// 诚实口径：本模块不再「不碰 chrome」——缺省 loader 经消息代理触达 chrome.runtime，
+// 诚实口径：缺省 loader 经消息代理触达 chrome.runtime，
 // 但只以箭头函数惰性默认值存在，无 chrome 环境下模块求值与注入桩测试均安全。
 
-import { buildSubtitlePrompt, formatSegmentHeading, formatSegmentItem } from "./subtitle-prompt.js";
-import { retrieveRawSegments, type RawSegment } from "./raw-retrieval.js";
+import { formatSegmentHeading } from "./subtitle-prompt.js";
 import { segmentCacheProxy } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment } from "./types.js";
 
 // 近 N 轮 verbatim（N = 最近对话轮数）：由外部 buildMessages(history, userPrompt) 取近 N 轮
-// 拼进消息历史，本模块只负责「字幕体」这一栏的取舍与压缩。
+// 拼进消息历史，本模块只负责「压缩摘要」这一栏的取舍与组装。
 export const RECENT_TURNS_DEFAULT = 6;
-
-// 检索注入（相关原始字幕段）总量上限：压缩摘要默认 ≤60k，注入 ≤30k，
-// 合计 ≤90k < 素材预算 200k，保证追问仍走预算内单次、绝不溢出。
-export const RAW_INJECTION_MAX_CHARS = 30000;
 
 // 分段小结常驻的独立 token 上限：每条小结本身已由 03 按 ≤10k clamp，
 // 此处对「汇总后的分段小结部分」再做独立截断（尾部）。40k ≈ 覆盖 ≥4 段小结的忠实汇总，
@@ -101,53 +93,6 @@ export function buildCompressedSummary({
   return truncateTail(sections.join("\n\n"), maxChars);
 }
 
-interface FollowupSubtitleInput {
-  contextData?: Record<string, unknown>;
-  note?: unknown;
-  segmentSummaries?: unknown[] | null;
-  userPrompt?: unknown;
-  retrieveRaw?: ((prompt: unknown) => unknown[]) | null;
-}
-
-// 追问时的字幕体：已成稿 → 压缩摘要 [+ 检索注入的原始段尾缀]；
-// 尚未成稿（首轮 / 无笔记）→ 由 buildSubtitlePrompt 从原始字幕体（subtitleBody +
-// chapters + videoDuration）现场渲染全文（协议已不含预渲染的 subtitleMarkdown）。
-// retrieveRaw 为 06 注入的 (userPrompt) => string[]，缺省 () => []，完全解耦。
-export function buildFollowupSubtitleMarkdown({
-  contextData = {},
-  note = null,
-  segmentSummaries = null,
-  userPrompt = "",
-  retrieveRaw = null
-}: FollowupSubtitleInput = {}): string {
-  const ctx = contextData || {};
-  const noteText = note == null ? "" : String(note);
-  const summaries = Array.isArray(segmentSummaries) ? segmentSummaries : [];
-
-  if (!hasFinalNote({ note: noteText, segmentSummaries: summaries })) {
-    return buildSubtitlePrompt({
-      body: ctx.subtitleBody as unknown[],
-      chapters: ctx.chapters as unknown[],
-      videoDuration: ctx.videoDuration,
-      includeTimestampInBody: ctx.includeTimestampInBody
-    });
-  }
-
-  const compressed = buildCompressedSummary({ segmentSummaries: summaries, note: noteText });
-
-  const retrieveFn = typeof retrieveRaw === "function" ? retrieveRaw : () => [];
-  const hits = (retrieveFn(userPrompt) || []).filter((text): text is string => typeof text === "string" && text.length > 0);
-  if (hits.length === 0) {
-    return compressed;
-  }
-  let injection = hits.join("\n\n");
-  // 注入原始段设上限，保证「压缩摘要 + 注入」合计仍在预算内（避免追问静默溢出/无输出）。
-  if (injection.length > RAW_INJECTION_MAX_CHARS) {
-    injection = injection.slice(0, RAW_INJECTION_MAX_CHARS);
-  }
-  return compressed + "\n\n## 相关原始字幕段\n\n" + injection;
-}
-
 interface LoadSegmentSummariesInput {
   context?: Record<string, unknown>;
   plan?: { segments?: BudgetPlanSegment[] } | null;
@@ -176,40 +121,6 @@ export async function loadSegmentSummaries({
   return (Array.isArray(summaries) ? summaries : []).filter(keepSummary);
 }
 
-// 单条命中的原始段渲染成注入文本块：逐条字幕项按 [起点-终点] 内容 拼行。
-function renderRawSegment(segment: RawSegment): string {
-  const items = Array.isArray(segment?.items) ? segment.items : [];
-  return items
-    .map((item) => formatSegmentItem(item))
-    .filter((line): line is string => typeof line === "string" && line.length > 0)
-    .join("\n");
-}
-
-interface BuildRetrieveRawInput {
-  context?: Record<string, unknown>;
-  plan?: { segments?: BudgetPlanSegment[] } | null;
-}
-
-// 构造一个「按需检索」函数：基于 plan.segments（已在内存的原始字幕段，与 04 缓存的段同构），
-// 每次调用 06 的 retrieveRawSegments 命中后，把命中段渲染成文本块数组返回（同步，供 05 注入）。
-export function buildRetrieveRaw({ context = {}, plan = null }: BuildRetrieveRawInput = {}) {
-  const rawSegments = (Array.isArray(plan?.segments) ? plan.segments : []).map((seg) => ({
-    index: seg.index,
-    from: seg.from,
-    to: seg.to,
-    items: Array.isArray(seg.items) ? seg.items : []
-  }));
-
-  return function retrieveRaw(prompt: unknown): string[] {
-    const hits = retrieveRawSegments({
-      prompt,
-      chapters: Array.isArray(context?.chapters) ? context.chapters : [],
-      rawSegments
-    });
-    return hits.map((seg) => renderRawSegment(seg)).filter((text) => text.length > 0);
-  };
-}
-
 // 取最近一条 assistant 消息正文（作为「成稿笔记」候选）；无则返回空串。
 export function lastAssistantContent(history: unknown = []): string {
   const list = Array.isArray(history) ? history : [];
@@ -226,34 +137,24 @@ interface ResolveFollowupContextInput {
   context?: Record<string, unknown>;
   plan?: BudgetPlan | null;
   history?: unknown[];
-  userPrompt?: string;
-  skipRawRetrieval?: boolean;
   loadSummaries?: typeof loadSegmentSummaries;
   loadStoredSummaries?: (input: { context?: Record<string, unknown>; budgetScale?: unknown }) => Promise<string[]>;
-  // 跨会话原始段读取缝：缺省经 segmentCacheProxy 消息到 SW，测试注入可控桩。
-  loadStoredSegments?: (input: { context?: Record<string, unknown>; userPrompt?: unknown }) => Promise<unknown[]>;
 }
 
 /**
  * 解析追问上下文：超预算视频 + 已有历史 + 已能拼出「成稿笔记 + 分段小结」时，
- * 返回供 streamChat 复用的压缩上下文（compressedSummaryMarkdown 换成压缩摘要，
- * subtitleBody 置空）；
+ * 返回供混合召回与 streamChat 复用的压缩上下文（`compressedSummaryMarkdown` 承载纯压缩摘要，
+ * `subtitleBody` 置空）；
  * 其余情况（≤200k / 首轮 / 尚未成稿）返回 null，表示走完整 Map-Reduce。
  *
- * 当 `skipRawRetrieval` 为 true 时（L0+L1 混合召回路径），跳过 `loadStoredSegments` 与
- * `retrieveRawSegments`，直接加载分段小结并组装纯压缩摘要（无 `## 相关原始字幕段`）；
- * 当 `plan.segments` 为空时直接经 `loadStoredSummaries` 枚举存储中的分段小结，不再依赖
- * 原始段发现段序号。
+ * 当 `plan.segments` 为空时直接经 `loadStoredSummaries` 枚举存储中的分段小结。
  */
 export async function resolveFollowupContext({
   context = {},
   plan = null,
   history = [],
-  userPrompt = "",
-  skipRawRetrieval = false,
   loadSummaries = loadSegmentSummaries,
-  loadStoredSummaries = (input) => segmentCacheProxy.loadStoredSummaries(input),
-  loadStoredSegments = (input) => segmentCacheProxy.loadStoredRaw(input)
+  loadStoredSummaries = (input) => segmentCacheProxy.loadStoredSummaries(input)
 }: ResolveFollowupContextInput = {}): Promise<Record<string, unknown> | null> {
   if (plan?.mode !== "map-reduce") {
     return null;
@@ -269,45 +170,14 @@ export async function resolveFollowupContext({
 
   const inMemorySegments = Array.isArray(plan?.segments) ? plan.segments : [];
   const usingDefaultSummaryLoader = loadSummaries === loadSegmentSummaries;
-
-  if (skipRawRetrieval) {
-    const segmentSummaries =
-      inMemorySegments.length > 0 || !usingDefaultSummaryLoader
-        ? await loadSummaries({ context, plan: { ...plan, segments: inMemorySegments } })
-        : (await loadStoredSummaries({ context })).filter(keepSummary);
-    if (!hasFinalNote({ note, segmentSummaries })) {
-      return null;
-    }
-    const compressedSummaryMarkdown = buildCompressedSummary({ segmentSummaries, note });
-    return { ...context, compressedSummaryMarkdown, subtitleBody: [] };
-  }
-
-  // 非混合路径：内存段优先，空缺时经消息代理从 SW（IndexedDB / 遗留键）回退。
-  let segments: BudgetPlanSegment[] = inMemorySegments;
-  if (segments.length === 0) {
-    const stored = await loadStoredSegments({ context, userPrompt });
-    if (Array.isArray(stored) && stored.length > 0) {
-      segments = stored as BudgetPlanSegment[];
-    }
-  }
-
   const segmentSummaries =
-    segments.length > 0 || !usingDefaultSummaryLoader
-      ? await loadSummaries({ context, plan: { ...plan, segments } })
+    inMemorySegments.length > 0 || !usingDefaultSummaryLoader
+      ? await loadSummaries({ context, plan: { ...plan, segments: inMemorySegments } })
       : (await loadStoredSummaries({ context })).filter(keepSummary);
   if (!hasFinalNote({ note, segmentSummaries })) {
     return null;
   }
 
-  const compressedSummaryMarkdown = buildFollowupSubtitleMarkdown({
-    contextData: context,
-    note,
-    segmentSummaries,
-    userPrompt,
-    retrieveRaw: buildRetrieveRaw({ context, plan: { segments } })
-  });
-
-  // 压缩摘要本身是文本产物，用显式的 compressedSummaryMarkdown 字段承载，
-  // 不与已从协议删除的 subtitleMarkdown 混淆（context.js / client.js 读新字段）。
+  const compressedSummaryMarkdown = buildCompressedSummary({ segmentSummaries, note });
   return { ...context, compressedSummaryMarkdown, subtitleBody: [] };
 }

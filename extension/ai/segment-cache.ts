@@ -1,7 +1,6 @@
 // 「段缓存」模块：分段小结按 (bvid, cid, 字幕轨 source key, 段序号) 落盘 chrome.storage.local，
-// 二次总结/追问按需命中复用，中止/失败后已落盘的段小结下次复用、不重复付费。
-// 原始字幕跨会话回退直接读取 SW 端 IndexedDB 仓库（biliscript-subtitle-store），
-// 并向后兼容读取既有的 biliscript_lvs_raw_* 遗留键；不再写入新的 biliscript_lvs_raw_*。
+// 二次总结/追问按需命中复用，中止/失败后已落盘的段小结下次复用、不重复付费；
+// 同时提供 SW 宿主存储中的 L1 章节目录索引读取。
 // 容错语义：读取失败静默返回 null / []；写入经 core/cache-lru.ts 的统一 LRU 淘汰
 // （分段小结保留最近 20 个视频），淘汰后重试仍失败时 logError 并返回 { ok:false }
 // 供调用方按各自通道上浮一次；全程不抛异常。
@@ -10,10 +9,8 @@ import { logError } from "../shared/logging.js";
 // 三字段 → source key 的便捷形（位置参数签名与 core/cache-lru 的注入面同一份）：
 // 身份编码单点在键位叶 subtitle/source-key，本模块不再经存储族模块取它。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { defaultSubtitleIdbStore } from "../subtitle/idb-store.js";
 import { createCacheFamily, readFamilyKeys } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
-import { buildBudgetPlan, SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { L1_INDEX_CACHE_PREFIX, unwrapL1IndexEnvelope } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶：SW 侧装配 / offscreen
@@ -22,8 +19,6 @@ import { segmentCacheKeyFields, segmentCacheKeyStringFields } from "./segment-ca
 
 // 分段小结缓存键前缀。
 const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
-// 遗留原始字幕段缓存键前缀（仅用于旧安装只读回退与 LRU 清理）。
-const RAW_SEGMENT_PREFIX = "biliscript_lvs_raw_";
 
 const summaryFamily = createCacheFamily<string>({
   prefix: SEGMENT_SUMMARY_PREFIX,
@@ -181,20 +176,7 @@ export async function loadStoredSegmentSummaries({
   }
 }
 
-// 从遗留原始段缓存键尾段解析段序号（键形如 `${前缀}${bvid}_${cid}_${sourceKey}_${index}`）。
-function segmentIndexFromKey(key: string, keyPrefix: string): number {
-  const n = Number(String(key).slice(keyPrefix.length));
-  return Number.isFinite(n) ? n : 0;
-}
-
-interface StoredRawSegment {
-  index: number;
-  from: number;
-  to: number;
-  items: unknown[];
-}
-
-interface LoadStoredRawSegmentsInput {
+interface LoadStoredL1IndexInput {
   bvid?: string;
   cid?: string;
   subtitleId?: string;
@@ -202,116 +184,11 @@ interface LoadStoredRawSegmentsInput {
   lang?: string;
 }
 
-function splitRawItemsIntoSegments(rawItems: readonly unknown[]): StoredRawSegment[] {
-  const plan = buildBudgetPlan({ body: [...rawItems], chapters: [] });
-  if (plan.segments.length > 0) {
-    return plan.segments.map((seg) => ({
-      index: seg.index,
-      from: seg.from,
-      to: seg.to,
-      items: seg.items
-    }));
-  }
-
-  // <=200k 字幕轨（buildBudgetPlan 为 single 模式不拆段）按 SEGMENT_INPUT_CHARS 切分以供按需检索复用
-  const segments: StoredRawSegment[] = [];
-  let currentItems: Array<{ from: number; to: number; content: string }> = [];
-  let currentChars = 0;
-
-  for (const raw of rawItems) {
-    const item = raw as { from?: unknown; to?: unknown; content?: unknown } | null;
-    const content = String(item?.content ?? "");
-    const chars = content.trim().length;
-    if (chars === 0) {
-      continue;
-    }
-    const fromNum = Number(item?.from);
-    const toNum = Number(item?.to);
-    const from = Number.isFinite(fromNum) ? fromNum : 0;
-    const to = Number.isFinite(toNum) ? toNum : 0;
-    currentItems.push({ from, to, content });
-    currentChars += chars;
-    if (currentChars >= SEGMENT_INPUT_CHARS) {
-      segments.push({
-        index: segments.length + 1,
-        from: currentItems[0].from,
-        to: currentItems[currentItems.length - 1].to,
-        items: currentItems
-      });
-      currentItems = [];
-      currentChars = 0;
-    }
-  }
-
-  if (currentItems.length > 0) {
-    segments.push({
-      index: segments.length + 1,
-      from: currentItems[0].from,
-      to: currentItems[currentItems.length - 1].to,
-      items: currentItems
-    });
-  }
-
-  return segments;
-}
-
-/**
- * 跨会话原始字幕段读取：优先从 IndexedDB 仓库（`biliscript-subtitle-store`）读取原始轨并按预算切段，
- * 未命中时回退枚举遗留 `biliscript_lvs_raw_*` 键（`readFamilyKeys` + `get(null)` 扫描）。
- * 缺 bvid/cid / 无命中 / 读失败 → []（绝不抛错）。
- */
-export async function loadStoredRawSegments({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredRawSegmentsInput = {}): Promise<StoredRawSegment[]> {
-  try {
-    if (!bvid || !cid) {
-      return [];
-    }
-    const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-    try {
-      const idbRawItems = await defaultSubtitleIdbStore.getRawTrack(bvid, cid, sourceKey);
-      if (Array.isArray(idbRawItems) && idbRawItems.length > 0) {
-        return splitRawItemsIntoSegments(idbRawItems);
-      }
-    } catch {
-      // IndexedDB 读取异常时平滑回退 chrome.storage.local 遗留键
-    }
-
-    if (!globalThis.chrome?.storage?.local) {
-      return [];
-    }
-    const keyPrefix = `${RAW_SEGMENT_PREFIX}${bvid}_${cid}_${sourceKey}_`;
-    const indexKeys = await readFamilyKeys(RAW_SEGMENT_PREFIX, bvid, keyPrefix);
-    const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
-    const keys = Object.keys(all || {})
-      .filter((key): key is string => typeof key === "string" && key.startsWith(keyPrefix))
-      .sort((a, b) => segmentIndexFromKey(a, keyPrefix) - segmentIndexFromKey(b, keyPrefix));
-
-    const out: StoredRawSegment[] = [];
-    for (const key of keys) {
-      const items = (all[key] as { segments?: unknown } | undefined)?.segments;
-      if (Array.isArray(items) && items.length > 0) {
-        const first = (items[0] as { from?: unknown }) || {};
-        const last = (items[items.length - 1] as { to?: unknown; from?: unknown }) || {};
-        out.push({
-          index: segmentIndexFromKey(key, keyPrefix),
-          from: Number(first.from) || 0,
-          to: Number(last.to) || Number(first.from) || 0,
-          items
-        });
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
 /**
  * 读取 SW 宿主存储中的 L1 章节目录索引：按 (bvid, cid, 字幕轨 source key) 枚举并校验，
  * 返回最新一条有效记录；缺参 / 未命中 / 读失败 → null（绝不抛错）。
  */
-export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredRawSegmentsInput = {}): Promise<L1VideoIndexCacheRecord | null> {
+export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredL1IndexInput = {}): Promise<L1VideoIndexCacheRecord | null> {
   try {
     if (!bvid || !cid || !globalThis.chrome?.storage?.local) {
       return null;

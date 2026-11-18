@@ -1,5 +1,5 @@
 // ai/segment-cache-handler.js SW 端消息 handler 测试：
-// 覆盖 save-summary / load-summary / load-summaries / load-stored-summaries / load-stored-raw / load-l1-index。
+// 覆盖 save-summary / load-summary / load-summaries / load-stored-summaries / load-l1-index。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -56,31 +56,6 @@ describe("分段小结读写 op", () => {
 
     const stored = await request({ type: "segment-cache", op: "load-stored-summaries", context: CONTEXT });
     expect(stored).toEqual({ ok: true, summaries: ["小结1", "小结2"] });
-  });
-});
-
-describe("load-stored-raw 从 IndexedDB 读取并支持 prompt 预过滤", () => {
-  it("读取 IDB rawTrack 并在带 prompt 时只回传命中段 items", async () => {
-    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
-    await defaultSubtitleIdbStore.putRawTrack({
-      bvid: CONTEXT.bvid,
-      cid: CONTEXT.cid,
-      trackKey: "id_sub-1",
-      items: [
-        { from: 0, to: 10, content: "开场白介绍" },
-        { from: 10, to: 20, content: "关键结论核心词ABC" }
-      ]
-    });
-
-    const filtered = await request({
-      type: "segment-cache",
-      op: "load-stored-raw",
-      context: CONTEXT,
-      prompt: "关键结论核心词ABC"
-    });
-    expect(filtered.ok).toBe(true);
-    expect(filtered.storedSegments).toHaveLength(1);
-    expect((filtered.storedSegments as Array<{ items: unknown[] }>)[0].items).toHaveLength(2);
   });
 });
 

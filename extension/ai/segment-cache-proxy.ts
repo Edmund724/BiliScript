@@ -10,7 +10,7 @@
 // （offscreen 侧引用它不会引入 storage 层），整份 AiContext（含 ≥200k 字符的
 // subtitleBody）不再过线。
 
-import type { SegmentCacheContext, SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
+import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 import { projectSegmentCacheContext } from "./segment-cache-key-fields.js";
 
@@ -19,19 +19,10 @@ export interface SegmentCacheOps {
   loadSummaries(input: { context?: Record<string, unknown>; segmentIndexes?: Array<number | string>; budgetScale?: unknown }): Promise<(string | null)[]>;
   loadStoredSummaries(input: { context?: Record<string, unknown>; budgetScale?: unknown }): Promise<string[]>;
   saveSummary(input: { context?: Record<string, unknown>; segmentIndex?: number | string; budgetScale?: unknown; summary: string }): Promise<{ ok: boolean; error?: unknown }>;
-  // userPrompt 非空时 SW 侧预过滤，只回传命中段的 items；缺省整篇回传
-  loadStoredRaw(input: { context?: Record<string, unknown>; userPrompt?: unknown }): Promise<unknown[]>;
 }
 
 // 读半边（追问链只读）。
-export type SegmentCacheReadOps = Pick<SegmentCacheOps, "loadSummary" | "loadSummaries" | "loadStoredSummaries" | "loadStoredRaw">;
-
-// 读 op（load-stored-raw）的命中段预过滤在 SW 侧走同一检索规则的章节名档
-// （retrieveRawSegments 的 chapters 入参）；键位维度本身由叶的 projectSegmentCacheContext 投影。
-function projectStoredRawContext(context?: Record<string, unknown> | null): SegmentCacheContext {
-  const projected = projectSegmentCacheContext(context);
-  return Array.isArray(context?.chapters) ? { ...projected, chapters: context.chapters } : projected;
-}
+export type SegmentCacheReadOps = Pick<SegmentCacheOps, "loadSummary" | "loadSummaries" | "loadStoredSummaries">;
 
 async function segmentCacheRequest(
   op: SegmentCacheMessage["op"],
@@ -91,17 +82,6 @@ export const segmentCacheProxy: SegmentCacheOps = {
       summary
     });
     return response.ok ? { ok: true } : { ok: false, error: response.error };
-  },
-  async loadStoredRaw({ context, userPrompt }) {
-    const prompt = typeof userPrompt === "string" && userPrompt.trim() ? userPrompt : undefined;
-    const response = await segmentCacheRequest("load-stored-raw", {
-      context: projectStoredRawContext(context),
-      prompt
-    });
-    if (!response.ok || !Array.isArray(response.storedSegments)) {
-      return [];
-    }
-    return response.storedSegments;
   }
 };
 

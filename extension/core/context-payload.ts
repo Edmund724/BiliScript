@@ -85,8 +85,8 @@ export type ReaderContextPayload = {
 //   selectedSubtitleUrl   会话持久化、segment-cache 缓存键、背景层 previousUrl 偏好。
 //   subtitleOptions       对话侧 侧当前无直接读取（保留：与 clip 快照 payload 字段同名
 //                         同源 state.clip.subtitles，且签名按其长度判定换轨）。
-//   chapters              offscreen 章节对齐切段（budgeter）与追问章节名检索
-//                         （raw-retrieval/followup-context）。
+//   chapters              offscreen 章节对齐切段（budgeter）与混合召回章节名匹配
+//                         （chat-hybrid-retrieval）。
 //   hotComments           本工厂恒为 []：真值由装配链全量路径拉取后整体覆盖。
 //                         此占位仅为字段齐全。
 // 新增字段必须：同时进本清单 + 工厂 + 签名三分类（参与/间接/排除）之一，
@@ -165,7 +165,7 @@ export function createReaderContextPayload({
     selectedSubtitleUrl: c.selectedSubtitleUrl || "",
     subtitleOptions: c.subtitles || [],
     // 章节透传（fetcher 写入 clip.chapters）：供侧边栏回传 offscreen 后做章节对齐
-    // 切段（budgeter）与追问章节名检索（raw-retrieval/followup-context）。
+    // 切段（budgeter）与混合召回章节名匹配（chat-hybrid-retrieval）。
     chapters: Array.isArray(c.chapters) ? (c.chapters as ChapterItem[]) : [],
     hotComments: []
   };

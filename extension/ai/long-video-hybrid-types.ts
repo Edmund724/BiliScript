@@ -257,8 +257,7 @@ export interface InteractionAnchorPoint {
 /** 单跳召回零命中或索引缺失时的降级策略。 */
 export type ChatRetrievalFallbackPolicy =
   | "full-l0-bm25"
-  | "compressed-summary-only"
-  | "legacy-raw-retrieval";
+  | "compressed-summary-only";
 
 /** 路由模式一：直接作答（仅依托全局简介 / L1 章节目录 / 压缩摘要，不检索 L0）。 */
 export interface DirectAnswerRoutePlan {

@@ -289,27 +289,22 @@ export type ResolveSubtitleTranslateProviderResponse = {
 // 来源守卫：本族在 OFFSCREEN_ONLY_MESSAGE_TYPES 名单内（只接受 offscreen 文档发送）。
 // 平台事实（chrome.offscreen 官方文档）：offscreen 文档仅支持 chrome.runtime，
 // 无 chrome.storage。段缓存（ai/segment-cache.ts 的 biliscript_lvs_summary_* 与
-// L1 索引及跨会话原始字幕回退读取）宿主是 SW——offscreen 的 Map-Reduce / 追问链经
-// 本族消息读写，SW 端 handler 直调 segment-cache 单源（键位装配也在 SW 完成，消息
-// 只带 context 字段）。
+// L1 索引）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息读写，SW 端
+// handler 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
 //
 // 段缓存 context 的协议形状：出站点已投影为键位字段（字段口径与 SW 端
 // segment-cache.ts 的 segmentCacheKeyFields 同源——两处与概览键位装配一并从零依赖叶
 // ai/segment-cache-key-fields.ts 派生）——整份 AiContext（含 ≥200k 字符的
-// subtitleBody）不再过线；chapters 只为 load-stored-raw 的命中段预过滤保留
-// （SW 侧 retrieveRawSegments 的章节名档输入，读行为依赖）。
-export type SegmentCacheContext = SegmentCacheContextFields & { chapters?: unknown };
+// subtitleBody）不再过线。
+export type SegmentCacheContext = SegmentCacheContextFields;
 export type SegmentCacheMessage = {
   type: "segment-cache";
-  op: "load-summary" | "load-summaries" | "save-summary" | "load-stored-summaries" | "load-stored-raw" | "load-l1-index";
+  op: "load-summary" | "load-summaries" | "save-summary" | "load-stored-summaries" | "load-l1-index";
   // 键位字段载荷（出站点投影后的窄对象），SW 端经 segmentCacheKeyFields 归一为键位字段
   context?: SegmentCacheContext;
   segmentIndex?: number | string;
   // load-summaries 批量：段序号清单，一次消息读 N 个键（追问 N 段 = 常数级往返），SW 端按序装配键位
   segmentIndexes?: Array<number | string>;
-  // load-stored-raw 命中段过滤：携带时 SW 侧用同一检索规则预过滤，
-  // 非命中段剥离 items 再回传；缺省整篇回传
-  prompt?: string;
   // unknown 透传：budgetScaleSuffix 的 Number() 归一在 SW 的 segment-cache 单源完成
   budgetScale?: unknown;
   // save-summary 的载荷
@@ -321,9 +316,6 @@ export type SegmentCacheResponse = {
   summary?: string | null;
   // load-summaries / load-stored-summaries 回包：分段小结列表
   summaries?: (string | null)[];
-  // load-stored-raw 回包：按段序排列的原始段（无命中为空数组；带 prompt 时
-  // 非命中段 items 已被剥离，段元数据 index/from/to 保留）
-  storedSegments?: unknown[];
   // load-l1-index 回包：命中且校验通过的 L1 章节目录索引缓存记录
   l1Index?: L1VideoIndexCacheRecord | null;
   error?: string;

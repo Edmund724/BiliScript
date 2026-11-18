@@ -126,8 +126,6 @@ export interface ResolveFollowupContextArgs {
   context: ChatContext;
   plan: BudgetPlan;
   history: ChatMessage[];
-  userPrompt: string;
-  skipRawRetrieval?: boolean;
 }
 
 export type ResolveFollowupContextFn = (args: ResolveFollowupContextArgs) => Promise<ChatContext | null>;
@@ -446,9 +444,7 @@ export async function runLadderChat(
             ? resolveFollowupContext({
                 context: msg.context || {},
                 plan,
-                history: rawHistory,
-                userPrompt,
-                skipRawRetrieval: true
+                history: rawHistory
               })
             : Promise.resolve(null)
         ]);
@@ -460,43 +456,6 @@ export async function runLadderChat(
               ? String(followupContext.compressedSummaryMarkdown || "")
               : ""
           });
-          return;
-        }
-      } else {
-        // 兼容无 L0 字幕行的注入桩测试路径（tests/ai/ladder.test.ts）
-        const followupContext = await resolveFollowupContext({
-          context: msg.context || {},
-          plan,
-          history: rawHistory,
-          userPrompt
-        });
-        if (followupContext) {
-          // 近 N 轮 verbatim 封顶：只带最近几轮历史，token 不随追问轮数增长。
-          const trimmedHistory = trimRecentTurns(msg.history);
-          try {
-            await streamChat({
-              provider,
-              context: followupContext,
-              userPrompt,
-              history: trimmedHistory,
-              userImages,
-              thinkingLevel: msg.thinkingLevel,
-              port,
-              signal,
-              onActivity,
-              // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
-              webSearch,
-              captureCurrentVideoFrame,
-              fetchHotComments
-            });
-          } catch (e) {
-            // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
-            // streamChat 仅在溢出时抛带 .overflow 标记的错误（其余失败经 port error 回吐）。
-            if (!(e as { overflow?: boolean }).overflow) {
-              throw e;
-            }
-            port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
-          }
           return;
         }
       }

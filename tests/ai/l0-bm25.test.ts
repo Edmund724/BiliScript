@@ -5,6 +5,7 @@ import {
   expandAndMergeHitWindows,
   findLineIndexByLineNumber,
   findNearestLineIndexBySeconds,
+  matchChapterByTitle,
   normalizeL0SubtitleLines,
   parseL0SecondsValue,
   tokenizeLexicalText
@@ -269,6 +270,23 @@ describe("L0 词法分词与 BM25 检索引擎", () => {
       expect(parseL0SecondsValue("99:99")).toBeNull();
       expect(parseL0SecondsValue("not-a-time")).toBeNull();
       expect(parseL0SecondsValue(null)).toBeNull();
+    });
+
+    it("matchChapterByTitle 忽略大小写、空白与标点匹配章节标题，畸形输入不抛错", () => {
+      const chapters = [
+        { from: 0, to: 600, title: "开场白" },
+        { from: 600, to: 1200, title: "技术讲解" },
+        { from: 1200, to: 1800, title: "FlashAttention" }
+      ];
+      expect(matchChapterByTitle("讲讲开场白", chapters).map((c) => c.title)).toEqual(["开场白"]);
+      expect(matchChapterByTitle(" 技术讲解 是什么？", chapters).map((c) => c.title)).toEqual(["技术讲解"]);
+      expect(matchChapterByTitle("flashattention 原理", chapters).map((c) => c.title)).toEqual(["FlashAttention"]);
+      expect(matchChapterByTitle("technology", chapters)).toEqual([]);
+      expect(matchChapterByTitle("", chapters)).toEqual([]);
+
+      const badChapters = [null, { title: "开场白" }, { from: "x", to: 600, title: "开场白" }];
+      expect(matchChapterByTitle("开场白", badChapters).map((c) => c.title)).toEqual(["开场白", "开场白"]);
+      expect(matchChapterByTitle(null, chapters)).toEqual([]);
     });
   });
 });

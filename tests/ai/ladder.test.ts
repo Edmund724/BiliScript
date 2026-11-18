@@ -59,7 +59,7 @@ function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
 
 function makeMsg(): ChatMsg {
   return {
-    context: { subtitleBody: ["a", "b"], chapters: [] },
+    context: { subtitleBody: [{ from: 0, to: 10, content: "字幕内容" }], chapters: [] },
     history: [{ role: "user", content: "h1" }, { role: "assistant", content: "h2" }],
     prompt: "总结一下",
     thinkingLevel: "off"
@@ -77,7 +77,7 @@ describe("runLadderChat 分派", () => {
     expect(calls.streamChat).toHaveLength(1);
     expect(calls.streamChat[0]).toMatchObject({
       provider: { id: "p" },
-      context: { subtitleBody: ["a", "b"], chapters: [] },
+      context: { subtitleBody: [{ from: 0, to: 10, content: "字幕内容" }], chapters: [] },
       userPrompt: "总结一下",
       signal
     });
@@ -90,7 +90,7 @@ describe("runLadderChat 分派", () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
-    const followupFn = vi.fn(async () => ({ kind: "followup" }));
+    const followupFn = vi.fn(async () => ({ kind: "followup", compressedSummaryMarkdown: "压缩摘要内容" }));
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: followupFn
@@ -103,7 +103,11 @@ describe("runLadderChat 分派", () => {
     expect(calls.streamChat).toHaveLength(1);
     // 历史经 trimRecentTurns 封顶（fake: 保留最近 2 轮）
     expect(calls.streamChat[0].history).toEqual(history.slice(-2));
-    expect(calls.streamChat[0].context).toEqual({ kind: "followup" });
+    expect(calls.streamChat[0].context).toMatchObject({
+      kind: "followup",
+      subtitleBody: []
+    });
+    expect(calls.streamChat[0].context.hybridRetrievalMarkdown).toContain("压缩摘要内容");
     expect(calls.mapReduce).toHaveLength(0);
     expect(port.messages).toHaveLength(0);
   });
@@ -463,8 +467,8 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
   });
 });
 
-describe("L0+L1 混合路径：向 resolveFollowupContext 透传 skipRawRetrieval: true", () => {
-  it("map-reduce 且存在有效 L0 字幕行时，调用 resolveFollowupContext 带 skipRawRetrieval: true", async () => {
+describe("L0+L1 混合路径与无 L0 行回退", () => {
+  it("map-reduce 且存在有效 L0 字幕行时，调用 resolveFollowupContext 并将纯压缩摘要注入混合上下文", async () => {
     const signal = new AbortController().signal;
     const port = makePort();
     const resolveFollowupContext = vi.fn(async () => ({
@@ -495,12 +499,37 @@ describe("L0+L1 混合路径：向 resolveFollowupContext 透传 skipRawRetrieva
       deps
     );
 
-    expect(resolveFollowupContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skipRawRetrieval: true
-      })
-    );
+    expect(resolveFollowupContext).toHaveBeenCalledWith({
+      context: expect.objectContaining({ bvid: "BV1l0", cid: "1" }),
+      plan: { mode: "map-reduce", estimatedCalls: 8 },
+      history: makeMsg().history
+    });
     expect(calls.streamChat).toHaveLength(1);
     expect(calls.streamChat[0].context.hybridRetrievalMarkdown).toContain("纯摘要");
+  });
+
+  it("map-reduce 且无有效 L0 字幕行时，跳过追问回退并直接进入 Map-Reduce 编排", async () => {
+    const signal = new AbortController().signal;
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 4 })
+    });
+
+    await runLadderChat(
+      {
+        msg: {
+          ...makeMsg(),
+          context: { bvid: "BV1empty", cid: "1", subtitleBody: [], chapters: [] }
+        },
+        provider: { id: "p" },
+        port,
+        signal
+      },
+      deps
+    );
+
+    expect(calls.followup).toHaveLength(0);
+    expect(calls.streamChat).toHaveLength(0);
+    expect(calls.mapReduce).toHaveLength(1);
   });
 });

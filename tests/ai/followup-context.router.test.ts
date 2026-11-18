@@ -1,11 +1,10 @@
-// ai/followup-context.js 编排侧测试：追问路由——超预算视频总结后追问改走压缩上下文 +
-// 按需检索；首轮 / 尚未成稿 / ≤200k → 返回 null（交给完整 Map-Reduce）。
+// ai/followup-context.js 编排侧测试：追问路由——超预算视频成稿后追问组装纯压缩上下文；
+// 首轮 / 尚未成稿 / ≤200k → 返回 null（交给完整 Map-Reduce）。
 
 import { describe, expect, it, vi } from "vitest";
 import {
   lastAssistantContent,
   loadSegmentSummaries,
-  buildRetrieveRaw,
   resolveFollowupContext
 } from "../../extension/ai/followup-context.js";
 import { buildBudgetPlan } from "../../extension/ai/budgeter.js";
@@ -66,26 +65,6 @@ describe("loadSegmentSummaries", () => {
   });
 });
 
-describe("buildRetrieveRaw", () => {
-  it("命中时间戳 → 返回该段渲染文本", () => {
-    const segs = [
-      { index: 1, from: 0, to: 500, chars: 4, items: [{ from: 0, to: 5, content: "开场内容" }] },
-      { index: 2, from: 500, to: 1000, chars: 4, items: [{ from: 500, to: 505, content: "后续内容" }] }
-    ];
-    const plan2 = { segments: segs };
-    const retrieve = buildRetrieveRaw({ context: { chapters: [] }, plan: plan2 });
-    // 505s 命中第 2 段
-    const hits = retrieve("08:25 那段讲了什么"); // 8*60+25 = 505
-    expect(hits).toHaveLength(1);
-    expect(hits[0]).toContain("后续内容");
-  });
-
-  it("未命中 → 空数组", () => {
-    const retrieve = buildRetrieveRaw({ context: { chapters: [] }, plan: { segments: [] } });
-    expect(retrieve("随便问点无关的")).toEqual([]);
-  });
-});
-
 describe("resolveFollowupContext", () => {
   it("≤200k（mode=single）→ null", async () => {
     const singlePlan = buildBudgetPlan({ body: [{ from: 0, to: 5, content: "短字幕" }], chapters: [] });
@@ -118,12 +97,11 @@ describe("resolveFollowupContext", () => {
     expect(result).toBeNull();
   });
 
-  it("成稿后追问 → 压缩上下文（含笔记+小结、不含原始全文、subtitleBody 置空）", async () => {
+  it("成稿后追问 → 纯压缩上下文（含笔记+小结、不含原始全文、subtitleBody 置空）", async () => {
     const result = (await resolveFollowupContext({
       context,
       plan,
       history: [{ role: "assistant", content: "# 视频笔记：《测试视频》\n完整笔记正文。" }],
-      userPrompt: "再讲讲",
       loadSummaries: async () => summariesFixture
     }))!;
     expect(result).not.toBeNull();
@@ -131,25 +109,6 @@ describe("resolveFollowupContext", () => {
     expect(result.compressedSummaryMarkdown).toContain("完整笔记正文。");
     expect(result.compressedSummaryMarkdown).toContain("小结一：事实A。");
     expect(result.compressedSummaryMarkdown).not.toContain("__RAW_FULL__");
-  });
-
-  it("成稿后追问 + 时间戳命中 → 压缩上下文尾部注入相关原始段", async () => {
-    const segPlan = {
-      ...plan,
-      segments: [
-        { index: 1, from: 0, to: 500, chars: 8, items: [{ from: 0, to: 5, content: "开场白内容ABC" }] },
-        { index: 2, from: 500, to: 1000, chars: 7, items: [{ from: 500, to: 505, content: "后续内容DEF" }] },
-        { index: 3, from: 1000, to: 1500, chars: 7, items: [{ from: 1000, to: 1005, content: "结尾内容GHI" }] }
-      ]
-    };
-    const result = (await resolveFollowupContext({
-      context,
-      plan: segPlan,
-      history: [{ role: "assistant", content: "完整笔记正文。" }],
-      userPrompt: "09:00 那里讲了什么", // 540s → 命中第 2 段
-      loadSummaries: async () => summariesFixture
-    }))!;
-    expect(result.compressedSummaryMarkdown).toContain("## 相关原始字幕段");
-    expect(result.compressedSummaryMarkdown).toContain("后续内容DEF");
+    expect(result.compressedSummaryMarkdown).not.toContain("## 相关原始字幕段");
   });
 });

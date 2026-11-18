@@ -1,9 +1,6 @@
 // 「时刻文本」单源模块（arch-slim-2/08；GLOSSARY.md「时刻文本」词条的代码落点）：
-// 视频「秒 ↔ 时刻文本」的唯一换算约定——展示格式、解析容错、withHours 判定
-// 三件事都只有这一份实现。此前的双展示实现（ai/analysis.ts 的
-// formatAnalysisClock、shared/string-utils.ts 的 formatCompactTimestamp）、
-// 三处解析器（parseOutlineClock / parseTimestampSeconds / parseTimestampToSeconds）、
-// 九处内联 withHours 启发式全部收口到此，禁止再出现靠注释对齐的第二套约定。
+// 视频「秒 ↔ 时刻文本」的唯一换算约定——展示格式、解析容错、withHours 判定、
+// 文本内嵌时间戳提取都只有这一份实现。
 //
 // 展示格式拍板（arch-slim-2 Q1）：统一不补零 `0:05`。
 //   - 分钟不封顶（沿 formatAnalysisClock 口径）：3725 → `62:05`；
@@ -107,4 +104,26 @@ export function parseClock(text: unknown): number | null {
     return null;
   }
   return hh * 3600 + mm * 60 + ss;
+}
+
+/**
+ * 从用户文本中提取所有合法的 `MM:SS` / `HH:MM:SS` / `H:MM:SS` 时间戳并转换为秒。
+ * 数值容错与边界判定复用 `parseClock`；「比分 2:0」因秒段必须两位不匹配正则。
+ * 返回升序去重的 number[]；无命中或非法输入返回 []，永不抛错。
+ */
+export function parseTimestampSeconds(text: unknown): number[] {
+  try {
+    const s = String(text == null ? "" : text);
+    const out: number[] = [];
+    const seen = new Set<number>();
+    for (const match of s.matchAll(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g)) {
+      const seconds = parseClock(match[0]);
+      if (seconds === null || seen.has(seconds)) continue;
+      seen.add(seconds);
+      out.push(seconds);
+    }
+    return out.sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
 }

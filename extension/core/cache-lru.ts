@@ -47,7 +47,7 @@ export function buildLruIndexEntryKey(family: string, bvid: string, cacheKey: st
 }
 // 参与统一淘汰的缓存族前缀（全仓唯一注册处，arch-slim-2/08 起 analysis 两族
 // 收进注册、不再由 ai/analysis.ts 自行扩展名单）：
-//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.ts 的旧版原始字幕段（只读兼容与清理）/ 分段小结；
+//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：旧版原始字幕段（保留注册以便淘汰清理）/ ai/segment-cache.ts 的分段小结；
 //   - biliscript_subtitle_cache_*：旧版字幕缓存键（保留注册以便淘汰清理）；
 //   - biliscript_lvs_analysis_* / biliscript_lvs_analysis_final_*：ai/analysis-orchestrate.ts 的概览分段 / 整份产物；
 //   - biliscript_lvs_l1_index_*：ai/l1-chapter-index.ts 的 L1 章节目录索引。
