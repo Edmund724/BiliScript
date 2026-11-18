@@ -9,6 +9,8 @@ on:
       - 'README.md'
       - 'PRIVACY.md'
       - 'scripts/build-docs.mjs'
+      - 'scripts/docs-site/**'
+      - 'extension/entry/styles/tokens-primitive.css'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
