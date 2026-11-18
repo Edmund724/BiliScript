@@ -15,8 +15,11 @@ node_modules/
 /extension/entry/content-main.mjs.map
 /extension/entry/chunks/
 
-# Local / agent / IDE
-.agents
+# Local / agent / IDE（例外：release skill 入库）
+.agents/*
+!.agents/skills
+.agents/skills/*
+!.agents/skills/release
 .env
 .scratch/
 skills-lock.json
