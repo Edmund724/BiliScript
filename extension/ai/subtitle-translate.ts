@@ -291,23 +291,34 @@ export function parseSubtitleNumberedLines(
   });
 }
 
+export interface BuildBoundaryTranslateMessagesOptions {
+  /** 仅请求输出 ids + translation，省去原文回显字段（适用于 Index-Translate 等翻译专用模型）。 */
+  omitTextField?: boolean;
+}
+
 /**
  * `boundary-v3` 联合断句 + 翻译 System/User Prompt 装配（支持可选注入 title/description/summary/glossary/previousLines）。
  */
 export function buildBoundaryTranslateMessages(
   events: readonly AtomicSubtitleEvent[],
   targetLang: string,
-  context?: SubtitleTranslatePromptContext
+  context?: SubtitleTranslatePromptContext,
+  options: BuildBoundaryTranslateMessagesOptions = {}
 ): ChatMessage[] {
   const langName = resolveTargetLangDisplayName(targetLang);
   const contextBlock = buildSubtitleContextPromptBlock(context);
   const encodedEvents = formatBoundaryEvents(events);
+  const omitTextField = options.omitTextField === true;
+
+  const formatRule = omitTextField
+    ? `1. 输出格式：仅输出严格合法的 JSON 对象，结构为 {"groups":[{"ids":["0","2"],"translation":"..."}]}；当某组仅含单个片段时写 {"ids":["3"],"translation":"..."}，含连续多个片段时写首尾端点 ["startId","endId"]。严禁输出 \`\`\`json 等 Markdown 围栏、前言或任何解释文字；translation 字段必须仅填写${langName}译文，禁止回显原文。`
+    : `1. 输出格式：仅输出严格合法的 JSON 对象，结构为 {"groups":[{"ids":["0","2"],"text":"...","translation":"..."}]}；当某组仅含单个片段时写 {"ids":["3"],"text":"...","translation":"..."}，含连续多个片段时写首尾端点 ["startId","endId"]。严禁输出 \`\`\`json 等 Markdown 围栏、前言或任何解释文字。`;
 
   const systemContent =
     `你是一个专业的音视频字幕智能断句与翻译专家。请将输入的细粒度字幕片段按自然语义合并断句，并翻译为${langName}。\n` +
     `输入格式为 JSON 数组，每项包含唯一递增字符串索引 "id"、片段文本 "text"，以及可选的与下一片段的静音停顿毫秒数 "pauseMs"。\n\n` +
     `严格遵守以下协议与断句规则：\n` +
-    `1. 输出格式：仅输出严格合法的 JSON 对象，结构为 {"groups":[{"ids":["0","2"],"text":"...","translation":"..."}]}；当某组仅含单个片段时写 {"ids":["3"],"text":"...","translation":"..."}，含连续多个片段时写首尾端点 ["startId","endId"]。严禁输出 \`\`\`json 等 Markdown 围栏、前言或任何解释文字。\n` +
+    `${formatRule}\n` +
     `2. 硬性长度上限：空格分隔源语言（如英文等）每组原文 <= 15 词（有自然停顿时目标控制在 8–12 词）；中日韩等无空格分隔源语言每组原文 <= 30 字。超长从句必须在逗号、连词或自然意群处拆分，禁止生成超长单条字幕。\n` +
     `3. 句界与停顿约束：严禁将两个完整句子合并到同一组；请结合句末标点与 pauseMs 停顿强度判断自然句界，纯音效/音乐标记（如 [Music]、♪）单独成组。\n` +
     `4. 完整覆盖不变量：所有 groups 的 ids 必须从 "0" 开始单调递增、无遗漏、无重叠地精确覆盖全部输入片段一次。` +
@@ -880,7 +891,10 @@ async function translateBoundaryChunkWithRecovery(args: {
 
   const chunkText = chunkEvents.map((ev) => String(ev?.text ?? "")).join(" ");
   const chunkContext = buildChunkSubtitleContext(context, chunkText, previousLines ?? context?.previousLines);
-  const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, chunkContext);
+  const omitTextField = isIndexTranslateProvider(resolved.provider);
+  const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, chunkContext, {
+    omitTextField
+  });
   const primaryParser = onCueReady
     ? createStreamingSubtitleParser({
         events: chunkEvents,
@@ -924,7 +938,9 @@ async function translateBoundaryChunkWithRecovery(args: {
             .map((cue) => ({ original: cue.text.trim(), translation: cue.translation.trim() }))
         : (previousLines ?? context?.previousLines);
       const tailContext = buildChunkSubtitleContext(context, tailText, tailPrevLines);
-      const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, tailContext);
+      const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, tailContext, {
+        omitTextField
+      });
       const tailParser = onCueReady
         ? createStreamingSubtitleParser({
             events: tailEvents,

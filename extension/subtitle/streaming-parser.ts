@@ -202,13 +202,19 @@ export function createStreamingSubtitleParser(
       text = rawText;
     }
 
+    const explicitTranslation = String(obj.translation ?? "").trim();
+    const fallbackTranslation =
+      !explicitTranslation && obj.translation === undefined
+        ? String(obj.text ?? "").trim()
+        : "";
+
     const cue: StreamingSubtitleCue = {
       startIndex: globalStart,
       endIndex: globalEnd,
       from,
       to,
       text,
-      translation: String(obj.translation ?? "").trim()
+      translation: explicitTranslation || fallbackTranslation
     };
 
     cues.push(cue);

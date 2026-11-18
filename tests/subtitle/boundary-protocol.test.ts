@@ -15,6 +15,7 @@ import {
   finalizeAiCues,
   formatBoundaryEvents,
   mapBoundaryGroupsToCues,
+  parseCcTranslationMap,
   salvageTruncatedSubtitleJson,
   splitEventsIntoAiChunks,
   takeContinuousCuePrefix
@@ -391,5 +392,32 @@ describe("Tail Retry 与 finalizeAiCues 四重容错闭环端到端验证", () =
     expect(messages[0].content).toContain("内容摘要：Explains loop invariant code motion");
     expect(messages[0].content).toContain("SSA -> 静态单赋值");
     expect(messages[0].content).toContain("LICM -> 循环不变代码外提");
+  });
+
+  it("parseCcTranslationMap 与 mapBoundaryGroupsToCues 在缺少 translation 字段时回落读取 text，显式空 translation 不误回落", () => {
+    const ccMap = parseCcTranslationMap(
+      [
+        { id: "0", translation: "第一句" },
+        { id: "1", text: "第二句" },
+        { id: "2", translation: "", text: "不应误取原文" }
+      ],
+      3
+    );
+    expect(ccMap.get(0)).toBe("第一句");
+    expect(ccMap.get(1)).toBe("第二句");
+    expect(ccMap.has(2)).toBe(false);
+
+    const cues = mapBoundaryGroupsToCues(
+      {
+        groups: [
+          { ids: ["0", "1"], text: "合并译文" },
+          { ids: ["2"], text: "original text", translation: "" }
+        ]
+      },
+      EIGHT_EVENTS.slice(0, 3),
+      "en"
+    );
+    expect(cues[0]?.translation).toBe("合并译文");
+    expect(cues[1]?.translation).toBe("");
   });
 });

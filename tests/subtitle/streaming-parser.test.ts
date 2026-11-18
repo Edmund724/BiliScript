@@ -235,4 +235,21 @@ describe("createStreamingSubtitleParser：增量流式 JSON 字幕解析", () =>
     parser.feed('{"ids":["3"],"text":"d","translation":"丁"}]}');
     expect(onCueReady).toHaveBeenCalledTimes(1);
   });
+
+  it("cc-json 缺少 translation 字段时回落读取 text，显式空 translation 不误回落", () => {
+    const items = [
+      { from: 0, to: 2, content: "Line one" },
+      { from: 2, to: 4, content: "Line two" },
+      { from: 4, to: 6, content: "Line three" }
+    ];
+    const emitted: StreamingSubtitleCue[] = [];
+    const parser = createStreamingSubtitleParser({
+      items,
+      mode: "cc-json",
+      onCueReady: (cue) => emitted.push(cue)
+    });
+
+    parser.feed('[{"id":"0","translation":"第一句"},{"id":"1","text":"第二句"},{"id":"2","translation":"","text":"Line three"}]');
+    expect(emitted.map((c) => c.translation)).toEqual(["第一句", "第二句", ""]);
+  });
 });

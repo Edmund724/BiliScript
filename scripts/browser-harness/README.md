@@ -59,6 +59,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 | 场景 | 判据 | 成本 |
 |---|---|---|
 | `bilingual-subtitles`（S1–S10 + S7b） | 双语字幕在**真 B 站页面**上的东西：副列浮层对页面样式级联的胜出、弹层两列各自的滚动位置、真实 listbox 的点击路径、MV3 SW 里的 fixture 补丁、SPA 换视频的偏好保留、解释卡引用只含主行 | 全流程 90–120s（真网一趟 + fixture 补丁一趟）；`--fixture-only` < 1s |
+| `index-translate` | 内置免 Key `Index-Translate` 在真实 Chromium MV3 + B 站视频页上的端到端链路：零 API Key 状态下设置页默认投影与通用 AI 解耦、DNR 规则 9003 生效、offscreen 实发 `https://index-translate.bilibili.com/v1/chat/completions` 返回 HTTP 200、真实渲染中文双语副行、无 `<think>` 标签残留与 CORS/CSP 报错 | 约 15s（真 B 站页 + 真 `index-translate.bilibili.com` 接口） |
 | `subtitle-prefetch`（S1–S5） | 字幕预抓取的真机判据：进视频页**不经任何点击**即发出字幕列表请求、抓取在飞时对话 tab 的等待反馈（spinner 通知条 / 发送键禁用 / placeholder）、字幕在手后点 AI 键零等待上屏、SPA 换片也预抓取、无字幕视频不触发 ASR | 全流程约 80–120s（真网 + SW 目标上的 Fetch 扣住/回放 fixture） |
 | `sw-message-router`（S1–S6） | 消息入口路由的真实 MV3 SW 判据（离线、不联网）：未登记类型不答、offscreen 专属类型被页面发送者调用时拿到拒绝信封（`仅接受 offscreen 文档发送`）、已知类型照常路由到真 handler、设置经路由器读写往返稳定、SW 顶层同步注册了入口 | 约 2s（起一次隔离 Edge，不抓网） |
 | `chat-speech` | 内容脚本无 `chrome.tts` 的真实页面回归：从既有 AI 回答点击朗读，经 SW 选中音色并收到 start/end，全程无「当前设备无法朗读」，结束后按钮恢复 | 约 10–20s（真 B 站页 + 在线音色；静音） |

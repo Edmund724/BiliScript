@@ -42,6 +42,14 @@ BiliScript 是一个自带 API Key（bring-your-own-key）的浏览器扩展。�
 
 预设平台的 Base URL 内置于扩展设置中，你可以自由改用任何 OpenAI 兼容平台。请求由扩展直接发往你选择的服务商，开发者不经手、不代理、不存储这些请求。未配置 AI 平台或未发送时，粘贴的图片不出你的浏览器。
 
+### 内置免 Key 字幕翻译服务（Index-Translate）
+
+字幕翻译默认使用 B 站内置免 Key 翻译通道（`https://index-translate.bilibili.com/*`，支持 `Index-Translate-35B-A3B` / `9B` / `2B`），无需配置任何 API Key 即可开箱使用，且与「AI 总结 / 多轮对话 / 选区讲解」所用平台配置相互独立：
+
+- 仅当你主动触发双语字幕翻译或播放器字幕翻译、且字幕翻译来源设为内置 `Index-Translate` 时，扩展才会向 `https://index-translate.bilibili.com/v1/chat/completions` 发送待译字幕文本、目标语言指令及可选的术语/上下文提示；
+- 该请求不上传你的 B 站账号 Cookie、API Key 或其他账号凭据，也不触发用户通用 AI 平台的计费；
+- 你可随时在「设置 → 字幕翻译与导出」将「翻译来源」切换为你自己的「自定义 AI 平台」；切换后后续字幕翻译请求不再发往 `index-translate.bilibili.com`。
+
 ### 内置免 Key 搜索服务
 
 联网搜索默认关闭。打开 AI 对话输入行右侧的地球图标开关后，即使你没有配置任何搜索平台，扩展也会把模型生成的查询词（选区解释链还包含选中的字幕文本及其上下文字幕）经 HTTPS 发往扩展内置的免 Key 搜索服务：`api.tavily.com`、`api.firecrawl.dev`、`api.anysearch.com`、`search.parallel.ai`；若你为豆包 / Exa 配置了自己的 API Key，查询词也会发往 `open.feedcoopapi.com` / `api.exa.ai`。智能模式按设置里的平台顺序逐家回退（配了 Key 的 Exa / 豆包排在更前），单选模式只发往你选中的那一家，链上全部无果才提示。你可以在设置里改顺序、改成单选某一家，或删除对应平台记录让它不再接收查询；关闭开关同样立即撤回。这些服务方按其各自的服务条款、隐私政策与留存策略处理查询词；全部请求走 HTTPS。
@@ -88,9 +96,10 @@ BiliScript 使用浏览器扩展存储，不使用任何云端服务：
 - `scripting`：在 B 站视频页注入并协调页面内 Digest 面板、联动播放器跳转、识别当前视频标签页；
 - `offscreen`：音频解码与 AI / ASR 流式请求的后台文档；
 - `tts`：仅在用户点击朗读按钮后朗读 AI 回答，优先使用自然语音与在线语音，不可用或失败时回退到浏览器提供的本地语音；
-- `declarativeNetRequest`：仅在语音识别转写任务期间为 B 站音频 CDN（`*.bilivideo.com`）请求注入 Referer/Origin 会话规则以通过防盗链，任务结束即清除；
+- `declarativeNetRequest`：在语音识别转写任务期间为 B 站音频 CDN（`*.bilivideo.com`）请求注入 Referer/Origin 会话规则以通过防盗链（任务结束即清除），并为内置免 Key 字幕翻译请求（`index-translate.bilibili.com`）设置合规的 `User-Agent` / `Origin` 会话请求头；
 - `https://www.bilibili.com/*`：在视频页与稍后再看列表页注入 Digest 按钮与阅读面板；
 - `https://api.bilibili.com/*`：抓取视频元数据、字幕轨列表与字幕正文、热门评论；
+- `https://index-translate.bilibili.com/*`：仅在启用内置免 Key 字幕翻译（`Index-Translate`）时发送待译字幕文本与目标语言指令，无账号凭据或用户 API Key 上传；
 - `https://*.hdslb.com/*`：获取托管在 B 站 CDN 上的字幕文件（字幕正文的 JSON 数据）；
 - `https://*.bilivideo.com/*`：仅语音识别回退触发时下载无字幕视频的音轨；
 - `https://api.firecrawl.dev/*`、`https://api.tavily.com/*`、`https://api.anysearch.com/*`、`https://search.parallel.ai/*`、`https://open.feedcoopapi.com/*`、`https://api.exa.ai/*`：仅在你开启联网搜索时发送模型生成的查询词并取回结果；这 4 个免 Key 域名由扩展随包声明，用户未配置任何搜索平台时也会在开启开关后被使用（`open.feedcoopapi.com`、`api.exa.ai` 仅在你为该平台配置了自己的 API Key 后才被使用）；

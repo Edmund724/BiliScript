@@ -629,3 +629,30 @@ describe("Manifest 权限与 DNR 会话规则适配", () => {
     expect(INDEX_TRANSLATE_USER_AGENT_VALUE).toBe(INDEX_TRANSLATE_USER_AGENT);
   });
 });
+
+describe("Index-Translate boundary-v3 与 cc-json 协议适配（真机实测回归）", () => {
+  it("boundary-v3 面向 Index-Translate 通道省略 text 输出字段，避免与 translation 互换", async () => {
+    const capturedMessages: Array<Array<{ role: string; content: string }>> = [];
+    const mockChatCompletion = vi.fn(async (input: { messages: Array<{ role: string; content: string }> }) => {
+      capturedMessages.push(input.messages);
+      return JSON.stringify({
+        groups: [{ ids: ["0", "1"], translation: "大家好，欢迎回来。" }]
+      });
+    });
+
+    const result = await translateSubtitleItems({
+      items: [
+        { from: 0, to: 1.5, content: "Hello everyone" },
+        { from: 1.6, to: 3.0, content: "welcome back." }
+      ],
+      targetLang: "zh",
+      mode: "boundary-v3",
+      providerResolution: createIndexTranslateResolution(),
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(capturedMessages[0][0].content).toContain('{"groups":[{"ids":["0","2"],"translation":"..."}]}');
+    expect(capturedMessages[0][0].content).not.toContain('"text":"...","translation":"..."');
+    expect([...result]).toEqual([{ from: 0, to: 3, content: "大家好，欢迎回来。" }]);
+  });
+});

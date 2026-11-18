@@ -514,11 +514,15 @@ export function mapBoundaryGroupsToCues(
       });
       break;
     }
+    const rawTranslation = String(group?.translation ?? "").trim();
+    const translation =
+      rawTranslation ||
+      (group?.translation === undefined ? String(group?.text ?? "").trim() : "");
     candidates.push({
       startIndex: range.startIndex,
       endIndex: range.endIndex,
       rawText: String(group?.text ?? "").trim(),
-      translation: String(group?.translation ?? "").trim()
+      translation
     });
   }
 
@@ -574,7 +578,7 @@ export function parseCcTranslationMap(
     if (!rawEntry || typeof rawEntry !== "object") {
       continue;
     }
-    const entry = rawEntry as { id?: unknown; ids?: unknown; translation?: unknown };
+    const entry = rawEntry as { id?: unknown; ids?: unknown; translation?: unknown; text?: unknown };
     let id = parseSingleEventId(entry.id);
     if (id === null && Array.isArray(entry.ids) && entry.ids.length === 1) {
       id = parseSingleEventId(entry.ids[0]);
@@ -582,7 +586,10 @@ export function parseCcTranslationMap(
     if (id === null || id < 0 || id >= itemCount || result.has(id)) {
       continue;
     }
-    const translation = String(entry.translation ?? "").trim();
+    const rawTranslation = String(entry.translation ?? "").trim();
+    const translation =
+      rawTranslation ||
+      (entry.translation === undefined ? String(entry.text ?? "").trim() : "");
     if (translation) {
       result.set(id, translation);
     }
