@@ -68,6 +68,7 @@ export interface KnownSettings {
   liveLowBandwidth: boolean;
   subtitleTranslateProviderId: string;
   subtitleTranslateModel: string;
+  subtitleTranslateGlossary: string;
   liveInterpretTargetLang: LiveInterpretTargetLang;
   liveInterpretDisplayMode: InterpretSubtitleDisplayMode;
   asrAutoFallback: boolean;
@@ -156,6 +157,7 @@ export const DEFAULT_SETTINGS: Settings = {
   liveLowBandwidth: false,   // 实时伴看低带宽画面采集（默认关，下次会话生效）
   subtitleTranslateProviderId: "", // 专属字幕翻译 AI 平台 id，空串表示跟随全局默认平台
   subtitleTranslateModel: "",      // 专属字幕翻译模型，空串表示跟随全局默认模型
+  subtitleTranslateGlossary: "",   // 字幕翻译自定义术语对照表（多行，原文 = 译文 或 仅原文保留原词）
   liveInterpretTargetLang: "zh",
   liveInterpretDisplayMode: "auto",
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示

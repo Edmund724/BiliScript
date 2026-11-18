@@ -65,6 +65,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   liveShareVideoAudio: "liveShareVideoAudio",
   liveVoicePriority: "liveVoicePriority",
   subtitleTranslateModel: "subtitleTranslateModel",
+  subtitleTranslateGlossary: "subtitleTranslateGlossary",
   subtitleSegmentationStrategy: "subtitleSegmentationStrategy",
   asrProvidersList: "asrProvidersList",
   asrProvidersEmpty: "asrProvidersEmpty",
@@ -463,6 +464,16 @@ export function buildSettingsHtml(): string {
             <select id="${ids.subtitleTranslateModel}" class="biliscript-set-select">
               <option value="">暂无可用模型</option>
             </select>
+          </div>
+          <div class="biliscript-set-row biliscript-set-row-stack">
+            <label class="biliscript-set-label" for="${ids.subtitleTranslateGlossary}">术语对照表</label>
+            <textarea
+              id="${ids.subtitleTranslateGlossary}"
+              class="biliscript-set-textarea"
+              rows="4"
+              spellcheck="false"
+              placeholder="每行一条：原文 = 译文（译文留空则强制保留原词）&#10;CUDA = CUDA&#10;Warp Scheduler = 线程束调度器&#10;Tensor Core ="
+            ></textarea>
           </div>
         </div>
       </section>

@@ -22,6 +22,7 @@ import {
   resolveSubtitleTranslateProvider,
   translateSubtitleItems
 } from "../ai/subtitle-translate.js";
+import { extractPreviousBilingualLinesBeforeTime } from "../ai/subtitle-context.js";
 import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
 import {
   createSubtitleChunkScheduler,
@@ -401,11 +402,23 @@ export function createInterpretSessionController(
     const prevSecondary = chunkSecondaryItems.get(chunkIndex);
     const taskPromise = (async () => {
       try {
+        const prevPrimary = chunkIndex > 0 ? chunkPrimaryItems.get(chunkIndex - 1) : undefined;
+        const prevSecondary = chunkIndex > 0 ? chunkSecondaryItems.get(chunkIndex - 1) : undefined;
+        const previousLines =
+          prevPrimary && prevSecondary && prevSecondary.length > 0
+            ? extractPreviousBilingualLinesBeforeTime(
+                prevPrimary,
+                prevSecondary,
+                chunkIndex * CHUNK_DURATION_SEC,
+                2
+              )
+            : [];
         const translated = await translateItems({
           items,
           targetLang: activeTargetLang,
           selectedSubtitleId: "asr",
           providerResolution: activeProviderRes,
+          ...(previousLines.length > 0 ? { previousLines } : {}),
           signal: abortController?.signal,
           fallbackToOriginal: false,
           onCueReady: (cue) => {

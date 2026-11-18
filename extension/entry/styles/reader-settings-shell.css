@@ -299,6 +299,12 @@
   gap: var(--biliscript-space-md);
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row.biliscript-set-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--biliscript-space-8);
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-row.is-disabled {
   opacity: 0.5;
 }
@@ -586,6 +592,11 @@
 /* AI 按钮的快捷提示词同样按多行文案对待。 */
 #biliscript-reading-view .biliscript-reading-settings-host #playerAiQuickPrompt {
   min-height: 132px;
+}
+
+/* 字幕翻译术语对照表按多行输入对待。 */
+#biliscript-reading-view .biliscript-reading-settings-host #subtitleTranslateGlossary {
+  min-height: 96px;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea::placeholder {

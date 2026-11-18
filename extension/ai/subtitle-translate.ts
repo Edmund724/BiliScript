@@ -50,27 +50,26 @@ import {
   type BoundaryCue
 } from "../subtitle/boundary-protocol.js";
 
-export type { StreamingSubtitleCue };
+import {
+  buildChunkSubtitleContext,
+  buildSubtitleContextPromptBlock,
+  extractPreviousBilingualLines,
+  resolveRuntimeSubtitleContext,
+  type SubtitleGlossaryEntry,
+  type SubtitleGlossaryInput,
+  type SubtitlePreviousLine,
+  type SubtitleTranslatePromptContext
+} from "./subtitle-context.js";
 
-export type SubtitleTranslateProtocolMode = "boundary-v3" | "cc-json";
-
-export type SubtitleGlossaryEntry = {
-  source: string;
-  target: string;
-  note?: string;
+export type {
+  StreamingSubtitleCue,
+  SubtitleGlossaryEntry,
+  SubtitleGlossaryInput,
+  SubtitlePreviousLine,
+  SubtitleTranslatePromptContext
 };
 
-export type SubtitleGlossaryInput =
-  | string
-  | readonly SubtitleGlossaryEntry[]
-  | Readonly<Record<string, string>>;
-
-export interface SubtitleTranslatePromptContext {
-  title?: string;
-  description?: string;
-  summary?: string;
-  glossary?: SubtitleGlossaryInput;
-}
+export type SubtitleTranslateProtocolMode = "boundary-v3" | "cc-json";
 
 export interface ResolveSubtitleTranslateProviderDeps {
   getSettings?: () => Promise<Partial<Settings>>;
@@ -234,66 +233,8 @@ export function parseSubtitleNumberedLines(
   });
 }
 
-function formatGlossarySection(glossary?: SubtitleGlossaryInput): string {
-  if (!glossary) {
-    return "";
-  }
-  if (typeof glossary === "string") {
-    return glossary.trim();
-  }
-  if (Array.isArray(glossary)) {
-    const lines = glossary
-      .map((entry) => {
-        const src = String(entry?.source ?? "").trim();
-        const tgt = String(entry?.target ?? "").trim();
-        const note = String(entry?.note ?? "").trim();
-        if (!src || !tgt) return "";
-        return note ? `- ${src} -> ${tgt} (${note})` : `- ${src} -> ${tgt}`;
-      })
-      .filter(Boolean);
-    return lines.join("\n");
-  }
-  const entries = Object.entries(glossary as Record<string, string>)
-    .map(([src, tgt]) => {
-      const s = String(src ?? "").trim();
-      const t = String(tgt ?? "").trim();
-      return s && t ? `- ${s} -> ${t}` : "";
-    })
-    .filter(Boolean);
-  return entries.join("\n");
-}
-
-function buildOptionalContextBlock(context?: SubtitleTranslatePromptContext): string {
-  if (!context) {
-    return "";
-  }
-  const sections: string[] = [];
-  const title = String(context.title ?? "").trim();
-  const description = String(context.description ?? "").trim();
-  const summary = String(context.summary ?? "").trim();
-  const glossaryText = formatGlossarySection(context.glossary);
-
-  if (title) {
-    sections.push(`视频标题：${title}`);
-  }
-  if (description) {
-    sections.push(`视频简介：${description}`);
-  }
-  if (summary) {
-    sections.push(`内容摘要：${summary}`);
-  }
-  if (glossaryText) {
-    sections.push(`术语表（请严格保持专有名词译法一致）：\n${glossaryText}`);
-  }
-
-  if (sections.length === 0) {
-    return "";
-  }
-  return `\n\n参考上下文：\n${sections.join("\n")}`;
-}
-
 /**
- * `boundary-v3` 联合断句 + 翻译 System/User Prompt 装配（支持可选注入 title/description/summary/glossary）。
+ * `boundary-v3` 联合断句 + 翻译 System/User Prompt 装配（支持可选注入 title/description/summary/glossary/previousLines）。
  */
 export function buildBoundaryTranslateMessages(
   events: readonly AtomicSubtitleEvent[],
@@ -301,7 +242,7 @@ export function buildBoundaryTranslateMessages(
   context?: SubtitleTranslatePromptContext
 ): ChatMessage[] {
   const langName = resolveTargetLangDisplayName(targetLang);
-  const contextBlock = buildOptionalContextBlock(context);
+  const contextBlock = buildSubtitleContextPromptBlock(context);
   const encodedEvents = formatBoundaryEvents(events);
 
   const systemContent =
@@ -329,7 +270,7 @@ export function buildCcTranslateMessages(
   context?: SubtitleTranslatePromptContext
 ): ChatMessage[] {
   const langName = resolveTargetLangDisplayName(targetLang);
-  const contextBlock = buildOptionalContextBlock(context);
+  const contextBlock = buildSubtitleContextPromptBlock(context);
   const payload = formatCcSubtitleItems(items);
 
   const systemContent =
@@ -433,18 +374,6 @@ export type TranslatedSubtitleItemsArray = SubtitleBodyItem[] & {
 };
 
 const DEFAULT_MAX_CHUNK_CHARS = 1000;
-
-function mergePromptContext(input: TranslateSubtitleItemsInput): SubtitleTranslatePromptContext | undefined {
-  const base = input.context;
-  const title = input.title ?? base?.title;
-  const description = input.description ?? base?.description;
-  const summary = input.summary ?? base?.summary;
-  const glossary = input.glossary ?? base?.glossary;
-  if (!title && !description && !summary && !glossary) {
-    return undefined;
-  }
-  return { title, description, summary, glossary };
-}
 
 function splitCcItemsIntoBatches(
   items: readonly SubtitleBodyItem[],
@@ -583,6 +512,7 @@ async function translateCcBatchWithRetry(args: {
   batch: readonly SubtitleBodyItem[];
   targetLang: string;
   context?: SubtitleTranslatePromptContext;
+  previousLines?: readonly SubtitlePreviousLine[];
   resolved: SubtitleTranslateProviderResolution;
   stream?: boolean;
   signal?: AbortSignal | null;
@@ -598,6 +528,7 @@ async function translateCcBatchWithRetry(args: {
     batch,
     targetLang,
     context,
+    previousLines,
     resolved,
     stream,
     signal,
@@ -616,7 +547,9 @@ async function translateCcBatchWithRetry(args: {
     content: String(item?.content ?? "").trim()
   }));
 
-  const primaryMessages = buildCcTranslateMessages(normalizedItems, targetLang, context);
+  const batchText = normalizedItems.map((item) => item.content).join(" ");
+  const chunkContext = buildChunkSubtitleContext(context, batchText, previousLines ?? context?.previousLines);
+  const primaryMessages = buildCcTranslateMessages(normalizedItems, targetLang, chunkContext);
   const primaryParser = onCueReady
     ? createStreamingSubtitleParser({
         items: normalizedItems,
@@ -654,7 +587,9 @@ async function translateCcBatchWithRetry(args: {
         content: normalizedItems[idx].content
       }));
       try {
-        const retryMessages = buildCcTranslateMessages(missingItems, targetLang, context);
+        const missingText = missingItems.map((item) => item.content).join(" ");
+        const retryContext = buildChunkSubtitleContext(context, missingText, previousLines ?? context?.previousLines);
+        const retryMessages = buildCcTranslateMessages(missingItems, targetLang, retryContext);
         const retryRaw = await invokeTranslationLlm({
           resolved,
           messages: retryMessages,
@@ -716,6 +651,7 @@ async function translateBoundaryChunkWithRecovery(args: {
   targetLang: string;
   sourceLang?: string;
   context?: SubtitleTranslatePromptContext;
+  previousLines?: readonly SubtitlePreviousLine[];
   resolved: SubtitleTranslateProviderResolution;
   stream?: boolean;
   signal?: AbortSignal | null;
@@ -731,6 +667,7 @@ async function translateBoundaryChunkWithRecovery(args: {
     targetLang,
     sourceLang,
     context,
+    previousLines,
     resolved,
     stream,
     signal,
@@ -742,7 +679,9 @@ async function translateBoundaryChunkWithRecovery(args: {
     onCueReady
   } = args;
 
-  const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, context);
+  const chunkText = chunkEvents.map((ev) => String(ev?.text ?? "")).join(" ");
+  const chunkContext = buildChunkSubtitleContext(context, chunkText, previousLines ?? context?.previousLines);
+  const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, chunkContext);
   const primaryParser = onCueReady
     ? createStreamingSubtitleParser({
         events: chunkEvents,
@@ -777,7 +716,15 @@ async function translateBoundaryChunkWithRecovery(args: {
     const offset = coveredEnd + 1;
     const tailEvents = chunkEvents.slice(offset);
     try {
-      const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, context);
+      const tailText = tailEvents.map((ev) => String(ev?.text ?? "")).join(" ");
+      const tailPrevLines = cues.length > 0
+        ? cues
+            .slice(-2)
+            .filter((cue) => cue.text.trim().length > 0 && cue.translation.trim().length > 0)
+            .map((cue) => ({ original: cue.text.trim(), translation: cue.translation.trim() }))
+        : (previousLines ?? context?.previousLines);
+      const tailContext = buildChunkSubtitleContext(context, tailText, tailPrevLines);
+      const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, tailContext);
       const tailParser = onCueReady
         ? createStreamingSubtitleParser({
             events: tailEvents,
@@ -831,6 +778,7 @@ async function translateBoundaryChunkWithRecovery(args: {
         batch: pseudoItems,
         targetLang,
         context,
+        previousLines: previousLines ?? context?.previousLines,
         resolved,
         stream,
         signal,
@@ -912,7 +860,7 @@ export async function translateSubtitleTrack(
   }
 
   const effectiveSourceLang = sourceLang ?? trackLan ?? selectedSubtitleLang;
-  const context = mergePromptContext(input);
+  const context = await resolveRuntimeSubtitleContext(input);
   const emittedKeys = new Set<string>();
 
   if (resolvedMode === "boundary-v3") {
@@ -929,6 +877,7 @@ export async function translateSubtitleTrack(
     const outItems: SubtitleBodyItem[] = [];
     const outTranslations: SubtitleBodyItem[] = [];
     let eventOffset = 0;
+    let rollingPreviousLines = context?.previousLines;
 
     for (const chunkEvents of chunks) {
       throwIfAborted(signal);
@@ -937,6 +886,7 @@ export async function translateSubtitleTrack(
         targetLang,
         sourceLang: effectiveSourceLang,
         context,
+        previousLines: rollingPreviousLines,
         resolved,
         stream,
         signal,
@@ -949,6 +899,10 @@ export async function translateSubtitleTrack(
       });
       outItems.push(...chunkResult.items);
       outTranslations.push(...chunkResult.translations);
+      const nextPrevious = extractPreviousBilingualLines(chunkResult.items, chunkResult.translations, 2);
+      if (nextPrevious.length > 0) {
+        rollingPreviousLines = nextPrevious;
+      }
       eventOffset += chunkEvents.length;
     }
 
@@ -965,6 +919,7 @@ export async function translateSubtitleTrack(
   const outItems: SubtitleBodyItem[] = [];
   const outTranslations: SubtitleBodyItem[] = [];
   let batchOffset = 0;
+  let rollingPreviousLines = context?.previousLines;
 
   for (const batch of batches) {
     throwIfAborted(signal);
@@ -972,6 +927,7 @@ export async function translateSubtitleTrack(
       batch,
       targetLang,
       context,
+      previousLines: rollingPreviousLines,
       resolved,
       stream,
       signal,
@@ -985,6 +941,10 @@ export async function translateSubtitleTrack(
     });
     outItems.push(...batchResult.items);
     outTranslations.push(...batchResult.translations);
+    const nextPrevious = extractPreviousBilingualLines(batchResult.items, batchResult.translations, 2);
+    if (nextPrevious.length > 0) {
+      rollingPreviousLines = nextPrevious;
+    }
     batchOffset += batch.length;
   }
 

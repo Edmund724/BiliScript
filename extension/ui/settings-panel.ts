@@ -22,6 +22,7 @@ import {
 import {
   normalizeDownloadFormat,
   normalizeSubtitleSegmentationStrategy,
+  normalizeSubtitleTranslateGlossary,
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
   normalizeChatInputGlow,
@@ -63,6 +64,7 @@ import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectState, set
 import { escapeHtml } from "../shared/string-utils.js";
 import { buildModelOptionValue, normalizeProviderModels, parseModelOptionValue, resolveCatalogModel } from "../shared/selected-provider.js";
 import { AI_PROVIDERS_STORAGE } from "../core/ai-provider-store.js";
+import { parseSubtitleGlossary } from "../ai/subtitle-translate-config.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import type { ProviderRowItem } from "./provider-row.js";
@@ -249,6 +251,7 @@ function collectElements(host: HTMLElement) {
     addLiveProviderBtn: byIdIn<HTMLButtonElement>(dom.addLiveProviderBtn),
     liveLowBandwidth: byIdIn<HTMLInputElement>(dom.liveLowBandwidth),
     subtitleTranslateModel: byIdIn<HTMLSelectElement>(dom.subtitleTranslateModel),
+    subtitleTranslateGlossary: byIdIn<HTMLTextAreaElement>(dom.subtitleTranslateGlossary),
     subtitleSegmentationStrategy: byIdIn<HTMLSelectElement>(dom.subtitleSegmentationStrategy),
     asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
     asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
@@ -356,6 +359,13 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "subtitleSegmentationStrategy",
     getElement: (el) => el.subtitleSegmentationStrategy,
     normalize: normalizeSubtitleSegmentationStrategy
+  },
+  {
+    kind: "debounced-text",
+    key: "subtitleTranslateGlossary",
+    getElement: (el) => el.subtitleTranslateGlossary,
+    normalize: normalizeSubtitleTranslateGlossary,
+    watchSync: true
   },
   {
     kind: "select",
@@ -725,7 +735,13 @@ function syncAllSummaries(elements: SettingsElements): void {
 
   const formatLabel = normalizeDownloadFormat(elements.downloadFormat.value).toUpperCase();
   const translateModel = resolveSelectedModelLabel(elements.subtitleTranslateModel);
-  elements.subtitleSettingsSummary.textContent = translateModel ? `${translateModel} · ${formatLabel}` : formatLabel;
+  const glossaryCount = parseSubtitleGlossary(elements.subtitleTranslateGlossary.value).length;
+  const subtitleParts = [
+    translateModel,
+    glossaryCount > 0 ? `${glossaryCount} 条术语` : "",
+    formatLabel
+  ].filter(Boolean);
+  elements.subtitleSettingsSummary.textContent = subtitleParts.join(" · ");
 
   const paletteLabel = normalizeReaderPalette(elements.readerPalette.value) === "editorial" ? "数字刊物" : "蓝雾玻璃";
   const fontScale = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
@@ -1395,6 +1411,7 @@ function buildDefaultPreferencePayload() {
   return {
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,
     subtitleSegmentationStrategy: DEFAULT_SETTINGS.subtitleSegmentationStrategy,
+    subtitleTranslateGlossary: DEFAULT_SETTINGS.subtitleTranslateGlossary,
     includeDateInFilename: DEFAULT_SETTINGS.includeDateInFilename,
     enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
     playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,

@@ -24,6 +24,107 @@ export interface SubtitleTranslateProviderResolution {
 export interface SubtitleTranslateSettingsInput {
   subtitleTranslateProviderId?: unknown;
   subtitleTranslateModel?: unknown;
+  subtitleTranslateGlossary?: unknown;
+}
+
+export interface SubtitleGlossaryEntry {
+  source: string;
+  target: string;
+  note?: string;
+}
+
+export type SubtitleGlossaryInput =
+  | string
+  | readonly SubtitleGlossaryEntry[]
+  | Readonly<Record<string, string>>;
+
+function upsertGlossaryEntry(
+  deduped: Map<string, SubtitleGlossaryEntry>,
+  rawSource: unknown,
+  rawTarget: unknown,
+  rawNote?: unknown
+): void {
+  const source = String(rawSource ?? "").replace(/\s+/g, " ").trim();
+  if (!source || /^[=\-_*~`]+$/.test(source)) {
+    return;
+  }
+  const target = String(rawTarget ?? "").replace(/\s+/g, " ").trim();
+  const note = String(rawNote ?? "").replace(/\s+/g, " ").trim();
+  const key = source.toLowerCase();
+  const entry: SubtitleGlossaryEntry = note ? { source, target, note } : { source, target };
+  if (deduped.has(key)) {
+    deduped.delete(key);
+  }
+  deduped.set(key, entry);
+}
+
+/**
+ * 解析字幕翻译术语表配置：
+ * - 支持多行文本：`原文 = 译文`（指定译文）、`原文 =` 或仅写 `原文`（译文留空，强制保留原词不翻译）；
+ * - 自动忽略空行、`#` / `//` 注释行及缺原文的异常行（如 `= 译文`、`===`）；
+ * - 同时兼容数组与键值对象输入，按小写原文去重（后者覆盖前者）。
+ */
+export function parseSubtitleGlossary(
+  input: SubtitleGlossaryInput | null | undefined
+): SubtitleGlossaryEntry[] {
+  if (!input) {
+    return [];
+  }
+
+  const deduped = new Map<string, SubtitleGlossaryEntry>();
+
+  if (typeof input === "string") {
+    const lines = input.split(/\r?\n/);
+    for (const rawLine of lines) {
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
+        continue;
+      }
+      let eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) {
+        eqIdx = trimmed.indexOf("＝");
+      }
+      if (eqIdx === -1) {
+        upsertGlossaryEntry(deduped, trimmed, "");
+        continue;
+      }
+      const source = trimmed.slice(0, eqIdx).trim();
+      const target = trimmed.slice(eqIdx + 1).trim();
+      if (!source) {
+        continue;
+      }
+      upsertGlossaryEntry(deduped, source, target);
+    }
+    return [...deduped.values()];
+  }
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      if (!item || typeof item !== "object") continue;
+      upsertGlossaryEntry(deduped, item.source, item.target, item.note);
+    }
+    return [...deduped.values()];
+  }
+
+  if (typeof input === "object") {
+    for (const [source, target] of Object.entries(input as Record<string, unknown>)) {
+      upsertGlossaryEntry(deduped, source, target);
+    }
+  }
+
+  return [...deduped.values()];
+}
+
+/**
+ * 从设置对象中读取并解析字幕翻译术语表。
+ */
+export function resolveSubtitleTranslateGlossary(
+  settings?: SubtitleTranslateSettingsInput | null
+): SubtitleGlossaryEntry[] {
+  const raw = typeof settings?.subtitleTranslateGlossary === "string"
+    ? settings.subtitleTranslateGlossary
+    : "";
+  return parseSubtitleGlossary(raw);
 }
 
 /**

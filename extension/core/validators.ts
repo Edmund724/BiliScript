@@ -189,6 +189,10 @@ export function normalizeSubtitleTranslateModel(value: unknown): string {
   return toString(value).trim();
 }
 
+export function normalizeSubtitleTranslateGlossary(value: unknown): string {
+  return toString(value).replace(/\r\n?/g, "\n").trim();
+}
+
 export function normalizeLiveInterpretTargetLang(value: unknown): LiveInterpretTargetLang {
   const normalized = toString(value).trim();
   return LIVE_INTERPRET_TARGET_LANG_OPTIONS.find((option) => option.value === normalized)?.value

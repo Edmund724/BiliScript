@@ -26,6 +26,10 @@ import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from 
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { acceptSecondarySubtitle } from "./commit.js";
 import { translatedTrackId } from "./source-key.js";
+import {
+  extractPreviousBilingualLinesBeforeTime,
+  resolveRuntimeSubtitleContext
+} from "../ai/subtitle-context.js";
 
 // 分片时长：与浮层 use 的时间轴一致（60 秒），但调度语义独立——本模块不 import
 // live 域，避免把阅读面绑到播放器会话。
@@ -186,7 +190,10 @@ export async function ensureAsrSecondarySubtitle(
     state.clip.cid !== cid ||
     args.isStale?.() === true;
 
-  const { translateSubtitleItems } = await import("../ai/subtitle-translate.js");
+  const [{ translateSubtitleItems }, baseContext] = await Promise.all([
+    import("../ai/subtitle-translate.js"),
+    resolveRuntimeSubtitleContext()
+  ]);
   let accumulated = cached;
   let done = chunks.length - pending.length;
   let failed = 0;
@@ -272,11 +279,19 @@ export async function ensureAsrSecondarySubtitle(
         return;
       }
       const chunkIndex = scheduled.index;
+      const previousLines = extractPreviousBilingualLinesBeforeTime(
+        body,
+        accumulated,
+        chunk.start,
+        2
+      );
       const translated = await translateSubtitleItems({
         items: chunk.items,
         targetLang,
         selectedSubtitleId: "asr",
         fallbackToOriginal: false,
+        ...(baseContext ? { context: baseContext } : {}),
+        ...(previousLines.length > 0 ? { previousLines } : {}),
         signal: chunkSignal,
         onCueReady: (cue) => {
           if (isStale()) {

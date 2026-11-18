@@ -15,7 +15,7 @@ describe("设置面板字幕翻译", () => {
           <div id="biliscript-reading-settings-host"></div>
         </section>
       </div>`;
-    const bus = installSettingsPanelBus<BusMessage>({
+    const bus = installSettingsPanelBus<BusMessage & { settings?: Record<string, unknown> }>({
       "get-settings": () => ({
         ok: true,
         settings: {
@@ -76,5 +76,48 @@ describe("设置面板字幕翻译", () => {
       subtitleTranslateProviderId: "provider-2",
       subtitleTranslateModel: "gpt-4o-mini"
     });
+  });
+
+  it("提供术语对照表多行文本框，支持水合、失焦保存并更新入口摘要", async () => {
+    document.body.innerHTML = `
+      <div id="biliscript-reading-view">
+        <section id="biliscript-reading-settings-panel">
+          <div id="biliscript-reading-settings-host"></div>
+        </section>
+      </div>`;
+    const bus = installSettingsPanelBus<BusMessage & { settings?: Record<string, unknown> }>({
+      "get-settings": () => ({
+        ok: true,
+        settings: {
+          subtitleTranslateGlossary: "CUDA = CUDA\nTensor Core ="
+        }
+      }),
+      "ai-providers-list": () => ({ ok: true, providers: [] })
+    });
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    const host = document.getElementById("biliscript-reading-settings-host")!;
+    const textarea = await vi.waitFor(() => {
+      const el = host.querySelector<HTMLTextAreaElement>("#subtitleTranslateGlossary");
+      expect(el).toBeTruthy();
+      expect(el!.value).toBe("CUDA = CUDA\nTensor Core =");
+      return el!;
+    });
+
+    expect(textarea.closest(".biliscript-set-row-stack")).toBeTruthy();
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("2 条术语");
+
+    textarea.value = "CUDA = CUDA\nWarp Scheduler = 线程束调度器\nTensor Core =";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.dispatchEvent(new Event("blur", { bubbles: true }));
+
+    await vi.waitFor(() =>
+      expect(bus.sent.some((m) => m.type === "save-settings" && m.settings?.subtitleTranslateGlossary !== undefined)).toBe(true)
+    );
+    const saved = bus.sent.find((m) => m.type === "save-settings" && m.settings?.subtitleTranslateGlossary !== undefined);
+    expect(saved?.settings?.subtitleTranslateGlossary).toBe(
+      "CUDA = CUDA\nWarp Scheduler = 线程束调度器\nTensor Core ="
+    );
+    expect(host.querySelector("#subtitleSettingsSummary")?.textContent).toContain("3 条术语");
   });
 });
