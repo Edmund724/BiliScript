@@ -96,7 +96,7 @@ function catalogChapters(user: string): { seconds: number; title: string }[] {
   return out;
 }
 
-// 依系统提示词区分「整份自由分章」与「给定章节补大意」，并按用户提示词里的
+// 依系统提示词区分「单次直通」「滑动状态卡接力」与「给定章节补大意」，并按用户提示词里的
 // 「第 i / N 段」产出来自对应区间的章节/金句 JSON。
 function buildCompletionFake(
   { failedSegments = new Set<number>(), parts = null as Record<number, unknown> | null } = {}
@@ -106,13 +106,14 @@ function buildCompletionFake(
     calls.push(input);
     const system = input.messages[0]?.content || "";
     const user = input.messages.at(-1)?.content || "";
-    const isGiven = system.includes("为给定的章节目录补写每章大意");
+    const isRelay = system.includes("滑动状态卡接力分段扫描");
+    const isGiven = system.includes("为给定的章节目录补写每章大意") || system.includes("已提供现成章节目录");
     // 密集时间轴只出总体简介与金句，不产逐章说明。
-    const isQuotesOnly = system.includes("为给定的章节目录挑选金句");
-    const isSummaryOnly = system.includes("根据各段内容概述");
+    const isQuotesOnly = system.includes("为给定的章节目录挑选金句") || system.includes("已提供密集章节目录");
+    const isSummaryOnly = system.includes("根据各段内容概述") || system.includes("仅根据全片 L1 章节目录节点与最终主线状态卡");
     const rangeMatch = user.match(/第 (\d+) \/ (\d+) 段/);
     const index = rangeMatch ? Number(rangeMatch[1]) : 1;
-    if (failedSegments.has(index)) {
+    if (!isSummaryOnly && failedSegments.has(index)) {
       throw new Error(`HTTP 500: 段 ${index} 生成失败`);
     }
     if (parts) {
@@ -120,15 +121,28 @@ function buildCompletionFake(
       emitTokens(input, typeof raw === "string" ? raw : JSON.stringify(raw));
       return { done: true } as const;
     }
-    // 时间戳落在段区间内：分段按 50k 预算切，每段 50 条（5s/条），段 i 起点 = (i-1)*250。
-    // 末段只有 10 条（50s 跨度），章/金句时间戳取段起点 +5/+40 才能三段全部有效。
-    const base = rangeMatch ? (Number(rangeMatch[1]) - 1) * 250 : 0;
+    // 时间戳落在段区间内：makeSubtitleBody(210000) 每段 50 条（5s/条），段 i 起点 = (i-1)*250，首行号 = (i-1)*50。
+    const base = rangeMatch ? (index - 1) * 250 : 0;
+    const baseLine = rangeMatch ? (index - 1) * 50 : 0;
+    const quoteEntry = isRelay
+      ? { startLine: baseLine + 6, endLine: baseLine + 6, timestampSeconds: base + 30 }
+      : { quote: `金句${index}`, timestampSeconds: base + 30 };
+    const relayState = isRelay
+      ? {
+          nextStateCard: {
+            rollingSummary: `第 ${index} 段推进主线论点。`,
+            openThreads: [`线索${index}`],
+            confirmedEntities: [`术语${index}`]
+          }
+        }
+      : {};
     const payload = isSummaryOnly
-      ? { summary: "综合全部分段得到的全片简介。" }
+      ? { summary: "综合 L1 章节与最终状态卡得到的全片简介。" }
       : isQuotesOnly
       ? {
           summary: `第 ${index} 段概述。`,
-          keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 10 }]
+          keyQuotes: [isRelay ? { startLine: baseLine + 2, endLine: baseLine + 2, timestampSeconds: base + 10 } : { quote: `金句${index}`, timestampSeconds: base + 10 }],
+          ...relayState
         }
       : isGiven
       ? {
@@ -138,15 +152,17 @@ function buildCompletionFake(
             timestampSeconds: item.seconds,
             summary: `摘要${item.seconds}`
           })),
-          keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 10 }]
+          keyQuotes: [isRelay ? { startLine: baseLine + 2, endLine: baseLine + 2, timestampSeconds: base + 10 } : { quote: `金句${index}`, timestampSeconds: base + 10 }],
+          ...relayState
         }
       : {
           summary: `第 ${index} 段概述。`,
           chapters: [
-            { title: `章${index}a`, timestampSeconds: base + 5, summary: "甲" },
+            { title: `章${index}a`, timestampSeconds: base + 5, summary: "甲", ...(isRelay ? { keyEntities: [`实体${index}`] } : {}) },
             { title: `章${index}b`, timestampSeconds: base + 40, summary: "乙" }
           ],
-          keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 30 }]
+          keyQuotes: [quoteEntry],
+          ...relayState
         };
     emitTokens(input, JSON.stringify(payload));
     return { done: true } as const;
@@ -297,7 +313,7 @@ describe("双路径分派", () => {
     expect(result.failedRanges).toBeUndefined();
   });
 
-  it(">200k 分段路径：buildBudgetPlan 切段并发跑每段，段提示词带 rangeNote 与前情回顾，产物合并去重", async () => {
+  it(">200k 状态卡接力分段路径：按窗串行接力（附前序状态卡与前情只读行），金句由 L0 回填，轻量收尾并固化 L1 缓存", async () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const body = makeSubtitleBody(210000); // 5 段：50k ×4 / 10k
     const result = await mod.runOverviewAnalysis(
@@ -307,35 +323,43 @@ describe("双路径分派", () => {
     );
 
     expect(chatCompletion).toHaveBeenCalledTimes(6);
-    const segmentCalls = calls.filter((call) => !call.messages[0]?.content.includes("根据各段内容概述"));
+    const segmentCalls = calls.filter(
+      (call) => !call.messages[0]?.content.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")
+    );
     expect(segmentCalls).toHaveLength(5);
-    // 每段一次调用；最后再调用一次归并全片简介。
+    // 每段一次调用；最后再调用一次轻量收尾汇总全片简介。
     expect(segmentCalls.every((c) => c.retries === undefined)).toBe(true);
     expect(calls.every((c) => c.stream === true && typeof c.onEvent === "function")).toBe(true);
     // 每段请求都携带 off 档位（协议层据此注入 THINKING_DISABLE_FIELDS）
     expect(calls.every((c) => c.thinkingLevel === "off")).toBe(true);
-    // 并发分段的每段请求同样经 offscreen 代发（不得有直发回落）
+    // 每段请求同样经 offscreen 代发（不得有直发回落）
     const offscreenRelay = await loadOffscreenRelay();
     expect(calls.every((c) => c.fetchImpl === offscreenRelay)).toBe(true);
 
     const firstUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 1 / 5 段"))!.messages.at(-1)!.content;
-    expect(firstUser).toContain("注意：这是长视频切分后的第 1 / 5 段，覆盖 0:00 到 4:10");
-    expect(firstUser).toContain("只为这一段产出章节与金句，不要涉及其它时间段");
-    expect(firstUser).not.toContain("前情回顾");
+    expect(firstUser).toContain("滑动状态接力扫描的第 1 / 5 段");
+    expect(firstUser).toContain("#0 [0:00]");
+    expect(firstUser).not.toContain("前序状态卡");
+    expect(firstUser).not.toContain("前情只读字幕");
 
     const secondUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 2 / 5 段"))!.messages.at(-1)!.content;
-    expect(secondUser).toContain("前情回顾（上一段的结尾，只用来理解本段承接什么，不要为它开章节或挑金句）");
-    // 前情回顾只进输入不进输出：maxTokens 估算基于本段正文
-    expect(secondUser).toContain("字幕：");
+    expect(secondUser).toContain("前序状态卡");
+    expect(secondUser).toContain("第 1 段推进主线论点");
+    expect(secondUser).toContain("前情只读字幕（仅供理解承接，禁止开章或挑金句）");
+    expect(secondUser).toContain("本段字幕（格式 #行号 [时间戳] 原文）：");
 
-    // 合并：各段章节按 from 排序，金句按文本去重，简介由末次调用综合全部分段。
-    expect(result.summary).toBe("综合全部分段得到的全片简介。");
+    // 合并：各段章节按 from 排序，金句从 L0 回填逐字原文，简介由末次调用基于 L1 章节与状态卡生成。
+    expect(result.summary).toBe("综合 L1 章节与最终状态卡得到的全片简介。");
     expect(result.chapters.map((c) => c.title)).toEqual([
       "章1a", "章1b", "章2a", "章2b", "章3a", "章3b", "章4a", "章4b", "章5a", "章5b"
     ]);
     expect(result.chapters[0].from).toBe(5);
-    expect(result.quotes.map((q) => q.content)).toEqual(["金句1", "金句2", "金句3", "金句4", "金句5"]);
+    expect(result.quotes.map((q) => q.from)).toEqual([30, 280, 530, 780, 1030]);
+    expect(result.quotes.every((q) => q.content === "x".repeat(1000))).toBe(true);
     expect(result.failedRanges).toBeUndefined();
+    // L1 章节索引已固化进 local storage
+    const l1Keys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_l1_index_"));
+    expect(l1Keys).toHaveLength(1);
   });
 
   it("分段路径每段先落盘（biliscript_lvs_analysis_ 族 + 段序号），再次生成只补未落盘段", async () => {
@@ -621,7 +645,7 @@ describe("部分失败降级", () => {
     const base = buildCompletionFake();
     let failSummary = true;
     const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
-      if (input.messages[0]?.content.includes("根据各段内容概述")) {
+      if (input.messages[0]?.content.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")) {
         if (failSummary) throw new Error("简介归并失败");
         emitTokens(input, JSON.stringify({ summary: "重试后得到的全片简介。" }));
         return { done: true } as const;
@@ -649,7 +673,7 @@ describe("部分失败降级", () => {
     expect(retry.summary).toBe("重试后得到的全片简介。");
     expect(retry.summaryFailed).toBe(false);
     expect(chatCompletion).toHaveBeenCalledTimes(1);
-    expect(chatCompletion.mock.calls[0][0].messages[0]?.content).toContain("根据各段内容概述");
+    expect(chatCompletion.mock.calls[0][0].messages[0]?.content).toContain("仅根据全片 L1 章节目录节点与最终主线状态卡");
   });
 
   it("分段路径全军覆没：抛第一个真实错误，不落任何缓存", async () => {
@@ -907,8 +931,10 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     );
 
     expect(chatCompletion).toHaveBeenCalledTimes(6);
-    const segmentCalls = calls.filter((call) => !call.messages[0]?.content.includes("根据各段内容概述"));
-    expect(segmentCalls.every((call) => call.messages[0].content.includes("为给定的章节目录补写每章大意"))).toBe(true);
+    const segmentCalls = calls.filter(
+      (call) => !call.messages[0]?.content.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")
+    );
+    expect(segmentCalls.every((call) => call.messages[0].content.includes("已提供现成章节目录"))).toBe(true);
     expect(
       segmentCalls.every((call) =>
         call.messages.at(-1)!.content.includes("现成章节目录（来自视频章节/简介/评论，共 2 章）：")
@@ -918,7 +944,7 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
       { from: 0, to: 250, title: "上半", summary: "摘要0" },
       { from: 250, to: 550, title: "下半", summary: "摘要250" }
     ]);
-    expect(result.quotes.map((q) => q.content)).toEqual(["金句1", "金句2", "金句3", "金句4", "金句5"]);
+    expect(result.quotes.map((q) => q.from)).toEqual([10, 260, 510, 760, 1010]);
   });
 });
 
@@ -1477,7 +1503,9 @@ describe("双路径 × 现成章节目录（简介/评论）", () => {
       { chatCompletion }
     );
     expect(chatCompletion).toHaveBeenCalledTimes(6);
-    for (const call of calls.filter((item) => !item.messages[0]?.content.includes("根据各段内容概述"))) {
+    for (const call of calls.filter(
+      (item) => !item.messages[0]?.content.includes("仅根据全片 L1 章节目录节点与最终主线状态卡")
+    )) {
       expect(call.messages.at(-1)!.content).toContain("现成章节目录（来自视频章节/简介/评论，共 4 章）：");
     }
   });

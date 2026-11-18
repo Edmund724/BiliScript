@@ -585,3 +585,25 @@ export function createL0Bm25Index(
     }
   };
 }
+
+/**
+ * 轻量 Token 估算（零外部依赖）：
+ * 中文/CJK 按约 1.2 字符/Token 上界保守估算（不低估中文消费），
+ * ASCII/数字按约 3.5 字符/Token 估算。
+ */
+export function estimateCompactPromptTokens(text: string): number {
+  if (!text) {
+    return 0;
+  }
+  let cjkCount = 0;
+  let otherCount = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3040 && code <= 0x30ff) || (code >= 0xac00 && code <= 0xd7af)) {
+      cjkCount += 1;
+    } else {
+      otherCount += 1;
+    }
+  }
+  return Math.ceil(cjkCount + otherCount / 3.5);
+}

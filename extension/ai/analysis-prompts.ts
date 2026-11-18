@@ -5,6 +5,12 @@ import { normalizeSubtitleItems } from "../subtitle/cache.js";
 import { formatClock } from "../shared/clock-text.js";
 import type { OutlineChapter } from "../shared/chapter-outline.js";
 import { DEFAULT_MAX_TOKENS } from "./output-budget.js";
+import {
+  renderL0LinesWithNumbers,
+  serializeStateRelayCard,
+  type StateRelayWindow
+} from "./state-relay.js";
+import type { L1ChapterNode, StateRelayCard } from "./long-video-hybrid-types.js";
 import type { SubtitleBodyItem } from "./types.js";
 
 // ============================================================
@@ -481,6 +487,201 @@ export function buildAnalysisSummaryPrompt(
   return {
     prompt,
     timing: analysisTimingVariables([], maxTimestampSeconds),
+    transcriptChars: prompt.length
+  };
+}
+
+// ============================================================
+// 长视频滑动状态卡接力提示词（ADR-0027）
+// ============================================================
+
+const STATE_RELAY_QUOTE_LINE_BLOCK = `金句挑选与行号规则：
+- 每小时字幕约挑选 3-5 条高光金句（本段通常 0-2 条，重质不重量）。
+- 字幕每行格式为「#行号 [M:SS] 文本」。挑选金句时**不要改写或缩写原文**，只需输出该金句对应的原始字幕行号区间 startLine 与 endLine（单行时 endLine 等于 startLine），可附带简短 hint 便于对齐校验；系统将按行号从原始字幕精确回填逐字原话。
+- 绝对不要为「前情只读字幕」中的行开章或挑金句。`;
+
+const STATE_RELAY_CARD_BLOCK = `关于「滑动状态卡（nextStateCard）」：
+- 若用户消息包含「前序状态卡」，请承接其中的主线论点、未闭合悬念与关键术语统一译名/简称，避免跨切点重复开章或同一专有名词前后译法飘移。
+- 更新输出 nextStateCard（务必精炼，总计控制在约 100 Token 以内）：
+  - rollingSummary：截至本段的核心主线论点（≤100字）
+  - openThreads：尚未解答的悬念或跨段待续论证（最多 3 条短语）
+  - confirmedEntities：本段及此前确认统一的关键术语、人名、简称（最多 8 个）
+  - activeTopic：若本段结尾话题仍在延续，记录 { "title": "话题", "timestampSeconds": 起点秒数, "thesisDraft": "一句话草稿" }；已闭合则省略`;
+
+export const STATE_RELAY_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描。
+
+请基于本窗口字幕（以及可选的前序状态卡与前情只读字幕）完成：
+1. 本段章节节点（chapters）：在话题真正转折处分章，尽量覆盖本段完整时间线；每章输出 title、timestampSeconds、summary（≤60字一句话核心论点）、keyEntities（2-5个关键实体/术语词）。
+2. 本段高光金句行号区间（keyQuotes）：输出 startLine、endLine、timestampSeconds 与可选 hint。
+3. 更新后的滑动状态卡（nextStateCard）。
+
+${STATE_RELAY_QUOTE_LINE_BLOCK}
+
+${STATE_RELAY_CARD_BLOCK}
+
+输出纯 JSON（不要加 markdown 代码围栏）：
+{
+  "chapters": [
+    {"title": "章节标题", "timestampSeconds": 900, "summary": "核心论点与大意", "keyEntities": ["术语A", "术语B"]}
+  ],
+  "keyQuotes": [
+    {"startLine": 120, "endLine": 122, "timestampSeconds": 945, "hint": "首句线索"}
+  ],
+  "nextStateCard": {
+    "rollingSummary": "截至本段的主线核心论点（≤100字）",
+    "openThreads": ["待续问题1"],
+    "confirmedEntities": ["统一术语A", "人名B"]
+  }
+}
+
+所有文字用简体中文输出，时间戳与行号必须真实存在于本窗口字幕中。`;
+
+export const STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描，并已提供现成章节目录。
+
+请基于本窗口字幕完成：
+1. 仅针对落在当前窗口时间区间内的给定目录章节，照抄其标题与时间戳并补写 summary（≤60字）与 keyEntities（2-5个关键实体词）；不在本窗口的目录章不要输出。
+2. 本段高光金句行号区间（keyQuotes）：输出 startLine、endLine、timestampSeconds 与可选 hint。
+3. 更新后的滑动状态卡（nextStateCard）。
+
+${STATE_RELAY_QUOTE_LINE_BLOCK}
+
+${STATE_RELAY_CARD_BLOCK}
+
+输出纯 JSON（不要加 markdown 代码围栏）：
+{
+  "chapters": [
+    {"title": "目录原标题", "timestampSeconds": 900, "summary": "这一章讲了什么", "keyEntities": ["术语A"]}
+  ],
+  "keyQuotes": [
+    {"startLine": 120, "endLine": 122, "timestampSeconds": 945, "hint": "首句线索"}
+  ],
+  "nextStateCard": {
+    "rollingSummary": "截至本段的主线核心论点（≤100字）",
+    "openThreads": ["待续问题1"],
+    "confirmedEntities": ["统一术语A"]
+  }
+}
+
+所有文字用简体中文输出，行号必须真实存在于本窗口字幕中。`;
+
+export const STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。正在对一个超长 B 站视频执行滑动状态卡接力分段扫描；用户已提供密集章节目录，边界与标题原样保留，不要生成章节或章节说明。
+
+请基于本窗口字幕完成：
+1. 本段高光金句行号区间（keyQuotes）：输出 startLine、endLine、timestampSeconds 与可选 hint。
+2. 更新后的滑动状态卡（nextStateCard）。
+
+${STATE_RELAY_QUOTE_LINE_BLOCK}
+
+${STATE_RELAY_CARD_BLOCK}
+
+输出纯 JSON（不要加 markdown 代码围栏）：
+{
+  "keyQuotes": [
+    {"startLine": 120, "endLine": 122, "timestampSeconds": 945, "hint": "首句线索"}
+  ],
+  "nextStateCard": {
+    "rollingSummary": "截至本段的主线核心论点（≤100字）",
+    "openThreads": ["待续问题1"],
+    "confirmedEntities": ["统一术语A"]
+  }
+}
+
+所有文字用简体中文输出，行号必须真实存在于本窗口字幕中。`;
+
+export const STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT = `你是我的内容助理。请仅根据全片 L1 章节目录节点与最终主线状态卡，提炼全片总体脉络简介。
+
+要求：
+- 用自然、易懂的简体中文写 2～3 句、约 80～150 字。
+- 先说明视频讨论的核心问题与整体结构，再给出核心结论或观看价值。
+- 不要写成小标题列表，不要提及分段、状态卡或生成过程，不要添加固定标签。
+
+输出 JSON（不要加 markdown 代码围栏）：
+{"summary": "全片总体简介（2～3 句，约 80～150 字）"}`;
+
+export interface BuildStateRelayStepPromptInput {
+  title?: unknown;
+  ownerName?: unknown;
+  videoDescription?: unknown;
+  window: StateRelayWindow;
+  totalWindows: number;
+  previousStateCard: StateRelayCard | null;
+  chapterOutline?: OutlineChapter[];
+  titlesOnly?: boolean;
+}
+
+export function buildStateRelayStepPrompt(input: BuildStateRelayStepPromptInput): BuiltAnalysisPrompt {
+  const { window, totalWindows } = input;
+  const transcriptText = renderL0LinesWithNumbers(window.lines);
+  const overlapText = renderL0LinesWithNumbers(window.overlapLines);
+  const stateCardText = serializeStateRelayCard(input.previousStateCard);
+  const outlineNote = buildChapterOutlineNote(input.chapterOutline, input.titlesOnly);
+
+  const sections: string[] = [
+    `视频标题：${String(input.title ?? "").trim() || "未知"}`,
+    `UP 主：${String(input.ownerName ?? "").trim() || "未知"}`,
+    `注意：这是长视频滑动状态接力扫描的第 ${window.windowIndex + 1} / ${totalWindows} 段，覆盖 ${formatClock(window.fromSeconds)}（第 ${window.fromSeconds} 秒，行 #${window.startLineNumber}）到 ${formatClock(window.toSeconds)}（第 ${window.toSeconds} 秒，行 #${window.endLineNumber}）。只为本窗口字幕开章和挑选金句。`,
+    `视频简介（用于校正人名、品牌名与术语写法）：\n${String(input.videoDescription ?? "").trim() || "（无简介）"}`
+  ];
+
+  if (outlineNote) {
+    sections.push(outlineNote.trim());
+  }
+  if (stateCardText) {
+    sections.push(stateCardText);
+  }
+  if (overlapText) {
+    sections.push(`前情只读字幕（仅供理解承接，禁止开章或挑金句）：\n${overlapText}`);
+  }
+  sections.push(`本段字幕（格式 #行号 [时间戳] 原文）：\n${transcriptText}`);
+
+  const prompt = sections.join("\n\n");
+  return {
+    prompt,
+    timing: analysisTimingVariables(window.lines, window.toSeconds),
+    transcriptChars: transcriptText.length
+  };
+}
+
+export function buildStateRelayFinalSummaryPrompt({
+  title,
+  videoDuration,
+  chapters,
+  finalStateCard
+}: {
+  title?: unknown;
+  videoDuration?: unknown;
+  chapters: readonly L1ChapterNode[];
+  finalStateCard: StateRelayCard | null;
+}): BuiltAnalysisPrompt {
+  const lines = (Array.isArray(chapters) ? chapters : []).map((ch) => {
+    const range = `[${formatClock(ch.from)}-${formatClock(ch.to)}]`;
+    const thesis = ch.coreThesis ? `：${ch.coreThesis}` : "";
+    const entities = ch.keyEntities.length > 0 ? `（关键术语：${ch.keyEntities.slice(0, 4).join("/")}）` : "";
+    return `- ${range} ${ch.title}${thesis}${entities}`;
+  });
+
+  const parts: string[] = [`视频标题：${String(title ?? "").trim() || "未知"}`];
+  if (finalStateCard) {
+    const stateLines: string[] = [];
+    if (finalStateCard.rollingSummary) {
+      stateLines.push(`主线论点：${finalStateCard.rollingSummary}`);
+    }
+    if (finalStateCard.confirmedEntities.length > 0) {
+      stateLines.push(`统一术语：${finalStateCard.confirmedEntities.join(" / ")}`);
+    }
+    if (finalStateCard.openThreads.length > 0) {
+      stateLines.push(`延续线索：${finalStateCard.openThreads.join("；")}`);
+    }
+    if (stateLines.length > 0) {
+      parts.push(`最终状态卡摘要：\n${stateLines.join("\n")}`);
+    }
+  }
+  parts.push(`全片 L1 章节目录：\n${lines.join("\n") || "（无章节节点）"}`);
+
+  const prompt = parts.join("\n\n");
+  return {
+    prompt,
+    timing: analysisTimingVariables([], videoDuration),
     transcriptChars: prompt.length
   };
 }

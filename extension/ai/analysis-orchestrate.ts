@@ -1,6 +1,6 @@
-// 「概览数据管线」三片之编排（arch-slim-3 #11 自 ai/analysis.ts 切出）：分章来源裁定、
+// 「概览数据管线」三片之编排（arch-slim-3 #11 自 ai/analysis.ts 切出；ADR-0027 升级）：
+// 分章来源裁定、短视频单发直通、超长视频滑动状态卡接力 + L0 行号金句回填 + L1 章节目录固化、
 // 两级缓存接线、成本护栏与 inflightOverviews promise 复用（全仓唯一的 analysis 模块态）。
-// 静态依赖两个纯片 analysis-validate / analysis-prompts 与 shared/chapter-outline 叶子；
 // 对外经 analysis.ts 壳再导出。
 
 // source key（轨身份编码单点）归键位叶 subtitle/source-key；签名族仍在 subtitle/cache。
@@ -13,7 +13,6 @@ import { createCacheFamily } from "../core/cache-lru.js";
 // 平台网关的预检白名单不含 Anthropic 的 x-api-key / anthropic-version（实测
 // ModelScope），故概览的每一次调用都经 offscreen 代发（长请求宿主，见模块头注）。
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
-import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
@@ -23,7 +22,6 @@ import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
 // 加倍请求会与上一次完全相同，重跑只是白花一次调用。
 import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
-import { runCachedMap } from "./pool.js";
 import { budgetScaleSuffix } from "./segment-cache.js";
 // 段缓存键位字段清单与命名投影的单源（零依赖叶，候选 5）：概览族的键位装配不再手抄
 // 字段名或强转口径，与 SW 段缓存装配 / offscreen 出站点 / 协议载荷类型同一份表。
@@ -31,61 +29,80 @@ import { segmentCacheKeyStringFields, type SegmentCacheKeyStringFields } from ".
 // 成本护栏 token 数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与阶梯链
 // （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
 import { estimateTokensFromChars } from "./usage-stats.js";
+import { validateAnalysis, type OverviewAnalysis } from "./analysis-validate.js";
 import {
-  mergeAnalyses,
-  validateAnalysis,
-  type OverviewAnalysis,
-} from "./analysis-validate.js";
-import {
-  ANALYSIS_SUMMARY_SYSTEM_PROMPT,
   buildAnalysisPrompt,
-  buildAnalysisSummaryPrompt,
+  buildStateRelayFinalSummaryPrompt,
+  buildStateRelayStepPrompt,
   estimateOutputTokens,
-  tailItems,
-  type BuiltAnalysisPrompt,
+  STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
+  STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT,
+  STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT,
+  STATE_RELAY_SYSTEM_PROMPT,
+  type BuiltAnalysisPrompt
 } from "./analysis-prompts.js";
 // 分章计划单源（arch-review-2026-09 候选 2）：来源裁定的解释、越界过滤、切段输入与
-// 末章界（此前单发取 built.timing.maxTimestampSeconds、分段取 resolveEndSeconds，
-// 两套推导靠注释对齐）全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
-import { resolveChapterPlan, flagMissingChapterSummaries } from "./chapter-plan.js";
+// 末章界全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
+import { resolveChapterPlan, flagMissingChapterSummaries, type ChapterPlan } from "./chapter-plan.js";
 // 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
 // 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
-import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
+import { normalizeL0SubtitleLines } from "./l0-bm25.js";
+import {
+  buildL1IndexCacheKey,
+  buildL1VideoIndex,
+  loadL1Index,
+  saveL1Index
+} from "./l1-chapter-index.js";
+import {
+  advanceFallbackStateCard,
+  decideOverviewRelaySplit,
+  mergeRelayOutcomes,
+  parseRelayFinalSummary,
+  parseStateRelayOutput,
+  type RawRelayStepData
+} from "./state-relay.js";
+import type { L0SubtitleLine, L1ChapterNode, L1QuoteRef, StateRelayCard } from "./long-video-hybrid-types.js";
+import type { ChatMessage, ProviderRequest } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
-
-// FNV-1a 32 位哈希与字幕签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居）；
-// 本模块经上方 import 消费同一实现。
 
 // 整份概览结果缓存键前缀（键形：前缀 + bvid + cid + 字幕轨 source key + 字幕签名）。
 const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
 // 概览分段产物缓存键前缀（键形与 biliscript_lvs_summary_ 同族：…+ 段序号 [+ 预算代]）。
-// 注意它是 ANALYSIS_FINAL_PREFIX 的父前缀——两族都已注册进 core/cache-lru.ts 的
-// CACHE_FAMILIES（前缀撞车语义见该处注释），本模块不再自行扩展淘汰名单。
+// 两族都已注册进 core/cache-lru.ts 的 CACHE_FAMILIES。
 const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
-// 前情回顾字数：每段开头附带的上一段结尾字数（对齐参考仓库 ANALYSIS_OVERLAP_CHARS）。
-const ANALYSIS_CONTEXT_CHARS = 400;
-
-// 空正文重试的输出预算上限：思考型模型（如 step-3.7-flash）会无视关思考字段族
-// 强制思考，思考把 max_tokens 耗尽（finish_reason=length）后 content 空串返回，
-// parseLooseJson 只会抛出难懂的「Unexpected end of JSON input」。首次调用空正文
-// 时按原估算加倍（封顶 + 触发判定见 empty-text-retry.ts）重试一次，给思考之后的
-// 正文留出落出空间。
 
 // ============================================================
 // 缓存（chrome.storage.local + 统一 LRU 淘汰；读取失败静默返回 null）
 // ============================================================
 
-// 两族缓存实例（arch-slim-2/08 缓存族参数化）：键拼装 / 静默读 / LRU 淘汰写 /
-// 失败日志口径全部出自 core/cache-lru.ts 的 createCacheFamily，本模块只剩族参数。
-// 两族已注册进 CACHE_FAMILIES（core/cache-lru.ts），不再在本模块自行扩展淘汰名单。
 function isOverviewShape(value: unknown): value is OverviewAnalysis {
   return Boolean(
     value &&
       typeof value === "object" &&
       Array.isArray((value as { chapters?: unknown }).chapters) &&
       Array.isArray((value as { quotes?: unknown }).quotes)
+  );
+}
+
+interface RelaySegmentCacheEntry extends OverviewAnalysis {
+  relayVersion: 1;
+  nextStateCard: StateRelayCard;
+  l1Chapters: L1ChapterNode[];
+  l1Quotes: L1QuoteRef[];
+}
+
+function isRelaySegmentCacheEntry(value: unknown): value is RelaySegmentCacheEntry {
+  if (!isOverviewShape(value)) {
+    return false;
+  }
+  const entry = value as Partial<RelaySegmentCacheEntry>;
+  return (
+    entry.relayVersion === 1 &&
+    Boolean(entry.nextStateCard && typeof entry.nextStateCard === "object") &&
+    Array.isArray(entry.l1Chapters) &&
+    Array.isArray(entry.l1Quotes)
   );
 }
 
@@ -105,8 +122,6 @@ const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
   logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
-// 概览键位装配：字段清单与字符串化口径从零依赖叶派生（arch-review-batch4/02），
-// 本模块不手抄键位字段名与强转，直接取用显式命名投影 segmentCacheKeyStringFields。
 function contextKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyStringFields {
   return segmentCacheKeyStringFields(context);
 }
@@ -121,10 +136,7 @@ export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | un
 
 /**
  * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]，
- * 尾部再挂字幕签名），仅族前缀不同——产物不共享、键位机制共享（07 票决议）；
- * 预算代后缀逻辑继承 segment-cache 的 budgetScaleSuffix（_b50 等），段边界漂移不串内容。
- * 签名进段键是概览分章票 03 决议的一部分：段产物形态随分章来源（目录/官方章节/
- * 自由分章）与字幕内容变化，只按段序号复用会给新签名装旧段（重抓字幕 0 调用出旧内容）。
+ * 尾部再挂字幕签名），仅族前缀不同——产物不共享、键位机制共享。
  */
 export function buildAnalysisSegmentCacheKey(
   context: Record<string, unknown> | undefined | null,
@@ -139,24 +151,15 @@ export function buildAnalysisSegmentCacheKey(
 }
 
 // ============================================================
-// 编排入口：双路径分派 + promise 复用 + 成本护栏
+// 编排入口：双路径分派 + promise 复用 + 成本护栏 + L1 缓存固化
 // ============================================================
 
-// 注入缝的协作形状单源：以下三个类型一律取对应真实导出函数的 typeof——
-// arch-review-2026-09 候选 2 第一步推翻 arch-slim-2/08「同名类型各自私有、
-// 刻意不合并」裁定：旧裁定消的是平行导出；单源归各实现模块后手抄副本（含
-// 测试就地声明）合一，交界处的 as unknown as 随引用消除。与 ladder 侧的窄面
-// deps 声明仍不合并（那边是候选 5 的 deps 仪式问题，单独裁决）。
 type ChatCompletionFn = typeof _chatCompletion;
 
-// 流式进度计数（requestValidatedPart 的 onTokenProgress 契约）：正文与思考各自
-// 已接收的字符数，文案与节流由消费侧（单发路径）负责。
 interface TokenProgressState {
   contentChars: number;
   reasoningChars: number;
 }
-
-type BuildBudgetPlanFn = typeof _buildBudgetPlan;
 
 type BuildCostGuardNoticeFn = typeof _buildCostGuardNotice;
 
@@ -165,7 +168,6 @@ interface RunOverviewAnalysisArgs {
   /** AI 上下文（AiContext 形状）：bvid/cid/字幕轨三键位 + title/author/videoDescription + subtitleBody/chapters。 */
   context: Record<string, unknown>;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   /** 跳过整份缓存读取重新生成（分段缓存仍复用——重试只重跑未落盘段）。 */
   forceRefresh?: boolean;
@@ -173,55 +175,32 @@ interface RunOverviewAnalysisArgs {
 
 interface RunOverviewAnalysisDeps {
   chatCompletion?: ChatCompletionFn;
-  buildBudgetPlan?: BuildBudgetPlanFn;
   buildCostGuardNotice?: BuildCostGuardNoticeFn;
-  /** 成本护栏确认钩子（≥5 次调用时）；未注入则不阻塞、直接生成（接线由集成步骤负责）。 */
+  /** 成本护栏确认钩子（≥5 次调用时）；未注入则不阻塞、直接生成。 */
   askCostGuard?: (message: string) => Promise<unknown>;
   /** 分段进度回调（可选，数据层无 port）。 */
   onProgress?: (notice: string) => void;
 }
 
-// 生成中 promise 复用（对齐 ensureSummarizeChain 的 promise 缓存手法）：
-// 同一 finalKey 的重复触发共享同一 promise；落定（成功或失败）即移除，
-// 之后触发改走缓存读取或重新生成。
 const inflightOverviews = new Map<string, Promise<OverviewAnalysis>>();
 
-// 分段 worker 的单段结果：失败不炸整单（07 票决议），以 ok 标记带出段区间。
-interface SegmentOutcome {
-  ok: boolean;
-  part?: OverviewAnalysis;
-  from?: number;
-  to?: number;
-  error?: unknown;
-}
-
-// 给定章节 → 产物章节、最近邻 summary 认领与末章落界兜底都已迁 ai/chapter-plan.ts
-// （候选 2 的分章计划单源）；本模块经 resolveChapterPlan(...).graft 消费同一实现。
-
-// 取消错误：err.cancelled = true 标记（house style 类型化标记；消费方查标记分流）。
 function makeOverviewCancelledError(): Error & { cancelled: true } {
   const error = new Error("已取消") as Error & { cancelled: true };
   error.cancelled = true;
   return error;
 }
 
-// 空产物错误：章节、金句与总体简介全部为空时，才没有可展示的概览。
 function makeEmptyAnalysisError(): Error {
   return new Error("模型没有产出有效的简介、章节或金句，请重试。");
 }
 
-// 单次模型调用 → 宽容解析 → 校验。maxTokens 按正文长度估算（ratio 0.5，
-// 前情回顾只进输入不进输出）；显式 retries 由调用方给（单次 2 / 分段走池层重试）。
-// 调用形态为流式（stream: true）——网关对非流式长请求整体超时（实测 19 分钟后
-// HTTP 500 Request timed out），流式既躲开它又给面板真实进度；正文只能从 token
-// 事件聚合（流式成功返回 { done: true }）。空正文（含纯空白）按「思考占满输出
-// 预算」加倍预算重试一次，仍空则抛可读错误（判定与预算见 empty-text-retry.ts，
-// 根因见本模块上方空正文重试的说明）。
-async function requestValidatedPart({
+/**
+ * 流式模型请求统一入口（传输钉死 offscreen 代发，含空正文与 finish_reason=length 加倍重试）。
+ */
+async function requestStreamedAnalysisText({
   provider,
   systemPrompt,
   built,
-  minSeconds,
   thinkingLevel,
   signal,
   retries,
@@ -231,14 +210,12 @@ async function requestValidatedPart({
   provider: ProviderRequest;
   systemPrompt: string;
   built: BuiltAnalysisPrompt;
-  minSeconds: number;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   signal?: AbortSignal | null;
   retries?: number;
   chatCompletionImpl: ChatCompletionFn;
   onTokenProgress?: (state: TokenProgressState) => void;
-}): Promise<OverviewAnalysis> {
+}): Promise<string> {
   if (signal?.aborted) {
     throw makeAbortedError();
   }
@@ -247,15 +224,11 @@ async function requestValidatedPart({
     { role: "user", content: built.prompt }
   ];
   const baseMaxTokens = estimateOutputTokens(built.transcriptChars, { ratio: 0.5, floor: 2048 });
-  // 重跑预算（加倍，见 empty-text-retry.ts）：空正文与截断两个出口共用。
   const raisedMaxTokens = retryBudget(baseMaxTokens);
-  // 正文从流式事件聚合（流式成功的返回值只有 { done: true }）；读流中断重试的
-  // 代际切换由下方 onStreamReset 归零。
   let text = "";
   let reasoningChars = 0;
-  // 最后一次收尾原因（"length" = 正文被输出上限截断）：截断的 JSON 会被 json-repair
-  // 静默救回，用户拿到的是「少两章少几句」的概览，故与空正文同槽位重跑一次。
   let truncated = false;
+
   const onEvent = (event: unknown): void => {
     const streamEvent = event as { type?: string; data?: unknown } | null;
     if (streamEvent?.type === "token") {
@@ -267,9 +240,7 @@ async function requestValidatedPart({
     }
     onTokenProgress?.({ contentChars: text.length, reasoningChars });
   };
-  // 传输层钉死在 offscreen 代发（空正文重试与分段路径共用本函数，一处覆盖）：
-  // 概览是流式请求，正文经端口分块回吐读出（core/provider-http-offscreen.ts），
-  // 不得回落 globalThis.fetch 的页面源直发。
+
   const requestBase = {
     provider,
     messages,
@@ -279,8 +250,6 @@ async function requestValidatedPart({
     fetchImpl: providerFetchViaOffscreen,
     stream: true,
     onEvent,
-    // 读流中断重试（completion 的 kind=stream）会重吐整条流：清零已聚合的正文，
-    // 否则两代流拼接成重复文本（completion.ts 的 onStreamReset 契约）。
     onStreamReset: () => {
       text = "";
     },
@@ -288,16 +257,12 @@ async function requestValidatedPart({
       truncated = reason === "length";
     }
   };
+
   await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
-  // 空正文（思考吃光预算）或正文被截断（要更多空间）都重跑一次；前提是「更多空间」
-  // 真的还买得到——平台学到的上限已经压到顶时，加倍请求会与前一次完全相同
-  // （ai/learned-budget.ts 的 canRaiseBudget）。
   if (
     canRaiseBudget(provider, baseMaxTokens, raisedMaxTokens) &&
     (isEmptyTextRetryable({ hasBody: Boolean(text.trim()) }) || truncated)
   ) {
-    // 首发的半截正文必须先作废（同 onStreamReset 语义），否则重跑代的原样拼接会
-    // 拼成两段 JSON、解析出重复章节。
     text = "";
     reasoningChars = 0;
     truncated = false;
@@ -309,12 +274,9 @@ async function requestValidatedPart({
   if (!text.trim()) {
     throw new Error("模型没有返回正文（输出预算可能被思考过程占满），请重试。");
   }
-  return validateAnalysis(parseLooseJson(text), built.timing.maxTimestampSeconds, minSeconds);
+  return text;
 }
 
-// 单发路径的流式进度文案：正文有增量报已收字数、只有思考增量报思考态；1 秒节流
-// 并跳过重复文案——每个 token 都推给面板只会造成无意义的连续重渲染。分段路径的
-// 「正在整理第 x/y 段」由 runMapBounded 的 onItemDone 产出，不接本回调。
 const OVERVIEW_TOKEN_PROGRESS_THROTTLE_MS = 1000;
 
 function buildTokenProgressReporter(
@@ -340,22 +302,98 @@ function buildTokenProgressReporter(
   };
 }
 
+function selectRelaySystemPrompt(chapterPlan: ChapterPlan): string {
+  if (!chapterPlan.hasGivenChapters) {
+    return STATE_RELAY_SYSTEM_PROMPT;
+  }
+  return chapterPlan.titlesOnly
+    ? STATE_RELAY_OUTLINE_QUOTES_SYSTEM_PROMPT
+    : STATE_RELAY_GIVEN_CHAPTERS_SYSTEM_PROMPT;
+}
+
+async function persistL1IndexForOverview({
+  ctx,
+  signature,
+  l0Lines,
+  analysis,
+  l1Chapters,
+  l1Quotes,
+  fallbackGlobalSummary
+}: {
+  ctx: Record<string, unknown>;
+  signature: string;
+  l0Lines: readonly L0SubtitleLine[];
+  analysis: OverviewAnalysis;
+  l1Chapters?: readonly L1ChapterNode[];
+  l1Quotes?: readonly L1QuoteRef[];
+  fallbackGlobalSummary?: string;
+}): Promise<void> {
+  const bvid = String(ctx.bvid ?? "").trim();
+  const cid = String(ctx.cid ?? "").trim();
+  if (!bvid || !cid) {
+    return;
+  }
+  const l1Key = buildL1IndexCacheKey({
+    bvid,
+    cid,
+    subtitleId: ctx.selectedSubtitleId,
+    subtitleUrl: ctx.selectedSubtitleUrl,
+    subtitleLang: ctx.subtitleLang,
+    subtitleSignature: signature
+  });
+  const globalSummary = String(analysis.summary || fallbackGlobalSummary || "").trim();
+  const record = buildL1VideoIndex({
+    bvid,
+    cid,
+    subtitleId: ctx.selectedSubtitleId,
+    subtitleUrl: ctx.selectedSubtitleUrl,
+    subtitleLang: ctx.subtitleLang,
+    subtitleSignature: signature,
+    videoDuration: Number(ctx.videoDuration) || undefined,
+    globalSummary,
+    lines: l0Lines,
+    chapters: l1Chapters ?? analysis.chapters,
+    quotes: l1Quotes ?? analysis.quotes
+  });
+  await saveL1Index(l1Key, record);
+}
+
+async function ensureL1IndexOnCacheHit({
+  ctx,
+  signature,
+  l0Lines,
+  analysis
+}: {
+  ctx: Record<string, unknown>;
+  signature: string;
+  l0Lines: readonly L0SubtitleLine[];
+  analysis: OverviewAnalysis;
+}): Promise<void> {
+  const bvid = String(ctx.bvid ?? "").trim();
+  const cid = String(ctx.cid ?? "").trim();
+  if (!bvid || !cid) {
+    return;
+  }
+  const l1Key = buildL1IndexCacheKey({
+    bvid,
+    cid,
+    subtitleId: ctx.selectedSubtitleId,
+    subtitleUrl: ctx.selectedSubtitleUrl,
+    subtitleLang: ctx.subtitleLang,
+    subtitleSignature: signature
+  });
+  const existing = await loadL1Index(l1Key);
+  if (!existing) {
+    await persistL1IndexForOverview({ ctx, signature, l0Lines, analysis });
+  }
+}
+
 /**
- * 概览生成编排入口（纯数据层，依赖注入对齐 ladder / orchestrateMapReduce 惯例）：
- * 1. 双路径分派：字幕 ≤200k 字符（buildBudgetPlan mode=single）单次流式调用
- *    （显式 retries: 2）；>200k 走 buildBudgetPlan 切段 + runMapBounded 有界并发
- *    每段生成 + 段产物合并。
- * 2. 分章来源（概览分章票 03 决议）：简介/评论时间轴目录 > B 站官方章节 > AI 自由
- *    分章。前两者是「给定章节」——章节标题与边界照抄目录、模型只补每章 summary
- *    （产物仍与 AI 分章同构）；最后一种才让模型自由分章 + 后段门槛。
- * 3. 失败语义：分段路径段失败 → 跳过出部分结果 + failedRanges 记录（全部段
- *    失败 → 抛第一个真实错误）；单次路径失败 → 抛错由调用方处理。
- * 4. 缓存：整份结果按 (bvid, cid, 字幕轨, 字幕签名) 落 chrome.storage.local；
- *    分段产物按段缓存复用（段键含签名）——重试（forceRefresh）天然只重跑未落盘段。
- * 5. 生成编排：同视频生成中重复触发 → 复用进行中的 promise（ensureSummarizeChain
- *    手法：promise 缓存按 finalKey 去重、落定即清），与笔记管线互不阻塞。
- * 返回归一化产物；abort / 取消 / 失败以异常上浮（err.aborted / err.cancelled 标记）。
- * 本函数刻意非 async：直接返回内部 promise，重复触发拿到的是同一个 promise 引用。
+ * 概览生成编排入口：
+ * 1. 分流阈值判定：常规短视频（字幕跨度 ≤30 分钟且 ≤200k 字符）维持单次直通流程，结束后顺带构建 L1 缓存；
+ *    超长视频按 10～15 分钟（对齐 5 分钟转写分片边界）切窗并执行「滑动状态卡串行接力 + L0 行号原文回填」。
+ * 2. 轻量收尾汇总：仅基于各段汇总的 L1 章节节点与最终状态卡提炼全片总体简介，并固化 L1 缓存。
+ * 3. 容错与断点续跑：单窗失败不中断整体生成（推进降级状态卡并记录 failedRanges）；每窗结果落段缓存供重试复用。
  */
 export function runOverviewAnalysis(
   { provider, context, signal, thinkingLevel, forceRefresh = false }: RunOverviewAnalysisArgs,
@@ -363,8 +401,6 @@ export function runOverviewAnalysis(
 ): Promise<OverviewAnalysis> {
   const ctx = context || {};
   const body = Array.isArray(ctx.subtitleBody) ? (ctx.subtitleBody as unknown[]) : [];
-  // 分章来源裁定（概览分章票 03 决议）：简介/评论时间轴目录 > B 站官方章节 >
-  // AI 自由分章。签名的模式位与目录指纹都取裁定结果——与 reader 概览 tab 同源。
   const chapterSource = resolveChapterSource(ctx.videoDescription, ctx.hotComments, ctx.chapters);
 
   const signature = buildSubtitleSignature({
@@ -377,17 +413,10 @@ export function runOverviewAnalysis(
   });
   const finalKey = buildAnalysisFinalCacheKey(ctx, signature);
 
-  // 生成编排：进行中 promise 复用（forceRefresh 的显式重生成不去重）。
   const inflight = forceRefresh ? undefined : inflightOverviews.get(finalKey);
   if (inflight) {
     return inflight;
   }
-  // 整轮一个会话身份：概览一轮会发出多次请求（分段并发逐段、空正文加倍重试），
-  // 平台会话头（Opencode Go 的 x-opencode-session，见 ai/preset-headers.ts）必须
-  // 整轮同值——身份在这里挂一次，而不是留给下游逐调用现造一个随机 id（那会把
-  // 同一轮概览拆成多个会话，平台侧的路由与 prompt 缓存都按会话走）。身份取本轮
-  // 整份缓存键：同一视频同一字幕轨的一次概览就是一个会话，重跑也落在同一条上。
-  // 复制而非原地挂：调用方的 provider 不因一次生成被改写。
   const runProvider = { ...provider, sessionId: finalKey };
   const promise = executeOverviewRun({
     provider: runProvider,
@@ -400,9 +429,7 @@ export function runOverviewAnalysis(
     thinkingLevel,
     forceRefresh,
     chatCompletionImpl: deps.chatCompletion ?? _chatCompletion,
-    buildBudgetPlanImpl: deps.buildBudgetPlan ?? _buildBudgetPlan,
-    buildCostGuardNoticeImpl:
-      deps.buildCostGuardNotice ?? _buildCostGuardNotice,
+    buildCostGuardNoticeImpl: deps.buildCostGuardNotice ?? _buildCostGuardNotice,
     askCostGuard: deps.askCostGuard,
     onProgress: deps.onProgress
   });
@@ -417,7 +444,7 @@ export function runOverviewAnalysis(
       try {
         await promise;
       } catch {
-        // 拒绝在此收口（原 then(cleanup, cleanup) 不外抛），仅保证清理执行。
+        // 拒绝在此收口，仅保证清理执行。
       } finally {
         cleanup();
       }
@@ -434,11 +461,9 @@ interface ExecuteOverviewRunArgs {
   signature: string;
   finalKey: string;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
   thinkingLevel?: ThinkingLevelInput;
   forceRefresh: boolean;
   chatCompletionImpl: ChatCompletionFn;
-  buildBudgetPlanImpl: BuildBudgetPlanFn;
   buildCostGuardNoticeImpl: BuildCostGuardNoticeFn;
   askCostGuard?: (message: string) => Promise<unknown>;
   onProgress?: (notice: string) => void;
@@ -455,47 +480,80 @@ async function executeOverviewRun({
   thinkingLevel,
   forceRefresh,
   chatCompletionImpl,
-  buildBudgetPlanImpl,
   buildCostGuardNoticeImpl,
   askCostGuard,
   onProgress
 }: ExecuteOverviewRunArgs): Promise<OverviewAnalysis> {
-  if (normalizeSubtitleItems(body).length === 0) {
+  const normalizedItems = normalizeSubtitleItems(body);
+  if (normalizedItems.length === 0) {
     throw new Error("没有可用的字幕");
   }
+  const l0Lines = normalizeL0SubtitleLines(normalizedItems);
   const chapterPlan = resolveChapterPlan({ chapterSource, context: ctx, body });
   const expectsChapterSummaries = chapterPlan.hasGivenChapters && !chapterPlan.titlesOnly;
 
-  // 整份缓存命中直接复用；签名已包含产物语义版本与分章目录指纹。
   if (!forceRefresh) {
     const cached = await analysisFinalFamily.load(finalKey);
     if (cached) {
-      // 本应带说明的给定章节全员为空是坏缓存；局部缺失保留并给出重试入口。
       const allSummariesEmpty =
         expectsChapterSummaries &&
         cached.chapters.length > 0 &&
         cached.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
       if (!allSummariesEmpty) {
-        return expectsChapterSummaries ? flagMissingChapterSummaries(cached) : cached;
+        const result = expectsChapterSummaries ? flagMissingChapterSummaries(cached) : cached;
+        await ensureL1IndexOnCacheHit({ ctx, signature, l0Lines, analysis: result });
+        return result;
       }
     }
   }
 
-  const systemPrompt = chapterPlan.systemPrompt;
-  const promptVars = chapterPlan.promptVars;
-  const plan = buildBudgetPlanImpl({ body, chapters: chapterPlan.budgetChapters });
-  const segments = Array.isArray(plan.segments) ? plan.segments : [];
-  const segmented = plan.mode === "map-reduce" && segments.length > 0;
+  const relayDecision = decideOverviewRelaySplit(l0Lines, {
+    budgetChapters: chapterPlan.budgetChapters
+  });
 
-  // 成本护栏：分段路径预估 ≥5 次调用时经注入的确认钩子询问（对齐 ladder 手法；钩子未
-  // 注入则不阻塞——护栏 UI 接线由集成步骤负责）。顺序（预估 → 判定 → 询问 → 拒绝）由
-  // ai/cost-guard.ts 的 runCostGuard 单源，本链只注入自己的询问与拒绝出口（拒绝抛
-  // cancelled）。token 数字传字符数经唯一换算函数得出（与阶梯链同源）；它纯展示，触发
-  // 仍只看调用数。signal?.aborted 前置检查属本链的中止语义，留在本链。
-  if (segmented && typeof askCostGuard === "function") {
+  // —— 短视频单次直通路径（保持原有流程并在完成后顺带固化 L1 缓存）——
+  if (!relayDecision.shouldRelay) {
+    const startSeconds = Math.max(0, Math.floor(Number(normalizedItems[0]?.from) || 0));
+    const built = buildAnalysisPrompt({
+      ...chapterPlan.promptVars,
+      items: body,
+      contextItems: [],
+      videoDuration: ctx.videoDuration,
+      startSeconds,
+      segmentIndex: 1,
+      totalSegments: 1
+    });
+    const text = await requestStreamedAnalysisText({
+      provider,
+      systemPrompt: chapterPlan.systemPrompt,
+      built,
+      thinkingLevel,
+      signal,
+      retries: 2,
+      chatCompletionImpl,
+      onTokenProgress: buildTokenProgressReporter(onProgress)
+    });
+    const part = validateAnalysis(
+      parseLooseJson(text),
+      built.timing.maxTimestampSeconds,
+      chapterPlan.hasGivenChapters ? 0 : startSeconds
+    );
+    const analysis: OverviewAnalysis = { ...part, chapters: chapterPlan.graft(part.chapters) };
+    analysis.summaryFailed = !analysis.summary;
+    if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
+      throw makeEmptyAnalysisError();
+    }
+    await analysisFinalFamily.save(finalKey, analysis);
+    await persistL1IndexForOverview({ ctx, signature, l0Lines, analysis });
+    return analysis;
+  }
+
+  // —— 超长视频：10～15 分钟平滑窗口 + 滑动状态卡串行接力 + L0 行号原文回填 ——
+  const windows = relayDecision.windows;
+  if (typeof askCostGuard === "function") {
     await runCostGuard({
-      estimatedCalls: segments.length + 1,
-      estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
+      estimatedCalls: windows.length + 1,
+      estimatedTokens: estimateTokensFromChars(provider, relayDecision.totalChars),
       buildNotice: buildCostGuardNoticeImpl,
       precheck: () => {
         if (signal?.aborted) {
@@ -509,152 +567,140 @@ async function executeOverviewRun({
     });
   }
 
-  if (!segmented) {
-    // —— 单次路径：预算内一次调用，失败整体抛错由调用方处理（07 票决议）——
-    const items = normalizeSubtitleItems(body);
-    const startSeconds = Math.max(0, Math.floor(Number(items[0]?.from) || 0));
-    const built = buildAnalysisPrompt({
-      ...promptVars,
-      items: body,
-      contextItems: [],
-      videoDuration: ctx.videoDuration,
-      startSeconds,
-      segmentIndex: 1,
-      totalSegments: 1
-    });
-    const part = await requestValidatedPart({
-      provider,
-      systemPrompt,
-      built,
-      // 给定章节时目录是权威：模型照抄目录时间戳（如首章 0:00），不得被「字幕首行」
-      // 下界丢弃——下界只用于自由分章时挡前情回顾/区间外内容（分段路径同理）。
-      minSeconds: chapterPlan.hasGivenChapters ? 0 : startSeconds,
-      thinkingLevel,
-      signal,
-      retries: 2,
-      chatCompletionImpl,
-      // 单发路径是长视频（数万字素材）唯一一次调用，流式正文增量直接进面板；
-      // 分段路径接流式进度会与「正在整理第 x/y 段」抢同一条文案，故不接。
-      onTokenProgress: buildTokenProgressReporter(onProgress)
-    });
-    // 给定章节时 graft 照抄清单（模型只贡献 summary）；末章界由计划闭包捕获，
-    // 单发路径不再另取 built.timing.maxTimestampSeconds（两值同源，见 chapter-plan.ts）。
-    const analysis: OverviewAnalysis = { ...part, chapters: chapterPlan.graft(part.chapters) };
-    analysis.summaryFailed = !analysis.summary;
-    if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
-      throw makeEmptyAnalysisError();
+  const relaySystemPrompt = selectRelaySystemPrompt(chapterPlan);
+  const totalWindows = windows.length;
+  const stepOutcomes: Array<{ ok: true; data: RawRelayStepData } | { ok: false; from: number; to: number; error: unknown }> = [];
+  let previousStateCard: StateRelayCard | null = null;
+
+  for (let i = 0; i < totalWindows; i += 1) {
+    const win = windows[i];
+    if (signal?.aborted) {
+      throw makeAbortedError();
     }
-    await analysisFinalFamily.save(finalKey, analysis);
-    return analysis;
-  }
-
-  // —— 分段路径：有界并发逐段生成（段缓存复用），段失败跳过出部分结果 ——
-  const total = segments.length;
-  let done = 0;
-
-  // 未命中路径（含「段失败跳过出部分结果」的收束差异——07 票决议，留在 run 闭包；
-  // 删除测试否决了 runner 统一持有落盘/收束的方案，候选 2 原方案否决点）。
-  // 查缓存 → 命中短路归 runCachedMap（候选 2 第二步：「查缓存 → 命中复用」骨架
-  // pool.js 单源）；命中即跳过 prompt 构造与调用。
-  const analyzeSegment = async (segment: BudgetPlanSegment, index: number): Promise<SegmentOutcome> => {
+    const segKey = buildAnalysisSegmentCacheKey(ctx, win.windowIndex + 1, signature);
     try {
-      if (signal?.aborted) {
-        throw makeAbortedError();
+      const cachedSeg = await analysisSegmentFamily.load(segKey);
+      if (isRelaySegmentCacheEntry(cachedSeg)) {
+        const reused: RawRelayStepData = {
+          nextStateCard: cachedSeg.nextStateCard,
+          chapters: cachedSeg.l1Chapters,
+          quotes: cachedSeg.l1Quotes,
+          windowSummary: cachedSeg.summary
+        };
+        stepOutcomes.push({ ok: true, data: reused });
+        previousStateCard = reused.nextStateCard;
+        onProgress?.(buildProgressNotice(i + 1, totalWindows));
+        continue;
       }
-      // 前情回顾：上一段结尾字幕（只作上下文，产出限定在本段区间，靠 minSeconds 兜底）。
-      const contextItems = index > 0 ? tailItems(segments[index - 1]?.items, ANALYSIS_CONTEXT_CHARS) : [];
-      const built = buildAnalysisPrompt({
-        ...promptVars,
-        items: segment.items,
-        contextItems,
-        // 时长变量按本段区间算（对齐参考仓库 analyzeChunk 传 chunk.endSeconds）。
-        videoDuration: segment.to,
-        startSeconds: segment.from,
-        segmentIndex: index + 1,
-        totalSegments: total
+
+      const built = buildStateRelayStepPrompt({
+        title: ctx.title,
+        ownerName: ctx.author,
+        videoDescription: ctx.videoDescription,
+        window: win,
+        totalWindows,
+        previousStateCard,
+        chapterOutline: chapterPlan.givenChapters,
+        titlesOnly: chapterPlan.titlesOnly
       });
-      const part = await requestValidatedPart({
+
+      const rawText = await requestStreamedAnalysisText({
         provider,
-        systemPrompt,
+        systemPrompt: relaySystemPrompt,
         built,
-        // 给定章节时目录时间戳不参与段下界过滤（目录权威，见单发路径同注）；
-        // 段间重复章由 mergeAnalyses 按 from 去重（先到先得，归靠前的段）。
-        minSeconds: chapterPlan.hasGivenChapters ? 0 : segment.from,
         thinkingLevel,
         signal,
         chatCompletionImpl
       });
-      // 先落盘再返回：失败重试只重跑未落盘段（segment-cache 复用语义）。
-      await analysisSegmentFamily.save(buildAnalysisSegmentCacheKey(ctx, segment.index, signature), part);
-      return { ok: true, part };
-    } catch (e) {
-      // 中止仍整体上抛（池层收束）；其余失败按 07 票决议跳过该段、记录区间。
-      if (isAbortedMarkerError(e) || signal?.aborted) {
-        throw e;
-      }
-      return { ok: false, from: segment.from, to: segment.to, error: e };
-    }
-  };
 
-  let outcomes: SegmentOutcome[];
-  try {
-    outcomes = await runCachedMap({
-      items: segments,
-      loadCached: async (segment) => {
-        const cached = await analysisSegmentFamily.load(buildAnalysisSegmentCacheKey(ctx, segment.index, signature));
-        return cached ? { ok: true, part: cached } : null;
-      },
-      run: analyzeSegment,
-      signal,
-      onItemDone: () => {
-        done += 1;
-        onProgress?.(buildProgressNotice(done, total));
+      const stepData = parseStateRelayOutput(rawText, {
+        allLines: l0Lines,
+        window: win,
+        previousStateCard,
+        hasGivenChapters: chapterPlan.hasGivenChapters,
+        titlesOnly: chapterPlan.titlesOnly
+      });
+
+      const cachePayload: RelaySegmentCacheEntry = {
+        relayVersion: 1,
+        summary: stepData.windowSummary,
+        chapters: stepData.chapters.map((ch) => ({
+          from: ch.from,
+          to: ch.to,
+          title: ch.title,
+          summary: ch.coreThesis
+        })),
+        quotes: stepData.quotes.map((q) => ({
+          from: q.from,
+          content: q.content
+        })),
+        nextStateCard: stepData.nextStateCard,
+        l1Chapters: stepData.chapters,
+        l1Quotes: stepData.quotes
+      };
+      await analysisSegmentFamily.save(segKey, cachePayload);
+
+      stepOutcomes.push({ ok: true, data: stepData });
+      previousStateCard = stepData.nextStateCard;
+    } catch (error) {
+      if (isAbortedMarkerError(error) || signal?.aborted) {
+        throw error;
       }
-    });
-  } catch (e) {
-    if (isAbortedMarkerError(e) || signal?.aborted) {
-      throw e;
+      stepOutcomes.push({ ok: false, from: win.fromSeconds, to: win.toSeconds, error });
+      previousStateCard = advanceFallbackStateCard(previousStateCard, win);
     }
-    throw e instanceof Error ? e : new Error(String(e));
+    onProgress?.(buildProgressNotice(i + 1, totalWindows));
   }
 
-  const parts = outcomes.filter((outcome) => outcome?.ok && outcome.part).map((outcome) => outcome.part as OverviewAnalysis);
-  const failedRanges = outcomes
-    .filter((outcome) => !outcome?.ok)
-    .map((outcome) => ({ from: Math.floor(Number(outcome?.from) || 0), to: Math.floor(Number(outcome?.to) || 0) }));
+  const successfulSteps = stepOutcomes
+    .filter((item): item is { ok: true; data: RawRelayStepData } => item.ok)
+    .map((item) => item.data);
+  const failedRanges = stepOutcomes
+    .filter((item): item is { ok: false; from: number; to: number; error: unknown } => !item.ok)
+    .map((item) => ({ from: item.from, to: item.to }));
 
-  // 全军覆没时把第一个真实错误透出去，它比「生成失败」有用得多。
-  if (parts.length === 0) {
-    const firstError = outcomes.find((outcome) => !outcome?.ok)?.error;
+  if (successfulSteps.length === 0) {
+    const firstError = stepOutcomes.find((item) => !item.ok)?.error;
     if (firstError instanceof Error) {
       throw firstError;
     }
     throw new Error(firstError ? String(firstError) : "概览生成失败。");
   }
 
-  const merged = mergeAnalyses(parts);
-  const analysis: OverviewAnalysis = { ...merged, chapters: chapterPlan.graft(merged.chapters) };
-  if (failedRanges.length) {
-    analysis.failedRanges = failedRanges;
-  }
+  const endSeconds = Math.max(
+    Math.floor(Number(ctx.videoDuration) || 0),
+    l0Lines.length > 0 ? Math.max(0, Math.floor(l0Lines[l0Lines.length - 1].to)) : 0
+  );
+  const merged = mergeRelayOutcomes(successfulSteps, chapterPlan, l0Lines, endSeconds);
 
+  const analysis: OverviewAnalysis = {
+    summary: "",
+    chapters: merged.chapters,
+    quotes: merged.quotes,
+    ...(failedRanges.length > 0 ? { failedRanges } : {})
+  };
+
+  // —— 轻量收尾汇总：仅基于 L1 章节节点与最终状态卡提炼全片脉络 ——
   onProgress?.("正在生成全片简介…");
   try {
-    const summaryPart = await requestValidatedPart({
+    const summaryBuilt = buildStateRelayFinalSummaryPrompt({
+      title: ctx.title,
+      videoDuration: endSeconds,
+      chapters: merged.l1Chapters,
+      finalStateCard: merged.finalStateCard
+    });
+    const summaryText = await requestStreamedAnalysisText({
       provider,
-      systemPrompt: ANALYSIS_SUMMARY_SYSTEM_PROMPT,
-      built: buildAnalysisSummaryPrompt(parts, {
-        title: ctx.title,
-        maxTimestampSeconds: ctx.videoDuration
-      }),
-      minSeconds: 0,
+      systemPrompt: STATE_RELAY_FINAL_SUMMARY_SYSTEM_PROMPT,
+      built: summaryBuilt,
       thinkingLevel,
       signal,
       retries: 2,
       chatCompletionImpl
     });
-    analysis.summary = summaryPart.summary;
-    analysis.summaryFailed = !summaryPart.summary;
+    const parsedSummary = parseRelayFinalSummary(summaryText);
+    analysis.summary = parsedSummary || merged.finalStateCard?.rollingSummary || "";
+    analysis.summaryFailed = !analysis.summary;
   } catch (error) {
     if (isAbortedMarkerError(error) || signal?.aborted) {
       throw error;
@@ -665,7 +711,16 @@ async function executeOverviewRun({
   if (!analysis.summary && !analysis.chapters.length && !analysis.quotes.length) {
     throw makeEmptyAnalysisError();
   }
-  // 重试会复用成功分段，只补失败分段与全片简介。
+
   await analysisFinalFamily.save(finalKey, analysis);
+  await persistL1IndexForOverview({
+    ctx,
+    signature,
+    l0Lines,
+    analysis,
+    l1Chapters: merged.l1Chapters,
+    l1Quotes: merged.l1Quotes,
+    fallbackGlobalSummary: merged.finalStateCard?.rollingSummary
+  });
   return analysis;
 }
