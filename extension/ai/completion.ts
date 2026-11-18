@@ -139,6 +139,8 @@ export interface ChatCompletionInput {
   retries?: number;
   probe?: boolean;
   maxTokens?: number | null;
+  temperature?: number;
+  extraBody?: Record<string, unknown>;
   headers?: Record<string, string>;
   // 联网搜索管线（spec §2.1）：传入即注入 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
@@ -227,6 +229,8 @@ export async function chatCompletion({
   retries,
   probe = false,
   maxTokens,
+  temperature,
+  extraBody,
   headers: extraHeaders,
   tools,
   onEvent,
@@ -288,8 +292,8 @@ export async function chatCompletion({
   );
 
   // 请求体按当前生效上限组装；退回保守值后要整份重装，故抽成函数。
-  const buildBody = (): Record<string, unknown> =>
-    adapter.buildBody({
+  const buildBody = (): Record<string, unknown> => {
+    const built = adapter.buildBody({
       model,
       messages,
       stream,
@@ -297,6 +301,14 @@ export async function chatCompletion({
       maxTokens: effectiveMaxTokens,
       tools
     });
+    if (extraBody) {
+      Object.assign(built, extraBody);
+    }
+    if (temperature !== undefined) {
+      built.temperature = temperature;
+    }
+    return built;
+  };
   let body = buildBody();
 
   // 响应 usage 采样点（ai-usage-telemetry T2）：流式与非流式两条成功返回路径共用

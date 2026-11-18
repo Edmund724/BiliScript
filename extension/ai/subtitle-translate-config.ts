@@ -21,6 +21,67 @@ export interface SubtitleTranslateProviderResolution {
   isFallback: boolean;
 }
 
+export const INDEX_TRANSLATE_PROVIDER_ID = "bilibili-index-translate";
+export const INDEX_TRANSLATE_PROVIDER_NAME = "Bilibili Index-Translate";
+export const INDEX_TRANSLATE_BASE_URL = "https://index-translate.bilibili.com/v1";
+export const INDEX_TRANSLATE_HOST = "index-translate.bilibili.com";
+export const INDEX_TRANSLATE_MODEL = "Index-Translate-35B-A3B";
+export const INDEX_TRANSLATE_USER_AGENT = "Index-Translate-Client/1.0";
+
+export const INDEX_TRANSLATE_BUILTIN_PROVIDER: ProviderListEntry = {
+  id: INDEX_TRANSLATE_PROVIDER_ID,
+  presetId: INDEX_TRANSLATE_PROVIDER_ID,
+  name: INDEX_TRANSLATE_PROVIDER_NAME,
+  baseUrl: INDEX_TRANSLATE_BASE_URL,
+  models: [INDEX_TRANSLATE_MODEL],
+  model: INDEX_TRANSLATE_MODEL,
+  requiresKey: false,
+  hasSavedKey: false,
+  enabled: true,
+  protocol: "openai"
+};
+
+/**
+ * 判断平台/解析结果是否为内置 Bilibili Index-Translate 通道（按 id / presetId / baseUrl 域名识别）。
+ */
+export function isIndexTranslateProvider(
+  provider?: { id?: unknown; presetId?: unknown; baseUrl?: unknown } | null
+): boolean {
+  if (!provider) {
+    return false;
+  }
+  const id = String(provider.id || "").trim();
+  const presetId = String(provider.presetId || "").trim();
+  if (id === INDEX_TRANSLATE_PROVIDER_ID || presetId === INDEX_TRANSLATE_PROVIDER_ID) {
+    return true;
+  }
+  const rawBaseUrl = String(provider.baseUrl || "").trim();
+  if (!rawBaseUrl) {
+    return false;
+  }
+  try {
+    return new URL(rawBaseUrl).hostname.toLowerCase() === INDEX_TRANSLATE_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 构造内置 Bilibili Index-Translate 通道的运行时解析结果（免 Key、默认模型 Index-Translate-35B-A3B）。
+ */
+export function createIndexTranslateResolution(model?: string): SubtitleTranslateProviderResolution {
+  const effectiveModel = String(model || "").trim() || INDEX_TRANSLATE_MODEL;
+  return {
+    provider: INDEX_TRANSLATE_BUILTIN_PROVIDER,
+    apiKey: "",
+    baseUrl: INDEX_TRANSLATE_BASE_URL,
+    model: effectiveModel,
+    presetId: INDEX_TRANSLATE_PROVIDER_ID,
+    protocol: "openai",
+    isFallback: false
+  };
+}
+
 export interface SubtitleTranslateSettingsInput {
   subtitleTranslateProviderId?: unknown;
   subtitleTranslateModel?: unknown;
@@ -138,7 +199,8 @@ export function resolveSubtitleTranslateProviderConfig(
   keys: Record<string, string>,
   settings?: SubtitleTranslateSettingsInput
 ): SubtitleTranslateProviderResolution {
-  const enabled = (providers || []).filter(
+  const providerList = Array.isArray(providers) ? providers : [];
+  const enabled = providerList.filter(
     (item) =>
       Boolean(item) &&
       typeof item === "object" &&
@@ -146,11 +208,34 @@ export function resolveSubtitleTranslateProviderConfig(
       String(item.id || "").trim() !== ""
   );
 
+  const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
+  const preferredModel = String(settings?.subtitleTranslateModel || "").trim();
+
+  if (preferredProviderId === INDEX_TRANSLATE_PROVIDER_ID) {
+    const explicitEntry = providerList.find(
+      (item) => Boolean(item) && typeof item === "object" && String(item.id || "").trim() === INDEX_TRANSLATE_PROVIDER_ID
+    );
+    if (!explicitEntry) {
+      return createIndexTranslateResolution(preferredModel);
+    }
+    if (explicitEntry.enabled !== false) {
+      const apiKey = String(keys?.[INDEX_TRANSLATE_PROVIDER_ID] || "").trim();
+      return {
+        provider: explicitEntry,
+        apiKey,
+        baseUrl: String(explicitEntry.baseUrl || "").trim() || INDEX_TRANSLATE_BASE_URL,
+        model: preferredModel || resolveCatalogModel(explicitEntry) || INDEX_TRANSLATE_MODEL,
+        presetId: String(explicitEntry.presetId || INDEX_TRANSLATE_PROVIDER_ID),
+        protocol: (explicitEntry.protocol as AiProtocol | undefined) ?? "openai",
+        isFallback: false
+      };
+    }
+  }
+
   if (enabled.length === 0) {
     throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
   }
 
-  const preferredProviderId = String(settings?.subtitleTranslateProviderId || "").trim();
   let chosen: ProviderListEntry | null = null;
   let isFallback = false;
 
@@ -173,8 +258,7 @@ export function resolveSubtitleTranslateProviderConfig(
     throw new Error("该平台 API Key 未配置");
   }
 
-  const preferredModel = !isFallback ? String(settings?.subtitleTranslateModel || "").trim() : "";
-  const model = preferredModel || resolveCatalogModel(chosen);
+  const model = (!isFallback ? preferredModel : "") || resolveCatalogModel(chosen);
 
   return {
     provider: chosen,

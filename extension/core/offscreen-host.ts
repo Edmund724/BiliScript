@@ -10,6 +10,11 @@ import { createAsrSessionRuleManager } from "../asr/session-rule-manager.js";
 export const BILI_MEDIA_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
 export const BILI_MEDIA_ORIGIN_PAGE = "https://www.bilibili.com" as const;
 
+export const INDEX_TRANSLATE_SESSION_RULE_ID = 9003;
+export const INDEX_TRANSLATE_DOMAIN = "index-translate.bilibili.com" as const;
+export const INDEX_TRANSLATE_ORIGIN_HEADER = "https://index-translate.bilibili.com" as const;
+export const INDEX_TRANSLATE_USER_AGENT_VALUE = "Index-Translate-Client/1.0" as const;
+
 export const OFFSCREEN_SENDER_REJECTION_MESSAGE = ASR_OFFSCREEN_REJECTION_MESSAGE;
 
 export type BiliMediaSessionRuleKind = "audio-xhr" | "video-media";
@@ -180,4 +185,39 @@ export async function reapAllBiliMediaSessionRules(): Promise<void> {
 /** Returns the recorded owner key for an active session rule id, or "" if unrecorded. */
 export function getBiliMediaSessionRuleOwner(ruleId: number): string {
   return sessionRuleManager.getOwner(ruleId) ?? "";
+}
+
+/**
+ * Ensures the DNR session rule (ruleId 9003) for Bilibili Index-Translate requests
+ * from extension/offscreen contexts: injects the required User-Agent and a compliant
+ * Origin header so requests are not rejected by Bilibili WAF (HTTP 412).
+ */
+export async function ensureIndexTranslateSessionRule(): Promise<void> {
+  if (
+    typeof chrome === "undefined" ||
+    !chrome.declarativeNetRequest ||
+    typeof chrome.declarativeNetRequest.updateSessionRules !== "function"
+  ) {
+    return;
+  }
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [INDEX_TRANSLATE_SESSION_RULE_ID],
+    addRules: [
+      {
+        id: INDEX_TRANSLATE_SESSION_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            { header: "User-Agent", operation: "set", value: INDEX_TRANSLATE_USER_AGENT_VALUE },
+            { header: "Origin", operation: "set", value: INDEX_TRANSLATE_ORIGIN_HEADER }
+          ]
+        },
+        condition: {
+          requestDomains: [INDEX_TRANSLATE_DOMAIN],
+          resourceTypes: ["xmlhttprequest"]
+        }
+      }
+    ]
+  });
 }

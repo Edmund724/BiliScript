@@ -95,6 +95,7 @@ import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
 // content 侧 offscreen 代发的权限代查（hasHostPermission）
 import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 import {
+  ensureIndexTranslateSessionRule,
   ensureOffscreenDocument,
   isOffscreenDocumentSender,
   OFFSCREEN_SENDER_REJECTION_MESSAGE,
@@ -244,7 +245,12 @@ function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sende
 // withOkResponse 回 { ok:false, error }。
 function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: Reply<"ensure-offscreen-chat">): void {
   withOkResponse(
-    (async () => ({ ok: true, ensured: await ensureOffscreenDocument() }))(),
+    (async () => {
+      await ensureIndexTranslateSessionRule().catch((error) => {
+        logWarn("[BILISCRIPT] ensureIndexTranslateSessionRule failed", error);
+      });
+      return { ok: true, ensured: await ensureOffscreenDocument() };
+    })(),
     sendResponse
   );
 }
@@ -613,6 +619,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   try {
     await reapAllBiliMediaSessionRules();
     await clearMossLiveWsAuthRule();
+    await ensureIndexTranslateSessionRule();
   } catch (error) {
     // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
     logWarn("[BILISCRIPT] asr session rule reap on install/update failed", error);
@@ -716,7 +723,12 @@ chrome.runtime.onConnect?.addListener?.((port) => {
 });
 
 watchStorageKeys(() => void agentBridge.sync(), { sync: ["enableAgentBridge", "agentBridgeUrl"] });
-chrome.runtime.onStartup?.addListener(() => void agentBridge.sync());
+chrome.runtime.onStartup?.addListener(() => {
+  void agentBridge.sync();
+  void ensureIndexTranslateSessionRule().catch((error) => {
+    logWarn("[BILISCRIPT] ensureIndexTranslateSessionRule onStartup failed", error);
+  });
+});
 chrome.alarms?.onAlarm.addListener((alarm) => {
   if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
 });
