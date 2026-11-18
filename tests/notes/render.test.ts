@@ -380,3 +380,79 @@ describe("shouldShowHoursInNote：三输入 max 口径", () => {
     expect(shouldShowHoursInNote(null, null)).toBe(false);
   });
 });
+
+
+describe("buildVtt：单语与异构双语 WebVTT 导出", () => {
+  it("纯中文单轨导出：输出标准 WEBVTT 与 HH:MM:SS.mmm 时间戳，单行无空第二行或占位符", async () => {
+    const { buildVtt } = await import("../../extension/notes/render.js");
+    const vtt = buildVtt([
+      { from: 0, to: 4.5, content: "大家好" },
+      { from: 4.5, to: 10.25, content: "欢迎收看本期视频" }
+    ]);
+    expect(vtt).toBe(
+      "WEBVTT\n\n" +
+        "00:00:00.000 --> 00:00:04.500\n" +
+        "大家好\n\n" +
+        "00:00:04.500 --> 00:00:10.250\n" +
+        "欢迎收看本期视频"
+    );
+    expect(vtt).not.toContain("\n\n\n");
+    for (const block of vtt.split("\n\n").slice(1)) {
+      const lines = block.split("\n");
+      expect(lines).toHaveLength(2);
+    }
+  });
+
+  it("原生异构中英双轨导出：通过 buildSecondaryAlignment 交集聚合对齐并遵循 bilingualDisplayOrder", async () => {
+    const { buildVtt } = await import("../../extension/notes/render.js");
+    const { buildSecondaryAlignment } = await import("../../extension/subtitle/alignment.js");
+
+    const mainZh = [
+      { from: 0, to: 5, content: "第一句中文" },
+      { from: 5, to: 10, content: "第二句中文" },
+      { from: 10, to: 20, content: "第三句中文" },
+      { from: 20, to: 25, content: "第四句中文" }
+    ];
+    const secondaryEn = [
+      { from: 0, to: 10, content: "Merged English line" },
+      { from: 10, to: 15, content: "Part A" },
+      { from: 15, to: 20, content: "Part B" }
+    ];
+    const align = buildSecondaryAlignment(secondaryEn);
+
+    const bilingualOriginalFirst = buildVtt(
+      mainZh,
+      (item) => align.query({ from: Number(item.from) || 0, to: Number(item.to) || 0 }),
+      { bilingualDisplayOrder: "original-first" }
+    );
+    expect(bilingualOriginalFirst).toBe(
+      "WEBVTT\n\n" +
+        "00:00:00.000 --> 00:00:05.000\n第一句中文\nMerged English line\n\n" +
+        "00:00:05.000 --> 00:00:10.000\n第二句中文\nMerged English line\n\n" +
+        "00:00:10.000 --> 00:00:20.000\n第三句中文\nPart A Part B\n\n" +
+        "00:00:20.000 --> 00:00:25.000\n第四句中文"
+    );
+
+    const bilingualTranslationFirst = buildVtt(
+      mainZh,
+      (item) => align.query({ from: Number(item.from) || 0, to: Number(item.to) || 0 }),
+      { bilingualDisplayOrder: "translation-first" }
+    );
+    expect(bilingualTranslationFirst).toContain(
+      "00:00:00.000 --> 00:00:05.000\nMerged English line\n第一句中文"
+    );
+
+    const secondaryOnly = buildVtt(
+      mainZh,
+      (item) => align.query({ from: Number(item.from) || 0, to: Number(item.to) || 0 }),
+      undefined,
+      { mode: "secondary-only" }
+    );
+    expect(secondaryOnly).toBe(
+      "WEBVTT\n\n" +
+        "00:00:00.000 --> 00:00:05.000\nMerged English line\n\n" +
+        "00:00:05.000 --> 00:00:10.000\nMerged English line\n\n" +
+        "00:00:10.000 --> 00:00:20.000\nPart A Part B"
+    );
+  });
+});

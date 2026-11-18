@@ -61,7 +61,7 @@ export interface SummarizeChain {
   ensureAsrTranslation(args: AsrTranslationArgs): Promise<AsrTranslationResult>;
   // PR3：阅读模式字幕 tab「复制」——复制字幕纯文本（transcript，buildTxt 管线）
   copySubtitleTranscript(): Promise<boolean>;
-  downloadSubtitle(): Promise<boolean>;
+  downloadSubtitle(options?: { format?: string }): Promise<boolean>;
 }
 
 async function loadSummarizeChain(): Promise<SummarizeChain> {

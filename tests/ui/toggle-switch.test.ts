@@ -31,7 +31,11 @@ const TOGGLE_IDS = [
   "chatInputGlow",
   "liveShareVideoAudio",
   "liveVoicePriority",
-  "liveLowBandwidth"
+  "liveLowBandwidth",
+  "wordHoverEnabled",
+  "wordHoverAutoPause",
+  "wordHoverZhEmbeddedEnabled",
+  "wordHoverUseFreeDict"
 ] as const;
 
 function mountToggle(checked = false): { root: HTMLElement; input: HTMLInputElement; track: HTMLElement; thumb: HTMLElement; text: HTMLElement } {

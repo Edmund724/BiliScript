@@ -81,7 +81,17 @@ import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
-import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
+import { READING_BACK_ICON, READING_COPY_ICON, READING_DOWNLOAD_ICON, READING_VOCAB_ICON } from "../ui/reading-icons.js";
+import { formatClock } from "../shared/clock-text.js";
+import {
+  buildFavoriteWordsAnkiTsv,
+  buildFavoriteWordsCsv,
+  loadFavoriteWords,
+  removeFavoriteWord,
+  subscribeFavoriteWordsChange,
+  type FavoriteWordRecord
+} from "../subtitle/favorite-words.js";
+import { speakWordNative } from "../subtitle/word-hover.js";
 import { flashCopyFailure, flashCopySuccess } from "../ui/copy-feedback.js";
 // 副轨（双语第二路轨）的目标解析、六态列模型、装载事务与同轨/偏好控制：本叶子只做
 // DOM 投影与在飞禁用。
@@ -128,6 +138,19 @@ ensureBilingualSubtitleStyles();
 
 export function buildSubtitleTabBodyHtml(): string {
   return `
+            <section id="${ids.readingVocabView}" class="biliscript-reading-vocab-view" hidden>
+              <div class="biliscript-reading-vocab-head">
+                <button id="${ids.readingVocabBackBtn}" type="button" class="biliscript-reading-icon-btn" title="返回字幕" aria-label="返回字幕">${READING_BACK_ICON}</button>
+                <span class="biliscript-reading-vocab-title">生词本</span>
+                <span id="${ids.readingVocabCount}" class="biliscript-reading-vocab-count"></span>
+                <div class="biliscript-reading-vocab-actions">
+                  <button id="${ids.readingVocabExportCsvBtn}" type="button" class="biliscript-reading-mini-btn">CSV</button>
+                  <button id="${ids.readingVocabExportAnkiBtn}" type="button" class="biliscript-reading-mini-btn">Anki</button>
+                </div>
+              </div>
+              <div id="${ids.readingVocabList}" class="biliscript-reading-vocab-list"></div>
+            </section>
+
             <div class="biliscript-reading-sub-toolbar">
               <div class="biliscript-reading-search">
                 <input
@@ -178,6 +201,7 @@ export function buildSubtitleTabBodyHtml(): string {
               ></select>
               <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="复制字幕" aria-label="复制字幕">${READING_COPY_ICON}</button>
               <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="导出字幕" aria-label="导出字幕">${READING_DOWNLOAD_ICON}</button>
+              <button id="${ids.readingVocabBtn}" type="button" class="biliscript-reading-icon-btn" title="生词本" aria-label="生词本">${READING_VOCAB_ICON}</button>
             </div>
 
             <p id="${ids.readingSubtitleNotice}" class="biliscript-reading-subtitle-notice" role="alert" hidden></p>
@@ -1270,5 +1294,133 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       }
     }
     withReader(null, (reader) => reader.onReadingSubtitleClick(event));
+  });
+
+  // ===== 生词本二级子视图 =====
+  const vocabBtn = document.getElementById(ids.readingVocabBtn);
+  const vocabView = document.getElementById(ids.readingVocabView);
+  const vocabBackBtn = document.getElementById(ids.readingVocabBackBtn);
+  const vocabList = document.getElementById(ids.readingVocabList);
+  const vocabCount = document.getElementById(ids.readingVocabCount);
+  const vocabCsvBtn = document.getElementById(ids.readingVocabExportCsvBtn) as HTMLButtonElement | null;
+  const vocabAnkiBtn = document.getElementById(ids.readingVocabExportAnkiBtn) as HTMLButtonElement | null;
+
+  const renderVocabItems = (records: FavoriteWordRecord[]) => {
+    if (!vocabList) return;
+    if (vocabCount) {
+      vocabCount.textContent = records.length > 0 ? `${records.length} 词` : "";
+    }
+    if (vocabCsvBtn) vocabCsvBtn.disabled = records.length === 0;
+    if (vocabAnkiBtn) vocabAnkiBtn.disabled = records.length === 0;
+    if (records.length === 0) {
+      vocabList.innerHTML = `<div class="biliscript-reading-vocab-empty">暂无收藏生词。开启悬停查词后，可在释义浮窗中点击星标收藏。</div>`;
+      return;
+    }
+    vocabList.innerHTML = records
+      .map((item) => {
+        const defsText = item.defs.join("；");
+        const clock = formatClock(item.from, { hours: "auto" });
+        const sourceLabel = item.videoTitle || item.bvid || "当前视频";
+        return `
+          <article class="biliscript-reading-vocab-item" data-vocab-id="${escapeHtml(item.id)}">
+            <div class="biliscript-reading-vocab-item-top">
+              <div class="biliscript-reading-vocab-word-wrap">
+                <span class="biliscript-reading-vocab-word">${escapeHtml(item.word)}</span>
+                ${item.phonetic ? `<span class="biliscript-reading-vocab-phonetic">${escapeHtml(item.phonetic)}</span>` : ""}
+              </div>
+              <div class="biliscript-reading-vocab-item-ops">
+                <button type="button" class="biliscript-reading-vocab-op-btn" data-vocab-action="speak" data-word="${escapeHtml(item.word)}" title="发音" aria-label="发音">🔊</button>
+                <button type="button" class="biliscript-reading-vocab-op-btn" data-vocab-action="remove" data-vocab-id="${escapeHtml(item.id)}" title="删除" aria-label="删除生词">×</button>
+              </div>
+            </div>
+            ${defsText ? `<div class="biliscript-reading-vocab-defs">${escapeHtml(defsText)}</div>` : ""}
+            ${item.contextMeaning ? `<div class="biliscript-reading-vocab-ctx">语境：${escapeHtml(item.contextMeaning)}</div>` : ""}
+            ${item.sentence ? `<div class="biliscript-reading-vocab-sentence">${escapeHtml(item.sentence)}</div>` : ""}
+            ${item.translation ? `<div class="biliscript-reading-vocab-trans">${escapeHtml(item.translation)}</div>` : ""}
+            <div class="biliscript-reading-vocab-meta">
+              <button type="button" class="biliscript-reading-vocab-time-btn" data-vocab-action="seek" data-bvid="${escapeHtml(item.bvid)}" data-seconds="${item.from}">${escapeHtml(clock)}</button>
+              <span class="biliscript-reading-vocab-source" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</span>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  };
+
+  const refreshVocabList = async () => {
+    const records = await loadFavoriteWords();
+    renderVocabItems(records);
+  };
+
+  const triggerVocabDownload = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  vocabBtn?.addEventListener("click", () => {
+    if (!vocabView) return;
+    vocabView.hidden = false;
+    void refreshVocabList();
+  });
+
+  vocabBackBtn?.addEventListener("click", () => {
+    if (vocabView) {
+      vocabView.hidden = true;
+    }
+  });
+
+  vocabCsvBtn?.addEventListener("click", () => {
+    void loadFavoriteWords().then((records) => {
+      if (!records.length) return;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      triggerVocabDownload(buildFavoriteWordsCsv(records), `biliscript-vocabulary-${dateStr}.csv`, "text/csv;charset=utf-8");
+    });
+  });
+
+  vocabAnkiBtn?.addEventListener("click", () => {
+    void loadFavoriteWords().then((records) => {
+      if (!records.length) return;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      triggerVocabDownload(buildFavoriteWordsAnkiTsv(records), `biliscript-vocabulary-anki-${dateStr}.txt`, "text/tab-separated-values;charset=utf-8");
+    });
+  });
+
+  vocabList?.addEventListener("click", (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-vocab-action]");
+    if (!target) return;
+    const action = target.dataset.vocabAction;
+    if (action === "speak") {
+      speakWordNative(target.dataset.word || "");
+      return;
+    }
+    if (action === "remove") {
+      const id = target.dataset.vocabId || "";
+      if (id) {
+        void removeFavoriteWord(id).then(renderVocabItems);
+      }
+      return;
+    }
+    if (action === "seek") {
+      const bvid = String(target.dataset.bvid || "").trim();
+      const from = Number(target.dataset.seconds || 0) || 0;
+      if (bvid && state.clip.bvid && bvid !== state.clip.bvid) {
+        window.open(`https://www.bilibili.com/video/${encodeURIComponent(bvid)}?t=${Math.floor(from)}`, "_blank", "noopener");
+        return;
+      }
+      withReader("vocab seek", (reader) => reader.jumpReadingTarget(from));
+    }
+  });
+
+  subscribeFavoriteWordsChange((records) => {
+    if (vocabView && !vocabView.hidden) {
+      renderVocabItems(records);
+    }
   });
 }

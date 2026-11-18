@@ -2899,3 +2899,189 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
     display: none !important;
   }
 }
+
+
+/* ===== 生词本二级子视图（字幕 tab 内切换） ===== */
+.biliscript-reading-vocab-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+
+.biliscript-reading-vocab-view[hidden] {
+  display: none;
+}
+
+.biliscript-reading-vocab-view:not([hidden]) ~ .biliscript-reading-sub-toolbar,
+.biliscript-reading-vocab-view:not([hidden]) ~ .biliscript-reading-subtitle-notice,
+.biliscript-reading-vocab-view:not([hidden]) ~ .biliscript-reading-asr-banner,
+.biliscript-reading-vocab-view:not([hidden]) ~ .biliscript-reading-main,
+.biliscript-reading-vocab-view:not([hidden]) ~ .biliscript-reading-follow-btn {
+  display: none !important;
+}
+
+.biliscript-reading-vocab-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.biliscript-reading-vocab-title {
+  font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 700;
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-vocab-count {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-reading-vocab-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.biliscript-reading-vocab-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.biliscript-reading-vocab-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--biliscript-reader-faint);
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.6;
+}
+
+.biliscript-reading-vocab-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--biliscript-radius-panel);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+}
+
+.biliscript-reading-vocab-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.biliscript-reading-vocab-word-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.biliscript-reading-vocab-word {
+  font-size: var(--biliscript-font-size-md);
+  font-weight: 700;
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-vocab-phonetic {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-reading-vocab-item-ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.biliscript-reading-vocab-op-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--biliscript-radius-xs, 6px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--biliscript-font-size-base);
+}
+
+.biliscript-reading-vocab-op-btn:hover {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-vocab-defs {
+  font-size: var(--biliscript-font-size-base);
+  color: var(--biliscript-reader-text);
+  line-height: 1.45;
+}
+
+.biliscript-reading-vocab-ctx {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-accent);
+  line-height: 1.45;
+}
+
+.biliscript-reading-vocab-sentence {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-muted);
+  line-height: 1.45;
+}
+
+.biliscript-reading-vocab-trans {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-faint);
+  line-height: 1.45;
+}
+
+.biliscript-reading-vocab-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.biliscript-reading-vocab-time-btn {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--biliscript-radius-xs, 6px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  font-size: var(--biliscript-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.biliscript-reading-vocab-time-btn:hover {
+  filter: brightness(0.95);
+}
+
+.biliscript-reading-vocab-source {
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

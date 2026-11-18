@@ -106,6 +106,8 @@ import { registerReaderOverviewSource } from "./live-overview-source.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
 import { createViewRender, renderReaderPanels } from "./view-render.js";
+import { createWordHoverController } from "../subtitle/word-hover.js";
+import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
@@ -163,6 +165,43 @@ const subtitleSearch = createSubtitleSearch({
   flushReadingSubtitleToIndex: (itemIndex) => readerPorts.flushReadingSubtitleToIndex(itemIndex),
   noteManualReaderInteraction: () => noteManualReaderInteraction()
 });
+
+const sidebarWordHover = createWordHoverController();
+
+watchStorageKeys(
+  (changes) => {
+    let shouldRerender = false;
+    if (changes.wordHoverEnabled) {
+      const enabled = changes.wordHoverEnabled.newValue === true;
+      state.patchSettings({ wordHoverEnabled: enabled });
+      if (!enabled) {
+        sidebarWordHover.hide();
+      }
+      shouldRerender = true;
+    }
+    if (changes.wordHoverAutoPause) {
+      state.patchSettings({ wordHoverAutoPause: changes.wordHoverAutoPause.newValue === true });
+    }
+    if (changes.wordHoverZhEmbeddedEnabled) {
+      state.patchSettings({ wordHoverZhEmbeddedEnabled: changes.wordHoverZhEmbeddedEnabled.newValue === true });
+      shouldRerender = true;
+    }
+    if (changes.wordHoverUseFreeDict) {
+      state.patchSettings({ wordHoverUseFreeDict: changes.wordHoverUseFreeDict.newValue === true });
+    }
+    if (shouldRerender && state.reader.readingViewOpen) {
+      renderReadingView();
+    }
+  },
+  {
+    sync: [
+      "wordHoverEnabled",
+      "wordHoverAutoPause",
+      "wordHoverZhEmbeddedEnabled",
+      "wordHoverUseFreeDict"
+    ]
+  }
+);
 
 // 重算并重放搜索（输入变化 / renderReadingView 重渲后由渲染尾部投影调用）。
 export function refreshReadingSubtitleSearch(
@@ -422,6 +461,7 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
   reset() {
     clearSubtitleNotice();
     stopReadingViewSync();
+    sidebarWordHover.hide();
     closeReaderExplainCard();
     closeQuoteShareModal({ restoreFocus: false });
     clearPendingExplainIntent();
@@ -545,6 +585,10 @@ export async function enterReaderMode(mode: "open" | "restore" = "open") {
   await waitForScriptAnchor();
   openReaderViewShell(readingView, mode);
   renderReadingView();
+  const subtitleListEl = document.getElementById(ids.readingSubtitleList);
+  if (subtitleListEl) {
+    sidebarWordHover.attach(subtitleListEl);
+  }
   // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，
   // 重开（字幕命中缓存）时不会再有该通知——缺了这两行，同步 tick 停在
   // closeReadingView 停止的状态，关闭期间拖动的进度不会反映到字幕列表。
@@ -678,6 +722,7 @@ export function closeReadingView() {
   invalidateReaderSetupFlows("all");
   // 视图销毁只撤销确认框；搜索授权据此取消回合，不按用户拒绝写偏好。
   dismissConfirmDialog();
+  sidebarWordHover.detach();
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal({ restoreFocus: false });

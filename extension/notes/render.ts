@@ -101,6 +101,52 @@ export function buildSrt(
     .join("\n\n");
 }
 
+export type VttExportMode = "bilingual" | "secondary-only";
+
+export interface BuildVttOptions {
+  mode?: VttExportMode;
+}
+
+export function buildVtt(
+  body: SubtitleBodyItemLike[] | null | undefined,
+  secondaryFor?: SecondaryLineResolver,
+  settings?: NoteRenderSettings,
+  options?: BuildVttOptions
+): string {
+  const translationFirst = settings?.bilingualDisplayOrder === "translation-first";
+  const secondaryOnly = options?.mode === "secondary-only";
+  const cues: string[] = [];
+
+  for (const item of body || []) {
+    const text = String(item?.content || "").trim();
+    const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
+
+    let cueBody = "";
+    if (secondaryOnly) {
+      if (!secondary) {
+        continue;
+      }
+      cueBody = secondary;
+    } else if (text && secondary) {
+      cueBody = translationFirst ? `${secondary}\n${text}` : `${text}\n${secondary}`;
+    } else {
+      cueBody = text || secondary;
+    }
+
+    if (!cueBody) {
+      continue;
+    }
+    const from = formatTimestamp(item?.from as number, false);
+    const to = formatTimestamp(item?.to as number, false);
+    cues.push(`${from} --> ${to}\n${cueBody}`);
+  }
+
+  if (cues.length === 0) {
+    return "";
+  }
+  return `WEBVTT\n\n${cues.join("\n\n")}`;
+}
+
 export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings, secondaryFor?: SecondaryLineResolver): string {
   const withHours = shouldShowHoursInSubtitle(body);
   const translationFirst = settings?.bilingualDisplayOrder === "translation-first";

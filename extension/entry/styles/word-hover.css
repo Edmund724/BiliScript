@@ -1,0 +1,255 @@
+/* 悬停查词单词包裹与浮窗卡片样式（适配 Flyme 蓝雾与 Editorial 浅/深色主题及全屏宿主） */
+
+.biliscript-subtitle-word {
+  display: inline;
+  border-radius: 3px;
+  text-decoration: underline dotted rgba(128, 128, 128, 0.42);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.biliscript-subtitle-word:hover,
+.biliscript-subtitle-word.is-hover-active {
+  background: var(--biliscript-reader-accent-soft, rgba(59, 130, 246, 0.16));
+  color: var(--biliscript-reader-accent, inherit);
+  text-decoration-color: currentColor;
+}
+
+.biliscript-interpret-subtitle-overlay .biliscript-subtitle-word {
+  text-decoration-color: rgba(255, 255, 255, 0.45);
+}
+
+.biliscript-interpret-subtitle-overlay .biliscript-subtitle-word:hover,
+.biliscript-interpret-subtitle-overlay .biliscript-subtitle-word.is-hover-active {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+/* 查词浮窗：挂在 document.fullscreenElement || document.body，自带主题变量兜底 */
+.biliscript-word-hover-card {
+  position: fixed;
+  z-index: 2147483647;
+  width: 288px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: var(--biliscript-radius-xl, 18px);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  pointer-events: auto;
+  font-family: var(--biliscript-reader-font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+
+  /* 默认 Flyme 浅色兜底 */
+  --wh-bg: rgba(255, 255, 255, 0.92);
+  --wh-border: rgba(15, 23, 42, 0.09);
+  --wh-text: #111827;
+  --wh-muted: #4b5563;
+  --wh-faint: #6b7280;
+  --wh-accent: #2563eb;
+  --wh-accent-soft: rgba(37, 99, 235, 0.11);
+  --wh-surface-2: rgba(241, 245, 249, 0.85);
+  --wh-shadow: 0 14px 36px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  background: var(--wh-bg);
+  color: var(--wh-text);
+  border: 1px solid var(--wh-border);
+  box-shadow: var(--wh-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+}
+
+.biliscript-word-hover-card[hidden] {
+  display: none !important;
+}
+
+.biliscript-word-hover-card[data-theme="dark"] {
+  --wh-bg: rgba(24, 29, 39, 0.92);
+  --wh-border: rgba(255, 255, 255, 0.11);
+  --wh-text: #f3f4f6;
+  --wh-muted: #cbd5e1;
+  --wh-faint: #94a3b8;
+  --wh-accent: #60a5fa;
+  --wh-accent-soft: rgba(96, 165, 250, 0.16);
+  --wh-surface-2: rgba(38, 46, 61, 0.86);
+  --wh-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.biliscript-word-hover-card[data-palette="editorial"] {
+  --wh-bg: #fcf9f2;
+  --wh-border: #e5dccd;
+  --wh-text: #27221d;
+  --wh-muted: #5c5146;
+  --wh-faint: #847668;
+  --wh-accent: #c2573b;
+  --wh-accent-soft: rgba(194, 87, 59, 0.11);
+  --wh-surface-2: #f4eee2;
+  --wh-shadow: 0 12px 30px rgba(45, 34, 22, 0.12);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.biliscript-word-hover-card[data-palette="editorial"][data-theme="dark"] {
+  --wh-bg: #211e1b;
+  --wh-border: #3a332d;
+  --wh-text: #efe9df;
+  --wh-muted: #c2b6a6;
+  --wh-faint: #8f8273;
+  --wh-accent: #e07a5f;
+  --wh-accent-soft: rgba(224, 122, 95, 0.15);
+  --wh-surface-2: #2b2622;
+  --wh-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+}
+
+.biliscript-word-hover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.biliscript-word-hover-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.biliscript-word-hover-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--wh-text);
+  overflow-wrap: anywhere;
+}
+
+.biliscript-word-hover-phonetic {
+  font-size: 12px;
+  color: var(--wh-faint);
+  white-space: nowrap;
+}
+
+.biliscript-word-hover-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.biliscript-word-hover-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--wh-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.biliscript-word-hover-icon-btn:hover {
+  background: var(--wh-accent-soft);
+  color: var(--wh-accent);
+}
+
+.biliscript-word-hover-icon-btn.is-favorited {
+  color: var(--wh-accent);
+}
+
+.biliscript-word-hover-icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.biliscript-word-hover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--wh-text);
+}
+
+.biliscript-word-hover-defs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.biliscript-word-hover-defs li {
+  font-size: 13px;
+  color: var(--wh-text);
+}
+
+.biliscript-word-hover-context {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--wh-surface-2);
+  color: var(--wh-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.biliscript-word-hover-context strong {
+  color: var(--wh-accent);
+  font-weight: 600;
+}
+
+.biliscript-word-hover-status {
+  color: var(--wh-faint);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.biliscript-word-hover-status.is-error {
+  color: #dc2626;
+}
+
+.biliscript-word-hover-card[data-theme="dark"] .biliscript-word-hover-status.is-error {
+  color: #f87171;
+}
+
+.biliscript-word-hover-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--wh-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.biliscript-word-hover-ask-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--wh-accent-soft);
+  color: var(--wh-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.biliscript-word-hover-ask-btn:hover {
+  filter: brightness(0.95);
+}
+
+.biliscript-word-hover-retry-btn {
+  border: 1px solid var(--wh-border);
+  border-radius: 8px;
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--wh-text);
+  font-size: 12px;
+  cursor: pointer;
+}

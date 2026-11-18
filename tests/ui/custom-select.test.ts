@@ -61,7 +61,7 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
     const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
     const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
 
-    expect(options.map((option) => option.textContent)).toEqual(["SRT", "TXT"]);
+    expect(options.map((option) => option.textContent)).toEqual(["SRT", "TXT", "VTT", "VTT（仅副轨）"]);
 
     // ARIA 接线：trigger ↔ listbox 关联、角色与选中态
     expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");

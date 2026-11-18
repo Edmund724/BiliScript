@@ -67,12 +67,14 @@ describe("normalizeSettings 纯函数", () => {
 
   it("返回新对象且不改入参，非受管字段原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    const input = { ...DEFAULT_SETTINGS, unknownKey: "passthrough", downloadFormat: "vtt" };
+    const input = { ...DEFAULT_SETTINGS, unknownKey: "passthrough", downloadFormat: "ass" };
     const out = normalizeSettings(input);
     expect(out).not.toBe(input);
-    expect(input.downloadFormat).toBe("vtt");
+    expect(input.downloadFormat).toBe("ass");
     expect(out.downloadFormat).toBe("srt");
     expect(out.unknownKey).toBe("passthrough");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, downloadFormat: "vtt" }).downloadFormat).toBe("vtt");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, downloadFormat: "vtt-secondary" }).downloadFormat).toBe("vtt-secondary");
   });
 
   // 笔记导出功能删除（导出的 Markdown 只剩简介/章节/字幕）：被删字段退出

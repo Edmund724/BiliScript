@@ -76,7 +76,10 @@ export const normalizeChatInputGlow = booleanField(true);
 
 // ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
-  return value === "txt" ? "txt" : "srt";
+  if (value === "txt") return "txt";
+  if (value === "vtt") return "vtt";
+  if (value === "vtt-secondary") return "vtt-secondary";
+  return "srt";
 }
 
 export function parseAgentBridgeUrl(value: unknown): string | null {
@@ -347,5 +350,10 @@ export function validateAiProviders(items: unknown[]): ValidationResult {
   }
   return { ok: true };
 }
+
+export const normalizeWordHoverEnabled = booleanField(false);
+export const normalizeWordHoverAutoPause = booleanField(false);
+export const normalizeWordHoverZhEmbeddedEnabled = booleanField(false);
+export const normalizeWordHoverUseFreeDict = booleanField(false);
 
 export type { Settings };

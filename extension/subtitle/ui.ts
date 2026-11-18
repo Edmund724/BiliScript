@@ -1,9 +1,9 @@
-import { buildTxt } from "../notes/render.js";
+import { buildTxt, buildVtt } from "../notes/render.js";
 import { sanitizeFileName } from "../shared/string-utils.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { getSettings } from "../core/runtime.js";
 import { logWarn } from "../shared/logging.js";
-import { state } from "../core/state.js";
+import { clipState, state } from "../core/state.js";
 import { normalizeDownloadFormat } from "../core/validators.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
@@ -44,21 +44,39 @@ export async function copySubtitleTranscript(): Promise<boolean> {
   }
 }
 
-export async function downloadSubtitle(): Promise<boolean> {
+export async function downloadSubtitle(options?: { format?: string }): Promise<boolean> {
   state.setSettings(await getSettings());
   // 懒生成（opt-backlog-2026-09/04）：首次消费时构建并缓存，命中即零开销。
   ensureDerivedContent();
-  const format = normalizeDownloadFormat(state.settings?.downloadFormat);
-  const content = format === "txt" ? state.clip.txt : state.clip.srt;
+  const format = normalizeDownloadFormat(options?.format ?? state.settings?.downloadFormat);
+  let content = "";
+  let fileExt = format;
+  let langSuffixRaw = state.clip.selectedSubtitleLang || "subtitle";
+
+  if (format === "txt") {
+    content = state.clip.txt;
+  } else if (format === "vtt") {
+    content = buildVtt(state.clip.subtitleBody, createSecondaryLineResolver(), state.settings);
+  } else if (format === "vtt-secondary") {
+    fileExt = "vtt";
+    const sec = clipState.secondarySubtitle;
+    if (sec.state === "ready" && Array.isArray(sec.body) && sec.body.length > 0) {
+      content = buildVtt(sec.body);
+      langSuffixRaw = sec.id || "secondary";
+    }
+  } else {
+    content = state.clip.srt;
+  }
+
   if (!content) {
     return false;
   }
 
   const safeTitle = sanitizeFileName(state.clip.title || state.clip.bvid || "bilibili-subtitle");
-  const langSuffix = sanitizeFileName(state.clip.selectedSubtitleLang || "subtitle") || "subtitle";
+  const langSuffix = sanitizeFileName(langSuffixRaw) || "subtitle";
   const dateRaw = state.settings?.includeDateInFilename ? state.clip.uploadDate || formatLocalDate() : "";
   const datePrefix = dateRaw ? `${sanitizeFileName(dateRaw)}-` : "";
-  const filename = `${datePrefix}${safeTitle}.${langSuffix}.${format}`;
+  const filename = `${datePrefix}${safeTitle}.${langSuffix}.${fileExt}`;
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 

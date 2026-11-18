@@ -45,6 +45,13 @@ export const ids = {
   readingSearchNextBtn: "biliscript-reading-search-next",
   readingCopySubtitleBtn: "biliscript-reading-copy-subtitle",
   readingExportSubtitleBtn: "biliscript-reading-export-subtitle",
+  readingVocabBtn: "biliscript-reading-vocab-btn",
+  readingVocabView: "biliscript-reading-vocab-view",
+  readingVocabBackBtn: "biliscript-reading-vocab-back-btn",
+  readingVocabCount: "biliscript-reading-vocab-count",
+  readingVocabExportCsvBtn: "biliscript-reading-vocab-export-csv",
+  readingVocabExportAnkiBtn: "biliscript-reading-vocab-export-anki",
+  readingVocabList: "biliscript-reading-vocab-list",
   readingFollowBtn: "biliscript-reading-follow-btn",
   readingTranscribeBanner: "biliscript-reading-transcribe-banner",
   // 字幕区就地失败提示（reader/subtitle-notice.ts）：只在失败时显示，成功与进行中不提示。
