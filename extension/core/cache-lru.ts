@@ -58,7 +58,8 @@ export const CACHE_FAMILIES = [
   "biliscript_lvs_summary_",
   "biliscript_subtitle_cache_",
   "biliscript_lvs_analysis_",
-  "biliscript_lvs_analysis_final_"
+  "biliscript_lvs_analysis_final_",
+  "biliscript_lvs_l1_index_"
 ];
 // 每族保留的最近视频数（模块私有；evictLruByCount 的 keep 缺省值）。
 const LRU_KEEP_VIDEOS = 3;

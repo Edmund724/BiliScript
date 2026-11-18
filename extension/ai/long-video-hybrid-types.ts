@@ -41,14 +41,18 @@ export interface L0ContextWindow {
 
 /** L0 本地轻量 BM25 检索输入参数。 */
 export interface L0LexicalSearchQuery {
+  /** 原始用户查询文本（与 terms 二选一或同时提供） */
+  query?: string;
   /** 归一化与停用词过滤后的检索词项列表 */
-  terms: readonly string[];
+  terms?: readonly string[];
   /** 可选的时间区间过滤（由 L1 章节路由选定）；缺省时检索全片 L0 */
   timeRanges?: readonly RetrievalTimeRange[];
   /** 返回命中上限 */
   topK?: number;
-  /** 单条命中向前后扩展的字幕行数半径 */
+  /** 单条命中向前后扩展的字幕行数半径（N 句） */
   windowRadiusLines?: number;
+  /** 单条命中向前后扩展的时间窗口半径（M 秒） */
+  windowRadiusSeconds?: number;
   /** 全部命中窗口拼装后的字符预算上限 */
   maxInjectedChars?: number;
 }
@@ -70,6 +74,8 @@ export interface L0LexicalHit {
 /** L0 词法检索汇总结果。 */
 export interface L0LexicalSearchResult {
   hits: readonly L0LexicalHit[];
+  /** 去重合并后的连续字幕上下文窗口列表（按时间/行号升序） */
+  windows?: readonly L0ContextWindow[];
   totalLinesScanned: number;
   injectedChars: number;
   truncated: boolean;
