@@ -26,11 +26,6 @@ import { clipState, state } from "../core/state.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
 import {
-  buildWordWrappedHtml,
-  resolveMainTrackLanguage,
-  resolveSecondaryTrackLanguage
-} from "../subtitle/word-hover.js";
-import {
   SUBTITLE_ITEM_CLASS,
   SUBTITLE_SUBTEXT_CLASS,
   SUBTITLE_TEXT_CLASS,
@@ -113,24 +108,14 @@ function buildReadingSubtextHtml(item: ReadingSubtitleItem): string {
   if (!subtext) {
     return "";
   }
-  const contentHtml =
-    subtext.state === "ready"
-      ? buildWordWrappedHtml(subtext.text, {
-          enabled: state.settings?.wordHoverEnabled === true,
-          trackLang: resolveSecondaryTrackLanguage(),
-          zhEmbeddedEnabled: state.settings?.wordHoverZhEmbeddedEnabled === true
-        })
-      : escapeHtml(subtext.text);
-  return `<span class="${SUBTITLE_SUBTEXT_CLASS}" data-state="${subtext.state}">${contentHtml}</span>`;
+  return `<span class="${SUBTITLE_SUBTEXT_CLASS}" data-state="${subtext.state}">${escapeHtml(
+    subtext.text
+  )}</span>`;
 }
 
 export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHours: boolean) {
   const subtextHtml = buildReadingSubtextHtml(item);
-  const mainHtml = buildWordWrappedHtml(item.content, {
-    enabled: state.settings?.wordHoverEnabled === true,
-    trackLang: resolveMainTrackLanguage(),
-    zhEmbeddedEnabled: state.settings?.wordHoverZhEmbeddedEnabled === true
-  });
+  const mainHtml = escapeHtml(item.content);
   const textBodyHtml =
     subtextHtml && state.settings.bilingualDisplayOrder === "translation-first"
       ? `${subtextHtml}${mainHtml}`

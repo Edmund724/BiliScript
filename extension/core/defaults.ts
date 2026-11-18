@@ -100,11 +100,6 @@ export interface KnownSettings {
   secondarySubtitleLang: string;  // 副字幕语言标签（BCP-47，如 en-US），默认 en-US
   bilingualDisplayOrder: BilingualDisplayOrder; // 双语主副语序（original-first / translation-first），默认原文在上
   subtitleSegmentationStrategy: SubtitleSegmentationStrategy; // 字幕本地断句策略（auto/rule/stats/off）
-  // ===== 悬停查词 =====
-  wordHoverEnabled: boolean;          // 字幕英文单词悬停查词开关，默认关
-  wordHoverAutoPause: boolean;        // 悬停查词时自动暂停视频（移出恢复），默认关
-  wordHoverZhEmbeddedEnabled: boolean; // 中文字幕内嵌英文术语查词开关，默认关
-  wordHoverUseFreeDict: boolean;      // 可选第三方免 Key 英语词典（需按需授权域名），默认关
   // ===== 文摘排版 =====
   readerFontSizeScale: number;    // 文摘面板字体大小（百分比，70–130），默认 100
   chatLineHeight: number;         // 对话行高（百分比，120–200），默认 160
@@ -187,11 +182,6 @@ export const DEFAULT_SETTINGS: Settings = {
   secondarySubtitleLang: "en-US", // 副字幕语言标签（BCP-47，如 en-US / zh-CN）
   bilingualDisplayOrder: "original-first", // 双语主副语序：默认主轨/原文在上，副轨/译文在下
   subtitleSegmentationStrategy: "auto", // 字幕本地断句策略：默认仅对 ai- 与 asr 轨智能重断句
-  // ===== 悬停查词 =====
-  wordHoverEnabled: false,
-  wordHoverAutoPause: false,
-  wordHoverZhEmbeddedEnabled: false,
-  wordHoverUseFreeDict: false,
   // ===== 文摘排版 =====
   readerFontSizeScale: 100,
   chatLineHeight: 160,

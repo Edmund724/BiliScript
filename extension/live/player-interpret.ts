@@ -36,12 +36,6 @@ import {
   resolveTargetLang
 } from "../subtitle/selection.js";
 import {
-  createWordHoverController,
-  resolveMainTrackLanguage,
-  resolveSecondaryTrackLanguage,
-  setElementTextWithWordWrap
-} from "../subtitle/word-hover.js";
-import {
   createInterpretSessionController,
   type InterpretAiRefineMode,
   type InterpretSessionController
@@ -117,8 +111,6 @@ export interface InterpretSubtitleOverlayDeps {
   getDisplayOrder?: () => BilingualDisplayOrder;
   getFontScale?: () => number;
   getBlurSecondary?: () => boolean;
-  getSourceLang?: () => string;
-  getTranslationLang?: () => string;
   loadPositionRatio?: () => Promise<number | null>;
   savePositionRatio?: (ratio: number) => void;
 }
@@ -300,7 +292,6 @@ export function createInterpretSubtitleOverlay(
   let dragMoved = false;
   let suppressClickHandler: ((event: MouseEvent) => void) | null = null;
   let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
-  const wordHoverController = createWordHoverController();
 
   function resolvePlayerContainer(): HTMLElement | null {
     const base = getFullscreenHost() || deps.getPlayerHost();
@@ -612,7 +603,6 @@ export function createInterpretSubtitleOverlay(
 
     containerEl = container;
     rootEl = root;
-    wordHoverController.attach(root);
     bindObservers(host);
     syncPosition();
     return root;
@@ -654,21 +644,8 @@ export function createInterpretSubtitleOverlay(
       containerEl.style.setProperty("--biliscript-interpret-font-scale", scaleValue);
     }
 
-    const wordHoverEnabled = state.settings?.wordHoverEnabled === true;
-    const zhEmbeddedEnabled = state.settings?.wordHoverZhEmbeddedEnabled === true;
-    const originalLang = deps.getSourceLang?.() ?? resolveMainTrackLanguage();
-    const translationLang = deps.getTranslationLang?.() ?? resolveSecondaryTrackLanguage();
-
-    setElementTextWithWordWrap(originalEl, original, {
-      enabled: wordHoverEnabled,
-      trackLang: originalLang,
-      zhEmbeddedEnabled
-    });
-    setElementTextWithWordWrap(translationEl, translation, {
-      enabled: wordHoverEnabled,
-      trackLang: translationLang,
-      zhEmbeddedEnabled
-    });
+    if (originalEl.textContent !== original) originalEl.textContent = original;
+    if (translationEl.textContent !== translation) translationEl.textContent = translation;
     if (originalEl.hidden !== !showOriginal) originalEl.hidden = !showOriginal;
     if (translationEl.hidden !== !showTranslation) translationEl.hidden = !showTranslation;
     if (rootEl.hidden !== nextRootHidden) rootEl.hidden = nextRootHidden;
@@ -678,15 +655,8 @@ export function createInterpretSubtitleOverlay(
   function clearCurrent(): void {
     lastOriginal = "";
     lastTranslation = "";
-    wordHoverController.hide();
-    if (originalEl) {
-      delete originalEl.dataset.biliscriptWordWrapSig;
-      if (originalEl.textContent !== "") originalEl.textContent = "";
-    }
-    if (translationEl) {
-      delete translationEl.dataset.biliscriptWordWrapSig;
-      if (translationEl.textContent !== "") translationEl.textContent = "";
-    }
+    if (originalEl && originalEl.textContent !== "") originalEl.textContent = "";
+    if (translationEl && translationEl.textContent !== "") translationEl.textContent = "";
     if (originalEl && !originalEl.hidden) originalEl.hidden = true;
     if (translationEl && !translationEl.hidden) translationEl.hidden = true;
     if (rootEl && !rootEl.hidden) rootEl.hidden = true;
@@ -704,7 +674,6 @@ export function createInterpretSubtitleOverlay(
   function unmount(): void {
     cancelDrag();
     disconnectObservers();
-    wordHoverController.dispose();
     hovered = false;
     frozenBottomPx = null;
     lastOriginal = "";
@@ -1319,25 +1288,7 @@ const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
   getDisplayOrder: () => state.settings?.bilingualDisplayOrder || "original-first",
   getFontScale: () =>
     normalizeInterpretFontScale(state.settings?.liveInterpretFontScale ?? INTERPRET_SUBTITLE_SCALE_DEFAULT),
-  getBlurSecondary: () => state.settings?.liveInterpretBlurSecondary === true,
-  getSourceLang: () => {
-    const refineMode = getPlayerAiRefineMode();
-    if (refineMode === "foreign-refine") {
-      return findManualForeignTrackForAiRefine(state.clip.subtitles)?.lan || resolveCurrentPlayerSourceLan();
-    }
-    return resolveCurrentPlayerSourceLan();
-  },
-  getTranslationLang: () => {
-    const refineMode = getPlayerAiRefineMode();
-    const nativeTracks = (state.clip.subtitles || []).filter((track) => isLoadableNativeTrack(track));
-    if (nativeTracks.length >= 2 && !isMonolingualNativeTracks(nativeTracks) && refineMode === "off") {
-      return resolveSecondaryTrackLanguage();
-    }
-    if (refineMode === "foreign-refine") {
-      return "zh";
-    }
-    return resolveTargetLang(resolveCurrentPlayerSourceLan(), state.settings?.liveInterpretTargetLang || "zh");
-  }
+  getBlurSecondary: () => state.settings?.liveInterpretBlurSecondary === true
 });
 
 export function showPlayerInterpretNotice(message: string, autoHideMs?: number): void {
@@ -1393,28 +1344,6 @@ function bindInterpretLifecycleListeners(): void {
           });
           appearanceChanged = true;
         }
-        if (changes.wordHoverEnabled) {
-          state.patchSettings({
-            wordHoverEnabled: changes.wordHoverEnabled.newValue === true
-          });
-          appearanceChanged = true;
-        }
-        if (changes.wordHoverAutoPause) {
-          state.patchSettings({
-            wordHoverAutoPause: changes.wordHoverAutoPause.newValue === true
-          });
-        }
-        if (changes.wordHoverZhEmbeddedEnabled) {
-          state.patchSettings({
-            wordHoverZhEmbeddedEnabled: changes.wordHoverZhEmbeddedEnabled.newValue === true
-          });
-          appearanceChanged = true;
-        }
-        if (changes.wordHoverUseFreeDict) {
-          state.patchSettings({
-            wordHoverUseFreeDict: changes.wordHoverUseFreeDict.newValue === true
-          });
-        }
         if (appearanceChanged) {
           interpretSubtitleOverlay.syncAppearance();
           void syncInterpretSubtitleMenu();
@@ -1431,11 +1360,7 @@ function bindInterpretLifecycleListeners(): void {
           "subtitleTranslateModel",
           "bilingualDisplayOrder",
           "liveInterpretFontScale",
-          "liveInterpretBlurSecondary",
-          "wordHoverEnabled",
-          "wordHoverAutoPause",
-          "wordHoverZhEmbeddedEnabled",
-          "wordHoverUseFreeDict"
+          "liveInterpretBlurSecondary"
         ],
         local: ["asrProviderKeys", "aiProviderKeys"]
       }

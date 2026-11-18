@@ -111,10 +111,6 @@ export const SETTINGS_PANEL_DOM_IDS = {
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
-  wordHoverEnabled: "wordHoverEnabled",
-  wordHoverAutoPause: "wordHoverAutoPause",
-  wordHoverZhEmbeddedEnabled: "wordHoverZhEmbeddedEnabled",
-  wordHoverUseFreeDict: "wordHoverUseFreeDict",
   enableDebugLogs: "enableDebugLogs",
   enableAgentBridge: "enableAgentBridge",
   agentBridgeConnectBtn: "agentBridgeConnectBtn",
@@ -523,43 +519,6 @@ export function buildSettingsHtml(): string {
             <span class="biliscript-toggle-text">在字幕正文中保留时间戳</span>
             <label class="biliscript-toggle-switch">
               <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" aria-label="在字幕正文中保留时间戳" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="biliscript-set-group" data-settings-section="word-hover">
-        <div class="biliscript-set-h">悬停查词</div>
-        <div class="biliscript-set-card">
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">外语字幕悬停查词</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.wordHoverEnabled}" type="checkbox" class="biliscript-toggle-input" aria-label="外语字幕悬停查词" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
-
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">悬停查词时自动暂停视频</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.wordHoverAutoPause}" type="checkbox" class="biliscript-toggle-input" aria-label="悬停查词时自动暂停视频" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
-
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">中文字幕内嵌英文术语查词</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.wordHoverZhEmbeddedEnabled}" type="checkbox" class="biliscript-toggle-input" aria-label="中文字幕内嵌英文术语查词" />
-              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-            </label>
-          </div>
-
-          <div class="biliscript-set-check biliscript-toggle-row">
-            <span class="biliscript-toggle-text">启用免 Key 英语词典兜底</span>
-            <label class="biliscript-toggle-switch">
-              <input id="${ids.wordHoverUseFreeDict}" type="checkbox" class="biliscript-toggle-input" aria-label="启用免 Key 英语词典兜底" />
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>

@@ -86,7 +86,6 @@ import {
 import { requestSubtitleRefresh } from "../reader/reader-bus.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
-import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import {
   applyLiveAudioSettings,
   persistLiveAudioSettings,
@@ -203,10 +202,6 @@ function collectElements(host: HTMLElement) {
     openAdvancedSettingsBtn: byIdIn<HTMLButtonElement>(dom.openAdvancedSettingsBtn),
     advancedSettingsSummary: byIdIn<HTMLElement>(dom.advancedSettingsSummary),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
-    wordHoverEnabled: byIdIn<HTMLInputElement>(dom.wordHoverEnabled),
-    wordHoverAutoPause: byIdIn<HTMLInputElement>(dom.wordHoverAutoPause),
-    wordHoverZhEmbeddedEnabled: byIdIn<HTMLInputElement>(dom.wordHoverZhEmbeddedEnabled),
-    wordHoverUseFreeDict: byIdIn<HTMLInputElement>(dom.wordHoverUseFreeDict),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
     readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
@@ -319,7 +314,6 @@ interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly persist?: ScalarFieldPersist;
-  readonly requestPermissionOnEnable?: () => Promise<{ ok: boolean; error?: string }>;
   readonly onApply?: (val: boolean) => void;
   // 落盘成功后的生效回调（票 04：自动转写开关打开并保存成功后重新进入字幕抓取）。
   // 只有写盘成功才调用——onApply 在保存前触发，失败时也会跑，不能承担续跑。
@@ -485,35 +479,6 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "includeTimestampInBody",
     getElement: (el) => el.includeTimestampInBody,
     normalize: (val) => Boolean(val)
-  },
-  {
-    kind: "toggle",
-    key: "wordHoverEnabled",
-    getElement: (el) => el.wordHoverEnabled,
-    normalize: (val) => val === true,
-    watchSync: true
-  },
-  {
-    kind: "toggle",
-    key: "wordHoverAutoPause",
-    getElement: (el) => el.wordHoverAutoPause,
-    normalize: (val) => val === true,
-    watchSync: true
-  },
-  {
-    kind: "toggle",
-    key: "wordHoverZhEmbeddedEnabled",
-    getElement: (el) => el.wordHoverZhEmbeddedEnabled,
-    normalize: (val) => val === true,
-    watchSync: true
-  },
-  {
-    kind: "toggle",
-    key: "wordHoverUseFreeDict",
-    getElement: (el) => el.wordHoverUseFreeDict,
-    normalize: (val) => val === true,
-    watchSync: true,
-    requestPermissionOnEnable: () => requestProviderOriginsViaBackground(["https://api.dictionaryapi.dev"])
   },
   {
     kind: "toggle",
@@ -1595,10 +1560,6 @@ function buildDefaultPreferencePayload() {
     bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
     secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
     bilingualDisplayOrder: DEFAULT_SETTINGS.bilingualDisplayOrder,
-    wordHoverEnabled: DEFAULT_SETTINGS.wordHoverEnabled,
-    wordHoverAutoPause: DEFAULT_SETTINGS.wordHoverAutoPause,
-    wordHoverZhEmbeddedEnabled: DEFAULT_SETTINGS.wordHoverZhEmbeddedEnabled,
-    wordHoverUseFreeDict: DEFAULT_SETTINGS.wordHoverUseFreeDict,
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
@@ -1773,7 +1734,8 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
     case "toggle": {
       const el = binding.getElement(elements);
       initToggleSwitch(el);
-      const commitToggle = (val: boolean) => {
+      el.addEventListener("change", () => {
+        const val = el.checked;
         if (binding.patchState !== false) {
           state.patchSettings({ [binding.key]: val });
         }
@@ -1783,22 +1745,6 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
         void saveSettingField(elements, { [binding.key]: val }, binding.persist).then((ok) => {
           if (ok) binding.onSaved?.(val);
         });
-      };
-      el.addEventListener("change", () => {
-        const val = el.checked;
-        if (val && binding.requestPermissionOnEnable) {
-          void binding.requestPermissionOnEnable().then((result) => {
-            if (!result.ok) {
-              el.checked = false;
-              syncToggleSwitch(el);
-              setStatus(elements, result.error || "未授予域名权限", true);
-              return;
-            }
-            commitToggle(true);
-          });
-          return;
-        }
-        commitToggle(val);
       });
       break;
     }

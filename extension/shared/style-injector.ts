@@ -170,12 +170,6 @@ export function ensureBilingualSubtitleStyles(): void {
   mountStyleLink(BILINGUAL_SUBTITLE_STYLE_PATH);
 }
 
-const WORD_HOVER_STYLE_PATH = "entry/styles/word-hover.css";
-
-export function ensureWordHoverStyles(): void {
-  mountStyleLink(WORD_HOVER_STYLE_PATH);
-}
-
 // 对话分区表（arch-slim-4/07）：随对话域首次激活按需装载，不建 onload 门控
 //（1-2 帧无样式窗口只落在未激活的静默空态上）。挂载点两个：setReaderScriptTab
 // 的 chat 分支同步 ensure（盖住 tab 点击/解释卡/快捷动作全部入口），reader/

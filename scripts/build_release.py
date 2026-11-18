@@ -95,7 +95,7 @@ def main():
     print(f"Built release package for v{version}:")
     print(f"- zip: {zip_path} ({zip_size} bytes)")
 
-    # 发布 ZIP 体积守卫：release zip 体积上限（2.7.4 引入长视频 L0/L1 混合召回、分层 IndexedDB 字幕仓库、悬停查词/生词本与伴看 AudioWorklet 后基线 987,609 B，预算上限 1,020,000 B，留有明确余量）。
+    # 发布 ZIP 体积守卫：release zip 体积上限（2.7.4 引入长视频 L0/L1 混合召回、分层 IndexedDB 字幕仓库与伴看 AudioWorklet 后基线，预算上限 1,020,000 B，留有明确余量）。
     max_release_zip_bytes = 1_020_000
     if zip_size > max_release_zip_bytes:
         raise SystemExit(

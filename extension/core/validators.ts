@@ -351,9 +351,4 @@ export function validateAiProviders(items: unknown[]): ValidationResult {
   return { ok: true };
 }
 
-export const normalizeWordHoverEnabled = booleanField(false);
-export const normalizeWordHoverAutoPause = booleanField(false);
-export const normalizeWordHoverZhEmbeddedEnabled = booleanField(false);
-export const normalizeWordHoverUseFreeDict = booleanField(false);
-
 export type { Settings };
