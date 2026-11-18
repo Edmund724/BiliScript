@@ -5,6 +5,7 @@ import {
   formatSubtitleNumberedLines,
   parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
+  resolveSubtitleTranslateProtocolMode,
   resolveTargetLangDisplayName,
   translateSubtitleItems
 } from "../../extension/ai/subtitle-translate.js";
@@ -317,8 +318,14 @@ describe("字幕翻译序号行协议", () => {
     ]);
   });
 
-  it("translateSubtitleItems 调度模型并返回对齐条目", async () => {
-    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n2. 你好吗\n3. 学新知识");
+  it("translateSubtitleItems 对人工精校 CC 轨发送严格 ID JSON 数组并返回对齐条目及双轨元数据", async () => {
+    const mockChatCompletion = vi.fn().mockResolvedValue(
+      JSON.stringify([
+        { id: "0", translation: "你好" },
+        { id: "1", translation: "你好吗" },
+        { id: "2", translation: "学新知识" }
+      ])
+    );
     const result = await translateSubtitleItems({
       items: originalItems,
       targetLang: "zh",
@@ -340,15 +347,71 @@ describe("字幕翻译序号行协议", () => {
         thinkingLevel: "off"
       })
     );
+    expect(JSON.parse(mockChatCompletion.mock.calls[0][0].messages[1].content)).toEqual([
+      { id: "0", text: "Hello world" },
+      { id: "1", text: "How are you today?" },
+      { id: "2", text: "Let's learn something new." }
+    ]);
+    expect(result.mode).toBe("cc-json");
     expect(result).toEqual([
+      { from: 0, to: 2.5, content: "你好" },
+      { from: 2.5, to: 5.0, content: "你好吗" },
+      { from: 5.0, to: 8.0, content: "学新知识" }
+    ]);
+    expect(result.items).toEqual(originalItems);
+    expect(result.translations).toEqual([
       { from: 0, to: 2.5, content: "你好" },
       { from: 2.5, to: 5.0, content: "你好吗" },
       { from: 5.0, to: 8.0, content: "学新知识" }
     ]);
   });
 
-  it("translateSubtitleItems 默认 fallbackToOriginal=false，未译出行返回空串而不污染共享译文缓存", async () => {
-    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n3. 学新知识");
+  it("人工 CC 轨首轮截断或漏行时自动发起 1 次漏行单补", async () => {
+    const mockChatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce(
+        '```json\n[{"id":"0","translation":"你好"},{"id":"2","translation":"学新知识"}]'
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify([{ id: "0", translation: "你今天好吗？" }])
+      );
+
+    const result = await translateSubtitleItems({
+      items: originalItems,
+      targetLang: "zh",
+      providerResolution: {
+        provider: { id: "p1", name: "P1", baseUrl: "https://api.test", models: ["m1"], enabled: true, hasSavedKey: true },
+        apiKey: "test-key",
+        baseUrl: "https://api.test",
+        model: "m1",
+        presetId: "custom",
+        isFallback: false
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(mockChatCompletion.mock.calls[1][0].messages[1].content)).toEqual([
+      { id: "0", text: "How are you today?" }
+    ]);
+    expect(result).toEqual([
+      { from: 0, to: 2.5, content: "你好" },
+      { from: 2.5, to: 5.0, content: "你今天好吗？" },
+      { from: 5.0, to: 8.0, content: "学新知识" }
+    ]);
+  });
+
+  it("translateSubtitleItems 默认 fallbackToOriginal=false，单补后仍缺失的行返回空串而不污染共享译文缓存", async () => {
+    const mockChatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          { id: "0", translation: "你好" },
+          { id: "2", translation: "学新知识" }
+        ])
+      )
+      .mockResolvedValueOnce("[]");
+
     const result = await translateSubtitleItems({
       items: originalItems,
       targetLang: "zh",
@@ -371,7 +434,16 @@ describe("字幕翻译序号行协议", () => {
   });
 
   it("translateSubtitleItems 显式开启 fallbackToOriginal=true 时回退原文", async () => {
-    const mockChatCompletion = vi.fn().mockResolvedValue("1. 你好\n3. 学新知识");
+    const mockChatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          { id: "0", translation: "你好" },
+          { id: "2", translation: "学新知识" }
+        ])
+      )
+      .mockResolvedValueOnce("[]");
+
     const result = await translateSubtitleItems({
       items: originalItems,
       targetLang: "zh",
@@ -392,6 +464,41 @@ describe("字幕翻译序号行协议", () => {
       { from: 2.5, to: 5.0, content: "How are you today?" },
       { from: 5.0, to: 8.0, content: "学新知识" }
     ]);
+  });
+
+  it("双通道分流：ai-* 轨、asr 伪轨与无标点长轨走 boundary-v3，精校 CC 轨走 cc-json", () => {
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        trackLan: "ai-en",
+        items: originalItems
+      })
+    ).toBe("boundary-v3");
+
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        selectedSubtitleId: "asr",
+        items: originalItems
+      })
+    ).toBe("boundary-v3");
+
+    const unpunctuatedTrack = Array.from({ length: 12 }, (_, idx) => ({
+      from: idx,
+      to: idx + 1,
+      content: "unpunctuated spoken words stream fragment"
+    }));
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        trackLan: "en-US",
+        items: unpunctuatedTrack
+      })
+    ).toBe("boundary-v3");
+
+    expect(
+      resolveSubtitleTranslateProtocolMode({
+        trackLan: "en-US",
+        items: originalItems
+      })
+    ).toBe("cc-json");
   });
 
   it("目标语言展示名从 LIVE_INTERPRET_TARGET_LANG_OPTIONS 派生并覆盖全部 14 种语言", () => {
