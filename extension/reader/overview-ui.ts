@@ -285,7 +285,6 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   const summary = String(analysis.summary || "").trim();
   const summarySection = `
     <section class="biliscript-reading-ov-section">
-      <div class="biliscript-reading-ov-h">简介</div>
       <p class="biliscript-reading-ov-summary${summary ? "" : " is-empty"}">${escapeHtml(summary || "简介暂未生成")}</p>
     </section>
   `;

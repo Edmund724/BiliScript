@@ -799,7 +799,7 @@ async function main() {
         mod.startReadingViewSync();
         return result;
       })()`);
-      check("Q12.section-order", JSON.stringify(probe?.headings) === JSON.stringify(["简介", "章节AI 生成", "金句AI 精选"]), probe?.headings);
+      check("Q12.section-order", JSON.stringify(probe?.headings) === JSON.stringify(["章节AI 生成", "金句AI 精选"]), probe?.headings);
       check("Q12.summary-present", (probe?.summary || "").includes("模型幻觉"), { summary: probe?.summary });
       checkEquals("Q12.full-chapter-title", probe?.firstTitle, "机器幻觉的成因：评分机制与语言本质");
       checkEquals("Q12.no-split-subtitle", probe?.splitTitleCount, 0);

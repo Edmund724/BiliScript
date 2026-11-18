@@ -553,7 +553,7 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     const sections = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-section"));
     expect(sections.length).toBe(3);
     const [summarySection, chapterSection, quoteSection] = sections;
-    expect(summarySection.querySelector(".biliscript-reading-ov-h")?.textContent).toBe("简介");
+    expect(summarySection.querySelector(".biliscript-reading-ov-h")).toBeNull();
     expect(summarySection.textContent).toContain("全片简介");
     expect(chapterSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("章节");
     expect(quoteSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("金句");
