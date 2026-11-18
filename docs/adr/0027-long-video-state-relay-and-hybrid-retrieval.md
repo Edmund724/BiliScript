@@ -41,7 +41,7 @@
   1. **L1 索引缺失/未就绪**：跳过章节裁剪，直接对全片 L0 执行轻量 BM25 检索与扩窗（`degradeReason = "l1-index-missing"`）。
   2. **指定章节区间内零命中**：自动放宽区间限制至全片 L0 执行一次 BM25 检索（`degradeReason = "chapter-range-empty-hits"`）。
   3. **全片 BM25 仍零命中**：退回既有 `compressedSummaryMarkdown`（或 `raw-retrieval.ts` 既有兜底，不抛错、不阻塞提问，`degradeReason = "l0-zero-hits"`）。
-  4. **预算封顶**：注入 L0 窗口总量严格受单轮检索预算（对齐 `RAW_INJECTION_MAX_CHARS = 30000`）与 `buildBudgetPlan` 字符线约束，超出按 BM25 得分截断。
+  4. **预算封顶**：注入 L0 窗口总量严格受单轮检索预算（`STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 80000`，BM25 扩窗与路由区间各自上限 `40000`）与 `buildBudgetPlan` 字符线约束，超出按 BM25 得分截断。
 - **与既有工具链正交**：`ai/tool-loop.ts` 承载的联网搜索（`web_search`）、视频关键帧采样（`capture_current_video_frame` / `capture_video_frame_at_time`）与热门评论（`fetch_hot_comments`）继续独立运行；单跳召回仅负责字幕上下文装配，不占用搜索配额。
 
 ### 4. 本地存储与隐私边界（对齐 `PRIVACY.md`）

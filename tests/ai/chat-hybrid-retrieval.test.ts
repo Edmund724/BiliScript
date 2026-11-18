@@ -15,7 +15,8 @@ import {
   isSimpleGreetingPrompt,
   mergeL0ContextWindows,
   parseL1RouterOutput,
-  resolveLongVideoHybridContext
+  resolveLongVideoHybridContext,
+  STAGE_B_TOTAL_SUBTITLE_MAX_CHARS
 } from "../../extension/ai/chat-hybrid-retrieval.js";
 import { buildL1VideoIndex } from "../../extension/ai/l1-directory.js";
 import { normalizeL0SubtitleLines } from "../../extension/ai/l0-bm25.js";
@@ -255,6 +256,26 @@ describe("双路字幕合并去重与两阶段单跳混合召回", () => {
     const capped = mergeL0ContextWindows(l0Lines, [[winA, winB], [winC]], { maxInjectedChars: 120 });
     expect(capped.truncated).toBe(true);
     expect(capped.injectedChars).toBeLessThanOrEqual(120);
+
+    const largeLines = normalizeL0SubtitleLines(
+      Array.from({ length: 120 }, (_, i) => ({
+        from: i * 10,
+        to: i * 10 + 9,
+        content: `L${i}_` + "长字幕文本".repeat(199)
+      }))
+    );
+    const fullWin: L0ContextWindow = {
+      anchorLineNumber: 0,
+      startLineNumber: 0,
+      endLineNumber: largeLines.length - 1,
+      from: largeLines[0].from,
+      to: largeLines[largeLines.length - 1].to,
+      lines: largeLines
+    };
+    const defaultCapped = mergeL0ContextWindows(largeLines, [[fullWin]]);
+    expect(defaultCapped.truncated).toBe(true);
+    expect(defaultCapped.injectedChars).toBeLessThanOrEqual(STAGE_B_TOTAL_SUBTITLE_MAX_CHARS);
+    expect(defaultCapped.injectedChars).toBeGreaterThan(STAGE_B_TOTAL_SUBTITLE_MAX_CHARS - 2000);
   });
 
   it("简单寒暄免路由直接进入直答", async () => {

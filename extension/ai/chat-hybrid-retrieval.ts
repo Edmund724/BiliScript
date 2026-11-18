@@ -51,9 +51,9 @@ export const FAST_PATH_WINDOW_RADIUS_SECONDS = 30;
 export const HYBRID_BM25_TOP_K = 6;
 export const HYBRID_BM25_RADIUS_LINES = 4;
 export const HYBRID_BM25_RADIUS_SECONDS = 15;
-export const HYBRID_BM25_MAX_CHARS = 15_000;
-export const ROUTED_RANGE_MAX_CHARS = 15_000;
-export const STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 30_000;
+export const HYBRID_BM25_MAX_CHARS = 40_000;
+export const ROUTED_RANGE_MAX_CHARS = 40_000;
+export const STAGE_B_TOTAL_SUBTITLE_MAX_CHARS = 80_000;
 
 const SIMPLE_GREETING_RE =
   /^(?:你好|您好|嗨|哈喽|早上好|中午好|晚上好|早安|晚安|谢谢|感谢|多谢|好的|好哒|行|收到|明白|了解|知道了|再见|拜拜|在吗|你是谁|你能做什么|帮我看看|hi+|hello+|hey+|thanks?|thank you|ok+|okay|bye)[!！。.~～？?、，,\s]*$/i;
