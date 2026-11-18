@@ -68,9 +68,12 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
   // 缺失时 buildSubtitlePrompt 默认 true（与历史默认一致）。
   // 追问压缩路径的发送物是「分段小结 + 成稿笔记」而非逐字字幕，标签如实分流：
   // 误标「字幕全文」会让模型对时间戳引用与原话类问题过度自信。
+  const hybridRetrieval = String(ctx.hybridRetrievalMarkdown || "");
   const compressedSummary = String(ctx.compressedSummaryMarkdown || "");
-  const subtitleText = compressedSummary
-    || buildSubtitlePrompt({
+  const subtitleText =
+    hybridRetrieval ||
+    compressedSummary ||
+    buildSubtitlePrompt({
       body: ctx.subtitleBody,
       chapters: ctx.chapters,
       videoDuration: ctx.videoDuration,
@@ -78,9 +81,11 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     });
   if (subtitleText) {
     sections.push(
-      compressedSummary
-        ? `以下是本视频此前的整理成果（分段小结与成稿笔记，非逐字字幕）：\n\n${subtitleText}`
-        : `以下是视频的字幕全文：\n\n${subtitleText}`
+      hybridRetrieval
+        ? `以下是本视频的章节目录与按需召回的原始字幕片段（含精确时间戳，非全片逐字全文）：\n\n${subtitleText}`
+        : compressedSummary
+          ? `以下是本视频此前的整理成果（分段小结与成稿笔记，非逐字字幕）：\n\n${subtitleText}`
+          : `以下是视频的字幕全文：\n\n${subtitleText}`
     );
   } else {
     sections.push("（暂无字幕）");
@@ -116,7 +121,12 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
 
   // 本轮 user 消息：图片（image-input 路线 B）挂在这条上（也是「最近一条用户
   // 消息的图片」——上面的历史重发策略据此让位）。
-  const userMessage: ChatMessage = { role: "user", content: String(userPrompt || "") };
+  const frameContextNote = String(ctx.frameContextNote || "").trim();
+  const promptText = String(userPrompt || "");
+  const userMessage: ChatMessage = {
+    role: "user",
+    content: frameContextNote ? `${promptText}\n\n${frameContextNote}` : promptText
+  };
   if (images?.length) {
     userMessage.images = images;
   }

@@ -11,6 +11,8 @@ import { logError } from "../shared/logging.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWithEviction } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
+import { L1_INDEX_CACHE_PREFIX, isL1VideoIndexCacheRecord } from "./l1-directory.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶（候选 5）：SW 侧装配 / offscreen
 // 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
 import { segmentCacheKeyFields, segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
@@ -229,5 +231,39 @@ export async function loadStoredRawSegments({ bvid, cid, subtitleId = "", subtit
     return out;
   } catch {
     return [];
+  }
+}
+
+/**
+ * 读取 SW 宿主存储中的 L1 章节目录索引：按 (bvid, cid, 字幕轨 source key) 枚举并校验，
+ * 返回最新一条有效记录；缺参 / 未命中 / 读失败 → null（绝不抛错）。
+ */
+export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredRawSegmentsInput = {}): Promise<L1VideoIndexCacheRecord | null> {
+  try {
+    if (!bvid || !cid || !globalThis.chrome?.storage?.local) {
+      return null;
+    }
+    const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
+    const keyPrefix = `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_`;
+    const indexKeys = await readFamilyKeys(L1_INDEX_CACHE_PREFIX, bvid, keyPrefix);
+    const all = indexKeys
+      ? await chrome.storage.local.get(indexKeys)
+      : await chrome.storage.local.get(null);
+    let best: L1VideoIndexCacheRecord | null = null;
+    for (const [key, envelope] of Object.entries(all || {})) {
+      if (!key.startsWith(keyPrefix)) {
+        continue;
+      }
+      const candidate = (envelope as { index?: unknown } | undefined)?.index;
+      if (!isL1VideoIndexCacheRecord(candidate)) {
+        continue;
+      }
+      if (!best || (candidate.updatedAt || 0) >= (best.updatedAt || 0)) {
+        best = candidate;
+      }
+    }
+    return best;
+  } catch {
+    return null;
   }
 }

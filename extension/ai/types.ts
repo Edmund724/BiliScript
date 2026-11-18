@@ -2,6 +2,7 @@
 // 只放纯类型与常量型字面量，不依赖运行时模块，供 ai/ 内部各模块复用。
 
 import type { AiProtocol } from "./protocol-adapter.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
@@ -120,6 +121,9 @@ export interface AiContext {
   hotComments?: HotComment[];
   isVideoContext?: boolean;
   compressedSummaryMarkdown?: string;
+  hybridRetrievalMarkdown?: string;
+  frameContextNote?: string;
+  l1Index?: L1VideoIndexCacheRecord | null;
   aiSystemPrompt?: string;
   [key: string]: unknown;
 }

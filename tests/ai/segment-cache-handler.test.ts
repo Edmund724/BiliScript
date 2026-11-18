@@ -115,3 +115,33 @@ describe("既有单族 op 行为不变", () => {
     expect(storage.map.get("biliscript_lvs_raw_BV1h_9_id_sub-1_1")).toMatchObject({ segments: [{ from: 0, to: 1, content: "y" }] });
   });
 });
+
+describe("load-l1-index 读取 L1 章节目录缓存", () => {
+  it("按 bvid + cid + 字幕轨匹配已落盘的 L1 索引；缺失/未命中返回 null", async () => {
+    const { buildL1VideoIndex, buildL1IndexCacheKey, saveL1Index } = await import("../../extension/ai/l1-chapter-index.js");
+    const missing = await request({ type: "segment-cache", op: "load-l1-index", context: CONTEXT });
+    expect(missing).toEqual({ ok: true, l1Index: null });
+
+    const record = buildL1VideoIndex({
+      bvid: CONTEXT.bvid,
+      cid: CONTEXT.cid,
+      subtitleId: CONTEXT.selectedSubtitleId,
+      subtitleSignature: "sig_sw_1",
+      videoDuration: 1800,
+      globalSummary: "SW 宿主读取测试",
+      chapters: [{ from: 0, to: 1800, title: "第一章", coreThesis: "核心测试论点" }]
+    });
+    const key = buildL1IndexCacheKey({
+      bvid: CONTEXT.bvid,
+      cid: CONTEXT.cid,
+      subtitleId: CONTEXT.selectedSubtitleId,
+      subtitleSignature: "sig_sw_1"
+    });
+    await saveL1Index(key, record);
+
+    const hit = await request({ type: "segment-cache", op: "load-l1-index", context: CONTEXT });
+    expect(hit.ok).toBe(true);
+    expect(hit.l1Index?.globalSummary).toBe("SW 宿主读取测试");
+    expect(hit.l1Index?.chapters[0].title).toBe("第一章");
+  });
+});

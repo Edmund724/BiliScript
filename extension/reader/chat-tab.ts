@@ -152,6 +152,7 @@ import {
 } from "../live/live-companion-session.js";
 import { createChatLiveStatus } from "./chat-live-status.js";
 import { capturePageVideoFrame } from "../live/page-video-frame-capture.js";
+import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { encodeBase64Bytes } from "../live/moss-live-protocol.js";
 import { captureHistoricalVideoFrame } from "../chat/historical-video-frame.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
@@ -402,6 +403,7 @@ const composer = createReaderChatComposer({
   isImageProcessing: () => inputImages.isPending(),
   hasInputImages: () => inputImages.count() > 0,
   prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
+  getManualPromptAnchor: () => explainIntentController.getPendingFollowUpAnchor(),
   onManualPromptAccepted: () => explainIntentController.completePendingFollowUp(),
   getLiveState: () => getLiveController()?.getState() ?? "idle",
   onStartLive: () => {
@@ -411,7 +413,12 @@ const composer = createReaderChatComposer({
 
 const explainIntentController = createExplainIntentController({
   card: els.intentCard,
-  sendPrompt: (prompt) => composer.sendViaInputBox(prompt, { preserveDraft: true, restoreOnReject: true }),
+  sendPrompt: (prompt, options) =>
+    composer.sendViaInputBox(prompt, {
+      preserveDraft: true,
+      restoreOnReject: true,
+      ...(options?.interactionAnchor ? { interactionAnchor: options.interactionAnchor } : {})
+    }),
   isTurnActive: () => chatRuntime.isTurnActive(),
   onNotice: showConversationContextNotice,
   onFocusInput: () => els.input?.focus?.({ preventScroll: true })
@@ -539,6 +546,13 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     return images;
   },
   canUseVideoFrameTool: () => imageSupportGate.supportsImages(),
+  getPlaybackCursorSeconds: () => {
+    const video = getRuntimeVideoElement() || state.reader.readingVideoEl;
+    const currentTime = video?.currentTime;
+    return typeof currentTime === "number" && Number.isFinite(currentTime) && currentTime >= 0
+      ? currentTime
+      : undefined;
+  },
   captureCurrentVideoFrame: async (targetTime?: number, signal?: AbortSignal) => {
     if (targetTime === undefined) {
       const frame = await capturePageVideoFrame();

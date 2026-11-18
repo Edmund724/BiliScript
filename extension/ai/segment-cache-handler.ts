@@ -20,6 +20,7 @@ import {
   saveRawSegments,
   saveSegmentSummaryWithRaw,
   loadStoredRawSegments,
+  loadStoredL1Index,
   segmentCacheKeyStringFields
 } from "./segment-cache.js";
 import { retrieveRawSegments } from "./raw-retrieval.js";
@@ -95,6 +96,10 @@ export function createSegmentCacheHandler(): (
           ok: true,
           storedSegments: stored.map((seg) => (hitIndexes.has(seg.index) ? seg : { ...seg, items: [] }))
         };
+      },
+      "load-l1-index": async (message) => {
+        const l1Index = await loadStoredL1Index(segmentCacheKeyStringFields(message.context));
+        return { ok: true, l1Index };
       }
     }
   });

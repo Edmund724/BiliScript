@@ -38,7 +38,7 @@ extension/
 ├── _locales/              # 多语言文案资源
 ├── entry/                 # 运行时入口（background、content、offscreen 及样式）
 ├── agent-bridge/          # 本地 Agent WebSocket 桥接、多实例路由与视频采集
-├── ai/                    # AI 客户端、多协议适配、SSE 流式解析与播放器快捷按钮
+├── ai/                    # AI 客户端、多协议适配、长视频 L0/L1 索引与两阶段混合召回、SSE 流式解析与播放器快捷按钮
 ├── asr/                   # 语音识别（音频分片、并发转写、WAV 编码）
 ├── bilibili/              # B 站 API 网关与视频 ID 解析
 ├── chat/                  # 对话运行时与本地会话存储

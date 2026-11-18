@@ -5,7 +5,7 @@
 import { formatClock, parseClock } from "../shared/clock-text.js";
 import { joinSubtitleText } from "../subtitle/text-classification.js";
 import { MATERIAL_BUDGET_CHARS, SEGMENT_INPUT_CHARS } from "./budgeter.js";
-import { parseLooseJson } from "./json-repair.js";
+import { parseLooseJson, stripModelReasoningAndFences } from "./json-repair.js";
 import { estimateCompactPromptTokens, normalizeL0SubtitleLines, tokenizeLexicalText } from "./l0-bm25.js";
 import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter, type AnalysisQuote } from "./analysis-validate.js";
 import type { ChapterPlan } from "./chapter-plan.js";
@@ -378,25 +378,6 @@ export function serializeStateRelayCard(card: StateRelayCard | null | undefined)
 // ============================================================
 // 文本清理与容错字段解析（适配 ModelScope 免费接口与小参数模型）
 // ============================================================
-
-function stripModelReasoningAndFences(rawText: unknown): string {
-  let text = String(rawText ?? "").trim();
-  // 剥除小模型/推理模型偶发泄露进正文的 <think>...</think> 块
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  // 若有未闭合的前导 <think> 且后面明显带 JSON，仅保留最后一个独立 JSON 起止前的内容之外部分
-  if (/^<think>/i.test(text) && text.includes("{")) {
-    const braceIdx = text.indexOf("{");
-    if (braceIdx > 0) {
-      text = text.slice(braceIdx);
-    }
-  }
-  // 剥除包含在说明文字中的 ```json ... ``` 围栏
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  if (fenced && fenced[1]?.includes("{")) {
-    return fenced[1].trim();
-  }
-  return text;
-}
 
 function parseLineNumberToken(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) {

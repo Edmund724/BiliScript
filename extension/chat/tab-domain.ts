@@ -135,6 +135,7 @@ export interface CreateChatTabDomainDeps {
   takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  getPlaybackCursorSeconds?: () => number | undefined;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -230,6 +231,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     takeInputImages: deps.takeInputImages,
     canUseVideoFrameTool: deps.canUseVideoFrameTool,
     captureCurrentVideoFrame: deps.captureCurrentVideoFrame,
+    getPlaybackCursorSeconds: deps.getPlaybackCursorSeconds,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort,

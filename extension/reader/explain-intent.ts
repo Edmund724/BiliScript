@@ -7,6 +7,7 @@
 //
 // 单槽 pending（后写覆盖先写）：仅保留最新一条待解释意图。
 import { formatClock } from "../shared/clock-text.js";
+import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 
 const ACTIVE_TURN_INTENT_NOTICE = "当前对话正在生成，待本轮结束后可继续追问或发送。";
 
@@ -54,7 +55,7 @@ export function createExplainIntentController({
   onFocusInput
 }: {
   card: HTMLElement | null;
-  sendPrompt: (text: string) => Promise<boolean>;
+  sendPrompt: (text: string, options?: { interactionAnchor?: InteractionAnchorHint }) => Promise<boolean>;
   isTurnActive?: () => boolean;
   onNotice?: (message: string, autoHideMs?: number) => void;
   onFocusInput?: () => void;
@@ -114,6 +115,23 @@ export function createExplainIntentController({
     return `针对${target}的已有解释：\n${intent.explanation}\n\n追问：${question}`;
   }
 
+  function buildAnchor(intent: ReaderExplainIntent): InteractionAnchorHint {
+    return {
+      kind: "explain-selection",
+      from: intent.from,
+      ...(intent.content ? { lineContent: intent.content } : {}),
+      ...(intent.selection ? { selection: intent.selection } : {})
+    };
+  }
+
+  function getPendingFollowUpAnchor(): InteractionAnchorHint | undefined {
+    const intent = peekPending();
+    if (!intent || !intent.explanation || !intent.content) {
+      return undefined;
+    }
+    return buildAnchor(intent);
+  }
+
   function completePendingFollowUp(): void {
     if (pendingIntent?.explanation) {
       pendingIntent = null;
@@ -144,7 +162,7 @@ export function createExplainIntentController({
       return;
     }
     const currentSlot = pendingIntent;
-    const sent = await sendPrompt(prompt);
+    const sent = await sendPrompt(prompt, { interactionAnchor: buildAnchor(intent) });
     if (sent && pendingIntent === currentSlot) {
       pendingIntent = null;
       hide();
@@ -165,5 +183,5 @@ export function createExplainIntentController({
     }
   });
 
-  return { consumeIfPending, cancel, hide, buildFollowUpPrompt, completePendingFollowUp };
+  return { consumeIfPending, cancel, hide, buildFollowUpPrompt, getPendingFollowUpAnchor, completePendingFollowUp };
 }

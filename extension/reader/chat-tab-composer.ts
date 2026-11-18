@@ -13,6 +13,7 @@
 
 import type { SendTurnOptions } from "../chat/chat-runtime.js";
 import type { SendVerdict } from "../chat/turn-lifecycle.js";
+import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 
 // 输入框高度只随内容走：scrollHeight（内容自然高）写回 min-height，上限 320。
 // 不设聚焦下限——点击聚焦不再撑高（2026-11 用户决议：去掉「聚焦即展开两行」
@@ -42,6 +43,7 @@ export interface ReaderChatComposerRuntime {
 export interface SendViaInputBoxOptions {
   preserveDraft?: boolean;
   restoreOnReject?: boolean;
+  interactionAnchor?: InteractionAnchorHint;
 }
 
 export interface ReaderChatComposerDeps {
@@ -55,6 +57,7 @@ export interface ReaderChatComposerDeps {
   isImageProcessing?: () => boolean;
   hasInputImages?: () => boolean;
   prepareManualPrompt?: (text: string) => string;
+  getManualPromptAnchor?: () => InteractionAnchorHint | undefined;
   onManualPromptAccepted?: () => void;
   getLiveState?: () => "idle" | "connecting" | "connected" | "failure";
   onStartLive?: () => void;
@@ -226,7 +229,9 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
       return false;
     }
     // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
-    const verdict = await chatRuntime.sendTurn(text);
+    const verdict = options.interactionAnchor
+      ? await chatRuntime.sendTurn(text, { interactionAnchor: options.interactionAnchor })
+      : await chatRuntime.sendTurn(text);
     if (verdict !== "accepted") {
       if (options.restoreOnReject) {
         input.value = prevValue;
@@ -256,8 +261,11 @@ export function createReaderChatComposer(deps: ReaderChatComposerDeps): ReaderCh
     if (!input.value.trim()) {
       return;
     }
+    const interactionAnchor = deps.getManualPromptAnchor?.();
     const outgoing = deps.prepareManualPrompt ? deps.prepareManualPrompt(input.value) : input.value;
-    const verdict = await chatRuntime.sendTurn(outgoing);
+    const verdict = interactionAnchor
+      ? await chatRuntime.sendTurn(outgoing, { interactionAnchor })
+      : await chatRuntime.sendTurn(outgoing);
     if (verdict === "accepted") {
       deps.onManualPromptAccepted?.();
     } else if (verdict === "ignored" && subtitleWaitActive) {

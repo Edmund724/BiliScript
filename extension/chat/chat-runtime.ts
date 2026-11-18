@@ -58,6 +58,7 @@
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { AiContext, CaptureCurrentVideoFrame, ImagePart } from "../ai/types.js";
+import type { InteractionAnchorHint } from "../ai/chat-hybrid-retrieval.js";
 // 会话 id 生成（平台会话头 x-opencode-session 的身份来源，见 ai/preset-headers.ts）：
 // 发送时物化，缺失才生成——持久化路径 persistCurrent 见已有 id 直接沿用。
 import { buildContextKey, generateConversationId } from "../ai/conversation.js";
@@ -100,6 +101,8 @@ export type { SendVerdict };
 export interface SendTurnOptions {
   /** 独立发送：不读取也不清空输入区文本与草稿附件。 */
   preserveInputDraft?: boolean;
+  /** 交互锚点直通元数据（如划词解释「去对话追问」）。 */
+  interactionAnchor?: InteractionAnchorHint;
 }
 
 // 在途回合结算（C′，见 isTurnActive / settleTurn）的看门狗兜底窗口（含「为什么
@@ -182,6 +185,7 @@ export interface CreateChatRuntimeDeps {
   takeInputImages?: (snapshot?: ImagePart[]) => ImagePart[];
   canUseVideoFrameTool?: () => Promise<boolean>;
   captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  getPlaybackCursorSeconds?: () => number | undefined;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -771,6 +775,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     const sendOptions = pendingSendOptions;
     pendingSendOptions = null;
     const preserveInputDraft = Boolean(sendOptions?.preserveInputDraft);
+    const interactionAnchor = sendOptions?.interactionAnchor;
     try {
       deps.ui.hideHistoryPopover();
 
@@ -938,6 +943,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       const livePageKey = String(chatSessionState.liveContextKey || "").trim();
       const sameLiveVideo = !livePageKey || !contextKey || contextKey === livePageKey;
+      const rawPlaybackCursor = !branch?.contextMismatched && sameLiveVideo ? deps.getPlaybackCursorSeconds?.() : undefined;
+      const playbackCursorSeconds =
+        typeof rawPlaybackCursor === "number" && Number.isFinite(rawPlaybackCursor) && rawPlaybackCursor >= 0
+          ? rawPlaybackCursor
+          : undefined;
       const videoFrameToolEnabled = !branch?.contextMismatched && sameLiveVideo && await deps.canUseVideoFrameTool?.() === true;
       if (epoch !== acceptanceEpoch) {
         try { port.disconnect(); } catch {}
@@ -961,6 +971,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         // 偏好已关时本条传 false（本轮不搜索），其余情况等于全局记忆。
         webSearchEnabled,
         ...(videoFrameToolEnabled ? { videoFrameToolEnabled: true } : {}),
+        ...(interactionAnchor ? { interactionAnchor } : {}),
+        ...(playbackCursorSeconds !== undefined ? { playbackCursorSeconds } : {}),
         context,
         contextKey,
         prompt: text,

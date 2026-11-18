@@ -19,6 +19,7 @@
 // 字符的 subtitleBody）不再过线。
 
 import type { SegmentCacheContext, SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 出站点投影单源（零依赖叶）：offscreen 侧不能 import 拖 storage 的层，投影实现只能
 // 住在两侧都够得着的零 import 叶里——本模块不再就地写第二份字段清单。
 import { projectSegmentCacheContext } from "./segment-cache-key-fields.js";
@@ -130,6 +131,19 @@ export const segmentCacheProxy: SegmentCacheReadOps = {
     return response.storedSegments;
   }
 };
+
+/**
+ * 从 SW 宿主读取当前视频对应的 L1 章节目录缓存；未命中/失败返回 null（绝不抛错）。
+ */
+export async function loadL1IndexViaProxy(input: { context?: Record<string, unknown> }): Promise<L1VideoIndexCacheRecord | null> {
+  const response = await segmentCacheRequest("load-l1-index", {
+    context: projectSegmentCacheContext(input.context)
+  });
+  if (!response.ok || !response.l1Index) {
+    return null;
+  }
+  return response.l1Index;
+}
 
 /**
  * run-scoped 写会话（Map-Reduce 等编排在一次运行内唯一持有的写单元）：

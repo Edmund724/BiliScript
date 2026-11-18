@@ -6,6 +6,25 @@
 // 整搬自参考仓库 lib/ai.js:45-79 / 86-110，实现零改动。
 
 /**
+ * 剥除推理模型/小模型偶发泄露的 `<think>...</think>` 思考块与 ```json ... ``` 围栏。
+ */
+export function stripModelReasoningAndFences(rawText: unknown): string {
+  let text = String(rawText ?? "").trim();
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (/^<think>/i.test(text) && text.includes("{")) {
+    const braceIdx = text.indexOf("{");
+    if (braceIdx > 0) {
+      text = text.slice(braceIdx);
+    }
+  }
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fenced && fenced[1]?.includes("{")) {
+    return fenced[1].trim();
+  }
+  return text;
+}
+
+/**
  * 截断修复：输出撞到 max_tokens 或传输中断时，JSON 会停在字符串或括号中间。
  * 扫描出未闭合的部分原样补齐，保住已生成的内容（整搬 lib/ai.js:45-79）。
  */

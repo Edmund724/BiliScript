@@ -22,6 +22,7 @@ import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
+import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
 import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
@@ -303,7 +304,7 @@ export type ResolveSubtitleTranslateProviderResponse = {
 export type SegmentCacheContext = SegmentCacheContextFields & { chapters?: unknown };
 export type SegmentCacheMessage = {
   type: "segment-cache";
-  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw";
+  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw" | "load-l1-index";
   // 键位字段载荷（出站点投影后的窄对象），SW 端经 segmentCacheKeyFields 归一为键位字段
   context?: SegmentCacheContext;
   segmentIndex?: number | string;
@@ -329,6 +330,8 @@ export type SegmentCacheResponse = {
   // load-stored-raw 回包：按段序排列的落盘原始段（无命中为空数组；带 prompt 时
   // 非命中段 items 已被剥离，段元数据 index/from/to 保留）
   storedSegments?: unknown[];
+  // load-l1-index 回包：命中且校验通过的 L1 章节目录索引缓存记录
+  l1Index?: L1VideoIndexCacheRecord | null;
   // save-summary-raw 合并写回包的 per-op 结果：两族各自成败（粗粒度，同败同果；
   // 保住写失败可观测性，offscreen 侧任一失败都汇成一次 { ok:false } 上浮）
   summarySaved?: { ok: boolean; error?: string };
@@ -648,6 +651,15 @@ export type OffscreenChatMessage = {
   // 是否解析搜索配置并注入 tools；Map-Reduce 归约轮由 ladder 静默禁用 + notice。
   webSearchEnabled?: boolean;
   videoFrameToolEnabled?: boolean;
+  // 交互锚点直通（ADR-0027 Fast Path）：划词解释/选中字幕句带精确锚点进对话，
+  // playbackCursorSeconds 为当前播放时间点（秒），供免路由直通提取 L0 上下文窗口。
+  interactionAnchor?: {
+    kind: "explain-selection";
+    from: number;
+    lineContent?: string;
+    selection?: string;
+  };
+  playbackCursorSeconds?: number;
   // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
   // 按 03 号票规格压缩后的 WebP base64，无图时不带字段）。
   images?: ImagePart[];

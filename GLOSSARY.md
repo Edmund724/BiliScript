@@ -359,3 +359,13 @@ _Avoid_: 发送前检查、发送前置条件散落各调用点、按输入框�
 把当前会话历史整段重建进消息区的分片渲染事务：世代号作废过期分片（清场/新轮）、50ms 帧预算让出主线程、发送路径先等待在途回放让位再追加消息。唯一事务，chat 域内组装，编排壳经 render/invalidate/inFlight 三件持有。回放本身不感知在途回合（方向纪律：单向等待，回放不等任何东西）——流式中点历史项（或点同一会话重放）由点击接缝先 `await runtime.settleTurn()`：在途时发停流、等 stopped/done/error 终态落定（终态路径把在途一问一答含 partial 正文写回**原**会话并落盘）后才 `store.applyById`；不在途时零延迟零行为差。拆除类入口（删除/清空/新对话/关闭会话）不经此接缝，维持有意断流。
 代码名：`extension/chat/replay.ts`（`createConversationReplay`）/ `render` / `invalidate` / `inFlight` / `settleTurn`（= turn-lifecycle 的 `settled`）/ `isTurnActive`（chat-runtime 返回面）
 _Avoid_: 重渲消息区、逐条 append 重建、绕过世代号直接清场、让回放等待在途回合（结构死锁方向）
+
+**两阶段单跳混合召回**:
+长视频（超 30 分钟或超 200k 字符）下多轮 AI 对话的渐进式上下文召回架构（ADR-0027）：严格限制每次提问最多单跳路由（不依赖多轮原生 Tool Calling 循环，兼容 OpenAI / Anthropic / Gemini / ModelScope 协议）。阶段 A 同步执行本地 L0 BM25 词法检索，并在视频已有 L1 目录缓存（offscreen 经 `segment-cache` 消息族的 `load-l1-index` 向 SW 宿主读取）且非简单寒暄时，并发发起极简非流式路由请求（`thinkingLevel: "off"`，带短超时）判定：宏观问题直接标记 `direct-answer` 无需展开，细节问题输出最多 1～2 个章节时间区间及补充检索词；阶段 B 将选定区间字幕与 BM25 命中扩窗字幕按时间顺序去重合并（`mergeL0ContextWindows`），连同常驻 L1 目录送入主对话流式生成。路由超时、限流（429）或返回非预期格式时自动静默降级为「L1 目录 + 本地 BM25 Top 扩窗」。若提问涉及画面/板书/图表且已启用视频关键帧能力，优先复用召回命中的核心时间戳触发关键帧采样，并与思考强度调节及免 Key 联网搜索正交兼容。
+代码名：`ai/chat-hybrid-retrieval.ts`（`resolveLongVideoHybridContext` / `mergeL0ContextWindows` / `parseL1RouterOutput` / `doesPromptNeedVisualFrame`）/ `ai/l1-directory.ts`（零存储依赖 L1 纯模块）/ `ai/l0-bm25.ts` / `ai/ladder.ts`（`runLadderChat`）/ `segment-cache` 的 `load-l1-index` op
+_Avoid_: 多轮 Agent 自主检索循环、引入本地向量库或第三方分词依赖、在 offscreen 直接访问 `chrome.storage`
+
+**交互锚点直通**:
+两阶段单跳混合召回的免路由快速路径（Fast Path，ADR-0027）：当用户触发划词解释（`explain-selection`，来自 `reader/explain-intent.ts` 的待解释意图）、问题中包含显式时间戳，或针对当前播放进度（`playbackCursorSeconds`）作指代性提问时，跳过阶段 A 模型路由请求，直接以目标时间戳或选中字幕行号为中心抽取 L0 前后扩窗原始字幕与所属 L1 章节摘要，零额外首字延迟直入流式回答（超预算视频亦跳过成本护栏与 Map-Reduce）。
+代码名：`detectInteractionAnchorPlan` / `buildFastPathContext`（`ai/chat-hybrid-retrieval.ts`）/ `InteractionAnchorHint`（`chat/chat-runtime.ts`、`reader/explain-intent.ts`）/ `playbackCursorSeconds`（`shared/messaging-protocol.ts`、`reader/chat-tab.ts`）
+_Avoid_: 对划词解释或时间戳追问发起二次路由请求、触发全量 Map-Reduce 归约

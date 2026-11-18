@@ -18,9 +18,22 @@ import { estimateTokensFromChars } from "./usage-stats.js";
 // 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
 // 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
 import { normalizeImageParts } from "./conversation.js";
+import { loadL1IndexViaProxy } from "./segment-cache-proxy.js";
+import { normalizeL0SubtitleLines } from "./l0-bm25.js";
+import {
+  detectInteractionAnchorPlan,
+  doesPromptNeedVisualFrame,
+  isLongVideoForHybridChat,
+  resolveLongVideoHybridContext,
+  type InteractionAnchorHint
+} from "./chat-hybrid-retrieval.js";
+import type { chatCompletion as ChatCompletionFn } from "./completion.js";
+import { formatClock } from "../shared/clock-text.js";
+import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
+import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
-import type { CaptureCurrentVideoFrame, ChatMessage, ImagePart } from "./types.js";
+import type { CaptureCurrentVideoFrame, CapturedVideoFrame, ChatMessage, ImagePart, ProviderRequest } from "./types.js";
 import type { FetchHotCommentsFn } from "./tool-loop.js";
 
 export interface ChatContext {
@@ -168,6 +181,133 @@ export interface RunLadderChatDeps {
   // 08 票 SW 保活缝：运行期间持有 offscreen → SW 长连端口防冷启动，
   // 缺省真实 acquire（无 chrome 环境返回 null，跳过保活）。
   acquireSwKeepalive?: () => SwKeepaliveHandle | null;
+  // ADR-0027：L1 目录读取缝（缺省经 segmentCacheProxy 到 SW 宿主）与阶段 A 路由器缝
+  loadL1Index?: (context: ChatContext) => Promise<L1VideoIndexCacheRecord | null>;
+  routeChatCompletion?: typeof ChatCompletionFn;
+  routerTimeoutMs?: number;
+}
+
+function defaultLoadL1Index(context: ChatContext): Promise<L1VideoIndexCacheRecord | null> {
+  if (context?.l1Index && typeof context.l1Index === "object") {
+    return Promise.resolve(context.l1Index as L1VideoIndexCacheRecord);
+  }
+  if (!context?.bvid || !context?.cid) {
+    return Promise.resolve(null);
+  }
+  return loadL1IndexViaProxy({ context }).catch(() => null);
+}
+
+function asInteractionAnchorHint(raw: unknown): InteractionAnchorHint | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj.kind !== "explain-selection") {
+    return null;
+  }
+  const from = Number(obj.from);
+  if (!Number.isFinite(from) || from < 0) {
+    return null;
+  }
+  return {
+    kind: "explain-selection",
+    from,
+    ...(typeof obj.lineContent === "string" ? { lineContent: obj.lineContent } : {}),
+    ...(typeof obj.selection === "string" ? { selection: obj.selection } : {})
+  };
+}
+
+function stripLegacyRawInjection(markdown: string): string {
+  const marker = "\n\n## 相关原始字幕段\n\n";
+  const idx = markdown.indexOf(marker);
+  return idx >= 0 ? markdown.slice(0, idx) : markdown;
+}
+
+async function preCaptureVisualFramesIfNeeded(input: {
+  userPrompt: string;
+  coreTimestamp?: number;
+  captureCurrentVideoFrame?: CaptureCurrentVideoFrame;
+  userImages?: ImagePart[];
+  port: ChatPort;
+  signal: AbortSignal | null;
+  onActivity?: () => void;
+}): Promise<{
+  finalUserImages?: ImagePart[];
+  frameContextNote?: string;
+  remainingCaptureFn?: CaptureCurrentVideoFrame;
+}> {
+  const { userPrompt, coreTimestamp, captureCurrentVideoFrame, userImages, port, signal, onActivity } = input;
+  if (
+    !captureCurrentVideoFrame ||
+    coreTimestamp === undefined ||
+    !Number.isFinite(coreTimestamp) ||
+    coreTimestamp < 0 ||
+    !doesPromptNeedVisualFrame(userPrompt)
+  ) {
+    return { finalUserImages: userImages, remainingCaptureFn: captureCurrentVideoFrame };
+  }
+
+  const targetTime = Math.floor(coreTimestamp);
+  const query = formatClock(targetTime, { hours: "auto" });
+  const callId = `hybrid-frame-${Date.now()}`;
+  onActivity?.();
+  port.postMessage({
+    type: "tool-status",
+    status: "searching",
+    tool: "capture_video_frame_at_time",
+    query,
+    callId,
+    targetTime,
+    generation: 0
+  });
+
+  try {
+    const rawResult = await captureCurrentVideoFrame(targetTime, signal ?? undefined);
+    const frames: CapturedVideoFrame[] = (Array.isArray(rawResult) ? rawResult : [rawResult]).slice(0, 3);
+    if (frames.length === 0) {
+      throw new Error("未截取到有效画面");
+    }
+    onActivity?.();
+    port.postMessage({
+      type: "tool-status",
+      status: "done",
+      tool: "capture_video_frame_at_time",
+      query,
+      callId,
+      targetTime,
+      resultCount: frames.length,
+      expectedCount: Array.isArray(rawResult) ? 3 : 1,
+      frames,
+      generation: 0
+    });
+    const actualTimes = frames.map((f) => formatClock(f.currentTime, { hours: "auto" })).join("、");
+    const frameImages = frames.map((f) => f.image);
+    const mergedImages = [...(userImages ?? []), ...frameImages].slice(0, 4);
+    const frameContextNote = `[已联动视频关键帧采样：目标时间点 ${query}，实际截图时间依次为 ${actualTimes}。图片已附带在当前消息中，请结合画面与字幕作答，不要将实际截图时间误述为目标时间点。]`;
+    return {
+      finalUserImages: mergedImages.length > 0 ? mergedImages : undefined,
+      frameContextNote,
+      remainingCaptureFn: undefined
+    };
+  } catch (e) {
+    if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
+      throw e;
+    }
+    onActivity?.();
+    port.postMessage({
+      type: "tool-status",
+      status: "failed",
+      tool: "capture_video_frame_at_time",
+      query,
+      callId,
+      targetTime,
+      generation: 0
+    });
+    return {
+      finalUserImages: userImages,
+      remainingCaptureFn: undefined
+    };
+  }
 }
 
 /**
@@ -193,6 +333,7 @@ export async function runLadderChat(
   const buildBudgetPlan: BuildBudgetPlanFn = deps.buildBudgetPlan ?? _buildBudgetPlan;
   const buildCostGuardNotice: BuildCostGuardNoticeFn = deps.buildCostGuardNotice ?? _buildCostGuardNotice;
   const trimRecentTurns: TrimRecentTurnsFn = deps.trimRecentTurns ?? (_trimRecentTurns as unknown as TrimRecentTurnsFn);
+  const loadL1Index = deps.loadL1Index ?? defaultLoadL1Index;
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
 
   // 08 票 SW 保活：本次运行（单次流式 / Map-Reduce / 追问压缩）全程持有
@@ -209,43 +350,159 @@ export async function runLadderChat(
     // streamChat 路径（追问压缩 / 单次）下发；非法项丢弃、空则 undefined。
     // Map-Reduce 主路径不进 history、各段现造 user 消息，图片不参与（04 号票）。
     const userImages = normalizeImageParts(msg.images);
-    if (plan.mode === "map-reduce") {
-      // 追问压缩：已有成稿笔记 + 分段小结时，改走「压缩摘要 + 检索注入 + 单次调用」，
-      // 不再重跑 Map-Reduce（token 随追问近乎常数）。
-      const followupContext = await resolveFollowupContext({
-        context: msg.context || {},
-        plan,
-        history: Array.isArray(msg.history) ? msg.history : [],
-        userPrompt: msg.prompt || ""
+    const l0Lines = normalizeL0SubtitleLines(
+      Array.isArray(msg.context?.subtitleBody)
+        ? (msg.context.subtitleBody as Array<{ from?: unknown; to?: unknown; content?: unknown }>)
+        : []
+    );
+    const isLongVideo = plan.mode === "map-reduce" || isLongVideoForHybridChat(l0Lines, msg.context);
+    const interactionAnchor = asInteractionAnchorHint(msg.interactionAnchor);
+    const playbackCursorSeconds =
+      typeof msg.playbackCursorSeconds === "number" && Number.isFinite(msg.playbackCursorSeconds) && msg.playbackCursorSeconds >= 0
+        ? msg.playbackCursorSeconds
+        : undefined;
+    const rawHistory = Array.isArray(msg.history) ? msg.history : [];
+    const userPrompt = msg.prompt || "";
+
+    // 统一长视频渐进式单跳流式执行封装（Fast Path 与 Stage A+B 共用）
+    const runHybridStreamTurn = async (args: {
+      baseContext: ChatContext;
+      l1Index: L1VideoIndexCacheRecord | null;
+      compressedSummaryMarkdown?: string;
+    }) => {
+      const resolution = await resolveLongVideoHybridContext({
+        context: args.baseContext,
+        userPrompt,
+        history: rawHistory,
+        l1Index: args.l1Index,
+        compressedSummaryMarkdown: args.compressedSummaryMarkdown,
+        interactionAnchor,
+        playbackCursorSeconds,
+        provider: provider as ProviderRequest,
+        signal,
+        routeChatCompletion: deps.routeChatCompletion,
+        routerTimeoutMs: deps.routerTimeoutMs
       });
-      if (followupContext) {
-        // 近 N 轮 verbatim 封顶：只带最近几轮历史，token 不随追问轮数增长。
-        const trimmedHistory = trimRecentTurns(msg.history);
-        try {
-          await streamChat({
-            provider,
-            context: followupContext,
-            userPrompt: msg.prompt || "",
-            history: trimmedHistory,
-            userImages,
-            thinkingLevel: msg.thinkingLevel,
-            port,
-            signal,
-            onActivity,
-            // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
-            webSearch,
-            captureCurrentVideoFrame,
-            fetchHotComments
-          });
-        } catch (e) {
-          // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
-          // streamChat 仅在溢出时抛带 .overflow 标记的错误（其余失败经 port error 回吐）。
-          if (!(e as { overflow?: boolean }).overflow) {
-            throw e;
-          }
-          port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
+      const visual = await preCaptureVisualFramesIfNeeded({
+        userPrompt,
+        coreTimestamp: resolution.coreTimestamp,
+        captureCurrentVideoFrame,
+        userImages,
+        port,
+        signal,
+        onActivity
+      });
+      const hybridContext: ChatContext = {
+        ...args.baseContext,
+        hybridRetrievalMarkdown: resolution.hybridRetrievalMarkdown,
+        ...(visual.frameContextNote ? { frameContextNote: visual.frameContextNote } : {}),
+        subtitleBody: []
+      };
+      const trimmedHistory = trimRecentTurns(rawHistory);
+      try {
+        await streamChat({
+          provider,
+          context: hybridContext,
+          userPrompt,
+          history: trimmedHistory,
+          userImages: visual.finalUserImages,
+          thinkingLevel: msg.thinkingLevel,
+          port,
+          signal,
+          onActivity,
+          webSearch,
+          captureCurrentVideoFrame: visual.remainingCaptureFn,
+          fetchHotComments
+        });
+      } catch (e) {
+        if (!(e as { overflow?: boolean }).overflow) {
+          throw e;
         }
+        port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
+      }
+    };
+
+    // 1. 交互锚点免路由直通（Fast Path）：划词解释 / 显式时间戳 / 当前播放进度
+    if (isLongVideo && l0Lines.length > 0) {
+      const fastPathPlan = detectInteractionAnchorPlan({
+        userPrompt,
+        interactionAnchor,
+        playbackCursorSeconds,
+        chapters: Array.isArray(msg.context?.chapters)
+          ? (msg.context.chapters as Array<{ title?: unknown; from?: unknown; to?: unknown }>)
+          : []
+      });
+      if (fastPathPlan) {
+        const l1Index = await loadL1Index(msg.context || {}).catch(() => null);
+        await runHybridStreamTurn({
+          baseContext: msg.context || {},
+          l1Index
+        });
         return;
+      }
+    }
+
+    if (plan.mode === "map-reduce") {
+      // 超预算长视频：优先尝试 L1 缓存与已有分段追问上下文，命中则走两阶段单跳混合召回
+      if (l0Lines.length > 0) {
+        const [l1Index, followupContext] = await Promise.all([
+          loadL1Index(msg.context || {}).catch(() => null),
+          rawHistory.length > 0
+            ? resolveFollowupContext({
+                context: msg.context || {},
+                plan,
+                history: rawHistory,
+                userPrompt
+              })
+            : Promise.resolve(null)
+        ]);
+        if (l1Index || followupContext) {
+          await runHybridStreamTurn({
+            baseContext: followupContext ?? (msg.context || {}),
+            l1Index,
+            compressedSummaryMarkdown: followupContext
+              ? stripLegacyRawInjection(String(followupContext.compressedSummaryMarkdown || ""))
+              : ""
+          });
+          return;
+        }
+      } else {
+        // 兼容无 L0 字幕行的注入桩测试路径（tests/ai/ladder.test.ts）
+        const followupContext = await resolveFollowupContext({
+          context: msg.context || {},
+          plan,
+          history: rawHistory,
+          userPrompt
+        });
+        if (followupContext) {
+          // 近 N 轮 verbatim 封顶：只带最近几轮历史，token 不随追问轮数增长。
+          const trimmedHistory = trimRecentTurns(msg.history);
+          try {
+            await streamChat({
+              provider,
+              context: followupContext,
+              userPrompt,
+              history: trimmedHistory,
+              userImages,
+              thinkingLevel: msg.thinkingLevel,
+              port,
+              signal,
+              onActivity,
+              // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
+              webSearch,
+              captureCurrentVideoFrame,
+              fetchHotComments
+            });
+          } catch (e) {
+            // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
+            // streamChat 仅在溢出时抛带 .overflow 标记的错误（其余失败经 port error 回吐）。
+            if (!(e as { overflow?: boolean }).overflow) {
+              throw e;
+            }
+            port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
+          }
+          return;
+        }
       }
 
       // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。顺序
@@ -293,6 +550,18 @@ export async function runLadderChat(
       return;
     }
 
+    // 预算内长视频（如 30 分钟~5 小时）且已有 L1 目录缓存：升级为两阶段单跳混合召回
+    if (isLongVideo && l0Lines.length > 0) {
+      const l1Index = await loadL1Index(msg.context || {}).catch(() => null);
+      if (l1Index) {
+        await runHybridStreamTurn({
+          baseContext: msg.context || {},
+          l1Index
+        });
+        return;
+      }
+    }
+
     // 单次路径 context-length 溢出 → 自动转 Map-Reduce 重试一次
     //（仅一次：map-reduce 各调用自身更短，再溢出就抛出错误；abort controller 复用，stop 仍可中止）。
     // streamChat 仅在 HTTP context-length 溢出时抛带 .overflow 标记的错误。
@@ -300,8 +569,8 @@ export async function runLadderChat(
       await streamChat({
         provider,
         context: msg.context || {},
-        userPrompt: msg.prompt || "",
-        history: Array.isArray(msg.history) ? msg.history : [],
+        userPrompt,
+        history: rawHistory,
         userImages,
         thinkingLevel: msg.thinkingLevel,
         port,
