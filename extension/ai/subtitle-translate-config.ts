@@ -25,21 +25,78 @@ export const INDEX_TRANSLATE_PROVIDER_ID = "bilibili-index-translate";
 export const INDEX_TRANSLATE_PROVIDER_NAME = "Bilibili Index-Translate";
 export const INDEX_TRANSLATE_BASE_URL = "https://index-translate.bilibili.com/v1";
 export const INDEX_TRANSLATE_HOST = "index-translate.bilibili.com";
-export const INDEX_TRANSLATE_MODEL = "Index-Translate-35B-A3B";
+export const INDEX_TRANSLATE_MODELS = [
+  "Index-Translate-35B-A3B",
+  "Index-Translate-9B",
+  "Index-Translate-2B"
+] as const;
+export type IndexTranslateModelId = (typeof INDEX_TRANSLATE_MODELS)[number];
+export const INDEX_TRANSLATE_DEFAULT_MODEL: IndexTranslateModelId = "Index-Translate-35B-A3B";
+export const INDEX_TRANSLATE_MODEL: IndexTranslateModelId = INDEX_TRANSLATE_DEFAULT_MODEL;
 export const INDEX_TRANSLATE_USER_AGENT = "Index-Translate-Client/1.0";
+
+export interface IndexTranslateModelOption {
+  id: IndexTranslateModelId;
+  label: string;
+  tier: "旗舰" | "均衡" | "轻量";
+  isDefault: boolean;
+  available: boolean;
+}
+
+export const INDEX_TRANSLATE_MODEL_OPTIONS: readonly IndexTranslateModelOption[] = [
+  {
+    id: "Index-Translate-35B-A3B",
+    label: "Index-Translate-35B-A3B（旗舰，默认）",
+    tier: "旗舰",
+    isDefault: true,
+    available: true
+  },
+  {
+    id: "Index-Translate-9B",
+    label: "Index-Translate-9B（均衡）",
+    tier: "均衡",
+    isDefault: false,
+    available: true
+  },
+  {
+    id: "Index-Translate-2B",
+    label: "Index-Translate-2B（轻量）",
+    tier: "轻量",
+    isDefault: false,
+    available: true
+  }
+];
 
 export const INDEX_TRANSLATE_BUILTIN_PROVIDER: ProviderListEntry = {
   id: INDEX_TRANSLATE_PROVIDER_ID,
   presetId: INDEX_TRANSLATE_PROVIDER_ID,
   name: INDEX_TRANSLATE_PROVIDER_NAME,
   baseUrl: INDEX_TRANSLATE_BASE_URL,
-  models: [INDEX_TRANSLATE_MODEL],
-  model: INDEX_TRANSLATE_MODEL,
+  models: [...INDEX_TRANSLATE_MODELS],
+  model: INDEX_TRANSLATE_DEFAULT_MODEL,
   requiresKey: false,
   hasSavedKey: false,
   enabled: true,
   protocol: "openai"
 };
+
+export function isIndexTranslateModelId(value: unknown): value is IndexTranslateModelId {
+  return typeof value === "string" && (INDEX_TRANSLATE_MODELS as readonly string[]).includes(value);
+}
+
+/**
+ * 归一化内置 Index-Translate 模型名：支持 3 个枚举模型（忽略大小写），缺省或未知值回落至旗舰默认模型 `Index-Translate-35B-A3B`。
+ */
+export function normalizeIndexTranslateModel(model?: unknown): IndexTranslateModelId {
+  const trimmed = String(model ?? "").trim();
+  if (!trimmed) {
+    return INDEX_TRANSLATE_DEFAULT_MODEL;
+  }
+  const matched = INDEX_TRANSLATE_MODELS.find(
+    (candidate) => candidate.toLowerCase() === trimmed.toLowerCase()
+  );
+  return matched ?? INDEX_TRANSLATE_DEFAULT_MODEL;
+}
 
 /**
  * 判断平台/解析结果是否为内置 Bilibili Index-Translate 通道（按 id / presetId / baseUrl 域名识别）。
@@ -67,10 +124,10 @@ export function isIndexTranslateProvider(
 }
 
 /**
- * 构造内置 Bilibili Index-Translate 通道的运行时解析结果（免 Key、默认模型 Index-Translate-35B-A3B）。
+ * 构造内置 Bilibili Index-Translate 通道的运行时解析结果（免 Key、支持三档模型枚举，默认 Index-Translate-35B-A3B）。
  */
 export function createIndexTranslateResolution(model?: string): SubtitleTranslateProviderResolution {
-  const effectiveModel = String(model || "").trim() || INDEX_TRANSLATE_MODEL;
+  const effectiveModel = normalizeIndexTranslateModel(model);
   return {
     provider: INDEX_TRANSLATE_BUILTIN_PROVIDER,
     apiKey: "",
@@ -224,7 +281,7 @@ export function resolveSubtitleTranslateProviderConfig(
         provider: explicitEntry,
         apiKey,
         baseUrl: String(explicitEntry.baseUrl || "").trim() || INDEX_TRANSLATE_BASE_URL,
-        model: preferredModel || resolveCatalogModel(explicitEntry) || INDEX_TRANSLATE_MODEL,
+        model: normalizeIndexTranslateModel(preferredModel || resolveCatalogModel(explicitEntry)),
         presetId: String(explicitEntry.presetId || INDEX_TRANSLATE_PROVIDER_ID),
         protocol: (explicitEntry.protocol as AiProtocol | undefined) ?? "openai",
         isFallback: false

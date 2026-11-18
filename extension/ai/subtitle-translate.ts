@@ -17,11 +17,18 @@ import {
 import {
   INDEX_TRANSLATE_BASE_URL,
   INDEX_TRANSLATE_BUILTIN_PROVIDER,
+  INDEX_TRANSLATE_DEFAULT_MODEL,
   INDEX_TRANSLATE_MODEL,
+  INDEX_TRANSLATE_MODELS,
+  INDEX_TRANSLATE_MODEL_OPTIONS,
   INDEX_TRANSLATE_PROVIDER_ID,
   createIndexTranslateResolution,
+  isIndexTranslateModelId,
   isIndexTranslateProvider,
+  normalizeIndexTranslateModel,
   resolveSubtitleTranslateProviderConfig,
+  type IndexTranslateModelId,
+  type IndexTranslateModelOption,
   type SubtitleTranslateProviderResolution
 } from "./subtitle-translate-config.js";
 import {
@@ -80,6 +87,8 @@ import {
 } from "./subtitle-context.js";
 
 export type {
+  IndexTranslateModelId,
+  IndexTranslateModelOption,
   StreamingSubtitleCue,
   SubtitleGlossaryEntry,
   SubtitleGlossaryInput,
@@ -90,12 +99,17 @@ export type {
 export {
   INDEX_TRANSLATE_BASE_URL,
   INDEX_TRANSLATE_BUILTIN_PROVIDER,
+  INDEX_TRANSLATE_DEFAULT_MODEL,
   INDEX_TRANSLATE_MODEL,
+  INDEX_TRANSLATE_MODELS,
+  INDEX_TRANSLATE_MODEL_OPTIONS,
   INDEX_TRANSLATE_PROVIDER_ID,
   createIndexTranslateRateLimiter,
   createIndexTranslateResolution,
   createThinkBlockStreamFilter,
+  isIndexTranslateModelId,
   isIndexTranslateProvider,
+  normalizeIndexTranslateModel,
   stripThinkBlocks
 };
 
@@ -178,7 +192,7 @@ export function buildSubtitleTranslateRequest(
     provider: {
       baseUrl: rawBaseUrl || (isIndexTranslate ? INDEX_TRANSLATE_BASE_URL : ""),
       apiKey: String(input.provider.apiKey || "").trim(),
-      model: rawModel || (isIndexTranslate ? INDEX_TRANSLATE_MODEL : ""),
+      model: isIndexTranslate ? normalizeIndexTranslateModel(rawModel) : rawModel,
       presetId: rawPresetId || (isIndexTranslate ? INDEX_TRANSLATE_PROVIDER_ID : "custom"),
       protocol: isIndexTranslate ? "openai" : (input.provider.protocol || "openai")
     },

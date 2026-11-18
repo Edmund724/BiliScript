@@ -4,13 +4,18 @@ import { chatCompletion } from "../../extension/ai/completion.js";
 import {
   INDEX_TRANSLATE_BASE_URL,
   INDEX_TRANSLATE_BUILTIN_PROVIDER,
+  INDEX_TRANSLATE_DEFAULT_MODEL,
   INDEX_TRANSLATE_MODEL,
+  INDEX_TRANSLATE_MODELS,
+  INDEX_TRANSLATE_MODEL_OPTIONS,
   INDEX_TRANSLATE_PROVIDER_ID,
   buildSubtitleTranslateRequest,
   createIndexTranslateRateLimiter,
   createIndexTranslateResolution,
   createThinkBlockStreamFilter,
+  isIndexTranslateModelId,
   isIndexTranslateProvider,
+  normalizeIndexTranslateModel,
   stripThinkBlocks,
   translateSubtitleItems
 } from "../../extension/ai/subtitle-translate.js";
@@ -62,12 +67,36 @@ describe("Bilibili Index-Translate 内置配置解析", () => {
     expect(resolution.protocol).toBe("openai");
   });
 
-  it("支持显式覆盖 subtitleTranslateModel，且不改动默认空选回落行为", () => {
-    const customModel = resolveSubtitleTranslateProviderConfig([], {}, {
-      subtitleTranslateProviderId: INDEX_TRANSLATE_PROVIDER_ID,
-      subtitleTranslateModel: "Index-Translate-9B"
-    });
-    expect(customModel.model).toBe("Index-Translate-9B");
+  it("支持 3 个模型枚举，显式选择或未知模型时按规范归一化，且不改动默认空选回落行为", () => {
+    expect(INDEX_TRANSLATE_DEFAULT_MODEL).toBe("Index-Translate-35B-A3B");
+    expect([...INDEX_TRANSLATE_MODELS]).toEqual([
+      "Index-Translate-35B-A3B",
+      "Index-Translate-9B",
+      "Index-Translate-2B"
+    ]);
+    expect(INDEX_TRANSLATE_BUILTIN_PROVIDER.models).toEqual([...INDEX_TRANSLATE_MODELS]);
+    expect(INDEX_TRANSLATE_MODEL_OPTIONS.map((item) => item.id)).toEqual([...INDEX_TRANSLATE_MODELS]);
+    expect(INDEX_TRANSLATE_MODEL_OPTIONS.every((item) => item.available)).toBe(true);
+
+    expect(isIndexTranslateModelId("Index-Translate-35B-A3B")).toBe(true);
+    expect(isIndexTranslateModelId("Index-Translate-9B")).toBe(true);
+    expect(isIndexTranslateModelId("Index-Translate-2B")).toBe(true);
+    expect(isIndexTranslateModelId("unknown")).toBe(false);
+
+    expect(normalizeIndexTranslateModel("")).toBe("Index-Translate-35B-A3B");
+    expect(normalizeIndexTranslateModel("index-translate-9b")).toBe("Index-Translate-9B");
+    expect(normalizeIndexTranslateModel("index-translate-2b")).toBe("Index-Translate-2B");
+    expect(normalizeIndexTranslateModel("unsupported-model")).toBe("Index-Translate-35B-A3B");
+
+    for (const model of INDEX_TRANSLATE_MODELS) {
+      const resolved = resolveSubtitleTranslateProviderConfig([], {}, {
+        subtitleTranslateProviderId: INDEX_TRANSLATE_PROVIDER_ID,
+        subtitleTranslateModel: model
+      });
+      expect(resolved.model).toBe(model);
+      expect(resolved.baseUrl).toBe(INDEX_TRANSLATE_BASE_URL);
+      expect(resolved.apiKey).toBe("");
+    }
 
     // 暂不改设置页默认选中逻辑：空 subtitleTranslateProviderId 且无平台时仍按原契约报错
     expect(() => resolveSubtitleTranslateProviderConfig([], {}, { subtitleTranslateProviderId: "" })).toThrow(
@@ -144,6 +173,54 @@ describe("Bilibili Index-Translate 请求构造（temperature: 0 & enable_thinki
       chat_template_kwargs: { enable_thinking: false }
     });
   });
+
+  it.each(INDEX_TRANSLATE_MODELS)(
+    "模型 %s 共用端点与免 Key 请求构造，并显式传 temperature: 0 与 enable_thinking: false",
+    async (modelId) => {
+      const capturedBodies: Array<Record<string, unknown>> = [];
+      const capturedUrls: string[] = [];
+      const capturedHeaders: Array<Record<string, string>> = [];
+      const fakeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrls.push(String(input));
+        capturedHeaders.push((init?.headers || {}) as Record<string, string>);
+        capturedBodies.push(JSON.parse(String(init?.body || "{}")) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '[{"id":"0","translation":"你好"}]' }, finish_reason: "stop" }]
+          }),
+          { status: 200 }
+        );
+      });
+
+      const req = buildSubtitleTranslateRequest({
+        provider: {
+          id: INDEX_TRANSLATE_PROVIDER_ID,
+          presetId: INDEX_TRANSLATE_PROVIDER_ID,
+          baseUrl: INDEX_TRANSLATE_BASE_URL,
+          apiKey: "",
+          model: modelId
+        },
+        messages: [
+          { role: "system", content: "Translate" },
+          { role: "user", content: '[{"id":"0","text":"Hello"}]' }
+        ],
+        stream: false,
+        thinkingLevel: "high",
+        fetchImpl: fakeFetch
+      });
+
+      await chatCompletion(req);
+
+      expect(capturedUrls).toEqual(["https://index-translate.bilibili.com/v1/chat/completions"]);
+      expect(capturedHeaders[0].Authorization).toBeUndefined();
+      expect(capturedBodies[0]).toMatchObject({
+        model: modelId,
+        stream: false,
+        temperature: 0,
+        chat_template_kwargs: { enable_thinking: false }
+      });
+    }
+  );
 
   it("支持传入占位 Key（如 index）时携带 Bearer 请求头，且不影响普通平台请求体", async () => {
     const capturedBodies: Array<Record<string, unknown>> = [];
