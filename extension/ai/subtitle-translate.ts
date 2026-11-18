@@ -35,8 +35,8 @@ import {
   createIndexTranslateRateLimiter,
   createThinkBlockStreamFilter,
   defaultIndexTranslateLimiter,
-  formatIndexTranslateError,
   getHttpStatusFromError,
+  isAbortLikeError,
   isIndexTranslateRetryableError,
   runWithIndexTranslateRetry,
   stripThinkBlocks,
@@ -56,12 +56,8 @@ import {
 } from "../subtitle/segmentation.js";
 import { isNonSpeechSegment } from "../subtitle/text-classification.js";
 import {
-  isAbortNamedError,
-  isAbortedMarkerError,
-  isCancelledError
-} from "../shared/error-helpers.js";
-import {
   createStreamingSubtitleParser,
+  type CreateStreamingSubtitleParserOptions,
   type StreamingSubtitleCue
 } from "../subtitle/streaming-parser.js";
 import {
@@ -574,153 +570,152 @@ async function invokeSingleTranslationAttempt(args: {
   return stripThinkBlocks(streamedText);
 }
 
-async function invokeTranslationLlm(args: {
+interface TranslationExecutionContext {
   resolved: SubtitleTranslateProviderResolution;
-  messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
   fetchImpl: ProviderTransport;
   chatCompletionFn: typeof chatCompletion;
-  onDelta?: (delta: string) => void;
-  onStreamReset?: () => void;
   indexTranslateOptions?: TranslateSubtitleItemsInput["indexTranslateOptions"];
-}): Promise<string> {
-  throwIfAborted(args.signal);
-  const useStream = args.stream ?? true;
-  const providerConfig: SubtitleTranslateRequestInput["provider"] = {
-    id: args.resolved.provider?.id,
-    baseUrl: args.resolved.baseUrl,
-    apiKey: args.resolved.apiKey,
-    model: args.resolved.model,
-    presetId: args.resolved.presetId,
-    protocol: args.resolved.protocol
-  };
-  const isIndexTranslate = isIndexTranslateProvider(providerConfig);
+}
 
-  if (isIndexTranslate) {
-    const retryOpts: IndexTranslateRetryOptions = {
-      ...(args.indexTranslateOptions ?? {}),
-      limiter: args.indexTranslateOptions?.limiter ?? defaultIndexTranslateLimiter,
-      signal: args.signal,
-      onRetry: () => {
-        args.onStreamReset?.();
-      }
-    };
+interface TranslationChannelAdapter {
+  executeAttempt: <T>(attempt: () => Promise<T>) => Promise<T>;
+  nonStreamRetries?: number;
+  shouldSkipStreamFallback?: (err: unknown) => boolean;
+}
 
-    if (!useStream) {
-      return runWithIndexTranslateRetry(
-        () =>
-          invokeSingleTranslationAttempt({
-            providerConfig,
-            messages: args.messages,
-            stream: false,
-            retries: 0,
-            signal: args.signal,
-            fetchImpl: args.fetchImpl,
-            chatCompletionFn: args.chatCompletionFn,
-            onDelta: args.onDelta
-          }),
-        retryOpts
-      );
-    }
+async function runStreamWithFallback(
+  args: {
+    providerConfig: SubtitleTranslateRequestInput["provider"];
+    messages: ChatMessage[];
+    stream: boolean;
+    signal?: AbortSignal | null;
+    fetchImpl: ProviderTransport;
+    chatCompletionFn: typeof chatCompletion;
+    onDelta?: (delta: string) => void;
+    onStreamReset?: () => void;
+  },
+  channel: TranslationChannelAdapter
+): Promise<string> {
+  const invoke = (useStream: boolean) =>
+    channel.executeAttempt(() =>
+      invokeSingleTranslationAttempt({
+        providerConfig: args.providerConfig,
+        messages: args.messages,
+        stream: useStream,
+        retries: useStream ? 0 : channel.nonStreamRetries,
+        signal: args.signal,
+        fetchImpl: args.fetchImpl,
+        chatCompletionFn: args.chatCompletionFn,
+        onDelta: args.onDelta,
+        ...(useStream && args.onStreamReset ? { onStreamReset: args.onStreamReset } : {})
+      })
+    );
 
-    try {
-      return await runWithIndexTranslateRetry(
-        () =>
-          invokeSingleTranslationAttempt({
-            providerConfig,
-            messages: args.messages,
-            stream: true,
-            retries: 0,
-            signal: args.signal,
-            fetchImpl: args.fetchImpl,
-            chatCompletionFn: args.chatCompletionFn,
-            onDelta: args.onDelta,
-            onStreamReset: args.onStreamReset
-          }),
-        retryOpts
-      );
-    } catch (err) {
-      if (
-        args.signal?.aborted ||
-        isAbortedMarkerError(err) ||
-        isAbortNamedError(err) ||
-        isCancelledError(err)
-      ) {
-        throw err;
-      }
-      // 限流/网络/服务端错误或 412 风控拦截在重试后直接以清晰错误上抛，不再无延迟重复撞击
-      if (isIndexTranslateRetryableError(err) || getHttpStatusFromError(err) === 412) {
-        throw err;
-      }
-      // 其余仅流式不支持类错误（如 400 streaming unsupported）静默回退一次非流式
-      args.onStreamReset?.();
-      throwIfAborted(args.signal);
-      return runWithIndexTranslateRetry(
-        () =>
-          invokeSingleTranslationAttempt({
-            providerConfig,
-            messages: args.messages,
-            stream: false,
-            retries: 0,
-            signal: args.signal,
-            fetchImpl: args.fetchImpl,
-            chatCompletionFn: args.chatCompletionFn,
-            onDelta: args.onDelta
-          }),
-        retryOpts
-      );
-    }
-  }
-
-  if (!useStream) {
-    return invokeSingleTranslationAttempt({
-      providerConfig,
-      messages: args.messages,
-      stream: false,
-      signal: args.signal,
-      fetchImpl: args.fetchImpl,
-      chatCompletionFn: args.chatCompletionFn,
-      onDelta: args.onDelta
-    });
+  if (!args.stream) {
+    return invoke(false);
   }
 
   try {
-    return await invokeSingleTranslationAttempt({
-      providerConfig,
-      messages: args.messages,
-      stream: true,
-      retries: 0,
-      signal: args.signal,
-      fetchImpl: args.fetchImpl,
-      chatCompletionFn: args.chatCompletionFn,
-      onDelta: args.onDelta,
-      onStreamReset: args.onStreamReset
-    });
+    return await invoke(true);
   } catch (err) {
-    if (
-      args.signal?.aborted ||
-      isAbortedMarkerError(err) ||
-      isAbortNamedError(err) ||
-      isCancelledError(err)
-    ) {
+    if (isAbortLikeError(err, args.signal) || channel.shouldSkipStreamFallback?.(err)) {
       throw err;
     }
 
     // 流式异常无感降级：清空流式解析缓冲后无缝回退调用一次非流式 stream: false
     args.onStreamReset?.();
     throwIfAborted(args.signal);
+    return invoke(false);
+  }
+}
 
-    return invokeSingleTranslationAttempt({
+async function invokeTranslationLlm(
+  exec: TranslationExecutionContext,
+  args: {
+    messages: ChatMessage[];
+    onDelta?: (delta: string) => void;
+    onStreamReset?: () => void;
+  }
+): Promise<string> {
+  throwIfAborted(exec.signal);
+  const providerConfig: SubtitleTranslateRequestInput["provider"] = {
+    id: exec.resolved.provider?.id,
+    baseUrl: exec.resolved.baseUrl,
+    apiKey: exec.resolved.apiKey,
+    model: exec.resolved.model,
+    presetId: exec.resolved.presetId,
+    protocol: exec.resolved.protocol
+  };
+
+  let channel: TranslationChannelAdapter;
+  if (isIndexTranslateProvider(providerConfig)) {
+    const retryOpts: IndexTranslateRetryOptions = {
+      ...(exec.indexTranslateOptions ?? {}),
+      limiter: exec.indexTranslateOptions?.limiter ?? defaultIndexTranslateLimiter,
+      signal: exec.signal,
+      onRetry: () => {
+        args.onStreamReset?.();
+      }
+    };
+    channel = {
+      executeAttempt: (attempt) => runWithIndexTranslateRetry(attempt, retryOpts),
+      nonStreamRetries: 0,
+      // 限流/网络/服务端错误或 412 风控拦截在重试后直接以清晰错误上抛，不再无延迟重复撞击
+      shouldSkipStreamFallback: (err) =>
+        isIndexTranslateRetryableError(err) || getHttpStatusFromError(err) === 412
+    };
+  } else {
+    channel = {
+      executeAttempt: (attempt) => attempt()
+    };
+  }
+
+  return runStreamWithFallback(
+    {
       providerConfig,
       messages: args.messages,
-      stream: false,
-      signal: args.signal,
-      fetchImpl: args.fetchImpl,
-      chatCompletionFn: args.chatCompletionFn,
-      onDelta: args.onDelta
-    });
+      stream: exec.stream ?? true,
+      signal: exec.signal,
+      fetchImpl: exec.fetchImpl,
+      chatCompletionFn: exec.chatCompletionFn,
+      onDelta: args.onDelta,
+      onStreamReset: args.onStreamReset
+    },
+    channel
+  );
+}
+
+function invokeWithOptionalStreamingParser(
+  exec: TranslationExecutionContext,
+  messages: ChatMessage[],
+  parserOptions: CreateStreamingSubtitleParserOptions | null
+): Promise<string> {
+  const parser = parserOptions?.onCueReady
+    ? createStreamingSubtitleParser(parserOptions)
+    : null;
+  return invokeTranslationLlm(exec, {
+    messages,
+    onDelta: parser ? (delta) => parser.feed(delta) : undefined,
+    onStreamReset: parser ? () => parser.resetStreamAttempt() : undefined
+  });
+}
+
+function emitStreamingCueOnce(
+  onCueReady: ((cue: StreamingSubtitleCue) => void) | undefined,
+  emittedKeys: Set<string>,
+  cue: StreamingSubtitleCue
+): void {
+  if (!onCueReady) {
+    return;
   }
+  const dedupeKey = `${cue.startIndex}:${cue.endIndex}`;
+  if (emittedKeys.has(dedupeKey)) {
+    return;
+  }
+  emittedKeys.add(dedupeKey);
+  onCueReady(cue);
 }
 
 async function translateCcBatchWithRetry(args: {
@@ -728,34 +723,24 @@ async function translateCcBatchWithRetry(args: {
   targetLang: string;
   context?: SubtitleTranslatePromptContext;
   previousLines?: readonly SubtitlePreviousLine[];
-  resolved: SubtitleTranslateProviderResolution;
-  stream?: boolean;
-  signal?: AbortSignal | null;
+  exec: TranslationExecutionContext;
   fallbackToOriginal: boolean;
-  chatCompletionFn: typeof chatCompletion;
-  fetchImpl: ProviderTransport;
   allowMissingRetry: boolean;
   batchOffset?: number;
   emittedKeys?: Set<string>;
   onCueReady?: (cue: StreamingSubtitleCue) => void;
-  indexTranslateOptions?: TranslateSubtitleItemsInput["indexTranslateOptions"];
 }): Promise<{ items: SubtitleBodyItem[]; translations: SubtitleBodyItem[] }> {
   const {
     batch,
     targetLang,
     context,
     previousLines,
-    resolved,
-    stream,
-    signal,
+    exec,
     fallbackToOriginal,
-    chatCompletionFn,
-    fetchImpl,
     allowMissingRetry,
     batchOffset = 0,
     emittedKeys = new Set<string>(),
-    onCueReady,
-    indexTranslateOptions
+    onCueReady
   } = args;
 
   const normalizedItems: SubtitleBodyItem[] = batch.map((item) => ({
@@ -767,25 +752,12 @@ async function translateCcBatchWithRetry(args: {
   const batchText = normalizedItems.map((item) => item.content).join(" ");
   const chunkContext = buildChunkSubtitleContext(context, batchText, previousLines ?? context?.previousLines);
   const primaryMessages = buildCcTranslateMessages(normalizedItems, targetLang, chunkContext);
-  const primaryParser = onCueReady
-    ? createStreamingSubtitleParser({
-        items: normalizedItems,
-        mode: "cc-json",
-        indexOffset: batchOffset,
-        emittedKeys,
-        onCueReady
-      })
-    : null;
-  const primaryRaw = await invokeTranslationLlm({
-    resolved,
-    messages: primaryMessages,
-    stream,
-    signal,
-    fetchImpl,
-    chatCompletionFn,
-    onDelta: primaryParser ? (delta) => primaryParser.feed(delta) : undefined,
-    onStreamReset: primaryParser ? () => primaryParser.resetStreamAttempt() : undefined,
-    indexTranslateOptions
+  const primaryRaw = await invokeWithOptionalStreamingParser(exec, primaryMessages, {
+    items: normalizedItems,
+    mode: "cc-json",
+    indexOffset: batchOffset,
+    emittedKeys,
+    onCueReady
   });
 
   const translationMap = parseCcTranslationMap(primaryRaw, normalizedItems.length);
@@ -800,7 +772,7 @@ async function translateCcBatchWithRetry(args: {
     }
 
     if (missingIndices.length > 0) {
-      throwIfAborted(signal);
+      throwIfAborted(exec.signal);
       const missingItems = missingIndices.map((idx) => ({
         content: normalizedItems[idx].content
       }));
@@ -808,39 +780,25 @@ async function translateCcBatchWithRetry(args: {
         const missingText = missingItems.map((item) => item.content).join(" ");
         const retryContext = buildChunkSubtitleContext(context, missingText, previousLines ?? context?.previousLines);
         const retryMessages = buildCcTranslateMessages(missingItems, targetLang, retryContext);
-        const retryRaw = await invokeTranslationLlm({
-          resolved,
-          messages: retryMessages,
-          stream,
-          signal,
-          fetchImpl,
-          chatCompletionFn,
-          indexTranslateOptions
-        });
+        const retryRaw = await invokeTranslationLlm(exec, { messages: retryMessages });
         const retryMap = parseCcTranslationMap(retryRaw, missingIndices.length);
         for (const [retryIdx, translatedText] of retryMap.entries()) {
           const origIdx = missingIndices[retryIdx];
           if (origIdx !== undefined && translatedText) {
             translationMap.set(origIdx, translatedText);
-            if (onCueReady) {
-              const globalIdx = origIdx + batchOffset;
-              const dedupeKey = `${globalIdx}:${globalIdx}`;
-              if (!emittedKeys.has(dedupeKey)) {
-                emittedKeys.add(dedupeKey);
-                onCueReady({
-                  startIndex: globalIdx,
-                  endIndex: globalIdx,
-                  from: normalizedItems[origIdx].from,
-                  to: normalizedItems[origIdx].to,
-                  text: normalizedItems[origIdx].content,
-                  translation: translatedText
-                });
-              }
-            }
+            const globalIdx = origIdx + batchOffset;
+            emitStreamingCueOnce(onCueReady, emittedKeys, {
+              startIndex: globalIdx,
+              endIndex: globalIdx,
+              from: normalizedItems[origIdx].from,
+              to: normalizedItems[origIdx].to,
+              text: normalizedItems[origIdx].content,
+              translation: translatedText
+            });
           }
         }
       } catch (err) {
-        if (signal?.aborted) {
+        if (exec.signal?.aborted) {
           throw err;
         }
         // 单补请求失败时保留首轮已对齐结果，不中断整批字幕
@@ -871,16 +829,11 @@ async function translateBoundaryChunkWithRecovery(args: {
   sourceLang?: string;
   context?: SubtitleTranslatePromptContext;
   previousLines?: readonly SubtitlePreviousLine[];
-  resolved: SubtitleTranslateProviderResolution;
-  stream?: boolean;
-  signal?: AbortSignal | null;
+  exec: TranslationExecutionContext;
   fallbackToOriginal: boolean;
-  chatCompletionFn: typeof chatCompletion;
-  fetchImpl: ProviderTransport;
   eventOffset?: number;
   emittedKeys?: Set<string>;
   onCueReady?: (cue: StreamingSubtitleCue) => void;
-  indexTranslateOptions?: TranslateSubtitleItemsInput["indexTranslateOptions"];
 }): Promise<{ items: SubtitleBodyItem[]; translations: SubtitleBodyItem[] }> {
   const {
     chunkEvents,
@@ -888,44 +841,26 @@ async function translateBoundaryChunkWithRecovery(args: {
     sourceLang,
     context,
     previousLines,
-    resolved,
-    stream,
-    signal,
+    exec,
     fallbackToOriginal,
-    chatCompletionFn,
-    fetchImpl,
     eventOffset = 0,
     emittedKeys = new Set<string>(),
-    onCueReady,
-    indexTranslateOptions
+    onCueReady
   } = args;
 
   const chunkText = chunkEvents.map((ev) => String(ev?.text ?? "")).join(" ");
   const chunkContext = buildChunkSubtitleContext(context, chunkText, previousLines ?? context?.previousLines);
-  const omitTextField = isIndexTranslateProvider(resolved.provider);
+  const omitTextField = isIndexTranslateProvider(exec.resolved.provider);
   const primaryMessages = buildBoundaryTranslateMessages(chunkEvents, targetLang, chunkContext, {
     omitTextField
   });
-  const primaryParser = onCueReady
-    ? createStreamingSubtitleParser({
-        events: chunkEvents,
-        sourceLang,
-        mode: "boundary-v3",
-        indexOffset: eventOffset,
-        emittedKeys,
-        onCueReady
-      })
-    : null;
-  const primaryRaw = await invokeTranslationLlm({
-    resolved,
-    messages: primaryMessages,
-    stream,
-    signal,
-    fetchImpl,
-    chatCompletionFn,
-    onDelta: primaryParser ? (delta) => primaryParser.feed(delta) : undefined,
-    onStreamReset: primaryParser ? () => primaryParser.resetStreamAttempt() : undefined,
-    indexTranslateOptions
+  const primaryRaw = await invokeWithOptionalStreamingParser(exec, primaryMessages, {
+    events: chunkEvents,
+    sourceLang,
+    mode: "boundary-v3",
+    indexOffset: eventOffset,
+    emittedKeys,
+    onCueReady
   });
 
   // 第 1 重 & 第 2 重：截断 JSON 抢救 + 连续无跳号前缀回填
@@ -937,7 +872,7 @@ async function translateBoundaryChunkWithRecovery(args: {
   // 第 3 重（Tail Retry）：首轮部分覆盖时，对尾部未覆盖切片最多发起 1 次补算请求
   const coveredEnd = cues.length > 0 ? cues[cues.length - 1].endIndex : -1;
   if (coveredEnd >= 0 && coveredEnd < chunkEvents.length - 1) {
-    throwIfAborted(signal);
+    throwIfAborted(exec.signal);
     const offset = coveredEnd + 1;
     const tailEvents = chunkEvents.slice(offset);
     try {
@@ -952,26 +887,13 @@ async function translateBoundaryChunkWithRecovery(args: {
       const retryMessages = buildBoundaryTranslateMessages(tailEvents, targetLang, tailContext, {
         omitTextField
       });
-      const tailParser = onCueReady
-        ? createStreamingSubtitleParser({
-            events: tailEvents,
-            sourceLang,
-            mode: "boundary-v3",
-            indexOffset: eventOffset + offset,
-            emittedKeys,
-            onCueReady
-          })
-        : null;
-      const retryRaw = await invokeTranslationLlm({
-        resolved,
-        messages: retryMessages,
-        stream,
-        signal,
-        fetchImpl,
-        chatCompletionFn,
-        onDelta: tailParser ? (delta) => tailParser.feed(delta) : undefined,
-        onStreamReset: tailParser ? () => tailParser.resetStreamAttempt() : undefined,
-        indexTranslateOptions
+      const retryRaw = await invokeWithOptionalStreamingParser(exec, retryMessages, {
+        events: tailEvents,
+        sourceLang,
+        mode: "boundary-v3",
+        indexOffset: eventOffset + offset,
+        emittedKeys,
+        onCueReady
       });
       const salvagedRetry = salvageTruncatedSubtitleJson(retryRaw);
       if (salvagedRetry) {
@@ -984,7 +906,7 @@ async function translateBoundaryChunkWithRecovery(args: {
         cues = [...cues, ...shiftedTailCues];
       }
     } catch (err) {
-      if (signal?.aborted) {
+      if (exec.signal?.aborted) {
         throw err;
       }
       // Tail Retry 失败时进入第 4 重本地规则降级
@@ -996,7 +918,7 @@ async function translateBoundaryChunkWithRecovery(args: {
     sourceLang,
     fallbackToOriginal,
     translateFallbackLines: async (texts: string[]) => {
-      throwIfAborted(signal);
+      throwIfAborted(exec.signal);
       const pseudoItems: SubtitleBodyItem[] = texts.map((text, idx) => ({
         from: idx,
         to: idx + 1,
@@ -1007,36 +929,25 @@ async function translateBoundaryChunkWithRecovery(args: {
         targetLang,
         context,
         previousLines: previousLines ?? context?.previousLines,
-        resolved,
-        stream,
-        signal,
+        exec,
         fallbackToOriginal: false,
-        chatCompletionFn,
-        fetchImpl,
-        allowMissingRetry: false,
-        indexTranslateOptions
+        allowMissingRetry: false
       });
       return res.translations.map((t) => t.content);
     }
   });
 
-  throwIfAborted(signal);
+  throwIfAborted(exec.signal);
   if (onCueReady) {
     for (const cue of finalized.cues) {
-      const globalStart = cue.startIndex + eventOffset;
-      const globalEnd = cue.endIndex + eventOffset;
-      const dedupeKey = `${globalStart}:${globalEnd}`;
-      if (!emittedKeys.has(dedupeKey)) {
-        emittedKeys.add(dedupeKey);
-        onCueReady({
-          startIndex: globalStart,
-          endIndex: globalEnd,
-          from: cue.from,
-          to: cue.to,
-          text: cue.text,
-          translation: cue.translation
-        });
-      }
+      emitStreamingCueOnce(onCueReady, emittedKeys, {
+        startIndex: cue.startIndex + eventOffset,
+        endIndex: cue.endIndex + eventOffset,
+        from: cue.from,
+        to: cue.to,
+        text: cue.text,
+        translation: cue.translation
+      });
     }
   }
 
@@ -1046,15 +957,61 @@ async function translateBoundaryChunkWithRecovery(args: {
   };
 }
 
+interface TrackContextSetup {
+  baseContext: SubtitleTranslatePromptContext | undefined;
+  l1Index: L1VideoIndexCacheRecord | null;
+  chunkFromSec: number | undefined;
+  chunkToSec: number | undefined;
+  explicitChapterContext: unknown;
+  explicitReferenceEntities: unknown;
+}
+
+async function resolveTrackContextSetup(
+  input: TranslateSubtitleItemsInput
+): Promise<TrackContextSetup> {
+  const explicitChapterContext = input.chapterContext ?? input.context?.chapterContext;
+  const explicitReferenceEntities = input.referenceEntities ?? input.context?.referenceEntities;
+  const hasCompleteExplicitChapter =
+    explicitChapterContext !== undefined && explicitReferenceEntities !== undefined;
+  const l1Index =
+    input.l1Index !== undefined
+      ? input.l1Index
+      : hasCompleteExplicitChapter
+        ? null
+        : await readCachedL1VideoIndex();
+
+  // 仅在轨道级解析一次静态语境与整片摘要；时间窗置空以把逐分片 L1 章节匹配延迟到批循环内。
+  const baseContext = await resolveRuntimeSubtitleContext({
+    ...input,
+    items: undefined,
+    chunkFromSec: undefined,
+    chunkToSec: undefined,
+    l1Index
+  });
+
+  return {
+    baseContext,
+    l1Index,
+    chunkFromSec: input.chunkFromSec,
+    chunkToSec: input.chunkToSec,
+    explicitChapterContext,
+    explicitReferenceEntities
+  };
+}
+
 function resolveChunkPromptContext(
-  baseContext: SubtitleTranslatePromptContext | undefined,
-  l1Index: L1VideoIndexCacheRecord | null,
-  chunkItems: ReadonlyArray<SubtitleTimeItemHint>,
-  chunkFromSec: number | undefined,
-  chunkToSec: number | undefined,
-  explicitChapterContext: unknown,
-  explicitReferenceEntities: unknown
+  setup: TrackContextSetup,
+  chunkItems: ReadonlyArray<SubtitleTimeItemHint>
 ): SubtitleTranslatePromptContext | undefined {
+  const {
+    baseContext,
+    l1Index,
+    chunkFromSec,
+    chunkToSec,
+    explicitChapterContext,
+    explicitReferenceEntities
+  } = setup;
+
   if (
     !l1Index ||
     (explicitChapterContext !== undefined && explicitReferenceEntities !== undefined)
@@ -1082,6 +1039,56 @@ function resolveChunkPromptContext(
     ...(explicitReferenceEntities === undefined && l1Chapter.referenceEntities?.length
       ? { referenceEntities: l1Chapter.referenceEntities }
       : {})
+  };
+}
+
+interface RollingBatchExecutionState {
+  context: SubtitleTranslatePromptContext | undefined;
+  previousLines: readonly SubtitlePreviousLine[] | undefined;
+  offset: number;
+}
+
+async function runRollingTranslationBatches<TBatch extends SubtitleTimeItemHint>(args: {
+  mode: SubtitleTranslateProtocolMode;
+  batches: ReadonlyArray<readonly TBatch[]>;
+  signal?: AbortSignal | null;
+  contextSetup: TrackContextSetup;
+  runBatch: (
+    batch: readonly TBatch[],
+    state: RollingBatchExecutionState
+  ) => Promise<{ items: SubtitleBodyItem[]; translations: SubtitleBodyItem[] }>;
+}): Promise<TranslateSubtitleTrackResult> {
+  const { mode, batches, signal, contextSetup, runBatch } = args;
+  const outItems: SubtitleBodyItem[] = [];
+  const outTranslations: SubtitleBodyItem[] = [];
+  let offset = 0;
+  let rollingPreviousLines = contextSetup.baseContext?.previousLines;
+
+  for (const batch of batches) {
+    throwIfAborted(signal);
+    const context = resolveChunkPromptContext(contextSetup, batch);
+    const batchResult = await runBatch(batch, {
+      context,
+      previousLines: rollingPreviousLines,
+      offset
+    });
+    outItems.push(...batchResult.items);
+    outTranslations.push(...batchResult.translations);
+    const nextPrevious = extractPreviousBilingualLines(
+      batchResult.items,
+      batchResult.translations,
+      2
+    );
+    if (nextPrevious.length > 0) {
+      rollingPreviousLines = nextPrevious;
+    }
+    offset += batch.length;
+  }
+
+  return {
+    mode,
+    items: outItems,
+    translations: outTranslations
   };
 }
 
@@ -1128,137 +1135,73 @@ export async function translateSubtitleTrack(
     return { mode: resolvedMode, items: [], translations: [] };
   }
 
-  const effectiveSourceLang = sourceLang ?? trackLan ?? selectedSubtitleLang;
-  const explicitChapterContext = input.chapterContext ?? input.context?.chapterContext;
-  const explicitReferenceEntities = input.referenceEntities ?? input.context?.referenceEntities;
-  const needsL1Lookup =
-    input.l1Index === undefined &&
-    (explicitChapterContext === undefined || explicitReferenceEntities === undefined);
-  const l1Index =
-    input.l1Index !== undefined
-      ? input.l1Index
-      : needsL1Lookup
-        ? await readCachedL1VideoIndex()
-        : null;
-  const baseContext = await resolveRuntimeSubtitleContext({
-    ...input,
-    items: undefined,
-    chunkFromSec: undefined,
-    chunkToSec: undefined,
-    l1Index
-  });
+  const atomicEvents =
+    resolvedMode === "boundary-v3"
+      ? hasExplicitEvents
+        ? explicitEvents!
+        : toAtomicSubtitleEvents(items)
+      : null;
+
+  if (atomicEvents && atomicEvents.length === 0) {
+    return { mode: "boundary-v3", items: [], translations: [] };
+  }
+
+  const contextSetup = await resolveTrackContextSetup(input);
+  const exec: TranslationExecutionContext = {
+    resolved: providerResolution || (await resolveSubtitleTranslateProvider()),
+    stream,
+    signal,
+    fetchImpl,
+    chatCompletionFn,
+    indexTranslateOptions
+  };
   const emittedKeys = new Set<string>();
+  const effectiveSourceLang = sourceLang ?? trackLan ?? selectedSubtitleLang;
 
-  if (resolvedMode === "boundary-v3") {
-    const atomicEvents = hasExplicitEvents
-      ? explicitEvents!
-      : toAtomicSubtitleEvents(items);
-
-    if (atomicEvents.length === 0) {
-      return { mode: "boundary-v3", items: [], translations: [] };
-    }
-
-    const resolved = providerResolution || (await resolveSubtitleTranslateProvider());
+  if (atomicEvents) {
     const chunks = splitEventsIntoAiChunks(atomicEvents, maxChunkChars);
-    const outItems: SubtitleBodyItem[] = [];
-    const outTranslations: SubtitleBodyItem[] = [];
-    let eventOffset = 0;
-    let rollingPreviousLines = baseContext?.previousLines;
-
-    for (const chunkEvents of chunks) {
-      throwIfAborted(signal);
-      const chunkContext = resolveChunkPromptContext(
-        baseContext,
-        l1Index,
-        chunkEvents,
-        input.chunkFromSec,
-        input.chunkToSec,
-        explicitChapterContext,
-        explicitReferenceEntities
-      );
-      const chunkResult = await translateBoundaryChunkWithRecovery({
-        chunkEvents,
-        targetLang,
-        sourceLang: effectiveSourceLang,
-        context: chunkContext,
-        previousLines: rollingPreviousLines,
-        resolved,
-        stream,
-        signal,
-        fallbackToOriginal,
-        chatCompletionFn,
-        fetchImpl,
-        eventOffset,
-        emittedKeys,
-        onCueReady,
-        indexTranslateOptions
-      });
-      outItems.push(...chunkResult.items);
-      outTranslations.push(...chunkResult.translations);
-      const nextPrevious = extractPreviousBilingualLines(chunkResult.items, chunkResult.translations, 2);
-      if (nextPrevious.length > 0) {
-        rollingPreviousLines = nextPrevious;
-      }
-      eventOffset += chunkEvents.length;
-    }
-
-    return {
+    return runRollingTranslationBatches({
       mode: "boundary-v3",
-      items: outItems,
-      translations: outTranslations
-    };
+      batches: chunks,
+      signal,
+      contextSetup,
+      runBatch: (chunkEvents, batchState) =>
+        translateBoundaryChunkWithRecovery({
+          chunkEvents,
+          targetLang,
+          sourceLang: effectiveSourceLang,
+          context: batchState.context,
+          previousLines: batchState.previousLines,
+          exec,
+          fallbackToOriginal,
+          eventOffset: batchState.offset,
+          emittedKeys,
+          onCueReady
+        })
+    });
   }
 
   // 人工精校 CC 字幕：严格 ID 对齐批量 JSON 协议
-  const resolved = providerResolution || (await resolveSubtitleTranslateProvider());
   const batches = splitCcItemsIntoBatches(items, maxChunkChars);
-  const outItems: SubtitleBodyItem[] = [];
-  const outTranslations: SubtitleBodyItem[] = [];
-  let batchOffset = 0;
-  let rollingPreviousLines = baseContext?.previousLines;
-
-  for (const batch of batches) {
-    throwIfAborted(signal);
-    const batchContext = resolveChunkPromptContext(
-      baseContext,
-      l1Index,
-      batch,
-      input.chunkFromSec,
-      input.chunkToSec,
-      explicitChapterContext,
-      explicitReferenceEntities
-    );
-    const batchResult = await translateCcBatchWithRetry({
-      batch,
-      targetLang,
-      context: batchContext,
-      previousLines: rollingPreviousLines,
-      resolved,
-      stream,
-      signal,
-      fallbackToOriginal,
-      chatCompletionFn,
-      fetchImpl,
-      allowMissingRetry: true,
-      batchOffset,
-      emittedKeys,
-      onCueReady,
-      indexTranslateOptions
-    });
-    outItems.push(...batchResult.items);
-    outTranslations.push(...batchResult.translations);
-    const nextPrevious = extractPreviousBilingualLines(batchResult.items, batchResult.translations, 2);
-    if (nextPrevious.length > 0) {
-      rollingPreviousLines = nextPrevious;
-    }
-    batchOffset += batch.length;
-  }
-
-  return {
+  return runRollingTranslationBatches({
     mode: "cc-json",
-    items: outItems,
-    translations: outTranslations
-  };
+    batches,
+    signal,
+    contextSetup,
+    runBatch: (batch, batchState) =>
+      translateCcBatchWithRetry({
+        batch,
+        targetLang,
+        context: batchState.context,
+        previousLines: batchState.previousLines,
+        exec,
+        fallbackToOriginal,
+        allowMissingRetry: true,
+        batchOffset: batchState.offset,
+        emittedKeys,
+        onCueReady
+      })
+  });
 }
 
 function attachDualChannelMetadata(

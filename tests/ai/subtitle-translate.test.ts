@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   TARGET_LANG_NAME_MAP,
   buildSubtitleTranslateRequest,
+  createIndexTranslateRateLimiter,
+  createIndexTranslateResolution,
   formatSubtitleNumberedLines,
   parseSubtitleNumberedLines,
   resolveSubtitleTranslateProvider,
@@ -703,6 +705,79 @@ describe("流式 SSE 逐句即出与异常无感降级", () => {
     expect(result).toEqual([
       { from: 0, to: 2, content: "你好" },
       { from: 2, to: 4, content: "世界" }
+    ]);
+  });
+
+  it("Index-Translate 通道遇到非 412/非可重试流式错误（如 HTTP 400）时回退一次非流式", async () => {
+    const mockChatCompletion = createStreamErrorThenNonStreamSuccessMock(
+      JSON.stringify([{ id: "0", translation: "你好。" }])
+    );
+
+    const result = await translateSubtitleItems({
+      items: [{ from: 0, to: 2, content: "Hello." }],
+      targetLang: "zh",
+      providerResolution: createIndexTranslateResolution(),
+      indexTranslateOptions: {
+        limiter: createIndexTranslateRateLimiter({ sleep: async () => {} }),
+        baseDelayMs: 0
+      },
+      chatCompletionFn: mockChatCompletion as any
+    });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(2);
+    expect(mockChatCompletion.mock.calls[0]?.[0]?.stream).toBe(true);
+    expect(mockChatCompletion.mock.calls[1]?.[0]?.stream).toBe(false);
+    expect(result).toEqual([{ from: 0, to: 2, content: "你好。" }]);
+  });
+
+  it("boundary-v3 多分片滚动注入前情对照，并跨分片递增全局 onCueReady 索引", async () => {
+    const onCueReady = vi.fn();
+    const mockChat = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          groups: [
+            { ids: ["0"], text: "First chunk line.", translation: "第一片字幕。" }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          groups: [
+            { ids: ["0"], text: "Second chunk line.", translation: "第二片字幕。" }
+          ]
+        })
+      );
+
+    const result = await translateSubtitleItems({
+      items: [],
+      events: [
+        { text: "First chunk line.", startMs: 0, endMs: 2000 },
+        { text: "Second chunk line.", startMs: 2000, endMs: 4000 }
+      ],
+      mode: "boundary-v3",
+      targetLang: "zh",
+      maxChunkChars: 20,
+      providerResolution,
+      onCueReady,
+      chatCompletionFn: mockChat as any
+    });
+
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    const secondSys = mockChat.mock.calls[1][0].messages[0].content as string;
+    expect(secondSys).toContain("Previous lines (for context only, do NOT re-translate):");
+    expect(secondSys).toContain("- First chunk line. => 第一片字幕。");
+    expect(onCueReady).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ startIndex: 0, endIndex: 0, translation: "第一片字幕。" })
+    );
+    expect(onCueReady).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ startIndex: 1, endIndex: 1, translation: "第二片字幕。" })
+    );
+    expect([...result]).toEqual([
+      { from: 0, to: 2, content: "第一片字幕。" },
+      { from: 2, to: 4, content: "第二片字幕。" }
     ]);
   });
 });
