@@ -10,27 +10,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
-import { clipState, state } from "../../extension/core/state.js";
 import type { SubtitleBodyItem } from "../../extension/ai/types.js";
-import {
-  buildTranslationSignature,
-  configureSubtitleCacheStoreForTests,
-  createSubtitleIdbStore,
-  loadTranslatedSubtitleTrack,
-  type SubtitleIdbStore
-} from "../../extension/subtitle/cache.js";
-import {
-  createTranslatedTrackSession,
-  type TranslateSessionChunkInput,
-  type TranslatedTrackTranslateInput
+import type { SubtitleIdbStore } from "../../extension/subtitle/cache.js";
+import type {
+  TranslateSessionChunkInput,
+  TranslatedTrackTranslateInput
 } from "../../extension/subtitle/translated-track-session.js";
 
 let idbStore: SubtitleIdbStore;
+let state: (typeof import("../../extension/core/state.js"))["state"];
+let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
+let buildTranslationSignature: (typeof import("../../extension/subtitle/cache.js"))["buildTranslationSignature"];
+let configureSubtitleCacheStoreForTests: (typeof import("../../extension/subtitle/cache.js"))["configureSubtitleCacheStoreForTests"];
+let loadTranslatedSubtitleTrack: (typeof import("../../extension/subtitle/cache.js"))["loadTranslatedSubtitleTrack"];
+let createTranslatedTrackSession: (typeof import("../../extension/subtitle/translated-track-session.js"))["createTranslatedTrackSession"];
 
-beforeEach(() => {
+beforeEach(async () => {
   resetModuleState();
   vi.useFakeTimers();
-  idbStore = createSubtitleIdbStore({ indexedDB: null });
+  const stateMod = await import("../../extension/core/state.js");
+  const cacheMod = await import("../../extension/subtitle/cache.js");
+  const sessionMod = await import("../../extension/subtitle/translated-track-session.js");
+  state = stateMod.state;
+  clipState = stateMod.clipState;
+  buildTranslationSignature = cacheMod.buildTranslationSignature;
+  configureSubtitleCacheStoreForTests = cacheMod.configureSubtitleCacheStoreForTests;
+  loadTranslatedSubtitleTrack = cacheMod.loadTranslatedSubtitleTrack;
+  createTranslatedTrackSession = sessionMod.createTranslatedTrackSession;
+
+  idbStore = cacheMod.createSubtitleIdbStore({ indexedDB: null });
   configureSubtitleCacheStoreForTests(idbStore);
   state.setSettings({ ...DEFAULT_SETTINGS, subtitleTranslateModel: "Index-Translate-35B-A3B" });
   clipState.setBvid("BV1session01");
@@ -281,8 +289,65 @@ describe("createTranslatedTrackSession seam", () => {
 
     resolveFirst([{ from: 0, to: 4, content: "旧修订版终态" }]);
     const firstResult = await firstRun;
-    expect(firstResult.status).toBe("stale-revision");
+    expect(firstResult).toEqual({ status: "stale-revision", items: [] });
     expect(session.isChunkDone(0)).toBe(false);
+    expect(session.getSecondaryItems()).toEqual([]);
+    expect(clipState.secondarySubtitle.body).toEqual([]);
+    await expect(
+      loadTranslatedSubtitleTrack({
+        bvid: "BV1session01",
+        cid: "100",
+        sourceTrackKey: "asr",
+        targetLang: "zh-CN",
+        translationSig: session.translationSig
+      })
+    ).resolves.toBeNull();
+  });
+
+  it("首分块流式输出后失败时，clipState.secondarySubtitle.body 与会话均回滚为空", async () => {
+    const session = createTranslatedTrackSession(
+      {
+        bvid: "BV1session01",
+        cid: "100",
+        primaryItems: [{ from: 0, to: 4, content: "Chunk 0" }],
+        source: { isAsrSource: true, targetLang: "zh" }
+      },
+      {
+        translateItems: async (input) => {
+          input.onCueReady?.({
+            startIndex: 0,
+            endIndex: 0,
+            from: 0,
+            to: 4,
+            text: "Chunk 0",
+            translation: "首块半成品"
+          });
+          throw new Error("500 upstream error");
+        }
+      }
+    );
+
+    await expect(
+      session.translateChunk({
+        chunkIndex: 0,
+        chunkFromSec: 0,
+        chunkToSec: 60,
+        items: session.getPrimaryChunk(0)
+      })
+    ).rejects.toThrow("500 upstream error");
+
+    expect(session.getSecondaryItems()).toEqual([]);
+    expect(clipState.secondarySubtitle.body).toEqual([]);
+    await session.flush();
+    await expect(
+      loadTranslatedSubtitleTrack({
+        bvid: "BV1session01",
+        cid: "100",
+        sourceTrackKey: "asr",
+        targetLang: "zh-CN",
+        translationSig: session.translationSig
+      })
+    ).resolves.toBeNull();
   });
 
   it("分块失败时回滚当前分块流式缓冲并保留已完成分块；isStale 拦截过期会话写入", async () => {

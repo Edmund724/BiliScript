@@ -649,16 +649,17 @@ export function createTranslatedTrackSession(
           return { status: "aborted", items: [] };
         }
 
-        const revisionMatched = (primaryRevisionByChunk.get(chunkIndex) ?? 0) === revisionAtStart;
+        if ((primaryRevisionByChunk.get(chunkIndex) ?? 0) !== revisionAtStart) {
+          return { status: "stale-revision", items: [] };
+        }
+
         const usable = sortSubtitleItemsByFrom(
           (Array.isArray(translated) ? translated : []).filter(isUsableSubtitleItem)
         );
         if (usable.length > 0) {
           completedSecondaryByChunk.set(chunkIndex, usable);
         }
-        if (revisionMatched) {
-          doneChunks.add(chunkIndex);
-        }
+        doneChunks.add(chunkIndex);
 
         const displayBody = collectDisplaySecondary();
         const completedBody = collectCompletedSecondary();
@@ -686,36 +687,48 @@ export function createTranslatedTrackSession(
         }
 
         return {
-          status: revisionMatched ? "done" : "stale-revision",
+          status: "done",
           items: usable
         };
       } catch (err) {
         const hadStreamingForChunk = streamingCuesByChunk.has(chunkIndex);
         streamingCuesByChunk.delete(chunkIndex);
         if (hadStreamingForChunk && !isStale() && !signal?.aborted) {
-          if (bvid && cid) {
-            scheduleTranslatedTrackWrite({
-              bvid,
-              cid,
-              sourceTrackKey: sourceKey,
-              targetLang: canonicalTargetLang,
-              translationSig,
-              mode: protocolMode,
-              items: [],
-              replaceRange: { from: chunkFromSec, to: chunkToSec }
-            });
-          }
           const rolledBack = collectDisplaySecondary();
-          if (rolledBack.length > 0) {
-            await enqueuePersist(async () => {
-              await acceptSecondarySubtitle({
-                body: rolledBack,
-                subtitleId: slotId,
-                subtitleUrl: "",
-                runId
-              });
-            }).catch(() => {});
-          }
+          await enqueuePersist(async () => {
+            if (bvid && cid) {
+              if (rolledBack.length > 0) {
+                scheduleTranslatedTrackWrite({
+                  bvid,
+                  cid,
+                  sourceTrackKey: sourceKey,
+                  targetLang: canonicalTargetLang,
+                  translationSig,
+                  mode: protocolMode,
+                  items: [],
+                  replaceRange: { from: chunkFromSec, to: chunkToSec }
+                });
+              } else {
+                hasUnflushedStreamingCues = false;
+                await saveTranslatedSubtitleTrack({
+                  bvid,
+                  cid,
+                  sourceTrackKey: sourceKey,
+                  targetLang: canonicalTargetLang,
+                  translationSig,
+                  mode: protocolMode,
+                  items: [],
+                  replaceRange: { from: chunkFromSec, to: chunkToSec }
+                });
+              }
+            }
+            await acceptSecondarySubtitle({
+              body: rolledBack,
+              subtitleId: slotId,
+              subtitleUrl: "",
+              runId
+            });
+          }).catch(() => {});
         }
         throw err;
       }
