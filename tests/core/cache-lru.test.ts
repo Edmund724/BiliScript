@@ -741,28 +741,34 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
   });
 });
 
+async function writeFourVideosToIdb(cache: typeof import("../../extension/subtitle/cache.js")): Promise<void> {
+  let now = 1000;
+  for (const bvid of ["BV1v1", "BV1v2", "BV1v3"]) {
+    now += 1000;
+    vi.setSystemTime(now);
+    await cache.saveSubtitleToCache(`biliscript_subtitle_cache_${bvid}_1_id_x`, [{ from: 0, to: 1, content: "x" }]);
+  }
+  now += 1000;
+  vi.setSystemTime(now);
+  await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1v4_1_id_x", [{ from: 0, to: 1, content: "new" }]);
+}
+
 describe("一次机制覆盖两族：真实写路径（segment-cache / subtitle cache）", () => {
-  it("subtitle/cache.js saveSubtitleToCache 更新索引并淘汰第 4 个旧视频", async () => {
+  it("subtitle/cache.js saveSubtitleToCache 写入 IndexedDB 并按 LRU 上限淘汰第 4 个旧视频", async () => {
     const cache = await import("../../extension/subtitle/cache.js");
+    cache.configureSubtitleCacheStoreForTests(cache.createSubtitleIdbStore({ maxEntries: 3 }));
     // 假时钟步进：逐次落盘的写入时间戳严格递增（排除同毫秒 ts 并列的排名不确定）
     vi.useFakeTimers();
     try {
-      let now = 1000;
-      vi.setSystemTime(now);
-      for (const bvid of ["BV1v1", "BV1v2", "BV1v3"]) {
-        now += 1000;
-        vi.setSystemTime(now);
-        await cache.saveSubtitleToCache(`biliscript_subtitle_cache_${bvid}_1_id_x`, [{ from: 0, to: 1, content: "x" }]);
-      }
-      now += 1000;
-      vi.setSystemTime(now);
-      await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1v4_1_id_x", [{ from: 0, to: 1, content: "new" }]);
+      vi.setSystemTime(1000);
+      await writeFourVideosToIdb(cache);
 
-      expect(storage.map.has("biliscript_subtitle_cache_BV1v1_1_id_x")).toBe(false);
-      expect(storage.map.has("biliscript_subtitle_cache_BV1v4_1_id_x")).toBe(true);
-      expect(await mod.readFamilyKeys("biliscript_subtitle_cache_", "BV1v1")).toBeNull();
-      expect(await mod.readFamilyKeys("biliscript_subtitle_cache_", "BV1v4")).toEqual(["biliscript_subtitle_cache_BV1v4_1_id_x"]);
+      expect(await cache.loadSubtitleFromCache("biliscript_subtitle_cache_BV1v1_1_id_x")).toBeNull();
+      expect(await cache.loadSubtitleFromCache("biliscript_subtitle_cache_BV1v4_1_id_x")).toEqual([
+        { from: 0, to: 1, content: "new" }
+      ]);
     } finally {
+      cache.configureSubtitleCacheStoreForTests(null);
       vi.useRealTimers();
     }
   });

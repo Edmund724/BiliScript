@@ -81,7 +81,11 @@ import {
   fetchSubtitleBundle as fetchBundleMock,
   fetchVideoMeta as fetchMetaMock
 } from "../../extension/bilibili/gateway.js";
-import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
+import {
+  getSubtitleCacheKey,
+  loadSubtitleFromCache,
+  setSubtitleCacheWriteInterceptorForTests
+} from "../../extension/subtitle/cache.js";
 import { trackIdentity } from "../../extension/subtitle/source-key.js";
 import { acceptSubtitle, commitNoSubtitle } from "../../extension/subtitle/commit.js";
 
@@ -123,7 +127,8 @@ beforeEach(() => {
   clipState.setFetchRunId(0);
 
   // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染。
-  // 缓存口每次装一台新的宿主（清掉上一条用例的键面）；盘上读走 readEntry / hasEntry。
+  // 缓存口每次装一台新的宿主（清掉上一条用例的键面）并复位 IDB 写入拦截器
+  setSubtitleCacheWriteInterceptorForTests(null);
   storageHost = installChromeHost();
   vi.mocked(fetchBodyMock).mockReset();
   vi.mocked(fetchBundleMock).mockReset();
@@ -216,30 +221,24 @@ describe("noSubtitleReason 清除点", () => {
 // 缓存口是内存 storage，每条用例自己预置键面（beforeEach 已换新 storage）
 describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
   it("网络成功但缓存写失败（LRU 淘汰后重试仍失败）：接受事务照常收尾", async () => {
-    // 只有这条正文键的落盘失败（LRU 索引/清单照常写）：writeWithEviction 淘汰后
-    // 重试仍失败 → { ok: false }。索引也一起失败的话根本走不到正文写入那一步。
-    vi.mocked(globalThis.chrome.storage.local.set).mockImplementation(async (entries) => {
-      const record = entries as Record<string, unknown>;
-      if (subtitleCacheKey() in record) {
-        throw new Error("quota exceeded");
-      }
-      for (const [key, value] of Object.entries(record)) {
-        storageHost.map.set(key, value);
-      }
+    const attemptedOps: Array<{ op: string; bvid: string; cid: string }> = [];
+    setSubtitleCacheWriteInterceptorForTests(({ op, bvid, cid }) => {
+      attemptedOps.push({ op, bvid, cid });
+      throw new Error("quota exceeded");
     });
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
+    setSubtitleCacheWriteInterceptorForTests(null);
 
     // 缓存失败不阻断主流程：接受事务照常落位
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(clipState.subtitleFetchState).toBe("ready");
-    // 写盘试图落的正是这条真实键与这次的网络体（键装配 + 写入载荷一起被钉住）
-    const attemptedBody = vi
-      .mocked(globalThis.chrome.storage.local.set)
-      .mock.calls.map(([entries]) => (entries as Record<string, CacheEntry>)[subtitleCacheKey()])
-      .find((entry) => entry && Array.isArray(entry.body))?.body;
-    expect(attemptedBody).toEqual(SUBTITLE_BODY);
+    expect(attemptedOps).toContainEqual({
+      op: "put-raw",
+      bvid: clipState.bvid,
+      cid: clipState.cid
+    });
   });
 
   it("缓存命中但时长不匹配：清缓存后走网络重抓", async () => {
@@ -253,7 +252,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.subtitleFetchState).toBe("ready");
     expect(fetchBodyMock).toHaveBeenCalledWith("https://example.com/sub.json");
-    expect(storageHost.readEntry(subtitleCacheKey())?.body).toEqual(SUBTITLE_BODY);
+    await expect(loadSubtitleFromCache(subtitleCacheKey())).resolves.toEqual(SUBTITLE_BODY);
   });
 
   it("缓存命中但时长不匹配 + 网络也失败：坏缓存被清掉，盘上不留坏体", async () => {
@@ -268,6 +267,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     ).rejects.toThrow("HTTP 500");
 
     expect(storageHost.hasEntry(subtitleCacheKey())).toBe(false);
+    await expect(loadSubtitleFromCache(subtitleCacheKey())).resolves.toBeNull();
     expect(clipState.subtitleBody).toEqual([]);
   });
 });

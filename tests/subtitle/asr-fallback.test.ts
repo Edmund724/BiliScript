@@ -26,7 +26,7 @@ import type {
   SubtitleItem
 } from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
-import { getSubtitleCacheKey, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
+import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 import {
   acceptSubtitle as realAcceptSubtitle,
   commitNoSubtitle as realCommitNoSubtitle,
@@ -291,8 +291,8 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
 
     // 成果落缓存 + 孤儿清理：新键写入、旧变体被移除
     const cacheKey = asrCacheKey();
-    expect(storageHost.readEntry(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
-    expect(storageHost.hasEntry(staleVariantKey)).toBe(false);
+    await expect(loadSubtitleFromCache(cacheKey)).resolves.toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(staleVariantKey)).resolves.toBeNull();
 
     // 阶段广播：转写中 → 完成
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([
@@ -317,7 +317,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       subtitleUrl: ""
     });
     // 语言只体现在来源串与缓存键上（缓存键规则零变化）
-    expect(storageHost.readEntry(asrCacheKey({ lang: "zh" }))?.body).toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(asrCacheKey({ lang: "zh" }))).resolves.toEqual(TRANSCRIBED_BODY);
   });
 
   it("阅读视图打开时收尾通知 reader-bus：subtitle-ready（通知职责在字幕接受事务内）", async () => {
@@ -389,7 +389,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(result).toBe("done");
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1); // 校验不过 → 重生成
     // 旧键先被清理，随后被新成果重新写入
-    expect(storageHost.readEntry(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(cacheKey)).resolves.toEqual(TRANSCRIBED_BODY);
   });
 
   it("写缓存失败（LRU 淘汰后重试仍失败）：不阻断收尾", async () => {
@@ -582,7 +582,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     await expect(promise).resolves.toBe("done");
 
     // 成果仍即刻落缓存（键绑定发起时的 bvid/cid，与当前 UI 无关）
-    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(asrCacheKey())).resolves.toEqual(TRANSCRIBED_BODY);
     // 终态广播照发：sidepanel 的全局 asrTranscribingActive 标志归位
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([
       "asr-transcribing",
@@ -665,7 +665,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     // 任务本身照常到站：缓存照落、零 UI 收尾
     resolvePipeline!(TRANSCRIBED_BODY);
     await expect(promise).resolves.toBe("done");
-    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(asrCacheKey())).resolves.toEqual(TRANSCRIBED_BODY);
   });
 
   it("非 stale 的 runId 过期（未发起转写前的守卫）：直接抛 STALE_RUN", async () => {
@@ -697,7 +697,7 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.sleepFor).toHaveBeenCalledTimes(1);
     expect(deps.sleepFor).toHaveBeenCalledWith(2000);
     // 重试成果落缓存 + 事务收尾
-    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    await expect(loadSubtitleFromCache(asrCacheKey())).resolves.toEqual(TRANSCRIBED_BODY);
     expect(state.clip.subtitleBody).toEqual([
       { from: 0, to: 2.4, content: "你好世界" },
       { from: 3, to: 290, content: "收尾长句" }

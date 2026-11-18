@@ -1,6 +1,10 @@
 // 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js。
 import { setStatus } from "../core/ui-status.js";
-import { state, clipState } from "../core/state.js";
+import {
+  state,
+  clipState,
+  triggerSubtitleSessionBoundary
+} from "../core/state.js";
 import type { SubtitleOption } from "../core/state.js";
 import { extractBvid, computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
@@ -19,7 +23,8 @@ import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import { normalizeSubtitleTracks, pickPreferredSubtitle, resolveTrackTarget } from "./selection.js";
-import { buildSubtitleCandidates } from "./cache.js";
+import { buildSubtitleCandidates, flushSubtitleCache } from "./cache.js";
+import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
 // 字幕接受事务（GLOSSARY.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏
@@ -133,6 +138,12 @@ export async function tryLoadSubtitleCandidates(
 // 检查点承担。错误路径的 reset 不递增：本 run 已终态，不得顶掉并发中更新的
 // 同视频抓取。
 export function resetClipState({ keepFetchState = false }: { keepFetchState?: boolean } = {}): void {
+  if (!keepFetchState && (state.clip.bvid || state.clip.cid)) {
+    void flushSubtitleCache({
+      bvid: state.clip.bvid || undefined,
+      cid: state.clip.cid || undefined
+    });
+  }
   clipState.setBvid("");
   clipState.setAid("");
   clipState.setCid("");
@@ -267,6 +278,8 @@ export async function refreshClip(): Promise<void> {
 // 分 P / cid / duration 经 page-context seam 解析（时长缺失兜底
 // readRuntimeVideoDuration，仍缺失则中止）→ resolved ids 日志。
 async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean }> {
+  const prevBvid = state.clip.bvid;
+  const prevCid = state.clip.cid;
   clipState.setBvid(extractBvid(location.href));
   if (!state.clip.bvid) {
     throw new Error("当前页面不是标准 BV 视频地址，无法抓取字幕。");
@@ -293,9 +306,14 @@ async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean 
   // 分 P / cid / duration 解析统一走 page-context seam；结果由本模块写入 state.clip。
   const pageContext = resolvePageContext(location.href, meta);
   const resolvedPageIndex = pageContext.pageIndex;
+  const nextCid = String(pageContext.cid || "");
+  if (prevBvid && prevCid && (prevBvid !== state.clip.bvid || prevCid !== nextCid)) {
+    await triggerSubtitleSessionBoundary("clip-switch");
+    ensureRunActive(runId, state.clip.fetchRunId);
+  }
   clipState.setPageIndex(resolvedPageIndex);
   clipState.setPageTitle(pageContext.pageTitle);
-  clipState.setCid(String(pageContext.cid || ""));
+  clipState.setCid(nextCid);
   clipState.setCidSource(pageContext.cidSource);
   clipState.setVideoDuration(Number(pageContext.duration || 0));
   if (!(state.clip.videoDuration > 0)) {
@@ -460,6 +478,20 @@ export async function loadSubtitle(
 ): Promise<void> {
   if (!url) {
     throw new Error("字幕 URL 为空。");
+  }
+  const nextId = subtitleId ? String(subtitleId) : "";
+  const prevId = String(state.clip.selectedSubtitleId || "");
+  const prevUrl = String(state.clip.selectedSubtitleUrl || "");
+  const isDifferentTrack =
+    state.clip.subtitleFetchState === "ready" &&
+    Boolean(state.clip.bvid && state.clip.cid) &&
+    ((Boolean(nextId && prevId) && nextId !== prevId) ||
+      normalizeSubtitleUrlForCache(url) !== normalizeSubtitleUrlForCache(prevUrl));
+  if (isDifferentTrack) {
+    await triggerSubtitleSessionBoundary("source-track-switch");
+    if (runId !== undefined) {
+      ensureRunActive(runId, state.clip.fetchRunId);
+    }
   }
   // 取体链收口 subtitle/body.js（缓存键装配 → 缓存命中与时长校验 → 坏缓存
   // 清键 → 网络取体 → 空体/时长校验 → 落缓存与写失败上浮）。本壳保留主轨

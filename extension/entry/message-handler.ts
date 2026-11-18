@@ -1,6 +1,6 @@
 // content 侧消息分发 + URL 变化编排的组合根（arch-slim-2/09 自 core/ 归位
 // entry/：消息分发与页内编排是 entry 层知识，core/ 回归纯共享底座）。
-import { state, uiState, clipState } from "../core/state.js";
+import { state, uiState, clipState, triggerSubtitleSessionBoundary } from "../core/state.js";
 
 import { startUrlWatcher, BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 // 换片事务：URL 变化编排（签名判定 → runId 递增 → 各域步骤次序 → 完成边）的唯一
@@ -285,6 +285,8 @@ export function bindUrlChangeHandler() {
     readRunId: () => clipState.fetchRunId,
     writeRunId: (runId) => {
       clipState.setFetchRunId(runId);
+      // 同步 flush 流式缓冲 + 递增双代数令牌 + 级联中止在途采集与翻译 + 清空播放器叠层
+      void triggerSubtitleSessionBoundary("clip-switch");
     },
     enforceNormalPageStateIfNeeded,
     isReaderViewOpen,

@@ -86,6 +86,7 @@ import {
 // offscreen 段缓存消息族 SW 端 handler（offscreen 文档无 chrome.storage，
 // 段缓存读写经消息直调 ai/segment-cache 单源——arch-review-2026-09/05）
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
+import { createSubtitleCacheHandler } from "../subtitle/subtitle-cache-handler.js";
 // 08 票 SW 保活：Map-Reduce/流式运行期间 offscreen 持长连端口钉住 SW
 // （防 30s 空闲回收反复冷启动），SW 端接受持有即生效
 import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
@@ -481,6 +482,7 @@ const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
 // Map-Reduce / 追问链的段缓存读写经此 handler 直调 ai/segment-cache 落真实
 // chrome.storage.local（arch-review-2026-09/05，替下 storage-local-bridge 垫片）。
 const handleSegmentCache = createSegmentCacheHandler();
+const handleSubtitleCache = createSubtitleCacheHandler();
 
 
 // MOSS-LIVE 伴看平台 CRUD 与会话准备处理器
@@ -605,6 +607,7 @@ const messageHandlerTable = {
   "search-cache": handleSearchCache,
   "search-health": handleSearchHealth,
   "segment-cache": handleSegmentCache,
+  "subtitle-cache": handleSubtitleCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
   "get-debug-log-gate": handleGetDebugLogGate

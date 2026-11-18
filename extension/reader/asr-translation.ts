@@ -7,7 +7,12 @@
 // 轻叶子，只持有「在飞、进度、是否开启手动 AI 精翻覆盖」面板要同步读取的事实，
 // 并负责偏好写入与用户动作编排。
 
-import { state, clipState } from "../core/state.js";
+import {
+  state,
+  clipState,
+  registerSubtitleSessionBoundaryHooks,
+  triggerSubtitleSessionBoundary
+} from "../core/state.js";
 import {
   LIVE_INTERPRET_TARGET_LANG_OPTIONS,
   type LiveInterpretTargetLang
@@ -207,6 +212,9 @@ export async function ensureAsrTranslation(
   const lang = resolveAsrTranslationLang();
   const abort = new AbortController();
   activeAbort = abort;
+  const unregisterBoundary = registerSubtitleSessionBoundaryHooks({
+    onAbortAndClear: () => cancelAsrTranslation()
+  });
   progress = { total: 0, done: 0, failed: 0 };
   notifyReaderPresenter({ kind: "rerender" });
   try {
@@ -234,6 +242,7 @@ export async function ensureAsrTranslation(
     notifyReaderPresenter({ kind: "notice", text: `译文生成失败：${getErrorMessage(error)}` });
     return { kind: "skipped" };
   } finally {
+    unregisterBoundary();
     if (activeAbort === abort) {
       activeAbort = null;
     }
@@ -254,6 +263,7 @@ export function selectAsrTranslationLanguage(value: unknown): void {
   state.setSettings({ ...state.settings, liveInterpretTargetLang: lang });
   persistReaderSettingsThroughSeam();
   cancelAsrTranslation();
+  void triggerSubtitleSessionBoundary("processing-switch");
   clipState.clearSecondarySubtitle();
   notifyReaderPresenter({ kind: "rerender" });
   void ensureAsrTranslation("translate");
@@ -299,6 +309,8 @@ export async function activateAiTranslationRefine(options?: {
     await chain.loadSubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
     // 换主轨后同步刷新 contextKey，避免 ensureAsrTranslation 把本次覆盖重置
     contextKey = currentContextKey();
+  } else {
+    await triggerSubtitleSessionBoundary("processing-switch");
   }
 
   notifyReaderPresenter({ kind: "rerender" });

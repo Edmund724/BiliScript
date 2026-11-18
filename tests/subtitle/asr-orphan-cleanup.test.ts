@@ -100,45 +100,41 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
   });
 });
 
-describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
-  it("写入失败先淘汰重试：重试成功返回 { ok:true } 且旧视频被淘汰", async () => {
-    // 预置旧格式汇总清单（数值 ts）造出已满 3 个的族 + 最旧 BV1old
-    // （写入目标 BV1n 由 save 内部记录）
-    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1old", 1);
-    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1m", 2);
-    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1w", 3);
-    storage.seedCacheEntry("biliscript_subtitle_cache_BV1old_1_id_x", BODY, 1);
-    storage.seedCacheEntry("biliscript_subtitle_cache_BV1m_1_id_x", BODY, 2);
-    storage.seedCacheEntry("biliscript_subtitle_cache_BV1w_1_id_x", BODY, 3);
-    let dataWriteAttempts = 0;
-    storage.local.set.mockImplementation(async (items) => {
-      // 仅数据键首次写入失败（模拟容量不足），索引记录正常
-      if ("biliscript_subtitle_cache_BV1n_1_id_y" in items) {
-        dataWriteAttempts += 1;
-        if (dataWriteAttempts === 1) {
-          throw new Error("quota");
-        }
-      }
-      for (const [key, value] of Object.entries(items)) {
-        storage.map.set(key, value);
-      }
-    });
+async function seedThreeOldIdbEntries() {
+  vi.useFakeTimers();
+  vi.setSystemTime(1000);
+  await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1old_1_id_x", BODY);
+  vi.setSystemTime(2000);
+  await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1m_1_id_x", BODY);
+  vi.setSystemTime(3000);
+  await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1w_1_id_x", BODY);
+  vi.setSystemTime(4000);
+}
 
-    const result = await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1n_1_id_y", BODY);
+describe("saveSubtitleToCache 与 IndexedDB LRU 的接线", () => {
+  it("写入超出 maxEntries=3 时自动按 lastUsed 淘汰最旧分 P，保留新条目", async () => {
+    cache.configureSubtitleCacheStoreForTests(cache.createSubtitleIdbStore({ maxEntries: 3 }));
+    try {
+      await seedThreeOldIdbEntries();
 
-    expect(result).toMatchObject({ ok: true });
-    expect(dataWriteAttempts).toBe(2);
-    expect(storage.map.has("biliscript_subtitle_cache_BV1old_1_id_x")).toBe(false);
-    expect(storage.map.get("biliscript_subtitle_cache_BV1n_1_id_y")).toMatchObject({ body: BODY });
+      const result = await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1n_1_id_y", BODY);
+
+      expect(result).toMatchObject({ ok: true });
+      await expect(cache.loadSubtitleFromCache("biliscript_subtitle_cache_BV1old_1_id_x")).resolves.toBeNull();
+      await expect(cache.loadSubtitleFromCache("biliscript_subtitle_cache_BV1n_1_id_y")).resolves.toEqual(BODY);
+    } finally {
+      cache.configureSubtitleCacheStoreForTests(null);
+      vi.useRealTimers();
+    }
   });
 
-  it("淘汰后重试仍失败 → 返回 { ok:false, error } 不抛异常（logError 由调用方上浮）", async () => {
-    storage.local.set.mockRejectedValue(new Error("quota"));
+  it("IndexedDB 写入失败 → 返回 { ok:false, error } 不抛异常（logError 由调用方上浮）", async () => {
+    cache.setSubtitleCacheWriteInterceptorForTests(() => {
+      throw new Error("quota");
+    });
     const result = await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1a_1_id_x", BODY);
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.error).toBeInstanceOf(Error);
-    }
+    cache.setSubtitleCacheWriteInterceptorForTests(null);
+    expect(result).toMatchObject({ ok: false, error: expect.any(Error) });
   });
 });
 
@@ -184,26 +180,29 @@ describe("persistAsrSubtitleToCache：落盘主轨后同步清旧 ASR 变体与�
     const result = await cache.persistAsrSubtitleToCache({ bvid: "BV1p", cid: "5", identity, body: BODY });
 
     expect(result).toMatchObject({ ok: true });
-    expect(storage.map.has(keepKey)).toBe(true);
-    expect(storage.map.has(staleAsr)).toBe(false);
-    expect(storage.map.has(translatedEn)).toBe(false);
-    expect(storage.map.has(translatedJa)).toBe(false);
-    expect(storage.map.has(platformTrack)).toBe(true);
-    expect(storage.map.has(otherVideoTranslated)).toBe(true);
+    await expect(cache.loadSubtitleFromCache(keepKey)).resolves.toEqual(BODY);
+    await expect(cache.loadSubtitleFromCache(staleAsr)).resolves.toBeNull();
+    await expect(cache.loadSubtitleFromCache(translatedEn)).resolves.toBeNull();
+    await expect(cache.loadSubtitleFromCache(translatedJa)).resolves.toBeNull();
+    await expect(cache.loadSubtitleFromCache(platformTrack)).resolves.toEqual(BODY);
+    await expect(cache.loadSubtitleFromCache(otherVideoTranslated)).resolves.toEqual(BODY);
   });
 
   it("写入失败：不清理旧 ASR 变体与译文缓存，返回 { ok: false }", async () => {
     const identity = asrIdentity("new-p", "new-m", "zh");
     const staleAsr = cacheKey("BV1p", "5", asrIdentity("old-p", "old-m", "auto"));
     const translatedEn = cacheKey("BV1p", "5", { kind: "translated", targetLang: "en" });
-    storage.seedCacheEntry(staleAsr, BODY, 1);
-    storage.seedCacheEntry(translatedEn, BODY, 1);
-    storage.local.set.mockRejectedValue(new Error("quota"));
+    await cache.saveSubtitleToCache(staleAsr, BODY);
+    await cache.saveSubtitleToCache(translatedEn, BODY);
+    cache.setSubtitleCacheWriteInterceptorForTests(() => {
+      throw new Error("quota");
+    });
 
     const result = await cache.persistAsrSubtitleToCache({ bvid: "BV1p", cid: "5", identity, body: BODY });
+    cache.setSubtitleCacheWriteInterceptorForTests(null);
 
     expect(result.ok).toBe(false);
-    expect(storage.map.has(staleAsr)).toBe(true);
-    expect(storage.map.has(translatedEn)).toBe(true);
+    await expect(cache.loadSubtitleFromCache(staleAsr)).resolves.toEqual(BODY);
+    await expect(cache.loadSubtitleFromCache(translatedEn)).resolves.toEqual(BODY);
   });
 });

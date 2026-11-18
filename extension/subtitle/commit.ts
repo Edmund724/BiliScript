@@ -42,7 +42,9 @@ import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { normalizeSubtitleSegmentationStrategy } from "../core/validators.js";
 import { findTrackByRef, sortSubtitleBodyByFrom } from "./selection.js";
-import { segmentSubtitles, type CoarseSubtitleInput } from "./segmentation.js";
+import { segmentSubtitles, shouldSegmentTrack, type CoarseSubtitleInput } from "./segmentation.js";
+import { buildSegmentationSignature, saveSegmentedSubtitleTrack } from "./cache.js";
+import { subtitleSourceKey, trackIdentity } from "./source-key.js";
 import { refreshHotComments, invalidateDerived } from "./core.js";
 import { slot } from "./slot.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
@@ -103,13 +105,23 @@ export async function acceptSubtitle({
     id: selectedSubtitleId,
     url: selectedSubtitleUrl
   });
+  const trackLan = typeof matchedTrack?.lan === "string" ? matchedTrack.lan : undefined;
   const strategy = normalizeSubtitleSegmentationStrategy(state.settings?.subtitleSegmentationStrategy);
+  const segmented = Array.isArray(sortedInput)
+    ? shouldSegmentTrack({
+        strategy,
+        selectedSubtitleId,
+        selectedSubtitleLang,
+        trackLan,
+        items: sortedInput as CoarseSubtitleInput[]
+      })
+    : false;
   const segmentedBody = Array.isArray(sortedInput)
     ? segmentSubtitles(sortedInput as CoarseSubtitleInput[], {
         strategy,
         selectedSubtitleId,
         selectedSubtitleLang,
-        trackLan: typeof matchedTrack?.lan === "string" ? matchedTrack.lan : undefined
+        trackLan
       })
     : sortedInput;
   const sortedBody = sortSubtitleBodyByFrom(segmentedBody);
@@ -133,6 +145,25 @@ export async function acceptSubtitle({
   // 发送闸订阅它 kick 等待闸，字幕就绪时不必再空等一轮轮询。只发布主轨相位，
   // 副轨事务（acceptSecondarySubtitle）不碰。
   publishSubtitleStatusPhase("subtitle-ready");
+  // 仅当触发了本地重断句且视频坐标完整时，独立写入 IndexedDB segmentedTracks；绝不创建空译文记录。
+  if (segmented && strategy !== "off" && Array.isArray(sortedBody) && state.clip.bvid && state.clip.cid) {
+    try {
+      const trackKey = subtitleSourceKey(trackIdentity(selectedSubtitleId, selectedSubtitleUrl, selectedSubtitleLang));
+      const segmentationSig = buildSegmentationSignature({
+        strategy,
+        lang: trackLan || selectedSubtitleLang
+      });
+      await saveSegmentedSubtitleTrack({
+        bvid: state.clip.bvid,
+        cid: state.clip.cid,
+        trackKey,
+        segmentationSig,
+        items: sortedBody
+      });
+    } catch {
+      // 重断句缓存写盘失败不影响已接受字幕交付
+    }
+  }
   return sortedBody;
 }
 

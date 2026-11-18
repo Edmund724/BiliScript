@@ -1,11 +1,16 @@
 import { logWarn, logError } from "../shared/logging.js";
-import { parseBvidFromCacheKey, readFamilyKeys, writeWithEviction, type EvictionResult, type EvictionFailure } from "../core/cache-lru.js";
-// subtitleUrl → 缓存键分量：原住本模块的第二套 URL 归一，已随原生产物映射归位
-// bilibili/native-payload.ts（架构评审「轨道身份」）。同一字段的两套归一此后只住一处，
-// 本模块 import 复用，不再另存一份。
+import { sendRuntimeMessage } from "../shared/messaging.js";
+import {
+  registerSubtitleSessionBoundaryHooks,
+  type SubtitleSessionBoundaryHook
+} from "../core/state.js";
+import {
+  CacheWriteError,
+  readFamilyKeys,
+  type EvictionResult,
+  type EvictionFailure
+} from "../core/cache-lru.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
-// 「字幕轨身份」编码单点与变体判据（键位叶）：平台轨身份、ASR 变体身份与译文副轨身份
-// 的编码、以及孤儿清理的匹配前缀都出自它——身份拼写不在此处定义。
 import {
   ASR_SOURCE_KEY_PREFIX,
   TRANSLATED_SOURCE_KEY_PREFIX,
@@ -13,11 +18,50 @@ import {
   subtitleSourceKey,
   type TrackIdentity
 } from "./source-key.js";
+import { getLangFamily, toCanonicalTargetLangBcp47 } from "./selection.js";
+import {
+  DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
+  DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES,
+  SUBTITLE_IDB_NAME,
+  SUBTITLE_IDB_STORE,
+  SUBTITLE_IDB_VERSION,
+  buildSegmentedTrackMapKey,
+  buildSubtitlePageId,
+  buildTranslatedTrackMapKey,
+  createSubtitleIdbStore,
+  defaultSubtitleIdbStore,
+  mergeTranslatedItems,
+  sanitizeMonolingualItems,
+  sanitizeTranslatedItems,
+  type SubtitleIdbStore,
+  type SubtitlePageRecord,
+  type SubtitleStoreWriteInterceptor,
+  type SubtitleTrackStorageKind
+} from "./idb-store.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-// 类型专用导入（编译期擦除，无运行时 ai 边）：字幕条目形状归 ai/types 声明。
 import type { SubtitleBodyItem } from "../ai/types.js";
+import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
+
+export {
+  DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
+  DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES,
+  SUBTITLE_IDB_NAME,
+  SUBTITLE_IDB_STORE,
+  SUBTITLE_IDB_VERSION,
+  buildSegmentedTrackMapKey,
+  buildSubtitlePageId,
+  buildTranslatedTrackMapKey,
+  createSubtitleIdbStore,
+  type SubtitleIdbStore,
+  type SubtitlePageRecord,
+  type SubtitleStoreWriteInterceptor,
+  type SubtitleTrackStorageKind
+};
 
 const CACHE_KEY_PREFIX = "biliscript_subtitle_cache_";
+export const DEFAULT_TRANSLATED_WRITE_DEBOUNCE_MS = 1500;
+const SUBTITLE_STORE_RESET_SYMBOL = Symbol.for("biliscript.subtitleStoreReset");
+const SUBTITLE_CACHE_LIFECYCLE_SYMBOL = Symbol.for("biliscript.subtitleCacheLifecycle");
 
 export interface SubtitleCacheKeyOptions {
   bvid: string;
@@ -32,36 +76,1013 @@ export function getSubtitleCacheKey({ bvid, cid, identity }: SubtitleCacheKeyOpt
   return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${subtitleSourceKey(identity)}`;
 }
 
-export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[] | null> {
+// ===== 抗干扰内容签名（segmentationSig / translationSig）=====
+
+function fnv1a32(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+function stableNumericField(value: unknown): string {
+  const num = Number(value);
+  return Number.isFinite(num) ? String(num) : "";
+}
+
+export interface SegmentationSignatureInput {
+  strategy?: unknown;
+  lang?: unknown;
+  maxWords?: unknown;
+  maxCjkChars?: unknown;
+  maxDurationMs?: unknown;
+  pauseTimeoutMs?: unknown;
+  longSentenceThreshold?: unknown;
+  scoreThreshold?: unknown;
+  minWords?: unknown;
+  minCjkChars?: unknown;
+  minDurationMs?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * 本地智能断句签名：
+ * 仅纳入算法版本、断句策略、源语种族与内容断句阈值；显式剔除超时、并发、重试间隔等调度参数。
+ */
+export function buildSegmentationSignature(input: SegmentationSignatureInput = {}): string {
+  const rawStrategy = String(input.strategy ?? "auto").trim().toLowerCase();
+  const strategy =
+    rawStrategy === "rule" || rawStrategy === "stats" || rawStrategy === "off"
+      ? rawStrategy
+      : "auto";
+  const langFamily = getLangFamily(input.lang) || String(input.lang ?? "").trim().toLowerCase();
+  const basis = [
+    "seg-v1",
+    strategy,
+    langFamily,
+    stableNumericField(input.maxWords),
+    stableNumericField(input.maxCjkChars),
+    stableNumericField(input.maxDurationMs),
+    stableNumericField(input.pauseTimeoutMs),
+    stableNumericField(input.longSentenceThreshold),
+    stableNumericField(input.scoreThreshold),
+    stableNumericField(input.minWords),
+    stableNumericField(input.minCjkChars),
+    stableNumericField(input.minDurationMs)
+  ].join("|");
+  return `seg_${fnv1a32(basis).toString(36)}`;
+}
+
+export interface TranslationSignatureGlossaryEntry {
+  source: string;
+  target: string;
+  note?: string;
+}
+
+export interface TranslationSignatureInput {
+  model?: unknown;
+  protocolVersion?: unknown;
+  targetLang?: unknown;
+  customPrompt?: unknown;
+  glossary?: unknown;
+  matchedGlossary?: readonly TranslationSignatureGlossaryEntry[];
+  sourceText?: unknown;
+  [key: string]: unknown;
+}
+
+function normalizeModelForSignature(rawModel: unknown): string {
+  const trimmed = String(rawModel ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "index-translate-35b-a3b") return "Index-Translate-35B-A3B";
+  if (lower === "index-translate-9b") return "Index-Translate-9B";
+  if (lower === "index-translate-2b") return "Index-Translate-2B";
+  return trimmed;
+}
+
+function parseGlossaryEntriesForSignature(rawGlossary: unknown): TranslationSignatureGlossaryEntry[] {
+  if (!rawGlossary) {
+    return [];
+  }
+  const deduped = new Map<string, TranslationSignatureGlossaryEntry>();
+  const upsert = (rawSource: unknown, rawTarget: unknown, rawNote?: unknown) => {
+    const source = String(rawSource ?? "").replace(/\s+/g, " ").trim();
+    if (!source || /^[=\-_*~`]+$/.test(source)) {
+      return;
+    }
+    const target = String(rawTarget ?? "").replace(/\s+/g, " ").trim();
+    const note = String(rawNote ?? "").replace(/\s+/g, " ").trim();
+    const key = source.toLowerCase();
+    if (deduped.has(key)) {
+      deduped.delete(key);
+    }
+    deduped.set(key, note ? { source, target, note } : { source, target });
+  };
+
+  if (typeof rawGlossary === "string") {
+    for (const rawLine of rawGlossary.split(/\r?\n/)) {
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
+        continue;
+      }
+      let eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) eqIdx = trimmed.indexOf("＝");
+      if (eqIdx === -1) {
+        upsert(trimmed, "");
+      } else {
+        upsert(trimmed.slice(0, eqIdx), trimmed.slice(eqIdx + 1));
+      }
+    }
+    return [...deduped.values()];
+  }
+
+  if (Array.isArray(rawGlossary)) {
+    for (const item of rawGlossary) {
+      if (item && typeof item === "object") {
+        const rec = item as { source?: unknown; target?: unknown; note?: unknown };
+        upsert(rec.source, rec.target, rec.note);
+      }
+    }
+    return [...deduped.values()];
+  }
+
+  if (typeof rawGlossary === "object") {
+    for (const [source, target] of Object.entries(rawGlossary as Record<string, unknown>)) {
+      upsert(source, target);
+    }
+  }
+  return [...deduped.values()];
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesGlossarySourceInText(source: string, text: string): boolean {
+  const escapedParts = source
+    .trim()
+    .split(/\s+/)
+    .map((part) => escapeRegExp(part));
+  const body = escapedParts.join("\\s+");
+  const hasWordStart = /^[A-Za-z0-9_]/.test(source);
+  const hasWordEnd = /[A-Za-z0-9_]$/.test(source);
+  const allowPluralS = hasWordEnd && source.length >= 3 && /[A-Za-rt-z]$/.test(source);
+  const prefix = hasWordStart ? "(?<![A-Za-z0-9_])" : "";
+  const suffix = hasWordEnd ? "(?![A-Za-z0-9_])" : "";
+  return new RegExp(`${prefix}${body}${allowPluralS ? "s?" : ""}${suffix}`, "i").test(text);
+}
+
+function resolveMatchedGlossaryForSignature(input: TranslationSignatureInput): TranslationSignatureGlossaryEntry[] {
+  if (Array.isArray(input.matchedGlossary)) {
+    return parseGlossaryEntriesForSignature(input.matchedGlossary);
+  }
+  const entries = parseGlossaryEntriesForSignature(input.glossary);
+  if (entries.length === 0) {
+    return [];
+  }
+  if (input.sourceText === undefined || input.sourceText === null) {
+    return entries;
+  }
+  const text = String(input.sourceText);
+  if (!text.trim()) {
+    return [];
+  }
+  return entries.filter((entry) => matchesGlossarySourceInText(entry.source, text));
+}
+
+/**
+ * 翻译缓存签名（抗干扰）：
+ * 仅纳入模型名、协议版本、规范化目标语言、自定义 Prompt 哈希与当前命中的术语哈希；
+ * 显式剔除超时时间、并发度、重试间隔、API Key、Base URL 等非内容调度参数。
+ */
+export function buildTranslationSignature(input: TranslationSignatureInput = {}): string {
+  const model = normalizeModelForSignature(input.model);
+  const protocolVersion = String(input.protocolVersion ?? "cc-json").trim() || "cc-json";
+  const targetLang = toCanonicalTargetLangBcp47(input.targetLang || "zh");
+  const promptHash = fnv1a32(String(input.customPrompt ?? "").trim()).toString(36);
+  const matchedTerms = resolveMatchedGlossaryForSignature(input)
+    .slice()
+    .sort((a, b) => a.source.toLowerCase().localeCompare(b.source.toLowerCase()))
+    .map((entry) => `${entry.source.toLowerCase()}=${entry.target}|${entry.note || ""}`)
+    .join("\n");
+  const glossaryHash = fnv1a32(matchedTerms).toString(36);
+
+  const basis = ["tr-v1", model, protocolVersion, targetLang, promptHash, glossaryHash].join("|");
+  return `tr_${fnv1a32(basis).toString(36)}`;
+}
+
+// ===== 传输桥接（内容脚本 → SW 扩展源 IndexedDB；扩展源/单测环境直连本地存储）=====
+
+let storeOverrideForTests: SubtitleIdbStore | null = null;
+
+export function configureSubtitleCacheStoreForTests(store: SubtitleIdbStore | null): void {
+  storeOverrideForTests = store;
+}
+
+export function setSubtitleCacheWriteInterceptorForTests(
+  interceptor: SubtitleStoreWriteInterceptor | null
+): void {
+  (storeOverrideForTests ?? defaultSubtitleIdbStore).setWriteInterceptorForTests(interceptor);
+}
+
+function getActiveLocalStore(): SubtitleIdbStore {
+  return storeOverrideForTests ?? defaultSubtitleIdbStore;
+}
+
+function shouldRouteViaBackground(): boolean {
+  if (storeOverrideForTests) {
+    return false;
+  }
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    return false;
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  if (protocol === "chrome-extension:") {
+    return false;
+  }
+  return protocol === "http:" || protocol === "https:";
+}
+
+async function dispatchSubtitleStoreOp(
+  message: SubtitleCacheMessage
+): Promise<SubtitleCacheResponse | null> {
+  if (shouldRouteViaBackground()) {
+    try {
+      const response = await sendRuntimeMessage(message);
+      if (response && response.handled === true) {
+        return response;
+      }
+    } catch {
+      // 无 SW 监听时平滑回退本地 store（如 Vitest 缺省环境）
+    }
+  }
+  return null;
+}
+
+// ===== 1500ms 流式译文写防抖缓冲 + 立即 flush =====
+
+interface PendingTranslatedWrite {
+  key: string;
+  bvid: string;
+  cid: string;
+  sourceTrackKey: string;
+  targetLang: string;
+  translationSig: string;
+  mode?: "boundary-v3" | "cc-json";
+  items: SubtitleBodyItem[];
+  replaceRange?: { from: number; to: number };
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const pendingTranslatedWrites = new Map<string, PendingTranslatedWrite>();
+
+function buildPendingTranslatedKey(
+  bvid: string,
+  cid: string,
+  sourceTrackKey: string,
+  targetLang: string,
+  translationSig: string
+): string {
+  return `${buildSubtitlePageId(bvid, cid)}|${buildTranslatedTrackMapKey(sourceTrackKey, targetLang, translationSig)}`;
+}
+
+async function commitTranslatedWriteToStore(entry: {
+  bvid: string;
+  cid: string;
+  sourceTrackKey: string;
+  targetLang: string;
+  translationSig: string;
+  mode?: "boundary-v3" | "cc-json";
+  items: readonly unknown[];
+  replaceRange?: { from: number; to: number };
+}): Promise<SaveSubtitleResult> {
+  const cleanItems = sanitizeTranslatedItems(entry.items);
+  if (cleanItems.length === 0 && !entry.replaceRange) {
+    return { ok: true };
+  }
+  const viaBg = await dispatchSubtitleStoreOp({
+    type: "subtitle-cache",
+    op: "upsert-translated",
+    bvid: entry.bvid,
+    cid: entry.cid,
+    sourceTrackKey: entry.sourceTrackKey,
+    targetLang: entry.targetLang,
+    translationSig: entry.translationSig,
+    ...(entry.mode ? { mode: entry.mode } : {}),
+    items: cleanItems,
+    ...(entry.replaceRange ? { replaceRange: entry.replaceRange } : {})
+  });
+  if (viaBg) {
+    if (viaBg.ok) {
+      return { ok: true };
+    }
+    const err = new CacheWriteError(viaBg.error || "写入译文缓存失败");
+    logError("[BILISCRIPT] failed to save translated subtitle cache", {
+      bvid: entry.bvid,
+      cid: entry.cid,
+      error: err.message
+    });
+    return { ok: false, error: err };
+  }
+  const res = await getActiveLocalStore().upsertTranslatedTrack({
+    bvid: entry.bvid,
+    cid: entry.cid,
+    sourceTrackKey: entry.sourceTrackKey,
+    targetLang: entry.targetLang,
+    translationSig: entry.translationSig,
+    ...(entry.mode ? { mode: entry.mode } : {}),
+    items: cleanItems,
+    ...(entry.replaceRange ? { replaceRange: entry.replaceRange } : {})
+  });
+  if (!res.ok) {
+    const err = new CacheWriteError(res.error?.message || "写入译文缓存失败", res.error);
+    logError("[BILISCRIPT] failed to save translated subtitle cache after eviction", {
+      bvid: entry.bvid,
+      cid: entry.cid,
+      error: err.message
+    });
+    return { ok: false, error: err };
+  }
+  return { ok: true };
+}
+
+function clearPendingWriteTimer(pending: PendingTranslatedWrite): void {
+  if (pending.timer !== null) {
+    clearTimeout(pending.timer);
+    pending.timer = null;
+  }
+}
+
+export interface FlushSubtitleCacheFilter {
+  bvid?: string;
+  cid?: string;
+}
+
+/**
+ * 立即将流式防抖缓冲中尚未落盘的译文合并写入 IndexedDB。
+ * 切集（bvid/cid 变更）、切源轨、pagehide 或 visibilitychange 隐藏时必须立即调用。
+ */
+export async function flushSubtitleCache(filter?: FlushSubtitleCacheFilter): Promise<void> {
+  const filterBvid = filter?.bvid ? String(filter.bvid).trim() : "";
+  const filterCid = filter?.cid ? String(filter.cid).trim() : "";
+
+  const snapshot: PendingTranslatedWrite[] = [];
+  for (const [key, entry] of pendingTranslatedWrites.entries()) {
+    if (filterBvid && entry.bvid !== filterBvid) continue;
+    if (filterCid && entry.cid !== filterCid) continue;
+    clearPendingWriteTimer(entry);
+    pendingTranslatedWrites.delete(key);
+    snapshot.push(entry);
+  }
+
+  if (snapshot.length === 0) {
+    return;
+  }
+
+  await Promise.allSettled(snapshot.map((entry) => commitTranslatedWriteToStore(entry)));
+}
+
+function registerLifecycleFlushHandlers(): void {
+  const globals = globalThis as unknown as Record<symbol, unknown>;
+  const existing = globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL] as
+    | {
+        flushRef: () => Promise<void>;
+        bound: boolean;
+        onPageHide?: () => void;
+        onVisibilityChange?: () => void;
+      }
+    | undefined;
+
+  if (existing) {
+    existing.flushRef = () => flushSubtitleCache();
+    return;
+  }
+
+  const holder: {
+    flushRef: () => Promise<void>;
+    bound: boolean;
+    onPageHide?: () => void;
+    onVisibilityChange?: () => void;
+  } = {
+    flushRef: () => flushSubtitleCache(),
+    bound: false
+  };
+  globals[SUBTITLE_CACHE_LIFECYCLE_SYMBOL] = holder;
+
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    holder.onPageHide = () => {
+      void holder.flushRef();
+    };
+    window.addEventListener("pagehide", holder.onPageHide);
+    holder.bound = true;
+  }
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    holder.onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void holder.flushRef();
+      }
+    };
+    document.addEventListener("visibilitychange", holder.onVisibilityChange);
+    holder.bound = true;
+  }
+}
+
+export function resetSubtitleCacheRuntimeForTests(): void {
+  for (const entry of pendingTranslatedWrites.values()) {
+    clearPendingWriteTimer(entry);
+  }
+  pendingTranslatedWrites.clear();
+  storeOverrideForTests = null;
+  void defaultSubtitleIdbStore.clearAll();
+}
+
+(globalThis as unknown as Record<symbol, unknown>)[SUBTITLE_STORE_RESET_SYMBOL] =
+  resetSubtitleCacheRuntimeForTests;
+registerLifecycleFlushHandlers();
+
+// ===== 结构化三层读写 API =====
+
+export interface LoadRawTrackOptions {
+  bvid: string;
+  cid: string;
+  trackKey: string;
+  legacyCacheKey?: string;
+}
+
+export interface SaveRawTrackOptions {
+  bvid: string;
+  cid: string;
+  trackKey: string;
+  lang?: string;
+  kind?: SubtitleTrackStorageKind;
+  items: readonly unknown[];
+}
+
+export async function loadRawSubtitleTrack({
+  bvid,
+  cid,
+  trackKey,
+  legacyCacheKey
+}: LoadRawTrackOptions): Promise<SubtitleBodyItem[] | null> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  const cleanTrackKey = String(trackKey || "").trim();
+  if (!cleanBvid || !cleanCid || !cleanTrackKey) {
+    return null;
+  }
+  try {
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "get-raw",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey
+    });
+    const hit = viaBg ? viaBg.items ?? null : await getActiveLocalStore().getRawTrack(cleanBvid, cleanCid, cleanTrackKey);
+    if (Array.isArray(hit) && hit.length > 0) {
+      return hit;
+    }
+    if (legacyCacheKey) {
+      const migrated = await tryMigrateLegacyStorageEntry(legacyCacheKey);
+      if (migrated) {
+        return migrated as SubtitleBodyItem[];
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRawSubtitleTrack({
+  bvid,
+  cid,
+  trackKey,
+  lang,
+  kind,
+  items
+}: SaveRawTrackOptions): Promise<SaveSubtitleResult> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  const cleanTrackKey = String(trackKey || "").trim();
+  const sanitized = sanitizeMonolingualItems(items);
+  if (!cleanBvid || !cleanCid || !cleanTrackKey) {
+    return {
+      ok: false,
+      error: new CacheWriteError("Invalid bvid, cid or trackKey")
+    };
+  }
+  try {
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "put-raw",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey,
+      ...(lang ? { lang } : {}),
+      ...(kind ? { kind } : {}),
+      items: sanitized
+    });
+    if (viaBg) {
+      if (viaBg.ok) return { ok: true };
+      const err = new CacheWriteError(viaBg.error || "写入原生字幕缓存失败");
+      logError("[BILISCRIPT] failed to save raw subtitle cache", { bvid: cleanBvid, cid: cleanCid, trackKey: cleanTrackKey, error: err.message });
+      return { ok: false, error: err };
+    }
+    const res = await getActiveLocalStore().putRawTrack({
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey,
+      ...(lang ? { lang } : {}),
+      ...(kind ? { kind } : {}),
+      items: sanitized
+    });
+    if (!res.ok) {
+      const err = new CacheWriteError(res.error?.message || "写入原生字幕缓存失败", res.error);
+      logError("[BILISCRIPT] failed to save raw subtitle cache after eviction", {
+        bvid: cleanBvid,
+        cid: cleanCid,
+        trackKey: cleanTrackKey,
+        error: err.message
+      });
+      return { ok: false, error: err };
+    }
+    return { ok: true };
+  } catch (error) {
+    const err = new CacheWriteError((error as Error)?.message || String(error), error);
+    logError("[BILISCRIPT] failed to save raw subtitle cache", { bvid: cleanBvid, cid: cleanCid, trackKey: cleanTrackKey, error: err.message });
+    return { ok: false, error: err };
+  }
+}
+
+export interface LoadSegmentedTrackOptions {
+  bvid: string;
+  cid: string;
+  trackKey: string;
+  segmentationSig: string;
+}
+
+export interface SaveSegmentedTrackOptions extends LoadSegmentedTrackOptions {
+  items: readonly unknown[];
+}
+
+export async function loadSegmentedSubtitleTrack({
+  bvid,
+  cid,
+  trackKey,
+  segmentationSig
+}: LoadSegmentedTrackOptions): Promise<SubtitleBodyItem[] | null> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  const cleanTrackKey = String(trackKey || "").trim();
+  const cleanSig = String(segmentationSig || "").trim();
+  if (!cleanBvid || !cleanCid || !cleanTrackKey || !cleanSig) {
+    return null;
+  }
+  try {
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "get-segmented",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey,
+      segmentationSig: cleanSig
+    });
+    const hit = viaBg
+      ? viaBg.items ?? null
+      : await getActiveLocalStore().getSegmentedTrack(cleanBvid, cleanCid, cleanTrackKey, cleanSig);
+    return Array.isArray(hit) && hit.length > 0 ? hit : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSegmentedSubtitleTrack({
+  bvid,
+  cid,
+  trackKey,
+  segmentationSig,
+  items
+}: SaveSegmentedTrackOptions): Promise<SaveSubtitleResult> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  const cleanTrackKey = String(trackKey || "").trim();
+  const cleanSig = String(segmentationSig || "").trim();
+  const sanitized = sanitizeMonolingualItems(items);
+  if (!cleanBvid || !cleanCid || !cleanTrackKey || !cleanSig) {
+    return { ok: false, error: new CacheWriteError("Invalid segmented subtitle cache parameters") };
+  }
+  if (sanitized.length === 0) {
+    return { ok: true };
+  }
+  try {
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "put-segmented",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey,
+      segmentationSig: cleanSig,
+      items: sanitized
+    });
+    if (viaBg) {
+      if (viaBg.ok) return { ok: true };
+      return { ok: false, error: new CacheWriteError(viaBg.error || "写入重断句缓存失败") };
+    }
+    const res = await getActiveLocalStore().putSegmentedTrack({
+      bvid: cleanBvid,
+      cid: cleanCid,
+      trackKey: cleanTrackKey,
+      segmentationSig: cleanSig,
+      items: sanitized
+    });
+    if (!res.ok) {
+      return { ok: false, error: new CacheWriteError(res.error?.message || "写入重断句缓存失败", res.error) };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: new CacheWriteError((error as Error)?.message || String(error), error) };
+  }
+}
+
+export interface LoadTranslatedTrackOptions {
+  bvid: string;
+  cid: string;
+  sourceTrackKey: string;
+  targetLang: string;
+  translationSig?: string;
+  legacyCacheKey?: string;
+}
+
+export interface TranslatedTrackWriteOptions {
+  bvid: string;
+  cid: string;
+  sourceTrackKey: string;
+  targetLang: string;
+  translationSig: string;
+  mode?: "boundary-v3" | "cc-json";
+  items: readonly unknown[];
+  replaceRange?: { from: number; to: number };
+  debounceMs?: number;
+}
+
+export async function loadTranslatedSubtitleTrack({
+  bvid,
+  cid,
+  sourceTrackKey,
+  targetLang,
+  translationSig,
+  legacyCacheKey
+}: LoadTranslatedTrackOptions): Promise<SubtitleBodyItem[] | null> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  const cleanSource = String(sourceTrackKey || "").trim();
+  const cleanLang = toCanonicalTargetLangBcp47(targetLang);
+  if (!cleanBvid || !cleanCid || !cleanSource || !cleanLang) {
+    return null;
+  }
+  try {
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "get-translated",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      sourceTrackKey: cleanSource,
+      targetLang: cleanLang,
+      ...(translationSig ? { translationSig } : {})
+    });
+    let stored = viaBg
+      ? viaBg.items ?? null
+      : await getActiveLocalStore().getTranslatedTrack(
+          cleanBvid,
+          cleanCid,
+          cleanSource,
+          cleanLang,
+          translationSig
+        );
+
+    // 若指定了精确签名但未命中，合并未落盘的防抖缓冲
+    const pendingKey = translationSig
+      ? buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, translationSig)
+      : "";
+    const pendingEntry = pendingKey ? pendingTranslatedWrites.get(pendingKey) : undefined;
+    if (pendingEntry) {
+      const merged = mergeTranslatedItems(stored ?? [], pendingEntry.items, pendingEntry.replaceRange);
+      return merged.length > 0 ? merged : null;
+    }
+
+    if (Array.isArray(stored) && stored.length > 0) {
+      return stored;
+    }
+
+    if (legacyCacheKey) {
+      const migrated = await tryMigrateLegacyStorageEntry(legacyCacheKey);
+      if (migrated) {
+        return migrated as SubtitleBodyItem[];
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const CACHE_FLUSH_BOUNDARY_HOOK: SubtitleSessionBoundaryHook = {
+  flush: () => flushSubtitleCache()
+};
+
+/**
+ * 流式逐句增量合入：1500ms 防抖合并写盘，期间切集 / 切轨 / pagehide / visibilitychange 会立即 flush。
+ * 绝不为纯空白译文创建条目。
+ */
+export function scheduleTranslatedTrackWrite(options: TranslatedTrackWriteOptions): void {
+  const cleanBvid = String(options.bvid || "").trim();
+  const cleanCid = String(options.cid || "").trim();
+  const cleanSource = String(options.sourceTrackKey || "").trim();
+  const cleanLang = toCanonicalTargetLangBcp47(options.targetLang);
+  const cleanSig = String(options.translationSig || "").trim() || "legacy";
+  const cleanItems = sanitizeTranslatedItems(options.items);
+  if (!cleanBvid || !cleanCid || !cleanSource || !cleanLang) {
+    return;
+  }
+  if (cleanItems.length === 0 && !options.replaceRange) {
+    return;
+  }
+
+  registerLifecycleFlushHandlers();
+  registerSubtitleSessionBoundaryHooks(CACHE_FLUSH_BOUNDARY_HOOK);
+  const pendingKey = buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, cleanSig);
+  const existing = pendingTranslatedWrites.get(pendingKey);
+  const mergedItems = mergeTranslatedItems(existing?.items ?? [], cleanItems, options.replaceRange);
+  if (mergedItems.length === 0) {
+    return;
+  }
+
+  if (existing) {
+    clearPendingWriteTimer(existing);
+  }
+
+  const debounceMs = Math.max(0, Number(options.debounceMs ?? DEFAULT_TRANSLATED_WRITE_DEBOUNCE_MS));
+  const record: PendingTranslatedWrite = {
+    key: pendingKey,
+    bvid: cleanBvid,
+    cid: cleanCid,
+    sourceTrackKey: cleanSource,
+    targetLang: cleanLang,
+    translationSig: cleanSig,
+    ...(options.mode ? { mode: options.mode } : {}),
+    items: mergedItems,
+    ...(existing?.replaceRange || options.replaceRange
+      ? {
+          replaceRange:
+            existing?.replaceRange && options.replaceRange
+              ? {
+                  from: Math.min(existing.replaceRange.from, options.replaceRange.from),
+                  to: Math.max(existing.replaceRange.to, options.replaceRange.to)
+                }
+              : options.replaceRange ?? existing?.replaceRange
+        }
+      : {}),
+    timer: null
+  };
+
+  record.timer = setTimeout(() => {
+    const current = pendingTranslatedWrites.get(pendingKey);
+    if (current !== record) {
+      return;
+    }
+    record.timer = null;
+    pendingTranslatedWrites.delete(pendingKey);
+    void commitTranslatedWriteToStore(record);
+  }, debounceMs);
+
+  pendingTranslatedWrites.set(pendingKey, record);
+}
+
+/**
+ * 立即落盘译文（先合并同键尚未触发防抖的缓冲条目，再写 IndexedDB）。
+ */
+export async function saveTranslatedSubtitleTrack(
+  options: Omit<TranslatedTrackWriteOptions, "debounceMs">
+): Promise<SaveSubtitleResult> {
+  const cleanBvid = String(options.bvid || "").trim();
+  const cleanCid = String(options.cid || "").trim();
+  const cleanSource = String(options.sourceTrackKey || "").trim();
+  const cleanLang = toCanonicalTargetLangBcp47(options.targetLang);
+  const cleanSig = String(options.translationSig || "").trim() || "legacy";
+  const cleanItems = sanitizeTranslatedItems(options.items);
+  if (!cleanBvid || !cleanCid || !cleanSource || !cleanLang) {
+    return { ok: false, error: new CacheWriteError("Invalid translated subtitle cache parameters") };
+  }
+
+  const pendingKey = buildPendingTranslatedKey(cleanBvid, cleanCid, cleanSource, cleanLang, cleanSig);
+  const pending = pendingTranslatedWrites.get(pendingKey);
+  if (pending) {
+    clearPendingWriteTimer(pending);
+    pendingTranslatedWrites.delete(pendingKey);
+  }
+
+  const merged = mergeTranslatedItems(pending?.items ?? [], cleanItems, options.replaceRange);
+  if (merged.length === 0 && !options.replaceRange) {
+    return { ok: true };
+  }
+  return commitTranslatedWriteToStore({
+    bvid: cleanBvid,
+    cid: cleanCid,
+    sourceTrackKey: cleanSource,
+    targetLang: cleanLang,
+    translationSig: cleanSig,
+    ...(options.mode ? { mode: options.mode } : {}),
+    items: merged,
+    ...(options.replaceRange ? { replaceRange: options.replaceRange } : {})
+  });
+}
+
+export async function getSubtitlePageCacheRecord(
+  bvid: string,
+  cid: string
+): Promise<SubtitlePageRecord | null> {
+  const cleanBvid = String(bvid || "").trim();
+  const cleanCid = String(cid || "").trim();
+  if (!cleanBvid || !cleanCid) {
+    return null;
+  }
+  await flushSubtitleCache({ bvid: cleanBvid, cid: cleanCid });
+  const viaBg = await dispatchSubtitleStoreOp({
+    type: "subtitle-cache",
+    op: "get-page",
+    bvid: cleanBvid,
+    cid: cleanCid
+  });
+  if (viaBg) {
+    return viaBg.page ?? null;
+  }
+  return getActiveLocalStore().getPageRecord(cleanBvid, cleanCid);
+}
+
+// ===== 旧版缓存键解析 & chrome.storage.local 平滑兼容迁移 =====
+
+type ParsedCacheKey =
+  | { kind: "raw"; bvid: string; cid: string; trackKey: string }
+  | { kind: "translated"; bvid: string; cid: string; sourceTrackKey: string; targetLang: string };
+
+export function parseSubtitleCacheKey(cacheKey: string): ParsedCacheKey | null {
+  const raw = String(cacheKey || "");
+  if (!raw.startsWith(CACHE_KEY_PREFIX)) {
+    return null;
+  }
+  const rest = raw.slice(CACHE_KEY_PREFIX.length);
+  const firstSep = rest.indexOf("_");
+  if (firstSep <= 0) return null;
+  const secondSep = rest.indexOf("_", firstSep + 1);
+  if (secondSep <= firstSep + 1) return null;
+  const bvid = rest.slice(0, firstSep);
+  const cid = rest.slice(firstSep + 1, secondSep);
+  const sourceKey = rest.slice(secondSep + 1);
+  if (!bvid || !cid || !sourceKey) {
+    return null;
+  }
+  if (sourceKey.startsWith(TRANSLATED_SOURCE_KEY_PREFIX)) {
+    const rawLang = sourceKey.slice(TRANSLATED_SOURCE_KEY_PREFIX.length);
+    return {
+      kind: "translated",
+      bvid,
+      cid,
+      sourceTrackKey: "asr",
+      targetLang: toCanonicalTargetLangBcp47(rawLang || "zh")
+    };
+  }
+  const translatedMatch = /^(.+)_translate-(.+)$/.exec(sourceKey);
+  if (translatedMatch) {
+    return {
+      kind: "translated",
+      bvid,
+      cid,
+      sourceTrackKey: translatedMatch[1],
+      targetLang: toCanonicalTargetLangBcp47(translatedMatch[2] || "zh")
+    };
+  }
+  return {
+    kind: "raw",
+    bvid,
+    cid,
+    trackKey: sourceKey
+  };
+}
+
+async function readLegacyChromeStorageEntry(cacheKey: string): Promise<unknown[] | null> {
+  if (!globalThis.chrome?.storage?.local) {
+    return null;
+  }
   try {
     const result = await chrome.storage.local.get(cacheKey);
-    const cached = result[cacheKey] as { body?: unknown[] } | undefined;
-    return cached?.body || null;
+    const cached = result?.[cacheKey] as { body?: unknown } | undefined;
+    return Array.isArray(cached?.body) ? cached.body : null;
+  } catch {
+    return null;
+  }
+}
+
+async function tryMigrateLegacyStorageEntry(cacheKey: string): Promise<unknown[] | null> {
+  const legacyBody = await readLegacyChromeStorageEntry(cacheKey);
+  if (!legacyBody || legacyBody.length === 0) {
+    return null;
+  }
+  const parsed = parseSubtitleCacheKey(cacheKey);
+  if (parsed) {
+    const saved =
+      parsed.kind === "translated"
+        ? await saveTranslatedSubtitleTrack({
+            bvid: parsed.bvid,
+            cid: parsed.cid,
+            sourceTrackKey: parsed.sourceTrackKey,
+            targetLang: parsed.targetLang,
+            translationSig: "legacy",
+            items: legacyBody
+          })
+        : await saveRawSubtitleTrack({
+            bvid: parsed.bvid,
+            cid: parsed.cid,
+            trackKey: parsed.trackKey,
+            items: legacyBody
+          });
+    if (saved.ok) {
+      await chrome.storage.local.remove(cacheKey).catch(() => {});
+    }
+  }
+  return legacyBody;
+}
+
+export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[] | null> {
+  try {
+    const parsed = parseSubtitleCacheKey(cacheKey);
+    if (!parsed) {
+      return await readLegacyChromeStorageEntry(cacheKey);
+    }
+    if (parsed.kind === "translated") {
+      // 兼容任何未落盘的同目标译文防抖缓冲
+      for (const entry of pendingTranslatedWrites.values()) {
+        if (
+          entry.bvid === parsed.bvid &&
+          entry.cid === parsed.cid &&
+          entry.sourceTrackKey === parsed.sourceTrackKey &&
+          entry.targetLang === parsed.targetLang
+        ) {
+          return entry.items.map((item) => ({ ...item }));
+        }
+      }
+      return await loadTranslatedSubtitleTrack({
+        bvid: parsed.bvid,
+        cid: parsed.cid,
+        sourceTrackKey: parsed.sourceTrackKey,
+        targetLang: parsed.targetLang,
+        legacyCacheKey: cacheKey
+      });
+    }
+    return await loadRawSubtitleTrack({
+      bvid: parsed.bvid,
+      cid: parsed.cid,
+      trackKey: parsed.trackKey,
+      legacyCacheKey: cacheKey
+    });
   } catch {
     return null;
   }
 }
 
 export async function saveSubtitleToCache(cacheKey: string, body: unknown[]): Promise<SaveSubtitleResult> {
-  const result = await writeWithEviction({
-    family: CACHE_KEY_PREFIX,
-    bvid: parseBvidFromCacheKey(cacheKey, CACHE_KEY_PREFIX),
-    keys: [cacheKey], // 本次写入的缓存键，记录进 LRU 索引供淘汰时免全量扫描
-    write: () =>
-      chrome.storage.local.set({
-        [cacheKey]: {
-          body,
-          timestamp: Date.now()
-        }
-      })
-  });
-  if (!result.ok) {
+  const parsed = parseSubtitleCacheKey(cacheKey);
+  if (!parsed) {
+    const err = new CacheWriteError(`无法解析字幕缓存键：${cacheKey}`);
     logError("[BILISCRIPT] failed to save subtitle cache after eviction", {
       cacheKey,
-      error: result.error?.message || result.error
+      error: err.message
+    });
+    return { ok: false, error: err };
+  }
+  if (parsed.kind === "translated") {
+    return saveTranslatedSubtitleTrack({
+      bvid: parsed.bvid,
+      cid: parsed.cid,
+      sourceTrackKey: parsed.sourceTrackKey,
+      targetLang: parsed.targetLang,
+      translationSig: "legacy",
+      items: body
     });
   }
-  return result;
+  return saveRawSubtitleTrack({
+    bvid: parsed.bvid,
+    cid: parsed.cid,
+    trackKey: parsed.trackKey,
+    items: body
+  });
 }
 
 interface AsrCacheCleanupOptions {
@@ -71,29 +1092,59 @@ interface AsrCacheCleanupOptions {
 }
 
 /**
- * ASR 孤儿清理：删除同 (bvid, cid) 下除 keepKey 外的 ASR 变体缓存键
- * （不同 provider/model/language 的旧转写，键含 ASR 变体 source key）。
- * 平台字幕轨（track / url / lang 三态身份）不是孤儿，一律保留。
- * 匹配前缀由键位叶（subtitle/source-key）导出的 ASR 变体前缀派生——与组键同根。
- * 枚举走 core/cache-lru 的 readFamilyKeys 分键索引（get(null) 快照过滤）；该
- * bvid 无索引条目 → 原语返回 null + 一次性 logWarn，回退 get(null) 前缀扫描
- * 自愈（见原语）。
- * 返回删除的键数组；失败 logWarn 并返回 []，不抛异常。
+ * ASR 孤儿清理：删除同 (bvid, cid) 下除 keepKey 外的 ASR 变体缓存（IndexedDB + 遗留 chrome.storage.local）。
  */
-export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: AsrCacheCleanupOptions): Promise<string[]> {
+export async function clearStaleAsrSubtitleCache({
+  bvid,
+  cid,
+  keepKey = ""
+}: AsrCacheCleanupOptions): Promise<string[]> {
   try {
-    const keyPrefix = `${CACHE_KEY_PREFIX}${bvid}_${cid}_${ASR_SOURCE_KEY_PREFIX}`;
-    const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, bvid, keyPrefix);
-    const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
-    const staleKeys = Object.keys(all || {}).filter(
-      (key) => typeof key === "string" && key.startsWith(keyPrefix) && key !== keepKey
-    );
-    if (staleKeys.length > 0) {
-      await chrome.storage.local.remove(staleKeys);
+    const cleanBvid = String(bvid || "").trim();
+    const cleanCid = String(cid || "").trim();
+    if (!cleanBvid || !cleanCid) {
+      return [];
     }
-    return staleKeys;
+    const parsedKeep = keepKey ? parseSubtitleCacheKey(keepKey) : null;
+    const keepTrackKey = parsedKeep?.kind === "raw" ? parsedKeep.trackKey : keepKey;
+
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "prune-asr",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      keepTrackKey
+    });
+    const removedTrackKeys = viaBg
+      ? viaBg.removedKeys ?? []
+      : await getActiveLocalStore().pruneAsrVariants({ bvid: cleanBvid, cid: cleanCid, keepTrackKey });
+
+    const removedLegacyKeys = new Set<string>(
+      removedTrackKeys.map((trackKey) => `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${trackKey}`)
+    );
+
+    if (globalThis.chrome?.storage?.local) {
+      try {
+        const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
+        const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
+        const all = indexKeys
+          ? await chrome.storage.local.get(indexKeys)
+          : await chrome.storage.local.get(null);
+        const staleStorageKeys = Object.keys(all || {}).filter(
+          (key) => typeof key === "string" && key.startsWith(keyPrefix) && key !== keepKey
+        );
+        if (staleStorageKeys.length > 0) {
+          await chrome.storage.local.remove(staleStorageKeys);
+          for (const key of staleStorageKeys) {
+            removedLegacyKeys.add(key);
+          }
+        }
+      } catch {
+        // 遗留 storage 清理失败不覆盖 IDB 结果
+      }
+    }
+
+    return Array.from(removedLegacyKeys);
   } catch (error) {
     logWarn("[BILISCRIPT] failed to clear stale asr subtitle cache entries", { bvid, cid, error });
     return [];
@@ -101,30 +1152,73 @@ export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: As
 }
 
 /**
- * 译文副轨失效清理：主轨被新一次转写替换后，同一目标语言键下的旧译文属于旧原文，
- * 必须整体作废（匹配前缀由 subtitle/source-key 的 TRANSLATED_SOURCE_KEY_PREFIX 派生）。
- * 枚举走分键索引，失败 logWarn 并返回 []，不抛异常。
+ * 译文副轨失效清理：新转写落盘后清除同分 P 下依赖旧原文的译文轨（含未落盘防抖缓冲）。
  */
 export async function clearTranslatedSubtitleCache({
   bvid,
-  cid
+  cid,
+  sourceTrackKey
 }: {
   bvid: string;
   cid: string;
+  sourceTrackKey?: string;
 }): Promise<string[]> {
   try {
-    const keyPrefix = `${CACHE_KEY_PREFIX}${bvid}_${cid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
-    const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, bvid, keyPrefix);
-    const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
-    const staleKeys = Object.keys(all || {}).filter(
-      (key) => typeof key === "string" && key.startsWith(keyPrefix)
-    );
-    if (staleKeys.length > 0) {
-      await chrome.storage.local.remove(staleKeys);
+    const cleanBvid = String(bvid || "").trim();
+    const cleanCid = String(cid || "").trim();
+    if (!cleanBvid || !cleanCid) {
+      return [];
     }
-    return staleKeys;
+
+    for (const [key, entry] of pendingTranslatedWrites.entries()) {
+      if (
+        entry.bvid === cleanBvid &&
+        entry.cid === cleanCid &&
+        (!sourceTrackKey || entry.sourceTrackKey === sourceTrackKey)
+      ) {
+        clearPendingWriteTimer(entry);
+        pendingTranslatedWrites.delete(key);
+      }
+    }
+
+    const viaBg = await dispatchSubtitleStoreOp({
+      type: "subtitle-cache",
+      op: "clear-translated",
+      bvid: cleanBvid,
+      cid: cleanCid,
+      ...(sourceTrackKey ? { sourceTrackKey } : {})
+    });
+    const removedMapKeys = viaBg
+      ? viaBg.removedKeys ?? []
+      : await getActiveLocalStore().clearTranslatedTracksForPage({
+          bvid: cleanBvid,
+          cid: cleanCid,
+          sourceTrackKey
+        });
+
+    const removedKeys = new Set<string>(removedMapKeys);
+    if (globalThis.chrome?.storage?.local) {
+      try {
+        const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
+        const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
+        const all = indexKeys
+          ? await chrome.storage.local.get(indexKeys)
+          : await chrome.storage.local.get(null);
+        const staleStorageKeys = Object.keys(all || {}).filter(
+          (key) => typeof key === "string" && key.startsWith(keyPrefix)
+        );
+        if (staleStorageKeys.length > 0) {
+          await chrome.storage.local.remove(staleStorageKeys);
+          for (const key of staleStorageKeys) {
+            removedKeys.add(key);
+          }
+        }
+      } catch {
+        // 遗留 storage 清理失败不覆盖 IDB 结果
+      }
+    }
+
+    return Array.from(removedKeys);
   } catch (error) {
     logWarn("[BILISCRIPT] failed to clear translated subtitle cache entries", { bvid, cid, error });
     return [];
@@ -149,79 +1243,84 @@ export async function persistAsrSubtitleToCache({
   body
 }: PersistAsrSubtitleOptions): Promise<SaveSubtitleResult> {
   const cacheKey = getSubtitleCacheKey({ bvid, cid, identity });
-  const saveResult = await saveSubtitleToCache(cacheKey, body);
+  const trackKey = subtitleSourceKey(identity);
+  const saveResult = await saveRawSubtitleTrack({
+    bvid,
+    cid,
+    trackKey,
+    lang: identity.kind === "asr" ? String(identity.lang || "") : undefined,
+    kind: "asr",
+    items: body
+  });
   if (saveResult && saveResult.ok === false) {
     return saveResult;
   }
   await clearStaleAsrSubtitleCache({ bvid, cid, keepKey: cacheKey });
-  await clearTranslatedSubtitleCache({ bvid, cid });
+  await clearTranslatedSubtitleCache({ bvid, cid, sourceTrackKey: "asr" });
   return saveResult;
 }
 
 export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
   try {
-    await chrome.storage.local.remove(cacheKey);
+    const parsed = parseSubtitleCacheKey(cacheKey);
+    if (parsed) {
+      if (parsed.kind === "raw") {
+        const viaBg = await dispatchSubtitleStoreOp({
+          type: "subtitle-cache",
+          op: "delete-entry",
+          bvid: parsed.bvid,
+          cid: parsed.cid,
+          tier: "rawTracks",
+          key: parsed.trackKey
+        });
+        if (!viaBg) {
+          await getActiveLocalStore().deleteTrackEntry({
+            bvid: parsed.bvid,
+            cid: parsed.cid,
+            tier: "rawTracks",
+            key: parsed.trackKey
+          });
+        }
+      } else {
+        await clearTranslatedSubtitleCache({
+          bvid: parsed.bvid,
+          cid: parsed.cid,
+          sourceTrackKey: parsed.sourceTrackKey
+        });
+      }
+    }
+    if (globalThis.chrome?.storage?.local) {
+      await chrome.storage.local.remove(cacheKey);
+    }
   } catch (error) {
     logWarn("[BILISCRIPT] failed to clear subtitle cache by key", { cacheKey, error });
   }
 }
 
-// ===== 字幕签名族（自 ai/analysis 迁入，arch-slim-3 #1）：签名是缓存键，
-// ai/analysis 与 reader/overview 双向消费。source key 本身（字幕轨身份编码）归
-// 键位叶 subtitle/source-key，本模块 import 取用。=====
+// ===== 字幕签名族（概览/AI 上下文签名）=====
 
-// 条目归一：只留 content 非空的 {from,to,content}（ai/analysis 与签名共用同语义）。
 export function normalizeSubtitleItems(items: unknown): SubtitleBodyItem[] {
   return (Array.isArray(items) ? items : []).filter(
-    (item): item is SubtitleBodyItem => Boolean(item) && String((item as { content?: unknown })?.content ?? "").trim().length > 0
+    (item): item is SubtitleBodyItem =>
+      Boolean(item) && String((item as { content?: unknown })?.content ?? "").trim().length > 0
   );
 }
 
-// FNV-1a 32 位哈希：确定性轻量签名用（跨会话稳定、无依赖）。
-function fnv1a32(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
-
-// 现成目录 → 签名用指纹文本：确定性的（时间戳, 标题）序列。
 function chapterOutlineText(chapterOutline: unknown): string {
   return Array.isArray(chapterOutline)
     ? chapterOutline.map((item) => `${Number(item?.seconds) || 0}|${String(item?.title ?? "")}`).join("\n")
     : "";
 }
 
-// 「官方章节（模式位）」：非空表示官方章节是给定分章来源（官方章节兜底路径），
-// 与空（时间轴目录 / AI 自由分章）产物形态不同，签名须区分；
-// 「chapterOutline」：给定章节目录（时间轴目录或官方章节）的指纹，换目录即换签名。
 interface SubtitleSignatureInput {
   lang?: unknown;
   subtitleId?: unknown;
   subtitleUrl?: unknown;
   body?: unknown;
-  /** 官方章节（模式位）：非空 = 官方章节作给定分章来源，产物形态不同，签名须区分。 */
   chapters?: unknown;
-  /** 给定章节目录（OutlineChapter[]）：目录出现/消失/换内容改变分章来源，签名须区分。 */
   chapterOutline?: unknown;
 }
 
-/**
- * 字幕签名：按概览票决议定义的确定性轻量签名——构成 = 轨道来源 source key +
- * lang + 有效条数 + 首末时间戳 + 总字符数（FNV-1a 32 位 → base36）。重抓字幕 /
- * 换轨 / 切分P 后条数、时间戳或文本量变化即签名变化，概览缓存自然 miss，不做
- * 主动失效（07 票决议）。分章模式位（官方章节 / 给定目录指纹）一并纳入：分章
- * 来源变化会换提示词与产物形态，概览分章票 03 起还进段键（防新键装旧段）。
- * 算法必须逐位稳定——历史概览缓存键依赖它；语义变更须升 basis 版本位（当前 v4）。
- */
-
-// 候选10 批1：body 遍历度量（条数/首末时间戳/总字符数）按「输入数组引用」缓存
-//（WeakMap，照 normalizeChaptersCache 先例）。概览与 AI 分析在多拍/多产物路径
-// 上共拿同一 state.clip.subtitleBody 引用重复算签名，引用相同即零遍历复用。
-// 已核实调用方都不原地修改传入 body——写路径一律经 clipState.setSubtitleBody
-//（新数组）整体替换引用；返回度量只被只读拼接，缓存不会失真。
 interface BodySignatureMetrics {
   count: number;
   firstFrom: number;
@@ -256,11 +1355,17 @@ function measureSubtitleBody(body: unknown): BodySignatureMetrics {
   return metrics;
 }
 
-export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, chapters, chapterOutline }: SubtitleSignatureInput = {}): string {
+export function buildSubtitleSignature({
+  lang,
+  subtitleId,
+  subtitleUrl,
+  body,
+  chapters,
+  chapterOutline
+}: SubtitleSignatureInput = {}): string {
   const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
   const { count, firstFrom, lastTo, totalChars } = measureSubtitleBody(body);
   const basis = [
-    // v4：产物新增全片简介，稀疏时间轴章节恢复一句话说明；旧缓存整体重生成。
     "v4",
     sourceKey,
     String(lang ?? ""),
@@ -268,16 +1373,16 @@ export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, ch
     String(firstFrom),
     String(lastTo),
     String(totalChars),
-    // 模式位：官方章节作给定来源（signatureChapters）非空与空（时间轴目录 / AI 分章）
-    // 产物不同构，签名必须区分
     String(Array.isArray(chapters) && chapters.length > 0),
-    // 模式位：给定章节清单的 FNV 指纹（出现/消失/换目录/改标题 → 缓存 miss 重生成）
     String(fnv1a32(chapterOutlineText(chapterOutline)))
   ].join("|");
   return `sig${fnv1a32(basis).toString(36)}`;
 }
 
-export function buildSubtitleCandidates(subtitles: SubtitleTrack[] | null | undefined, preferred: SubtitleTrack | null | undefined): SubtitleTrack[] {
+export function buildSubtitleCandidates(
+  subtitles: SubtitleTrack[] | null | undefined,
+  preferred: SubtitleTrack | null | undefined
+): SubtitleTrack[] {
   const tracks = subtitles || [];
   const seen = new Set<string>();
   const list: SubtitleTrack[] = [];

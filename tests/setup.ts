@@ -71,12 +71,13 @@ export function setupEnvironment() {
 // 状态单例、shared/style-injector.ts 的挂载记录）：清空即「换干净槽」——否则
 // 上一条用例的注册/状态会随 globalThis 活到下一用例。
 export function clearSharedSlots() {
-  const slots = globalThis as unknown as Record<string, unknown>;
+  const slots = globalThis as unknown as Record<PropertyKey, unknown>;
   delete slots.__BILISCRIPT_CONTENT_SCRIPT_DISPATCHER__;
   delete slots.__BILISCRIPT_LOG_GATE__;
   delete slots.__BILISCRIPT_READER_BUS__;
   delete slots.__BILISCRIPT_STATE__;
   delete slots.__BILISCRIPT_STYLE_INJECTOR__;
+  (slots[Symbol.for("biliscript.subtitleStoreReset")] as (() => void) | undefined)?.();
 }
 
 // 每条用例前清一次（在文件自身的 beforeEach 之前跑）：即便某文件只调

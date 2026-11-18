@@ -79,6 +79,7 @@ function createPending<T = void>() {
 }
 
 let fetcher: typeof import("../../extension/subtitle/fetcher.js");
+let cache: typeof import("../../extension/subtitle/cache.js");
 let state: (typeof import("../../extension/core/state.js"))["state"];
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
@@ -86,6 +87,8 @@ let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
 let core: MockedObject<typeof import("../../extension/subtitle/core.js")>;
 
 async function importEpoch() {
+  cache = await import("../../extension/subtitle/cache.js");
+  cache.setSubtitleCacheWriteInterceptorForTests(null);
   fetcher = await import("../../extension/subtitle/fetcher.js");
   const stateModule = await import("../../extension/core/state.js");
   state = stateModule.state;
@@ -202,14 +205,11 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
     gateway.contentFetchJson.mockImplementation(() => bodyPending.promise);
     const dataWritePending = createPending<void>();
     let dataWriteStarted = false;
-    const memorySet = vi.mocked(globalThis.chrome.storage.local.set).getMockImplementation();
-    vi.mocked(globalThis.chrome.storage.local.set).mockImplementation(async (entries) => {
-      const record = entries as Record<string, unknown>;
-      if (Object.keys(record).some((key) => key.startsWith("biliscript_subtitle_cache_"))) {
+    cache.setSubtitleCacheWriteInterceptorForTests(async ({ op }) => {
+      if (op === "put-raw") {
         dataWriteStarted = true;
         await dataWritePending.promise;
       }
-      await memorySet?.(entries);
     });
     const run = fetcher.refreshClip();
     await vi.waitFor(() => expect(gateway.contentFetchJson).toHaveBeenCalledTimes(1));

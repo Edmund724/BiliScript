@@ -16,13 +16,14 @@
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderAccess, SearchProviderPreset } from "../core/presets.js";
-import type { AiProvider, CapturedVideoFrame, ImagePart } from "../ai/types.js";
+import type { AiProvider, CapturedVideoFrame, ImagePart, SubtitleBodyItem } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
+import type { SubtitlePageRecord, SubtitleTrackStorageKind } from "../subtitle/idb-store.js";
 import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
@@ -339,6 +340,52 @@ export type SegmentCacheResponse = {
   error?: string;
 };
 
+// ===== 字幕分层 IndexedDB 仓库消息族 =====
+export type SubtitleTimeRange = { from: number; to: number };
+export type SubtitleCacheTier = "rawTracks" | "segmentedTracks" | "translatedTracks";
+export type SubtitleCacheOp =
+  | "get-page"
+  | "get-raw"
+  | "put-raw"
+  | "get-segmented"
+  | "put-segmented"
+  | "get-translated"
+  | "upsert-translated"
+  | "delete-entry"
+  | "prune-asr"
+  | "clear-translated";
+
+export type SubtitleCacheMessage = {
+  type: "subtitle-cache";
+  op: SubtitleCacheOp;
+  bvid?: string;
+  cid?: string;
+  trackKey?: string;
+  sourceTrackKey?: string;
+  keepTrackKey?: string;
+  targetLang?: string;
+  lang?: string;
+  kind?: SubtitleTrackStorageKind;
+  segmentationSig?: string;
+  translationSig?: string;
+  mode?: "boundary-v3" | "cc-json";
+  tier?: SubtitleCacheTier;
+  key?: string;
+  items?: SubtitleBodyItem[];
+  replaceRange?: SubtitleTimeRange;
+};
+
+export type SubtitleCacheResponse = {
+  ok: boolean;
+  handled?: boolean;
+  page?: SubtitlePageRecord | null;
+  items?: SubtitleBodyItem[] | null;
+  removedKeys?: string[];
+  evictedIds?: string[];
+  estimatedBytes?: number;
+  error?: string;
+};
+
 export type AsrPresetsListMessage = { type: "asr-presets-list" };
 // 响应锚点：entry/background.ts handleAsrPresetsList。
 export type AsrPresetsListResponse = {
@@ -620,6 +667,7 @@ export type BackgroundMessage =
   | SearchCacheMessage
   | SearchHealthMessage
   | SegmentCacheMessage
+  | SubtitleCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
   | GetDebugLogGateMessage;
@@ -1062,6 +1110,9 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "segment-cache": registerBackgroundMessage<SegmentCacheMessage, SegmentCacheResponse>({
     reply: "async",
     sender: "offscreen"
+  }),
+  "subtitle-cache": registerBackgroundMessage<SubtitleCacheMessage, SubtitleCacheResponse>({
+    reply: "async"
   }),
   "offload-task": registerBackgroundMessage<OffloadTaskMessage, OffloadTaskResponse>({
     reply: "branch"

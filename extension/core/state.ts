@@ -160,6 +160,8 @@ const localReaderState: ReaderStateWritable = {
 type ClipBusinessState = {
   currentUrl: string;
   fetchRunId: number;
+  acquisitionVersion: number;
+  processingVersion: number;
   bvid: string;
   aid: string;
   cid: string;
@@ -202,6 +204,7 @@ type ClipBusinessState = {
 type ClipSetters = {
   setCurrentUrl(value: string): void;
   setFetchRunId(value: number): void;
+  advanceSubtitleVersions(scope?: "both" | "processing"): { acquisitionVersion: number; processingVersion: number };
   setBvid(value: string): void;
   setAid(value: string): void;
   setCid(value: string): void;
@@ -247,6 +250,8 @@ type ClipStateWritable = ClipBusinessState & ClipSetters;
 const localClipState: ClipStateWritable = {
   currentUrl: typeof location !== "undefined" ? location.href : "",
   fetchRunId: 0,
+  acquisitionVersion: 0,
+  processingVersion: 0,
   bvid: "",
   aid: "",
   cid: "",
@@ -295,6 +300,16 @@ const localClipState: ClipStateWritable = {
   currentClipSignature: "",
   setCurrentUrl(value) { this.currentUrl = value; },
   setFetchRunId(value) { this.fetchRunId = value; },
+  advanceSubtitleVersions(scope = "both") {
+    if (scope === "both") {
+      this.acquisitionVersion += 1;
+    }
+    this.processingVersion += 1;
+    return {
+      acquisitionVersion: this.acquisitionVersion,
+      processingVersion: this.processingVersion
+    };
+  },
   setBvid(value) { this.bvid = value; },
   setAid(value) { this.aid = value; },
   setCid(value) { this.cid = value; },
@@ -413,11 +428,25 @@ const localState: State = {
 //
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态，允许
 // 双实例；安全依据即上文的 globalThis 槽（状态本体在槽内，两侧同一份）。
+export type SubtitleSessionBoundaryReason = "clip-switch" | "source-track-switch" | "processing-switch";
+
+export interface SubtitleSessionBoundarySnapshot {
+  reason: SubtitleSessionBoundaryReason;
+  acquisitionVersion: number;
+  processingVersion: number;
+}
+
+export interface SubtitleSessionBoundaryHook {
+  flush?: (reason: SubtitleSessionBoundaryReason) => Promise<void> | void;
+  onAbortAndClear?: (snapshot: SubtitleSessionBoundarySnapshot) => void;
+}
+
 interface StateBundle {
   readerState: ReaderStateWritable;
   clipState: ClipStateWritable;
   uiState: UiStateWritable;
   state: State;
+  sessionBoundaryHooks: Set<SubtitleSessionBoundaryHook>;
 }
 
 const STATE_SLOT_KEY = "__BILISCRIPT_STATE__";
@@ -426,12 +455,66 @@ const stateBundle: StateBundle = ((globalThis as unknown as Record<string, State
   readerState: localReaderState,
   clipState: localClipState,
   uiState: localUiState,
-  state: localState
+  state: localState,
+  sessionBoundaryHooks: new Set<SubtitleSessionBoundaryHook>()
 });
 
 export const state: State = stateBundle.state;
 export const clipState = stateBundle.clipState;
 export const uiState = stateBundle.uiState;
+
+function getSessionBoundaryHooks(): Set<SubtitleSessionBoundaryHook> {
+  return (stateBundle.sessionBoundaryHooks ??= new Set<SubtitleSessionBoundaryHook>());
+}
+
+export function registerSubtitleSessionBoundaryHooks(hook: SubtitleSessionBoundaryHook): () => void {
+  const hooks = getSessionBoundaryHooks();
+  hooks.add(hook);
+  return () => {
+    hooks.delete(hook);
+  };
+}
+
+/**
+ * 字幕会话切换边界的原子协调：
+ * 1) 同步启动所有注册方的流式分块落盘 flush；
+ * 2) 同步递增 acquisitionVersion / processingVersion 双代数令牌；
+ * 3) 同步触发级联 abort() 与播放器叠层字幕清空；
+ * 4) 等待 flush 写盘完成后返回最新版本号。
+ */
+export async function triggerSubtitleSessionBoundary(
+  reason: SubtitleSessionBoundaryReason
+): Promise<{ acquisitionVersion: number; processingVersion: number }> {
+  const hooks = [...getSessionBoundaryHooks()];
+  const flushTasks: Promise<void>[] = [];
+  for (const hook of hooks) {
+    if (!hook.flush) continue;
+    try {
+      flushTasks.push(Promise.resolve(hook.flush(reason)));
+    } catch {
+      // flush 回调失败不阻断版本递增与级联中止
+    }
+  }
+
+  const scope = reason === "processing-switch" ? "processing" : "both";
+  const versions = clipState.advanceSubtitleVersions(scope);
+  const snapshot: SubtitleSessionBoundarySnapshot = {
+    reason,
+    acquisitionVersion: versions.acquisitionVersion,
+    processingVersion: versions.processingVersion
+  };
+
+  for (const hook of hooks) {
+    try {
+      hook.onAbortAndClear?.(snapshot);
+    } catch {
+      // 清理回调失败不阻断其他订阅方
+    }
+  }
+
+  await Promise.allSettled(flushTasks);
+  return versions;
+}
 
 // ===== 阅读壳生命周期状态机 =====
 //

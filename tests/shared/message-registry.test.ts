@@ -52,6 +52,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "search-cache": "async",
   "search-health": "async",
   "segment-cache": "async",
+  "subtitle-cache": "async",
   "offscreen-request-close": "async",
   "get-debug-log-gate": "async",
   "live-providers-list": "async",

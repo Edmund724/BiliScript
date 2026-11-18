@@ -22,7 +22,14 @@ import { state, clipState } from "../core/state.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { logWarn } from "../shared/logging.js";
-import { getSubtitleCacheKey, loadSubtitleFromCache, saveSubtitleToCache } from "./cache.js";
+import {
+  buildTranslationSignature,
+  flushSubtitleCache,
+  getSubtitleCacheKey,
+  loadTranslatedSubtitleTrack,
+  saveTranslatedSubtitleTrack,
+  scheduleTranslatedTrackWrite
+} from "./cache.js";
 import { createSubtitleChunkScheduler } from "./chunk-scheduler.js";
 import { acceptSecondarySubtitle } from "./commit.js";
 import {
@@ -102,6 +109,20 @@ function sortByFrom(items: SubtitleBodyItem[]): SubtitleBodyItem[] {
   return items.slice().sort((a, b) => Number(a.from) - Number(b.from));
 }
 
+function inferDefaultProtocolMode(isAsrSource: boolean, trackLan: unknown): "boundary-v3" | "cc-json" {
+  const lanLower = String(trackLan ?? "").trim().toLowerCase();
+  return isAsrSource || lanLower.startsWith("ai-") ? "boundary-v3" : "cc-json";
+}
+
+function readOptionalModuleExport<T>(mod: object, key: string): T | undefined {
+  try {
+    const candidate = (mod as Record<string, unknown>)[key];
+    return typeof candidate === "function" ? (candidate as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // 分片计划：按 `from` 归窗，空内容条目先剔除（无原文可翻，不占分片）。
 function planTranslationChunks(body: readonly SubtitleBodyItem[]): TranslationChunk[] {
   const byStart = new Map<number, SubtitleBodyItem[]>();
@@ -123,13 +144,16 @@ function planTranslationChunks(body: readonly SubtitleBodyItem[]): TranslationCh
     .map(([start, items]) => ({ start, end: start + TRANSLATION_CHUNK_SEC, items: sortByFrom(items) }));
 }
 
-function loadTranslatedBody(cacheKey: string): Promise<SubtitleBodyItem[]> {
-  return loadSubtitleFromCache(cacheKey).then((cached) => {
-    if (!Array.isArray(cached)) {
-      return [];
-    }
-    return sortByFrom(cached.filter(isUsableItem));
-  });
+function computePendingChunks(
+  chunks: readonly TranslationChunk[],
+  cached: readonly SubtitleBodyItem[]
+): TranslationChunk[] {
+  const covered = new Set<number>();
+  for (const item of cached) {
+    const start = Math.floor((Number(item.from) || 0) / TRANSLATION_CHUNK_SEC) * TRANSLATION_CHUNK_SEC;
+    covered.add(start);
+  }
+  return chunks.filter((chunk) => !covered.has(chunk.start));
 }
 
 // 槽「零产出」的写法：副轨槽没有「带身份直接置 error」的原语，先写 loading 再写
@@ -144,6 +168,8 @@ export async function ensureAsrSecondarySubtitle(
 ): Promise<AsrTranslationResult> {
   const targetLang = String(args.targetLang || "").trim();
   const runId = args.runId;
+  const initialAcquisitionVersion = clipState.acquisitionVersion;
+  const initialProcessingVersion = clipState.processingVersion;
   const body = (state.clip.subtitleBody || []) as SubtitleBodyItem[];
   const chunks = planTranslationChunks(body);
 
@@ -181,15 +207,31 @@ export async function ensureAsrSecondarySubtitle(
     cid,
     identity: cacheIdentity
   });
-  const cached = await loadTranslatedBody(cacheKey);
+  const sourceText = body.map((item) => item.content).join("\n");
+  let protocolMode: "boundary-v3" | "cc-json" = inferDefaultProtocolMode(
+    isAsrSource,
+    matchedTrack?.lan ?? selectedLang
+  );
+  let resolvedModel = String(state.settings?.subtitleTranslateModel || "Index-Translate-35B-A3B");
+  let translationSig = buildTranslationSignature({
+    model: resolvedModel,
+    protocolVersion: protocolMode,
+    targetLang: canonicalBcp47,
+    glossary: state.settings?.subtitleTranslateGlossary,
+    sourceText
+  });
+  const rawCached = await loadTranslatedSubtitleTrack({
+    bvid,
+    cid,
+    sourceTrackKey: sourceKey,
+    targetLang: canonicalBcp47,
+    translationSig,
+    legacyCacheKey: cacheKey
+  });
+  let cached = Array.isArray(rawCached) ? sortByFrom(rawCached.filter(isUsableItem)) : [];
 
   // 覆盖判定：缓存条目落在某个分片窗口内即该片已有译文（与浮层同一条时间轴口径）。
-  const covered = new Set<number>();
-  for (const item of cached) {
-    const start = Math.floor((Number(item.from) || 0) / TRANSLATION_CHUNK_SEC) * TRANSLATION_CHUNK_SEC;
-    covered.add(start);
-  }
-  const pending = chunks.filter((chunk) => !covered.has(chunk.start));
+  let pending = computePendingChunks(chunks, cached);
   const report = (done: number, failed: number) =>
     args.onProgress?.({ total: chunks.length, done, failed });
 
@@ -218,16 +260,76 @@ export async function ensureAsrSecondarySubtitle(
   const isStale = () =>
     args.signal?.aborted === true ||
     (runId !== undefined && runId !== clipState.fetchRunId) ||
+    clipState.acquisitionVersion !== initialAcquisitionVersion ||
+    clipState.processingVersion !== initialProcessingVersion ||
     state.clip.bvid !== bvid ||
     state.clip.cid !== cid ||
     String(state.clip.selectedSubtitleId || "").trim() !== selectedId ||
     String(state.clip.selectedSubtitleUrl || "").trim() !== selectedUrl ||
     args.isStale?.() === true;
 
-  const [{ translateSubtitleItems }, baseContext] = await Promise.all([
+  const [translateModule, baseContext] = await Promise.all([
     import("../ai/subtitle-translate.js"),
     resolveRuntimeSubtitleContext()
   ]);
+  const { translateSubtitleItems } = translateModule;
+  const resolveProviderFn = readOptionalModuleExport<
+    () => Promise<{ model?: string } | null>
+  >(translateModule, "resolveSubtitleTranslateProvider");
+  const resolveProtocolFn = readOptionalModuleExport<
+    (args: {
+      selectedSubtitleId?: string;
+      selectedSubtitleLang?: string;
+      trackLan?: string;
+      items?: readonly SubtitleBodyItem[];
+    }) => "boundary-v3" | "cc-json"
+  >(translateModule, "resolveSubtitleTranslateProtocolMode");
+  const providerRes = resolveProviderFn
+    ? await resolveProviderFn().catch(() => null)
+    : null;
+  if (resolveProtocolFn) {
+    protocolMode = resolveProtocolFn({
+      selectedSubtitleId: isAsrSource ? "asr" : selectedId,
+      selectedSubtitleLang: isAsrSource ? undefined : selectedLang,
+      trackLan: isAsrSource ? "asr-zh" : matchedTrack?.lan,
+      items: body
+    });
+  }
+  if (providerRes?.model) {
+    resolvedModel = providerRes.model;
+  }
+  const exactSig = buildTranslationSignature({
+    model: resolvedModel,
+    protocolVersion: protocolMode,
+    targetLang: canonicalBcp47,
+    glossary: baseContext?.glossary ?? state.settings?.subtitleTranslateGlossary,
+    sourceText
+  });
+  if (exactSig !== translationSig) {
+    translationSig = exactSig;
+    const exactCached = await loadTranslatedSubtitleTrack({
+      bvid,
+      cid,
+      sourceTrackKey: sourceKey,
+      targetLang: canonicalBcp47,
+      translationSig,
+      legacyCacheKey: cacheKey
+    });
+    if (Array.isArray(exactCached) && exactCached.length > 0) {
+      cached = sortByFrom(exactCached.filter(isUsableItem));
+      pending = computePendingChunks(chunks, cached);
+    }
+  }
+  if (pending.length === 0) {
+    if (isStale()) {
+      return { kind: "aborted", total: chunks.length, done: 0, failed: 0 };
+    }
+    if (cached.length > 0) {
+      await acceptSecondarySubtitle({ body: cached, subtitleId: trackId, subtitleUrl: "", runId });
+    }
+    report(chunks.length, 0);
+    return { kind: "done", total: chunks.length, done: chunks.length, failed: 0 };
+  }
   let accumulated = cached;
   let done = chunks.length - pending.length;
   let failed = 0;
@@ -270,8 +372,16 @@ export async function ensureAsrSecondarySubtitle(
         subtitleUrl: "",
         runId
       });
-      if (cacheBodyToSave) {
-        const saveResult = await saveSubtitleToCache(cacheKey, cacheBodyToSave);
+      if (cacheBodyToSave && bvid && cid) {
+        const saveResult = await saveTranslatedSubtitleTrack({
+          bvid,
+          cid,
+          sourceTrackKey: sourceKey,
+          targetLang: canonicalBcp47,
+          translationSig,
+          mode: protocolMode,
+          items: cacheBodyToSave
+        });
         if (saveResult && saveResult.ok === false) {
           logWarn("[BILISCRIPT] failed to persist translated subtitle cache", {
             bvid,
@@ -350,6 +460,17 @@ export async function ensureAsrSecondarySubtitle(
           });
           const previewBody = buildMergedBody();
           if (previewBody.length > 0) {
+            if (bvid && cid) {
+              scheduleTranslatedTrackWrite({
+                bvid,
+                cid,
+                sourceTrackKey: sourceKey,
+                targetLang: canonicalBcp47,
+                translationSig,
+                mode: protocolMode,
+                items: previewBody
+              });
+            }
             void enqueuePersist(previewBody).catch(() => {});
           }
         }
@@ -395,6 +516,9 @@ export async function ensureAsrSecondarySubtitle(
   scheduler.start();
   await scheduler.waitForIdle();
   await persistQueue.catch(() => {});
+  if (bvid && cid) {
+    await flushSubtitleCache({ bvid, cid });
+  }
 
   if (isStale()) {
     return { kind: "aborted", total: chunks.length, done, failed };

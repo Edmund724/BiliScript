@@ -2,15 +2,20 @@ import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { computeCurrentClipSignature } from "../bilibili/video-id-shared.js";
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { state, clipState } from "../core/state.js";
+import { state, clipState, registerSubtitleSessionBoundaryHooks } from "../core/state.js";
 import type { SubtitleBodyItem } from "../core/state.js";
 import { findActiveSubtitleIndex, findActiveSubtitleIndexInItems } from "../subtitle/core.js";
 import { acceptSubtitle, acceptSecondarySubtitle } from "../subtitle/commit.js";
 import {
+  buildTranslationSignature,
   clearTranslatedSubtitleCache,
+  flushSubtitleCache,
   getSubtitleCacheKey,
   loadSubtitleFromCache,
-  saveSubtitleToCache
+  loadTranslatedSubtitleTrack,
+  saveSubtitleToCache,
+  saveTranslatedSubtitleTrack,
+  scheduleTranslatedTrackWrite
 } from "../subtitle/cache.js";
 import { buildSecondaryAlignment } from "../subtitle/alignment.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
@@ -37,6 +42,7 @@ import { asrProviderStore } from "../asr/asr-provider-store.js";
 import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import {
+  resolveSubtitleTranslateProtocolMode,
   resolveSubtitleTranslateProvider,
   translateSubtitleItems
 } from "../ai/subtitle-translate.js";
@@ -69,7 +75,7 @@ export interface InterpretSessionControllerDeps {
   onGenerationChange?: (generation: number) => void;
   onAvailabilityChange?: (availability: InterpretAvailability) => void;
   runAsr?: (args: RunAsrPipelineArgs) => Promise<unknown>;
-  translateItems?: typeof translateSubtitleItems;
+  translateItems?: (input: Parameters<typeof translateSubtitleItems>[0]) => Promise<SubtitleBodyItem[]>;
   loadCache?: typeof loadSubtitleFromCache;
   saveCache?: typeof saveSubtitleToCache;
   clearTranslatedCache?: typeof clearTranslatedSubtitleCache;
@@ -82,7 +88,9 @@ export interface InterpretSessionControllerDeps {
 export interface InterpretSessionController {
   getState(): InterpretSessionState;
   getAvailability(): InterpretAvailability;
+  getVersions(): { acquisitionVersion: number; processingVersion: number };
   refreshAvailability(): Promise<InterpretAvailability>;
+  flush(): Promise<void>;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   toggle(): Promise<void>;
@@ -120,15 +128,21 @@ export function createInterpretSessionController(
       await chain.loadSecondarySubtitle(target.url, target.lang, clipState.fetchRunId, target.id);
     });
 
+  const hasCustomLoadCache = Boolean(deps.loadCache);
+  const hasCustomSaveCache = Boolean(deps.saveCache);
+
   let stateVal: InterpretSessionState = "idle";
   let generation = 0;
+  let sessionAcquisitionVersion = clipState.acquisitionVersion;
+  let sessionProcessingVersion = clipState.processingVersion;
   let activeClipSignature = "";
   let activeBvid = "";
   let activeCid = "";
   let boundVideo: HTMLVideoElement | null = null;
   let availability: InterpretAvailability = { ok: false, error: "正在检查平台配置..." };
   let availabilityGeneration = 0;
-  let abortController: AbortController | null = null;
+  let acquisitionAbortController: AbortController | null = null;
+  let processingAbortController: AbortController | null = null;
   let scheduler: SubtitleChunkScheduler<void> | null = null;
 
   // 播放游标优先调度分片状态跟踪
@@ -143,6 +157,11 @@ export function createInterpretSessionController(
   let activeSecondaryItems: SubtitleBodyItem[] = [];
   let primaryCacheKey = "";
   let secondaryCacheKey = "";
+  let activeSourceKey = "asr";
+  let activeCanonicalTargetLang = "zh-CN";
+  let activeProtocolMode: "boundary-v3" | "cc-json" = "boundary-v3";
+  let activeTranslationSig = "legacy";
+  let hasUnflushedStreamingCues = false;
   let activeTargetLang = "zh";
   let activeSessionKind: "asr" | "native-pair" | "cc-translate" = "asr";
   let activeSourceTrackId = "asr";
@@ -155,6 +174,94 @@ export function createInterpretSessionController(
   let needsTranslatedCacheInvalidation = false;
   let lastOverlayOriginal: string | null = null;
   let lastOverlayTranslation: string | null = null;
+
+  function initSessionAbortControllers(): void {
+    const nextAcq = new AbortController();
+    const nextProc = new AbortController();
+    nextAcq.signal.addEventListener("abort", () => nextProc.abort(), { once: true });
+    acquisitionAbortController = nextAcq;
+    processingAbortController = nextProc;
+  }
+
+  function abortSessionControllers(scope: "both" | "processing" = "both"): void {
+    scheduler?.stop();
+    scheduler = null;
+    if (scope === "both") {
+      acquisitionAbortController?.abort();
+      acquisitionAbortController = null;
+    }
+    processingAbortController?.abort();
+    processingAbortController = null;
+  }
+
+  function isSessionStale(expectedGeneration = generation): boolean {
+    return (
+      expectedGeneration !== generation ||
+      sessionAcquisitionVersion !== clipState.acquisitionVersion ||
+      sessionProcessingVersion !== clipState.processingVersion
+    );
+  }
+
+  function resolveSessionTranslationMetadata(primaryItems?: readonly SubtitleBodyItem[]): void {
+    activeCanonicalTargetLang = toCanonicalTargetLangBcp47(activeTargetLang);
+    const protocolItems =
+      primaryItems && primaryItems.length > 0
+        ? primaryItems
+        : activeSessionKind === "asr"
+          ? [{ from: 0, to: 1, content: "probe" }]
+          : [];
+    activeProtocolMode =
+      typeof resolveSubtitleTranslateProtocolMode === "function"
+        ? resolveSubtitleTranslateProtocolMode({
+            selectedSubtitleId: activeSessionKind === "asr" ? "asr" : activeSourceTrackId,
+            selectedSubtitleLang: activeSessionKind === "asr" ? undefined : activeSourceTrackLang,
+            trackLan: activeSessionKind === "asr" ? "asr-zh" : activeSourceTrackLan,
+            items: protocolItems
+          })
+        : activeSessionKind === "asr"
+          ? "boundary-v3"
+          : "cc-json";
+    activeTranslationSig = buildTranslationSignature({
+      model: activeProviderRes?.model || state.settings?.subtitleTranslateModel || "Index-Translate-35B-A3B",
+      protocolVersion: activeProtocolMode,
+      targetLang: activeCanonicalTargetLang,
+      glossary: state.settings?.subtitleTranslateGlossary,
+      ...(primaryItems && primaryItems.length > 0
+        ? { sourceText: primaryItems.map((it) => it.content).join("\n") }
+        : {})
+    });
+  }
+
+  async function loadSecondaryFromStoreOrMock(): Promise<unknown[] | null> {
+    if (hasCustomLoadCache) {
+      return loadCache(secondaryCacheKey);
+    }
+    return loadTranslatedSubtitleTrack({
+      bvid: activeBvid,
+      cid: activeCid,
+      sourceTrackKey: activeSourceKey,
+      targetLang: activeCanonicalTargetLang,
+      translationSig: activeTranslationSig,
+      legacyCacheKey: secondaryCacheKey
+    });
+  }
+
+  async function flush(): Promise<void> {
+    const snapBvid = activeBvid || state.clip.bvid;
+    const snapCid = activeCid || state.clip.cid;
+    const snapSecondaryKey = secondaryCacheKey;
+    const snapItems = collectSortedSecondaryItems();
+    const hadStreaming = hasUnflushedStreamingCues;
+    hasUnflushedStreamingCues = false;
+
+    const tasks: Promise<unknown>[] = [
+      flushSubtitleCache(snapBvid && snapCid ? { bvid: snapBvid, cid: snapCid } : undefined)
+    ];
+    if (hadStreaming && hasCustomSaveCache && snapSecondaryKey && snapItems.length > 0) {
+      tasks.push(Promise.resolve(saveCache(snapSecondaryKey, snapItems)));
+    }
+    await Promise.allSettled(tasks);
+  }
 
   function updateState(next: InterpretSessionState): void {
     stateVal = next;
@@ -359,7 +466,7 @@ export function createInterpretSessionController(
   }
 
   function syncCurrentSubtitles(currentTime: number, expectedGeneration = generation): void {
-    if (expectedGeneration !== generation || stateVal !== "connected") {
+    if (isSessionStale(expectedGeneration) || stateVal !== "connected") {
       return;
     }
     const primaryBody = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
@@ -425,7 +532,7 @@ export function createInterpretSessionController(
     updatedRange?: { from: number; to: number };
     syncOverlay?: boolean;
   }): Promise<void> {
-    if (options.currentGeneration !== generation || stateVal !== "connected") {
+    if (isSessionStale(options.currentGeneration) || stateVal !== "connected") {
       return;
     }
     const sortedPrimary = Array.from(chunkPrimaryItems.entries())
@@ -445,6 +552,9 @@ export function createInterpretSessionController(
         selectedSubtitleLang: activeAsrLabel,
         skipHotComments: true
       });
+      if (isSessionStale(options.currentGeneration)) {
+        return;
+      }
       if (primaryCacheKey) {
         const saveResult = await saveCache(primaryCacheKey, sortedPrimary);
         if (saveResult?.ok !== false && needsTranslatedCacheInvalidation && activeBvid && activeCid) {
@@ -454,6 +564,7 @@ export function createInterpretSessionController(
       }
     }
 
+    hasUnflushedStreamingCues = false;
     activeSecondaryItems = sortedSecondary;
     if (sortedSecondary.length > 0) {
       secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
@@ -462,8 +573,22 @@ export function createInterpretSessionController(
         subtitleId: activeSecondarySlotId,
         subtitleUrl: ""
       });
-      if (secondaryCacheKey) {
+      if (isSessionStale(options.currentGeneration)) {
+        return;
+      }
+      if (hasCustomSaveCache && secondaryCacheKey) {
         await saveCache(secondaryCacheKey, sortedSecondary);
+      }
+      if (activeBvid && activeCid) {
+        await saveTranslatedSubtitleTrack({
+          bvid: activeBvid,
+          cid: activeCid,
+          sourceTrackKey: activeSourceKey,
+          targetLang: activeCanonicalTargetLang,
+          translationSig: activeTranslationSig,
+          mode: activeProtocolMode,
+          items: sortedSecondary
+        });
       }
     }
 
@@ -482,7 +607,7 @@ export function createInterpretSessionController(
   }
 
   async function translateChunk(chunkIndex: number, currentGeneration: number): Promise<void> {
-    if (currentGeneration !== generation || isTranslateDoneChunk.has(chunkIndex)) {
+    if (isSessionStale(currentGeneration) || isTranslateDoneChunk.has(chunkIndex)) {
       return;
     }
     const items = chunkPrimaryItems.get(chunkIndex) || [];
@@ -514,13 +639,13 @@ export function createInterpretSessionController(
           trackLan: activeSessionKind === "asr" ? "asr-zh" : activeSourceTrackLan,
           providerResolution: activeProviderRes,
           ...(previousLines.length > 0 ? { previousLines } : {}),
-          signal: abortController?.signal,
+          signal: processingAbortController?.signal,
           fallbackToOriginal: false,
           onCueReady: (cue) => {
             if (
-              currentGeneration !== generation ||
+              isSessionStale(currentGeneration) ||
               stateVal !== "connected" ||
-              abortController?.signal.aborted ||
+              processingAbortController?.signal.aborted ||
               state.clip.bvid !== activeBvid ||
               state.clip.cid !== activeCid
             ) {
@@ -550,6 +675,18 @@ export function createInterpretSessionController(
             const sortedSecondary = collectSortedSecondaryItems();
             activeSecondaryItems = sortedSecondary;
             if (sortedSecondary.length > 0) {
+              hasUnflushedStreamingCues = true;
+              if (activeBvid && activeCid) {
+                scheduleTranslatedTrackWrite({
+                  bvid: activeBvid,
+                  cid: activeCid,
+                  sourceTrackKey: activeSourceKey,
+                  targetLang: activeCanonicalTargetLang,
+                  translationSig: activeTranslationSig,
+                  mode: activeProtocolMode,
+                  items: sortedSecondary
+                });
+              }
               secondaryAlignmentCache = buildSecondaryAlignment(sortedSecondary);
               void acceptSecondarySubtitle({
                 body: sortedSecondary,
@@ -557,7 +694,7 @@ export function createInterpretSessionController(
                 subtitleUrl: ""
               })
                 .then(() => {
-                  if (currentGeneration === generation && stateVal === "connected") {
+                  if (!isSessionStale(currentGeneration) && stateVal === "connected") {
                     notifyReaderPresenter({ kind: "rerender" });
                   }
                 })
@@ -570,7 +707,7 @@ export function createInterpretSessionController(
           }
         });
 
-        if (currentGeneration !== generation || abortController?.signal.aborted) {
+        if (isSessionStale(currentGeneration) || processingAbortController?.signal.aborted) {
           return;
         }
 
@@ -596,7 +733,7 @@ export function createInterpretSessionController(
         activeSecondaryItems = sortedSecondary;
         secondaryAlignmentCache =
           sortedSecondary.length > 0 ? buildSecondaryAlignment(sortedSecondary) : null;
-        if (currentGeneration !== generation || abortController?.signal.aborted) {
+        if (isSessionStale(currentGeneration) || processingAbortController?.signal.aborted) {
           return;
         }
         throw err;
@@ -629,18 +766,18 @@ export function createInterpretSessionController(
       pauseTimeoutMs: PAUSE_TIMEOUT_MS,
       initialTimeSec,
       getCurrentTimeSec: () => (boundVideo || getVideoElement())?.currentTime ?? initialTimeSec,
-      signal: abortController?.signal,
+      signal: processingAbortController?.signal,
       runChunk: async (chunk) => {
         await translateChunk(chunk.index, currentGeneration);
       },
       onChunkError: () => {
-        if (currentGeneration !== generation || abortController?.signal.aborted) {
+        if (isSessionStale(currentGeneration) || processingAbortController?.signal.aborted) {
           return;
         }
         showNotice("当前片段字幕翻译失败，将保留原文", 3000);
       },
       onPauseTimeout: () => {
-        if (currentGeneration !== generation) {
+        if (isSessionStale(currentGeneration)) {
           return;
         }
         void stop();
@@ -681,6 +818,13 @@ export function createInterpretSessionController(
     isAsrDoneChunk.clear();
     secondaryAlignmentCache = null;
     activeSecondaryItems = [];
+    primaryCacheKey = "";
+    secondaryCacheKey = "";
+    activeSourceKey = "asr";
+    activeCanonicalTargetLang = "zh-CN";
+    activeProtocolMode = "boundary-v3";
+    activeTranslationSig = "legacy";
+    hasUnflushedStreamingCues = false;
     activeSessionKind = "asr";
     activeSourceTrackId = "asr";
     activeSourceTrackLang = "";
@@ -693,13 +837,10 @@ export function createInterpretSessionController(
     lastOverlayTranslation = null;
   }
 
-  async function stop(): Promise<void> {
+  function abortAndResetSynchronously(scope: "both" | "processing" = "both"): void {
     generation += 1;
     deps.onGenerationChange?.(generation);
-    scheduler?.stop();
-    scheduler = null;
-    abortController?.abort();
-    abortController = null;
+    abortSessionControllers(scope);
     unbindVideoLifecycle();
     clearSubtitles();
     lastOverlayOriginal = null;
@@ -709,17 +850,26 @@ export function createInterpretSessionController(
     updateState("idle");
   }
 
+  async function stop(): Promise<void> {
+    const flushPromise = flush();
+    abortAndResetSynchronously("both");
+    await flushPromise;
+  }
+
   async function start(): Promise<boolean> {
     if (stateVal === "connecting" || stateVal === "connected") return true;
 
+    sessionAcquisitionVersion = clipState.acquisitionVersion;
+    sessionProcessingVersion = clipState.processingVersion;
     generation += 1;
     const currentGeneration = generation;
     deps.onGenerationChange?.(currentGeneration);
-    abortController = new AbortController();
+    initSessionAbortControllers();
     updateState("connecting");
 
     try {
       const avail = await refreshAvailability();
+      if (isSessionStale(currentGeneration)) return false;
       if (!avail.ok) {
         showNotice(avail.error, 6000);
         await stop();
@@ -750,7 +900,7 @@ export function createInterpretSessionController(
           String(state.clip.selectedSubtitleId || "") !== mainTarget.id
         ) {
           await loadNativePrimaryTrack(mainTarget);
-          if (currentGeneration !== generation) return false;
+          if (isSessionStale(currentGeneration)) return false;
         }
         const pick = String(state.settings?.secondarySubtitleLang || DEFAULT_SETTINGS.secondarySubtitleLang).trim();
         let partnerTrack = findSecondaryTrackByPreferredLang(nativeTracks, pick, mainTarget.id);
@@ -777,7 +927,7 @@ export function createInterpretSessionController(
             state.clip.secondarySubtitle.body.length === 0
           ) {
             await loadNativeSecondaryTrack(secondaryTarget);
-            if (currentGeneration !== generation) return false;
+            if (isSessionStale(currentGeneration)) return false;
           }
         }
         updateState("connected");
@@ -806,7 +956,7 @@ export function createInterpretSessionController(
           (sourceTarget.id && String(state.clip.selectedSubtitleId || "") !== sourceTarget.id)
         ) {
           await loadNativePrimaryTrack(sourceTarget);
-          if (currentGeneration !== generation) return false;
+          if (isSessionStale(currentGeneration)) return false;
         }
 
         activeSourceTrackId = String(state.clip.selectedSubtitleId || sourceTarget.id || "");
@@ -820,6 +970,7 @@ export function createInterpretSessionController(
           state.clip.selectedSubtitleUrl || sourceTarget.url,
           activeSourceTrackLang
         );
+        activeSourceKey = sourceKey;
         const canonicalBcp47 = toCanonicalTargetLangBcp47(activeTargetLang);
         activeSecondarySlotId = trackTranslatedSlotId(sourceKey, canonicalBcp47);
         primaryCacheKey = "";
@@ -834,10 +985,12 @@ export function createInterpretSessionController(
         });
 
         activeProviderRes = await resolveTranslateProvider();
-        if (currentGeneration !== generation) return false;
+        if (isSessionStale(currentGeneration)) return false;
 
         const primaryItems = [...(state.clip.subtitleBody || [])];
-        const cachedSecondary = await loadCache(secondaryCacheKey);
+        resolveSessionTranslationMetadata(primaryItems);
+        const cachedSecondary = await loadSecondaryFromStoreOrMock();
+        if (isSessionStale(currentGeneration)) return false;
         const secondaryItems =
           Array.isArray(cachedSecondary) && cachedSecondary.length > 0
             ? (cachedSecondary as SubtitleBodyItem[])
@@ -853,6 +1006,7 @@ export function createInterpretSessionController(
             subtitleId: activeSecondarySlotId,
             subtitleUrl: ""
           });
+          if (isSessionStale(currentGeneration)) return false;
         } else {
           clipState.clearSecondarySubtitle();
         }
@@ -880,6 +1034,7 @@ export function createInterpretSessionController(
 
       // ===== 分支 3：无原生 CC 轨 → ASR 语音转写 + LLM 翻译 =====
       activeSessionKind = "asr";
+      activeSourceKey = "asr";
       activeTargetLang = getTargetLang();
       activeSecondarySlotId = `translate-${activeTargetLang}`;
 
@@ -887,6 +1042,7 @@ export function createInterpretSessionController(
         loadAsrProviders(),
         chrome.storage.sync.get(["activeAsrProviderId", "asrLanguage"])
       ]);
+      if (isSessionStale(currentGeneration)) return false;
       const activeId = resolveActiveAsrProviderId(
         providers,
         typeof settings.activeAsrProviderId === "string" ? settings.activeAsrProviderId : undefined
@@ -916,7 +1072,8 @@ export function createInterpretSessionController(
       });
 
       activeProviderRes = await resolveTranslateProvider();
-      if (currentGeneration !== generation) return false;
+      if (isSessionStale(currentGeneration)) return false;
+      resolveSessionTranslationMetadata();
 
       // 1. 检查主轨缓存（内存优先，次选本地 storage 缓存）
       let primaryItems: SubtitleBodyItem[] | null = null;
@@ -924,13 +1081,15 @@ export function createInterpretSessionController(
         primaryItems = [...state.clip.subtitleBody];
       } else {
         const cached = await loadCache(primaryCacheKey);
+        if (isSessionStale(currentGeneration)) return false;
         if (Array.isArray(cached) && cached.length > 0) {
           primaryItems = cached as SubtitleBodyItem[];
         }
       }
 
       // 2. 检查译文副轨缓存
-      const cachedSecondary = await loadCache(secondaryCacheKey);
+      const cachedSecondary = await loadSecondaryFromStoreOrMock();
+      if (isSessionStale(currentGeneration)) return false;
       const secondaryItems = Array.isArray(cachedSecondary) && cachedSecondary.length > 0
         ? (cachedSecondary as SubtitleBodyItem[])
         : null;
@@ -954,6 +1113,7 @@ export function createInterpretSessionController(
           subtitleId: `translate-${activeTargetLang}`,
           subtitleUrl: ""
         });
+        if (isSessionStale(currentGeneration)) return false;
         updateState("connected");
         bindVideoLifecycle();
         const video = boundVideo || getVideoElement();
@@ -986,6 +1146,7 @@ export function createInterpretSessionController(
           selectedSubtitleLang: activeAsrLabel,
           skipHotComments: true
         });
+        if (isSessionStale(currentGeneration)) return false;
         updateState("connected");
         bindVideoLifecycle();
         const video = boundVideo || getVideoElement();
@@ -1008,7 +1169,7 @@ export function createInterpretSessionController(
       }
 
       const activeFallback = await loadActiveAsrFallback().catch(() => null);
-      if (currentGeneration !== generation) return false;
+      if (isSessionStale(currentGeneration)) return false;
       if (activeFallback?.hasActiveAsrTranscribe({ bvid, cid })) {
         showNotice("后台语音识别正在进行中，请稍候完成后再试", 4000);
         await stop();
@@ -1032,9 +1193,11 @@ export function createInterpretSessionController(
       void runAsr({
         bvid,
         cid,
-        signal: abortController?.signal,
+        signal: acquisitionAbortController?.signal,
         onChunkResult: async (record, items, snapshot) => {
-          if (currentGeneration !== generation) return;
+          if (isSessionStale(currentGeneration) || acquisitionAbortController?.signal.aborted) {
+            return;
+          }
           const chunkIdx = record.index;
 
           if (!snapshot) {
@@ -1092,7 +1255,7 @@ export function createInterpretSessionController(
           }
         }
       }).catch((error) => {
-        if (currentGeneration === generation && !abortController?.signal.aborted) {
+        if (!isSessionStale(currentGeneration) && !acquisitionAbortController?.signal.aborted) {
           showNotice(`字幕生成失败：${(error as Error)?.message || String(error)}`, 6000);
           void stop();
         }
@@ -1100,7 +1263,7 @@ export function createInterpretSessionController(
 
       return true;
     } catch (err) {
-      if (currentGeneration === generation) {
+      if (!isSessionStale(currentGeneration)) {
         showNotice((err as Error)?.message || String(err), 6000);
         await stop();
       }
@@ -1119,6 +1282,41 @@ export function createInterpretSessionController(
     }
   }
 
+  function handlePageHide(): void {
+    void flush();
+  }
+
+  function handleVisibilityChange(): void {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      void flush();
+    }
+  }
+
+  const unregisterBoundaryHooks = registerSubtitleSessionBoundaryHooks({
+    flush: () => flush(),
+    onAbortAndClear: (snapshot) => {
+      sessionAcquisitionVersion = snapshot.acquisitionVersion;
+      sessionProcessingVersion = snapshot.processingVersion;
+      if (stateVal === "connecting" || stateVal === "connected") {
+        abortAndResetSynchronously(snapshot.reason === "processing-switch" ? "processing" : "both");
+      } else {
+        abortSessionControllers(snapshot.reason === "processing-switch" ? "processing" : "both");
+        clearSubtitles();
+        lastOverlayOriginal = null;
+        lastOverlayTranslation = null;
+        setSubtitle("", "");
+      }
+    }
+  });
+
+  if (typeof window !== "undefined") {
+    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+    window.addEventListener("pagehide", handlePageHide);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+  }
+
   async function toggle(): Promise<void> {
     if (stateVal === "connecting" || stateVal === "connected") {
       await stop();
@@ -1128,16 +1326,26 @@ export function createInterpretSessionController(
   }
 
   function dispose(): void {
-    window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+    unregisterBoundaryHooks();
+    if (typeof window !== "undefined") {
+      window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    }
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
     void stop();
   }
-
-  window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
 
   return {
     getState: () => stateVal,
     getAvailability: () => availability,
+    getVersions: () => ({
+      acquisitionVersion: sessionAcquisitionVersion,
+      processingVersion: sessionProcessingVersion
+    }),
     refreshAvailability,
+    flush,
     start,
     stop,
     toggle,
