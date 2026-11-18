@@ -220,32 +220,21 @@ describe("L1 章节目录构建、紧凑序列化与本地缓存", () => {
       expect(host.hasEntry(key)).toBe(false);
     });
 
-    it("接入统一 LRU 淘汰：第 4 个视频写入后自动淘汰最早的视频，保留最近 3 个", async () => {
+    it("接入统一 LRU 淘汰：第 4 个视频写入不淘汰，100 视频对齐上限内保留", async () => {
       vi.useFakeTimers();
       const store = createL1IndexCacheStore();
+      const saveAt = async (n: number) => {
+        vi.setSystemTime(n * 1000);
+        const bvid = `BV1s${n}`;
+        await store.save(
+          buildL1IndexCacheKey({ bvid, cid: "1", subtitleLang: "zh", subtitleSignature: `s${n}` }),
+          buildL1VideoIndex({ bvid, cid: "1", subtitleLang: "zh", subtitleSignature: `s${n}`, chapters: [{ from: 0, to: 10, title: String(n) }] })
+        );
+      };
 
-      vi.setSystemTime(1000);
-      await store.save(
-        buildL1IndexCacheKey({ bvid: "BV1s1", cid: "1", subtitleLang: "zh", subtitleSignature: "s1" }),
-        buildL1VideoIndex({ bvid: "BV1s1", cid: "1", subtitleLang: "zh", subtitleSignature: "s1", chapters: [{ from: 0, to: 10, title: "1" }] })
-      );
-      vi.setSystemTime(2000);
-      await store.save(
-        buildL1IndexCacheKey({ bvid: "BV1s2", cid: "1", subtitleLang: "zh", subtitleSignature: "s2" }),
-        buildL1VideoIndex({ bvid: "BV1s2", cid: "1", subtitleLang: "zh", subtitleSignature: "s2", chapters: [{ from: 0, to: 10, title: "2" }] })
-      );
-      vi.setSystemTime(3000);
-      await store.save(
-        buildL1IndexCacheKey({ bvid: "BV1s3", cid: "1", subtitleLang: "zh", subtitleSignature: "s3" }),
-        buildL1VideoIndex({ bvid: "BV1s3", cid: "1", subtitleLang: "zh", subtitleSignature: "s3", chapters: [{ from: 0, to: 10, title: "3" }] })
-      );
-      vi.setSystemTime(4000);
-      await store.save(
-        buildL1IndexCacheKey({ bvid: "BV1s4", cid: "1", subtitleLang: "zh", subtitleSignature: "s4" }),
-        buildL1VideoIndex({ bvid: "BV1s4", cid: "1", subtitleLang: "zh", subtitleSignature: "s4", chapters: [{ from: 0, to: 10, title: "4" }] })
-      );
+      await Promise.all([saveAt(1), saveAt(2), saveAt(3), saveAt(4)]);
 
-      expect(host.hasEntry(buildL1IndexCacheKey({ bvid: "BV1s1", cid: "1", subtitleLang: "zh", subtitleSignature: "s1" }))).toBe(false);
+      expect(host.hasEntry(buildL1IndexCacheKey({ bvid: "BV1s1", cid: "1", subtitleLang: "zh", subtitleSignature: "s1" }))).toBe(true);
       expect(host.hasEntry(buildL1IndexCacheKey({ bvid: "BV1s2", cid: "1", subtitleLang: "zh", subtitleSignature: "s2" }))).toBe(true);
       expect(host.hasEntry(buildL1IndexCacheKey({ bvid: "BV1s3", cid: "1", subtitleLang: "zh", subtitleSignature: "s3" }))).toBe(true);
       expect(host.hasEntry(buildL1IndexCacheKey({ bvid: "BV1s4", cid: "1", subtitleLang: "zh", subtitleSignature: "s4" }))).toBe(true);

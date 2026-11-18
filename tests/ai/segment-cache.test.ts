@@ -1,24 +1,29 @@
-// ai/segment-cache.js 段缓存测试（04 票）：
-// 覆盖分段小结 / 原始字幕段的落盘读写（命中/未命中）、中止后已落盘段跨会话复用、
-// 换轨不串（字幕轨 source key 区分）、键含 bvid+cid+段、键风格对齐 getSubtitleCacheKey，
-// 以及读写失败的容错（logWarn 且不抛异常）。
+// ai/segment-cache.js 段缓存测试：
+// 覆盖分段小结落盘读写（命中/未命中/批量枚举 loadStoredSegmentSummaries）、
+// 跨会话原始字幕段读取（主路径 IndexedDB + 遗留 biliscript_lvs_raw_* 回退）、
+// 换轨不串、键含 bvid+cid+段、预算代隔离与读写容错。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
-import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
+import { buildLruIndexEntryKey } from "../../extension/core/cache-lru.js";
+import { buildSubtitleSourceKey } from "../../extension/subtitle/source-key.js";
 
 let mod: typeof import("../../extension/ai/segment-cache.js");
+let idbStore: typeof import("../../extension/subtitle/idb-store.js")["defaultSubtitleIdbStore"];
 let storage: ChromeHost;
-
-// 共享宿主（tests/helpers/chrome-host.js）：get/set/remove 为 vi.fn 可注入失败，
-// get 兑现 null/undefined ⇒ 全量快照（loadStoredRawSegments 索引缺失时的回退兜底）。
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
   storage = installChromeHost();
+  idbStore = (await import("../../extension/subtitle/idb-store.js")).defaultSubtitleIdbStore;
+  await idbStore.clearAll();
   mod = await import("../../extension/ai/segment-cache.js");
+}
+
+function legacyRawKey(bvid: string, cid: string, subtitleId: string, segmentIndex: number): string {
+  return `biliscript_lvs_raw_${bvid}_${cid}_${buildSubtitleSourceKey(subtitleId, "", "")}_${segmentIndex}`;
 }
 
 beforeEach(async () => {
@@ -38,7 +43,6 @@ describe("分段小结落盘读写（命中/未命中）", () => {
 
     await mod.saveSegmentSummary(key, "小结一：事实A。");
     expect(await mod.loadSegmentSummary(key)).toBe("小结一：事实A。");
-    // 存储值形状 { summary, timestamp }，风格对齐 subtitle/cache.js 的 { body, timestamp }
     expect(storage.map.get(key)).toMatchObject({ summary: "小结一：事实A。" });
     expect((storage.map.get(key) as CacheEntry).timestamp).toEqual(expect.any(Number));
   });
@@ -50,47 +54,81 @@ describe("分段小结落盘读写（命中/未命中）", () => {
   });
 });
 
-describe("原始字幕段落盘读写（命中/未命中）", () => {
-  it("未 save 的 key load 返回 null；save segments 后 load 返回原数组", async () => {
-    const key = mod.getRawSegmentKey({ bvid: "BV1a", cid: "1", subtitleId: "sub-1", segmentIndex: 0 });
+describe("loadStoredSegmentSummaries：直接枚举分段小结", () => {
+  it("按段序号升序枚举小结，常态档自动排除 _b50 等非常态预算档", async () => {
+    await mod.saveSegmentSummary(mod.getSegmentSummaryKey({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1", segmentIndex: 10 }), "第10段");
+    await mod.saveSegmentSummary(mod.getSegmentSummaryKey({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1", segmentIndex: 2 }), "第2段");
+    await mod.saveSegmentSummary(mod.getSegmentSummaryKey({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1", segmentIndex: 1 }), "第1段");
+    await mod.saveSegmentSummary(mod.getSegmentSummaryKey({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1", segmentIndex: 1, budgetScale: 0.5 }), "半档第1段");
+    await mod.saveSegmentSummary(mod.getSegmentSummaryKey({ bvid: "BV1enum", cid: "1", subtitleId: "sub-2", segmentIndex: 1 }), "别轨第1段");
 
-    expect(await mod.loadRawSegments(key)).toBeNull();
+    const summaries = await mod.loadStoredSegmentSummaries({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1" });
+    expect(summaries).toEqual(["第1段", "第2段", "第10段"]);
 
-    const segments = [
-      { from: 0, to: 5, content: "第一句" },
-      { from: 5, to: 10, content: "第二句" }
-    ];
-    await mod.saveRawSegments(key, segments);
-    expect(await mod.loadRawSegments(key)).toEqual(segments);
-    // 存储值形状 { segments, timestamp }
-    expect(storage.map.get(key)).toMatchObject({ segments });
-    expect((storage.map.get(key) as CacheEntry).timestamp).toEqual(expect.any(Number));
+    const halfScale = await mod.loadStoredSegmentSummaries({ bvid: "BV1enum", cid: "1", subtitleId: "sub-1", budgetScale: 0.5 });
+    expect(halfScale).toEqual(["半档第1段"]);
+  });
+
+  it("索引缺失时回退 get(null) 前缀扫描，缺参或读失败返回 []", async () => {
+    const key = mod.getSegmentSummaryKey({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1", segmentIndex: 1 });
+    await storage.local.set({ [key]: { summary: "扫描小结", timestamp: 1 } });
+
+    expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual(["扫描小结"]);
+    expect(storage.local.get).toHaveBeenCalledWith(null);
+
+    expect(await mod.loadStoredSegmentSummaries({ bvid: "", cid: "1" })).toEqual([]);
+
+    storage.local.get.mockRejectedValue(new Error("boom"));
+    expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual([]);
   });
 });
 
-describe("loadStoredRawSegments：索引驱动批量读取", () => {
-  it("索引含该 bvid 条目 → 索引枚举 1 次 + 数据键单次批量 get 1 次，返回形状不变", async () => {
-    const keys = [0, 1, 2].map((i) =>
-      mod.getRawSegmentKey({ bvid: "BV1a", cid: "1", subtitleId: "sub-1", segmentIndex: i })
-    );
-    for (const [i, key] of keys.entries()) {
-      await mod.saveRawSegments(key, [{ from: i * 5, to: i * 5 + 5, content: `段${i}` }]);
-    }
+describe("loadStoredRawSegments：IndexedDB 主路径 + 遗留键回退", () => {
+  it("优先读取 IndexedDB 原始轨并切段返回 { index, from, to, items }", async () => {
+    const sourceKey = buildSubtitleSourceKey("sub-idb", "", "");
+    await idbStore.putRawTrack({
+      bvid: "BV1idb",
+      cid: "2",
+      trackKey: sourceKey,
+      items: [
+        { from: 0, to: 10, content: "a".repeat(50000) },
+        { from: 10, to: 20, content: "b".repeat(1000) }
+      ]
+    });
+
+    const segments = await mod.loadStoredRawSegments({ bvid: "BV1idb", cid: "2", subtitleId: "sub-idb" });
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ index: 1, from: 0, to: 10 });
+    expect(segments[1]).toMatchObject({ index: 2, from: 10, to: 20 });
+    // 命中 IndexedDB 时无需扫描 chrome.storage.local
+    expect(storage.local.get).not.toHaveBeenCalled();
+  });
+
+  it("IndexedDB 无原始轨且遗留键有分键索引 → 索引枚举 1 次 + 批量 get 1 次", async () => {
+    const k0 = legacyRawKey("BV1a", "1", "sub-1", 0);
+    const k1 = legacyRawKey("BV1a", "1", "sub-1", 1);
+    const k2 = legacyRawKey("BV1a", "1", "sub-1", 2);
+    await storage.local.set({
+      [k0]: { segments: [{ from: 0, to: 5, content: "段0" }], timestamp: 1 },
+      [k1]: { segments: [{ from: 5, to: 10, content: "段1" }], timestamp: 1 },
+      [k2]: { segments: [{ from: 10, to: 15, content: "段2" }], timestamp: 1 },
+      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k0)]: { ts: 1 },
+      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k1)]: { ts: 1 },
+      [buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", k2)]: { ts: 1 }
+    });
     storage.local.get.mockClear();
 
     const restored = await mod.loadStoredRawSegments({ bvid: "BV1a", cid: "1", subtitleId: "sub-1" });
     expect(restored.map((seg) => seg.index)).toEqual([0, 1, 2]);
     expect(restored[1]).toMatchObject({ index: 1, from: 5, to: 10, items: [{ from: 5, to: 10, content: "段1" }] });
-    // 往返数：readFamilyKeys 索引枚举（get(null) 快照）1 次 + 数据键单次批量 get 1 次
-    // （11 票分键布局：索引枚举即全量快照过滤，无逐键串行）
     expect(storage.local.get.mock.calls.map(([k]) => k)).toEqual([
       null,
-      expect.arrayContaining(keys)
+      expect.arrayContaining([k0, k1, k2])
     ]);
   });
 
-  it("索引缺失（该 bvid 无条目）→ 回退 get(null) 前缀扫描兜底，行为不变", async () => {
-    const key = mod.getRawSegmentKey({ bvid: "BV1a", cid: "1", subtitleId: "sub-1", segmentIndex: 0 });
+  it("遗留键存在但索引缺失 → 回退 get(null) 前缀扫描兜底", async () => {
+    const key = legacyRawKey("BV1a", "1", "sub-1", 0);
     await storage.local.set({ [key]: { segments: [{ from: 0, to: 5, content: "x" }], timestamp: 1 } });
 
     const restored = await mod.loadStoredRawSegments({ bvid: "BV1a", cid: "1", subtitleId: "sub-1" });
@@ -105,7 +143,6 @@ describe("中止复用：已落盘的段小结跨会话/编排可读", () => {
     const key2 = mod.getSegmentSummaryKey({ bvid: "BV1a", cid: "1", subtitleId: "sub-1", segmentIndex: 1 });
     await mod.saveSegmentSummary(key1, "段1小结");
 
-    // 模拟新会话/新编排：同一 chrome.storage.local（持久化介质）下重新导入模块
     vi.resetModules();
     const freshMod = await import("../../extension/ai/segment-cache.js");
     expect(await freshMod.loadSegmentSummary(key1)).toBe("段1小结");
@@ -123,13 +160,6 @@ describe("换轨不串：缓存键随字幕轨区分", () => {
     await mod.saveSegmentSummary(trackA, "A轨小结");
     expect(await mod.loadSegmentSummary(trackA)).toBe("A轨小结");
     expect(await mod.loadSegmentSummary(trackB)).toBeNull();
-
-    // 原始字幕段同样按轨隔离
-    const rawA = mod.getRawSegmentKey({ ...base, subtitleId: "sub-A" });
-    const rawB = mod.getRawSegmentKey({ ...base, subtitleId: "sub-B" });
-    expect(rawA).not.toBe(rawB);
-    await mod.saveRawSegments(rawA, [{ from: 0, to: 5, content: "a" }]);
-    expect(await mod.loadRawSegments(rawB)).toBeNull();
   });
 
   it("source key 区分 id / url / lang 三种来源，id 优先", () => {
@@ -139,7 +169,6 @@ describe("换轨不串：缓存键随字幕轨区分", () => {
     const langKey = mod.getSegmentSummaryKey({ ...base, lang: "zh-CN" });
     expect(new Set([idKey, urlKey, langKey]).size).toBe(3);
 
-    // 同时给 id + url 时以 id 为准
     const bothKey = mod.getSegmentSummaryKey({
       ...base,
       subtitleId: "sub-1",
@@ -158,16 +187,13 @@ describe("键含 bvid+cid+段，键风格对齐 getSubtitleCacheKey", () => {
   });
 
   it("key 中间段即 buildSubtitleSourceKey 产物；换 URL 中 id（路径变化）source key 变，仅换 query 不变", async () => {
-    const { buildSubtitleSourceKey } = await import("../../extension/subtitle/source-key.js");
     const base = { bvid: "BV1a", cid: "1", segmentIndex: 3 };
     const url = "https://s.example.com/sub/abc.json?auth=1";
     const key = mod.getSegmentSummaryKey({ ...base, subtitleUrl: url });
     expect(key).toBe(`biliscript_lvs_summary_BV1a_1_${buildSubtitleSourceKey("", url, "")}_3`);
 
-    // 换 URL 中的 id（路径变化）→ source key 变
     const url2 = "https://s.example.com/sub/def.json?auth=2";
     expect(mod.getSegmentSummaryKey({ ...base, subtitleUrl: url2 })).not.toBe(key);
-    // 仅换 query 参数 → normalizeSubtitleUrlForCache 剥离 query，source key 不变
     expect(mod.getSegmentSummaryKey({ ...base, subtitleUrl: "https://s.example.com/sub/abc.json?auth=999" })).toBe(key);
   });
 });
@@ -179,7 +205,6 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
     selectedSubtitleId: "sub-9",
     selectedSubtitleUrl: "https://s.example.com/sub/9.json?auth=1",
     subtitleLang: "zh-CN",
-    // 上下文里的其余字段不得混入键位
     title: "测试视频",
     subtitleBody: [{ from: 0, to: 5, content: "x" }]
   };
@@ -188,9 +213,7 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
     const { SEGMENT_CACHE_KEY_FIELDS, segmentCacheKeyFields: leafKeyFields } = await import(
       "../../extension/ai/segment-cache-key-fields.js"
     );
-    // SW 侧出口就是叶的同一实现（本模块不再手抄第二份字段清单）
     expect(mod.segmentCacheKeyFields).toBe(leafKeyFields);
-    // 期望形状从叶表派生，本文件不写死字段名清单
     expect(mod.segmentCacheKeyFields(context)).toEqual(
       Object.fromEntries(SEGMENT_CACHE_KEY_FIELDS.map((field) => [field.key, context[field.context]] as const))
     );
@@ -199,11 +222,9 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
     );
   });
 
-  it("统一构造器落盘 → 旧手拼键可读回（跨写读方一致）", async () => {
+  it("统一构造器落盘 → 手拼键可读回（跨写读方一致）", async () => {
     const summaryKey = mod.buildSegmentSummaryCacheKey(context, 2);
-    const rawKey = mod.buildRawSegmentCacheKey(context, 2);
     await mod.saveSegmentSummary(summaryKey, "统一键位小结");
-    await mod.saveRawSegments(rawKey, [{ from: 0, to: 5, content: "x" }]);
 
     const legacySummaryKey = mod.getSegmentSummaryKey({
       bvid: context.bvid,
@@ -214,42 +235,24 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
       segmentIndex: 2
     });
     expect(await mod.loadSegmentSummary(legacySummaryKey)).toBe("统一键位小结");
-    expect(await mod.loadRawSegments(legacySummaryKey.replace("biliscript_lvs_summary_", "biliscript_lvs_raw_"))).toEqual([
-      { from: 0, to: 5, content: "x" }
-    ]);
   });
 });
 
-describe("容错：读写失败 logWarn 且不抛异常", () => {
-  it("load 读失败返回 null（小结与原始段）", async () => {
+describe("容错：读写失败不抛异常", () => {
+  it("load 读失败返回 null", async () => {
     storage.local.get.mockRejectedValueOnce(new Error("read boom"));
     await expect(mod.loadSegmentSummary("biliscript_lvs_summary_x")).resolves.toBeNull();
-
-    storage.local.get.mockRejectedValueOnce(new Error("read boom"));
-    await expect(mod.loadRawSegments("biliscript_lvs_raw_x")).resolves.toBeNull();
   });
 
   it("save 写失败先淘汰重试：重试成功返回 { ok:true } 且不抛", async () => {
     storage.local.set.mockRejectedValueOnce(new Error("write boom"));
     await expect(mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结")).resolves.toMatchObject({ ok: true });
-
-    storage.local.set.mockRejectedValueOnce(new Error("write boom"));
-    await expect(mod.saveRawSegments("biliscript_lvs_raw_x", [])).resolves.toMatchObject({ ok: true });
   });
 
   it("save 持续失败（淘汰后重试仍失败）返回 { ok:false, error } 且不抛异常", async () => {
     storage.local.set.mockRejectedValue(new Error("quota"));
     const summaryResult = await mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结");
-    expect(summaryResult.ok).toBe(false);
-    if (summaryResult.ok === false) {
-      expect(summaryResult.error).toBeInstanceOf(Error);
-    }
-
-    const rawResult = await mod.saveRawSegments("biliscript_lvs_raw_x", []);
-    expect(rawResult.ok).toBe(false);
-    if (rawResult.ok === false) {
-      expect(rawResult.error).toBeInstanceOf(Error);
-    }
+    expect(summaryResult).toMatchObject({ ok: false, error: expect.any(Error) });
   });
 });
 
@@ -269,73 +272,20 @@ describe("预算代隔离：budgetScale≠1 时 key 带代后缀（防段边界�
     expect(byDefault).toBe(scaleOne);
     expect(byDefault).toBe(explicit);
     expect(byDefault).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3");
-    expect(mod.buildRawSegmentCacheKey(context, 3)).toBe("biliscript_lvs_raw_BV1scale_5_id_sub-1_3");
   });
 
-  it("budgetScale=0.5 → 追加 _b50 后缀；scale=2 → _b200；raw / summary 两族同规则", () => {
+  it("budgetScale=0.5 → 追加 _b50 后缀；scale=2 → _b200", () => {
     expect(mod.buildSegmentSummaryCacheKey(context, 3, 0.5)).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3_b50");
-    expect(mod.buildRawSegmentCacheKey(context, 3, 0.5)).toBe("biliscript_lvs_raw_BV1scale_5_id_sub-1_3_b50");
     expect(mod.buildSegmentSummaryCacheKey(context, 3, 2)).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3_b200");
   });
 
   it("同段序号不同预算档 → key 不同（0.5 档绝不命中 1 档已落盘小结）", async () => {
     await mod.saveSegmentSummary(mod.buildSegmentSummaryCacheKey(context, 1), "常态档小结");
     expect(await mod.loadSegmentSummary(mod.buildSegmentSummaryCacheKey(context, 1))).toBe("常态档小结");
-    // 0.5 档查同一序号：key 不同 → 未命中，编排重跑会重新调用模型而不是串段。
     expect(await mod.loadSegmentSummary(mod.buildSegmentSummaryCacheKey(context, 1, 0.5))).toBeNull();
   });
 
   it("非法 budgetScale（非数）按缺省档处理（无后缀）", () => {
     expect(mod.buildSegmentSummaryCacheKey(context, 3, "x")).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3");
-  });
-});
-
-describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticket）", () => {
-  const fields = { bvid: "BV1pair", cid: "1", subtitleId: "sub-1" };
-  const summaryKey = () => mod.getSegmentSummaryKey({ ...fields, segmentIndex: 2 });
-  const rawKey = () => mod.getRawSegmentKey({ ...fields, segmentIndex: 2 });
-
-  it("一次调用落两族数据 + 两族索引/清单打包写；读回与单族写等价", async () => {
-    const setCalls: string[][] = [];
-    const origSet = storage.local.set.getMockImplementation();
-    storage.local.set.mockImplementation(async (items) => {
-      setCalls.push(Object.keys(items));
-      await origSet!(items);
-    });
-
-    const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), [
-      { from: 0, to: 5, content: "x" }
-    ]);
-
-    expect(result).toEqual({ ok: true });
-    // 存储操作 = 1 get（清单快照）+ 3 set（raw 数据 / summary 数据 / 两族索引+manifest 打包）
-    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === LRU_MANIFEST_STORAGE_KEY).length;
-    expect(indexReads).toBe(1);
-    expect(setCalls.filter((keys) => keys.includes(rawKey()))).toHaveLength(1);
-    expect(setCalls.filter((keys) => keys.includes(summaryKey()))).toHaveLength(1);
-    const indexSet = setCalls.find((keys) => keys.includes(LRU_MANIFEST_STORAGE_KEY));
-    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1pair", rawKey()));
-    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_summary_", "BV1pair", summaryKey()));
-    // 读回等价：loadRawSegments / loadSegmentSummary 各自命中
-    expect(await mod.loadSegmentSummary(summaryKey())).toBe("合并小结");
-    expect(await mod.loadRawSegments(rawKey())).toEqual([{ from: 0, to: 5, content: "x" }]);
-  });
-
-  it("写失败（淘汰后重试仍失败）→ { ok:false, error: CacheWriteError }，不抛", async () => {
-    storage.local.set.mockImplementation(async (items) => {
-      if (rawKey() in items || summaryKey() in items) {
-        throw new Error("quota");
-      }
-      for (const [key, value] of Object.entries(items)) {
-        storage.map.set(key, value);
-      }
-    });
-
-    const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), []);
-
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(String(result.error || "")).toContain("缓存写入失败");
-    }
   });
 });

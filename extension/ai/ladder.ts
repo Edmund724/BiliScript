@@ -127,6 +127,7 @@ export interface ResolveFollowupContextArgs {
   plan: BudgetPlan;
   history: ChatMessage[];
   userPrompt: string;
+  skipRawRetrieval?: boolean;
 }
 
 export type ResolveFollowupContextFn = (args: ResolveFollowupContextArgs) => Promise<ChatContext | null>;
@@ -215,12 +216,6 @@ function asInteractionAnchorHint(raw: unknown): InteractionAnchorHint | null {
     ...(typeof obj.lineContent === "string" ? { lineContent: obj.lineContent } : {}),
     ...(typeof obj.selection === "string" ? { selection: obj.selection } : {})
   };
-}
-
-function stripLegacyRawInjection(markdown: string): string {
-  const marker = "\n\n## 相关原始字幕段\n\n";
-  const idx = markdown.indexOf(marker);
-  return idx >= 0 ? markdown.slice(0, idx) : markdown;
 }
 
 async function preCaptureVisualFramesIfNeeded(input: {
@@ -452,7 +447,8 @@ export async function runLadderChat(
                 context: msg.context || {},
                 plan,
                 history: rawHistory,
-                userPrompt
+                userPrompt,
+                skipRawRetrieval: true
               })
             : Promise.resolve(null)
         ]);
@@ -461,7 +457,7 @@ export async function runLadderChat(
             baseContext: followupContext ?? (msg.context || {}),
             l1Index,
             compressedSummaryMarkdown: followupContext
-              ? stripLegacyRawInjection(String(followupContext.compressedSummaryMarkdown || ""))
+              ? String(followupContext.compressedSummaryMarkdown || "")
               : ""
           });
           return;

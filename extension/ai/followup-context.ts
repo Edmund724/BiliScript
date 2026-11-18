@@ -227,9 +227,10 @@ interface ResolveFollowupContextInput {
   plan?: BudgetPlan | null;
   history?: unknown[];
   userPrompt?: string;
+  skipRawRetrieval?: boolean;
   loadSummaries?: typeof loadSegmentSummaries;
-  // 跨会话原始段读取缝（arch-review-2026-09/05）：缺省经 segmentCacheProxy
-  // 消息到 SW，测试注入可控桩。userPrompt 非空时 SW 只回传命中段的 items（08 票）。
+  loadStoredSummaries?: (input: { context?: Record<string, unknown>; budgetScale?: unknown }) => Promise<string[]>;
+  // 跨会话原始段读取缝：缺省经 segmentCacheProxy 消息到 SW，测试注入可控桩。
   loadStoredSegments?: (input: { context?: Record<string, unknown>; userPrompt?: unknown }) => Promise<unknown[]>;
 }
 
@@ -239,18 +240,19 @@ interface ResolveFollowupContextInput {
  * subtitleBody 置空）；
  * 其余情况（≤200k / 首轮 / 尚未成稿）返回 null，表示走完整 Map-Reduce。
  *
- * 段来源两级：会话内直接用内存 plan.segments（行为与既有路径逐字节一致）；
- * 跨会话（恢复会话 / 新会话，内存段已不在）且 plan.segments 为空时，回退到段缓存
- * 落盘的原始字幕段（loadStoredRawSegments，键位与 map-reduce 落盘完全一致），
- * 仅补空缺、不覆盖内存段；两级皆空则维持返回 null 交回完整 Map-Reduce。
- * bvid/cid 取自追问上下文（context 由侧边栏组装，含视频身份字段）。
+ * 当 `skipRawRetrieval` 为 true 时（L0+L1 混合召回路径），跳过 `loadStoredSegments` 与
+ * `retrieveRawSegments`，直接加载分段小结并组装纯压缩摘要（无 `## 相关原始字幕段`）；
+ * 当 `plan.segments` 为空时直接经 `loadStoredSummaries` 枚举存储中的分段小结，不再依赖
+ * 原始段发现段序号。
  */
 export async function resolveFollowupContext({
   context = {},
   plan = null,
   history = [],
   userPrompt = "",
+  skipRawRetrieval = false,
   loadSummaries = loadSegmentSummaries,
+  loadStoredSummaries = (input) => segmentCacheProxy.loadStoredSummaries(input),
   loadStoredSegments = (input) => segmentCacheProxy.loadStoredRaw(input)
 }: ResolveFollowupContextInput = {}): Promise<Record<string, unknown> | null> {
   if (plan?.mode !== "map-reduce") {
@@ -265,9 +267,22 @@ export async function resolveFollowupContext({
     return null;
   }
 
-  // 段来源：内存优先，空缺时跨会话回退（仅此处触达段缓存，经消息代理到 SW；
-  // userPrompt 一并下发，SW 侧预过滤后只回传命中段的 items——08 票）。
   const inMemorySegments = Array.isArray(plan?.segments) ? plan.segments : [];
+  const usingDefaultSummaryLoader = loadSummaries === loadSegmentSummaries;
+
+  if (skipRawRetrieval) {
+    const segmentSummaries =
+      inMemorySegments.length > 0 || !usingDefaultSummaryLoader
+        ? await loadSummaries({ context, plan: { ...plan, segments: inMemorySegments } })
+        : (await loadStoredSummaries({ context })).filter(keepSummary);
+    if (!hasFinalNote({ note, segmentSummaries })) {
+      return null;
+    }
+    const compressedSummaryMarkdown = buildCompressedSummary({ segmentSummaries, note });
+    return { ...context, compressedSummaryMarkdown, subtitleBody: [] };
+  }
+
+  // 非混合路径：内存段优先，空缺时经消息代理从 SW（IndexedDB / 遗留键）回退。
   let segments: BudgetPlanSegment[] = inMemorySegments;
   if (segments.length === 0) {
     const stored = await loadStoredSegments({ context, userPrompt });
@@ -276,7 +291,10 @@ export async function resolveFollowupContext({
     }
   }
 
-  const segmentSummaries = await loadSummaries({ context, plan: { ...plan, segments } });
+  const segmentSummaries =
+    segments.length > 0 || !usingDefaultSummaryLoader
+      ? await loadSummaries({ context, plan: { ...plan, segments } })
+      : (await loadStoredSummaries({ context })).filter(keepSummary);
   if (!hasFinalNote({ note, segmentSummaries })) {
     return null;
   }

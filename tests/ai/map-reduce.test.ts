@@ -159,6 +159,11 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
 
     // 小结调用 5 次 + 成稿 1 次，共 6 次模型调用
     expect(fetchMock).toHaveBeenCalledTimes(6);
+
+    // 仅落盘分段小结（biliscript_lvs_summary_*），不再向 chrome.storage.local 双写 biliscript_lvs_raw_*
+    const storageKeys = [...segmentCacheLoop.storage.map.keys()];
+    expect(storageKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"))).toHaveLength(5);
+    expect(storageKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"))).toHaveLength(0);
   });
 
   it("小结 prompt 忠实压缩且保留时间戳（对齐蓝本 _chunk_prompt 措辞）", async () => {

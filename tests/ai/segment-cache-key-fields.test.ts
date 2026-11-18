@@ -73,17 +73,15 @@ describe("段缓存键位字段叶", () => {
   });
 
   it("每个维度都真实参与族键：改一维即键变（漏接 = 静默串键，这里红）", async () => {
-    const { buildSegmentSummaryCacheKey, buildRawSegmentCacheKey } = await import("../../extension/ai/segment-cache.js");
+    const { buildSegmentSummaryCacheKey } = await import("../../extension/ai/segment-cache.js");
     const base = emptyContext();
     const summaryBase = buildSegmentSummaryCacheKey(base, 1);
-    const rawBase = buildRawSegmentCacheKey(base, 1);
     for (const field of SEGMENT_CACHE_KEY_FIELDS) {
       const changed = { ...base, [field.context]: probe(field) };
       expect(
         buildSegmentSummaryCacheKey(changed, 1),
         `键位维度 ${field.key} 未参与分段小结键（表与族键算法脱节）`
       ).not.toBe(summaryBase);
-      expect(buildRawSegmentCacheKey(changed, 1), `键位维度 ${field.key} 未参与原始段键`).not.toBe(rawBase);
     }
   });
 

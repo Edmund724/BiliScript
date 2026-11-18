@@ -1,7 +1,7 @@
 // extension/ai/l1-chapter-index.ts
 // L1 章节目录索引构建、紧凑 Prompt 序列化与本机缓存适配模块（ADR-0027）：
 // - 纯构建/序列化/校验逻辑住在 ./l1-directory.ts（零存储依赖，可供 offscreen/SW 共用）；
-// - 本文件提供内存有界 LRU + chrome.storage.local 持久化（纳入 core/cache-lru.ts 统一 3 视频淘汰，绝不写 sync 或携带凭据）。
+// - 本文件提供内存有界 LRU + chrome.storage.local 持久化（纳入 core/cache-lru.ts 统一 LRU 淘汰，L1 索引保留最近 100 个视频，绝不写 sync 或携带凭据）。
 
 import { createCacheFamily, type CacheSaveResult } from "../core/cache-lru.js";
 import { logError } from "../shared/logging.js";
@@ -104,7 +104,7 @@ async function defaultPersistRemove(key: string): Promise<void> {
  * 创建 L1 章节目录缓存管理器：
  * 1. 内存层为有界 LRU Map（默认 16 条），保证同会话热查询零 IPC/storage 往返；
  * 2. 持久化层严格绑定 `chrome.storage.local`（不进 `chrome.storage.sync`，不含凭据），
- *    由 `core/cache-lru.ts` 统一维持每族最近 3 个视频的 LRU 淘汰。
+ *    由 `core/cache-lru.ts` 统一维持 L1 索引最近 100 个视频的 LRU 淘汰。
  */
 export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions = {}): L1IndexCacheStore {
   const maxMemoryEntries = Math.max(

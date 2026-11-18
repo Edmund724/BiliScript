@@ -1,7 +1,5 @@
-// ai/segment-cache-handler.js SW 端消息 handler 测试（段缓存写聚合 ticket）：
-// save-summary-raw 合并 op 收编——键位装配与 budgetScale 归一仍在 SW 单源完成，
-// 两族合并落盘（saveSegmentSummaryWithRaw），回包带 per-op 结果（summarySaved /
-// rawSaved）保住失败可观测性；既有单族 op（save-summary / save-raw）行为不变。
+// ai/segment-cache-handler.js SW 端消息 handler 测试：
+// 覆盖 save-summary / load-summary / load-summaries / load-stored-summaries / load-stored-raw / load-l1-index。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -35,84 +33,54 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("save-summary-raw 合并 op", () => {
-  it("一条消息落两族数据 + 两族索引；回包 ok:true 且 per-op 都成功", async () => {
-    const response = await request({
-      type: "segment-cache",
-      op: "save-summary-raw",
-      context: CONTEXT,
-      segmentIndex: 3,
-      budgetScale: 1,
-      summary: "合并小结",
-      segments: [{ from: 0, to: 5, content: "x" }]
-    });
-
-    expect(response.ok).toBe(true);
-    expect(response.summarySaved).toEqual({ ok: true });
-    expect(response.rawSaved).toEqual({ ok: true });
-    // 键位装配在 SW：bvid/cid/字幕轨 + 段序号（常态档无代后缀）
-    const rawKey = "biliscript_lvs_raw_BV1h_9_id_sub-1_3";
-    const summaryKey = "biliscript_lvs_summary_BV1h_9_id_sub-1_3";
-    expect(storage.map.get(rawKey)).toMatchObject({ segments: [{ from: 0, to: 5, content: "x" }] });
-    expect(storage.map.get(summaryKey)).toMatchObject({ summary: "合并小结" });
-    // 两族分键索引都登记（readFamilyKeys 可读回）
-    const lru = await import("../../extension/core/cache-lru.js");
-    expect(await lru.readFamilyKeys("biliscript_lvs_raw_", "BV1h")).toEqual([rawKey]);
-    expect(await lru.readFamilyKeys("biliscript_lvs_summary_", "BV1h")).toEqual([summaryKey]);
-  });
-
-  it("budgetScale 归一留在 SW：0.5 档 summary key 带 _b50 后缀（raw 同规则随键装配）", async () => {
-    const response = await request({
-      type: "segment-cache",
-      op: "save-summary-raw",
-      context: CONTEXT,
-      segmentIndex: 3,
-      budgetScale: 0.5,
-      summary: "半档小结",
-      segments: []
-    });
-
-    expect(response.ok).toBe(true);
-    expect(storage.map.has("biliscript_lvs_summary_BV1h_9_id_sub-1_3_b50")).toBe(true);
-    expect(storage.map.has("biliscript_lvs_raw_BV1h_9_id_sub-1_3_b50")).toBe(true);
-  });
-
-  it("写失败 → ok:false + per-op 带 error（粗粒度同果），不抛", async () => {
-    storage.local.set.mockImplementation(async (items) => {
-      if (Object.keys(items).some((k) => k.startsWith("biliscript_lvs_raw_") || k.startsWith("biliscript_lvs_summary_"))) {
-        throw new Error("quota");
-      }
-      for (const [key, value] of Object.entries(items)) {
-        storage.map.set(key, value);
-      }
-    });
-
-    const response = await request({
-      type: "segment-cache",
-      op: "save-summary-raw",
-      context: CONTEXT,
-      segmentIndex: 3,
-      budgetScale: 1,
-      summary: "合并小结",
-      segments: []
-    });
-
-    expect(response.ok).toBe(false);
-    expect(response.summarySaved?.ok).toBe(false);
-    expect(response.rawSaved?.ok).toBe(false);
-    expect(String(response.summarySaved?.error || "")).toContain("缓存写入失败");
-  });
-});
-
-describe("既有单族 op 行为不变", () => {
-  it("save-summary / save-raw 仍各写各族并回 ok", async () => {
-    const r1 = await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 1, summary: "单小结" });
-    const r2 = await request({ type: "segment-cache", op: "save-raw", context: CONTEXT, segmentIndex: 1, budgetScale: 1, segments: [{ from: 0, to: 1, content: "y" }] });
+describe("分段小结读写 op", () => {
+  it("save-summary / load-summary / load-summaries 正常读写并装配键位", async () => {
+    const r1 = await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 1, summary: "单小结1" });
+    const r2 = await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 2, budgetScale: 1, summary: "单小结2" });
 
     expect(r1).toEqual({ ok: true });
     expect(r2).toEqual({ ok: true });
-    expect(storage.map.get("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({ summary: "单小结" });
-    expect(storage.map.get("biliscript_lvs_raw_BV1h_9_id_sub-1_1")).toMatchObject({ segments: [{ from: 0, to: 1, content: "y" }] });
+    expect(storage.map.get("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({ summary: "单小结1" });
+
+    const single = await request({ type: "segment-cache", op: "load-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 1 });
+    expect(single).toEqual({ ok: true, summary: "单小结1" });
+
+    const batch = await request({ type: "segment-cache", op: "load-summaries", context: CONTEXT, segmentIndexes: [1, 2, 3], budgetScale: 1 });
+    expect(batch).toEqual({ ok: true, summaries: ["单小结1", "单小结2", null] });
+  });
+
+  it("load-stored-summaries 按段序号升序返回，默认档排除 _b50 后缀", async () => {
+    await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 2, budgetScale: 1, summary: "小结2" });
+    await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 1, summary: "小结1" });
+    await request({ type: "segment-cache", op: "save-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 0.5, summary: "半档小结1" });
+
+    const stored = await request({ type: "segment-cache", op: "load-stored-summaries", context: CONTEXT });
+    expect(stored).toEqual({ ok: true, summaries: ["小结1", "小结2"] });
+  });
+});
+
+describe("load-stored-raw 从 IndexedDB 读取并支持 prompt 预过滤", () => {
+  it("读取 IDB rawTrack 并在带 prompt 时只回传命中段 items", async () => {
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    await defaultSubtitleIdbStore.putRawTrack({
+      bvid: CONTEXT.bvid,
+      cid: CONTEXT.cid,
+      trackKey: "id_sub-1",
+      items: [
+        { from: 0, to: 10, content: "开场白介绍" },
+        { from: 10, to: 20, content: "关键结论核心词ABC" }
+      ]
+    });
+
+    const filtered = await request({
+      type: "segment-cache",
+      op: "load-stored-raw",
+      context: CONTEXT,
+      prompt: "关键结论核心词ABC"
+    });
+    expect(filtered.ok).toBe(true);
+    expect(filtered.storedSegments).toHaveLength(1);
+    expect((filtered.storedSegments as Array<{ items: unknown[] }>)[0].items).toHaveLength(2);
   });
 });
 

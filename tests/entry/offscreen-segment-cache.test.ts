@@ -1,15 +1,11 @@
-// offscreen 段缓存消息族端到端回归（arch-review-2026-09/05，原 storage 桥测试改造）：
+// offscreen 段缓存消息族端到端回归：
 // 平台限制——offscreen 文档只有 chrome.runtime、没有 chrome.storage，段缓存宿主
 // 是 SW。本测试构造「runtime 消息路由到 SW 端 segment-cache handler（内存
 // storage）」的环境，跑通真实 ladder → map-reduce → segment-cache-proxy →
 // 消息 → segment-cache 链路，断言：
-// - 原始段 / 分段小结读写全部经 segment-cache 消息族落 SW（内存 store 可见）；
-// - 写聚合（段缓存写聚合 ticket）：saveRaw 入 run-scoped 写会话缓冲、随 saveSummary
-//   合成 save-summary-raw 合并 op（5 段 = 5 条合并写，无单独 save-raw）；
-// - 用户停止（abort）→ 编排收束（abortReturn）→ 会话收尾 close 把残留 raw 按
-//   save-raw 落 SW（offscreen 侧不再有 flush 调用点）；
-// - 会话收尾即落盘：上一轮残留不会遗留到下一轮 chat（新 chat 接力 flush 已删）；
-// - LRU 索引登记了两个族；
+// - 分段小结读写全部经 segment-cache 消息族落 SW（内存 store 可见）；
+// - map-reduce 不再双写 biliscript_lvs_raw_* 到 chrome.storage.local；
+// - LRU 索引登记了 biliscript_lvs_summary_ 族；
 // - 全程无「本地字幕缓存写入失败」提示。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -148,22 +144,18 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "done")).toBe(true);
     });
 
-    // raw / summary 两族的读（miss）与写都经 segment-cache 消息族过 SW；
-    // 写聚合：5 段的 saveRaw 全部随 saveSummary 合成 save-summary-raw（5 条合并写，
-    // 无单独 save-summary / save-raw 消息）
+    // 仅读写分段小结（5 次 load-summary + 5 次 save-summary），不再写 biliscript_lvs_raw_*
     const ops = sendMessageMock.mock.calls
       .map((c) => c[0])
       .filter((m) => m?.type === "segment-cache")
       .map((m) => m.op);
     expect(ops.filter((op) => op === "load-summary").length).toBe(5);
-    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
-    expect(ops.filter((op) => op === "save-summary").length).toBe(0);
-    expect(ops.filter((op) => op === "save-raw").length).toBe(0);
+    expect(ops.filter((op) => op === "save-summary").length).toBe(5);
 
     const storeKeys = Object.keys((await host.storage!.get(null)) as Record<string, unknown>);
     const rawKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"));
     const summaryKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"));
-    expect(rawKeys.length).toBe(5);
+    expect(rawKeys.length).toBe(0);
     expect(summaryKeys.length).toBe(5);
     expect(storeKeys).toContain("biliscript_cache_lru_index");
 
@@ -171,8 +163,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
 
-  it("用户停止（abort）：编排收束后写会话 close 把缓冲的 raw 按 save-raw 落 SW", async () => {
-    // 分段模型调用挂起在 abort 上（saveRaw 已入会话缓冲、saveSummary 未到达）
+  it("用户停止（abort）：编排收束为 stopped，无原始段双写也无未完成小结落盘", async () => {
     let segmentCalls = 0;
     chatCompletionMock.mockImplementation(async (input) => {
       if (String(input.messages?.at(-1)?.content || "").includes("连续片段")) {
@@ -203,35 +194,28 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     });
     session.send({ action: "cost-guard-confirm", ok: true });
 
-    // 首波并发 3 段的模型调用已发出（每段的 saveRaw 已入会话缓冲）
     await vi.waitFor(() => {
       expect(segmentCalls).toBe(3);
     });
     session.send({ action: "stop" });
 
-    // 编排收束为 stopped；收尾 close 把缓冲的 3 段 raw 按 save-raw 落 SW
     await vi.waitFor(() => {
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
     });
-    await vi.waitFor(async () => {
-      const rawKeys = Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_"));
-      expect(rawKeys.length).toBe(3);
-    });
+
+    const storeKeys = Object.keys(await host.storage!.get(null));
+    expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(0);
 
     const ops = sendMessageMock.mock.calls
       .map((c) => c[0])
       .filter((m) => m?.type === "segment-cache")
       .map((m) => m.op);
-    expect(ops.filter((op) => op === "save-raw").length).toBe(3);
-    // 未完成的段没有 summary 落盘，也没有合并 op
-    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(0);
     expect(ops.filter((op) => op === "save-summary").length).toBe(0);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
 
-  it("会话收尾即落盘：上一轮残留不遗留到下一轮 chat（本轮无遗留 save-raw）", async () => {
-    // 首轮分段调用挂起在 abort 上（stop 后首轮收束，收尾 close 落盘残留）
+  it("多轮连续 chat：上一轮中止后下一轮正常写入 5 段小结且不写入任何 raw 键", async () => {
     let firstRound = true;
     let segmentCalls = 0;
     chatCompletionMock.mockImplementation(async (input) => {
@@ -268,19 +252,12 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(segmentCalls).toBe(3);
     });
 
-    // 第一轮停止 → 收束 → close 落盘 3 段残留（落盘完成才等下一轮 chat）
     session.send({ action: "stop" });
     await vi.waitFor(() => {
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
     });
-    await vi.waitFor(async () => {
-      expect(Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(3);
-    });
 
-    // 第二轮 chat（追问接力）：上一轮的 close 已在该轮 return 前 await 完成，
-    // 本轮开始时没有任何遗留缓冲（接力 flush 调用点已随写会话收口删除）
     firstRound = false;
-    const callsBeforeRound2 = sendMessageMock.mock.calls.length;
     session.send({
       action: "chat",
       providerId: "p1",
@@ -288,7 +265,6 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       context: { title: "长视频", subtitleBody: makeBody() },
       prompt: "再总结"
     });
-    // 第二轮同样 ≥5 次调用：先弹成本护栏，确认后编排才启动
     await vi.waitFor(() => {
       expect(session.port.postMessage.mock.calls.filter((c) => c[0]?.type === "cost-guard").length).toBe(2);
     });
@@ -297,20 +273,14 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "done")).toBe(true);
     });
 
-    const rawCallIndexes = sendMessageMock.mock.calls
-      .map((c, index) => ({ index, message: c[0] }))
-      .filter(({ message }) => message?.type === "segment-cache" && message.op === "save-raw")
-      .map(({ index }) => index);
-    // 3 条 save-raw 全部来自上一轮收尾，无一落在本轮（本轮无遗留）
-    expect(rawCallIndexes).toHaveLength(3);
-    expect(rawCallIndexes.every((index) => index < callsBeforeRound2)).toBe(true);
-    // 第二轮 5 段全部合并写
     const ops = sendMessageMock.mock.calls
       .map((c) => c[0])
       .filter((m) => m?.type === "segment-cache")
       .map((m) => m.op);
-    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
-    expect(Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(5);
+    expect(ops.filter((op) => op === "save-summary").length).toBe(5);
+    const storeKeys = Object.keys(await host.storage!.get(null));
+    expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(0);
+    expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_")).length).toBe(5);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });

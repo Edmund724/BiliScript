@@ -462,3 +462,45 @@ describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归
     expect(overflow.calls.mapReduce[0].thinkingLevel).toBe(dirty);
   });
 });
+
+describe("L0+L1 混合路径：向 resolveFollowupContext 透传 skipRawRetrieval: true", () => {
+  it("map-reduce 且存在有效 L0 字幕行时，调用 resolveFollowupContext 带 skipRawRetrieval: true", async () => {
+    const signal = new AbortController().signal;
+    const port = makePort();
+    const resolveFollowupContext = vi.fn(async () => ({
+      bvid: "BV1l0",
+      cid: "1",
+      compressedSummaryMarkdown: "## 分段小结\n\n### 片段 1\n纯摘要\n\n## 成稿笔记\n\n笔记正文"
+    }));
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext
+    });
+
+    await runLadderChat(
+      {
+        msg: {
+          ...makeMsg(),
+          context: {
+            bvid: "BV1l0",
+            cid: "1",
+            subtitleBody: [{ from: 0, to: 10, content: "第一句有效字幕" }],
+            chapters: []
+          }
+        },
+        provider: { id: "p", baseUrl: "https://api.example.com/v1", model: "m", apiKey: "k" },
+        port,
+        signal
+      },
+      deps
+    );
+
+    expect(resolveFollowupContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skipRawRetrieval: true
+      })
+    );
+    expect(calls.streamChat).toHaveLength(1);
+    expect(calls.streamChat[0].context.hybridRetrievalMarkdown).toContain("纯摘要");
+  });
+});

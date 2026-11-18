@@ -1,42 +1,35 @@
-// 「段缓存」模块：分段小结与原始字幕段按 (bvid, cid, 字幕轨 source key, 段序号) 落盘，
+// 「段缓存」模块：分段小结按 (bvid, cid, 字幕轨 source key, 段序号) 落盘 chrome.storage.local，
 // 二次总结/追问按需命中复用，中止/失败后已落盘的段小结下次复用、不重复付费。
-// 键位风格对齐 extension/subtitle/cache.js；存储值同为 { <payload>, timestamp }。
-// 容错语义：读取失败静默返回 null；写入经 core/cache-lru.js 的统一 LRU 淘汰
-// （每族仅保留最近 3 个视频），淘汰后重试仍失败时 logError 并返回 { ok:false }
+// 原始字幕跨会话回退直接读取 SW 端 IndexedDB 仓库（biliscript-subtitle-store），
+// 并向后兼容读取既有的 biliscript_lvs_raw_* 遗留键；不再写入新的 biliscript_lvs_raw_*。
+// 容错语义：读取失败静默返回 null / []；写入经 core/cache-lru.ts 的统一 LRU 淘汰
+// （分段小结保留最近 20 个视频），淘汰后重试仍失败时 logError 并返回 { ok:false }
 // 供调用方按各自通道上浮一次；全程不抛异常。
 
 import { logError } from "../shared/logging.js";
 // 三字段 → source key 的便捷形（位置参数签名与 core/cache-lru 的注入面同一份）：
 // 身份编码单点在键位叶 subtitle/source-key，本模块不再经存储族模块取它。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWithEviction } from "../core/cache-lru.js";
+import { defaultSubtitleIdbStore } from "../subtitle/idb-store.js";
+import { createCacheFamily, readFamilyKeys } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
+import { buildBudgetPlan, SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { L1_INDEX_CACHE_PREFIX, isL1VideoIndexCacheRecord } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
-// 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶（候选 5）：SW 侧装配 / offscreen
+// 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶：SW 侧装配 / offscreen
 // 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
 import { segmentCacheKeyFields, segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
 
 // 分段小结缓存键前缀。
 const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
-// 原始字幕段缓存键前缀。
+// 遗留原始字幕段缓存键前缀（仅用于旧安装只读回退与 LRU 清理）。
 const RAW_SEGMENT_PREFIX = "biliscript_lvs_raw_";
 
-// 两族缓存实例（arch-slim-2/08 缓存族参数化）：键拼装 / 静默读 / LRU 淘汰写 /
-// 失败日志口径全部出自 core/cache-lru.ts 的 createCacheFamily，本模块只剩
-// 族参数（前缀、payload 字段、文案标签）。键形与历史逐字节一致，缓存零迁移。
 const summaryFamily = createCacheFamily<string>({
   prefix: SEGMENT_SUMMARY_PREFIX,
   payloadField: "summary",
   toSourceKey: buildSubtitleSourceKey,
   logFailure: (info) => logError("[BILISCRIPT] failed to save segment summary cache after eviction", info)
-});
-
-const rawFamily = createCacheFamily<unknown[]>({
-  prefix: RAW_SEGMENT_PREFIX,
-  payloadField: "segments",
-  toSourceKey: buildSubtitleSourceKey,
-  logFailure: (info) => logError("[BILISCRIPT] failed to save raw segments cache after eviction", info)
 });
 
 interface SegmentKeyOptions {
@@ -52,7 +45,7 @@ interface SegmentKeyOptions {
 // 段序号之外的预算代后缀：同一 (bvid, cid, 字幕轨) 在不同预算档下的分段边界不同，
 // 段序号相同不代表内容相同——不带代标记的 key 会命中错位小结（内容串段）。
 // budgetScale=1（常态档）不带后缀，key 形状与历史逐字节一致，已有缓存零迁移。
-// 导出供同族键位（如 ai/analysis.ts 的 biliscript_lvs_analysis_ 族）继承同一预算代约定。
+// 导出供同族键位（如 ai/analysis-orchestrate.ts 的 biliscript_lvs_analysis_ 族）继承同一预算代约定。
 export function budgetScaleSuffix(budgetScale: unknown): string {
   const scale = Number(budgetScale);
   return Number.isFinite(scale) && scale !== 1 ? `_b${Math.round(scale * 100)}` : "";
@@ -66,17 +59,10 @@ export function getSegmentSummaryKey({ bvid, cid, subtitleId = "", subtitleUrl =
   return summaryFamily.key({ bvid, cid, subtitleId, subtitleUrl, lang }, `${segmentIndex}${budgetScaleSuffix(budgetScale)}`);
 }
 
-/**
- * 原始字幕段缓存键：同样含 bvid + cid + 字幕轨 + 段序号 [+ 预算代]。
- */
-export function getRawSegmentKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "", segmentIndex, budgetScale = 1 }: SegmentKeyOptions): string {
-  return rawFamily.key({ bvid, cid, subtitleId, subtitleUrl, lang }, `${segmentIndex}${budgetScaleSuffix(budgetScale)}`);
-}
-
 // 「AI 上下文对象 → 段缓存键位字段」的清单与投影已下沉零依赖叶
-// ai/segment-cache-key-fields.ts（候选 5）：上下文字段名 selectedSubtitleId/Url/subtitleLang
-// 映射为键位入参 subtitleId/subtitleUrl/lang 的事实只在该叶声明一份，落盘（map-reduce）、
-// 复用（followup-context）与概览键位装配共用同一份投影，键位不再各自手拼。本模块保留
+// ai/segment-cache-key-fields.ts：上下文字段名 selectedSubtitleId/Url/subtitleLang
+// 映射为键位入参 subtitleId/subtitleUrl/lang 的事实只在该叶声明一份，落盘、
+// 复用与概览键位装配共用同一份投影，键位不再各自手拼。本模块保留
 // SW 侧出口（handler / 测试从段缓存模块取键位装配），实现单源在叶，无第二份清单。
 export { segmentCacheKeyFields, segmentCacheKeyStringFields };
 
@@ -90,15 +76,6 @@ export function buildSegmentSummaryCacheKey(context: Record<string, unknown> | u
 }
 
 /**
- * 从 AI 上下文 + 段序号拼原始字幕段缓存键（与 getRawSegmentKey 手拼逐字节一致）。
- * budgetScale 语义同 buildSegmentSummaryCacheKey；原始段只按常态档落盘
- * （供 followup 检索），非常态档不写原始段。
- */
-export function buildRawSegmentCacheKey(context: Record<string, unknown> | undefined, segmentIndex: number | string | unknown, budgetScale: number | string | unknown = 1): string {
-  return getRawSegmentKey({ ...segmentCacheKeyFields(context), segmentIndex, budgetScale });
-}
-
-/**
  * 读取已落盘的分段小结：命中返回 item.summary（string），未命中/读失败返回 null。
  */
 export async function loadSegmentSummary(key: string): Promise<string | null> {
@@ -106,7 +83,7 @@ export async function loadSegmentSummary(key: string): Promise<string | null> {
 }
 
 /**
- * 批量读取分段小结（08 票）：一次 storage.get 取 N 键，返回与 keys 按序对齐的
+ * 批量读取分段小结：一次 storage.get 取 N 键，返回与 keys 按序对齐的
  * 数组（未命中/读失败为 null）。读口径出自 createCacheFamily.loadMany 单源，
  * 容错语义同 loadSegmentSummary（静默、不抛）。
  */
@@ -125,52 +102,86 @@ export async function saveSegmentSummary(key: string, summary: string): Promise<
   return summaryFamily.save(key, summary);
 }
 
-/**
- * 读取已落盘的原始字幕段：命中返回 item.segments（数组），未命中/读失败返回 null。
- */
-export async function loadRawSegments(key: string): Promise<unknown[] | null> {
-  return rawFamily.load(key);
-}
-
-/**
- * 保存原始字幕段：落盘 { segments, timestamp }。容错语义同 saveSegmentSummary
- * （LRU 淘汰 + 最终失败 logError 并返回 { ok:false }）。
- */
-export async function saveRawSegments(key: string, segments: unknown[]): Promise<SaveResult> {
-  return rawFamily.save(key, segments);
-}
-
-/**
- * 两族合并写（段缓存写聚合 ticket）：同段原始段 + 分段小结一次落盘——
- * 分键索引与汇总清单经 writeBundleWithEviction 打包成一次 set，数据各一次
- * set（每段 1 get + 3 set，替代单族两写的 2 get + 4 set）；淘汰短路检查覆盖
- * raw / summary 两族。容错语义同单族写（先淘汰再重试一次，最终失败 logError、
- * 不抛）。键位仍由调用方（SW 端 handler）装配。
- */
-export async function saveSegmentSummaryWithRaw(summaryKey: string, summary: string, rawKey: string, segments: unknown[]): Promise<SaveResult> {
-  const result = await writeBundleWithEviction(
-    [
-      { family: RAW_SEGMENT_PREFIX, bvid: parseBvidFromCacheKey(rawKey, RAW_SEGMENT_PREFIX), cacheKeys: [rawKey] },
-      { family: SEGMENT_SUMMARY_PREFIX, bvid: parseBvidFromCacheKey(summaryKey, SEGMENT_SUMMARY_PREFIX), cacheKeys: [summaryKey] }
-    ],
-    async () => {
-      const timestamp = Date.now();
-      await chrome.storage.local.set({ [rawKey]: { segments, timestamp } });
-      await chrome.storage.local.set({ [summaryKey]: { summary, timestamp } });
-    },
-    { pruneFamilies: [RAW_SEGMENT_PREFIX, SEGMENT_SUMMARY_PREFIX] }
-  );
-  if (!result.ok) {
-    logError("[BILISCRIPT] failed to save segment summary+raw cache bundle after eviction", {
-      summaryKey,
-      rawKey,
-      error: result.error?.message || result.error
-    });
+// 从分段小结缓存键尾段解析段序号；常态档排除 `_b\d+` 后缀，非常态档要求匹配对应预算代后缀。
+function parseSummarySegmentIndex(key: string, keyPrefix: string, scaleSuffix: string): number | null {
+  const tail = String(key).slice(keyPrefix.length);
+  if (!tail) {
+    return null;
   }
-  return result;
+  if (!scaleSuffix) {
+    if (/_b\d+$/.test(tail)) {
+      return null;
+    }
+    const n = Number(tail);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (!tail.endsWith(scaleSuffix)) {
+    return null;
+  }
+  const indexPart = tail.slice(0, tail.length - scaleSuffix.length);
+  if (!indexPart) {
+    return null;
+  }
+  const n = Number(indexPart);
+  return Number.isFinite(n) ? n : null;
 }
 
-// 从原始段缓存键尾段解析段序号（键形如 `${前缀}${bvid}_${cid}_${sourceKey}_${index}`）。
+interface LoadStoredSegmentSummariesInput {
+  bvid?: string;
+  cid?: string;
+  subtitleId?: string;
+  subtitleUrl?: string;
+  lang?: string;
+  budgetScale?: number | string | unknown;
+}
+
+/**
+ * 直接按 (bvid, cid, 字幕轨 source key[, budgetScale]) 枚举已落盘的分段小结，
+ * 按段序号升序返回非空小结数组（常态档排除 `_b\d+` 后缀）。
+ * 枚举走 core/cache-lru 的 readFamilyKeys + get(null) 回退扫描；缺参 / 无命中 / 读失败 → []。
+ */
+export async function loadStoredSegmentSummaries({
+  bvid,
+  cid,
+  subtitleId = "",
+  subtitleUrl = "",
+  lang = "",
+  budgetScale = 1
+}: LoadStoredSegmentSummariesInput = {}): Promise<string[]> {
+  try {
+    if (!bvid || !cid || !globalThis.chrome?.storage?.local) {
+      return [];
+    }
+    const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
+    const keyPrefix = `${SEGMENT_SUMMARY_PREFIX}${bvid}_${cid}_${sourceKey}_`;
+    const scaleSuffix = budgetScaleSuffix(budgetScale);
+    const indexKeys = await readFamilyKeys(SEGMENT_SUMMARY_PREFIX, bvid, keyPrefix);
+    const all = indexKeys
+      ? await chrome.storage.local.get(indexKeys)
+      : await chrome.storage.local.get(null);
+
+    const entries: Array<{ index: number; summary: string }> = [];
+    for (const [key, envelope] of Object.entries(all || {})) {
+      if (!key.startsWith(keyPrefix)) {
+        continue;
+      }
+      const segmentIndex = parseSummarySegmentIndex(key, keyPrefix, scaleSuffix);
+      if (segmentIndex === null) {
+        continue;
+      }
+      const summary = (envelope as { summary?: unknown } | undefined)?.summary;
+      if (typeof summary === "string" && summary.trim().length > 0) {
+        entries.push({ index: segmentIndex, summary });
+      }
+    }
+    entries.sort((a, b) => a.index - b.index);
+    return entries.map((entry) => entry.summary);
+  } catch {
+    return [];
+  }
+}
+
+// 从遗留原始段缓存键尾段解析段序号（键形如 `${前缀}${bvid}_${cid}_${sourceKey}_${index}`）。
 function segmentIndexFromKey(key: string, keyPrefix: string): number {
   const n = Number(String(key).slice(keyPrefix.length));
   return Number.isFinite(n) ? n : 0;
@@ -191,13 +202,63 @@ interface LoadStoredRawSegmentsInput {
   lang?: string;
 }
 
+function splitRawItemsIntoSegments(rawItems: readonly unknown[]): StoredRawSegment[] {
+  const plan = buildBudgetPlan({ body: [...rawItems], chapters: [] });
+  if (plan.segments.length > 0) {
+    return plan.segments.map((seg) => ({
+      index: seg.index,
+      from: seg.from,
+      to: seg.to,
+      items: seg.items
+    }));
+  }
+
+  // <=200k 字幕轨（buildBudgetPlan 为 single 模式不拆段）按 SEGMENT_INPUT_CHARS 切分以供按需检索复用
+  const segments: StoredRawSegment[] = [];
+  let currentItems: Array<{ from: number; to: number; content: string }> = [];
+  let currentChars = 0;
+
+  for (const raw of rawItems) {
+    const item = raw as { from?: unknown; to?: unknown; content?: unknown } | null;
+    const content = String(item?.content ?? "");
+    const chars = content.trim().length;
+    if (chars === 0) {
+      continue;
+    }
+    const fromNum = Number(item?.from);
+    const toNum = Number(item?.to);
+    const from = Number.isFinite(fromNum) ? fromNum : 0;
+    const to = Number.isFinite(toNum) ? toNum : 0;
+    currentItems.push({ from, to, content });
+    currentChars += chars;
+    if (currentChars >= SEGMENT_INPUT_CHARS) {
+      segments.push({
+        index: segments.length + 1,
+        from: currentItems[0].from,
+        to: currentItems[currentItems.length - 1].to,
+        items: currentItems
+      });
+      currentItems = [];
+      currentChars = 0;
+    }
+  }
+
+  if (currentItems.length > 0) {
+    segments.push({
+      index: segments.length + 1,
+      from: currentItems[0].from,
+      to: currentItems[currentItems.length - 1].to,
+      items: currentItems
+    });
+  }
+
+  return segments;
+}
+
 /**
- * 跨会话回退读取：按 (bvid, cid, 字幕轨 source key) 枚举已落盘的原始字幕段键，
- * 按段序返回与 plan.segments 同构的数组（{ index, from, to, items }）。
- * 枚举走 core/cache-lru 的 readFamilyKeys（分键索引的 get(null) 快照过滤）；
- * 该 bvid 无索引条目 → 原语返回 null + 一次性 logWarn，回退 get(null) 前缀
- * 扫描自愈（见原语）。from/to 由 items 首末项推导（对齐 budgeter.splitByBudget
- * 的段边界语义）。缺 bvid/cid / 无命中 / 读失败 → []（回退只补空，绝不抛错）。
+ * 跨会话原始字幕段读取：优先从 IndexedDB 仓库（`biliscript-subtitle-store`）读取原始轨并按预算切段，
+ * 未命中时回退枚举遗留 `biliscript_lvs_raw_*` 键（`readFamilyKeys` + `get(null)` 扫描）。
+ * 缺 bvid/cid / 无命中 / 读失败 → []（绝不抛错）。
  */
 export async function loadStoredRawSegments({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredRawSegmentsInput = {}): Promise<StoredRawSegment[]> {
   try {
@@ -205,6 +266,18 @@ export async function loadStoredRawSegments({ bvid, cid, subtitleId = "", subtit
       return [];
     }
     const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
+    try {
+      const idbRawItems = await defaultSubtitleIdbStore.getRawTrack(bvid, cid, sourceKey);
+      if (Array.isArray(idbRawItems) && idbRawItems.length > 0) {
+        return splitRawItemsIntoSegments(idbRawItems);
+      }
+    } catch {
+      // IndexedDB 读取异常时平滑回退 chrome.storage.local 遗留键
+    }
+
+    if (!globalThis.chrome?.storage?.local) {
+      return [];
+    }
     const keyPrefix = `${RAW_SEGMENT_PREFIX}${bvid}_${cid}_${sourceKey}_`;
     const indexKeys = await readFamilyKeys(RAW_SEGMENT_PREFIX, bvid, keyPrefix);
     const all = indexKeys

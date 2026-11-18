@@ -47,7 +47,7 @@
 ### 4. 本地存储与隐私边界（对齐 `PRIVACY.md`）
 
 - **宿主判据不变（对齐 `GLOSSARY.md`「缓存宿主」）**：offscreen 消费的 L1 索引与段/摘要缓存以 Service Worker 为唯一真实存储宿主（`chrome.storage.local`），offscreen 经消息代理读写，不得在 offscreen 引入 storage 垫片。
-- **键位与 LRU 同源**：L1 整片索引缓存按 `(bvid, cid, sourceKey, subtitleSignature)` 建键，封装 `{ index, timestamp }` 并纳入 `core/cache-lru.ts` 的统一 LRU 淘汰策略（每族保留最近 3 个视频），在 `PRIVACY.md` 声明的 `unlimitedStorage` 本地缓存边界内管理，清除扩展存储或删除历史时一并清理。
+- **键位与 LRU 同源**：L1 整片索引缓存按 `(bvid, cid, sourceKey, subtitleSignature)` 建键，封装 `{ index, timestamp }` 并纳入 `core/cache-lru.ts` 的统一 LRU 淘汰策略（L1 索引与整份概览保留最近 100 个视频，与 IndexedDB 字幕仓库对齐；分段小结与概览分段保留最近 20 个视频），在 `PRIVACY.md` 声明的 `unlimitedStorage` 本地缓存边界内管理，清除扩展存储或删除历史时一并清理。
 - **数据不出端与透明发送**：L0 BM25 索引构建、打分与 L1 索引落盘 100% 在用户浏览器本地完成，**不连接任何开发者后端、外部向量数据库或云端分词服务**。仅当用户主动触发总结或对话请求时，才将路由命中并经字符预算裁剪后的字幕片段发往用户自配的 AI 平台（OpenAI / Anthropic / Gemini 原生协议及 ModelScope 等预设端点）；划词解释（`ai/explain.ts`）与视频截帧（`chat/historical-video-frame.ts`）的隐私边界保持与 `PRIVACY.md` 完全一致。
 
 ### 5. 打包体积零膨胀约束

@@ -367,23 +367,28 @@ describe("并发写入竞态（11 票回归）：索引分键后并发写互不�
     }
   });
 
-  it("并发 3 段经真实 segment-cache 路径（saveRawSegments）：索引无丢键", async () => {
+  it("并发 3 段经真实 segment-cache 路径（saveSegmentSummary）：索引无丢键", async () => {
     const seg = await import("../../extension/ai/segment-cache.js");
     await Promise.all(
       [0, 1, 2].map((i) =>
-        seg.saveRawSegments(
-          seg.getRawSegmentKey({ bvid: "BV1seg", cid: "1", subtitleId: "s", segmentIndex: i }),
-          [{ from: i * 5, to: i * 5 + 5, content: `段${i}` }]
+        seg.saveSegmentSummary(
+          seg.getSegmentSummaryKey({ bvid: "BV1seg", cid: "1", subtitleId: "s", segmentIndex: i }),
+          `段${i}`
         )
       )
     );
-    expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1seg")).toHaveLength(3);
+    expect(await mod.readFamilyKeys("biliscript_lvs_summary_", "BV1seg")).toHaveLength(3);
   });
 
   it("并发跨族写入（raw × summary × subtitle）：各族索引互不干扰", async () => {
     const seg = await import("../../extension/ai/segment-cache.js");
     await Promise.all([
-      seg.saveRawSegments(seg.getRawSegmentKey({ bvid: "BV1x", cid: "1", subtitleId: "s", segmentIndex: 0 }), []),
+      mod.writeWithEviction({
+        family: "biliscript_lvs_raw_",
+        bvid: "BV1x",
+        keys: ["biliscript_lvs_raw_BV1x_1_id_s_0"],
+        write: async () => storage.local.set({ biliscript_lvs_raw_BV1x_1_id_s_0: { segments: [], timestamp: 1 } })
+      }),
       seg.saveSegmentSummary(seg.getSegmentSummaryKey({ bvid: "BV1x", cid: "1", subtitleId: "s", segmentIndex: 0 }), "小"),
       mod.writeWithEviction({
         family: "biliscript_subtitle_cache_",
@@ -773,28 +778,90 @@ describe("一次机制覆盖两族：真实写路径（segment-cache / subtitle 
     }
   });
 
-  it("segment-cache.js saveRawSegments/saveSegmentSummary 同样记录索引并淘汰旧视频", async () => {
+  it("segment-cache.js saveSegmentSummary 与遗留 raw 写入同样记录索引并按各自上限淘汰旧视频", async () => {
     const seg = await import("../../extension/ai/segment-cache.js");
-    // 假时钟步进理由同上：BV1s1 的 raw 键被淘汰依赖时间戳排名
     vi.useFakeTimers();
     try {
       let now = 1000;
       for (const bvid of ["BV1s1", "BV1s2", "BV1s3"]) {
         now += 1000;
         vi.setSystemTime(now);
-        await seg.saveRawSegments(seg.getRawSegmentKey({ bvid, cid: "1", subtitleId: "s", segmentIndex: 1 }), []);
+        const rawKey = `biliscript_lvs_raw_${bvid}_1_id_s_1`;
+        await mod.writeWithEviction({
+          family: "biliscript_lvs_raw_",
+          bvid,
+          keys: [rawKey],
+          write: async () => storage.local.set({ [rawKey]: { segments: [], timestamp: now } })
+        });
         await seg.saveSegmentSummary(seg.getSegmentSummaryKey({ bvid, cid: "1", subtitleId: "s", segmentIndex: 1 }), "小");
       }
       now += 1000;
       vi.setSystemTime(now);
-      await seg.saveRawSegments(seg.getRawSegmentKey({ bvid: "BV1s4", cid: "1", subtitleId: "s", segmentIndex: 1 }), [
-        { from: 0, to: 5, content: "x" }
-      ]);
+      await mod.writeWithEviction({
+        family: "biliscript_lvs_raw_",
+        bvid: "BV1s4",
+        keys: ["biliscript_lvs_raw_BV1s4_1_id_s_1"],
+        write: async () => storage.local.set({ biliscript_lvs_raw_BV1s4_1_id_s_1: { segments: [{ from: 0, to: 5, content: "x" }], timestamp: now } })
+      });
 
       expect(storage.map.has("biliscript_lvs_raw_BV1s1_1_id_s_1")).toBe(false);
       expect(storage.map.has("biliscript_lvs_raw_BV1s4_1_id_s_1")).toBe(true);
+      expect(storage.map.has(seg.getSegmentSummaryKey({ bvid: "BV1s1", cid: "1", subtitleId: "s", segmentIndex: 1 }))).toBe(true);
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+function seedSequentialVideos(family: string, count: number): void {
+  for (let i = 1; i <= count; i += 1) {
+    const bvid = `BV1v${i}`;
+    const ts = i * 1000;
+    const key = `${family}${bvid}_1_a_1`;
+    storage.seedLegacyManifest(family, bvid, ts);
+    storage.seedCacheEntry(key, { v: key }, ts);
+    storage.seedIndexEntry(family, bvid, key, ts);
+  }
+}
+
+describe("分族默认保留上限（FAMILY_KEEP_VIDEOS）：与 IndexedDB 100 分 P 对齐", () => {
+  it("biliscript_lvs_l1_index_ 与 biliscript_lvs_analysis_final_ 默认保留最近 100 个视频", async () => {
+    expect(mod.FAMILY_KEEP_VIDEOS["biliscript_lvs_l1_index_"]).toBe(100);
+    expect(mod.FAMILY_KEEP_VIDEOS["biliscript_lvs_analysis_final_"]).toBe(100);
+
+    seedSequentialVideos("biliscript_lvs_l1_index_", 101);
+    seedSequentialVideos("biliscript_lvs_analysis_final_", 101);
+
+    const removed = await mod.pruneToRecentVideos(["biliscript_lvs_l1_index_", "biliscript_lvs_analysis_final_"]);
+    expect(removed["biliscript_lvs_l1_index_"]).toEqual(["biliscript_lvs_l1_index_BV1v1_1_a_1"]);
+    expect(removed["biliscript_lvs_analysis_final_"]).toEqual(["biliscript_lvs_analysis_final_BV1v1_1_a_1"]);
+    expect(storage.map.has("biliscript_lvs_l1_index_BV1v2_1_a_1")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_l1_index_BV1v101_1_a_1")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_analysis_final_BV1v2_1_a_1")).toBe(true);
+  });
+
+  it("biliscript_lvs_summary_ 与 biliscript_lvs_analysis_ 默认保留最近 20 个视频", async () => {
+    expect(mod.FAMILY_KEEP_VIDEOS["biliscript_lvs_summary_"]).toBe(20);
+    expect(mod.FAMILY_KEEP_VIDEOS["biliscript_lvs_analysis_"]).toBe(20);
+
+    seedSequentialVideos("biliscript_lvs_summary_", 21);
+    seedSequentialVideos("biliscript_lvs_analysis_", 21);
+
+    const removed = await mod.pruneToRecentVideos(["biliscript_lvs_summary_", "biliscript_lvs_analysis_"]);
+    expect(removed["biliscript_lvs_summary_"]).toEqual(["biliscript_lvs_summary_BV1v1_1_a_1"]);
+    expect(removed["biliscript_lvs_analysis_"]).toEqual(["biliscript_lvs_analysis_BV1v1_1_a_1"]);
+    expect(storage.map.has("biliscript_lvs_summary_BV1v2_1_a_1")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_analysis_BV1v21_1_a_1")).toBe(true);
+  });
+
+  it("显式传入 keep 参数时覆盖分族默认保留上限", async () => {
+    seedSequentialVideos("biliscript_lvs_l1_index_", 4);
+
+    const removed = await mod.pruneToRecentVideos(["biliscript_lvs_l1_index_"], 2);
+    expect(removed["biliscript_lvs_l1_index_"]).toEqual(
+      expect.arrayContaining(["biliscript_lvs_l1_index_BV1v1_1_a_1", "biliscript_lvs_l1_index_BV1v2_1_a_1"])
+    );
+    expect(storage.map.has("biliscript_lvs_l1_index_BV1v3_1_a_1")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_l1_index_BV1v4_1_a_1")).toBe(true);
   });
 });

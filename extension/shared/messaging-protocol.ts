@@ -288,55 +288,44 @@ export type ResolveSubtitleTranslateProviderResponse = {
 // ===== offscreen 段缓存消息族 =====
 // 来源守卫：本族在 OFFSCREEN_ONLY_MESSAGE_TYPES 名单内（只接受 offscreen 文档发送）。
 // 平台事实（chrome.offscreen 官方文档）：offscreen 文档仅支持 chrome.runtime，
-// 无 chrome.storage。段缓存（ai/segment-cache.js 的 biliscript_lvs_summary_* /
-// biliscript_lvs_raw_* 两族）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息
-// 读写（arch-review-2026-09/05，替下 storage-local-bridge 垫片），SW 端 handler
-// 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
-// 写聚合（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 offscreen 侧
-// run-scoped 写会话缓冲、随 saveSummary 合成一条 save-summary-raw 合并 op
-//（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set）；本次运行收尾经会话 close 把残留
-// raw 按 save-raw 落盘，port 断开 / offscreen 自关则随文档销毁丢弃。
+// 无 chrome.storage。段缓存（ai/segment-cache.ts 的 biliscript_lvs_summary_* 与
+// L1 索引及跨会话原始字幕回退读取）宿主是 SW——offscreen 的 Map-Reduce / 追问链经
+// 本族消息读写，SW 端 handler 直调 segment-cache 单源（键位装配也在 SW 完成，消息
+// 只带 context 字段）。
 //
 // 段缓存 context 的协议形状：出站点已投影为键位字段（字段口径与 SW 端
 // segment-cache.ts 的 segmentCacheKeyFields 同源——两处与概览键位装配一并从零依赖叶
-// ai/segment-cache-key-fields.ts 派生，候选 5）——整份 AiContext（含 ≥200k 字符
-// 的 subtitleBody）不再过线；chapters 只为 load-stored-raw 的命中段预过滤保留
-//（SW 侧 retrieveRawSegments 的章节名档输入，读行为依赖）。
+// ai/segment-cache-key-fields.ts 派生）——整份 AiContext（含 ≥200k 字符的
+// subtitleBody）不再过线；chapters 只为 load-stored-raw 的命中段预过滤保留
+// （SW 侧 retrieveRawSegments 的章节名档输入，读行为依赖）。
 export type SegmentCacheContext = SegmentCacheContextFields & { chapters?: unknown };
 export type SegmentCacheMessage = {
   type: "segment-cache";
-  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw" | "load-l1-index";
+  op: "load-summary" | "load-summaries" | "save-summary" | "load-stored-summaries" | "load-stored-raw" | "load-l1-index";
   // 键位字段载荷（出站点投影后的窄对象），SW 端经 segmentCacheKeyFields 归一为键位字段
   context?: SegmentCacheContext;
   segmentIndex?: number | string;
-  // load-summaries 批量（08 票）：段序号清单，一次消息读 N 个键（追问 N 段 = N 次
-  // 往返 → 常数级），SW 端按序装配键位
+  // load-summaries 批量：段序号清单，一次消息读 N 个键（追问 N 段 = 常数级往返），SW 端按序装配键位
   segmentIndexes?: Array<number | string>;
-  // load-stored-raw 命中段过滤（08 票）：携带时 SW 侧用同一检索规则预过滤，
-  // 非命中段剥离 items 再回传（整篇数 MB → 仅命中段过线）；缺省整篇回传（行为不变）
+  // load-stored-raw 命中段过滤：携带时 SW 侧用同一检索规则预过滤，
+  // 非命中段剥离 items 再回传；缺省整篇回传
   prompt?: string;
-  // unknown 透传：budgetScaleSuffix 的 Number() 归一在 SW 的 segment-cache 单源
-  // 完成，与迁移前直连调用的口径逐字一致
+  // unknown 透传：budgetScaleSuffix 的 Number() 归一在 SW 的 segment-cache 单源完成
   budgetScale?: unknown;
-  // save-summary 的载荷 / save-raw 与 save-summary-raw 的原始段条目
+  // save-summary 的载荷
   summary?: string;
-  segments?: unknown[];
 };
 export type SegmentCacheResponse = {
   ok: boolean;
   // load-summary 回包：小结文本（未命中为 null）
   summary?: string | null;
-  // load-summaries 回包：与 segmentIndexes 按序对齐的小结（未命中为 null）
+  // load-summaries / load-stored-summaries 回包：分段小结列表
   summaries?: (string | null)[];
-  // load-stored-raw 回包：按段序排列的落盘原始段（无命中为空数组；带 prompt 时
+  // load-stored-raw 回包：按段序排列的原始段（无命中为空数组；带 prompt 时
   // 非命中段 items 已被剥离，段元数据 index/from/to 保留）
   storedSegments?: unknown[];
   // load-l1-index 回包：命中且校验通过的 L1 章节目录索引缓存记录
   l1Index?: L1VideoIndexCacheRecord | null;
-  // save-summary-raw 合并写回包的 per-op 结果：两族各自成败（粗粒度，同败同果；
-  // 保住写失败可观测性，offscreen 侧任一失败都汇成一次 { ok:false } 上浮）
-  summarySaved?: { ok: boolean; error?: string };
-  rawSaved?: { ok: boolean; error?: string };
   error?: string;
 };
 

@@ -4,7 +4,7 @@
 // verbatim 保留（压缩摘要保留小结与笔记原文）、检索注入（命中拼「相关原始字幕段」尾部 /
 // 未命中与缺省不含），以及 hasFinalNote / buildCompressedSummary 的边界（空入参、maxChars 截断尾部）。
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   RECENT_TURNS_DEFAULT,
   RAW_INJECTION_MAX_CHARS,
@@ -12,7 +12,8 @@ import {
   hasFinalNote,
   trimRecentTurns,
   buildCompressedSummary,
-  buildFollowupSubtitleMarkdown
+  buildFollowupSubtitleMarkdown,
+  resolveFollowupContext
 } from "../../extension/ai/followup-context.js";
 
 // 构造 contextData：原始字幕体（subtitleBody）只含一条正文为整篇 markdown 的
@@ -334,5 +335,61 @@ describe("buildFollowupSubtitleMarkdown 检索注入上限", () => {
       retrieveRaw: () => [hit]
     });
     expect(out).toContain(hit);
+  });
+});
+
+describe("resolveFollowupContext skipRawRetrieval：L0+L1 混合召回直通纯压缩摘要", () => {
+  const history = [{ role: "assistant", content: "成稿笔记正文。" }];
+  const basePlan = {
+    totalChars: 210000,
+    estimatedTokens: 210000,
+    mode: "map-reduce" as const,
+    estimatedCalls: 5,
+    needsReduce: false,
+    reduceGroupInputChars: 100000
+  };
+
+  it("skipRawRetrieval=true 且 plan.segments 为空时跳过 loadStoredSegments，直接调用 loadStoredSummaries", async () => {
+    const loadStoredSegments = vi.fn(async () => [{ index: 1, from: 0, to: 100, items: [{ from: 0, to: 10, content: "原始段" }] }]);
+    const loadStoredSummaries = vi.fn(async () => ["小结1", "小结2"]);
+
+    const result = await resolveFollowupContext({
+      context: { title: "测试", bvid: "BV1h", cid: "1" },
+      plan: { ...basePlan, segments: [] },
+      history,
+      userPrompt: "00:05 讲了什么",
+      skipRawRetrieval: true,
+      loadStoredSummaries,
+      loadStoredSegments
+    });
+
+    expect(loadStoredSegments).not.toHaveBeenCalled();
+    expect(loadStoredSummaries).toHaveBeenCalledTimes(1);
+    expect(result).not.toBeNull();
+    expect(result?.compressedSummaryMarkdown).toContain("## 分段小结");
+    expect(result?.compressedSummaryMarkdown).toContain("小结1");
+    expect(result?.compressedSummaryMarkdown).toContain("## 成稿笔记");
+    expect(result?.compressedSummaryMarkdown).not.toContain("## 相关原始字幕段");
+  });
+
+  it("skipRawRetrieval=true 且 plan.segments 存在时不生成「## 相关原始字幕段」", async () => {
+    const loadStoredSegments = vi.fn(async () => []);
+    const result = await resolveFollowupContext({
+      context: { title: "测试", bvid: "BV1h", cid: "1" },
+      plan: {
+        ...basePlan,
+        segments: [{ index: 1, from: 0, to: 100, chars: 10, items: [{ from: 0, to: 10, content: "原始段命中" }] }]
+      },
+      history,
+      userPrompt: "00:05 讲了什么",
+      skipRawRetrieval: true,
+      loadSummaries: async () => ["小结1"],
+      loadStoredSegments
+    });
+
+    expect(loadStoredSegments).not.toHaveBeenCalled();
+    expect(result?.compressedSummaryMarkdown).toContain("小结1");
+    expect(result?.compressedSummaryMarkdown).not.toContain("## 相关原始字幕段");
+    expect(result?.compressedSummaryMarkdown).not.toContain("原始段命中");
   });
 });

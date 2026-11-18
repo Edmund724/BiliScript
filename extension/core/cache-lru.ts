@@ -1,10 +1,11 @@
 // 「缓存 LRU 淘汰」模块：为 chrome.storage.local 上的缓存族键提供统一的
 // 「最近写入视频」索引与淘汰机制（一次机制覆盖全部注册族）：
-//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.js 的原始字幕段 / 分段小结；
-//   - biliscript_subtitle_cache_*：subtitle/cache.js 的整篇字幕正文（值 { body, timestamp }）。
+//   - biliscript_lvs_l1_index_ / biliscript_lvs_analysis_final_：L1 章节目录索引 / 整份概览产物（每族保留最近 100 个视频，与 IndexedDB 字幕仓库对齐）；
+//   - biliscript_lvs_summary_ / biliscript_lvs_analysis_：分段小结 / 概览分段产物（每族保留最近 20 个视频）；
+//   - biliscript_subtitle_cache_ / biliscript_lvs_raw_：旧版遗留字幕与原始字幕段缓存键（每族保留最近 3 个视频以便平滑清理）。
 // 设计决策（与产品确认）：
-//   - 每族只保留最近写入的 keep（默认 3）个视频（按 bvid），LRU 以 lastWriteTimestamp
-//     排序，无字节上限；
+//   - 按族配置保留最近写入的 keep 个视频（按 bvid，默认见 FAMILY_KEEP_VIDEOS，未登记族回落 3），
+//     LRU 以 lastWriteTimestamp 排序，无字节上限；
 //   - 索引按「族 + bvid + 缓存键」分键落盘（11 票，消并发覆盖竞态）：每个缓存键对应
 //     一条索引键 biliscript_cache_lru_index:{family}:{bvid}:{cacheKey}（值 { ts }），写入是
 //     各自键上的原子 set——map-reduce 并发 3 段写同一 bvid 时互相不再覆盖（旧实现
@@ -46,9 +47,10 @@ export function buildLruIndexEntryKey(family: string, bvid: string, cacheKey: st
 }
 // 参与统一淘汰的缓存族前缀（全仓唯一注册处，arch-slim-2/08 起 analysis 两族
 // 收进注册、不再由 ai/analysis.ts 自行扩展名单）：
-//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
-//   - biliscript_subtitle_cache_*：subtitle/cache.ts 的整篇字幕正文（值 { body, timestamp }）；
-//   - biliscript_lvs_analysis_* / biliscript_lvs_analysis_final_*：ai/analysis.ts 的概览分段 / 整份产物。
+//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.ts 的旧版原始字幕段（只读兼容与清理）/ 分段小结；
+//   - biliscript_subtitle_cache_*：旧版字幕缓存键（保留注册以便淘汰清理）；
+//   - biliscript_lvs_analysis_* / biliscript_lvs_analysis_final_*：ai/analysis-orchestrate.ts 的概览分段 / 整份产物；
+//   - biliscript_lvs_l1_index_*：ai/l1-chapter-index.ts 的 L1 章节目录索引。
 // 前缀撞车归属：biliscript_lvs_analysis_final_ 以 biliscript_lvs_analysis_ 为父前缀，数据键按
 // 「最长注册前缀」归属（final 键归 final 族自身）——段族的前缀扫描不再把 final 键
 // 误纳为 bvid="final"（旧兜底路径的误归因随分键布局变成唯一路径后必修，见
@@ -61,8 +63,31 @@ export const CACHE_FAMILIES = [
   "biliscript_lvs_analysis_final_",
   "biliscript_lvs_l1_index_"
 ];
-// 每族保留的最近视频数（模块私有；evictLruByCount 的 keep 缺省值）。
+// 未显式配置时的回落保留视频数。
 const LRU_KEEP_VIDEOS = 3;
+
+// 按缓存族体积与生命周期分档设定默认保留视频数：
+// - L1 索引与整份概览产物单视频仅数 KB，与 IndexedDB 字幕仓库（100 分 P）保持 1:1 对齐；
+// - 分段小结 / 概览分段保留 20 个视频；
+// - 旧版遗留字幕与原始字幕段保持 3 个视频上限以自动收缩清理。
+export const FAMILY_KEEP_VIDEOS: Record<string, number> = {
+  biliscript_lvs_l1_index_: 100,
+  biliscript_lvs_analysis_final_: 100,
+  biliscript_lvs_summary_: 20,
+  biliscript_lvs_analysis_: 20,
+  biliscript_subtitle_cache_: 3,
+  biliscript_lvs_raw_: 3
+};
+
+export function getKeepVideosForFamily(family: string, explicitKeep?: number): number {
+  if (explicitKeep !== undefined) {
+    const parsed = Math.floor(Number(explicitKeep));
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return parsed;
+    }
+  }
+  return FAMILY_KEEP_VIDEOS[family] ?? LRU_KEEP_VIDEOS;
+}
 
 // 注册族按前缀长度降序：撞前缀的键由最长前缀族认领（见上）。
 const FAMILIES_BY_PREFIX_LENGTH = [...CACHE_FAMILIES].sort((a, b) => b.length - a.length);
@@ -275,11 +300,10 @@ function parseIndexEntryKey(
  */
 export async function pruneToRecentVideos(
   families: string[] = CACHE_FAMILIES,
-  keep: number = LRU_KEEP_VIDEOS
+  keep?: number
 ): Promise<Record<string, string[]>> {
   try {
     const storage = requireStorageLocal();
-    const safeKeep = Math.max(1, Math.floor(Number(keep)) || LRU_KEEP_VIDEOS);
     const familyList = (Array.isArray(families) ? families : []).filter(
       (f): f is string => typeof f === "string" && Boolean(f)
     );
@@ -356,8 +380,9 @@ export async function pruneToRecentVideos(
         continue;
       }
 
+      const familyKeep = getKeepVideosForFamily(family, keep);
       const ranked = [...timestamps.entries()].sort((a, b) => b[1] - a[1]);
-      const keepSet = new Set(ranked.slice(0, safeKeep).map(([bvid]) => bvid));
+      const keepSet = new Set(ranked.slice(0, familyKeep).map(([bvid]) => bvid));
       const familyRemoved = [...candidateKeys].filter((key) => {
         const bvid = parseBvidFromCacheKey(key, family);
         // 解析不出 bvid 的畸形键按垃圾一并回收。
@@ -399,14 +424,15 @@ export async function pruneToRecentVideos(
   }
 }
 
-// prune 短路检查：各族清单条目的 bvid 数都 ≤ keep → true。清单只是启发式——
+// prune 短路检查：各族清单条目的 bvid 数都 ≤ 对应族 keep → true。清单只是启发式——
 // 并发新增互相覆盖只会少计（多留旧视频），不会多计；少计方向由 prune 的真枚举兜底。
-function familiesWithinKeep(manifest: LruManifest, families: string[], keep: number): boolean {
-  const safeKeep = Math.max(1, Math.floor(Number(keep)) || LRU_KEEP_VIDEOS);
+function familiesWithinKeep(manifest: LruManifest, families: string[], keep?: number): boolean {
   const familyList = (Array.isArray(families) ? families : []).filter(
     (f): f is string => typeof f === "string" && Boolean(f)
   );
-  return familyList.every((family) => Object.keys(manifest[family] || {}).length <= safeKeep);
+  return familyList.every(
+    (family) => Object.keys(manifest[family] || {}).length <= getKeepVideosForFamily(family, keep)
+  );
 }
 
 interface WriteWithEvictionOptions {
@@ -435,7 +461,7 @@ export interface CacheWriteBundleEntry {
 export async function writeBundleWithEviction(
   entries: CacheWriteBundleEntry[],
   write: () => Promise<void>,
-  { keep = LRU_KEEP_VIDEOS, pruneFamilies = CACHE_FAMILIES }: { keep?: number; pruneFamilies?: string[] } = {}
+  { keep, pruneFamilies = CACHE_FAMILIES }: { keep?: number; pruneFamilies?: string[] } = {}
 ): Promise<EvictionResult | EvictionFailure> {
   const bundle = (Array.isArray(entries) ? entries : []).filter(
     (entry): entry is CacheWriteBundleEntry =>
@@ -503,7 +529,7 @@ export async function writeWithEviction({
   bvid = "",
   write,
   keys = [],
-  keep = LRU_KEEP_VIDEOS,
+  keep,
   pruneFamilies = CACHE_FAMILIES
 }: WriteWithEvictionOptions = {}): Promise<EvictionResult | EvictionFailure> {
   if (typeof write !== "function") {
@@ -515,8 +541,9 @@ export async function writeWithEviction({
 // ============================================================
 // 缓存族工厂（arch-slim-2/08）：chrome.storage.local 上「族键拼装 + 静默读 +
 // { payload, timestamp } 落盘 + writeWithEviction 统一 LRU 淘汰写」的口径单源。
-// 消费实例：ai/segment-cache.ts（biliscript_lvs_summary_ / biliscript_lvs_raw_ 两族）与
-// ai/analysis.ts（biliscript_lvs_analysis_final_ / biliscript_lvs_analysis_ 两族）。
+// 消费实例：ai/segment-cache.ts（biliscript_lvs_summary_）、
+// ai/l1-chapter-index.ts（biliscript_lvs_l1_index_）与
+// ai/analysis-orchestrate.ts（biliscript_lvs_analysis_final_ / biliscript_lvs_analysis_）。
 // 本叶保持零 import：source key 推导（buildSubtitleSourceKey，属 subtitle 域）
 // 与失败日志（logError，拖 core/state）都经 options 注入，不反向依赖。
 // （readFamilyKeys 的回退告警经 shared/logging 的 logWarn——同为不拖 state/
