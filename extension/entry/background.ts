@@ -253,8 +253,7 @@ function requestPermissionViaPopup(
   origins: string[],
   windowsApi: ChromeWindowsApi
 ): Promise<BackgroundResponseOf<"request-provider-origins">> {
-  const createWindow = windowsApi.create;
-  if (typeof createWindow !== "function") {
+  if (typeof windowsApi.create !== "function") {
     return Promise.reject(new Error("当前环境不支持弹窗授权"));
   }
   const reqId =
@@ -315,8 +314,12 @@ function requestPermissionViaPopup(
     }
 
     try {
+      if (typeof windowsApi.create !== "function") {
+        entry.settle({ ok: false, error: "申请域名权限失败：当前环境不支持弹窗授权" });
+        return;
+      }
       void Promise.resolve(
-        createWindow({
+        windowsApi.create({
           url,
           type: "popup",
           width: 440,

@@ -109,6 +109,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("request-provider-origins：无端口 pattern 与 Firefox 授权回退", () => {

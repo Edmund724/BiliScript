@@ -61,8 +61,7 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
     allowBtn.disabled = true;
     cancelBtn.disabled = true;
 
-    const requestPermissions = globalThis.chrome?.permissions?.request;
-    if (typeof requestPermissions !== "function") {
+    if (typeof globalThis.chrome?.permissions?.request !== "function") {
       void replyAndClose(false, "当前环境不支持申请权限");
       return;
     }
@@ -71,7 +70,7 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
     // so Firefox / Chrome preserves the extension page user gesture.
     let requestTask: Promise<boolean>;
     try {
-      requestTask = requestPermissions({ origins });
+      requestTask = globalThis.chrome.permissions.request({ origins });
     } catch (error) {
       void replyAndClose(false, `申请域名权限失败：${(error as Error | undefined)?.message || error}`);
       return;
