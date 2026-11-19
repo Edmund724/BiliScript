@@ -61,11 +61,13 @@ import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { computeCurrentClipSignature, extractBvid } from "../bilibili/video-id-shared.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
-import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeChatLineHeight, normalizeChatParagraphSpacing, normalizeSpeechVoiceVolume } from "../core/validators.js";
-import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { confirmDialog, dismissConfirmDialog } from "../ui/confirm-dialog.js";
-import { applyReadingViewTypography } from "./presentation.js";
+import {
+  CHAT_DISPLAY_SLIDER_SPECS,
+  bindChatDisplaySliders,
+  watchChatDisplaySettings,
+  type ChatDisplaySettingsPatch
+} from "./chat-display-settings.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
 // 对话域单一深入口：内核链在 ../chat/tab-domain.ts 组装。
@@ -132,7 +134,7 @@ import { activateScriptTab } from "./script-tab-activation.js";
 // 本叶子不拖常驻图。
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
-import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 // 对话分区表模块顶兜底挂载（arch-slim-4/07，settings-panel.ts 顶挂载同款先例）：
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
@@ -331,6 +333,7 @@ let eventsBound = false;
 let sessionGeneration = 0;
 let initInFlight: Promise<void> | null = null;
 let syncMoreMenuSlidersFromState = (): void => {};
+let syncMoreMenuSlidersPatch = (_patch: ChatDisplaySettingsPatch): void => {};
 // 会话收尾标志（closeChatSession 置位、激活路径复位）：闸住关闭后仍会兑现的
 // 发送流程（subtitle-wait 等待中的 pollContext 与 connectPort），落实「关闭即
 // 断流、不做后台续跑」。
@@ -572,7 +575,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
-  getSpeechVolume: () => normalizeSpeechVoiceVolume(state.settings?.speechVoiceVolume) / 100,
+  getSpeechVolume: () => CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(state.settings?.speechVoiceVolume) / 100,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
   // 不阻断 connect，维持历史行为，由连接结果兜底）。chrome.offscreen 仅扩展
   // 上下文可用：content script 经 "ensure-offscreen-chat" 消息委托 background
@@ -759,20 +762,8 @@ const sessionTriggers = createReaderChatSessionTriggers({
       ],
       local: ["aiProviderKeys"]
     });
-    const unwatchPresentation = watchStorageKeys((changes) => {
-      if (changes.chatLineHeight) {
-        state.patchSettings({ chatLineHeight: normalizeChatLineHeight(changes.chatLineHeight.newValue) });
-      }
-      if (changes.chatParagraphSpacing) {
-        state.patchSettings({ chatParagraphSpacing: normalizeChatParagraphSpacing(changes.chatParagraphSpacing.newValue) });
-      }
-      if (changes.speechVoiceVolume) {
-        state.patchSettings({ speechVoiceVolume: normalizeSpeechVoiceVolume(changes.speechVoiceVolume.newValue) });
-      }
-      syncMoreMenuSlidersFromState();
-      if (changes.chatLineHeight || changes.chatParagraphSpacing) applyReadingViewTypography();
-    }, {
-      sync: ["chatLineHeight", "chatParagraphSpacing", "speechVoiceVolume"]
+    const unwatchPresentation = watchChatDisplaySettings((patch) => {
+      syncMoreMenuSlidersPatch(patch);
     });
     const unwatchConversations = watchStorageKeys((changes) => {
       if (
@@ -1026,64 +1017,27 @@ function bindEvents(): void {
   composer.bind();
   // 滚动跟随与滚底按钮常驻监听（合帧防抖、近底判据、回底途中闸与放闸）收敛进 scrollFollow 深 module
   scrollFollow.bind();
-  const lineHeightSlider = bindResettableRangeSlider({
-    input: els.lineHeightSlider,
-    badge: els.lineHeightValue,
-    resetBtn: els.lineHeightResetBtn,
-    defaultValue: DEFAULT_SETTINGS.chatLineHeight,
-    normalize: normalizeChatLineHeight,
-    format: (val) => `${val}%`,
-    initialValue: state.settings?.chatLineHeight,
-    onPreview: (val) => {
-      state.patchSettings({ chatLineHeight: val });
-      applyReadingViewTypography();
+  const chatDisplaySliders = bindChatDisplaySliders({
+    chatLineHeight: {
+      input: els.lineHeightSlider,
+      badge: els.lineHeightValue,
+      resetBtn: els.lineHeightResetBtn
     },
-    onCommit: (val) => {
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: val } }).catch(() => null);
+    chatParagraphSpacing: {
+      input: els.paraSpacingSlider,
+      badge: els.paraSpacingValue,
+      resetBtn: els.paraSpacingResetBtn
+    },
+    speechVoiceVolume: {
+      input: els.speechVolumeInput,
+      badge: els.speechVolumeValue,
+      resetBtn: els.speechVolumeResetBtn,
+      row: els.speechVolume
     }
   });
 
-  const paraSpacingSlider = bindResettableRangeSlider({
-    input: els.paraSpacingSlider,
-    badge: els.paraSpacingValue,
-    resetBtn: els.paraSpacingResetBtn,
-    defaultValue: DEFAULT_SETTINGS.chatParagraphSpacing,
-    normalize: normalizeChatParagraphSpacing,
-    format: (val) => `${val}px`,
-    initialValue: state.settings?.chatParagraphSpacing,
-    onPreview: (val) => {
-      state.patchSettings({ chatParagraphSpacing: val });
-      applyReadingViewTypography();
-    },
-    onCommit: (val) => {
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: val } }).catch(() => null);
-    }
-  });
-
-  const speechVolumeSlider = bindResettableRangeSlider({
-    input: els.speechVolumeInput,
-    badge: els.speechVolumeValue,
-    resetBtn: els.speechVolumeResetBtn,
-    defaultValue: DEFAULT_SETTINGS.speechVoiceVolume,
-    normalize: normalizeSpeechVoiceVolume,
-    format: (val) => `${val}%`,
-    initialValue: state.settings?.speechVoiceVolume,
-    onPreview: (val) => {
-      state.patchSettings({ speechVoiceVolume: val });
-    },
-    onCommit: (val) => {
-      void sendRuntimeMessage({ type: "save-settings", settings: { speechVoiceVolume: val } }).catch(() => null);
-    }
-  });
-  if (!supportsTtsSpeech() && els.speechVolume) {
-    els.speechVolume.hidden = true;
-  }
-
-  syncMoreMenuSlidersFromState = () => {
-    lineHeightSlider.setValue(state.settings?.chatLineHeight);
-    paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
-    speechVolumeSlider.setValue(state.settings?.speechVoiceVolume);
-  };
+  syncMoreMenuSlidersFromState = () => chatDisplaySliders.syncFromState();
+  syncMoreMenuSlidersPatch = (patch) => chatDisplaySliders.syncPatch(patch);
 
   els.moreBtn?.addEventListener("click", (event) => {
     syncMoreMenuSlidersFromState();

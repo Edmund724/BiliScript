@@ -1,10 +1,15 @@
 import { state, uiState } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
-import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
 import { themeButtonView } from "./theme-button.js";
+import {
+  CHAT_DISPLAY_SLIDER_SPECS,
+  isChatDisplaySliderAvailable,
+  type ChatDisplaySettingKey
+} from "../reader/chat-display-settings.js";
 // PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经 reader-bus 的转发槽并入本模块
 // 的单一 document click 委托（避免第二个 document 监听互踩）。
 import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
@@ -53,6 +58,33 @@ import { buildChatTabBodyHtml } from "../reader/chat-template.js";
 import { buildSubtitleTabBodyHtml, bindSubtitleTabEvents } from "../reader/subtitle-tab-ui.js";
 import { buildExplainPopHtml, buildExplainCardHostHtml, bindReadingExplainEvents } from "../reader/explain-pop-ui.js";
 import { buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/overview-ui.js";
+
+function buildChatMoreSliderRowHtml(
+  key: ChatDisplaySettingKey,
+  dom: { rowId?: string; inputId: string; valueId: string; resetBtnId: string }
+): string {
+  const spec = CHAT_DISPLAY_SLIDER_SPECS[key];
+  const hiddenAttr = isChatDisplaySliderAvailable(key) ? "" : " hidden";
+  const rowIdAttr = dom.rowId ? ` id="${dom.rowId}"` : "";
+  const labelsHtml = spec.rangeLabels
+    ? `
+                      <div class="biliscript-slider-labels">
+                        <span>${spec.rangeLabels[0]}</span>
+                        <span>${spec.rangeLabels[1]}</span>
+                      </div>`
+    : "";
+  return `
+                    <div${rowIdAttr} class="biliscript-slider-row"${hiddenAttr}>
+                      <div class="biliscript-slider-header">
+                        <label class="biliscript-set-label" for="${dom.inputId}">${spec.label}</label>
+                        <div class="biliscript-slider-header-actions">
+                          <span id="${dom.valueId}" class="biliscript-slider-badge">${spec.format(spec.defaultValue)}</span>
+                          <button id="${dom.resetBtnId}" type="button" class="biliscript-slider-reset-btn" title="${spec.resetTitle}" aria-label="${spec.resetAriaLabel}">${READING_RESET_ICON}</button>
+                        </div>
+                      </div>
+                      <input id="${dom.inputId}" type="range" class="biliscript-range-input" min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${spec.defaultValue}" style="--range-progress: ${spec.defaultProgressPct}%;" />${labelsHtml}
+                    </div>`;
+}
 
 export function buildUiHtml(): string {
   const themeView = themeButtonView(state.reader.readingTheme);
@@ -144,45 +176,20 @@ export function buildUiHtml(): string {
                       <span>历史对话</span>
                     </button>
                   </div>
-                  <div class="biliscript-reading-chat-more-typography">
-                    <div class="biliscript-slider-row">
-                      <div class="biliscript-slider-header">
-                        <label class="biliscript-set-label" for="${ids.readingChatLineHeight}">对话行高</label>
-                        <div class="biliscript-slider-header-actions">
-                          <span id="${ids.readingChatLineHeightValue}" class="biliscript-slider-badge">160%</span>
-                          <button id="${ids.readingChatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认行高 (160%)" aria-label="恢复默认行高">${READING_RESET_ICON}</button>
-                        </div>
-                      </div>
-                      <input id="${ids.readingChatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" style="--range-progress: 50%;" />
-                      <div class="biliscript-slider-labels">
-                        <span>紧凑</span>
-                        <span>宽松</span>
-                      </div>
-                    </div>
-                    <div class="biliscript-slider-row">
-                      <div class="biliscript-slider-header">
-                        <label class="biliscript-set-label" for="${ids.readingChatParagraphSpacing}">对话段落间距</label>
-                        <div class="biliscript-slider-header-actions">
-                          <span id="${ids.readingChatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
-                          <button id="${ids.readingChatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认段落间距 (12px)" aria-label="恢复默认段落间距">${READING_RESET_ICON}</button>
-                        </div>
-                      </div>
-                      <input id="${ids.readingChatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" style="--range-progress: 50%;" />
-                      <div class="biliscript-slider-labels">
-                        <span>紧凑</span>
-                        <span>宽松</span>
-                      </div>
-                    </div>
-                    <div id="${ids.readingChatSpeechVolume}" class="biliscript-slider-row"${supportsTtsSpeech() ? "" : " hidden"}>
-                      <div class="biliscript-slider-header">
-                        <label class="biliscript-set-label" for="${ids.readingChatSpeechVolumeInput}">对话朗读音量</label>
-                        <div class="biliscript-slider-header-actions">
-                          <span id="${ids.readingChatSpeechVolumeValue}" class="biliscript-slider-badge">100%</span>
-                          <button id="${ids.readingChatSpeechVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话朗读音量 (100%)" aria-label="恢复默认对话朗读音量">${READING_RESET_ICON}</button>
-                        </div>
-                      </div>
-                      <input id="${ids.readingChatSpeechVolumeInput}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
-                    </div>
+                  <div class="biliscript-reading-chat-more-typography">${buildChatMoreSliderRowHtml("chatLineHeight", {
+                    inputId: ids.readingChatLineHeight,
+                    valueId: ids.readingChatLineHeightValue,
+                    resetBtnId: ids.readingChatLineHeightResetBtn
+                  })}${buildChatMoreSliderRowHtml("chatParagraphSpacing", {
+                    inputId: ids.readingChatParagraphSpacing,
+                    valueId: ids.readingChatParagraphSpacingValue,
+                    resetBtnId: ids.readingChatParagraphSpacingResetBtn
+                  })}${buildChatMoreSliderRowHtml("speechVoiceVolume", {
+                    rowId: ids.readingChatSpeechVolume,
+                    inputId: ids.readingChatSpeechVolumeInput,
+                    valueId: ids.readingChatSpeechVolumeValue,
+                    resetBtnId: ids.readingChatSpeechVolumeResetBtn
+                  })}
                   </div>
                   <button id="${ids.readingChatDisplaySettingsBtn}" type="button" class="biliscript-reading-chat-more-item">更多显示设置</button>
                 </div>

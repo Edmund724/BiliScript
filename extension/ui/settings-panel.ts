@@ -14,7 +14,7 @@
 //     chrome.permissions.request 前零 await）。
 
 import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "../core/defaults.js";
-import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
@@ -32,15 +32,21 @@ import {
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidth,
   normalizeReaderFontSizeScale,
-  normalizeChatLineHeight,
-  normalizeChatParagraphSpacing,
-  normalizeSpeechVoiceVolume,
   normalizeLiveVoiceVolume,
   normalizeLiveVoiceSpeed,
   normalizeLiveVoicePriority,
   normalizeLiveShareVideoAudio
 } from "../core/validators.js";
 import { applyReadingViewTypography, applyChatInputGlow, applyReduceTransparency, applyReadingViewPresentation } from "../reader/presentation.js";
+import {
+  CHAT_DISPLAY_SETTING_KEYS,
+  CHAT_DISPLAY_SLIDER_SPECS,
+  applyChatDisplaySettings,
+  isChatDisplaySliderAvailable,
+  persistChatDisplaySettings,
+  watchChatDisplaySettings,
+  type ChatDisplaySettingsPatch
+} from "../reader/chat-display-settings.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
 import {
@@ -147,6 +153,7 @@ let savedRootScrollTop = 0;
 let subpageReturnButton: HTMLButtonElement | null = null;
 let unregisterBackInterceptor: (() => void) | null = null;
 let unregisterCloseListener: (() => void) | null = null;
+let unwatchChatDisplay: (() => void) | null = null;
 let lastProviderSnapshot: ProviderSummarySnapshot | null = null;
 let lastAgentBridgeState: AgentBridgeSettingsState | null = null;
 
@@ -310,6 +317,9 @@ type ScalarFieldPersist = (patch: Record<string, unknown>) => Promise<SaveSettin
 const persistLiveAudioField: ScalarFieldPersist = (patch) =>
   persistLiveAudioSettings(patch as LiveAudioSettingsPatch);
 
+const persistChatDisplayField: ScalarFieldPersist = (patch) =>
+  persistChatDisplaySettings(patch as ChatDisplaySettingsPatch);
+
 interface ToggleFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly kind: "toggle";
   readonly key: K;
@@ -416,11 +426,12 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getElement: (el) => el.chatLineHeight,
     getBadge: (el) => el.chatLineHeightValue,
     getResetBtn: (el) => el.chatLineHeightResetBtn,
-    defaultValue: DEFAULT_SETTINGS.chatLineHeight,
-    normalize: normalizeChatLineHeight,
-    format: (val) => `${val}%`,
-    watchSync: true,
-    onPreview: () => applyReadingViewTypography()
+    defaultValue: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.defaultValue,
+    normalize: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.normalize,
+    format: CHAT_DISPLAY_SLIDER_SPECS.chatLineHeight.format,
+    patchState: false,
+    persist: persistChatDisplayField,
+    onPreview: (val) => applyChatDisplaySettings({ chatLineHeight: val })
   },
   {
     kind: "slider",
@@ -428,11 +439,12 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getElement: (el) => el.chatParagraphSpacing,
     getBadge: (el) => el.chatParagraphSpacingValue,
     getResetBtn: (el) => el.chatParagraphSpacingResetBtn,
-    defaultValue: DEFAULT_SETTINGS.chatParagraphSpacing,
-    normalize: normalizeChatParagraphSpacing,
-    format: (val) => `${val}px`,
-    watchSync: true,
-    onPreview: () => applyReadingViewTypography()
+    defaultValue: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.defaultValue,
+    normalize: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.normalize,
+    format: CHAT_DISPLAY_SLIDER_SPECS.chatParagraphSpacing.format,
+    patchState: false,
+    persist: persistChatDisplayField,
+    onPreview: (val) => applyChatDisplaySettings({ chatParagraphSpacing: val })
   },
   {
     kind: "slider",
@@ -440,10 +452,12 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     getElement: (el) => el.speechVoiceVolume,
     getBadge: (el) => el.speechVoiceVolumeValue,
     getResetBtn: (el) => el.speechVoiceVolumeResetBtn,
-    defaultValue: DEFAULT_SETTINGS.speechVoiceVolume,
-    normalize: normalizeSpeechVoiceVolume,
-    format: (val) => `${val}%`,
-    watchSync: true
+    defaultValue: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.defaultValue,
+    normalize: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize,
+    format: CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.format,
+    patchState: false,
+    persist: persistChatDisplayField,
+    onPreview: (val) => applyChatDisplaySettings({ speechVoiceVolume: val })
   },
   {
     kind: "slider",
@@ -759,8 +773,8 @@ function syncAllSummaries(elements: SettingsElements): void {
   if (elements.enablePlayerAiQuickAction.checked) promptParts.push("播放器快捷开");
   const quickCount = collectInitialQuickPrompts(elements).length;
   if (quickCount > 0) promptParts.push(`${quickCount} 条快捷问题`);
-  if (supportsTtsSpeech()) {
-    promptParts.push(`朗读 ${normalizeSpeechVoiceVolume(elements.speechVoiceVolume.value)}%`);
+  if (isChatDisplaySliderAvailable("speechVoiceVolume")) {
+    promptParts.push(`朗读 ${CHAT_DISPLAY_SLIDER_SPECS.speechVoiceVolume.normalize(elements.speechVoiceVolume.value)}%`);
   }
   elements.aiPromptSummary.textContent = promptParts.length > 0 ? promptParts.join(" · ") : "默认";
 
@@ -1610,6 +1624,11 @@ async function resetPreferences(elements: SettingsElements): Promise<void> {
     }
     state.patchSettings(payload);
     applyReadingViewTypography();
+    applyChatDisplaySettings({
+      chatLineHeight: payload.chatLineHeight,
+      chatParagraphSpacing: payload.chatParagraphSpacing,
+      speechVoiceVolume: payload.speechVoiceVolume
+    });
     applyLiveAudioSettings({
       liveVoiceVolume: payload.liveVoiceVolume,
       liveVoiceSpeed: payload.liveVoiceSpeed,
@@ -1839,7 +1858,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.openLiveSettingsBtn.setAttribute("aria-hidden", "true");
     elements.subpageLive.hidden = true;
   }
-  if (!supportsTtsSpeech()) {
+  if (!isChatDisplaySliderAvailable("speechVoiceVolume")) {
     elements.chatPreferencesHeading.textContent = "对话阅读";
     const speechVolumeRow = elements.speechVoiceVolume.closest<HTMLElement>(".biliscript-slider-row");
     if (speechVolumeRow) {
@@ -1930,6 +1949,18 @@ function bindSettingsEvents(host: HTMLElement): void {
     }).catch(() => {
       setStatus(elements, "打开引导页失败", true);
     });
+  });
+
+  unwatchChatDisplay?.();
+  unwatchChatDisplay = watchChatDisplaySettings((patch) => {
+    if (!host.isConnected) return;
+    const currentElements = collectElements(host);
+    for (const key of CHAT_DISPLAY_SETTING_KEYS) {
+      if (key in patch) {
+        setResettableRangeValue(currentElements[key], patch[key]);
+      }
+    }
+    syncAllSummaries(currentElements);
   });
 
   // onChanged 回读他端改动（逐键按需存在性判空，避免单键变更时访问未变更键的 newValue 抛错）。

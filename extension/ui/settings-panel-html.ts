@@ -1,5 +1,9 @@
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
+import {
+  CHAT_DISPLAY_SLIDER_SPECS,
+  type ChatDisplaySettingKey
+} from "../reader/chat-display-settings.js";
 // ui/settings-panel-html.ts — 设置抽屉的三级总览+子页 HTML 模板。
 //
 // 结构约定：
@@ -12,6 +16,22 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 //
 // 所有模板元素 id 与 for 引用统一声明于 SETTINGS_PANEL_DOM_IDS，由 settings-panel.ts 的
 // collectElements() 严格一一对应收集。
+
+function buildSettingsChatDisplayRowHtml(
+  key: ChatDisplaySettingKey,
+  dom: { inputId: string; valueId: string; resetBtnId: string }
+): string {
+  const spec = CHAT_DISPLAY_SLIDER_SPECS[key];
+  return `
+          <div class="biliscript-set-row biliscript-slider-row">
+            <label class="biliscript-set-label" for="${dom.inputId}">${spec.label}</label>
+            <div class="biliscript-slider-control">
+              <input id="${dom.inputId}" type="range" class="biliscript-range-input" min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${spec.defaultValue}" style="--range-progress: ${spec.defaultProgressPct}%;" />
+              <span id="${dom.valueId}" class="biliscript-slider-badge">${spec.format(spec.defaultValue)}</span>
+              <button id="${dom.resetBtnId}" type="button" class="biliscript-slider-reset-btn" title="${spec.resetTitle}" aria-label="${spec.resetAriaLabel}">${READING_RESET_ICON}</button>
+            </div>
+          </div>`;
+}
 
 const CHEVRON_RIGHT_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
 const EXTERNAL_LINK_SVG = `<svg class="biliscript-entry-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
@@ -421,31 +441,19 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-set-header-row">
           <div id="${ids.chatPreferencesHeading}" class="biliscript-set-h">阅读与朗读</div>
         </div>
-        <div class="biliscript-set-card">
-          <div class="biliscript-set-row biliscript-slider-row">
-            <label class="biliscript-set-label" for="${ids.chatLineHeight}">对话行高</label>
-            <div class="biliscript-slider-control">
-              <input id="${ids.chatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" style="--range-progress: 50%;" />
-              <span id="${ids.chatLineHeightValue}" class="biliscript-slider-badge">160%</span>
-              <button id="${ids.chatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话行高 (160%)" aria-label="恢复默认对话行高">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-          <div class="biliscript-set-row biliscript-slider-row">
-            <label class="biliscript-set-label" for="${ids.chatParagraphSpacing}">对话段落间距</label>
-            <div class="biliscript-slider-control">
-              <input id="${ids.chatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" style="--range-progress: 50%;" />
-              <span id="${ids.chatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
-              <button id="${ids.chatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话段落间距 (12px)" aria-label="恢复默认对话段落间距">${READING_RESET_ICON}</button>
-            </div>
-          </div>
-          <div class="biliscript-set-row biliscript-slider-row">
-            <label class="biliscript-set-label" for="${ids.speechVoiceVolume}">对话朗读音量</label>
-            <div class="biliscript-slider-control">
-              <input id="${ids.speechVoiceVolume}" type="range" class="biliscript-range-input" min="0" max="100" step="1" value="100" style="--range-progress: 100%;" />
-              <span id="${ids.speechVoiceVolumeValue}" class="biliscript-slider-badge">100%</span>
-              <button id="${ids.speechVoiceVolumeResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认对话朗读音量 (100%)" aria-label="恢复默认对话朗读音量">${READING_RESET_ICON}</button>
-            </div>
-          </div>
+        <div class="biliscript-set-card">${buildSettingsChatDisplayRowHtml("chatLineHeight", {
+          inputId: ids.chatLineHeight,
+          valueId: ids.chatLineHeightValue,
+          resetBtnId: ids.chatLineHeightResetBtn
+        })}${buildSettingsChatDisplayRowHtml("chatParagraphSpacing", {
+          inputId: ids.chatParagraphSpacing,
+          valueId: ids.chatParagraphSpacingValue,
+          resetBtnId: ids.chatParagraphSpacingResetBtn
+        })}${buildSettingsChatDisplayRowHtml("speechVoiceVolume", {
+          inputId: ids.speechVoiceVolume,
+          valueId: ids.speechVoiceVolumeValue,
+          resetBtnId: ids.speechVoiceVolumeResetBtn
+        })}
         </div>
       </section>
     </div>

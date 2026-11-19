@@ -29,6 +29,7 @@ export interface ChatSpeechEngine {
   getVoices(): Promise<ChatSpeechVoice[]>;
   speak(text: string, options: ChatSpeechSpeakOptions): void | Promise<void>;
   stop(): void;
+  dispose?(): void;
 }
 
 export interface CreateChatSpeechControllerDeps {
@@ -52,7 +53,7 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
   }>();
   const eventListeners = new Map<number, ((event: ChatSpeechEvent) => void) | undefined>();
 
-  function resetPort(reason: string, shouldDisconnect = false): void {
+  function resetPort(reason: string, shouldDisconnect = false, notifyListeners = true): void {
     const active = port;
     if (!active) {
       return;
@@ -68,19 +69,37 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
     voiceRequests.clear();
     const listeners = Array.from(eventListeners.values());
     eventListeners.clear();
-    listeners.forEach((listener) => listener?.({ type: "error", errorMessage: error.message }));
+    if (notifyListeners) {
+      listeners.forEach((listener) => listener?.({ type: "error", errorMessage: error.message }));
+    }
   }
 
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("pagehide", () => {
-      resetPort("Speech port disconnected", true);
-    });
+  const onPageHide = (): void => {
+    resetPort("Speech port disconnected", true);
+  };
+  let pageHideBound = false;
+
+  function ensurePageHideListener(): void {
+    if (pageHideBound || typeof window === "undefined" || typeof window.addEventListener !== "function") {
+      return;
+    }
+    window.addEventListener("pagehide", onPageHide);
+    pageHideBound = true;
+  }
+
+  function removePageHideListener(): void {
+    if (!pageHideBound || typeof window === "undefined" || typeof window.removeEventListener !== "function") {
+      return;
+    }
+    window.removeEventListener("pagehide", onPageHide);
+    pageHideBound = false;
   }
 
   function ensurePort(): chrome.runtime.Port {
     if (port) {
       return port;
     }
+    ensurePageHideListener();
     const connected = chrome.runtime.connect({ name: CHAT_SPEECH_PORT_NAME });
     port = connected;
     connected.onMessage.addListener((value: unknown) => {
@@ -152,6 +171,10 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
       try {
         port.postMessage({ type: "stop" } satisfies ChatSpeechRequest);
       } catch {}
+    },
+    dispose: () => {
+      removePageHideListener();
+      resetPort("Speech engine disposed", true, false);
     }
   };
 }
@@ -163,6 +186,7 @@ export function createWebSpeechEngine(
   // 保持当前活动 utterance 引用，防止未触发 onend 前被 GC 提前回收
   let activeUtterance: SpeechSynthesisUtterance | null = null;
   let cachedNativeVoices: SpeechSynthesisVoice[] = [];
+  const pendingVoiceWaiters = new Set<() => void>();
 
   function stop(): void {
     activeUtterance = null;
@@ -171,8 +195,22 @@ export function createWebSpeechEngine(
     } catch {}
   }
 
+  let pageHideBound = false;
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("pagehide", stop);
+    pageHideBound = true;
+  }
+
+  function dispose(): void {
+    if (pageHideBound && typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("pagehide", stop);
+      pageHideBound = false;
+    }
+    for (const finishWaiter of [...pendingVoiceWaiters]) {
+      finishWaiter();
+    }
+    pendingVoiceWaiters.clear();
+    stop();
   }
 
   function mapVoices(list: SpeechSynthesisVoice[]): ChatSpeechVoice[] {
@@ -201,6 +239,7 @@ export function createWebSpeechEngine(
             return;
           }
           settled = true;
+          pendingVoiceWaiters.delete(finish);
           if (timer !== undefined) {
             clearTimeout(timer);
           }
@@ -208,6 +247,7 @@ export function createWebSpeechEngine(
           const voices = synth.getVoices();
           resolve(mapVoices(Array.isArray(voices) ? voices : []));
         };
+        pendingVoiceWaiters.add(finish);
         timer = setTimeout(finish, 800);
         if (typeof synth.addEventListener === "function") {
           synth.addEventListener("voiceschanged", finish, { once: true });
@@ -292,65 +332,72 @@ export function createWebSpeechEngine(
         }
       }
     },
-    stop
+    stop,
+    dispose
   };
 }
 
 export interface DefaultSpeechEngineDeps {
   chromeEngine?: ChatSpeechEngine;
+  createChromeEngine?: () => ChatSpeechEngine;
   createWebEngine?: () => ChatSpeechEngine;
 }
 
 /**
  * 组合语音引擎：默认通过后台端口使用 `chrome.tts`，当后台返回 `TTS_UNSUPPORTED`
- * 或缺少端口连接能力时无缝切换并缓存 `createWebSpeechEngine()`。
+ * 或缺少端口连接能力时释放主端口适配器并无缝切换缓存的 `createWebSpeechEngine()`。
  */
 export function createDefaultSpeechEngine(deps: DefaultSpeechEngineDeps = {}): ChatSpeechEngine {
-  const chromeEngine = deps.chromeEngine ?? createChromeSpeechEngine();
+  const createChromeEngine = deps.createChromeEngine ?? (() => createChromeSpeechEngine());
   const createWebEngine = deps.createWebEngine ?? (() => createWebSpeechEngine());
+  let primaryEngine: ChatSpeechEngine | null = deps.chromeEngine ?? null;
   let fallbackWebEngine: ChatSpeechEngine | null = null;
   let useWebFallback = false;
 
-  const getWebEngine = (): ChatSpeechEngine => (fallbackWebEngine ??= createWebEngine());
   const canConnectPort = (): boolean => (
     Boolean(deps.chromeEngine)
     || (typeof chrome !== "undefined" && typeof chrome.runtime?.connect === "function")
   );
+  const getPrimaryEngine = (): ChatSpeechEngine => (primaryEngine ??= createChromeEngine());
   const isUnsupportedError = (message: string): boolean => message.includes(TTS_UNSUPPORTED_ERROR);
+
+  function activateWebFallback(): ChatSpeechEngine {
+    if (!useWebFallback) {
+      useWebFallback = true;
+      if (primaryEngine) {
+        const previous = primaryEngine;
+        primaryEngine = null;
+        try {
+          previous.dispose?.();
+        } catch {}
+      }
+    }
+    return (fallbackWebEngine ??= createWebEngine());
+  }
 
   return {
     async getVoices(): Promise<ChatSpeechVoice[]> {
-      if (useWebFallback) {
-        return getWebEngine().getVoices();
-      }
-      if (!canConnectPort()) {
-        useWebFallback = true;
-        return getWebEngine().getVoices();
+      if (useWebFallback || !canConnectPort()) {
+        return activateWebFallback().getVoices();
       }
       try {
-        return await chromeEngine.getVoices();
+        return await getPrimaryEngine().getVoices();
       } catch (error) {
         if (error instanceof Error && isUnsupportedError(error.message)) {
-          useWebFallback = true;
-          return getWebEngine().getVoices();
+          return activateWebFallback().getVoices();
         }
         throw error;
       }
     },
     speak(text: string, options: ChatSpeechSpeakOptions): void | Promise<void> {
-      if (useWebFallback) {
-        return getWebEngine().speak(text, options);
+      if (useWebFallback || !canConnectPort()) {
+        return activateWebFallback().speak(text, options);
       }
-      if (!canConnectPort()) {
-        useWebFallback = true;
-        return getWebEngine().speak(text, options);
-      }
-      return chromeEngine.speak(text, {
+      return getPrimaryEngine().speak(text, {
         ...options,
         onEvent: (event) => {
           if (!useWebFallback && event.type === "error" && isUnsupportedError(String(event.errorMessage || ""))) {
-            useWebFallback = true;
-            void getWebEngine().speak(text, options);
+            void activateWebFallback().speak(text, options);
             return;
           }
           options.onEvent?.(event);
@@ -361,8 +408,20 @@ export function createDefaultSpeechEngine(deps: DefaultSpeechEngineDeps = {}): C
       if (useWebFallback) {
         fallbackWebEngine?.stop();
       } else {
-        chromeEngine.stop();
+        primaryEngine?.stop();
       }
+    },
+    dispose(): void {
+      const primary = primaryEngine;
+      const fallback = fallbackWebEngine;
+      primaryEngine = null;
+      fallbackWebEngine = null;
+      try {
+        primary?.dispose?.();
+      } catch {}
+      try {
+        fallback?.dispose?.();
+      } catch {}
     }
   };
 }

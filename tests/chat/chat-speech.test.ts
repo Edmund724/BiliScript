@@ -641,17 +641,26 @@ describe("Web Speech 引擎与自适应回退", () => {
 
     window.dispatchEvent(new Event("pagehide"));
     expect(fake.synth.cancel).toHaveBeenCalledTimes(6);
+
+    // dispose() 立即停止并解绑 pagehide 监听，后续 pagehide 不再触发 cancel
+    engine.dispose?.();
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(7);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(7);
   });
 
-  it("后台返回 TTS_UNSUPPORTED 时自动切换并缓存 Web Speech 引擎；无 speechSynthesis 时走原有失败提示", async () => {
+  it("后台返回 TTS_UNSUPPORTED 时断开主端口并切换缓存 Web Speech 引擎；无 speechSynthesis 时走原有失败提示", async () => {
     const fake = createFakeSynth([nativeVoice("Firefox Voice", "zh-CN", true)]);
+    const disconnectSpies: Array<ReturnType<typeof vi.fn>> = [];
     const connectSpy = vi.fn(() => {
       const clientMessageListeners: Array<(msg: unknown) => void> = [];
       const bgMessageListeners: Array<(msg: unknown) => void> = [];
+      const disconnectSpy = vi.fn();
+      disconnectSpies.push(disconnectSpy);
       const clientPort = {
         name: CHAT_SPEECH_PORT_NAME,
         postMessage: vi.fn((msg: unknown) => bgMessageListeners.forEach((fn) => fn(msg))),
-        disconnect: vi.fn(),
+        disconnect: disconnectSpy,
         onMessage: { addListener: (fn: (msg: unknown) => void) => clientMessageListeners.push(fn) },
         onDisconnect: { addListener: vi.fn() }
       } as unknown as chrome.runtime.Port;
@@ -681,6 +690,8 @@ describe("Web Speech 引擎与自适应回退", () => {
     await controller.toggle(button, "Firefox 朗读测试");
     await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(1));
     expect(connectSpy).toHaveBeenCalledTimes(1);
+    // 切换至 Web Speech 回退时必须立即断开后台端口，避免阻止 Firefox Event Page 休眠
+    expect(disconnectSpies[0]).toHaveBeenCalledTimes(1);
 
     const utterance = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
     expect(utterance.voice).toMatchObject({ name: "Firefox Voice" });
@@ -691,6 +702,10 @@ describe("Web Speech 引擎与自适应回退", () => {
     await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(2));
     expect(connectSpy).toHaveBeenCalledTimes(1);
     controller.stop();
+    engine.dispose?.();
+    const cancelCountAfterDispose = (fake.synth.cancel as ReturnType<typeof vi.fn>).mock.calls.length;
+    window.dispatchEvent(new Event("pagehide"));
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(cancelCountAfterDispose);
 
     // 确认后台直接收到 TTS_UNSUPPORTED 错误码后，若当前环境同样缺少 speechSynthesis 则走原有失败提示
     vi.stubGlobal("speechSynthesis", undefined);
@@ -705,7 +720,61 @@ describe("Web Speech 引擎与自适应回退", () => {
     await noSpeechController.toggle(noSpeechBtn, "无语音测试");
 
     expect(TTS_UNSUPPORTED_ERROR).toBe("TTS_UNSUPPORTED");
+    expect(disconnectSpies[1]).toHaveBeenCalledTimes(1);
     expect(fallbackError).toHaveBeenCalledWith("当前设备未找到可用朗读语音");
     expect(noSpeechBtn.getAttribute("aria-label")).toBe("朗读回答");
+    noSpeechEngine.dispose?.();
+  });
+
+  it("缺少 runtime.connect 时不惰性构建 chrome 适配器，直接走 Web Speech 且可完整释放", async () => {
+    const createChromeEngine = vi.fn();
+    const webDispose = vi.fn();
+    const webEngine: ChatSpeechEngine = {
+      getVoices: vi.fn(async () => [localVoice("Web ZH", "zh-CN")]),
+      speak: vi.fn(),
+      stop: vi.fn(),
+      dispose: webDispose
+    };
+    vi.stubGlobal("chrome", undefined);
+
+    const engine = createDefaultSpeechEngine({
+      createChromeEngine,
+      createWebEngine: () => webEngine
+    });
+
+    await expect(engine.getVoices()).resolves.toEqual([localVoice("Web ZH", "zh-CN")]);
+    expect(createChromeEngine).not.toHaveBeenCalled();
+
+    engine.dispose?.();
+    expect(webDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("speak 路径收到 TTS_UNSUPPORTED 时同样释放主适配器并切换 Web Speech", () => {
+    const chromeDispose = vi.fn();
+    const chromeEngine: ChatSpeechEngine = {
+      getVoices: vi.fn(async () => []),
+      speak: vi.fn((_text, options) => {
+        options.onEvent?.({ type: "error", errorMessage: TTS_UNSUPPORTED_ERROR });
+      }),
+      stop: vi.fn(),
+      dispose: chromeDispose
+    };
+    const webSpeak = vi.fn();
+    const webEngine: ChatSpeechEngine = {
+      getVoices: vi.fn(async () => []),
+      speak: webSpeak,
+      stop: vi.fn()
+    };
+
+    const engine = createDefaultSpeechEngine({
+      chromeEngine,
+      createWebEngine: () => webEngine
+    });
+
+    engine.speak("切换测试", { lang: "zh-CN" });
+
+    expect(chromeDispose).toHaveBeenCalledTimes(1);
+    expect(webSpeak).toHaveBeenCalledTimes(1);
+    expect(webSpeak).toHaveBeenCalledWith("切换测试", { lang: "zh-CN" });
   });
 });
