@@ -1,4 +1,5 @@
-// Service-worker host for the shared offscreen document and Bilibili media DNR session rules.
+// Background host for the shared offscreen document (Chrome offscreen API / Firefox Event Page iframe)
+// and Bilibili media DNR session rules.
 
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
@@ -15,6 +16,7 @@ export const INDEX_TRANSLATE_DOMAIN = "index-translate.bilibili.com" as const;
 export const INDEX_TRANSLATE_ORIGIN_HEADER = "https://index-translate.bilibili.com" as const;
 export const INDEX_TRANSLATE_USER_AGENT_VALUE = "Index-Translate-Client/1.0" as const;
 
+export const OFFSCREEN_IFRAME_ID = "biliscript-offscreen-iframe";
 export const OFFSCREEN_SENDER_REJECTION_MESSAGE = ASR_OFFSCREEN_REJECTION_MESSAGE;
 
 export type BiliMediaSessionRuleKind = "audio-xhr" | "video-media";
@@ -30,6 +32,36 @@ type ServiceWorkerScopeLike = {
 };
 
 const sessionRuleManager = createAsrSessionRuleManager();
+
+let inflightIframePromise: Promise<boolean> | null = null;
+let cancelInflightIframe: ((reason: Error) => void) | null = null;
+
+function hasNativeOffscreenCreate(): boolean {
+  return typeof chrome !== "undefined" && typeof chrome.offscreen?.createDocument === "function";
+}
+
+function hasNativeOffscreenClose(): boolean {
+  return typeof chrome !== "undefined" && typeof chrome.offscreen?.closeDocument === "function";
+}
+
+function hasDomBody(): boolean {
+  return typeof document !== "undefined" && Boolean(document.body);
+}
+
+function getExistingOffscreenIframe(): HTMLIFrameElement | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const node = document.getElementById(OFFSCREEN_IFRAME_ID);
+  if (typeof HTMLIFrameElement !== "undefined" && node instanceof HTMLIFrameElement) {
+    return node;
+  }
+  return null;
+}
+
+function isLiveOffscreenIframe(iframe: HTMLIFrameElement | null): iframe is HTMLIFrameElement {
+  return iframe !== null && iframe.contentWindow !== null;
+}
 
 async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
   if (typeof chrome.runtime?.getContexts === "function") {
@@ -55,9 +87,87 @@ async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
   return false;
 }
 
-/** Ensures the shared offscreen document exists, creating it with BLOBS reason when absent. */
+function ensureOffscreenIframe(url: string): Promise<boolean> {
+  if (inflightIframePromise) {
+    return inflightIframePromise;
+  }
+  if (isLiveOffscreenIframe(getExistingOffscreenIframe())) {
+    return Promise.resolve(true);
+  }
+  // Remove any stale iframe (contentWindow === null) or colliding node before mounting a fresh one.
+  document.getElementById(OFFSCREEN_IFRAME_ID)?.remove();
+
+  inflightIframePromise = new Promise<boolean>((resolve, reject) => {
+    const iframe = document.createElement("iframe");
+    iframe.id = OFFSCREEN_IFRAME_ID;
+    iframe.hidden = true;
+    iframe.style.display = "none";
+
+    let settled = false;
+    const clearInflight = () => {
+      iframe.removeEventListener("load", onLoad);
+      iframe.removeEventListener("error", onError);
+      if (cancelInflightIframe === onCancel) {
+        cancelInflightIframe = null;
+      }
+      inflightIframePromise = null;
+    };
+    const onLoad = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearInflight();
+      resolve(true);
+    };
+    const onError = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearInflight();
+      iframe.remove();
+      const error = new Error(`Failed to load offscreen iframe: ${url}`);
+      logWarn("[BILISCRIPT] ensureOffscreenDocument iframe load failed", {
+        error: error.message
+      });
+      reject(error);
+    };
+    const onCancel = (reason: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearInflight();
+      reject(reason);
+    };
+
+    cancelInflightIframe = onCancel;
+    iframe.addEventListener("load", onLoad);
+    iframe.addEventListener("error", onError);
+    try {
+      iframe.src = url;
+      document.body.appendChild(iframe);
+    } catch (error) {
+      settled = true;
+      clearInflight();
+      iframe.remove();
+      reject(error);
+    }
+  });
+
+  return inflightIframePromise;
+}
+
+/** Ensures the shared offscreen document exists, creating it when absent. */
 export async function ensureOffscreenDocument(): Promise<boolean> {
   const url = chrome.runtime.getURL(OFFSCREEN_URL);
+  if (!hasNativeOffscreenCreate()) {
+    if (hasDomBody()) {
+      return ensureOffscreenIframe(url);
+    }
+    throw new Error("Offscreen document host is unavailable in this environment.");
+  }
   if (await hasExistingOffscreenDocument(url)) {
     return true;
   }
@@ -79,9 +189,20 @@ export async function ensureOffscreenDocument(): Promise<boolean> {
   }
 }
 
-/** Closes the shared offscreen document via the service worker API. */
+/** Closes the shared offscreen document via the service worker API or Event Page iframe teardown. */
 export async function closeOffscreenDocument(): Promise<void> {
-  await chrome.offscreen.closeDocument();
+  if (hasNativeOffscreenClose()) {
+    await chrome.offscreen.closeDocument();
+    return;
+  }
+  if (cancelInflightIframe) {
+    cancelInflightIframe(new Error("Offscreen iframe closed before load completed."));
+  }
+  const existing = getExistingOffscreenIframe();
+  if (existing) {
+    existing.src = "about:blank";
+    existing.remove();
+  }
 }
 
 /** Returns true only when the runtime message sender is the offscreen document itself. */
