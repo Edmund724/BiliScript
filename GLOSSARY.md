@@ -8,7 +8,7 @@ BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码�
 
 **实时伴看**:
 在观看视频过程中，与 AI 语音助手建立低延迟双工交互，共同理解视频画面与声音，提供随看随聊的伴随式对话体验。视频页由播放器内伴看浮窗主承载（全屏与非全屏共用），会话独立于文摘面板生命周期（关闭面板不销毁伴看）；入口在播放器控制栏与对话面板空态发送键，启动时中止在途面板文本流；对话面板打开时展示伴看状态条，并将文本模型委派记录保存为独立只读「伴看记录」历史条目。ADR-0026。
-代码名：`live/live-companion-session.ts` / `live/live-overlay-binding.ts` / `reader/chat-live-status.ts` / `reader/chat-live-text-records.ts`
+代码名：`live/live-companion-session.ts` / `live/live-overlay-binding.ts` / `live/player-live-toggle.ts` / `live/player-notice.ts` / `reader/chat-live-status.ts` / `reader/chat-live-text-records.ts`
 _Avoid_: 语音对话、实时通话、把伴看说成与主播或弹幕的互动
 
 **伴看浮窗**:
@@ -18,7 +18,7 @@ _Avoid_: 伴看面板、全屏浮窗（不再限于全屏）
 
 **实时字幕翻译**:
 播放器内承载的双语/译文字幕叠层与控制菜单：无原生 CC 轨时基于播放游标滑动窗口调度 ASR 音频切片转写与 LLM 逐句翻译；已有跨语种原生多轨时默认零 Token 直接时间交集配对两条原生轨（支持手动切至 AI 精翻或基于原版人工外语轨 AI 精翻）；单语种原生轨（含繁简同族多轨）按需流式翻译且严格过滤同语种族目标语言。有原生 CC 时播放器控制栏按钮以「双语」与原生「字幕」区分，未主动开启会话时不发起任何请求、不接管原生字幕层；仅在叠层会话激活时无损隐藏原生字幕 DOM，关闭即恢复。上下行顺序与文摘面板及导出共用 `bilingualDisplayOrder`。
-代码名：`live/interpret-session-controller.ts` / `live/player-interpret.ts` / `liveInterpretTargetLang` / `liveInterpretDisplayMode` / `bilingualDisplayOrder` / `syncNativePlayerSubtitleTakeover`
+代码名：`live/interpret-session-controller.ts` / `live/player-interpret.ts` / `live/player-notice.ts` / `asr/asr-setup.ts`（`loadAsrProviderList` / `resolveActiveAsrRuntimeState`）/ `liveInterpretTargetLang` / `liveInterpretDisplayMode` / `bilingualDisplayOrder` / `syncNativePlayerSubtitleTakeover`
 _Avoid_: 同声传译、同传；把译文写入 `clip.subtitles` 或把原生 CC 主轨篡改为 `asr` 伪轨
 
 **直播间伴看**:
@@ -50,7 +50,7 @@ _Avoid_: Part、页、集数
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
 同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目，上下行语序由 `bilingualDisplayOrder`（`original-first` 主轨/原文在上、`translation-first` 副轨/译文在上）统一控制文摘面板、播放器叠层与 TXT/Markdown/SRT 导出。轨道按性质分为原生人工轨（`manual-cc`）、B 站机器轨（`bili-ai`，混源列表显式标 `（B 站 AI）`，紧凑 trigger 保持裸语言名）与本扩展转写伪轨（`asr`）；语种族经 `getLangFamily` 归一（如繁简及 `ai-zh`/`asr-zh` 同属 `"zh"` 族）。跨语种原生多轨默认零 Token 配对两条原生真轨，并支持手动切至「改用 AI 重新精翻」或混源场景下的「基于原版外语轨 AI 精翻」；单语种视频（单条 CC、纯繁简同族多轨）与 ASR 伪轨视频开启双语时进入 AI 译文副轨模式，目标语言经 `resolveTargetLang` 自动剔除与源轨同语种族的选项（源轨属 `"zh"` 族时默认切为英语）。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `ReadingSubtitleItem` / `clip.secondarySubtitle` / `bilingualSubtitles` / `secondarySubtitleLang` / `bilingualDisplayOrder` / `getLangFamily` / `classifySubtitleTrack` / `resolveTargetLang` / `findTrackByPreferredLang` / `secondaryContentFor` / `reader/asr-translation.js` / `subtitle/asr-translation.js` / `reader/secondary-subtitle.js` / `subtitle/body.js`
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitle/signature.ts`（`normalizeSubtitleItems` / `buildSubtitleSignature` / `buildSubtitleCandidates`）/ `subtitleLang` / `subtitleList` / `ReadingSubtitleItem` / `clip.secondarySubtitle` / `bilingualSubtitles` / `secondarySubtitleLang` / `bilingualDisplayOrder` / `getLangFamily` / `classifySubtitleTrack` / `resolveTargetLang` / `findTrackByPreferredLang` / `secondaryContentFor` / `reader/asr-translation.js` / `subtitle/asr-translation.js` / `reader/secondary-subtitle.js` / `subtitle/body.js`
 _Avoid_: 转录、transcript、把同语种族繁简轨配成假双语、同语种族自翻译（如 `zh -> zh`）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:
@@ -78,7 +78,7 @@ _Avoid_: 长记忆、向量库
 一条字幕轨在缓存键里的身份，封闭判别联合六态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）/ `translated`（ASR 伪轨译文：`targetLang`）/ `track-translated`（特定原生源轨的 AI 精翻译文：`sourceKey` + 规范目标语言，产出 `${sourceKey}_translate-<lang>`，与原生轨及 ASR 译文键严格隔离）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>` / `id_translate-<lang>` / `<sourceKey>_translate-<lang>`）。
 「这是不是 ASR 变体键 / 译文变体键」的判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨与译文副轨的组键侧和识别/清理侧（孤儿清理 / `clearTranslatedSubtitleCache`）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
 与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 与译文侧显式传 `asr` / `translated` 身份（不再手拼字符串）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
-代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX` / `translatedTrackId` + `isTranslatedVariantSourceKey` + `TRANSLATED_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿/译文清理前缀由此派生、`persistAsrSubtitleToCache`）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`、`subtitle/asr-translation.js`（组键显式传 `asr` / `translated` 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
+代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX` / `translatedTrackId` + `isTranslatedVariantSourceKey` + `TRANSLATED_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿/译文清理前缀由此派生、`persistAsrSubtitleToCache`）/ `subtitle/signature.ts`（`normalizeSubtitleItems` / `buildSubtitleSignature` / `buildSubtitleCandidates`）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`、`subtitle/asr-translation.js`（组键显式传 `asr` / `translated` 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
 _Avoid_: 把身份写成三个散字段、在调用点手拼 `asr:<provider>:<model>:<lang>` 再去走 id 分支、另写一处 `id_asr:` 前缀、复制第二份 URL 归一（削 query 那份住在 `bilibili/native-payload.js`）
 
 **缓存宿主**:
@@ -124,12 +124,12 @@ _Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 
 **文摘排版**:
 文摘面板的阅读排版设置项：字体大小缩放位于设置抽屉「阅读器与播放器」子页，全局作用于三大标签页内容文本（字幕、概览、AI 对话）与设置抽屉内容文字；对话行高与对话段落间距同时位于「AI 对话与快捷动作」子页的「阅读与朗读」子组和「AI 对话」标签页的更多操作二级菜单中，仅作用于「AI 对话」消息区，更多操作菜单中的「更多显示设置」直达该子组。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键；设置抽屉总览底部的「恢复默认偏好」也覆盖这三项。
-代码名：`readerFontSizeScale` / `chatLineHeight` / `chatParagraphSpacing` / `--biliscript-reader-font-scale` / `--biliscript-chat-line-height` / `--biliscript-chat-paragraph-spacing`
+代码名：`reader/chat-display-settings.ts`（`CHAT_DISPLAY_SLIDER_SPECS` / `applyChatDisplaySettings` / `persistChatDisplaySettings` / `watchChatDisplaySettings` / `bindChatDisplaySliders`）/ `readerFontSizeScale` / `chatLineHeight` / `chatParagraphSpacing` / `--biliscript-reader-font-scale` / `--biliscript-chat-line-height` / `--biliscript-chat-paragraph-spacing`
 _Avoid_: 把字体缩放扩展到外壳固定骨架（如面板顶部 Header、底部状态栏）、用总开关包裹排版滑块
 
 **对话朗读与伴看音频**:
 对话朗读音量（`speechVoiceVolume`，默认 100%）同时位于设置抽屉「AI 对话与快捷动作 · 阅读与朗读」和「AI 对话」标签页更多操作菜单；伴看音量（`liveVoiceVolume`，默认 100%）、伴看语速（`liveVoiceSpeed`，默认 1×）、分享视频声音（`liveShareVideoAudio`，默认关）与语音优先（`liveVoicePriority`，默认开）同时位于设置抽屉「实时伴看」子页的「伴看语音与混音」分组和伴看浮窗音频弹层。两处读写同一设置键，伴看会话与浮窗经 live 域叶子同步应用同页及跨标签页变更；滑块即时预览、提交时落盘，开关立即落盘。三个音量/语速滑块各配 ↻ 单项重置，「恢复默认偏好」覆盖这里的五项音频偏好及两项对话排版偏好；`readerTheme` 仍随全局偏好重置，`liveLowBandwidth` 等平台与采集配置不参与。
-代码名：`live/live-audio-settings.ts` / `applyLiveAudioSettings` / `persistLiveAudioSettings` / `watchLiveAudioSettings` / `speechVoiceVolume` / `liveVoiceVolume` / `liveVoiceSpeed` / `liveShareVideoAudio` / `liveVoicePriority`
+代码名：`reader/chat-display-settings.ts`（`CHAT_DISPLAY_SLIDER_SPECS` / `applyChatDisplaySettings` / `persistChatDisplaySettings` / `watchChatDisplaySettings` / `bindChatDisplaySliders`）/ `live/live-audio-settings.ts` / `applyLiveAudioSettings` / `persistLiveAudioSettings` / `watchLiveAudioSettings` / `speechVoiceVolume` / `liveVoiceVolume` / `liveVoiceSpeed` / `liveShareVideoAudio` / `liveVoicePriority`
 _Avoid_: 把对话朗读音量与伴看音量混称、为浮窗或抽屉另建会话级音频偏好副本、给两个音频开关增加常驻次级说明
 
 ### 面板控件
