@@ -200,8 +200,8 @@ describe("request-provider-origins：无端口 pattern 与 Firefox 授权回退"
       focused: boolean;
     };
     expect(createArgs.type).toBe("popup");
-    expect(createArgs.width).toBe(440);
-    expect(createArgs.height).toBe(260);
+    expect(createArgs.width).toBe(460);
+    expect(createArgs.height).toBe(360);
     expect(createArgs.focused).toBe(true);
     expect(createArgs.url).toContain("moz-extension://ext-test-uuid/entry/permission-grant.html?");
 
@@ -367,11 +367,15 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
     const allowBtn = document.getElementById("permissionGrantAllowBtn") as HTMLButtonElement;
     allowBtn.click();
 
-    // 同步手势内直调 chrome.permissions.request
+    // 同步手势内直调 chrome.permissions.request，且立即展示等待确认提示
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(requestMock).toHaveBeenCalledWith({
       origins: ["http://localhost/*", "https://api.example.com/*"]
     });
+    expect(allowBtn.textContent).toBe("等待浏览器确认…");
+    const statusEl = document.getElementById("permissionGrantStatus") as HTMLElement;
+    expect(statusEl.hidden).toBe(false);
+    expect(statusEl.textContent).toContain("请在浏览器弹出的权限提示中点击允许");
 
     await vi.waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1));
     expect(sendMessageMock).toHaveBeenCalledWith(
@@ -415,5 +419,33 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
       }),
       expect.any(Function)
     );
+  });
+
+  it("包含品牌标识、favicon、授权原因说明，并跟随扩展 readerTheme / readerPalette 配色", async () => {
+    installPermissionGrantDom(PERMISSION_GRANT_HTML);
+    expect(document.title).toContain("BiliScript");
+    expect(document.querySelector('link[rel="icon"]')?.getAttribute("href")).toBe("../icons/icon32.png");
+    expect(document.querySelector(".grant-brand-title")?.textContent).toContain("BiliScript");
+    expect(document.querySelector(".grant-reason")?.textContent).toContain("自定义或本地域名");
+
+    const syncGet = vi.fn(async () => ({
+      readerTheme: "dark",
+      readerThemeUserSet: true,
+      readerPalette: "editorial"
+    }));
+    vi.stubGlobal("chrome", {
+      permissions: { request: vi.fn(async () => true) },
+      runtime: { sendMessage: vi.fn(), lastError: null },
+      storage: { sync: { get: syncGet } }
+    });
+
+    const { initPermissionGrantPage } = await import("../../extension/entry/permission-grant.js");
+    initPermissionGrantPage(`?reqId=req-3&origins=${encodeURIComponent(JSON.stringify(["http://localhost/*"]))}`);
+
+    await vi.waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+      expect(document.documentElement.getAttribute("data-palette")).toBe("editorial");
+    });
+    expect(document.documentElement.getAttribute("data-biliscript-onboarding")).toBe("1");
   });
 });

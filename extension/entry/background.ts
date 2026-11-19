@@ -324,8 +324,8 @@ function requestPermissionViaPopup(
         windowsApi.create({
           url,
           type: "popup",
-          width: 440,
-          height: 260,
+          width: 460,
+          height: 360,
           focused: true
         })
       ).then(
