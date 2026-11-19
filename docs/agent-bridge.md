@@ -4,7 +4,7 @@ BiliScript 支持通过本机 WebSocket 桥接，供 Kimi Code、DeepSeek Harnes
 
 ## 前置要求
 
-- 已在 Chrome / Edge 120+ 安装 BiliScript 扩展。
+- 已在 Chrome / Edge 120+ 或桌面端 Firefox 140+ 安装 BiliScript 扩展。
 - 宿主机已安装 **Node.js 22.20+**。
 - Bridge 必须与浏览器运行在同一宿主机环境中（非容器、非沙箱、非 WSL）；若编程 Agent 运行在隔离沙箱内，需由用户在本机终端执行安装命令。
 

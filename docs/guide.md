@@ -66,9 +66,11 @@
 2. API Base URL、API Key 与模型名称是否正确且网络可达；
 3. 若第三方平台未实现 `/v1/models` 接口，直接在模型框手动输入模型名称即可。
 
-### 为什么只支持 Chrome / Edge，不支持 Firefox？
+### 支持哪些浏览器？
 
-音频解码、流式转写与实时伴看 WebSocket 依赖 `offscreen` 等 Chromium 专属扩展 API，需 Chrome / Edge 120 及以上版本。
+支持 **Chrome / Edge 120 及以上** 与 **桌面端 Firefox 140 及以上**（不支持移动端 Firefox）。
+
+Firefox 版支持核心文摘阅读、双轨翻译、概览、AI 对话、金句导出、本地 Agent 桥接与无字幕语音转写；语音朗读与实时音画伴看目前仅在 Chromium 浏览器提供。
 
 ### 开启代理软件时，语音转写提示「音轨下载或解码失败」怎么办？
 
