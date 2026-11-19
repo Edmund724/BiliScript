@@ -9,12 +9,15 @@ git clone https://github.com/Edmund724/BiliScript.git
 cd BiliScript
 pnpm install
 
-pnpm run dev            # 监听模式，修改源码持续重建到 dist/
-pnpm run build          # 单次构建到 dist/（含 sourcemap）
-pnpm run build:release  # 生成发布压缩包到 release/（不含 sourcemap）
+pnpm run dev            # 监听模式，修改源码持续重建 Chromium 产物到 dist/
+pnpm run build          # 单次构建 Chromium 产物到 dist/（含 sourcemap）
+pnpm build:firefox      # 单次构建桌面端 Firefox 153+ 产物到 dist-firefox/（含 sourcemap）
+pnpm run build:release  # 生成 Chromium / Firefox / Source 三份发布压缩包到 release/（不含 sourcemap）
 ```
 
-日常开发运行 `pnpm run dev`，随后打开 `chrome://extensions/` 或 `edge://extensions/`，开启「开发者模式」，点击「加载已解压的扩展程序」并选择仓库下的 `dist/` 目录即可。
+日常开发调试：
+- **Chrome / Edge**：运行 `pnpm run dev`，打开 `chrome://extensions/` 或 `edge://extensions/` 开启「开发者模式」，点击「加载已解压的扩展程序」选择 `dist/`。
+- **桌面端 Firefox 153+**：运行 `pnpm build:firefox`，打开 `about:debugging#/runtime/this-firefox`，点击「临时载入附加组件」选择 `dist-firefox/manifest.json`（AMO 审核复现构建说明见 [`BUILD_AMO.md`](../BUILD_AMO.md)）。
 
 ## 二次开发与验证
 
@@ -24,9 +27,15 @@ pnpm run build:release  # 生成发布压缩包到 release/（不含 sourcemap�
 pnpm test
 pnpm run typecheck
 pnpm run build
+pnpm build:firefox
 ```
 
-涉及真实 DOM 几何、MV3 Service Worker 生命周期、Offscreen 文档或 CSP 边界的改动，可运行真机自检套件 `pnpm harness:browser`（场景编写说明见 `scripts/browser-harness/README.md`）。
+涉及真实 DOM 几何、MV3 Service Worker 生命周期、Offscreen 文档或 CSP 边界的改动，可运行 Chromium 真机自检套件 `pnpm harness:browser`（场景编写说明见 `scripts/browser-harness/README.md`）。Firefox 构建还需额外执行静态清单校验与分叉点冒烟测试：
+
+```bash
+pnpm dlx web-ext lint -s dist-firefox
+pnpm smoke:firefox
+```
 
 > 请始终保留在扩展设置界面填写 API Key 的机制，切勿将任何私钥硬编码进源码。
 
@@ -34,9 +43,9 @@ pnpm run build
 
 ```text
 extension/
-├── manifest.json          # MV3 扩展清单
+├── manifest.json          # MV3 扩展清单（Chromium 单一事实源；Firefox 版由构建期派生）
 ├── _locales/              # 多语言文案资源
-├── entry/                 # 运行时入口（background、content、offscreen 及样式）
+├── entry/                 # 运行时入口（background、content、offscreen、onboarding、permission-grant 及样式）
 ├── agent-bridge/          # 本地 Agent WebSocket 桥接、多实例路由与视频采集
 ├── ai/                    # AI 客户端、多协议适配、长视频 L0/L1 索引与两阶段混合召回、SSE 流式解析与播放器快捷按钮
 ├── asr/                   # 语音识别（音频分片、并发转写、WAV 编码）

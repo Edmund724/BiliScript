@@ -48,7 +48,7 @@
 
 ## 实时音画伴看（多模态互动）
 
-在「设置 → 实时伴看」添加伴看平台，即可通过播放器控制栏清晰度旁的伴看按钮（或进入 B 站直播间）启动双向语音互动：
+在「设置 → 实时伴看」添加伴看平台，即可通过播放器控制栏清晰度旁的伴看按钮（或进入 B 站直播间）启动双向语音互动（该功能目前仅在 Chromium 浏览器提供）：
 
 - **MOSS Live**：填入 MOSS Live 官方 API Key（默认 Base URL `https://api.mosi.cn`，模型 `moss-live-1.0`）。
 - **Gemini Live**：支持 Google Gemini 原生多模态实时协议（如 `gemini-3.8-live`）。若已在「AI 模型平台」配置 Google Gemini，可直接一键复用凭据，并支持开启原生 Google 搜索查证。

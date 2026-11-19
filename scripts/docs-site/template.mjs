@@ -140,7 +140,7 @@ export function renderLandingBody({ siteUrl, basePath }) {
   const img = (name) => `${basePath}docs/images/${name}`;
   const unixCmd = "curl -fsSL https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.sh | sh";
   const winCmd = "irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-agent.ps1 | iex";
-  const agentPrompt = "请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome「加载已解压的扩展程序」使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 ~/Documents/biliscript，或 Windows 上的 %USERPROFILE%\\Documents\\biliscript，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/BiliScript";
+  const agentPrompt = "请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并指导我在浏览器加载扩展：Chrome / Edge 在扩展管理页开启开发者模式后「加载已解压的扩展程序」选择该文件夹；桌面端 Firefox 在 about:debugging#/runtime/this-firefox 点击「临时载入附加组件」选择该文件夹中的 manifest.json。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 ~/Documents/biliscript，或 Windows 上的 %USERPROFILE%\\Documents\\biliscript，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/BiliScript";
 
   const showcaseItems = [
     {
@@ -197,12 +197,12 @@ export function renderLandingBody({ siteUrl, basePath }) {
         <p class="hero-lead">在任意 B 站视频页右侧展开文摘面板：字幕精读与免 Key 翻译、AI 章节概览、金句分享卡、多模态问答、实时音画伴看与本地编程 Agent 桥接。</p>
         <div class="hero-actions">
           <a class="btn-primary" href="${escapeAttr(EDGE_STORE_URL)}" target="_blank" rel="noopener noreferrer">Edge 商店安装</a>
-          <a class="btn-secondary" href="${escapeAttr(RELEASES_URL)}" target="_blank" rel="noopener noreferrer">下载 Chromium 离线包</a>
+          <a class="btn-secondary" href="${escapeAttr(RELEASES_URL)}" target="_blank" rel="noopener noreferrer">下载 Releases 安装包</a>
           <a class="btn-ghost" href="${escapeAttr(DEMO_VIDEO_URL)}" target="_blank" rel="noopener noreferrer">${ICONS.play}<span>观看演示</span></a>
         </div>
         <div class="hero-notes">
           <span class="hero-note-item">${ICONS.shield}<span>无后端服务器 · 密钥与历史仅存本机</span></span>
-          <span class="hero-note-item">Chrome / Edge 120+ · 开箱即用免 Key 字幕翻译</span>
+          <span class="hero-note-item">Chrome / Edge 120+ · 桌面端 Firefox 153+ · 免 Key 字幕翻译</span>
         </div>
       </div>
 
@@ -252,7 +252,7 @@ export function renderLandingBody({ siteUrl, basePath }) {
           <div class="feature-copy">
             <span class="feature-pill">多模态深度追问</span>
             <h3 class="feature-title">长视频问答与思考调节</h3>
-            <p class="feature-text">章节路由 + BM25 混合召回、多视频页并发总结、划词解释、粘贴图片与关键帧采样；支持调节思考强度，并内置免 Key 联网搜索与语音朗读。</p>
+            <p class="feature-text">章节路由 + BM25 混合召回、多视频页并发总结、划词解释、粘贴图片与关键帧采样；支持调节思考强度，并内置免 Key 联网搜索与语音朗读（语音朗读仅 Chromium）。</p>
             <a class="feature-link" href="${escapeAttr(siteUrl("docs/guide.html"))}#联网搜索免-key-开箱即用">了解联网搜索策略 ${ICONS.arrowRight}</a>
           </div>
           <button type="button" class="feature-thumb-btn" style="--thumb-pos: bottom center" data-lightbox-src="${escapeAttr(img("demo-model-thinking.png"))}" data-lightbox-alt="BiliScript 模型与思考强度选择弹层" data-lightbox-caption="随时切换模型并调节思考深度" aria-label="查看大图：模型与思考强度调节">
@@ -264,7 +264,7 @@ export function renderLandingBody({ siteUrl, basePath }) {
           <div class="feature-copy">
             <span class="feature-pill">语音与交互扩展</span>
             <h3 class="feature-title">实时音画伴看 &amp; Agent 桥接</h3>
-            <p class="feature-text">接入 MOSS Live 与 Gemini Live 语音互动，支持语音控播与直播间伴看；也可通过本机 WebSocket 桥接，让 Claude Code、Cursor、Codex 直接读取视频字幕、热评与关键帧。</p>
+            <p class="feature-text">接入 MOSS Live 与 Gemini Live 语音互动（仅 Chromium），支持语音控播与直播间伴看；也可通过本机 WebSocket 桥接，让 Claude Code、Cursor、Codex 直接读取视频字幕、热评与关键帧。</p>
             <a class="feature-link" href="${escapeAttr(siteUrl("docs/agent-bridge.html"))}">配置本地 Agent 桥接 ${ICONS.arrowRight}</a>
           </div>
           <button type="button" class="feature-thumb-btn" style="--thumb-pos: bottom center" data-lightbox-src="${escapeAttr(img("demo-ai-chat.png"))}" data-lightbox-alt="BiliScript 多轮 AI 对话" data-lightbox-caption="连贯问答与本地能力联动" aria-label="查看大图：AI 对话界面">
@@ -284,7 +284,7 @@ export function renderLandingBody({ siteUrl, basePath }) {
         <div class="bs-card step-card">
           <span class="step-num">1 · 安装扩展</span>
           <h3 class="step-title">商店安装或加载离线包</h3>
-          <p class="step-body">Edge 用户建议从 <a href="${escapeAttr(EDGE_STORE_URL)}" target="_blank" rel="noopener noreferrer">Edge 加载项商店</a> 安装；Chrome 用户从 <a href="${escapeAttr(RELEASES_URL)}" target="_blank" rel="noopener noreferrer">Releases</a> 下载 <code>Chromium.zip</code> 解压到长期目录后，在 <code>chrome://extensions/</code> 加载已解压扩展。</p>
+          <p class="step-body">Edge 用户可从 <a href="${escapeAttr(EDGE_STORE_URL)}" target="_blank" rel="noopener noreferrer">Edge 加载项商店</a> 安装；Chrome 用户从 <a href="${escapeAttr(RELEASES_URL)}" target="_blank" rel="noopener noreferrer">Releases</a> 下载 <code>Chromium.zip</code> 解压后在 <code>chrome://extensions/</code> 加载；桌面端 Firefox（153+）待上架 AMO，现可下载 <code>Firefox.zip</code> 解压并在 <code>about:debugging#/runtime/this-firefox</code> 临时载入 <code>manifest.json</code>。</p>
           <details class="agent-prompt-details">
             <summary>让编程 Agent 引导安装</summary>
             <p id="agent-install-prompt">${escapeHtml(agentPrompt)}</p>

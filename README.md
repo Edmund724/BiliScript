@@ -14,8 +14,8 @@
 
 - **字幕与双语翻译**：逐句时间戳跳播、搜索与导出（Markdown / SRT / WebVTT / TXT），集成播放器双语字幕叠层与原生风格菜单、内置免 Key `Index-Translate` 字幕翻译、自定义 LLM 语境流式翻译与无字幕语音转写。
 - **章节概览与金句**：自动提取时间轴或生成 AI 章节摘要（长视频状态卡接力与章节索引固化），精选金句支持一键复制或导出高清分享图。
-- **多模态 AI 对话**：支持章节路由与 BM25 混合召回长视频问答、多视频页并发总结、划词解释、粘贴图片与关键帧采样，内置思考强度调节、免 Key 联网搜索和语音朗读。
-- **实时音画伴看**：接入 MOSS Live 与 Gemini Live，支持语音控制播放器（倍速 / 进度 / 音量）、视频原声压低与直播间双向音画互动。
+- **多模态 AI 对话**：支持章节路由与 BM25 混合召回长视频问答、多视频页并发总结、划词解释、粘贴图片与关键帧采样，内置思考强度调节、免 Key 联网搜索和语音朗读（语音朗读仅 Chromium）。
+- **实时音画伴看（仅 Chromium）**：接入 MOSS Live 与 Gemini Live，支持语音控制播放器（倍速 / 进度 / 音量）、视频原声压低与直播间双向音画互动。
 - **本地 Agent 桥接**：通过本机 WebSocket 供编程 Agent 读取当前视频字幕、热评与关键帧。
 
 | 字幕精读与检索 | 金句分享卡片 |
@@ -27,17 +27,18 @@
 ## 快速开始
 
 > [!NOTE]
-> **环境与隐私边界**：需 Chrome / Edge 120+（不支持 Firefox）。本项目无后端服务器，也不售卖或中转 API Key；所有请求由浏览器直连目标服务商，密钥与历史仅保存在本机（详见 [PRIVACY.md](PRIVACY.md)）。
+> **环境与隐私边界**：支持 Chrome / Edge 120+ 与桌面端 Firefox 153+（不支持移动端 Firefox；Firefox 首期暂不提供语音朗读与实时音画伴看）。本项目无后端服务器，也不售卖或中转 API Key；所有请求由浏览器直连目标服务商，密钥与历史仅保存在本机（详见 [PRIVACY.md](PRIVACY.md)）。
 
 ### 1. 安装扩展
 
 - **Edge 商店（推荐）**：从 [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) 直接安装并自动更新。
-- **离线包安装（Chrome / Edge）**：从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新 `Chromium.zip` 并解压到**长期保留**的目录，打开 `chrome://extensions/` 开启「开发者模式」，点击「加载已解压的扩展程序」选择该目录。
+- **离线包安装（Chrome / Edge）**：从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新 `Chromium.zip` 并解压到**长期保留**的目录，打开 `chrome://extensions/`（Edge 为 `edge://extensions/`）开启「开发者模式」，点击「加载已解压的扩展程序」选择该目录。
+- **Firefox 桌面端（临时加载试用）**：Firefox 版本待上架 Mozilla Add-ons（AMO）商店，现可从 [Releases](https://github.com/Edmund724/BiliScript/releases) 下载 `Firefox.zip` 并解压，打开 `about:debugging#/runtime/this-firefox` 点击「临时载入附加组件」选择解压目录中的 `manifest.json`（浏览器重启后需重新载入）。
 
 <details>
 <summary>零命令行基础？展开复制提示词，让编程 Agent 引导安装</summary>
 
-> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome「加载已解压的扩展程序」使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/biliscript`，或 Windows 上的 `%USERPROFILE%\Documents\biliscript`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/BiliScript
+> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并指导我在浏览器加载扩展：Chrome / Edge 打开扩展管理页开启「开发者模式」后「加载已解压的扩展程序」选择同一个文件夹；桌面端 Firefox 打开 `about:debugging#/runtime/this-firefox` 点击「临时载入附加组件」选择该文件夹中的 `manifest.json`。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/biliscript`，或 Windows 上的 `%USERPROFILE%\Documents\biliscript`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/BiliScript
 
 安装后请勿移动或删除该文件夹，且**不要把 API Key 发送给 Agent**，由你本人在扩展设置页粘贴。
 
@@ -65,7 +66,9 @@ irm https://raw.githubusercontent.com/Edmund724/BiliScript/main/scripts/install-
 
 ```bash
 git clone https://github.com/Edmund724/BiliScript.git && cd BiliScript
-pnpm install && pnpm run dev   # 监听构建到 dist/，在浏览器扩展管理页加载 dist/ 调试
+pnpm install
+pnpm run dev          # 监听构建 Chromium 产物到 dist/，在扩展管理页加载 dist/ 调试
+pnpm build:firefox    # 构建桌面端 Firefox 153+ 产物到 dist-firefox/
 ```
 
 编程 Agent 参与开发请遵循 [`AGENTS.md`](AGENTS.md)。
@@ -79,7 +82,7 @@ pnpm install && pnpm run dev   # 监听构建到 dist/，在浏览器扩展管�
 | [配置与排障指南](docs/guide.md) | 支持平台清单与 ASR 模型对比，联网搜索、实时伴看配置及常见问题（FAQ） |
 | [本地 Agent 桥接指南](docs/agent-bridge.md) | WebSocket 桥接机制、多实例路由与其他 Agent 目录接入及卸载清理 |
 | [开发与架构指南](docs/development.md) | 构建与校验命令、`extension/` 模块结构、评测基准与 [ADR 索引](docs/adr/README.md) |
-| [隐私政策](PRIVACY.md) | Chrome 权限逐项说明、数据流向与本地存储隔离策略 |
+| [隐私政策](PRIVACY.md) | 扩展权限逐项说明（含 Chromium / Firefox 差异）、数据流向与本地存储隔离策略 |
 | [`AGENTS.md`](AGENTS.md) / [`GLOSSARY.md`](GLOSSARY.md) | 编程 Agent 协作规范、工具链约束与领域统一词汇表 |
 
 ## 致谢与许可
