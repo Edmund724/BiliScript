@@ -28,6 +28,11 @@ import { isFirefoxRuntime } from "../shared/runtime-capabilities.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import type { AsrProviderListEntry, ProviderListEntry } from "../shared/messaging-protocol.js";
 import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
+import {
+  createOutsideClickDismissal,
+  createSearchableOptionList,
+  CUSTOM_SELECT_SEARCH_THRESHOLD
+} from "../ui/custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "../ui/toggle-switch.js";
 
 const DEFAULT_AI_PRESET_ID = "modelscope";
@@ -120,7 +125,11 @@ function setStatusLine(
   el.dataset.success = tone === "success" ? "true" : "false";
 }
 
-function bindPasswordToggle(input: HTMLInputElement, button: HTMLButtonElement | null): void {
+function bindPasswordToggle(
+  input: HTMLInputElement,
+  button: HTMLButtonElement | null,
+  signal?: AbortSignal
+): void {
   if (!button) return;
   button.addEventListener("click", () => {
     const show = input.type === "password";
@@ -128,7 +137,7 @@ function bindPasswordToggle(input: HTMLInputElement, button: HTMLButtonElement |
     button.setAttribute("aria-pressed", show ? "true" : "false");
     button.textContent = show ? "隐藏" : "显示";
     button.setAttribute("aria-label", show ? "隐藏 API Key" : "显示 API Key");
-  });
+  }, { signal });
 }
 
 function resolveAiPreset(presetId: string): AiProviderPreset {
@@ -157,7 +166,18 @@ export interface OnboardingController {
   dispose(): void;
 }
 
+const activeMountDisposers = new WeakMap<Document, () => void>();
+
 export async function mountOnboardingPage(doc: Document = document): Promise<OnboardingController> {
+  // 清理同文档上一次挂载（例如模块自动挂载后测试再次显式挂载），避免重复绑定事件监听
+  activeMountDisposers.get(doc)?.();
+  const mountAbort = new AbortController();
+  const { signal } = mountAbort;
+  let disposed = false;
+  let unwatch: (() => void) | null = null;
+  let colorSchemeMedia: MediaQueryList | null = null;
+  let onColorSchemeChange: (() => void) | null = null;
+
   const byId = <T extends HTMLElement>(id: string): T | null => doc.getElementById(id) as T | null;
 
   const versionEl = byId<HTMLElement>("onboardingVersion");
@@ -176,7 +196,8 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   const aiCredentialLink = byId<HTMLAnchorElement>("aiCredentialLink");
   const aiModelInput = byId<HTMLInputElement>("aiModelInput");
   const aiModelError = byId<HTMLElement>("aiModelError");
-  const aiModelSuggestions = byId<HTMLDataListElement>("aiModelSuggestions");
+  const aiModelDropdownToggle = byId<HTMLButtonElement>("aiModelDropdownToggle");
+  const aiModelDropdown = byId<HTMLElement>("aiModelDropdown");
   const aiFetchModelsBtn = byId<HTMLButtonElement>("aiFetchModelsBtn");
   const aiTestBtn = byId<HTMLButtonElement>("aiTestBtn");
   const aiSaveBtn = byId<HTMLButtonElement>("aiSaveBtn");
@@ -250,6 +271,108 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   let aiBaseUrlEdited = false;
   let aiModelEdited = false;
   let searchBusy = false;
+  let availableAiModels: string[] = [];
+  let modelOptionLis: HTMLLIElement[] = [];
+  let modelCountLi: HTMLLIElement | null = null;
+
+  const modelDropdownDismissal = createOutsideClickDismissal({
+    wrapperSelector: ".model-picker-wrapper",
+    openDropdownSelector: ".model-picker-dropdown:not([hidden])",
+    triggerSelector: ".model-picker-toggle",
+    closeAll: () => closeAiModelDropdown(false),
+    closeOnEscape: () => closeAiModelDropdown(true)
+  });
+
+  function closeAiModelDropdown(refocusToggle = false): void {
+    if (aiModelDropdown) {
+      aiModelDropdown.hidden = true;
+    }
+    aiModelDropdownToggle?.setAttribute("aria-expanded", "false");
+    modelDropdownDismissal.sync();
+    if (refocusToggle) {
+      aiModelDropdownToggle?.focus({ preventScroll: true });
+    }
+  }
+
+  const cleanup = (): void => {
+    if (disposed) return;
+    disposed = true;
+    mountAbort.abort();
+    if (activeMountDisposers.get(doc) === cleanup) {
+      activeMountDisposers.delete(doc);
+    }
+    closeAiModelDropdown(false);
+    unwatch?.();
+    if (onColorSchemeChange) {
+      colorSchemeMedia?.removeEventListener?.("change", onColorSchemeChange);
+    }
+  };
+  activeMountDisposers.set(doc, cleanup);
+
+  function chooseAiModelOption(option: HTMLElement): void {
+    const modelId = option.dataset.model;
+    if (aiModelInput && modelId) {
+      aiModelInput.value = modelId;
+      aiModelEdited = true;
+      setFieldIssue(aiModelInput, aiModelError, null);
+    }
+    closeAiModelDropdown(false);
+    aiModelInput?.focus({ preventScroll: true });
+  }
+
+  let searchableModelList: ReturnType<typeof createSearchableOptionList> | null = null;
+
+  function renderAiModelDropdownOptions(): void {
+    if (!aiModelDropdown) return;
+    aiModelDropdown.innerHTML = "";
+    modelOptionLis = [];
+    modelCountLi = null;
+
+    if (availableAiModels.length === 0) {
+      const emptyMsg = doc.createElement("li");
+      emptyMsg.className = "model-picker-message";
+      emptyMsg.setAttribute("role", "presentation");
+      emptyMsg.textContent = "暂无推荐模型，请直接输入或点击「拉取模型」";
+      aiModelDropdown.appendChild(emptyMsg);
+      return;
+    }
+
+    const currentModel = aiModelInput?.value.trim() || "";
+    modelOptionLis = availableAiModels.map((modelId) => {
+      const li = doc.createElement("li");
+      li.className = "model-picker-option custom-select-option";
+      li.dataset.model = modelId;
+      li.textContent = modelId;
+      li.setAttribute("role", "option");
+      li.tabIndex = -1;
+      const selected = modelId === currentModel;
+      li.dataset.selected = selected ? "true" : "false";
+      li.setAttribute("aria-selected", selected ? "true" : "false");
+      return li;
+    });
+
+    searchableModelList?.reset();
+    searchableModelList?.syncHost(aiModelDropdown);
+
+    modelCountLi = doc.createElement("li");
+    modelCountLi.className = "model-picker-count";
+    modelCountLi.setAttribute("role", "presentation");
+    modelCountLi.textContent = `已加载 ${availableAiModels.length} 个模型`;
+    aiModelDropdown.appendChild(modelCountLi);
+  }
+
+  function openAiModelDropdown(): void {
+    if (!aiModelDropdown) return;
+    renderAiModelDropdownOptions();
+    aiModelDropdown.hidden = false;
+    aiModelDropdownToggle?.setAttribute("aria-expanded", "true");
+    modelDropdownDismissal.sync();
+    if (searchableModelList?.isSearchEnabled()) {
+      searchableModelList.searchInput.focus();
+    } else if (modelOptionLis.length > 0) {
+      (modelOptionLis.find((o) => o.dataset.selected === "true") ?? modelOptionLis[0])?.focus();
+    }
+  }
 
   if (aiPresetSelect) {
     aiPresetSelect.innerHTML = PRESETS.map((preset) => {
@@ -274,15 +397,14 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     asrPresetSelect.value = DEFAULT_ASR_PRESET_ID;
   }
 
-  if (aiApiKeyInput) bindPasswordToggle(aiApiKeyInput, aiApiKeyToggle);
-  if (asrApiKeyInput) bindPasswordToggle(asrApiKeyInput, asrApiKeyToggle);
   if (asrAutoFallbackToggle) initToggleSwitch(asrAutoFallbackToggle);
   if (webSearchToggle) initToggleSwitch(webSearchToggle);
 
   function populateAiModelSuggestions(presetId: string, extraModels: readonly string[] = []): void {
-    if (!aiModelSuggestions) return;
-    const merged = [...new Set([...extraModels, ...(SUGGESTED_AI_MODELS[presetId] ?? [])].filter(Boolean))];
-    aiModelSuggestions.innerHTML = merged.map((id) => `<option value="${id}"></option>`).join("");
+    availableAiModels = [...new Set([...extraModels, ...(SUGGESTED_AI_MODELS[presetId] ?? [])].filter(Boolean))];
+    if (aiModelDropdown && !aiModelDropdown.hidden) {
+      renderAiModelDropdownOptions();
+    }
   }
 
   function syncAiPresetMetadata(presetId: string, options: { updateBaseUrl?: boolean; updateProtocol?: boolean; updateModel?: boolean } = {}): void {
@@ -455,12 +577,49 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       sendRuntimeMessage({ type: "ai-providers-list" }).catch(() => null),
       sendRuntimeMessage({ type: "asr-providers-list" }).catch(() => null)
     ]);
+    if (disposed) return;
     currentSettings = { ...DEFAULT_SETTINGS, ...(settingsResp?.ok ? settingsResp.settings : {}) };
     aiProviders = aiResp?.ok && Array.isArray(aiResp.providers) ? aiResp.providers : [];
     asrProviders = asrResp?.ok && Array.isArray(asrResp.providers) ? asrResp.providers : [];
     applyRootAppearance(currentSettings);
     hydrateForms();
     renderReadiness(currentSettings, aiProviders, asrProviders);
+  }
+
+  await refresh();
+  if (disposed) {
+    return {
+      refresh,
+      dispose: cleanup
+    };
+  }
+
+  if (aiApiKeyInput) bindPasswordToggle(aiApiKeyInput, aiApiKeyToggle, signal);
+  if (asrApiKeyInput) bindPasswordToggle(asrApiKeyInput, asrApiKeyToggle, signal);
+
+  if (aiModelDropdown) {
+    modelDropdownDismissal.observeDropdown(aiModelDropdown);
+    searchableModelList = createSearchableOptionList({
+      dropdown: aiModelDropdown,
+      searchItemClass: "model-picker-search-item",
+      searchInputClass: "model-picker-search-input",
+      placeholder: "搜索模型...",
+      ariaLabel: "搜索可用模型",
+      emptyItemClass: "model-picker-message model-picker-empty",
+      getOptions: () => modelOptionLis,
+      isSearchEnabled: () => modelOptionLis.length >= CUSTOM_SELECT_SEARCH_THRESHOLD,
+      onSelect: chooseAiModelOption,
+      onClose: (refocusTrigger) => closeAiModelDropdown(refocusTrigger),
+      onTab: () => closeAiModelDropdown(false),
+      enableHomeEnd: true,
+      enableSpaceSelect: true,
+      onFilter: (visibleCount, totalCount, kw) => {
+        if (!modelCountLi) return;
+        modelCountLi.textContent = kw
+          ? `匹配 ${visibleCount} / ${totalCount} 个模型`
+          : `已加载 ${totalCount} 个模型`;
+      }
+    });
   }
 
   // ===== 主题切换 =====
@@ -473,12 +632,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       type: "save-settings",
       settings: { readerTheme: next, readerThemeUserSet: true }
     }).catch(() => {});
-  });
+  }, { signal });
 
-  const colorSchemeMedia = typeof window.matchMedia === "function"
+  colorSchemeMedia = typeof window.matchMedia === "function"
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
-  const onColorSchemeChange = () => {
+  onColorSchemeChange = () => {
     if (!currentSettings.readerThemeUserSet) {
       applyRootAppearance(currentSettings);
     }
@@ -487,6 +646,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
 
   // ===== AI 平台表单逻辑 =====
   aiPresetSelect?.addEventListener("change", () => {
+    closeAiModelDropdown(false);
     const presetId = aiPresetSelect.value;
     const matched = aiProviders.find((p) => p.presetId === presetId);
     editingAiId = matched?.id ?? "";
@@ -501,26 +661,49 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     if (aiBaseUrlInput) setFieldIssue(aiBaseUrlInput, aiBaseUrlError, null);
     if (aiModelInput) setFieldIssue(aiModelInput, aiModelError, null);
     setStatusLine(aiStatus, "");
-  });
+  }, { signal });
 
   aiProtocolSelect?.addEventListener("change", () => {
     const preset = resolveAiPreset(aiPresetSelect?.value || DEFAULT_AI_PRESET_ID);
     if (!aiBaseUrlEdited && aiBaseUrlInput) {
       aiBaseUrlInput.value = presetBaseUrlForProtocol(preset, aiProtocolSelect.value);
     }
-  });
+  }, { signal });
 
   aiBaseUrlInput?.addEventListener("input", () => {
     aiBaseUrlEdited = true;
     setFieldIssue(aiBaseUrlInput, aiBaseUrlError, null);
-  });
+  }, { signal });
   aiApiKeyInput?.addEventListener("input", () => {
     setFieldIssue(aiApiKeyInput, aiApiKeyError, null);
-  });
+  }, { signal });
   aiModelInput?.addEventListener("input", () => {
     aiModelEdited = true;
     setFieldIssue(aiModelInput, aiModelError, null);
-  });
+    if (aiModelDropdown && !aiModelDropdown.hidden) {
+      closeAiModelDropdown(false);
+    }
+  }, { signal });
+  aiModelInput?.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" && aiModelDropdown?.hidden) {
+      e.preventDefault();
+      openAiModelDropdown();
+    }
+  }, { signal });
+  aiModelDropdownToggle?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (aiModelDropdown && !aiModelDropdown.hidden) {
+      closeAiModelDropdown(false);
+    } else {
+      openAiModelDropdown();
+    }
+  }, { signal });
+  aiModelDropdown?.addEventListener("click", (e) => {
+    const option = (e.target as HTMLElement).closest<HTMLElement>(".model-picker-option");
+    if (!option) return;
+    e.stopPropagation();
+    chooseAiModelOption(option);
+  }, { signal });
 
   function validateAiDraft(requireModel: boolean): {
     ok: boolean;
@@ -622,7 +805,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         aiFetchModelsBtn.disabled = false;
       }
     })();
-  });
+  }, { signal });
 
   aiTestBtn?.addEventListener("click", () => {
     const draft = validateAiDraft(true);
@@ -659,7 +842,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         aiTestBtn.disabled = false;
       }
     })();
-  });
+  }, { signal });
 
   aiForm?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -731,7 +914,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         if (aiSaveBtn) aiSaveBtn.disabled = false;
       }
     })();
-  });
+  }, { signal });
 
   // ===== ASR 转写表单逻辑 =====
   asrPresetSelect?.addEventListener("change", () => {
@@ -751,11 +934,11 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     if (asrBaseUrlInput) setFieldIssue(asrBaseUrlInput, asrBaseUrlError, null);
     if (asrModelInput) setFieldIssue(asrModelInput, asrModelError, null);
     setStatusLine(asrStatus, "");
-  });
+  }, { signal });
 
-  asrBaseUrlInput?.addEventListener("input", () => setFieldIssue(asrBaseUrlInput, asrBaseUrlError, null));
-  asrModelInput?.addEventListener("input", () => setFieldIssue(asrModelInput, asrModelError, null));
-  asrApiKeyInput?.addEventListener("input", () => setFieldIssue(asrApiKeyInput, asrApiKeyError, null));
+  asrBaseUrlInput?.addEventListener("input", () => setFieldIssue(asrBaseUrlInput, asrBaseUrlError, null), { signal });
+  asrModelInput?.addEventListener("input", () => setFieldIssue(asrModelInput, asrModelError, null), { signal });
+  asrApiKeyInput?.addEventListener("input", () => setFieldIssue(asrApiKeyInput, asrApiKeyError, null), { signal });
 
   function validateAsrDraft(): {
     ok: boolean;
@@ -835,7 +1018,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         asrTestBtn.disabled = false;
       }
     })();
-  });
+  }, { signal });
 
   asrForm?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -907,13 +1090,13 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         if (asrSaveBtn) asrSaveBtn.disabled = false;
       }
     })();
-  });
+  }, { signal });
 
   asrAutoFallbackToggle?.addEventListener("change", () => {
     const checked = asrAutoFallbackToggle.checked;
     currentSettings = { ...currentSettings, asrAutoFallback: checked };
     void sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: checked } });
-  });
+  }, { signal });
 
   // ===== 免 Key 联网搜索开关（严守现有 opt-in 授权确认流程） =====
   webSearchToggle?.addEventListener("change", () => {
@@ -958,9 +1141,9 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         searchBusy = false;
       }
     })();
-  });
+  }, { signal });
 
-  const unwatch = watchStorageKeys(
+  unwatch = watchStorageKeys(
     () => {
       void refresh();
     },
@@ -982,14 +1165,9 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     }
   );
 
-  await refresh();
-
   return {
     refresh,
-    dispose() {
-      unwatch();
-      colorSchemeMedia?.removeEventListener?.("change", onColorSchemeChange);
-    }
+    dispose: cleanup
   };
 }
 

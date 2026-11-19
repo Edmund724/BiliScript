@@ -278,20 +278,39 @@
             <div class="field-group">
               <label for="aiModelInput">默认模型 <span aria-hidden="true">*</span></label>
               <div class="model-input-row">
-                <input
-                  id="aiModelInput"
-                  name="aiModel"
-                  type="text"
-                  list="aiModelSuggestions"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="none"
-                  spellcheck="false"
-                  placeholder="例如 Qwen/Qwen3-235B-A22B-Instruct-2507"
-                  data-error="aiModelError"
-                  required
-                />
-                <datalist id="aiModelSuggestions"></datalist>
+                <div class="model-picker-wrapper">
+                  <input
+                    id="aiModelInput"
+                    name="aiModel"
+                    type="text"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    placeholder="例如 Qwen/Qwen3-235B-A22B-Instruct-2507"
+                    data-error="aiModelError"
+                    required
+                  />
+                  <button
+                    id="aiModelDropdownToggle"
+                    type="button"
+                    class="model-picker-toggle"
+                    title="选择可用模型"
+                    aria-label="选择可用模型"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-controls="aiModelDropdown"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                  </button>
+                  <ul
+                    id="aiModelDropdown"
+                    class="model-picker-dropdown"
+                    role="listbox"
+                    aria-label="可用模型列表"
+                    hidden
+                  ></ul>
+                </div>
                 <button id="aiFetchModelsBtn" type="button" class="btn-secondary">拉取模型</button>
               </div>
               <span id="aiModelError" class="field-error" hidden></span>

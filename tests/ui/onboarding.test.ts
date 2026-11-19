@@ -11,6 +11,7 @@ function installOnboardingRuntimeMock(initial: {
   asrProviders?: Array<Record<string, unknown>>;
   aiKeys?: Record<string, string>;
   asrKeys?: Record<string, string>;
+  fetchedModels?: string[];
 } = {}) {
   let settings: Record<string, unknown> = {
     readerTheme: "light",
@@ -77,6 +78,13 @@ function installOnboardingRuntimeMock(initial: {
       reply = { ok: true, providers: asrProviders };
     } else if (msg.type === "resolve-search-provider") {
       reply = { ok: true, chain: [{ provider: { id: "tavily", access: "keyless" } }] };
+    } else if (msg.type === "provider-http") {
+      const models = initial.fetchedModels ?? [];
+      reply = {
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ data: models.map((id) => ({ id })) })
+      };
     }
 
     if (typeof cb === "function") {
@@ -264,6 +272,71 @@ describe("onboarding.html 与引导页配置读写同步", () => {
     expect(requestMock).not.toHaveBeenCalled();
     expect(document.getElementById("aiApiKeyInput")?.getAttribute("aria-invalid")).toBe("true");
     expect(document.getElementById("asrApiKeyInput")?.getAttribute("aria-invalid")).toBe("true");
+
+    ctrl.dispose();
+  });
+
+  it("模型输入框自带下拉箭头：拉取 38 个模型后可展开、搜索过滤、点击选中并支持外点与 Esc 收起", async () => {
+    const fetchedModels = Array.from({ length: 38 }, (_, i) =>
+      i === 0 ? "Qwen/Qwen3-235B-A22B-Instruct-2507" : `vendor/model-${i + 1}`
+    );
+    installOnboardingRuntimeMock({ fetchedModels });
+    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
+    const ctrl = await mountOnboardingPage(document);
+
+    const toggle = document.getElementById("aiModelDropdownToggle") as HTMLButtonElement;
+    const dropdown = document.getElementById("aiModelDropdown") as HTMLElement;
+    const modelInput = document.getElementById("aiModelInput") as HTMLInputElement;
+    const apiKeyInput = document.getElementById("aiApiKeyInput") as HTMLInputElement;
+    const fetchBtn = document.getElementById("aiFetchModelsBtn") as HTMLButtonElement;
+
+    expect(toggle).toBeInstanceOf(HTMLButtonElement);
+    expect(dropdown.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    // 1) 未拉取前点下拉箭头可直接看到当前预设的推荐模型
+    toggle.click();
+    expect(dropdown.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(dropdown.querySelectorAll(".model-picker-option").length).toBeGreaterThanOrEqual(3);
+
+    // 点外部区域收起
+    document.body.click();
+    expect(dropdown.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    // 2) 填写 API Key 并点击「拉取模型」后，下拉展示 38+ 模型与搜索框
+    apiKeyInput.value = "ms-test-key";
+    fetchBtn.click();
+    await vi.waitFor(() => {
+      expect(document.getElementById("aiStatus")?.textContent).toBe("已获取 38 个可用模型");
+    });
+
+    toggle.click();
+    expect(dropdown.hidden).toBe(false);
+    const searchInput = dropdown.querySelector<HTMLInputElement>(".model-picker-search-input")!;
+    expect(searchInput).not.toBeNull();
+    expect(dropdown.querySelectorAll(".model-picker-option").length).toBeGreaterThanOrEqual(38);
+
+    // 搜索过滤并选中某一项
+    searchInput.value = "model-27";
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    const visibleOptions = Array.from(dropdown.querySelectorAll<HTMLElement>(".model-picker-option")).filter(
+      (el) => !el.hidden
+    );
+    expect(visibleOptions.map((el) => el.dataset.model)).toEqual(["vendor/model-27"]);
+
+    visibleOptions[0].click();
+    expect(modelInput.value).toBe("vendor/model-27");
+    expect(dropdown.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    // 3) 输入框按 ArrowDown 可展开，按 Esc 收起并归焦按钮
+    modelInput.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(dropdown.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(dropdown.hidden).toBe(true);
+    expect(document.activeElement).toBe(toggle);
 
     ctrl.dispose();
   });
