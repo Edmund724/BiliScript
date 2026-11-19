@@ -14,6 +14,7 @@ const OFFSCREEN_IFRAME_ID = "biliscript-offscreen-iframe";
 function stubFirefoxHostEnv() {
   vi.stubGlobal("chrome", {
     ...globalThis.chrome,
+    offscreen: undefined,
     runtime: {
       ...globalThis.chrome.runtime,
       getURL: vi.fn((path: string) => `${FIREFOX_BASE}${path}`)
@@ -99,6 +100,23 @@ describe("Firefox Event Page 隐藏 iframe Offscreen 宿主", () => {
     expect(retriedIframe).toBeInstanceOf(HTMLIFrameElement);
     expect(retriedIframe).not.toBe(failedIframe);
 
+    retriedIframe.dispatchEvent(new Event("load"));
+    await expect(retryPromise).resolves.toBe(true);
+  });
+
+  it("挂载期同步抛出异常时不锁死单飞锁并允许后续重试成功", async () => {
+    const host = await import("../../extension/core/offscreen-host.js");
+    const appendSpy = vi.spyOn(document.body, "appendChild").mockImplementationOnce(() => {
+      throw new Error("appendChild sync failure");
+    });
+
+    await expect(host.ensureOffscreenDocument()).rejects.toThrow("appendChild sync failure");
+    expect(document.getElementById(OFFSCREEN_IFRAME_ID)).toBeNull();
+    appendSpy.mockRestore();
+
+    const retryPromise = host.ensureOffscreenDocument();
+    const retriedIframe = document.getElementById(OFFSCREEN_IFRAME_ID) as HTMLIFrameElement;
+    expect(retriedIframe).toBeInstanceOf(HTMLIFrameElement);
     retriedIframe.dispatchEvent(new Event("load"));
     await expect(retryPromise).resolves.toBe(true);
   });

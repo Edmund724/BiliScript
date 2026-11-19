@@ -97,13 +97,13 @@ function ensureOffscreenIframe(url: string): Promise<boolean> {
   // Remove any stale iframe (contentWindow === null) or colliding node before mounting a fresh one.
   document.getElementById(OFFSCREEN_IFRAME_ID)?.remove();
 
-  inflightIframePromise = new Promise<boolean>((resolve, reject) => {
+  let settled = false;
+  const promise = new Promise<boolean>((resolve, reject) => {
     const iframe = document.createElement("iframe");
     iframe.id = OFFSCREEN_IFRAME_ID;
     iframe.hidden = true;
     iframe.style.display = "none";
 
-    let settled = false;
     const clearInflight = () => {
       iframe.removeEventListener("load", onLoad);
       iframe.removeEventListener("error", onError);
@@ -156,7 +156,10 @@ function ensureOffscreenIframe(url: string): Promise<boolean> {
     }
   });
 
-  return inflightIframePromise;
+  if (!settled) {
+    inflightIframePromise = promise;
+  }
+  return promise;
 }
 
 /** Ensures the shared offscreen document exists, creating it when absent. */
