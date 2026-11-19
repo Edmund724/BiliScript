@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { wireModelPicker, buildModelPickerField } from "../../extension/ui/model-picker.js";
+import { wireModelPicker, buildModelPickerField, createModelCombobox, type ModelComboboxClasses } from "../../extension/ui/model-picker.js";
 import type { ProviderRowElement } from "../../extension/ui/provider-row.js";
 
 // Mock requestProviderOriginsViaBackground to succeed immediately
@@ -247,5 +247,135 @@ describe("model-picker 搜索过滤功能", () => {
         expect(fetchModels).toHaveBeenCalled();
       });
     });
+  });
+});
+
+describe("createModelCombobox：可搜索模型组合框", () => {
+  const TEST_CLASSES: ModelComboboxClasses = {
+    wrapperSelector: ".combo-wrapper",
+    openDropdownSelector: ".combo-dropdown:not([hidden])",
+    triggerSelector: ".combo-toggle",
+    optionClass: "combo-option",
+    searchItemClass: "combo-search-item",
+    searchInputClass: "combo-search-input",
+    emptyItemClass: "combo-message combo-empty",
+    messageClass: "combo-message",
+    errorMessageClass: "combo-message combo-error",
+    loadingMessageClass: "combo-message combo-loading",
+    countClass: "combo-count"
+  };
+
+  function createComboboxDom(initialValue = "") {
+    const wrapper = document.createElement("div");
+    wrapper.className = "combo-wrapper";
+    wrapper.innerHTML = `
+      <input class="combo-input" type="text" value="${initialValue}" />
+      <button type="button" class="combo-toggle" aria-expanded="false">▼</button>
+      <ul class="combo-dropdown" hidden></ul>
+    `;
+    document.body.appendChild(wrapper);
+    return {
+      wrapper,
+      input: wrapper.querySelector<HTMLInputElement>(".combo-input")!,
+      toggle: wrapper.querySelector<HTMLButtonElement>(".combo-toggle")!,
+      dropdown: wrapper.querySelector<HTMLElement>(".combo-dropdown")!
+    };
+  }
+
+  it("支持 ArrowDown 展开、ARIA 投影、Home/End/Arrow/Space 键控选中、外点与 Esc 归焦", () => {
+    const { input, toggle, dropdown } = createComboboxDom("model-2");
+    const onSelect = vi.fn();
+    const combobox = createModelCombobox({
+      input,
+      toggle,
+      dropdown,
+      classes: TEST_CLASSES,
+      emptyMessage: "暂无模型",
+      focusInputOnSelect: true,
+      onSelect
+    });
+
+    combobox.setOptions(["model-1", "model-2", "model-3"]);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+
+    expect(combobox.isOpen()).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const options = Array.from(dropdown.querySelectorAll<HTMLLIElement>(".combo-option"));
+    expect(options.map((el) => [el.getAttribute("role"), el.getAttribute("aria-selected")])).toEqual([
+      ["option", "false"],
+      ["option", "true"],
+      ["option", "false"]
+    ]);
+    expect(document.activeElement).toBe(options[1]);
+
+    // End 跳末项、Home 跳首项、Space 选中并归焦输入框
+    dropdown.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(document.activeElement).toBe(options[2]);
+    dropdown.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(document.activeElement).toBe(options[0]);
+    dropdown.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+
+    expect(input.value).toBe("model-1");
+    expect(onSelect).toHaveBeenCalledWith("model-1");
+    expect(combobox.isOpen()).toBe(false);
+    expect(document.activeElement).toBe(input);
+
+    // 再次展开后按 Esc 收起并归焦 toggle
+    toggle.click();
+    expect(combobox.isOpen()).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(combobox.isOpen()).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+
+    // 再次展开后点外部收起
+    toggle.click();
+    expect(combobox.isOpen()).toBe(true);
+    document.body.click();
+    expect(combobox.isOpen()).toBe(false);
+
+    combobox.dispose();
+  });
+
+  it("支持搜索过滤计数、空态提示、renderMessage 与 dispose 彻底卸载观察器及监听", () => {
+    const disconnectSpy = vi.spyOn(MutationObserver.prototype, "disconnect");
+    const { input, toggle, dropdown } = createComboboxDom();
+    const combobox = createModelCombobox({
+      input,
+      toggle,
+      dropdown,
+      classes: TEST_CLASSES,
+      emptyMessage: "暂无推荐模型"
+    });
+
+    // 空列表展示空态消息
+    combobox.open();
+    expect(dropdown.querySelector(".combo-message")?.textContent).toBe("暂无推荐模型");
+
+    // 加载 8+ 模型后自动启用搜索并实时更新计数
+    combobox.setOptions(Array.from({ length: 10 }, (_, i) => `vendor/model-${i + 1}`));
+    const searchInput = dropdown.querySelector<HTMLInputElement>(".combo-search-input")!;
+    expect(searchInput).not.toBeNull();
+    expect(dropdown.querySelector(".combo-count")?.textContent).toBe("已加载 10 个模型");
+
+    searchInput.value = "model-10";
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(dropdown.querySelector(".combo-count")?.textContent).toBe("匹配 1 / 10 个模型");
+
+    // Tab 从搜索框离开时收起下拉
+    searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(combobox.isOpen()).toBe(false);
+
+    // renderMessage 支持 error / loading 形态
+    combobox.renderMessage("拉取失败", "error");
+    expect(combobox.isOpen()).toBe(true);
+    expect(dropdown.querySelector(".combo-error")?.textContent).toBe("拉取失败");
+
+    // dispose 收起下拉、断开 MutationObserver 并移除节点监听
+    combobox.dispose();
+    expect(combobox.isOpen()).toBe(false);
+    expect(disconnectSpy).toHaveBeenCalled();
+
+    toggle.click();
+    expect(combobox.isOpen()).toBe(false);
   });
 });

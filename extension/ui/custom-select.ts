@@ -142,6 +142,7 @@ export interface OutsideClickDismissalConfig {
 export interface OutsideClickDismissalController {
   observeDropdown: (dropdown: HTMLElement) => void;
   sync: () => void;
+  dispose: () => void;
 }
 
 // 下拉弹层自持的捕获期 Esc / 外点收起控制器：仅在至少一枚弹层展开期间挂载
@@ -159,8 +160,10 @@ export function createOutsideClickDismissal({
   const observedDropdowns = new WeakSet<HTMLElement>();
   const openDropdowns = new Set<HTMLElement>();
   let listening = false;
+  let disposed = false;
 
   const sync = (): void => {
+    if (disposed) return;
     for (const node of openDropdowns) {
       if (node.hidden || !node.isConnected) {
         openDropdowns.delete(node);
@@ -181,6 +184,7 @@ export function createOutsideClickDismissal({
   const hiddenObserver =
     typeof MutationObserver === "function"
       ? new MutationObserver((records) => {
+          if (disposed) return;
           for (const record of records) {
             const target = record.target;
             if (!(target instanceof HTMLElement)) continue;
@@ -228,6 +232,7 @@ export function createOutsideClickDismissal({
   };
 
   const observeDropdown = (dropdown: HTMLElement): void => {
+    if (disposed) return;
     if (observedDropdowns.has(dropdown)) {
       if (!dropdown.hidden) openDropdowns.add(dropdown);
       sync();
@@ -241,7 +246,19 @@ export function createOutsideClickDismissal({
     sync();
   };
 
-  return { observeDropdown, sync };
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    hiddenObserver?.disconnect();
+    openDropdowns.clear();
+    if (listening) {
+      document.removeEventListener("click", onDocumentClickCapture, true);
+      document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
+      listening = false;
+    }
+  };
+
+  return { observeDropdown, sync, dispose };
 }
 
 const customSelectDismissal = createOutsideClickDismissal({
@@ -278,6 +295,7 @@ export interface SearchableOptionListConfig {
   enableHomeEnd?: boolean;
   enableSpaceSelect?: boolean;
   onFilter?: (visibleCount: number, totalCount: number, keyword: string) => void;
+  signal?: AbortSignal;
 }
 
 export interface SearchableOptionListController {
@@ -361,11 +379,12 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     }
   };
 
-  searchInput.addEventListener("click", (e) => e.stopPropagation());
+  const listenerOpts = config.signal ? { signal: config.signal } : undefined;
+  searchInput.addEventListener("click", (e) => e.stopPropagation(), listenerOpts);
   searchInput.addEventListener("input", (e) => {
     e.stopPropagation();
     filter();
-  });
+  }, listenerOpts);
   searchInput.addEventListener("keydown", (e) => {
     if (config.isDisabled?.()) return;
     if (e.isComposing) return;
@@ -386,7 +405,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
     } else if (e.key === "Tab") {
       config.onTab?.();
     }
-  });
+  }, listenerOpts);
 
   function getOuterOpenDropdown(dropdown: HTMLElement): HTMLElement {
     let current = dropdown;
@@ -457,7 +476,8 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       active instanceof HTMLElement &&
       active !== config.dropdown &&
       config.dropdown.contains(active) &&
-      !active.classList.contains("custom-select-option");
+      !active.classList.contains("custom-select-option") &&
+      !config.getOptions().includes(active as HTMLLIElement);
 
     if (e.key === "Escape") {
       if (isNested) return;
@@ -549,7 +569,7 @@ export function createSearchableOptionList(config: SearchableOptionListConfig): 
       const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
       if (option) config.onSelect(option);
     }
-  });
+  }, listenerOpts);
 
   return {
     searchItem,

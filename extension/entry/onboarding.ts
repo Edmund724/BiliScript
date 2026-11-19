@@ -30,13 +30,25 @@ import type { AsrProviderListEntry, ProviderListEntry } from "../shared/messagin
 import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
 import {
   closeAllCustomSelects,
-  createOutsideClickDismissal,
-  createSearchableOptionList,
-  CUSTOM_SELECT_SEARCH_THRESHOLD,
   initCustomSelect,
   setCustomSelectValue
 } from "../ui/custom-select.js";
+import { createModelCombobox, type ModelComboboxClasses } from "../ui/model-picker.js";
+import { createProviderTransactions } from "../ui/provider-transaction.js";
+import type { ProviderRowItem } from "../ui/provider-row.js";
 import { initToggleSwitch, syncToggleSwitch } from "../ui/toggle-switch.js";
+
+const ONBOARDING_MODEL_COMBOBOX_CLASSES: ModelComboboxClasses = {
+  wrapperSelector: ".model-picker-wrapper",
+  openDropdownSelector: ".model-picker-dropdown:not([hidden])",
+  triggerSelector: ".model-picker-toggle",
+  optionClass: "model-picker-option custom-select-option",
+  searchItemClass: "model-picker-search-item",
+  searchInputClass: "model-picker-search-input",
+  emptyItemClass: "model-picker-message model-picker-empty",
+  messageClass: "model-picker-message",
+  countClass: "model-picker-count"
+};
 
 const DEFAULT_AI_PRESET_ID = "modelscope";
 const DEFAULT_ASR_PRESET_ID = "siliconflow-sensevoice";
@@ -274,28 +286,46 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   let aiBaseUrlEdited = false;
   let aiModelEdited = false;
   let searchBusy = false;
-  let availableAiModels: string[] = [];
-  let modelOptionLis: HTMLLIElement[] = [];
-  let modelCountLi: HTMLLIElement | null = null;
 
-  const modelDropdownDismissal = createOutsideClickDismissal({
-    wrapperSelector: ".model-picker-wrapper",
-    openDropdownSelector: ".model-picker-dropdown:not([hidden])",
-    triggerSelector: ".model-picker-toggle",
-    closeAll: () => closeAiModelDropdown(false),
-    closeOnEscape: () => closeAiModelDropdown(true)
+  const aiModelCombobox =
+    aiModelInput && aiModelDropdownToggle && aiModelDropdown
+      ? createModelCombobox({
+          input: aiModelInput,
+          toggle: aiModelDropdownToggle,
+          dropdown: aiModelDropdown,
+          classes: ONBOARDING_MODEL_COMBOBOX_CLASSES,
+          searchAriaLabel: "搜索可用模型",
+          emptyMessage: "暂无推荐模型，请直接输入或点击「拉取模型」",
+          focusInputOnSelect: true,
+          onSelect: () => {
+            aiModelEdited = true;
+            setFieldIssue(aiModelInput, aiModelError, null);
+          },
+          onInput: () => {
+            aiModelEdited = true;
+            setFieldIssue(aiModelInput, aiModelError, null);
+          },
+          signal
+        })
+      : null;
+
+  const providerTransactions = createProviderTransactions({
+    families: {
+      ai: {
+        list: () => sendRuntimeMessage({ type: "ai-providers-list" }),
+        save: (providers) => sendRuntimeMessage({ type: "ai-providers-save", providers }),
+        generateId: () => `p_${Date.now()}`,
+        optionalHostPermission: true
+      },
+      asr: {
+        list: () => sendRuntimeMessage({ type: "asr-providers-list" }),
+        save: (providers) => sendRuntimeMessage({ type: "asr-providers-save", providers }),
+        generateId: () => `asr_${Date.now()}`,
+        optionalHostPermission: true
+      }
+    },
+    requestOrigins: requestProviderOriginsViaBackground
   });
-
-  function closeAiModelDropdown(refocusToggle = false): void {
-    if (aiModelDropdown) {
-      aiModelDropdown.hidden = true;
-    }
-    aiModelDropdownToggle?.setAttribute("aria-expanded", "false");
-    modelDropdownDismissal.sync();
-    if (refocusToggle) {
-      aiModelDropdownToggle?.focus({ preventScroll: true });
-    }
-  }
 
   const cleanup = (): void => {
     if (disposed) return;
@@ -304,7 +334,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     if (activeMountDisposers.get(doc) === cleanup) {
       activeMountDisposers.delete(doc);
     }
-    closeAiModelDropdown(false);
+    aiModelCombobox?.dispose();
     closeAllCustomSelects();
     unwatch?.();
     if (onColorSchemeChange) {
@@ -312,71 +342,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     }
   };
   activeMountDisposers.set(doc, cleanup);
-
-  function chooseAiModelOption(option: HTMLElement): void {
-    const modelId = option.dataset.model;
-    if (aiModelInput && modelId) {
-      aiModelInput.value = modelId;
-      aiModelEdited = true;
-      setFieldIssue(aiModelInput, aiModelError, null);
-    }
-    closeAiModelDropdown(false);
-    aiModelInput?.focus({ preventScroll: true });
-  }
-
-  let searchableModelList: ReturnType<typeof createSearchableOptionList> | null = null;
-
-  function renderAiModelDropdownOptions(): void {
-    if (!aiModelDropdown) return;
-    aiModelDropdown.innerHTML = "";
-    modelOptionLis = [];
-    modelCountLi = null;
-
-    if (availableAiModels.length === 0) {
-      const emptyMsg = doc.createElement("li");
-      emptyMsg.className = "model-picker-message";
-      emptyMsg.setAttribute("role", "presentation");
-      emptyMsg.textContent = "暂无推荐模型，请直接输入或点击「拉取模型」";
-      aiModelDropdown.appendChild(emptyMsg);
-      return;
-    }
-
-    const currentModel = aiModelInput?.value.trim() || "";
-    modelOptionLis = availableAiModels.map((modelId) => {
-      const li = doc.createElement("li");
-      li.className = "model-picker-option custom-select-option";
-      li.dataset.model = modelId;
-      li.textContent = modelId;
-      li.setAttribute("role", "option");
-      li.tabIndex = -1;
-      const selected = modelId === currentModel;
-      li.dataset.selected = selected ? "true" : "false";
-      li.setAttribute("aria-selected", selected ? "true" : "false");
-      return li;
-    });
-
-    searchableModelList?.reset();
-    searchableModelList?.syncHost(aiModelDropdown);
-
-    modelCountLi = doc.createElement("li");
-    modelCountLi.className = "model-picker-count";
-    modelCountLi.setAttribute("role", "presentation");
-    modelCountLi.textContent = `已加载 ${availableAiModels.length} 个模型`;
-    aiModelDropdown.appendChild(modelCountLi);
-  }
-
-  function openAiModelDropdown(): void {
-    if (!aiModelDropdown) return;
-    renderAiModelDropdownOptions();
-    aiModelDropdown.hidden = false;
-    aiModelDropdownToggle?.setAttribute("aria-expanded", "true");
-    modelDropdownDismissal.sync();
-    if (searchableModelList?.isSearchEnabled()) {
-      searchableModelList.searchInput.focus();
-    } else if (modelOptionLis.length > 0) {
-      (modelOptionLis.find((o) => o.dataset.selected === "true") ?? modelOptionLis[0])?.focus();
-    }
-  }
 
   if (aiPresetSelect) {
     aiPresetSelect.innerHTML = PRESETS.map((preset) => {
@@ -408,10 +373,8 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   if (webSearchToggle) initToggleSwitch(webSearchToggle);
 
   function populateAiModelSuggestions(presetId: string, extraModels: readonly string[] = []): void {
-    availableAiModels = [...new Set([...extraModels, ...(SUGGESTED_AI_MODELS[presetId] ?? [])].filter(Boolean))];
-    if (aiModelDropdown && !aiModelDropdown.hidden) {
-      renderAiModelDropdownOptions();
-    }
+    const models = [...new Set([...extraModels, ...(SUGGESTED_AI_MODELS[presetId] ?? [])].filter(Boolean))];
+    aiModelCombobox?.setOptions(models);
   }
 
   function syncAiPresetMetadata(presetId: string, options: { updateBaseUrl?: boolean; updateProtocol?: boolean; updateModel?: boolean } = {}): void {
@@ -608,29 +571,37 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   if (aiApiKeyInput) bindPasswordToggle(aiApiKeyInput, aiApiKeyToggle, signal);
   if (asrApiKeyInput) bindPasswordToggle(asrApiKeyInput, asrApiKeyToggle, signal);
 
-  if (aiModelDropdown) {
-    modelDropdownDismissal.observeDropdown(aiModelDropdown);
-    searchableModelList = createSearchableOptionList({
-      dropdown: aiModelDropdown,
-      searchItemClass: "model-picker-search-item",
-      searchInputClass: "model-picker-search-input",
-      placeholder: "搜索模型...",
-      ariaLabel: "搜索可用模型",
-      emptyItemClass: "model-picker-message model-picker-empty",
-      getOptions: () => modelOptionLis,
-      isSearchEnabled: () => modelOptionLis.length >= CUSTOM_SELECT_SEARCH_THRESHOLD,
-      onSelect: chooseAiModelOption,
-      onClose: (refocusTrigger) => closeAiModelDropdown(refocusTrigger),
-      onTab: () => closeAiModelDropdown(false),
-      enableHomeEnd: true,
-      enableSpaceSelect: true,
-      onFilter: (visibleCount, totalCount, kw) => {
-        if (!modelCountLi) return;
-        modelCountLi.textContent = kw
-          ? `匹配 ${visibleCount} / ${totalCount} 个模型`
-          : `已加载 ${totalCount} 个模型`;
-      }
-    });
+  function runGestureFormAction(options: {
+    button: HTMLButtonElement | null;
+    statusEl: HTMLElement | null;
+    pendingMessage: string;
+    fallbackError: string;
+    permissionUrls?: readonly string[];
+    run: () => Promise<void>;
+  }): void {
+    const urls = options.permissionUrls?.filter(Boolean) ?? [];
+    // 同步手势链：permissionUrls 非空时在首个 await 前同步发起域名权限申请；
+    // 走 providerTransactions 时省略 permissionUrls，由 run() 同步段直接经事务发起申请。
+    const permissionPromise: Promise<{ ok: boolean; error?: string }> | null =
+      urls.length > 0 ? requestProviderOriginsViaBackground(urls) : null;
+    if (options.button) options.button.disabled = true;
+    setStatusLine(options.statusEl, options.pendingMessage);
+    const task = permissionPromise
+      ? permissionPromise.then((perm) => {
+          if (!perm.ok) {
+            setStatusLine(options.statusEl, perm.error || "域名权限未授予", "error");
+            return;
+          }
+          return options.run();
+        })
+      : options.run();
+    void task
+      .catch((error) => {
+        setStatusLine(options.statusEl, (error as Error).message || options.fallbackError, "error");
+      })
+      .finally(() => {
+        if (options.button) options.button.disabled = false;
+      });
   }
 
   // ===== 主题切换 =====
@@ -657,7 +628,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
 
   // ===== AI 平台表单逻辑 =====
   aiPresetSelect?.addEventListener("change", () => {
-    closeAiModelDropdown(false);
+    aiModelCombobox?.close(false);
     const presetId = aiPresetSelect.value;
     const matched = aiProviders.find((p) => p.presetId === presetId);
     editingAiId = matched?.id ?? "";
@@ -687,33 +658,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   }, { signal });
   aiApiKeyInput?.addEventListener("input", () => {
     setFieldIssue(aiApiKeyInput, aiApiKeyError, null);
-  }, { signal });
-  aiModelInput?.addEventListener("input", () => {
-    aiModelEdited = true;
-    setFieldIssue(aiModelInput, aiModelError, null);
-    if (aiModelDropdown && !aiModelDropdown.hidden) {
-      closeAiModelDropdown(false);
-    }
-  }, { signal });
-  aiModelInput?.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowDown" && aiModelDropdown?.hidden) {
-      e.preventDefault();
-      openAiModelDropdown();
-    }
-  }, { signal });
-  aiModelDropdownToggle?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (aiModelDropdown && !aiModelDropdown.hidden) {
-      closeAiModelDropdown(false);
-    } else {
-      openAiModelDropdown();
-    }
-  }, { signal });
-  aiModelDropdown?.addEventListener("click", (e) => {
-    const option = (e.target as HTMLElement).closest<HTMLElement>(".model-picker-option");
-    if (!option) return;
-    e.stopPropagation();
-    chooseAiModelOption(option);
   }, { signal });
 
   function validateAiDraft(requireModel: boolean): {
@@ -778,20 +722,13 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       protocol: draft.protocol,
       preset
     });
-    // 同步手势链申请域名权限（零先行 await）
-    const permissionPromise: Promise<{ ok: boolean; error?: string }> = target.permissionBaseUrls.length > 0
-      ? requestProviderOriginsViaBackground(target.permissionBaseUrls)
-      : Promise.resolve({ ok: true });
-
-    void (async () => {
-      aiFetchModelsBtn.disabled = true;
-      setStatusLine(aiStatus, "正在拉取可用模型…");
-      try {
-        const perm = await permissionPromise;
-        if (!perm.ok) {
-          setStatusLine(aiStatus, perm.error || "域名权限未授予", "error");
-          return;
-        }
+    runGestureFormAction({
+      button: aiFetchModelsBtn,
+      statusEl: aiStatus,
+      pendingMessage: "正在拉取可用模型…",
+      fallbackError: "拉取模型失败",
+      permissionUrls: target.permissionBaseUrls,
+      run: async () => {
         const res = await fetchProviderModels({
           baseUrl: draft.baseUrl,
           apiKey: draft.apiKey,
@@ -810,30 +747,20 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           setFieldIssue(aiModelInput, aiModelError, null);
         }
         setStatusLine(aiStatus, `已获取 ${models.length} 个可用模型`, "success");
-      } catch (error) {
-        setStatusLine(aiStatus, (error as Error).message || "拉取模型失败", "error");
-      } finally {
-        aiFetchModelsBtn.disabled = false;
       }
-    })();
+    });
   }, { signal });
 
   aiTestBtn?.addEventListener("click", () => {
     const draft = validateAiDraft(true);
     if (!draft.ok) return;
-    const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
-      ? requestProviderOriginsViaBackground([draft.baseUrl])
-      : Promise.resolve({ ok: true });
-
-    void (async () => {
-      aiTestBtn.disabled = true;
-      setStatusLine(aiStatus, "正在测试连接…");
-      try {
-        const perm = await permissionPromise;
-        if (!perm.ok) {
-          setStatusLine(aiStatus, perm.error || "域名权限未授予", "error");
-          return;
-        }
+    runGestureFormAction({
+      button: aiTestBtn,
+      statusEl: aiStatus,
+      pendingMessage: "正在测试连接…",
+      fallbackError: "连接失败",
+      permissionUrls: draft.baseUrl ? [draft.baseUrl] : [],
+      run: async () => {
         const result = await testAiProviderConnection({
           providerId: editingAiId || undefined,
           baseUrl: draft.baseUrl,
@@ -847,69 +774,65 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         } else {
           setStatusLine(aiStatus, result.error || "连接失败", "error");
         }
-      } catch (error) {
-        setStatusLine(aiStatus, (error as Error).message || "连接失败", "error");
-      } finally {
-        aiTestBtn.disabled = false;
       }
-    })();
+    });
   }, { signal });
 
   aiForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const draft = validateAiDraft(true);
     if (!draft.ok) return;
-    const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
-      ? requestProviderOriginsViaBackground([draft.baseUrl])
-      : Promise.resolve({ ok: true });
-
-    void (async () => {
-      if (aiSaveBtn) aiSaveBtn.disabled = true;
-      setStatusLine(aiStatus, "正在保存 AI 平台配置…");
-      try {
-        const perm = await permissionPromise;
-        if (!perm.ok) {
-          setStatusLine(aiStatus, perm.error || "域名权限未授予", "error");
+    let savedName = draft.preset.name;
+    runGestureFormAction({
+      button: aiSaveBtn,
+      statusEl: aiStatus,
+      pendingMessage: "正在保存 AI 平台配置…",
+      fallbackError: "保存失败",
+      run: async () => {
+        const saveRes = await providerTransactions.upsertProvider(
+          "ai",
+          { id: editingAiId, baseUrl: draft.baseUrl },
+          {
+            matchExisting: (list) =>
+              list.find((p) => p.presetId === draft.preset.id && normalizeBaseUrl(p.baseUrl) === draft.baseUrl),
+            buildUpsert: (existing, providerId) => {
+              const existingModels = existing ? normalizeProviderModels(existing) : [];
+              const models = [...new Set([draft.model, ...existingModels].filter(Boolean))];
+              savedName = String(existing?.name || draft.preset.name);
+              const upsert: ProviderRowItem = {
+                id: providerId,
+                presetId: draft.preset.id,
+                name: savedName,
+                baseUrl: draft.baseUrl,
+                models,
+                requiresKey: draft.preset.requiresKey !== false,
+                enabled: true,
+                protocol: draft.protocol,
+                apiKey: draft.apiKey,
+                hasSavedKey: Boolean(existing?.hasSavedKey)
+              };
+              const validation = validateAiProviders([upsert]);
+              if (!validation.ok) {
+                return { ok: false, error: validation.message || "AI 平台配置不合法" };
+              }
+              return { ok: true, upsert };
+            }
+          }
+        );
+        if (!saveRes.ok || !saveRes.providerId) {
+          setStatusLine(
+            aiStatus,
+            saveRes.error || (saveRes.permissionDenied ? "域名权限未授予" : "保存 AI 平台失败"),
+            "error"
+          );
           return;
         }
-        const listResp = await sendRuntimeMessage({ type: "ai-providers-list" });
-        const existingList = listResp?.ok && Array.isArray(listResp.providers) ? listResp.providers : [];
-        const existing = existingList.find((p) => p.id === editingAiId) ??
-          existingList.find((p) => p.presetId === draft.preset.id && normalizeBaseUrl(p.baseUrl) === draft.baseUrl) ??
-          null;
-        const providerId = existing?.id || `p_${Date.now()}`;
-        const existingModels = existing ? normalizeProviderModels(existing) : [];
-        const models = [...new Set([draft.model, ...existingModels].filter(Boolean))];
-        const upsert = {
-          id: providerId,
-          presetId: draft.preset.id,
-          name: existing?.name || draft.preset.name,
-          baseUrl: draft.baseUrl,
-          models,
-          requiresKey: draft.preset.requiresKey !== false,
-          enabled: true,
-          protocol: draft.protocol,
-          apiKey: draft.apiKey,
-          hasSavedKey: Boolean(existing?.hasSavedKey)
-        };
-        const validation = validateAiProviders([upsert]);
-        if (!validation.ok) {
-          setStatusLine(aiStatus, validation.message || "AI 平台配置不合法", "error");
-          return;
-        }
-        const nextList = existing
-          ? existingList.map((p) => (p.id === providerId ? upsert : p))
-          : [...existingList, upsert];
-        const saveResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: nextList });
-        if (!saveResp?.ok) {
-          setStatusLine(aiStatus, saveResp?.error || "保存 AI 平台失败", "error");
-          return;
-        }
+        const providerId = saveRes.providerId;
         await sendRuntimeMessage({
           type: "save-settings",
           settings: { defaultModel: providerId, defaultAiModel: draft.model }
         });
-        aiProviders = saveResp.providers ?? [];
+        aiProviders = (saveRes.providers ?? []) as ProviderListEntry[];
         currentSettings = { ...currentSettings, defaultModel: providerId, defaultAiModel: draft.model };
         editingAiId = providerId;
         editingAiHasSavedKey = Boolean(aiProviders.find((p) => p.id === providerId)?.hasSavedKey);
@@ -918,13 +841,9 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           aiApiKeyInput.placeholder = editingAiHasSavedKey ? "已保存（留空沿用）" : "填写 API Key";
         }
         renderReadiness(currentSettings, aiProviders, asrProviders);
-        setStatusLine(aiStatus, `已保存 ${upsert.name}（${draft.model}），文摘面板可直接使用`, "success");
-      } catch (error) {
-        setStatusLine(aiStatus, (error as Error).message || "保存失败", "error");
-      } finally {
-        if (aiSaveBtn) aiSaveBtn.disabled = false;
+        setStatusLine(aiStatus, `已保存 ${savedName}（${draft.model}），文摘面板可直接使用`, "success");
       }
-    })();
+    });
   }, { signal });
 
   // ===== ASR 转写表单逻辑 =====
@@ -998,19 +917,13 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   asrTestBtn?.addEventListener("click", () => {
     const draft = validateAsrDraft();
     if (!draft.ok) return;
-    const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
-      ? requestProviderOriginsViaBackground([draft.baseUrl])
-      : Promise.resolve({ ok: true });
-
-    void (async () => {
-      asrTestBtn.disabled = true;
-      setStatusLine(asrStatus, "正在测试转写服务…");
-      try {
-        const perm = await permissionPromise;
-        if (!perm.ok) {
-          setStatusLine(asrStatus, perm.error || "域名权限未授予", "error");
-          return;
-        }
+    runGestureFormAction({
+      button: asrTestBtn,
+      statusEl: asrStatus,
+      pendingMessage: "正在测试转写服务…",
+      fallbackError: "转写连接失败",
+      permissionUrls: draft.baseUrl ? [draft.baseUrl] : [],
+      run: async () => {
         const res = await testAsrConnection({
           id: editingAsrId || undefined,
           type: draft.preset.type,
@@ -1023,69 +936,69 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
         } else {
           setStatusLine(asrStatus, res.error || "转写连接失败", "error");
         }
-      } catch (error) {
-        setStatusLine(asrStatus, (error as Error).message || "转写连接失败", "error");
-      } finally {
-        asrTestBtn.disabled = false;
       }
-    })();
+    });
   }, { signal });
 
   asrForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const draft = validateAsrDraft();
     if (!draft.ok) return;
-    const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
-      ? requestProviderOriginsViaBackground([draft.baseUrl])
-      : Promise.resolve({ ok: true });
-
-    void (async () => {
-      if (asrSaveBtn) asrSaveBtn.disabled = true;
-      setStatusLine(asrStatus, "正在保存转写配置…");
-      try {
-        const perm = await permissionPromise;
-        if (!perm.ok) {
-          setStatusLine(asrStatus, perm.error || "域名权限未授予", "error");
+    let savedName = draft.preset.name;
+    let savedModel = draft.model;
+    runGestureFormAction({
+      button: asrSaveBtn,
+      statusEl: asrStatus,
+      pendingMessage: "正在保存转写配置…",
+      fallbackError: "保存失败",
+      run: async () => {
+        const saveRes = await providerTransactions.upsertProvider(
+          "asr",
+          { id: editingAsrId, baseUrl: draft.baseUrl, model: draft.model },
+          {
+            matchExisting: (list) =>
+              list.find((p) => p.presetId === draft.preset.id && normalizeBaseUrl(p.baseUrl) === draft.baseUrl),
+            buildUpsert: (existing, providerId) => {
+              const normalized = normalizeAsrProvider({
+                id: providerId,
+                presetId: draft.preset.id,
+                name: String(existing?.name || draft.preset.name),
+                type: draft.preset.type,
+                baseUrl: draft.baseUrl,
+                model: draft.model,
+                supportsTimestamps: draft.preset.supportsTimestamps
+              });
+              if (!normalized) {
+                return { ok: false, error: "转写配置格式不合法" };
+              }
+              savedName = normalized.name;
+              savedModel = normalized.model;
+              return {
+                ok: true,
+                upsert: {
+                  ...normalized,
+                  apiKey: draft.apiKey,
+                  hasSavedKey: Boolean(existing?.hasSavedKey)
+                }
+              };
+            }
+          }
+        );
+        if (!saveRes.ok || !saveRes.providerId) {
+          setStatusLine(
+            asrStatus,
+            saveRes.error || (saveRes.permissionDenied ? "域名权限未授予" : "保存转写平台失败"),
+            "error"
+          );
           return;
         }
-        const listResp = await sendRuntimeMessage({ type: "asr-providers-list" });
-        const existingList = listResp?.ok && Array.isArray(listResp.providers) ? listResp.providers : [];
-        const existing = existingList.find((p) => p.id === editingAsrId) ??
-          existingList.find((p) => p.presetId === draft.preset.id && normalizeBaseUrl(p.baseUrl) === draft.baseUrl) ??
-          null;
-        const providerId = existing?.id || `asr_${Date.now()}`;
-        const normalized = normalizeAsrProvider({
-          id: providerId,
-          presetId: draft.preset.id,
-          name: existing?.name || draft.preset.name,
-          type: draft.preset.type,
-          baseUrl: draft.baseUrl,
-          model: draft.model,
-          supportsTimestamps: draft.preset.supportsTimestamps
-        });
-        if (!normalized) {
-          setStatusLine(asrStatus, "转写配置格式不合法", "error");
-          return;
-        }
-        const upsert = {
-          ...normalized,
-          apiKey: draft.apiKey,
-          hasSavedKey: Boolean(existing?.hasSavedKey)
-        };
-        const nextList = existing
-          ? existingList.map((p) => (p.id === providerId ? upsert : p))
-          : [...existingList, upsert];
-        const saveResp = await sendRuntimeMessage({ type: "asr-providers-save", providers: nextList });
-        if (!saveResp?.ok) {
-          setStatusLine(asrStatus, saveResp?.error || "保存转写平台失败", "error");
-          return;
-        }
+        const providerId = saveRes.providerId;
         const asrAutoFallback = asrAutoFallbackToggle ? asrAutoFallbackToggle.checked : true;
         await sendRuntimeMessage({
           type: "save-settings",
           settings: { activeAsrProviderId: providerId, asrAutoFallback }
         });
-        asrProviders = saveResp.providers ?? [];
+        asrProviders = (saveRes.providers ?? []) as AsrProviderListEntry[];
         currentSettings = { ...currentSettings, activeAsrProviderId: providerId, asrAutoFallback };
         editingAsrId = providerId;
         editingAsrHasSavedKey = Boolean(asrProviders.find((p) => p.id === providerId)?.hasSavedKey);
@@ -1094,13 +1007,9 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
           asrApiKeyInput.placeholder = editingAsrHasSavedKey ? "已保存（留空沿用）" : "填写 API Key";
         }
         renderReadiness(currentSettings, aiProviders, asrProviders);
-        setStatusLine(asrStatus, `已保存 ${normalized.name}（${normalized.model}）`, "success");
-      } catch (error) {
-        setStatusLine(asrStatus, (error as Error).message || "保存失败", "error");
-      } finally {
-        if (asrSaveBtn) asrSaveBtn.disabled = false;
+        setStatusLine(asrStatus, `已保存 ${savedName}（${savedModel}）`, "success");
       }
-    })();
+    });
   }, { signal });
 
   asrAutoFallbackToggle?.addEventListener("change", () => {

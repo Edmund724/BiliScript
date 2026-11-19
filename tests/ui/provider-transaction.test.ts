@@ -74,7 +74,7 @@ describe("upsertProvider：单点保存事务", () => {
 
     const result = await tx.upsertProvider("ai", { id: "", name: "自定义", baseUrl: "https://api.example.com/v1" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, providerId: "p_new", providers: saved });
     expect(families.ai.list).toHaveBeenCalledTimes(1);
     expect(families.ai.save).toHaveBeenCalledWith([
       { id: "p_new", name: "自定义", baseUrl: "https://api.example.com/v1" }
@@ -167,6 +167,105 @@ describe("upsertProvider：单点保存事务", () => {
     });
     // 现查失败按空列表兜底（与整表语义一致）：save 仍被调用
     expect(families.ai.save).not.toHaveBeenCalled();
+  });
+
+  it("支持局部族表 + matchExisting + buildUpsert，合并保留既有扩展字段且权限申请保持零先行 await", async () => {
+    const { createProviderTransactions } = await import("../../extension/ui/provider-transaction.js");
+    const aiList = vi.fn(async () => ({
+      ok: true,
+      providers: [
+        {
+          id: "p_existing",
+          presetId: "modelscope",
+          name: "已有平台名",
+          baseUrl: "https://api-inference.modelscope.cn/v1",
+          models: ["old-model"],
+          customMeta: "keep-me"
+        } as ProviderRowItem
+      ]
+    }));
+    const aiSave = vi.fn(async (providers: ProviderRowItem[]) => ({ ok: true, providers }));
+    const requestOrigins = vi.fn(async () => ({ ok: true }));
+
+    const tx = createProviderTransactions({
+      families: {
+        ai: {
+          list: aiList,
+          save: aiSave,
+          generateId: () => "p_generated",
+          optionalHostPermission: true
+        }
+      },
+      requestOrigins
+    });
+
+    const pending = tx.upsertProvider(
+      "ai",
+      { id: "", baseUrl: "https://api-inference.modelscope.cn/v1" },
+      {
+        matchExisting: (list) => list.find((p) => p.presetId === "modelscope"),
+        buildUpsert: (existing, providerId) => ({
+          ok: true,
+          upsert: {
+            id: providerId,
+            presetId: "modelscope",
+            name: existing?.name || "ModelScope",
+            baseUrl: "https://api-inference.modelscope.cn/v1",
+            models: ["new-model", ...((existing?.models as string[]) || [])]
+          }
+        })
+      }
+    );
+
+    // 同步手势链：requestOrigins 必须在首个 await（family.list）之前同步发起
+    expect(requestOrigins).toHaveBeenCalledTimes(1);
+    expect(requestOrigins).toHaveBeenCalledWith(["https://api-inference.modelscope.cn/v1"]);
+    expect(aiList).not.toHaveBeenCalled();
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(result.providerId).toBe("p_existing");
+    expect(aiSave).toHaveBeenCalledWith([
+      {
+        id: "p_existing",
+        presetId: "modelscope",
+        name: "已有平台名",
+        baseUrl: "https://api-inference.modelscope.cn/v1",
+        models: ["new-model", "old-model"],
+        customMeta: "keep-me"
+      }
+    ]);
+  });
+
+  it("buildUpsert 校验失败时中止落盘且不重渲；未登记族返回错误", async () => {
+    const { createProviderTransactions } = await import("../../extension/ui/provider-transaction.js");
+    const aiSave = vi.fn(async (providers: ProviderRowItem[]) => ({ ok: true, providers }));
+    const rerender = vi.fn();
+
+    const tx = createProviderTransactions({
+      families: {
+        ai: {
+          list: vi.fn(async () => ({ ok: true, providers: [] })),
+          save: aiSave,
+          generateId: () => "p_1",
+          optionalHostPermission: true
+        }
+      },
+      requestOrigins: vi.fn(async () => ({ ok: true })),
+      rerender
+    });
+
+    const invalid = await tx.upsertProvider(
+      "ai",
+      { id: "", baseUrl: "https://api.example.com/v1" },
+      { buildUpsert: () => ({ ok: false, error: "AI 平台配置不合法" }) }
+    );
+    expect(invalid).toEqual({ ok: false, error: "AI 平台配置不合法" });
+    expect(aiSave).not.toHaveBeenCalled();
+    expect(rerender).not.toHaveBeenCalled();
+
+    const missingFamily = await tx.upsertProvider("asr", { id: "", baseUrl: "https://asr.example.com/v1" });
+    expect(missingFamily.ok).toBe(false);
   });
 });
 
