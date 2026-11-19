@@ -679,8 +679,18 @@ async function handleCopyImageAction(btn: HTMLButtonElement): Promise<void> {
     loadingText: "生成中...",
     defaultIconHtml: READING_COPY_ICON,
     action: async () => {
-      const blob = await renderQuoteCardBlob(buildExportOptions());
-      return await copyQuoteCardBlobToClipboard(blob);
+      let renderError: unknown = null;
+      const blobPromise = renderQuoteCardBlob(buildExportOptions()).catch((err) => {
+        renderError = err;
+        throw err;
+      });
+      // 防止剪贴板不可用或提前拒绝时未消费的渲染 Promise 触发 unhandledrejection
+      blobPromise.catch(() => {});
+      const copied = await copyQuoteCardBlobToClipboard(blobPromise, "image/png");
+      if (!copied && renderError !== null) {
+        throw renderError;
+      }
+      return copied;
     },
     successText: "已复制 ✓",
     failureText: "复制失败，建议直接保存图片",

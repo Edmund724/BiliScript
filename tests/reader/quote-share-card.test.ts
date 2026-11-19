@@ -562,20 +562,27 @@ describe("quote-share-actions-and-export 导出光栅化与控制栏交互", () 
     const origClipboard = navigator.clipboard;
     const origClipboardItem = (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
 
-    // 1. 剪贴板写入成功
+    // 1. 剪贴板写入成功：点击同步栈内直接向 ClipboardItem 传入 Promise<Blob> 并调用 clipboard.write
     const mockWriteSuccess = vi.fn().mockResolvedValue(undefined);
+    const clipboardItemCtor = vi.fn();
     Object.defineProperty(navigator, "clipboard", {
       value: { write: mockWriteSuccess },
       configurable: true
     });
-    (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
+    (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = clipboardItemCtor;
 
     openQuoteShareModal({ content: "测试复制图片" });
     const copyBtn = document.querySelector<HTMLButtonElement>("[data-action='copy-image']")!;
     copyBtn.click();
 
+    // 断言在点击同步栈内即已发起写入（未跨 await 丢失瞬态用户激活）
+    expect(clipboardItemCtor).toHaveBeenCalledTimes(1);
+    expect(mockWriteSuccess).toHaveBeenCalledTimes(1);
+    const itemArg = clipboardItemCtor.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(itemArg?.["image/png"]).toBeInstanceOf(Promise);
+    expect(await (itemArg?.["image/png"] as Promise<Blob>)).toBe(fakeBlob);
+
     await new Promise((r) => setTimeout(r, 20));
-    expect(mockWriteSuccess).toHaveBeenCalled();
     expect(copyBtn.classList.contains("is-success")).toBe(true);
     expect(copyBtn.textContent).toContain("已复制");
 

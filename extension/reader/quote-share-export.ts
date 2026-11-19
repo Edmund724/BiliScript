@@ -942,9 +942,14 @@ export async function renderQuoteCardBlob(
 }
 
 /**
- * 将卡片图片 Blob 写入系统剪贴板。
+ * 将卡片图片 Blob（或渲染中的 Promise<Blob>）写入系统剪贴板。
+ * 传入 Promise<Blob> 可在点击同步栈内直接调用 clipboard.write，
+ * 避免跨异步渲染后在 Chromium / Firefox 中丢失瞬态用户激活。
  */
-export async function copyQuoteCardBlobToClipboard(blob: Blob): Promise<boolean> {
+export async function copyQuoteCardBlobToClipboard(
+  blobOrPromise: Blob | Promise<Blob>,
+  mimeType = "image/png"
+): Promise<boolean> {
   try {
     if (
       typeof navigator !== "undefined" &&
@@ -952,7 +957,11 @@ export async function copyQuoteCardBlobToClipboard(blob: Blob): Promise<boolean>
       typeof navigator.clipboard.write === "function" &&
       typeof ClipboardItem !== "undefined"
     ) {
-      const item = new ClipboardItem({ [blob.type || "image/png"]: blob });
+      const type =
+        typeof Blob !== "undefined" && blobOrPromise instanceof Blob
+          ? blobOrPromise.type || mimeType
+          : mimeType;
+      const item = new ClipboardItem({ [type]: blobOrPromise });
       await navigator.clipboard.write([item]);
       return true;
     }
