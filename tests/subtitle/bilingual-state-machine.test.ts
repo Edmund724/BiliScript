@@ -30,14 +30,6 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
-    resolveSubtitleTranslateProvider: vi.fn(async () => ({
-      provider: { id: "mock-ai", name: "Mock AI", baseUrl: "https://api.mock", models: ["m1"], enabled: true },
-      apiKey: "sk-mock",
-      baseUrl: "https://api.mock",
-      model: "m1",
-      presetId: "custom",
-      isFallback: false
-    })),
     translateSubtitleItems: vi.fn(async (input: {
       items: Array<{ from: number; to: number; content: string }>;
       targetLang: string;
@@ -116,6 +108,28 @@ const AI_ZH_INFERIOR_BODY = [
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
+  vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(
+    (message: any, callback?: (res: unknown) => void) => {
+      if (message?.type === "resolve-subtitle-translate-provider") {
+        callback?.({
+          ok: true,
+          provider: {
+            id: "mock-ai",
+            name: "Mock AI",
+            baseUrl: "https://api.mock",
+            models: ["m1"],
+            enabled: true
+          },
+          apiKey: "sk-mock",
+          model: "m1",
+          isFallback: false
+        });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    }
+  );
   mockRuntime.llmCalls = [];
   mockRuntime.loadedPrimaryCalls = [];
   mockRuntime.loadedSecondaryCalls = [];

@@ -32,25 +32,27 @@ import {
   type TranslatedTrackSession
 } from "../subtitle/translated-track-session.js";
 import type { InterpretSubtitleDisplayMode } from "./interpret-subtitle-preferences.js";
-import { runAsrPipeline, type RunAsrPipelineArgs } from "../asr/pipeline.js";
+import type { RunAsrPipelineArgs } from "../asr/pipeline.js";
 import { loadActiveAsrFallback } from "../asr/active-fallback.js";
-import { asrProviderStore } from "../asr/asr-provider-store.js";
-import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
+import { resolveActiveAsrRuntimeState, type AsrProviderListEntry } from "../asr/asr-setup.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
-import {
-  resolveSubtitleTranslateProtocolMode,
-  resolveSubtitleTranslateProvider,
-  translateSubtitleItems
-} from "../ai/subtitle-translate.js";
+import type { translateSubtitleItems } from "../ai/subtitle-translate.js";
 import { readCachedL1VideoIndex } from "../ai/subtitle-context.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
-import type { SubtitleTranslateProviderResolution } from "../ai/subtitle-translate-config.js";
+import {
+  resolveSubtitleTranslateProvider,
+  type SubtitleTranslateProviderResolution
+} from "../ai/subtitle-translate-config.js";
+import { createLazyLoader } from "../shared/lazy-import.js";
 import {
   createSubtitleChunkScheduler,
   PAUSE_TIMEOUT_MS,
   type SubtitleChunkScheduler
 } from "../subtitle/chunk-scheduler.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
+
+const asrPipelineLoader = createLazyLoader(() => import("../asr/pipeline.js"));
+const subtitleTranslateLoader = createLazyLoader(() => import("../ai/subtitle-translate.js"));
 
 export type InterpretSessionState = "idle" | "connecting" | "connected";
 export type InterpretAvailability = { ok: true } | { ok: false; error: string };
@@ -77,7 +79,7 @@ export interface InterpretSessionControllerDeps {
   saveCache?: typeof saveSubtitleToCache;
   clearTranslatedCache?: typeof clearTranslatedSubtitleCache;
   resolveTranslateProvider?: typeof resolveSubtitleTranslateProvider;
-  loadAsrProviders?: () => Promise<any[]>;
+  loadAsrProviders?: () => Promise<readonly AsrProviderListEntry[]>;
   loadNativePrimaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
   loadNativeSecondaryTrack?: (track: { id: string; url: string; lang: string }) => Promise<void>;
 }
@@ -105,13 +107,12 @@ export function createInterpretSessionController(
   const setSubtitle = deps.setSubtitle ?? (() => {});
   const clearSubtitles = deps.clearSubtitles ?? (() => {});
   const clearSubtitlesOnSeek = deps.clearSubtitlesOnSeek ?? clearSubtitles;
-  const runAsr = deps.runAsr ?? runAsrPipeline;
-  const translateItems = deps.translateItems ?? translateSubtitleItems;
+  const customRunAsr = deps.runAsr;
+  const customTranslateItems = deps.translateItems;
   const loadCache = deps.loadCache ?? loadSubtitleFromCache;
   const saveCache = deps.saveCache ?? saveSubtitleToCache;
   const clearTranslatedCache = deps.clearTranslatedCache ?? clearTranslatedSubtitleCache;
   const resolveTranslateProvider = deps.resolveTranslateProvider ?? resolveSubtitleTranslateProvider;
-  const loadAsrProviders = deps.loadAsrProviders ?? (() => asrProviderStore.loadProviders());
   const loadNativePrimaryTrack =
     deps.loadNativePrimaryTrack ??
     (async (target) => {
@@ -146,6 +147,7 @@ export function createInterpretSessionController(
   const activeChunkPromises = new Map<number, Promise<void>>();
   const isAsrDoneChunk = new Set<number>();
   let activeTrackSession: TranslatedTrackSession | null = null;
+  let translatorConfiguredSession: TranslatedTrackSession | null = null;
   let secondaryAlignmentCache: ReturnType<typeof buildSecondaryAlignment> | null = null;
   let activeSecondaryItems: SubtitleBodyItem[] = [];
   let primaryCacheKey = "";
@@ -250,15 +252,9 @@ export function createInterpretSessionController(
 
       // 2. 检查语音识别 (ASR) 平台（已有原生 CC 或内存中已有主轨则可跳过 ASR 检查）
       if (!hasPrimaryReadyInMemoryOrCache()) {
-        const [providers, settings] = await Promise.all([
-          loadAsrProviders(),
-          chrome.storage.sync.get(["activeAsrProviderId"])
-        ]);
-        const activeId = resolveActiveAsrProviderId(
-          providers,
-          typeof settings.activeAsrProviderId === "string" ? settings.activeAsrProviderId : undefined
-        );
-        const activeAsr = providers.find((p) => p.id === activeId);
+        const { activeProvider: activeAsr, setupState } = await resolveActiveAsrRuntimeState({
+          loadProviders: deps.loadAsrProviders
+        });
 
         if (currentGeneration !== availabilityGeneration) return availability;
         if (!activeAsr || activeAsr.enabled === false) {
@@ -267,7 +263,7 @@ export function createInterpretSessionController(
             error: "未配置语音识别 (ASR) 平台，请先在设置中添加平台并填写 API Key"
           });
         }
-        if (!activeAsr.hasSavedKey) {
+        if (setupState.providerStatus === "missing-key" || !activeAsr.hasSavedKey) {
           return updateAvailability({
             ok: false,
             error: "未配置语音识别 (ASR) 密钥，请先在设置中填写 API Key"
@@ -501,11 +497,7 @@ export function createInterpretSessionController(
           state.clip.cid !== cid
       },
       {
-        resolveProtocolMode:
-          typeof resolveSubtitleTranslateProtocolMode === "function"
-            ? resolveSubtitleTranslateProtocolMode
-            : undefined,
-        translateItems,
+        ...(customTranslateItems ? { translateItems: customTranslateItems } : {}),
         ...(hasCustomLoadCache ? { loadCustomCache: loadCache } : {}),
         ...(hasCustomSaveCache ? { saveCustomCache: saveCache } : {}),
         onStreamingUpdate: ({ items, cue }) => {
@@ -543,6 +535,30 @@ export function createInterpretSessionController(
     );
   }
 
+  async function ensureTranslatorConfigured(
+    session: TranslatedTrackSession,
+    protocolItems?: readonly SubtitleBodyItem[]
+  ): Promise<boolean> {
+    if (customTranslateItems) {
+      translatorConfiguredSession = session;
+      return false;
+    }
+    if (translatorConfiguredSession === session) {
+      return false;
+    }
+    const translateMod = await subtitleTranslateLoader.load();
+    const sigChanged = session.reconfigure({
+      resolveProtocolMode:
+        typeof translateMod.resolveSubtitleTranslateProtocolMode === "function"
+          ? translateMod.resolveSubtitleTranslateProtocolMode
+          : undefined,
+      translateItems: translateMod.translateSubtitleItems,
+      protocolItems
+    });
+    translatorConfiguredSession = session;
+    return sigChanged;
+  }
+
   async function translateChunk(chunkIndex: number, currentGeneration: number): Promise<void> {
     const session = activeTrackSession;
     if (!session || isSessionStale(currentGeneration) || session.isChunkDone(chunkIndex)) {
@@ -555,6 +571,12 @@ export function createInterpretSessionController(
 
     const taskPromise = (async () => {
       try {
+        if (!customTranslateItems && translatorConfiguredSession !== session) {
+          await ensureTranslatorConfigured(session, session.getPrimaryItems());
+          if (isSessionStale(currentGeneration) || session.isChunkDone(chunkIndex)) {
+            return;
+          }
+        }
         await session.translateChunk({
           chunkIndex,
           chunkFromSec: chunkIndex * CHUNK_DURATION_SEC,
@@ -654,6 +676,7 @@ export function createInterpretSessionController(
 
   function resetBuffers(): void {
     activeTrackSession = null;
+    translatorConfiguredSession = null;
     activeChunkPromises.clear();
     isAsrDoneChunk.clear();
     secondaryAlignmentCache = null;
@@ -819,7 +842,7 @@ export function createInterpretSessionController(
 
         activeL1Index = await readCachedL1VideoIndex(state.clip);
         if (isSessionStale(currentGeneration)) return false;
-        const secondaryItems = await session.loadCached();
+        let secondaryItems = await session.loadCached();
         if (isSessionStale(currentGeneration)) return false;
 
         if (secondaryItems.length > 0) {
@@ -831,6 +854,21 @@ export function createInterpretSessionController(
           clipState.clearSecondarySubtitle();
         }
 
+        if (session.getPendingPrimaryChunks().length > 0) {
+          const sigChanged = await ensureTranslatorConfigured(session, primaryItems);
+          if (isSessionStale(currentGeneration)) return false;
+          if (sigChanged) {
+            secondaryItems = await session.loadCached();
+            if (isSessionStale(currentGeneration)) return false;
+            if (secondaryItems.length > 0) {
+              await session.seedSecondary(secondaryItems);
+              if (isSessionStale(currentGeneration)) return false;
+              activeSecondaryItems = session.getSecondaryItems();
+              secondaryAlignmentCache = buildSecondaryAlignment(activeSecondaryItems);
+            }
+          }
+        }
+
         startScheduledTranslation(currentGeneration, session);
         return true;
       }
@@ -839,19 +877,11 @@ export function createInterpretSessionController(
       activeSessionKind = "asr";
       const targetLang = getTargetLang();
 
-      const [providers, settings] = await Promise.all([
-        loadAsrProviders(),
-        chrome.storage.sync.get(["activeAsrProviderId", "asrLanguage"])
-      ]);
+      const { activeId, activeProvider: activeAsr, asrLanguage } = await resolveActiveAsrRuntimeState({
+        loadProviders: deps.loadAsrProviders
+      });
       if (isSessionStale(currentGeneration)) return false;
-      const activeId = resolveActiveAsrProviderId(
-        providers,
-        typeof settings.activeAsrProviderId === "string" ? settings.activeAsrProviderId : undefined
-      );
-      const activeAsr = providers.find((p) => p.id === activeId);
-      activeAsrLabel = buildAsrSubtitleLabel(
-        typeof settings.asrLanguage === "string" ? settings.asrLanguage : undefined
-      );
+      activeAsrLabel = buildAsrSubtitleLabel(asrLanguage);
 
       primaryCacheKey = getSubtitleCacheKey({
         bvid,
@@ -860,7 +890,7 @@ export function createInterpretSessionController(
           kind: "asr",
           providerId: activeId,
           model: activeAsr?.model,
-          lang: settings.asrLanguage || "auto"
+          lang: asrLanguage
         }
       });
 
@@ -909,6 +939,10 @@ export function createInterpretSessionController(
         if (isSessionStale(currentGeneration)) return false;
         activeSecondaryItems = session.getSecondaryItems();
         secondaryAlignmentCache = buildSecondaryAlignment(activeSecondaryItems);
+        if (session.getPendingPrimaryChunks().length > 0) {
+          await ensureTranslatorConfigured(session, primaryItems);
+          if (isSessionStale(currentGeneration)) return false;
+        }
         startScheduledTranslation(currentGeneration, session);
         return true;
       }
@@ -927,6 +961,8 @@ export function createInterpretSessionController(
         if (isSessionStale(currentGeneration)) return false;
         activeL1Index = await readCachedL1VideoIndex(state.clip);
         if (isSessionStale(currentGeneration)) return false;
+        await ensureTranslatorConfigured(session, primaryItems);
+        if (isSessionStale(currentGeneration)) return false;
         startScheduledTranslation(currentGeneration, session);
         return true;
       }
@@ -938,6 +974,11 @@ export function createInterpretSessionController(
         await stop();
         return false;
       }
+
+      const runAsr = customRunAsr ?? (await asrPipelineLoader.load()).runAsrPipeline;
+      if (isSessionStale(currentGeneration)) return false;
+      await ensureTranslatorConfigured(session, [{ from: 0, to: 1, content: "probe" }]);
+      if (isSessionStale(currentGeneration)) return false;
 
       // 需要 ASR 转写：启动统一调度器与 ASR 流水线
       needsTranslatedCacheInvalidation = true;

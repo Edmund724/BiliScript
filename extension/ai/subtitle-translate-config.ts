@@ -6,7 +6,9 @@
 // 静态引用。请求装配（buildSubtitleTranslateRequest / translateSubtitleItems）
 // 留在 ai/subtitle-translate.ts，只允许页面/offscreen 侧按需加载。
 
+import type { Settings } from "../core/defaults.js";
 import { MISSING_PROVIDER_KEY_MESSAGE } from "../core/overview-setup-error.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { ProviderListEntry } from "../shared/messaging-protocol.js";
 import { resolveCatalogModel } from "../shared/selected-provider.js";
 import {
@@ -224,5 +226,43 @@ export function resolveSubtitleTranslateProviderConfig(
     presetId: String(chosen.presetId || ""),
     protocol: chosen.protocol as AiProtocol | undefined,
     isFallback: false
+  };
+}
+
+export interface ResolveSubtitleTranslateProviderDeps {
+  getSettings?: () => Promise<Partial<Settings>>;
+  loadProviders?: () => Promise<ProviderListEntry[]>;
+  loadKeys?: () => Promise<Record<string, string>>;
+}
+
+/**
+ * 异步解析字幕翻译运行时配置（依赖注入或经 runtime 消息向 SW 请求）。
+ * 驻留零 completion/adapter 依赖叶，供 interpret-session-controller 可用性检查在不加载翻译协议栈的前提下复用。
+ */
+export async function resolveSubtitleTranslateProvider(
+  deps?: ResolveSubtitleTranslateProviderDeps
+): Promise<SubtitleTranslateProviderResolution> {
+  if (deps?.getSettings && deps?.loadProviders && deps?.loadKeys) {
+    const [settings, providers, keys] = await Promise.all([
+      deps.getSettings(),
+      deps.loadProviders(),
+      deps.loadKeys()
+    ]);
+    return resolveSubtitleTranslateProviderConfig(providers, keys, settings);
+  }
+
+  const resp = await sendRuntimeMessage({ type: "resolve-subtitle-translate-provider" });
+  if (!resp?.ok || !resp.provider) {
+    throw new Error(String(resp?.error || "解析字幕翻译平台配置失败"));
+  }
+  const provider = resp.provider;
+  return {
+    provider,
+    apiKey: String(resp.apiKey || "").trim(),
+    baseUrl: String(provider.baseUrl || "").trim(),
+    model: String(resp.model || provider.model || "").trim(),
+    presetId: String(provider.presetId || ""),
+    protocol: provider.protocol as AiProtocol | undefined,
+    isFallback: resp.isFallback === true
   };
 }

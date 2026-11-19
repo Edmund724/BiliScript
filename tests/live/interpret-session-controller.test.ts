@@ -177,6 +177,51 @@ describe("InterpretSessionController (游标滑动窗口 ASR + LLM 逐句翻译�
         expect(customMissingKeyRes.error).toContain("该平台 API Key 未配置");
       }
     });
+
+    it("缺省依赖下通过 SW asr-providers-list 与 get-settings 解析 ASR 平台，不直读 chrome.storage 密钥", async () => {
+      const storageLocalGetSpy = vi.spyOn(chrome.storage.local, "get");
+      const storageSyncGetSpy = vi.spyOn(chrome.storage.sync, "get");
+      vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(
+        (message: any, callback?: (res: unknown) => void) => {
+          if (message?.type === "resolve-subtitle-translate-provider") {
+            callback?.({
+              ok: true,
+              provider: { id: "mock-ai", name: "Mock AI", baseUrl: "https://api.mock", models: ["m1"], enabled: true },
+              apiKey: "sk-mock",
+              model: "m1",
+              isFallback: false
+            });
+            return undefined;
+          }
+          if (message?.type === "asr-providers-list") {
+            callback?.({
+              ok: true,
+              providers: [
+                { id: "asr-1", name: "ASR 1", enabled: true, hasSavedKey: false, model: "whisper-1" },
+                { id: "asr-2", name: "ASR 2", enabled: true, hasSavedKey: true, model: "whisper-2" }
+              ]
+            });
+            return undefined;
+          }
+          if (message?.type === "get-settings") {
+            callback?.({
+              ok: true,
+              settings: { activeAsrProviderId: "asr-2", asrLanguage: "en" }
+            });
+            return undefined;
+          }
+          callback?.({ ok: true });
+          return undefined;
+        }
+      );
+
+      const controller = createInterpretSessionController();
+      const res = await controller.refreshAvailability();
+      expect(res).toEqual({ ok: true });
+      expect(storageLocalGetSpy).not.toHaveBeenCalled();
+      expect(storageSyncGetSpy).not.toHaveBeenCalled();
+      controller.dispose();
+    });
   });
 
   describe("缓存命中短路", () => {

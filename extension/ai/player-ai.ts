@@ -1,12 +1,5 @@
 import { buildPlayerAiQuickActionIconSvg, buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 import {
-  ensureFullscreenOverlay,
-  getLiveController,
-  isLiveCompanionActive,
-  startLiveCompanion,
-  stopLiveCompanion
-} from "../live/live-companion-session.js";
-import {
   closePlayerInterpretMenu,
   syncPlayerInterpretQuickAction,
   togglePlayerInterpretMenu
@@ -16,7 +9,8 @@ import {
   isControlBarLiveToggleMounted,
   mountControlBarLiveToggle,
   syncPlayerLiveToggleButton
-} from "../live/live-overlay-binding.js";
+} from "../live/player-live-toggle.js";
+import { createLazyLoader } from "../shared/lazy-import.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -62,27 +56,35 @@ ensurePlayerAiStyles();
 const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
 let playerAiQuickActionRetryCount = 0;
 let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
+const liveCompanionSessionLoader = createLazyLoader(() => import("../live/live-companion-session.js"));
+
 let liveQuickActionTargetButton: HTMLButtonElement | null = null;
 const liveQuickActionToggleHandler = createThrottledLiveToggleHandler(async () => {
+  if (!supportsLiveCompanion()) {
+    return;
+  }
   const liveButton = liveQuickActionTargetButton;
+  let session: Awaited<ReturnType<typeof liveCompanionSessionLoader.load>> | null = null;
   try {
+    session = await liveCompanionSessionLoader.load();
     const isCurrentlyActive = Boolean(
       liveButton?.classList.contains("is-active") ||
         document.body.hasAttribute("data-biliscript-live-active") ||
-        isLiveCompanionActive() ||
-        getLiveController()?.getState() === "connected" ||
-        getLiveController()?.getState() === "connecting"
+        session.isLiveCompanionActive() ||
+        session.getLiveController()?.getState() === "connected" ||
+        session.getLiveController()?.getState() === "connecting"
     );
 
     if (isCurrentlyActive) {
-      stopLiveCompanion();
+      session.stopLiveCompanion();
     } else {
-      await startLiveCompanion();
+      await session.startLiveCompanion();
     }
   } catch {
     const errorMessage = "实时伴看启动失败，请重试";
     try {
-      const overlay = ensureFullscreenOverlay();
+      const targetSession = session ?? (await liveCompanionSessionLoader.load());
+      const overlay = targetSession.ensureFullscreenOverlay();
       overlay.show({ forceExpand: true });
       overlay.syncState("failure", false, errorMessage, "unknown");
     } catch {}

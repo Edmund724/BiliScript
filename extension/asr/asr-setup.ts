@@ -11,6 +11,9 @@
 // resolveActiveAsrProviderId（与设置面板单选激活、运行时配置解析同一份回退规则），
 // 不在此另写一份「谁是激活平台」。
 
+import type { Settings } from "../core/defaults.js";
+import { getSettings } from "../core/runtime.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import { resolveActiveAsrProviderId } from "./asr-provider-normalize.js";
 
 // 设置动作的类目：
@@ -104,4 +107,71 @@ export function resolveAsrSetupState(input: AsrSetupInput): AsrSetupState {
 export function resolveAsrSetupPlan(input: AsrSetupInput): AsrSetupPlan {
   const { kind, providerId } = resolveAsrSetupState(input);
   return { kind, providerId };
+}
+
+export interface AsrProviderListEntry {
+  id: string;
+  name?: string;
+  model?: string;
+  type?: string;
+  enabled?: boolean;
+  hasSavedKey?: boolean;
+}
+
+export interface ActiveAsrRuntimeState {
+  providers: AsrProviderListEntry[];
+  activeId: string;
+  activeProvider: AsrProviderListEntry | null;
+  asrLanguage: string;
+  setupState: AsrSetupState;
+}
+
+export interface ResolveActiveAsrRuntimeDeps {
+  loadProviders?: () => Promise<readonly AsrProviderListEntry[]>;
+  getSettings?: () => Promise<Partial<Pick<Settings, "asrAutoFallback" | "activeAsrProviderId" | "asrLanguage">>>;
+}
+
+// 页面侧 ASR provider 元数据读取唯一单点：经 background 的 asr-providers-list 返回
+// 不含明文 Key 的列表，消息失败按空列表降级。
+export async function loadAsrProviderList(): Promise<AsrProviderListEntry[]> {
+  try {
+    const resp = await sendRuntimeMessage({ type: "asr-providers-list" });
+    return Array.isArray(resp?.providers) ? (resp.providers as AsrProviderListEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 页面侧统一解析当前激活 ASR 平台、语言档位与配置状态：
+ * 单趟并发读取 `asr-providers-list` 与 `getSettings()`，不直接触碰 `chrome.storage` 密钥存储。
+ */
+export async function resolveActiveAsrRuntimeState(
+  deps: ResolveActiveAsrRuntimeDeps = {}
+): Promise<ActiveAsrRuntimeState> {
+  const loadProviders = deps.loadProviders ?? loadAsrProviderList;
+  const readSettings = deps.getSettings ?? getSettings;
+  const [rawProviders, settings] = await Promise.all([loadProviders(), readSettings()]);
+  const providers = Array.isArray(rawProviders) ? [...rawProviders] : [];
+  const activeAsrProviderId =
+    typeof settings?.activeAsrProviderId === "string" ? settings.activeAsrProviderId : "";
+  const activeId = resolveActiveAsrProviderId(providers, activeAsrProviderId);
+  const activeProvider =
+    providers.find((item) => String(item?.id || "").trim() === activeId) ?? null;
+  const asrLanguage =
+    typeof settings?.asrLanguage === "string" && settings.asrLanguage.trim()
+      ? settings.asrLanguage.trim()
+      : "auto";
+  const setupState = resolveAsrSetupState({
+    asrAutoFallback: settings?.asrAutoFallback,
+    activeAsrProviderId,
+    providers
+  });
+  return {
+    providers,
+    activeId,
+    activeProvider,
+    asrLanguage,
+    setupState
+  };
 }

@@ -19,20 +19,6 @@ vi.mock("../../extension/ai/subtitle-translate.js", async () => {
   );
   return {
     ...actual,
-    resolveSubtitleTranslateProvider: vi.fn(async () => ({
-      provider: {
-        id: "mock-ai",
-        name: "Mock AI",
-        baseUrl: "https://api.mock",
-        models: ["m1"],
-        enabled: true
-      },
-      apiKey: "sk-mock",
-      baseUrl: "https://api.mock",
-      model: "m1",
-      presetId: "custom",
-      isFallback: false
-    })),
     translateSubtitleItems: mockTranslate.translateSubtitleItems
   };
 });
@@ -253,7 +239,28 @@ describe("播放器双语字幕叠层升级验收", () => {
     const { acceptSubtitle } = await import("../../extension/subtitle/commit.js");
     const interpret = await import("../../extension/live/player-interpret.js");
 
-    const sendMessageSpy = vi.spyOn(chrome.runtime, "sendMessage");
+    const sendMessageSpy = vi.spyOn(chrome.runtime, "sendMessage").mockImplementation(
+      (message: any, callback?: (res: unknown) => void) => {
+        if (message?.type === "resolve-subtitle-translate-provider") {
+          callback?.({
+            ok: true,
+            provider: {
+              id: "mock-ai",
+              name: "Mock AI",
+              baseUrl: "https://api.mock",
+              models: ["m1"],
+              enabled: true
+            },
+            apiKey: "sk-mock",
+            model: "m1",
+            isFallback: false
+          });
+          return undefined;
+        }
+        callback?.({ ok: true });
+        return undefined;
+      }
+    );
 
     const { container, videoWrap, actionWrap, video } = buildBiliPlayerDom({ controlsHidden: true });
     video.currentTime = 1.0;

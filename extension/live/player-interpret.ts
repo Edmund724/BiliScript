@@ -41,6 +41,15 @@ import {
   type InterpretSessionController
 } from "./interpret-session-controller.js";
 import {
+  createPlayerNoticeHost,
+  findVideoPlayerHost,
+  notifyPlayerOrConsumer,
+  setPlayerNoticeConsumer,
+  sharedPlayerNotice,
+  showPlayerToast,
+  type PlayerNoticeHost
+} from "./player-notice.js";
+import {
   animateTriggerEnter,
   animateTriggerExit,
   cancelTriggerExit
@@ -118,6 +127,7 @@ export interface InterpretSubtitleOverlayDeps {
   getBlurSecondary?: () => boolean;
   loadPositionRatio?: () => Promise<number | null>;
   savePositionRatio?: (ratio: number) => void;
+  noticeHost?: PlayerNoticeHost;
 }
 
 export const DEFAULT_INTERPRET_SUBTITLE_BOTTOM_PX = 40;
@@ -270,8 +280,8 @@ export function createInterpretSubtitleOverlay(
   let rootEl: HTMLElement | null = null;
   let originalEl: HTMLElement | null = null;
   let translationEl: HTMLElement | null = null;
-  let noticeEl: HTMLElement | null = null;
-  let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+  const noticeHost =
+    deps.noticeHost ?? createPlayerNoticeHost(() => getFullscreenHost() || deps.getPlayerHost());
 
   let activeSessionGeneration = 0;
   let lastOriginal = "";
@@ -318,10 +328,6 @@ export function createInterpretSubtitleOverlay(
       return base;
     }
     return base.querySelector<HTMLElement>(".bpx-player-video-wrap") || base;
-  }
-
-  function getNoticeHost(): HTMLElement | null {
-    return getFullscreenHost() || deps.getPlayerHost();
   }
 
   function measureHostHeight(): number {
@@ -696,25 +702,7 @@ export function createInterpretSubtitleOverlay(
   }
 
   function showNotice(message: string, autoHideMs = 6000): void {
-    const host = getNoticeHost();
-    if (!host) return;
-    if (noticeTimer !== null) clearTimeout(noticeTimer);
-    noticeTimer = null;
-    if (!noticeEl) {
-      noticeEl = document.createElement("div");
-      noticeEl.className = "biliscript-interpret-notice";
-      noticeEl.setAttribute("data-biliscript-extension-node", "interpret-notice");
-      noticeEl.setAttribute("role", "status");
-    }
-    if (noticeEl.parentElement !== host) host.appendChild(noticeEl);
-    noticeEl.textContent = message;
-    if (autoHideMs > 0) {
-      noticeTimer = setTimeout(() => {
-        noticeTimer = null;
-        noticeEl?.remove();
-        noticeEl = null;
-      }, autoHideMs);
-    }
+    noticeHost.show(message, autoHideMs);
   }
 
   function setSubtitle(
@@ -747,10 +735,7 @@ export function createInterpretSubtitleOverlay(
   }
 
   function dispose(): void {
-    if (noticeTimer !== null) clearTimeout(noticeTimer);
-    noticeTimer = null;
-    noticeEl?.remove();
-    noticeEl = null;
+    noticeHost.dispose();
     unmount();
   }
 
@@ -1239,7 +1224,6 @@ export function syncPlayerInterpretQuickActionState(
 
 let interpretController: InterpretSessionController | null = null;
 let interpretSessionGeneration = 0;
-let noticeConsumer: ((message: string, autoHideMs?: number) => void) | null = null;
 let unsubscribePresenter: (() => void) | null = null;
 let unsubscribeStorageWatcher: (() => void) | null = null;
 let pageHideBound = false;
@@ -1307,16 +1291,13 @@ function resolveCurrentPlayerSourceLan(): string {
   return String(current.lan || "");
 }
 
-function getPlayerHost(): HTMLElement | null {
-  return document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
-}
-
 function shouldShowInterpret(): boolean {
   return state.clip.subtitleFetchState === "empty" || state.clip.subtitleFetchState === "ready";
 }
 
 const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
-  getPlayerHost,
+  getPlayerHost: findVideoPlayerHost,
+  noticeHost: sharedPlayerNotice,
   getTargetLang: () => state.settings?.liveInterpretTargetLang || "zh",
   getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
   getDisplayOrder: () => state.settings?.bilingualDisplayOrder || "original-first",
@@ -1326,13 +1307,13 @@ const interpretSubtitleOverlay = createInterpretSubtitleOverlay({
 });
 
 export function showPlayerInterpretNotice(message: string, autoHideMs?: number): void {
-  interpretSubtitleOverlay.showNotice(message, autoHideMs);
+  showPlayerToast(message, autoHideMs);
 }
 
 export function setPlayerInterpretNoticeConsumer(
   handler: ((message: string, autoHideMs?: number) => void) | null
 ): void {
-  noticeConsumer = handler;
+  setPlayerNoticeConsumer(handler);
 }
 
 function onWindowPageHide(): void {
@@ -1414,11 +1395,7 @@ function ensureInterpretController(): InterpretSessionController {
       getDisplayMode: () => state.settings?.liveInterpretDisplayMode || "auto",
       getAiRefineMode: getPlayerAiRefineMode,
       showNotice: (message, autoHideMs) => {
-        if (noticeConsumer) {
-          noticeConsumer(message, autoHideMs);
-        } else {
-          interpretSubtitleOverlay.showNotice(message, autoHideMs);
-        }
+        notifyPlayerOrConsumer(message, autoHideMs);
       },
       setSubtitle: (original, translation) =>
         interpretSubtitleOverlay.setSubtitle(original, translation, interpretSessionGeneration),
@@ -1430,7 +1407,7 @@ function ensureInterpretController(): InterpretSessionController {
       },
       onStateChange: (nextState) => {
         const active = nextState === "connecting" || nextState === "connected";
-        syncNativePlayerSubtitleTakeover(active, getPlayerHost());
+        syncNativePlayerSubtitleTakeover(active, findVideoPlayerHost());
         if (!active) {
           interpretSubtitleOverlay.unmount();
         }

@@ -10,13 +10,13 @@ import {
   observePlayerContainer,
   type PlayerContainerObserverHandle
 } from "../bilibili/player-control-mount.js";
+import { createLiveOverlayBinding } from "./live-overlay-binding.js";
 import {
-  createLiveOverlayBinding,
   createThrottledLiveToggleHandler,
   mountControlBarLiveToggle,
   resolveLiveToggleLabel,
   syncPlayerLiveToggleButton
-} from "./live-overlay-binding.js";
+} from "./player-live-toggle.js";
 import type { MossLiveRoomContext, MossLiveToolCall } from "./moss-live-protocol.js";
 import { buildPlayerLiveQuickActionIconSvg } from "../ui/icons.js";
 

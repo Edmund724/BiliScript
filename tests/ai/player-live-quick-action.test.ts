@@ -3,17 +3,6 @@ import { resetModuleState } from "../setup.js";
 
 describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
   let playerContainer: HTMLElement;
-  let mockShell: { enterReaderShell: ReturnType<typeof vi.fn> };
-  let mockEnsureUiReady: ReturnType<typeof vi.fn>;
-  let mockEnsureReaderChatTab: ReturnType<typeof vi.fn>;
-  let mockChatTab: {
-    ensureChatTabActivated: ReturnType<typeof vi.fn>;
-    startLiveCompanion: ReturnType<typeof vi.fn>;
-    stopLiveCompanion: ReturnType<typeof vi.fn>;
-    ensureFullscreenOverlay: ReturnType<typeof vi.fn>;
-    getFullscreenLiveOverlay: ReturnType<typeof vi.fn>;
-    getLiveController: ReturnType<typeof vi.fn>;
-  };
   let mockLiveSession: {
     startLiveCompanion: ReturnType<typeof vi.fn>;
     stopLiveCompanion: ReturnType<typeof vi.fn>;
@@ -30,14 +19,12 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     restore: ReturnType<typeof vi.fn>;
     isVisible: ReturnType<typeof vi.fn>;
   };
-  let isReaderOpen = false;
 
   beforeEach(async () => {
     resetModuleState();
     vi.useFakeTimers();
 
     document.body.innerHTML = "";
-    isReaderOpen = false;
 
     playerContainer = document.createElement("div");
     playerContainer.className = "bpx-player-container";
@@ -50,21 +37,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       isVisible: vi.fn(() => false)
     };
 
-    mockShell = {
-      enterReaderShell: vi.fn(async () => {
-        isReaderOpen = true;
-      })
-    };
-
-    mockChatTab = {
-      ensureChatTabActivated: vi.fn(async () => {}),
-      startLiveCompanion: vi.fn(async () => true),
-      stopLiveCompanion: vi.fn(() => {}),
-      ensureFullscreenOverlay: vi.fn(() => mockOverlay),
-      getFullscreenLiveOverlay: vi.fn(() => mockOverlay),
-      getLiveController: vi.fn(() => null)
-    };
-
     mockLiveSession = {
       startLiveCompanion: vi.fn(async () => true),
       stopLiveCompanion: vi.fn(() => {}),
@@ -75,18 +47,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     };
     mockApplyInterpretChoice = vi.fn(async () => {});
     mockSyncInterpretQuickAction = vi.fn();
-
-    mockEnsureUiReady = vi.fn(async () => {});
-    mockEnsureReaderChatTab = vi.fn(async () => mockChatTab);
-
-    vi.doMock("../../extension/reader/lazy-shell.js", () => ({
-      ensureReaderShell: async () => mockShell
-    }));
-
-    vi.doMock("../../extension/reader/lazy-chat-tab.js", () => ({
-      ensureReaderChatTab: mockEnsureReaderChatTab,
-      isReaderChatTabLoaded: () => false
-    }));
 
     vi.doMock("../../extension/live/live-companion-session.js", () => mockLiveSession);
 
@@ -106,14 +66,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
       };
     });
 
-    vi.doMock("../../extension/reader/state.js", () => ({
-      isReaderViewOpen: () => isReaderOpen
-    }));
-
-    vi.doMock("../../extension/ui/lazy-ui.js", () => ({
-      ensureUiReady: mockEnsureUiReady
-    }));
-
     vi.doMock("../../extension/core/runtime.js", () => ({
       getSettings: async () => ({
         enablePlayerAiQuickAction: true
@@ -129,12 +81,8 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     document.body.removeAttribute("data-biliscript-live-active");
     vi.useRealTimers();
     vi.restoreAllMocks();
-    vi.doUnmock("../../extension/reader/lazy-shell.js");
-    vi.doUnmock("../../extension/reader/lazy-chat-tab.js");
     vi.doUnmock("../../extension/live/live-companion-session.js");
     vi.doUnmock("../../extension/live/player-interpret.js");
-    vi.doUnmock("../../extension/reader/state.js");
-    vi.doUnmock("../../extension/ui/lazy-ui.js");
     vi.doUnmock("../../extension/core/runtime.js");
   });
 
@@ -241,10 +189,6 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     liveButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
-    expect(mockEnsureUiReady).not.toHaveBeenCalled();
-    expect(mockEnsureReaderChatTab).not.toHaveBeenCalled();
-    expect(mockChatTab.ensureChatTabActivated).not.toHaveBeenCalled();
     expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
     expect(document.getElementById("biliscript-reading-view")).toBeNull();
     expect(document.getElementById("biliscript-chat-messages")).toBeNull();
@@ -283,16 +227,14 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     liveButton.click();
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(mockShell.enterReaderShell).not.toHaveBeenCalled();
-    expect(mockEnsureUiReady).not.toHaveBeenCalled();
-    expect(mockEnsureReaderChatTab).not.toHaveBeenCalled();
-    expect(mockChatTab.ensureChatTabActivated).not.toHaveBeenCalled();
     expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("biliscript-reading-view")).toBeNull();
+    expect(document.getElementById("biliscript-chat-messages")).toBeNull();
   });
 
   it("伴看开启与关闭时实时伴看快捷按钮同步高亮态（is-active）与无障碍属性", async () => {
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
-    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/live-overlay-binding.js");
+    const { syncPlayerLiveQuickActionState } = await import("../../extension/live/player-live-toggle.js");
 
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
@@ -382,12 +324,14 @@ describe("player-ai: 播放器实时伴看快捷按钮与全屏联动", () => {
     // 伴看按钮 250ms 内连点仅触发一次 start，且连接中按钮保持可点
     liveButton.click();
     liveButton.click();
+    await vi.advanceTimersByTimeAsync(0);
     expect(mockLiveSession.startLiveCompanion).toHaveBeenCalledTimes(1);
     expect(liveButton.disabled).toBe(false);
 
     // 超过 250ms 后在 connecting 态再次点击可一键取消
     await vi.advanceTimersByTimeAsync(260);
     liveButton.click();
+    await vi.advanceTimersByTimeAsync(0);
     expect(mockLiveSession.stopLiveCompanion).toHaveBeenCalledTimes(1);
 
     resolveStart(false);

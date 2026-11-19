@@ -19,8 +19,8 @@ import {
 } from "./moss-live-protocol.js";
 import {
   DEFAULT_LIVE_MODEL,
-  liveProviderStore,
-  resolveActiveLiveProviderId
+  resolveActiveLiveProviderId,
+  type LiveProvider
 } from "./live-provider-store.js";
 import type { LiveFailureKind } from "./live-session-tracker.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
@@ -345,13 +345,22 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   let activeTargetProviderId = "";
   let activeTargetVoiceId = "";
 
+  async function loadLiveProvidersList(): Promise<Array<LiveProvider & { hasSavedKey?: boolean }>> {
+    const resp = await sendRuntimeMessage({ type: "live-providers-list" });
+    return resp?.ok && Array.isArray(resp.providers)
+      ? (resp.providers as Array<LiveProvider & { hasSavedKey?: boolean }>)
+      : [];
+  }
+
   async function refreshTarget(): Promise<void> {
     try {
-      const [providers, syncSettings] = await Promise.all([
-        liveProviderStore.loadProviders(),
-        chrome.storage.sync.get(["activeLiveProviderId"])
+      const [providers, settingsResp] = await Promise.all([
+        loadLiveProvidersList(),
+        sendRuntimeMessage({ type: "get-settings" })
       ]);
-      const rawActiveId = (syncSettings as Record<string, unknown> | undefined)?.activeLiveProviderId;
+      const rawActiveId = settingsResp?.ok
+        ? (settingsResp.settings as { activeLiveProviderId?: unknown } | undefined)?.activeLiveProviderId
+        : undefined;
       const activeId = resolveActiveLiveProviderId(
         providers,
         typeof rawActiveId === "string" ? rawActiveId : undefined
@@ -530,12 +539,12 @@ export function createLiveChatController(deps: LiveChatControllerDeps): LiveChat
   async function clearFallbackVoiceSelection(voiceId: string): Promise<void> {
     await recordLiveVoiceFallbackNotice({ voiceId });
     try {
-      const providers = await liveProviderStore.loadProviders();
+      const providers = await loadLiveProvidersList();
       const index = providers.findIndex((provider) => provider.id === activeTargetProviderId);
       if (index < 0 || providers[index].voiceId !== voiceId) return;
       const { voiceId: _removed, ...rest } = providers[index];
       const next = providers.map((provider, i) => (i === index ? rest : provider));
-      await liveProviderStore.saveProviders(next);
+      await sendRuntimeMessage({ type: "live-providers-save", providers: next });
     } catch {
       // 回退提示已落盘；清选择失败时下次会话仍会走同一条回退路径
     }

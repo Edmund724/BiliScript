@@ -7,7 +7,6 @@
 // 2. 人工精校 CC 字幕轨：走 JSON 数组严格 ID 对齐批量翻译协议，具备截断 JSON 抢救与最多 1 次漏行单补；
 // 3. 请求装配固定将思考档位设为关闭（`thinkingLevel: "off"`），降低首字延迟与 token 成本。
 
-import { sendRuntimeMessage } from "../shared/messaging.js";
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
 import type { ProviderTransport } from "../core/provider-http-shared.js";
 import {
@@ -26,9 +25,11 @@ import {
   isIndexTranslateModelId,
   isIndexTranslateProvider,
   normalizeIndexTranslateModel,
+  resolveSubtitleTranslateProvider,
   resolveSubtitleTranslateProviderConfig,
   type IndexTranslateModelId,
   type IndexTranslateModelOption,
+  type ResolveSubtitleTranslateProviderDeps,
   type SubtitleTranslateProviderResolution
 } from "./subtitle-translate-config.js";
 import {
@@ -46,8 +47,6 @@ import {
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ChatMessage, SubtitleBodyItem } from "./types.js";
 import { chatCompletion, type ChatCompletionInput } from "./completion.js";
-import type { ProviderListEntry } from "../shared/messaging-protocol.js";
-import type { Settings } from "../core/defaults.js";
 import {
   shouldSegmentTrack,
   toAtomicSubtitleEvents,
@@ -89,6 +88,7 @@ import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 export type {
   IndexTranslateModelId,
   IndexTranslateModelOption,
+  ResolveSubtitleTranslateProviderDeps,
   StreamingSubtitleCue,
   SubtitleGlossaryEntry,
   SubtitleGlossaryInput,
@@ -110,47 +110,11 @@ export {
   isIndexTranslateModelId,
   isIndexTranslateProvider,
   normalizeIndexTranslateModel,
+  resolveSubtitleTranslateProvider,
   stripThinkBlocks
 };
 
 export type SubtitleTranslateProtocolMode = "boundary-v3" | "cc-json";
-
-export interface ResolveSubtitleTranslateProviderDeps {
-  getSettings?: () => Promise<Partial<Settings>>;
-  loadProviders?: () => Promise<ProviderListEntry[]>;
-  loadKeys?: () => Promise<Record<string, string>>;
-}
-
-/**
- * 异步解析字幕翻译运行时配置（依赖注入或经 runtime 消息向 SW 请求）。
- */
-export async function resolveSubtitleTranslateProvider(
-  deps?: ResolveSubtitleTranslateProviderDeps
-): Promise<SubtitleTranslateProviderResolution> {
-  if (deps?.getSettings && deps?.loadProviders && deps?.loadKeys) {
-    const [settings, providers, keys] = await Promise.all([
-      deps.getSettings(),
-      deps.loadProviders(),
-      deps.loadKeys()
-    ]);
-    return resolveSubtitleTranslateProviderConfig(providers, keys, settings);
-  }
-
-  const resp = await sendRuntimeMessage({ type: "resolve-subtitle-translate-provider" });
-  if (!resp?.ok) {
-    throw new Error(String(resp?.error || "解析字幕翻译平台配置失败"));
-  }
-  const provider = resp.provider!;
-  return {
-    provider,
-    apiKey: String(resp.apiKey || "").trim(),
-    baseUrl: String(provider.baseUrl || "").trim(),
-    model: String(resp.model || provider.model || "").trim(),
-    presetId: String(provider.presetId || ""),
-    protocol: provider.protocol as AiProtocol | undefined,
-    isFallback: resp.isFallback === true
-  };
-}
 
 export interface SubtitleTranslateRequestInput {
   provider: {

@@ -1,6 +1,7 @@
 // extension/live/live-companion-session.ts
 // 视频页实时伴看会话组合根：将控制器、浮窗绑定、音频同步与设置监听委托给 liveOverlayBinding，
-// 仅注入视频页工具桥与概览上下文；pagehide 时统一清理伴看与同传模块。
+// 仅注入视频页工具桥与概览上下文；提示与消费槽经零重依赖叶 player-notice 共享，
+// 不静态依赖 player-interpret。
 
 import { exitPlayerFullscreenIfNeeded } from "../bilibili/fullscreen.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
@@ -24,19 +25,16 @@ import {
 import { persistLiveTextToolRecord } from "./live-text-tool-records.js";
 import { createLiveToolsBridge } from "./live-tools-bridge.js";
 import {
-  disposePlayerInterpret,
-  setPlayerInterpretNoticeConsumer,
-  showPlayerInterpretNotice
-} from "./player-interpret.js";
+  disposePlayerToast,
+  findVideoPlayerHost,
+  setPlayerNoticeConsumer,
+  showPlayerToast
+} from "./player-notice.js";
 
 export type LiveSessionConsumerHooks = LiveOverlayConsumerHooks;
 
 let sessionHooks: LiveSessionConsumerHooks | null = null;
 let pageHideBound = false;
-
-function getPlayerHost(): HTMLElement | null {
-  return document.querySelector(".bpx-player-container, #bilibili-player, .player-wrap, #playerWrap");
-}
 
 function createVideoLiveControllerDeps() {
   const notifyConsumer = (message: string, autoHideMs?: number) => {
@@ -76,12 +74,12 @@ function createVideoLiveControllerDeps() {
 }
 
 const liveOverlayBinding = createLiveOverlayBinding({
-  getPlayerHost,
+  getPlayerHost: findVideoPlayerHost,
   onOpenLiveSettings: (target) => {
     void openLiveCompanionSettings(target);
   },
   onStopTakeover: () => {
-    showPlayerInterpretNotice("伴看已切换到另一个标签页");
+    showPlayerToast("伴看已切换到另一个标签页");
   },
   createControllerDeps: createVideoLiveControllerDeps
 });
@@ -103,7 +101,7 @@ function bindSessionPageLifecycle(): void {
 export function setLiveSessionHooks(hooks: LiveSessionConsumerHooks | null): void {
   sessionHooks = hooks;
   liveOverlayBinding.setConsumerHooks(hooks);
-  setPlayerInterpretNoticeConsumer(hooks?.showNotice ?? null);
+  setPlayerNoticeConsumer(hooks?.showNotice ?? null);
   bindSessionPageLifecycle();
 }
 
@@ -165,8 +163,8 @@ export function disposeLiveCompanionSession(): void {
   }
   setLiveCompanionStopHandler(null);
   sessionHooks = null;
-  setPlayerInterpretNoticeConsumer(null);
+  setPlayerNoticeConsumer(null);
   cancelReaderOverviewSource();
   liveOverlayBinding.dispose();
-  disposePlayerInterpret();
+  disposePlayerToast();
 }

@@ -14,7 +14,6 @@ import type {
 } from "../../extension/live/page-video-frame-capture.js";
 import type { MossVideoCaptureConfig } from "../../extension/live/moss-video-config.js";
 import { LIVE_VOICE_FALLBACK_NOTICE_TEXT } from "../../extension/live/live-voice-fallback-notice.js";
-import { createMemoryStorageArea } from "../helpers/memory-storage-area.js";
 import type {
   LiveProviderType,
   MossLiveToolCall,
@@ -260,26 +259,30 @@ describe("LiveChatController", () => {
   });
 
   it("切换伴看平台保留当前连接，并提示重新连接后生效", async () => {
-    vi.stubGlobal("chrome", {
-      storage: {
-        sync: createMemoryStorageArea(),
-        local: createMemoryStorageArea()
-      }
+    let activeLiveProviderId = "moss-1";
+    const providers = [
+      { id: "moss-1", name: "平台一", type: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-live-1.0", voiceId: "voice-a", hasSavedKey: true },
+      { id: "moss-2", name: "平台二", type: "moss-live", baseUrl: "https://api.mosi.cn", model: "moss-live-1.0", voiceId: "voice-b", hasSavedKey: true }
+    ];
+    const { controller, fakePort, connectPort, showNotice } = setupTest({
+      sendRuntimeMessage: vi.fn(async (msg: any) => {
+        if (msg.type === "live-providers-list") return { ok: true, providers };
+        if (msg.type === "get-settings") return { ok: true, settings: { activeLiveProviderId } };
+        if (msg.type === "live-session-prepare") {
+          return {
+            ok: true,
+            provider: { id: activeLiveProviderId, baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" }
+          };
+        }
+        return { ok: true };
+      })
     });
-    await chrome.storage.sync.set({
-      liveProviders: [
-        { id: "moss-1", name: "平台一", type: "moss-live", baseUrl: "https://api.mosi.cn", voiceId: "voice-a" },
-        { id: "moss-2", name: "平台二", type: "moss-live", baseUrl: "https://api.mosi.cn", voiceId: "voice-b" }
-      ],
-      activeLiveProviderId: "moss-1"
-    });
-    const { controller, fakePort, connectPort, showNotice } = setupTest();
     await controller.refreshTarget();
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     const messageCount = fakePort.postedMessages.length;
 
-    await chrome.storage.sync.set({ activeLiveProviderId: "moss-2" });
+    activeLiveProviderId = "moss-2";
     await controller.refreshTarget();
 
     expect(controller.getState()).toBe("connected");
@@ -1816,39 +1819,19 @@ describe("LiveChatController video context and page tools", () => {
 });
 
 describe("LiveChatController 音色选择", () => {
-  function installLiveStorage(voiceId: string) {
-    const localStore: Record<string, unknown> = { liveProviderKeys: { live_moss: "sk-moss" } };
-    const syncStore: Record<string, unknown> = {
-      activeLiveProviderId: "live_moss",
-      liveProviders: [
-        {
-          id: "live_moss",
-          presetId: "moss-live",
-          name: "MOSS Live",
-          type: "moss-live",
-          baseUrl: "https://api.mosi.cn",
-          model: "moss-live-1.0",
-          enabled: true,
-          ...(voiceId ? { voiceId } : {})
-        }
-      ]
-    };
-    const pick = (store: Record<string, unknown>, keys: unknown): Record<string, unknown> => {
-      const names = Array.isArray(keys) ? keys : typeof keys === "string" ? [keys] : Object.keys(store);
-      const out: Record<string, unknown> = {};
-      for (const key of names) {
-        if (key in store) out[key] = store[key];
-      }
-      return out;
-    };
+  function setupVoiceController(initialVoiceId: string) {
+    const localStore: Record<string, unknown> = {};
     vi.stubGlobal("chrome", {
       storage: {
-        sync: {
-          get: vi.fn(async (keys: unknown) => pick(syncStore, keys)),
-          set: vi.fn(async (items: Record<string, unknown>) => Object.assign(syncStore, items))
-        },
         local: {
-          get: vi.fn(async (keys: unknown) => pick(localStore, keys)),
+          get: vi.fn(async (keys: unknown) => {
+            const names = Array.isArray(keys) ? keys : typeof keys === "string" ? [keys] : Object.keys(localStore);
+            const out: Record<string, unknown> = {};
+            for (const key of names) {
+              if (key in localStore) out[key] = localStore[key];
+            }
+            return out;
+          }),
           set: vi.fn(async (items: Record<string, unknown>) => Object.assign(localStore, items)),
           remove: vi.fn(async (key: string) => {
             delete localStore[key];
@@ -1856,29 +1839,61 @@ describe("LiveChatController 音色选择", () => {
         }
       }
     });
-    return { localStore, syncStore };
-  }
 
-  function setupVoiceController() {
+    let liveProviders: Array<Record<string, unknown>> = [
+      {
+        id: "live_moss",
+        presetId: "moss-live",
+        name: "MOSS Live",
+        type: "moss-live",
+        baseUrl: "https://api.mosi.cn",
+        model: "moss-live-1.0",
+        enabled: true,
+        hasSavedKey: true,
+        ...(initialVoiceId ? { voiceId: initialVoiceId } : {})
+      }
+    ];
     const fakePort = new FakePort();
     const showNotice = vi.fn();
+    const sendRuntimeMessage = vi.fn(async (msg: any) => {
+      if (msg.type === "live-providers-list") {
+        return { ok: true, providers: liveProviders };
+      }
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: { activeLiveProviderId: "live_moss" } };
+      }
+      if (msg.type === "live-providers-save") {
+        liveProviders = Array.isArray(msg.providers) ? msg.providers : [];
+        return { ok: true, providers: liveProviders };
+      }
+      if (msg.type === "live-session-prepare") {
+        return { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } };
+      }
+      return { ok: true };
+    });
     const controller = createLiveChatController({
       liveButton: document.createElement("button"),
       showNotice,
       connectPort: () => fakePort as any,
       requestOrigins: async () => ({ ok: true }),
-      sendRuntimeMessage: (async (msg: any) =>
-        msg.type === "live-session-prepare"
-          ? { ok: true, provider: { baseUrl: "https://api.mosi.cn", model: "moss-live-1.0" } }
-          : { ok: true }) as any,
+      sendRuntimeMessage: sendRuntimeMessage as any,
       startAudioCapture: async (options) => new FakeAudioCapture(options)
     });
-    return { controller, fakePort, showNotice };
+    return {
+      controller,
+      fakePort,
+      showNotice,
+      localStore,
+      sendRuntimeMessage,
+      getProviders: () => liveProviders,
+      setProviders: (next: Array<Record<string, unknown>>) => {
+        liveProviders = next;
+      }
+    };
   }
 
   it("把 provider 的音色带进会话启动消息", async () => {
-    installLiveStorage("voice-1");
-    const { controller, fakePort } = setupVoiceController();
+    const { controller, fakePort } = setupVoiceController("voice-1");
     await controller.refreshTarget();
     await controller.start();
 
@@ -1889,24 +1904,21 @@ describe("LiveChatController 音色选择", () => {
   });
 
   it("通话中改音色直接向 offscreen 下发 change_voice（下一轮回答生效）", async () => {
-    const { syncStore } = installLiveStorage("voice-1");
-    const { controller, fakePort } = setupVoiceController();
+    const { controller, fakePort, getProviders, setProviders } = setupVoiceController("voice-1");
     await controller.refreshTarget();
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
     fakePort.postedMessages.length = 0;
 
-    syncStore.liveProviders = [
-      { ...(syncStore.liveProviders as any[])[0], voiceId: "voice-2" }
-    ];
+    setProviders([{ ...getProviders()[0], voiceId: "voice-2" }]);
     await controller.refreshTarget();
 
     expect(fakePort.postedMessages).toEqual([{ action: "change_voice", voiceId: "voice-2" }]);
   });
 
   it("音色失效时回退默认音色、清掉选择并留下一次性设置提示", async () => {
-    const { localStore, syncStore } = installLiveStorage("deleted-voice");
-    const { controller, fakePort, showNotice } = setupVoiceController();
+    const { controller, fakePort, showNotice, localStore, getProviders } =
+      setupVoiceController("deleted-voice");
     await controller.refreshTarget();
     await controller.start();
     fakePort.simulateMessage({ type: "connected" });
@@ -1920,7 +1932,7 @@ describe("LiveChatController 音色选择", () => {
       });
     });
     await vi.waitFor(() => {
-      expect((syncStore.liveProviders as Array<{ voiceId?: string }>)[0]?.voiceId).toBeUndefined();
+      expect((getProviders()[0] as { voiceId?: string })?.voiceId).toBeUndefined();
     });
   });
 });

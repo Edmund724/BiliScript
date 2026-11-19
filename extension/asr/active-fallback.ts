@@ -18,13 +18,13 @@
 
 import { getSettings } from "../core/runtime.js";
 import { setStatus } from "../core/ui-status.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
 // PR3：biliscript-subtitle-status 广播的进程内镜像（零依赖叶子）——reader 同进程的
 // 转写中间态呈现经它读取/订阅（content script 收不到自己的 runtime 广播）。
 import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { acceptSubtitle, commitNoSubtitle } from "../subtitle/commit.js";
-import type { AsrFallback, AsrProviderMeta } from "./fallback.js";
+import { loadAsrProviderList } from "./asr-setup.js";
+import type { AsrFallback } from "./fallback.js";
 
 // 把耗时阶段的变更广播给 popup / AI 侧边栏，让它们在各自等待抓取响应、
 // 无法实时读取页内状态栏的情况下也能区分“抓取本地字幕”和“音频转写”。
@@ -47,19 +47,7 @@ function broadcastSubtitleStatus(phase: string): void {
   }
 }
 
-// ASR provider 列表（provider 元数据，无 Key）经 background 的 asr-providers-list
-// 读取：asrProviders 已从 settings 快照摘除（save-settings 白名单不再落盘该键，
-// 写回收口在 asr-providers-save），页面侧不碰 chrome.storage provider 存储。
-// 消息失败按空列表降级：回退入口据此走 no-asr-config skip，与旧行为一致。
-async function loadAsrProviderList(): Promise<AsrProviderMeta[]> {
-  try {
-    // 响应形状由消息类型经 ResponseOf 推断（arch-slim-2/02）
-    const resp = await sendRuntimeMessage({ type: "asr-providers-list" });
-    return Array.isArray(resp?.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
-}
+// ASR provider 列表读取（asr-providers-list）已收口于 asr/asr-setup.ts（loadAsrProviderList）。
 
 // ASR 回退策略簇（skip 闸门 / 缓存命中 / 并发共享去重 / 转写 / 收尾）在
 // asr/fallback.js（工厂 createAsrFallback，进行中的转写共享单元闭包在工厂层）。
