@@ -751,7 +751,7 @@ function syncAllSummaries(elements: SettingsElements): void {
   if (supportsTtsSpeech()) {
     promptParts.push(`朗读 ${normalizeSpeechVoiceVolume(elements.speechVoiceVolume.value)}%`);
   }
-  elements.aiPromptSummary.textContent = promptParts.join(" · ");
+  elements.aiPromptSummary.textContent = promptParts.length > 0 ? promptParts.join(" · ") : "默认";
 
   const normalizedFormat = normalizeDownloadFormat(elements.downloadFormat.value);
   const formatLabel = normalizedFormat === "vtt-secondary" ? "VTT（仅副轨）" : normalizedFormat.toUpperCase();
@@ -1828,6 +1828,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.subpageLive.hidden = true;
   }
   if (!supportsTtsSpeech()) {
+    elements.chatPreferencesHeading.textContent = "对话阅读";
     const speechVolumeRow = elements.speechVoiceVolume.closest<HTMLElement>(".biliscript-slider-row");
     if (speechVolumeRow) {
       speechVolumeRow.hidden = true;

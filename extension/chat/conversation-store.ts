@@ -47,6 +47,7 @@ import {
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import { isLiveTextToolHistoryEntry } from "../live/live-text-tool-history.js";
 import type { LiveTextToolRecord } from "../live/live-text-tool-records.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 import {
   HISTORY_STORAGE_KEY,
   readConversationHistory,
@@ -663,7 +664,11 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!saved().length) {
       return;
     }
-    if (!(await confirmClearAll("确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"))) {
+    const confirmMessage =
+      supportsLiveCompanion() || saved().some(isLiveTextToolHistoryEntry)
+        ? "确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"
+        : "确定要清空全部历史记录吗？";
+    if (!(await confirmClearAll(confirmMessage))) {
       return;
     }
     commitSaved([]);

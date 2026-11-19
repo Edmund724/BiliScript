@@ -22,7 +22,8 @@ function stubRuntimeScheme(scheme: "moz-extension" | "chrome-extension"): void {
 
 async function mountSettingsPanelInScheme(
   scheme: "moz-extension" | "chrome-extension",
-  sentMessages: unknown[] = []
+  sentMessages: unknown[] = [],
+  settings: Record<string, unknown> = {}
 ): Promise<HTMLElement> {
   stubRuntimeScheme(scheme);
   document.body.innerHTML = `
@@ -33,6 +34,7 @@ async function mountSettingsPanelInScheme(
     </div>
   `;
   installSettingsPanelBus({
+    "get-settings": () => ({ ok: true, settings }),
     "live-providers-list": (message: unknown) => {
       sentMessages.push(message);
       return { ok: true, providers: [] };
@@ -172,7 +174,15 @@ describe("TTS 后台防御判空与界面门控", () => {
 
     const ffSettingsHost = await mountSettingsPanelInScheme("moz-extension");
     expect(ffSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(true);
+    expect(ffSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("对话阅读");
     expect(ffSettingsHost.querySelector("#aiPromptSummary")?.textContent).not.toContain("朗读");
+
+    resetModuleState();
+    const ffMinimalHost = await mountSettingsPanelInScheme("moz-extension", [], {
+      enablePlayerAiQuickAction: false,
+      aiInitialQuickPrompts: []
+    });
+    expect(ffMinimalHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
 
     resetModuleState();
     stubRuntimeScheme("chrome-extension");
@@ -182,6 +192,7 @@ describe("TTS 后台防御判空与界面门控", () => {
 
     const chromeSettingsHost = await mountSettingsPanelInScheme("chrome-extension");
     expect(chromeSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(false);
+    expect(chromeSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("阅读与朗读");
     expect(chromeSettingsHost.querySelector("#aiPromptSummary")?.textContent).toContain("朗读 100%");
   });
 });
@@ -328,5 +339,46 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
     const ch = await runContentOnLiveRoom("chrome-extension");
     expect(ch.loadLiveRoom).toHaveBeenCalledTimes(1);
     expect(ch.startLiveRoomCompanion).toHaveBeenCalledTimes(1);
+  });
+
+  it("Firefox 下清空历史确认弹窗仅在存在伴看记录时提及伴看，Chromium 保持完整文案", async () => {
+    const runClearAllPrompt = async (
+      scheme: "moz-extension" | "chrome-extension",
+      history: Array<Record<string, unknown>>
+    ): Promise<string> => {
+      resetModuleState();
+      stubRuntimeScheme(scheme);
+      const { createConversationStore } = await import("../../extension/chat/conversation-store.js");
+      const { setSavedConversations } = await import("../../extension/chat/chat-state.js");
+      setSavedConversations(history as any);
+      let seenMessage = "";
+      const store = createConversationStore({
+        loadContextState: async () => true,
+        resolveAiConversationRef: async () => ({}),
+        storage: null,
+        onConversationChanged: () => {},
+        onStreamInterrupted: () => {},
+        onContextNotice: () => {},
+        confirmClearAll: (message) => {
+          seenMessage = message;
+          return false;
+        }
+      });
+      await store.clearAll();
+      return seenMessage;
+    };
+
+    const plainHistory = [{ id: "c1", title: "普通对话", messages: [{ role: "user", content: "hi" }] }];
+    const liveHistory = [
+      { id: "c2", title: "伴看会话", kind: "live-text-tool", messages: [], records: [] }
+    ];
+
+    expect(await runClearAllPrompt("moz-extension", plainHistory)).toBe("确定要清空全部历史记录吗？");
+    expect(await runClearAllPrompt("moz-extension", liveHistory)).toBe(
+      "确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"
+    );
+    expect(await runClearAllPrompt("chrome-extension", plainHistory)).toBe(
+      "确定要清空全部历史记录吗？普通对话和伴看记录都会删除。"
+    );
   });
 });
