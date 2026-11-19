@@ -17,6 +17,8 @@ type RuntimeListener = (
 interface BackgroundHarnessOptions {
   requestImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
   containsImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
+  removeImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
+  hostPermissions?: string[];
   createWindowImpl?: (options: Record<string, unknown>) => Promise<{ id?: number }>;
 }
 
@@ -25,6 +27,7 @@ function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
 
   const requestMock = vi.fn(options.requestImpl ?? (async () => true));
   const containsMock = vi.fn(options.containsImpl ?? (async () => false));
+  const removeMock = vi.fn(options.removeImpl ?? (async () => true));
   const createWindowMock = vi.fn(options.createWindowImpl ?? (async () => ({ id: 42 })));
   const removeWindowMock = vi.fn(async () => {});
   const addRemovedListener = vi.fn((fn: (windowId: number) => void) => {
@@ -41,7 +44,10 @@ function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
       getURL: (path: string) => `moz-extension://ext-test-uuid/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
-      getManifest: () => ({ version: "2.7.4" })
+      getManifest: () => ({
+        version: "2.7.4",
+        host_permissions: options.hostPermissions ?? []
+      })
     },
     tabs: { onUpdated: { addListener: vi.fn() } },
     storage: {
@@ -55,7 +61,8 @@ function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
     },
     permissions: {
       request: requestMock,
-      contains: containsMock
+      contains: containsMock,
+      remove: removeMock
     },
     windows: {
       create: createWindowMock,
@@ -70,6 +77,7 @@ function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
   return {
     requestMock,
     containsMock,
+    removeMock,
     createWindowMock,
     removeWindowMock,
     addRemovedListener,
@@ -302,6 +310,30 @@ describe("request-provider-origins：无端口 pattern 与 Firefox 授权回退"
     });
     expect(stub.removeRemovedListener).toHaveBeenCalledTimes(1);
     expect(stub.windowRemovedListeners.size).toBe(0);
+  });
+
+  it("revoke-provider-origin：跳过 manifest 静态常驻域，非静态可选域经 permissions.remove 回收", async () => {
+    const stub = installBackgroundChromeStub({
+      containsImpl: async () => true,
+      removeImpl: async () => true,
+      hostPermissions: ["https://api-inference.modelscope.cn/*"]
+    });
+    const listener = await importBackgroundListener();
+
+    const staticRes = await sendToBackground(listener, {
+      type: "revoke-provider-origin",
+      origin: "https://api-inference.modelscope.cn/*"
+    });
+    expect(staticRes).toEqual({ origins: [], revoked: false });
+    expect(stub.removeMock).not.toHaveBeenCalled();
+
+    const optionalRes = await sendToBackground(listener, {
+      type: "revoke-provider-origin",
+      origin: "http://localhost:11434/v1"
+    });
+    expect(stub.containsMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+    expect(stub.removeMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+    expect(optionalRes).toEqual({ origins: ["http://localhost/*"], revoked: true });
   });
 });
 

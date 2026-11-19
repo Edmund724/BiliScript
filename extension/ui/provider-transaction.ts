@@ -13,7 +13,7 @@
 // orphan origin 的存活并集只从分派表推导（optionalHostPermission 的族）；
 // 设置面板的行删除路径复用同一函数（loadOriginSharingProviders），新增一族只改表。
 
-import { permissionRevokeErrorMessage, revokeOrphanOrigin } from "../core/host-permissions.js";
+import { permissionRevokeErrorMessage, revokeOrphanOriginViaBackground } from "../core/host-permissions.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowItem } from "./provider-row.js";
@@ -120,7 +120,7 @@ export function createProviderTransactions(deps: ProviderTransactionsDeps): Prov
         // 搜索平台域名是静态 host 权限（无 optional 授权可回收），跳过 orphan
         // origin 判定；参与判定的存活并集由分派表推导（见 loadOriginSharingProviders）
         const providers = await loadOriginSharingProviders(deps.families);
-        const { origins, revoked } = await revokeOrphanOrigin(
+        const { origins, revoked } = await revokeOrphanOriginViaBackground(
           { id: target.id, baseUrl: target.baseUrl },
           providers
         );

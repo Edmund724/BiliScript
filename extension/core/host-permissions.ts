@@ -246,33 +246,50 @@ interface RevokeResult {
 interface RevokeDependencies {
   contains?: typeof chrome.permissions.contains;
   remove?: typeof chrome.permissions.remove;
+  staticHostPermissions?: readonly string[];
 }
 
-// 删除 provider 后回收其孤儿权限 pattern（无端口归一化：若存活列表中仍有同 host
-// 其他端口的 provider，共享同一个 `${protocol}//${hostname}/*` 授权，不得误撤销）。
-// providers 是删除时刻从 DOM 收集的全量平台列表（含尚未摘除的被删行），被删项在此
-// 按 id 剔除。返回 { origins, revoked }：origins 非空且 revoked 为 false 即回收失败，
-// 由调用方提示；权限本就不在（用户当初拒绝过）或仍被占用不算失败，返回空 origins。
-export async function revokeOrphanOrigin(
-  deleted: ProviderLike,
-  providers: unknown,
+function readManifestHostPermissions(): readonly string[] {
+  try {
+    const manifest = globalThis.chrome?.runtime?.getManifest?.() as { host_permissions?: unknown } | undefined;
+    return Array.isArray(manifest?.host_permissions)
+      ? manifest.host_permissions.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+// 判定无端口 match pattern 是否属于 manifest.host_permissions 声明的静态常驻域：
+// 常驻域（例如 Firefox 28 个官方预设域、Chromium 的 api.deepseek.com）不可通过
+// permissions.remove 按可选权限回收，删除平台时应直接跳过而不误报回收失败。
+export function isStaticHostPermission(
+  pattern: string,
+  staticHostPermissions: readonly string[] = readManifestHostPermissions()
+): boolean {
+  const normalizedTarget = toPermissionMatchPattern(pattern);
+  if (!normalizedTarget) {
+    return false;
+  }
+  return staticHostPermissions.some((entry) => {
+    const trimmed = String(entry || "").trim();
+    if (!trimmed) return false;
+    return trimmed === normalizedTarget || toPermissionMatchPattern(trimmed) === normalizedTarget;
+  });
+}
+
+// 回收单个无端口权限 pattern（供 SW/扩展页直调及 revokeOrphanOrigin 共用）。
+// 命中 manifest 静态常驻域或权限本就不在时跳过 remove 并返回空 origins（不算失败）。
+export async function revokeOriginPermission(
+  origin: unknown,
   {
     contains = globalThis.chrome?.permissions?.contains,
-    remove = globalThis.chrome?.permissions?.remove
+    remove = globalThis.chrome?.permissions?.remove,
+    staticHostPermissions = readManifestHostPermissions()
   }: RevokeDependencies = {}
 ): Promise<RevokeResult> {
-  const deletedId = String(deleted?.id || "");
-  const survivors = (Array.isArray(providers) ? providers : []).filter(
-    (provider) => String((provider as ProviderLike)?.id || "") !== deletedId
-  );
-  const pattern = toPermissionMatchPattern(deleted?.baseUrl);
-  if (!pattern) {
-    return { origins: [], revoked: false };
-  }
-  const stillUsed = survivors.some(
-    (provider) => toPermissionMatchPattern((provider as ProviderLike)?.baseUrl) === pattern
-  );
-  if (stillUsed) {
+  const pattern = toPermissionMatchPattern(origin);
+  if (!pattern || isStaticHostPermission(pattern, staticHostPermissions)) {
     return { origins: [], revoked: false };
   }
   const origins = [pattern];
@@ -293,6 +310,67 @@ export async function revokeOrphanOrigin(
   }
 }
 
+function resolveOrphanPattern(deleted: ProviderLike, providers: unknown): string | null {
+  const deletedId = String(deleted?.id || "");
+  const survivors = (Array.isArray(providers) ? providers : []).filter(
+    (provider) => String((provider as ProviderLike)?.id || "") !== deletedId
+  );
+  const pattern = toPermissionMatchPattern(deleted?.baseUrl);
+  if (!pattern) {
+    return null;
+  }
+  const stillUsed = survivors.some(
+    (provider) => toPermissionMatchPattern((provider as ProviderLike)?.baseUrl) === pattern
+  );
+  return stillUsed ? null : pattern;
+}
+
+// 删除 provider 后回收其孤儿权限 pattern（无端口归一化：若存活列表中仍有同 host
+// 其他端口的 provider，共享同一个 `${protocol}//${hostname}/*` 授权，不得误撤销）。
+// providers 是删除时刻从 DOM 收集的全量平台列表（含尚未摘除的被删行），被删项在此
+// 按 id 剔除。返回 { origins, revoked }：origins 非空且 revoked 为 false 即回收失败，
+// 由调用方提示；权限本就不在、属 manifest 常驻域或仍被占用不算失败，返回空 origins。
+export async function revokeOrphanOrigin(
+  deleted: ProviderLike,
+  providers: unknown,
+  deps: RevokeDependencies = {}
+): Promise<RevokeResult> {
+  const pattern = resolveOrphanPattern(deleted, providers);
+  if (!pattern) {
+    return { origins: [], revoked: false };
+  }
+  return revokeOriginPermission(pattern, deps);
+}
+
+// 跨语境孤儿权限回收（设置抽屉 / 编辑 Modal 删除链的唯一通道）：
+// content script 无 chrome.permissions API，经 revoke-provider-origin 委托 background
+// 执行回收；扩展页或单测已注入 chrome.permissions.remove 时直接本地执行；命中
+// manifest 静态常驻域时零消息跳过。
+export async function revokeOrphanOriginViaBackground(
+  deleted: ProviderLike,
+  providers: unknown
+): Promise<RevokeResult> {
+  const pattern = resolveOrphanPattern(deleted, providers);
+  if (!pattern || isStaticHostPermission(pattern)) {
+    return { origins: [], revoked: false };
+  }
+  if (typeof globalThis.chrome?.permissions?.remove === "function") {
+    return revokeOriginPermission(pattern);
+  }
+  if (typeof globalThis.chrome?.runtime?.sendMessage !== "function") {
+    return { origins: [pattern], revoked: false };
+  }
+  try {
+    const resp = await sendRuntimeMessage({ type: "revoke-provider-origin", origin: pattern });
+    if (resp && Array.isArray(resp.origins)) {
+      return { origins: resp.origins, revoked: Boolean(resp.revoked) };
+    }
+    return { origins: [pattern], revoked: false };
+  } catch {
+    return { origins: [pattern], revoked: false };
+  }
+}
+
 // 回收失败时的提示文案：删除已完成，只是权限残留，不影响使用
 export const permissionRevokeErrorMessage = (origins: string[]): string =>
-  `已删除平台，但回收域名权限失败（${origins.join("、")}），不影响使用，可到扩展详情页手动移除`;
+  `已删除平台，但回收域名权限失败（${origins.join("、")}），不影响使用，可到浏览器扩展权限设置手动移除`;

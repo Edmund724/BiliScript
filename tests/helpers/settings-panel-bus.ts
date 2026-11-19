@@ -29,6 +29,7 @@ export const SETTINGS_PANEL_BUS_REPLIES: RuntimeReplies = {
   "agent-bridge-status": () => ({ ok: true, connected: false }),
   "agent-bridge-connect": () => ({ ok: true, connected: false }),
   "agent-bridge-test": () => ({ ok: true, connected: false }),
+  "revoke-provider-origin": () => ({ origins: [], revoked: false }),
   "save-settings": () => ({ ok: true })
 };
 

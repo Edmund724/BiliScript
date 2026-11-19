@@ -14,7 +14,7 @@ import type { Settings } from "../core/defaults.js";
 import {
   permissionRevokeErrorMessage,
   requestProviderOriginsViaBackground,
-  revokeOrphanOrigin
+  revokeOrphanOriginViaBackground
 } from "../core/host-permissions.js";
 import {
   ASR_PROVIDER_PRESETS,
@@ -864,7 +864,7 @@ export function createProviderSettingsHost(options: ProviderSettingsHostOptions)
     deleteRevokeFailureInFlight = false;
     statusErrorMarked = false;
     const providers = await loadOriginSharingProviders(families);
-    const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
+    const { origins, revoked } = await revokeOrphanOriginViaBackground({ id: providerId, baseUrl }, providers);
     if (origins.length > 0 && !revoked && !disposed) {
       deleteRevokeFailureInFlight = true;
       reportStatus(permissionRevokeErrorMessage(origins), true);

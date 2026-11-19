@@ -99,7 +99,9 @@ import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
 import {
   collectPermissionMatchPatterns,
   hasHostPermission,
-  permissionDeniedErrorMessage
+  permissionDeniedErrorMessage,
+  revokeOriginPermission,
+  toPermissionMatchPattern
 } from "../core/host-permissions.js";
 import {
   ensureIndexTranslateSessionRule,
@@ -443,6 +445,13 @@ function handlePermissionGrantResult(
 // origin 缺失/非法按已授权回 true（core/host-permissions 的同款 fail-open）。
 function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sender: MessageSender, sendResponse: Reply<"check-provider-origin">): void {
   void hasHostPermission(message.origin).then((granted) => sendResponse({ granted }));
+}
+
+function handleRevokeProviderOrigin(message: Msg<"revoke-provider-origin">, _sender: MessageSender, sendResponse: Reply<"revoke-provider-origin">): void {
+  void revokeOriginPermission(message.origin).then(sendResponse, () => {
+    const pattern = toPermissionMatchPattern(message.origin);
+    sendResponse({ origins: pattern ? [pattern] : [], revoked: false });
+  });
 }
 
 // 对话 tab（content script）发送前的 offscreen 文档自愈 ensure。chrome.offscreen
@@ -796,6 +805,7 @@ const messageHandlerTable = {
   "agent-bridge-test": handleAgentBridgeTest,
   "request-provider-origins": handleRequestProviderOrigins,
   "check-provider-origin": handleCheckProviderOrigin,
+  "revoke-provider-origin": handleRevokeProviderOrigin,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
   "player-ai-quick-action": handlePlayerAiQuickAction,
   "fetch-json": handleFetchJson,

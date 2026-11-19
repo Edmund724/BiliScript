@@ -146,6 +146,16 @@ export type CheckProviderOriginMessage = {
 // 响应锚点：entry/background.ts handleCheckProviderOrigin——granted 即该 origin 是否已获
 // host 权限；origin 缺失/非法时按已授权回 true（fail-open，不新造拦截面）。
 export type CheckProviderOriginResponse = { granted: boolean };
+// 删除孤儿平台后的 host 权限回收：content script 无 chrome.permissions，
+// 经此消息委托 background 执行；manifest.host_permissions 静态常驻域直接跳过。
+export type RevokeProviderOriginMessage = {
+  type: "revoke-provider-origin";
+  origin?: unknown;
+};
+export type RevokeProviderOriginResponse = {
+  origins: string[];
+  revoked: boolean;
+};
 // PR5：对话 tab（content script）发送前的 offscreen 文档自愈 ensure——
 // chrome.offscreen / getContexts 仅扩展上下文可用，content script 经此消息
 // 委托 background 幂等创建（扩展页内直调 ensureChatOffscreenDocument 的
@@ -633,6 +643,7 @@ export type BackgroundMessage =
   | AgentBridgeTestMessage
   | RequestProviderOriginsMessage
   | CheckProviderOriginMessage
+  | RevokeProviderOriginMessage
   | EnsureOffscreenChatMessage
   | PlayerAiQuickActionMessage
   | FetchJsonMessage
@@ -960,6 +971,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "check-provider-origin": registerBackgroundMessage<
     CheckProviderOriginMessage,
     CheckProviderOriginResponse
+  >({
+    reply: "async"
+  }),
+  "revoke-provider-origin": registerBackgroundMessage<
+    RevokeProviderOriginMessage,
+    RevokeProviderOriginResponse
   >({
     reply: "async"
   }),

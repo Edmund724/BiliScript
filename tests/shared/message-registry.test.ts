@@ -34,6 +34,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "agent-bridge-connect": "async",
   "agent-bridge-test": "async",
   "check-provider-origin": "async",
+  "revoke-provider-origin": "async",
   "ensure-offscreen-chat": "async",
   "ai-providers-list": "async",
   "ai-providers-save": "async",

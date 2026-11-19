@@ -27,7 +27,9 @@ import {
   hasHostPermissionViaBackground,
   hasHostPermissionFromOffscreen,
   collectOrphanOrigins,
+  isStaticHostPermission,
   revokeOrphanOrigin,
+  revokeOrphanOriginViaBackground,
   permissionRevokeErrorMessage
 } from "../../extension/core/host-permissions.js";
 
@@ -484,11 +486,63 @@ describe("revokeOrphanOrigin（删除时的 origin 回收执行）", () => {
     expect(remove).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
     expect(resp).toEqual({ origins: ["http://localhost/*"], revoked: true });
   });
+
+  it("命中 manifest.host_permissions 静态常驻域 → 直接跳过回收，不算失败", async () => {
+    const contains = vi.fn(async () => true);
+    const remove = vi.fn(async () => false);
+    const resp = await revokeOrphanOrigin(
+      { id: "ms", baseUrl: "https://api-inference.modelscope.cn/v1" },
+      [],
+      {
+        contains,
+        remove,
+        staticHostPermissions: ["https://api-inference.modelscope.cn/*"]
+      }
+    );
+    expect(isStaticHostPermission("https://api-inference.modelscope.cn/*", ["https://api-inference.modelscope.cn/*"])).toBe(true);
+    expect(resp).toEqual({ origins: [], revoked: false });
+    expect(contains).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("content 语境（无 chrome.permissions）→ 经 revoke-provider-origin 委托 background 回收", async () => {
+    delete (globalThis.chrome as unknown as { permissions?: unknown }).permissions;
+    const sendMessage = vi.fn((msg: unknown, cb?: (resp: unknown) => void) => {
+      cb?.({ origins: ["https://custom-relay.example.com/*"], revoked: true });
+      return undefined;
+    });
+    (globalThis.chrome.runtime as unknown as { sendMessage: typeof sendMessage }).sendMessage = sendMessage;
+    (globalThis.chrome.runtime as unknown as { getManifest: () => unknown }).getManifest = () => ({
+      host_permissions: ["https://api-inference.modelscope.cn/*"]
+    });
+
+    // 静态常驻域零消息跳过
+    const staticResp = await revokeOrphanOriginViaBackground(
+      { id: "ms", baseUrl: "https://api-inference.modelscope.cn/v1" },
+      []
+    );
+    expect(staticResp).toEqual({ origins: [], revoked: false });
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    // 非静态可选域委托 background
+    const optionalResp = await revokeOrphanOriginViaBackground(
+      { id: "c1", baseUrl: "https://custom-relay.example.com/v1" },
+      []
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "revoke-provider-origin", origin: "https://custom-relay.example.com/*" },
+      expect.any(Function)
+    );
+    expect(optionalResp).toEqual({ origins: ["https://custom-relay.example.com/*"], revoked: true });
+  });
 });
 
 describe("permissionRevokeErrorMessage", () => {
-  it("拼出可操作提示（含 origin 明细）", () => {
-    expect(permissionRevokeErrorMessage(["https://api.openai.com"])).toContain("回收域名权限失败");
-    expect(permissionRevokeErrorMessage(["https://api.openai.com"])).toContain("https://api.openai.com");
+  it("拼出浏览器中性的可操作提示（含 origin 明细）", () => {
+    const msg = permissionRevokeErrorMessage(["https://api.openai.com/*"]);
+    expect(msg).toContain("回收域名权限失败");
+    expect(msg).toContain("https://api.openai.com/*");
+    expect(msg).toContain("浏览器扩展权限设置");
+    expect(msg).not.toContain("扩展详情页");
   });
 });
