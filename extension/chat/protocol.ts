@@ -147,6 +147,7 @@ export interface ChatPort {
 // =========================================================================
 
 export const CHAT_SPEECH_PORT_NAME = "chat-speech" as const;
+export const TTS_UNSUPPORTED_ERROR = "TTS_UNSUPPORTED" as const;
 
 export interface ChatSpeechVoice {
   voiceName?: string;

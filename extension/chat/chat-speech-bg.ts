@@ -1,10 +1,13 @@
 import { consumeRuntimeLastError } from "../shared/messaging.js";
 import {
   CHAT_SPEECH_PORT_NAME,
+  TTS_UNSUPPORTED_ERROR,
   type ChatSpeechEvent,
   type ChatSpeechPortMessage,
   type ChatSpeechRequest
 } from "./protocol.js";
+
+export { TTS_UNSUPPORTED_ERROR };
 
 const TERMINAL_EVENTS = new Set(["end", "error", "interrupted", "cancelled"]);
 
@@ -36,6 +39,11 @@ function getChromeTts(): typeof chrome.tts | undefined {
     : undefined;
 }
 
+function hasChromeTts(): boolean {
+  const tts = getChromeTts();
+  return Boolean(tts && typeof tts.speak === "function" && typeof tts.getVoices === "function");
+}
+
 function stopChromeTts(): void {
   const tts = getChromeTts();
   if (!tts || typeof tts.stop !== "function") {
@@ -47,6 +55,10 @@ function stopChromeTts(): void {
 }
 
 function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { type: "speak" }>): void {
+  if (!hasChromeTts()) {
+    post(port, { type: "error", requestId: request.requestId, message: TTS_UNSUPPORTED_ERROR });
+    return;
+  }
   if (activePort !== null && activeRequestId !== null && (activePort !== port || activeRequestId !== request.requestId)) {
     post(activePort, {
       type: "event",
@@ -56,11 +68,7 @@ function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { 
   }
   activePort = port;
   activeRequestId = request.requestId;
-  const tts = getChromeTts();
-  if (!tts || typeof tts.speak !== "function") {
-    emitError(port, request.requestId, new Error("TTS API is unavailable"));
-    return;
-  }
+  const tts = getChromeTts()!;
   try {
     const result = tts.speak(request.text, {
       voiceName: request.voiceName,
@@ -104,11 +112,11 @@ export function attachChatSpeechPort(port: chrome.runtime.Port): boolean {
       return;
     }
     if (request?.type === "get-voices") {
-      const tts = getChromeTts();
-      if (!tts || typeof tts.getVoices !== "function") {
-        post(port, { type: "voices", requestId: request.requestId, voices: [] });
+      if (!hasChromeTts()) {
+        post(port, { type: "error", requestId: request.requestId, message: TTS_UNSUPPORTED_ERROR });
         return;
       }
+      const tts = getChromeTts()!;
       void Promise.resolve()
         .then(() => tts.getVoices())
         .then((voices) => post(port, { type: "voices", requestId: request.requestId, voices: Array.isArray(voices) ? voices : [] }))

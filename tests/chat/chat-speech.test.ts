@@ -6,11 +6,13 @@
 // 5. 自然结束、无任何匹配语音和 speak 失败后按钮未恢复或错误不可见；
 // 6. 音量未对齐外部播放器音量或越界未归一；
 // 7. 跨标签页抢占朗读时，被抢占标签页未收到 interrupted 终态导致按钮卡在 is-speaking。
-import { describe, expect, it, vi } from "vitest";
-import { attachChatSpeechPort } from "../../extension/chat/chat-speech-bg.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { attachChatSpeechPort, TTS_UNSUPPORTED_ERROR } from "../../extension/chat/chat-speech-bg.js";
 import { CHAT_SPEECH_PORT_NAME, type ChatSpeechPortMessage } from "../../extension/chat/protocol.js";
 import {
   createChatSpeechController,
+  createDefaultSpeechEngine,
+  createWebSpeechEngine,
   speechTextFromElement,
   splitSpeechText,
   type ChatSpeechEngine,
@@ -481,5 +483,229 @@ describe("SW 朗读端口跨标签页抢占", () => {
     expect(attachChatSpeechPort(port)).toBe(true);
     disconnectListeners.forEach((fn) => fn());
     expect(lastErrorRead).toBe(true);
+  });
+});
+
+describe("Web Speech 引擎与自适应回退", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function createFakeSynth(initialVoices: SpeechSynthesisVoice[] = []) {
+    const listeners = new Map<string, Set<() => void>>();
+    let voices = initialVoices;
+    const spoken: Array<Record<string, unknown>> = [];
+    const synth = {
+      getVoices: vi.fn(() => voices),
+      speak: vi.fn((utterance: SpeechSynthesisUtterance) => {
+        spoken.push(utterance as unknown as Record<string, unknown>);
+      }),
+      cancel: vi.fn(),
+      addEventListener: vi.fn((event: string, listener: () => void, options?: { once?: boolean }) => {
+        let bucket = listeners.get(event);
+        if (!bucket) {
+          bucket = new Set();
+          listeners.set(event, bucket);
+        }
+        const wrapped = options?.once
+          ? () => {
+              bucket!.delete(wrapped);
+              listener();
+            }
+          : listener;
+        bucket.add(wrapped);
+      }),
+      removeEventListener: vi.fn((event: string, listener: () => void) => {
+        listeners.get(event)?.delete(listener);
+      })
+    } as unknown as SpeechSynthesis;
+    return {
+      synth,
+      spoken,
+      setVoices(next: SpeechSynthesisVoice[]) {
+        voices = next;
+      },
+      emitVoicesChanged() {
+        Array.from(listeners.get("voiceschanged") ?? []).forEach((fn) => fn());
+      }
+    };
+  }
+
+  function makeFakeUtterance(text: string): SpeechSynthesisUtterance {
+    return { text } as unknown as SpeechSynthesisUtterance;
+  }
+
+  function nativeVoice(name: string, lang: string, localService: boolean): SpeechSynthesisVoice {
+    return { name, lang, localService, default: false, voiceURI: name } as SpeechSynthesisVoice;
+  }
+
+  it("首次 getVoices 为空时等待 voiceschanged 并正确映射音色；未触发时 800ms 超时兜底", async () => {
+    const fake = createFakeSynth([]);
+    const engine = createWebSpeechEngine(fake.synth, makeFakeUtterance);
+    const pending = engine.getVoices();
+
+    fake.setVoices([
+      nativeVoice("Firefox Local", "zh-CN", true),
+      nativeVoice("Cloud Voice", "en-US", false)
+    ]);
+    fake.emitVoicesChanged();
+
+    await expect(pending).resolves.toEqual([
+      { voiceName: "Firefox Local", lang: "zh-CN", remote: false },
+      { voiceName: "Cloud Voice", lang: "en-US", remote: true }
+    ]);
+
+    vi.useFakeTimers();
+    const timeoutFake = createFakeSynth([]);
+    const timeoutEngine = createWebSpeechEngine(timeoutFake.synth, makeFakeUtterance);
+    const timeoutPromise = timeoutEngine.getVoices();
+    timeoutFake.setVoices([nativeVoice("Delayed Voice", "zh-CN", true)]);
+    await vi.advanceTimersByTimeAsync(800);
+
+    await expect(timeoutPromise).resolves.toEqual([
+      { voiceName: "Delayed Voice", lang: "zh-CN", remote: false }
+    ]);
+  });
+
+  it("speak 先清理残留并绑定匹配的 utterance.voice、lang 与钳制后的 volume", async () => {
+    const zhVoice = nativeVoice("Microsoft Xiaoxiao", "zh-CN", false);
+    const fake = createFakeSynth([zhVoice]);
+    const engine = createWebSpeechEngine(fake.synth, makeFakeUtterance);
+
+    await engine.getVoices();
+    engine.speak("第一句", { voiceName: "Microsoft Xiaoxiao", lang: "zh-CN", volume: 1.5 });
+    engine.speak("第二句", { voiceName: "Microsoft Xiaoxiao", lang: "zh-CN", volume: -0.2 });
+
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(2);
+    expect(fake.spoken[0].voice).toBe(zhVoice);
+    expect(fake.spoken[0].lang).toBe("zh-CN");
+    expect(fake.spoken[0].volume).toBe(1);
+    expect(fake.spoken[1].volume).toBe(0);
+  });
+
+  it("配合控制器支持分块续读并在全部结束后恢复按钮", async () => {
+    const fake = createFakeSynth([nativeVoice("Local ZH", "zh-CN", true)]);
+    const engine = createWebSpeechEngine(fake.synth, makeFakeUtterance);
+    const { controller } = makeController(engine);
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "第一段。\n\n第二段。", { maxChunkChars: 5 });
+    await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(1));
+
+    const first = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
+    first.onstart?.({} as SpeechSynthesisEvent);
+    expect(button.classList.contains("is-speaking")).toBe(true);
+    first.onboundary?.({} as SpeechSynthesisEvent);
+    first.onend?.({} as SpeechSynthesisEvent);
+
+    await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(2));
+    const second = fake.spoken[1] as unknown as SpeechSynthesisUtterance;
+    second.onend?.({} as SpeechSynthesisEvent);
+
+    expect(button.getAttribute("aria-label")).toBe("朗读回答");
+    expect(button.classList.contains("is-speaking")).toBe(false);
+  });
+
+  it("stop()、pagehide 与 canceled/interrupted 错误事件正确归一且不触发报错", () => {
+    const fake = createFakeSynth([nativeVoice("Local ZH", "zh-CN", true)]);
+    const engine = createWebSpeechEngine(fake.synth, makeFakeUtterance);
+    const events: ChatSpeechEvent[] = [];
+
+    engine.speak("测试停止", { onEvent: (event) => events.push(event) });
+    const first = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
+    engine.stop();
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(2);
+    // stop() 后旧 utterance 的迟到事件必须被忽略
+    first.onend?.({} as SpeechSynthesisEvent);
+    expect(events).toEqual([]);
+
+    engine.speak("外部取消", { onEvent: (event) => events.push(event) });
+    const second = fake.spoken[1] as unknown as SpeechSynthesisUtterance;
+    second.onerror?.({ error: "canceled" } as unknown as SpeechSynthesisErrorEvent);
+
+    engine.speak("外部打断", { onEvent: (event) => events.push(event) });
+    const third = fake.spoken[2] as unknown as SpeechSynthesisUtterance;
+    third.onerror?.({ error: "interrupted" } as unknown as SpeechSynthesisErrorEvent);
+
+    engine.speak("真实失败", { onEvent: (event) => events.push(event) });
+    const fourth = fake.spoken[3] as unknown as SpeechSynthesisUtterance;
+    fourth.onerror?.({ error: "synthesis-failed" } as unknown as SpeechSynthesisErrorEvent);
+
+    expect(events).toEqual([
+      { type: "cancelled" },
+      { type: "interrupted" },
+      { type: "error", errorMessage: "synthesis-failed" }
+    ]);
+
+    window.dispatchEvent(new Event("pagehide"));
+    expect(fake.synth.cancel).toHaveBeenCalledTimes(6);
+  });
+
+  it("后台返回 TTS_UNSUPPORTED 时自动切换并缓存 Web Speech 引擎；无 speechSynthesis 时走原有失败提示", async () => {
+    const fake = createFakeSynth([nativeVoice("Firefox Voice", "zh-CN", true)]);
+    const connectSpy = vi.fn(() => {
+      const clientMessageListeners: Array<(msg: unknown) => void> = [];
+      const bgMessageListeners: Array<(msg: unknown) => void> = [];
+      const clientPort = {
+        name: CHAT_SPEECH_PORT_NAME,
+        postMessage: vi.fn((msg: unknown) => bgMessageListeners.forEach((fn) => fn(msg))),
+        disconnect: vi.fn(),
+        onMessage: { addListener: (fn: (msg: unknown) => void) => clientMessageListeners.push(fn) },
+        onDisconnect: { addListener: vi.fn() }
+      } as unknown as chrome.runtime.Port;
+      const bgPort = {
+        name: CHAT_SPEECH_PORT_NAME,
+        postMessage: vi.fn((msg: unknown) => clientMessageListeners.forEach((fn) => fn(msg))),
+        onMessage: { addListener: (fn: (msg: unknown) => void) => bgMessageListeners.push(fn) },
+        onDisconnect: { addListener: vi.fn() }
+      } as unknown as chrome.runtime.Port;
+      attachChatSpeechPort(bgPort);
+      return clientPort;
+    });
+
+    vi.stubGlobal("chrome", {
+      runtime: { connect: connectSpy, lastError: null },
+      tts: undefined
+    });
+    vi.stubGlobal("speechSynthesis", fake.synth);
+    vi.stubGlobal("SpeechSynthesisUtterance", function FakeUtterance(this: Record<string, unknown>, text: string) {
+      this.text = text;
+    });
+
+    const engine = createDefaultSpeechEngine();
+    const { controller } = makeController(engine);
+    const button = document.createElement("button");
+
+    await controller.toggle(button, "Firefox 朗读测试");
+    await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(1));
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+
+    const utterance = fake.spoken[0] as unknown as SpeechSynthesisUtterance;
+    expect(utterance.voice).toMatchObject({ name: "Firefox Voice" });
+    utterance.onend?.({} as SpeechSynthesisEvent);
+
+    // 再次朗读直接走已缓存的 Web Speech 引擎，不再连接后台端口
+    await controller.toggle(button, "第二次朗读");
+    await vi.waitFor(() => expect(fake.synth.speak).toHaveBeenCalledTimes(2));
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    controller.stop();
+
+    // 确认后台直接收到 TTS_UNSUPPORTED 错误码后，若当前环境同样缺少 speechSynthesis 则走原有失败提示
+    vi.stubGlobal("speechSynthesis", undefined);
+    const fallbackError = vi.fn();
+    const noSpeechEngine = createDefaultSpeechEngine();
+    const noSpeechController = createChatSpeechController({
+      engine: noSpeechEngine,
+      getBrowserLanguage: () => "zh-CN",
+      onError: fallbackError
+    });
+    const noSpeechBtn = document.createElement("button");
+    await noSpeechController.toggle(noSpeechBtn, "无语音测试");
+
+    expect(TTS_UNSUPPORTED_ERROR).toBe("TTS_UNSUPPORTED");
+    expect(fallbackError).toHaveBeenCalledWith("当前设备未找到可用朗读语音");
+    expect(noSpeechBtn.getAttribute("aria-label")).toBe("朗读回答");
   });
 });

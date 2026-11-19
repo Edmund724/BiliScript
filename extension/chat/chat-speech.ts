@@ -2,6 +2,7 @@ import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { READING_SPEAKER_ICON, READING_STOP_ICON } from "../ui/reading-icons.js";
 import {
   CHAT_SPEECH_PORT_NAME,
+  TTS_UNSUPPORTED_ERROR,
   type ChatSpeechEvent,
   type ChatSpeechPortMessage,
   type ChatSpeechRequest,
@@ -155,7 +156,218 @@ function createChromeSpeechEngine(): ChatSpeechEngine {
   };
 }
 
-let chromeSpeechEngine: ChatSpeechEngine | null = null;
+export function createWebSpeechEngine(
+  synth: SpeechSynthesis | undefined = typeof window !== "undefined" ? window.speechSynthesis : undefined,
+  createUtterance: (text: string) => SpeechSynthesisUtterance = (text) => new SpeechSynthesisUtterance(text)
+): ChatSpeechEngine {
+  // 保持当前活动 utterance 引用，防止未触发 onend 前被 GC 提前回收
+  let activeUtterance: SpeechSynthesisUtterance | null = null;
+  let cachedNativeVoices: SpeechSynthesisVoice[] = [];
+
+  function stop(): void {
+    activeUtterance = null;
+    try {
+      synth?.cancel();
+    } catch {}
+  }
+
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("pagehide", stop);
+  }
+
+  function mapVoices(list: SpeechSynthesisVoice[]): ChatSpeechVoice[] {
+    cachedNativeVoices = list;
+    return list.map((voice) => ({
+      voiceName: voice.name,
+      lang: voice.lang,
+      remote: !voice.localService
+    }));
+  }
+
+  return {
+    async getVoices(): Promise<ChatSpeechVoice[]> {
+      if (!synth || typeof synth.getVoices !== "function") {
+        return [];
+      }
+      const immediate = synth.getVoices();
+      if (Array.isArray(immediate) && immediate.length > 0) {
+        return mapVoices(immediate);
+      }
+      return new Promise<ChatSpeechVoice[]>((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+          synth.removeEventListener?.("voiceschanged", finish);
+          const voices = synth.getVoices();
+          resolve(mapVoices(Array.isArray(voices) ? voices : []));
+        };
+        timer = setTimeout(finish, 800);
+        if (typeof synth.addEventListener === "function") {
+          synth.addEventListener("voiceschanged", finish, { once: true });
+        } else {
+          finish();
+        }
+      });
+    },
+    speak(text: string, options: ChatSpeechSpeakOptions): void {
+      if (!synth || typeof synth.speak !== "function") {
+        options.onEvent?.({ type: "error", errorMessage: "Web Speech API unavailable" });
+        return;
+      }
+      activeUtterance = null;
+      try {
+        synth.cancel();
+      } catch {}
+      let utterance: SpeechSynthesisUtterance;
+      try {
+        utterance = createUtterance(text);
+      } catch (error) {
+        options.onEvent?.({
+          type: "error",
+          errorMessage: error instanceof Error ? error.message : String(error || "Web Speech API unavailable")
+        });
+        return;
+      }
+      activeUtterance = utterance;
+      const nativeVoices = cachedNativeVoices.length ? cachedNativeVoices : (synth.getVoices() || []);
+      const matched = options.voiceName
+        ? nativeVoices.find((voice) => voice.name === options.voiceName)
+        : undefined;
+      if (matched) {
+        utterance.voice = matched;
+      }
+      if (options.lang) {
+        utterance.lang = options.lang;
+      }
+      if (typeof options.volume === "number" && Number.isFinite(options.volume)) {
+        utterance.volume = Math.max(0, Math.min(1, options.volume));
+      }
+      utterance.onstart = () => {
+        if (activeUtterance === utterance) {
+          options.onEvent?.({ type: "start" });
+        }
+      };
+      utterance.onboundary = () => {
+        if (activeUtterance === utterance) {
+          options.onEvent?.({ type: "word" });
+        }
+      };
+      utterance.onend = () => {
+        if (activeUtterance !== utterance) {
+          return;
+        }
+        activeUtterance = null;
+        options.onEvent?.({ type: "end" });
+      };
+      utterance.onerror = (event) => {
+        if (activeUtterance !== utterance) {
+          return;
+        }
+        activeUtterance = null;
+        const code = String((event as { error?: string })?.error || "");
+        if (code === "interrupted") {
+          options.onEvent?.({ type: "interrupted" });
+        } else if (code === "canceled" || code === "cancelled") {
+          options.onEvent?.({ type: "cancelled" });
+        } else {
+          options.onEvent?.({ type: "error", errorMessage: code || "Speech synthesis failed" });
+        }
+      };
+      try {
+        synth.speak(utterance);
+      } catch (error) {
+        if (activeUtterance === utterance) {
+          activeUtterance = null;
+          options.onEvent?.({
+            type: "error",
+            errorMessage: error instanceof Error ? error.message : String(error || "Speech synthesis failed")
+          });
+        }
+      }
+    },
+    stop
+  };
+}
+
+export interface DefaultSpeechEngineDeps {
+  chromeEngine?: ChatSpeechEngine;
+  createWebEngine?: () => ChatSpeechEngine;
+}
+
+/**
+ * 组合语音引擎：默认通过后台端口使用 `chrome.tts`，当后台返回 `TTS_UNSUPPORTED`
+ * 或缺少端口连接能力时无缝切换并缓存 `createWebSpeechEngine()`。
+ */
+export function createDefaultSpeechEngine(deps: DefaultSpeechEngineDeps = {}): ChatSpeechEngine {
+  const chromeEngine = deps.chromeEngine ?? createChromeSpeechEngine();
+  const createWebEngine = deps.createWebEngine ?? (() => createWebSpeechEngine());
+  let fallbackWebEngine: ChatSpeechEngine | null = null;
+  let useWebFallback = false;
+
+  const getWebEngine = (): ChatSpeechEngine => (fallbackWebEngine ??= createWebEngine());
+  const canConnectPort = (): boolean => (
+    Boolean(deps.chromeEngine)
+    || (typeof chrome !== "undefined" && typeof chrome.runtime?.connect === "function")
+  );
+  const isUnsupportedError = (message: string): boolean => message.includes(TTS_UNSUPPORTED_ERROR);
+
+  return {
+    async getVoices(): Promise<ChatSpeechVoice[]> {
+      if (useWebFallback) {
+        return getWebEngine().getVoices();
+      }
+      if (!canConnectPort()) {
+        useWebFallback = true;
+        return getWebEngine().getVoices();
+      }
+      try {
+        return await chromeEngine.getVoices();
+      } catch (error) {
+        if (error instanceof Error && isUnsupportedError(error.message)) {
+          useWebFallback = true;
+          return getWebEngine().getVoices();
+        }
+        throw error;
+      }
+    },
+    speak(text: string, options: ChatSpeechSpeakOptions): void | Promise<void> {
+      if (useWebFallback) {
+        return getWebEngine().speak(text, options);
+      }
+      if (!canConnectPort()) {
+        useWebFallback = true;
+        return getWebEngine().speak(text, options);
+      }
+      return chromeEngine.speak(text, {
+        ...options,
+        onEvent: (event) => {
+          if (!useWebFallback && event.type === "error" && isUnsupportedError(String(event.errorMessage || ""))) {
+            useWebFallback = true;
+            void getWebEngine().speak(text, options);
+            return;
+          }
+          options.onEvent?.(event);
+        }
+      });
+    },
+    stop(): void {
+      if (useWebFallback) {
+        fallbackWebEngine?.stop();
+      } else {
+        chromeEngine.stop();
+      }
+    }
+  };
+}
+
+let defaultSpeechEngine: ChatSpeechEngine | null = null;
 
 const TIMESTAMP_TOKEN = "\\b\\d{1,3}[:：]\\d{2}(?:[:：]\\d{2})?\\b";
 const RANGE_CONNECTOR = "\\s*(?:[-–—~～至到]|\\.{2,3}|…)\\s*";
@@ -293,7 +505,7 @@ function setButtonSpeaking(button: HTMLButtonElement, state: SpeechButtonState):
 }
 
 export function createChatSpeechController(deps: CreateChatSpeechControllerDeps = {}): ChatSpeechController {
-  const engine = deps.engine || (chromeSpeechEngine ??= createChromeSpeechEngine());
+  const engine = deps.engine || (defaultSpeechEngine ??= createDefaultSpeechEngine());
   const getBrowserLanguage = deps.getBrowserLanguage || (() => navigator.language || "zh-CN");
   const onError = deps.onError || (() => {});
   let generation = 0;

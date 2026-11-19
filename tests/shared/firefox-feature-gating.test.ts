@@ -1,7 +1,7 @@
-// Firefox 首期特性门控单测（TTS 语音朗读 + Live 实时伴看）：
-// 1. 平台判据纯函数：moz-extension:// 识别 Firefox，chrome-extension:// 识别 Chromium；
-// 2. chat-speech-bg.ts 在 chrome.tts 缺失时安全短路，不抛未捕获异常；
-// 3. Firefox 下消息朗读按钮、对话更多菜单音量滑块、设置朗读音量行隐藏/不挂载，Chromium 正常展示；
+// Firefox 特性门控与 TTS 回退单测（TTS 语音朗读 + Live 实时伴看）：
+// 1. 平台判据纯函数：moz-extension:// 识别 Firefox，TTS 在具备 window.speechSynthesis 时启用，Live 仍门控禁用；
+// 2. chat-speech-bg.ts 在 chrome.tts 缺失时返回 TTS_UNSUPPORTED 且 stop 不抛未捕获异常；
+// 3. Firefox 缺少 speechSynthesis 时隐藏朗读入口，具备 speechSynthesis 时正常展示；Chromium 正常展示；
 // 4. Firefox 下播放器实时伴看入口、对话栏实时伴看入口、设置实时伴看分区隐藏，直播间内容脚本短路；Chromium 正常展示。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,7 +59,7 @@ describe("平台能力判据纯函数（shared/runtime-capabilities）", () => {
     vi.restoreAllMocks();
   });
 
-  it("moz-extension:// 判定为 Firefox 且首期禁用 TTS 与实时伴看；chrome-extension:// 保持全量可用", async () => {
+  it("moz-extension:// 判定为 Firefox 且按 speechSynthesis 决定 TTS 可用性、Live 禁用；chrome-extension:// 保持全量可用", async () => {
     const caps = await import("../../extension/shared/runtime-capabilities.js");
 
     stubRuntimeScheme("chrome-extension");
@@ -79,6 +79,19 @@ describe("平台能力判据纯函数（shared/runtime-capabilities）", () => {
     expect(caps.getRuntimeCapabilities()).toEqual({
       isFirefox: true,
       supportsTts: false,
+      supportsLiveCompanion: false
+    });
+
+    vi.stubGlobal("speechSynthesis", {
+      speak: vi.fn(),
+      getVoices: vi.fn(() => [])
+    });
+    expect(caps.hasWebSpeechApi()).toBe(true);
+    expect(caps.supportsTtsSpeech()).toBe(true);
+    expect(caps.supportsLiveCompanion()).toBe(false);
+    expect(caps.getRuntimeCapabilities()).toEqual({
+      isFirefox: true,
+      supportsTts: true,
       supportsLiveCompanion: false
     });
   });
@@ -106,14 +119,14 @@ describe("TTS 后台防御判空与界面门控", () => {
     vi.restoreAllMocks();
   });
 
-  it("chat-speech-bg 在 chrome.tts 缺失时安全短路返回空音色/错误事件且不抛错", async () => {
+  it("chat-speech-bg 在 chrome.tts 缺失时返回 TTS_UNSUPPORTED 且 stop 不抛错", async () => {
     const currentChrome = globalThis.chrome as unknown as Record<string, unknown>;
     vi.stubGlobal("chrome", {
       ...currentChrome,
       tts: undefined
     });
 
-    const { attachChatSpeechPort } = await import("../../extension/chat/chat-speech-bg.js");
+    const { attachChatSpeechPort, TTS_UNSUPPORTED_ERROR } = await import("../../extension/chat/chat-speech-bg.js");
     const { CHAT_SPEECH_PORT_NAME } = await import("../../extension/chat/protocol.js");
 
     const messageListeners: Array<(msg: unknown) => void> = [];
@@ -133,15 +146,18 @@ describe("TTS 后台防御判空与界面门控", () => {
     expect(() => disconnectListeners.forEach((fn) => fn())).not.toThrow();
 
     expect(sent).toEqual([
-      { type: "voices", requestId: 1, voices: [] },
-      { type: "event", requestId: 2, event: { type: "error", errorMessage: "TTS API is unavailable" } }
+      { type: "error", requestId: 1, message: TTS_UNSUPPORTED_ERROR },
+      { type: "error", requestId: 2, message: TTS_UNSUPPORTED_ERROR }
     ]);
   });
 
-  it("Firefox 下对话消息操作栏不挂载朗读按钮，Chromium 正常挂载", async () => {
-    const createRenderer = async (scheme: "moz-extension" | "chrome-extension") => {
+  it("Firefox 缺少 speechSynthesis 时不挂载朗读按钮，具备 speechSynthesis 时与 Chromium 一样正常挂载", async () => {
+    const createRenderer = async (scheme: "moz-extension" | "chrome-extension", withWebSpeech = false) => {
       resetModuleState();
       stubRuntimeScheme(scheme);
+      if (withWebSpeech) {
+        vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });
+      }
       const messages = document.createElement("div");
       document.body.replaceChildren(messages);
       const { createChatStreamRenderer } = await import("../../extension/chat/chat-stream-render.js");
@@ -158,15 +174,18 @@ describe("TTS 后台防御判空与界面门控", () => {
       return messages;
     };
 
-    const firefoxMessages = await createRenderer("moz-extension");
+    const firefoxMessages = await createRenderer("moz-extension", false);
     expect(firefoxMessages.querySelector(".chat-msg-speak-btn")).toBeNull();
     expect(firefoxMessages.querySelector(".chat-msg-regenerate-btn")).not.toBeNull();
 
-    const chromeMessages = await createRenderer("chrome-extension");
+    const firefoxWebSpeechMessages = await createRenderer("moz-extension", true);
+    expect(firefoxWebSpeechMessages.querySelector(".chat-msg-speak-btn")).not.toBeNull();
+
+    const chromeMessages = await createRenderer("chrome-extension", false);
     expect(chromeMessages.querySelector(".chat-msg-speak-btn")).not.toBeNull();
   });
 
-  it("Firefox 下隐藏更多菜单与设置面板中的朗读音量控件，Chromium 正常展示", async () => {
+  it("Firefox 缺少 speechSynthesis 时隐藏朗读音量控件，具备 speechSynthesis 时与 Chromium 一样展示", async () => {
     stubRuntimeScheme("moz-extension");
     const uiRenderer = await import("../../extension/ui/ui-renderer.js");
     document.body.innerHTML = uiRenderer.buildUiHtml();
@@ -185,6 +204,19 @@ describe("TTS 后台防御判空与界面门控", () => {
     expect(ffMinimalHost.querySelector("#aiPromptSummary")?.textContent).toBe("默认");
 
     resetModuleState();
+    vi.stubGlobal("speechSynthesis", { speak: vi.fn(), getVoices: vi.fn(() => []) });
+    stubRuntimeScheme("moz-extension");
+    const uiRendererFfSpeech = await import("../../extension/ui/ui-renderer.js");
+    document.body.innerHTML = uiRendererFfSpeech.buildUiHtml();
+    expect(document.getElementById("biliscript-reading-chat-speech-volume")?.hidden).toBe(false);
+
+    const ffSpeechSettingsHost = await mountSettingsPanelInScheme("moz-extension");
+    expect(ffSpeechSettingsHost.querySelector("#speechVoiceVolume")?.closest<HTMLElement>(".biliscript-slider-row")?.hidden).toBe(false);
+    expect(ffSpeechSettingsHost.querySelector("#chatPreferencesHeading")?.textContent).toBe("阅读与朗读");
+    expect(ffSpeechSettingsHost.querySelector("#aiPromptSummary")?.textContent).toContain("朗读 100%");
+
+    resetModuleState();
+    vi.stubGlobal("speechSynthesis", undefined);
     stubRuntimeScheme("chrome-extension");
     const uiRendererChrome = await import("../../extension/ui/ui-renderer.js");
     document.body.innerHTML = uiRendererChrome.buildUiHtml();
