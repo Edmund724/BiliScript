@@ -859,3 +859,21 @@ describe("组件表随组件挂载（extension/entry/styles/custom-select.css）
     expect(document.head.querySelector('link[href$="reader-settings-providers.css"]')).toBeNull();
   });
 });
+
+describe("外点收起控制器：不覆写 DOM hidden 自有属性（Firefox Xray 兼容）", () => {
+  it("初始化后 dropdown 不带自有 hidden 描述符，外部改写 hidden 后由 MutationObserver 接管外点关闭", async () => {
+    document.body.innerHTML = '<div><select id="xraySelect"><option value="a">A</option><option value="b">B</option></select></div>';
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    const select = document.getElementById("xraySelect") as HTMLSelectElement;
+    initCustomSelect(select);
+    const dropdown = select.closest(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-dropdown")!;
+
+    expect(Object.getOwnPropertyDescriptor(dropdown, "hidden")).toBeUndefined();
+
+    dropdown.hidden = false;
+    await Promise.resolve();
+
+    fireClick(document.body);
+    expect(dropdown.hidden).toBe(true);
+  });
+});

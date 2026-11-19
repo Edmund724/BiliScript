@@ -159,6 +159,7 @@ export function wireModelPicker(
     optionLis = [];
     countLi = null;
     dropdown.hidden = false;
+    modelDropdownDismissal.sync();
     toggle.setAttribute("aria-expanded", "true");
 
     const keyRequired = isKeyRequired ? isKeyRequired() : false;

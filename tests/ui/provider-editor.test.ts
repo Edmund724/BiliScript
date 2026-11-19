@@ -1218,9 +1218,10 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
-    // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起
+    // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起（外部直接写 hidden 由 MutationObserver 微任务同步）
     const dropdown = dialog.querySelector<HTMLElement>(".ai-provider-model-dropdown")!;
     dropdown.hidden = false;
+    await flushMicrotasks();
 
     dialog.querySelector(".provider-editor-name")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(dropdown.hidden).toBe(true);

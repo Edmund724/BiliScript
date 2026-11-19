@@ -144,11 +144,11 @@ export interface OutsideClickDismissalController {
   sync: () => void;
 }
 
-const nativeHiddenDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "hidden");
-
 // 下拉弹层自持的捕获期 Esc / 外点收起控制器：仅在至少一枚弹层展开期间挂载
 // document capture 监听，全部收起后立即卸载。捕获期只结算下拉并截断事件，
 // 底层编辑器、设置与宿主的 bubble 委托不会跟着处理同一次输入。
+// 不覆写 DOM 节点上的 hidden 属性（避免 Firefox XrayWrapper 边界异常）：
+// 组件自身开合路径同步调用 sync()，外部直接改写 hidden 属性则由 MutationObserver 兜底。
 export function createOutsideClickDismissal({
   wrapperSelector,
   openDropdownSelector,
@@ -177,6 +177,22 @@ export function createOutsideClickDismissal({
       listening = false;
     }
   };
+
+  const hiddenObserver =
+    typeof MutationObserver === "function"
+      ? new MutationObserver((records) => {
+          for (const record of records) {
+            const target = record.target;
+            if (!(target instanceof HTMLElement)) continue;
+            if (target.hidden || !target.isConnected) {
+              openDropdowns.delete(target);
+            } else {
+              openDropdowns.add(target);
+            }
+          }
+          sync();
+        })
+      : null;
 
   const onDocumentClickCapture = (event: MouseEvent): void => {
     if (document.querySelector(openDropdownSelector) === null) {
@@ -218,24 +234,7 @@ export function createOutsideClickDismissal({
       return;
     }
     observedDropdowns.add(dropdown);
-    if (nativeHiddenDescriptor?.get && nativeHiddenDescriptor?.set) {
-      Object.defineProperty(dropdown, "hidden", {
-        configurable: true,
-        enumerable: nativeHiddenDescriptor.enumerable ?? true,
-        get(this: HTMLElement) {
-          return nativeHiddenDescriptor.get!.call(this);
-        },
-        set(this: HTMLElement, value: boolean) {
-          nativeHiddenDescriptor.set!.call(this, value);
-          if (this.hidden) {
-            openDropdowns.delete(this);
-          } else {
-            openDropdowns.add(this);
-          }
-          sync();
-        }
-      });
-    }
+    hiddenObserver?.observe(dropdown, { attributes: true, attributeFilter: ["hidden"] });
     if (!dropdown.hidden) {
       openDropdowns.add(dropdown);
     }
@@ -741,6 +740,7 @@ export function initCustomSelect(
 
   const closeList = (refocusTrigger: boolean): void => {
     dropdown.hidden = true;
+    customSelectDismissal.sync();
     setExpanded(false);
     searchableList.reset();
     if (!refocusTrigger) return;
@@ -861,6 +861,7 @@ export function initCustomSelect(
     if (trigger.disabled) return; // 禁用是真守卫：键盘/程序化 click 都不展开（指针事件挡不住这两条）
     closeAllCustomSelects(dropdown);
     dropdown.hidden = false;
+    customSelectDismissal.sync();
     setExpanded(true);
     searchableList.reset();
     if (shouldEnableSearch()) {
