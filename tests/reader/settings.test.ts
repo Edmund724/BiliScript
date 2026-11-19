@@ -160,6 +160,17 @@ describe("设置变更与 data-attribute", () => {
     expect(readingView.dataset.chatInputGlow).toBe("0");
   });
 
+  it("applyReadingViewPresentation：减弱透明默认不落属性，显式开启落 data-biliscript-reduce-transparency=\"1\"", () => {
+    state.setSettings({ ...(state.settings || {}), reduceTransparency: false } as typeof state.settings);
+    presentation.applyReadingViewPresentation();
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    expect(readingView.dataset.biliscriptReduceTransparency).toBeUndefined();
+
+    state.setSettings({ ...(state.settings || {}), reduceTransparency: true } as typeof state.settings);
+    presentation.applyReadingViewPresentation();
+    expect(readingView.dataset.biliscriptReduceTransparency).toBe("1");
+  });
+
   it("applyReadingViewPresentation：header 主题按钮图标/文案随主题刷新", () => {
     const themeButton = document.createElement("button");
     themeButton.id = ids.readingThemeSelect;

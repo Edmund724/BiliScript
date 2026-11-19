@@ -184,7 +184,8 @@ export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.fre
   "chatLineHeight",
   "chatParagraphSpacing",
   "speechVoiceVolume",
-  "chatInputGlow"
+  "chatInputGlow",
+  "reduceTransparency"
 ]);
 
 // 按标志 × 作用目标派生连字符属性名清单（模块顶层计算一次的常量）。

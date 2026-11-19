@@ -514,7 +514,7 @@
 .biliscript-reading-ov-empty-card {
   margin: auto 0;
   padding: 26px 20px;
-  background: var(--biliscript-reader-card);
+  background: var(--biliscript-reader-glass-solid-bg, var(--biliscript-reader-card));
   border: none;
   border-radius: var(--biliscript-radius-xl);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
@@ -2309,7 +2309,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-share-mask {
   position: absolute;
   inset: 0;
-  background: var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-mask-rgb), 0.28));
+  background: var(--biliscript-quote-mask-bg, var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-mask-rgb), 0.28)));
   cursor: pointer;
 }
 
@@ -2590,6 +2590,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-blobs-layer {
+  display: var(--biliscript-quote-deco-display, block);
   position: absolute;
   inset: -20px;
   will-change: transform;
@@ -2597,6 +2598,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-blobs {
+  display: var(--biliscript-quote-deco-display, block);
   position: absolute;
   inset: 0;
   background-size: 100% 100%;
@@ -2606,6 +2608,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 细线几何纹样层（线宽统一 0.8px，默认透明度 0.38，径向遮罩中心留白，反向微视差） */
 .biliscript-quote-card-pattern {
+  display: var(--biliscript-quote-deco-display, block);
   position: absolute;
   inset: -15px;
   z-index: 1;
@@ -2623,6 +2626,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 悬停光标微弱柔光跟随层 */
 .biliscript-quote-card-glow {
+  display: var(--biliscript-quote-deco-display, block);
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -2661,6 +2665,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 物理像素级灰度噪点平铺层 */
 .biliscript-quote-card-noise {
+  display: var(--biliscript-quote-deco-display, block);
   position: absolute;
   inset: 0;
   background-repeat: repeat;
@@ -2807,7 +2812,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 1. 紫粉到橙金 (purple-gold) */
 .biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #b4bed6 0%, #9d8daa 45%, #b85e46 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #b4bed6 0%, #9d8daa 45%, #b85e46 100%));
 }
 .biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-blobs {
   background-image:
@@ -2819,7 +2824,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 2. 灰蓝到深棕 (slate-brown) */
 .biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #aebdc5 0%, #66727a 45%, #32201b 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #aebdc5 0%, #66727a 45%, #32201b 100%));
 }
 .biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-blobs {
   background-image:
@@ -2831,7 +2836,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 3. 雾蓝到深海蓝 (mist-deep-sea) */
 .biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #c6d6df 0%, #4b8393 45%, #0b3544 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #c6d6df 0%, #4b8393 45%, #0b3544 100%));
 }
 .biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-blobs {
   background-image:
@@ -2843,7 +2848,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 4. 雾蓝到墨绿 (mist-forest-green) */
 .biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #bcccd4 0%, #68816e 45%, #183522 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #bcccd4 0%, #68816e 45%, #183522 100%));
 }
 .biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-blobs {
   background-image:
@@ -2855,7 +2860,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 5. 薰衣草到深夜紫 (lavender-midnight) */
 .biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #b7c6da 0%, #b088bd 45%, #1b1035 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #b7c6da 0%, #b088bd 45%, #1b1035 100%));
 }
 .biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-blobs {
   background-image:
@@ -2867,7 +2872,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 6. 天灰到锈红 (ash-rust) */
 .biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #c2cbd3 0%, #dda185 45%, #6e2b26 100%);
+  background: var(--biliscript-quote-card-solid-bg, linear-gradient(165deg, #c2cbd3 0%, #dda185 45%, #6e2b26 100%));
 }
 .biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-blobs {
   background-image:
@@ -2875,29 +2880,6 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
     radial-gradient(circle at 82% 20%, rgba(240, 195, 167, 0.82) 0%, transparent 50%),
     radial-gradient(circle at 20% 82%, rgba(217, 111, 90, 0.82) 0%, transparent 55%),
     radial-gradient(circle at 82% 80%, rgba(166, 69, 55, 0.85) 0%, transparent 50%);
-}
-
-/* 无障碍降级 */
-@media (prefers-reduced-transparency: reduce) {
-  .biliscript-quote-share-mask {
-    background: var(--biliscript-primitive-color-black);
-  }
-  .biliscript-quote-card-noise {
-    display: none !important;
-  }
-  .biliscript-quote-card-pattern {
-    display: none !important;
-  }
-  .biliscript-quote-card-blobs-layer,
-  .biliscript-quote-card-blobs {
-    display: none !important;
-  }
-  .biliscript-quote-card-glow {
-    display: none !important;
-  }
-  .biliscript-quote-card-bg {
-    background: var(--biliscript-primitive-color-dark-gray-800) !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

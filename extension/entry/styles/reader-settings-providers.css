@@ -1120,16 +1120,6 @@
   }
 }
 
-/* ===== 减弱透明度 =====
- * 抽屉材质退回近实色（token 已在 gate 段覆盖为实色），毛玻璃一并关停 */
-@media (prefers-reduced-transparency: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-panel,
-  #biliscript-reading-view .provider-editor-fetch-dialog {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
 /* ===== 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2） =====
  * 贴栏态面板随 --biliscript-script-top 逐帧位移，设置抽屉的 backdrop 跟着每帧重采样。
  * script-host 滚动期间给 #biliscript-reading-view 挂 data-biliscript-script-scrolling，停下

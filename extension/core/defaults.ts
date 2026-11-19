@@ -53,6 +53,7 @@ export interface KnownSettings {
   // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物。
   readerPalette: string;
   chatInputGlow: boolean;
+  reduceTransparency: boolean;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
@@ -140,6 +141,7 @@ export const DEFAULT_SETTINGS: Settings = {
   readerThemeUserSet: false,
   readerPalette: "flyme",
   chatInputGlow: true,
+  reduceTransparency: false,
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   defaultModel: "",

@@ -909,8 +909,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
   border: 1.5px solid transparent;
   background: var(--biliscript-reader-card);
-  -webkit-backdrop-filter: blur(20px) saturate(185%);
-  backdrop-filter: blur(20px) saturate(185%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(20px) saturate(185%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(20px) saturate(185%));
   box-shadow: var(--biliscript-reader-card-highlight);
   transition: box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
 }
@@ -1150,8 +1150,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 .biliscript-live-room-settings #biliscript-reading-view .biliscript-reading-chat-more-menu {
   border: none;
   background: var(--biliscript-reader-popover-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
@@ -1161,9 +1161,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   border: none;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  background: var(--biliscript-reader-glass-solid-bg, var(--biliscript-reader-card));
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.16), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
@@ -1322,8 +1322,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom {
   border-color: transparent;
   background: var(--biliscript-reader-card);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(20px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(20px) saturate(180%));
   box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.92), 0 10px 28px -4px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.16), 0 2px 6px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.06);
 }
 
@@ -1380,8 +1380,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-md-table-dialog {
   border-color: transparent;
   background: var(--biliscript-reader-popover-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: var(--biliscript-reader-shadow);
 }
 
@@ -1736,62 +1736,38 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 }
 
 /* ===== 减弱透明度 =====
- * 半透明材质（设置抽屉、蓝雾壳、各浮层弹层）退回近实色：退回值即 surface 令牌
- *（var 引用，明暗两档各自解析到自己的 surface，无需分档规则），消费方
- *（reader-settings-shell.css 的抽屉、本表的蓝雾壳、浮层）只需各自关掉 backdrop-filter。 */
+ * 系统 prefers-reduced-transparency 与手动开关（[data-biliscript-reduce-transparency="1"]）
+ * 共享同一组令牌：所有半透明/毛玻璃/光雾/金句装饰层直接消费这些令牌，无需在各表重复
+ * 复制整段组件选择器规则。双 ID（2-0-0）压过深色+色板组合块（1-2-0），保证四象限均生效。 */
+#biliscript-reading-view#biliscript-reading-view[data-biliscript-reduce-transparency="1"] {
+  --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
+  --biliscript-reader-popover-bg: var(--biliscript-reader-surface);
+  --biliscript-reader-mist-surface: var(--biliscript-reader-surface);
+  --biliscript-reader-mist-blobs: none;
+  --biliscript-reader-mist-filter: none;
+  --biliscript-reader-glass-filter: none;
+  --biliscript-reader-glass-solid-bg: var(--biliscript-reader-surface);
+  --biliscript-quote-mask-bg: var(--biliscript-primitive-color-black);
+  --biliscript-quote-deco-display: none;
+  --biliscript-quote-card-solid-bg: var(--biliscript-primitive-color-dark-gray-800);
+}
+
 @media (prefers-reduced-transparency: reduce) {
+  html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme][data-biliscript-reader-palette],
+  body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme][data-biliscript-reader-palette],
   html[data-biliscript-reader-mode="1"],
   body[data-biliscript-reader-mode="1"],
-  #biliscript-reading-view {
+  #biliscript-reading-view#biliscript-reading-view {
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
     --biliscript-reader-popover-bg: var(--biliscript-reader-surface);
     --biliscript-reader-mist-surface: var(--biliscript-reader-surface);
     --biliscript-reader-mist-blobs: none;
     --biliscript-reader-mist-filter: none;
-  }
-
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-model-panel,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .chat-search-preview,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-dropdown,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-explain-card-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-chat-more-menu,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .confirm-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .agent-bridge-install-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-md-table-dialog,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-placeholder,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-ov-empty-card,
-  #biliscript-reading-view .chat-model-panel,
-  #biliscript-reading-view .chat-search-preview,
-  #biliscript-reading-view .custom-select-dropdown,
-  #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
-  #biliscript-reading-view .provider-editor-dialog,
-  #biliscript-reading-view .provider-editor-fetch-dialog,
-  #biliscript-reading-view .biliscript-reading-explain-card-dialog,
-  #biliscript-reading-view .biliscript-reading-chat-more-menu,
-  #biliscript-reading-view .confirm-dialog,
-  #biliscript-reading-view .agent-bridge-install-dialog,
-  #biliscript-reading-view .biliscript-md-table-dialog,
-  #biliscript-reading-view .biliscript-reading-placeholder,
-  #biliscript-reading-view .biliscript-reading-ov-empty-card {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    background: var(--biliscript-reader-surface);
-  }
-
-  /* 悬浮胶囊、滚底圆钮与输入卡：减弱透明度下同步关停磨砂 */
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card,
-  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
-  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
-  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
-  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+    --biliscript-reader-glass-filter: none;
+    --biliscript-reader-glass-solid-bg: var(--biliscript-reader-surface);
+    --biliscript-quote-mask-bg: var(--biliscript-primitive-color-black);
+    --biliscript-quote-deco-display: none;
+    --biliscript-quote-card-solid-bg: var(--biliscript-primitive-color-dark-gray-800);
   }
 }
 

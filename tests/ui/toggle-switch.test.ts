@@ -29,6 +29,7 @@ const TOGGLE_IDS = [
   "enableDebugLogs",
   "enableAgentBridge",
   "chatInputGlow",
+  "reduceTransparency",
   "liveShareVideoAudio",
   "liveVoicePriority",
   "liveLowBandwidth"

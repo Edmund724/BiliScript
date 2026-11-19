@@ -90,6 +90,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   aiSystemPrompt: "aiSystemPrompt",
   readerPalette: "readerPalette",
   chatInputGlow: "chatInputGlow",
+  reduceTransparency: "reduceTransparency",
   readerFontSizeScaleContainer: "readerFontSizeScaleContainer",
   readerFontSizeScale: "readerFontSizeScale",
   readerFontSizeScaleValue: "readerFontSizeScaleValue",
@@ -551,6 +552,14 @@ export function buildSettingsHtml(): string {
             <span class="biliscript-toggle-text">AI 对话输入框光晕</span>
             <label class="biliscript-toggle-switch">
               <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 对话输入框光晕" />
+              <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="biliscript-set-check biliscript-toggle-row">
+            <span class="biliscript-toggle-text">减弱透明效果</span>
+            <label class="biliscript-toggle-switch">
+              <input id="${ids.reduceTransparency}" type="checkbox" class="biliscript-toggle-input" aria-label="减弱透明效果" />
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
           </div>

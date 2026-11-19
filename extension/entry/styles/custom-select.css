@@ -40,9 +40,9 @@
   border: 1px solid var(--select-dropdown-border, var(--biliscript-reader-border));
   border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--select-dropdown-bg, var(--biliscript-reader-card));
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  background: var(--biliscript-reader-glass-solid-bg, var(--select-dropdown-bg, var(--biliscript-reader-card)));
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: var(--select-dropdown-shadow, 0 10px 24px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.12));
   list-style: none;
   margin: 0;
@@ -347,13 +347,6 @@
   /* 忙碌点同上：呼吸动画关停，圆点留在场作静态指示。 */
   #biliscript-reading-view .custom-select-trigger[aria-busy="true"]::after {
     animation: none;
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  #biliscript-reading-view .custom-select-dropdown {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
 

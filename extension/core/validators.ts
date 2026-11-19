@@ -74,6 +74,9 @@ export function normalizeReaderPalette(value: unknown): string {
 // AI 对话输入框光晕：默认 true，仅显式 false 时关闭。
 export const normalizeChatInputGlow = booleanField(true);
 
+// 减弱透明效果：默认 false，仅显式 true 时开启。
+export const normalizeReduceTransparency = booleanField(false);
+
 // ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
   if (value === "txt") return "txt";

@@ -28,6 +28,7 @@ import {
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
   normalizeChatInputGlow,
+  normalizeReduceTransparency,
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidth,
   normalizeReaderFontSizeScale,
@@ -39,7 +40,7 @@ import {
   normalizeLiveVoicePriority,
   normalizeLiveShareVideoAudio
 } from "../core/validators.js";
-import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
+import { applyReadingViewTypography, applyChatInputGlow, applyReduceTransparency, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
 import {
@@ -206,6 +207,7 @@ function collectElements(host: HTMLElement) {
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
+    reduceTransparency: byIdIn<HTMLInputElement>(dom.reduceTransparency),
     readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
     readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
     readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
@@ -529,6 +531,15 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     normalize: normalizeChatInputGlow,
     onApply: () => {
       applyChatInputGlow();
+    }
+  },
+  {
+    kind: "toggle",
+    key: "reduceTransparency",
+    getElement: (el) => el.reduceTransparency,
+    normalize: normalizeReduceTransparency,
+    onApply: () => {
+      applyReduceTransparency();
     }
   },
   {
@@ -1575,7 +1586,8 @@ function buildDefaultPreferencePayload() {
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
     enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
-    chatInputGlow: DEFAULT_SETTINGS.chatInputGlow
+    chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
+    reduceTransparency: DEFAULT_SETTINGS.reduceTransparency
   };
 }
 
