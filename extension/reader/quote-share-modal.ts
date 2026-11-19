@@ -9,12 +9,15 @@ import {
   READING_DOWNLOAD_ICON
 } from "../ui/reading-icons.js";
 import {
+  QUOTE_CARD_CANONICAL_HEIGHT,
+  QUOTE_CARD_CANONICAL_RADIUS,
   QUOTE_CARD_CANONICAL_WIDTH,
   QUOTE_CARD_PATTERNS,
   QUOTE_CARD_PRESETS,
   type QuoteCardExportOptions,
   type QuoteCardTextMeasurer,
   type QuotePatternId,
+  buildContinuousCornerSvgPath,
   createQuoteCardTextMeasurer,
   getQuoteShareNoiseDataUrl,
   getQuoteSharePatternSvg,
@@ -58,6 +61,7 @@ interface QuoteShareModalState {
   spring: Spring2DInstance | null;
   resizeObserver: ResizeObserver | null;
   lastCardWidth: number;
+  lastCardHeight: number;
   copying: boolean;
   downloading: boolean;
   focusScope: FocusScope | null;
@@ -76,6 +80,7 @@ const state: QuoteShareModalState = {
   spring: null,
   resizeObserver: null,
   lastCardWidth: 0,
+  lastCardHeight: 0,
   copying: false,
   downloading: false,
   focusScope: null,
@@ -391,6 +396,7 @@ export function closeQuoteShareModal(options?: { restoreFocus?: boolean }): void
     state.resizeObserver = null;
   }
   state.lastCardWidth = 0;
+  state.lastCardHeight = 0;
 
   state.restoreSiblings?.();
   state.restoreSiblings = null;
@@ -441,6 +447,62 @@ function getQuoteTextMeasurer(): QuoteCardTextMeasurer | null {
   return quoteTextMeasurer;
 }
 
+const QUOTE_CARD_BORDER_SVG_CLASS = "biliscript-quote-card-border-svg";
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * 检测当前渲染引擎是否原生支持 `corner-shape: superellipse(1.25)`。
+ */
+export function supportsCssCornerShape(): boolean {
+  return (
+    typeof CSS !== "undefined" &&
+    typeof CSS.supports === "function" &&
+    CSS.supports("corner-shape", "superellipse(1.25)")
+  );
+}
+
+/**
+ * 不支持 `corner-shape: superellipse(1.25)` 时，按实测卡尺寸写入同源超椭圆 `clip-path`
+ * 与 `0.5px` 内侧 SVG 描边层（1px 描边居于路径中心，外侧 0.5px 由 `clip-path` 裁去）。
+ */
+function syncContinuousCornerFallback(card: HTMLElement, width: number, height: number): void {
+  if (supportsCssCornerShape()) {
+    return;
+  }
+  const radius = QUOTE_CARD_CANONICAL_RADIUS * (width / QUOTE_CARD_CANONICAL_WIDTH);
+  const d = buildContinuousCornerSvgPath(width, height, radius);
+  if (!d) {
+    return;
+  }
+
+  card.style.clipPath = `path("${d}")`;
+  card.style.borderRadius = "0";
+  card.style.boxShadow = "none";
+
+  let svg = card.querySelector<SVGSVGElement>(`.${QUOTE_CARD_BORDER_SVG_CLASS}`);
+  if (!svg) {
+    svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", QUOTE_CARD_BORDER_SVG_CLASS);
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none");
+    svg.style.position = "absolute";
+    svg.style.inset = "0";
+    svg.style.width = "100%";
+    svg.style.height = "100%";
+    svg.style.pointerEvents = "none";
+    svg.style.zIndex = "3";
+
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("stroke", "rgba(0, 0, 0, 0.12)");
+    path.setAttribute("stroke-width", "1");
+    svg.appendChild(path);
+    card.appendChild(svg);
+  }
+
+  svg.setAttribute("viewBox", `0 0 ${Number(width.toFixed(2))} ${Number(height.toFixed(2))}`);
+  svg.querySelector("path")?.setAttribute("d", d);
+}
+
 /**
  * 按卡宽等比落字号与折行：折行来自共享布局（标称 408 版式），预览与导出逐行一致。
  * 卡宽变窄时字号同步缩小，保持「同一张版式缩印」的观感。
@@ -452,7 +514,10 @@ function fitQuoteCardText(host: HTMLElement): void {
     return;
   }
 
-  const cardWidth = card.getBoundingClientRect().width || QUOTE_CARD_CANONICAL_WIDTH;
+  const rect = card.getBoundingClientRect();
+  const cardWidth = rect.width || QUOTE_CARD_CANONICAL_WIDTH;
+  const cardHeight =
+    rect.height || (cardWidth * QUOTE_CARD_CANONICAL_HEIGHT) / QUOTE_CARD_CANONICAL_WIDTH;
   const layout = layoutQuoteCardText(state.content, getQuoteTextMeasurer());
   const domScale = cardWidth / QUOTE_CARD_CANONICAL_WIDTH;
 
@@ -460,6 +525,9 @@ function fitQuoteCardText(host: HTMLElement): void {
   card.style.setProperty("--quote-text-left", `${(layout.textLeft * domScale).toFixed(2)}px`);
   textInner.innerHTML = layout.lines.map((line) => escapeHtml(line)).join("<br>");
   state.lastCardWidth = cardWidth;
+  state.lastCardHeight = cardHeight;
+
+  syncContinuousCornerFallback(card, cardWidth, cardHeight);
 }
 
 function observeCardResize(host: HTMLElement): void {
@@ -474,8 +542,14 @@ function observeCardResize(host: HTMLElement): void {
     if (!state.host) {
       return;
     }
-    const width = card.getBoundingClientRect().width;
-    if (Math.abs(width - state.lastCardWidth) < 0.5) {
+    const rect = card.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+    if (
+      Math.abs(rect.width - state.lastCardWidth) < 0.5 &&
+      Math.abs(rect.height - state.lastCardHeight) < 0.5
+    ) {
       return;
     }
     fitQuoteCardText(state.host);

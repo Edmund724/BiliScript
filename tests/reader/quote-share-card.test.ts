@@ -8,9 +8,13 @@ import { fileURLToPath } from "node:url";
 import {
   openQuoteShareModal,
   closeQuoteShareModal,
-  isQuoteShareModalOpen
+  isQuoteShareModalOpen,
+  supportsCssCornerShape
 } from "../../extension/reader/quote-share-modal.js";
-import { layoutQuoteCardText } from "../../extension/reader/quote-share-export.js";
+import {
+  buildContinuousCornerSvgPath,
+  layoutQuoteCardText
+} from "../../extension/reader/quote-share-export.js";
 import { renderReadingOverview, onReadingOverviewClick } from "../../extension/reader/overview-ui.js";
 import { closeReadingView, handleReaderPresenterNotification } from "../../extension/reader/lifecycle.js";
 import { openReaderSettingsMode, closeReaderSettingsMode } from "../../extension/reader/settings-mode.js";
@@ -916,5 +920,118 @@ describe("金句卡片正文布局（预览与导出共用同一份）", () => {
     expect(multi.lines.length).toBeGreaterThan(1);
     expect(multi.textWidth).toBeLessThanOrEqual(336.19);
     expect(multi.textLeft + multi.textWidth / 2).toBeCloseTo(408 / 2, 6);
+  });
+});
+
+describe("连续圆角 SVG 路径生成与非支持引擎 clip-path 降级同步", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="${ids.readingView}"></div>`;
+    closeQuoteShareModal();
+  });
+
+  afterEach(() => {
+    closeQuoteShareModal();
+    document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("buildContinuousCornerSvgPath 在无效尺寸返回空串，正常尺寸返回闭合超椭圆路径且坐标不越界", () => {
+    expect(buildContinuousCornerSvgPath(0, 229.5, 20)).toBe("");
+    expect(buildContinuousCornerSvgPath(408, -10, 20)).toBe("");
+
+    const d = buildContinuousCornerSvgPath(408, 229.5, 20);
+    expect(d.startsWith("M ")).toBe(true);
+    expect(d.endsWith(" Z")).toBe(true);
+    expect(d).toContain(" L ");
+
+    const tokens = d.slice(2, -2).split(" L ");
+    expect(tokens.length).toBe(4 * (20 + 1));
+
+    const coords = tokens.map((pair) => {
+      const [xs, ys] = pair.split(" ");
+      expect(xs).toMatch(/^\d+(?:\.\d{1,2})?$/);
+      expect(ys).toMatch(/^\d+(?:\.\d{1,2})?$/);
+      const x = Number(xs);
+      const y = Number(ys);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(408);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(229.5);
+      return { x, y };
+    });
+
+    // 首点与末点各自位于上边缘的左右圆角切点，经 Z 闭合上边
+    expect(coords[0].x).toBeCloseTo(388, 2);
+    expect(coords[0].y).toBe(0);
+    expect(coords[coords.length - 1].x).toBeCloseTo(20, 2);
+    expect(coords[coords.length - 1].y).toBe(0);
+
+    // 右上角 45° 中点（step 10）满足 exponent = 1 / (2 * 1.25) = 0.4 的超椭圆外扩几何
+    const topRightMid = coords[10];
+    expect(topRightMid.x).toBeCloseTo(405.41, 2);
+    expect(topRightMid.y).toBeCloseTo(2.59, 2);
+  });
+
+  it("支持 corner-shape: superellipse(1.25) 时跳过 clipPath 与额外描边 SVG 节点", () => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn((prop: string, val: string) => prop === "corner-shape" && val === "superellipse(1.25)")
+    });
+    expect(supportsCssCornerShape()).toBe(true);
+
+    openQuoteShareModal({ content: "Chromium 原生连续圆角" });
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
+    expect(card.style.clipPath).toBe("");
+    expect(card.querySelector(".biliscript-quote-card-border-svg")).toBeNull();
+  });
+
+  it("不支持 corner-shape 时首帧写入 clipPath 与 0.5px 内侧 SVG 描边层，并在 ResizeObserver 触发时同步更新", () => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn(() => false)
+    });
+    expect(supportsCssCornerShape()).toBe(false);
+
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    class MockResizeObserver {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      constructor(cb: ResizeObserverCallback) {
+        resizeCallbacks.push(cb);
+      }
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+
+    openQuoteShareModal({ content: "Firefox 连续圆角对齐" });
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
+
+    const initialPath = buildContinuousCornerSvgPath(408, 229.5, 20);
+    expect(card.style.clipPath).toBe(`path("${initialPath}")`);
+
+    const svgs = card.querySelectorAll<SVGSVGElement>(".biliscript-quote-card-border-svg");
+    expect(svgs.length).toBe(1);
+    expect(svgs[0].style.pointerEvents).toBe("none");
+    expect(svgs[0].getAttribute("viewBox")).toBe("0 0 408 229.5");
+    expect(svgs[0].querySelector("path")?.getAttribute("d")).toBe(initialPath);
+
+    // 模拟卡片宽度缩放至 306×172.125（等比圆角 15px）
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 306,
+      height: 172.125,
+      right: 306,
+      bottom: 172.125,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    });
+    expect(resizeCallbacks.length).toBe(1);
+    resizeCallbacks[0]([], {} as ResizeObserver);
+
+    const resizedPath = buildContinuousCornerSvgPath(306, 172.125, 15);
+    expect(card.style.clipPath).toBe(`path("${resizedPath}")`);
+    expect(card.querySelectorAll(".biliscript-quote-card-border-svg").length).toBe(1);
+    expect(svgs[0].getAttribute("viewBox")).toBe("0 0 306 172.13");
+    expect(svgs[0].querySelector("path")?.getAttribute("d")).toBe(resizedPath);
   });
 });

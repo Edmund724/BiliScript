@@ -596,18 +596,21 @@ export function layoutQuoteCardText(
 const CORNER_SUPERELLIPSE_K = 1.25;
 
 /**
- * 在 Canvas 2D 上绘制连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
- * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径。
+ * 采样连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
+ * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径的顶点序列。
  */
-function traceContinuousCornerRectPath(
-  ctx: CanvasRenderingContext2D,
+export function sampleContinuousCornerPoints(
   x: number,
   y: number,
   width: number,
   height: number,
   radius: number,
   stepsPerCorner = 24
-): void {
+): Array<{ x: number; y: number }> {
+  if (width <= 0 || height <= 0) {
+    return [];
+  }
+  const steps = Math.max(1, Math.floor(stepsPerCorner));
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   const exponent = 1 / (2 * CORNER_SUPERELLIPSE_K);
   const superellipseCoord = (t: number): { dx: number; dy: number } => {
@@ -626,13 +629,54 @@ function traceContinuousCornerRectPath(
     { cx: x + r, cy: y + r, start: Math.PI, end: (3 * Math.PI) / 2 }
   ];
 
-  ctx.moveTo(x + r, y);
+  const points: Array<{ x: number; y: number }> = [];
   for (const corner of corners) {
-    for (let i = 0; i <= stepsPerCorner; i++) {
-      const t = corner.start + ((corner.end - corner.start) * i) / stepsPerCorner;
+    for (let i = 0; i <= steps; i++) {
+      const t = corner.start + ((corner.end - corner.start) * i) / steps;
       const { dx, dy } = superellipseCoord(t);
-      ctx.lineTo(corner.cx + dx, corner.cy + dy);
+      points.push({ x: corner.cx + dx, y: corner.cy + dy });
     }
+  }
+  return points;
+}
+
+/**
+ * 生成与 Canvas 导出同源的超椭圆闭合 SVG `d` 路径字符串（保留 2 位小数），
+ * 供不支持 CSS `corner-shape: superellipse(1.25)` 的引擎通过 `clip-path: path(...)` 1:1 对齐。
+ */
+export function buildContinuousCornerSvgPath(
+  width: number,
+  height: number,
+  radius: number,
+  stepsPerCorner = 20
+): string {
+  if (width <= 0 || height <= 0) return "";
+  const pts = sampleContinuousCornerPoints(0, 0, width, height, radius, stepsPerCorner);
+  if (!pts.length) return "";
+  const fmt = (n: number) => Number(n.toFixed(2));
+  const head = `M ${fmt(pts[0].x)} ${fmt(pts[0].y)}`;
+  const rest = pts.slice(1).map((p) => `L ${fmt(p.x)} ${fmt(p.y)}`).join(" ");
+  return `${head} ${rest} Z`;
+}
+
+/**
+ * 在 Canvas 2D 上绘制连续圆角（超椭圆 x^(2K) + y^(2K) = r^(2K)，
+ * 对应 CSS corner-shape: superellipse(K)）闭合矩形路径。
+ */
+function traceContinuousCornerRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  stepsPerCorner = 24
+): void {
+  const pts = sampleContinuousCornerPoints(x, y, width, height, radius, stepsPerCorner);
+  if (!pts.length) return;
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    ctx.lineTo(pts[i].x, pts[i].y);
   }
   ctx.closePath();
 }
@@ -649,7 +693,8 @@ const CANONICAL_SHEET_HEIGHT =
 const EXPORT_CARD_WIDTH = 1200;
 const EXPORT_SCALE = EXPORT_CARD_WIDTH / QUOTE_CARD_CANONICAL_WIDTH;
 
-const CARD_RADIUS = 20;
+export const QUOTE_CARD_CANONICAL_RADIUS = 20;
+const CARD_RADIUS = QUOTE_CARD_CANONICAL_RADIUS;
 const QUOTE_MARK_SIZE = 34;
 const QUOTE_MARK_LEFT = 36;
 const QUOTE_MARK_CENTER_Y = 42;

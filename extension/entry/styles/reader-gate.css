@@ -517,6 +517,20 @@ body[data-biliscript-reader-mode="1"],
 
   color: var(--biliscript-reader-text);
 }
+/* Firefox 等尚不支持 CSS corner-shape 的引擎：正圆弧在 45° 对角缺角比 superellipse(1.25)
+ * 大约 14%，按 0.86 等效对角体量系数校准非胶囊/非正圆语义圆角令牌，
+ * 完整保留外投影 box-shadow、backdrop-filter 与同心嵌套差值公式。 */
+@supports not (corner-shape: superellipse(1.25)) {
+  #biliscript-reading-view {
+    --biliscript-radius-xs: calc(var(--biliscript-primitive-radius-4) * 0.86);
+    --biliscript-radius-sm: calc(var(--biliscript-primitive-radius-8) * 0.86);
+    --biliscript-radius-md: calc(var(--biliscript-primitive-radius-12) * 0.86);
+    --biliscript-radius-lg: calc(var(--biliscript-primitive-radius-16) * 0.86);
+    --biliscript-radius-xl: calc(var(--biliscript-primitive-radius-20) * 0.86);
+    --biliscript-radius-2xl: calc(var(--biliscript-primitive-radius-24) * 0.86);
+    --biliscript-radius-panel: calc(var(--biliscript-primitive-radius-28) * 0.86);
+  }
+}
 /* 深色档：Flyme 深色雾玻璃板。选择器只带 data-biliscript-reader-theme="dark"
  * （面板节点用 [data-theme="dark"]），特异性高于基础块，不依赖书写顺序；
  * 动效曲线与 mist-filter 不在此块出现，从基础块继承。 */
