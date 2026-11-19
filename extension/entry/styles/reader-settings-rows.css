@@ -927,6 +927,13 @@
   line-height: 1.6;
 }
 
+@supports not (field-sizing: content) {
+  #biliscript-reading-view .agent-bridge-install-prompt {
+    min-height: 208px;
+    overflow-y: auto;
+  }
+}
+
 #biliscript-reading-view .agent-bridge-install-prompt:focus-visible {
   outline: 2px solid var(--biliscript-reader-focus-ring, var(--biliscript-reader-accent));
   outline-offset: 2px;

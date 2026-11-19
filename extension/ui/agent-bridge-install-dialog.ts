@@ -130,6 +130,15 @@ export function openAgentBridgeInstallDialog(address: string): void {
   });
   state.shell = shell;
 
+  const promptTextarea = shell.host.querySelector<HTMLTextAreaElement>(".agent-bridge-install-prompt");
+  if (promptTextarea && (typeof CSS === "undefined" || !CSS.supports?.("field-sizing", "content"))) {
+    promptTextarea.style.height = "auto";
+    const measuredHeight = promptTextarea.scrollHeight;
+    if (measuredHeight > 0) {
+      promptTextarea.style.height = `${measuredHeight}px`;
+    }
+  }
+
   shell.host.addEventListener("click", (event) => {
     const action = (event.target as HTMLElement).closest<HTMLElement>("[data-agent-install-action]")?.dataset.agentInstallAction;
     if (action === "close") {
