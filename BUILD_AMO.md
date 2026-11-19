@@ -32,7 +32,7 @@ pnpm install --frozen-lockfile && pnpm build:firefox
 
 - **Build Output Directory / 产物目录**：`dist-firefox/`
   - Contains `manifest.json`, `onboarding.html`, `entry/`, `icons/`, and `_locales/`.
-  - During `pnpm build:firefox` (`node scripts/build.js --target=firefox`), `esbuild` bundles TypeScript/JavaScript modules with `target: "firefox140"` and minification enabled, and `scripts/firefox-manifest.js` (`deriveFirefoxManifest`) deterministically derives `dist-firefox/manifest.json` from `extension/manifest.json` and `extension/core/presets.ts`.
+  - During `pnpm build:firefox` (`node scripts/build.js --target=firefox`), `esbuild` bundles TypeScript/JavaScript modules with `target: "firefox153"` and minification enabled, and `scripts/firefox-manifest.js` (`deriveFirefoxManifest`) deterministically derives `dist-firefox/manifest.json` from `extension/manifest.json` and `extension/core/presets.ts`.
   - Linked `.map` sourcemap files are emitted in `dist-firefox/` for local debugging and are excluded from the AMO upload package (`BiliScript-v<version>-Firefox.zip`).
 - **AMO Archive Validation / 静态校验（可选）**：
   ```bash

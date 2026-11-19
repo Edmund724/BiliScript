@@ -127,7 +127,7 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
     expect(derived.browser_specific_settings).toEqual({
       gecko: {
         id: FIREFOX_GECKO_SETTINGS.id,
-        strict_min_version: "140.0",
+        strict_min_version: "153.0",
         data_collection_permissions: {
           required: ["websiteContent", "searchTerms", "authenticationInfo"],
         },
@@ -171,11 +171,11 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
 });
 
 describe("构建目标解析（scripts/build-guards.js）", () => {
-  it("默认解析为 chromium / chrome120，--target=firefox 解析为 firefox / firefox140", () => {
+  it("默认解析为 chromium / chrome120，--target=firefox 解析为 firefox / firefox153", () => {
     expect(resolveTargetPlatform(["node", "scripts/build.js"])).toBe("chromium");
     expect(resolveTargetPlatform(["node", "scripts/build.js", "--target=firefox"])).toBe("firefox");
     expect(getEsbuildTarget("chromium")).toBe("chrome120");
-    expect(getEsbuildTarget("firefox")).toBe("firefox140");
+    expect(getEsbuildTarget("firefox")).toBe("firefox153");
     expect(() => resolveTargetPlatform(["node", "scripts/build.js", "--target=safari"])).toThrow();
   });
 });

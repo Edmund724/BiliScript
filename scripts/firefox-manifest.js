@@ -16,7 +16,7 @@ const FIREFOX_EXTENSION_PAGES_CSP = "script-src 'self'";
 
 const FIREFOX_GECKO_SETTINGS = Object.freeze({
   id: "biliscript@edmund724.github.io",
-  strict_min_version: "140.0",
+  strict_min_version: "153.0",
   data_collection_permissions: Object.freeze({
     required: Object.freeze(["websiteContent", "searchTerms", "authenticationInfo"]),
   }),
@@ -101,7 +101,7 @@ function loadExtensionPresets(presetsPath = DEFAULT_PRESETS_PATH) {
 }
 
 /**
- * 纯函数：由 Chromium manifest 与 presets.ts 数据派生桌面端 Firefox 140+ manifest。
+ * 纯函数：由 Chromium manifest 与 presets.ts 数据派生桌面端 Firefox 153+ manifest。
  * 不修改入参对象。
  * @param {Record<string, any>} chromiumManifest
  * @param {{ presets?: readonly PresetLike[]; asrPresets?: readonly PresetLike[] }} [options]

@@ -14,7 +14,7 @@ const path = require("path");
 const BUILD_TARGET = "chrome120";
 const BUILD_TARGETS = Object.freeze({
   chromium: "chrome120",
-  firefox: "firefox140",
+  firefox: "firefox153",
 });
 
 function resolveTargetPlatform(argv = process.argv) {

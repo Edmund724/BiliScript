@@ -68,7 +68,7 @@
 
 ### 支持哪些浏览器？
 
-支持 **Chrome / Edge 120 及以上** 与 **桌面端 Firefox 140 及以上**（不支持移动端 Firefox）。
+支持 **Chrome / Edge 120 及以上** 与 **桌面端 Firefox 153 及以上**（不支持移动端 Firefox）。
 
 Firefox 版支持核心文摘阅读、双轨翻译、概览、AI 对话、金句导出、本地 Agent 桥接与无字幕语音转写；语音朗读与实时音画伴看目前仅在 Chromium 浏览器提供。
 

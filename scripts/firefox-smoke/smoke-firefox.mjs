@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// T2 档位 Firefox 140+ 真机冒烟脚本（ADR-0028 / 工单 05）：
+// T2 档位 Firefox 153+ 真机冒烟脚本（ADR-0028 / 工单 05）：
 // 零重型框架依赖，基于 Firefox 原生 Marionette 协议拉起隔离临时 Profile，
 // 临时加载 dist-firefox/ 扩展并验证 5 项跨端分叉核心断言：
 //   1) Event Page 后台正常启动，storage.local / storage.sync 读写往返正常；
@@ -30,7 +30,7 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DIST_FIREFOX = path.join(REPO_ROOT, "dist-firefox");
 const EVIDENCE_FILE = path.join(REPO_ROOT, ".scratch", "firefox-smoke", "evidence.json");
 const EXPECTED_EXTENSION_ID = "biliscript@edmund724.github.io";
-const MIN_FIREFOX_MAJOR = 140;
+const MIN_FIREFOX_MAJOR = 153;
 
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
@@ -415,7 +415,7 @@ async function runExtensionChecksInContent(client, expectedVersion) {
   await client.setContext("content");
 
   // Checks 1-4 run directly inside the moz-extension:// onboarding page content
-  // process so they work cleanly under Firefox OOP WebExtensions (140+ / 160+)
+  // process so they work cleanly under Firefox OOP WebExtensions (153+ / 160+)
   // without relying on parent-process selectedBrowser.contentWindow.
   const coreSuite = await client.executeAsync(
     `
@@ -762,8 +762,8 @@ async function main() {
       log(`FAIL  FIREFOX_BIN points to non-existent executable: ${fx.explicitEnv}`);
       process.exit(EXIT_FAIL);
     }
-    log("SKIP  Firefox 140+ binary was not detected on this machine.");
-    log("      Install Firefox 140+ or set FIREFOX_BIN=/path/to/firefox and re-run:");
+    log("SKIP  Firefox 153+ binary was not detected on this machine.");
+    log("      Install Firefox 153+ or set FIREFOX_BIN=/path/to/firefox and re-run:");
     log("      FIREFOX_BIN=\"C:\\Program Files\\Mozilla Firefox\\firefox.exe\" pnpm smoke:firefox");
     writeEvidence({
       status: "skipped",

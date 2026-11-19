@@ -1,8 +1,8 @@
-# ADR-0028：桌面端 Firefox（140+）兼容架构与双目标发布边界
+# ADR-0028：桌面端 Firefox（153+）兼容架构与双目标发布边界
 
 > 状态：有效
 
-我们决定正式重开并落地 **桌面端 Firefox（140.0 及以上）** 兼容支持，取代早期单平台裁决（[ADR-0002](0002-chrome-only.md)）。本次兼容采用**「双目标构建产物分离 + 后台 Event Page 挂载隐藏 `iframe` 承载 Offscreen + 主流预设域名常驻与自定义地址独立弹窗授权 + 首期聚焦核心阅读与无字幕 ASR」**的技术路线，在不放松既有 Chromium 构建体积与架构守卫的前提下实现双端同仓演进。
+我们决定正式重开并落地 **桌面端 Firefox（153.0 及以上）** 兼容支持，取代早期单平台裁决（[ADR-0002](0002-chrome-only.md)）。本次兼容采用**「双目标构建产物分离 + 后台 Event Page 挂载隐藏 `iframe` 承载 Offscreen + 主流预设域名常驻与自定义地址独立弹窗授权 + 首期聚焦核心阅读与无字幕 ASR」**的技术路线，在不放松既有 Chromium 构建体积与架构守卫的前提下实现双端同仓演进。
 
 ## 背景与重开依据
 
@@ -10,13 +10,13 @@
 
 1. **阅读载体已彻底页面内化**：[ADR-0006](0006-script-host-panel.md) 已将唯一交互界面收敛为注入 B 站视频页右栏的文摘阅读面板（`#biliscript-reading-view`）与设置抽屉，完全不依赖 Chrome `sidePanel` 或 Firefox `sidebar_action`。
 2. **Firefox MV3 Event Page 天然具备完整 DOM 与音频解码能力**：Firefox 虽未实现扩展 `service_worker`（[MDN `manifest.json/background`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background)）与 `offscreen` API（[MDN WebExtensions API 兼容性表](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Browser_support_for_JavaScript_APIs)），但其 MV3 后台运行在带完整 `window` 与 DOM 的非持久化 Event Page 中（[MDN `Background scripts`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Background_scripts)），且自 Firefox 113 起支持 `declarativeNetRequest.updateSessionRules` 请求头改写（[MDN `declarativeNetRequest`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/declarativeNetRequest)），足以完整支撑无字幕 ASR 下载解码、概览流式代发与多轮对话。
-3. **AMO 合规基线明确**：自 2025 年 11 月起，提交至 Mozilla 官方商店（AMO）的新扩展必须声明内置数据收集披露字段 `browser_specific_settings.gecko.data_collection_permissions`，该字段自 **Firefox 140** 起在桌面端完整支持（[MDN `browser_specific_settings`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings)）。
+3. **AMO 合规与 ESR 基线明确**：提交至 Mozilla 官方商店（AMO）的新扩展必须声明内置数据收集披露字段 `browser_specific_settings.gecko.data_collection_permissions`（[MDN `browser_specific_settings`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings)）。最低版本对齐当前长期支持版本 **Firefox ESR 153**，在覆盖维护中 ESR 与常规发行版的同时完整满足 `data_collection_permissions` 要求。
 
 ## 已定决策
 
 ### 1. 目标平台、最低版本与分发合规
 
-- **仅支持桌面端 Firefox 140+**：Firefox 产物清单固定声明 `"strict_min_version": "140.0"`，显式省略 `gecko_android` 键以将商店分发范围限定在桌面端 Firefox（[MDN `browser_specific_settings`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings)）。Chromium 端继续维持 Chrome 120 基线不变。
+- **仅支持桌面端 Firefox 153+（对齐当前 ESR 153）**：Firefox 产物清单固定声明 `"strict_min_version": "153.0"`，对齐当前 Firefox ESR 153 并满足 `data_collection_permissions` 要求；显式省略 `gecko_android` 键以将商店分发范围限定在桌面端 Firefox（[MDN `browser_specific_settings`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings)）。Chromium 端继续维持 Chrome 120 基线不变。
 - **固定扩展 ID 以绑定同步存储**：Firefox 下 `storage.sync` 依赖固定扩展 ID 工作（[MDN `storage.sync`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/sync)），且 MV3 签名强制要求提供 `gecko.id`。默认采用 `"biliscript@edmund724.github.io"`（首次提交 AMO 签名前确认锁定，一经发布永不变更）。
 - **内置数据收集披露**：对齐仓库 `PRIVACY.md` 披露的数据流向與 [Firefox 内置数据授权规范](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)，在 `gecko.data_collection_permissions` 中声明 `"required": ["websiteContent", "searchTerms", "authenticationInfo"]`（分别对应发往用户所选 AI/ASR/内置翻译服务的视频字幕与音频片段、联网搜索查询词、以及用户自带的第三方平台 API Key）。
 - **双渠道签名分发与源码包配套**：正式版上架 AMO 官方商店（Listed），审核通过后下载 AMO 签名生成的 `.xpi` 随 GitHub Releases 一并发布（[AMO 签名与分发概览](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)）；因构建管线包含 `esbuild` 打包压缩与定制脚本，`scripts/build_release.py` 同步产出可离线复现的源码压缩包供 AMO 审核上传（[AMO 源码提交要求](https://extensionworkshop.com/documentation/publish/source-code-submission/)）。
@@ -27,7 +27,7 @@
 - **构建期纯函数派生 `dist-firefox/manifest.json`**：新增 `--target=firefox` 构建通道（`pnpm build:firefox`），输出至独立目录 `dist-firefox/`：
   - 将 `background` 由 `{ "service_worker": "entry/background.js", "type": "module" }` 转换为 `{ "scripts": ["entry/background.js"], "type": "module" }`（[MDN `manifest.json/background`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background)）；
   - 从 `permissions` 中移除 `"offscreen"` 与 `"tts"`，移除顶层 `"minimum_chrome_version"`；
-  - 注入 `browser_specific_settings.gecko`（`id`、`strict_min_version: "140.0"`、`data_collection_permissions`）；
+  - 注入 `browser_specific_settings.gecko`（`id`、`strict_min_version: "153.0"`、`data_collection_permissions`）；
   - 首期移除 `https://live.bilibili.com/*` 内容脚本条目及对应的 `web_accessible_resources.matches` 项。
 
 ### 3. Offscreen 宿主采用方案 A（后台 Event Page 动态挂载隐藏 `iframe`）
@@ -64,7 +64,7 @@
 
 ## 后果
 
-- `AGENTS.md` 解除「仅支持 Chromium」限制，确立 Chromium 120+ 与桌面端 Firefox 140+ 双目标边界。
+- `AGENTS.md` 解除「仅支持 Chromium」限制，确立 Chromium 120+ 与桌面端 Firefox 153+ 双目标边界。
 - `scripts/build_release.py` 升级为同时产出 `BiliScript-v{version}-Chromium.zip`、`BiliScript-v{version}-Firefox.zip` 与 `BiliScript-v{version}-Source.zip` 三份发布物。
 - **审查红线**：
   - 架构评审（含 AI 代理）不得提议将 `<all_urls>` 或 `https://*/*` 移入任一端的常驻 `host_permissions`；Firefox 新增常驻域必须严格由 `extension/core/presets.ts` 的官方 HTTPS 预设自动派生并经单测锁死。

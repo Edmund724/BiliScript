@@ -33,7 +33,7 @@
 | [0025](0025-asr-pseudo-track-translation-second-path.md) | 伪轨视频的双语第二路是译文，走独立的批量翻译链 | 有效 | 判据为伪轨身份而非轨数；译文只进副轨槽、不进轨列表；目标语言与 `id_translate-<lang>` 缓存与实时字幕翻译共用；整片 60 秒分片批量、片级容错、显式动作才花钱 |
 | [0026](0026-live-companion-overlay-only.md) | 视频页实时伴看由浮窗主承载，面板仅保留状态条、伴看记录与设置同源 | 有效 | 独立伴看会话属主；全屏/非全屏共用浮窗（首次展开、支持左右边缘吸附）；面板保留空态开启键、状态条、只读伴看文本记录与设置分区 |
 | [0027](0027-long-video-state-relay-and-hybrid-retrieval.md) | 长视频采用滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回 | 有效 | 零向量库/Embedding/第三方分词依赖；L0 词法层 + L1 章节目录层；单跳路由与降级链；对齐 PRIVACY.md 与体积守卫 |
-| [0028](0028-firefox-desktop-compatibility.md) | 桌面端 Firefox（140+）兼容架构与双目标发布边界 | 有效 | 取代 ADR-0002；双目标构建分离（dist + dist-firefox）；Event Page 隐藏 iframe 承载 offscreen；28 个预设常驻域 + 自定义域弹窗授权；首期门控隐藏 tts 与 live |
+| [0028](0028-firefox-desktop-compatibility.md) | 桌面端 Firefox（153+）兼容架构与双目标发布边界 | 有效 | 取代 ADR-0002；双目标构建分离（dist + dist-firefox）；Event Page 隐藏 iframe 承载 offscreen；28 个预设常驻域 + 自定义域弹窗授权；首期门控隐藏 tts 与 live |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 
