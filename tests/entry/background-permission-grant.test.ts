@@ -428,15 +428,22 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
     expect(document.querySelector(".grant-brand-title")?.textContent).toContain("BiliScript");
     expect(document.querySelector(".grant-reason")?.textContent).toContain("自定义或本地域名");
 
-    const syncGet = vi.fn(async () => ({
-      readerTheme: "dark",
-      readerThemeUserSet: true,
-      readerPalette: "editorial"
-    }));
+    const syncStorage = {
+      get: vi.fn(async function (this: unknown) {
+        if (this !== syncStorage) {
+          throw new TypeError("Illegal invocation");
+        }
+        return {
+          readerTheme: "dark",
+          readerThemeUserSet: true,
+          readerPalette: "editorial"
+        };
+      })
+    };
     vi.stubGlobal("chrome", {
       permissions: { request: vi.fn(async () => true) },
       runtime: { sendMessage: vi.fn(), lastError: null },
-      storage: { sync: { get: syncGet } }
+      storage: { sync: syncStorage }
     });
 
     const { initPermissionGrantPage } = await import("../../extension/entry/permission-grant.js");

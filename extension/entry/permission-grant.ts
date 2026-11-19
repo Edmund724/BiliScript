@@ -29,10 +29,10 @@ function applyAppearance(settings: Partial<Settings>, doc: Document = document):
 }
 
 async function readStoredAppearance(): Promise<Partial<Settings>> {
-  const syncGet = globalThis.chrome?.storage?.sync?.get;
-  if (typeof syncGet === "function") {
+  const syncStorage = globalThis.chrome?.storage?.sync;
+  if (typeof syncStorage?.get === "function") {
     try {
-      const stored = await syncGet(["readerTheme", "readerThemeUserSet", "readerPalette"]);
+      const stored = await syncStorage.get(["readerTheme", "readerThemeUserSet", "readerPalette"]);
       if (stored && typeof stored === "object") {
         return stored as Partial<Settings>;
       }
