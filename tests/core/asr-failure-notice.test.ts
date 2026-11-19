@@ -21,6 +21,7 @@ import {
   SIDEPANEL_EMPTY_NOTICE,
   STATUS_LINE_BASE,
   buildAsrNoSubtitleMessage,
+  canRetryNoSubtitleOnSend,
   formatAsrFailureDetail,
   getAsrFailureNotice,
   reasonFromFailureKind
@@ -329,6 +330,26 @@ describe("reasonFromFailureKind：kind → reason（8 个失败类）", () => {
   it("任意字符串：退回 asr-unknown（不抛错、不回显未知输入）", () => {
     expect(reasonFromFailureKind("garbage")).toBe("asr-unknown");
     expect(reasonFromFailureKind("ASR-AUTH")).toBe("asr-unknown");
+    expect(reasonFromFailureKind("toString")).toBe("asr-unknown");
+  });
+});
+
+describe("canRetryNoSubtitleOnSend：发送闸重抓策略单表口径", () => {
+  const RETRYABLE_ON_SEND: readonly NoSubtitleReason[] = [
+    "bili-login-required",
+    "no-asr-config",
+    "asr-disabled",
+    "asr-auth"
+  ];
+
+  it("仅可经配置或登录恢复的四个 reason 允许发送前重抓，其余与 null 一律拒绝", () => {
+    const allowed = nullableReasons.filter((reason) => canRetryNoSubtitleOnSend(reason));
+    expect(allowed).toEqual(RETRYABLE_ON_SEND);
+  });
+
+  it("未知运行期字面量与原型属性名一律返回 false", () => {
+    expect(canRetryNoSubtitleOnSend("asr-failed" as unknown as NoSubtitleReason)).toBe(false);
+    expect(canRetryNoSubtitleOnSend("toString" as unknown as NoSubtitleReason)).toBe(false);
   });
 });
 

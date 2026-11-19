@@ -23,7 +23,8 @@ import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import { normalizeSubtitleTracks, pickPreferredSubtitle, resolveTrackTarget } from "./selection.js";
-import { buildSubtitleCandidates, flushSubtitleCache } from "./cache.js";
+import { flushSubtitleCache } from "./cache.js";
+import { buildSubtitleCandidates } from "./signature.js";
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
@@ -37,7 +38,11 @@ import {
   readRuntimeVideoDuration,
   contentFetchJson
 } from "../bilibili/gateway.js";
-import type { SubtitleTrack } from "../bilibili/gateway.js";
+import type { SubtitleTrack, VideoMeta } from "../bilibili/gateway.js";
+import {
+  resolveBiliSubtitleAccessBlocker,
+  type BiliSubtitleAccessBlocker
+} from "../bilibili/video-api.js";
 // 取体深 module（GLOSSARY.md「字幕」的正文）：两条装载链共用的唯一取体实现，
 // 出口（接受事务）由下方两个装载器注入。
 import { loadTrackBody } from "./body.js";
@@ -234,10 +239,9 @@ export async function refreshClip(): Promise<void> {
 
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
-    const upowerBlocked = metaResult.upowerBlocked || Boolean(subtitleBundle.upowerBlocked);
-    const loginRequired = Boolean(subtitleBundle.loginRequired);
+    const accessBlocker = resolveBiliSubtitleAccessBlocker(metaResult, subtitleBundle);
 
-    const preferred = await selectSubtitleTrack(runId, { upowerBlocked, loginRequired });
+    const preferred = await selectSubtitleTrack(runId, accessBlocker);
     if (!preferred) {
       return;
     }
@@ -278,7 +282,7 @@ export async function refreshClip(): Promise<void> {
 // 段1 meta 解析：bvid 校验 → meta 抓取（带重试）→ clipState 基础信息写入 →
 // 分 P / cid / duration 经 page-context seam 解析（时长缺失兜底
 // readRuntimeVideoDuration，仍缺失则中止）→ resolved ids 日志。
-async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean }> {
+async function resolveClipMeta(runId: number): Promise<VideoMeta> {
   const prevBvid = state.clip.bvid;
   const prevCid = state.clip.cid;
   clipState.setBvid(extractBvid(location.href));
@@ -333,7 +337,7 @@ async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean 
     pageIndex: resolvedPageIndex,
     videoDuration: state.clip.videoDuration
   });
-  return { upowerBlocked: Boolean(meta.upowerBlocked) };
+  return meta;
 }
 
 // 段2 轨道选择：无字幕轨 / 无偏好轨两个守卫出口经 finishNoSubtitle 收尾
@@ -341,11 +345,11 @@ async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean 
 // 的偏好轨，null = 已走无字幕出口。
 async function selectSubtitleTrack(
   runId: number,
-  { upowerBlocked = false, loginRequired = false }: { upowerBlocked?: boolean; loginRequired?: boolean } = {}
+  accessBlocker: BiliSubtitleAccessBlocker | null = null
 ): Promise<SubtitleTrack | null> {
   // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
   if (state.clip.subtitles.length === 0) {
-    await finishNoSubtitle(runId, { upowerBlocked, loginRequired });
+    await finishNoSubtitle(runId, accessBlocker);
     return null;
   }
 
@@ -356,7 +360,7 @@ async function selectSubtitleTrack(
   });
 
   if (!preferred) {
-    await finishNoSubtitle(runId, { upowerBlocked, loginRequired });
+    await finishNoSubtitle(runId, accessBlocker);
     return null;
   }
   return preferred;
@@ -396,25 +400,19 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
   setStatus(`抓取失败：${getErrorMessage(error)}`);
 }
 
-// 无字幕出口编排（refreshClip 两处守卫分支共用，原为逐行相同的两段手抄）：
-// 充电专属未充电视频（upowerBlocked）无完整音轨、未登录 B 站（loginRequired）
-// 会隐藏视频自带字幕且同样拿不到可用状态，二者均优先于 ASR 回退直接落入对应
-// 无字幕状态；其余视频先给 ASR 回退一个机会——done 时转写成果已在 fallback 内
-// 经字幕接受事务（commit.acceptSubtitle）收尾，这里直接 return；skip / empty /
-// error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
+// 无字幕出口编排（refreshClip 两处守卫分支共用）：
+// 充电专属未充电 / 未登录 B 站由 resolveBiliSubtitleAccessBlocker 单源裁定，
+// 均优先于 ASR 回退直接落入对应无字幕状态；其余视频先给 ASR 回退一个机会——
+// done 时转写成果已在 fallback 内经字幕接受事务（commit.acceptSubtitle）收尾，
+// 这里直接 return；skip / empty / error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
 // STALE_RUN（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
 async function finishNoSubtitle(
   runId: number,
-  { upowerBlocked = false, loginRequired = false }: { upowerBlocked?: boolean; loginRequired?: boolean } = {}
+  accessBlocker: BiliSubtitleAccessBlocker | null = null
 ): Promise<void> {
-  if (upowerBlocked) {
+  if (accessBlocker) {
     clipState.setNoSubtitleDetail("");
-    await commitNoSubtitle({ noSubtitleReason: "upower-exclusive", runId });
-    return;
-  }
-  if (loginRequired) {
-    clipState.setNoSubtitleDetail("");
-    await commitNoSubtitle({ noSubtitleReason: "bili-login-required", runId });
+    await commitNoSubtitle({ noSubtitleReason: accessBlocker, runId });
     return;
   }
   const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");

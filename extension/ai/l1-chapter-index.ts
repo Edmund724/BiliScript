@@ -9,7 +9,7 @@
 import { createCacheFamily, type CacheSaveResult } from "../core/cache-lru.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import { logError } from "../shared/logging.js";
-import { buildSubtitleSignature } from "../subtitle/cache.js";
+import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import {
   DEFAULT_L1_MEMORY_MAX_ENTRIES,

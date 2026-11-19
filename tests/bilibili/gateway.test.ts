@@ -19,6 +19,7 @@ import {
   isBiliUrl,
   resolveVideoPageFromMeta
 } from "../../extension/bilibili/gateway.js";
+import { resolveBiliSubtitleAccessBlocker } from "../../extension/bilibili/video-api.js";
 import { clipState } from "../../extension/core/state.js";
 import { formatLocalDate } from "../../extension/shared/utils.js";
 import type { HotComment } from "../../extension/bilibili/bili-api-shared.js";
@@ -486,5 +487,14 @@ describe("fetchSubtitleBodyJson 与 resolveVideoPageFromMeta 单源辅助函数"
       duration: 45,
       pageCount: 0
     });
+  });
+
+  it("resolveBiliSubtitleAccessBlocker 按优先级裁定 upower-exclusive > bili-login-required > null", () => {
+    expect(resolveBiliSubtitleAccessBlocker({ upowerBlocked: true }, { loginRequired: true })).toBe("upower-exclusive");
+    expect(resolveBiliSubtitleAccessBlocker({}, { upowerBlocked: true, loginRequired: true })).toBe("upower-exclusive");
+    expect(resolveBiliSubtitleAccessBlocker({ upowerBlocked: true }, {})).toBe("upower-exclusive");
+    expect(resolveBiliSubtitleAccessBlocker({}, { loginRequired: true })).toBe("bili-login-required");
+    expect(resolveBiliSubtitleAccessBlocker({}, {})).toBeNull();
+    expect(resolveBiliSubtitleAccessBlocker(null, undefined)).toBeNull();
   });
 });

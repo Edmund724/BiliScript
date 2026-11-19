@@ -187,6 +187,25 @@ export interface SubtitleBundleResult {
   loginRequired?: boolean;
 }
 
+export type BiliSubtitleAccessBlocker = "upower-exclusive" | "bili-login-required";
+
+/**
+ * 单源裁定 B 站字幕访问受限原因（优先级：充电专属未充电 > 未登录）。
+ * 供无字幕分支复用，避免调用方各自组合 raw boolean。
+ */
+export function resolveBiliSubtitleAccessBlocker(
+  meta?: Pick<VideoMeta, "upowerBlocked"> | null,
+  bundle?: Pick<SubtitleBundleResult, "upowerBlocked" | "loginRequired"> | null
+): BiliSubtitleAccessBlocker | null {
+  if (meta?.upowerBlocked || bundle?.upowerBlocked) {
+    return "upower-exclusive";
+  }
+  if (bundle?.loginRequired) {
+    return "bili-login-required";
+  }
+  return null;
+}
+
 function buildSubtitleBundleResult(result: {
   chapters: Chapter[];
   withUrl: SubtitleTrack[];

@@ -1,7 +1,7 @@
 // 概览提示词装配：系统提示词全静态，变量全部放在用户提示词侧。
 // 单次路径直接产出全片简介；分段路径先产出段简介，再归并成全片简介。
 
-import { normalizeSubtitleItems } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { formatClock } from "../shared/clock-text.js";
 import type { OutlineChapter } from "../shared/chapter-outline.js";
 import { DEFAULT_MAX_TOKENS } from "./output-budget.js";

@@ -27,7 +27,7 @@
 import { chatSessionState, setAsrTranscribingActive } from "./chat-state.js";
 import { createSubtitleWaiter } from "./subtitle-wait.js";
 import { buildNoSubtitleNotice, type NoSubtitleReason } from "./no-subtitle.js";
-import { isConfigClassAsrReason } from "../core/asr-failure-notice.js";
+import { canRetryNoSubtitleOnSend } from "../core/asr-failure-notice.js";
 import {
   isNoSubtitleEmpty,
   isPending,
@@ -234,7 +234,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       const retryableEmpty =
         readiness.fetchState === "empty" &&
         !readiness.hasBody &&
-        (isConfigClassAsrReason(clip.noSubtitleReason) || clip.noSubtitleReason === "bili-login-required");
+        canRetryNoSubtitleOnSend(clip.noSubtitleReason);
       if (!retryableEmpty) {
         return true;
       }

@@ -21,6 +21,9 @@ import {
   buildSubtitlePageId,
   buildTranslatedTrackMapKey,
   buildTranslationSignature,
+  clearStaleAsrSubtitleCache,
+  clearSubtitleCacheByKey,
+  clearTranslatedSubtitleCache,
   configureSubtitleCacheStoreForTests,
   createSubtitleIdbStore,
   flushSubtitleCache,
@@ -31,10 +34,13 @@ import {
   loadSubtitleFromCache,
   loadTranslatedSubtitleTrack,
   saveRawSubtitleTrack,
+  saveSegmentedSubtitleTrack,
   saveTranslatedSubtitleTrack,
   scheduleTranslatedTrackWrite
 } from "../../extension/subtitle/cache.js";
+import { createSubtitleCacheHandler } from "../../extension/subtitle/subtitle-cache-handler.js";
 import { subtitleSourceKey, trackIdentity } from "../../extension/subtitle/source-key.js";
+import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../../extension/shared/messaging-protocol.js";
 
 const BVID = "BV1idb000001";
 const CID = "88001";
@@ -612,5 +618,59 @@ describe("抗干扰内容签名与双阈值 LRU 淘汰", () => {
       { from: 0, to: 2, content: "首段译文" },
       { from: 60, to: 63, content: "第二片译文" }
     ]);
+  });
+
+  it("内容脚本经 SW subtitle-cache RPC 适配器读写/清理/传递写失败，数据落在远端 store", async () => {
+    const remoteStore = createSubtitleIdbStore({ indexedDB: null });
+    const handler = createSubtitleCacheHandler(remoteStore);
+    const sendMessage = vi.fn(
+      (message: unknown, callback?: (response: SubtitleCacheResponse) => void) => {
+        if ((message as SubtitleCacheMessage)?.type === "subtitle-cache") {
+          handler(message as SubtitleCacheMessage, {}, (response) => callback?.(response));
+          return;
+        }
+        callback?.({ ok: false });
+      }
+    );
+    (globalThis.chrome.runtime as unknown as { sendMessage: typeof sendMessage }).sendMessage = sendMessage;
+
+    const enKey = subtitleSourceKey(trackIdentity("track-en-us", "https://sub.test/en-us.json", "en-US"));
+    const asrOldKey = subtitleSourceKey({ kind: "asr", providerId: "old", model: "m1", lang: "auto" });
+    const asrKeepKey = subtitleSourceKey({ kind: "asr", providerId: "new", model: "m2", lang: "zh" });
+    const segSig = buildSegmentationSignature({ strategy: "auto", lang: "en-US" });
+    const trSig = buildTranslationSignature({ model: "Index-Translate-35B-A3B", protocolVersion: "cc-json", targetLang: "zh-CN" });
+
+    await expect(saveRawSubtitleTrack({ bvid: BVID, cid: CID, trackKey: enKey, lang: "en-US", kind: "manual-cc", items: EN_US_RAW })).resolves.toEqual({ ok: true });
+    await expect(saveSegmentedSubtitleTrack({ bvid: BVID, cid: CID, trackKey: enKey, segmentationSig: segSig, items: EN_US_RAW })).resolves.toEqual({ ok: true });
+    await expect(saveTranslatedSubtitleTrack({ bvid: BVID, cid: CID, sourceTrackKey: enKey, targetLang: "zh-CN", translationSig: trSig, items: ZH_CN_RAW })).resolves.toEqual({ ok: true });
+
+    await expect(loadRawSubtitleTrack({ bvid: BVID, cid: CID, trackKey: enKey })).resolves.toEqual(EN_US_RAW);
+    await expect(loadSegmentedSubtitleTrack({ bvid: BVID, cid: CID, trackKey: enKey, segmentationSig: segSig })).resolves.toEqual(EN_US_RAW);
+    await expect(loadTranslatedSubtitleTrack({ bvid: BVID, cid: CID, sourceTrackKey: enKey, targetLang: "zh-CN", translationSig: trSig })).resolves.toEqual(ZH_CN_RAW);
+    const page = await getSubtitlePageCacheRecord(BVID, CID);
+    expect(page?.rawTracks[enKey]?.items).toEqual(EN_US_RAW);
+
+    await saveRawSubtitleTrack({ bvid: BVID, cid: CID, trackKey: asrOldKey, kind: "asr", items: AI_ZH_RAW });
+    await saveRawSubtitleTrack({ bvid: BVID, cid: CID, trackKey: asrKeepKey, kind: "asr", items: AI_ZH_RAW });
+    const pruned = await clearStaleAsrSubtitleCache({ bvid: BVID, cid: CID, keepKey: asrKeepKey });
+    expect(pruned).toContain(`biliscript_subtitle_cache_${BVID}_${CID}_${asrOldKey}`);
+    await expect(remoteStore.getRawTrack(BVID, CID, asrOldKey)).resolves.toBeNull();
+    await expect(remoteStore.getRawTrack(BVID, CID, asrKeepKey)).resolves.toEqual(AI_ZH_RAW);
+
+    await clearTranslatedSubtitleCache({ bvid: BVID, cid: CID, sourceTrackKey: enKey });
+    await expect(remoteStore.getTranslatedTrack(BVID, CID, enKey, "zh-CN", trSig)).resolves.toBeNull();
+
+    await clearSubtitleCacheByKey(getSubtitleCacheKey({ bvid: BVID, cid: CID, identity: trackIdentity("track-en-us", "https://sub.test/en-us.json", "en-US") }));
+    await expect(remoteStore.getRawTrack(BVID, CID, enKey)).resolves.toBeNull();
+
+    remoteStore.setWriteInterceptorForTests(() => {
+      throw new Error("remote quota exceeded");
+    });
+    const failedWrite = await saveRawSubtitleTrack({ bvid: BVID, cid: CID, trackKey: enKey, items: EN_US_RAW });
+    expect(failedWrite.ok).toBe(false);
+    if (!failedWrite.ok) {
+      expect(failedWrite.error.message).toContain("remote quota exceeded");
+    }
+    expect(sendMessage).toHaveBeenCalled();
   });
 });

@@ -3,9 +3,9 @@
 // 两级缓存接线、成本护栏与 inflightOverviews promise 复用（全仓唯一的 analysis 模块态）。
 // 对外经 analysis.ts 壳再导出。
 
-// source key（轨身份编码单点）归键位叶 subtitle/source-key；签名族仍在 subtitle/cache。
+// source key（轨身份编码单点）归键位叶 subtitle/source-key；纯签名与归一化归 subtitle/signature。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { normalizeSubtitleItems } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createCacheFamily } from "../core/cache-lru.js";

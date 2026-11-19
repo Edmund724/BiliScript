@@ -2,7 +2,9 @@ import { bgFetchJson, type JsonTransport } from "../bilibili/gateway-core.js";
 import {
   fetchSubtitleBundle,
   fetchVideoMeta,
+  resolveBiliSubtitleAccessBlocker,
   resolveVideoPageFromMeta,
+  type BiliSubtitleAccessBlocker,
   type Chapter,
   type SubtitleTrack,
   type VideoMeta,
@@ -20,9 +22,9 @@ import {
   clearSubtitleCacheByKey,
   getSubtitleCacheKey,
   loadSubtitleFromCache,
-  normalizeSubtitleItems,
   persistAsrSubtitleToCache
 } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
 import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import type { TrackIdentity } from "../subtitle/source-key.js";
@@ -56,6 +58,14 @@ interface AsrRuntime {
   provider: AsrProvider | null;
   language: string;
 }
+
+const ACCESS_BLOCKER_CLI_ERRORS: Record<BiliSubtitleAccessBlocker, string> = {
+  "upower-exclusive": "该视频为充电专属视频，当前账号无法获取完整音轨，不能进行 ASR 转写",
+  "bili-login-required": "未登录 B 站，无法获取视频自带字幕。请在浏览器登录 B 站后重试。"
+};
+
+const ASR_DISABLED_CLI_ERROR =
+  "该视频没有可用字幕，且「无字幕时自动生成字幕」未开启。请在扩展设置中开启后重试。";
 
 export interface AgentBridgeVideoServiceDeps {
   transport?: JsonTransport;
@@ -180,11 +190,9 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       transport
     });
     if (!loaded) {
-      if (bundle.upowerBlocked || resolved.meta.upowerBlocked) {
-        throw new Error("该视频为充电专属视频，当前账号无法获取完整音轨，不能进行 ASR 转写");
-      }
-      if (bundle.loginRequired) {
-        throw new Error("未登录 B 站，无法获取视频自带字幕。请在浏览器登录 B 站后重试。");
+      const accessBlocker = resolveBiliSubtitleAccessBlocker(resolved.meta, bundle);
+      if (accessBlocker) {
+        throw new Error(ACCESS_BLOCKER_CLI_ERRORS[accessBlocker]);
       }
       return null;
     }
@@ -201,7 +209,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
   }> {
     const runtime = await getAsrRuntime();
     if (!runtime.enabled) {
-      throw new Error("该视频没有可用字幕，且「无字幕时自动生成字幕」未开启。请在扩展设置中开启后重试。");
+      throw new Error(ASR_DISABLED_CLI_ERROR);
     }
     if (!runtime.provider) {
       throw new Error("该视频没有可用字幕，且未配置可用的语音识别平台。请在扩展设置中配置后重试。");
@@ -242,7 +250,7 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
     } catch (error) {
       const reason = (error as { reason?: unknown }).reason;
       if (reason === "asr-disabled") {
-        throw new Error("该视频没有可用字幕，且「无字幕时自动生成字幕」未开启。请在扩展设置中开启后重试。");
+        throw new Error(ASR_DISABLED_CLI_ERROR);
       }
       if (reason === "no-asr-config") {
         throw new Error("语音识别平台不可用。请在扩展设置中检查平台、模型与域名授权后重试。");

@@ -8,10 +8,10 @@
 // 推导一次，由 graft 的闭包捕获，调用方拿不到第二个 end 值。
 //
 // 静态依赖：analysis-prompts（三份系统提示词常量）与 analysis-validate（产物章节
-// 形状与上限）两个纯片、shared/chapter-outline 的裁定类型、subtitle/cache 的
+// 形状与上限）两个纯片、shared/chapter-outline 的裁定类型、subtitle/signature 的
 // normalizeSubtitleItems。无 chrome / 网络依赖，纯函数。
 
-import { normalizeSubtitleItems } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import {
   ANALYSIS_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,

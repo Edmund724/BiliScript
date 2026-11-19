@@ -9,7 +9,7 @@
 //  4. 闸门：视图打开时（isReadingViewOpen）才驱动真实 DOM 渲染，关闭时静默；
 //  5. 生成进度纪律：generating 期间进度通知与每秒 wait ticker 均就地刷新状态条文案，不整块重渲以保留选区、焦点与滚动位置。
 
-import { buildSubtitleSignature } from "../subtitle/cache.js";
+import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import type { AiProvider } from "../ai/types.js";

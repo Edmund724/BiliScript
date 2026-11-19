@@ -56,126 +56,151 @@ export const SIDEPANEL_EMPTY_NOTICE = "这个视频没有识别到语音内容�
 // 适配器侧的 200 字符是传输上限，这里是排版上限，两者互不替代。
 export const ASR_FAILURE_DETAIL_MAX_CHARS = 80;
 
-// 详情行只对这四个 reason 开放（票 06 的详情行列）：它们的病因无法自证（平台 /
-// 模型不可用、鉴权被拒、额度不足、无从判断），原始报文是用户与平台方排查的唯一线索；
-// 其余类的病因已经足够具体，再附报文只会挤占单行宿主。
-const DETAIL_ALLOWED_REASONS: ReadonlySet<NoSubtitleReason> = new Set<NoSubtitleReason>([
-  "no-asr-config",
-  "asr-auth",
-  "asr-quota",
-  "asr-unknown"
-]);
-
-// 「病因句 + 补救句 + 补救动作」三段式的唯一真源（逐字见票 06 的文案表）。
-// 键类型取 NoSubtitleReason 去掉 null 后的全联合：联合新增取值而漏配文案时，这里
-// 直接是 tsc 错误，不会静默落到未知兜底——纪律落在类型上，不落在这段注释上。
+// 「病因句 + 补救句 + 补救动作 + 详情开放 + 发送重抓 + 失败类白名单」单表真源。
+// 键类型取 NoSubtitleReason 去掉 null 后的全联合：联合新增取值而漏配条目时，这里
+// 直接是 tsc 错误，不会静默落到未知兜底。
 type NonNullReason = NonNullable<NoSubtitleReason>;
 
 interface CopyEntry {
   cause: string;
   remedyText: string;
   remedy: AsrRemedy;
+  allowDetail: boolean;
+  retryOnSend: boolean;
+  isAsrFailureKind: boolean;
 }
 
 const COPY_TABLE: Record<NonNullReason, CopyEntry> = {
   "upower-exclusive": {
     cause: "该视频为充电专属视频，未开通充电无法获取完整音轨。",
     remedyText: "开通充电后可重新抓取生成字幕",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: false
   },
   "bili-login-required": {
     cause: "未登录 B 站，无法获取视频自带字幕。",
     remedyText: "请登录 B 站后重新抓取",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: true,
+    isAsrFailureKind: false
   },
-  // 语义已扩为「平台 / 模型不可用」：未配置平台、域名未授权、baseUrl 缺失、模型
-  // 不存在、模型没下载——补救动作同一个（去设置页检查），故不拆近名类目。
+  // 语义涵盖「平台 / 模型不可用」：未配置平台、域名未授权、baseUrl 缺失、模型
+  // 不存在、模型没下载——补救动作统一去设置页检查。
   "no-asr-config": {
     cause: "语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。",
     remedyText: "请到设置页检查语音转写平台",
-    remedy: "open-settings"
+    remedy: "open-settings",
+    allowDetail: true,
+    retryOnSend: true,
+    isAsrFailureKind: true
   },
   "asr-disabled": {
     cause: "语音转写开关已关闭。",
     remedyText: "可在设置页开启「无字幕时自动生成字幕」后再试",
-    remedy: "open-settings"
+    remedy: "open-settings",
+    allowDetail: false,
+    retryOnSend: true,
+    isAsrFailureKind: false
   },
   "asr-auth": {
     cause: "语音识别平台拒绝了本次请求：API Key 无效、已过期，或没有权限。",
     remedyText: "请到设置页检查或更换 API Key",
-    remedy: "open-settings"
+    remedy: "open-settings",
+    allowDetail: true,
+    retryOnSend: true,
+    isAsrFailureKind: true
   },
-  // 额度不足的补救是充值而非改设置（票 04 Q6），故不附「前往设置」链接。
+  // 额度不足的补救是充值而非改设置，故不附「前往设置」链接。
   "asr-quota": {
     cause: "语音识别平台的额度或余额不足。",
     remedyText: "请到平台充值，或稍后重试",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: true,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   "asr-ratelimit": {
     cause: "请求过于频繁，已被语音识别平台限流。",
     remedyText: "请稍后重试",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   "asr-network": {
     cause: "无法连接语音识别平台（网络不通或请求超时）。",
     remedyText: "请检查网络后重新抓取",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   "asr-media": {
     cause: "这个视频的音轨下载或解码失败（可能受保护，或文件过大）。",
     remedyText: "可换一个视频，或稍后重新抓取",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   "asr-server": {
     cause: "语音识别平台暂时不可用（服务端错误）。",
     remedyText: "请稍后重新抓取",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   // 中性句：判不出原因时必须保住「去哪看」的线索——详情行是这类的主要出口。
   "asr-unknown": {
     cause: "语音识别失败，未能识别具体原因。",
     remedyText: "可重新抓取或稍后重试",
-    remedy: "retry-later"
+    remedy: "retry-later",
+    allowDetail: true,
+    retryOnSend: false,
+    isAsrFailureKind: true
   },
   // 平台成功但没人声：不是失败，没有可做的事，故补救句为空。
   "asr-empty": {
     cause: "未识别到语音内容，这个视频可能没有人声。",
     remedyText: "",
-    remedy: "none"
+    remedy: "none",
+    allowDetail: false,
+    retryOnSend: false,
+    isAsrFailureKind: false
   }
 };
 
 // reason 为 null = 从未归类（旧快照 / 原因缺失）：只有通用补救句，不编病因。
-// 这里给设置入口，是因为「没字幕 + 不知道原因」最常见的成因就是压根没配平台。
 // null 是联合里的一个取值，但不能当 COPY_TABLE 的键，故单列。
 const NULL_REASON_ENTRY: CopyEntry = {
   cause: "",
   remedyText: "可在设置页配置语音识别平台自动生成字幕。",
-  remedy: "open-settings"
+  remedy: "open-settings",
+  allowDetail: false,
+  retryOnSend: false,
+  isAsrFailureKind: false
 };
 
 // 判不出原因时的兜底：绝不返回 null——null 会落成「无原因」文案并丢掉详情，
 // 而中性句 + 重新抓取是唯一安全的出口。
 const UNKNOWN_ENTRY = COPY_TABLE["asr-unknown"];
 
-// 8 个失败类 kind（asr/failure-kind.ts 判出）：kind 与 reason 同字面量，故映射
-// 就是白名单校验——判层错位（例如把 asr-skip 的 "asr-disabled" 当 kind 传进来）
-// 不应静默复用，而是退回中性类。
-const FAILURE_KINDS: ReadonlySet<string> = new Set([
-  "no-asr-config",
-  "asr-auth",
-  "asr-quota",
-  "asr-ratelimit",
-  "asr-network",
-  "asr-media",
-  "asr-server",
-  "asr-unknown"
-]);
+function lookupCopyEntry(reason: unknown): CopyEntry | null {
+  if (typeof reason !== "string" || !Object.hasOwn(COPY_TABLE, reason)) {
+    return null;
+  }
+  return COPY_TABLE[reason as NonNullReason];
+}
 
-// kind（asr/failure-kind.ts 判出的 8 个失败类）→ reason；未知/缺失 → "asr-unknown"
-//（绝不返回 null）。
+// kind（asr/failure-kind.ts 判出的 8 个失败类）→ reason；未知/缺失或非失败类
+// → "asr-unknown"（绝不返回 null）。
 export function reasonFromFailureKind(kind: unknown): NoSubtitleReason {
-  return typeof kind === "string" && FAILURE_KINDS.has(kind) ? (kind as NoSubtitleReason) : "asr-unknown";
+  const entry = lookupCopyEntry(kind);
+  return entry?.isAsrFailureKind ? (kind as NoSubtitleReason) : "asr-unknown";
 }
 
 // 连续空白（含换行）折叠为单个空格并 trim：报文来自平台，常带 JSON 缩进与换行，
@@ -207,32 +232,28 @@ export function formatAsrFailureDetail(input?: AsrFailureDetailInput | null): st
 }
 
 // 按 reason 取「病因 + 补救 + 补救动作 +（可选）详情行」。unknown / 联合外取值
-// 一律落中性句；detail 只在白名单内的 reason 上出现。
+// 一律落中性句；detail 只在单表 allowDetail=true 的已知 reason 上出现。
 export function getAsrFailureNotice(reason: NoSubtitleReason, detail?: AsrFailureDetailInput | null): AsrFailureNotice {
-  // 查表经一个 string 键视图：运行期可能拿到联合外的历史字面量（已删的 "asr-failed"
-  // 仍可能出现在旧快照里），索引落空走未知兜底，而不是因为类型上不可能就崩。
-  const table: Record<string, CopyEntry> = COPY_TABLE;
-  const entry = reason === null ? NULL_REASON_ENTRY : table[reason] ?? UNKNOWN_ENTRY;
+  const matched = reason === null ? NULL_REASON_ENTRY : lookupCopyEntry(reason);
+  const entry = matched ?? UNKNOWN_ENTRY;
   return {
     cause: entry.cause,
     remedyText: entry.remedyText,
     remedy: entry.remedy,
-    detail: DETAIL_ALLOWED_REASONS.has(reason) ? formatAsrFailureDetail(detail) : ""
+    detail: matched?.allowDetail ? formatAsrFailureDetail(detail) : ""
   };
 }
 
-// 配置类梗阻的判定（票 provider-onboarding-consistency/04）：补救动作是「去设置」
-// 的 reason 才有可落地的设置动作。字幕空态 / 概览空态 / 对话拦截三处的动作渲染
-// 都只读这一条，不在各面重写 remedy 比较。
+// 配置类梗阻的判定：补救动作是「去设置」的 reason 才有可落地的设置动作。
+// 字幕空态 / 概览空态 / 对话拦截三处的动作渲染都只读这一条，不在各面重写 remedy 比较。
 export function requiresAsrSetup(reason: NoSubtitleReason): boolean {
   return getAsrFailureNotice(reason).remedy === "open-settings";
 }
 
-// 明确可经配置修复的三态（未配置 / 关闭 / 鉴权不通过）：只有这三个 reason 允许
-// 「配置类无字幕收尾可以重新进入抓取」（票 04）——未归类（null）与其余失败类
-// 不因一次发送就重跑抓取，仍按原规则拦截，避免无谓的重复转写。
-export function isConfigClassAsrReason(reason: NoSubtitleReason): boolean {
-  return reason === "no-asr-config" || reason === "asr-disabled" || reason === "asr-auth";
+// 发送闸重抓策略：用户修复配置（未配置 / 关闭 / 鉴权）或登录 B 站后再次发送时
+// 允许重新起跑抓取；未归类（null）与其余失败类仍按原规则拦截，避免无谓的重复转写。
+export function canRetryNoSubtitleOnSend(reason: NoSubtitleReason): boolean {
+  return Boolean(lookupCopyEntry(reason)?.retryOnSend);
 }
 
 // surface 各自拼自己已冻结的前缀：过滤空段后单空格连接，避免原因缺失时留下

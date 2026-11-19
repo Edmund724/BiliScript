@@ -11,11 +11,9 @@ import {
   type EvictionResult,
   type EvictionFailure
 } from "../core/cache-lru.js";
-import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import {
   ASR_SOURCE_KEY_PREFIX,
   TRANSLATED_SOURCE_KEY_PREFIX,
-  buildSubtitleSourceKey,
   subtitleSourceKey,
   type TrackIdentity
 } from "./source-key.js";
@@ -44,11 +42,18 @@ import {
   type SubtitleIdbStore,
   type SubtitlePageRecord,
   type SubtitleStoreWriteInterceptor,
+  type SubtitleStoreWriteResult,
   type SubtitleTrackStorageKind
 } from "./idb-store.js";
-import type { SubtitleTrack } from "../bilibili/gateway.js";
 import type { SubtitleBodyItem } from "../ai/types.js";
 import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
+
+export {
+  buildSubtitleCandidates,
+  buildSubtitleSignature,
+  normalizeSubtitleItems,
+  type SubtitleSignatureInput
+} from "./signature.js";
 
 export {
   DEFAULT_SUBTITLE_CACHE_MAX_BYTES,
@@ -200,10 +205,6 @@ export function setSubtitleCacheWriteInterceptorForTests(
   (storeOverrideForTests ?? defaultSubtitleIdbStore).setWriteInterceptorForTests(interceptor);
 }
 
-function getActiveLocalStore(): SubtitleIdbStore {
-  return storeOverrideForTests ?? defaultSubtitleIdbStore;
-}
-
 function shouldRouteViaBackground(): boolean {
   if (storeOverrideForTests) {
     return false;
@@ -221,20 +222,206 @@ function shouldRouteViaBackground(): boolean {
   return protocol === "http:" || protocol === "https:";
 }
 
-async function dispatchSubtitleStoreOp(
+async function sendSubtitleStoreRpc(
   message: SubtitleCacheMessage
 ): Promise<SubtitleCacheResponse | null> {
-  if (shouldRouteViaBackground()) {
-    try {
-      const response = await sendRuntimeMessage(message);
-      if (response && response.handled === true) {
-        return response;
-      }
-    } catch {
-      // 无 SW 监听时平滑回退本地 store（如 Vitest 缺省环境）
+  try {
+    const response = await sendRuntimeMessage(message);
+    if (response && response.handled === true) {
+      return response;
     }
+  } catch {
+    // 无 SW 监听时平滑回退本地 store（如 Vitest 缺省环境）
   }
   return null;
+}
+
+function toRpcWriteResult(
+  response: SubtitleCacheResponse,
+  fallbackErrorMessage: string
+): SubtitleStoreWriteResult {
+  if (response.ok) {
+    return {
+      ok: true,
+      evictedIds: response.evictedIds ?? [],
+      estimatedBytes: response.estimatedBytes
+    };
+  }
+  return {
+    ok: false,
+    evictedIds: [],
+    error: new Error(response.error || fallbackErrorMessage)
+  };
+}
+
+function createSubtitleCacheRpcAdapter(fallbackStore: SubtitleIdbStore): SubtitleIdbStore {
+  return {
+    async getPageRecord(bvid, cid) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "get-page",
+        bvid,
+        cid
+      });
+      return viaBg ? viaBg.page ?? null : fallbackStore.getPageRecord(bvid, cid);
+    },
+    listPageRecords() {
+      return fallbackStore.listPageRecords();
+    },
+    async getRawTrack(bvid, cid, trackKey) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "get-raw",
+        bvid,
+        cid,
+        trackKey
+      });
+      return viaBg ? viaBg.items ?? null : fallbackStore.getRawTrack(bvid, cid, trackKey);
+    },
+    async putRawTrack(input) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "put-raw",
+        bvid: input.bvid,
+        cid: input.cid,
+        trackKey: input.trackKey,
+        ...(input.lang ? { lang: input.lang } : {}),
+        ...(input.kind ? { kind: input.kind } : {}),
+        items: input.items as SubtitleBodyItem[]
+      });
+      return viaBg
+        ? toRpcWriteResult(viaBg, "写入原生字幕缓存失败")
+        : fallbackStore.putRawTrack(input);
+    },
+    async getSegmentedTrack(bvid, cid, trackKey, segmentationSig) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "get-segmented",
+        bvid,
+        cid,
+        trackKey,
+        segmentationSig
+      });
+      return viaBg
+        ? viaBg.items ?? null
+        : fallbackStore.getSegmentedTrack(bvid, cid, trackKey, segmentationSig);
+    },
+    async putSegmentedTrack(input) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "put-segmented",
+        bvid: input.bvid,
+        cid: input.cid,
+        trackKey: input.trackKey,
+        segmentationSig: input.segmentationSig,
+        items: input.items as SubtitleBodyItem[]
+      });
+      return viaBg
+        ? toRpcWriteResult(viaBg, "写入重断句缓存失败")
+        : fallbackStore.putSegmentedTrack(input);
+    },
+    async getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "get-translated",
+        bvid,
+        cid,
+        sourceTrackKey,
+        targetLang,
+        ...(translationSig ? { translationSig } : {})
+      });
+      return viaBg
+        ? viaBg.items ?? null
+        : fallbackStore.getTranslatedTrack(bvid, cid, sourceTrackKey, targetLang, translationSig);
+    },
+    async upsertTranslatedTrack(input) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "upsert-translated",
+        bvid: input.bvid,
+        cid: input.cid,
+        sourceTrackKey: input.sourceTrackKey,
+        targetLang: input.targetLang,
+        translationSig: input.translationSig,
+        ...(input.mode ? { mode: input.mode } : {}),
+        items: input.items as SubtitleBodyItem[],
+        ...(input.replaceRange ? { replaceRange: input.replaceRange } : {})
+      });
+      return viaBg
+        ? toRpcWriteResult(viaBg, "写入译文缓存失败")
+        : fallbackStore.upsertTranslatedTrack(input);
+    },
+    async deleteTrackEntry(input) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "delete-entry",
+        bvid: input.bvid,
+        cid: input.cid,
+        tier: input.tier,
+        key: input.key
+      });
+      return viaBg ? Boolean(viaBg.ok) : fallbackStore.deleteTrackEntry(input);
+    },
+    async pruneAsrVariants(args) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "prune-asr",
+        bvid: args.bvid,
+        cid: args.cid,
+        ...(args.keepTrackKey !== undefined ? { keepTrackKey: args.keepTrackKey } : {})
+      });
+      return viaBg ? viaBg.removedKeys ?? [] : fallbackStore.pruneAsrVariants(args);
+    },
+    async clearTranslatedTracksForPage(args) {
+      const viaBg = await sendSubtitleStoreRpc({
+        type: "subtitle-cache",
+        op: "clear-translated",
+        bvid: args.bvid,
+        cid: args.cid,
+        ...(args.sourceTrackKey ? { sourceTrackKey: args.sourceTrackKey } : {})
+      });
+      return viaBg ? viaBg.removedKeys ?? [] : fallbackStore.clearTranslatedTracksForPage(args);
+    },
+    clearAll() {
+      return fallbackStore.clearAll();
+    },
+    setWriteInterceptorForTests(interceptor) {
+      fallbackStore.setWriteInterceptorForTests(interceptor);
+    }
+  };
+}
+
+const rpcSubtitleIdbStore = createSubtitleCacheRpcAdapter(defaultSubtitleIdbStore);
+
+function resolveActiveStore(): SubtitleIdbStore {
+  if (storeOverrideForTests) {
+    return storeOverrideForTests;
+  }
+  return shouldRouteViaBackground() ? rpcSubtitleIdbStore : defaultSubtitleIdbStore;
+}
+
+async function wrapStoreWrite(
+  writeOp: () => Promise<SubtitleStoreWriteResult>,
+  fallbackErrorMessage: string,
+  logFailure?: { message: string; meta: Record<string, unknown> }
+): Promise<SaveSubtitleResult> {
+  try {
+    const res = await writeOp();
+    if (res.ok) {
+      return { ok: true };
+    }
+    const err = new CacheWriteError(res.error?.message || fallbackErrorMessage, res.error);
+    if (logFailure) {
+      logError(logFailure.message, { ...logFailure.meta, error: err.message });
+    }
+    return { ok: false, error: err };
+  } catch (error) {
+    const err = new CacheWriteError((error as Error)?.message || String(error), error);
+    if (logFailure) {
+      logError(logFailure.message, { ...logFailure.meta, error: err.message });
+    }
+    return { ok: false, error: err };
+  }
 }
 
 // ===== 1500ms 流式译文写防抖缓冲 + 立即 flush =====
@@ -278,50 +465,24 @@ async function commitTranslatedWriteToStore(entry: {
   if (cleanItems.length === 0 && !entry.replaceRange) {
     return { ok: true };
   }
-  const viaBg = await dispatchSubtitleStoreOp({
-    type: "subtitle-cache",
-    op: "upsert-translated",
-    bvid: entry.bvid,
-    cid: entry.cid,
-    sourceTrackKey: entry.sourceTrackKey,
-    targetLang: entry.targetLang,
-    translationSig: entry.translationSig,
-    ...(entry.mode ? { mode: entry.mode } : {}),
-    items: cleanItems,
-    ...(entry.replaceRange ? { replaceRange: entry.replaceRange } : {})
-  });
-  if (viaBg) {
-    if (viaBg.ok) {
-      return { ok: true };
+  return wrapStoreWrite(
+    () =>
+      resolveActiveStore().upsertTranslatedTrack({
+        bvid: entry.bvid,
+        cid: entry.cid,
+        sourceTrackKey: entry.sourceTrackKey,
+        targetLang: entry.targetLang,
+        translationSig: entry.translationSig,
+        ...(entry.mode ? { mode: entry.mode } : {}),
+        items: cleanItems,
+        ...(entry.replaceRange ? { replaceRange: entry.replaceRange } : {})
+      }),
+    "写入译文缓存失败",
+    {
+      message: "[BILISCRIPT] failed to save translated subtitle cache",
+      meta: { bvid: entry.bvid, cid: entry.cid }
     }
-    const err = new CacheWriteError(viaBg.error || "写入译文缓存失败");
-    logError("[BILISCRIPT] failed to save translated subtitle cache", {
-      bvid: entry.bvid,
-      cid: entry.cid,
-      error: err.message
-    });
-    return { ok: false, error: err };
-  }
-  const res = await getActiveLocalStore().upsertTranslatedTrack({
-    bvid: entry.bvid,
-    cid: entry.cid,
-    sourceTrackKey: entry.sourceTrackKey,
-    targetLang: entry.targetLang,
-    translationSig: entry.translationSig,
-    ...(entry.mode ? { mode: entry.mode } : {}),
-    items: cleanItems,
-    ...(entry.replaceRange ? { replaceRange: entry.replaceRange } : {})
-  });
-  if (!res.ok) {
-    const err = new CacheWriteError(res.error?.message || "写入译文缓存失败", res.error);
-    logError("[BILISCRIPT] failed to save translated subtitle cache after eviction", {
-      bvid: entry.bvid,
-      cid: entry.cid,
-      error: err.message
-    });
-    return { ok: false, error: err };
-  }
-  return { ok: true };
+  );
 }
 
 function clearPendingWriteTimer(pending: PendingTranslatedWrite): void {
@@ -449,14 +610,7 @@ export async function loadRawSubtitleTrack({
     return null;
   }
   try {
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "get-raw",
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey
-    });
-    const hit = viaBg ? viaBg.items ?? null : await getActiveLocalStore().getRawTrack(cleanBvid, cleanCid, cleanTrackKey);
+    const hit = await resolveActiveStore().getRawTrack(cleanBvid, cleanCid, cleanTrackKey);
     if (Array.isArray(hit) && hit.length > 0) {
       return hit;
     }
@@ -490,47 +644,22 @@ export async function saveRawSubtitleTrack({
       error: new CacheWriteError("Invalid bvid, cid or trackKey")
     };
   }
-  try {
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "put-raw",
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey,
-      ...(lang ? { lang } : {}),
-      ...(kind ? { kind } : {}),
-      items: sanitized
-    });
-    if (viaBg) {
-      if (viaBg.ok) return { ok: true };
-      const err = new CacheWriteError(viaBg.error || "写入原生字幕缓存失败");
-      logError("[BILISCRIPT] failed to save raw subtitle cache", { bvid: cleanBvid, cid: cleanCid, trackKey: cleanTrackKey, error: err.message });
-      return { ok: false, error: err };
-    }
-    const res = await getActiveLocalStore().putRawTrack({
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey,
-      ...(lang ? { lang } : {}),
-      ...(kind ? { kind } : {}),
-      items: sanitized
-    });
-    if (!res.ok) {
-      const err = new CacheWriteError(res.error?.message || "写入原生字幕缓存失败", res.error);
-      logError("[BILISCRIPT] failed to save raw subtitle cache after eviction", {
+  return wrapStoreWrite(
+    () =>
+      resolveActiveStore().putRawTrack({
         bvid: cleanBvid,
         cid: cleanCid,
         trackKey: cleanTrackKey,
-        error: err.message
-      });
-      return { ok: false, error: err };
+        ...(lang ? { lang } : {}),
+        ...(kind ? { kind } : {}),
+        items: sanitized
+      }),
+    "写入原生字幕缓存失败",
+    {
+      message: "[BILISCRIPT] failed to save raw subtitle cache",
+      meta: { bvid: cleanBvid, cid: cleanCid, trackKey: cleanTrackKey }
     }
-    return { ok: true };
-  } catch (error) {
-    const err = new CacheWriteError((error as Error)?.message || String(error), error);
-    logError("[BILISCRIPT] failed to save raw subtitle cache", { bvid: cleanBvid, cid: cleanCid, trackKey: cleanTrackKey, error: err.message });
-    return { ok: false, error: err };
-  }
+  );
 }
 
 export interface LoadSegmentedTrackOptions {
@@ -558,17 +687,7 @@ export async function loadSegmentedSubtitleTrack({
     return null;
   }
   try {
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "get-segmented",
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey,
-      segmentationSig: cleanSig
-    });
-    const hit = viaBg
-      ? viaBg.items ?? null
-      : await getActiveLocalStore().getSegmentedTrack(cleanBvid, cleanCid, cleanTrackKey, cleanSig);
+    const hit = await resolveActiveStore().getSegmentedTrack(cleanBvid, cleanCid, cleanTrackKey, cleanSig);
     return Array.isArray(hit) && hit.length > 0 ? hit : null;
   } catch {
     return null;
@@ -593,34 +712,17 @@ export async function saveSegmentedSubtitleTrack({
   if (sanitized.length === 0) {
     return { ok: true };
   }
-  try {
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "put-segmented",
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey,
-      segmentationSig: cleanSig,
-      items: sanitized
-    });
-    if (viaBg) {
-      if (viaBg.ok) return { ok: true };
-      return { ok: false, error: new CacheWriteError(viaBg.error || "写入重断句缓存失败") };
-    }
-    const res = await getActiveLocalStore().putSegmentedTrack({
-      bvid: cleanBvid,
-      cid: cleanCid,
-      trackKey: cleanTrackKey,
-      segmentationSig: cleanSig,
-      items: sanitized
-    });
-    if (!res.ok) {
-      return { ok: false, error: new CacheWriteError(res.error?.message || "写入重断句缓存失败", res.error) };
-    }
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: new CacheWriteError((error as Error)?.message || String(error), error) };
-  }
+  return wrapStoreWrite(
+    () =>
+      resolveActiveStore().putSegmentedTrack({
+        bvid: cleanBvid,
+        cid: cleanCid,
+        trackKey: cleanTrackKey,
+        segmentationSig: cleanSig,
+        items: sanitized
+      }),
+    "写入重断句缓存失败"
+  );
 }
 
 export interface LoadTranslatedTrackOptions {
@@ -660,24 +762,13 @@ export async function loadTranslatedSubtitleTrack({
     return null;
   }
   try {
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "get-translated",
-      bvid: cleanBvid,
-      cid: cleanCid,
-      sourceTrackKey: cleanSource,
-      targetLang: cleanLang,
-      ...(translationSig ? { translationSig } : {})
-    });
-    let stored = viaBg
-      ? viaBg.items ?? null
-      : await getActiveLocalStore().getTranslatedTrack(
-          cleanBvid,
-          cleanCid,
-          cleanSource,
-          cleanLang,
-          translationSig
-        );
+    const stored = await resolveActiveStore().getTranslatedTrack(
+      cleanBvid,
+      cleanCid,
+      cleanSource,
+      cleanLang,
+      translationSig
+    );
 
     // 若指定了精确签名但未命中，合并未落盘的防抖缓冲
     const pendingKey = translationSig
@@ -826,16 +917,7 @@ export async function getSubtitlePageCacheRecord(
     return null;
   }
   await flushSubtitleCache({ bvid: cleanBvid, cid: cleanCid });
-  const viaBg = await dispatchSubtitleStoreOp({
-    type: "subtitle-cache",
-    op: "get-page",
-    bvid: cleanBvid,
-    cid: cleanCid
-  });
-  if (viaBg) {
-    return viaBg.page ?? null;
-  }
-  return getActiveLocalStore().getPageRecord(cleanBvid, cleanCid);
+  return resolveActiveStore().getPageRecord(cleanBvid, cleanCid);
 }
 
 // ===== 旧版缓存键解析 & chrome.storage.local 平滑兼容迁移 =====
@@ -996,6 +1078,32 @@ export async function saveSubtitleToCache(cacheKey: string, body: unknown[]): Pr
   });
 }
 
+async function removeLegacyStorageByPrefix(
+  cleanBvid: string,
+  keyPrefix: string,
+  excludeKey?: string
+): Promise<string[]> {
+  if (!globalThis.chrome?.storage?.local) {
+    return [];
+  }
+  try {
+    const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
+    const all = indexKeys
+      ? await chrome.storage.local.get(indexKeys)
+      : await chrome.storage.local.get(null);
+    const staleStorageKeys = Object.keys(all || {}).filter(
+      (key) => typeof key === "string" && key.startsWith(keyPrefix) && key !== excludeKey
+    );
+    if (staleStorageKeys.length > 0) {
+      await chrome.storage.local.remove(staleStorageKeys);
+    }
+    return staleStorageKeys;
+  } catch {
+    // 遗留 storage 清理失败不覆盖 IDB 结果
+    return [];
+  }
+}
+
 interface AsrCacheCleanupOptions {
   bvid: string;
   cid: string;
@@ -1019,40 +1127,19 @@ export async function clearStaleAsrSubtitleCache({
     const parsedKeep = keepKey ? parseSubtitleCacheKey(keepKey) : null;
     const keepTrackKey = parsedKeep?.kind === "raw" ? parsedKeep.trackKey : keepKey;
 
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "prune-asr",
+    const removedTrackKeys = await resolveActiveStore().pruneAsrVariants({
       bvid: cleanBvid,
       cid: cleanCid,
       keepTrackKey
     });
-    const removedTrackKeys = viaBg
-      ? viaBg.removedKeys ?? []
-      : await getActiveLocalStore().pruneAsrVariants({ bvid: cleanBvid, cid: cleanCid, keepTrackKey });
 
     const removedLegacyKeys = new Set<string>(
       removedTrackKeys.map((trackKey) => `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${trackKey}`)
     );
 
-    if (globalThis.chrome?.storage?.local) {
-      try {
-        const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
-        const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
-        const all = indexKeys
-          ? await chrome.storage.local.get(indexKeys)
-          : await chrome.storage.local.get(null);
-        const staleStorageKeys = Object.keys(all || {}).filter(
-          (key) => typeof key === "string" && key.startsWith(keyPrefix) && key !== keepKey
-        );
-        if (staleStorageKeys.length > 0) {
-          await chrome.storage.local.remove(staleStorageKeys);
-          for (const key of staleStorageKeys) {
-            removedLegacyKeys.add(key);
-          }
-        }
-      } catch {
-        // 遗留 storage 清理失败不覆盖 IDB 结果
-      }
+    const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
+    for (const key of await removeLegacyStorageByPrefix(cleanBvid, keyPrefix, keepKey)) {
+      removedLegacyKeys.add(key);
     }
 
     return Array.from(removedLegacyKeys);
@@ -1092,41 +1179,16 @@ export async function clearTranslatedSubtitleCache({
       }
     }
 
-    const viaBg = await dispatchSubtitleStoreOp({
-      type: "subtitle-cache",
-      op: "clear-translated",
+    const removedMapKeys = await resolveActiveStore().clearTranslatedTracksForPage({
       bvid: cleanBvid,
       cid: cleanCid,
-      ...(sourceTrackKey ? { sourceTrackKey } : {})
+      sourceTrackKey
     });
-    const removedMapKeys = viaBg
-      ? viaBg.removedKeys ?? []
-      : await getActiveLocalStore().clearTranslatedTracksForPage({
-          bvid: cleanBvid,
-          cid: cleanCid,
-          sourceTrackKey
-        });
 
     const removedKeys = new Set<string>(removedMapKeys);
-    if (globalThis.chrome?.storage?.local) {
-      try {
-        const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
-        const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
-        const all = indexKeys
-          ? await chrome.storage.local.get(indexKeys)
-          : await chrome.storage.local.get(null);
-        const staleStorageKeys = Object.keys(all || {}).filter(
-          (key) => typeof key === "string" && key.startsWith(keyPrefix)
-        );
-        if (staleStorageKeys.length > 0) {
-          await chrome.storage.local.remove(staleStorageKeys);
-          for (const key of staleStorageKeys) {
-            removedKeys.add(key);
-          }
-        }
-      } catch {
-        // 遗留 storage 清理失败不覆盖 IDB 结果
-      }
+    const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
+    for (const key of await removeLegacyStorageByPrefix(cleanBvid, keyPrefix)) {
+      removedKeys.add(key);
     }
 
     return Array.from(removedKeys);
@@ -1176,22 +1238,12 @@ export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
     const parsed = parseSubtitleCacheKey(cacheKey);
     if (parsed) {
       if (parsed.kind === "raw") {
-        const viaBg = await dispatchSubtitleStoreOp({
-          type: "subtitle-cache",
-          op: "delete-entry",
+        await resolveActiveStore().deleteTrackEntry({
           bvid: parsed.bvid,
           cid: parsed.cid,
           tier: "rawTracks",
           key: parsed.trackKey
         });
-        if (!viaBg) {
-          await getActiveLocalStore().deleteTrackEntry({
-            bvid: parsed.bvid,
-            cid: parsed.cid,
-            tier: "rawTracks",
-            key: parsed.trackKey
-          });
-        }
       } else {
         await clearTranslatedSubtitleCache({
           bvid: parsed.bvid,
@@ -1206,116 +1258,4 @@ export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
   } catch (error) {
     logWarn("[BILISCRIPT] failed to clear subtitle cache by key", { cacheKey, error });
   }
-}
-
-// ===== 字幕签名族（概览/AI 上下文签名）=====
-
-export function normalizeSubtitleItems(items: unknown): SubtitleBodyItem[] {
-  return (Array.isArray(items) ? items : []).filter(
-    (item): item is SubtitleBodyItem =>
-      Boolean(item) && String((item as { content?: unknown })?.content ?? "").trim().length > 0
-  );
-}
-
-function chapterOutlineText(chapterOutline: unknown): string {
-  return Array.isArray(chapterOutline)
-    ? chapterOutline.map((item) => `${Number(item?.seconds) || 0}|${String(item?.title ?? "")}`).join("\n")
-    : "";
-}
-
-interface SubtitleSignatureInput {
-  lang?: unknown;
-  subtitleId?: unknown;
-  subtitleUrl?: unknown;
-  body?: unknown;
-  chapters?: unknown;
-  chapterOutline?: unknown;
-}
-
-interface BodySignatureMetrics {
-  count: number;
-  firstFrom: number;
-  lastTo: number;
-  totalChars: number;
-}
-
-const bodySignatureMetricsCache = new WeakMap<object, BodySignatureMetrics>();
-
-function measureSubtitleBody(body: unknown): BodySignatureMetrics {
-  const items = Array.isArray(body) ? body : [];
-  const cached = bodySignatureMetricsCache.get(items);
-  if (cached) {
-    return cached;
-  }
-  let count = 0;
-  let totalChars = 0;
-  let firstFrom = 0;
-  let lastTo = 0;
-  for (const item of normalizeSubtitleItems(items)) {
-    const content = String(item?.content ?? "").trim();
-    if (!content) continue;
-    if (count === 0) {
-      firstFrom = Math.max(0, Math.floor(Number(item?.from) || 0));
-    }
-    lastTo = Math.max(0, Math.floor(Number(item?.to) || Number(item?.from) || 0));
-    totalChars += content.length;
-    count += 1;
-  }
-  const metrics = { count, firstFrom, lastTo, totalChars };
-  bodySignatureMetricsCache.set(items, metrics);
-  return metrics;
-}
-
-export function buildSubtitleSignature({
-  lang,
-  subtitleId,
-  subtitleUrl,
-  body,
-  chapters,
-  chapterOutline
-}: SubtitleSignatureInput = {}): string {
-  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-  const { count, firstFrom, lastTo, totalChars } = measureSubtitleBody(body);
-  const basis = [
-    "v4",
-    sourceKey,
-    String(lang ?? ""),
-    String(count),
-    String(firstFrom),
-    String(lastTo),
-    String(totalChars),
-    String(Array.isArray(chapters) && chapters.length > 0),
-    String(fnv1a32(chapterOutlineText(chapterOutline)))
-  ].join("|");
-  return `sig${fnv1a32(basis).toString(36)}`;
-}
-
-export function buildSubtitleCandidates(
-  subtitles: SubtitleTrack[] | null | undefined,
-  preferred: SubtitleTrack | null | undefined
-): SubtitleTrack[] {
-  const tracks = subtitles || [];
-  const seen = new Set<string>();
-  const list: SubtitleTrack[] = [];
-
-  const pushUnique = (item: SubtitleTrack | null | undefined) => {
-    if (!item) {
-      return;
-    }
-    const key =
-      `${String(item.id || "").trim()}|` +
-      `${normalizeSubtitleUrlForCache(item.subtitleUrl)}|` +
-      `${String(item.lan || "").trim().toLowerCase()}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    list.push(item);
-  };
-
-  pushUnique(preferred);
-  for (const item of tracks) {
-    pushUnique(item);
-  }
-  return list;
 }

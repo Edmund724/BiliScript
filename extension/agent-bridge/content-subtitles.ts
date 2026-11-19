@@ -2,7 +2,7 @@ import { state } from "../core/state.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
-import { normalizeSubtitleItems } from "../subtitle/cache.js";
+import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import type {
   AgentBridgeContentSubtitlesResult,
   AgentBridgeSubtitleItem
