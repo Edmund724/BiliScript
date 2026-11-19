@@ -106,8 +106,8 @@ describe("调用方手势同步链（调用前零先行 await）", () => {
 });
 
 describe("SW 处理器零 await（手势经 runtime 消息传导的最后一环）", () => {
-  it("handleRequestProviderOrigins：入口到 chrome.permissions.request 之间零 await", () => {
-    const source = readSource("../../extension/entry/background.js");
+  it("handleRequestProviderOrigins：入口到 permissions.request 之间零 await", () => {
+    const source = readSource("../../extension/core/host-permission-handlers.js");
     const start = source.indexOf("function handleRequestProviderOrigins(");
     const request = source.indexOf(".request({ origins })", start);
     expect(start).toBeGreaterThan(-1);

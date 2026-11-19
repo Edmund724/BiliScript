@@ -1,12 +1,15 @@
 import type { Settings } from "../core/defaults.js";
-import { collectPermissionMatchPatterns, permissionDeniedErrorMessage } from "../core/host-permissions.js";
+import {
+  formatPermissionRequestError,
+  parsePermissionGrantParams,
+  PERMISSION_GRANT_PAGE_PATH,
+  permissionDeniedErrorMessage,
+  type PermissionGrantParams
+} from "../core/host-permissions.js";
 import { normalizeReaderPalette, normalizeReaderTheme } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 
-export interface PermissionGrantParams {
-  reqId: string;
-  origins: string[];
-}
+export { parsePermissionGrantParams, type PermissionGrantParams };
 
 export const PERMISSION_GRANT_WAITING_BUTTON_TEXT = "等待浏览器确认…";
 export const PERMISSION_GRANT_WAITING_STATUS_TEXT = "请在浏览器弹出的权限提示中点击允许…";
@@ -60,21 +63,6 @@ export function syncPermissionGrantAppearance(doc: Document = document): void {
     latestSettings = stored;
     applyAppearance(latestSettings, doc);
   });
-}
-
-export function parsePermissionGrantParams(search: string): PermissionGrantParams {
-  const params = new URLSearchParams(search);
-  const reqId = (params.get("reqId") || "").trim();
-  const rawOrigins = params.get("origins");
-  if (!rawOrigins) {
-    return { reqId, origins: [] };
-  }
-  try {
-    const parsed: unknown = JSON.parse(rawOrigins);
-    return { reqId, origins: collectPermissionMatchPatterns(parsed) };
-  } catch {
-    return { reqId, origins: [] };
-  }
 }
 
 export function initPermissionGrantPage(search = globalThis.location?.search ?? ""): void {
@@ -136,15 +124,14 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
     try {
       requestTask = globalThis.chrome.permissions.request({ origins });
     } catch (error) {
-      void replyAndClose(false, `申请域名权限失败：${(error as Error | undefined)?.message || error}`);
+      void replyAndClose(false, formatPermissionRequestError(error));
       return;
     }
 
     void Promise.resolve(requestTask).then(
       (granted) =>
         replyAndClose(Boolean(granted), granted ? undefined : permissionDeniedErrorMessage(origins)),
-      (error) =>
-        replyAndClose(false, `申请域名权限失败：${(error as Error | undefined)?.message || error}`)
+      (error) => replyAndClose(false, formatPermissionRequestError(error))
     );
   });
 
@@ -163,7 +150,7 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
 if (
   typeof document !== "undefined" &&
   typeof location !== "undefined" &&
-  location.pathname.endsWith("/permission-grant.html")
+  location.pathname.endsWith(`/${PERMISSION_GRANT_PAGE_PATH}`)
 ) {
   initPermissionGrantPage();
 }

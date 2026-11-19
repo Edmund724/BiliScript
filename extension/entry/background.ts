@@ -94,15 +94,12 @@ import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
 // SW 静态图只进传输叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 拆至 gateway-core，
 // 不经 gateway 拖入 state/video-probe/selection→cache 链。
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
-// script-only-ui：侧边栏设置面板的 host 权限代申请（collectPermissionMatchPatterns 纯函数）与
-// content 侧 offscreen 代发的权限代查（hasHostPermission）
+// host 权限 SW 端消息族（申请 / Firefox 小窗回包 / 代查 / 回收）：编排体收口在 core 域工厂，
+// 组合根只注入 chrome.permissions / chrome.windows / chrome.runtime 宿主适配。
 import {
-  collectPermissionMatchPatterns,
-  hasHostPermission,
-  permissionDeniedErrorMessage,
-  revokeOriginPermission,
-  toPermissionMatchPattern
-} from "../core/host-permissions.js";
+  createHostPermissionHandlers,
+  type PermissionGrantWindowsAdapter
+} from "../core/host-permission-handlers.js";
 import {
   ensureIndexTranslateSessionRule,
   ensureOffscreenDocument,
@@ -204,266 +201,18 @@ const handleSaveSettings = createSaveSettingsHandler({
   onSettingsSaved: agentBridge.sync
 });
 
-const USER_GESTURE_PERMISSION_ERROR_RE = /user input|user gesture|may only be called from a user input handler/i;
-const PERMISSION_GRANT_POPUP_TIMEOUT_MS = 120_000;
-const PERMISSION_GRANT_PAGE_PATH = "entry/permission-grant.html";
-
-type ChromeWindowsApi = {
-  create?: (options: {
-    url: string;
-    type: "popup";
-    width: number;
-    height: number;
-    focused: boolean;
-  }) => Promise<{ id?: number }> | { id?: number };
-  remove?: (windowId: number) => Promise<void> | void;
-  onRemoved?: {
-    addListener: (listener: (windowId: number) => void) => void;
-    removeListener: (listener: (windowId: number) => void) => void;
-  };
-};
-
-interface PendingPermissionGrant {
-  windowId: number | null;
-  deniedError: string;
-  settle: (result: BackgroundResponseOf<"request-provider-origins">) => void;
-}
-
-const pendingPermissionGrants = new Map<string, PendingPermissionGrant>();
-let permissionGrantReqSeq = 0;
-
-function isUserGesturePermissionError(error: unknown): boolean {
-  const message = String((error as { message?: unknown } | null | undefined)?.message ?? error ?? "");
-  return USER_GESTURE_PERMISSION_ERROR_RE.test(message);
-}
-
-function isPermissionGrantPageSender(sender: MessageSender): boolean {
-  const runtimeId = (chrome.runtime as unknown as { id?: string } | undefined)?.id;
-  if (runtimeId && sender?.id && sender.id !== runtimeId) {
-    return false;
+const hostPermissionHandlers = createHostPermissionHandlers({
+  get permissions() {
+    return chrome.permissions;
+  },
+  get windows() {
+    return (chrome as unknown as { windows?: PermissionGrantWindowsAdapter }).windows;
+  },
+  getRuntimeUrl: (path) => chrome.runtime.getURL(path),
+  get runtimeId() {
+    return (chrome.runtime as unknown as { id?: string } | undefined)?.id;
   }
-  const expectedUrl = chrome.runtime.getURL(PERMISSION_GRANT_PAGE_PATH);
-  const senderUrl = typeof sender?.url === "string" ? sender.url : "";
-  return (
-    senderUrl === expectedUrl ||
-    senderUrl.startsWith(`${expectedUrl}?`) ||
-    senderUrl.startsWith(`${expectedUrl}#`)
-  );
-}
-
-function requestPermissionViaPopup(
-  origins: string[],
-  windowsApi: ChromeWindowsApi
-): Promise<BackgroundResponseOf<"request-provider-origins">> {
-  if (typeof windowsApi.create !== "function") {
-    return Promise.reject(new Error("当前环境不支持弹窗授权"));
-  }
-  const reqId =
-    typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `perm-${Date.now()}-${++permissionGrantReqSeq}`;
-  const query = new URLSearchParams({
-    reqId,
-    origins: JSON.stringify(origins)
-  });
-  const url = chrome.runtime.getURL(`${PERMISSION_GRANT_PAGE_PATH}?${query.toString()}`);
-  const deniedError = permissionDeniedErrorMessage(origins);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let onWindowRemoved: ((closedWindowId: number) => void) | undefined;
-
-    const entry: PendingPermissionGrant = {
-      windowId: null,
-      deniedError,
-      settle: (result) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        pendingPermissionGrants.delete(reqId);
-        if (timer !== undefined) {
-          clearTimeout(timer);
-        }
-        if (onWindowRemoved && typeof windowsApi.onRemoved?.removeListener === "function") {
-          windowsApi.onRemoved.removeListener(onWindowRemoved);
-        }
-        resolve(result);
-      }
-    };
-
-    pendingPermissionGrants.set(reqId, entry);
-
-    timer = setTimeout(() => {
-      const winId = entry.windowId;
-      entry.settle({
-        ok: false,
-        error: `申请域名权限失败：授权超时（${origins.join("、")}）`
-      });
-      if (winId !== null && typeof windowsApi.remove === "function") {
-        void Promise.resolve(windowsApi.remove(winId)).catch(() => {});
-      }
-    }, PERMISSION_GRANT_POPUP_TIMEOUT_MS);
-
-    if (typeof windowsApi.onRemoved?.addListener === "function") {
-      onWindowRemoved = (closedWindowId: number) => {
-        if (entry.windowId !== null && closedWindowId === entry.windowId) {
-          entry.settle({ ok: false, error: deniedError });
-        }
-      };
-      windowsApi.onRemoved.addListener(onWindowRemoved);
-    }
-
-    try {
-      if (typeof windowsApi.create !== "function") {
-        entry.settle({ ok: false, error: "申请域名权限失败：当前环境不支持弹窗授权" });
-        return;
-      }
-      void Promise.resolve(
-        windowsApi.create({
-          url,
-          type: "popup",
-          width: 460,
-          height: 360,
-          focused: true
-        })
-      ).then(
-        (createdWindow) => {
-          if (settled) {
-            return;
-          }
-          const winId = createdWindow?.id;
-          if (typeof winId === "number") {
-            entry.windowId = winId;
-          }
-        },
-        (createError) => {
-          entry.settle({
-            ok: false,
-            error: `申请域名权限失败：${(createError as Error | undefined)?.message || createError}`
-          });
-        }
-      );
-    } catch (createError) {
-      entry.settle({
-        ok: false,
-        error: `申请域名权限失败：${(createError as Error | undefined)?.message || createError}`
-      });
-    }
-  });
-}
-
-async function filterMissingOrigins(origins: string[]): Promise<string[]> {
-  if (typeof chrome.permissions?.contains !== "function") {
-    return origins;
-  }
-  const checks = await Promise.all(
-    origins.map(async (origin) => {
-      try {
-        return (await chrome.permissions.contains({ origins: [origin] })) ? null : origin;
-      } catch {
-        return origin;
-      }
-    })
-  );
-  return checks.filter((origin): origin is string => origin !== null);
-}
-
-async function resolvePermissionAfterGestureError(
-  origins: string[],
-  originalError: unknown
-): Promise<BackgroundResponseOf<"request-provider-origins">> {
-  const missingOrigins = await filterMissingOrigins(origins);
-  if (missingOrigins.length === 0) {
-    return { ok: true };
-  }
-  const windowsApi = (chrome as unknown as { windows?: ChromeWindowsApi }).windows;
-  if (typeof windowsApi?.create !== "function") {
-    throw originalError;
-  }
-  return await requestPermissionViaPopup(missingOrigins, windowsApi);
-}
-
-// script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
-// content script 无 chrome.permissions API，用户手势经本次 runtime 消息传导到
-// 本处理器——chrome.permissions.request 必须是处理器内的第一个动作（任何先行
-// await 都会耗尽手势，被 Chrome 以「缺少用户手势」拒绝，见
-// core/host-permissions.ts 的 requestProviderOriginsViaBackground）。
-function handleRequestProviderOrigins(message: Msg<"request-provider-origins">, _sender: MessageSender, sendResponse: Reply<"request-provider-origins">): MessageReplyDecision {
-  const origins = collectPermissionMatchPatterns(message.baseUrls);
-  if (origins.length === 0) {
-    sendResponse({ ok: true });
-    return "answered";
-  }
-  if (typeof chrome.permissions?.request !== "function") {
-    sendResponse({ ok: false, error: "当前环境不支持申请权限" });
-    return "answered";
-  }
-  // chrome.permissions.request 仍是处理器内的第一个动作（手势不变式，见上方
-  // 注释）：async 函数体在首个 await 前同步执行，request 在其中同步发起、
-  // await 只落在其返回的 promise 上；手势缺失时按 ADR-0028 复核常驻权限或拉起扩展授权弹窗。
-  withOkResponse(
-    (async () => {
-      try {
-        const requestTask = chrome.permissions.request({ origins });
-        const granted = await requestTask;
-        return granted
-          ? { ok: true }
-          : {
-              ok: false,
-              error: permissionDeniedErrorMessage(origins)
-            };
-      } catch (error) {
-        if (!isUserGesturePermissionError(error)) {
-          throw error;
-        }
-        return await resolvePermissionAfterGestureError(origins, error);
-      }
-    })(),
-    sendResponse,
-    (error) => `申请域名权限失败：${(error as Error)?.message || error}`
-  );
-  return "hold";
-}
-
-function handlePermissionGrantResult(
-  message: Msg<"permission-grant-result">,
-  sender: MessageSender,
-  sendResponse: Reply<"permission-grant-result">
-): void {
-  if (!isPermissionGrantPageSender(sender)) {
-    sendResponse({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
-    return;
-  }
-  const reqId = typeof message.reqId === "string" ? message.reqId.trim() : "";
-  const entry = reqId ? pendingPermissionGrants.get(reqId) : undefined;
-  if (!entry) {
-    sendResponse({ ok: false, error: "授权请求不存在或已结束" });
-    return;
-  }
-  entry.settle(
-    message.ok
-      ? { ok: true }
-      : { ok: false, error: message.error || entry.deniedError }
-  );
-  sendResponse({ ok: true });
-}
-
-// content 侧（概览/快捷提示词的 offscreen 代发）的 host 权限代查：只读一问，无手势
-// 要求、无副作用。未授权时 content 侧直接以可操作文案失败，不再建 offscreen 文档、
-// 也不发注定失败的跨域请求——与 SW 代发通道（core/provider-http.ts）的预检同口径。
-// origin 缺失/非法按已授权回 true（core/host-permissions 的同款 fail-open）。
-function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sender: MessageSender, sendResponse: Reply<"check-provider-origin">): void {
-  void hasHostPermission(message.origin).then((granted) => sendResponse({ granted }));
-}
-
-function handleRevokeProviderOrigin(message: Msg<"revoke-provider-origin">, _sender: MessageSender, sendResponse: Reply<"revoke-provider-origin">): void {
-  void revokeOriginPermission(message.origin).then(sendResponse, () => {
-    const pattern = toPermissionMatchPattern(message.origin);
-    sendResponse({ origins: pattern ? [pattern] : [], revoked: false });
-  });
-}
+});
 
 // 对话 tab（content script）发送前的 offscreen 文档自愈 ensure。chrome.offscreen
 // / chrome.runtime.getContexts 仅扩展上下文可用，content script 经此消息委托
@@ -814,9 +563,9 @@ const messageHandlerTable = {
   "agent-bridge-status": handleAgentBridgeStatus,
   "agent-bridge-connect": handleAgentBridgeConnect,
   "agent-bridge-test": handleAgentBridgeTest,
-  "request-provider-origins": handleRequestProviderOrigins,
-  "check-provider-origin": handleCheckProviderOrigin,
-  "revoke-provider-origin": handleRevokeProviderOrigin,
+  "request-provider-origins": hostPermissionHandlers.requestProviderOrigins,
+  "check-provider-origin": hostPermissionHandlers.checkProviderOrigin,
+  "revoke-provider-origin": hostPermissionHandlers.revokeProviderOrigin,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
   "player-ai-quick-action": handlePlayerAiQuickAction,
   "fetch-json": handleFetchJson,
@@ -851,7 +600,7 @@ const messageHandlerTable = {
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
   "get-debug-log-gate": handleGetDebugLogGate,
   "open-onboarding": handleOpenOnboarding,
-  "permission-grant-result": handlePermissionGrantResult
+  "permission-grant-result": hostPermissionHandlers.permissionGrantResult
 } satisfies BackgroundMessageHandlers;
 
 // EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts

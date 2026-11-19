@@ -27,6 +27,40 @@ import type { CheckProviderOriginMessage, CheckProviderOriginResponse } from "..
 // 探针/权限缺失时的统一可操作文案（AI 探针、ASR 探针共享）
 export const HOST_PERMISSION_HINT = "该平台域名未授权，请在保存时允许权限";
 
+// Firefox 扩展授权小窗路径与 query 编解码（SW 弹窗派发与 permission-grant.ts 共用单源）
+export const PERMISSION_GRANT_PAGE_PATH = "entry/permission-grant.html" as const;
+
+export interface PermissionGrantParams {
+  reqId: string;
+  origins: string[];
+}
+
+export function formatPermissionRequestError(error: unknown): string {
+  return `申请域名权限失败：${(error as Error | undefined)?.message || error}`;
+}
+
+export function buildPermissionGrantQuery(reqId: string, origins: readonly string[]): string {
+  return new URLSearchParams({
+    reqId,
+    origins: JSON.stringify(origins)
+  }).toString();
+}
+
+export function parsePermissionGrantParams(search: string): PermissionGrantParams {
+  const params = new URLSearchParams(search);
+  const reqId = (params.get("reqId") || "").trim();
+  const rawOrigins = params.get("origins");
+  if (!rawOrigins) {
+    return { reqId, origins: [] };
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawOrigins);
+    return { reqId, origins: collectPermissionMatchPatterns(parsed) };
+  } catch {
+    return { reqId, origins: [] };
+  }
+}
+
 // 从 baseUrl 提取展示/键位用的 origin match pattern（https://host[:port]/*）。非法/边界
 // 输入（空串、非 http(s) 协议、URL 解析失败）返回 null，由调用方跳过申请。
 export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
@@ -63,25 +97,16 @@ export function toPermissionMatchPattern(input: unknown): string | null {
   }
 }
 
-function collectUniquePatterns(baseUrls: unknown, extract: (input: unknown) => string | null): string[] {
+// 一组 baseUrl → 去重后的无端口权限 match pattern 列表（保持首次出现顺序，非法项丢弃，供 permissions API 使用）。
+export function collectPermissionMatchPatterns(baseUrls: unknown): string[] {
   const patterns: string[] = [];
   for (const baseUrl of Array.isArray(baseUrls) ? baseUrls : []) {
-    const pattern = extract(baseUrl);
+    const pattern = toPermissionMatchPattern(baseUrl);
     if (pattern && !patterns.includes(pattern)) {
       patterns.push(pattern);
     }
   }
   return patterns;
-}
-
-// 一组 baseUrl → 去重后的 match pattern 列表（保持首次出现顺序，非法项丢弃）。
-export function collectOrigins(baseUrls: unknown): string[] {
-  return collectUniquePatterns(baseUrls, extractOriginFromBaseUrl);
-}
-
-// 一组 baseUrl → 去重后的无端口权限 match pattern 列表（供 permissions API 使用）。
-export function collectPermissionMatchPatterns(baseUrls: unknown): string[] {
-  return collectUniquePatterns(baseUrls, toPermissionMatchPattern);
 }
 
 export const permissionDeniedErrorMessage = (origins: string[]): string =>
@@ -112,7 +137,7 @@ export async function requestProviderOrigins(
   try {
     granted = await requestPermissions({ origins });
   } catch (error) {
-    return { ok: false, error: `申请域名权限失败：${(error as Error | undefined)?.message || error}`, origins };
+    return { ok: false, error: formatPermissionRequestError(error), origins };
   }
   if (!granted) {
     return {
@@ -225,19 +250,6 @@ interface ProviderLike {
   baseUrl?: unknown;
 }
 
-// 删除平台时该 origin 是否已无主：origin 提取失败按无主处理（不回收），存活
-// 列表（各平台家族拼接）中任何一项仍用同一 origin 就不回收。
-// remainingProviders 必须是「不含被删项」的存活列表。
-export function collectOrphanOrigins(deletedBaseUrl: unknown, remainingProviders: unknown): string[] {
-  const origin = extractOriginFromBaseUrl(deletedBaseUrl);
-  if (!origin) {
-    return [];
-  }
-  const remaining = Array.isArray(remainingProviders) ? remainingProviders : [];
-  const stillUsed = remaining.some((provider) => extractOriginFromBaseUrl((provider as ProviderLike)?.baseUrl) === origin);
-  return stillUsed ? [] : [origin];
-}
-
 interface RevokeResult {
   origins: string[];
   revoked: boolean;
@@ -278,7 +290,7 @@ export function isStaticHostPermission(
   });
 }
 
-// 回收单个无端口权限 pattern（供 SW/扩展页直调及 revokeOrphanOrigin 共用）。
+// 回收单个无端口权限 pattern（供 SW/扩展页直调及 revokeOrphanOriginViaBackground 共用）。
 // 命中 manifest 静态常驻域或权限本就不在时跳过 remove 并返回空 origins（不算失败）。
 export async function revokeOriginPermission(
   origin: unknown,
@@ -323,23 +335,6 @@ function resolveOrphanPattern(deleted: ProviderLike, providers: unknown): string
     (provider) => toPermissionMatchPattern((provider as ProviderLike)?.baseUrl) === pattern
   );
   return stillUsed ? null : pattern;
-}
-
-// 删除 provider 后回收其孤儿权限 pattern（无端口归一化：若存活列表中仍有同 host
-// 其他端口的 provider，共享同一个 `${protocol}//${hostname}/*` 授权，不得误撤销）。
-// providers 是删除时刻从 DOM 收集的全量平台列表（含尚未摘除的被删行），被删项在此
-// 按 id 剔除。返回 { origins, revoked }：origins 非空且 revoked 为 false 即回收失败，
-// 由调用方提示；权限本就不在、属 manifest 常驻域或仍被占用不算失败，返回空 origins。
-export async function revokeOrphanOrigin(
-  deleted: ProviderLike,
-  providers: unknown,
-  deps: RevokeDependencies = {}
-): Promise<RevokeResult> {
-  const pattern = resolveOrphanPattern(deleted, providers);
-  if (!pattern) {
-    return { origins: [], revoked: false };
-  }
-  return revokeOriginPermission(pattern, deps);
 }
 
 // 跨语境孤儿权限回收（设置抽屉 / 编辑 Modal 删除链的唯一通道）：

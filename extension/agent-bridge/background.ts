@@ -1,13 +1,13 @@
 import { extractBvid, extractPageIndex } from "../bilibili/video-id-shared.js";
-import type { AgentBridgeFrameResponse, AgentBridgeSnapshotResponse, AgentBridgeSubtitlesResponse } from "../shared/messaging-protocol.js";
+import type { ContentScriptMessage, ResponseOf } from "../shared/messaging-protocol.js";
 import { withBiliMediaSessionRule } from "../core/offscreen-host.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
+import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
+import { sendMessageToTab } from "../shared/tab-utils.js";
 import { createAgentBridgeVideoService } from "./video-service.js";
 import { normalizeAgentBridgeUrl, parseAgentBridgeUrl } from "../core/validators.js";
 import {
   AGENT_BRIDGE_ALARM,
   AGENT_BRIDGE_PROTOCOL,
-  type AgentBridgeContentSubtitlesResult,
   type AgentBridgeFramesResult,
   type AgentBridgeOffscreenFrameResponse,
   type AgentBridgeRequestOptions,
@@ -50,29 +50,11 @@ function fallbackTabSnapshot(tab: chrome.tabs.Tab): AgentBridgeTabSnapshot {
 async function readTabSnapshot(tab: chrome.tabs.Tab): Promise<AgentBridgeTabSnapshot> {
   const fallback = fallbackTabSnapshot(tab);
   if (!tab.id) return fallback;
-  const snapshot = await new Promise<Partial<AgentBridgeTabSnapshot> | null>((resolve) => {
-    let settled = false;
-    const finish = (value: Partial<AgentBridgeTabSnapshot> | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(value);
-    };
-    const timeout = setTimeout(() => finish(null), TAB_SNAPSHOT_TIMEOUT_MS);
-    try {
-      chrome.tabs.sendMessage(tab.id!, { type: "agent-bridge-snapshot" }, (response) => {
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          finish(null);
-          return;
-        }
-        const result = response as AgentBridgeSnapshotResponse | undefined;
-        finish(result?.ok && result.snapshot ? result.snapshot : null);
-      });
-    } catch {
-      finish(null);
-    }
-  });
+  const response = await withTimeout(
+    sendMessageToTab(tab.id, { type: "agent-bridge-snapshot" }).catch(() => undefined),
+    TAB_SNAPSHOT_TIMEOUT_MS
+  );
+  const snapshot = response?.ok && response.snapshot ? response.snapshot : null;
   if (!snapshot) return fallback;
   return {
     tabId: fallback.tabId,
@@ -147,57 +129,29 @@ async function resolveTarget(rawOptions: unknown): Promise<ResolvedTarget> {
   return { ...target, from: options.from, to: options.to, targetTime: options.targetTime };
 }
 
-function requestContentSubtitles(tabId: number): Promise<AgentBridgeContentSubtitlesResult | null> {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.tabs.sendMessage(tabId, { type: "agent-bridge-subtitles" }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        const result = response as AgentBridgeSubtitlesResponse | undefined;
-        if (!result) {
-          resolve(null);
-          return;
-        }
-        if (!result.ok || !result.result) {
-          reject(new Error(result?.error || "页内字幕抓取失败"));
-          return;
-        }
-        resolve(result.result);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
+type AgentBridgeTabResultMessage = Extract<
+  ContentScriptMessage,
+  { type: "agent-bridge-subtitles" | "agent-bridge-frame" }
+>;
 
-function requestContentFrames(
+async function requestTabResult<M extends AgentBridgeTabResultMessage>(
   tabId: number,
-  input: { bvid: string; cid: string; targetTime?: number }
-): Promise<AgentBridgeFramesResult | null> {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.tabs.sendMessage(tabId, { type: "agent-bridge-frame", ...input }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        const result = response as AgentBridgeFrameResponse | undefined;
-        if (!result) {
-          resolve(null);
-          return;
-        }
-        if (!result.ok || !result.result) {
-          reject(new Error(result?.error || "页内视频截帧失败"));
-          return;
-        }
-        resolve(result.result);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
+  message: M,
+  fallbackError: string
+): Promise<NonNullable<ResponseOf<M>["result"]> | null> {
+  let response: ResponseOf<M> | undefined;
+  try {
+    response = await sendMessageToTab(tabId, message);
+  } catch {
+    return null;
+  }
+  if (!response) {
+    return null;
+  }
+  if (!response.ok || !response.result) {
+    throw new Error(response.error || fallbackError);
+  }
+  return response.result as NonNullable<ResponseOf<M>["result"]>;
 }
 
 async function captureOffscreenFrames(input: { bvid: string; cid: string; targetTime: number }): Promise<AgentBridgeFramesResult> {
@@ -277,10 +231,11 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       if (!target.tabId) {
         throw new Error("目标视频未在标签页中打开；未打开视频请使用 --time <sec> 截取历史帧");
       }
-      const result = await requestContentFrames(target.tabId, {
-        bvid: target.bvid,
-        cid: target.cid || ""
-      });
+      const result = await requestTabResult(
+        target.tabId,
+        { type: "agent-bridge-frame", bvid: target.bvid, cid: target.cid || "" },
+        "页内视频截帧失败"
+      );
       if (!result) throw new Error("目标标签页尚未加载扩展，请刷新页面后重试当前帧截取");
       return result;
     }
@@ -297,7 +252,11 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
       contextTabId = tabs.find((tab) => tab.id)?.id;
     }
     if (contextTabId) {
-      const result = await requestContentFrames(contextTabId, input);
+      const result = await requestTabResult(
+        contextTabId,
+        { type: "agent-bridge-frame", ...input },
+        "页内视频截帧失败"
+      );
       if (result) return result;
     }
     return captureOffscreenFrames(input);
@@ -314,11 +273,13 @@ export function createAgentBridge({ getConfig, videoService = createAgentBridgeV
     if (command === "fetch") {
       return videoService.getVideoBundle(
         target,
-        target.tabId ? () => requestContentSubtitles(target.tabId!) : undefined
+        target.tabId
+          ? () => requestTabResult(target.tabId!, { type: "agent-bridge-subtitles" }, "页内字幕抓取失败")
+          : undefined
       );
     }
     if (target.tabId) {
-      const content = await requestContentSubtitles(target.tabId);
+      const content = await requestTabResult(target.tabId, { type: "agent-bridge-subtitles" }, "页内字幕抓取失败");
       if (content) return videoService.completeContentSubtitles(target, content);
     }
     return videoService.getSubtitles(target);

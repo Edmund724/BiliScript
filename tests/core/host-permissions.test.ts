@@ -1,34 +1,29 @@
-// core/host-permissions.js（S2 按需申请 host 权限的纯逻辑层）测试。
+// core/host-permissions.js（按需申请 host 权限与授权弹窗编解码的纯逻辑层）测试。
 // 覆盖：
-// - origin 提取与去重（collectOrigins）：baseUrl → origin，含非法/边界情形（空串、
-//   非 http(s)、解析失败、端口保留、带 path 的 baseUrl）；
-// - 保存手势链上的批量申请（requestProviderOrigins）：一次手势只发一次 request
-//   （多平台合并成单次调用）、授权通过 → ok、拒绝 → 明确错误不静默、异常与缺失
-//   chrome API 的兜底、无 origin 可申请时连 request 都不发；
-// - hasHostPermission（扩展页 / SW 语境的真判定）：已授权/未授权/取不到
-//   chrome.permissions；它的语境边界由文末「语境守卫」按源码锁死；
-// - 跨语境代查（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen）：
-//   content 与 offscreen 两种发送方式各自一问，fail-open 语义同一份（返回 false
-//   的唯一来源是 SW 明确回 { granted: false }）；
-// - 删除时 origin 回收判定（collectOrphanOrigins / revokeOrphanOrigin）：无主才回收、
-//   仍被 AI/ASR 任一 provider 使用则不回收、被删行自身按 id 剔除、回收失败回报。
+// - origin / 无端口权限 pattern 提取与去重（extractOriginFromBaseUrl / toPermissionMatchPattern / collectPermissionMatchPatterns）；
+// - 授权弹窗 query 编解码与错误文案（buildPermissionGrantQuery / parsePermissionGrantParams / formatPermissionRequestError）；
+// - 保存手势链上的批量申请（requestProviderOrigins）；
+// - hasHostPermission（扩展页 / SW 语境的真判定）及其语境守卫；
+// - 跨语境代查（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen）；
+// - 权限回收与跨语境孤儿回收（revokeOriginPermission / revokeOrphanOriginViaBackground）。
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   extractOriginFromBaseUrl,
   toPermissionMatchPattern,
-  collectOrigins,
   collectPermissionMatchPatterns,
+  buildPermissionGrantQuery,
+  parsePermissionGrantParams,
+  formatPermissionRequestError,
   requestProviderOrigins,
   hasHostPermission,
   hasHostPermissionViaBackground,
   hasHostPermissionFromOffscreen,
-  collectOrphanOrigins,
   isStaticHostPermission,
-  revokeOrphanOrigin,
+  revokeOriginPermission,
   revokeOrphanOriginViaBackground,
   permissionRevokeErrorMessage
 } from "../../extension/core/host-permissions.js";
@@ -82,26 +77,7 @@ describe("toPermissionMatchPattern", () => {
   });
 });
 
-describe("collectOrigins", () => {
-  it("去重并保持首次出现顺序，非法项丢弃", () => {
-    expect(
-      collectOrigins([
-        "https://api.openai.com/v1",
-        "https://api.openai.com/chat",
-        "https://api.siliconflow.cn/v1",
-        "",
-        "oops",
-        undefined
-      ])
-    ).toEqual(["https://api.openai.com/*", "https://api.siliconflow.cn/*"]);
-  });
-
-  it("非数组入参按空处理", () => {
-    expect(collectOrigins(null)).toEqual([]);
-  });
-});
-
-describe("collectPermissionMatchPatterns", () => {
+describe("collectPermissionMatchPatterns 与授权弹窗编解码", () => {
   it("同 host 不同端口剥端口后自动去重", () => {
     expect(
       collectPermissionMatchPatterns([
@@ -116,6 +92,19 @@ describe("collectPermissionMatchPatterns", () => {
 
   it("非数组入参按空处理", () => {
     expect(collectPermissionMatchPatterns(null)).toEqual([]);
+  });
+
+  it("buildPermissionGrantQuery / parsePermissionGrantParams 往返一致并过滤非法项", () => {
+    const query = buildPermissionGrantQuery("req-42", ["http://localhost:11434/v1", "https://api.example.com/*"]);
+    expect(parsePermissionGrantParams(`?${query}`)).toEqual({
+      reqId: "req-42",
+      origins: ["http://localhost/*", "https://api.example.com/*"]
+    });
+    expect(parsePermissionGrantParams("?reqId=bad&origins=not-json")).toEqual({
+      reqId: "bad",
+      origins: []
+    });
+    expect(formatPermissionRequestError(new Error("boom"))).toBe("申请域名权限失败：boom");
   });
 });
 
@@ -317,7 +306,7 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
 // 不要顺手把文件加进来。
 const HOST_PERMISSION_SW_IMPORTERS: Record<string, string> = {
   "core/provider-http.ts": "SW 代发接收端（handleProviderHttpRequest）",
-  "entry/background.ts": "SW 的 check-provider-origin 代查 / request-provider-origins 代申请",
+  "core/host-permission-handlers.ts": "SW host 权限消息族处理器（check-provider-origin / request-provider-origins）",
   "live/live-session-tracker.ts": "SW 侧 Live 会话准备（liveSessionTracker.prepareFor 双 origin 权限预检）"
 };
 
@@ -378,134 +367,96 @@ describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用
   });
 });
 
-describe("collectOrphanOrigins（删除时的 origin 回收判定）", () => {
-  const remainingAi = [{ id: "a1", baseUrl: "https://api.openai.com/v1" }];
-  const remainingAsr = [{ id: "s1", baseUrl: "https://api.siliconflow.cn/v1" }];
-
-  it("无任何剩余 provider 使用该 origin → 回收", () => {
-    expect(collectOrphanOrigins("https://api.openai.com/v1", [])).toEqual(["https://api.openai.com/*"]);
-    expect(collectOrphanOrigins("https://api.openai.com/v1", remainingAsr)).toEqual(["https://api.openai.com/*"]);
-  });
-
-  it("AI 或 ASR 组仍有 provider 使用同一 origin → 不回收", () => {
-    expect(collectOrphanOrigins("https://api.openai.com/v1", remainingAi)).toEqual([]);
-    expect(collectOrphanOrigins("https://api.openai.com/v1", [...remainingAi, ...remainingAsr])).toEqual([]);
-    expect(collectOrphanOrigins("https://api.siliconflow.cn/v1", [...remainingAi, ...remainingAsr])).toEqual([]);
-  });
-
-  it("同 host 不同端口算不同 origin（互不影响）", () => {
-    expect(collectOrphanOrigins("http://localhost:11434/v1", [{ id: "a", baseUrl: "http://localhost:8000/v1" }])).toEqual([
-      "http://localhost:11434/*"
-    ]);
-  });
-
-  it("被删平台 baseUrl 非法 → 不回收（无主按无回收处理）", () => {
-    expect(collectOrphanOrigins("", remainingAi)).toEqual([]);
-    expect(collectOrphanOrigins("oops", [])).toEqual([]);
-  });
-
-  it("非数组剩余列表按空列表处理", () => {
-    expect(collectOrphanOrigins("https://x/v1", null)).toEqual(["https://x/*"]);
-    expect(collectOrphanOrigins("https://x/v1", undefined)).toEqual(["https://x/*"]);
-  });
-});
-
-describe("revokeOrphanOrigin（删除时的 origin 回收执行）", () => {
-  // 删除钩子早于 DOM row.remove()，所以传入的列表含被删行自身
+describe("revokeOriginPermission 与 revokeOrphanOriginViaBackground（孤儿权限回收）", () => {
   const deleted = { id: "a1", baseUrl: "https://api.openai.com/v1" };
   const containsGranted = vi.fn(async () => true);
 
-  it("列表含被删行自身也照常回收（按 id 剔除，不自锁）", async () => {
+  it("revokeOriginPermission：命中常驻域或权限本就不在时跳过 remove；失败返回 { origins, revoked: false }", async () => {
     const remove = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin(deleted, [deleted], { contains: containsGranted, remove });
-    expect(resp).toEqual({ origins: ["https://api.openai.com/*"], revoked: true });
-    expect(remove).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
-  });
-
-  it("另一组（ASR）仍用同一 origin → 不回收、不发 remove", async () => {
-    const remove = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin(deleted, [{ id: "s1", baseUrl: "https://api.openai.com/chat" }], {
-      contains: containsGranted,
-      remove
-    });
-    expect(resp).toEqual({ origins: [], revoked: false });
-    expect(remove).not.toHaveBeenCalled();
-  });
-
-  it("权限本就不在 → 跳过 remove，不算失败", async () => {
-    const remove = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin(deleted, [], { contains: vi.fn(async () => false), remove });
-    expect(resp).toEqual({ origins: [], revoked: false });
-    expect(remove).not.toHaveBeenCalled();
-  });
-
-  it("remove 返回 false / 抛错 → 回报失败 origin 供提示", async () => {
+    expect(isStaticHostPermission("https://api-inference.modelscope.cn/*", ["https://api-inference.modelscope.cn/*"])).toBe(true);
     expect(
-      await revokeOrphanOrigin(deleted, [], { contains: containsGranted, remove: vi.fn(async () => false) })
+      await revokeOriginPermission("https://api-inference.modelscope.cn/v1", {
+        contains: containsGranted,
+        remove,
+        staticHostPermissions: ["https://api-inference.modelscope.cn/*"]
+      })
+    ).toEqual({ origins: [], revoked: false });
+    expect(remove).not.toHaveBeenCalled();
+
+    expect(
+      await revokeOriginPermission("https://api.openai.com/v1", {
+        contains: vi.fn(async () => false),
+        remove,
+        staticHostPermissions: []
+      })
+    ).toEqual({ origins: [], revoked: false });
+    expect(remove).not.toHaveBeenCalled();
+
+    expect(
+      await revokeOriginPermission("https://api.openai.com/v1", {
+        contains: containsGranted,
+        remove: vi.fn(async () => false),
+        staticHostPermissions: []
+      })
     ).toEqual({ origins: ["https://api.openai.com/*"], revoked: false });
+
     expect(
-      await revokeOrphanOrigin(deleted, [], {
+      await revokeOriginPermission("https://api.openai.com/v1", {
         contains: containsGranted,
         remove: vi.fn(async () => {
           throw new Error("remove failed");
-        })
+        }),
+        staticHostPermissions: []
       })
     ).toEqual({ origins: ["https://api.openai.com/*"], revoked: false });
   });
 
-  it("被删项 baseUrl 非法 → 什么都不做", async () => {
+  it("扩展页语境（含 chrome.permissions.remove）：按 id 剔除自身、共享同 host 端口不误删、无占用时无端口回收", async () => {
+    const contains = vi.fn(async () => true);
     const remove = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin({ id: "a1", baseUrl: "oops" }, [], { contains: containsGranted, remove });
-    expect(resp).toEqual({ origins: [], revoked: false });
-    expect(remove).not.toHaveBeenCalled();
-  });
+    vi.stubGlobal("chrome", {
+      permissions: { contains, remove },
+      runtime: { getManifest: () => ({ host_permissions: [] }) }
+    });
 
-  it("同 host 其他端口仍在用 → 不误撤销共享的无端口授权", async () => {
-    const remove = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin(
-      { id: "ollama", baseUrl: "http://localhost:11434/v1" },
-      [
+    // 列表含被删行自身也照常回收
+    expect(await revokeOrphanOriginViaBackground(deleted, [deleted])).toEqual({
+      origins: ["https://api.openai.com/*"],
+      revoked: true
+    });
+    expect(remove).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
+
+    // 另一条存活记录仍用同 origin 或同 host 其他端口 → 不回收
+    remove.mockClear();
+    expect(
+      await revokeOrphanOriginViaBackground(deleted, [{ id: "s1", baseUrl: "https://api.openai.com/chat" }])
+    ).toEqual({ origins: [], revoked: false });
+    expect(
+      await revokeOrphanOriginViaBackground(
         { id: "ollama", baseUrl: "http://localhost:11434/v1" },
-        { id: "vllm", baseUrl: "http://localhost:8000/v1" }
-      ],
-      { contains: containsGranted, remove }
-    );
-    expect(resp).toEqual({ origins: [], revoked: false });
+        [
+          { id: "ollama", baseUrl: "http://localhost:11434/v1" },
+          { id: "vllm", baseUrl: "http://localhost:8000/v1" }
+        ]
+      )
+    ).toEqual({ origins: [], revoked: false });
+    expect(await revokeOrphanOriginViaBackground({ id: "a1", baseUrl: "oops" }, [])).toEqual({
+      origins: [],
+      revoked: false
+    });
     expect(remove).not.toHaveBeenCalled();
-  });
 
-  it("同 host 无其他端口占用 → 回收无端口 pattern", async () => {
-    const remove = vi.fn(async () => true);
-    const contains = vi.fn(async () => true);
-    const resp = await revokeOrphanOrigin(
-      { id: "ollama", baseUrl: "http://localhost:11434/v1" },
-      [{ id: "ollama", baseUrl: "http://localhost:11434/v1" }],
-      { contains, remove }
-    );
-    expect(contains).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+    // 同 host 无其他端口占用 → 无端口 pattern 回收
+    expect(
+      await revokeOrphanOriginViaBackground(
+        { id: "ollama", baseUrl: "http://localhost:11434/v1" },
+        [{ id: "ollama", baseUrl: "http://localhost:11434/v1" }]
+      )
+    ).toEqual({ origins: ["http://localhost/*"], revoked: true });
     expect(remove).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
-    expect(resp).toEqual({ origins: ["http://localhost/*"], revoked: true });
   });
 
-  it("命中 manifest.host_permissions 静态常驻域 → 直接跳过回收，不算失败", async () => {
-    const contains = vi.fn(async () => true);
-    const remove = vi.fn(async () => false);
-    const resp = await revokeOrphanOrigin(
-      { id: "ms", baseUrl: "https://api-inference.modelscope.cn/v1" },
-      [],
-      {
-        contains,
-        remove,
-        staticHostPermissions: ["https://api-inference.modelscope.cn/*"]
-      }
-    );
-    expect(isStaticHostPermission("https://api-inference.modelscope.cn/*", ["https://api-inference.modelscope.cn/*"])).toBe(true);
-    expect(resp).toEqual({ origins: [], revoked: false });
-    expect(contains).not.toHaveBeenCalled();
-    expect(remove).not.toHaveBeenCalled();
-  });
-
-  it("content 语境（无 chrome.permissions）→ 经 revoke-provider-origin 委托 background 回收", async () => {
+  it("content 语境（无 chrome.permissions）→ 常驻域零消息跳过，非静态可选域委托 background 回收", async () => {
     delete (globalThis.chrome as unknown as { permissions?: unknown }).permissions;
     const sendMessage = vi.fn((msg: unknown, cb?: (resp: unknown) => void) => {
       cb?.({ origins: ["https://custom-relay.example.com/*"], revoked: true });
@@ -516,7 +467,6 @@ describe("revokeOrphanOrigin（删除时的 origin 回收执行）", () => {
       host_permissions: ["https://api-inference.modelscope.cn/*"]
     });
 
-    // 静态常驻域零消息跳过
     const staticResp = await revokeOrphanOriginViaBackground(
       { id: "ms", baseUrl: "https://api-inference.modelscope.cn/v1" },
       []
@@ -524,7 +474,6 @@ describe("revokeOrphanOrigin（删除时的 origin 回收执行）", () => {
     expect(staticResp).toEqual({ origins: [], revoked: false });
     expect(sendMessage).not.toHaveBeenCalled();
 
-    // 非静态可选域委托 background
     const optionalResp = await revokeOrphanOriginViaBackground(
       { id: "c1", baseUrl: "https://custom-relay.example.com/v1" },
       []

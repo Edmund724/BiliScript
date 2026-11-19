@@ -1,3 +1,6 @@
+// permission-grant 扩展授权页行为测试 + SW host 权限消息族接线校验。
+// 四条 SW 权限消息的完整分支直测位于 tests/core/host-permission-handlers.test.ts；
+// 本文件仅锁 SW 组合根的四键接线与 permission-grant.html / permission-grant.ts 页面行为。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,28 +17,10 @@ type RuntimeListener = (
   sendResponse: (response?: unknown) => void
 ) => boolean | void;
 
-interface BackgroundHarnessOptions {
-  requestImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
-  containsImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
-  removeImpl?: (permissions: { origins?: string[] }) => Promise<boolean>;
-  hostPermissions?: string[];
-  createWindowImpl?: (options: Record<string, unknown>) => Promise<{ id?: number }>;
-}
-
-function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
-  const windowRemovedListeners = new Set<(windowId: number) => void>();
-
-  const requestMock = vi.fn(options.requestImpl ?? (async () => true));
-  const containsMock = vi.fn(options.containsImpl ?? (async () => false));
-  const removeMock = vi.fn(options.removeImpl ?? (async () => true));
-  const createWindowMock = vi.fn(options.createWindowImpl ?? (async () => ({ id: 42 })));
-  const removeWindowMock = vi.fn(async () => {});
-  const addRemovedListener = vi.fn((fn: (windowId: number) => void) => {
-    windowRemovedListeners.add(fn);
-  });
-  const removeRemovedListener = vi.fn((fn: (windowId: number) => void) => {
-    windowRemovedListeners.delete(fn);
-  });
+function installMinimalBackgroundStub() {
+  const requestMock = vi.fn(async () => true);
+  const containsMock = vi.fn(async () => true);
+  const removeMock = vi.fn(async () => true);
 
   vi.stubGlobal("chrome", {
     runtime: {
@@ -44,51 +29,22 @@ function installBackgroundChromeStub(options: BackgroundHarnessOptions = {}) {
       getURL: (path: string) => `moz-extension://ext-test-uuid/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
-      getManifest: () => ({
-        version: "2.7.4",
-        host_permissions: options.hostPermissions ?? []
-      })
+      getManifest: () => ({ version: "2.7.4", host_permissions: [] })
     },
     tabs: { onUpdated: { addListener: vi.fn() } },
     storage: {
       sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
-      local: {
-        get: vi.fn(async () => ({})),
-        set: vi.fn(async () => {}),
-        remove: vi.fn(async () => {})
-      },
+      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
     },
     permissions: {
       request: requestMock,
       contains: containsMock,
       remove: removeMock
-    },
-    windows: {
-      create: createWindowMock,
-      remove: removeWindowMock,
-      onRemoved: {
-        addListener: addRemovedListener,
-        removeListener: removeRemovedListener
-      }
     }
   });
 
-  return {
-    requestMock,
-    containsMock,
-    removeMock,
-    createWindowMock,
-    removeWindowMock,
-    addRemovedListener,
-    removeRemovedListener,
-    windowRemovedListeners
-  };
-}
-
-async function importBackgroundListener(): Promise<RuntimeListener> {
-  await import("../../extension/entry/background.js");
-  return vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0] as RuntimeListener;
+  return { requestMock, containsMock, removeMock };
 }
 
 function sendToBackground(
@@ -99,10 +55,6 @@ function sendToBackground(
   return new Promise((resolve) => {
     listener(message, sender, (resp) => resolve(resp));
   });
-}
-
-function extractPopupReqId(popupUrl: string): string {
-  return new URL(popupUrl).searchParams.get("reqId") || "";
 }
 
 function installPermissionGrantDom(html: string): void {
@@ -121,248 +73,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("request-provider-origins：无端口 pattern 与 Firefox 授权回退", () => {
-  it("正常路径：向 permissions.request 传入去重后的无端口 pattern", async () => {
-    const stub = installBackgroundChromeStub({ requestImpl: async () => true });
-    const listener = await importBackgroundListener();
+describe("entry/background host 权限消息族接线", () => {
+  it("四条权限消息均派发至 createHostPermissionHandlers 工厂产物并贯通 chrome.permissions", async () => {
+    const stub = installMinimalBackgroundStub();
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0] as RuntimeListener;
 
-    const response = await sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["http://localhost:11434/v1", "http://localhost:8000/v1"]
-    });
-
-    expect(response).toEqual({ ok: true });
+    expect(
+      await sendToBackground(listener, {
+        type: "request-provider-origins",
+        baseUrls: ["http://localhost:11434/v1"]
+      })
+    ).toEqual({ ok: true });
     expect(stub.requestMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
-    expect(stub.createWindowMock).not.toHaveBeenCalled();
-  });
 
-  it("非手势类异常：保持原有失败语义，不查 contains 也不拉起弹窗", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions API unavailable");
-      }
-    });
-    const listener = await importBackgroundListener();
-
-    const response = await sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["https://custom-relay.example.com/v1"]
-    });
-
-    expect(response).toEqual({
-      ok: false,
-      error: "申请域名权限失败：permissions API unavailable"
-    });
-    expect(stub.containsMock).not.toHaveBeenCalled();
-    expect(stub.createWindowMock).not.toHaveBeenCalled();
-  });
-
-  it("Firefox 手势报错且命中常驻域（contains 为 true）→ 静默放行，不弹窗", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions.request may only be called from a user input handler");
-      },
-      containsImpl: async () => true
-    });
-    const listener = await importBackgroundListener();
-
-    const response = await sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["https://api.openai.com/v1"]
-    });
-
-    expect(response).toEqual({ ok: true });
-    expect(stub.containsMock).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
-    expect(stub.createWindowMock).not.toHaveBeenCalled();
-  });
-
-  it("Firefox 手势报错且混合已授权与未授权域名 → 仅对未授权子集弹窗", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions.request may only be called from a user input handler");
-      },
-      containsImpl: async ({ origins }) => origins?.[0] === "https://api.openai.com/*",
-      createWindowImpl: async () => ({ id: 89 })
-    });
-    const listener = await importBackgroundListener();
-
-    const pending = sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["https://api.openai.com/v1", "http://localhost:11434/v1"]
-    });
-
-    await vi.waitFor(() => expect(stub.createWindowMock).toHaveBeenCalledTimes(1));
-    const createArgs = stub.createWindowMock.mock.calls[0][0] as { url: string };
-    const popupUrl = new URL(createArgs.url);
-    expect(JSON.parse(popupUrl.searchParams.get("origins") || "[]")).toEqual(["http://localhost/*"]);
-
-    const reqId = extractPopupReqId(createArgs.url);
-    await sendToBackground(
-      listener,
-      { type: "permission-grant-result", reqId, ok: true },
-      { url: createArgs.url, id: "ext-test-id", tab: { id: 102, url: createArgs.url } }
-    );
-    expect(await pending).toEqual({ ok: true });
-  });
-
-  it("Firefox 手势报错且未授权自定义域 → 拉起小窗并在允许回包后返回 ok，清理监听器", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("Missing user gesture");
-      },
-      containsImpl: async () => false,
-      createWindowImpl: async () => ({ id: 88 })
-    });
-    const listener = await importBackgroundListener();
-
-    const pending = sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["http://localhost:11434/v1"]
-    });
-
-    await vi.waitFor(() => expect(stub.createWindowMock).toHaveBeenCalledTimes(1));
-    const createArgs = stub.createWindowMock.mock.calls[0][0] as {
-      url: string;
-      type: string;
-      width: number;
-      height: number;
-      focused: boolean;
-    };
-    expect(createArgs.type).toBe("popup");
-    expect(createArgs.width).toBe(460);
-    expect(createArgs.height).toBe(360);
-    expect(createArgs.focused).toBe(true);
-    expect(createArgs.url).toContain("moz-extension://ext-test-uuid/entry/permission-grant.html?");
-
-    const reqId = extractPopupReqId(createArgs.url);
-    expect(reqId).not.toBe("");
-
-    // 非授权来源（content script / 其他页面）伪造回包必须被拒绝且不影响挂起请求
-    const forgedResp = await sendToBackground(
-      listener,
-      { type: "permission-grant-result", reqId, ok: true },
-      { url: "https://www.bilibili.com/video/BV1test000000", id: "ext-test-id" }
-    );
-    expect(forgedResp).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
-
-    // 来自扩展授权小窗本身的合法回包完成授权
-    const ackResp = await sendToBackground(
-      listener,
-      { type: "permission-grant-result", reqId, ok: true },
-      {
-        url: createArgs.url,
-        id: "ext-test-id",
-        tab: { id: 101, url: createArgs.url }
-      }
-    );
-    expect(ackResp).toEqual({ ok: true });
-    expect(await pending).toEqual({ ok: true });
-    expect(stub.removeRemovedListener).toHaveBeenCalledTimes(1);
-    expect(stub.windowRemovedListeners.size).toBe(0);
-  });
-
-  it("弹窗被用户直接关闭（windows.onRemoved）→ 按取消回包并清理监听器", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions.request may only be called from a user input handler");
-      },
-      containsImpl: async () => false,
-      createWindowImpl: async () => ({ id: 99 })
-    });
-    const listener = await importBackgroundListener();
-
-    const pending = sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["http://localhost:11434/v1"]
-    });
-
-    await vi.waitFor(() => expect(stub.createWindowMock).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(stub.addRemovedListener).toHaveBeenCalledTimes(1));
-
-    const [onRemoved] = [...stub.windowRemovedListeners];
-    onRemoved(99);
-
-    const response = (await pending) as { ok: boolean; error?: string };
-    expect(response.ok).toBe(false);
-    expect(response.error).toContain("未授权 http://localhost/*");
-    expect(stub.removeRemovedListener).toHaveBeenCalledTimes(1);
-    expect(stub.windowRemovedListeners.size).toBe(0);
-  });
-
-  it("弹窗 120s 未响应 → 超时失败回包并清理监听器与弹窗", async () => {
-    vi.useFakeTimers();
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions.request may only be called from a user input handler");
-      },
-      containsImpl: async () => false,
-      createWindowImpl: async () => ({ id: 77 })
-    });
-    const listener = await importBackgroundListener();
-
-    const pending = sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["https://relay.example.com/v1"]
-    });
-
-    await vi.waitFor(() => expect(stub.createWindowMock).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(120_000);
-
-    const response = (await pending) as { ok: boolean; error?: string };
-    expect(response.ok).toBe(false);
-    expect(response.error).toContain("授权超时");
-    expect(stub.removeWindowMock).toHaveBeenCalledWith(77);
-    expect(stub.removeRemovedListener).toHaveBeenCalledTimes(1);
-    expect(stub.windowRemovedListeners.size).toBe(0);
-  });
-
-  it("windows.create 同步抛错 → 立即失败回包并清理监听器", async () => {
-    const stub = installBackgroundChromeStub({
-      requestImpl: async () => {
-        throw new Error("permissions.request may only be called from a user input handler");
-      },
-      containsImpl: async () => false,
-      createWindowImpl: () => {
-        throw new Error("popup blocked");
-      }
-    });
-    const listener = await importBackgroundListener();
-
-    const response = (await sendToBackground(listener, {
-      type: "request-provider-origins",
-      baseUrls: ["https://relay.example.com/v1"]
-    })) as { ok: boolean; error?: string };
-
-    expect(response).toEqual({
-      ok: false,
-      error: "申请域名权限失败：popup blocked"
-    });
-    expect(stub.removeRemovedListener).toHaveBeenCalledTimes(1);
-    expect(stub.windowRemovedListeners.size).toBe(0);
-  });
-
-  it("revoke-provider-origin：跳过 manifest 静态常驻域，非静态可选域经 permissions.remove 回收", async () => {
-    const stub = installBackgroundChromeStub({
-      containsImpl: async () => true,
-      removeImpl: async () => true,
-      hostPermissions: ["https://api-inference.modelscope.cn/*"]
-    });
-    const listener = await importBackgroundListener();
-
-    const staticRes = await sendToBackground(listener, {
-      type: "revoke-provider-origin",
-      origin: "https://api-inference.modelscope.cn/*"
-    });
-    expect(staticRes).toEqual({ origins: [], revoked: false });
-    expect(stub.removeMock).not.toHaveBeenCalled();
-
-    const optionalRes = await sendToBackground(listener, {
-      type: "revoke-provider-origin",
-      origin: "http://localhost:11434/v1"
-    });
+    expect(
+      await sendToBackground(listener, {
+        type: "check-provider-origin",
+        origin: "http://localhost:11434/*"
+      })
+    ).toEqual({ granted: true });
     expect(stub.containsMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+
+    expect(
+      await sendToBackground(listener, {
+        type: "revoke-provider-origin",
+        origin: "http://localhost:11434/v1"
+      })
+    ).toEqual({ origins: ["http://localhost/*"], revoked: true });
     expect(stub.removeMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
-    expect(optionalRes).toEqual({ origins: ["http://localhost/*"], revoked: true });
+
+    expect(
+      await sendToBackground(
+        listener,
+        { type: "permission-grant-result", reqId: "missing", ok: true },
+        { url: "https://www.bilibili.com/video/BV1test000000", id: "ext-test-id" }
+      )
+    ).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
   });
 });
 

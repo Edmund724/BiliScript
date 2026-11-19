@@ -11,13 +11,14 @@ import {
   DUPLICATE_CLASSIC_INJECTION_SENTINEL,
   RECEIVING_END_MISSING_SENTINEL
 } from "../shared/content-error-sentinels.js";
+import type { ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 export interface BackgroundContentOrchestratorDeps {
   probeOnce: (tabId: number) => Promise<string>;
   injectAssets: (tabId: number) => Promise<void>;
   reloadTab: (tabId: number) => Promise<void>;
   waitForTabComplete: (tabId: number, options: { polls: number }) => Promise<boolean>;
-  sendMessageToTab: (tabId: number, message: unknown) => Promise<{ ok?: boolean }>;
+  sendMessageToTab: (tabId: number, message: ContentScriptMessage) => Promise<{ ok?: boolean }>;
   isTabReaderModeOff: (tabId: number) => Promise<boolean>;
   canInject: (tabId: number) => boolean;
   expectedVersion: string;

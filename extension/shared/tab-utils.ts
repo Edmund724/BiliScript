@@ -1,19 +1,10 @@
-// tab-utils.ts — tab / chrome.runtime transport helpers shared across extension
-// pages, extracted out of extension/pages/sidepanel.js (ticket 08 of
-// sidepanel-split, the thin-orchestrator pass).
-//
-// Domain: shared. These are sidepanel-local utilities that are pure transport
-// (no sidepanel module-level state) and are needed both by the sidepanel
-// orchestrator itself and by the injected deps it hands to ui/timestamp-nav.js
-// (the seek flow reuses the same retry-wrapped sendMessageToActiveTab instead of
-// reimplementing it).
+// tab-utils.ts — tab 级通信与加载等待原语（纯传输叶，零域依赖）。
 //
 // Exported functions:
-//   - sleep(ms)                                pure; promise sleep via window.setTimeout
 //   - waitForTabComplete(tabId, options)       polls chrome.tabs.get until "complete"
-//   - sendMessageToTab(tabId, message)         one-shot tabs.sendMessage as a promise
-//   - sendMessageToActiveTab(tabId, message, retries=12)  retry-wrapped tabs.sendMessage
+//   - sendMessageToTab(tabId, message)         typed one-shot tabs.sendMessage as a promise
 import { sleep } from "./utils.js";
+import type { ContentScriptMessage, ResponseOf } from "./messaging-protocol.js";
 
 interface WaitForTabCompleteOptions {
   timeoutMs?: number;
@@ -48,33 +39,23 @@ export async function waitForTabComplete(
   }
 }
 
-// 单发 tabs.sendMessage（callback 包成 promise；无重试，重试变体见
-// sendMessageToActiveTab）。
-export function sendMessageToTab<T = unknown>(tabId: number, message: unknown): Promise<T> {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (resp: unknown) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(resp as T);
-    });
-  });
-}
-
-export async function sendMessageToActiveTab<T = unknown>(
+// 单发 tabs.sendMessage（callback 包成 promise，返回类型按 ContentScriptMessage 经
+// ResponseOf<M> 静态推断；同步抛错与 chrome.runtime.lastError 统一 reject）。
+export function sendMessageToTab<M extends ContentScriptMessage>(
   tabId: number,
-  message: unknown,
-  retries = 12
-): Promise<T> {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < retries; attempt += 1) {
+  message: M
+): Promise<ResponseOf<M>> {
+  return new Promise((resolve, reject) => {
     try {
-      return await sendMessageToTab<T>(tabId, message);
+      chrome.tabs.sendMessage(tabId, message, (resp: unknown) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(resp as ResponseOf<M>);
+      });
     } catch (error) {
-      lastError = error;
-      await sleep(220);
+      reject(error);
     }
-  }
-  throw lastError || new Error("无法连接视频页面");
+  });
 }
