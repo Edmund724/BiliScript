@@ -26,6 +26,7 @@ import { state } from "../core/state.js";
 // playerAi 状态微模块（随 ai 域内聚）：本模块独占读写，不再经 core/state。
 import { playerAiState } from "./player-ai-state.js";
 import { isVisibleReaderControl } from "../shared/dom-utils.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 // 耗时日志走 shared/logging 的 Always 直出口（工单 button-injection-stability
 // 决议：默认开启——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
@@ -134,6 +135,9 @@ const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 // 任一不成立都落回全量路径——按钮被 B 站重渲染摘掉、宿主被替换、wrap 被移走
 // 都是失同步，必须走原 rAF / 退避兜底补回。
 function isPlayerLiveQuickActionMountedStable(playerHost: HTMLElement): boolean {
+  if (!supportsLiveCompanion()) {
+    return true;
+  }
   const liveWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
   const liveButton = document.getElementById("biliscript-player-live-quick-action");
   if (!liveWrap || !liveButton || !liveWrap.isConnected || !liveWrap.contains(liveButton)) {
@@ -378,6 +382,11 @@ function schedulePlayerAiQuickActionRetry(): void {
 }
 
 function mountPlayerLiveQuickAction(playerHost: HTMLElement): void {
+  if (!supportsLiveCompanion()) {
+    document.getElementById("biliscript-player-live-quick-action-wrap")?.remove();
+    document.getElementById("biliscript-player-live-quick-action")?.remove();
+    return;
+  }
   const existingLive = document.getElementById("biliscript-player-live-quick-action");
   let liveButton: HTMLButtonElement | null = existingLive instanceof HTMLButtonElement ? existingLive : null;
   const existingWrap = document.getElementById("biliscript-player-live-quick-action-wrap");
@@ -794,6 +803,9 @@ async function handlePlayerInterpretQuickActionClick(event: MouseEvent): Promise
 async function handlePlayerLiveQuickActionClick(event: MouseEvent): Promise<void> {
   event.preventDefault();
   event.stopPropagation();
+  if (!supportsLiveCompanion()) {
+    return;
+  }
   liveQuickActionTargetButton =
     event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
   await liveQuickActionToggleHandler.handleClick();

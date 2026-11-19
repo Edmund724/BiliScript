@@ -132,6 +132,7 @@ import { activateScriptTab } from "./script-tab-activation.js";
 // 本叶子不拖常驻图。
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
+import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
 // 对话分区表模块顶兜底挂载（arch-slim-4/07，settings-panel.ts 顶挂载同款先例）：
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
@@ -405,10 +406,12 @@ const composer = createReaderChatComposer({
   prepareManualPrompt: (text) => explainIntentController.buildFollowUpPrompt(text),
   getManualPromptAnchor: () => explainIntentController.getPendingFollowUpAnchor(),
   onManualPromptAccepted: () => explainIntentController.completePendingFollowUp(),
-  getLiveState: () => getLiveController()?.getState() ?? "idle",
-  onStartLive: () => {
-    void startLiveCompanion();
-  }
+  getLiveState: supportsLiveCompanion() ? () => getLiveController()?.getState() ?? "idle" : undefined,
+  onStartLive: supportsLiveCompanion()
+    ? () => {
+        void startLiveCompanion();
+      }
+    : undefined
 });
 
 const explainIntentController = createExplainIntentController({
@@ -739,7 +742,9 @@ const sessionTriggers = createReaderChatSessionTriggers({
   storageWatcher: () => {
     const unwatchProviders = watchStorageKeys(() => {
       void refreshProvidersAndPrefsAfterExternalChange();
-      void getLiveController()?.refreshTarget();
+      if (supportsLiveCompanion()) {
+        void getLiveController()?.refreshTarget();
+      }
     }, {
       sync: [
         "aiProviders",
@@ -830,7 +835,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     modelPanel.reload(),
     conversationStore.loadAll(),
     loadContextState(),
-    getLiveController()?.refreshTarget() ?? Promise.resolve()
+    supportsLiveCompanion() ? (getLiveController()?.refreshTarget() ?? Promise.resolve()) : Promise.resolve()
   ]);
   if (isStale()) {
     sessionTriggers.deactivate();
@@ -858,12 +863,16 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 async function restoreChatSession(): Promise<void> {
   const generation = ++sessionGeneration;
   const isStale = () => sessionClosed || generation !== sessionGeneration;
-  bindLiveConsumerHooks();
+  if (supportsLiveCompanion()) {
+    bindLiveConsumerHooks();
+  }
   await modelPanel.reload().catch(() => null);
   if (isStale()) {
     return;
   }
-  void getLiveController()?.refreshTarget();
+  if (supportsLiveCompanion()) {
+    void getLiveController()?.refreshTarget();
+  }
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok || isStale()) {
     return;
@@ -1007,7 +1016,9 @@ export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
 
 function bindEvents(): void {
   if (eventsBound) {
-    bindLiveConsumerHooks();
+    if (supportsLiveCompanion()) {
+      bindLiveConsumerHooks();
+    }
     return;
   }
   eventsBound = true;
@@ -1064,6 +1075,9 @@ function bindEvents(): void {
       void sendRuntimeMessage({ type: "save-settings", settings: { speechVoiceVolume: val } }).catch(() => null);
     }
   });
+  if (!supportsTtsSpeech() && els.speechVolume) {
+    els.speechVolume.hidden = true;
+  }
 
   syncMoreMenuSlidersFromState = () => {
     lineHeightSlider.setValue(state.settings?.chatLineHeight);
@@ -1095,8 +1109,10 @@ function bindEvents(): void {
     popovers.hideHistoryPopover();
   });
 
-  ensureLiveController();
-  bindLiveConsumerHooks();
+  if (supportsLiveCompanion()) {
+    ensureLiveController();
+    bindLiveConsumerHooks();
+  }
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换）：
   //   1. 图片附件预览与删除（附件条目由 chat/chat-input-images.ts 重建）；

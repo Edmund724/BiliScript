@@ -37,6 +37,7 @@ import {
 } from "../ui/trigger-motion.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { formatClock } from "../shared/clock-text.js";
+import { supportsTtsSpeech } from "../shared/runtime-capabilities.js";
 import type { ImagePart } from "../ai/types.js";
 import { createChatImageViewer, createChatImageViewButton } from "./chat-image-viewer.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
@@ -1378,15 +1379,18 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
 
     actions.appendChild(createCopyButton("复制回复", () => cleanedRaw));
 
-    const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
-    speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
-    speakBtn.setAttribute("aria-pressed", "false");
-    speakBtn.addEventListener("click", () => {
-      if (content) {
-        void deps.onSpeak?.(node.dataset.messageId || "", speakBtn, content);
-      }
-    });
-    actions.append(speakBtn, regenerateBtn);
+    if (supportsTtsSpeech()) {
+      const speakBtn = createActionButton("chat-msg-speak-btn", "朗读回答", READING_SPEAKER_ICON);
+      speakBtn.disabled = !hasSpeakableContent || !deps.onSpeak;
+      speakBtn.setAttribute("aria-pressed", "false");
+      speakBtn.addEventListener("click", () => {
+        if (content) {
+          void deps.onSpeak?.(node.dataset.messageId || "", speakBtn, content);
+        }
+      });
+      actions.appendChild(speakBtn);
+    }
+    actions.appendChild(regenerateBtn);
 
     if (stopped) {
       actions.appendChild(createContinueButton(node, historyIndex));

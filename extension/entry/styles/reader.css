@@ -632,6 +632,18 @@
   width: 0;
   height: 0;
 }
+
+@supports (-moz-appearance: none) {
+  .biliscript-reading-subtitle,
+  .biliscript-reading-overview,
+  .biliscript-reading-chat .chat-messages,
+  .biliscript-reading-explain-card-content,
+  .biliscript-reading-explain-card-quote,
+  .biliscript-quote-share-dialog {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-faint) transparent;
+  }
+}
 .biliscript-reading-item {
   --biliscript-reader-time-col: calc(76px * var(--biliscript-reader-font-scale, 1));
   width: 100%;
@@ -2155,6 +2167,13 @@
   background: var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-black-rgb), 0.15));
   border-radius: var(--biliscript-radius-xs);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+}
+
+@supports (-moz-appearance: none) {
+  .biliscript-md-math {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-black-rgb), 0.15)) transparent;
+  }
 }
 
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */

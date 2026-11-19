@@ -1,5 +1,6 @@
 import { state, uiState } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
+import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
@@ -172,7 +173,7 @@ export function buildUiHtml(): string {
                         <span>宽松</span>
                       </div>
                     </div>
-                    <div id="${ids.readingChatSpeechVolume}" class="biliscript-slider-row">
+                    <div id="${ids.readingChatSpeechVolume}" class="biliscript-slider-row"${supportsTtsSpeech() ? "" : " hidden"}>
                       <div class="biliscript-slider-header">
                         <label class="biliscript-set-label" for="${ids.readingChatSpeechVolumeInput}">对话朗读音量</label>
                         <div class="biliscript-slider-header-actions">
@@ -299,6 +300,9 @@ subscribeUiCommand((name, payload) => {
   }
   if (name === "open-settings") {
     const target = (payload as { target?: unknown } | null)?.target;
+    if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
+      return;
+    }
     if (target === "asr") {
       void beginReaderAsrSetupFlow();
       return;

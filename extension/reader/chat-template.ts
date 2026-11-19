@@ -19,8 +19,10 @@
 
 import { ids } from "./state.js";
 import { READING_CHEVRON_DOWN_ICON } from "../ui/reading-icons.js";
+import { supportsLiveCompanion } from "../shared/runtime-capabilities.js";
 
 export function buildChatTabBodyHtml(): string {
+  const liveEnabled = supportsLiveCompanion();
   return `
       <div id="${ids.readingChatRoot}" class="biliscript-reading-chat">
         <!-- 历史对话整页：必须排在全部对话内容之前，兄弟选择器才成立（顺序即契约） -->
@@ -138,7 +140,7 @@ export function buildChatTabBodyHtml(): string {
                 </div>
               </div>
               <!-- 主操作键：idle 空草稿时开启伴看；有正文或贴图时发送；流式中停止 -->
-              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn is-live" aria-label="开启实时伴看" title="开启实时伴看">
+              <button id="${ids.readingChatSendBtn}" type="button" class="${liveEnabled ? "chat-send-btn is-live" : "chat-send-btn"}" aria-label="${liveEnabled ? "开启实时伴看" : "发送"}"${liveEnabled ? ' title="开启实时伴看"' : " disabled"}>
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>

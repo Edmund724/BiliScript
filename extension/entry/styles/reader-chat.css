@@ -754,6 +754,20 @@
   height: 0;
 }
 
+@supports (-moz-appearance: none) {
+  .biliscript-reading-chat .chat-thinking-text,
+  .biliscript-reading-chat .chat-history-list,
+  .biliscript-reading-chat .chat-search-sources,
+  .biliscript-reading-chat .chat-model-panel,
+  .biliscript-reading-chat .chat-model-list,
+  #biliscript-reading-view .markdown-body pre,
+  #biliscript-reading-view .markdown-body .biliscript-md-table-scroll,
+  .biliscript-reading-chat #biliscript-reading-chat-input {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-faint) transparent;
+  }
+}
+
 /* 思考流结束后的折叠态：收成一行「思考过程 ⌄」，点击展开回看（当轮有效，
  * 思考不落盘）；chevron 与下拉共用同一枚 SVG，间距由标题行的 flex gap 给。 */
 .biliscript-reading-chat .chat-thinking-collapsible .chat-thinking-label {
@@ -1654,6 +1668,13 @@
 .biliscript-reading-chat .chat-live-tool-records::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-pill);
+}
+
+@supports (-moz-appearance: none) {
+  .biliscript-reading-chat .chat-live-tool-records {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-border) transparent;
+  }
 }
 
 .biliscript-reading-chat .chat-live-tool-records[hidden] {
@@ -3229,6 +3250,13 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
 }
 
+@supports (-moz-appearance: none) {
+  .biliscript-reading-chat .biliscript-md-math {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-border) transparent;
+  }
+}
+
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-reading-chat .biliscript-md-math-block {
   display: flex !important;
@@ -3427,6 +3455,10 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   gap: 5px;
 }
 
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-row[hidden] {
+  display: none;
+}
+
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-header {
   display: flex;
   justify-content: space-between;
@@ -3534,6 +3566,33 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   box-shadow: 0 0 0 3px var(--biliscript-reader-accent-soft), 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
 }
 
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-reader-accent);
+  border: 2px solid var(--biliscript-reader-surface);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--biliscript-reader-accent-soft), 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+}
+
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-labels {
   display: flex;
   justify-content: space-between;
@@ -3585,5 +3644,9 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   .biliscript-reading-chat .chat-msg-cursor,
   .biliscript-reading-chat .chat-msg-cursor i {
     animation: none;
+  }
+
+  #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb {
+    transition: none;
   }
 }

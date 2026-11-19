@@ -30,6 +30,22 @@ function emitError(port: chrome.runtime.Port, requestId: number, error: unknown)
   }
 }
 
+function getChromeTts(): typeof chrome.tts | undefined {
+  return typeof chrome !== "undefined" && typeof chrome.tts !== "undefined"
+    ? chrome.tts
+    : undefined;
+}
+
+function stopChromeTts(): void {
+  const tts = getChromeTts();
+  if (!tts || typeof tts.stop !== "function") {
+    return;
+  }
+  try {
+    tts.stop();
+  } catch {}
+}
+
 function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { type: "speak" }>): void {
   if (activePort !== null && activeRequestId !== null && (activePort !== port || activeRequestId !== request.requestId)) {
     post(activePort, {
@@ -40,8 +56,13 @@ function speak(port: chrome.runtime.Port, request: Extract<ChatSpeechRequest, { 
   }
   activePort = port;
   activeRequestId = request.requestId;
+  const tts = getChromeTts();
+  if (!tts || typeof tts.speak !== "function") {
+    emitError(port, request.requestId, new Error("TTS API is unavailable"));
+    return;
+  }
   try {
-    const result = chrome.tts.speak(request.text, {
+    const result = tts.speak(request.text, {
       voiceName: request.voiceName,
       lang: request.lang,
       volume: typeof request.volume === "number" && Number.isFinite(request.volume)
@@ -79,14 +100,18 @@ export function attachChatSpeechPort(port: chrome.runtime.Port): boolean {
         activePort = null;
         activeRequestId = null;
       }
-      try {
-        chrome.tts.stop();
-      } catch {}
+      stopChromeTts();
       return;
     }
     if (request?.type === "get-voices") {
-      void chrome.tts.getVoices()
-        .then((voices) => post(port, { type: "voices", requestId: request.requestId, voices }))
+      const tts = getChromeTts();
+      if (!tts || typeof tts.getVoices !== "function") {
+        post(port, { type: "voices", requestId: request.requestId, voices: [] });
+        return;
+      }
+      void Promise.resolve()
+        .then(() => tts.getVoices())
+        .then((voices) => post(port, { type: "voices", requestId: request.requestId, voices: Array.isArray(voices) ? voices : [] }))
         .catch((error: unknown) => post(port, { type: "error", requestId: request.requestId, message: errorMessage(error) }));
       return;
     }
@@ -101,9 +126,7 @@ export function attachChatSpeechPort(port: chrome.runtime.Port): boolean {
     }
     activePort = null;
     activeRequestId = null;
-    try {
-      chrome.tts.stop();
-    } catch {}
+    stopChromeTts();
   });
   return true;
 }

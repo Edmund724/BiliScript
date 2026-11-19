@@ -700,6 +700,33 @@
   box-shadow: 0 0 0 3px var(--biliscript-reader-accent-soft), 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--biliscript-radius-circle);
+  background: var(--biliscript-reader-accent);
+  border: 2px solid var(--biliscript-reader-surface);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--biliscript-reader-accent-soft), 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
+}
+
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -814,7 +841,12 @@
 #biliscript-reading-view .agent-bridge-install-dialog {
   width: min(420px, calc(100% - 32px));
   padding: var(--biliscript-space-xl);
-  scrollbar-width: none;
+}
+
+@supports (-moz-appearance: none) {
+  #biliscript-reading-view .agent-bridge-install-dialog {
+    scrollbar-width: none;
+  }
 }
 
 #biliscript-reading-view .agent-bridge-install-dialog::-webkit-scrollbar {
@@ -953,6 +985,10 @@
 
   #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle svg,
   #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-webkit-slider-thumb {
+    transition: none;
+  }
+
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-thumb {
     transition: none;
   }
 }

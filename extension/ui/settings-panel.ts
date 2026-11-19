@@ -14,6 +14,7 @@
 //     chrome.permissions.request 前零 await）。
 
 import { DEFAULT_SETTINGS, type KnownSettingKey, type Settings } from "../core/defaults.js";
+import { supportsLiveCompanion, supportsTtsSpeech } from "../shared/runtime-capabilities.js";
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
@@ -747,7 +748,9 @@ function syncAllSummaries(elements: SettingsElements): void {
   if (elements.enablePlayerAiQuickAction.checked) promptParts.push("播放器快捷开");
   const quickCount = collectInitialQuickPrompts(elements).length;
   if (quickCount > 0) promptParts.push(`${quickCount} 条快捷问题`);
-  promptParts.push(`朗读 ${normalizeSpeechVoiceVolume(elements.speechVoiceVolume.value)}%`);
+  if (supportsTtsSpeech()) {
+    promptParts.push(`朗读 ${normalizeSpeechVoiceVolume(elements.speechVoiceVolume.value)}%`);
+  }
   elements.aiPromptSummary.textContent = promptParts.join(" · ");
 
   const normalizedFormat = normalizeDownloadFormat(elements.downloadFormat.value);
@@ -820,14 +823,15 @@ function navigateSettingsView(
   view: SettingsViewId,
   options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean } = {}
 ): void {
+  const targetView: SettingsViewId = view === "live" && !supportsLiveCompanion() ? "root" : view;
   const elements = collectElements(host);
   const previousView = activeSettingsView;
   const scrollContainer = getScrollContainer(host);
 
-  if (previousView === "root" && view !== "root") {
+  if (previousView === "root" && targetView !== "root") {
     savedRootScrollTop = scrollContainer.scrollTop;
-    if (view !== "agent-address") {
-      subpageReturnButton = options.returnButton ?? getEntryButtonForSubpage(elements, view);
+    if (targetView !== "agent-address") {
+      subpageReturnButton = options.returnButton ?? getEntryButtonForSubpage(elements, targetView);
     }
   }
 
@@ -845,27 +849,27 @@ function navigateSettingsView(
     "advanced"
   ];
   for (const key of allViews) {
-    getViewElement(elements, key).hidden = key !== view;
+    getViewElement(elements, key).hidden = key !== targetView;
   }
 
-  activeSettingsView = view;
-  elements.settingsTitle.textContent = SETTINGS_VIEW_TITLES[view];
-  elements.resetBtn.hidden = view !== "root";
+  activeSettingsView = targetView;
+  elements.settingsTitle.textContent = SETTINGS_VIEW_TITLES[targetView];
+  elements.resetBtn.hidden = targetView !== "root";
   elements.backBtn.setAttribute(
     "aria-label",
-    view === "root" ? "返回" : view === "agent-address" ? "返回本地 Agent 连接" : "返回设置总览"
+    targetView === "root" ? "返回" : targetView === "agent-address" ? "返回本地 Agent 连接" : "返回设置总览"
   );
 
   const shouldFocus = options.focusOnEnter !== false;
-  if (previousView === "agent-address" && view !== "agent-address") {
-    agentBridgeSettings?.onAddressViewClosed({ focusButton: view === "agent" && shouldFocus });
-    if (view === "agent") {
+  if (previousView === "agent-address" && targetView !== "agent-address") {
+    agentBridgeSettings?.onAddressViewClosed({ focusButton: targetView === "agent" && shouldFocus });
+    if (targetView === "agent") {
       scrollContainer.scrollTop = 0;
       return;
     }
   }
 
-  if (view === "root") {
+  if (targetView === "root") {
     scrollContainer.scrollTop = savedRootScrollTop;
     const returnTarget = subpageReturnButton?.isConnected ? subpageReturnButton : null;
     subpageReturnButton = null;
@@ -876,8 +880,8 @@ function navigateSettingsView(
   }
 
   scrollContainer.scrollTop = 0;
-  if (shouldFocus && view !== "agent-address") {
-    const viewEl = getViewElement(elements, view);
+  if (shouldFocus && targetView !== "agent-address") {
+    const viewEl = getViewElement(elements, targetView);
     const firstFocusable = viewEl.querySelector<HTMLElement>(
       "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
     );
@@ -938,6 +942,9 @@ export function openAppearanceSettings(): Promise<void> {
 }
 
 async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Promise<void> {
+  if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
+    return;
+  }
   const host = settingsHostRef ?? document.getElementById(ids.readingSettingsHost);
   if (!host) return;
   pendingSettingsTarget = target;
@@ -1502,6 +1509,9 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
 
 // 音色回退提示（仅一次）：信箱内容在读取时清除，重开设置不再重复出现。
 async function syncLiveVoiceFallbackHint(elements: SettingsElements): Promise<void> {
+  if (!supportsLiveCompanion()) {
+    return;
+  }
   const notice = await takeLiveVoiceFallbackNotice();
   const hint = elements.liveVoiceFallbackHint;
   if (!hint) return;
@@ -1812,6 +1822,18 @@ function bindSettingsEvents(host: HTMLElement): void {
 
   bindSettingsNavigation(host, elements);
 
+  if (!supportsLiveCompanion()) {
+    elements.openLiveSettingsBtn.hidden = true;
+    elements.openLiveSettingsBtn.setAttribute("aria-hidden", "true");
+    elements.subpageLive.hidden = true;
+  }
+  if (!supportsTtsSpeech()) {
+    const speechVolumeRow = elements.speechVoiceVolume.closest<HTMLElement>(".biliscript-slider-row");
+    if (speechVolumeRow) {
+      speechVolumeRow.hidden = true;
+    }
+  }
+
   elements.backBtn?.addEventListener("click", (event) => {
     if (hasReaderSettingsOverlayOpen()) return;
     event.stopPropagation();
@@ -1853,7 +1875,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   providerHost?.dispose();
   providerHost = createProviderSettingsHost({
     host,
-    mountedFamilies: ["ai", "live", "asr", "search"],
+    mountedFamilies: supportsLiveCompanion() ? ["ai", "live", "asr", "search"] : ["ai", "asr", "search"],
     onStatus: (message, isError) => setStatus(elements, message, isError),
     canRestoreConsumerEditor: () => !document.getElementById(ids.readingSettingsPanel)?.hidden,
     onAiChanged: (providers, { settings: known }) => {

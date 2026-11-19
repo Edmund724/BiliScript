@@ -61,6 +61,15 @@ let quickActionStartupDecided = false;
 
 init();
 
+function isFirefoxExtensionRuntime(): boolean {
+  try {
+    const url = typeof chrome !== "undefined" ? chrome.runtime?.getURL?.("") : "";
+    return typeof url === "string" && url.startsWith("moz-extension://");
+  } catch {
+    return false;
+  }
+}
+
 function isSupportedUrl(): boolean {
   if (isReaderMode()) return true;
   return isSupportedVideoPage();
@@ -71,8 +80,11 @@ function init(): void {
   // 失败，onChanged 保活后续开关。
   registerDebugLogGate();
   logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
-  // 直播间只挂实时伴看浮窗，不走视频页的面板/字幕/概览装配。
+  // 直播间只挂实时伴看浮窗，不走视频页的面板/字幕/概览装配；Firefox 首期门控下安全短路。
   if (isLiveRoomPage()) {
+    if (isFirefoxExtensionRuntime()) {
+      return;
+    }
     loadLiveRoom()
       .then((domain) => domain.startLiveRoomCompanion())
       .catch((error) => {

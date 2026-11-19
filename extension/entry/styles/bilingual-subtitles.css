@@ -150,6 +150,13 @@
   height: 0;
 }
 
+@supports (-moz-appearance: none) {
+  #biliscript-reading-view .biliscript-bilingual-col {
+    scrollbar-width: thin;
+    scrollbar-color: var(--biliscript-reader-faint) transparent;
+  }
+}
+
 #biliscript-reading-view .biliscript-bilingual-col-head {
   padding: 2px 10px;
   font-size: var(--biliscript-font-size-sm);
