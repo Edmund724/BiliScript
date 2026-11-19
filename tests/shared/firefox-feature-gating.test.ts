@@ -355,7 +355,6 @@ describe("Live 实时伴看门控隐藏与直播间短路", () => {
       const store = createConversationStore({
         loadContextState: async () => true,
         resolveAiConversationRef: async () => ({}),
-        storage: null,
         onConversationChanged: () => {},
         onStreamInterrupted: () => {},
         onContextNotice: () => {},
