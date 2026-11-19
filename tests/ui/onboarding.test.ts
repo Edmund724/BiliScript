@@ -340,4 +340,61 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
     ctrl.dispose();
   });
+
+  it("平台预设 / 接口协议 / 转写平台接入 custom-select，全页下拉箭头与设置回退样式统一为 14px chevron", async () => {
+    installOnboardingRuntimeMock();
+    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
+    const ctrl = await mountOnboardingPage(document);
+
+    const modelArrowPath = document
+      .querySelector("#aiModelDropdownToggle svg path")
+      ?.getAttribute("d");
+    expect(modelArrowPath).toBe("m6 9 6 6 6-6");
+
+    for (const selectId of ["aiPresetSelect", "aiProtocolSelect", "asrPresetSelect"]) {
+      const select = document.getElementById(selectId) as HTMLSelectElement;
+      const wrapper = select.closest(".custom-select-wrapper");
+      expect(wrapper, `${selectId} 应接入 custom-select-wrapper`).not.toBeNull();
+      expect(select.style.display).toBe("none");
+      const arrowPath = wrapper?.querySelector(".custom-select-arrow svg path")?.getAttribute("d");
+      expect(arrowPath).toBe(modelArrowPath);
+    }
+
+    // 通过 custom-select 切换平台预设（支持搜索）后同步更新地址与默认模型
+    const presetWrapper = document.getElementById("aiPresetSelect")!.closest(".custom-select-wrapper")!;
+    const presetTrigger = presetWrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!;
+    const presetDropdown = presetWrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    presetTrigger.click();
+    expect(presetDropdown.hidden).toBe(false);
+    const searchInput = presetDropdown.querySelector<HTMLInputElement>(".custom-select-search-input");
+    expect(searchInput).not.toBeNull();
+
+    const deepseekOption = presetDropdown.querySelector<HTMLElement>(
+      '.custom-select-option[data-value="deepseek"]'
+    )!;
+    deepseekOption.click();
+    expect(presetDropdown.hidden).toBe(true);
+    expect((document.getElementById("aiPresetSelect") as HTMLSelectElement).value).toBe("deepseek");
+    expect(presetTrigger.querySelector(".custom-select-value")?.textContent).toBe("DeepSeek");
+    expect((document.getElementById("aiProtocolSelect") as HTMLSelectElement).value).toBe("anthropic");
+    expect(
+      document
+        .getElementById("aiProtocolSelect")!
+        .closest(".custom-select-wrapper")!
+        .querySelector(".custom-select-value")?.textContent
+    ).toContain("Anthropic");
+    expect((document.getElementById("aiBaseUrlInput") as HTMLInputElement).value).toBe(
+      "https://api.deepseek.com/anthropic"
+    );
+
+    const onboardingCss = readFileSync(join(process.cwd(), "extension", "entry", "styles", "onboarding.css"), "utf8");
+    const shellCss = readFileSync(
+      join(process.cwd(), "extension", "entry", "styles", "reader-settings-shell.css"),
+      "utf8"
+    );
+    expect(onboardingCss).not.toMatch(/linear-gradient\(45deg,/);
+    expect(shellCss).not.toMatch(/linear-gradient\(45deg,/);
+
+    ctrl.dispose();
+  });
 });

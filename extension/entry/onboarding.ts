@@ -29,9 +29,12 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import type { AsrProviderListEntry, ProviderListEntry } from "../shared/messaging-protocol.js";
 import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
 import {
+  closeAllCustomSelects,
   createOutsideClickDismissal,
   createSearchableOptionList,
-  CUSTOM_SELECT_SEARCH_THRESHOLD
+  CUSTOM_SELECT_SEARCH_THRESHOLD,
+  initCustomSelect,
+  setCustomSelectValue
 } from "../ui/custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "../ui/toggle-switch.js";
 
@@ -302,6 +305,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       activeMountDisposers.delete(doc);
     }
     closeAiModelDropdown(false);
+    closeAllCustomSelects();
     unwatch?.();
     if (onColorSchemeChange) {
       colorSchemeMedia?.removeEventListener?.("change", onColorSchemeChange);
@@ -379,14 +383,16 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       const label = preset.id === DEFAULT_AI_PRESET_ID ? `${preset.name}（推荐免费额度）` : preset.name;
       return `<option value="${preset.id}">${label}</option>`;
     }).join("");
-    aiPresetSelect.value = DEFAULT_AI_PRESET_ID;
+    setCustomSelectValue(aiPresetSelect, DEFAULT_AI_PRESET_ID);
+    initCustomSelect(aiPresetSelect, "custom-select-wrapper");
   }
 
   if (aiProtocolSelect) {
     aiProtocolSelect.innerHTML = PROTOCOL_OPTIONS.map(
       (opt) => `<option value="${opt.value}">${opt.label}</option>`
     ).join("");
-    aiProtocolSelect.value = "openai";
+    setCustomSelectValue(aiProtocolSelect, "openai");
+    initCustomSelect(aiProtocolSelect, "custom-select-wrapper");
   }
 
   if (asrPresetSelect) {
@@ -394,7 +400,8 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       const label = preset.id === DEFAULT_ASR_PRESET_ID ? `${preset.name}（推荐）` : preset.name;
       return `<option value="${preset.id}">${label}</option>`;
     }).join("");
-    asrPresetSelect.value = DEFAULT_ASR_PRESET_ID;
+    setCustomSelectValue(asrPresetSelect, DEFAULT_ASR_PRESET_ID);
+    initCustomSelect(asrPresetSelect, "custom-select-wrapper");
   }
 
   if (asrAutoFallbackToggle) initToggleSwitch(asrAutoFallbackToggle);
@@ -413,7 +420,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       ? resolveAdapter(preset.protocol).protocol
       : resolveAdapter(aiProtocolSelect?.value).protocol;
     if (options.updateProtocol && aiProtocolSelect) {
-      aiProtocolSelect.value = protocol;
+      setCustomSelectValue(aiProtocolSelect, protocol);
     }
     if (options.updateBaseUrl && aiBaseUrlInput) {
       aiBaseUrlInput.value = presetBaseUrlForProtocol(preset, protocol);
@@ -519,8 +526,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       editingAiId = String(preferredAi.id || "");
       editingAiHasSavedKey = Boolean(preferredAi.hasSavedKey);
       const presetId = String(preferredAi.presetId || DEFAULT_AI_PRESET_ID);
-      if (aiPresetSelect) aiPresetSelect.value = PRESETS.some((p) => p.id === presetId) ? presetId : "custom";
-      if (aiProtocolSelect) aiProtocolSelect.value = resolveAdapter(preferredAi.protocol).protocol;
+      if (aiPresetSelect) {
+        setCustomSelectValue(aiPresetSelect, PRESETS.some((p) => p.id === presetId) ? presetId : "custom");
+      }
+      if (aiProtocolSelect) {
+        setCustomSelectValue(aiProtocolSelect, resolveAdapter(preferredAi.protocol).protocol);
+      }
       if (aiBaseUrlInput) aiBaseUrlInput.value = String(preferredAi.baseUrl || "");
       const models = normalizeProviderModels(preferredAi);
       const activeModel = resolveCatalogModel(preferredAi, currentSettings.defaultAiModel) || models[0] || "";
@@ -533,7 +544,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     } else {
       editingAiId = "";
       editingAiHasSavedKey = false;
-      if (aiPresetSelect) aiPresetSelect.value = DEFAULT_AI_PRESET_ID;
+      if (aiPresetSelect) setCustomSelectValue(aiPresetSelect, DEFAULT_AI_PRESET_ID);
       syncAiPresetMetadata(DEFAULT_AI_PRESET_ID, { updateBaseUrl: true, updateProtocol: true, updateModel: true });
     }
 
@@ -548,7 +559,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       editingAsrHasSavedKey = Boolean(preferredAsr.hasSavedKey);
       const presetId = String(preferredAsr.presetId || DEFAULT_ASR_PRESET_ID);
       if (asrPresetSelect) {
-        asrPresetSelect.value = ASR_PROVIDER_PRESETS.some((p) => p.id === presetId) ? presetId : "custom";
+        setCustomSelectValue(asrPresetSelect, ASR_PROVIDER_PRESETS.some((p) => p.id === presetId) ? presetId : "custom");
       }
       if (asrBaseUrlInput) asrBaseUrlInput.value = String(preferredAsr.baseUrl || "");
       if (asrModelInput) asrModelInput.value = String(preferredAsr.model || resolveAsrPreset(presetId).model);
@@ -556,7 +567,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     } else {
       editingAsrId = "";
       editingAsrHasSavedKey = false;
-      if (asrPresetSelect) asrPresetSelect.value = DEFAULT_ASR_PRESET_ID;
+      if (asrPresetSelect) setCustomSelectValue(asrPresetSelect, DEFAULT_ASR_PRESET_ID);
       syncAsrPresetMetadata(DEFAULT_ASR_PRESET_ID, { updateFields: true });
     }
 

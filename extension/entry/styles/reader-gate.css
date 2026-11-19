@@ -1062,8 +1062,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 
 /* 输入控件族（设置表输入/下拉/多行、快捷提示词、编辑 Modal 与弹窗输入、
  * custom-select trigger、字幕搜索框）：底色已是 --card 白玻璃，只需描边归零 + 圆角抬
- * 12px + 软投影。.biliscript-set-select 的 chevron 走 background-image，
- * 本组不碰 background 声明。 */
+ * 12px + 软投影。本组不碰 background 声明。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea,
