@@ -2197,7 +2197,7 @@
   min-width: 0;
 }
 
-.biliscript-md-math-block math {
+.biliscript-md-math-block .katex > math {
   display: inline-flex !important;
   justify-content: center;
   max-width: 100%;
@@ -2227,19 +2227,9 @@ math mo {
   margin: 0 0.28em;
 }
 
-/* 论文式公式对齐结构：居中展示，等号右侧多行换行时严格对齐在等号右边 */
-/* Firefox Gecko 下 math > semantics 默认 display: inline 会阻断父容器宽度传递，需显式贯通 max-width / min-width */
-math:has(.biliscript-math-aligned),
-math:has(.biliscript-math-aligned) > semantics {
-  display: inline-flex !important;
-  align-items: baseline;
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
+/* 论文式公式对齐结构：外层 HTML flex 居中并承担换行，内层各词项保持原生 MathML 排版（Gecko/Blink 一致） */
 .biliscript-math-aligned {
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: baseline;
   max-width: 100%;
   min-width: 0;
@@ -2247,15 +2237,16 @@ math:has(.biliscript-math-aligned) > semantics {
   box-sizing: border-box;
 }
 
-/* 保留原生 MathML <mrow> 内部排版（分数、伸缩括号、运算符间距），仅约束 flex 项行为 */
 .biliscript-math-lhs {
+  display: inline-flex;
+  align-items: baseline;
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .biliscript-math-rhs {
-  display: inline-flex !important;
-  flex-wrap: wrap !important;
+  display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
   flex: 0 1 auto;
   min-width: 0;
@@ -2263,14 +2254,21 @@ math:has(.biliscript-math-aligned) > semantics {
 }
 
 .biliscript-math-term {
+  display: inline-flex;
+  align-items: baseline;
   max-width: 100%;
 }
 
+.biliscript-math-aligned math {
+  display: inline math;
+  margin: 0;
+}
+
 /* 兜底自然折行：无等号公式的顶层 flex wrap */
-math:not(:has(.biliscript-math-aligned)),
-math:not(:has(.biliscript-math-aligned)) > semantics,
-math:not(:has(.biliscript-math-aligned)) > semantics > mrow,
-math:not(:has(.biliscript-math-aligned)) > mrow {
+.biliscript-md-math-block .katex > math,
+.biliscript-md-math-block .katex > math > semantics,
+.biliscript-md-math-block .katex > math > semantics > mrow,
+.biliscript-md-math-block .katex > math > mrow {
   display: inline-flex !important;
   flex-wrap: wrap !important;
   align-items: baseline;

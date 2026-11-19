@@ -94,63 +94,140 @@ export function hydrateMathPlaceholders(root: ParentNode, cache: MathRenderLruCa
       }
       el.innerHTML = rendered;
       el.setAttribute("data-biliscript-math-status", "done");
-      alignEquationAtEquals(el);
+      if (isBlock) {
+        alignEquationAtEquals(el);
+      }
     } catch {
       el.setAttribute("data-biliscript-math-status", "error");
     }
   }
 }
 
+const OPEN_DELIMITERS = new Set(["(", "[", "{", "⟨", "⌈", "⌊"]);
+const CLOSE_DELIMITERS = new Set([")", "]", "}", "⟩", "⌉", "⌋"]);
+
+function updateDelimiterDepth(node: Element, depth: number): number {
+  const tag = node.tagName.toLowerCase();
+  const delimiterEl =
+    tag === "mo"
+      ? node
+      : tag === "msup" || tag === "msub" || tag === "msubsup"
+        ? node.firstElementChild?.tagName.toLowerCase() === "mo"
+          ? node.firstElementChild
+          : null
+        : null;
+  if (!delimiterEl) {
+    return depth;
+  }
+  const text = delimiterEl.textContent?.trim() ?? "";
+  if (OPEN_DELIMITERS.has(text)) {
+    return depth + 1;
+  }
+  if (CLOSE_DELIMITERS.has(text)) {
+    return Math.max(0, depth - 1);
+  }
+  return depth;
+}
+
+function isTopLevelBinaryOp(node: Element): boolean {
+  return node.tagName.toLowerCase() === "mo" && /^[+\-±∓−]$/.test(node.textContent?.trim() ?? "");
+}
+
+function createBlockMathFromNodes(nodes: Element[], annotation?: Element | null): Element {
+  const math = document.createElementNS(MATHML_NS, "math");
+  math.setAttribute("display", "block");
+  math.setAttribute("aria-hidden", "true");
+  const mstyle = document.createElementNS(MATHML_NS, "mstyle");
+  mstyle.setAttribute("displaystyle", "true");
+  const mrow = document.createElementNS(MATHML_NS, "mrow");
+  for (const node of nodes) {
+    mrow.appendChild(node);
+  }
+  mstyle.appendChild(mrow);
+  if (annotation) {
+    const semantics = document.createElementNS(MATHML_NS, "semantics");
+    semantics.appendChild(mstyle);
+    semantics.appendChild(annotation);
+    math.appendChild(semantics);
+  } else {
+    math.appendChild(mstyle);
+  }
+  return math;
+}
+
 /**
- * 参考论文与学术规范：若顶层公式包含等号，将等号左侧（LHS+等号）与右侧（RHS）结构化分组，
- * 右侧作为独立的 flex 换行容器，确保多行换行时每一行均精确对齐在等号右边。
+ * 参考论文与学术规范：若块级顶层公式包含等号，将等号左侧（LHS+等号）与右侧（RHS）拆入外层 HTML flex 容器，
+ * 右侧按顶层二元加减项分组为独立原生 MathML <math display="block"> 词项，确保 Chromium 与 Firefox Gecko 下
+ * 多行换行均严格对齐在等号右边，同时不破坏内部 MathML 排版。
  */
 function alignEquationAtEquals(container: Element): void {
-  const mrow = container.querySelector("math > semantics > mrow") || container.querySelector("math > mrow");
+  const mathEl = container.querySelector("math");
+  if (!mathEl || !mathEl.parentElement) {
+    return;
+  }
+  const mrow = mathEl.querySelector(":scope > semantics > mrow") || mathEl.querySelector(":scope > mrow");
   if (!mrow) {
     return;
   }
 
   const children = Array.from(mrow.children);
   let eqIndex = -1;
+  let depth = 0;
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
-    if (child.tagName.toLowerCase() === "mo" && child.textContent?.trim() === "=") {
+    if (depth === 0 && child.tagName.toLowerCase() === "mo" && child.textContent?.trim() === "=") {
       eqIndex = i;
       break;
     }
+    depth = updateDelimiterDepth(child, depth);
   }
 
-  if (eqIndex >= 0 && eqIndex < children.length - 1) {
-    const lhs = document.createElementNS(MATHML_NS, "mrow");
-    lhs.setAttribute("class", "biliscript-math-lhs");
-    const rhs = document.createElementNS(MATHML_NS, "mrow");
-    rhs.setAttribute("class", "biliscript-math-rhs");
-
-    for (let i = 0; i <= eqIndex; i++) {
-      lhs.appendChild(children[i]);
-    }
-
-    let i = eqIndex + 1;
-    while (i < children.length) {
-      const child = children[i];
-      const isBinaryOp =
-        child.tagName.toLowerCase() === "mo" && /^[+\-±∓−]$/.test(child.textContent?.trim() ?? "");
-      if (isBinaryOp && i + 1 < children.length) {
-        const term = document.createElementNS(MATHML_NS, "mrow");
-        term.setAttribute("class", "biliscript-math-term");
-        term.appendChild(child);
-        i++;
-        term.appendChild(children[i]);
-        i++;
-        rhs.appendChild(term);
-      } else {
-        rhs.appendChild(child);
-        i++;
-      }
-    }
-
-    mrow.replaceChildren(lhs, rhs);
-    mrow.classList.add("biliscript-math-aligned");
+  if (eqIndex < 0 || eqIndex >= children.length - 1) {
+    return;
   }
+
+  const annotation = mathEl.querySelector(":scope > semantics > annotation");
+  const lhsNodes = children.slice(0, eqIndex + 1);
+
+  const rhsTerms: Element[][] = [];
+  let currentTerm: Element[] = [];
+  depth = 0;
+  for (let i = eqIndex + 1; i < children.length; i++) {
+    const child = children[i];
+    if (depth === 0 && currentTerm.length > 0 && isTopLevelBinaryOp(child)) {
+      rhsTerms.push(currentTerm);
+      currentTerm = [child];
+    } else {
+      currentTerm.push(child);
+    }
+    depth = updateDelimiterDepth(child, depth);
+  }
+  if (currentTerm.length > 0) {
+    rhsTerms.push(currentTerm);
+  }
+
+  const aligned = document.createElement("span");
+  aligned.className = "biliscript-math-aligned";
+  aligned.setAttribute("role", "math");
+  const accessibleTex = (annotation?.textContent ?? container.getAttribute("data-tex") ?? "").trim();
+  if (accessibleTex) {
+    aligned.setAttribute("aria-label", accessibleTex);
+  }
+
+  const lhs = document.createElement("span");
+  lhs.className = "biliscript-math-lhs";
+  lhs.appendChild(createBlockMathFromNodes(lhsNodes, annotation));
+
+  const rhs = document.createElement("span");
+  rhs.className = "biliscript-math-rhs";
+  for (const termNodes of rhsTerms) {
+    const term = document.createElement("span");
+    term.className = "biliscript-math-term";
+    term.appendChild(createBlockMathFromNodes(termNodes));
+    rhs.appendChild(term);
+  }
+
+  aligned.appendChild(lhs);
+  aligned.appendChild(rhs);
+  mathEl.replaceWith(aligned);
 }

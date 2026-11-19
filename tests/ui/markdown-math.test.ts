@@ -76,12 +76,10 @@ describe("math-render MathML 水合", () => {
     expect(hydrated[1].getAttribute("data-biliscript-math-status")).toBe("done");
     expect(hydrated[2].getAttribute("data-biliscript-math-status")).toBe("done");
 
-    // 检查生成的 MathML 标签
-    const mathTags = container.querySelectorAll("math");
-    expect(mathTags.length).toBe(3);
-    expect(mathTags[0].getAttribute("display")).toBe("block");
-    expect(mathTags[1].getAttribute("display")).toBe("block");
-    expect(mathTags[2].getAttribute("display")).toBeNull();
+    // 检查生成的 MathML 标签（块级含等号公式会按词项拆分为多个独立 <math display="block">）
+    expect(hydrated[0].querySelector("math")?.getAttribute("display")).toBe("block");
+    expect(hydrated[1].querySelector("math")?.getAttribute("display")).toBe("block");
+    expect(hydrated[2].querySelector("math")?.getAttribute("display")).toBeNull();
     expect(container.innerHTML).toContain("<annotation encoding=\"application/x-tex\">");
 
     // 检查等号左右对齐结构

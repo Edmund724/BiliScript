@@ -228,9 +228,10 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(rhs1).not.toBe(rhs2);
     });
 
-    it("等号对齐生成的 lhs/rhs/term 均位于 MathML 命名空间，且不向 mrow 写入基于单原子 offsetWidth 的硬编码像素宽度", () => {
+    it("等号对齐使用外层 HTML flex 并在各词项保留 MathML 命名空间与括号完整性，不写入硬编码像素宽度", () => {
       const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
-      const eqTex = "y = \\frac{a+b+c+d+e+f+g+h}{1+x^2} + x^2 + 2x";
+      const HTML_NS = "http://www.w3.org/1999/xhtml";
+      const eqTex = "L(\\theta) = (y_i - \\hat{y}_i)^2 + \\lambda_1 \\|\\theta\\|_1 + \\gamma R(\\theta)";
       const container = document.createElement("div");
       container.innerHTML = `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${eqTex}"></div>`;
 
@@ -241,12 +242,27 @@ describe("math-render LRU 缓存与水合测试", () => {
       const rhs = container.querySelector(".biliscript-math-rhs");
       const terms = Array.from(container.querySelectorAll(".biliscript-math-term"));
 
-      expect(aligned).not.toBeNull();
-      expect(lhs?.namespaceURI).toBe(MATHML_NS);
-      expect(rhs?.namespaceURI).toBe(MATHML_NS);
-      expect(terms.length).toBeGreaterThan(0);
+      expect(aligned?.namespaceURI).toBe(HTML_NS);
+      expect(aligned?.getAttribute("role")).toBe("math");
+      expect(aligned?.getAttribute("aria-label")).toBe(eqTex);
+      expect(lhs?.namespaceURI).toBe(HTML_NS);
+      expect(rhs?.namespaceURI).toBe(HTML_NS);
+      // 括号内减号不拆项（含 )^2 封装在 <msup> 内的闭括号）：RHS 应为 3 个完整词项
+      expect(terms.length).toBe(3);
+      const lhsMath = lhs?.querySelector("math");
+      expect(lhsMath?.namespaceURI).toBe(MATHML_NS);
+      expect(lhsMath?.getAttribute("display")).toBe("block");
+      expect(lhsMath?.getAttribute("aria-hidden")).toBe("true");
+      expect(lhsMath?.querySelector("mstyle")?.getAttribute("displaystyle")).toBe("true");
+      expect(lhs?.querySelector("annotation")?.textContent).toBe(eqTex);
       for (const term of terms) {
-        expect(term.namespaceURI).toBe(MATHML_NS);
+        expect(term.namespaceURI).toBe(HTML_NS);
+        const termMath = term.querySelector("math");
+        expect(termMath?.namespaceURI).toBe(MATHML_NS);
+        expect(termMath?.getAttribute("display")).toBe("block");
+        expect(termMath?.getAttribute("aria-hidden")).toBe("true");
+        expect(termMath?.querySelector("mstyle")?.getAttribute("displaystyle")).toBe("true");
+        expect(termMath?.querySelector("mrow")?.namespaceURI).toBe(MATHML_NS);
       }
       expect(aligned?.getAttribute("style")).toBeNull();
     });
