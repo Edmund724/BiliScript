@@ -86,4 +86,10 @@ pnpm install && pnpm run dev   # 监听构建到 dist/，在浏览器扩展管�
 
 基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 二次修改，UI 参考 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)，思考档位词表参考 [hana-model-catalog](https://github.com/liliMozi/hana-model-catalog) 与 models.dev。
 
-遵循 [MIT License](LICENSE)。请仅在已登录且有访问权限的前提下合规使用，遵守 B 站用户协议与相关法律法规，使用本工具产生的一切后果由用户自行承担。
+遵循 [MIT License](LICENSE)。
+
+## 免责声明
+
+- **本地数据**：API Key、平台配置、笔记、对话与伴看历史及字幕缓存等保存在本地浏览器扩展存储中（其中 API Key 等敏感配置以明文形式存储在本地设备，本项目无后端服务器且不提供开发者云端同步服务；仅部分非敏感偏好设置可随浏览器账号同步）。请妥善保管您的设备、浏览器配置文件及导出的文件（详见 [PRIVACY.md](PRIVACY.md)）。
+- **用户责任**：请仅在已登录且有访问权限的前提下合规使用，遵守 B 站用户协议、第三方模型服务条款及相关法律法规。因使用本项目而产生的任何后果均由用户个人承担，与开发者无关。
+- **版权声明**：「哔哩哔哩」及「Bilibili」名称、LOGO 及相关图形是上海幻电信息科技有限公司的注册商标或商标。本项目与哔哩哔哩及其关联公司无任何关联、合作、授权或背书关系。
