@@ -33,6 +33,7 @@
     "smoke:mermaid": "node scripts/mermaid-smoke/serve.mjs",
     "harness:browser": "node scripts/browser-harness/smoke.mjs",
     "harness:scenario": "node scripts/browser-harness/run-scenario.mjs",
+    "smoke:firefox": "node scripts/firefox-smoke/smoke-firefox.mjs",
     "skills": "pnpm dlx skills"
   },
   "repository": {
