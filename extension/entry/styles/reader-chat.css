@@ -1248,7 +1248,7 @@
 }
 
 #biliscript-reading-view .biliscript-md-table-dialog::backdrop {
-  background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));
+  background: var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-mask-rgb, 20, 16, 12), 0.28));
   -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(4px));
   backdrop-filter: var(--biliscript-reader-glass-filter, blur(4px));
   opacity: 1;
