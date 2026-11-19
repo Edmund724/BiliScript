@@ -2188,6 +2188,7 @@
   box-sizing: border-box;
   text-align: center;
   width: 100%;
+  overflow-x: auto;
 }
 
 .biliscript-md-math-block .katex {
@@ -2234,9 +2235,8 @@ math mo {
   box-sizing: border-box;
 }
 
+/* 保留原生 MathML <mrow> 内部排版（分数、伸缩括号、运算符间距），仅约束 flex 项行为 */
 .biliscript-math-lhs {
-  display: inline-flex !important;
-  align-items: baseline;
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -2245,14 +2245,13 @@ math mo {
   display: inline-flex !important;
   flex-wrap: wrap !important;
   align-items: baseline;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   row-gap: 6px;
 }
 
 .biliscript-math-term {
-  display: inline-flex !important;
-  align-items: baseline;
+  max-width: 100%;
 }
 
 /* 兜底自然折行：无等号公式的顶层 flex wrap */

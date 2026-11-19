@@ -1,8 +1,10 @@
 // extension/ui/math-render.ts — LaTeX 数学公式渲染（ui/lazy-math 的动态 import 落点）
-// 依赖 KaTeX 库，仅产出 Chromium 原生 MathML，零外部字体依赖、无 CSP 风险。
+// 依赖 KaTeX 库，仅产出浏览器原生 MathML，零外部字体依赖、无 CSP 风险。
 
 import katex from "katex";
 import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown.js";
+
+const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
 
 export const MATH_CACHE_LIMIT = 200;
 
@@ -120,10 +122,10 @@ function alignEquationAtEquals(container: Element): void {
   }
 
   if (eqIndex >= 0 && eqIndex < children.length - 1) {
-    const lhs = document.createElement("mrow");
-    lhs.className = "biliscript-math-lhs";
-    const rhs = document.createElement("mrow");
-    rhs.className = "biliscript-math-rhs";
+    const lhs = document.createElementNS(MATHML_NS, "mrow");
+    lhs.setAttribute("class", "biliscript-math-lhs");
+    const rhs = document.createElementNS(MATHML_NS, "mrow");
+    rhs.setAttribute("class", "biliscript-math-rhs");
 
     for (let i = 0; i <= eqIndex; i++) {
       lhs.appendChild(children[i]);
@@ -135,8 +137,8 @@ function alignEquationAtEquals(container: Element): void {
       const isBinaryOp =
         child.tagName.toLowerCase() === "mo" && /^[+\-±∓−]$/.test(child.textContent?.trim() ?? "");
       if (isBinaryOp && i + 1 < children.length) {
-        const term = document.createElement("mrow");
-        term.className = "biliscript-math-term";
+        const term = document.createElementNS(MATHML_NS, "mrow");
+        term.setAttribute("class", "biliscript-math-term");
         term.appendChild(child);
         i++;
         term.appendChild(children[i]);
@@ -148,30 +150,7 @@ function alignEquationAtEquals(container: Element): void {
       }
     }
 
-    mrow.innerHTML = "";
+    mrow.replaceChildren(lhs, rhs);
     mrow.classList.add("biliscript-math-aligned");
-    mrow.appendChild(lhs);
-    mrow.appendChild(rhs);
-
-    // 精确收敛宽度以实现水平真正居中，避免 flex-wrap 将 RHS 撑满 100% 容器导致靠左
-    if (typeof window !== "undefined" && typeof (window as any).requestAnimationFrame === "function") {
-      (window as any).requestAnimationFrame(() => {
-        const lhsW = (lhs as HTMLElement).offsetWidth ?? 0;
-        let maxLineW = 0;
-        const rhsChildren = Array.from(rhs.children) as HTMLElement[];
-        for (const child of rhsChildren) {
-          const lineW = lhsW + (child.offsetWidth ?? 0);
-          if (lineW > maxLineW) {
-            maxLineW = lineW;
-          }
-        }
-        if (maxLineW > 0) {
-          const targetW = Math.ceil(maxLineW) + 6;
-          (mrow as HTMLElement).style.width = `${targetW}px`;
-          (mrow as HTMLElement).style.maxWidth = "100%";
-          (mrow as HTMLElement).style.margin = "0 auto";
-        }
-      });
-    }
   }
 }

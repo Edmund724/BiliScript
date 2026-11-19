@@ -3261,6 +3261,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   box-sizing: border-box;
   text-align: center;
   width: 100%;
+  overflow-x: auto;
 }
 
 .biliscript-reading-chat .biliscript-md-math-block .katex {
@@ -3307,9 +3308,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   box-sizing: border-box;
 }
 
+/* 保留原生 MathML <mrow> 内部排版（分数、伸缩括号、运算符间距），仅约束 flex 项行为 */
 .biliscript-reading-chat .biliscript-math-lhs {
-  display: inline-flex !important;
-  align-items: baseline;
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -3318,14 +3318,13 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   display: inline-flex !important;
   flex-wrap: wrap !important;
   align-items: baseline;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   row-gap: 6px;
 }
 
 .biliscript-reading-chat .biliscript-math-term {
-  display: inline-flex !important;
-  align-items: baseline;
+  max-width: 100%;
 }
 
 /* 兜底自然折行：无等号公式的顶层 flex wrap */

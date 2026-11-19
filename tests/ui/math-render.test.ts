@@ -227,6 +227,29 @@ describe("math-render LRU 缓存与水合测试", () => {
       expect(lhs1).not.toBe(lhs2);
       expect(rhs1).not.toBe(rhs2);
     });
+
+    it("等号对齐生成的 lhs/rhs/term 均位于 MathML 命名空间，且不向 mrow 写入基于单原子 offsetWidth 的硬编码像素宽度", () => {
+      const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+      const eqTex = "y = \\frac{a+b+c+d+e+f+g+h}{1+x^2} + x^2 + 2x";
+      const container = document.createElement("div");
+      container.innerHTML = `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${eqTex}"></div>`;
+
+      hydrateMathPlaceholders(container);
+
+      const aligned = container.querySelector(".biliscript-math-aligned");
+      const lhs = container.querySelector(".biliscript-math-lhs");
+      const rhs = container.querySelector(".biliscript-math-rhs");
+      const terms = Array.from(container.querySelectorAll(".biliscript-math-term"));
+
+      expect(aligned).not.toBeNull();
+      expect(lhs?.namespaceURI).toBe(MATHML_NS);
+      expect(rhs?.namespaceURI).toBe(MATHML_NS);
+      expect(terms.length).toBeGreaterThan(0);
+      for (const term of terms) {
+        expect(term.namespaceURI).toBe(MATHML_NS);
+      }
+      expect(aligned?.getAttribute("style")).toBeNull();
+    });
   });
 
   describe("Requirement 5: 稳定区重复渲染场景下，KaTeX 计算次数不再随块边界数量增长", () => {
