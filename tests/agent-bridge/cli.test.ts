@@ -438,6 +438,27 @@ describe("桌面 Agent CLI 端到端", () => {
     expect(results.every((result) => result.extensionOnline === true)).toBe(true);
   });
 
+  it("放行合法的 Firefox moz-extension UUID 来源并拒绝非法格式", async () => {
+    const firefoxPeer = await connectWebSocket({
+      port,
+      protocol: "biliscript-extension-v1",
+      origin: "moz-extension://550e8400-e29b-41d4-a716-446655440000"
+    });
+    try {
+      firefoxPeer.sendJSON({ type: "hello", role: "extension", version: 1 });
+      const status = await runCli("status");
+      expect(status).toMatchObject({ ok: true, bridgeOnline: true, extensionOnline: true });
+    } finally {
+      firefoxPeer.close();
+    }
+
+    await expect(connectWebSocket({
+      port,
+      protocol: "biliscript-extension-v1",
+      origin: "moz-extension://not-a-valid-uuid"
+    })).rejects.toThrow("拒绝连接");
+  });
+
   it("普通网页来源不能冒充扩展", async () => {
     await expect(connectWebSocket({
       port,

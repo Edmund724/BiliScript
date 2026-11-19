@@ -294,10 +294,13 @@ function isLoopback(socket) {
   return socket.remoteAddress === HOST || socket.remoteAddress === "::1" || socket.remoteAddress === "::ffff:127.0.0.1";
 }
 
+const EXTENSION_ORIGIN_PATTERN =
+  /^(?:chrome-extension:\/\/[a-z]{32}|moz-extension:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 function selectRole(request, socket, token) {
   if (!isLoopback(socket) || request.headers.upgrade?.toLowerCase() !== "websocket") return null;
   const protocols = String(request.headers["sec-websocket-protocol"] || "").split(",").map((item) => item.trim());
-  if (protocols.includes(EXTENSION_PROTOCOL) && /^chrome-extension:\/\/[a-z]{32}$/i.test(String(request.headers.origin || ""))) {
+  if (protocols.includes(EXTENSION_PROTOCOL) && EXTENSION_ORIGIN_PATTERN.test(String(request.headers.origin || ""))) {
     return { role: "extension", protocol: EXTENSION_PROTOCOL };
   }
   const cliProtocol = protocols.find((item) => item.startsWith(CLI_PROTOCOL_PREFIX));
