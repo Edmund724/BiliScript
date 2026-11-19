@@ -24,6 +24,7 @@ import { normalizeAsrProvider, resolveActiveAsrProviderId } from "../asr/asr-pro
 import { testAsrConnection } from "../asr/provider-test.js";
 import { resolveWebSearchOptIn } from "../search/opt-in-notice.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import { isFirefoxRuntime } from "../shared/runtime-capabilities.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import type { AsrProviderListEntry, ProviderListEntry } from "../shared/messaging-protocol.js";
 import { normalizeProviderModels, resolveCatalogModel } from "../shared/selected-provider.js";
@@ -206,6 +207,37 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   if (versionEl) {
     const version = globalThis.chrome?.runtime?.getManifest?.()?.version || "";
     versionEl.textContent = version ? `v${version}` : "";
+  }
+
+  // 步骤 1 固定图标图示按当前浏览器切换：Firefox 扩展菜单无图钉，走齿轮菜单「固定到工具栏」
+  const isFirefox = isFirefoxRuntime();
+  const extMenuTitle = doc.getElementById("onboardingExtMenuTitle");
+  const pinCaption = doc.getElementById("onboardingPinCaption");
+  const chromiumPinIcon = doc.getElementById("onboardingPinIconChromium");
+  const firefoxPinIcon = doc.getElementById("onboardingPinIconFirefox");
+  if (extMenuTitle) {
+    extMenuTitle.textContent = isFirefox ? "扩展" : "扩展程序";
+  }
+  if (pinCaption) {
+    pinCaption.textContent = isFirefox ? "点齿轮选择固定到工具栏" : "点击图钉固定到工具栏";
+  }
+  if (chromiumPinIcon) {
+    if (isFirefox) {
+      chromiumPinIcon.setAttribute("display", "none");
+      chromiumPinIcon.setAttribute("hidden", "");
+    } else {
+      chromiumPinIcon.removeAttribute("display");
+      chromiumPinIcon.removeAttribute("hidden");
+    }
+  }
+  if (firefoxPinIcon) {
+    if (isFirefox) {
+      firefoxPinIcon.removeAttribute("display");
+      firefoxPinIcon.removeAttribute("hidden");
+    } else {
+      firefoxPinIcon.setAttribute("display", "none");
+      firefoxPinIcon.setAttribute("hidden", "");
+    }
   }
 
   let currentSettings: Settings = { ...DEFAULT_SETTINGS };
@@ -545,6 +577,7 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
 
   aiFetchModelsBtn?.addEventListener("click", () => {
     const draft = validateAiDraft(false);
+    if (!draft.ok) return;
     const preset = draft.preset;
     const target = resolveAiModelListTarget({
       baseUrl: draft.baseUrl,
@@ -557,7 +590,6 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
       : Promise.resolve({ ok: true });
 
     void (async () => {
-      if (!draft.ok) return;
       aiFetchModelsBtn.disabled = true;
       setStatusLine(aiStatus, "正在拉取可用模型…");
       try {
@@ -594,12 +626,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
 
   aiTestBtn?.addEventListener("click", () => {
     const draft = validateAiDraft(true);
+    if (!draft.ok) return;
     const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
       ? requestProviderOriginsViaBackground([draft.baseUrl])
       : Promise.resolve({ ok: true });
 
     void (async () => {
-      if (!draft.ok) return;
       aiTestBtn.disabled = true;
       setStatusLine(aiStatus, "正在测试连接…");
       try {
@@ -632,12 +664,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   aiForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const draft = validateAiDraft(true);
+    if (!draft.ok) return;
     const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
       ? requestProviderOriginsViaBackground([draft.baseUrl])
       : Promise.resolve({ ok: true });
 
     void (async () => {
-      if (!draft.ok) return;
       if (aiSaveBtn) aiSaveBtn.disabled = true;
       setStatusLine(aiStatus, "正在保存 AI 平台配置…");
       try {
@@ -771,12 +803,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
 
   asrTestBtn?.addEventListener("click", () => {
     const draft = validateAsrDraft();
+    if (!draft.ok) return;
     const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
       ? requestProviderOriginsViaBackground([draft.baseUrl])
       : Promise.resolve({ ok: true });
 
     void (async () => {
-      if (!draft.ok) return;
       asrTestBtn.disabled = true;
       setStatusLine(asrStatus, "正在测试转写服务…");
       try {
@@ -808,12 +840,12 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
   asrForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const draft = validateAsrDraft();
+    if (!draft.ok) return;
     const permissionPromise: Promise<{ ok: boolean; error?: string }> = draft.baseUrl
       ? requestProviderOriginsViaBackground([draft.baseUrl])
       : Promise.resolve({ ok: true });
 
     void (async () => {
-      if (!draft.ok) return;
       if (asrSaveBtn) asrSaveBtn.disabled = true;
       setStatusLine(asrStatus, "正在保存转写配置…");
       try {

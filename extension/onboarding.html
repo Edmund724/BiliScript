@@ -94,13 +94,22 @@
                 <!-- 扩展弹出列表 -->
                 <path d="M309.5 38 L309.5 52" class="svg-accent-stroke" stroke-width="1.5" stroke-dasharray="2.5 2" />
                 <rect x="210" y="52" width="142" height="92" rx="14" class="svg-popover" stroke="currentColor" stroke-opacity="0.1" filter="url(#bsSvgShadow)" />
-                <text x="224" y="72" class="svg-text" font-size="10.5" font-weight="600">扩展程序</text>
+                <text id="onboardingExtMenuTitle" x="224" y="72" class="svg-text" font-size="10.5" font-weight="600">扩展程序</text>
                 <rect x="220" y="81" width="122" height="28" rx="9" class="svg-accent-soft" />
                 <use href="#bsMiniIcon" x="227" y="87" width="16" height="16" />
                 <text x="249" y="99" class="svg-text" font-size="10.5" font-weight="600">BiliScript</text>
-                <!-- 图钉固定图标 -->
-                <path d="M324.5 89.5h6l-.8 3.2 1.6 1.5v1h-3.1v3.3l-.7.8-.7-.8v-3.3h-3.1v-1l1.6-1.5-.8-3.2z" class="svg-accent-fill" />
-                <text x="224" y="128" class="svg-muted" font-size="9.5">点击图钉固定到工具栏</text>
+                <!-- Chromium 图钉固定图标 -->
+                <g id="onboardingPinIconChromium">
+                  <path d="M324.5 89.5h6l-.8 3.2 1.6 1.5v1h-3.1v3.3l-.7.8-.7-.8v-3.3h-3.1v-1l1.6-1.5-.8-3.2z" class="svg-accent-fill" />
+                </g>
+                <!-- Firefox 齿轮菜单固定图标 -->
+                <g id="onboardingPinIconFirefox" display="none" hidden>
+                  <g transform="translate(321.5 89) scale(0.5)" class="svg-accent-stroke" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </g>
+                </g>
+                <text id="onboardingPinCaption" x="224" y="128" class="svg-muted" font-size="9.5">点击图钉固定到工具栏</text>
               </svg>
             </div>
             <h2 class="visual-title">右上角固定扩展图标</h2>

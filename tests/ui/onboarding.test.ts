@@ -219,4 +219,52 @@ describe("onboarding.html 与引导页配置读写同步", () => {
 
     ctrl.dispose();
   });
+
+  it("步骤 1 固定图标图示按运行时切换：Chromium 显示图钉，Firefox 显示齿轮菜单指引", async () => {
+    installOnboardingRuntimeMock();
+    const runtime = globalThis.chrome.runtime as unknown as { getURL: (p: string) => string };
+    runtime.getURL = (p: string) => `chrome-extension://test-id/${p}`;
+
+    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
+    const chromeCtrl = await mountOnboardingPage(document);
+    expect(document.getElementById("onboardingExtMenuTitle")?.textContent).toBe("扩展程序");
+    expect(document.getElementById("onboardingPinCaption")?.textContent).toBe("点击图钉固定到工具栏");
+    expect(document.getElementById("onboardingPinIconChromium")?.getAttribute("display")).toBeNull();
+    expect(document.getElementById("onboardingPinIconFirefox")?.getAttribute("display")).toBe("none");
+    chromeCtrl.dispose();
+
+    loadOnboardingDom();
+    runtime.getURL = (p: string) => `moz-extension://test-uuid/${p}`;
+    const ffCtrl = await mountOnboardingPage(document);
+    expect(document.getElementById("onboardingExtMenuTitle")?.textContent).toBe("扩展");
+    expect(document.getElementById("onboardingPinCaption")?.textContent).toBe("点齿轮选择固定到工具栏");
+    expect(document.getElementById("onboardingPinIconChromium")?.getAttribute("display")).toBe("none");
+    expect(document.getElementById("onboardingPinIconFirefox")?.getAttribute("display")).toBeNull();
+    ffCtrl.dispose();
+  });
+
+  it("表单校验未通过时不提前触发域名权限申请（拉取/测试/保存五处一致）", async () => {
+    installOnboardingRuntimeMock();
+    const requestMock = (globalThis.chrome as unknown as { permissions: { request: ReturnType<typeof vi.fn> } })
+      .permissions.request;
+    const { mountOnboardingPage } = await import("../../extension/entry/onboarding.js");
+    const ctrl = await mountOnboardingPage(document);
+
+    // 默认 ModelScope 与 SiliconFlow 均要求 API Key，留空触发全部 5 个操作应直接拦截
+    (document.getElementById("aiFetchModelsBtn") as HTMLButtonElement).click();
+    (document.getElementById("aiTestBtn") as HTMLButtonElement).click();
+    (document.getElementById("onboardingAiForm") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { cancelable: true, bubbles: true })
+    );
+    (document.getElementById("asrTestBtn") as HTMLButtonElement).click();
+    (document.getElementById("onboardingAsrForm") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { cancelable: true, bubbles: true })
+    );
+
+    expect(requestMock).not.toHaveBeenCalled();
+    expect(document.getElementById("aiApiKeyInput")?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById("asrApiKeyInput")?.getAttribute("aria-invalid")).toBe("true");
+
+    ctrl.dispose();
+  });
 });
