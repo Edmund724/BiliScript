@@ -73,6 +73,7 @@ function getCandidateFirefoxPaths() {
       "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
       "C:\\Program Files\\Firefox Developer Edition\\firefox.exe",
       "C:\\Program Files\\Firefox Nightly\\firefox.exe",
+      "D:\\Apps\\Firefox\\firefox.exe",
       path.join(localAppData, "Mozilla Firefox", "firefox.exe"),
       path.join(userProfile, "scoop", "apps", "firefox", "current", "firefox.exe")
     ];
@@ -415,7 +416,7 @@ async function runExtensionChecksInContent(client, expectedVersion) {
   await client.setContext("content");
 
   // Checks 1-4 run directly inside the moz-extension:// onboarding page content
-  // process so they work cleanly under Firefox OOP WebExtensions (153+ / 160+)
+  // process so they work cleanly under Firefox 153+ OOP WebExtensions
   // without relying on parent-process selectedBrowser.contentWindow.
   const coreSuite = await client.executeAsync(
     `
