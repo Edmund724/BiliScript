@@ -38,7 +38,18 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, BUILD_TARGET } = require("./build-guards.js");
+const {
+  createLocalImportGuard,
+  sourcesFromMap,
+  findForbiddenInputs,
+  resolveTargetPlatform,
+  getEsbuildTarget,
+} = require("./build-guards.js");
+const { deriveFirefoxManifest, loadExtensionPresets } = require("./firefox-manifest.js");
+
+const targetPlatform = resolveTargetPlatform(process.argv);
+const esbuildTarget = getEsbuildTarget(targetPlatform);
+const distDirName = targetPlatform === "firefox" ? "dist-firefox" : "dist";
 
 // --watch（npm run dev）：首轮走与发布完全一致的全量构建 + 自检 + 报表，之后
 // esbuild context 监听三个构建任务原地重建 dist/，content 部分拉起
@@ -53,7 +64,7 @@ const root = path.join(__dirname, "..");
 process.chdir(root);
 
 const extensionRoot = path.join(root, "extension");
-const distDir = path.join(root, "dist");
+const distDir = path.join(root, distDirName);
 
 // JS 入口：bundle + minify，单文件（无 splitting），产物路径 = 源相对路径。
 // offscreen 入口不在此列——它开 splitting 拆动态 chunk（见 buildOffscreenEntry）。
@@ -133,13 +144,39 @@ const watchRebuildLog = {
 // 先跑 content 构建（bootstrap + ESM 主包 + chunks），保证拷进 dist 的是
 // 最新产物；其字节报表由子进程直接打印，保持现有口径不变。
 function runContentBuild() {
-  execFileSync(process.execPath, [path.join(root, "scripts", "build-content.js")], {
+  const args = [path.join(root, "scripts", "build-content.js")];
+  if (targetPlatform !== "chromium") {
+    args.push(`--target=${targetPlatform}`);
+  }
+  execFileSync(process.execPath, args, {
     stdio: "inherit",
   });
 }
 
+function writeTargetManifest() {
+  const src = path.join(extensionRoot, "manifest.json");
+  if (!fs.existsSync(src)) {
+    console.error("build.js: missing expected file: extension/manifest.json");
+    process.exit(1);
+  }
+  const dest = path.join(distDir, "manifest.json");
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  if (targetPlatform === "firefox") {
+    const chromiumManifest = JSON.parse(fs.readFileSync(src, "utf8"));
+    const presetsData = loadExtensionPresets(path.join(extensionRoot, "core", "presets.ts"));
+    const firefoxManifest = deriveFirefoxManifest(chromiumManifest, presetsData);
+    fs.writeFileSync(dest, JSON.stringify(firefoxManifest, null, 2) + "\n", "utf8");
+  } else {
+    fs.copyFileSync(src, dest);
+  }
+}
+
 function copyStaticAssets() {
   for (const rel of copyFiles) {
+    if (rel === "manifest.json") {
+      writeTargetManifest();
+      continue;
+    }
     const src = path.join(extensionRoot, rel);
     if (!fs.existsSync(src)) {
       console.error(`build.js: missing expected file: extension/${rel}`);
@@ -187,7 +224,7 @@ function restJsOptions() {
     platform: "browser",
     minify: true,
     sourcemap: true,
-    target: BUILD_TARGET,
+    target: esbuildTarget,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],
@@ -213,7 +250,7 @@ function offscreenOptions() {
     platform: "browser",
     minify: true,
     sourcemap: true,
-    target: BUILD_TARGET,
+    target: esbuildTarget,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],
@@ -271,6 +308,7 @@ function assertManifestReferences() {
 
   const refs = [];
   if (manifest.background?.service_worker) refs.push(manifest.background.service_worker);
+  if (Array.isArray(manifest.background?.scripts)) refs.push(...manifest.background.scripts);
 
   // S2 收紧 host_permissions：通配符只允许出现在 optional_host_permissions
   // （常驻权限只剩 B 站三条；AI/ASR 平台域名按需申请，见
@@ -577,7 +615,7 @@ async function main() {
   }
 
   console.log("");
-  printEntryReport(jsResult, "多入口 bundle（dist/，单文件、无 splitting）");
+  printEntryReport(jsResult, `多入口 bundle（${distDirName}/，单文件、无 splitting）`);
   console.log("");
   const offscreenSplit = printOffscreenSplitReport(offscreenResult);
   if (offscreenSplit.chunkCount === 0) {
@@ -585,11 +623,11 @@ async function main() {
     process.exit(1);
   }
   console.log("");
-  printEntryReport(cssResult, "CSS minify（dist/）");
+  printEntryReport(cssResult, `CSS minify（${distDirName}/）`);
   console.log("");
   printDistSummary();
   console.log("");
-  console.log(`dist/ assembled at ${distDir}`);
+  console.log(`${distDirName}/ assembled at ${distDir}`);
 
   if (watchMode) {
     await startWatch(esbuildContexts);
@@ -601,9 +639,13 @@ async function main() {
 // 一起由 fs.watch 侦测后重拷进 dist/。重拷统一走 copyStaticAssets() 全量
 // （幂等、文件少），150ms 去抖等 esbuild 同轮多个产物写入落盘。
 async function startWatch(esbuildContexts) {
+  const watchArgs = [path.join(root, "scripts", "build-content.js"), "--watch"];
+  if (targetPlatform !== "chromium") {
+    watchArgs.push(`--target=${targetPlatform}`);
+  }
   const child = spawn(
     process.execPath,
-    [path.join(root, "scripts", "build-content.js"), "--watch"],
+    watchArgs,
     { stdio: "inherit" }
   );
   // SIGINT/SIGTERM 默认终止不触发 "exit" 事件，必须显式监听才能把

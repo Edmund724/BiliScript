@@ -12,6 +12,26 @@ const path = require("path");
 // minimum_chrome_version 是签入的静态文件、构建零改写，无法从此派生——
 // 它与本常量的一致性由 build-content.js 的 manifest 守卫块逐构建断言。
 const BUILD_TARGET = "chrome120";
+const BUILD_TARGETS = Object.freeze({
+  chromium: "chrome120",
+  firefox: "firefox140",
+});
+
+function resolveTargetPlatform(argv = process.argv) {
+  const flag = argv.find((arg) => arg.startsWith("--target="));
+  if (!flag) return "chromium";
+  const value = flag.slice("--target=".length);
+  if (value === "chromium" || value === "firefox") return value;
+  throw new Error(`Unsupported --target="${value}". Expected "chromium" or "firefox".`);
+}
+
+function getEsbuildTarget(platform = "chromium") {
+  const target = BUILD_TARGETS[platform];
+  if (!target) {
+    throw new Error(`Unsupported target platform "${platform}". Expected "chromium" or "firefox".`);
+  }
+  return target;
+}
 
 // 双实例守卫（build-content.js 的 assertDualInstanceAllowlist 专用，纯函数收在此
 // 是为了让 tests/ 能不经构建直接喂 fixture 对账）：content 两轮构建把共享底座
@@ -98,4 +118,13 @@ function diffDualInstanceAllowlist(actualSources, allowlistSources) {
   };
 }
 
-module.exports = { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, diffDualInstanceAllowlist, BUILD_TARGET };
+module.exports = {
+  createLocalImportGuard,
+  sourcesFromMap,
+  findForbiddenInputs,
+  diffDualInstanceAllowlist,
+  BUILD_TARGET,
+  BUILD_TARGETS,
+  resolveTargetPlatform,
+  getEsbuildTarget,
+};

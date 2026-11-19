@@ -32,7 +32,17 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, diffDualInstanceAllowlist, BUILD_TARGET } = require("./build-guards.js");
+const {
+  createLocalImportGuard,
+  sourcesFromMap,
+  findForbiddenInputs,
+  diffDualInstanceAllowlist,
+  resolveTargetPlatform,
+  getEsbuildTarget,
+} = require("./build-guards.js");
+
+const targetPlatform = resolveTargetPlatform(process.argv);
+const esbuildTarget = getEsbuildTarget(targetPlatform);
 
 // --watch：esbuild context 常驻监听，供 build.js --watch（npm run dev）以子进程
 // 方式拉起；首轮仍跑全量自检与报表，之后每次重建只打一行日志。
@@ -138,19 +148,22 @@ if (!versionTsVersion || versionTsVersion !== manifestVersion) {
   process.exit(1);
 }
 
-// 浏览器地板一致性断言（mermaid-12-upgrade/08）：manifest 的
-// minimum_chrome_version 是签入的静态文件、构建零改写，无法从 BUILD_TARGET
+// 浏览器地板一致性断言（mermaid-12-upgrade/08）：Chromium 下 manifest 的
+// minimum_chrome_version 是签入的静态文件、构建零改写，无法从 esbuildTarget
 // 派生，故每次构建在此对账。注意它只挡 target ↔ manifest 漂移；「代码实际
 // 需要 ↔ manifest 地板」方向当前无任何机制可发现（见
-// docs/agents/transitive-deps.md）。
-const manifestMinimumChromeVersion = JSON.parse(fs.readFileSync(manifestPath, "utf8")).minimum_chrome_version;
-const buildTargetChromeVersion = BUILD_TARGET.replace(/^chrome/, "");
-if (manifestMinimumChromeVersion !== buildTargetChromeVersion) {
-  console.error(
-    `Minimum-Chrome mismatch: ${manifestPath} has "minimum_chrome_version": ${manifestMinimumChromeVersion}, ` +
-      `but BUILD_TARGET (${BUILD_TARGET}) implies ${buildTargetChromeVersion}`
-  );
-  process.exit(1);
+// docs/agents/transitive-deps.md）。Firefox 模式下 manifest 由构建期派生，
+// 此处仅对 Chromium 目标校验 minimum_chrome_version。
+if (targetPlatform === "chromium") {
+  const manifestMinimumChromeVersion = JSON.parse(fs.readFileSync(manifestPath, "utf8")).minimum_chrome_version;
+  const buildTargetChromeVersion = esbuildTarget.replace(/^chrome/, "");
+  if (manifestMinimumChromeVersion !== buildTargetChromeVersion) {
+    console.error(
+      `Minimum-Chrome mismatch: ${manifestPath} has "minimum_chrome_version": ${manifestMinimumChromeVersion}, ` +
+        `but BUILD_TARGET (${esbuildTarget}) implies ${buildTargetChromeVersion}`
+    );
+    process.exit(1);
+  }
 }
 
 const REQUIRED_MARKER = "__BILISCRIPT_CONTENT_SCRIPT_LOADED__";
@@ -276,7 +289,7 @@ const lazyChunkOptions = {
   minify: true,
   sourcemap: true,
   metafile: true,
-  target: BUILD_TARGET,
+  target: esbuildTarget,
   plugins: [localImportGuard, mermaidSlimAlias],
 };
 
@@ -296,7 +309,7 @@ const mainPackageOptions = {
   platform: "browser",
   minify: true,
   sourcemap: true,
-  target: BUILD_TARGET,
+  target: esbuildTarget,
   plugins: [localImportGuard, lazyTargetExternal],
 };
 
@@ -308,7 +321,7 @@ const bootstrapOptions = {
   platform: "browser",
   minify: true,
   sourcemap: true,
-  target: BUILD_TARGET,
+  target: esbuildTarget,
   plugins: [localImportGuard],
 };
 
@@ -323,7 +336,7 @@ const workletOptions = {
   platform: "browser",
   minify: true,
   sourcemap: true,
-  target: BUILD_TARGET,
+  target: esbuildTarget,
   plugins: [localImportGuard],
 };
 
