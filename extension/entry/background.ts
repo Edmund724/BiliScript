@@ -354,24 +354,35 @@ function requestPermissionViaPopup(
   });
 }
 
+async function filterMissingOrigins(origins: string[]): Promise<string[]> {
+  if (typeof chrome.permissions?.contains !== "function") {
+    return origins;
+  }
+  const checks = await Promise.all(
+    origins.map(async (origin) => {
+      try {
+        return (await chrome.permissions.contains({ origins: [origin] })) ? null : origin;
+      } catch {
+        return origin;
+      }
+    })
+  );
+  return checks.filter((origin): origin is string => origin !== null);
+}
+
 async function resolvePermissionAfterGestureError(
   origins: string[],
   originalError: unknown
 ): Promise<BackgroundResponseOf<"request-provider-origins">> {
-  if (typeof chrome.permissions?.contains === "function") {
-    try {
-      if (await chrome.permissions.contains({ origins })) {
-        return { ok: true };
-      }
-    } catch {
-      // Fall through to popup authorization when contains fails.
-    }
+  const missingOrigins = await filterMissingOrigins(origins);
+  if (missingOrigins.length === 0) {
+    return { ok: true };
   }
   const windowsApi = (chrome as unknown as { windows?: ChromeWindowsApi }).windows;
   if (typeof windowsApi?.create !== "function") {
     throw originalError;
   }
-  return await requestPermissionViaPopup(origins, windowsApi);
+  return await requestPermissionViaPopup(missingOrigins, windowsApi);
 }
 
 // script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。

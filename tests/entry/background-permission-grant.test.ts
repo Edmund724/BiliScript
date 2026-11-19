@@ -176,6 +176,35 @@ describe("request-provider-origins：无端口 pattern 与 Firefox 授权回退"
     expect(stub.createWindowMock).not.toHaveBeenCalled();
   });
 
+  it("Firefox 手势报错且混合已授权与未授权域名 → 仅对未授权子集弹窗", async () => {
+    const stub = installBackgroundChromeStub({
+      requestImpl: async () => {
+        throw new Error("permissions.request may only be called from a user input handler");
+      },
+      containsImpl: async ({ origins }) => origins?.[0] === "https://api.openai.com/*",
+      createWindowImpl: async () => ({ id: 89 })
+    });
+    const listener = await importBackgroundListener();
+
+    const pending = sendToBackground(listener, {
+      type: "request-provider-origins",
+      baseUrls: ["https://api.openai.com/v1", "http://localhost:11434/v1"]
+    });
+
+    await vi.waitFor(() => expect(stub.createWindowMock).toHaveBeenCalledTimes(1));
+    const createArgs = stub.createWindowMock.mock.calls[0][0] as { url: string };
+    const popupUrl = new URL(createArgs.url);
+    expect(JSON.parse(popupUrl.searchParams.get("origins") || "[]")).toEqual(["http://localhost/*"]);
+
+    const reqId = extractPopupReqId(createArgs.url);
+    await sendToBackground(
+      listener,
+      { type: "permission-grant-result", reqId, ok: true },
+      { url: createArgs.url, id: "ext-test-id", tab: { id: 102, url: createArgs.url } }
+    );
+    expect(await pending).toEqual({ ok: true });
+  });
+
   it("Firefox 手势报错且未授权自定义域 → 拉起小窗并在允许回包后返回 ok，清理监听器", async () => {
     const stub = installBackgroundChromeStub({
       requestImpl: async () => {
