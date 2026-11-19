@@ -1249,8 +1249,8 @@
 
 #biliscript-reading-view .biliscript-md-table-dialog::backdrop {
   background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(4px));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(4px));
   opacity: 1;
   transition: opacity 160ms ease-out;
 }
@@ -2092,8 +2092,8 @@ dialog.chat-image-viewer[open] {
 
 dialog.chat-image-viewer::backdrop {
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.78);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(6px));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(6px));
   opacity: 1;
   transition: opacity 160ms ease-out;
 }
@@ -2398,8 +2398,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: var(--biliscript-reader-shadow);
   overflow-y: auto;
   transform-origin: bottom right;
@@ -3191,8 +3191,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   border-radius: var(--biliscript-radius-panel);
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   box-shadow: var(--biliscript-reader-shadow);
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-muted);
@@ -3215,14 +3215,6 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   margin-top: 4px;
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .biliscript-reading-chat .chat-model-panel,
-  .biliscript-reading-chat .chat-search-preview {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-chat .chat-model-panel,
@@ -3365,8 +3357,8 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
+  backdrop-filter: var(--biliscript-reader-glass-filter, blur(24px) saturate(180%));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3598,6 +3590,12 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   justify-content: space-between;
   font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
+}
+
+#biliscript-reading-view[data-biliscript-reduce-transparency="1"] .biliscript-md-table-dialog::backdrop,
+#biliscript-reading-view[data-biliscript-reduce-transparency="1"] dialog.chat-image-viewer::backdrop {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
