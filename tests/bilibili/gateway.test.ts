@@ -189,6 +189,59 @@ describe("fetchSubtitleBundle：主备源回退三形态", () => {
     expect(result.tracks).toEqual([]);
     expect(result.upowerBlocked).toBe(true);
   });
+
+  it("未登录判定：login_mid=0 或 need_login_subtitle=true 时返回 loginRequired=true；已登录则缺省", async () => {
+    const anonymousTransport = fakeTransport([
+      [
+        wbiMatch,
+        {
+          code: 0,
+          data: {
+            login_mid: 0,
+            need_login_subtitle: false,
+            subtitle: { subtitles: [] },
+            view_points: []
+          }
+        }
+      ]
+    ]);
+    const anonymousResult = await fetchSubtitleBundle(anonymousTransport, withAid);
+    expect(anonymousResult.loginRequired).toBe(true);
+
+    const needLoginTransport = fakeTransport([
+      [
+        wbiMatch,
+        {
+          code: 0,
+          data: {
+            login_mid: 12345,
+            need_login_subtitle: true,
+            subtitle: { subtitles: [] },
+            view_points: []
+          }
+        }
+      ]
+    ]);
+    const needLoginResult = await fetchSubtitleBundle(needLoginTransport, withAid);
+    expect(needLoginResult.loginRequired).toBe(true);
+
+    const loggedInTransport = fakeTransport([
+      [
+        wbiMatch,
+        {
+          code: 0,
+          data: {
+            login_mid: 12345,
+            need_login_subtitle: false,
+            subtitle: { subtitles: [] },
+            view_points: []
+          }
+        }
+      ]
+    ]);
+    const loggedInResult = await fetchSubtitleBundle(loggedInTransport, withAid);
+    expect(loggedInResult.loginRequired).toBeUndefined();
+  });
 });
 
 describe("fetchVideoMeta：字段映射", () => {

@@ -231,11 +231,11 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       return true;
     }
     if (readiness.fetchState !== "idle" && readiness.fetchState !== "error") {
-      const configClassEmpty =
+      const retryableEmpty =
         readiness.fetchState === "empty" &&
         !readiness.hasBody &&
-        isConfigClassAsrReason(clip.noSubtitleReason);
-      if (!configClassEmpty) {
+        (isConfigClassAsrReason(clip.noSubtitleReason) || clip.noSubtitleReason === "bili-login-required");
+      if (!retryableEmpty) {
         return true;
       }
     }

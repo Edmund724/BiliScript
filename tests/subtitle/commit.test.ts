@@ -65,6 +65,7 @@ const UNSORTED_BODY = [
 // 循环会在文案表本身写错时仍然通过——那正是本票要防的漂移）。
 const ALL_REASONS: NoSubtitleReason[] = [
   "upower-exclusive",
+  "bili-login-required",
   "no-asr-config",
   "asr-disabled",
   "asr-auth",
@@ -347,6 +348,10 @@ describe("buildNoSubtitleStatusMessage（失败文案的唯一出口）", () => 
       [
         "upower-exclusive",
         "当前视频无字幕。 该视频为充电专属视频，未开通充电无法获取完整音轨。 开通充电后可重新抓取生成字幕"
+      ],
+      [
+        "bili-login-required",
+        "当前视频无字幕。 未登录 B 站，无法获取视频自带字幕。 请登录 B 站后重新抓取"
       ],
       [
         "no-asr-config",

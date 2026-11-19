@@ -196,9 +196,9 @@ describe("发送闸 createSendGate", () => {
       );
     });
 
-    // 票 provider-onboarding-consistency/04：配置类 empty 允许重新进入抓取。
-    it.each(["no-asr-config", "asr-disabled", "asr-auth"] as const)(
-      "配置类无字幕收尾（%s）→ 重新起跑一轮抓取；仍未配置时照旧拦截，不虚构用户消息",
+    // 票 provider-onboarding-consistency/04：配置类 empty 与未登录 B 站允许重新进入抓取。
+    it.each(["no-asr-config", "asr-disabled", "asr-auth", "bili-login-required"] as const)(
+      "可恢复无字幕收尾（%s）→ 重新起跑一轮抓取；仍无字幕时照旧拦截，不虚构用户消息",
       async (reason) => {
         const emptyClip = clip({ subtitleFetchState: "empty", noSubtitleReason: reason });
         chatSessionStateForTests.contextData = snapshotFromClip(emptyClip);

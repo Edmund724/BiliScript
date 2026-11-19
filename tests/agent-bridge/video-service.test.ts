@@ -85,6 +85,26 @@ describe("Agent Bridge 视频服务", () => {
     expect(bodyCalls.count).toBe(1);
   });
 
+  it("未登录 B 站且无字幕轨时优先提示登录 B 站，而非提示语音识别平台未配置", async () => {
+    const service = createAgentBridgeVideoService({
+      transport: vi.fn(async (url: string) =>
+        url.includes("view")
+          ? metaPayload()
+          : {
+              code: 0,
+              data: {
+                login_mid: 0,
+                need_login_subtitle: false,
+                subtitle: { subtitles: [] },
+                view_points: []
+              }
+            }
+      ),
+      getAsrRuntime: async () => ({ enabled: true, provider: null, language: "auto" })
+    });
+    await expect(service.getSubtitles({ bvid })).rejects.toThrow("未登录 B 站");
+  });
+
   it("无字幕且 ASR 未开启时返回可操作错误", async () => {
     const service = createAgentBridgeVideoService({
       transport: vi.fn(async (url: string) => url.includes("view") ? metaPayload() : playerPayload(false)),

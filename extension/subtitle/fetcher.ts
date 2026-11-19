@@ -235,8 +235,9 @@ export async function refreshClip(): Promise<void> {
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
     const upowerBlocked = metaResult.upowerBlocked || Boolean(subtitleBundle.upowerBlocked);
+    const loginRequired = Boolean(subtitleBundle.loginRequired);
 
-    const preferred = await selectSubtitleTrack(runId, { upowerBlocked });
+    const preferred = await selectSubtitleTrack(runId, { upowerBlocked, loginRequired });
     if (!preferred) {
       return;
     }
@@ -340,11 +341,11 @@ async function resolveClipMeta(runId: number): Promise<{ upowerBlocked: boolean 
 // 的偏好轨，null = 已走无字幕出口。
 async function selectSubtitleTrack(
   runId: number,
-  { upowerBlocked = false }: { upowerBlocked?: boolean } = {}
+  { upowerBlocked = false, loginRequired = false }: { upowerBlocked?: boolean; loginRequired?: boolean } = {}
 ): Promise<SubtitleTrack | null> {
   // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
   if (state.clip.subtitles.length === 0) {
-    await finishNoSubtitle(runId, { upowerBlocked });
+    await finishNoSubtitle(runId, { upowerBlocked, loginRequired });
     return null;
   }
 
@@ -355,7 +356,7 @@ async function selectSubtitleTrack(
   });
 
   if (!preferred) {
-    await finishNoSubtitle(runId, { upowerBlocked });
+    await finishNoSubtitle(runId, { upowerBlocked, loginRequired });
     return null;
   }
   return preferred;
@@ -396,18 +397,24 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
 }
 
 // 无字幕出口编排（refreshClip 两处守卫分支共用，原为逐行相同的两段手抄）：
-// 充电专属未充电视频（upowerBlocked）无完整音轨，直接跳过 ASR 并以
-// "upower-exclusive" 落入无字幕状态；其余视频先给 ASR 回退一个机会——done 时
-// 转写成果已在 fallback 内经字幕接受事务（commit.acceptSubtitle）收尾，这里直接
-// return；skip / empty / error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
+// 充电专属未充电视频（upowerBlocked）无完整音轨、未登录 B 站（loginRequired）
+// 会隐藏视频自带字幕且同样拿不到可用状态，二者均优先于 ASR 回退直接落入对应
+// 无字幕状态；其余视频先给 ASR 回退一个机会——done 时转写成果已在 fallback 内
+// 经字幕接受事务（commit.acceptSubtitle）收尾，这里直接 return；skip / empty /
+// error 三种都落回无字幕状态（逆事务 commit.commitNoSubtitle）。
 // STALE_RUN（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
 async function finishNoSubtitle(
   runId: number,
-  { upowerBlocked = false }: { upowerBlocked?: boolean } = {}
+  { upowerBlocked = false, loginRequired = false }: { upowerBlocked?: boolean; loginRequired?: boolean } = {}
 ): Promise<void> {
   if (upowerBlocked) {
     clipState.setNoSubtitleDetail("");
     await commitNoSubtitle({ noSubtitleReason: "upower-exclusive", runId });
+    return;
+  }
+  if (loginRequired) {
+    clipState.setNoSubtitleDetail("");
+    await commitNoSubtitle({ noSubtitleReason: "bili-login-required", runId });
     return;
   }
   const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");

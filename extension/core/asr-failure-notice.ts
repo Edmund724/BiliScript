@@ -83,6 +83,11 @@ const COPY_TABLE: Record<NonNullReason, CopyEntry> = {
     remedyText: "开通充电后可重新抓取生成字幕",
     remedy: "retry-later"
   },
+  "bili-login-required": {
+    cause: "未登录 B 站，无法获取视频自带字幕。",
+    remedyText: "请登录 B 站后重新抓取",
+    remedy: "retry-later"
+  },
   // 语义已扩为「平台 / 模型不可用」：未配置平台、域名未授权、baseUrl 缺失、模型
   // 不存在、模型没下载——补救动作同一个（去设置页检查），故不拆近名类目。
   "no-asr-config": {

@@ -29,6 +29,10 @@ describe("buildNoSubtitleNotice（薄适配层：文案单一真源 + remedy →
         `${SIDEPANEL_BASE} 该视频为充电专属视频，未开通充电无法获取完整音轨。 开通充电后可重新抓取生成字幕`
       ],
       [
+        "bili-login-required",
+        `${SIDEPANEL_BASE} 未登录 B 站，无法获取视频自带字幕。 请登录 B 站后重新抓取`
+      ],
+      [
         "no-asr-config",
         `${SIDEPANEL_BASE} 语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。 请到设置页检查语音转写平台`
       ],
@@ -56,6 +60,7 @@ describe("buildNoSubtitleNotice（薄适配层：文案单一真源 + remedy →
     const openSettingsReasons: CoreNoSubtitleReason[] = ["no-asr-config", "asr-disabled", "asr-auth"];
     const noSettingsReasons: CoreNoSubtitleReason[] = [
       "upower-exclusive",
+      "bili-login-required",
       "asr-quota",
       "asr-ratelimit",
       "asr-network",

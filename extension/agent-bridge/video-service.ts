@@ -183,6 +183,9 @@ export function createAgentBridgeVideoService(deps: AgentBridgeVideoServiceDeps 
       if (bundle.upowerBlocked || resolved.meta.upowerBlocked) {
         throw new Error("该视频为充电专属视频，当前账号无法获取完整音轨，不能进行 ASR 转写");
       }
+      if (bundle.loginRequired) {
+        throw new Error("未登录 B 站，无法获取视频自带字幕。请在浏览器登录 B 站后重试。");
+      }
       return null;
     }
     const items = normalizeItems(loaded.body);

@@ -37,6 +37,11 @@ const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: st
     remedyText: "开通充电后可重新抓取生成字幕",
     remedy: "retry-later"
   },
+  "bili-login-required": {
+    cause: "未登录 B 站，无法获取视频自带字幕。",
+    remedyText: "请登录 B 站后重新抓取",
+    remedy: "retry-later"
+  },
   "no-asr-config": {
     cause: "语音识别平台不可用：未配置平台、域名未授权，或这个模型不存在。",
     remedyText: "请到设置页检查语音转写平台",
@@ -94,9 +99,10 @@ const COPY_TABLE: Record<string, { cause: string; remedyText: string; remedy: st
   }
 };
 
-// 11 个非 null 取值（顺序即联合声明顺序，仅用于遍历）。
+// 12 个非 null 取值（顺序即联合声明顺序，仅用于遍历）。
 const ALL_REASONS: readonly NoSubtitleReason[] = [
   "upower-exclusive",
+  "bili-login-required",
   "no-asr-config",
   "asr-disabled",
   "asr-auth",
@@ -310,6 +316,7 @@ describe("reasonFromFailureKind：kind → reason（8 个失败类）", () => {
     // 注：no-asr-config 同时是**配置类失败**的合法 kind（404 / 模型不存在 / 无
     // baseUrl 都判它），故它按 kind 映射回自身，不在此列。
     expect(reasonFromFailureKind("upower-exclusive")).toBe("asr-unknown");
+    expect(reasonFromFailureKind("bili-login-required")).toBe("asr-unknown");
     expect(reasonFromFailureKind("asr-disabled")).toBe("asr-unknown");
     expect(reasonFromFailureKind("asr-empty")).toBe("asr-unknown");
     expect(reasonFromFailureKind("no-asr-config")).toBe("no-asr-config");

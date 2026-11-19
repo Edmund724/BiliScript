@@ -305,6 +305,73 @@ describe("充电专属视频（upowerBlocked）：无字幕时跳过 ASR 直接�
   });
 });
 
+describe("未登录 B 站（loginRequired）：无字幕时优先提示登录，不落入语音平台未配置", () => {
+  it("bundle 标记 loginRequired=true 且无 CC 字幕时：直接以 bili-login-required 提交无字幕，清空旧详情", async () => {
+    clipState.setNoSubtitleReason("no-asr-config");
+    clipState.setNoSubtitleDetail("（错误详情：旧错误）");
+    vi.mocked(fetchMetaMock).mockResolvedValue({
+      aid: "100",
+      title: "未登录测试",
+      author: "UP主",
+      description: "",
+      uploadDate: "2026-01-01",
+      defaultCid: "101",
+      defaultDuration: 300,
+      pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }]
+    });
+    vi.mocked(fetchBundleMock).mockResolvedValue({
+      tracks: [],
+      chapters: [],
+      loginRequired: true
+    });
+
+    await fetcher.refreshClip();
+
+    expect(commitNoSubtitle).toHaveBeenCalledTimes(1);
+    expect(commitNoSubtitle).toHaveBeenCalledWith({
+      noSubtitleReason: "bili-login-required",
+      runId: 1
+    });
+    expect(clipState.subtitleFetchState).toBe("empty");
+    expect(clipState.noSubtitleReason).toBe("bili-login-required");
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("bundle 标记 loginRequired=true 但已有可用字幕轨时：正常加载字幕轨，不报未登录", async () => {
+    vi.mocked(fetchMetaMock).mockResolvedValue({
+      aid: "100",
+      title: "未登录但有轨测试",
+      author: "UP主",
+      description: "",
+      uploadDate: "2026-01-01",
+      defaultCid: "101",
+      defaultDuration: 300,
+      pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }]
+    });
+    vi.mocked(fetchBundleMock).mockResolvedValue({
+      tracks: [
+        {
+          id: "track-1",
+          lan: "zh-CN",
+          lanDoc: "中文",
+          subtitleUrl: "https://example.com/sub.json",
+          source: "player-v2"
+        }
+      ],
+      chapters: [],
+      loginRequired: true
+    });
+    vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
+
+    await fetcher.refreshClip();
+
+    expect(commitNoSubtitle).not.toHaveBeenCalled();
+    expect(acceptSubtitle).toHaveBeenCalledTimes(1);
+    expect(clipState.subtitleFetchState).toBe("ready");
+    expect(clipState.noSubtitleReason).toBe(null);
+  });
+});
+
 describe("586c61b 回归：refreshClip 错误路径的 fetchState 保持 error", () => {
   it("抓取失败收尾 resetClipState({ keepFetchState: true }) 后 fetchState 为 error（不被洗回 idle）", async () => {
     // 单一模块纪元（见文件头注释）：断言的 clipState 与 fetcher 闭包内同一实例。

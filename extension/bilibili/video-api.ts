@@ -124,6 +124,16 @@ function isUpowerBlockedPayload(data: Record<string, unknown> | null | undefined
   return Boolean(data?.is_upower_exclusive) && !Boolean(data?.is_upower_play);
 }
 
+function isLoginRequiredPayload(data: Record<string, unknown> | null | undefined): boolean {
+  if (!data) {
+    return false;
+  }
+  if (Boolean(data.need_login_subtitle)) {
+    return true;
+  }
+  return data.login_mid === 0 || data.login_mid === "0";
+}
+
 export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Promise<VideoMeta> {
   const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
   logInfo("[BILISCRIPT] fetch video meta", { url, bvid });
@@ -170,10 +180,31 @@ export interface Chapter {
   source: string;
 }
 
+export interface SubtitleBundleResult {
+  tracks: SubtitleTrack[];
+  chapters: Chapter[];
+  upowerBlocked?: boolean;
+  loginRequired?: boolean;
+}
+
+function buildSubtitleBundleResult(result: {
+  chapters: Chapter[];
+  withUrl: SubtitleTrack[];
+  upowerBlocked: boolean;
+  loginRequired: boolean;
+}): SubtitleBundleResult {
+  return {
+    tracks: result.withUrl,
+    chapters: result.chapters,
+    ...(result.upowerBlocked ? { upowerBlocked: true } : {}),
+    ...(result.loginRequired ? { loginRequired: true } : {})
+  };
+}
+
 export async function fetchSubtitleBundle(
   transport: JsonTransport,
   { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
+): Promise<SubtitleBundleResult> {
   try {
     return await fetchSubtitleBundleInner(transport, { bvid, cid, aid });
   } catch (error) {
@@ -190,7 +221,7 @@ export async function fetchSubtitleBundle(
 async function fetchSubtitleBundleInner(
   transport: JsonTransport,
   { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
-): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[]; upowerBlocked?: boolean }> {
+): Promise<SubtitleBundleResult> {
   logInfo("[BILISCRIPT] fetch subtitles list", { bvid, cid, aid });
   const requests: SubtitleInfoRequest[] = buildSubtitleInfoRequests({ bvid, cid, aid });
 
@@ -208,7 +239,8 @@ async function fetchSubtitleBundleInner(
     ) as SubtitleTrack[];
     const withUrl = subtitles.filter((item) => item.subtitleUrl);
     const upowerBlocked = isUpowerBlockedPayload(data);
-    return { chapters, withUrl, upowerBlocked };
+    const loginRequired = isLoginRequiredPayload(data);
+    return { chapters, withUrl, upowerBlocked, loginRequired };
   };
 
   if (requests.length === 0) {
@@ -217,22 +249,10 @@ async function fetchSubtitleBundleInner(
 
   const primaryRequest = requests[0];
   try {
-    const primaryResult = await fetchByRequest(primaryRequest);
-    const extra = primaryResult.upowerBlocked ? { upowerBlocked: true } : {};
-    return {
-      tracks: primaryResult.withUrl,
-      chapters: primaryResult.chapters,
-      ...extra
-    };
+    return buildSubtitleBundleResult(await fetchByRequest(primaryRequest));
   } catch (primaryError) {
     if (requests.length > 1) {
-      const secondaryResult = await fetchByRequest(requests[1]);
-      const extra = secondaryResult.upowerBlocked ? { upowerBlocked: true } : {};
-      return {
-        tracks: secondaryResult.withUrl,
-        chapters: secondaryResult.chapters,
-        ...extra
-      };
+      return buildSubtitleBundleResult(await fetchByRequest(requests[1]));
     }
     throw primaryError;
   }
