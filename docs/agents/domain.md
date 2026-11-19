@@ -23,6 +23,7 @@ Architecture review — human or AI — must not re-propose the directions below
 - **ADR-0015**: 把 `default`（不干预档）并入强度阶梯 `AI_THINKING_LEVELS`；以「可选条目 ≤1」为由隐藏零档行的一级行（用户裁定零档行也要能主动选）。
 - **ADR-0022**: 收窄 `ReaderDomain`、统一 reader 域双访问通道或改用字符串分发。
 - **ADR-0023**: 将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script（SW WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
+- **ADR-0028**（取代 ADR-0002）：将 `<all_urls>` / `https://*/*` 移入常驻 `host_permissions`；在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` 或 `scrollbar-color`；二期立项前在 Firefox 暴露半成品 `live` 或 `tts` 入口。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 

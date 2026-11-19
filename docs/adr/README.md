@@ -7,7 +7,7 @@
 | 编号 | 标题（简称） | 状态 | 关系 |
 | --- | --- | --- | --- |
 | [0001](0001-long-video-summarization-map-reduce.md) | 长视频总结阶梯 + Map-Reduce | 有效 | 2 处修订：预算抬至 200k 字符；补预算口径与「窗口 ≥256k」使用前提 |
-| [0002](0002-chrome-only.md) | 扩展仅支持 Chrome | 有效 | — |
+| [0002](0002-chrome-only.md) | 扩展仅支持 Chrome | 被取代 | 见 ADR-0028（正文保留为历史） |
 | [0003](0003-background-no-runtime-lazy.md) | background 不做运行时惰性加载 | 有效 | — |
 | [0004](0004-shadow-dom-boundary.md) | Shadow DOM 适用边界：不迁 | 裁决有效，但事实依据 2 已失效 | 见 ADR-0006 |
 | [0005](0005-state-bag-write-discipline.md) | 状态袋写纪律 | 有效 | 并入原 ADR-0011 |
@@ -33,6 +33,7 @@
 | [0025](0025-asr-pseudo-track-translation-second-path.md) | 伪轨视频的双语第二路是译文，走独立的批量翻译链 | 有效 | 判据为伪轨身份而非轨数；译文只进副轨槽、不进轨列表；目标语言与 `id_translate-<lang>` 缓存与实时字幕翻译共用；整片 60 秒分片批量、片级容错、显式动作才花钱 |
 | [0026](0026-live-companion-overlay-only.md) | 视频页实时伴看由浮窗主承载，面板仅保留状态条、伴看记录与设置同源 | 有效 | 独立伴看会话属主；全屏/非全屏共用浮窗（首次展开、支持左右边缘吸附）；面板保留空态开启键、状态条、只读伴看文本记录与设置分区 |
 | [0027](0027-long-video-state-relay-and-hybrid-retrieval.md) | 长视频采用滑动状态接力总结 + L1 章节目录与 L0 本地轻量 BM25 混合单跳召回 | 有效 | 零向量库/Embedding/第三方分词依赖；L0 词法层 + L1 章节目录层；单跳路由与降级链；对齐 PRIVACY.md 与体积守卫 |
+| [0028](0028-firefox-desktop-compatibility.md) | 桌面端 Firefox（140+）兼容架构与双目标发布边界 | 有效 | 取代 ADR-0002；双目标构建分离（dist + dist-firefox）；Event Page 隐藏 iframe 承载 offscreen；28 个预设常驻域 + 自定义域弹窗授权；首期门控隐藏 tts 与 live |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 
@@ -56,6 +57,8 @@
   「后果」原文：「架构评审不得再提议收窄 `ReaderDomain`、统一这两条访问通道或改用字符串分发。」
 - **ADR-0023：不得提议将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script**（SW 内发起的 WebSocket 握手绕过 DNR `modifyHeaders`，见 `crbug/40815149`）。
   「后果」原文：「架构评审（含 AI 代理）不得再提议将实时伴看 WebSocket（`OffscreenMossLiveClient`）迁回 Service Worker 或 Content Script。」
+- **ADR-0028：不得将 `<all_urls>` 移入常驻 `host_permissions`，也不得在未包裹 `@supports (-moz-appearance: none)` 时裸写 `scrollbar-width` / `scrollbar-color`**（取代 ADR-0002）。
+  「后果」原文：「架构评审（含 AI 代理）不得提议将 `<all_urls>` 或 `https://*/*` 移入任一端的常驻 `host_permissions`……不得在未包裹 `@supports (-moz-appearance: none)` 的选择器上裸写 `scrollbar-width` 或 `scrollbar-color`。」
 
 红线只覆盖「已被否决过的方向」，不是「本文没写就不许做」；没裁过的事按常规评审走。
 
