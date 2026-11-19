@@ -3261,19 +3261,20 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   box-sizing: border-box;
   text-align: center;
   width: 100%;
-  overflow-x: auto;
 }
 
 .biliscript-reading-chat .biliscript-md-math-block .katex {
   display: inline-flex !important;
   justify-content: center;
   max-width: 100%;
+  min-width: 0;
 }
 
 .biliscript-reading-chat .biliscript-md-math-block math {
   display: inline-flex !important;
   justify-content: center;
   max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
@@ -3300,10 +3301,21 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
 }
 
 /* 论文式公式对齐结构：居中展示，等号右侧多行换行时严格对齐在等号右边 */
+/* Firefox Gecko 下 math > semantics 默认 display: inline 会阻断父容器宽度传递，需显式贯通 max-width / min-width */
+.biliscript-reading-chat math:has(.biliscript-math-aligned),
+.biliscript-reading-chat math:has(.biliscript-math-aligned) > semantics {
+  display: inline-flex !important;
+  align-items: baseline;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .biliscript-reading-chat .biliscript-math-aligned {
   display: inline-flex !important;
   align-items: baseline;
   max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
   box-sizing: border-box;
 }
