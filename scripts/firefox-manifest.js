@@ -12,6 +12,7 @@ const path = require("path");
 const DEFAULT_PRESETS_PATH = path.join(__dirname, "..", "extension", "core", "presets.ts");
 const LIVE_MATCH_PATTERN = "https://live.bilibili.com/*";
 const FIREFOX_REMOVED_PERMISSIONS = new Set(["offscreen", "tts"]);
+const FIREFOX_EXTENSION_PAGES_CSP = "script-src 'self'";
 
 const FIREFOX_GECKO_SETTINGS = Object.freeze({
   id: "biliscript@edmund724.github.io",
@@ -150,11 +151,21 @@ function deriveFirefoxManifest(chromiumManifest, { presets = [], asrPresets = []
   delete nextSettings.gecko_android;
   derived.browser_specific_settings = nextSettings;
 
+  // Firefox MV3 默认 extension_pages CSP 含 upgrade-insecure-requests，会将后台对本机
+  // Agent Bridge（ws://127.0.0.1）与本地模型服务（http://localhost）的连接强制升级为
+  // wss:///https:// 导致握手失败；显式声明 script-src 'self' 仅解除该自动升级。
+  derived.content_security_policy = {
+    ...(derived.content_security_policy ?? {}),
+    extension_pages:
+      derived.content_security_policy?.extension_pages ?? FIREFOX_EXTENSION_PAGES_CSP,
+  };
+
   return derived;
 }
 
 module.exports = {
   FIREFOX_GECKO_SETTINGS,
+  FIREFOX_EXTENSION_PAGES_CSP,
   LIVE_MATCH_PATTERN,
   toOfficialHttpsHostPattern,
   extractOfficialHttpsHostPermissions,

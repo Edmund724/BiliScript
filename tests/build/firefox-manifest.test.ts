@@ -7,6 +7,7 @@ import {
   resolveTargetPlatform,
 } from "../../scripts/build-guards.js";
 import {
+  FIREFOX_EXTENSION_PAGES_CSP,
   FIREFOX_GECKO_SETTINGS,
   LIVE_MATCH_PATTERN,
   deriveFirefoxManifest,
@@ -153,6 +154,19 @@ describe("Firefox Manifest 派生（scripts/firefox-manifest.js）", () => {
       expect(war.matches).not.toContain(LIVE_MATCH_PATTERN);
     }
     expect(derived.web_accessible_resources[0]?.matches).toEqual(["https://www.bilibili.com/*"]);
+  });
+
+  it("显式声明 extension_pages CSP 为 script-src 'self'，解除 Firefox MV3 默认 upgrade-insecure-requests", () => {
+    const derived = deriveFirefoxManifest(chromiumManifest, {
+      presets: PRESETS,
+      asrPresets: ASR_PROVIDER_PRESETS,
+    });
+
+    expect(derived.content_security_policy).toEqual({
+      extension_pages: FIREFOX_EXTENSION_PAGES_CSP,
+    });
+    expect(derived.content_security_policy.extension_pages).toBe("script-src 'self'");
+    expect(derived.content_security_policy.extension_pages).not.toContain("upgrade-insecure-requests");
   });
 });
 
