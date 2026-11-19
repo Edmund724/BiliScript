@@ -340,6 +340,18 @@ class MarionetteClient {
     await this.send("Marionette:SetContext", { value: context });
   }
 
+  async executeSync(script, argsList = [], timeoutMs = 20_000) {
+    const res = await this.send(
+      "WebDriver:ExecuteScript",
+      {
+        script,
+        args: argsList
+      },
+      timeoutMs
+    );
+    return res?.value;
+  }
+
   async executeAsync(script, argsList = [], timeoutMs = 25_000) {
     const res = await this.send(
       "WebDriver:ExecuteAsyncScript",
@@ -351,6 +363,13 @@ class MarionetteClient {
       timeoutMs + 5000
     );
     return res?.value;
+  }
+
+  async getWindowHandles() {
+    const res = await this.send("WebDriver:GetWindowHandles", {});
+    if (Array.isArray(res)) return res;
+    if (Array.isArray(res?.value)) return res.value;
+    return [];
   }
 
   close() {
@@ -392,53 +411,42 @@ async function waitForChromeExtensionReady(client, extensionId) {
   return result;
 }
 
-async function runExtensionChecksInChrome(client, extensionId, expectedVersion) {
-  await client.setContext("chrome");
-  return await client.executeAsync(
+async function runExtensionChecksInContent(client, expectedVersion) {
+  await client.setContext("content");
+
+  // Checks 1-4 run directly inside the moz-extension:// onboarding page content
+  // process so they work cleanly under Firefox OOP WebExtensions (140+ / 160+)
+  // without relying on parent-process selectedBrowser.contentWindow.
+  const coreSuite = await client.executeAsync(
     `
-    const extensionId = arguments[0];
-    const expectedVersion = arguments[1];
+    const expectedVersion = arguments[0];
     const done = arguments[arguments.length - 1];
 
     (async () => {
       const results = [];
-      const cuRef = typeof Cu !== "undefined" ? Cu : Components.utils;
-      const policy = WebExtensionPolicy.getByID(extensionId);
-      if (!policy || !policy.extension) {
-        throw new Error("WebExtensionPolicy missing for " + extensionId);
-      }
-      const mainWin = Services.wm.getMostRecentWindow("navigator:browser");
-      const extWin = mainWin?.gBrowser?.selectedBrowser?.contentWindow;
-      if (!extWin || !extWin.browser || !extWin.chrome) {
+      if (typeof browser === "undefined" || typeof chrome === "undefined") {
         throw new Error("Extension tab window (onboarding.html) missing WebExtension APIs");
       }
 
-      const toExt = (value) => extWin.JSON.parse(extWin.JSON.stringify(value));
-      const fromExt = (value) => JSON.parse(extWin.JSON.stringify(value));
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
       // Check 1: Event Page startup + storage.local / storage.sync round-trip
       {
-        const settingsResp = fromExt(
-          await extWin.browser.runtime.sendMessage(toExt({ type: "get-settings" }))
-        );
-        const bgCtx = policy.extension.backgroundContext;
-        const bgWin = bgCtx?.contentWindow || null;
-        const manifest = fromExt(extWin.chrome.runtime.getManifest());
-        const runtimeUrl = String(extWin.chrome.runtime.getURL(""));
-        const hasOffscreenApi = typeof extWin.chrome?.offscreen !== "undefined";
+        const settingsResp = await browser.runtime.sendMessage({ type: "get-settings" });
+        const bgWin = await browser.runtime.getBackgroundPage();
+        const manifest = chrome.runtime.getManifest();
+        const runtimeUrl = String(chrome.runtime.getURL(""));
+        const hasOffscreenApi = typeof chrome?.offscreen !== "undefined";
 
         const localKey = "__biliscript_fx_smoke_local__";
         const localVal = "fx-local-" + Date.now();
-        await extWin.browser.storage.local.set(toExt({ [localKey]: localVal }));
-        const localGot = fromExt(await extWin.browser.storage.local.get(localKey));
-        await extWin.browser.storage.local.remove(localKey);
+        await browser.storage.local.set({ [localKey]: localVal });
+        const localGot = await browser.storage.local.get(localKey);
+        await browser.storage.local.remove(localKey);
 
         const syncKey = "__biliscript_fx_smoke_sync__";
         const syncVal = "fx-sync-" + Date.now();
-        await extWin.browser.storage.sync.set(toExt({ [syncKey]: syncVal }));
-        const syncGot = fromExt(await extWin.browser.storage.sync.get(syncKey));
-        await extWin.browser.storage.sync.remove(syncKey);
+        await browser.storage.sync.set({ [syncKey]: syncVal });
+        const syncGot = await browser.storage.sync.get(syncKey);
+        await browser.storage.sync.remove(syncKey);
 
         const ok =
           settingsResp?.ok === true &&
@@ -467,11 +475,9 @@ async function runExtensionChecksInChrome(client, extensionId, expectedVersion) 
 
       // Check 2: ensure-offscreen-chat mounts #biliscript-offscreen-iframe & offscreen port handshake
       {
-        const ensureResp = fromExt(
-          await extWin.browser.runtime.sendMessage(toExt({ type: "ensure-offscreen-chat" }))
-        );
-        const bgDoc = policy.extension.backgroundContext?.contentWindow?.document;
-        const iframe = bgDoc?.getElementById("biliscript-offscreen-iframe") || null;
+        const ensureResp = await browser.runtime.sendMessage({ type: "ensure-offscreen-chat" });
+        const bgWin = await browser.runtime.getBackgroundPage();
+        const iframe = bgWin?.document?.getElementById("biliscript-offscreen-iframe") || null;
         const iframeOk =
           Boolean(iframe) &&
           iframe.hidden === true &&
@@ -481,20 +487,18 @@ async function runExtensionChecksInChrome(client, extensionId, expectedVersion) 
         let portReply = null;
         let portError = null;
         try {
-          const port = extWin.chrome.runtime.connect(toExt({ name: "offscreen-chat" }));
+          const port = chrome.runtime.connect({ name: "offscreen-chat" });
           portReply = await new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error("offscreen-chat port handshake timeout")), 6000);
-            const onMsg = cuRef.exportFunction((raw) => {
+            port.onMessage.addListener((raw) => {
               clearTimeout(timer);
-              resolve(fromExt(raw));
-            }, extWin);
-            const onDisc = cuRef.exportFunction(() => {
+              resolve(raw);
+            });
+            port.onDisconnect.addListener(() => {
               clearTimeout(timer);
               reject(new Error("offscreen-chat port disconnected before reply"));
-            }, extWin);
-            port.onMessage.addListener(onMsg);
-            port.onDisconnect.addListener(onDisc);
-            port.postMessage(toExt({ action: "chat", contextKey: "__fx_smoke_probe__" }));
+            });
+            port.postMessage({ action: "chat", contextKey: "__fx_smoke_probe__" });
           });
           port.disconnect();
         } catch (err) {
@@ -525,23 +529,22 @@ async function runExtensionChecksInChrome(client, extensionId, expectedVersion) 
 
       // Check 3: declarativeNetRequest.updateSessionRules writes & cleans up Bilibili media rule
       {
-        const prepResp = fromExt(
-          await extWin.browser.runtime.sendMessage(
-            toExt({ type: "offload-task", taskType: "asr-decode-prepare" })
-          )
-        );
+        const prepResp = await browser.runtime.sendMessage({
+          type: "offload-task",
+          taskType: "asr-decode-prepare"
+        });
         const ruleId = Number(prepResp?.ruleId) || 0;
-        const rulesAfterAdd = fromExt(await extWin.browser.declarativeNetRequest.getSessionRules());
+        const rulesAfterAdd = await browser.declarativeNetRequest.getSessionRules();
         const addedRule = Array.isArray(rulesAfterAdd)
           ? rulesAfterAdd.find((r) => r.id === ruleId) || null
           : null;
 
-        const cleanResp = fromExt(
-          await extWin.browser.runtime.sendMessage(
-            toExt({ type: "offload-task", taskType: "asr-decode-cleanup", ruleId })
-          )
-        );
-        const rulesAfterRemove = fromExt(await extWin.browser.declarativeNetRequest.getSessionRules());
+        const cleanResp = await browser.runtime.sendMessage({
+          type: "offload-task",
+          taskType: "asr-decode-cleanup",
+          ruleId
+        });
+        const rulesAfterRemove = await browser.declarativeNetRequest.getSessionRules();
         const stillPresent = Array.isArray(rulesAfterRemove)
           ? rulesAfterRemove.some((r) => r.id === ruleId)
           : true;
@@ -570,16 +573,14 @@ async function runExtensionChecksInChrome(client, extensionId, expectedVersion) 
 
       // Check 4: official preset domain check-provider-origin returns granted: true
       {
-        const officialResp = fromExt(
-          await extWin.browser.runtime.sendMessage(
-            toExt({ type: "check-provider-origin", origin: "https://api.siliconflow.cn/v1" })
-          )
-        );
-        const localResp = fromExt(
-          await extWin.browser.runtime.sendMessage(
-            toExt({ type: "check-provider-origin", origin: "http://localhost:11434/v1" })
-          )
-        );
+        const officialResp = await browser.runtime.sendMessage({
+          type: "check-provider-origin",
+          origin: "https://api.siliconflow.cn/v1"
+        });
+        const localResp = await browser.runtime.sendMessage({
+          type: "check-provider-origin",
+          origin: "http://localhost:11434/v1"
+        });
 
         const ok = officialResp?.granted === true && localResp?.granted === false;
         results.push({
@@ -592,101 +593,135 @@ async function runExtensionChecksInChrome(client, extensionId, expectedVersion) 
         });
       }
 
-      // Check 5: unauthorized custom domain without user gesture triggers popup fallback cleanly
-      {
-        const existingWindows = new Set();
-        const enumBefore = Services.wm.getEnumerator("navigator:browser");
-        while (enumBefore.hasMoreElements()) {
-          existingWindows.add(enumBefore.getNext());
-        }
-
-        let grantSettlement = null;
-        let grantThrew = null;
-        const reqPromise = extWin.browser.runtime
-          .sendMessage(
-            toExt({
-              type: "request-provider-origins",
-              baseUrls: ["http://localhost:11434/v1"]
-            })
-          )
-          .then(
-            (res) => {
-              grantSettlement = fromExt(res);
-            },
-            (err) => {
-              grantThrew = String(err?.message || err);
-            }
-          );
-
-        let popupWin = null;
-        let popupUrl = "";
-        let popupOriginsText = "";
-        const popupDeadline = Date.now() + 10_000;
-        while (Date.now() < popupDeadline && !popupWin) {
-          const enumNow = Services.wm.getEnumerator("navigator:browser");
-          while (enumNow.hasMoreElements()) {
-            const candidate = enumNow.getNext();
-            if (existingWindows.has(candidate)) continue;
-            const spec = candidate?.gBrowser?.selectedBrowser?.currentURI?.spec || "";
-            if (spec.includes("entry/permission-grant.html")) {
-              popupWin = candidate;
-              popupUrl = spec;
-              break;
-            }
-          }
-          if (!popupWin) {
-            await sleep(100);
-          }
-        }
-
-        if (popupWin) {
-          const docDeadline = Date.now() + 5000;
-          while (Date.now() < docDeadline) {
-            const doc = popupWin.gBrowser?.selectedBrowser?.contentDocument;
-            const cancelBtn = doc?.getElementById("permissionGrantCancelBtn");
-            const originsList = doc?.getElementById("permissionGrantOrigins");
-            if (doc?.readyState === "complete" && cancelBtn && originsList && originsList.textContent.includes("http://localhost/*")) {
-              popupOriginsText = originsList.textContent;
-              cancelBtn.click();
-              break;
-            }
-            await sleep(80);
-          }
-        }
-
-        await Promise.race([
-          reqPromise,
-          sleep(8000)
-        ]);
-
-        const ok =
-          Boolean(popupWin) &&
-          popupUrl.includes("entry/permission-grant.html") &&
-          popupOriginsText.includes("http://localhost/*") &&
-          grantThrew === null &&
-          grantSettlement?.ok === false &&
-          typeof grantSettlement?.error === "string" &&
-          grantSettlement.error.length > 0;
-
-        results.push({
-          name: "unauthorized-custom-origin-popup-fallback",
-          ok,
-          detail: {
-            popupOpened: Boolean(popupWin),
-            popupUrl,
-            popupOriginsText,
-            grantThrew,
-            grantSettlement
-          }
-        });
-      }
-
       return { ok: true, results };
     })().then(done, (err) => done({ ok: false, error: String(err?.message || err), stack: String(err?.stack || "") }));
     `,
-    [extensionId, expectedVersion],
-    45_000
+    [expectedVersion],
+    35_000
   );
+
+  if (!coreSuite?.ok) {
+    return coreSuite;
+  }
+
+  // Check 5: unauthorized custom domain without user gesture triggers popup fallback cleanly
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const currentHandleRes = await client.send("WebDriver:GetWindowHandle", {});
+  const originHandle = typeof currentHandleRes === "string" ? currentHandleRes : currentHandleRes?.value;
+  const handlesBefore = new Set(await client.getWindowHandles());
+
+  await client.executeSync(`
+    window.__biliscriptFxSmokeGrant = { settled: false, res: null, err: null };
+    browser.runtime
+      .sendMessage({
+        type: "request-provider-origins",
+        baseUrls: ["http://localhost:11434/v1"]
+      })
+      .then(
+        (res) => {
+          window.__biliscriptFxSmokeGrant = { settled: true, res, err: null };
+        },
+        (err) => {
+          window.__biliscriptFxSmokeGrant = {
+            settled: true,
+            res: null,
+            err: String(err?.message || err)
+          };
+        }
+      );
+    return true;
+  `);
+
+  let popupHandle = null;
+  let popupUrl = "";
+  let popupOriginsText = "";
+  const popupDeadline = Date.now() + 10_000;
+  while (Date.now() < popupDeadline && !popupHandle) {
+    const handlesNow = await client.getWindowHandles();
+    for (const candidate of handlesNow) {
+      if (handlesBefore.has(candidate)) continue;
+      try {
+        await client.send("WebDriver:SwitchToWindow", { handle: candidate });
+        const href = String((await client.executeSync("return window.location.href;")) || "");
+        if (href.includes("entry/permission-grant.html")) {
+          popupHandle = candidate;
+          popupUrl = href;
+          break;
+        }
+      } catch {
+        // Ignore transient window handles still initializing.
+      }
+    }
+    if (!popupHandle) {
+      await sleep(100);
+    }
+  }
+
+  if (popupHandle) {
+    const docDeadline = Date.now() + 5000;
+    while (Date.now() < docDeadline) {
+      const probe = await client.executeSync(`
+        const cancelBtn = document.getElementById("permissionGrantCancelBtn");
+        const originsList = document.getElementById("permissionGrantOrigins");
+        const ready =
+          document.readyState === "complete" &&
+          Boolean(cancelBtn) &&
+          Boolean(originsList) &&
+          String(originsList.textContent || "").includes("http://localhost/*");
+        if (ready) {
+          const originsText = String(originsList.textContent || "");
+          cancelBtn.click();
+          return { ready: true, originsText };
+        }
+        return { ready: false, originsText: "" };
+      `);
+      if (probe?.ready) {
+        popupOriginsText = probe.originsText;
+        break;
+      }
+      await sleep(80);
+    }
+  }
+
+  if (originHandle) {
+    await client.send("WebDriver:SwitchToWindow", { handle: originHandle });
+  }
+
+  let grantSettlement = null;
+  let grantThrew = null;
+  const settleDeadline = Date.now() + 8000;
+  while (Date.now() < settleDeadline) {
+    const state = await client.executeSync("return window.__biliscriptFxSmokeGrant || null;");
+    if (state?.settled) {
+      grantSettlement = state.res;
+      grantThrew = state.err;
+      break;
+    }
+    await sleep(80);
+  }
+
+  const check5Ok =
+    Boolean(popupHandle) &&
+    popupUrl.includes("entry/permission-grant.html") &&
+    popupOriginsText.includes("http://localhost/*") &&
+    grantThrew === null &&
+    grantSettlement?.ok === false &&
+    typeof grantSettlement?.error === "string" &&
+    grantSettlement.error.length > 0;
+
+  coreSuite.results.push({
+    name: "unauthorized-custom-origin-popup-fallback",
+    ok: check5Ok,
+    detail: {
+      popupOpened: Boolean(popupHandle),
+      popupUrl,
+      popupOriginsText,
+      grantThrew,
+      grantSettlement
+    }
+  });
+
+  return coreSuite;
 }
 
 async function killFirefoxAndCleanup(child, profileDir) {
@@ -761,7 +796,11 @@ async function main() {
   log(`Launching Firefox: ${fx.bin} (headless=${!headed}, port=${marionettePort})`);
   const child = spawn(fx.bin, firefoxArgs, {
     stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true
+    windowsHide: true,
+    env: {
+      ...process.env,
+      MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1"
+    }
   });
 
   const stderrLines = [];
@@ -807,13 +846,12 @@ async function main() {
       url: `moz-extension://${policyInfo.uuid}/onboarding.html`
     });
 
-    const suite = await runExtensionChecksInChrome(
+    const suite = await runExtensionChecksInContent(
       client,
-      EXPECTED_EXTENSION_ID,
       String(distManifest.version || "")
     );
     if (!suite?.ok) {
-      throw new Error(`Chrome check runner failed: ${suite?.error || "unknown error"}\n${suite?.stack || ""}`);
+      throw new Error(`Extension check runner failed: ${suite?.error || "unknown error"}\n${suite?.stack || ""}`);
     }
 
     evidence.checks = suite.results;
