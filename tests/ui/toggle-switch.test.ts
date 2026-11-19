@@ -262,6 +262,26 @@ describe("拖拽：位置过半 + 松手速度决定吸附侧", () => {
     expect(input.checked).toBe(true);
   });
 
+  it("拖拽松手后若未产生 click，兜底清理抑制监听不误伤后续正常点击", () => {
+    vi.useFakeTimers();
+    try {
+      stubReducedMotion();
+      const { input, track } = mountToggle();
+      initToggleSwitch(input);
+
+      track.dispatchEvent(pointerEvent("pointerdown", 0));
+      track.dispatchEvent(pointerEvent("pointermove", 12));
+      track.dispatchEvent(pointerEvent("pointerup", 12));
+      expect(input.checked).toBe(true);
+
+      vi.runAllTimers();
+      fireClick(track);
+      expect(input.checked).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("点击（位移不过阈值）组件不插手：不翻转 checked", () => {
     stubReducedMotion();
     const { input, track } = mountToggle();

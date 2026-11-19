@@ -1248,7 +1248,7 @@
 }
 
 #biliscript-reading-view .biliscript-md-table-dialog::backdrop {
-  background: var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.36));
+  background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   opacity: 1;
@@ -3644,6 +3644,10 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   .biliscript-reading-chat .chat-msg-cursor,
   .biliscript-reading-chat .chat-msg-cursor i {
     animation: none;
+  }
+
+  #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-webkit-slider-thumb {
+    transition: none;
   }
 
   #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb {

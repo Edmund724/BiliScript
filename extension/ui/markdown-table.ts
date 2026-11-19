@@ -71,9 +71,6 @@ function closeTableDialog(
   if (isCurrent) {
     activeDialog = null;
   }
-  if (isCurrent && restoreFocus && trigger?.isConnected) {
-    trigger.focus();
-  }
   animateTriggerExit({
     target: dialog,
     trigger,
@@ -85,6 +82,9 @@ function closeTableDialog(
         dialog.close();
       }
       dialog.remove();
+      if (isCurrent && activeDialog === null && restoreFocus && trigger?.isConnected) {
+        trigger.focus({ preventScroll: true });
+      }
     }
   });
 }

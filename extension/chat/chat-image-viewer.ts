@@ -30,9 +30,6 @@ export function createChatImageViewer(): ChatImageViewer {
     const target = returnFocus;
     returnFocus = null;
     document.removeEventListener("keydown", onKeydown, true);
-    if (restoreFocus && target?.isConnected) {
-      target.focus({ preventScroll: true });
-    }
     const image = dialog.querySelector<HTMLElement>(".chat-image-viewer-image");
     const finish = () => {
       if (dialog.open && typeof dialog.close === "function") {
@@ -44,6 +41,9 @@ export function createChatImageViewer(): ChatImageViewer {
       }
       dialog.removeAttribute("open");
       dialog.remove();
+      if (restoreFocus && !overlay && target?.isConnected) {
+        target.focus({ preventScroll: true });
+      }
     };
     if (image) {
       animateTriggerExit({

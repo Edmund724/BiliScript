@@ -120,4 +120,49 @@ describe("Markdown 表格展开视图", () => {
     expect(close).toHaveBeenCalledOnce();
     expect(view.querySelector(".biliscript-md-table-dialog")).toBeNull();
   });
+
+  it("退场动效结束后先 close/remove 再归还焦点给触发按钮", () => {
+    const events: string[] = [];
+    const finishCallbacks: Array<() => void> = [];
+    const origAnimate = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = vi.fn(() => ({
+      cancel: vi.fn(),
+      addEventListener: vi.fn((type: string, cb: () => void) => {
+        if (type === "finish") finishCallbacks.push(cb);
+      })
+    })) as unknown as typeof HTMLElement.prototype.animate;
+
+    try {
+      HTMLDialogElement.prototype.showModal = vi.fn();
+      HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+        events.push("close");
+        this.dispatchEvent(new Event("close"));
+      });
+      const view = document.createElement("div");
+      view.id = "biliscript-reading-view";
+      const root = document.createElement("div");
+      view.appendChild(root);
+      document.body.appendChild(view);
+      root.innerHTML = renderMarkdown(tableMarkdown(["| A | B |"]));
+      enhanceMarkdownTables(root);
+
+      const expandBtn = root.querySelector<HTMLButtonElement>(".biliscript-md-table-expand")!;
+      const origFocus = expandBtn.focus.bind(expandBtn);
+      expandBtn.focus = vi.fn((opts?: FocusOptions) => {
+        events.push("focus");
+        origFocus(opts);
+      });
+
+      expandBtn.click();
+      const dialog = view.querySelector<HTMLDialogElement>(".biliscript-md-table-dialog")!;
+      dialog.querySelector<HTMLButtonElement>(".biliscript-md-table-dialog-close")!.click();
+
+      expect(events).toEqual([]);
+      finishCallbacks.at(-1)!();
+      expect(events).toEqual(["close", "focus"]);
+      expect(view.querySelector(".biliscript-md-table-dialog")).toBeNull();
+    } finally {
+      HTMLElement.prototype.animate = origAnimate;
+    }
+  });
 });

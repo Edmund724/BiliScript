@@ -181,6 +181,27 @@ describe("wireProviderRowDrag：落定提交（spec §6.10 / §12.5 第 14 行�
     expect(harness.onCommit.mock.calls[0][0]).not.toContain(SMART_ID);
     expect(harness.ids()[0]).toBe(SMART_ID);
   });
+
+  it("指针捕获挂在稳定父容器 listNode 且拖出列表外松手仍正常落定", () => {
+    const harness = makeHarness();
+    const listCapture = vi.fn();
+    const listRelease = vi.fn();
+    const handleCapture = vi.fn();
+    harness.list.setPointerCapture = listCapture;
+    harness.list.releasePointerCapture = listRelease;
+    harness.handles.a.setPointerCapture = handleCapture;
+
+    harness.handles.a.dispatchEvent(pointer("pointerdown", 20));
+    window.dispatchEvent(pointer("pointermove", 70));
+    expect(listCapture).toHaveBeenCalledWith(1);
+    expect(handleCapture).not.toHaveBeenCalled();
+
+    window.dispatchEvent(pointer("pointerup", 70));
+    expect(listRelease).toHaveBeenCalledWith(1);
+    expect(harness.dragging()).toBe(false);
+    expect(harness.ids()).toEqual(["search_b", "search_a", "search_c"]);
+    expect(harness.onCommit).toHaveBeenCalledWith(["search_b", "search_a", "search_c"]);
+  });
 });
 
 describe("wireProviderRowDrag：回滚与失败静默（spec §6.10 / §12.3 写）", () => {

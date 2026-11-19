@@ -28,7 +28,6 @@ export interface ProviderRowDragOptions {
 
 interface DragSession {
   row: HTMLElement;
-  handle: HTMLElement;
   pointerId: number;
   startY: number;
   dragging: boolean;
@@ -84,14 +83,23 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     });
   };
 
+  function detachActiveListeners(): void {
+    document.removeEventListener("keydown", onKeyDown, true);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+    }
+  }
+
   function end(commit: boolean): void {
     const current = session;
     if (!current) return;
     session = null;
-    document.removeEventListener("keydown", onKeyDown, true);
+    detachActiveListeners();
     current.row.classList.remove(DRAGGING_CLASS);
     try {
-      current.handle.releasePointerCapture?.(current.pointerId);
+      listNode.releasePointerCapture?.(current.pointerId);
     } catch {}
     // 未越过阈值（点一下把手）不写库、不改顺序
     if (!current.dragging) return;
@@ -135,13 +143,17 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     if (!row || row.parentElement !== listNode) return;
     session = {
       row,
-      handle,
       pointerId: event.pointerId,
       startY: event.clientY,
       dragging: false,
       originalOrder: recordIds()
     };
     document.addEventListener("keydown", onKeyDown, true);
+    if (typeof window !== "undefined") {
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+    }
   };
 
   const onPointerMove = (event: PointerEvent): void => {
@@ -150,9 +162,9 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
     if (!current.dragging) {
       if (Math.abs(event.clientY - current.startY) < DRAG_THRESHOLD_PX) return;
       current.dragging = true;
-      // setPointerCapture 让指针移出列表后仍收到 move（jsdom 无实现，故可选调用）
+      // 捕获挂在不会随 insertBefore 脱离文档的 listNode 上，避免移动行时隐式触发 lostpointercapture
       try {
-        current.handle.setPointerCapture?.(current.pointerId);
+        listNode.setPointerCapture?.(current.pointerId);
       } catch {}
       current.row.classList.add(DRAGGING_CLASS);
     }
@@ -207,8 +219,5 @@ export function wireProviderRowDrag(listNode: HTMLElement, { onCommit }: Provide
   };
 
   listNode.addEventListener("pointerdown", onPointerDown);
-  listNode.addEventListener("pointermove", onPointerMove);
-  listNode.addEventListener("pointerup", onPointerUp);
-  listNode.addEventListener("pointercancel", onPointerCancel);
   listNode.addEventListener("keydown", onHandleKeyDown);
 }

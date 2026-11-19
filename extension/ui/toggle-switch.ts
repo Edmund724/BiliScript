@@ -241,14 +241,23 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     // 内时 preventDefault；无论 click 落哪都会自我摘除，不留下误伤后续点击的
     // 埋伏。pointercancel 不产生 click，不拦。
     if (e.type === "pointerup") {
-      const suppress = (clickEvent: Event): void => {
+      let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = (): void => {
         document.removeEventListener("click", suppress, true);
+        if (cleanupTimer !== null) {
+          clearTimeout(cleanupTimer);
+          cleanupTimer = null;
+        }
+      };
+      const suppress = (clickEvent: Event): void => {
+        cleanup();
         if (label && clickEvent.target instanceof Node && label.contains(clickEvent.target)) {
           clickEvent.preventDefault();
           clickEvent.stopPropagation();
         }
       };
       document.addEventListener("click", suppress, { capture: true });
+      cleanupTimer = setTimeout(cleanup, 0);
     }
     const nextChecked = target === range;
     if (input.checked !== nextChecked) {
