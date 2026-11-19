@@ -19,7 +19,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
   extractOriginFromBaseUrl,
+  toPermissionMatchPattern,
   collectOrigins,
+  collectPermissionMatchPatterns,
   requestProviderOrigins,
   hasHostPermission,
   hasHostPermissionViaBackground,
@@ -56,6 +58,28 @@ describe("extractOriginFromBaseUrl", () => {
   });
 });
 
+describe("toPermissionMatchPattern", () => {
+  it("剥离端口号输出 ${protocol}//${hostname}/*（适配 Firefox 无端口权限约束）", () => {
+    expect(toPermissionMatchPattern("http://localhost:11434/v1")).toBe("http://localhost/*");
+    expect(toPermissionMatchPattern("http://localhost:8000/*")).toBe("http://localhost/*");
+    expect(toPermissionMatchPattern("https://api.example.com:8443/v1")).toBe("https://api.example.com/*");
+    expect(toPermissionMatchPattern("ws://127.0.0.1:8080/v1/realtime")).toBe("ws://127.0.0.1/*");
+    expect(toPermissionMatchPattern("wss://api.mosi.cn:9000/v1/realtime")).toBe("wss://api.mosi.cn/*");
+    expect(toPermissionMatchPattern("http://[::1]:11434/v1")).toBe("http://[::1]/*");
+    expect(toPermissionMatchPattern(" https://api.openai.com/v1 ")).toBe("https://api.openai.com/*");
+  });
+
+  it("非法/边界输入返回 null", () => {
+    expect(toPermissionMatchPattern("")).toBeNull();
+    expect(toPermissionMatchPattern("   ")).toBeNull();
+    expect(toPermissionMatchPattern("not a url")).toBeNull();
+    expect(toPermissionMatchPattern("ftp://api.example.com/v1")).toBeNull();
+    expect(toPermissionMatchPattern("https://")).toBeNull();
+    expect(toPermissionMatchPattern(undefined)).toBeNull();
+    expect(toPermissionMatchPattern(null)).toBeNull();
+  });
+});
+
 describe("collectOrigins", () => {
   it("去重并保持首次出现顺序，非法项丢弃", () => {
     expect(
@@ -72,6 +96,24 @@ describe("collectOrigins", () => {
 
   it("非数组入参按空处理", () => {
     expect(collectOrigins(null)).toEqual([]);
+  });
+});
+
+describe("collectPermissionMatchPatterns", () => {
+  it("同 host 不同端口剥端口后自动去重", () => {
+    expect(
+      collectPermissionMatchPatterns([
+        "http://localhost:11434/v1",
+        "http://localhost:8000/v1",
+        "https://api.openai.com:8443/v1",
+        "https://api.openai.com/chat",
+        "oops"
+      ])
+    ).toEqual(["http://localhost/*", "https://api.openai.com/*"]);
+  });
+
+  it("非数组入参按空处理", () => {
+    expect(collectPermissionMatchPatterns(null)).toEqual([]);
   });
 });
 
@@ -93,6 +135,16 @@ describe("requestProviderOrigins（保存手势链上的批量申请）", () => 
     const request = vi.fn(async () => true);
     await requestProviderOrigins(["https://a.example.com/v1", "https://b.example.com/v1"], request);
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("带端口地址转换为无端口 pattern 并去重后传给 request", async () => {
+    const request = vi.fn(async () => true);
+    const resp = await requestProviderOrigins(
+      ["http://localhost:11434/v1", "http://localhost:8000/v1"],
+      request
+    );
+    expect(resp).toEqual({ ok: true, origins: ["http://localhost/*"] });
+    expect(request).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
   });
 
   it("无 origin 可申请（空列表 / 全非法）→ 不发 request 也不报错", async () => {
@@ -129,10 +181,12 @@ describe("requestProviderOrigins（保存手势链上的批量申请）", () => 
 });
 
 describe("hasHostPermission（探针/模型列表的权限预检）", () => {
-  it("已授权 → true，contains 收到该 origin", async () => {
+  it("已授权 → true，contains 收到无端口 pattern", async () => {
     const contains = vi.fn(async () => true);
     expect(await hasHostPermission("https://api.openai.com/v1", contains)).toBe(true);
     expect(contains).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
+    expect(await hasHostPermission("http://localhost:11434/v1", contains)).toBe(true);
+    expect(contains).toHaveBeenLastCalledWith({ origins: ["http://localhost/*"] });
   });
 
   it("未授权 → false", async () => {
@@ -402,6 +456,33 @@ describe("revokeOrphanOrigin（删除时的 origin 回收执行）", () => {
     const resp = await revokeOrphanOrigin({ id: "a1", baseUrl: "oops" }, [], { contains: containsGranted, remove });
     expect(resp).toEqual({ origins: [], revoked: false });
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("同 host 其他端口仍在用 → 不误撤销共享的无端口授权", async () => {
+    const remove = vi.fn(async () => true);
+    const resp = await revokeOrphanOrigin(
+      { id: "ollama", baseUrl: "http://localhost:11434/v1" },
+      [
+        { id: "ollama", baseUrl: "http://localhost:11434/v1" },
+        { id: "vllm", baseUrl: "http://localhost:8000/v1" }
+      ],
+      { contains: containsGranted, remove }
+    );
+    expect(resp).toEqual({ origins: [], revoked: false });
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("同 host 无其他端口占用 → 回收无端口 pattern", async () => {
+    const remove = vi.fn(async () => true);
+    const contains = vi.fn(async () => true);
+    const resp = await revokeOrphanOrigin(
+      { id: "ollama", baseUrl: "http://localhost:11434/v1" },
+      [{ id: "ollama", baseUrl: "http://localhost:11434/v1" }],
+      { contains, remove }
+    );
+    expect(contains).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+    expect(remove).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+    expect(resp).toEqual({ origins: ["http://localhost/*"], revoked: true });
   });
 });
 

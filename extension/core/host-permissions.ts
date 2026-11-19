@@ -27,7 +27,7 @@ import type { CheckProviderOriginMessage, CheckProviderOriginResponse } from "..
 // 探针/权限缺失时的统一可操作文案（AI 探针、ASR 探针共享）
 export const HOST_PERMISSION_HINT = "该平台域名未授权，请在保存时允许权限";
 
-// 从 baseUrl 提取申请权限所需的 match pattern（https://host[:port]/*）。非法/边界
+// 从 baseUrl 提取展示/键位用的 origin match pattern（https://host[:port]/*）。非法/边界
 // 输入（空串、非 http(s) 协议、URL 解析失败）返回 null，由调用方跳过申请。
 export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
   const text = String(baseUrl || "").trim();
@@ -43,17 +43,49 @@ export function extractOriginFromBaseUrl(baseUrl: unknown): string | null {
   }
 }
 
-// 一组 baseUrl → 去重后的 match pattern 列表（保持首次出现顺序，非法项丢弃）。
-export function collectOrigins(baseUrls: unknown): string[] {
-  const origins: string[] = [];
+// 转换为 chrome.permissions.contains/request/remove 所需的无端口 match pattern
+// （`${protocol}//${hostname}/*`）：Firefox permissions API 传带端口 pattern 会直接抛错，
+// 而无端口 pattern 在 Chromium 与 Firefox 中均匹配该主机任意端口。
+export function toPermissionMatchPattern(input: unknown): string | null {
+  const text = String(input || "").trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "ws:" && url.protocol !== "wss:") ||
+      !url.hostname
+    ) {
+      return null;
+    }
+    return `${url.protocol}//${url.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
+function collectUniquePatterns(baseUrls: unknown, extract: (input: unknown) => string | null): string[] {
+  const patterns: string[] = [];
   for (const baseUrl of Array.isArray(baseUrls) ? baseUrls : []) {
-    const origin = extractOriginFromBaseUrl(baseUrl);
-    if (origin && !origins.includes(origin)) {
-      origins.push(origin);
+    const pattern = extract(baseUrl);
+    if (pattern && !patterns.includes(pattern)) {
+      patterns.push(pattern);
     }
   }
-  return origins;
+  return patterns;
 }
+
+// 一组 baseUrl → 去重后的 match pattern 列表（保持首次出现顺序，非法项丢弃）。
+export function collectOrigins(baseUrls: unknown): string[] {
+  return collectUniquePatterns(baseUrls, extractOriginFromBaseUrl);
+}
+
+// 一组 baseUrl → 去重后的无端口权限 match pattern 列表（供 permissions API 使用）。
+export function collectPermissionMatchPatterns(baseUrls: unknown): string[] {
+  return collectUniquePatterns(baseUrls, toPermissionMatchPattern);
+}
+
+export const permissionDeniedErrorMessage = (origins: string[]): string =>
+  `未授权 ${origins.join("、")}，操作已中止：请在权限弹窗中选择允许后重试`;
 
 interface RequestResult {
   ok: boolean;
@@ -69,7 +101,7 @@ export async function requestProviderOrigins(
   baseUrls: unknown,
   requestPermissions: typeof chrome.permissions.request | undefined = globalThis.chrome?.permissions?.request
 ): Promise<RequestResult> {
-  const origins = collectOrigins(baseUrls);
+  const origins = collectPermissionMatchPatterns(baseUrls);
   if (origins.length === 0) {
     return { ok: true, origins };
   }
@@ -85,7 +117,7 @@ export async function requestProviderOrigins(
   if (!granted) {
     return {
       ok: false,
-      error: `未授权 ${origins.join("、")}，操作已中止：请在权限弹窗中选择允许后重试`,
+      error: permissionDeniedErrorMessage(origins),
       origins
     };
   }
@@ -126,7 +158,7 @@ export async function hasHostPermission(
   target: unknown,
   contains: typeof chrome.permissions.contains | undefined = globalThis.chrome?.permissions?.contains
 ): Promise<boolean> {
-  const origin = extractOriginFromBaseUrl(target);
+  const origin = toPermissionMatchPattern(target);
   if (!origin || typeof contains !== "function") {
     return true;
   }
@@ -146,7 +178,7 @@ type CheckProviderOriginSender = (
 ) => Promise<CheckProviderOriginResponse | null | undefined>;
 
 async function checkProviderOriginViaSW(target: unknown, send: CheckProviderOriginSender): Promise<boolean> {
-  const origin = extractOriginFromBaseUrl(target);
+  const origin = toPermissionMatchPattern(target);
   if (!origin) {
     return true;
   }
@@ -216,10 +248,11 @@ interface RevokeDependencies {
   remove?: typeof chrome.permissions.remove;
 }
 
-// 删除 provider 后回收其孤儿 origin。providers 是删除时刻从 DOM 收集的全量
-// 平台列表（含尚未摘除的被删行），被删项在此按 id 剔除。
-// 返回 { origins, revoked }：origins 非空且 revoked 为 false 即回收失败，由
-// 调用方提示；权限本就不在（用户当初拒绝过）不算失败，返回空 origins。
+// 删除 provider 后回收其孤儿权限 pattern（无端口归一化：若存活列表中仍有同 host
+// 其他端口的 provider，共享同一个 `${protocol}//${hostname}/*` 授权，不得误撤销）。
+// providers 是删除时刻从 DOM 收集的全量平台列表（含尚未摘除的被删行），被删项在此
+// 按 id 剔除。返回 { origins, revoked }：origins 非空且 revoked 为 false 即回收失败，
+// 由调用方提示；权限本就不在（用户当初拒绝过）或仍被占用不算失败，返回空 origins。
 export async function revokeOrphanOrigin(
   deleted: ProviderLike,
   providers: unknown,
@@ -232,10 +265,17 @@ export async function revokeOrphanOrigin(
   const survivors = (Array.isArray(providers) ? providers : []).filter(
     (provider) => String((provider as ProviderLike)?.id || "") !== deletedId
   );
-  const origins = collectOrphanOrigins(deleted?.baseUrl, survivors);
-  if (origins.length === 0) {
-    return { origins, revoked: false };
+  const pattern = toPermissionMatchPattern(deleted?.baseUrl);
+  if (!pattern) {
+    return { origins: [], revoked: false };
   }
+  const stillUsed = survivors.some(
+    (provider) => toPermissionMatchPattern((provider as ProviderLike)?.baseUrl) === pattern
+  );
+  if (stillUsed) {
+    return { origins: [], revoked: false };
+  }
+  const origins = [pattern];
   if (typeof contains === "function") {
     try {
       if (!(await contains({ origins }))) {

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>域名访问授权</title>
+    <link rel="stylesheet" href="./styles/permission-grant.css" />
+  </head>
+  <body>
+    <main class="grant-shell" aria-labelledby="permissionGrantTitle">
+      <h1 id="permissionGrantTitle" class="grant-title">允许访问以下域名</h1>
+      <ul id="permissionGrantOrigins" class="grant-origins"></ul>
+      <div class="grant-actions">
+        <button id="permissionGrantCancelBtn" type="button" class="grant-btn grant-btn-secondary">取消</button>
+        <button id="permissionGrantAllowBtn" type="button" class="grant-btn grant-btn-primary">允许访问</button>
+      </div>
+    </main>
+    <script type="module" src="./permission-grant.js"></script>
+  </body>
+</html>

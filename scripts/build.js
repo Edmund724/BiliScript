@@ -70,6 +70,7 @@ const distDir = path.join(root, distDirName);
 // offscreen 入口不在此列——它开 splitting 拆动态 chunk（见 buildOffscreenEntry）。
 const jsEntries = [
   "entry/background.ts",
+  "entry/permission-grant.ts",
 ];
 
 // CSS minify 入口 = entry/styles/ 下的全部 .css（按目录派生，不维护逐文件白名单）。
@@ -90,6 +91,7 @@ const copyFiles = [
   "manifest.json",
   "onboarding.html",
   "entry/offscreen.html",
+  "entry/permission-grant.html",
   // content 构建产物（build-content.js 跑完后的最新产物；.map 为 linked
   // sourcemap，devtools 调试用，release zip 由 build_release.py 剔除）。
   "entry/content-bootstrap.iife.js",

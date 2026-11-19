@@ -64,6 +64,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   // sync：处理器返回前已同步回包，通道不持有
   "ai-presets-list": "sync",
   "asr-presets-list": "sync",
+  "permission-grant-result": "sync",
   // branch：口径逐分支而定（同步预检失败即答 / 通过后转异步），handler 自持判定
   "request-provider-origins": "branch",
   "player-ai-quick-action": "branch",

@@ -616,6 +616,15 @@ export type GetDebugLogGateResponse = {
 export type OpenOnboardingMessage = { type: "open-onboarding" };
 export type OpenOnboardingResponse = { ok: boolean; error?: string };
 
+// Firefox 权限弹窗（entry/permission-grant.html）回传用户授权结果给后台。
+export type PermissionGrantResultMessage = {
+  type: "permission-grant-result";
+  reqId: string;
+  ok: boolean;
+  error?: string;
+};
+export type PermissionGrantResultResponse = { ok: boolean; error?: string };
+
 export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
@@ -656,7 +665,8 @@ export type BackgroundMessage =
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
   | GetDebugLogGateMessage
-  | OpenOnboardingMessage;
+  | OpenOnboardingMessage
+  | PermissionGrantResultMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
 
@@ -1122,6 +1132,12 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     OpenOnboardingResponse
   >({
     reply: "async"
+  }),
+  "permission-grant-result": registerBackgroundMessage<
+    PermissionGrantResultMessage,
+    PermissionGrantResultResponse
+  >({
+    reply: "sync"
   })
 } satisfies {
   readonly [K in BackgroundMessageType]: BackgroundMessageRegistration<

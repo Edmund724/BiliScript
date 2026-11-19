@@ -1,0 +1,123 @@
+:root {
+  color-scheme: light dark;
+  --grant-bg: #f7f8fa;
+  --grant-surface: #ffffff;
+  --grant-border: rgba(15, 23, 42, 0.12);
+  --grant-text: #111827;
+  --grant-muted-bg: #eef2f6;
+  --grant-accent: #2563eb;
+  --grant-accent-hover: #1d4ed8;
+  --grant-secondary-bg: #e5e7eb;
+  --grant-secondary-hover: #d1d5db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --grant-bg: #14161a;
+    --grant-surface: #1e2128;
+    --grant-border: rgba(255, 255, 255, 0.12);
+    --grant-text: #f3f4f6;
+    --grant-muted-bg: #262a33;
+    --grant-accent: #3b82f6;
+    --grant-accent-hover: #2563eb;
+    --grant-secondary-bg: #2e333d;
+    --grant-secondary-hover: #3b414d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--grant-bg);
+  color: var(--grant-text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 16px;
+}
+
+.grant-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--grant-surface);
+  border: 1px solid var(--grant-border);
+}
+
+.grant-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.grant-origins {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.grant-origins li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--grant-muted-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+.grant-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.grant-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.grant-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.grant-btn-secondary {
+  background: var(--grant-secondary-bg);
+  color: var(--grant-text);
+}
+
+.grant-btn-secondary:hover:not(:disabled) {
+  background: var(--grant-secondary-hover);
+}
+
+.grant-btn-primary {
+  background: var(--grant-accent);
+  color: #ffffff;
+}
+
+.grant-btn-primary:hover:not(:disabled) {
+  background: var(--grant-accent-hover);
+}

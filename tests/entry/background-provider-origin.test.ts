@@ -91,4 +91,17 @@ describe("check-provider-origin 路由", () => {
     expect(await callHandler(listener, { type: "check-provider-origin", origin: "oops" })).toEqual({ granted: true });
     expect(chrome.permissions.contains).not.toHaveBeenCalled();
   });
+
+  it("带端口 origin 归一化为无端口 pattern 再查 contains", async () => {
+    stubChrome({ granted: true });
+    const listener = await importBackgroundListener();
+
+    const response = (await callHandler(listener, {
+      type: "check-provider-origin",
+      origin: "http://localhost:11434/*"
+    })) as CheckProviderOriginResponse;
+
+    expect(response).toEqual({ granted: true });
+    expect(chrome.permissions.contains).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+  });
 });
