@@ -963,6 +963,39 @@
   outline-offset: 2px;
 }
 
+#biliscript-reading-view .biliscript-note-template-textarea {
+  font-family: var(--biliscript-reader-font-mono);
+  font-size: var(--biliscript-font-size-xs);
+  line-height: 1.5;
+  min-height: 140px;
+}
+
+#biliscript-reading-view .biliscript-note-template-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+#biliscript-reading-view .biliscript-note-template-vars code {
+  padding: 1px 6px;
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-muted);
+  font-family: var(--biliscript-reader-font-mono);
+  font-size: var(--biliscript-font-size-2xs);
+}
+
+#biliscript-reading-view .biliscript-note-obsidian-input {
+  max-width: 196px;
+}
+
+#biliscript-reading-view .biliscript-note-export-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden] {

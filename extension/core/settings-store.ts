@@ -20,6 +20,9 @@ import { withTimeout } from "../shared/error-helpers.js";
 import {
   booleanField,
   normalizeDownloadFormat,
+  normalizeNoteExportTemplate,
+  normalizeObsidianVaultName,
+  normalizeObsidianFolder,
   normalizeAgentBridgeUrl,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
@@ -141,7 +144,10 @@ export const SETTINGS_FIELD_NORMALIZERS: {
   customPanelWidth: normalizeCustomPanelWidth,
   autoOpenReader: normalizeAutoOpenReader,
   cleanConversationsOlderThan30Days: booleanField(false),
-  enableExtraPlaybackRates: booleanField(false)
+  enableExtraPlaybackRates: booleanField(false),
+  noteExportTemplate: normalizeNoteExportTemplate,
+  obsidianVaultName: normalizeObsidianVaultName,
+  obsidianFolder: normalizeObsidianFolder
 });
 
 const SETTINGS_NORMALIZER_ENTRIES = Object.entries(SETTINGS_FIELD_NORMALIZERS) as Array<

@@ -59,6 +59,15 @@ export type ReaderCloseMessage = {
 // 失败带可读 error。
 export type ReaderCloseResponse = { ok: boolean; error?: string };
 
+// 切换阅读模式（全局快捷键 commands["toggle-reader"] 经 SW 派发）：
+// content 侧按阅读壳当前状态在 enterReaderShell / exitReaderShell 间切换。
+export type ReaderToggleMessage = {
+  type: "reader-toggle";
+  readerUrl?: string;
+};
+
+export type ReaderToggleResponse = { ok: boolean; open?: boolean; error?: string };
+
 // 阅读视图自愈恢复（ui/script-button.ts 的 200ms 自查在失同步时派发）：
 // URL 带 biliscript_reader=1 而视图没开（直达进入失败）、或状态开着而壳被页面重渲染
 // 摘掉（状态-DOM 失同步）时，按 DOM 实况收敛状态后重走进入链。readerUrl 语义
@@ -104,6 +113,7 @@ export type AgentBridgeFrameResponse = {
 export type ContentScriptMessage =
   | ReaderEnterMessage
   | ReaderCloseMessage
+  | ReaderToggleMessage
   | ReaderRestoreMessage
   | LiveSessionTakeoverMessage
   | AgentBridgeSnapshotMessage
@@ -1240,6 +1250,7 @@ export type BackgroundResponseOf<K extends BackgroundMessageType> =
 
 export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends ReaderCloseMessage ? ReaderCloseResponse
+  : M extends ReaderToggleMessage ? ReaderToggleResponse
   : M extends ReaderRestoreMessage ? ReaderRestoreResponse
   : M extends LiveSessionTakeoverMessage ? LiveSessionTakeoverResponse
   : M extends AgentBridgeSnapshotMessage ? AgentBridgeSnapshotResponse

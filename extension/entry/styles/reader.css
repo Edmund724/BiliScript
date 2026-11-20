@@ -1212,43 +1212,326 @@
   display: none !important;
 }
 
-/* 选区「解释」浮层：绝对定位在 tab body（不进列表滚动容器，避免随滚动裁剪）；
- * 在字幕句内选中词/句后定位到选区下方，选区清空/列表滚动/重新按下时隐藏 */
+/* 划词悬浮胶囊：绝对定位在文摘面板内（覆盖字幕与概览两 tab，不进滚动容器）；
+ * 4 动作紧凑胶囊，默认置于选区上方并按面板/视口边界自动翻转与钳制 */
 .biliscript-reading-explain-pop {
   position: absolute;
-  z-index: 7;
-  transform-origin: top center;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  max-width: calc(100% - 16px);
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-card));
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 10px 28px rgba(var(--biliscript-primitive-color-black-rgb), 0.18), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
+  transform-origin: bottom center;
 }
 
+.biliscript-reading-explain-pop[hidden] {
+  display: none;
+}
+
+#biliscript-reading-view .biliscript-selection-pill-btn,
 #biliscript-reading-view .biliscript-reading-explain-btn {
-  border: 1px solid var(--biliscript-reader-border);
-  background: var(--biliscript-reader-card);
+  border: none;
+  background: transparent;
   color: var(--biliscript-reader-text);
-  padding: 5px 14px;
+  padding: 4px 9px;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
-  font-family: inherit;
-  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-size: var(--biliscript-font-size-xs);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 6px 22px rgba(var(--biliscript-primitive-color-black-rgb), 0.14);
-  transition: transform 100ms ease-out;
+  box-shadow: none;
+  transition: transform 100ms ease-out, background 120ms ease, color 120ms ease;
 }
 
+.biliscript-selection-pill-btn:active,
 .biliscript-reading-explain-btn:active,
+#biliscript-reading-view .biliscript-selection-pill-btn:active,
 #biliscript-reading-view .biliscript-reading-explain-btn:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
+.biliscript-selection-pill-btn:hover,
 .biliscript-reading-explain-btn:hover {
-  border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
 }
 
+.biliscript-selection-pill-btn.is-feedback {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-selection-pill-btn:focus-visible,
 .biliscript-reading-explain-btn:focus-visible {
   outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 1px;
+}
+
+/* 字幕原位高亮存笔记标示（轻量：左侧高亮底 + 可点击撤销的紧凑「笔记」徽标） */
+.biliscript-reading-item.is-note-highlighted {
+  background: var(--biliscript-reader-highlight);
+}
+
+.biliscript-reading-note-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  font-size: var(--biliscript-font-size-2xs);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.biliscript-reading-note-badge:hover {
+  background: var(--biliscript-reader-danger-soft);
+  color: var(--biliscript-reader-danger);
+}
+
+.biliscript-reading-note-badge:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
   outline-offset: 2px;
+}
+
+/* ===== 侧边栏内 ⌘K / Ctrl+K 命令面板（原生 <dialog closedby="any">） ===== */
+dialog.biliscript-cmd-palette {
+  padding: 0;
+  margin: auto;
+  width: min(460px, calc(100vw - 24px));
+  max-width: 100%;
+  border: none;
+  border-radius: var(--biliscript-radius-xl);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-surface));
+  color: var(--biliscript-reader-text);
+  box-shadow: var(--biliscript-reader-shadow), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
+  overflow: hidden;
+}
+
+dialog.biliscript-cmd-palette[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.biliscript-cmd-palette:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.biliscript-cmd-palette::backdrop {
+  background: var(--biliscript-reader-mask-bg);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.biliscript-cmd-surface {
+  display: flex;
+  flex-direction: column;
+  max-height: min(460px, 74vh);
+  background: var(--biliscript-reader-popover-bg, var(--biliscript-reader-surface));
+}
+
+.biliscript-cmd-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+.biliscript-cmd-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  font-family: var(--biliscript-reader-font-sans);
+  font-size: var(--biliscript-font-size-base);
+  line-height: 1.4;
+  outline: none;
+}
+
+.biliscript-cmd-input::placeholder {
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-cmd-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--biliscript-radius-pill);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.biliscript-cmd-close:hover {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-cmd-close:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: 2px;
+}
+
+.biliscript-cmd-status {
+  padding: 6px 14px;
+  font-size: var(--biliscript-font-size-xs);
+  color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+.biliscript-cmd-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.biliscript-cmd-group {
+  padding: 6px 8px 3px;
+  font-size: var(--biliscript-font-size-2xs);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 600;
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-cmd-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--biliscript-radius-md);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.biliscript-cmd-item.is-active,
+.biliscript-cmd-item:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-cmd-item:focus-visible {
+  outline: 2px solid var(--biliscript-reader-accent);
+  outline-offset: -2px;
+}
+
+.biliscript-cmd-item-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.biliscript-cmd-item-title {
+  font-size: var(--biliscript-font-size-sm);
+  font-family: var(--biliscript-reader-font-sans-medium);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.biliscript-cmd-item-sub {
+  font-size: var(--biliscript-font-size-2xs);
+  color: var(--biliscript-reader-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.biliscript-cmd-item-meta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.biliscript-cmd-badge {
+  padding: 1px 6px;
+  border-radius: var(--biliscript-radius-pill);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  font-size: var(--biliscript-font-size-2xs);
+  font-weight: 600;
+}
+
+.biliscript-cmd-kbds {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.biliscript-cmd-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: var(--biliscript-radius-xs);
+  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-muted);
+  font-family: var(--biliscript-reader-font-mono);
+  font-size: var(--biliscript-font-size-2xs);
+  line-height: 1.4;
+}
+
+.biliscript-cmd-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: var(--biliscript-font-size-sm);
+  color: var(--biliscript-reader-muted);
+}
+
+.biliscript-cmd-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface-2);
+  font-size: var(--biliscript-font-size-2xs);
+  color: var(--biliscript-reader-muted);
+}
+
+.biliscript-cmd-foot-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 选区「解释」卡片：面板内弹层（遮罩 + 居中对话框），整块内容由

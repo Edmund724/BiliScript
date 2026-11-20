@@ -120,6 +120,7 @@ import { playTrackSwitchAnimation } from "./track-switch-animation.js";
 //（core/reader-transcribing.js 的再导出），本模块的 transcribing 态用它。
 import { TRANSCRIBE_BANNER_COPY, isReaderTranscribing } from "./transcribe-banner.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
+import { removeSubtitleItemHighlight } from "./subtitle-highlights-ui.js";
 
 // 双语字幕表随本叶子走（ui/custom-select.ts 顶挂 ensureCustomSelectStyles 同款先例：
 // 组件/样式与消费者同居，不依赖设置抽屉或阅读主表的装载时机）。求值顺序有要求：
@@ -1251,6 +1252,16 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
       const action = actionNode.dataset.subtitleAction;
       if (action === "asr-setup") {
         void beginReaderAsrSetupFlow();
+        return;
+      }
+      if (action === "remove-highlight") {
+        event.preventDefault();
+        event.stopPropagation();
+        const itemEl = actionNode.closest<HTMLElement>(".biliscript-reading-item");
+        const idx = Number(itemEl?.dataset.index);
+        if (Number.isInteger(idx) && idx >= 0) {
+          void removeSubtitleItemHighlight(idx);
+        }
         return;
       }
       if (action === "retry-fetch") {

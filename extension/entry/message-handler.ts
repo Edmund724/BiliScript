@@ -1,6 +1,6 @@
 // content 侧消息分发 + URL 变化编排的组合根（arch-slim-2/09 自 core/ 归位
 // entry/：消息分发与页内编排是 entry 层知识，core/ 回归纯共享底座）。
-import { state, uiState, clipState, triggerSubtitleSessionBoundary } from "../core/state.js";
+import { state, uiState, clipState, getReaderShellState, triggerSubtitleSessionBoundary } from "../core/state.js";
 
 import { startUrlWatcher } from "../core/url-watcher.js";
 import { contentEventBus, getCurrentClipScope } from "../shared/content-event-bus.js";
@@ -156,6 +156,30 @@ function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResp
   return true;
 }
 
+function handleReaderToggle(message: Msg<"reader-toggle">, sendResponse: SendResponse): boolean {
+  (async () => {
+    try {
+      const shell = await ensureReaderShell();
+      const shellState = getReaderShellState();
+      const shouldClose = isReaderViewOpen() || shellState === "entering";
+      if (shouldClose) {
+        await shell.exitReaderShell();
+        sendResponse({ ok: true, open: false });
+      } else {
+        await shell.enterReaderShell({
+          readerUrl: String(message.readerUrl || ""),
+          intent: "open"
+        });
+        sendResponse({ ok: true, open: true });
+      }
+    } catch (error) {
+      logWarn("[BILISCRIPT] reading shell toggle failed", error);
+      sendResponse({ ok: false, error: getErrorMessage(error) });
+    }
+  })();
+  return true;
+}
+
 function handleAgentBridgeSnapshot(_message: Msg<"agent-bridge-snapshot">, sendResponse: SendResponse): boolean {
   sendResponse({ ok: true, snapshot: collectAgentBridgeTabSnapshot() });
   return false;
@@ -195,6 +219,7 @@ const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
   "reader-close": handleReaderClose,
+  "reader-toggle": handleReaderToggle,
   "live-session-takeover": handleLiveSessionTakeover,
   "agent-bridge-snapshot": handleAgentBridgeSnapshot,
   "agent-bridge-subtitles": handleAgentBridgeSubtitles,

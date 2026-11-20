@@ -239,11 +239,12 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   explainPop.id = ids.readingExplainPop;
   explainPop.className = "biliscript-reading-explain-pop";
   explainPop.setAttribute("hidden", "");
-  tabBodySubtitle.appendChild(explainPop);
+  scriptPanel.appendChild(explainPop);
 
   const explainBtn = doc.createElement("button");
   explainBtn.type = "button";
-  explainBtn.className = "biliscript-reading-explain-btn";
+  explainBtn.className = "biliscript-selection-pill-btn biliscript-reading-explain-btn";
+  explainBtn.dataset.selectionAction = "explain";
   explainPop.appendChild(explainBtn);
 
   // 选区「解释」卡片宿主（真实模板同构：空壳，内容整块由 explain-card 状态机重建）
@@ -251,7 +252,7 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   explainCard.id = ids.readingExplainCard;
   explainCard.className = "biliscript-reading-explain-card";
   explainCard.setAttribute("hidden", "");
-  tabBodySubtitle.appendChild(explainCard);
+  scriptPanel.appendChild(explainCard);
 
   // PR3 AI 对话 tab 的待解释意图引用卡（quote/time/cancel，真实模板同构；
   // PR5 起整卡由对话组合根渲染/消费，骨架只保留节点存在性）

@@ -20,8 +20,13 @@ import {
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   MAX_INITIAL_QUICK_PROMPTS
 } from "../core/default-prompts.js";
+import { DEFAULT_NOTE_TEMPLATE } from "../notes/template-defaults.js";
+import { copyCurrentVideoNote, openCurrentVideoInObsidian } from "../notes/export-actions.js";
 import {
   normalizeDownloadFormat,
+  normalizeNoteExportTemplate,
+  normalizeObsidianVaultName,
+  normalizeObsidianFolder,
   normalizeBilingualDisplayOrder,
   normalizeSubtitleSegmentationStrategy,
   normalizeSubtitleTranslateGlossary,
@@ -144,7 +149,7 @@ const SETTINGS_VIEW_TITLES: Record<SettingsViewId, string> = {
 
 let settingsHostRef: HTMLElement | null = null;
 let agentBridgeSettings: AgentBridgeSettingsController | null = null;
-let pendingSettingsTarget: LiveSettingsTarget | "appearance" | null = null;
+let pendingSettingsTarget: LiveSettingsTarget | "appearance" | "note-export" | null = null;
 let renderSettingsPromise: Promise<void> | null = null;
 let renderSettingsHost: HTMLElement | null = null;
 let providerHost: ProviderSettingsHost | null = null;
@@ -212,6 +217,12 @@ function collectElements(host: HTMLElement) {
     advancedSettingsSummary: byIdIn<HTMLElement>(dom.advancedSettingsSummary),
     openOnboardingBtn: byIdIn<HTMLButtonElement>(dom.openOnboardingBtn),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
+    noteExportTemplate: byIdIn<HTMLTextAreaElement>(dom.noteExportTemplate),
+    noteExportResetTemplateBtn: byIdIn<HTMLButtonElement>(dom.noteExportResetTemplateBtn),
+    obsidianVaultName: byIdIn<HTMLInputElement>(dom.obsidianVaultName),
+    obsidianFolder: byIdIn<HTMLInputElement>(dom.obsidianFolder),
+    noteExportCopyBtn: byIdIn<HTMLButtonElement>(dom.noteExportCopyBtn),
+    noteExportObsidianBtn: byIdIn<HTMLButtonElement>(dom.noteExportObsidianBtn),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
     reduceTransparency: byIdIn<HTMLInputElement>(dom.reduceTransparency),
@@ -376,6 +387,27 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
     key: "downloadFormat",
     getElement: (el) => el.downloadFormat,
     normalize: normalizeDownloadFormat
+  },
+  {
+    kind: "debounced-text",
+    key: "noteExportTemplate",
+    getElement: (el) => el.noteExportTemplate,
+    normalize: normalizeNoteExportTemplate,
+    watchSync: true
+  },
+  {
+    kind: "debounced-text",
+    key: "obsidianVaultName",
+    getElement: (el) => el.obsidianVaultName,
+    normalize: normalizeObsidianVaultName,
+    watchSync: true
+  },
+  {
+    kind: "debounced-text",
+    key: "obsidianFolder",
+    getElement: (el) => el.obsidianFolder,
+    normalize: normalizeObsidianFolder,
+    watchSync: true
   },
   {
     kind: "select",
@@ -966,7 +998,11 @@ export function openAppearanceSettings(): Promise<void> {
   return openSettingsTarget("appearance");
 }
 
-async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Promise<void> {
+export function openNoteExportSettings(): Promise<void> {
+  return openSettingsTarget("note-export");
+}
+
+async function openSettingsTarget(target: LiveSettingsTarget | "appearance" | "note-export"): Promise<void> {
   if ((target === "live" || target === "gemini-key") && !supportsLiveCompanion()) {
     return;
   }
@@ -978,13 +1014,16 @@ async function openSettingsTarget(target: LiveSettingsTarget | "appearance"): Pr
     return;
   }
   pendingSettingsTarget = null;
-  const view: SettingsSubpageId = target === "appearance" ? "ai-prompt" : "live";
+  const view: SettingsSubpageId =
+    target === "appearance" ? "ai-prompt" : target === "note-export" ? "subtitle" : "live";
   navigateSettingsView(host, view, { focusOnEnter: false });
   const sectionHeading = target === "appearance"
     ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
-    : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
-  if (target === "appearance") {
-    const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup]") ?? sectionHeading;
+    : target === "note-export"
+      ? host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="note-export"] .biliscript-set-h`)
+      : host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="live"] .biliscript-set-h`);
+  if (target === "appearance" || target === "note-export") {
+    const scrollTarget = sectionHeading?.closest<HTMLElement>("[data-settings-subgroup], [data-settings-section]") ?? sectionHeading;
     scrollTarget?.scrollIntoView({ behavior: "auto", block: "start" });
   }
   if (target === "gemini-key") {
@@ -1601,7 +1640,10 @@ function buildDefaultPreferencePayload() {
     autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
     enableExtraPlaybackRates: DEFAULT_SETTINGS.enableExtraPlaybackRates,
     chatInputGlow: DEFAULT_SETTINGS.chatInputGlow,
-    reduceTransparency: DEFAULT_SETTINGS.reduceTransparency
+    reduceTransparency: DEFAULT_SETTINGS.reduceTransparency,
+    noteExportTemplate: DEFAULT_NOTE_TEMPLATE,
+    obsidianVaultName: DEFAULT_SETTINGS.obsidianVaultName,
+    obsidianFolder: DEFAULT_SETTINGS.obsidianFolder
   };
 }
 
@@ -1941,6 +1983,42 @@ function bindSettingsEvents(host: HTMLElement): void {
   );
 
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
+  elements.noteExportResetTemplateBtn?.addEventListener("click", () => {
+    elements.noteExportTemplate.value = DEFAULT_NOTE_TEMPLATE;
+    state.patchSettings({ noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
+    void saveSettingField(elements, { noteExportTemplate: DEFAULT_NOTE_TEMPLATE });
+  });
+  elements.noteExportCopyBtn?.addEventListener("click", () => {
+    void (async () => {
+      const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
+      state.patchSettings({ noteExportTemplate: normalizedTemplate });
+      const ok = await copyCurrentVideoNote();
+      setStatus(elements, ok ? "已复制当前视频笔记" : "复制失败：请检查剪贴板权限或内容", !ok);
+    })();
+  });
+  elements.noteExportObsidianBtn?.addEventListener("click", () => {
+    void (async () => {
+      const normalizedTemplate = normalizeNoteExportTemplate(elements.noteExportTemplate.value);
+      const vault = normalizeObsidianVaultName(elements.obsidianVaultName.value);
+      const folder = normalizeObsidianFolder(elements.obsidianFolder.value);
+      state.patchSettings({
+        noteExportTemplate: normalizedTemplate,
+        obsidianVaultName: vault,
+        obsidianFolder: folder
+      });
+      const result = await openCurrentVideoInObsidian();
+      if (!result.ok) {
+        setStatus(elements, result.error || "写入 Obsidian 失败", true);
+        return;
+      }
+      setStatus(
+        elements,
+        result.usedClipboardFallback
+          ? "笔记较长，已复制并唤起 Obsidian 粘贴写入"
+          : "已唤起 Obsidian 写入笔记"
+      );
+    })();
+  });
   elements.openOnboardingBtn?.addEventListener("click", () => {
     void sendRuntimeMessage({ type: "open-onboarding" }).then((resp) => {
       if (resp && !resp.ok) {

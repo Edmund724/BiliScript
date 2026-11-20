@@ -101,7 +101,7 @@ function explainPop(): HTMLElement {
 }
 
 function explainBtn(): HTMLButtonElement {
-  return explainPop().querySelector("button") as HTMLButtonElement;
+  return explainPop().querySelector(".biliscript-reading-explain-btn") as HTMLButtonElement;
 }
 
 function explainCard(): HTMLElement {

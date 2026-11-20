@@ -58,7 +58,8 @@ export const {
   probeContentScriptVersion,
   injectReaderContent,
   triggerReaderModeInTab,
-  triggerReaderModeCloseInTab
+  triggerReaderModeCloseInTab,
+  triggerReaderModeToggleInTab
 } = createBackgroundContentOrchestrator({
   // 单发副作用（chrome API 触点）
   probeOnce: probeContentScriptVersionOnce,

@@ -107,3 +107,11 @@ export {
   closeQuoteShareModal,
   isQuoteShareModalOpen
 } from "./quote-share-modal.js";
+
+// ===== ⌘K / Ctrl+K 命令面板 =====
+export {
+  openCommandPalette,
+  closeCommandPalette,
+  toggleCommandPalette,
+  isCommandPaletteOpen
+} from "./command-palette.js";

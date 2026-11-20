@@ -113,7 +113,7 @@ function explainPop(): HTMLElement {
 }
 
 function explainBtn(): HTMLButtonElement {
-  return explainPop().querySelector("button") as HTMLButtonElement;
+  return explainPop().querySelector(".biliscript-reading-explain-btn") as HTMLButtonElement;
 }
 
 function explainCard(): HTMLElement {
@@ -211,8 +211,8 @@ describe("选区「解释」浮层", () => {
 
   it("拖选合帧：selectionchange 不当场定位，一帧只跑一次读→写", () => {
     const widthReads = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get");
-    const tabBodySubtitle = document.getElementById(ids.readingTabBodySubtitle) as HTMLElement;
-    const bodyRect = vi.spyOn(tabBodySubtitle, "getBoundingClientRect");
+    const popHost = explainPop().parentElement as HTMLElement;
+    const bodyRect = vi.spyOn(popHost, "getBoundingClientRect");
 
     selectInItem(1, "传递信息的工具");
     expect(explainPop().hidden).toBe(false);
@@ -769,9 +769,9 @@ describe("解释卡片焦点管理（M3 Stage 2 P0）", () => {
 
 describe("选区「解释」浮层 Stage 2 边界与过滤（P1）", () => {
   it("底边溢出上翻并钳制、隐藏后重新测量宽度、Esc 收起浮层", () => {
-    const tabBodySubtitle = document.getElementById(ids.readingTabBodySubtitle) as HTMLElement;
+    const popHost = explainPop().parentElement as HTMLElement;
     let bodyRectValue = { left: 0, top: 0, width: 320, height: 200, right: 320, bottom: 200 };
-    vi.spyOn(tabBodySubtitle, "getBoundingClientRect").mockImplementation(() => bodyRectValue as DOMRect);
+    vi.spyOn(popHost, "getBoundingClientRect").mockImplementation(() => bodyRectValue as DOMRect);
     let rangeRectValue = { left: 40, top: 185, bottom: 198, right: 140, width: 100, height: 13 };
     const originalRangeRectDesc = Object.getOwnPropertyDescriptor(Range.prototype, "getBoundingClientRect");
     Object.defineProperty(Range.prototype, "getBoundingClientRect", {

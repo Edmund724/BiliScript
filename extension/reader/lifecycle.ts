@@ -85,6 +85,7 @@ import {
   type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
+import { applySubtitleHighlightsToRange } from "./subtitle-highlights-ui.js";
 import {
   beginReaderAiSetupFlow,
   beginReaderAsrSetupFlow,
@@ -93,6 +94,7 @@ import {
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
 import { closeQuoteShareModal } from "./quote-share-modal.js";
+import { closeCommandPalette } from "./command-palette.js";
 // 概览 tab：协调器实例由本模块装配持有——打开即自动生成（enter/subtitle-ready）、
 // 投影格经 renderReadingOverview 包装驱动、关闭清理经 reset 归位。
 import {
@@ -143,9 +145,10 @@ subscribeReaderPresenter(handleReaderPresenterNotification);
 //   - 批次回执 hook：分批渲染每次 [from, to) 上屏后通知句内搜索补高亮
 //     （batched-render 不 import subtitle-search，经此槽反转依赖，避免成环）；
 //   - 转写相位订阅：asr-transcribing/done/failed 实时切换横幅（视图开着才碰 DOM）。
-setReadingSubtitleBatchHook((fromIndex, toIndex) =>
-  subtitleSearch.handleRangeAppended(fromIndex, toIndex)
-);
+setReadingSubtitleBatchHook((fromIndex, toIndex) => {
+  subtitleSearch.handleRangeAppended(fromIndex, toIndex);
+  applySubtitleHighlightsToRange(document.getElementById(ids.readingSubtitleList), fromIndex, toIndex);
+});
 bindReadingTranscribeBanner();
 // 选轨控件：深 module 实例持有工具条 UI 相位与事件接线。
 //   - 结果通知回调：切轨失败经 reader-bus 的 "notice" 通道报错（构造注入，跨壳重建存活）；
@@ -428,6 +431,7 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
     stopReadingViewSync();
     closeReaderExplainCard();
     closeQuoteShareModal({ restoreFocus: false });
+    closeCommandPalette();
     clearPendingExplainIntent();
     invalidateReaderSetupFlows("all");
     resetReaderOverviewState();
@@ -710,6 +714,7 @@ export function closeReadingView() {
   // 选区「解释」卡片：关卡片（内部会 abort 在飞解释请求，避免关闭后回执落 DOM）。
   closeReaderExplainCard();
   closeQuoteShareModal({ restoreFocus: false });
+  closeCommandPalette();
   // PR5：对话 tab 的断流收口（工单 08 决议：关闭即断流——resetStreamState 断
   // port、挂起的 subtitle-wait 失效、摘全局触发源；重开从会话历史恢复，由对话
   // tab 的激活路径负责）。未装载 = 对话功能从未启用，no-op（不触发懒加载）。

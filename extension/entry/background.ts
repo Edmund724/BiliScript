@@ -8,7 +8,8 @@ import {
   EXPECTED_CONTENT_SCRIPT_VERSION,
   injectReaderContent,
   probeContentScriptVersion,
-  triggerReaderModeInTab
+  triggerReaderModeInTab,
+  triggerReaderModeToggleInTab
 } from "./content-orchestration-wiring.js";
 // 非支持页工具栏可见反馈（工单 04，触点与文案单源在
 // extension/entry/unsupported-page-feedback.ts）：徽标/标题/页内提示的应用与清空。
@@ -692,6 +693,40 @@ chrome.action?.onClicked?.addListener(
     }
   }
 );
+
+const TOGGLE_READER_COMMAND = "toggle-reader";
+
+chrome.commands?.onCommand?.addListener?.(async (command, commandTab) => {
+  if (command !== TOGGLE_READER_COMMAND) {
+    return;
+  }
+  let targetTab = commandTab;
+  if (!targetTab?.id || !targetTab?.url) {
+    const queried = await chrome.tabs?.query?.({ active: true, currentWindow: true }).catch(() => []);
+    targetTab = queried?.[0] ?? targetTab;
+  }
+  const tabId = targetTab?.id ?? 0;
+  if (!tabId) {
+    return;
+  }
+  if (isSupportedBilibiliPage(targetTab?.url)) {
+    const triggered = await triggerReaderModeToggleInTab(tabId, buildReaderModeUrl(targetTab?.url || ""));
+    if (triggered) {
+      await clearUnsupportedPageFeedback(tabId);
+    } else {
+      logWarn("[BILISCRIPT] toggle-reader command: reader-toggle 触发失败（重试耗尽）");
+    }
+    return;
+  }
+  await applyUnsupportedPageFeedback(tabId);
+  if (isWwwBilibiliPage(targetTab?.url)) {
+    try {
+      await showUnsupportedPageToast(tabId);
+    } catch (error) {
+      logWarnAlways("[BILISCRIPT] unsupported-page toast injection failed", error);
+    }
+  }
+});
 
 // 非支持页反馈的清理：标签页一开始导航（loading）即清徽标/标题，不跨导航残留。
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

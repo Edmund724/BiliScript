@@ -83,5 +83,14 @@
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"
     }
+  },
+  "commands": {
+    "toggle-reader": {
+      "suggested_key": {
+        "default": "Alt+B",
+        "mac": "Alt+B"
+      },
+      "description": "展开或收起 BiliScript 文摘侧边栏"
+    }
   }
 }

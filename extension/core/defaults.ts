@@ -112,6 +112,10 @@ export interface KnownSettings {
   // ===== 历史会话清理 =====
   cleanConversationsOlderThan30Days: boolean; // 自动清理 30 天以前的历史会话记录，默认关
   enableExtraPlaybackRates: boolean; // 在视频播放器控制栏显示 3x/4x 倍速按钮，默认关
+  // ===== 模板化笔记导出与 Obsidian =====
+  noteExportTemplate: string; // 自定义 Markdown 笔记模板（空占位，归一化回落 DEFAULT_NOTE_TEMPLATE）
+  obsidianVaultName: string;  // 目标 Obsidian Vault 名称（留空写入当前默认库）
+  obsidianFolder: string;     // Obsidian 库内目标文件夹路径（可选）
 }
 
 export interface Settings extends KnownSettings {
@@ -193,5 +197,8 @@ export const DEFAULT_SETTINGS: Settings = {
   customPanelWidth: 540,
   autoOpenReader: false,
   cleanConversationsOlderThan30Days: false,
-  enableExtraPlaybackRates: false
+  enableExtraPlaybackRates: false,
+  noteExportTemplate: "",
+  obsidianVaultName: "",
+  obsidianFolder: ""
 };

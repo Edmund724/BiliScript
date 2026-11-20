@@ -45,6 +45,12 @@ export interface BackgroundContentOrchestrator {
     delayMs?: number
   ) => Promise<boolean>;
   triggerReaderModeCloseInTab: (tabId: number, retries?: number, delayMs?: number) => Promise<boolean>;
+  triggerReaderModeToggleInTab: (
+    tabId: number,
+    readerUrl?: string,
+    retries?: number,
+    delayMs?: number
+  ) => Promise<boolean>;
 }
 
 export function createBackgroundContentOrchestrator(deps: BackgroundContentOrchestratorDeps): BackgroundContentOrchestrator {
@@ -209,11 +215,47 @@ export function createBackgroundContentOrchestrator(deps: BackgroundContentOrche
     return false;
   }
 
+  async function triggerReaderModeToggleInTab(
+    tabId: number,
+    readerUrl = "",
+    retries = triggerRetries,
+    delayMs = triggerRetryDelayMs
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < retries; attempt += 1) {
+      if (attempt > 0) {
+        await delay(delayMs);
+      }
+
+      try {
+        const response = await sendMessageToTab(tabId, {
+          type: "reader-toggle",
+          readerUrl
+        });
+        if (response?.ok) {
+          return true;
+        }
+      } catch (error) {
+        const message = String((error as Error)?.message || "");
+        if (message.includes(RECEIVING_END_MISSING_SENTINEL)) {
+          try {
+            await ensureReaderContentReady(tabId);
+          } catch {
+            // keep retrying
+          }
+          continue;
+        }
+      }
+    }
+
+    return false;
+  }
+
   return {
     ensureReaderContentReady,
     probeContentScriptVersion,
     injectReaderContent,
     triggerReaderModeInTab,
-    triggerReaderModeCloseInTab
+    triggerReaderModeCloseInTab,
+    triggerReaderModeToggleInTab
   };
 }

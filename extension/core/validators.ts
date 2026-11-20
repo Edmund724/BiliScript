@@ -23,6 +23,11 @@ import {
   type SubtitleSegmentationStrategy
 } from "./defaults.js";
 import {
+  DEFAULT_NOTE_TEMPLATE,
+  MAX_NOTE_EXPORT_TEMPLATE_BYTES,
+  MAX_OBSIDIAN_FIELD_LENGTH
+} from "../notes/template-defaults.js";
+import {
   BILINGUAL_DISPLAY_ORDER_OPTIONS,
   INTERPRET_SUBTITLE_SCALE_MAX,
   INTERPRET_SUBTITLE_SCALE_MIN,
@@ -83,6 +88,45 @@ export function normalizeDownloadFormat(value: unknown): string {
   if (value === "vtt") return "vtt";
   if (value === "vtt-secondary") return "vtt-secondary";
   return "srt";
+}
+
+function truncateUtf8ByBytes(text: string, maxBytes: number): string {
+  if (!text) return "";
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) {
+    return text;
+  }
+  let result = "";
+  let used = 0;
+  for (const ch of text) {
+    const size = encoder.encode(ch).length;
+    if (used + size > maxBytes) {
+      break;
+    }
+    result += ch;
+    used += size;
+  }
+  return result.trimEnd();
+}
+
+export function normalizeNoteExportTemplate(value: unknown): string {
+  const normalized = toString(value).replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return DEFAULT_NOTE_TEMPLATE;
+  }
+  return truncateUtf8ByBytes(normalized, MAX_NOTE_EXPORT_TEMPLATE_BYTES) || DEFAULT_NOTE_TEMPLATE;
+}
+
+export function normalizeObsidianVaultName(value: unknown): string {
+  return toString(value).trim().slice(0, MAX_OBSIDIAN_FIELD_LENGTH);
+}
+
+export function normalizeObsidianFolder(value: unknown): string {
+  return toString(value)
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .slice(0, MAX_OBSIDIAN_FIELD_LENGTH);
 }
 
 export function parseAgentBridgeUrl(value: unknown): string | null {

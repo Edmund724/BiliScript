@@ -201,8 +201,6 @@ export function buildUiHtml(): string {
                  reader/explain-pop-ui.ts（arch-slim-2/06 下放） -->
             <div id="${ids.readingTabBodySubtitle}" class="biliscript-reading-tab-body is-active" role="tabpanel" aria-label="字幕">
               ${buildSubtitleTabBodyHtml()}
-              ${buildExplainPopHtml()}
-              ${buildExplainCardHostHtml()}
             </div>
 
             <!-- 概览 tab（PR4）：占位模板 + 点击委托在 reader/overview-ui.ts，
@@ -220,6 +218,9 @@ export function buildUiHtml(): string {
             <div id="${ids.readingTabBodyChat}" class="biliscript-reading-tab-body" role="tabpanel" aria-label="AI 对话" hidden>
               ${buildChatTabBodyHtml()}
             </div>
+
+            ${buildExplainPopHtml()}
+            ${buildExplainCardHostHtml()}
       </aside>
     </section>
   `;
@@ -323,6 +324,10 @@ subscribeUiCommand((name, payload) => {
       void import("./settings-panel.js")
         .then((mod) => mod.openAppearanceSettings())
         .catch(() => {});
+    } else if (target === "note-export") {
+      void import("./settings-panel.js")
+        .then((mod) => mod.openNoteExportSettings())
+        .catch(() => {});
     }
   }
 });
@@ -423,6 +428,19 @@ export function bindUiEvents(): void {
       }
     });
     document.addEventListener("keydown", (event) => {
+      if (
+        !event.defaultPrevented &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "k" &&
+        isReaderViewOpen()
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        withReader("toggle command palette", (reader) => reader.toggleCommandPalette());
+        return;
+      }
       if (event.key !== "Escape" || event.defaultPrevented || !state.reader.readingSettingsExpanded) return;
       event.preventDefault();
       event.stopPropagation();

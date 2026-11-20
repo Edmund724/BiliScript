@@ -34,6 +34,10 @@ import {
 import { applyReadingViewPresentation } from "./presentation.js";
 import { ids } from "./state.js";
 import { projectReaderSettingsMode } from "./settings-mode.js";
+import {
+  applySubtitleHighlightsToList,
+  refreshSubtitleHighlightsFromStore
+} from "./subtitle-highlights-ui.js";
 
 export interface ReaderViewProjection {
   readonly id: string;
@@ -117,6 +121,8 @@ function projectReadingSubtitleList(): void {
     }
     subtitleList.innerHTML = firstHtml;
     indexSubtitleItems(subtitleList, subtitleList.children);
+    applySubtitleHighlightsToList(subtitleList);
+    void refreshSubtitleHighlightsFromStore();
     calibrateReadingSubtitleItemEstimate(subtitleList);
     if (firstEnd < subtitleItems.length) {
       startReadingSubtitleAppendTask({

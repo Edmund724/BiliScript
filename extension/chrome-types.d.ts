@@ -115,6 +115,14 @@ declare namespace chrome {
     const onClicked: OnClickedEvent;
   }
 
+  namespace commands {
+    interface OnCommandEvent {
+      addListener(listener: (command: string, tab?: tabs.Tab) => void): void;
+    }
+
+    const onCommand: OnCommandEvent;
+  }
+
   namespace tabs {
     interface Tab {
       id?: number;

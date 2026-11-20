@@ -1,5 +1,6 @@
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { READING_RESET_ICON } from "./reading-icons.js";
+import { NOTE_TEMPLATE_VARIABLES_HELP } from "../notes/template-defaults.js";
 import {
   CHAT_DISPLAY_SLIDER_SPECS,
   type ChatDisplaySettingKey
@@ -134,6 +135,12 @@ export const SETTINGS_PANEL_DOM_IDS = {
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
+  noteExportTemplate: "noteExportTemplate",
+  noteExportResetTemplateBtn: "noteExportResetTemplateBtn",
+  obsidianVaultName: "obsidianVaultName",
+  obsidianFolder: "obsidianFolder",
+  noteExportCopyBtn: "noteExportCopyBtn",
+  noteExportObsidianBtn: "noteExportObsidianBtn",
   enableDebugLogs: "enableDebugLogs",
   enableAgentBridge: "enableAgentBridge",
   agentBridgeConnectBtn: "agentBridgeConnectBtn",
@@ -539,6 +546,55 @@ export function buildSettingsHtml(): string {
               <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" aria-label="在字幕正文中保留时间戳" />
               <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
             </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="biliscript-set-group" data-settings-section="note-export">
+        <div class="biliscript-set-header-row">
+          <div class="biliscript-set-h">笔记模板与 Obsidian</div>
+          <button id="${ids.noteExportResetTemplateBtn}" class="add-property-btn" type="button">恢复默认模板</button>
+        </div>
+        <div class="biliscript-set-card">
+          <div class="biliscript-set-row biliscript-set-row-stack">
+            <label class="biliscript-set-label" for="${ids.noteExportTemplate}">Markdown 导出模板</label>
+            <textarea
+              id="${ids.noteExportTemplate}"
+              class="biliscript-set-textarea biliscript-note-template-textarea"
+              rows="8"
+              spellcheck="false"
+              placeholder="${NOTE_TEMPLATE_VARIABLES_HELP}"
+            ></textarea>
+            <div class="biliscript-note-template-vars" aria-label="可用模板变量">
+              <code>{{title}}</code> <code>{{bvid}}</code> <code>{{author}}</code> <code>{{url}}</code> <code>{{date}}</code> <code>{{summary}}</code> <code>{{chapters}}</code> <code>{{quotes}}</code> <code>{{notes}}</code> <code>{{subtitles}}</code>
+            </div>
+          </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.obsidianVaultName}">Obsidian Vault</label>
+            <input
+              id="${ids.obsidianVaultName}"
+              class="biliscript-set-input biliscript-note-obsidian-input"
+              type="text"
+              spellcheck="false"
+              placeholder="留空写入默认库"
+            />
+          </div>
+
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.obsidianFolder}">Obsidian 文件夹</label>
+            <input
+              id="${ids.obsidianFolder}"
+              class="biliscript-set-input biliscript-note-obsidian-input"
+              type="text"
+              spellcheck="false"
+              placeholder="例如：Clippings/Bilibili"
+            />
+          </div>
+
+          <div class="biliscript-set-row biliscript-note-export-actions">
+            <button id="${ids.noteExportCopyBtn}" class="biliscript-reading-mini-btn" type="button">复制当前笔记</button>
+            <button id="${ids.noteExportObsidianBtn}" class="biliscript-reading-mini-btn is-primary" type="button">写入 Obsidian</button>
           </div>
         </div>
       </section>
