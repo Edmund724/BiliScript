@@ -111,6 +111,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  transition: opacity 200ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 .biliscript-reading-header-copy {
@@ -879,6 +880,17 @@
     gap: 10px;
     padding: 10px 8px;
   }
+}
+
+/* 设置面板在未加载分区表时的网格兜底（避免首次冷开挤动标签区） */
+#biliscript-reading-view .biliscript-reading-settings-panel {
+  grid-row: 2 / 4;
+  grid-column: 1;
+  min-height: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-panel[hidden] {
+  display: none;
 }
 
 /* 设置面板分组（窄容器适配） */

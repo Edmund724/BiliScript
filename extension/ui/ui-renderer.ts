@@ -34,7 +34,7 @@ import { exitReaderShell } from "../reader/shell.js";
 // 对话分区表（arch-slim-4/07）：投影到对话 tab 时（project-tab 命令 / 恢复链）
 // 由 setReaderScriptTab 的 chat 分支同步挂载（reader/chat-tab.ts 模块顶层另兜底
 // 挂一次）；不建 onload 门控——无样式窗口只落在未激活的静默空态上。
-import { ensureReaderChatStyles } from "../shared/style-injector.js";
+import { ensureReaderChatStyles, ensureReaderSettingsStyles } from "../shared/style-injector.js";
 // arch-slim-2/06 ui 按 tab 全量收口：三 tab 的模板段+绑定段同居各自域叶子，
 // 壳只组装与接线。叶子均为轻模块（ids 表 + reader-gate 转发助手，动态边在
 // 叶子依赖内部），不把 reader 重域/总结链拖进壳闭包：
@@ -277,10 +277,22 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
 }
 
 // script-only-ui：打开侧边栏设置抽屉（展开 + 渲染）。原「打开设置页」入口
+let settingsAssetsPrewarmed = false;
+
+function prewarmReaderSettingsAssets(): void {
+  ensureReaderSettingsStyles();
+  if (settingsAssetsPrewarmed) return;
+  settingsAssetsPrewarmed = true;
+  void import("./settings-panel.js").catch(() => {
+    settingsAssetsPrewarmed = false;
+  });
+}
+
 //（open-options 消息/options 页）已删除，header 齿轮、对话 tab 设置按钮与
 // 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
 // 在抽屉打开时装载设置面板。
 export function openReaderSettingsPanel(): void {
+  ensureReaderSettingsStyles();
   openReaderSettingsMode();
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
@@ -398,6 +410,8 @@ export function bindUiEvents(): void {
       stepBackReaderSettings();
     }
   });
+  readingSettingsToggleBtn.addEventListener("pointerenter", prewarmReaderSettingsAssets, { once: true });
+  readingSettingsToggleBtn.addEventListener("focus", prewarmReaderSettingsAssets, { once: true });
   readingSettingsToggleBtn.addEventListener("click", (event) => {
     event.stopPropagation();
     if (consumeOverlayClick(event)) return;

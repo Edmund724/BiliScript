@@ -33,6 +33,7 @@ import {
   type ProviderSummarySnapshot
 } from "./provider-settings-host.js";
 import { buildSettingsHtml } from "./settings-panel-html.js";
+import { animateNavFadeIn } from "./nav-motion.js";
 import { applySectionContainment, collectElements, setStatus, type SettingsElements } from "./settings/elements.js";
 import { bindModelSelectEvents, renderAiModelSelects } from "./settings/model-selects.js";
 import { createSettingsNavigator } from "./settings/navigation.js";
@@ -224,6 +225,11 @@ export function renderReaderSettingsPanel(): Promise<void> {
         document.getElementById(ids.readingSettingsBackBtn)?.focus({ preventScroll: true });
       }
       host.dataset.biliscriptSettingsRendered = "1";
+      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
+      if (settingsPanel && !settingsPanel.hidden) {
+        const visibleView = host.querySelector<HTMLElement>(".biliscript-settings-view:not([hidden])");
+        animateNavFadeIn(visibleView, 140);
+      }
       await loadPanelSettings(collectElements(host));
       navigator.flushPendingTarget();
     })().finally(() => {

@@ -8,6 +8,12 @@ import {
 import { ids } from "../../reader/state.js";
 import { supportsLiveCompanion } from "../../shared/runtime-capabilities.js";
 import type { AiCredentialLinkTarget } from "../ai-credential-link.js";
+import {
+  cancelNavTransition,
+  runHorizontalLayerTransition,
+  supportsWebAnimations,
+  type NavDirection
+} from "../nav-motion.js";
 import { SETTINGS_PANEL_DOM_IDS } from "./dom-ids.js";
 import { collectElements, type SettingsElements } from "./elements.js";
 
@@ -51,13 +57,19 @@ export interface SettingsNavigator {
   navigateSettingsView(
     host: HTMLElement,
     view: SettingsViewId,
-    options?: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean }
+    options?: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean }
   ): void;
   bindSettingsNavigation(host: HTMLElement, elements: SettingsElements): void;
   openSettingsTarget(target: SettingsOpenTarget): Promise<void>;
   focusSettingsView(view: SettingsSubpageId): void;
   flushPendingTarget(): void;
   dispose(): void;
+}
+
+function getSettingsViewDepth(view: SettingsViewId): number {
+  if (view === "root") return 0;
+  if (view === "agent-address") return 2;
+  return 1;
 }
 
 export function getScrollContainer(host: HTMLElement): HTMLElement {
@@ -105,12 +117,23 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   function navigateSettingsView(
     host: HTMLElement,
     view: SettingsViewId,
-    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean } = {}
+    options: { returnButton?: HTMLButtonElement | null; focusOnEnter?: boolean; animate?: boolean } = {}
   ): void {
     const targetView: SettingsViewId = view === "live" && !supportsLiveCompanion() ? "root" : view;
     const elements = collectElements(host);
     const previousView = activeSettingsView;
     const scrollContainer = getScrollContainer(host);
+
+    cancelNavTransition(host);
+
+    const shouldAnimate =
+      options.animate !== false
+      && previousView !== targetView
+      && !scrollContainer.hidden
+      && supportsWebAnimations(host);
+    const prevEl = shouldAnimate ? getViewElement(elements, previousView) : null;
+    const oldScrollTop = shouldAnimate ? scrollContainer.scrollTop : 0;
+    const prevTop = prevEl ? prevEl.offsetTop : 0;
 
     if (previousView === "root" && targetView !== "root") {
       savedRootScrollTop = scrollContainer.scrollTop;
@@ -145,31 +168,67 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     );
 
     const shouldFocus = options.focusOnEnter !== false;
+    let handledFocus = false;
     if (previousView === "agent-address" && targetView !== "agent-address") {
       deps.onAgentAddressClosed?.({ focusButton: targetView === "agent" && shouldFocus });
       if (targetView === "agent") {
         scrollContainer.scrollTop = 0;
-        return;
+        handledFocus = true;
       }
     }
 
-    if (targetView === "root") {
-      scrollContainer.scrollTop = savedRootScrollTop;
-      const returnTarget = subpageReturnButton?.isConnected ? subpageReturnButton : null;
-      subpageReturnButton = null;
-      if (shouldFocus) {
-        (returnTarget ?? elements.backBtn)?.focus({ preventScroll: true });
+    if (!handledFocus) {
+      if (targetView === "root") {
+        scrollContainer.scrollTop = savedRootScrollTop;
+        const returnTarget = subpageReturnButton?.isConnected ? subpageReturnButton : null;
+        subpageReturnButton = null;
+        if (shouldFocus) {
+          (returnTarget ?? elements.backBtn)?.focus({ preventScroll: true });
+        }
+      } else {
+        scrollContainer.scrollTop = 0;
+        if (shouldFocus && targetView !== "agent-address") {
+          const viewEl = getViewElement(elements, targetView);
+          const firstFocusable = viewEl.querySelector<HTMLElement>(
+            "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
+          );
+          (firstFocusable ?? elements.backBtn)?.focus({ preventScroll: true });
+        }
       }
-      return;
     }
 
-    scrollContainer.scrollTop = 0;
-    if (shouldFocus && targetView !== "agent-address") {
-      const viewEl = getViewElement(elements, targetView);
-      const firstFocusable = viewEl.querySelector<HTMLElement>(
-        "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
-      );
-      (firstFocusable ?? elements.backBtn)?.focus({ preventScroll: true });
+    if (shouldAnimate && prevEl) {
+      const targetEl = getViewElement(elements, targetView);
+      const direction: NavDirection =
+        getSettingsViewDepth(targetView) >= getSettingsViewDepth(previousView) ? "forward" : "backward";
+      const actualScrollTop = scrollContainer.scrollTop;
+      const deltaY = actualScrollTop - oldScrollTop;
+      const viewportClipHeight =
+        scrollContainer.clientHeight > 0
+          ? Math.max(0, scrollContainer.clientHeight + oldScrollTop - prevTop)
+          : 0;
+
+      prevEl.setAttribute("data-settings-view-leaving", direction);
+      prevEl.style.top = `${prevTop}px`;
+      if (viewportClipHeight > 0) {
+        prevEl.style.maxHeight = `${viewportClipHeight}px`;
+      }
+
+      runHorizontalLayerTransition({
+        scope: host,
+        direction,
+        outgoing: [{ el: prevEl, offsetY: deltaY, distancePx: direction === "forward" ? 16 : 20 }],
+        incoming: [{ el: targetEl, distancePx: direction === "forward" ? 20 : 16 }],
+        title: elements.settingsTitle,
+        durationEnterMs: direction === "forward" ? 220 : 200,
+        durationExitMs: 100,
+        enterDelayMs: 24,
+        onExitDone: () => {
+          prevEl.removeAttribute("data-settings-view-leaving");
+          prevEl.style.top = "";
+          prevEl.style.maxHeight = "";
+        }
+      });
     }
   }
 
@@ -177,7 +236,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     activeSettingsView = "root";
     savedRootScrollTop = 0;
     subpageReturnButton = null;
-    navigateSettingsView(host, "root", { focusOnEnter: false });
+    navigateSettingsView(host, "root", { focusOnEnter: false, animate: false });
 
     const entries: ReadonlyArray<[HTMLButtonElement, SettingsSubpageId]> = [
       [elements.openAiProvidersBtn, "ai-providers"],
@@ -213,7 +272,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
       savedRootScrollTop = 0;
       subpageReturnButton = null;
       if (activeSettingsView !== "root") {
-        navigateSettingsView(host, "root", { focusOnEnter: false });
+        navigateSettingsView(host, "root", { focusOnEnter: false, animate: false });
       }
     });
   }
@@ -232,7 +291,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
     pendingSettingsTarget = null;
     const view: SettingsSubpageId =
       target === "appearance" ? "ai-prompt" : target === "note-export" ? "subtitle" : "live";
-    navigateSettingsView(host, view, { focusOnEnter: false });
+    navigateSettingsView(host, view, { focusOnEnter: false, animate: false });
     const sectionHeading = target === "appearance"
       ? host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.chatPreferencesHeading}`)
       : target === "note-export"
@@ -254,7 +313,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   function focusSettingsView(view: SettingsSubpageId): void {
     const host = deps.getHost();
     if (!host || !host.dataset.biliscriptSettingsRendered) return;
-    navigateSettingsView(host, view, { focusOnEnter: false });
+    navigateSettingsView(host, view, { focusOnEnter: false, animate: false });
   }
 
   function flushPendingTarget(): void {
@@ -266,6 +325,7 @@ export function createSettingsNavigator(deps: SettingsNavigatorDeps): SettingsNa
   }
 
   function dispose(): void {
+    cancelNavTransition(deps.getHost());
     unregisterBackInterceptor?.();
     unregisterBackInterceptor = null;
     unregisterCloseListener?.();
