@@ -7,7 +7,12 @@ import {
   permissionDeniedErrorMessage,
   type PermissionGrantParams
 } from "../core/host-permissions.js";
-import { normalizeReaderPalette, normalizeReaderTheme } from "../core/validators.js";
+import { normalizeReaderPalette } from "../core/validators.js";
+import {
+  resolveEffectiveTheme,
+  resolveReaderThemeMode,
+  writeThemeSnapshot
+} from "../shared/host-theme.js";
 import { consumeRuntimeLastError, sendRuntimeMessage } from "../shared/messaging.js";
 
 export { parsePermissionGrantParams, PERMISSION_GRANT_KEEPALIVE_PORT_NAME, type PermissionGrantParams };
@@ -15,21 +20,15 @@ export { parsePermissionGrantParams, PERMISSION_GRANT_KEEPALIVE_PORT_NAME, type 
 export const PERMISSION_GRANT_WAITING_BUTTON_TEXT = "等待浏览器确认…";
 export const PERMISSION_GRANT_WAITING_STATUS_TEXT = "请在浏览器弹出的权限提示中点击允许…";
 
-function prefersDarkScheme(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-color-scheme: dark)").matches
-    : false;
-}
-
 function applyAppearance(settings: Partial<Settings>, doc: Document = document): void {
   const root = doc.documentElement;
   root.setAttribute("data-biliscript-onboarding", "1");
-  const theme = settings.readerThemeUserSet
-    ? normalizeReaderTheme(settings.readerTheme)
-    : (prefersDarkScheme() ? "dark" : "light");
+  const mode = resolveReaderThemeMode(settings);
+  const theme = resolveEffectiveTheme(mode, doc);
   const palette = normalizeReaderPalette(settings.readerPalette);
   root.setAttribute("data-theme", theme);
   root.setAttribute("data-palette", palette);
+  writeThemeSnapshot({ mode, palette, resolved: theme });
 }
 
 async function readStoredAppearance(): Promise<Partial<Settings>> {
@@ -55,7 +54,8 @@ export function syncPermissionGrantAppearance(doc: Document = document): void {
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
   media?.addEventListener?.("change", () => {
-    if (!latestSettings.readerThemeUserSet) {
+    const mode = resolveReaderThemeMode(latestSettings);
+    if (mode === "bilibili" || mode === "system") {
       applyAppearance(latestSettings, doc);
     }
   });

@@ -1,67 +1,58 @@
 // Reader 排版/设置呈现层：启动路径必需的常驻微模块。
 //
-// 这里只收拢「启动路径必需」的轻呈现函数：阅读视图的排版应用
-//（applyReadingViewPresentation）、设置水合（hydrateReaderStateFromSettings）与
-// 设置水合（hydrateReaderStateFromSettings）与排版应用（applyReadingViewPresentation）。
-// 它们是启动路径
-//（content.js init 的 hydrate/apply）的直接依赖——留在 lifecycle.js 会把整个
-// reader 域拖回常驻。
-//
-// 阅读视图打开后才用到的交互呈现（updateReaderPreferences）与渲染投影
-//（renderReaderPanels，归 ./view-render.ts）在 reader 动态 chunk：
-// 本层与 ui-renderer 的相关回调一律经 ensureReaderDomain() 装载后调用，避免为
-// 一次面板交互在常驻侧保留体积。
-// 依赖全部为轻叶子（core/state、core/validators、shared/dom-utils、
-// shared/string-utils、./ids、ui/theme-button、ui/lazy-mermaid——后者只含懒加载器，
-// mermaid 本体在其动态 import 的独立 chunk 里）。
+// 收拢启动路径必需的轻呈现函数：阅读视图的排版应用（applyReadingViewPresentation）、
+// 设置水合（hydrateReaderStateFromSettings）与外部主题同步（syncReaderExternalTheme）。
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import {
-  normalizeReaderTheme,
   normalizeReaderPalette,
   normalizeReaderFontSizeScale,
   normalizeChatLineHeight,
   normalizeChatParagraphSpacing,
   normalizeChatInputGlow,
-  normalizeReduceTransparency
+  normalizeReduceTransparency,
+  type ReaderThemeMode
 } from "../core/validators.js";
+import {
+  applyPrePaintReaderTheme,
+  resolveEffectiveTheme,
+  resolveReaderThemeMode,
+  writeThemeSnapshot
+} from "../shared/host-theme.js";
+export { applyPrePaintReaderTheme };
 import { ids } from "./state.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { READER_APPLY_FIELDS } from "./presentation-fields.js";
 
-// ===== 内联宿主呈现（PR2 移除） =====
-//
-// applyInlineHostPresentation 随字幕列表搬进统一面板「字幕」tab 一并移除：
-// 内联宿主（biliscript-reading-inline-host）形态不复存在，字幕显隐不再经
-// .biliscript-reading-main 的 display 表达（字幕常显，三开关退役后无隐藏通道）。
-
-// ===== 设置水合与排版应用（自 lifecycle.js 迁入） =====
-//
-// 三开关退役（滚动/字幕/章节不再可关，2026-09）：水合只剩明暗 theme
-//（readerTheme）与色板 palette（readerPalette）两轴——不再读取
-// readerChapterVisible / readerTranscriptVisible（其存储键已随开关删除）。
-
 export function hydrateReaderStateFromSettings(settings: Partial<Settings> = state.settings) {
-  // 色板与明暗正交、无「跟随系统」语义：两条水合分支都直接归一落位。
-  state.reader.setPalette(normalizeReaderPalette(settings?.readerPalette));
-  // 用户从未手动选过主题（readerThemeUserSet=false）时按系统深浅定初始主题，
-  // 手动切换过则尊重存储选择。系统跟随只发生在水合期、只驱动明暗，不写回设置
-  //（用户日后改系统偏好，下次水合重新跟随；matchMedia 在非浏览器环境缺失时回落浅色）。
-  if (settings?.readerThemeUserSet !== true) {
-    state.reader.setTheme(systemPrefersDark() ? "dark" : "light");
-    return;
-  }
-  state.reader.setTheme(normalizeReaderTheme(settings?.readerTheme));
+  const palette = normalizeReaderPalette(settings?.readerPalette);
+  const mode = resolveReaderThemeMode(settings);
+  const resolved = resolveEffectiveTheme(mode);
+  state.reader.setPalette(palette);
+  state.reader.setThemeMode(mode);
+  state.reader.setTheme(resolved);
+  writeThemeSnapshot({ mode, palette, resolved });
 }
 
-function systemPrefersDark(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  );
+export function syncReaderExternalTheme(): boolean {
+  const mode = (state.reader.readingThemeMode || "bilibili") as ReaderThemeMode;
+  if (mode !== "bilibili" && mode !== "system") {
+    return false;
+  }
+  const next = resolveEffectiveTheme(mode);
+  if (next === state.reader.readingTheme) {
+    return false;
+  }
+  state.reader.setTheme(next);
+  writeThemeSnapshot({
+    mode,
+    palette: state.reader.readingPalette || "flyme",
+    resolved: next
+  });
+  applyReadingViewPresentation();
+  return true;
 }
 
 export function applyChatInputGlow(view?: HTMLElement | null): void {
@@ -105,9 +96,6 @@ export function applyReadingViewTypography(view?: HTMLElement | null): void {
 
 export function applyReadingViewPresentation() {
   const readingView = getReaderElement(ids.readingView);
-  // 候选06：字段清单/作用目标/dataset 键/取值换算唯一来源 presentation-fields.js
-  //（READER_APPLY_FIELDS 子表），写入方不再手抄。写入顺序与迁移前逐字一致：
-  // readingView（短名）→ documentElement → body，各段内按表序逐字段。
   const values: Record<string, string> = {};
   for (const field of READER_APPLY_FIELDS) {
     values[field.id] = field.readValue!(state.reader);
@@ -130,17 +118,6 @@ export function applyReadingViewPresentation() {
   applyReadingViewTypography(readingView);
   applyChatInputGlow(readingView);
   applyReduceTransparency(readingView);
-  // 字幕/章节的 checkbox 同步与 .biliscript-reading-main 显隐已随三开关退役删除
-  //（字幕常显，开关与 data 属性不再存在）。
-  // header 主题按钮（太阳/月亮）随之刷新：所有改主题路径（点击循环、进入阅读
-  // 模式、storage 跨页同步 watcher）都收敛到本函数，按钮单点跟随不另接线。
   refreshThemeButton();
-  // 已渲染的 mermaid 图表同样跟着换色（缓存按「主题 + 源码」分键，force 只对
-  // 「渲染时主题 ≠ 当前主题」的块生效，本函数在进入阅读模式/字幕重渲等路径上
-  // 重复调用是无害空转）。没有图表时懒入口内早退，不会为此拉起 mermaid 懒 chunk。
   hydrateMermaid(readingView, { force: true });
 }
-
-// updateReaderPreferences / persistReaderSettings 在 lifecycle.js（reader 动态
-// chunk）——它们只在阅读视图交互时执行，常驻侧经 ensureReaderDomain 转发
-//（ui-renderer）；renderReaderPanels 是阅读视图的渲染投影之一，归 ./view-render.ts。

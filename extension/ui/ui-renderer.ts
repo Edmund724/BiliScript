@@ -87,7 +87,7 @@ function buildChatMoreSliderRowHtml(
 }
 
 export function buildUiHtml(): string {
-  const themeView = themeButtonView(state.reader.readingTheme);
+  const themeView = themeButtonView(state.reader.readingTheme, state.reader.readingThemeMode);
   return `
     <section id="${ids.readingView}" hidden aria-hidden="true" data-biliscript-reader-ready="0" aria-busy="true">
       <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /

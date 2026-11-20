@@ -92,6 +92,7 @@ const copyFiles = [
   "onboarding.html",
   "entry/offscreen.html",
   "entry/permission-grant.html",
+  "entry/theme-init.js",
   // content 构建产物（build-content.js 跑完后的最新产物；.map 为 linked
   // sourcemap，devtools 调试用，release zip 由 build_release.py 剔除）。
   "entry/content-bootstrap.iife.js",

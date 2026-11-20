@@ -140,43 +140,50 @@ describe("normalizeSettings 纯函数", () => {
   });
 });
 
-// 主题只剩明暗一轴：readerTheme 只存明暗模式（light | dark），色板恒 flyme，
-// 无主题族设置项。上一版三值制写进 readerTheme 的 flyme，归一化收敛为 light。
+// 明暗主题四模式：readerTheme 支持 bilibili（跟随 B 站，默认）| system（跟随系统）| light | dark；
+// 未知/退役值收敛为默认 bilibili。
 describe("normalizeReaderTheme", () => {
-  it("light/dark 原样放行；上一版三值制的 flyme 收敛为 light", async () => {
+  it("bilibili/system/light/dark 原样放行；退役值 flyme 收敛为 bilibili", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
-    expect(normalizeReaderTheme("flyme")).toBe("light");
+    expect(normalizeReaderTheme("flyme")).toBe("bilibili");
+    expect(normalizeReaderTheme("bilibili")).toBe("bilibili");
+    expect(normalizeReaderTheme("system")).toBe("system");
     expect(normalizeReaderTheme("light")).toBe("light");
     expect(normalizeReaderTheme("dark")).toBe("dark");
   });
 
-  it("非法值回落 light", async () => {
+  it("非法值回落 bilibili", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
     for (const dirty of ["neon", "", null, undefined, 1, {}, []]) {
-      expect(normalizeReaderTheme(dirty), `脏值 ${JSON.stringify(dirty)} 应回落 light`).toBe("light");
+      expect(normalizeReaderTheme(dirty), `脏值 ${JSON.stringify(dirty)} 应回落 bilibili`).toBe("bilibili");
     }
   });
 
-  // 纸色档已退役：存量 "paper" 静默归一为 light（不迁移存储、不改写其他字段）。
-  it("已退役纸色档 paper 归一为 light", async () => {
+  it("已退役纸色档 paper 归一为 bilibili", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
-    expect(normalizeReaderTheme("paper")).toBe("light");
+    expect(normalizeReaderTheme("paper")).toBe("bilibili");
   });
 });
 
-// 明暗一轴：readerTheme 只取 light | dark。存量三值制写进 readerTheme 的
-// "flyme" 收敛为 light（主题族设置已删除，无拆轴迁移）。
 describe("normalizeSettings：主题明暗归一", () => {
-  it("readerTheme=flyme（退役三值制）归一为 light", async () => {
+  it("readerTheme=flyme（退役值）归一为 bilibili", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    expect(normalizeSettings({ readerTheme: "flyme" }).readerTheme).toBe("light");
+    expect(normalizeSettings({ readerTheme: "flyme" }).readerTheme).toBe("bilibili");
   });
 
-  it("readerTheme=dark / 非法值时明暗照常归一", async () => {
+  it("四模式值原样放行，非法值回落 bilibili", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    for (const theme of ["dark", "light", "neon", undefined]) {
+    const cases: Array<[unknown, string]> = [
+      ["bilibili", "bilibili"],
+      ["system", "system"],
+      ["light", "light"],
+      ["dark", "dark"],
+      ["neon", "bilibili"],
+      [undefined, "bilibili"]
+    ];
+    for (const [theme, expected] of cases) {
       const out = normalizeSettings({ readerTheme: theme });
-      expect(out.readerTheme, `readerTheme ${JSON.stringify(theme)}`).toBe(theme === "dark" ? "dark" : "light");
+      expect(out.readerTheme, `readerTheme ${JSON.stringify(theme)}`).toBe(expected);
     }
   });
 });
@@ -326,9 +333,7 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(merged.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
   });
 
-  // 写路径与读路径共用同一张步骤表与同一个读视图：全量写回里带退役
-  // readerTheme="flyme"（老客户端 / 老快照整对象写回）时，明暗同样收敛为 light。
-  it("写路径同口径：全量写回带退役 readerTheme=flyme 时归一为 light", async () => {
+  it("写路径同口径：全量写回带退役 readerTheme=flyme 时归一为 bilibili", async () => {
     const { saveSettings, normalizeSettings } = await loadStoreModule();
     const payload = { ...DEFAULT_SETTINGS, readerTheme: "flyme" };
 
@@ -336,7 +341,7 @@ describe("normalizeSettings 是唯一归一化路径", () => {
 
     expect(syncSetMock).toHaveBeenCalledTimes(1);
     expect(syncSetMock.mock.calls[0][0]).toEqual(normalizeSettings(payload));
-    expect(syncSetMock.mock.calls[0][0].readerTheme).toBe("light");
+    expect(syncSetMock.mock.calls[0][0].readerTheme).toBe("bilibili");
   });
 
   it("写路径：全量 payload 落盘值等于 normalizeSettings 的输出", async () => {

@@ -109,6 +109,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
+  readerTheme: "readerTheme",
   readerPalette: "readerPalette",
   chatInputGlow: "chatInputGlow",
   reduceTransparency: "reduceTransparency",
@@ -604,6 +605,16 @@ export function buildSettingsHtml(): string {
       <section class="biliscript-set-group" data-settings-section="appearance">
         <div class="biliscript-set-h">外观与排版</div>
         <div class="biliscript-set-card">
+          <div class="biliscript-set-row">
+            <label class="biliscript-set-label" for="${ids.readerTheme}">外观主题</label>
+            <select id="${ids.readerTheme}" class="biliscript-set-select">
+              <option value="bilibili">跟随 B 站</option>
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </div>
+
           <div class="biliscript-set-row">
             <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
             <select id="${ids.readerPalette}" class="biliscript-set-select">

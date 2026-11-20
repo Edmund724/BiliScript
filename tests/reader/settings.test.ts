@@ -707,4 +707,68 @@ describe("主题：只剩明暗一轴", () => {
     modalHost.remove();
     expect(hasReaderSettingsOverlayOpen()).toBe(false);
   });
+
+  it("设置抽屉：外观主题提供 4 档（跟随 B 站 / 跟随系统 / 浅色 / 深色）并随宿主 .dark 实时生效", async () => {
+    state.reader.setViewOpen(true);
+
+    let savePayload: Record<string, unknown> | null = null;
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "get-settings") {
+        callback?.({
+          ok: true,
+          settings: {
+            readerTheme: "bilibili",
+            readerThemeUserSet: false,
+            readerPalette: "flyme"
+          }
+        });
+        return undefined;
+      }
+      if (message?.type === "save-settings") {
+        savePayload = message.settings as Record<string, unknown>;
+        callback?.({ ok: true });
+        return undefined;
+      }
+      if (message?.type?.endsWith("-providers-list")) {
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    const themeSelect = await vi.waitFor(() => {
+      const el = document.querySelector<HTMLSelectElement>("#readerTheme");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    expect([...themeSelect.options].map((o) => o.value)).toEqual([
+      "bilibili",
+      "system",
+      "light",
+      "dark"
+    ]);
+    expect(themeSelect.value).toBe("bilibili");
+
+    // 切到深色：立即更新 DOM data-theme 并落盘 readerThemeUserSet: true
+    themeSelect.value = "dark";
+    themeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    await vi.waitFor(() => {
+      expect(savePayload).toEqual({ readerTheme: "dark", readerThemeUserSet: true });
+    });
+    expect(readingView.dataset.theme).toBe("dark");
+
+    // 切回跟随 B 站：探测 html.dark（BewlyBewly/BewlyCat）生效深色，移除后回浅色
+    document.documentElement.classList.add("dark");
+    themeSelect.value = "bilibili";
+    themeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(readingView.dataset.theme).toBe("dark");
+
+    document.documentElement.classList.remove("dark");
+    presentation.syncReaderExternalTheme();
+    expect(readingView.dataset.theme).toBe("light");
+  });
 });

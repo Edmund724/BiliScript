@@ -169,7 +169,7 @@ body.grant-page {
   justify-content: flex-end;
   align-items: center;
   gap: var(--biliscript-space-sm, 8px);
-  padding-top: var(--biliscript-space-4, 4px);
+  padding-top: var(--biliscript-space-xs, 4px);
 }
 
 .grant-btn {

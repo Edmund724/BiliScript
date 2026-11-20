@@ -32,7 +32,8 @@ import {
 import { clearReaderModePageState, bindNormalPageStateGuard } from "../reader/state.js";
 import {
   hydrateReaderStateFromSettings,
-  applyReadingViewPresentation
+  applyReadingViewPresentation,
+  applyPrePaintReaderTheme
 } from "../reader/lazy-reader-presentation.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 
@@ -103,7 +104,7 @@ function init(): void {
   const shouldEnterReaderMode = isReaderMode();
   if (shouldEnterReaderMode) {
     // 属性门控是阅读样式生效开关，必须等全部 link 就绪后再翻转。
-    void ensureReaderStyles().then(() => {
+    void Promise.all([ensureReaderStyles(), applyPrePaintReaderTheme()]).then(() => {
       document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
       document.body.setAttribute("data-biliscript-reader-mode", "1");
     });
@@ -188,7 +189,7 @@ function init(): void {
       }
       const isAutoOpen = Boolean(settings.autoOpenReader && isAutoOpenEligible(location.href));
       if (shouldEnterReaderMode || isAutoOpen) {
-        await ensureReaderStyles();
+        await Promise.all([ensureReaderStyles(), applyPrePaintReaderTheme(settings)]);
         document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
         document.body.setAttribute("data-biliscript-reader-mode", "1");
         // 候选03：阅读模式直达链接才惰性装载 UI 壳 + reader 呈现层，再进入重域。

@@ -47,8 +47,8 @@ export interface KnownSettings {
   enableAgentBridge: boolean;
   agentBridgeUrl: string;
   readerTheme: string;
-  // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
-  // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
+  // 主题手动选择哨兵：用户在顶栏或设置抽屉主动选择主题后置 true；
+  // 存量未手选（false）或默认 bilibili 模式自动跟随 B 站宿主并回落系统偏好。
   readerThemeUserSet: boolean;
   // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物。
   readerPalette: string;
@@ -141,7 +141,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enableDebugLogs: false,
   enableAgentBridge: false,
   agentBridgeUrl: "ws://127.0.0.1:18492",
-  readerTheme: "light",
+  readerTheme: "bilibili",
   readerThemeUserSet: false,
   readerPalette: "flyme",
   chatInputGlow: true,

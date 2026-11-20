@@ -221,7 +221,7 @@
   position: sticky;
   top: -12px;
   margin: calc(-1 * var(--biliscript-space-md)) calc(-1 * var(--biliscript-space-lg)) 0 calc(-1 * var(--biliscript-space-lg));
-  padding: var(--biliscript-space-8) var(--biliscript-space-lg) var(--biliscript-space-8) var(--biliscript-space-md);
+  padding: var(--biliscript-space-sm) var(--biliscript-space-lg) var(--biliscript-space-sm) var(--biliscript-space-md);
   display: flex;
   align-items: center;
   min-width: 0;
@@ -323,7 +323,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-row.biliscript-set-row-stack {
   flex-direction: column;
   align-items: stretch;
-  gap: var(--biliscript-space-8);
+  gap: var(--biliscript-space-sm);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-row.is-disabled {
@@ -391,7 +391,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts {
   display: flex;
   flex-direction: column;
-  gap: var(--biliscript-space-0);
+  gap: 0;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input {
@@ -399,7 +399,7 @@
   border-radius: 0;
   background: transparent;
   height: 36px;
-  padding: var(--biliscript-space-0) var(--biliscript-space-14);
+  padding: 0 var(--biliscript-space-14);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-card > .biliscript-set-quick-prompts input:not(:last-child) {
@@ -524,7 +524,7 @@
 
 /* 生效投影摘要组（票 05）：缺省摘要与对话另选提示上下相邻时的间距 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-hint + .biliscript-set-hint {
-  margin-top: var(--biliscript-space-4);
+  margin-top: var(--biliscript-space-xs);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-row {

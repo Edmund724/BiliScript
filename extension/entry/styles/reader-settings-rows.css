@@ -571,7 +571,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-control {
   display: inline-flex;
   align-items: center;
-  gap: var(--biliscript-space-8, 8px);
+  gap: var(--biliscript-space-sm, 8px);
   flex-shrink: 0;
   justify-content: flex-end;
 }

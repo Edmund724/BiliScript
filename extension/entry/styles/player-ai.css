@@ -701,7 +701,7 @@
   box-shadow: var(--biliscript-live-glass-rim);
   color: var(--biliscript-live-glass-ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: var(--biliscript-font-size-sm-md, 13px);
+  font-size: var(--biliscript-font-size-base, 14px);
   z-index: 99999;
   overflow: hidden;
   box-sizing: border-box;
@@ -1565,7 +1565,7 @@
   padding: 8px 12px;
   border-radius: var(--biliscript-radius-pill, 999px);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  font-size: var(--biliscript-font-size-sm-md, 13px);
+  font-size: var(--biliscript-font-size-base, 14px);
   line-height: 1.5;
   background: rgba(var(--biliscript-primitive-color-slate-900-rgb, 15, 23, 42), 0.8);
   pointer-events: none;

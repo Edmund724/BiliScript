@@ -34,8 +34,14 @@ import { ensureAsrTranslation } from "./asr-translation.js";
 // 知识收在 ./view-render.ts，本文件在装配点把会话态投影注进渲染驱动。
 import {
   hydrateReaderStateFromSettings,
-  applyReadingViewPresentation
+  applyReadingViewPresentation,
+  syncReaderExternalTheme
 } from "./presentation.js";
+import {
+  resolveEffectiveTheme,
+  watchExternalThemeChanges,
+  writeThemeSnapshot
+} from "../shared/host-theme.js";
 import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js";
 import { clearSubtitleNotice, showSubtitleNotice } from "./subtitle-notice.js";
 
@@ -148,7 +154,8 @@ subscribeReaderPresenter(handleReaderPresenterNotification);
 setReadingSubtitleBatchHook((fromIndex, toIndex) => {
   subtitleSearch.handleRangeAppended(fromIndex, toIndex);
   applySubtitleHighlightsToRange(document.getElementById(ids.readingSubtitleList), fromIndex, toIndex);
-});
+}
+);
 bindReadingTranscribeBanner();
 // 选轨控件：深 module 实例持有工具条 UI 相位与事件接线。
 //   - 结果通知回调：切轨失败经 reader-bus 的 "notice" 通道报错（构造注入，跨壳重建存活）；
@@ -554,6 +561,12 @@ export async function enterReaderMode(
   document.body.setAttribute("data-biliscript-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
+  watchExternalThemeChanges(
+    () => {
+      syncReaderExternalTheme();
+    },
+    { signal: readerPanelScope.signal }
+  );
   // 2026-10 用户决议：打开阅读视图恢复上次所在标签（概览/AI 对话的停留状态
   // 跨刷新与跨视频保留；无记录或脏值回落「字幕」）。读取失败静默回落，不新增
   // 进入失败面；恢复经标签激活属主（reader/script-tab-activation）落地——状态位、
@@ -745,13 +758,19 @@ async function closeChatSessionQuietly(): Promise<void> {
 // ===== 偏好更新（仅在阅读视图交互时执行，常驻侧经 ensureReaderDomain 转发到这些导出） =====
 
 export function updateReaderPreferences(next: Partial<Record<string, unknown>>, { persist = true } = {}) {
-  state.reader.setTheme(normalizeReaderTheme(next.readerTheme ?? state.reader.readingTheme));
+  const mode = normalizeReaderTheme(next.readerTheme ?? state.reader.readingThemeMode);
+  const resolved = resolveEffectiveTheme(mode);
+  state.reader.setThemeMode(mode);
+  state.reader.setTheme(resolved);
   state.setSettings({
     ...state.settings,
-    readerTheme: state.reader.readingTheme,
-    // header 按钮是唯一手动主题入口：落哨兵后，此后水合（启动/跨页同步）
-    // 不再按系统偏好覆盖用户选择。
+    readerTheme: mode,
     readerThemeUserSet: true
+  });
+  writeThemeSnapshot({
+    mode,
+    palette: state.reader.readingPalette || "flyme",
+    resolved
   });
   applyReadingViewPresentation();
   renderReaderPanels();

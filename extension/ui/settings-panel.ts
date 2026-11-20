@@ -31,6 +31,7 @@ import {
   normalizeSubtitleSegmentationStrategy,
   normalizeSubtitleTranslateGlossary,
   normalizePlayerAiQuickPrompt,
+  normalizeReaderTheme,
   normalizeReaderPalette,
   normalizeChatInputGlow,
   normalizeReduceTransparency,
@@ -43,6 +44,12 @@ import {
   normalizeLiveShareVideoAudio
 } from "../core/validators.js";
 import { applyReadingViewTypography, applyChatInputGlow, applyReduceTransparency, applyReadingViewPresentation } from "../reader/presentation.js";
+import {
+  resolveEffectiveTheme,
+  resolveReaderThemeMode,
+  writeThemeSnapshot
+} from "../shared/host-theme.js";
+import type { ReaderThemeMode } from "../core/validators.js";
 import {
   CHAT_DISPLAY_SETTING_KEYS,
   CHAT_DISPLAY_SLIDER_SPECS,
@@ -223,6 +230,7 @@ function collectElements(host: HTMLElement) {
     obsidianFolder: byIdIn<HTMLInputElement>(dom.obsidianFolder),
     noteExportCopyBtn: byIdIn<HTMLButtonElement>(dom.noteExportCopyBtn),
     noteExportObsidianBtn: byIdIn<HTMLButtonElement>(dom.noteExportObsidianBtn),
+    readerTheme: byIdIn<HTMLSelectElement>(dom.readerTheme),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
     reduceTransparency: byIdIn<HTMLInputElement>(dom.reduceTransparency),
@@ -318,6 +326,8 @@ interface SelectFieldBinding<K extends KnownSettingKey = KnownSettingKey> {
   readonly key: K;
   readonly getElement: (elements: SettingsElements) => HTMLSelectElement;
   readonly normalize: (value: unknown) => Settings[K] & string;
+  readonly readFromSettings?: (settings: Partial<Settings>) => unknown;
+  readonly commitExtras?: () => Record<string, unknown>;
   readonly patchState?: boolean;
   readonly watchSync?: boolean;
   readonly onApply?: (val: Settings[K] & string) => void;
@@ -431,11 +441,37 @@ const SCALAR_FIELD_BINDINGS: readonly ScalarFieldBinding[] = [
   },
   {
     kind: "select",
+    key: "readerTheme",
+    getElement: (el) => el.readerTheme,
+    normalize: normalizeReaderTheme,
+    readFromSettings: (settings) => resolveReaderThemeMode(settings),
+    commitExtras: () => ({ readerThemeUserSet: true }),
+    watchSync: true,
+    onApply: (val) => {
+      const mode = val as ReaderThemeMode;
+      const resolved = resolveEffectiveTheme(mode);
+      state.reader?.setThemeMode?.(mode);
+      state.reader?.setTheme?.(resolved);
+      writeThemeSnapshot({
+        mode,
+        palette: state.reader?.readingPalette || "flyme",
+        resolved
+      });
+      applyReadingViewPresentation();
+    }
+  },
+  {
+    kind: "select",
     key: "readerPalette",
     getElement: (el) => el.readerPalette,
     normalize: normalizeReaderPalette,
     onApply: (val) => {
       state.reader?.setPalette?.(val);
+      writeThemeSnapshot({
+        mode: (state.reader?.readingThemeMode || "bilibili") as ReaderThemeMode,
+        palette: val,
+        resolved: state.reader?.readingTheme === "dark" ? "dark" : "light"
+      });
       applyReadingViewPresentation();
     }
   },
@@ -821,10 +857,17 @@ function syncAllSummaries(elements: SettingsElements): void {
   ].filter(Boolean);
   elements.subtitleSettingsSummary.textContent = subtitleParts.join(" · ");
 
+  const themeLabels: Record<string, string> = {
+    bilibili: "跟随 B 站",
+    system: "跟随系统",
+    light: "浅色",
+    dark: "深色"
+  };
+  const themeLabel = themeLabels[normalizeReaderTheme(elements.readerTheme.value)] ?? "跟随 B 站";
   const paletteLabel = normalizeReaderPalette(elements.readerPalette.value) === "editorial" ? "数字刊物" : "蓝雾玻璃";
   const fontScale = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
   const panelWidth = normalizeCustomPanelWidth(elements.customPanelWidth.value);
-  elements.appearanceSettingsSummary.textContent = `${paletteLabel} · ${fontScale}% · ${panelWidth}px`;
+  elements.appearanceSettingsSummary.textContent = `${themeLabel} · ${paletteLabel} · ${fontScale}% · ${panelWidth}px`;
 
   const agentState = lastAgentBridgeState ?? agentBridgeSettings?.getSummaryState();
   if (agentState?.connected) {
@@ -1560,7 +1603,11 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const settings = await getSettings();
 
   for (const binding of SCALAR_FIELD_BINDINGS) {
-    hydrateScalarField(binding, elements, settings[binding.key]);
+    const rawValue =
+      binding.kind === "select" && binding.readFromSettings
+        ? binding.readFromSettings(settings)
+        : settings[binding.key];
+    hydrateScalarField(binding, elements, rawValue);
   }
   agentBridgeSettings?.sync(settings);
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
@@ -1805,13 +1852,14 @@ function bindScalarFieldEvents(binding: ScalarFieldBinding, elements: SettingsEl
       const el = binding.getElement(elements);
       el.addEventListener("change", () => {
         const val = binding.normalize(el.value);
+        const patch = { [binding.key]: val, ...(binding.commitExtras?.() ?? {}) };
         if (binding.patchState !== false) {
-          state.patchSettings({ [binding.key]: val });
+          state.patchSettings(patch);
         }
         binding.onApply?.(val);
         syncScalarSideEffects(binding.key, elements);
         syncAllSummaries(elements);
-        void saveSettingField(elements, { [binding.key]: val });
+        void saveSettingField(elements, patch);
       });
       break;
     }

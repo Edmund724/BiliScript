@@ -99,7 +99,7 @@
   corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
   background: rgba(var(--biliscript-primitive-color-black-rgb, 0, 0, 0), 0.78);
   color: rgb(var(--biliscript-primitive-color-white-rgb, 255, 255, 255));
-  font-size: var(--biliscript-font-size-sm-md, 13px);
+  font-size: var(--biliscript-font-size-base, 14px);
   line-height: 1.5;
   overflow-wrap: anywhere;
   pointer-events: none;

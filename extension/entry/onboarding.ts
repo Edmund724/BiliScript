@@ -13,9 +13,13 @@ import {
 } from "../core/presets.js";
 import {
   normalizeReaderPalette,
-  normalizeReaderTheme,
   validateAiProviders
 } from "../core/validators.js";
+import {
+  resolveEffectiveTheme,
+  resolveReaderThemeMode,
+  writeThemeSnapshot
+} from "../shared/host-theme.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { fetchProviderModels, resolveAiModelListTarget } from "../ai/provider-models.js";
@@ -92,21 +96,15 @@ const PRESET_CREDENTIAL_LINKS: Readonly<Record<string, { href: string; label: st
   }
 };
 
-function prefersDarkScheme(): boolean {
-  return typeof window.matchMedia === "function"
-    ? window.matchMedia("(prefers-color-scheme: dark)").matches
-    : false;
-}
-
 function applyRootAppearance(settings: Partial<Settings>): void {
   const root = document.documentElement;
   root.setAttribute("data-biliscript-onboarding", "1");
-  const theme = settings.readerThemeUserSet
-    ? normalizeReaderTheme(settings.readerTheme)
-    : (prefersDarkScheme() ? "dark" : "light");
+  const mode = resolveReaderThemeMode(settings);
+  const theme = resolveEffectiveTheme(mode, document);
   const palette = normalizeReaderPalette(settings.readerPalette);
   root.setAttribute("data-theme", theme);
   root.setAttribute("data-palette", palette);
+  writeThemeSnapshot({ mode, palette, resolved: theme });
 }
 
 function setFieldIssue(input: HTMLInputElement, errorEl: HTMLElement | null, message: string | null): void {
@@ -620,7 +618,8 @@ export async function mountOnboardingPage(doc: Document = document): Promise<Onb
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
   onColorSchemeChange = () => {
-    if (!currentSettings.readerThemeUserSet) {
+    const mode = resolveReaderThemeMode(currentSettings);
+    if (mode === "bilibili" || mode === "system") {
       applyRootAppearance(currentSettings);
     }
   };

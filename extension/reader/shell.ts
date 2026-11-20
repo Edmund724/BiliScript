@@ -40,9 +40,10 @@ import { ensureUiReady } from "../ui/lazy-ui.js";
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
 import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
+import { applyPrePaintReaderTheme } from "../shared/host-theme.js";
 import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { contentEventBus } from "../shared/content-event-bus.js";
-import { getReaderShellState, transitionReaderShell } from "../core/state.js";
+import { state, getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
 import { READER_READY_ATTR } from "./presentation-fields.js";
 import { requestUiCommand } from "./reader-bus.js";
@@ -161,6 +162,7 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     replaceReaderModeUrl(readerUrl);
     // S3：先挂阅读表再翻属性（无闪变时序，见上方不变式注）
     await ensureReaderStyles();
+    applyPrePaintReaderTheme(state.settings);
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reader-mode", "1");
     const readingView = document.getElementById(ids.readingView);

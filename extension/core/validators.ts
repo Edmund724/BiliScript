@@ -65,9 +65,15 @@ export function clampedIntField(min: number, max: number, fallback: number): (va
 // ===== Reader normalizers =====
 // 留守本模块的原因不变：core/settings-store.ts（后台设置归一化）静态依赖它，
 // 迁移会破坏后台 bundle 与其测试。
-// 主题只剩明暗一轴：readerTheme 存 light | dark，未知存量值收敛为 light。
-export function normalizeReaderTheme(value: unknown): string {
-  return value === "dark" ? value : "light";
+// 明暗主题模式：bilibili（跟随 B 站，默认）| system（跟随系统）| light | dark；
+// 未知存量值（如退役的 paper / flyme）收敛为 bilibili。
+export type ReaderThemeMode = "bilibili" | "system" | "light" | "dark";
+
+export function normalizeReaderTheme(value: unknown): ReaderThemeMode {
+  if (value === "dark" || value === "light" || value === "system" || value === "bilibili") {
+    return value;
+  }
+  return "bilibili";
 }
 
 // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物；缺失/非法

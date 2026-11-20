@@ -2027,7 +2027,7 @@ dialog.biliscript-cmd-palette::backdrop {
 
 .biliscript-reading-ov-chapter-title {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: var(--biliscript-font-size-md-sm);
+  font-size: var(--biliscript-font-size-md);
   font-size-adjust: from-font;
   font-weight: 500;
   line-height: 1.5;
