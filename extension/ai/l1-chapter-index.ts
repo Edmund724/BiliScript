@@ -2,13 +2,19 @@
 // L1 章节目录索引与整份概览产物的统一缓存身份与本机持久化模块（ADR-0003 / ADR-0027）：
 // - 纯构建/序列化/校验/封包拆包逻辑住在 ./l1-directory.ts（零存储依赖，可供 offscreen/SW 共用）；
 // - 本文件统一收口：
-//   1) `biliscript_lvs_l1_index_`（含 16 条内存有界 LRU）与 `biliscript_lvs_analysis_final_` 两个缓存族（纳入 core/cache-lru.ts 统一保留最近 100 个视频）；
+//   1) `biliscript_lvs_l1_index_`（含 16 条内存有界 LRU）与 `biliscript_lvs_analysis_final_` 两个缓存族
+//      （落扩展源 IndexedDB `ai_artifacts`，每族保留最近 100 个视频；内容脚本经 SW `subtitle-cache` RPC 访问）；
 //   2) clip / AiContext 的分章来源 + 字幕签名 + 双族键位归一（buildClipOverviewIdentity）；
-//   3) 单趟并发读取整份概览产物与内存 LRU 命中的 L1 章节目录（readCachedClipOverviewArtifacts / readCachedClipL1Index）。
+//   3) 单趟批量读取整份概览产物与内存 LRU 命中的 L1 章节目录（readCachedClipOverviewArtifacts / readCachedClipL1Index）。
 
-import { createCacheFamily, type CacheSaveResult } from "../core/cache-lru.js";
+import { type CacheSaveResult } from "../core/cache-lru.js";
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import { logError } from "../shared/logging.js";
+import { createAiArtifactFamily, loadAiArtifactsBatch } from "../subtitle/ai-artifact-cache.js";
+import {
+  registerSubtitleStoreResetHookForTests,
+  registerVideoCacheClearHook
+} from "../subtitle/store-client.js";
 import { buildSubtitleSignature } from "../subtitle/signature.js";
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import {
@@ -64,16 +70,16 @@ export function isOverviewShape(value: unknown): value is OverviewAnalysis {
   );
 }
 
-const analysisFinalFamily = createCacheFamily<OverviewAnalysis>({
-  prefix: ANALYSIS_FINAL_PREFIX,
+const analysisFinalFamily = createAiArtifactFamily<OverviewAnalysis>({
+  family: ANALYSIS_FINAL_PREFIX,
   payloadField: "analysis",
   toSourceKey: buildSubtitleSourceKey,
   validate: isOverviewShape,
   logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
-const l1IndexFamily = createCacheFamily<L1VideoIndexCacheRecord>({
-  prefix: L1_INDEX_CACHE_PREFIX,
+const l1IndexFamily = createAiArtifactFamily<L1VideoIndexCacheRecord>({
+  family: L1_INDEX_CACHE_PREFIX,
   payloadField: "index",
   toSourceKey: buildSubtitleSourceKey,
   validate: isL1VideoIndexCacheRecord,
@@ -210,6 +216,7 @@ export interface L1IndexCacheStore {
   getMemory(key: string): L1VideoIndexCacheRecord | null;
   setMemory(key: string, record: L1VideoIndexCacheRecord): void;
   clearMemory(): void;
+  clearMemoryByVideo(bvid: string, cid?: string): void;
   load(key: string): Promise<L1VideoIndexCacheRecord | null>;
   save(key: string, record: L1VideoIndexCacheRecord): Promise<CacheSaveResult>;
   remove(key: string): Promise<void>;
@@ -222,21 +229,12 @@ export interface CreateL1IndexCacheStoreOptions {
   persistRemove?: (key: string) => Promise<void>;
 }
 
-async function defaultPersistRemove(key: string): Promise<void> {
-  try {
-    if (globalThis.chrome?.storage?.local) {
-      await chrome.storage.local.remove(key);
-    }
-  } catch {
-    // 清理失败静默容错
-  }
-}
-
 /**
  * 创建 L1 章节目录缓存管理器：
- * 1. 内存层为有界 LRU Map（默认 16 条），保证同会话热查询零 IPC/storage 往返；
- * 2. 持久化层严格绑定 `chrome.storage.local`（不进 `chrome.storage.sync`，不含凭据），
- *    由 `core/cache-lru.ts` 统一维持 L1 索引最近 100 个视频的 LRU 淘汰。
+ * 1. 内存层为有界 LRU Map（默认 16 条），保证同会话热查询零 IPC/IDB 往返；
+ * 2. 持久化层落扩展源 IndexedDB `ai_artifacts`（绝不进 `chrome.storage.sync`，不含凭据），
+ *    内容脚本经 SW `subtitle-cache` RPC 读写，读未命中时按先写后删懒迁移旧 `chrome.storage.local`，
+ *    由 `subtitle/idb-store.ts` 统一维持 L1 索引最近 100 个视频的 LRU 淘汰。
  */
 export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions = {}): L1IndexCacheStore {
   const maxMemoryEntries = Math.max(
@@ -245,7 +243,7 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
   );
   const persistLoad = options.persistLoad ?? ((key: string) => l1IndexFamily.load(key));
   const persistSave = options.persistSave ?? ((key: string, record: L1VideoIndexCacheRecord) => l1IndexFamily.save(key, record));
-  const persistRemove = options.persistRemove ?? defaultPersistRemove;
+  const persistRemove = options.persistRemove ?? ((key: string) => l1IndexFamily.remove(key));
 
   const memoryCache = new Map<string, L1VideoIndexCacheRecord>();
 
@@ -277,12 +275,31 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
     }
   }
 
+  function clearMemoryByVideo(bvid: string, cid?: string): void {
+    const cleanBvid = String(bvid || "").trim();
+    const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";
+    if (!cleanBvid) {
+      return;
+    }
+    const keyPrefix = cleanCid
+      ? `${L1_INDEX_CACHE_PREFIX}${cleanBvid}_${cleanCid}_`
+      : `${L1_INDEX_CACHE_PREFIX}${cleanBvid}_`;
+    for (const [key, record] of memoryCache.entries()) {
+      const matchesRecord =
+        record.bvid === cleanBvid && (!cleanCid || record.cid === cleanCid);
+      if (matchesRecord || key.startsWith(keyPrefix)) {
+        memoryCache.delete(key);
+      }
+    }
+  }
+
   return {
     getMemory,
     setMemory,
     clearMemory(): void {
       memoryCache.clear();
     },
+    clearMemoryByVideo,
     async load(key: string): Promise<L1VideoIndexCacheRecord | null> {
       if (!key) {
         return null;
@@ -319,14 +336,22 @@ export function createL1IndexCacheStore(options: CreateL1IndexCacheStoreOptions 
 }
 
 const defaultL1Store = createL1IndexCacheStore();
+registerVideoCacheClearHook((bvid, cid) => {
+  defaultL1Store.clearMemoryByVideo(bvid, cid);
+});
+registerSubtitleStoreResetHookForTests(() => {
+  defaultL1Store.clearMemory();
+});
 
 export const loadL1Index = (key: string) => defaultL1Store.load(key);
 export const saveL1Index = (key: string, record: L1VideoIndexCacheRecord) => defaultL1Store.save(key, record);
 export const removeL1Index = (key: string) => defaultL1Store.remove(key);
 export const clearL1IndexMemoryCache = () => defaultL1Store.clearMemory();
+export const clearL1IndexMemoryForVideo = (bvid: string, cid?: string) =>
+  defaultL1Store.clearMemoryByVideo(bvid, cid);
 
 /**
- * 按 clip / AiContext 身份读取已缓存的 L1 章节目录索引（优先命中 16 条内存 LRU，未命中再查 local 并回填 LRU）。
+ * 按 clip / AiContext 身份读取已缓存的 L1 章节目录索引（优先命中 16 条内存 LRU，未命中再查 IDB/RPC 并回填 LRU）。
  */
 export async function readCachedClipL1Index(
   input: ClipOverviewIdentityInput | null | undefined
@@ -344,8 +369,8 @@ export interface CachedClipOverviewArtifacts {
 }
 
 /**
- * 单趟并发读取当前视频的整份概览产物（`analysisFinal`）与 L1 章节目录（`l1Index`）：
- * 若 L1 已命中内存 LRU，仅向 `chrome.storage.local` 读取 `finalKey`；否则一次批量读取两键并回填内存 LRU。
+ * 单趟批量读取当前视频的整份概览产物（`analysisFinal`）与 L1 章节目录（`l1Index`）：
+ * 若 L1 已命中内存 LRU，仅向 IDB/RPC 读取 `finalKey`；否则单趟批量读取两键并回填内存 LRU。
  */
 export async function readCachedClipOverviewArtifacts(
   input: ClipOverviewIdentityInput | null | undefined
@@ -355,20 +380,29 @@ export async function readCachedClipOverviewArtifacts(
     return { analysisFinal: null, l1Index: null };
   }
   const memL1 = defaultL1Store.getMemory(identity.l1Key);
-  if (!globalThis.chrome?.storage?.local) {
-    return { analysisFinal: null, l1Index: memL1 };
-  }
-  const keysToFetch = memL1 ? [identity.finalKey] : [identity.finalKey, identity.l1Key];
   try {
-    const stored = await chrome.storage.local.get(keysToFetch);
-    const rawAnalysis = (stored?.[identity.finalKey] as { analysis?: unknown } | undefined)?.analysis;
-    const analysisFinal = isOverviewShape(rawAnalysis) ? rawAnalysis : null;
-    let l1Index = memL1;
-    if (!l1Index) {
-      l1Index = unwrapL1IndexEnvelope(stored?.[identity.l1Key]);
-      if (l1Index) {
-        defaultL1Store.setMemory(identity.l1Key, l1Index);
+    if (memL1) {
+      const analysisFinal = await loadAnalysisFinal(identity.finalKey);
+      return { analysisFinal, l1Index: memL1 };
+    }
+    const [rawAnalysis, rawL1] = await loadAiArtifactsBatch([
+      {
+        key: identity.finalKey,
+        family: ANALYSIS_FINAL_PREFIX,
+        payloadField: "analysis",
+        validate: isOverviewShape
+      },
+      {
+        key: identity.l1Key,
+        family: L1_INDEX_CACHE_PREFIX,
+        payloadField: "index",
+        validate: isL1VideoIndexCacheRecord
       }
+    ]);
+    const analysisFinal = isOverviewShape(rawAnalysis) ? rawAnalysis : null;
+    const l1Index = isL1VideoIndexCacheRecord(rawL1) ? rawL1 : null;
+    if (l1Index) {
+      defaultL1Store.setMemory(identity.l1Key, l1Index);
     }
     return { analysisFinal, l1Index };
   } catch {

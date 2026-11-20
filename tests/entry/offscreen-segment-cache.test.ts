@@ -154,10 +154,11 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
 
     const storeKeys = Object.keys((await host.storage!.get(null)) as Record<string, unknown>);
     const rawKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"));
-    const summaryKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"));
     expect(rawKeys.length).toBe(0);
-    expect(summaryKeys.length).toBe(5);
-    expect(storeKeys).toContain("biliscript_cache_lru_index");
+    expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_")).length).toBe(0);
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const artifacts = await defaultSubtitleIdbStore.listAllAiArtifacts();
+    expect(artifacts.filter((a) => a.family === "biliscript_lvs_summary_")).toHaveLength(5);
 
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
@@ -280,7 +281,9 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(ops.filter((op) => op === "save-summary").length).toBe(5);
     const storeKeys = Object.keys(await host.storage!.get(null));
     expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(0);
-    expect(storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_")).length).toBe(5);
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const artifacts = await defaultSubtitleIdbStore.listAllAiArtifacts();
+    expect(artifacts.filter((a) => a.family === "biliscript_lvs_summary_")).toHaveLength(5);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });

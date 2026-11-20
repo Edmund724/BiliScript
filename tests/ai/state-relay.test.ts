@@ -271,7 +271,10 @@ describe("滑动状态卡接力、金句行号零失真回填与轻量收尾汇�
     ]);
 
     // 校验已固化的 L1 缓存内容完整（含 keyEntities / coreThesis / lineNumber / quoteLineNumbers）
-    const l1Keys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_l1_index_"));
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const l1Keys = (await defaultSubtitleIdbStore.listAllAiArtifacts())
+      .filter((a) => a.family === "biliscript_lvs_l1_index_")
+      .map((a) => a.key);
     expect(l1Keys).toHaveLength(1);
     const l1 = await l1Mod.loadL1Index(l1Keys[0]);
     expect(l1?.chapters[0].keyEntities).toEqual(["状态卡", "KV-Cache"]);

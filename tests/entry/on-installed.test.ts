@@ -57,6 +57,23 @@ describe("onInstalled 引导页触发策略", () => {
     }
   );
 
+  it("安装与更新均执行可选 migrateLegacyStorage，且迁移失败不阻断引导页打开", async () => {
+    const migrateLegacyStorage = vi.fn(async () => {
+      throw new Error("migration failed");
+    });
+    const logWarn = vi.fn();
+    const deps = createDeps({ migrateLegacyStorage, logWarn });
+
+    const installResult = await runOnInstalled({ reason: "install" }, deps);
+    expect(installResult).toEqual({ openedOnboarding: true });
+    expect(migrateLegacyStorage).toHaveBeenCalledTimes(1);
+    expect(logWarn).toHaveBeenCalledTimes(1);
+
+    const updateResult = await runOnInstalled({ reason: "update" }, deps);
+    expect(updateResult).toEqual({ openedOnboarding: false });
+    expect(migrateLegacyStorage).toHaveBeenCalledTimes(2);
+  });
+
   it("打开引导页失败时记录日志并安全返回 false，不抛出未捕获异常", async () => {
     const logWarn = vi.fn();
     const ok = await openOnboardingPage({

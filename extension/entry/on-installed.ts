@@ -35,6 +35,7 @@ export interface RunOnInstalledDeps extends OpenOnboardingPageDeps {
   reapSessionRules: () => Promise<void>;
   initializeSettingsStorage: () => Promise<void>;
   autoActivateSearchPresets: () => Promise<void>;
+  migrateLegacyStorage?: () => Promise<unknown>;
 }
 
 export async function runOnInstalled(
@@ -55,6 +56,13 @@ export async function runOnInstalled(
     await deps.autoActivateSearchPresets();
   } catch (error) {
     deps.logWarn?.("[BILISCRIPT] search presets auto activation on install/update failed", error);
+  }
+  if (deps.migrateLegacyStorage) {
+    try {
+      await deps.migrateLegacyStorage();
+    } catch (error) {
+      deps.logWarn?.("[BILISCRIPT] legacy storage to IndexedDB migration on install/update failed", error);
+    }
   }
 
   if (details?.reason !== deps.installReason) {

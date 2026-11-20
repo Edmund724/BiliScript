@@ -357,9 +357,13 @@ describe("双路径分派", () => {
     expect(result.quotes.map((q) => q.from)).toEqual([30, 280, 530, 780, 1030]);
     expect(result.quotes.every((q) => q.content === "x".repeat(1000))).toBe(true);
     expect(result.failedRanges).toBeUndefined();
-    // L1 章节索引已固化进 local storage
-    const l1Keys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_l1_index_"));
-    expect(l1Keys).toHaveLength(1);
+    // L1 章节索引已固化进扩展源 IndexedDB ai_artifacts（不写 storage.local）
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const l1Artifacts = (await defaultSubtitleIdbStore.listAllAiArtifacts()).filter(
+      (a) => a.family === "biliscript_lvs_l1_index_"
+    );
+    expect(l1Artifacts).toHaveLength(1);
+    expect([...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_l1_index_"))).toHaveLength(0);
   });
 
   it("分段路径每段先落盘（biliscript_lvs_analysis_ 族 + 段序号），再次生成只补未落盘段", async () => {
@@ -368,14 +372,17 @@ describe("双路径分派", () => {
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(6);
 
-    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const segKeys = (await defaultSubtitleIdbStore.listAllAiArtifacts())
+      .filter((a) => a.family === "biliscript_lvs_analysis_" && a.key.startsWith("biliscript_lvs_analysis_BV1test_123_"))
+      .map((a) => a.key);
     expect(segKeys).toHaveLength(5);
     // 键尾是字幕签名（概览分章票 03 起段键挂签名），段序号在签名前一位
     expect(segKeys.map((k) => Number(k.split("_").at(-2))).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
 
     // 清掉段 2 的落盘 → 重跑段 2 与全片简介，其余段命中段缓存。
     const seg2Key = segKeys.find((k) => k.split("_").at(-2) === "2");
-    storage.map.delete(seg2Key as string);
+    await defaultSubtitleIdbStore.deleteAiArtifact(seg2Key as string);
     chatCompletion.mockClear();
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(2);
@@ -631,14 +638,16 @@ describe("部分失败降级", () => {
     ]);
     expect(result.failedRanges).toEqual([{ from: 250, to: 500 }]);
     // 部分结果照常落整份缓存（含 failedRanges），重试走 forceRefresh
-    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"));
-    expect(finalKeys).toHaveLength(1);
-    expect(
-      (storage.map.get(finalKeys[0]) as { analysis: { failedRanges?: unknown } }).analysis.failedRanges
-    ).toEqual([{ from: 250, to: 500 }]);
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const allArtifacts = await defaultSubtitleIdbStore.listAllAiArtifacts();
+    const finalRecords = allArtifacts.filter((a) => a.family === "biliscript_lvs_analysis_final_");
+    expect(finalRecords).toHaveLength(1);
+    expect((finalRecords[0].payload as { failedRanges?: unknown }).failedRanges).toEqual([{ from: 250, to: 500 }]);
     // 失败段不落段缓存：1、3、4、5 段落盘，2 段没有
-    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
-    expect(segKeys).toHaveLength(4);
+    const segRecords = allArtifacts.filter(
+      (a) => a.family === "biliscript_lvs_analysis_" && a.key.startsWith("biliscript_lvs_analysis_BV1test_123_")
+    );
+    expect(segRecords).toHaveLength(4);
   });
 
   it("全片简介归并失败：保留章节与金句；重试复用分段缓存，只重发简介请求", async () => {
@@ -958,7 +967,10 @@ describe("缓存键与签名", () => {
     const context = makeContext({ subtitleBody: makeSubtitleBody(50000) });
     const first = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
 
-    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"));
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const finalKeys = (await defaultSubtitleIdbStore.listAllAiArtifacts())
+      .filter((a) => a.family === "biliscript_lvs_analysis_final_")
+      .map((a) => a.key);
     expect(finalKeys).toHaveLength(1);
     // 键形：前缀_bvid_cid_轨道sourceKey_签名（轨道走 id_ 分支）
     expect(finalKeys[0]).toMatch(/^biliscript_lvs_analysis_final_BV1test_123_id_sub-1_sig[0-9a-z]+$/);
@@ -1010,13 +1022,19 @@ describe("缓存键与签名", () => {
     await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
 
     // 回写成旧缓存形状：摘掉 missingSummary 字段（模拟打标机制之前的落盘产物）。
-    const finalKey = [...storage.map.keys()].find((key) => key.startsWith("biliscript_lvs_analysis_final_"))!;
-    const stored = storage.map.get(finalKey) as { analysis: { chapters: Record<string, unknown>[] } };
-    storage.map.set(finalKey, {
-      ...stored,
-      analysis: {
-        ...stored.analysis,
-        chapters: stored.analysis.chapters.map(({ missingSummary: _drop, ...chapter }) => chapter)
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const finalRec = (await defaultSubtitleIdbStore.listAllAiArtifacts()).find(
+      (a) => a.family === "biliscript_lvs_analysis_final_"
+    )!;
+    const stored = finalRec.payload as { chapters: Record<string, unknown>[] };
+    await defaultSubtitleIdbStore.putAiArtifact({
+      key: finalRec.key,
+      family: "biliscript_lvs_analysis_final_",
+      bvid: finalRec.bvid,
+      cid: finalRec.cid,
+      payload: {
+        ...stored,
+        chapters: stored.chapters.map(({ missingSummary: _drop, ...chapter }) => chapter)
       }
     });
 
@@ -1042,7 +1060,12 @@ describe("缓存键与签名", () => {
     await mod.runOverviewAnalysis({ provider: makeProvider(), context: refetched }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     // 两份产物各占一个键
-    expect([...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"))).toHaveLength(2);
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    expect(
+      (await defaultSubtitleIdbStore.listAllAiArtifacts()).filter(
+        (a) => a.family === "biliscript_lvs_analysis_final_"
+      )
+    ).toHaveLength(2);
   });
 
   it("buildSubtitleSignature：确定性、随来源/条数/首末时间戳/文本量变化", () => {

@@ -125,7 +125,44 @@ Consequences of that attribution:
 - Per-page in-memory registries that hold live promises (for example `activeAsrTranscribes` in
   `asr/fallback.ts`, the "don't cancel on video switch" carrier) belong to the page context and
   are intentionally not persisted; when the context dies the registry dies with it and the
-  completed results are recovered from the subtitle cache in `chrome.storage.local`.
+  completed results are recovered from the extension-origin IndexedDB subtitle cache.
+
+## Persistent cache tiering & eviction (`biliscript-subtitle-store` v2)
+
+Subtitle tracks and AI derived artifacts are persisted in the **extension-origin IndexedDB**
+database `biliscript-subtitle-store` (schema v2, `extension/subtitle/idb-store.ts`), never in
+`chrome.storage.sync` and never in the `bilibili.com` page-origin IndexedDB:
+
+| ObjectStore | Primary key | Indexes | Contents & eviction policy |
+| --- | --- | --- | --- |
+| `subtitle_pages` | `${bvid}:${cid}` | `by_lastUsed`, `by_bvid` | Three-tier subtitle tracks (`rawTracks`, `segmentedTracks`, `translatedTracks`); dual-threshold LRU capped at **100 pages / 150 MB** (`lastUsed` refreshed on hit). When a page is evicted due to cap, `by_bvid` is checked and only when no pages remain for that `bvid` are same-`bvid` entries in `ai_artifacts` cascade-deleted. |
+| `ai_artifacts` | `key` | `by_family_bvid`, `by_family_lastUsedAt`, `by_bvid`, `by_lastUsedAt` | Four AI artifact families with per-family video-count (`bvid`) LRU caps (`lastUsedAt` refreshed on hit): `biliscript_lvs_l1_index_` (**100** videos, plus 16-entry bounded in-memory LRU in `ai/l1-chapter-index.ts`), `biliscript_lvs_analysis_final_` (**100** videos), `biliscript_lvs_analysis_` (**20** videos), `biliscript_lvs_summary_` (**20** videos). |
+| `chat_images` | `id` | `by_conversationId`, `by_bvid`, `by_lastUsedAt` | Reserved empty table for subsequent conversation image storage migration (no schema bump required later). |
+
+### Origin isolation, migration & video-level cleanup
+
+- **Origin isolation (SW RPC)**: Content-script callers (`subtitle/cache.ts`, `ai/l1-chapter-index.ts`,
+  `ai/analysis-orchestrate.ts`) never touch `globalThis.indexedDB` on `http:`/`https:` origins;
+  `extension/subtitle/store-client.ts` routes all reads, writes, and clears through the existing
+  `subtitle-cache` message family (`extension/subtitle/subtitle-cache-handler.ts`) in the Service
+  Worker. Offscreen chat workers (`ai/ladder.ts`) continue to reach SW segment/L1 caches exclusively
+  through `segment-cache` messages (`ai/segment-cache-proxy.ts`) without bundling cache modules.
+- **Write-then-delete migration**:
+  - *Read-path lazy migration*: On an `ai_artifacts` miss, `extension/subtitle/ai-artifact-cache.ts`
+    checks legacy `chrome.storage.local` by exact key or `getKeys()` prefix, writes the record to
+    IndexedDB first, and deletes the legacy data key and its per-key LRU index only after the IDB
+    write succeeds; if IDB write fails, the legacy key is retained and the legacy payload is returned.
+  - *Startup / update batched migration*: `migrateLegacyLocalStorageToIdb`
+    (`extension/subtitle/storage-migration.ts`, wired in `entry/on-installed.ts` and
+    `entry/background.ts`) migrates remaining legacy `biliscript_lvs_*` and
+    `biliscript_subtitle_cache_*` entries in batches, removes retired `biliscript_lvs_raw_*` and
+    LRU index/manifest metadata, and writes `biliscript_idb_v2_migration_done` only after zero
+    failures so interruptions safely resume on next startup.
+- **Video-level cleanup (`clearVideoCache(bvid, cid?)`)**: Exported from `extension/subtitle/cache.ts`;
+  cancels pending translated-track debounce buffers, clears matching entries from the `l1-chapter-index`
+  in-memory LRU via registered hooks, deletes matching `subtitle_pages` and `ai_artifacts` entries in
+  IndexedDB (via SW RPC from content scripts), and removes any remaining legacy `chrome.storage.local`
+  keys and per-key LRU indexes for the target video (or single part when `cid` is given).
 
 ## Future note
 

@@ -1,22 +1,91 @@
 // extension/subtitle/idb-store.ts
-// 扩展源 IndexedDB 分层字幕仓库：
-// - 主键：`${bvid}:${cid}`（视频分 P 唯一身份）
-// - 单条分 P 记录内严格隔离三层轨道容器：
-//   1) rawTracks：按归一化 trackKey 存储原生人工 CC / ai-* 原始轨 / asr 原始转写轨；
-//   2) segmentedTracks：按 `${trackKey}:${segmentationSig}` 存储纯单语本地重断句轨；
-//   3) translatedTracks：按 `${sourceTrackKey}->${targetLang}:${translationSig}` 增量合并存储 AI 译文轨；
-// - 读命中刷新 lastUsed，写时执行「最大分 P 条目数（100）+ 累计估算体积（150 MB）」双上限 LRU 淘汰。
+// 扩展源 IndexedDB v2 分层仓库（biliscript-subtitle-store）：
+// 1) `subtitle_pages`（主键 `${bvid}:${cid}`，索引 `by_lastUsed`、`by_bvid`）：
+//    - 单条分 P 记录内严格隔离三层轨道容器：rawTracks / segmentedTracks / translatedTracks；
+//    - 读命中刷新 lastUsed，写时执行「最大分 P 条目数（100）+ 累计估算体积（150 MB）」双上限 LRU 淘汰；
+//    - 因上限淘汰某分 P 后按 `by_bvid` 检查剩余分 P，仅当该 bvid 已无剩余分 P 时联动清理 `ai_artifacts` 同 bvid 产物。
+// 2) `ai_artifacts`（主键 `key`，索引 `by_family_bvid`、`by_family_lastUsedAt`、`by_bvid`、`by_lastUsedAt`）：
+//    - 统一存放 `biliscript_lvs_l1_index_`、`biliscript_lvs_analysis_final_`、`biliscript_lvs_analysis_`、`biliscript_lvs_summary_`；
+//    - 沿用各族既有保留上限（100 / 100 / 20 / 20 视频）按 `lastUsedAt` 做分族视频级 LRU 淘汰。
+// 3) `chat_images`（主键 `id`，索引 `by_conversationId`、`by_bvid`、`by_lastUsedAt`）：
+//    - 预留给对话图片存储迁移，避免后续再次升版。
 
 import type { SubtitleBodyItem } from "../ai/types.js";
 import { isAsrVariantSourceKey } from "./source-key.js";
 
 export const SUBTITLE_IDB_NAME = "biliscript-subtitle-store";
-export const SUBTITLE_IDB_VERSION = 1;
+export const SUBTITLE_IDB_VERSION = 2;
+
 export const SUBTITLE_IDB_STORE = "subtitle_pages";
 export const SUBTITLE_IDB_LAST_USED_INDEX = "by_lastUsed";
+export const SUBTITLE_IDB_BVID_INDEX = "by_bvid";
+
+export const AI_ARTIFACTS_IDB_STORE = "ai_artifacts";
+export const AI_ARTIFACTS_INDEX_FAMILY_BVID = "by_family_bvid";
+export const AI_ARTIFACTS_INDEX_FAMILY_LAST_USED = "by_family_lastUsedAt";
+export const AI_ARTIFACTS_INDEX_BVID = "by_bvid";
+export const AI_ARTIFACTS_INDEX_LAST_USED = "by_lastUsedAt";
+
+export const CHAT_IMAGES_IDB_STORE = "chat_images";
+export const CHAT_IMAGES_INDEX_CONVERSATION_ID = "by_conversationId";
+export const CHAT_IMAGES_INDEX_BVID = "by_bvid";
+export const CHAT_IMAGES_INDEX_LAST_USED = "by_lastUsedAt";
 
 export const DEFAULT_SUBTITLE_CACHE_MAX_ENTRIES = 100;
 export const DEFAULT_SUBTITLE_CACHE_MAX_BYTES = 150 * 1024 * 1024;
+
+export const AI_ARTIFACT_FAMILIES = [
+  "biliscript_lvs_l1_index_",
+  "biliscript_lvs_analysis_final_",
+  "biliscript_lvs_analysis_",
+  "biliscript_lvs_summary_"
+] as const;
+
+export type AiArtifactFamily = (typeof AI_ARTIFACT_FAMILIES)[number];
+
+export const AI_ARTIFACT_FAMILY_KEEP_VIDEOS: Record<AiArtifactFamily, number> = {
+  biliscript_lvs_l1_index_: 100,
+  biliscript_lvs_analysis_final_: 100,
+  biliscript_lvs_analysis_: 20,
+  biliscript_lvs_summary_: 20
+};
+
+// 按前缀长度降序匹配，防止 `biliscript_lvs_analysis_final_` 被 `biliscript_lvs_analysis_` 误认领。
+const AI_ARTIFACT_FAMILIES_BY_LENGTH: readonly AiArtifactFamily[] = [...AI_ARTIFACT_FAMILIES].sort(
+  (a, b) => b.length - a.length
+);
+
+export function isAiArtifactFamily(value: unknown): value is AiArtifactFamily {
+  return typeof value === "string" && (AI_ARTIFACT_FAMILIES as readonly string[]).includes(value);
+}
+
+export function parseAiArtifactKey(
+  key: unknown
+): { family: AiArtifactFamily; bvid: string; cid: string } | null {
+  const raw = String(key ?? "");
+  if (!raw) {
+    return null;
+  }
+  const family = AI_ARTIFACT_FAMILIES_BY_LENGTH.find((prefix) => raw.startsWith(prefix));
+  if (!family) {
+    return null;
+  }
+  const rest = raw.slice(family.length);
+  if (!rest) {
+    return null;
+  }
+  const firstSep = rest.indexOf("_");
+  if (firstSep === -1) {
+    return { family, bvid: rest, cid: "" };
+  }
+  const bvid = rest.slice(0, firstSep);
+  if (!bvid) {
+    return null;
+  }
+  const secondSep = rest.indexOf("_", firstSep + 1);
+  const cid = secondSep === -1 ? rest.slice(firstSep + 1) : rest.slice(firstSep + 1, secondSep);
+  return { family, bvid, cid };
+}
 
 export type SubtitleTrackStorageKind = "manual-cc" | "bili-ai" | "asr";
 
@@ -59,6 +128,18 @@ export interface SubtitlePageRecord {
   lastUsed: number;
 }
 
+export interface AiArtifactRecord<TPayload = unknown> {
+  key: string;
+  family: AiArtifactFamily;
+  bvid: string;
+  cid: string;
+  payload: TPayload;
+  estimatedBytes: number;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number;
+}
+
 export interface PutRawTrackInput {
   bvid: string;
   cid: string;
@@ -94,19 +175,45 @@ export interface DeleteTrackEntryInput {
   key: string;
 }
 
+export interface PutAiArtifactInput<TPayload = unknown> {
+  key: string;
+  family?: AiArtifactFamily;
+  bvid?: string;
+  cid?: string;
+  payload: TPayload;
+  createdAt?: number;
+  updatedAt?: number;
+  lastUsedAt?: number;
+}
+
 export interface SubtitleStoreWriteResult {
   ok: boolean;
   evictedIds: string[];
+  evictedArtifactKeys?: string[];
   estimatedBytes?: number;
   error?: Error;
 }
 
+export interface AiArtifactWriteResult {
+  ok: boolean;
+  evictedKeys: string[];
+  estimatedBytes?: number;
+  error?: Error;
+}
+
+export interface ClearVideoResult {
+  removedPageIds: string[];
+  removedArtifactKeys: string[];
+}
+
 export interface SubtitleStoreWriteContext {
-  op: "put-raw" | "put-segmented" | "upsert-translated";
+  op: "put-raw" | "put-segmented" | "upsert-translated" | "put-ai-artifact";
   pageId: string;
   bvid: string;
   cid: string;
   trackKey: string;
+  family?: AiArtifactFamily;
+  key?: string;
 }
 
 export type SubtitleStoreWriteInterceptor = (
@@ -118,7 +225,10 @@ export interface SubtitleIdbStoreOptions {
   dbName?: string;
   maxEntries?: number;
   maxBytes?: number;
+  aiArtifactKeepVideos?: Partial<Record<AiArtifactFamily, number>>;
   now?: () => number;
+  /** 仅用于 defaultSubtitleIdbStore 在单测内跨 vi.resetModules 保持同一内存盘。 */
+  useSharedMemoryBacking?: boolean;
 }
 
 export interface SubtitleIdbStore {
@@ -148,11 +258,28 @@ export interface SubtitleIdbStore {
     cid: string;
     sourceTrackKey?: string;
   }): Promise<string[]>;
+
+  getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null>;
+  getAiArtifactsMany<TPayload = unknown>(
+    keys: string[]
+  ): Promise<Array<AiArtifactRecord<TPayload> | null>>;
+  putAiArtifact<TPayload = unknown>(input: PutAiArtifactInput<TPayload>): Promise<AiArtifactWriteResult>;
+  deleteAiArtifact(key: string): Promise<boolean>;
+  listAiArtifactsByFamilyBvid(
+    family: AiArtifactFamily,
+    bvid: string,
+    keyPrefix?: string
+  ): Promise<AiArtifactRecord[]>;
+  listAiArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]>;
+  listAllAiArtifacts(): Promise<AiArtifactRecord[]>;
+  clearVideo(bvid: string, cid?: string): Promise<ClearVideoResult>;
+
   clearAll(): Promise<void>;
   setWriteInterceptorForTests(interceptor: SubtitleStoreWriteInterceptor | null): void;
 }
 
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+const DEFAULT_MEMORY_BACKING_SYMBOL = Symbol.for("biliscript.defaultSubtitleIdbMemoryBacking");
 
 export function buildSubtitlePageId(bvid: string, cid: string): string {
   const cleanBvid = String(bvid || "").trim();
@@ -263,22 +390,33 @@ export function mergeTranslatedItems(
   return Array.from(bySpan.values()).sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
-export function estimateSubtitleRecordBytes(record: SubtitlePageRecord): number {
-  const json = JSON.stringify({
-    ...record,
-    estimatedBytes: 0
-  });
+function estimateJsonBytes(value: unknown): number {
+  const json = JSON.stringify(value) ?? "";
   if (textEncoder) {
     return textEncoder.encode(json).byteLength;
   }
   return json.length * 2;
 }
 
-function cloneRecord(record: SubtitlePageRecord): SubtitlePageRecord {
+export function estimateSubtitleRecordBytes(record: SubtitlePageRecord): number {
+  return estimateJsonBytes({
+    ...record,
+    estimatedBytes: 0
+  });
+}
+
+export function estimateAiArtifactRecordBytes(record: AiArtifactRecord): number {
+  return estimateJsonBytes({
+    ...record,
+    estimatedBytes: 0
+  });
+}
+
+function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
-    return structuredClone(record);
+    return structuredClone(value);
   }
-  return JSON.parse(JSON.stringify(record)) as SubtitlePageRecord;
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function isRecordEmpty(record: SubtitlePageRecord): boolean {
@@ -312,7 +450,9 @@ function normalizePageRecord(raw: unknown): SubtitlePageRecord | null {
     return null;
   }
   const candidate = raw as Partial<SubtitlePageRecord>;
-  const id = String(candidate.id || buildSubtitlePageId(String(candidate.bvid || ""), String(candidate.cid || ""))).trim();
+  const id = String(
+    candidate.id || buildSubtitlePageId(String(candidate.bvid || ""), String(candidate.cid || ""))
+  ).trim();
   const bvid = String(candidate.bvid || "").trim();
   const cid = String(candidate.cid || "").trim();
   if (!id || !bvid || !cid) {
@@ -349,34 +489,171 @@ function normalizePageRecord(raw: unknown): SubtitlePageRecord | null {
   return record;
 }
 
-interface StorageBackend {
-  getAll(): Promise<SubtitlePageRecord[]>;
-  get(id: string): Promise<SubtitlePageRecord | null>;
-  put(record: SubtitlePageRecord): Promise<void>;
-  deleteMany(ids: string[]): Promise<void>;
-  clear(): Promise<void>;
+function normalizeAiArtifactRecord(raw: unknown): AiArtifactRecord | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as Partial<AiArtifactRecord>;
+  const key = String(candidate.key || "").trim();
+  if (!key || candidate.payload === undefined || candidate.payload === null) {
+    return null;
+  }
+  const parsed = parseAiArtifactKey(key);
+  const family = isAiArtifactFamily(candidate.family) ? candidate.family : parsed?.family;
+  const bvid = String(candidate.bvid ?? parsed?.bvid ?? "").trim();
+  const cid = String(candidate.cid ?? parsed?.cid ?? "").trim();
+  if (!family || !bvid) {
+    return null;
+  }
+  const createdAt = Number.isFinite(Number(candidate.createdAt)) ? Number(candidate.createdAt) : 0;
+  const updatedAt = Number.isFinite(Number(candidate.updatedAt)) ? Number(candidate.updatedAt) : createdAt;
+  const lastUsedAt = Number.isFinite(Number(candidate.lastUsedAt)) ? Number(candidate.lastUsedAt) : updatedAt;
+  const record: AiArtifactRecord = {
+    key,
+    family,
+    bvid,
+    cid,
+    payload: candidate.payload,
+    estimatedBytes: Number(candidate.estimatedBytes) || 0,
+    createdAt,
+    updatedAt,
+    lastUsedAt
+  };
+  if (record.estimatedBytes <= 0) {
+    record.estimatedBytes = estimateAiArtifactRecordBytes(record);
+  }
+  return record;
 }
 
-function createMemoryBackend(): StorageBackend {
-  const map = new Map<string, SubtitlePageRecord>();
+interface StorageBackend {
+  getAllPages(): Promise<SubtitlePageRecord[]>;
+  getPage(id: string): Promise<SubtitlePageRecord | null>;
+  getPagesByBvid(bvid: string): Promise<SubtitlePageRecord[]>;
+  putPage(record: SubtitlePageRecord): Promise<void>;
+  deletePages(ids: string[]): Promise<void>;
+
+  getArtifact(key: string): Promise<AiArtifactRecord | null>;
+  getArtifactsMany(keys: string[]): Promise<Array<AiArtifactRecord | null>>;
+  putArtifact(record: AiArtifactRecord): Promise<void>;
+  putArtifactsMany(records: AiArtifactRecord[]): Promise<void>;
+  deleteArtifacts(keys: string[]): Promise<void>;
+  getArtifactsByFamily(family: AiArtifactFamily): Promise<AiArtifactRecord[]>;
+  getArtifactsByFamilyBvid(family: AiArtifactFamily, bvid: string): Promise<AiArtifactRecord[]>;
+  getArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]>;
+  getAllArtifacts(): Promise<AiArtifactRecord[]>;
+
+  clearAll(): Promise<void>;
+}
+
+interface SharedMemoryBacking {
+  pages: Map<string, SubtitlePageRecord>;
+  artifacts: Map<string, AiArtifactRecord>;
+}
+
+function getSharedMemoryBacking(): SharedMemoryBacking {
+  const globals = globalThis as unknown as Record<symbol, SharedMemoryBacking | undefined>;
+  let backing = globals[DEFAULT_MEMORY_BACKING_SYMBOL];
+  if (!backing) {
+    backing = {
+      pages: new Map<string, SubtitlePageRecord>(),
+      artifacts: new Map<string, AiArtifactRecord>()
+    };
+    globals[DEFAULT_MEMORY_BACKING_SYMBOL] = backing;
+  }
+  return backing;
+}
+
+function createMemoryBackend(shared = false): StorageBackend {
+  const backing: SharedMemoryBacking = shared
+    ? getSharedMemoryBacking()
+    : {
+        pages: new Map<string, SubtitlePageRecord>(),
+        artifacts: new Map<string, AiArtifactRecord>()
+      };
+
   return {
-    async getAll() {
-      return Array.from(map.values()).map(cloneRecord);
+    async getAllPages() {
+      return Array.from(backing.pages.values()).map(cloneValue);
     },
-    async get(id) {
-      const hit = map.get(id);
-      return hit ? cloneRecord(hit) : null;
+    async getPage(id) {
+      const hit = backing.pages.get(id);
+      return hit ? cloneValue(hit) : null;
     },
-    async put(record) {
-      map.set(record.id, cloneRecord(record));
+    async getPagesByBvid(bvid) {
+      const out: SubtitlePageRecord[] = [];
+      for (const rec of backing.pages.values()) {
+        if (rec.bvid === bvid) {
+          out.push(cloneValue(rec));
+        }
+      }
+      return out;
     },
-    async deleteMany(ids) {
+    async putPage(record) {
+      backing.pages.set(record.id, cloneValue(record));
+    },
+    async deletePages(ids) {
       for (const id of ids) {
-        map.delete(id);
+        backing.pages.delete(id);
       }
     },
-    async clear() {
-      map.clear();
+
+    async getArtifact(key) {
+      const hit = backing.artifacts.get(key);
+      return hit ? cloneValue(hit) : null;
+    },
+    async getArtifactsMany(keys) {
+      return keys.map((key) => {
+        const hit = backing.artifacts.get(key);
+        return hit ? cloneValue(hit) : null;
+      });
+    },
+    async putArtifact(record) {
+      backing.artifacts.set(record.key, cloneValue(record));
+    },
+    async putArtifactsMany(records) {
+      for (const record of records) {
+        backing.artifacts.set(record.key, cloneValue(record));
+      }
+    },
+    async deleteArtifacts(keys) {
+      for (const key of keys) {
+        backing.artifacts.delete(key);
+      }
+    },
+    async getArtifactsByFamily(family) {
+      const out: AiArtifactRecord[] = [];
+      for (const rec of backing.artifacts.values()) {
+        if (rec.family === family) {
+          out.push(cloneValue(rec));
+        }
+      }
+      return out;
+    },
+    async getArtifactsByFamilyBvid(family, bvid) {
+      const out: AiArtifactRecord[] = [];
+      for (const rec of backing.artifacts.values()) {
+        if (rec.family === family && rec.bvid === bvid) {
+          out.push(cloneValue(rec));
+        }
+      }
+      return out;
+    },
+    async getArtifactsByBvid(bvid) {
+      const out: AiArtifactRecord[] = [];
+      for (const rec of backing.artifacts.values()) {
+        if (rec.bvid === bvid) {
+          out.push(cloneValue(rec));
+        }
+      }
+      return out;
+    },
+    async getAllArtifacts() {
+      return Array.from(backing.artifacts.values()).map(cloneValue);
+    },
+
+    async clearAll() {
+      backing.pages.clear();
+      backing.artifacts.clear();
     }
   };
 }
@@ -396,6 +673,28 @@ function idbTransactionToPromise(tx: IDBTransaction): Promise<void> {
   });
 }
 
+function normalizePageList(rawAll: unknown): SubtitlePageRecord[] {
+  const list: SubtitlePageRecord[] = [];
+  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+    const normalized = normalizePageRecord(raw);
+    if (normalized) {
+      list.push(normalized);
+    }
+  }
+  return list;
+}
+
+function normalizeArtifactList(rawAll: unknown): AiArtifactRecord[] {
+  const list: AiArtifactRecord[] = [];
+  for (const raw of Array.isArray(rawAll) ? rawAll : []) {
+    const normalized = normalizeAiArtifactRecord(raw);
+    if (normalized) {
+      list.push(normalized);
+    }
+  }
+  return list;
+}
+
 function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBackend {
   let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -407,11 +706,48 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
       const req = idbFactory.open(dbName, SUBTITLE_IDB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
-        const store = db.objectStoreNames.contains(SUBTITLE_IDB_STORE)
-          ? req.transaction!.objectStore(SUBTITLE_IDB_STORE)
+        const upgradeTx = req.transaction!;
+
+        // 1) subtitle_pages：严禁删建，仅增量补 `by_bvid` 索引，保留历史字幕页与 `by_lastUsed`
+        const subtitleStore = db.objectStoreNames.contains(SUBTITLE_IDB_STORE)
+          ? upgradeTx.objectStore(SUBTITLE_IDB_STORE)
           : db.createObjectStore(SUBTITLE_IDB_STORE, { keyPath: "id" });
-        if (!store.indexNames.contains(SUBTITLE_IDB_LAST_USED_INDEX)) {
-          store.createIndex(SUBTITLE_IDB_LAST_USED_INDEX, "lastUsed", { unique: false });
+        if (!subtitleStore.indexNames.contains(SUBTITLE_IDB_LAST_USED_INDEX)) {
+          subtitleStore.createIndex(SUBTITLE_IDB_LAST_USED_INDEX, "lastUsed", { unique: false });
+        }
+        if (!subtitleStore.indexNames.contains(SUBTITLE_IDB_BVID_INDEX)) {
+          subtitleStore.createIndex(SUBTITLE_IDB_BVID_INDEX, "bvid", { unique: false });
+        }
+
+        // 2) ai_artifacts：四类 AI 派生产物仓库
+        const aiStore = db.objectStoreNames.contains(AI_ARTIFACTS_IDB_STORE)
+          ? upgradeTx.objectStore(AI_ARTIFACTS_IDB_STORE)
+          : db.createObjectStore(AI_ARTIFACTS_IDB_STORE, { keyPath: "key" });
+        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_BVID)) {
+          aiStore.createIndex(AI_ARTIFACTS_INDEX_FAMILY_BVID, ["family", "bvid"], { unique: false });
+        }
+        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED)) {
+          aiStore.createIndex(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED, ["family", "lastUsedAt"], { unique: false });
+        }
+        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_BVID)) {
+          aiStore.createIndex(AI_ARTIFACTS_INDEX_BVID, "bvid", { unique: false });
+        }
+        if (!aiStore.indexNames.contains(AI_ARTIFACTS_INDEX_LAST_USED)) {
+          aiStore.createIndex(AI_ARTIFACTS_INDEX_LAST_USED, "lastUsedAt", { unique: false });
+        }
+
+        // 3) chat_images：为对话图片迁移预留空表
+        const chatImagesStore = db.objectStoreNames.contains(CHAT_IMAGES_IDB_STORE)
+          ? upgradeTx.objectStore(CHAT_IMAGES_IDB_STORE)
+          : db.createObjectStore(CHAT_IMAGES_IDB_STORE, { keyPath: "id" });
+        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_CONVERSATION_ID)) {
+          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_CONVERSATION_ID, "conversationId", { unique: false });
+        }
+        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_BVID)) {
+          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_BVID, "bvid", { unique: false });
+        }
+        if (!chatImagesStore.indexNames.contains(CHAT_IMAGES_INDEX_LAST_USED)) {
+          chatImagesStore.createIndex(CHAT_IMAGES_INDEX_LAST_USED, "lastUsedAt", { unique: false });
         }
       };
       req.onsuccess = () => {
@@ -434,22 +770,15 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
   }
 
   return {
-    async getAll() {
+    async getAllPages() {
       const db = await openDb();
       const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
       const store = tx.objectStore(SUBTITLE_IDB_STORE);
       const rawAll = await idbRequestToPromise(store.getAll());
       await idbTransactionToPromise(tx);
-      const list: SubtitlePageRecord[] = [];
-      for (const raw of Array.isArray(rawAll) ? rawAll : []) {
-        const normalized = normalizePageRecord(raw);
-        if (normalized) {
-          list.push(normalized);
-        }
-      }
-      return list;
+      return normalizePageList(rawAll);
     },
-    async get(id) {
+    async getPage(id) {
       const db = await openDb();
       const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
       const store = tx.objectStore(SUBTITLE_IDB_STORE);
@@ -457,14 +786,27 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
       await idbTransactionToPromise(tx);
       return normalizePageRecord(raw);
     },
-    async put(record) {
+    async getPagesByBvid(bvid) {
+      const db = await openDb();
+      const tx = db.transaction(SUBTITLE_IDB_STORE, "readonly");
+      const store = tx.objectStore(SUBTITLE_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" && store.indexNames.contains(SUBTITLE_IDB_BVID_INDEX)
+          ? await idbRequestToPromise(store.index(SUBTITLE_IDB_BVID_INDEX).getAll(bvid))
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
+            );
+      await idbTransactionToPromise(tx);
+      return normalizePageList(rawAll);
+    },
+    async putPage(record) {
       const db = await openDb();
       const tx = db.transaction(SUBTITLE_IDB_STORE, "readwrite");
       const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      store.put(cloneRecord(record));
+      store.put(cloneValue(record));
       await idbTransactionToPromise(tx);
     },
-    async deleteMany(ids) {
+    async deletePages(ids) {
       if (ids.length === 0) {
         return;
       }
@@ -476,27 +818,158 @@ function createIdbBackend(idbFactory: IDBFactory, dbName: string): StorageBacken
       }
       await idbTransactionToPromise(tx);
     },
-    async clear() {
+
+    async getArtifact(key) {
       const db = await openDb();
-      const tx = db.transaction(SUBTITLE_IDB_STORE, "readwrite");
-      const store = tx.objectStore(SUBTITLE_IDB_STORE);
-      store.clear();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const raw = await idbRequestToPromise(store.get(key));
+      await idbTransactionToPromise(tx);
+      return normalizeAiArtifactRecord(raw);
+    },
+    async getArtifactsMany(keys) {
+      if (keys.length === 0) {
+        return [];
+      }
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const rawResults = await Promise.all(keys.map((key) => idbRequestToPromise(store.get(key))));
+      await idbTransactionToPromise(tx);
+      return rawResults.map((raw) => normalizeAiArtifactRecord(raw));
+    },
+    async putArtifact(record) {
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      store.put(cloneValue(record));
+      await idbTransactionToPromise(tx);
+    },
+    async putArtifactsMany(records) {
+      if (records.length === 0) {
+        return;
+      }
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      for (const record of records) {
+        store.put(cloneValue(record));
+      }
+      await idbTransactionToPromise(tx);
+    },
+    async deleteArtifacts(keys) {
+      if (keys.length === 0) {
+        return;
+      }
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readwrite");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      for (const key of keys) {
+        store.delete(key);
+      }
+      await idbTransactionToPromise(tx);
+    },
+    async getArtifactsByFamily(family) {
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" &&
+        store.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED) &&
+        typeof IDBKeyRange !== "undefined" &&
+        typeof IDBKeyRange.bound === "function"
+          ? await idbRequestToPromise(
+              store
+                .index(AI_ARTIFACTS_INDEX_FAMILY_LAST_USED)
+                .getAll(IDBKeyRange.bound([family, Number.NEGATIVE_INFINITY], [family, Number.POSITIVE_INFINITY]))
+            )
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) => (item as { family?: unknown } | null)?.family === family
+            );
+      await idbTransactionToPromise(tx);
+      return normalizeArtifactList(rawAll);
+    },
+    async getArtifactsByFamilyBvid(family, bvid) {
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" && store.indexNames.contains(AI_ARTIFACTS_INDEX_FAMILY_BVID)
+          ? await idbRequestToPromise(store.index(AI_ARTIFACTS_INDEX_FAMILY_BVID).getAll([family, bvid]))
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) =>
+                (item as { family?: unknown } | null)?.family === family &&
+                (item as { bvid?: unknown } | null)?.bvid === bvid
+            );
+      await idbTransactionToPromise(tx);
+      return normalizeArtifactList(rawAll);
+    },
+    async getArtifactsByBvid(bvid) {
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const rawAll =
+        typeof store.index === "function" && store.indexNames.contains(AI_ARTIFACTS_INDEX_BVID)
+          ? await idbRequestToPromise(store.index(AI_ARTIFACTS_INDEX_BVID).getAll(bvid))
+          : ((await idbRequestToPromise(store.getAll())) as unknown[]).filter(
+              (item) => (item as { bvid?: unknown } | null)?.bvid === bvid
+            );
+      await idbTransactionToPromise(tx);
+      return normalizeArtifactList(rawAll);
+    },
+    async getAllArtifacts() {
+      const db = await openDb();
+      const tx = db.transaction(AI_ARTIFACTS_IDB_STORE, "readonly");
+      const store = tx.objectStore(AI_ARTIFACTS_IDB_STORE);
+      const rawAll = await idbRequestToPromise(store.getAll());
+      await idbTransactionToPromise(tx);
+      return normalizeArtifactList(rawAll);
+    },
+
+    async clearAll() {
+      const db = await openDb();
+      const storesToClear = [SUBTITLE_IDB_STORE, AI_ARTIFACTS_IDB_STORE, CHAT_IMAGES_IDB_STORE].filter((name) =>
+        db.objectStoreNames.contains(name)
+      );
+      if (storesToClear.length === 0) {
+        return;
+      }
+      const tx = db.transaction(storesToClear, "readwrite");
+      for (const storeName of storesToClear) {
+        tx.objectStore(storeName).clear();
+      }
       await idbTransactionToPromise(tx);
     }
   };
 }
 
+function isWebPageOriginContext(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  return protocol === "http:" || protocol === "https:";
+}
+
 function selectBackend(options: SubtitleIdbStoreOptions): StorageBackend {
+  if (options.indexedDB !== undefined) {
+    if (options.indexedDB && typeof options.indexedDB.open === "function") {
+      return createIdbBackend(options.indexedDB, options.dbName || SUBTITLE_IDB_NAME);
+    }
+    return createMemoryBackend(options.useSharedMemoryBacking === true);
+  }
+  // 内容脚本运行在 bilibili.com 网页 origin，严禁直连网页源 indexedDB
+  if (isWebPageOriginContext()) {
+    return createMemoryBackend(options.useSharedMemoryBacking === true);
+  }
   const idb =
-    options.indexedDB !== undefined
-      ? options.indexedDB
-      : typeof globalThis !== "undefined"
-        ? (globalThis as { indexedDB?: IDBFactory }).indexedDB ?? null
-        : null;
+    typeof globalThis !== "undefined"
+      ? (globalThis as { indexedDB?: IDBFactory }).indexedDB ?? null
+      : null;
   if (idb && typeof idb.open === "function") {
     return createIdbBackend(idb, options.dbName || SUBTITLE_IDB_NAME);
   }
-  return createMemoryBackend();
+  return createMemoryBackend(options.useSharedMemoryBacking === true);
 }
 
 export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): SubtitleIdbStore {
@@ -504,6 +977,10 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
   const maxBytes = Math.max(1, Math.floor(options.maxBytes ?? DEFAULT_SUBTITLE_CACHE_MAX_BYTES));
   const now = options.now ?? (() => Date.now());
   const backend = selectBackend(options);
+  const keepVideosMap: Record<AiArtifactFamily, number> = {
+    ...AI_ARTIFACT_FAMILY_KEEP_VIDEOS,
+    ...(options.aiArtifactKeepVideos ?? {})
+  };
   let writeInterceptor: SubtitleStoreWriteInterceptor | null = null;
   let opQueue: Promise<unknown> = Promise.resolve();
 
@@ -516,12 +993,14 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     return next;
   }
 
-  async function evictIfNeeded(protectedId: string): Promise<string[]> {
-    const all = await backend.getAll();
+  async function evictSubtitlePagesIfNeeded(
+    protectedId: string
+  ): Promise<{ evictedIds: string[]; evictedArtifactKeys: string[] }> {
+    const all = await backend.getAllPages();
     let totalCount = all.length;
     let totalBytes = all.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
     if (totalCount <= maxEntries && totalBytes <= maxBytes) {
-      return [];
+      return { evictedIds: [], evictedArtifactKeys: [] };
     }
 
     const candidates = all
@@ -532,20 +1011,90 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         return a.id.localeCompare(b.id);
       });
 
-    const evictedIds: string[] = [];
+    const evictedRecords: SubtitlePageRecord[] = [];
     for (const candidate of candidates) {
       if (totalCount <= maxEntries && totalBytes <= maxBytes) {
         break;
       }
-      evictedIds.push(candidate.id);
+      evictedRecords.push(candidate);
       totalCount -= 1;
       totalBytes -= Number(candidate.estimatedBytes) || 0;
     }
 
-    if (evictedIds.length > 0) {
-      await backend.deleteMany(evictedIds);
+    const evictedIds = evictedRecords.map((item) => item.id);
+    if (evictedIds.length === 0) {
+      return { evictedIds: [], evictedArtifactKeys: [] };
     }
-    return evictedIds;
+
+    await backend.deletePages(evictedIds);
+
+    // 视频级联动清理：按 by_bvid 核查被淘汰分 P 所属 bvid 是否已无剩余分 P；
+    // 仅当该 bvid 下已无任何剩余分 P 时，才联动删除 ai_artifacts 中同 bvid 全部产物。
+    const evictedBvids = new Set(evictedRecords.map((item) => item.bvid).filter(Boolean));
+    const evictedArtifactKeys: string[] = [];
+    for (const evictedBvid of evictedBvids) {
+      const remainingPages = await backend.getPagesByBvid(evictedBvid);
+      if (remainingPages.length > 0) {
+        continue;
+      }
+      const artifacts = await backend.getArtifactsByBvid(evictedBvid);
+      if (artifacts.length > 0) {
+        const keys = artifacts.map((art) => art.key);
+        await backend.deleteArtifacts(keys);
+        evictedArtifactKeys.push(...keys);
+      }
+    }
+
+    return { evictedIds, evictedArtifactKeys };
+  }
+
+  async function evictAiArtifactsForFamily(
+    family: AiArtifactFamily,
+    protectedBvid: string
+  ): Promise<string[]> {
+    const keepVideos = Math.max(1, Math.floor(Number(keepVideosMap[family]) || AI_ARTIFACT_FAMILY_KEEP_VIDEOS[family]));
+    const all = await backend.getArtifactsByFamily(family);
+    const byBvid = new Map<string, { maxLastUsedAt: number; maxCreatedAt: number; keys: string[] }>();
+    for (const item of all) {
+      let bucket = byBvid.get(item.bvid);
+      if (!bucket) {
+        bucket = { maxLastUsedAt: item.lastUsedAt, maxCreatedAt: item.createdAt, keys: [] };
+        byBvid.set(item.bvid, bucket);
+      }
+      bucket.maxLastUsedAt = Math.max(bucket.maxLastUsedAt, item.lastUsedAt);
+      bucket.maxCreatedAt = Math.max(bucket.maxCreatedAt, item.createdAt);
+      bucket.keys.push(item.key);
+    }
+    if (byBvid.size <= keepVideos) {
+      return [];
+    }
+
+    const candidates = Array.from(byBvid.entries())
+      .filter(([bvid]) => bvid !== protectedBvid)
+      .sort((a, b) => {
+        if (a[1].maxLastUsedAt !== b[1].maxLastUsedAt) {
+          return a[1].maxLastUsedAt - b[1].maxLastUsedAt;
+        }
+        if (a[1].maxCreatedAt !== b[1].maxCreatedAt) {
+          return a[1].maxCreatedAt - b[1].maxCreatedAt;
+        }
+        return a[0].localeCompare(b[0]);
+      });
+
+    let remainingVideoCount = byBvid.size;
+    const evictedKeys: string[] = [];
+    for (const [, bucket] of candidates) {
+      if (remainingVideoCount <= keepVideos) {
+        break;
+      }
+      evictedKeys.push(...bucket.keys);
+      remainingVideoCount -= 1;
+    }
+
+    if (evictedKeys.length > 0) {
+      await backend.deleteArtifacts(evictedKeys);
+    }
+    return evictedKeys;
   }
 
   async function writePageMutation(
@@ -566,7 +1115,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
           await writeInterceptor({ ...ctx, pageId });
         }
         const ts = now();
-        const existing = (await backend.get(pageId)) ?? createEmptyPageRecord(ctx.bvid, ctx.cid, ts);
+        const existing = (await backend.getPage(pageId)) ?? createEmptyPageRecord(ctx.bvid, ctx.cid, ts);
         const changed = mutate(existing, ts);
         if (!changed) {
           return { ok: true, evictedIds: [], estimatedBytes: existing.estimatedBytes };
@@ -583,9 +1132,14 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
             )
           };
         }
-        await backend.put(existing);
-        const evictedIds = await evictIfNeeded(existing.id);
-        return { ok: true, evictedIds, estimatedBytes: existing.estimatedBytes };
+        await backend.putPage(existing);
+        const { evictedIds, evictedArtifactKeys } = await evictSubtitlePagesIfNeeded(existing.id);
+        return {
+          ok: true,
+          evictedIds,
+          ...(evictedArtifactKeys.length > 0 ? { evictedArtifactKeys } : {}),
+          estimatedBytes: existing.estimatedBytes
+        };
       } catch (err) {
         return {
           ok: false,
@@ -596,9 +1150,18 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
     });
   }
 
-  async function touchLastUsed(record: SubtitlePageRecord): Promise<void> {
+  async function touchPageLastUsed(record: SubtitlePageRecord): Promise<void> {
     record.lastUsed = now();
-    await backend.put(record);
+    await backend.putPage(record);
+  }
+
+  async function touchArtifactsLastUsed(records: AiArtifactRecord[]): Promise<void> {
+    if (records.length === 0) {
+      return;
+    }
+    const ts = now();
+    const updated = records.map((record) => ({ ...record, lastUsedAt: ts }));
+    await backend.putArtifactsMany(updated);
   }
 
   return {
@@ -608,12 +1171,12 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId) {
           return null;
         }
-        return backend.get(pageId);
+        return backend.getPage(pageId);
       });
     },
 
     async listPageRecords() {
-      return enqueue(() => backend.getAll());
+      return enqueue(() => backend.getAllPages());
     },
 
     async getRawTrack(bvid, cid, trackKey) {
@@ -623,12 +1186,12 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId || !key) {
           return null;
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         const track = record?.rawTracks[key];
         if (!record || !track || !Array.isArray(track.items) || track.items.length === 0) {
           return null;
         }
-        await touchLastUsed(record);
+        await touchPageLastUsed(record);
         return track.items.map((item) => ({ ...item }));
       });
     },
@@ -662,13 +1225,13 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId || !cleanTrackKey || !cleanSig) {
           return null;
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         const mapKey = buildSegmentedTrackMapKey(cleanTrackKey, cleanSig);
         const entry = record?.segmentedTracks[mapKey];
         if (!record || !entry || !Array.isArray(entry.items) || entry.items.length === 0) {
           return null;
         }
-        await touchLastUsed(record);
+        await touchPageLastUsed(record);
         return entry.items.map((item) => ({ ...item }));
       });
     },
@@ -704,7 +1267,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId || !cleanSource || !cleanLang) {
           return null;
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         if (!record) {
           return null;
         }
@@ -742,7 +1305,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!hit || !Array.isArray(hit.items) || hit.items.length === 0) {
           return null;
         }
-        await touchLastUsed(record);
+        await touchPageLastUsed(record);
         return hit.items.map((item) => ({ ...item }));
       });
     },
@@ -808,7 +1371,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId || !cleanKey) {
           return false;
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         if (!record) {
           return false;
         }
@@ -836,11 +1399,11 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
           return false;
         }
         if (isRecordEmpty(record)) {
-          await backend.deleteMany([record.id]);
+          await backend.deletePages([record.id]);
         } else {
           record.updatedAt = now();
           record.estimatedBytes = estimateSubtitleRecordBytes(record);
-          await backend.put(record);
+          await backend.putPage(record);
         }
         return true;
       });
@@ -852,7 +1415,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId) {
           return [];
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         if (!record) {
           return [];
         }
@@ -871,11 +1434,11 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         }
         if (removed.length > 0) {
           if (isRecordEmpty(record)) {
-            await backend.deleteMany([record.id]);
+            await backend.deletePages([record.id]);
           } else {
             record.updatedAt = now();
             record.estimatedBytes = estimateSubtitleRecordBytes(record);
-            await backend.put(record);
+            await backend.putPage(record);
           }
         }
         return removed;
@@ -888,7 +1451,7 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         if (!pageId) {
           return [];
         }
-        const record = await backend.get(pageId);
+        const record = await backend.getPage(pageId);
         if (!record) {
           return [];
         }
@@ -902,21 +1465,222 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
         }
         if (removed.length > 0) {
           if (isRecordEmpty(record)) {
-            await backend.deleteMany([record.id]);
+            await backend.deletePages([record.id]);
           } else {
             record.updatedAt = now();
             record.estimatedBytes = estimateSubtitleRecordBytes(record);
-            await backend.put(record);
+            await backend.putPage(record);
           }
         }
         return removed;
       });
     },
 
+    async getAiArtifact<TPayload = unknown>(key: string): Promise<AiArtifactRecord<TPayload> | null> {
+      return enqueue(async () => {
+        const cleanKey = String(key || "").trim();
+        if (!cleanKey) {
+          return null;
+        }
+        const record = await backend.getArtifact(cleanKey);
+        if (!record) {
+          return null;
+        }
+        await touchArtifactsLastUsed([record]);
+        return cloneValue(record) as AiArtifactRecord<TPayload>;
+      });
+    },
+
+    async getAiArtifactsMany<TPayload = unknown>(
+      keys: string[]
+    ): Promise<Array<AiArtifactRecord<TPayload> | null>> {
+      return enqueue(async () => {
+        const cleanKeys = (Array.isArray(keys) ? keys : []).map((k) => String(k || "").trim());
+        if (cleanKeys.length === 0) {
+          return [];
+        }
+        const hits = await backend.getArtifactsMany(cleanKeys);
+        const nonNull = hits.filter((rec): rec is AiArtifactRecord => rec !== null);
+        if (nonNull.length > 0) {
+          await touchArtifactsLastUsed(nonNull);
+        }
+        return hits.map((rec) => (rec ? (cloneValue(rec) as AiArtifactRecord<TPayload>) : null));
+      });
+    },
+
+    async putAiArtifact<TPayload = unknown>(
+      input: PutAiArtifactInput<TPayload>
+    ): Promise<AiArtifactWriteResult> {
+      return enqueue(async () => {
+        const cleanKey = String(input?.key || "").trim();
+        const parsed = parseAiArtifactKey(cleanKey);
+        const family = isAiArtifactFamily(input?.family) ? input.family : parsed?.family;
+        const bvid = String(input?.bvid ?? parsed?.bvid ?? "").trim();
+        const cid = String(input?.cid ?? parsed?.cid ?? "").trim();
+        if (!cleanKey || !family || !bvid || input?.payload === undefined || input?.payload === null) {
+          return {
+            ok: false,
+            evictedKeys: [],
+            error: new Error("Invalid ai_artifact key, family, bvid or payload")
+          };
+        }
+        try {
+          if (writeInterceptor) {
+            await writeInterceptor({
+              op: "put-ai-artifact",
+              pageId: buildSubtitlePageId(bvid, cid),
+              bvid,
+              cid,
+              trackKey: cleanKey,
+              family,
+              key: cleanKey
+            });
+          }
+          const ts = now();
+          const existing = await backend.getArtifact(cleanKey);
+          const createdAt =
+            Number.isFinite(Number(input.createdAt)) && Number(input.createdAt) > 0
+              ? Number(input.createdAt)
+              : existing?.createdAt && existing.createdAt > 0
+                ? existing.createdAt
+                : ts;
+          const updatedAt =
+            Number.isFinite(Number(input.updatedAt)) && Number(input.updatedAt) > 0
+              ? Number(input.updatedAt)
+              : ts;
+          const lastUsedAt =
+            Number.isFinite(Number(input.lastUsedAt)) && Number(input.lastUsedAt) > 0
+              ? Number(input.lastUsedAt)
+              : ts;
+          const record: AiArtifactRecord<TPayload> = {
+            key: cleanKey,
+            family,
+            bvid,
+            cid,
+            payload: cloneValue(input.payload),
+            estimatedBytes: 0,
+            createdAt,
+            updatedAt,
+            lastUsedAt
+          };
+          record.estimatedBytes = estimateAiArtifactRecordBytes(record);
+          await backend.putArtifact(record);
+          const evictedKeys = await evictAiArtifactsForFamily(family, bvid);
+          return {
+            ok: true,
+            evictedKeys,
+            estimatedBytes: record.estimatedBytes
+          };
+        } catch (err) {
+          return {
+            ok: false,
+            evictedKeys: [],
+            error: err instanceof Error ? err : new Error(String(err))
+          };
+        }
+      });
+    },
+
+    async deleteAiArtifact(key: string): Promise<boolean> {
+      return enqueue(async () => {
+        const cleanKey = String(key || "").trim();
+        if (!cleanKey) {
+          return false;
+        }
+        const existing = await backend.getArtifact(cleanKey);
+        if (!existing) {
+          return false;
+        }
+        await backend.deleteArtifacts([cleanKey]);
+        return true;
+      });
+    },
+
+    async listAiArtifactsByFamilyBvid(
+      family: AiArtifactFamily,
+      bvid: string,
+      keyPrefix = ""
+    ): Promise<AiArtifactRecord[]> {
+      return enqueue(async () => {
+        const cleanBvid = String(bvid || "").trim();
+        if (!isAiArtifactFamily(family) || !cleanBvid) {
+          return [];
+        }
+        const prefix = String(keyPrefix || "");
+        const records = await backend.getArtifactsByFamilyBvid(family, cleanBvid);
+        const matched = prefix ? records.filter((rec) => rec.key.startsWith(prefix)) : records;
+        if (matched.length > 0) {
+          await touchArtifactsLastUsed(matched);
+        }
+        return matched.map(cloneValue);
+      });
+    },
+
+    async listAiArtifactsByBvid(bvid: string): Promise<AiArtifactRecord[]> {
+      return enqueue(async () => {
+        const cleanBvid = String(bvid || "").trim();
+        if (!cleanBvid) {
+          return [];
+        }
+        return backend.getArtifactsByBvid(cleanBvid);
+      });
+    },
+
+    async listAllAiArtifacts(): Promise<AiArtifactRecord[]> {
+      return enqueue(() => backend.getAllArtifacts());
+    },
+
+    async clearVideo(bvid: string, cid?: string): Promise<ClearVideoResult> {
+      return enqueue(async () => {
+        const cleanBvid = String(bvid || "").trim();
+        const cleanCid = cid !== undefined && cid !== null ? String(cid).trim() : "";
+        if (!cleanBvid) {
+          return { removedPageIds: [], removedArtifactKeys: [] };
+        }
+
+        const removedPageIds: string[] = [];
+        const removedArtifactKeys: string[] = [];
+
+        if (cleanCid) {
+          const pageId = buildSubtitlePageId(cleanBvid, cleanCid);
+          if (pageId) {
+            const page = await backend.getPage(pageId);
+            if (page) {
+              await backend.deletePages([pageId]);
+              removedPageIds.push(pageId);
+            }
+          }
+          const artifacts = await backend.getArtifactsByBvid(cleanBvid);
+          const matchingKeys = artifacts
+            .filter((art) => art.cid === cleanCid)
+            .map((art) => art.key);
+          if (matchingKeys.length > 0) {
+            await backend.deleteArtifacts(matchingKeys);
+            removedArtifactKeys.push(...matchingKeys);
+          }
+        } else {
+          const pages = await backend.getPagesByBvid(cleanBvid);
+          if (pages.length > 0) {
+            const pageIds = pages.map((page) => page.id);
+            await backend.deletePages(pageIds);
+            removedPageIds.push(...pageIds);
+          }
+          const artifacts = await backend.getArtifactsByBvid(cleanBvid);
+          if (artifacts.length > 0) {
+            const keys = artifacts.map((art) => art.key);
+            await backend.deleteArtifacts(keys);
+            removedArtifactKeys.push(...keys);
+          }
+        }
+
+        return { removedPageIds, removedArtifactKeys };
+      });
+    },
+
     async clearAll() {
       writeInterceptor = null;
       return enqueue(async () => {
-        await backend.clear();
+        await backend.clearAll();
       });
     },
 
@@ -926,4 +1690,4 @@ export function createSubtitleIdbStore(options: SubtitleIdbStoreOptions = {}): S
   };
 }
 
-export const defaultSubtitleIdbStore = createSubtitleIdbStore();
+export const defaultSubtitleIdbStore = createSubtitleIdbStore({ useSharedMemoryBacking: true });

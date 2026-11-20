@@ -532,7 +532,8 @@ describe("裸落盘写点：区由快照键面表决定（落区 + 写后读）"
 
   it("onInstalled 迁移写点：settings 键全落 sync 区（迁移路径不碰 local）", async () => {
     stubStorage({
-      syncFixture: { enablePlayerAiQuickAction: false, searchPresetsAutoActivated: true }
+      syncFixture: { enablePlayerAiQuickAction: false, searchPresetsAutoActivated: true },
+      localFixture: { biliscript_idb_v2_migration_done: { version: 2, completedAt: 1 } }
     });
     const listener = await importBackground();
 

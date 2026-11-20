@@ -40,7 +40,11 @@ describe("分段小结读写 op", () => {
 
     expect(r1).toEqual({ ok: true });
     expect(r2).toEqual({ ok: true });
-    expect(storage.map.get("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({ summary: "单小结1" });
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    expect(await defaultSubtitleIdbStore.getAiArtifact("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({
+      payload: "单小结1"
+    });
+    expect(storage.map.has("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toBe(false);
 
     const single = await request({ type: "segment-cache", op: "load-summary", context: CONTEXT, segmentIndex: 1, budgetScale: 1 });
     expect(single).toEqual({ ok: true, summary: "单小结1" });

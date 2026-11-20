@@ -160,10 +160,12 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
     // 小结调用 5 次 + 成稿 1 次，共 6 次模型调用
     expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    // 仅落盘分段小结（biliscript_lvs_summary_*），不再向 chrome.storage.local 双写 biliscript_lvs_raw_*
+    // 仅落盘分段小结到 IDB ai_artifacts，不再向 chrome.storage.local 写入 biliscript_lvs_raw_* / biliscript_lvs_summary_*
     const storageKeys = [...segmentCacheLoop.storage.map.keys()];
-    expect(storageKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"))).toHaveLength(5);
     expect(storageKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"))).toHaveLength(0);
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const artifacts = await defaultSubtitleIdbStore.listAllAiArtifacts();
+    expect(artifacts.filter((a) => a.family === "biliscript_lvs_summary_")).toHaveLength(5);
   });
 
   it("小结 prompt 忠实压缩且保留时间戳（对齐蓝本 _chunk_prompt 措辞）", async () => {
@@ -413,8 +415,11 @@ describe("缓存写入最终失败的上浮（LRU 淘汰后重试仍失败）", 
   it("存储写持续失败 → 经 port notice 上浮一次，编排不中断、照常成稿回吐", async () => {
     const { fetchMock } = buildSequencedMock();
     vi.stubGlobal("fetch", fetchMock);
-    // 存储写入持续失败（模拟容量不足）：所有 save 都走「淘汰→重试→失败」链
-    vi.mocked(globalThis.chrome.storage.local.set).mockRejectedValue(new Error("quota"));
+    // IDB 写入持续失败（模拟容量不足）
+    const { setSubtitleCacheWriteInterceptorForTests } = await import("../../extension/subtitle/store-client.js");
+    setSubtitleCacheWriteInterceptorForTests(() => {
+      throw new Error("quota");
+    });
     const port = makePort();
 
     const context = makeContext();
@@ -424,6 +429,7 @@ describe("缓存写入最终失败的上浮（LRU 淘汰后重试仍失败）", 
     });
 
     const result = await mod.orchestrateMapReduce({ provider: makeProvider(), context, plan, port });
+    setSubtitleCacheWriteInterceptorForTests(null);
 
     expect(result.aborted).toBe(false);
     expect(result.draft).toBe("# 视频笔记：《测试视频》\n完整笔记正文。");
@@ -654,7 +660,7 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     expect(run1.aborted).toBe(false);
     const scale1Key = sc.buildSegmentSummaryCacheKey(context, firstIndex, 1);
     expect(scale1Key).not.toMatch(/_b\d+$/);
-    expect((storage.map.get(scale1Key) as { summary?: string } | undefined)?.summary).toBe("小结一：事实A。");
+    expect(await sc.loadSegmentSummary(scale1Key)).toBe("小结一：事实A。");
 
     // 第 2 轮：段小结全命中常态档缓存（合法同档复用，不调模型），成稿溢出 →
     // 按 0.5 档整轮重跑（9 段）。重跑段若串档会命中常态档缓存、不调模型。
@@ -682,8 +688,8 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     // 两档 key 并存、内容各自：常态档未被覆写，_b50 档是重跑产物
     const b50Key = sc.buildSegmentSummaryCacheKey(context, firstIndex, 0.5);
     expect(b50Key).toMatch(/_b50$/);
-    expect((storage.map.get(scale1Key) as { summary?: string } | undefined)?.summary).toBe("小结一：事实A。");
-    expect((storage.map.get(b50Key) as { summary?: string } | undefined)?.summary).toBe("收紧档小结1。");
+    expect(await sc.loadSegmentSummary(scale1Key)).toBe("小结一：事实A。");
+    expect(await sc.loadSegmentSummary(b50Key)).toBe("收紧档小结1。");
     // 成稿材料来自收紧档小结（不串常态档内容）
     expect(run2.draft).toBe("# 视频笔记：《测试视频》\n收紧档正文。");
     expect(run2.segmentSummaries).toContain("收紧档小结1。");

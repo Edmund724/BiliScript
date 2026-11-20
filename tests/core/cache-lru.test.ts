@@ -423,7 +423,7 @@ describe("并发写入竞态（11 票回归）：索引分键后并发写互不�
     }
   });
 
-  it("并发 3 段经真实 segment-cache 路径（saveSegmentSummary）：索引无丢键", async () => {
+  it("并发 3 段经真实 segment-cache 路径（saveSegmentSummary）：IDB 无丢键", async () => {
     const seg = await import("../../extension/ai/segment-cache.js");
     await Promise.all(
       [0, 1, 2].map((i) =>
@@ -433,10 +433,14 @@ describe("并发写入竞态（11 票回归）：索引分键后并发写互不�
         )
       )
     );
-    expect(await mod.readFamilyKeys("biliscript_lvs_summary_", "BV1seg")).toHaveLength(3);
+    expect(await seg.loadStoredSegmentSummaries({ bvid: "BV1seg", cid: "1", subtitleId: "s" })).toEqual([
+      "段0",
+      "段1",
+      "段2"
+    ]);
   });
 
-  it("并发跨族写入（raw × summary × subtitle）：各族索引互不干扰", async () => {
+  it("并发跨族写入（raw × summary × subtitle）：各族互不干扰", async () => {
     const seg = await import("../../extension/ai/segment-cache.js");
     await Promise.all([
       mod.writeWithEviction({
@@ -454,7 +458,7 @@ describe("并发写入竞态（11 票回归）：索引分键后并发写互不�
       })
     ]);
     expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1x")).toEqual(["biliscript_lvs_raw_BV1x_1_id_s_0"]);
-    expect(await mod.readFamilyKeys("biliscript_lvs_summary_", "BV1x")).toEqual(["biliscript_lvs_summary_BV1x_1_id_s_0"]);
+    expect(await seg.loadSegmentSummary(seg.getSegmentSummaryKey({ bvid: "BV1x", cid: "1", subtitleId: "s", segmentIndex: 0 }))).toBe("小");
     expect(await mod.readFamilyKeys("biliscript_subtitle_cache_", "BV1x")).toEqual(["biliscript_subtitle_cache_BV1x_1_id_x"]);
   });
 
@@ -862,7 +866,7 @@ describe("一次机制覆盖两族：真实写路径（segment-cache / subtitle 
 
       expect(storage.map.has("biliscript_lvs_raw_BV1s1_1_id_s_1")).toBe(false);
       expect(storage.map.has("biliscript_lvs_raw_BV1s4_1_id_s_1")).toBe(true);
-      expect(storage.map.has(seg.getSegmentSummaryKey({ bvid: "BV1s1", cid: "1", subtitleId: "s", segmentIndex: 1 }))).toBe(true);
+      expect(await seg.loadSegmentSummary(seg.getSegmentSummaryKey({ bvid: "BV1s1", cid: "1", subtitleId: "s", segmentIndex: 1 }))).toBe("小");
     } finally {
       vi.useRealTimers();
     }

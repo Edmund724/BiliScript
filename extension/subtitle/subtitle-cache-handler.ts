@@ -1,9 +1,13 @@
-// 字幕分层 IndexedDB 仓库的 SW 端消息 handler：
+// 字幕与 AI 产物分层 IndexedDB 仓库的 SW 端消息 handler：
 // 页面内容脚本无扩展源 IndexedDB 访问权限（按页面 origin 隔离会无法与 SW/agent-bridge 共享），
-// 故经本消息族在扩展源（Service Worker）读写 `biliscript-subtitle-store`。
+// 故经本消息族在扩展源（Service Worker）读写 `biliscript-subtitle-store`（subtitle_pages + ai_artifacts）。
 
 import { defineStorageMessageFamily } from "../core/storage-message-family.js";
-import { defaultSubtitleIdbStore, type SubtitleIdbStore } from "./idb-store.js";
+import {
+  defaultSubtitleIdbStore,
+  isAiArtifactFamily,
+  type SubtitleIdbStore
+} from "./idb-store.js";
 import type { SubtitleCacheMessage, SubtitleCacheResponse } from "../shared/messaging-protocol.js";
 
 export function createSubtitleCacheHandler(
@@ -118,7 +122,60 @@ export function createSubtitleCacheHandler(
           cid: String(message.cid || ""),
           sourceTrackKey: message.sourceTrackKey
         })
-      })
+      }),
+      "get-ai-artifact": async (message) => ({
+        ok: true,
+        handled: true,
+        artifact: await store.getAiArtifact(String(message.key || ""))
+      }),
+      "get-ai-artifacts": async (message) => ({
+        ok: true,
+        handled: true,
+        artifacts: await store.getAiArtifactsMany(Array.isArray(message.keys) ? message.keys : [])
+      }),
+      "put-ai-artifact": async (message) => {
+        const res = await store.putAiArtifact({
+          key: String(message.key || ""),
+          ...(isAiArtifactFamily(message.family) ? { family: message.family } : {}),
+          ...(message.bvid !== undefined ? { bvid: String(message.bvid) } : {}),
+          ...(message.cid !== undefined ? { cid: String(message.cid) } : {}),
+          payload: message.payload,
+          ...(message.createdAt !== undefined ? { createdAt: message.createdAt } : {}),
+          ...(message.updatedAt !== undefined ? { updatedAt: message.updatedAt } : {}),
+          ...(message.lastUsedAt !== undefined ? { lastUsedAt: message.lastUsedAt } : {})
+        });
+        return res.ok
+          ? { ok: true, handled: true, evictedKeys: res.evictedKeys, estimatedBytes: res.estimatedBytes }
+          : { ok: false, handled: true, error: res.error?.message || "写入 AI 产物缓存失败" };
+      },
+      "delete-ai-artifact": async (message) => ({
+        ok: true,
+        handled: true,
+        deleted: await store.deleteAiArtifact(String(message.key || ""))
+      }),
+      "list-ai-artifacts": async (message) => {
+        if (!isAiArtifactFamily(message.family)) {
+          return { ok: true, handled: true, artifacts: [] };
+        }
+        const artifacts = await store.listAiArtifactsByFamilyBvid(
+          message.family,
+          String(message.bvid || ""),
+          message.keyPrefix ? String(message.keyPrefix) : ""
+        );
+        return { ok: true, handled: true, artifacts };
+      },
+      "clear-video": async (message) => {
+        const res = await store.clearVideo(
+          String(message.bvid || ""),
+          message.cid !== undefined && message.cid !== "" ? String(message.cid) : undefined
+        );
+        return {
+          ok: true,
+          handled: true,
+          removedPageIds: res.removedPageIds,
+          removedArtifactKeys: res.removedArtifactKeys
+        };
+      }
     }
   });
 }

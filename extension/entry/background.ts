@@ -88,6 +88,7 @@ import {
 // 段缓存读写经消息直调 ai/segment-cache 单源——arch-review-2026-09/05）
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
 import { createSubtitleCacheHandler } from "../subtitle/subtitle-cache-handler.js";
+import { migrateLegacyLocalStorageToIdb } from "../subtitle/storage-migration.js";
 // 08 票 SW 保活：Map-Reduce/流式运行期间 offscreen 持长连端口钉住 SW
 // （防 30s 空闲回收反复冷启动），SW 端接受持有即生效
 import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
@@ -625,7 +626,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       await ensureIndexTranslateSessionRule();
     },
     initializeSettingsStorage,
-    autoActivateSearchPresets
+    autoActivateSearchPresets,
+    migrateLegacyStorage: () => migrateLegacyLocalStorageToIdb()
   });
 });
 
@@ -737,11 +739,17 @@ chrome.runtime.onStartup?.addListener(() => {
   void ensureIndexTranslateSessionRule().catch((error) => {
     logWarn("[BILISCRIPT] ensureIndexTranslateSessionRule onStartup failed", error);
   });
+  void migrateLegacyLocalStorageToIdb().catch((error) => {
+    logWarn("[BILISCRIPT] legacy storage migration onStartup failed", error);
+  });
 });
 chrome.alarms?.onAlarm.addListener((alarm) => {
   if (alarm.name === AGENT_BRIDGE_ALARM) void agentBridge.sync();
 });
 void agentBridge.sync();
+void migrateLegacyLocalStorageToIdb().catch((error) => {
+  logWarn("[BILISCRIPT] legacy storage migration on cold start failed", error);
+});
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
 // 用户开的调试日志在 SW 静默）。

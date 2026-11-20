@@ -34,8 +34,11 @@ describe("分段小结落盘读写（命中/未命中）", () => {
 
     await mod.saveSegmentSummary(key, "小结一：事实A。");
     expect(await mod.loadSegmentSummary(key)).toBe("小结一：事实A。");
-    expect(storage.map.get(key)).toMatchObject({ summary: "小结一：事实A。" });
-    expect((storage.map.get(key) as CacheEntry).timestamp).toEqual(expect.any(Number));
+    const { defaultSubtitleIdbStore } = await import("../../extension/subtitle/idb-store.js");
+    const stored = await defaultSubtitleIdbStore.getAiArtifact<string>(key);
+    expect(stored).toMatchObject({ key, family: "biliscript_lvs_summary_", bvid: "BV1a", cid: "1", payload: "小结一：事实A。" });
+    expect(stored?.updatedAt).toEqual(expect.any(Number));
+    expect(storage.map.has(key)).toBe(false);
   });
 
   it("存储的是传入的 summary 原值（含空串，空串命中 ≠ 未命中）", async () => {
@@ -73,11 +76,14 @@ describe("loadStoredSegmentSummaries：直接枚举分段小结", () => {
     expect(storage.local.getKeys).toHaveBeenCalled();
     expect(storage.local.get).toHaveBeenCalledWith([key]);
     expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
+    // 懒迁移成功后旧键应已清理
+    expect(storage.map.has(key)).toBe(false);
 
     expect(await mod.loadStoredSegmentSummaries({ bvid: "", cid: "1" })).toEqual([]);
 
+    // 未迁入视频在 storage.local.getKeys 抛错时仍安全返回 []
     storage.local.getKeys.mockRejectedValue(new Error("boom"));
-    expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual([]);
+    expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1unmigrated", cid: "1", subtitleId: "sub-1" })).toEqual([]);
   });
 
   it("极老运行环境不支持 getKeys() 时平滑回退 get(null) 前缀扫描", async () => {
@@ -228,10 +234,17 @@ describe("容错：读写失败不抛异常", () => {
     await expect(mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结")).resolves.toMatchObject({ ok: true });
   });
 
-  it("save 持续失败（淘汰后重试仍失败）返回 { ok:false, error } 且不抛异常", async () => {
-    storage.local.set.mockRejectedValue(new Error("quota"));
-    const summaryResult = await mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结");
-    expect(summaryResult).toMatchObject({ ok: false, error: expect.any(Error) });
+  it("save 持续失败返回 { ok:false, error } 且不抛异常", async () => {
+    const { setSubtitleCacheWriteInterceptorForTests } = await import("../../extension/subtitle/store-client.js");
+    setSubtitleCacheWriteInterceptorForTests(() => {
+      throw new Error("quota");
+    });
+    try {
+      const summaryResult = await mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结");
+      expect(summaryResult).toMatchObject({ ok: false, error: expect.any(Error) });
+    } finally {
+      setSubtitleCacheWriteInterceptorForTests(null);
+    }
   });
 });
 

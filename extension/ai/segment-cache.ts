@@ -1,17 +1,17 @@
-// 「段缓存」模块：分段小结按 (bvid, cid, 字幕轨 source key, 段序号) 落盘 chrome.storage.local，
+// 「段缓存」模块：分段小结按 (bvid, cid, 字幕轨 source key, 段序号) 落盘扩展源 IndexedDB `ai_artifacts`，
 // 二次总结/追问按需命中复用，中止/失败后已落盘的段小结下次复用、不重复付费；
 // 同时提供 SW 宿主存储中的 L1 章节目录索引读取。
-// 容错语义：读取失败静默返回 null / []；写入经 core/cache-lru.ts 的统一 LRU 淘汰
-// （分段小结保留最近 20 个视频），淘汰后重试仍失败时 logError 并返回 { ok:false }
-// 供调用方按各自通道上浮一次；全程不抛异常。
+// 容错语义：读取失败静默返回 null / []；IDB 未命中时按精确键或 getKeys() 前缀检查旧 `chrome.storage.local`
+// 并执行「先写后删」懒迁移（写入失败保留旧键并优雅返回旧数据）；分族保留上限（分段小结 20 视频 / L1 索引 100 视频）
+// 由 `subtitle/idb-store.ts` 统一按 `lastUsedAt` 做 LRU 淘汰。
 
 import { logError } from "../shared/logging.js";
 // 三字段 → source key 的便捷形（位置参数签名与 core/cache-lru 的注入面同一份）：
 // 身份编码单点在键位叶 subtitle/source-key，本模块不再经存储族模块取它。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { createCacheFamily, getStorageItemsByPrefix, readFamilyKeys } from "../core/cache-lru.js";
+import { createAiArtifactFamily } from "../subtitle/ai-artifact-cache.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
-import { L1_INDEX_CACHE_PREFIX, unwrapL1IndexEnvelope } from "./l1-directory.js";
+import { L1_INDEX_CACHE_PREFIX, isL1VideoIndexCacheRecord } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶：SW 侧装配 / offscreen
 // 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
@@ -20,11 +20,21 @@ import { segmentCacheKeyFields, segmentCacheKeyStringFields } from "./segment-ca
 // 分段小结缓存键前缀。
 const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
 
-const summaryFamily = createCacheFamily<string>({
-  prefix: SEGMENT_SUMMARY_PREFIX,
+const summaryFamily = createAiArtifactFamily<string>({
+  family: SEGMENT_SUMMARY_PREFIX,
   payloadField: "summary",
   toSourceKey: buildSubtitleSourceKey,
-  logFailure: (info) => logError("[BILISCRIPT] failed to save segment summary cache after eviction", info)
+  validate: (value) => typeof value === "string",
+  logFailure: (info) => logError("[BILISCRIPT] failed to save segment summary cache after eviction", info),
+  directStore: true
+});
+
+const l1IndexReaderFamily = createAiArtifactFamily<L1VideoIndexCacheRecord>({
+  family: L1_INDEX_CACHE_PREFIX,
+  payloadField: "index",
+  toSourceKey: buildSubtitleSourceKey,
+  validate: isL1VideoIndexCacheRecord,
+  directStore: true
 });
 
 interface SegmentKeyOptions {
@@ -71,16 +81,16 @@ export function buildSegmentSummaryCacheKey(context: Record<string, unknown> | u
 }
 
 /**
- * 读取已落盘的分段小结：命中返回 item.summary（string），未命中/读失败返回 null。
+ * 读取已落盘的分段小结：优先读 IDB `ai_artifacts`，未命中时懒迁移旧 `chrome.storage.local`；
+ * 命中返回 summary（string），未命中/读失败返回 null。
  */
 export async function loadSegmentSummary(key: string): Promise<string | null> {
   return summaryFamily.load(key);
 }
 
 /**
- * 批量读取分段小结：一次 storage.get 取 N 键，返回与 keys 按序对齐的
- * 数组（未命中/读失败为 null）。读口径出自 createCacheFamily.loadMany 单源，
- * 容错语义同 loadSegmentSummary（静默、不抛）。
+ * 批量读取分段小结：单趟 IDB 批量读 + 未命中键懒迁移，返回与 keys 按序对齐的
+ * 数组（未命中/读失败为 null），静默不抛。
  */
 export async function loadSegmentSummariesByKeys(keys: string[]): Promise<(string | null)[]> {
   return summaryFamily.loadMany(keys);
@@ -89,9 +99,8 @@ export async function loadSegmentSummariesByKeys(keys: string[]): Promise<(strin
 type SaveResult = EvictionResult | EvictionFailure;
 
 /**
- * 保存分段小结：落盘 { summary, timestamp }。写入走统一 LRU 淘汰
- * （写失败先淘汰旧视频再重试一次）；最终失败 logError、不抛异常，
- * 返回 { ok:false, error } 供调用方上浮，成功返回 { ok:true }。
+ * 保存分段小结：写入 IDB `ai_artifacts`（`biliscript_lvs_summary_` 族，保留最近 20 个视频）。
+ * 最终失败 logError、不抛异常，返回 { ok:false, error } 供调用方上浮，成功返回 { ok:true }。
  */
 export async function saveSegmentSummary(key: string, summary: string): Promise<SaveResult> {
   return summaryFamily.save(key, summary);
@@ -133,9 +142,8 @@ interface LoadStoredSegmentSummariesInput {
 /**
  * 直接按 (bvid, cid, 字幕轨 source key[, budgetScale]) 枚举已落盘的分段小结，
  * 按段序号升序返回非空小结数组（常态档排除 `_b\d+` 后缀）。
- * 枚举优先走 core/cache-lru 的 readFamilyKeys + 定点 get；索引缺失时走
- * getStorageItemsByPrefix（优先 getKeys() + 定点 get，旧环境回退 get(null)）；
- * 缺参 / 无命中 / 读失败 → []。
+ * 优先查询 IDB `ai_artifacts`（索引 `by_family_bvid`），同时通过 `getKeys()` 前缀
+ * 懒迁移旧 `chrome.storage.local` 遗留条目；缺参 / 无命中 / 读失败 → []。
  */
 export async function loadStoredSegmentSummaries({
   bvid,
@@ -146,31 +154,25 @@ export async function loadStoredSegmentSummaries({
   budgetScale = 1
 }: LoadStoredSegmentSummariesInput = {}): Promise<string[]> {
   try {
-    if (!bvid || !cid || !globalThis.chrome?.storage?.local) {
+    if (!bvid || !cid) {
       return [];
     }
     const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
     const keyPrefix = `${SEGMENT_SUMMARY_PREFIX}${bvid}_${cid}_${sourceKey}_`;
     const scaleSuffix = budgetScaleSuffix(budgetScale);
-    const indexKeys = await readFamilyKeys(SEGMENT_SUMMARY_PREFIX, bvid, keyPrefix);
-    const all = indexKeys
-      ? indexKeys.length > 0
-        ? await chrome.storage.local.get(indexKeys)
-        : {}
-      : await getStorageItemsByPrefix(keyPrefix);
+    const items = await summaryFamily.loadByPrefix(bvid, keyPrefix);
 
     const entries: Array<{ index: number; summary: string }> = [];
-    for (const [key, envelope] of Object.entries(all || {})) {
-      if (!key.startsWith(keyPrefix)) {
+    for (const item of items) {
+      if (!item.key.startsWith(keyPrefix)) {
         continue;
       }
-      const segmentIndex = parseSummarySegmentIndex(key, keyPrefix, scaleSuffix);
+      const segmentIndex = parseSummarySegmentIndex(item.key, keyPrefix, scaleSuffix);
       if (segmentIndex === null) {
         continue;
       }
-      const summary = (envelope as { summary?: unknown } | undefined)?.summary;
-      if (typeof summary === "string" && summary.trim().length > 0) {
-        entries.push({ index: segmentIndex, summary });
+      if (typeof item.payload === "string" && item.payload.trim().length > 0) {
+        entries.push({ index: segmentIndex, summary: item.payload });
       }
     }
     entries.sort((a, b) => a.index - b.index);
@@ -189,29 +191,24 @@ interface LoadStoredL1IndexInput {
 }
 
 /**
- * 读取 SW 宿主存储中的 L1 章节目录索引：按 (bvid, cid, 字幕轨 source key) 枚举并校验，
- * 返回最新一条有效记录；缺参 / 未命中 / 读失败 → null（绝不抛错）。
+ * 读取 SW 宿主存储中的 L1 章节目录索引：按 (bvid, cid, 字幕轨 source key) 优先查 IDB `ai_artifacts`
+ * 并懒迁移旧 `chrome.storage.local` 条目，返回最新一条有效记录；缺参 / 未命中 / 读失败 → null（绝不抛错）。
  */
 export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredL1IndexInput = {}): Promise<L1VideoIndexCacheRecord | null> {
   try {
-    if (!bvid || !cid || !globalThis.chrome?.storage?.local) {
+    if (!bvid || !cid) {
       return null;
     }
     const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
     const keyPrefix = `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_`;
-    const indexKeys = await readFamilyKeys(L1_INDEX_CACHE_PREFIX, bvid, keyPrefix);
-    const all = indexKeys
-      ? indexKeys.length > 0
-        ? await chrome.storage.local.get(indexKeys)
-        : {}
-      : await getStorageItemsByPrefix(keyPrefix);
+    const items = await l1IndexReaderFamily.loadByPrefix(bvid, keyPrefix);
     let best: L1VideoIndexCacheRecord | null = null;
-    for (const [key, envelope] of Object.entries(all || {})) {
-      if (!key.startsWith(keyPrefix)) {
+    for (const item of items) {
+      if (!item.key.startsWith(keyPrefix)) {
         continue;
       }
-      const candidate = unwrapL1IndexEnvelope(envelope);
-      if (!candidate) {
+      const candidate = item.payload;
+      if (!isL1VideoIndexCacheRecord(candidate)) {
         continue;
       }
       if (!best || (candidate.updatedAt || 0) >= (best.updatedAt || 0)) {

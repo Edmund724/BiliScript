@@ -8,7 +8,7 @@ import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { normalizeSubtitleItems } from "../subtitle/signature.js";
 import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
-import { createCacheFamily } from "../core/cache-lru.js";
+import { createAiArtifactFamily } from "../subtitle/ai-artifact-cache.js";
 // 概览请求的传输层（overview-offscreen-transport）：content 直发服从网页 CORS，
 // 平台网关的预检白名单不含 Anthropic 的 x-api-key / anthropic-version（实测
 // ModelScope），故概览的每一次调用都经 offscreen 代发（长请求宿主，见模块头注）。
@@ -75,7 +75,7 @@ import type { ThinkingLevelInput } from "./thinking-levels.js";
 const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
 
 // ============================================================
-// 缓存（chrome.storage.local + 统一 LRU 淘汰；读取失败静默返回 null）
+// 缓存（扩展源 IndexedDB `ai_artifacts` + SW RPC + 懒迁移；读取失败静默返回 null）
 // ============================================================
 
 interface RelaySegmentCacheEntry extends OverviewAnalysis {
@@ -98,8 +98,8 @@ function isRelaySegmentCacheEntry(value: unknown): value is RelaySegmentCacheEnt
   );
 }
 
-const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
-  prefix: ANALYSIS_SEGMENT_PREFIX,
+const analysisSegmentFamily = createAiArtifactFamily<OverviewAnalysis>({
+  family: ANALYSIS_SEGMENT_PREFIX,
   payloadField: "analysis",
   toSourceKey: buildSubtitleSourceKey,
   validate: isOverviewShape,

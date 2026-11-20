@@ -23,7 +23,12 @@ import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
 import type { L1VideoIndexCacheRecord } from "../ai/long-video-hybrid-types.js";
-import type { SubtitlePageRecord, SubtitleTrackStorageKind } from "../subtitle/idb-store.js";
+import type {
+  AiArtifactFamily,
+  AiArtifactRecord,
+  SubtitlePageRecord,
+  SubtitleTrackStorageKind
+} from "../subtitle/idb-store.js";
 import type { AgentBridgeContentSubtitlesResult, AgentBridgeFramesResult, AgentBridgeTabSnapshot } from "../agent-bridge/protocol.js";
 
 // ===== content script 处理的 runtime 消息 =====
@@ -334,7 +339,7 @@ export type SegmentCacheResponse = {
   error?: string;
 };
 
-// ===== 字幕分层 IndexedDB 仓库消息族 =====
+// ===== 字幕与 AI 产物分层 IndexedDB 仓库消息族 =====
 export type SubtitleTimeRange = { from: number; to: number };
 export type SubtitleCacheTier = "rawTracks" | "segmentedTracks" | "translatedTracks";
 export type SubtitleCacheOp =
@@ -347,7 +352,13 @@ export type SubtitleCacheOp =
   | "upsert-translated"
   | "delete-entry"
   | "prune-asr"
-  | "clear-translated";
+  | "clear-translated"
+  | "get-ai-artifact"
+  | "get-ai-artifacts"
+  | "put-ai-artifact"
+  | "delete-ai-artifact"
+  | "list-ai-artifacts"
+  | "clear-video";
 
 export type SubtitleCacheMessage = {
   type: "subtitle-cache";
@@ -365,6 +376,13 @@ export type SubtitleCacheMessage = {
   mode?: "boundary-v3" | "cc-json";
   tier?: SubtitleCacheTier;
   key?: string;
+  keys?: string[];
+  family?: AiArtifactFamily;
+  keyPrefix?: string;
+  payload?: unknown;
+  createdAt?: number;
+  updatedAt?: number;
+  lastUsedAt?: number;
   items?: SubtitleBodyItem[];
   replaceRange?: SubtitleTimeRange;
 };
@@ -374,8 +392,14 @@ export type SubtitleCacheResponse = {
   handled?: boolean;
   page?: SubtitlePageRecord | null;
   items?: SubtitleBodyItem[] | null;
+  artifact?: AiArtifactRecord | null;
+  artifacts?: Array<AiArtifactRecord | null>;
+  deleted?: boolean;
   removedKeys?: string[];
   evictedIds?: string[];
+  evictedKeys?: string[];
+  removedPageIds?: string[];
+  removedArtifactKeys?: string[];
   estimatedBytes?: number;
   error?: string;
 };
