@@ -60,17 +60,59 @@ describe("loadStoredSegmentSummaries：直接枚举分段小结", () => {
     expect(halfScale).toEqual(["半档第1段"]);
   });
 
-  it("索引缺失时回退 get(null) 前缀扫描，缺参或读失败返回 []", async () => {
+  it("索引缺失时优先走 getKeys() + 定点 get(matchedKeys) 不触发 get(null)，缺参或读失败返回 []", async () => {
     const key = mod.getSegmentSummaryKey({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1", segmentIndex: 1 });
-    await storage.local.set({ [key]: { summary: "扫描小结", timestamp: 1 } });
+    await storage.local.set({
+      [key]: { summary: "扫描小结", timestamp: 1 },
+      unrelated_big_key: { data: "ignored" }
+    });
+    storage.local.get.mockClear();
+    storage.local.getKeys.mockClear();
 
     expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual(["扫描小结"]);
-    expect(storage.local.get).toHaveBeenCalledWith(null);
+    expect(storage.local.getKeys).toHaveBeenCalled();
+    expect(storage.local.get).toHaveBeenCalledWith([key]);
+    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
 
     expect(await mod.loadStoredSegmentSummaries({ bvid: "", cid: "1" })).toEqual([]);
 
-    storage.local.get.mockRejectedValue(new Error("boom"));
+    storage.local.getKeys.mockRejectedValue(new Error("boom"));
     expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1scan", cid: "1", subtitleId: "sub-1" })).toEqual([]);
+  });
+
+  it("极老运行环境不支持 getKeys() 时平滑回退 get(null) 前缀扫描", async () => {
+    const key = mod.getSegmentSummaryKey({ bvid: "BV1legacy", cid: "1", subtitleId: "sub-1", segmentIndex: 1 });
+    await storage.local.set({ [key]: { summary: "旧环境扫描小结", timestamp: 1 } });
+    (storage.local as unknown as { getKeys?: unknown }).getKeys = undefined;
+    storage.local.get.mockClear();
+
+    expect(await mod.loadStoredSegmentSummaries({ bvid: "BV1legacy", cid: "1", subtitleId: "sub-1" })).toEqual(["旧环境扫描小结"]);
+    expect(storage.local.get).toHaveBeenCalledWith(null);
+  });
+
+  it("loadStoredL1Index：常规与无索引路径均优先走 getKeys() + 定点 get，不触发 get(null)", async () => {
+    const l1Key = `biliscript_lvs_l1_index_BV1l1_9_${buildSubtitleSourceKey("sub-1", "", "")}_sig1`;
+    const record = {
+      schemaVersion: 1,
+      bvid: "BV1l1",
+      cid: "9",
+      sourceKey: buildSubtitleSourceKey("sub-1", "", ""),
+      subtitleSignature: "sig1",
+      updatedAt: 12345,
+      lineCount: 1,
+      globalSummary: "摘要",
+      chapters: [],
+      quotes: []
+    };
+    await storage.local.set({ [l1Key]: { index: record, timestamp: 12345 } });
+    storage.local.get.mockClear();
+    storage.local.getKeys.mockClear();
+
+    const loaded = await mod.loadStoredL1Index({ bvid: "BV1l1", cid: "9", subtitleId: "sub-1" });
+    expect(loaded).toEqual(record);
+    expect(storage.local.getKeys).toHaveBeenCalled();
+    expect(storage.local.get).toHaveBeenCalledWith([l1Key]);
+    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
   });
 });
 

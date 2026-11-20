@@ -9,7 +9,7 @@ import { logError } from "../shared/logging.js";
 // 三字段 → source key 的便捷形（位置参数签名与 core/cache-lru 的注入面同一份）：
 // 身份编码单点在键位叶 subtitle/source-key，本模块不再经存储族模块取它。
 import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
-import { createCacheFamily, readFamilyKeys } from "../core/cache-lru.js";
+import { createCacheFamily, getStorageItemsByPrefix, readFamilyKeys } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 import { L1_INDEX_CACHE_PREFIX, unwrapL1IndexEnvelope } from "./l1-directory.js";
 import type { L1VideoIndexCacheRecord } from "./long-video-hybrid-types.js";
@@ -133,7 +133,9 @@ interface LoadStoredSegmentSummariesInput {
 /**
  * 直接按 (bvid, cid, 字幕轨 source key[, budgetScale]) 枚举已落盘的分段小结，
  * 按段序号升序返回非空小结数组（常态档排除 `_b\d+` 后缀）。
- * 枚举走 core/cache-lru 的 readFamilyKeys + get(null) 回退扫描；缺参 / 无命中 / 读失败 → []。
+ * 枚举优先走 core/cache-lru 的 readFamilyKeys + 定点 get；索引缺失时走
+ * getStorageItemsByPrefix（优先 getKeys() + 定点 get，旧环境回退 get(null)）；
+ * 缺参 / 无命中 / 读失败 → []。
  */
 export async function loadStoredSegmentSummaries({
   bvid,
@@ -152,8 +154,10 @@ export async function loadStoredSegmentSummaries({
     const scaleSuffix = budgetScaleSuffix(budgetScale);
     const indexKeys = await readFamilyKeys(SEGMENT_SUMMARY_PREFIX, bvid, keyPrefix);
     const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
+      ? indexKeys.length > 0
+        ? await chrome.storage.local.get(indexKeys)
+        : {}
+      : await getStorageItemsByPrefix(keyPrefix);
 
     const entries: Array<{ index: number; summary: string }> = [];
     for (const [key, envelope] of Object.entries(all || {})) {
@@ -197,8 +201,10 @@ export async function loadStoredL1Index({ bvid, cid, subtitleId = "", subtitleUr
     const keyPrefix = `${L1_INDEX_CACHE_PREFIX}${bvid}_${cid}_${sourceKey}_`;
     const indexKeys = await readFamilyKeys(L1_INDEX_CACHE_PREFIX, bvid, keyPrefix);
     const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
+      ? indexKeys.length > 0
+        ? await chrome.storage.local.get(indexKeys)
+        : {}
+      : await getStorageItemsByPrefix(keyPrefix);
     let best: L1VideoIndexCacheRecord | null = null;
     for (const [key, envelope] of Object.entries(all || {})) {
       if (!key.startsWith(keyPrefix)) {

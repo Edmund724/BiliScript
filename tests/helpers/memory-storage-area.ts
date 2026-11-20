@@ -13,9 +13,10 @@ import { vi, type Mock } from "vitest";
 /** 落盘值形状：缓存族写 { body, timestamp }；LRU 索引/清单键写各自的元数据。 */
 export type CacheEntry = { body?: unknown; timestamp?: number };
 
-/** 内存 storage 面的三方法契约（读三形状 + set/remove 写）。 */
+/** 内存 storage 面的方法契约（读三形状 + getKeys + set/remove 写）。 */
 export interface ChromeHostStorageArea {
   get: Mock<(keys?: string | string[] | null) => Promise<Record<string, unknown>>>;
+  getKeys: Mock<() => Promise<string[]>>;
   set: Mock<(items: Record<string, unknown>) => Promise<void>>;
   remove: Mock<(keys: string | string[]) => Promise<void>>;
 }
@@ -26,7 +27,7 @@ export type MemoryAreaHooks = {
 };
 
 /**
- * 一个内存 storage 面：兑现三形状读（含 get(null) 全量快照）与 set/remove 写入语义。
+ * 一个内存 storage 面：兑现三形状读（含 get(null) 全量快照）、getKeys 键名枚举与 set/remove 写入语义。
  */
 export function createMemoryStorageArea(
   map: Map<string, unknown> = new Map(),
@@ -46,6 +47,7 @@ export function createMemoryStorageArea(
       }
       return out;
     }),
+    getKeys: vi.fn(async () => Array.from(map.keys())),
     set: vi.fn(async (items: Record<string, unknown>) => {
       hooks.beforeSet?.();
       for (const [key, value] of Object.entries(items ?? {})) {

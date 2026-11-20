@@ -75,17 +75,16 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     expect(await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey })).toEqual([]);
     expect(await cache.clearStaleAsrSubtitleCache({ bvid: "", cid: "", keepKey })).toEqual([]);
 
-    storage.local.get.mockRejectedValue(new Error("boom"));
+    storage.local.getKeys.mockRejectedValue(new Error("boom"));
     await expect(cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey })).resolves.toEqual([]);
     expect(storage.map.has(keepKey)).toBe(true);
   });
 
-  it("索引含该 bvid 条目 → 定点批量枚举出过期变体（11 票分键布局：索引枚举走全量快照）", async () => {
+  it("遗留键清理优先走 getKeys() 仅枚举键名后直接 remove，绝不触发 get(null) 或反序列化数据", async () => {
     const keepKey = cacheKey("BV1o", "7", asrIdentity("new", "gpt", "auto"));
     const staleAsr = cacheKey("BV1o", "7", asrIdentity("old", "gpt", "auto"));
     storage.seedCacheEntry(keepKey, BODY, 2);
     storage.seedCacheEntry(staleAsr, BODY, 1);
-    // 预置分键索引记录两键（键经生产装配点，宿主 seedIndexEntry）
     for (const key of [keepKey, staleAsr]) {
       storage.seedIndexEntry("biliscript_subtitle_cache_", "BV1o", key, 10);
     }
@@ -95,7 +94,21 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     expect(removed).toEqual([staleAsr]);
     expect(storage.map.has(staleAsr)).toBe(false);
     expect(storage.map.has(keepKey)).toBe(true);
-    // 索引枚举本身是一次 get(null) 快照过滤（11 票分键布局），其后数据读取为定点批量 get
+    expect(storage.local.getKeys).toHaveBeenCalledTimes(1);
+    expect(storage.local.get).not.toHaveBeenCalled();
+  });
+
+  it("不支持 getKeys() 的旧环境平滑回退 get(null) 清理遗留 ASR 键", async () => {
+    const keepKey = cacheKey("BV1o", "7", asrIdentity("new", "gpt", "auto"));
+    const staleAsr = cacheKey("BV1o", "7", asrIdentity("old", "gpt", "auto"));
+    storage.seedCacheEntry(keepKey, BODY, 2);
+    storage.seedCacheEntry(staleAsr, BODY, 1);
+    (storage.local as unknown as { getKeys?: unknown }).getKeys = undefined;
+
+    const removed = await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey });
+
+    expect(removed).toEqual([staleAsr]);
+    expect(storage.map.has(staleAsr)).toBe(false);
     expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
   });
 });

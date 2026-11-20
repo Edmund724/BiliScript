@@ -116,8 +116,10 @@ describe("索引记录（分键索引 + 汇总清单）", () => {
     expect(await mod.readFamilyKeys("biliscript_subtitle_cache_", "BV1a")).toEqual(["biliscript_subtitle_cache_BV1a_1_id_x"]);
 
     // 读失败 → 回退 null（索引是启发式元数据，允许丢）
-    storage.local.get.mockRejectedValueOnce(new Error("boom"));
+    storage.local.getKeys.mockRejectedValueOnce(new Error("boom"));
     await expect(mod.readFamilyKeys("biliscript_lvs_raw_", "BV1a")).resolves.toBeNull();
+    // 常规读取路径绝不触发 storage.local.get(null)
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(0);
   });
 
   it("parseBvidFromCacheKey：取 family 前缀后第一段（BV 号不含下划线）", () => {
@@ -223,7 +225,7 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
     expect(storage.map.has("biliscript_lvs_raw_BV1a_1_a_1")).toBe(true);
 
     // 枚举失败 → 静默返回 {}
-    storage.local.get.mockRejectedValue(new Error("boom"));
+    storage.local.getKeys.mockRejectedValue(new Error("boom"));
     await expect(mod.pruneToRecentVideos(["biliscript_lvs_raw_"])).resolves.toEqual({});
   });
 });
@@ -240,8 +242,8 @@ async function seedNewFormatIndex(family: string, entries: [string, number, stri
   }
 }
 
-describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键布局）", () => {
-  it("索引健康时淘汰恰做一次全量快照，结果与扫描路径等价", async () => {
+describe("索引驱动淘汰：优先 getKeys() 零全库反序列化，旧环境回退 get(null)", () => {
+  it("索引健康时淘汰走 getKeys() + 定点拉取元数据，绝不触发 get(null) 且不读取数据键", async () => {
     await seedNewFormatIndex("biliscript_lvs_raw_", [
       ["BV1old", 10, ["biliscript_lvs_raw_BV1old_1_a_1", "biliscript_lvs_raw_BV1old_1_b_2"]],
       ["BV1a", 100, ["biliscript_lvs_raw_BV1a_1_a_1"]],
@@ -250,10 +252,13 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
     ]);
 
     const removed = await mod.pruneToRecentVideos(["biliscript_lvs_raw_"]);
-    // 分键布局：prune 单次快照枚举（读端 readFamilyKeys 亦走同一快照机制，
-    // 全程恰一次 get(null)，无第二次全量枚举）
-    const nullScans = storage.local.get.mock.calls.filter(([keys]) => keys === null);
-    expect(nullScans).toHaveLength(1);
+    // 常规淘汰路径使用 getKeys()，不触发 get(null)，且仅向 get 传递元数据键
+    expect(storage.local.getKeys).toHaveBeenCalledTimes(1);
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(0);
+    const requestedKeys = storage.local.get.mock.calls.flatMap(([keys]) =>
+      Array.isArray(keys) ? keys : typeof keys === "string" ? [keys] : []
+    );
+    expect(requestedKeys.some((key) => key.startsWith("biliscript_lvs_raw_"))).toBe(false);
     expect(removed.biliscript_lvs_raw_).toEqual(
       expect.arrayContaining(["biliscript_lvs_raw_BV1old_1_a_1", "biliscript_lvs_raw_BV1old_1_b_2"])
     );
@@ -262,9 +267,10 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
     // 索引同步收缩：被淘汰 bvid 整条移除
     expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1a")).toEqual(["biliscript_lvs_raw_BV1a_1_a_1"]);
     expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1old")).toBeNull();
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(0);
   });
 
-  it("writeWithEviction 传 keys：越界写入触发一次 prune（单快照），淘汰最旧视频", async () => {
+  it("writeWithEviction 传 keys：越界写入触发一次 prune（走 getKeys），淘汰最旧视频且不触发 get(null)", async () => {
     // 三族索引均健康（有条目），写路径清单显示 raw 族已越界 → 触发一次淘汰
     await seedNewFormatIndex("biliscript_lvs_raw_", [
       ["BV1old", 10, ["biliscript_lvs_raw_BV1old_1_a_1"]],
@@ -283,8 +289,8 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
     });
 
     expect(result).toEqual({ ok: true });
-    // 越界写入触发一次 prune：恰一次全量快照（清单读不算）
-    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
+    expect(storage.local.getKeys).toHaveBeenCalledTimes(1);
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(0);
     expect(storage.map.has("biliscript_lvs_raw_BV1old_1_a_1")).toBe(false); // 最旧被淘汰
     expect(storage.map.has("biliscript_lvs_raw_BV1a_1_a_1")).toBe(false); // 次旧同样超出 keep=3
     expect(storage.map.has("biliscript_lvs_raw_BV1new_1_a_1")).toBe(true);
@@ -293,7 +299,7 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
     expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1new")).toEqual(["biliscript_lvs_raw_BV1new_1_a_1"]);
   });
 
-  it("索引条目缺 keys（旧格式/混合状态）→ 该族回退 get(null) 前缀扫描", async () => {
+  it("索引条目缺 keys（旧格式/混合状态）→ 经 getKeys() 扫描数据键名淘汰且不触发 get(null)", async () => {
     // 旧格式索引（数值 ts，无 keys）
     storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 10);
     storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 100);
@@ -307,9 +313,59 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
     });
 
     const removed = await mod.pruneToRecentVideos(["biliscript_lvs_raw_"]);
-    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(true);
+    expect(storage.local.getKeys).toHaveBeenCalledTimes(1);
+    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
+    expect(removed.biliscript_lvs_raw_).toEqual(["biliscript_lvs_raw_BV1old_1_a_1"]);
     expect(storage.map.has("biliscript_lvs_raw_BV1old_1_a_1")).toBe(false);
     expect(storage.map.has("biliscript_lvs_raw_BV1c_1_a_1")).toBe(true);
+  });
+
+  it("不支持 getKeys() 的极老运行环境（Chrome 120–129）→ 平滑回退单次 get(null) 完成枚举与淘汰", async () => {
+    // 模拟不支持 StorageArea.getKeys 的旧环境
+    (storage.local as unknown as { getKeys?: unknown }).getKeys = undefined;
+
+    await seedNewFormatIndex("biliscript_lvs_raw_", [
+      ["BV1old", 10, ["biliscript_lvs_raw_BV1old_1_a_1"]],
+      ["BV1a", 100, ["biliscript_lvs_raw_BV1a_1_a_1"]],
+      ["BV1b", 200, ["biliscript_lvs_raw_BV1b_1_a_1"]],
+      ["BV1c", 300, ["biliscript_lvs_raw_BV1c_1_a_1"]]
+    ]);
+
+    const removed = await mod.pruneToRecentVideos(["biliscript_lvs_raw_"]);
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
+    expect(removed.biliscript_lvs_raw_).toEqual(["biliscript_lvs_raw_BV1old_1_a_1"]);
+    expect(storage.map.has("biliscript_lvs_raw_BV1old_1_a_1")).toBe(false);
+
+    // readFamilyKeys 与 getStorageItemsByPrefix 同样在旧环境平滑回退 get(null)
+    storage.local.get.mockClear();
+    expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1a")).toEqual(["biliscript_lvs_raw_BV1a_1_a_1"]);
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
+
+    storage.local.get.mockClear();
+    const items = await mod.getStorageItemsByPrefix("biliscript_lvs_raw_BV1b_");
+    expect(Object.keys(items)).toEqual(["biliscript_lvs_raw_BV1b_1_a_1"]);
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
+  });
+
+  it("getStorageItemsByPrefix：支持 getKeys() 时仅按命中键定点 get，无命中直接返回 {} 不发 get", async () => {
+    await storage.local.set({
+      biliscript_lvs_summary_BV1a_1_id_1_0: { summary: "s0", timestamp: 1 },
+      biliscript_lvs_summary_BV1b_1_id_1_0: { summary: "other", timestamp: 2 },
+      unrelated_large_payload: { big: "x".repeat(1024) }
+    });
+    storage.local.get.mockClear();
+    storage.local.getKeys.mockClear();
+
+    const matched = await mod.getStorageItemsByPrefix("biliscript_lvs_summary_BV1a_");
+    expect(Object.keys(matched)).toEqual(["biliscript_lvs_summary_BV1a_1_id_1_0"]);
+    expect(storage.local.getKeys).toHaveBeenCalledTimes(1);
+    expect(storage.local.get).toHaveBeenCalledWith(["biliscript_lvs_summary_BV1a_1_id_1_0"]);
+    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
+
+    storage.local.get.mockClear();
+    const empty = await mod.getStorageItemsByPrefix("biliscript_lvs_summary_BV1missing_");
+    expect(empty).toEqual({});
+    expect(storage.local.get).not.toHaveBeenCalled();
   });
 
   it("索引 keys 指向已删键的幽灵条目：keep 内无害保留，keep 外被垃圾回收出索引（自愈）", async () => {

@@ -7,7 +7,7 @@ import {
 } from "../core/state.js";
 import {
   CacheWriteError,
-  readFamilyKeys,
+  listStorageKeysByPrefix,
   type EvictionResult,
   type EvictionFailure
 } from "../core/cache-lru.js";
@@ -1079,7 +1079,6 @@ export async function saveSubtitleToCache(cacheKey: string, body: unknown[]): Pr
 }
 
 async function removeLegacyStorageByPrefix(
-  cleanBvid: string,
   keyPrefix: string,
   excludeKey?: string
 ): Promise<string[]> {
@@ -1087,11 +1086,8 @@ async function removeLegacyStorageByPrefix(
     return [];
   }
   try {
-    const indexKeys = await readFamilyKeys(CACHE_KEY_PREFIX, cleanBvid, keyPrefix);
-    const all = indexKeys
-      ? await chrome.storage.local.get(indexKeys)
-      : await chrome.storage.local.get(null);
-    const staleStorageKeys = Object.keys(all || {}).filter(
+    const matchedKeys = await listStorageKeysByPrefix(keyPrefix);
+    const staleStorageKeys = matchedKeys.filter(
       (key) => typeof key === "string" && key.startsWith(keyPrefix) && key !== excludeKey
     );
     if (staleStorageKeys.length > 0) {
@@ -1138,7 +1134,7 @@ export async function clearStaleAsrSubtitleCache({
     );
 
     const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${ASR_SOURCE_KEY_PREFIX}`;
-    for (const key of await removeLegacyStorageByPrefix(cleanBvid, keyPrefix, keepKey)) {
+    for (const key of await removeLegacyStorageByPrefix(keyPrefix, keepKey)) {
       removedLegacyKeys.add(key);
     }
 
@@ -1187,7 +1183,7 @@ export async function clearTranslatedSubtitleCache({
 
     const removedKeys = new Set<string>(removedMapKeys);
     const keyPrefix = `${CACHE_KEY_PREFIX}${cleanBvid}_${cleanCid}_${TRANSLATED_SOURCE_KEY_PREFIX}`;
-    for (const key of await removeLegacyStorageByPrefix(cleanBvid, keyPrefix)) {
+    for (const key of await removeLegacyStorageByPrefix(keyPrefix)) {
       removedKeys.add(key);
     }
 

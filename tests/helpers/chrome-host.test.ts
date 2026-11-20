@@ -20,6 +20,7 @@ describe("installChromeHost：storage.local 键契约", () => {
     expect(await host.local.get("a")).toEqual({ a: 1 });
     expect(await host.local.get(["a", "missing"])).toEqual({ a: 1 });
     expect(await host.local.get(null)).toEqual({ a: 1, b: 2 });
+    expect(await host.local.getKeys()).toEqual(["a", "b"]);
     expect(await host.local.get("missing")).toEqual({});
     expect(host.snapshot()).toEqual({ a: 1, b: 2 });
   });
@@ -35,9 +36,10 @@ describe("installChromeHost：storage.local 键契约", () => {
     expect(host.snapshot()).toEqual({});
   });
 
-  it("get/set/remove 都是 vi.fn：既有用例的 mock 面（mockImplementation / getMockImplementation）可用", async () => {
+  it("get/getKeys/set/remove 都是 vi.fn：既有用例的 mock 面（mockImplementation / getMockImplementation）可用", async () => {
     const host = installChromeHost();
     expect(vi.isMockFunction(host.local.get)).toBe(true);
+    expect(vi.isMockFunction(host.local.getKeys)).toBe(true);
     expect(vi.isMockFunction(host.local.set)).toBe(true);
     expect(vi.isMockFunction(host.local.remove)).toBe(true);
 

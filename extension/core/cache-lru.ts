@@ -16,19 +16,20 @@
 //     并发新增，但只影响「是否提前触发淘汰」，不丢索引键面；prune 以分键索引为准
 //     顺手重写清单自愈）。旧格式条目（数值 ts，或 { ts, keys } 对象）读端归一兼容，
 //     无需迁移；
-//   - 读端原语 readFamilyKeys(family, bvid, keyPrefix)：chrome.storage 无前缀查询，
-//     按 bvid 枚举 = get(null) 全量扫描过滤（索引分键后淘汰/读取走同一扫描，prune 本身
-//     低频：仅新视频写入越界或写失败重试时触发）。条目缺失（该 bvid 无分键索引）→
-//     返回 null + 一次性 logWarn（跨消费方共享标志），消费方回退 get(null) 前缀扫描
-//     自愈；存储读取本身留在消费方（segment-cache 拼段序 / subtitle 孤儿清理）；
-//   - 淘汰候选键 = 分键索引并集 ∪ 族前缀数据扫描（同一 get(null) 快照里过滤，零额外
-//     往返；数据键有、索引缺失的遗留 bvid 以清单 ts 排名、缺清单按最旧）；解析不出
+//   - 读端原语 readFamilyKeys(family, bvid, keyPrefix)：优先通过 chrome.storage.local.getKeys()
+//     仅拉取键名数组做前缀过滤（不反序列化任何值）；仅在不支持 getKeys() 的旧运行环境
+//     （Chrome 120–129）回退 get(null)。条目缺失（该 bvid 无分键索引）→ 返回 null + 一次性
+//     logWarn（跨消费方共享标志），消费方走 getStorageItemsByPrefix / listStorageKeysByPrefix
+//     前缀扫描自愈；存储读取本身留在消费方（segment-cache 拼段序 / subtitle 孤儿清理）；
+//   - 淘汰候选键 = 分键索引并集 ∪ 族前缀数据扫描：支持 getKeys() 时仅拉取键名数组并定点
+//     get(manifest + 目标族分键索引) 元数据，不反序列化数据值；旧环境回退单次 get(null)
+//     快照过滤。数据键有、索引缺失的遗留 bvid 以清单 ts 排名、缺清单按最旧；解析不出
 //     bvid 的畸形键按垃圾回收。索引指向已删键的幽灵条目随淘汰被垃圾回收
 //     （storage.remove 对不存在键是 no-op）；
 //   - 淘汰本身静默运行、不提示；仅当「淘汰后重试仍失败」时由调用方把 distinct
 //     失败（CacheWriteError）上浮到各自的 UI 通道（content 状态栏 / offscreen port notice）。
 // chrome.* 访问与既有测试模式一致：直接使用全局 chrome.storage.local，
-// 测试经 tests/helpers/chrome-host.ts 的宿主注入内存实现（兑现 get(null) 全量枚举）。
+// 测试经 tests/helpers/chrome-host.ts 的宿主注入内存实现（支持 getKeys 与 get(null)）。
 
 import { logWarn } from "../shared/logging.js";
 
@@ -133,11 +134,68 @@ export function parseBvidFromCacheKey(key: unknown, familyPrefix = ""): string {
   return cut === -1 ? rest : rest.slice(0, cut);
 }
 
-function requireStorageLocal(): chrome.storage.StorageArea {
+type StorageAreaWithGetKeys = chrome.storage.StorageArea & {
+  getKeys?: () => Promise<string[]>;
+};
+
+function requireStorageLocal(): StorageAreaWithGetKeys {
   if (!globalThis.chrome?.storage?.local) {
     throw new Error("chrome.storage.local 不可用");
   }
-  return globalThis.chrome.storage.local;
+  return globalThis.chrome.storage.local as StorageAreaWithGetKeys;
+}
+
+// 统一枚举 chrome.storage.local 全部键名：优先走 StorageArea.getKeys()（Chrome 130+ / Firefox 137+）
+// 避免反序列化大体积 value；仅在不支持 getKeys() 的旧运行环境（Chrome 120–129）回退 get(null)
+// 并返回本次快照供调用方复用，避免二次读取。
+async function listAllStorageKeys(
+  storage: StorageAreaWithGetKeys
+): Promise<{ keys: string[]; snapshot: Record<string, unknown> | null }> {
+  if (typeof storage.getKeys === "function") {
+    const rawKeys = await storage.getKeys();
+    const keys = Array.isArray(rawKeys)
+      ? rawKeys.filter((key): key is string => typeof key === "string")
+      : [];
+    return { keys, snapshot: null };
+  }
+  const snapshot = (await storage.get(null)) || {};
+  return { keys: Object.keys(snapshot), snapshot };
+}
+
+/**
+ * 按前缀枚举 chrome.storage.local 中存在的键名：优先走 getKeys() 过滤，
+ * 仅在极老运行环境不支持 getKeys() 时回退 get(null)。
+ */
+export async function listStorageKeysByPrefix(keyPrefix = ""): Promise<string[]> {
+  const storage = requireStorageLocal();
+  const { keys } = await listAllStorageKeys(storage);
+  const prefix = typeof keyPrefix === "string" ? keyPrefix : "";
+  return prefix ? keys.filter((key) => key.startsWith(prefix)) : keys;
+}
+
+/**
+ * 按前缀读取 chrome.storage.local 键值对：优先走 getKeys() 筛出匹配键名后再定点
+ * storage.get(matchedKeys)；无匹配时直接返回 {} 不发 get；旧环境回退 get(null)
+ * 时直接从同次快照切片，零额外往返。
+ */
+export async function getStorageItemsByPrefix(keyPrefix = ""): Promise<Record<string, unknown>> {
+  const storage = requireStorageLocal();
+  const { keys, snapshot } = await listAllStorageKeys(storage);
+  const prefix = typeof keyPrefix === "string" ? keyPrefix : "";
+  const matchedKeys = prefix ? keys.filter((key) => key.startsWith(prefix)) : keys;
+  if (matchedKeys.length === 0) {
+    return {};
+  }
+  if (snapshot !== null) {
+    const out: Record<string, unknown> = {};
+    for (const key of matchedKeys) {
+      if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+        out[key] = snapshot[key];
+      }
+    }
+    return out;
+  }
+  return (await storage.get(matchedKeys)) || {};
 }
 
 // 归一清单/索引条目的时间戳：数值、{ ts }、旧格式 { ts, keys } 均可取 ts；
@@ -207,18 +265,17 @@ let indexFallbackWarned = false;
 
 /**
  * 读端原语：按分键索引取该族该 bvid 的缓存键清单（keyPrefix 可选过滤），供消费方
- * 定点批量读取（存储读取本身留在消费方，读后处理各异）。chrome.storage 无前缀查询，
- * 枚举 = get(null) 全量扫描过滤（见模块头注释）。该 bvid 无任何分键索引条目 →
- * 返回 null + 一次性 logWarn（跨消费方共享标志），消费方回退 get(null) 前缀扫描
- * 自愈；索引读失败按缺失同路回退（索引是启发式元数据，允许丢）。
+ * 定点批量读取（存储读取本身留在消费方，读后处理各异）。优先经 getKeys() 仅拉取
+ * 键名过滤，仅旧环境回退 get(null)。该 bvid 无任何分键索引条目 → 返回 null + 一次性
+ * logWarn（跨消费方共享标志），消费方走前缀扫描自愈；索引读失败按缺失同路回退
+ * （索引是启发式元数据，允许丢）。
  */
 export async function readFamilyKeys(family: string, bvid: string, keyPrefix = ""): Promise<string[] | null> {
   let keys: string[];
   try {
-    const all = await requireStorageLocal().get(null);
     const entryPrefix = buildLruIndexEntryKey(family, bvid, "");
-    keys = Object.keys(all || {})
-      .filter((storageKey) => storageKey.startsWith(entryPrefix))
+    const matchedIndexKeys = await listStorageKeysByPrefix(entryPrefix);
+    keys = matchedIndexKeys
       .map((storageKey) => storageKey.slice(entryPrefix.length))
       .sort();
   } catch {
@@ -291,12 +348,13 @@ function parseIndexEntryKey(
 }
 
 /**
- * 淘汰到每族最近 keep 个视频：单次 get(null) 快照内取候选（分键索引并集 ∪ 族前缀
- * 数据键——「索引有、storage 无」的幽灵键照常流入淘汰清单，「storage 有、索引缺失」
- * 的遗留 bvid 按清单 ts 排名、缺清单视为最旧），bvid 不在最近 keep 名内的整键删除
- * （数据键 + 该 bvid 的分键索引条目一并移除），并把被清理族的重写回清单（自愈）。
- * 返回 { [family]: string[] }（清理出的数据键，可能含已不存在的键）；淘汰本身静默：
- * 任何失败吞掉并返回 {}。
+ * 淘汰到每族最近 keep 个视频：支持 getKeys() 时仅拉取键名数组并定点读取汇总清单
+ * 与目标族分键索引元数据（不反序列化数据值）；旧环境回退单次 get(null) 快照。
+ * 候选 = 分键索引并集 ∪ 族前缀数据键（「索引有、storage 无」的幽灵键照常流入淘汰清单，
+ * 「storage 有、索引缺失」的遗留 bvid 按清单 ts 排名、缺清单视为最旧），bvid 不在最近
+ * keep 名内的整键删除（数据键 + 该 bvid 的分键索引条目一并移除），并把被清理族的重写
+ * 回清单（自愈）。返回 { [family]: string[] }（清理出的数据键，可能含已不存在的键）；
+ * 淘汰本身静默：任何失败吞掉并返回 {}。
  */
 export async function pruneToRecentVideos(
   families: string[] = CACHE_FAMILIES,
@@ -311,18 +369,43 @@ export async function pruneToRecentVideos(
       return {};
     }
 
-    const all = await storage.get(null);
-    const manifest = normalizeManifest(all?.[LRU_MANIFEST_STORAGE_KEY]);
+    const familySet = new Set(familyList);
+    const { keys: allKeys, snapshot } = await listAllStorageKeys(storage);
+
+    let metaValues: Record<string, unknown>;
+    if (snapshot !== null) {
+      metaValues = snapshot;
+    } else {
+      const metaKeys: string[] = [];
+      for (const storageKey of allKeys) {
+        if (storageKey === LRU_MANIFEST_STORAGE_KEY) {
+          metaKeys.push(storageKey);
+          continue;
+        }
+        if (storageKey.startsWith(LRU_INDEX_ENTRY_PREFIX)) {
+          const parsed = parseIndexEntryKey(storageKey);
+          if (parsed && familySet.has(parsed.family)) {
+            metaKeys.push(storageKey);
+          }
+        }
+      }
+      metaValues = metaKeys.length > 0 ? (await storage.get(metaKeys)) || {} : {};
+    }
+
+    const manifest = normalizeManifest(metaValues?.[LRU_MANIFEST_STORAGE_KEY]);
 
     // 分键索引按 族 → bvid → { ts(取最大), keys } 归并。
     const indexed = new Map<string, Map<string, { ts: number; keys: Set<string> }>>();
-    for (const storageKey of Object.keys(all || {})) {
+    for (const storageKey of allKeys) {
       if (!storageKey.startsWith(LRU_INDEX_ENTRY_PREFIX)) {
         continue;
       }
       const parsed = parseIndexEntryKey(storageKey);
-      const ts = normalizeEntryTs((all as Record<string, unknown>)[storageKey]);
-      if (!parsed || ts === null) {
+      if (!parsed || !familySet.has(parsed.family)) {
+        continue;
+      }
+      const ts = normalizeEntryTs(metaValues[storageKey]);
+      if (ts === null) {
         continue;
       }
       let familyMap = indexed.get(parsed.family);
@@ -353,8 +436,8 @@ export async function pruneToRecentVideos(
           timestamps.set(bvid, Math.max(entry.ts, familyManifest[bvid] ?? 0));
         }
       }
-      // 候选键：分键索引并集 ∪ 族前缀数据键（同一份快照过滤，覆盖「索引丢过键 /
-      // 索引缺失」的遗留面，zero 额外往返）。
+      // 候选键：分键索引并集 ∪ 族前缀数据键（同次键名枚举内过滤，覆盖「索引丢过键 /
+      // 索引缺失」的遗留面，不读取数据值）。
       const candidateKeys = new Set<string>();
       if (familyIndexed) {
         for (const entry of familyIndexed.values()) {
@@ -363,7 +446,7 @@ export async function pruneToRecentVideos(
           }
         }
       }
-      for (const key of Object.keys(all || {})) {
+      for (const key of allKeys) {
         // 最长前缀归属：撞前缀键（biliscript_lvs_analysis_final_*）只归自己的族，
         // 不被父前缀族的扫描误纳（否则 bvid 被解析成 "final" 而整族误淘汰）。
         if (!key.startsWith(family) || familyOfCacheKey(key) !== family) {
@@ -400,7 +483,7 @@ export async function pruneToRecentVideos(
           continue;
         }
         const entryPrefix = buildLruIndexEntryKey(family, bvid, "");
-        for (const storageKey of Object.keys(all || {})) {
+        for (const storageKey of allKeys) {
           if (storageKey.startsWith(entryPrefix)) {
             keysToRemove.push(storageKey);
           }
