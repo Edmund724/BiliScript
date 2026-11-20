@@ -590,19 +590,19 @@
 }
 
 /* 统一可折叠思维链状态条（ThoughtChain）：
- * 收口「读取字幕 → 采样关键帧 → 联网检索 → 深度思考」于助手消息顶部单条容器。
- * 流式期间默认展开（限高内滚）且随时可手动收起；生成完成后自动折叠为单行摘要。 */
+ * 收口「读取字幕 → 采样关键帧 → 联网检索 → 深度思考」于助手消息顶部，无独立底色与卡片边框，
+ * 与助手正文共用阅读背景。流式期间默认展开（限高内滚）且随时可手动收起；生成完成后自动折叠为单行摘要。 */
 .biliscript-reading-chat .chat-thinking,
 .biliscript-reading-chat .chat-thought-chain {
   display: grid;
   grid-template-rows: max-content 1fr;
   transition: grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   margin-bottom: 10px;
-  padding: 7px 10px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-panel);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  background: var(--biliscript-reader-card);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-sm);
   line-height: 1.5;
@@ -3428,20 +3428,7 @@ dialog.chat-image-viewer[data-biliscript-closing="1"] .chat-image-viewer-close {
   backdrop-filter: none;
 }
 
-/* 思维链状态条与字幕预览浮层主题适配（Flyme 白玻璃 / Editorial 书摘边框） */
-#biliscript-reading-view .biliscript-reading-chat .chat-thought-chain {
-  background: var(--biliscript-reader-card);
-  border: none;
-  box-shadow: var(--biliscript-reader-card-highlight);
-}
-
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-thought-chain {
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-xl);
-  corner-shape: var(--biliscript-corner-shape, superellipse(1.25));
-  box-shadow: none;
-}
-
+/* 字幕预览浮层主题适配（Editorial 书摘边框，取消毛玻璃） */
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-timestamp-tooltip {
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: none;
