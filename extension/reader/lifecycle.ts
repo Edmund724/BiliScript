@@ -580,17 +580,10 @@ export async function enterReaderMode(
   // 首载等待锚点就绪：宽屏下若页面 DOM 仍在水合（如自动展开或 URL 直达），
   // 暂缓打开视图壳并等锚点就绪，防止首拍降级为全屏居中浮层后闪漂贴栏。
   await waitForScriptAnchor();
-  openReaderViewShell(readingView, mode);
-  renderReadingView();
-  // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，
-  // 重开（字幕命中缓存）时不会再有该通知——缺了这两行，同步 tick 停在
-  // closeReadingView 停止的状态，关闭期间拖动的进度不会反映到字幕列表。
-  // 首开路径随后 subtitle-ready 会再 start 一次（幂等：清旧 interval 重启）。
-  startReadingViewSync();
-  syncReadingViewPlayback(true);
-  // B 形态：面板贴右栏 fixed 定位（script-host 负责算 rect/降级浮层）；
-  // 播放器保持 B 站原生布局不动，无需等挂载。
+  // 先写贴栏几何变量或浮层属性，再翻 open/focus：让 @starting-style 与入场过渡
+  // 从首帧就落在最终形态与右栏几何上，避免先按默认回落定位启动过渡再跳位。
   openScriptHost();
+  openReaderViewShell(readingView, mode);
   if (readingView && readingView.getAttribute("data-biliscript-script-float") === "1") {
     const floatOrigin = computeRelativeOrigin(
       readingView.getBoundingClientRect(),
@@ -601,6 +594,13 @@ export async function enterReaderMode(
   } else if (readingView) {
     readingView.style.removeProperty("--biliscript-float-origin");
   }
+  renderReadingView();
+  // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，
+  // 重开（字幕命中缓存）时不会再有该通知——缺了这两行，同步 tick 停在
+  // closeReadingView 停止的状态，关闭期间拖动的进度不会反映到字幕列表。
+  // 首开路径随后 subtitle-ready 会再 start 一次（幂等：清旧 interval 重启）。
+  startReadingViewSync();
+  syncReadingViewPlayback(true);
   // 字幕未抓取时的后台兜底抓取（原 finishEnterReaderMode 链保留项）：B 形态
   // 面板以字幕为主内容，不依赖播放器挂载成功，直达路径也必须有数据来源。
   maybeRefreshReaderSubtitleInBackground();

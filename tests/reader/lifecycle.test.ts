@@ -2,6 +2,8 @@
 // 通过 stub DOM（biliscript 阅读视图骨架）与 stub 视频元素驱动
 // shell.js 的 enterReaderMode / closeReadingView / hydrate / apply 等真实路径。
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
@@ -424,6 +426,55 @@ describe("reader 生命周期", () => {
       } finally {
         secSpy.mockRestore();
       }
+    });
+  });
+
+  describe("面板入场动效契约", () => {
+    it("enterReaderMode 先写入贴栏/浮层定位再切 .open，确保入场首帧按最终几何起播", async () => {
+      state.clip.bvid = "BV1test000000";
+      const readingView = document.getElementById(ids.readingView) as HTMLElement;
+      readingView.hidden = true;
+      let wasHiddenWhenHostOpened = false;
+      let hadOpenClassWhenHostOpened = true;
+      vi.mocked(scriptHost.openScriptHost).mockImplementationOnce(() => {
+        wasHiddenWhenHostOpened = readingView.hidden;
+        hadOpenClassWhenHostOpened = readingView.classList.contains("open");
+      });
+
+      try {
+        await shell.enterReaderMode();
+
+        expect(wasHiddenWhenHostOpened).toBe(true);
+        expect(hadOpenClassWhenHostOpened).toBe(false);
+        expect(readingView.hidden).toBe(false);
+        expect(readingView.classList.contains("open")).toBe(true);
+      } finally {
+        shell.closeReadingView();
+      }
+    });
+
+    it("reader.css 与 reader-gate.css 的 @starting-style 位于对应 .open 规则之后且独立声明 allow-discrete", () => {
+      const readerCss = readFileSync(join(process.cwd(), "extension/entry/styles/reader.css"), "utf8");
+      const openRuleIdx = readerCss.indexOf("#biliscript-reading-view.open {");
+      const startingStyleIdx = readerCss.indexOf("@starting-style {\r\n  #biliscript-reading-view.open {");
+      const startingStyleIdxLf = readerCss.indexOf("@starting-style {\n  #biliscript-reading-view.open {");
+      const pinnedStartingIdx = Math.max(startingStyleIdx, startingStyleIdxLf);
+
+      expect(openRuleIdx).toBeGreaterThan(-1);
+      expect(pinnedStartingIdx).toBeGreaterThan(openRuleIdx);
+      expect(readerCss.slice(openRuleIdx, pinnedStartingIdx)).toContain("transition-behavior: allow-discrete;");
+      expect(readerCss.slice(openRuleIdx, pinnedStartingIdx)).not.toContain("display 320ms allow-discrete");
+
+      const gateCss = readFileSync(join(process.cwd(), "extension/entry/styles/reader-gate.css"), "utf8");
+      const floatOpenIdx = gateCss.indexOf(
+        'body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].open {'
+      );
+      const floatStartingIdx = gateCss.indexOf("@starting-style {", floatOpenIdx);
+
+      expect(floatOpenIdx).toBeGreaterThan(-1);
+      expect(floatStartingIdx).toBeGreaterThan(floatOpenIdx);
+      expect(gateCss.slice(floatOpenIdx, floatStartingIdx)).toContain("transition-behavior: allow-discrete;");
+      expect(gateCss.slice(floatOpenIdx, floatStartingIdx)).not.toContain("display 320ms allow-discrete");
     });
   });
 });

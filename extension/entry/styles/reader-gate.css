@@ -133,7 +133,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   transition:
     scale 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
     opacity 180ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    display 320ms allow-discrete;
+    display 320ms;
+  transition-behavior: allow-discrete;
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].closing {

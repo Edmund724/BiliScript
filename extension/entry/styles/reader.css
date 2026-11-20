@@ -35,14 +35,6 @@
   opacity: 0;
 }
 
-@starting-style {
-  #biliscript-reading-view.open {
-    translate: 100% 0;
-    scale: 0.98;
-    opacity: 0;
-  }
-}
-
 #biliscript-reading-view.open,
 #biliscript-reading-view.closing {
   display: block;
@@ -56,7 +48,16 @@
     translate 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
     scale 320ms var(--biliscript-reader-ease-spring, cubic-bezier(0.32, 0.72, 0, 1)),
     opacity 180ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
-    display 320ms allow-discrete;
+    display 320ms;
+  transition-behavior: allow-discrete;
+}
+
+@starting-style {
+  #biliscript-reading-view.open {
+    translate: 100% 0;
+    scale: 0.98;
+    opacity: 0;
+  }
 }
 
 #biliscript-reading-view.closing {
