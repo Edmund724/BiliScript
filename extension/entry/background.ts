@@ -103,6 +103,8 @@ import {
 import {
   ensureIndexTranslateSessionRule,
   ensureOffscreenDocument,
+  hasOffscreenDocument,
+  hasOpenBilibiliTabs,
   isOffscreenDocumentSender,
   OFFSCREEN_SENDER_REJECTION_MESSAGE,
   reapAllBiliMediaSessionRules
@@ -695,13 +697,33 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   void clearUnsupportedPageFeedback(tabId);
 });
 
+// 全部 B 站标签页关闭时通知 offscreen 检查轻量空闲回收：仅当无打开的 B 站标签页且
+// offscreen 仍存活时广播，由 offscreen 校验无活跃端口/任务后再委托 SW 串行关闭。
+chrome.tabs?.onRemoved?.addListener?.(() => {
+  void (async () => {
+    if (await hasOpenBilibiliTabs()) {
+      return;
+    }
+    if (!(await hasOffscreenDocument())) {
+      return;
+    }
+    await Promise.resolve(
+      chrome.runtime.sendMessage({ type: "offscreen-bilibili-tabs-empty" })
+    ).catch(() => {});
+  })().catch(() => {});
+});
+
 // ===== 入口监听 =====
 
 // 内容脚本没有 chrome.tts：朗读请求与事件经专用端口在 SW 转发。
+// Firefox 授权弹窗在开启期间连保活端口钉住 Event Page，窗口关闭即自动清理。
 // offscreen 保活端口接受持有即生效；可选链与 chrome.action 先例一致，
 // 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
 chrome.runtime.onConnect?.addListener?.((port) => {
   if (attachChatSpeechPort(port)) {
+    return;
+  }
+  if (hostPermissionHandlers.attachKeepalivePort(port)) {
     return;
   }
   if (!isSwKeepalivePort(port)) {

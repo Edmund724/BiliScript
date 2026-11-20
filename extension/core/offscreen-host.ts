@@ -11,6 +11,7 @@ import { createAsrSessionRuleManager } from "../asr/session-rule-manager.js";
 
 export const BILI_MEDIA_CDN_DOMAINS = ["bilivideo.com", "bilivideo.cn", "akamaized.net"] as const;
 export const BILI_MEDIA_ORIGIN_PAGE = "https://www.bilibili.com" as const;
+export const BILIBILI_TAB_URL_PATTERN = "*://*.bilibili.com/*" as const;
 
 export const INDEX_TRANSLATE_SESSION_RULE_ID = 9003;
 export const INDEX_TRANSLATE_DOMAIN = "index-translate.bilibili.com" as const;
@@ -34,10 +35,29 @@ type ServiceWorkerScopeLike = {
   };
 };
 
+type LifecycleOpKind = "ensure" | "close";
+
+interface QueuedLifecycleOp {
+  kind: LifecycleOpKind;
+  promise: Promise<unknown>;
+  run: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+}
+
 const sessionRuleManager = createAsrSessionRuleManager();
 
 let inflightIframePromise: Promise<boolean> | null = null;
 let cancelInflightIframe: ((reason: Error) => void) | null = null;
+
+// Serialized lifecycle queue and generation counter shared across ensure/close operations.
+// Prevents Chromium closeDocument/createDocument races and lets queued close operations
+// bail out cleanly when a newer ensure request is already waiting in line.
+let activeLifecycleOp: LifecycleOpKind | null = null;
+let activeEnsurePromise: Promise<boolean> | null = null;
+let queuedEnsureEntry: QueuedLifecycleOp | null = null;
+let ensureGeneration = 0;
+const lifecycleQueue: QueuedLifecycleOp[] = [];
 
 function hasNativeOffscreenCreate(): boolean {
   return typeof chrome !== "undefined" && typeof chrome.offscreen?.createDocument === "function";
@@ -88,6 +108,31 @@ async function hasExistingOffscreenDocument(url: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** Returns true if an offscreen document (native or Firefox hidden iframe) currently exists. */
+export async function hasOffscreenDocument(): Promise<boolean> {
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.getURL !== "function") {
+    return false;
+  }
+  if (!hasNativeOffscreenCreate() && !hasNativeOffscreenClose()) {
+    return isLiveOffscreenIframe(getExistingOffscreenIframe());
+  }
+  return hasExistingOffscreenDocument(chrome.runtime.getURL(OFFSCREEN_URL));
+}
+
+/** Returns true if at least one Bilibili tab (`*://*.bilibili.com/*`) is currently open. */
+export async function hasOpenBilibiliTabs(): Promise<boolean> {
+  if (typeof chrome === "undefined" || typeof chrome.tabs?.query !== "function") {
+    return true;
+  }
+  try {
+    const tabs = await chrome.tabs.query({ url: BILIBILI_TAB_URL_PATTERN });
+    return Array.isArray(tabs) && tabs.length > 0;
+  } catch {
+    // Query failure falls back conservatively so light idle fallback handles teardown instead of premature close.
+    return true;
+  }
 }
 
 function ensureOffscreenIframe(url: string): Promise<boolean> {
@@ -165,8 +210,7 @@ function ensureOffscreenIframe(url: string): Promise<boolean> {
   return promise;
 }
 
-/** Ensures the shared offscreen document exists, creating it when absent. */
-export async function ensureOffscreenDocument(): Promise<boolean> {
+async function performEnsureOffscreenDocument(): Promise<boolean> {
   const url = chrome.runtime.getURL(OFFSCREEN_URL);
   if (!hasNativeOffscreenCreate()) {
     if (hasDomBody()) {
@@ -195,8 +239,7 @@ export async function ensureOffscreenDocument(): Promise<boolean> {
   }
 }
 
-/** Closes the shared offscreen document via the service worker API or Event Page iframe teardown. */
-export async function closeOffscreenDocument(): Promise<void> {
+async function performCloseOffscreenDocument(): Promise<void> {
   if (hasNativeOffscreenClose()) {
     await chrome.offscreen.closeDocument();
     return;
@@ -209,6 +252,143 @@ export async function closeOffscreenDocument(): Promise<void> {
     existing.src = "about:blank";
     existing.remove();
   }
+}
+
+function drainLifecycleQueue(): void {
+  if (activeLifecycleOp !== null || lifecycleQueue.length === 0) {
+    return;
+  }
+  const next = lifecycleQueue.shift()!;
+  if (queuedEnsureEntry === next) {
+    queuedEnsureEntry = null;
+  }
+  activeLifecycleOp = next.kind;
+  if (next.kind === "ensure") {
+    activeEnsurePromise = next.promise as Promise<boolean>;
+  }
+
+  let taskPromise: Promise<unknown>;
+  try {
+    taskPromise = Promise.resolve(next.run());
+  } catch (error) {
+    taskPromise = Promise.reject(error);
+  }
+
+  void taskPromise.then(
+    (value) => {
+      next.resolve(value);
+    },
+    (reason) => {
+      next.reject(reason);
+    }
+  ).finally(() => {
+    activeLifecycleOp = null;
+    if (activeEnsurePromise === next.promise) {
+      activeEnsurePromise = null;
+    }
+    drainLifecycleQueue();
+  });
+}
+
+function startActiveLifecycleOp<T>(kind: LifecycleOpKind, run: () => Promise<T>): Promise<T> {
+  activeLifecycleOp = kind;
+  let taskPromise: Promise<T>;
+  try {
+    taskPromise = Promise.resolve(run());
+  } catch (error) {
+    taskPromise = Promise.reject(error);
+  }
+
+  const tracked = new Promise<T>((resolve, reject) => {
+    void taskPromise.then(resolve, reject).finally(() => {
+      activeLifecycleOp = null;
+      if (activeEnsurePromise === tracked) {
+        activeEnsurePromise = null;
+      }
+      drainLifecycleQueue();
+    });
+  });
+
+  if (kind === "ensure") {
+    activeEnsurePromise = tracked as Promise<boolean>;
+  }
+  return tracked;
+}
+
+function enqueueLifecycleOp<T>(kind: LifecycleOpKind, run: () => Promise<T>): QueuedLifecycleOp {
+  let resolve!: (value: unknown) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res as (value: unknown) => void;
+    reject = rej;
+  });
+  const entry: QueuedLifecycleOp = {
+    kind,
+    promise,
+    run,
+    resolve,
+    reject
+  };
+  lifecycleQueue.push(entry);
+  return entry;
+}
+
+/** Ensures the shared offscreen document exists, serialized through the lifecycle queue. */
+export function ensureOffscreenDocument(): Promise<boolean> {
+  ensureGeneration += 1;
+
+  if (activeLifecycleOp === "ensure" && lifecycleQueue.length === 0 && activeEnsurePromise) {
+    return activeEnsurePromise;
+  }
+  if (
+    lifecycleQueue.length > 0 &&
+    queuedEnsureEntry !== null &&
+    lifecycleQueue[lifecycleQueue.length - 1] === queuedEnsureEntry
+  ) {
+    return queuedEnsureEntry.promise as Promise<boolean>;
+  }
+  if (activeLifecycleOp === null) {
+    return startActiveLifecycleOp("ensure", performEnsureOffscreenDocument);
+  }
+  const entry = enqueueLifecycleOp("ensure", performEnsureOffscreenDocument);
+  queuedEnsureEntry = entry;
+  return entry.promise as Promise<boolean>;
+}
+
+/**
+ * Closes the shared offscreen document via the serialized lifecycle queue.
+ * If a newer ensureOffscreenDocument() request enters the queue before this close runs,
+ * the close is skipped and the existing document is reused. Returns true if teardown ran.
+ */
+export function tryCloseOffscreenDocument(): Promise<boolean> {
+  const enqueuedGeneration = ensureGeneration;
+  const runClose = async (): Promise<boolean> => {
+    if (ensureGeneration > enqueuedGeneration) {
+      return false;
+    }
+    await performCloseOffscreenDocument();
+    return true;
+  };
+
+  if (activeLifecycleOp === null) {
+    return startActiveLifecycleOp("close", runClose);
+  }
+
+  const entry = enqueueLifecycleOp("close", runClose);
+  queuedEnsureEntry = null;
+
+  // On Firefox Event Page iframe path, an in-flight iframe load waits on external DOM events;
+  // cancelling it unblocks teardown immediately when close is requested before load completes.
+  if (activeLifecycleOp === "ensure" && !hasNativeOffscreenCreate() && cancelInflightIframe) {
+    cancelInflightIframe(new Error("Offscreen iframe closed before load completed."));
+  }
+
+  return entry.promise as Promise<boolean>;
+}
+
+/** Closes the shared offscreen document via the service worker API or Event Page iframe teardown. */
+export async function closeOffscreenDocument(): Promise<void> {
+  await tryCloseOffscreenDocument();
 }
 
 /** Returns true only when the runtime message sender is the offscreen document itself. */

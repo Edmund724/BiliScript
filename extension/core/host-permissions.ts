@@ -33,8 +33,9 @@ export type HostPermissionResult =
   | { granted: true; status: "granted" }
   | { granted: false; status: "denied" | "invalid-origin" };
 
-// Firefox 扩展授权小窗路径与 query 编解码（SW 弹窗派发与 permission-grant.ts 共用单源）
+// Firefox 扩展授权小窗路径与保活端口名（SW 弹窗派发与 permission-grant.ts 共用单源）
 export const PERMISSION_GRANT_PAGE_PATH = "entry/permission-grant.html" as const;
+export const PERMISSION_GRANT_KEEPALIVE_PORT_NAME = "permission-grant-keepalive" as const;
 
 export interface PermissionGrantParams {
   reqId: string;

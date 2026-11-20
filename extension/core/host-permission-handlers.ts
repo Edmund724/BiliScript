@@ -9,12 +9,16 @@ import {
   checkHostPermission,
   collectPermissionMatchPatterns,
   formatPermissionRequestError,
+  PERMISSION_GRANT_KEEPALIVE_PORT_NAME,
   PERMISSION_GRANT_PAGE_PATH,
   permissionDeniedErrorMessage,
   revokeOriginPermission,
   toPermissionMatchPattern
 } from "./host-permissions.js";
+import { consumeRuntimeLastError } from "../shared/messaging.js";
 import { withOkResponse } from "./provider-handlers.js";
+
+export { PERMISSION_GRANT_KEEPALIVE_PORT_NAME };
 import type {
   BackgroundMessage,
   BackgroundMessageHandler,
@@ -57,11 +61,23 @@ export interface HostPermissionHostAdapter {
   timeoutMs?: number;
 }
 
+export interface PermissionGrantKeepalivePort {
+  name?: string;
+  sender?: MessageSender;
+  disconnect?: () => void;
+  onDisconnect?: {
+    addListener: (listener: () => void) => void;
+    removeListener?: (listener: () => void) => void;
+  };
+}
+
 export interface HostPermissionHandlers {
   requestProviderOrigins: BackgroundMessageHandler<"request-provider-origins">;
   permissionGrantResult: BackgroundMessageHandler<"permission-grant-result">;
   checkProviderOrigin: BackgroundMessageHandler<"check-provider-origin">;
   revokeProviderOrigin: BackgroundMessageHandler<"revoke-provider-origin">;
+  attachKeepalivePort: (port: PermissionGrantKeepalivePort | null | undefined) => boolean;
+  getActiveKeepalivePortCount: () => number;
 }
 
 type Msg<T extends "request-provider-origins" | "permission-grant-result" | "check-provider-origin" | "revoke-provider-origin"> =
@@ -88,6 +104,7 @@ function isUserGesturePermissionError(error: unknown): boolean {
 
 export function createHostPermissionHandlers(host: HostPermissionHostAdapter): HostPermissionHandlers {
   const pendingPermissionGrants = new Map<string, PendingPermissionGrant>();
+  const activeKeepalivePorts = new Set<PermissionGrantKeepalivePort>();
   let permissionGrantReqSeq = 0;
   const timeoutMs = host.timeoutMs ?? PERMISSION_GRANT_POPUP_TIMEOUT_MS;
 
@@ -346,10 +363,37 @@ export function createHostPermissionHandlers(host: HostPermissionHostAdapter): H
     });
   }
 
+  function attachKeepalivePort(port: PermissionGrantKeepalivePort | null | undefined): boolean {
+    if (!port || port.name !== PERMISSION_GRANT_KEEPALIVE_PORT_NAME) {
+      return false;
+    }
+    if (port.sender && !isPermissionGrantPageSender(port.sender)) {
+      try {
+        port.disconnect?.();
+      } catch {
+        // Ignore disconnect errors on rejected ports.
+      }
+      return true;
+    }
+    if (activeKeepalivePorts.has(port)) {
+      return true;
+    }
+    activeKeepalivePorts.add(port);
+    const onDisconnect = () => {
+      consumeRuntimeLastError();
+      activeKeepalivePorts.delete(port);
+      port.onDisconnect?.removeListener?.(onDisconnect);
+    };
+    port.onDisconnect?.addListener?.(onDisconnect);
+    return true;
+  }
+
   return {
     requestProviderOrigins: handleRequestProviderOrigins,
     permissionGrantResult: handlePermissionGrantResult,
     checkProviderOrigin: handleCheckProviderOrigin,
-    revokeProviderOrigin: handleRevokeProviderOrigin
+    revokeProviderOrigin: handleRevokeProviderOrigin,
+    attachKeepalivePort,
+    getActiveKeepalivePortCount: () => activeKeepalivePorts.size
   };
 }

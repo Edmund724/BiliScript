@@ -22,23 +22,37 @@ import type { MessageSender } from "../../extension/shared/messaging-protocol.js
 
 const OFFSCREEN_URL = "chrome-extension://test/entry/offscreen.html";
 
-function stubSwEnv({ closeError }: { closeError?: Error } = {}) {
+function stubSwEnv({
+  closeError,
+  bilibiliTabs = []
+}: {
+  closeError?: Error;
+  bilibiliTabs?: Array<{ id: number; url?: string }>;
+} = {}) {
   const closeDocument = vi.fn(async () => {
     if (closeError) throw closeError;
+  });
+  const tabsQuery = vi.fn(async () => bilibiliTabs);
+  const onRemovedAddListener = vi.fn();
+  const sendMessage = vi.fn((_message, callback) => {
+    callback?.({ ok: true });
+    return undefined;
   });
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
       getURL: (path: string) => `chrome-extension://test/${path}`,
-      sendMessage: vi.fn((_message, callback) => {
-        callback?.({ ok: true });
-        return undefined;
-      }),
+      getContexts: vi.fn(async () => [{ contextType: "OFFSCREEN_DOCUMENT" }]),
+      sendMessage,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
     },
-    tabs: { onUpdated: { addListener: vi.fn() } },
+    tabs: {
+      query: tabsQuery,
+      onUpdated: { addListener: vi.fn() },
+      onRemoved: { addListener: onRemovedAddListener }
+    },
     storage: {
       local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
@@ -46,7 +60,7 @@ function stubSwEnv({ closeError }: { closeError?: Error } = {}) {
     },
     offscreen: { closeDocument }
   });
-  return { closeDocument };
+  return { closeDocument, tabsQuery, onRemovedAddListener, sendMessage };
 }
 
 // offscreen 文档自身的 sender 形状（无 sender.tab、url 为文档 URL）
@@ -108,6 +122,40 @@ describe("handleOffscreenRequestClose 执行器", () => {
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });
+
+  it("onlyIfNoBilibiliTabs=true 且仍有打开的 B 站标签页：跳过关闭并回 { ok:true, closed:false }", async () => {
+    const { closeDocument, tabsQuery } = stubSwEnv({
+      bilibiliTabs: [{ id: 12, url: "https://www.bilibili.com/video/BV1/" }]
+    });
+    const bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
+
+    const sendResponse = vi.fn();
+    await bridge.handleOffscreenRequestClose(
+      { type: "offscreen-request-close", reason: "no-bilibili-tabs", onlyIfNoBilibiliTabs: true },
+      offscreenSender,
+      sendResponse
+    );
+
+    expect(tabsQuery).toHaveBeenCalledWith({ url: "*://*.bilibili.com/*" });
+    expect(closeDocument).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true, closed: false });
+  });
+
+  it("onlyIfNoBilibiliTabs=true 且全部 B 站标签页已关闭：执行 closeDocument 并回 { ok:true }", async () => {
+    const { closeDocument, tabsQuery } = stubSwEnv({ bilibiliTabs: [] });
+    const bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
+
+    const sendResponse = vi.fn();
+    await bridge.handleOffscreenRequestClose(
+      { type: "offscreen-request-close", reason: "no-bilibili-tabs", onlyIfNoBilibiliTabs: true },
+      offscreenSender,
+      sendResponse
+    );
+
+    expect(tabsQuery).toHaveBeenCalledWith({ url: "*://*.bilibili.com/*" });
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+  });
 });
 
 // ===== 入口半边：background onMessage 路由 + 守卫 =====
@@ -151,6 +199,25 @@ describe("background 消息入口：offscreen-request-close 的来源守卫", ()
 
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "仅接受 offscreen 文档发送" });
     expect(closeDocument).not.toHaveBeenCalled();
+  });
+
+  it("tabs.onRemoved：全部 B 站标签页关闭且 offscreen 存活时广播 offscreen-bilibili-tabs-empty；仍有标签页时不广播", async () => {
+    const { onRemovedAddListener, sendMessage, tabsQuery } = stubSwEnv({
+      bilibiliTabs: [{ id: 5, url: "https://www.bilibili.com/" }]
+    });
+    resetModuleState();
+    await import("../../extension/entry/background.js");
+    const onRemoved = onRemovedAddListener.mock.calls[0][0] as () => void;
+
+    onRemoved();
+    await vi.waitFor(() => expect(tabsQuery).toHaveBeenCalledTimes(1));
+    expect(sendMessage).not.toHaveBeenCalledWith({ type: "offscreen-bilibili-tabs-empty" });
+
+    tabsQuery.mockResolvedValueOnce([]);
+    onRemoved();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({ type: "offscreen-bilibili-tabs-empty" })
+    );
   });
 });
 

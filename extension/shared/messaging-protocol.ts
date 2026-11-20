@@ -607,13 +607,20 @@ export type OffloadTaskResponse = {
   error?: string;
 };
 
+export type OffscreenCloseReason = "asr-idle" | "media-idle" | "light-idle" | "no-bilibili-tabs";
+
 // 工单 03：offscreen 文档自关闭的 SW 代执行（offscreen 无 chrome.offscreen，
 // 自关请求经 runtime 消息委托 SW）。仅接受 offscreen 文档本身的请求（名单项 =
 // 协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，SW 侧守卫消费后校验 sender.url / sender.tab）。
-export type OffscreenRequestCloseMessage = { type: "offscreen-request-close" };
+export type OffscreenRequestCloseMessage = {
+  type: "offscreen-request-close";
+  reason?: OffscreenCloseReason;
+  onlyIfNoBilibiliTabs?: boolean;
+};
 // 响应锚点：asr/offscreen-bridge.bg.ts handleOffscreenRequestClose——关闭成功
-// { ok: true }；拒绝（非 offscreen 发送者）或 closeDocument 抛错 { ok:false, error }。
-export type OffscreenRequestCloseResponse = { ok: boolean; error?: string };
+// { ok: true }；因存在 B 站标签页跳过关闭 { ok: true, closed: false }；
+// 拒绝（非 offscreen 发送者）或 closeDocument 抛错 { ok:false, error }。
+export type OffscreenRequestCloseResponse = { ok: boolean; closed?: boolean; error?: string };
 
 // 工单 03：offscreen 侧调试日志门（offscreen 无 chrome.storage，初始开关经
 // runtime 消息向 SW 读一次；变更由 SW 广播 DebugLogGateChangedBroadcast）。

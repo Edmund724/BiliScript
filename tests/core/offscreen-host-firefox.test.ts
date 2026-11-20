@@ -191,6 +191,28 @@ describe("Firefox Event Page 隐藏 iframe Offscreen 宿主", () => {
     await expect(nextEnsure).resolves.toBe(true);
   });
 
+  it("Firefox 串行队列：在途 close 后紧跟新 ensure 时可顺序重建隐藏 iframe 并完整摘除旧帧", async () => {
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    const firstEnsure = host.ensureOffscreenDocument();
+    const firstIframe = document.getElementById(OFFSCREEN_IFRAME_ID) as HTMLIFrameElement;
+    firstIframe.dispatchEvent(new Event("load"));
+    await expect(firstEnsure).resolves.toBe(true);
+
+    const closePromise = host.closeOffscreenDocument();
+    const rebuildPromise = host.ensureOffscreenDocument();
+
+    await expect(closePromise).resolves.toBeUndefined();
+    expect(firstIframe.src).toBe("about:blank");
+    expect(firstIframe.isConnected).toBe(false);
+
+    await vi.waitFor(() => expect(document.getElementById(OFFSCREEN_IFRAME_ID)).toBeInstanceOf(HTMLIFrameElement));
+    const rebuiltIframe = document.getElementById(OFFSCREEN_IFRAME_ID) as HTMLIFrameElement;
+    expect(rebuiltIframe).not.toBe(firstIframe);
+    rebuiltIframe.dispatchEvent(new Event("load"));
+    await expect(rebuildPromise).resolves.toBe(true);
+  });
+
   it("isOffscreenDocumentSender 放行无 tab 的 Firefox 扩展 offscreen 子帧并拒绝其他来源", async () => {
     const host = await import("../../extension/core/offscreen-host.js");
 

@@ -42,6 +42,7 @@ declare namespace chrome {
 
     interface Port {
       name: string;
+      sender?: MessageSender;
       postMessage(message: unknown): void;
       disconnect(): void;
       onMessage: {
@@ -137,6 +138,10 @@ declare namespace chrome {
       ): void;
     }
 
+    interface OnRemovedEvent {
+      addListener(listener: (tabId: number, removeInfo: { windowId?: number; isWindowClosing?: boolean }) => void): void;
+    }
+
     function get(tabId: number): Promise<Tab>;
     function query(queryInfo: { active?: boolean; currentWindow?: boolean; url?: string | string[] }): Promise<Tab[]>;
     function create(createProperties: CreateProperties): Promise<Tab>;
@@ -145,6 +150,7 @@ declare namespace chrome {
     function sendMessage(tabId: number, message: unknown, responseCallback?: (response: unknown) => void): void;
 
     const onUpdated: OnUpdatedEvent;
+    const onRemoved: OnRemovedEvent | undefined;
   }
 
   namespace alarms {

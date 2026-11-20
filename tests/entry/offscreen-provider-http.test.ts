@@ -10,6 +10,7 @@ import { resetModuleState } from "../setup.js";
 import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 import type { createAsrDecodeHandler } from "../../extension/entry/offscreen-asr.js";
 import type { captureAgentBridgeFrames } from "../../extension/agent-bridge/frame.js";
+import { DEFAULT_ASR_IDLE_GRACE_MS } from "../../extension/entry/offscreen-lifecycle.js";
 
 const { createAsrDecodeHandlerMock, captureAgentBridgeFramesMock } = vi.hoisted(() => ({
   createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>(),
@@ -177,23 +178,31 @@ describe("offscreen 概览代发端口", () => {
     expect(closeRequests()).toEqual([]);
   });
 
-  it("代发端口断开后，ASR 终态照常自关（既有行为不变）", async () => {
+  it("代发端口断开后，ASR 终态在短宽限窗口到期照常自关", async () => {
     armTerminalEcho();
     fetchMock.mockImplementation(() => new Promise(() => {}));
     await importOffscreen();
+    vi.useFakeTimers();
+    try {
+      const relay = makePort("provider-http-offscreen");
+      host.onConnectListeners[0](relay.port);
+      relay.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const relay = makePort("provider-http-offscreen");
-    host.onConnectListeners[0](relay.port);
-    relay.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      relay.fireDisconnect();
 
-    relay.fireDisconnect();
+      const asr = makePort("asr-decode");
+      host.onConnectListeners[0](asr.port);
+      asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
+      await vi.advanceTimersByTimeAsync(0);
 
-    const asr = makePort("asr-decode");
-    host.onConnectListeners[0](asr.port);
-    asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
-
-    await vi.waitFor(() => expect(closeRequests()).toHaveLength(1));
+      expect(closeRequests()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS);
+      expect(closeRequests()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("代发端口断连即 abort 在飞 fetch（挂起请求不留在文档里）", async () => {
@@ -221,7 +230,7 @@ describe("offscreen 概览代发端口", () => {
     ]);
   });
 
-  it("后台截帧在飞期间 ASR 终态不自关文档，截帧完成后才触发自关", async () => {
+  it("后台截帧在飞期间 ASR 终态不自关文档，截帧完成后在短宽限窗口到期才触发自关", async () => {
     armTerminalEcho();
     let resolveCapture!: (value: { bvid: string; cid: string; frames: [] }) => void;
     captureAgentBridgeFramesMock.mockImplementation(
@@ -230,25 +239,31 @@ describe("offscreen 概览代发端口", () => {
       })
     );
     await importOffscreen();
+    vi.useFakeTimers();
+    try {
+      const frameReply = vi.fn();
+      onMessageListeners.forEach((fn) =>
+        fn({ type: "agent-bridge-offscreen-frame", bvid: "BV1", cid: "1", targetTime: 5 }, {}, frameReply)
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(captureAgentBridgeFramesMock).toHaveBeenCalledTimes(1);
 
-    const frameReply = vi.fn();
-    onMessageListeners.forEach((fn) =>
-      fn({ type: "agent-bridge-offscreen-frame", bvid: "BV1", cid: "1", targetTime: 5 }, {}, frameReply)
-    );
-    await vi.waitFor(() => expect(captureAgentBridgeFramesMock).toHaveBeenCalledTimes(1));
+      const asr = makePort("asr-decode");
+      host.onConnectListeners[0](asr.port);
+      asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS * 2);
 
-    const asr = makePort("asr-decode");
-    host.onConnectListeners[0](asr.port);
-    asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
-    await Promise.resolve();
-    await Promise.resolve();
+      expect(closeRequests()).toEqual([]);
 
-    expect(closeRequests()).toEqual([]);
+      resolveCapture({ bvid: "BV1", cid: "1", frames: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(frameReply).toHaveBeenCalledWith({ ok: true, result: { bvid: "BV1", cid: "1", frames: [] } });
+      expect(closeRequests()).toEqual([]);
 
-    resolveCapture({ bvid: "BV1", cid: "1", frames: [] });
-    await vi.waitFor(() =>
-      expect(frameReply).toHaveBeenCalledWith({ ok: true, result: { bvid: "BV1", cid: "1", frames: [] } })
-    );
-    await vi.waitFor(() => expect(closeRequests()).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS);
+      expect(closeRequests()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

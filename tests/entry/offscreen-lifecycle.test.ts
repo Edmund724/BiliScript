@@ -1,10 +1,15 @@
-// createOffscreenLifetime (offscreen document lease tracking & ASR-terminal close arbitration) tests.
+// createOffscreenLifetime (offscreen document tiered idle reclaim & lease tracking) tests.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOffscreenLifetime,
+  DEFAULT_ASR_IDLE_GRACE_MS,
+  DEFAULT_LIGHT_IDLE_MS,
+  DEFAULT_LIGHT_TAB_CHECK_DELAY_MS,
+  DEFAULT_MEDIA_IDLE_GRACE_MS,
   shouldCloseAfterAsrTask,
-  type LifetimePort
+  type LifetimePort,
+  type OffscreenCloseRequest
 } from "../../extension/entry/offscreen-lifecycle.js";
 
 function makePort() {
@@ -24,14 +29,26 @@ function makePort() {
   };
 }
 
-function setup() {
-  const closeSelf = vi.fn();
-  return { closeSelf, lifetime: createOffscreenLifetime({ closeSelf }) };
+function setup(overrides?: Parameters<typeof createOffscreenLifetime>[0] extends infer O ? Partial<O> : never) {
+  const closeSelf = vi.fn<(request: OffscreenCloseRequest) => void>();
+  const lifetime = createOffscreenLifetime({
+    closeSelf,
+    ...overrides
+  });
+  return { closeSelf, lifetime };
 }
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const CHANNEL_SIZES = [0, 1, 2];
 
-describe("三条件穷举：只有活跃端口、其他解码端口与在飞任务全空才关文档", () => {
+describe("三条件穷举：只有活跃端口、其他解码端口与在飞任务全空才在 ASR 宽限后关文档", () => {
   const combos = CHANNEL_SIZES.flatMap((activePorts) =>
     CHANNEL_SIZES.map((otherAsrPorts) => ({ activePorts, otherAsrPorts }))
   );
@@ -47,171 +64,275 @@ describe("三条件穷举：只有活跃端口、其他解码端口与在飞任�
       lifetime.trackAsrPort(self.port);
       lifetime.noteAsrTerminal(self.port);
 
+      // ASR 宽限期内尚未关闭
+      vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 1);
+      expect(closeSelf).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
       const expectedClose = activePorts === 0 && otherAsrPorts === 0;
       expect(closeSelf).toHaveBeenCalledTimes(expectedClose ? 1 : 0);
+      if (expectedClose) {
+        expect(closeSelf).toHaveBeenCalledWith({ reason: "asr-idle" });
+      }
     }
   );
 });
 
-describe("通道释放：任一保留条件消失后，计数回到全空即关", () => {
-  it("活跃端口断连出集后再来终态 → 关", () => {
+describe("轻量通道（对话 / 概览代发）：长空闲兜底 + 关站校验", () => {
+  it("轻量端口归零后不立即关闭；短延迟发关站校验，彻底闲置满 10 分钟才无条件回收", () => {
     const { closeSelf, lifetime } = setup();
-    const port = makePort();
-    lifetime.trackPort(port.port);
-
-    const first = makePort();
-    lifetime.trackAsrPort(first.port);
-    lifetime.noteAsrTerminal(first.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    port.fireDisconnect();
-
-    const second = makePort();
-    lifetime.trackAsrPort(second.port);
-    lifetime.noteAsrTerminal(second.port);
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("其他解码端口逐个到达终态：最后一个才关", () => {
-    const { closeSelf, lifetime } = setup();
-    const other = makePort();
-    const self = makePort();
-    lifetime.trackAsrPort(other.port);
-    lifetime.trackAsrPort(self.port);
-
-    lifetime.noteAsrTerminal(self.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    lifetime.noteAsrTerminal(other.port);
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("自身的终态端口：判定前先移出集合，两种时序都正确", () => {
-  it("done/error 时序：端口还连着也关（自身端口不构成保留条件）", () => {
-    const { closeSelf, lifetime } = setup();
-    const self = makePort();
-    lifetime.trackAsrPort(self.port);
-
-    lifetime.noteAsrTerminal(self.port);
-
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("断连取消时序：端口已被断连监听移出，第二次 delete 幂等，仍关一次", () => {
-    const { closeSelf, lifetime } = setup();
-    const self = makePort();
-    lifetime.trackAsrPort(self.port);
-
-    self.fireDisconnect();
-    lifetime.noteAsrTerminal(self.port);
-
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("终态后端口才断连：出集幂等，不重复触发关闭判决", () => {
-    const { closeSelf, lifetime } = setup();
-    const self = makePort();
-    lifetime.trackAsrPort(self.port);
-
-    lifetime.noteAsrTerminal(self.port);
-    self.fireDisconnect();
-
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("withTask 非端口异步任务租约与自关竞态保护", () => {
-  it("任务在飞期间 ASR 终态不关闭文档；最后一个任务结束后补触发关闭", async () => {
-    const { closeSelf, lifetime } = setup();
-    let resolveTask1!: () => void;
-    let resolveTask2!: () => void;
-
-    const task1 = lifetime.withTask(() => new Promise<string>((resolve) => {
-      resolveTask1 = () => resolve("t1");
-    }));
-    const task2 = lifetime.withTask(() => new Promise<string>((resolve) => {
-      resolveTask2 = () => resolve("t2");
-    }));
-
-    const asr = makePort();
-    lifetime.trackAsrPort(asr.port);
-    lifetime.noteAsrTerminal(asr.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    resolveTask1();
-    await expect(task1).resolves.toBe("t1");
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    resolveTask2();
-    await expect(task2).resolves.toBe("t2");
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("任务抛错仍递减计数并执行待决自关，且原样透传错误", async () => {
-    const { closeSelf, lifetime } = setup();
-    let rejectTask!: (error: Error) => void;
-
-    const task = lifetime.withTask(() => new Promise<never>((_resolve, reject) => {
-      rejectTask = reject;
-    }));
-
-    const asr = makePort();
-    lifetime.trackAsrPort(asr.port);
-    lifetime.noteAsrTerminal(asr.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
-    rejectTask(new Error("frame capture timeout"));
-    await expect(task).rejects.toThrow("frame capture timeout");
-    expect(closeSelf).toHaveBeenCalledTimes(1);
-  });
-
-  it("无 ASR 终态待决时，withTask 结束不会自行关闭文档", async () => {
-    const { closeSelf, lifetime } = setup();
-    await expect(lifetime.withTask(async () => "done")).resolves.toBe("done");
-    expect(closeSelf).not.toHaveBeenCalled();
-  });
-
-  it("任务期间新连入常规端口或新 ASR 端口时，任务结束不再触发待决关闭", async () => {
-    const { closeSelf, lifetime } = setup();
-    let resolveTask!: () => void;
-
-    const task = lifetime.withTask(() => new Promise<void>((resolve) => {
-      resolveTask = resolve;
-    }));
-
-    const asr1 = makePort();
-    lifetime.trackAsrPort(asr1.port);
-    lifetime.noteAsrTerminal(asr1.port);
-    expect(closeSelf).not.toHaveBeenCalled();
-
     const chat = makePort();
     lifetime.trackPort(chat.port);
-
-    resolveTask();
-    await task;
-    expect(closeSelf).not.toHaveBeenCalled();
 
     chat.fireDisconnect();
     expect(closeSelf).not.toHaveBeenCalled();
 
-    let resolveTask2!: () => void;
-    const task2 = lifetime.withTask(() => new Promise<void>((resolve) => {
-      resolveTask2 = resolve;
-    }));
-    const asr2 = makePort();
-    lifetime.trackAsrPort(asr2.port);
-    lifetime.noteAsrTerminal(asr2.port);
-
-    const asr3 = makePort();
-    lifetime.trackAsrPort(asr3.port);
-
-    resolveTask2();
-    await task2;
+    // 1.5s 后请求 SW 校验是否仍有打开的 B 站标签页（若仍有标签页则 SW 跳过关闭）
+    vi.advanceTimersByTime(DEFAULT_LIGHT_TAB_CHECK_DELAY_MS - 1);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    lifetime.noteAsrTerminal(asr3.port);
+    vi.advanceTimersByTime(1);
     expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenLastCalledWith({
+      reason: "no-bilibili-tabs",
+      onlyIfNoBilibiliTabs: true
+    });
+
+    // 模拟 SW 因仍有 B 站标签页跳过关闭：刷视频 9 分钟内不再触发关闭
+    vi.advanceTimersByTime(DEFAULT_LIGHT_IDLE_MS - DEFAULT_LIGHT_TAB_CHECK_DELAY_MS - 1);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+
+    // 彻底闲置满 10 分钟：触发长空闲兜底无条件回收
+    vi.advanceTimersByTime(1);
+    expect(closeSelf).toHaveBeenCalledTimes(2);
+    expect(closeSelf).toHaveBeenLastCalledWith({ reason: "light-idle" });
+  });
+
+  it("轻量长空闲宽限期内新连接进入立即取消计时器，保证刷视频期间零冷启动", () => {
+    const { closeSelf, lifetime } = setup();
+    const chat1 = makePort();
+    lifetime.trackPort(chat1.port);
+    chat1.fireDisconnect();
+
+    // 9 分钟后再次打开对话
+    vi.advanceTimersByTime(9 * 60_000);
+    expect(closeSelf).toHaveBeenCalledTimes(1); // 仅 1.5s 时的一次条件校验
+    expect(closeSelf).toHaveBeenLastCalledWith({
+      reason: "no-bilibili-tabs",
+      onlyIfNoBilibiliTabs: true
+    });
+
+    const chat2 = makePort();
+    lifetime.trackPort(chat2.port);
+
+    // 持续连接超过原 10 分钟窗口，不会触发关闭
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+
+    // 新连接断开后重新计时 10 分钟
+    chat2.fireDisconnect();
+    vi.advanceTimersByTime(DEFAULT_LIGHT_IDLE_MS - 1);
+    expect(closeSelf).toHaveBeenCalledTimes(2); // 1.5s 条件校验
+
+    vi.advanceTimersByTime(1);
+    expect(closeSelf).toHaveBeenCalledTimes(3);
+    expect(closeSelf).toHaveBeenLastCalledWith({ reason: "light-idle" });
+  });
+
+  it("notifyAllBilibiliTabsClosed 在空闲时立即触发关站回收；有活跃端口或任务时忽略", async () => {
+    const { closeSelf, lifetime } = setup();
+    const chat = makePort();
+    lifetime.trackPort(chat.port);
+
+    // 活跃连接在飞时忽略关站通知
+    lifetime.notifyAllBilibiliTabsClosed();
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    // 断开后在短延迟前收到关站通知，立即触发且不再重复发短延迟校验
+    chat.fireDisconnect();
+    lifetime.notifyAllBilibiliTabsClosed();
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenLastCalledWith({
+      reason: "no-bilibili-tabs",
+      onlyIfNoBilibiliTabs: true
+    });
+
+    vi.advanceTimersByTime(DEFAULT_LIGHT_TAB_CHECK_DELAY_MS);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+
+    // 有在飞异步任务时同样忽略关站通知
+    let resolveTask!: () => void;
+    const task = lifetime.withTask(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        })
+    );
+    lifetime.notifyAllBilibiliTabsClosed();
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+
+    resolveTask();
+    await task;
+  });
+});
+
+describe("重型音视频通道（ASR / 实时伴看 / 视频截帧）：短宽限回收与打断恢复", () => {
+  it("ASR 终态后在 4s 宽限期满触发回收；终态后端口迟到断连不重置计时器", () => {
+    const { closeSelf, lifetime } = setup();
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+
+    lifetime.noteAsrTerminal(asr.port);
+    vi.advanceTimersByTime(2_000);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    // 终态后 2s 端口才断连：已移出集合，不得重置倒计时
+    asr.fireDisconnect();
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 2_000);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenCalledWith({ reason: "asr-idle" });
+  });
+
+  it("断连取消时序：ASR 端口先断连后 noteAsrTerminal，幂等且只回收一次", () => {
+    const { closeSelf, lifetime } = setup();
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+
+    asr.fireDisconnect();
+    lifetime.noteAsrTerminal(asr.port);
+
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenCalledWith({ reason: "asr-idle" });
+  });
+
+  it("实时伴看媒体端口（trackMediaPort）归零后采用 45s 短宽限回收", () => {
+    const { closeSelf, lifetime } = setup();
+    const live = makePort();
+    lifetime.trackMediaPort(live.port);
+
+    live.fireDisconnect();
+    vi.advanceTimersByTime(DEFAULT_MEDIA_IDLE_GRACE_MS - 1);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenCalledWith({ reason: "media-idle" });
+  });
+
+  it("视频截帧重型任务（withTask heavy:true）正常结束或抛错后均按 45s 短宽限回收", async () => {
+    const { closeSelf, lifetime } = setup();
+    await expect(lifetime.withTask(async () => "frames", { heavy: true })).resolves.toBe("frames");
+
+    vi.advanceTimersByTime(DEFAULT_MEDIA_IDLE_GRACE_MS - 1);
+    expect(closeSelf).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenLastCalledWith({ reason: "media-idle" });
+
+    // 抛错路径同样递减计数并按重型宽限回收，原样透传错误
+    const second = setup();
+    await expect(
+      second.lifetime.withTask(
+        async () => {
+          throw new Error("frame capture timeout");
+        },
+        { heavy: true }
+      )
+    ).rejects.toThrow("frame capture timeout");
+
+    vi.advanceTimersByTime(DEFAULT_MEDIA_IDLE_GRACE_MS);
+    expect(second.closeSelf).toHaveBeenCalledTimes(1);
+    expect(second.closeSelf).toHaveBeenCalledWith({ reason: "media-idle" });
+  });
+
+  it("重型宽限期内新连接或新任务进入立即取消关闭计时器；全部归零后仍按重型短窗口回收", async () => {
+    const { closeSelf, lifetime } = setup();
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+    lifetime.noteAsrTerminal(asr.port);
+
+    // 宽限期走到一半时进入新轻量对话连接：必须取消关闭计时器
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS / 2);
+    const chat = makePort();
+    lifetime.trackPort(chat.port);
+
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS * 2);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    // 对话断开归零后，因为本次会话使用过 ASR 高内存能力，仍按 ASR 短窗口回收
+    chat.fireDisconnect();
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 1);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    // 再次被异步任务打断
+    let resolveTask!: () => void;
+    const task = lifetime.withTask(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        })
+    );
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS * 2);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    resolveTask();
+    await task;
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenCalledWith({ reason: "asr-idle" });
+  });
+
+  it("多个任务与 ASR 并发在飞时，仅当全部任务和端口归零才启动宽限倒计时", async () => {
+    const { closeSelf, lifetime } = setup();
+    let resolveTask1!: () => void;
+    let resolveTask2!: () => void;
+
+    const task1 = lifetime.withTask(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveTask1 = () => resolve("t1");
+        }),
+      { heavy: true }
+    );
+    const task2 = lifetime.withTask(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveTask2 = () => resolve("t2");
+        }),
+      { heavy: true }
+    );
+
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+    lifetime.noteAsrTerminal(asr.port);
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS * 2);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    resolveTask1();
+    await expect(task1).resolves.toBe("t1");
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS * 2);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    resolveTask2();
+    await expect(task2).resolves.toBe("t2");
+    vi.advanceTimersByTime(DEFAULT_ASR_IDLE_GRACE_MS - 1);
+    expect(closeSelf).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(closeSelf).toHaveBeenCalledTimes(1);
+    expect(closeSelf).toHaveBeenCalledWith({ reason: "asr-idle" });
+  });
+
+  it("dispose 清理挂起计时器后不再触发关闭", () => {
+    const { closeSelf, lifetime } = setup();
+    const asr = makePort();
+    lifetime.trackAsrPort(asr.port);
+    lifetime.noteAsrTerminal(asr.port);
+
+    lifetime.dispose();
+    vi.advanceTimersByTime(DEFAULT_LIGHT_IDLE_MS);
+    expect(closeSelf).not.toHaveBeenCalled();
   });
 });
 

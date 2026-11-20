@@ -25,7 +25,7 @@
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { logWarn, registerDebugGate } from "../shared/logging.js";
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
-import { createOffscreenLifetime } from "./offscreen-lifecycle.js";
+import { createOffscreenLifetime, type OffscreenCloseRequest } from "./offscreen-lifecycle.js";
 import { ASR_DECODE_PORT_NAME, ASR_DECODE_ACTION, ASR_PROBE_ACTION, ASR_MSG_ERROR, ASR_MSG_PROBE_RESULT } from "../asr/protocol.js";
 // 候选5（多槽扩展）：聊天字幕体有界多槽缓存（纯逻辑在 ./offscreen-subtitle-slot.js，可测）。
 import { createSubtitleBodySlot } from "./offscreen-subtitle-slot.js";
@@ -53,8 +53,11 @@ registerDebugGate(() => debugGateEnabled);
 
 try {
   chrome.runtime.onMessage.addListener((rawMessage: unknown) => {
-    if ((rawMessage as { type?: unknown } | null)?.type === "debug-log-gate-changed") {
+    const type = (rawMessage as { type?: unknown } | null)?.type;
+    if (type === "debug-log-gate-changed") {
       debugGateEnabled = Boolean((rawMessage as { enabled?: unknown }).enabled);
+    } else if (type === "offscreen-bilibili-tabs-empty") {
+      lifetime.notifyAllBilibiliTabsClosed();
     }
     return false;
   });
@@ -65,14 +68,17 @@ try {
 chrome.runtime.onMessage?.addListener((rawMessage: unknown, _sender, sendResponse) => {
   if ((rawMessage as { type?: unknown } | null)?.type !== "agent-bridge-offscreen-frame") return false;
   const message = rawMessage as AgentBridgeOffscreenFrameMessage;
-  void lifetime.withTask(async () => {
-    try {
-      const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
-      sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
-    } catch (error) {
-      sendResponse({ ok: false, error: getErrorMessage(error) });
-    }
-  });
+  void lifetime.withTask(
+    async () => {
+      try {
+        const { captureAgentBridgeFrames } = await import("../agent-bridge/frame.js");
+        sendResponse({ ok: true, result: await captureAgentBridgeFrames(message) });
+      } catch (error) {
+        sendResponse({ ok: false, error: getErrorMessage(error) });
+      }
+    },
+    { heavy: true }
+  );
   return true;
 });
 
@@ -92,13 +98,12 @@ void (async () => {
 // 本文档生灭，文档被回收后发起侧 port 断连会重置其 lastAcked。
 const subtitleSlot = createSubtitleBodySlot();
 
-// 同一文档三通道（聊天 / asr-decode / 概览代发）的存活簿记与 asr 终态自关判决
-// 收口在 ./offscreen-lifecycle.js：端口入集出集、自身端口排除、三条件判定都在
-// 模块内；本文档只注入关闭动作（自关经 runtime 消息委托 SW 执行）。概览代发在飞
-// 时不得自关（回执通道会被吞掉）。
+// 同一文档多通道（轻量：聊天 / 概览代发；重型：ASR / 实时伴看 / 视频截帧）的
+// 存活簿记与分级空闲回收判决收口在 ./offscreen-lifecycle.js；本文档只注入关闭动作
+// （经 runtime 消息委托 SW 串行执行）。
 const lifetime = createOffscreenLifetime({
-  closeSelf: () => {
-    void requestSelfClose();
+  closeSelf: (request) => {
+    void requestSelfClose(request);
   }
 });
 
@@ -158,7 +163,7 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   if (port && port.name === MOSS_LIVE_PORT_NAME) {
-    lifetime.trackPort(port);
+    lifetime.trackMediaPort(port);
     attachMossLivePort(port, {
       loadClient: async (providerType) => {
         if (providerType === "gemini-live") {
@@ -228,9 +233,13 @@ async function dispatchAsrProbeTask(task: unknown, port: chrome.runtime.Port) {
 // （"message port closed" 类传输失败）——传输层失败不算关闭失败，静默即可；
 // SW 明确回 ok:false（非 offscreen 发送者被拒 / closeDocument 抛错）才记日志，
 // 与旧直调 closeDocument 的「异步失败仅记录」口径对齐。
-async function requestSelfClose(): Promise<void> {
+async function requestSelfClose(request: OffscreenCloseRequest): Promise<void> {
   try {
-    const resp = await sendRuntimeMessage({ type: "offscreen-request-close" });
+    const resp = await sendRuntimeMessage({
+      type: "offscreen-request-close",
+      reason: request.reason,
+      ...(request.onlyIfNoBilibiliTabs ? { onlyIfNoBilibiliTabs: true } : {})
+    });
     if (resp && !resp.ok) {
       logWarn("[BILISCRIPT] offscreen closeDocument after asr task failed", {
         error: resp.error || "offscreen-request-close 被拒绝"

@@ -33,15 +33,12 @@
 //（reader/overview.ts），首字节前的等待计时只提示、不中断。
 //
 // 派发确认（ADR-0010「不设超时」的射程外）：不设超时针对的是**平台慢**，不能用来
-// 兜**通道根本没被接管**——ASR 终态自关（entry/offscreen-lifecycle.ts 的
-// noteAsrTerminal 在聊天端口与在飞代发端口都为 0、无其他解码端口时关文档）与同一个 subtitle-ready 触发的概览请求
-// 撞车时，connect 出的端口可能落到 SW 的保活 onConnect 上（entry/background.ts 对
-// 不认识的端口名只 return、不 disconnect），于是既不回吐也不断连：面板永久停在
-// 「正在等待平台响应…（已等待 N 秒）」，取消成了唯一出口。故 offscreen 收到请求
-// 消息即回一条 { ok:true, accepted:true }，content 侧据「确认是否到达」区分「端口已
-// 被接管」与「端口没人服务」：没确认（或首条回吐前就断连）即断端口重连一次
-//（等待 DISPATCH_RETRY_DELAY_MS 给上一轮 closeDocument 收尾），仍不成才以可读错误
-// 上浮——概览落错误条带「重试」，不再无限挂着。
+// 兜**通道根本没被接管**——若 offscreen 文档在 connect 窗口内意外销毁或被扩展重载
+// 清理，connect 出的端口可能落到 SW 的 onConnect 上既不回吐也不断连，面板会永久停在
+// 「正在等待平台响应…」。故 offscreen 收到请求消息即回一条 { ok:true, accepted:true }，
+// content 侧据「确认是否到达」区分「端口已被接管」与「端口没人服务」：没确认或首条
+// 回吐前断连时直接走一次 SW 串行 ensure-offscreen-chat 重连兜底（SW 侧生命周期队列
+// 已消除关闭/重建竞态，无需盲等延迟），仍不成才以可读错误上浮。
 
 import { consumeRuntimeLastError, safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { checkHostPermissionViaBackground, extractOriginFromBaseUrl, HOST_PERMISSION_HINT } from "./host-permissions.js";
@@ -74,11 +71,8 @@ const DISPATCH_UNCLAIMED_MESSAGE = "代发通道无人接管（offscreen 文档�
 // 超过即判该端口没人服务（与「平台慢」无关，故不违背 ADR-0010 的不设超时）。
 const DISPATCH_ACK_TIMEOUT_MS = 2000;
 
-// 重连前的等待：给上一轮 offscreen 文档的 closeDocument 收尾留时间——撞车窗口里
-// ensure 的「文档已存在」判定（getContexts / createDocument 报已存在）会短暂说谎。
-const DISPATCH_RETRY_DELAY_MS = 400;
-
-// 派发尝试上限（首次 + 重连一次）：再多只是重复撞同一个竞态。
+// 派发尝试上限（首次 + 异常重连兜底一次）：SW 侧生命周期队列已串行化 ensure/close，
+// 无需盲等 sleep；仅在文档意外崩溃或重载导致首条回吐前未接管时立即重新 ensure 一次。
 const DISPATCH_MAX_ATTEMPTS = 2;
 
 // 派发失败标记（house style 类型化标记，消费方查标记分流）：两种都发生在「首条
@@ -100,26 +94,6 @@ function makeDisconnectedPortError(): Error & { portDisconnected: true } {
 function isRetryableDispatchFailure(error: unknown): boolean {
   const marked = error as { dispatchUnclaimed?: unknown; portDisconnected?: unknown } | null;
   return Boolean(marked?.dispatchUnclaimed || marked?.portDisconnected);
-}
-
-// 重连前的等待：可被中止打断（取消不该等满延迟），到点或中止都兑现。
-function sleepBeforeDispatchRetry(signal?: AbortSignal | null): Promise<void> {
-  return new Promise<void>((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const finish = (): void => {
-      if (timer !== null) {
-        clearTimeout(timer);
-      }
-      signal?.removeEventListener("abort", finish);
-      resolve();
-    };
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    timer = setTimeout(finish, DISPATCH_RETRY_DELAY_MS);
-    signal?.addEventListener("abort", finish, { once: true });
-  });
 }
 
 // ===== 发送端（content script 域）：fetch 兼容实现 =====
@@ -167,7 +141,6 @@ async function providerFetchViaOffscreenImpl(
       if (attempt >= DISPATCH_MAX_ATTEMPTS || !isRetryableDispatchFailure(error) || isRequestAborted(init?.signal)) {
         throw error;
       }
-      await sleepBeforeDispatchRetry(init?.signal);
     }
   }
 }

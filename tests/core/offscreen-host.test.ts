@@ -209,6 +209,148 @@ describe("closeOffscreenDocument 与 sender 校验", () => {
   });
 });
 
+describe("SW 侧串行生命周期队列与关闭代际号", () => {
+  it("close 执行中并发 ensure：严格等 closeDocument 完成后才检测并重建文档（无撞车）", async () => {
+    let hasDocument = true;
+    const events: string[] = [];
+    let finishClose!: () => void;
+
+    stubHostEnv();
+    chrome.runtime.getContexts = vi.fn(async () => {
+      events.push("getContexts");
+      return hasDocument ? [{ contextType: "OFFSCREEN_DOCUMENT" }] : [];
+    });
+    chrome.offscreen = {
+      closeDocument: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            events.push("close:start");
+            finishClose = () => {
+              hasDocument = false;
+              events.push("close:end");
+              resolve();
+            };
+          })
+      ),
+      createDocument: vi.fn(async () => {
+        events.push("createDocument");
+        hasDocument = true;
+      })
+    };
+
+    const host = await import("../../extension/core/offscreen-host.js");
+    const closePromise = host.closeOffscreenDocument();
+    const ensurePromise = host.ensureOffscreenDocument();
+
+    // close 尚未完成前，ensure 不得提前触碰 getContexts 或 createDocument
+    await Promise.resolve();
+    expect(events).toEqual(["close:start"]);
+
+    finishClose();
+    await expect(closePromise).resolves.toBeUndefined();
+    await expect(ensurePromise).resolves.toBe(true);
+    expect(events).toEqual(["close:start", "close:end", "getContexts", "createDocument"]);
+  });
+
+  it("队列中存在等待中的 ensure 时，排队的 close 检测到更新代际号直接跳过关闭并复用现有文档", async () => {
+    let hasDocument = false;
+    let finishFirstCreate!: () => void;
+
+    stubHostEnv();
+    chrome.runtime.getContexts = vi.fn(async () => (hasDocument ? [{ contextType: "OFFSCREEN_DOCUMENT" }] : []));
+    const closeDocument = vi.fn(async () => {
+      hasDocument = false;
+    });
+    const createDocument = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishFirstCreate = () => {
+            hasDocument = true;
+            resolve();
+          };
+        })
+    );
+    chrome.offscreen = { createDocument, closeDocument };
+
+    const host = await import("../../extension/core/offscreen-host.js");
+    const firstEnsure = host.ensureOffscreenDocument();
+    await vi.waitFor(() => expect(createDocument).toHaveBeenCalledTimes(1));
+
+    // ensure1 在飞期间依次入队 close 与 ensure2
+    const closeResult = host.tryCloseOffscreenDocument();
+    const secondEnsure = host.ensureOffscreenDocument();
+
+    finishFirstCreate();
+    await expect(firstEnsure).resolves.toBe(true);
+    await expect(closeResult).resolves.toBe(false);
+    await expect(secondEnsure).resolves.toBe(true);
+
+    // 关闭被跳过，现有文档直接复用，零重复创建
+    expect(closeDocument).not.toHaveBeenCalled();
+    expect(createDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("并发多次 ensure 单飞合并，仅触发一次 createDocument", async () => {
+    let finishCreate!: () => void;
+    stubHostEnv({ contexts: [] });
+    const createDocument = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCreate = resolve;
+        })
+    );
+    chrome.offscreen = { createDocument, closeDocument: vi.fn(async () => {}) };
+
+    const host = await import("../../extension/core/offscreen-host.js");
+    const p1 = host.ensureOffscreenDocument();
+    const p2 = host.ensureOffscreenDocument();
+    const p3 = host.ensureOffscreenDocument();
+
+    await vi.waitFor(() => expect(createDocument).toHaveBeenCalledTimes(1));
+    finishCreate();
+    await expect(Promise.all([p1, p2, p3])).resolves.toEqual([true, true, true]);
+    expect(createDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("队头 close 抛错不影响后续排队的 ensure 正常执行", async () => {
+    let rejectClose!: (error: Error) => void;
+    stubHostEnv({ contexts: [] });
+    const createDocument = vi.fn(async () => {});
+    const closeDocument = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectClose = reject;
+        })
+    );
+    chrome.offscreen = { createDocument, closeDocument };
+
+    const host = await import("../../extension/core/offscreen-host.js");
+    const closePromise = host.closeOffscreenDocument();
+    const ensurePromise = host.ensureOffscreenDocument();
+
+    rejectClose(new Error("No current offscreen document"));
+    await expect(closePromise).rejects.toThrow("No current offscreen document");
+    await expect(ensurePromise).resolves.toBe(true);
+    expect(createDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("hasOpenBilibiliTabs 按 *://*.bilibili.com/* 查询；异常时保守返回 true", async () => {
+    stubHostEnv();
+    const query = vi.fn(async () => [{ id: 1 }]);
+    (chrome.tabs as unknown as { query: typeof query }).query = query;
+    const host = await import("../../extension/core/offscreen-host.js");
+
+    await expect(host.hasOpenBilibiliTabs()).resolves.toBe(true);
+    expect(query).toHaveBeenCalledWith({ url: host.BILIBILI_TAB_URL_PATTERN });
+
+    query.mockResolvedValueOnce([]);
+    await expect(host.hasOpenBilibiliTabs()).resolves.toBe(false);
+
+    query.mockRejectedValueOnce(new Error("tabs unavailable"));
+    await expect(host.hasOpenBilibiliTabs()).resolves.toBe(true);
+  });
+});
+
 describe("B 站媒体防盗链 DNR 会话规则生命周期", () => {
   it("audio-xhr 与 video-media 分别写入对应规则并在 release 时校验归属", async () => {
     const { ruleStore } = stubHostEnv({ contexts: [{ contextType: "OFFSCREEN_DOCUMENT" }] });

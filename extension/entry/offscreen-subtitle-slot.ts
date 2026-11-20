@@ -8,6 +8,9 @@
 // 槽缺失或已被淘汰时回「字幕体缺失」错误让发起侧重发全文，不做跨 key 猜测式
 // 兜底——宁可一次显式失败，不把上一个视频的字幕体接进当前追问。
 //
+// 容量受三条互补上限约束：条数（maxEntries）、总字符数（maxTotalChars）与
+// 近似堆内存字节数（maxTotalBytes，默认 16 MB），避免超长视频字幕常驻堆内存。
+//
 // 纯逻辑放独立模块：entry/offscreen.ts 顶层挂满 chrome 事件监听，不可在
 // Node 测试环境导入（与 offscreen-lifecycle.ts 同一套拆分手法，可测）。
 
@@ -41,10 +44,15 @@ export type SettleResult = SettleOk | SettleError;
 export interface SubtitleBodySlotOptions {
   maxEntries?: number;
   maxTotalChars?: number;
+  maxTotalBytes?: number;
 }
 
 export const DEFAULT_MAX_SUBTITLE_SLOTS = 8;
 export const DEFAULT_MAX_SUBTITLE_SLOT_CHARS = 2_000_000;
+export const DEFAULT_MAX_SUBTITLE_SLOT_BYTES = 16 * 1024 * 1024;
+
+// 每条字幕对象的近似堆开销（对象头 + from/to 两数字槽 + content 字符串引用）
+export const SUBTITLE_ITEM_OVERHEAD_BYTES = 64;
 
 // 槽缺失/被淘汰时回给发起侧的错误文案与类型化 code：发起侧据 code 重置
 // lastAckedContextKey（下一条消息重发全文），文案仅用于展示。
@@ -54,22 +62,31 @@ export const SUBTITLE_BODY_MISSING_CODE = "subtitle-body-missing";
 interface SlotEntry {
   subtitleBody: SubtitleBody;
   chars: number;
+  bytes: number;
 }
 
-function countSubtitleBodyChars(body: unknown): number {
+function measureSubtitleBody(body: unknown): { chars: number; bytes: number } {
   if (!Array.isArray(body)) {
-    return 0;
+    return { chars: 0, bytes: 0 };
   }
-  let total = 0;
+  let chars = 0;
+  let bytes = 0;
   for (const item of body) {
-    total += String((item as { content?: unknown } | null)?.content ?? "").length;
+    const contentLength = String((item as { content?: unknown } | null)?.content ?? "").length;
+    chars += contentLength;
+    bytes += SUBTITLE_ITEM_OVERHEAD_BYTES + contentLength * 2;
   }
-  return total;
+  return { chars, bytes };
+}
+
+/** 估算字幕体在 JS 堆中的近似字节占用（UTF-16 字符串 2 字节/code unit + 单条对象开销）。 */
+export function estimateSubtitleBodyBytes(body: unknown): number {
+  return measureSubtitleBody(body).bytes;
 }
 
 /**
- * 创建有界多槽 LRU 缓存。按 contextKey 索引保存多份字幕体，超出条数或字符软上限时
- * 淘汰最久未使用的条目（单条超大时至少保底保留当次刚写入的这一条）。
+ * 创建有界多槽 LRU 缓存。按 contextKey 索引保存多份字幕体，超出条数、字符或近似字节
+ * 上限时淘汰最久未使用的条目（单条超大时至少保底保留当次刚写入的这一条）。
  * settle(msg) 处理一条 chat 消息的字幕体，返回：
  *   - { ok: true, contextKey }：字幕体已就绪（消息自带 → 登记/刷新至 LRU 队尾；
  *     消息未带 → 命中缓存后刷新至队尾并补写进 msg.context.subtitleBody）。
@@ -86,9 +103,14 @@ export function createSubtitleBodySlot(
   const maxTotalChars = Number.isFinite(rawMaxTotalChars)
     ? Math.max(0, rawMaxTotalChars)
     : DEFAULT_MAX_SUBTITLE_SLOT_CHARS;
+  const rawMaxTotalBytes = Number(options.maxTotalBytes);
+  const maxTotalBytes = Number.isFinite(rawMaxTotalBytes)
+    ? Math.max(0, rawMaxTotalBytes)
+    : DEFAULT_MAX_SUBTITLE_SLOT_BYTES;
 
   const slots = new Map<string, SlotEntry>();
   let totalChars = 0;
+  let totalBytes = 0;
 
   function settle(msg: ChatMessage): SettleResult {
     const context = msg?.context && typeof msg.context === "object" ? msg.context : null;
@@ -101,18 +123,24 @@ export function createSubtitleBodySlot(
     // 用 !== undefined 判"是否携带"而非 Array.isArray：空数组也是有效携带，
     // 非视频上下文的 subtitleBody: [] 同样需要走一遍槽登记。
     if (context.subtitleBody !== undefined) {
-      const chars = countSubtitleBodyChars(context.subtitleBody);
+      const { chars, bytes } = measureSubtitleBody(context.subtitleBody);
       const existing = slots.get(contextKey);
       if (existing) {
         totalChars -= existing.chars;
+        totalBytes -= existing.bytes;
         slots.delete(contextKey);
       }
       slots.set(contextKey, {
         subtitleBody: context.subtitleBody as SubtitleBody,
-        chars
+        chars,
+        bytes
       });
       totalChars += chars;
-      while (slots.size > maxEntries || (slots.size > 1 && totalChars > maxTotalChars)) {
+      totalBytes += bytes;
+      while (
+        slots.size > maxEntries ||
+        (slots.size > 1 && (totalChars > maxTotalChars || totalBytes > maxTotalBytes))
+      ) {
         const oldestKey = slots.keys().next().value;
         if (oldestKey === undefined) {
           break;
@@ -121,6 +149,7 @@ export function createSubtitleBodySlot(
         slots.delete(oldestKey);
         if (oldest) {
           totalChars -= oldest.chars;
+          totalBytes -= oldest.bytes;
         }
       }
       return { ok: true, contextKey };

@@ -5,8 +5,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createHostPermissionHandlers,
+  PERMISSION_GRANT_KEEPALIVE_PORT_NAME,
   PERMISSION_GRANT_POPUP_TIMEOUT_MS,
-  type HostPermissionHostAdapter
+  type HostPermissionHostAdapter,
+  type PermissionGrantKeepalivePort
 } from "../../extension/core/host-permission-handlers.js";
 import { parsePermissionGrantParams } from "../../extension/core/host-permissions.js";
 import type {
@@ -383,5 +385,70 @@ describe("check-provider-origin 与 revoke-provider-origin", () => {
     });
     expect(h.containsMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
     expect(h.removeMock).toHaveBeenCalledWith({ origins: ["http://localhost/*"] });
+  });
+});
+
+describe("Firefox 授权小窗 keepalive 端口接管与清理", () => {
+  function makeKeepalivePort(name: string, sender?: MessageSender) {
+    const listeners = new Set<() => void>();
+    const disconnect = vi.fn();
+    const removeListener = vi.fn((fn: () => void) => {
+      listeners.delete(fn);
+    });
+    const addListener = vi.fn((fn: () => void) => {
+      listeners.add(fn);
+    });
+    const port: PermissionGrantKeepalivePort = {
+      name,
+      sender,
+      disconnect,
+      onDisconnect: { addListener, removeListener }
+    };
+    return {
+      port,
+      disconnect,
+      addListener,
+      removeListener,
+      listeners,
+      fireDisconnect: () => {
+        [...listeners].forEach((fn) => fn());
+      }
+    };
+  }
+
+  it("合法授权页连入 permission-grant-keepalive 被接管持有，端口断开后释放引用与监听", () => {
+    const h = createHarness();
+    const validPort = makeKeepalivePort(PERMISSION_GRANT_KEEPALIVE_PORT_NAME, {
+      id: RUNTIME_ID,
+      url: `${RUNTIME_BASE}entry/permission-grant.html?reqId=r1`
+    });
+
+    expect(h.handlers.attachKeepalivePort(validPort.port)).toBe(true);
+    expect(h.handlers.getActiveKeepalivePortCount()).toBe(1);
+    expect(validPort.addListener).toHaveBeenCalledTimes(1);
+    expect(validPort.disconnect).not.toHaveBeenCalled();
+
+    validPort.fireDisconnect();
+    expect(h.handlers.getActiveKeepalivePortCount()).toBe(0);
+    expect(validPort.removeListener).toHaveBeenCalledTimes(1);
+    expect(validPort.listeners.size).toBe(0);
+  });
+
+  it("非同名端口不认领（返回 false）；非授权页伪造同名端口主动断开拒绝", () => {
+    const h = createHarness();
+    const otherPort = makeKeepalivePort("other-port", {
+      id: RUNTIME_ID,
+      url: `${RUNTIME_BASE}entry/permission-grant.html`
+    });
+    expect(h.handlers.attachKeepalivePort(otherPort.port)).toBe(false);
+    expect(h.handlers.getActiveKeepalivePortCount()).toBe(0);
+
+    const forgedPort = makeKeepalivePort(PERMISSION_GRANT_KEEPALIVE_PORT_NAME, {
+      id: RUNTIME_ID,
+      url: CONTENT_SENDER.url
+    });
+    expect(h.handlers.attachKeepalivePort(forgedPort.port)).toBe(true);
+    expect(forgedPort.disconnect).toHaveBeenCalledTimes(1);
+    expect(h.handlers.getActiveKeepalivePortCount()).toBe(0);
   });
 });

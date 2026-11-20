@@ -375,7 +375,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     await expect(reader.read()).rejects.toThrow("请求已中止");
   });
 
-  it("首条回吐前断连 → 重连一次（文档刚被回收时自愈）", async () => {
+  it("首条回吐前断连 → 无盲等延迟直接重新 ensure 并重连一次（文档异常回收时自愈）", async () => {
     vi.useFakeTimers();
     try {
       const { providerFetchViaOffscreen } = await loadModule();
@@ -384,10 +384,10 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       await flushAsync();
       lastPort!.fireDisconnect();
 
-      await flushAsync();
-      await vi.advanceTimersByTimeAsync(400); // 重连前的等待
+      // 无需推进 400ms 盲等计时器，下一轮 ensure + connect 立即发起
       await flushAsync();
       expect(connected).toHaveLength(2);
+      expect(ensureCalls).toBe(2);
 
       lastPort!.send({ ok: true, accepted: true });
       lastPort!.send({ ok: true, status: 200 });
@@ -409,8 +409,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       await flushAsync();
       lastPort!.fireDisconnect();
 
-      await flushAsync();
-      await vi.advanceTimersByTimeAsync(400);
       await flushAsync();
       expect(connected).toHaveLength(2);
       lastPort!.fireDisconnect();
@@ -508,7 +506,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     }
   });
 
-  it("端口未被接管（无 ack、不断连）→ 确认超时后重连一次，第二次被接管即成功", async () => {
+  it("端口未被接管（无 ack、不断连）→ 确认超时后无盲等直接重连一次，第二次被接管即成功", async () => {
     vi.useFakeTimers();
     try {
       const { providerFetchViaOffscreen } = await loadModule();
@@ -519,10 +517,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
 
       await vi.advanceTimersByTimeAsync(2000); // 确认超时：判死并断掉悬挂端口
       expect(stray.disconnectMock).toHaveBeenCalledTimes(1);
-      expect(connected).toHaveLength(1);
 
-      await flushAsync();
-      await vi.advanceTimersByTimeAsync(400); // 重连前的等待（给 closeDocument 收尾）
       await flushAsync();
       expect(connected).toHaveLength(2);
 
@@ -548,8 +543,6 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
 
       await vi.advanceTimersByTimeAsync(2000);
       await flushAsync();
-      await vi.advanceTimersByTimeAsync(400);
-      await flushAsync();
       expect(connected).toHaveLength(2);
       const second = lastPort!;
 
@@ -565,9 +558,35 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     }
   });
 
-  it("重试等待期间中止 → AbortError，不再重连", async () => {
+  it("重连阶段 ensure 等待期间中止 → AbortError，不再发起第二次连接", async () => {
     vi.useFakeTimers();
     try {
+      let resolveSecondEnsure!: () => void;
+      let ensureAttempt = 0;
+      stubChrome({
+        runtime: {
+          ...globalThis.chrome.runtime,
+          sendMessage: vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
+            sentRuntimeMessages.push(message);
+            const type = (message as { type?: string })?.type;
+            if (type === "check-provider-origin") {
+              callback?.({ granted: true });
+              return undefined;
+            }
+            if (type === "ensure-offscreen-chat") {
+              ensureCalls += 1;
+              ensureAttempt += 1;
+              if (ensureAttempt === 2) {
+                resolveSecondEnsure = () => callback?.({ ok: true, ensured: true });
+                return undefined;
+              }
+            }
+            callback?.({ ok: true, ensured: true });
+            return undefined;
+          })
+        }
+      });
+
       const { providerFetchViaOffscreen } = await loadModule();
       const controller = new AbortController();
 
@@ -578,8 +597,10 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       const settled = rejectionOf(pending);
       await flushAsync();
 
-      await vi.advanceTimersByTimeAsync(2000); // 第一次未被接管
+      await vi.advanceTimersByTimeAsync(2000); // 第一次未被接管，进入第二次 ensure
+      await flushAsync();
       controller.abort();
+      resolveSecondEnsure();
 
       expect((await settled).name).toBe("AbortError");
       expect(connected).toHaveLength(1);

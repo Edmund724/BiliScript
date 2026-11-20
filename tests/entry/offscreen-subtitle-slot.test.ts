@@ -8,8 +8,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_MAX_SUBTITLE_SLOT_BYTES,
+  estimateSubtitleBodyBytes,
   SUBTITLE_BODY_MISSING_CODE,
   SUBTITLE_BODY_MISSING_MESSAGE,
+  SUBTITLE_ITEM_OVERHEAD_BYTES,
   createSubtitleBodySlot,
   type ChatMessage,
   type SettleResult
@@ -159,5 +162,53 @@ describe("createSubtitleBodySlot", () => {
 
     expect(result.ok).toBe(true);
     expect(followup.context!.subtitleBody).toEqual([]);
+  });
+
+  it("默认字节上限为 16 MB，超过 maxTotalBytes 时按 LRU 淘汰并保底保留当次超大条目", () => {
+    expect(DEFAULT_MAX_SUBTITLE_SLOT_BYTES).toBe(16 * 1024 * 1024);
+
+    // 字符数很少但条目数多，靠单条对象开销触发 maxTotalBytes 淘汰（远未达到 maxTotalChars）
+    const bodyA = Array.from({ length: 4 }, (_, i) => ({ from: i, to: i + 1, content: "a" }));
+    const bodyB = Array.from({ length: 4 }, (_, i) => ({ from: i, to: i + 1, content: "b" }));
+    const bodyHuge = Array.from({ length: 10 }, (_, i) => ({ from: i, to: i + 1, content: "x" }));
+    const singleBytes = 4 * (SUBTITLE_ITEM_OVERHEAD_BYTES + 2);
+    expect(estimateSubtitleBodyBytes(bodyA)).toBe(singleBytes);
+
+    const slot = createSubtitleBodySlot({
+      maxEntries: 8,
+      maxTotalChars: 100_000,
+      maxTotalBytes: singleBytes + 10
+    });
+
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyA } });
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
+
+    // A + B 超过 maxTotalBytes → 淘汰 A，保留 B
+    expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(false);
+    const hitB: ChatMessage = { action: "chat", contextKey: "video:B|2", context: {} };
+    expect(slot.settle(hitB).ok).toBe(true);
+    expect(hitB.context!.subtitleBody).toBe(bodyB);
+
+    // 单条超过上限 → 淘汰 B，保底保留自身
+    slot.settle({ action: "chat", contextKey: "video:HUGE|3", context: { subtitleBody: bodyHuge } });
+    expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(false);
+    const hitHuge: ChatMessage = { action: "chat", contextKey: "video:HUGE|3", context: {} };
+    expect(slot.settle(hitHuge).ok).toBe(true);
+    expect(hitHuge.context!.subtitleBody).toBe(bodyHuge);
+  });
+
+  it("同 key 覆盖写入时扣减旧字节数，不触发误淘汰", () => {
+    const bodyALarge = Array.from({ length: 4 }, (_, i) => ({ from: i, to: i + 1, content: "12345" }));
+    const bodyASmall = [{ from: 0, to: 1, content: "1" }];
+    const bodyB = [{ from: 0, to: 1, content: "2" }];
+    const maxTotalBytes = estimateSubtitleBodyBytes(bodyASmall) + estimateSubtitleBodyBytes(bodyB);
+
+    const slot = createSubtitleBodySlot({ maxTotalBytes });
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyALarge } });
+    slot.settle({ action: "chat", contextKey: "video:A|1", context: { subtitleBody: bodyASmall } });
+    slot.settle({ action: "chat", contextKey: "video:B|2", context: { subtitleBody: bodyB } });
+
+    expect(slot.settle({ action: "chat", contextKey: "video:A|1", context: {} }).ok).toBe(true);
+    expect(slot.settle({ action: "chat", contextKey: "video:B|2", context: {} }).ok).toBe(true);
   });
 });

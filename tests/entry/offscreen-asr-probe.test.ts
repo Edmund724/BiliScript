@@ -225,11 +225,19 @@ describe("探针走真链路：本地校验与端口簿记", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("探针终态照走端口簿记：回执发完后触发文档自关判定", async () => {
-    await loadOffscreen();
+  it("探针终态照走端口簿记：回执发完后在短宽限窗口到期触发文档自关判定", async () => {
+    vi.useFakeTimers();
+    try {
+      await loadOffscreen();
+      const { DEFAULT_ASR_IDLE_GRACE_MS } = await import("../../extension/entry/offscreen-lifecycle.js");
 
-    await runProbe();
+      await runProbe();
+      expect(messages).not.toContain("offscreen-request-close");
 
-    expect(messages).toContain("offscreen-request-close");
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS);
+      expect(messages).toContain("offscreen-request-close");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

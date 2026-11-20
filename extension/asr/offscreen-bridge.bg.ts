@@ -5,12 +5,18 @@ import {
   BILI_MEDIA_ORIGIN_PAGE,
   OFFSCREEN_SENDER_REJECTION_MESSAGE,
   acquireBiliMediaSessionRule,
-  closeOffscreenDocument,
+  hasOpenBilibiliTabs,
   isOffscreenDocumentSender,
   reapAllBiliMediaSessionRules,
-  releaseBiliMediaSessionRule
+  releaseBiliMediaSessionRule,
+  tryCloseOffscreenDocument
 } from "../core/offscreen-host.js";
-import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
+import type {
+  MessageSender,
+  OffloadTaskResponse,
+  OffscreenRequestCloseMessage,
+  OffscreenRequestCloseResponse
+} from "../shared/messaging-protocol.js";
 import {
   ASR_AUDIO_SESSION_RULE_ID_BASE,
   ASR_AUDIO_SESSION_RULE_ID_MAX,
@@ -92,7 +98,7 @@ export async function handleAsrDecodeCleanup(
 
 /** Executes offscreen document self-close on behalf of verified offscreen senders. */
 export async function handleOffscreenRequestClose(
-  _message: unknown,
+  message: unknown,
   sender: MessageSender,
   sendResponse: (response: OffscreenRequestCloseResponse) => void
 ): Promise<void> {
@@ -100,9 +106,14 @@ export async function handleOffscreenRequestClose(
     sendResponse({ ok: false, error: OFFSCREEN_SENDER_REJECTION_MESSAGE });
     return;
   }
+  const request = message as Partial<OffscreenRequestCloseMessage> | null | undefined;
   try {
-    await closeOffscreenDocument();
-    sendResponse({ ok: true });
+    if (request?.onlyIfNoBilibiliTabs && (await hasOpenBilibiliTabs())) {
+      sendResponse({ ok: true, closed: false });
+      return;
+    }
+    const closed = await tryCloseOffscreenDocument();
+    sendResponse(closed ? { ok: true } : { ok: true, closed: false });
   } catch (error) {
     sendResponse({ ok: false, error: toErrorText(error) });
   }

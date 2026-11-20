@@ -2,14 +2,15 @@ import type { Settings } from "../core/defaults.js";
 import {
   formatPermissionRequestError,
   parsePermissionGrantParams,
+  PERMISSION_GRANT_KEEPALIVE_PORT_NAME,
   PERMISSION_GRANT_PAGE_PATH,
   permissionDeniedErrorMessage,
   type PermissionGrantParams
 } from "../core/host-permissions.js";
 import { normalizeReaderPalette, normalizeReaderTheme } from "../core/validators.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
+import { consumeRuntimeLastError, sendRuntimeMessage } from "../shared/messaging.js";
 
-export { parsePermissionGrantParams, type PermissionGrantParams };
+export { parsePermissionGrantParams, PERMISSION_GRANT_KEEPALIVE_PORT_NAME, type PermissionGrantParams };
 
 export const PERMISSION_GRANT_WAITING_BUTTON_TEXT = "等待浏览器确认…";
 export const PERMISSION_GRANT_WAITING_STATUS_TEXT = "请在浏览器弹出的权限提示中点击允许…";
@@ -65,6 +66,43 @@ export function syncPermissionGrantAppearance(doc: Document = document): void {
   });
 }
 
+function openPermissionGrantKeepalivePort(): { disconnect: () => void } | null {
+  const connect = globalThis.chrome?.runtime?.connect;
+  if (typeof connect !== "function") {
+    return null;
+  }
+  let port: chrome.runtime.Port;
+  try {
+    port = connect.call(globalThis.chrome.runtime, { name: PERMISSION_GRANT_KEEPALIVE_PORT_NAME });
+  } catch {
+    return null;
+  }
+  if (!port || typeof port.disconnect !== "function") {
+    return null;
+  }
+  let disconnected = false;
+  const onDisconnect = () => {
+    consumeRuntimeLastError();
+    disconnected = true;
+    port.onDisconnect?.removeListener?.(onDisconnect);
+  };
+  port.onDisconnect?.addListener?.(onDisconnect);
+  return {
+    disconnect() {
+      if (disconnected) {
+        return;
+      }
+      disconnected = true;
+      port.onDisconnect?.removeListener?.(onDisconnect);
+      try {
+        port.disconnect();
+      } catch {
+        // Ignore errors when the port is already disconnected.
+      }
+    }
+  };
+}
+
 export function initPermissionGrantPage(search = globalThis.location?.search ?? ""): void {
   syncPermissionGrantAppearance(document);
 
@@ -87,6 +125,17 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
   allowBtn.disabled = !reqId || origins.length === 0;
   cancelBtn.disabled = false;
 
+  // Keep the Firefox Event Page awake for the full popup window lifetime so pendingPermissionGrants
+  // stays resident across the 120s authorization window.
+  const keepalivePort = reqId ? openPermissionGrantKeepalivePort() : null;
+  const releaseKeepalive = (): void => {
+    keepalivePort?.disconnect();
+  };
+  if (keepalivePort && typeof window !== "undefined") {
+    window.addEventListener("pagehide", releaseKeepalive, { once: true });
+    window.addEventListener("beforeunload", releaseKeepalive, { once: true });
+  }
+
   let settled = false;
 
   const replyAndClose = async (ok: boolean, error?: string): Promise<void> => {
@@ -97,6 +146,7 @@ export function initPermissionGrantPage(search = globalThis.location?.search ?? 
         // Ignore send errors when background has timed out or closed.
       }
     }
+    releaseKeepalive();
     window.close();
   };
 

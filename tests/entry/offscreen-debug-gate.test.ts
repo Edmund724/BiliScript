@@ -228,10 +228,12 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
   });
 });
 
+import { DEFAULT_ASR_IDLE_GRACE_MS } from "../../extension/entry/offscreen-lifecycle.js";
+
 describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 消息", () => {
   function armTerminalEcho() {
     // 任务执行器立即回终态：触发 lifetime.noteAsrTerminal（端口已入集、
-    // 无聊天端口 → 应自关）
+    // 无聊天端口 → 在 ASR 短宽限窗口后应自关）
     createAsrDecodeHandlerMock.mockImplementation(({ onTaskTerminal }) => {
       return async (_task, port) => {
         onTaskTerminal(port);
@@ -239,55 +241,64 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
     });
   }
 
-  it("终态后向 SW 发 offscreen-request-close；SW 回 ok:true 不告警", async () => {
-    armTerminalEcho();
-    // 原 impl 只答 offscreen-request-close；加载期的 get-debug-log-gate 无实质回包
-    //（宿主以回 undefined 表达「无应答」，与真实 MV3 同形）
-    await importOffscreen({
-      replies: {
-        "get-debug-log-gate": undefined,
-        "offscreen-request-close": { ok: true }
-      }
-    });
+  it("终态后在短宽限窗口到期向 SW 发 offscreen-request-close；SW 回 ok:true 不告警", async () => {
+    vi.useFakeTimers();
+    try {
+      armTerminalEcho();
+      // 原 impl 只答 offscreen-request-close；加载期的 get-debug-log-gate 无实质回包
+      //（宿主以回 undefined 表达「无应答」，与真实 MV3 同形）
+      await importOffscreen({
+        replies: {
+          "get-debug-log-gate": undefined,
+          "offscreen-request-close": { ok: true }
+        }
+      });
 
-    const session = makeAsrPort();
-    host.onConnectListeners[0](session.port);
-    session.send({ action: "asr-decode", task: {} });
+      const session = makeAsrPort();
+      host.onConnectListeners[0](session.port);
+      session.send({ action: "asr-decode", task: {} });
 
-    await vi.waitFor(() =>
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS);
       expect(host.sendMessage).toHaveBeenCalledWith(
-        { type: "offscreen-request-close" },
+        { type: "offscreen-request-close", reason: "asr-idle" },
         expect.any(Function)
-      )
-    );
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("SW 明确回 ok:false（请求被拒/关闭失败）：记 logWarn，不抛", async () => {
-    armTerminalEcho();
-    await importOffscreen({
-      replies: {
-        "get-debug-log-gate": undefined,
-        "offscreen-request-close": { ok: false, error: "仅接受 offscreen 文档发送" }
-      }
-    });
+    vi.useFakeTimers();
+    try {
+      armTerminalEcho();
+      await importOffscreen({
+        replies: {
+          "get-debug-log-gate": undefined,
+          "offscreen-request-close": { ok: false, error: "仅接受 offscreen 文档发送" }
+        }
+      });
 
-    // logWarn 走调试门：先经广播把门打开，告警才可观测
-    onMessageListeners[0]({ type: "debug-log-gate-changed", enabled: true });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const session = makeAsrPort();
-    host.onConnectListeners[0](session.port);
-    session.send({ action: "asr-decode", task: {} });
+      // logWarn 走调试门：先经广播把门打开，告警才可观测
+      onMessageListeners[0]({ type: "debug-log-gate-changed", enabled: true });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const session = makeAsrPort();
+      host.onConnectListeners[0](session.port);
+      session.send({ action: "asr-decode", task: {} });
 
-    await vi.waitFor(() =>
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS);
       expect(warnSpy).toHaveBeenCalledWith(
         "[BILISCRIPT] offscreen closeDocument after asr task failed",
         { error: "仅接受 offscreen 文档发送" }
-      )
-    );
-    warnSpy.mockRestore();
+      );
+      warnSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("回包丢失（成功关闭时文档随之销毁）：静默，不告警也不抛 unhandled rejection", async () => {
+    vi.useFakeTimers();
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
@@ -308,11 +319,12 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
       host.onConnectListeners[0](session.port);
       session.send({ action: "asr-decode", task: {} });
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASR_IDLE_GRACE_MS + 10);
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
     } finally {
       process.removeListener("unhandledRejection", onUnhandled);
+      vi.useRealTimers();
     }
   });
 });

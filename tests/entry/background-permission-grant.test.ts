@@ -21,6 +21,7 @@ function installMinimalBackgroundStub() {
   const requestMock = vi.fn(async () => true);
   const containsMock = vi.fn(async () => true);
   const removeMock = vi.fn(async () => true);
+  const onConnectListeners: Array<(port: unknown) => void> = [];
 
   vi.stubGlobal("chrome", {
     runtime: {
@@ -28,6 +29,7 @@ function installMinimalBackgroundStub() {
       lastError: null,
       getURL: (path: string) => `moz-extension://ext-test-uuid/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
+      onConnect: { addListener: vi.fn((fn: (port: unknown) => void) => onConnectListeners.push(fn)) },
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "2.7.4", host_permissions: [] })
     },
@@ -44,7 +46,7 @@ function installMinimalBackgroundStub() {
     }
   });
 
-  return { requestMock, containsMock, removeMock };
+  return { requestMock, containsMock, removeMock, onConnectListeners };
 }
 
 function sendToBackground(
@@ -110,6 +112,36 @@ describe("entry/background host 权限消息族接线", () => {
         { url: "https://www.bilibili.com/video/BV1test000000", id: "ext-test-id" }
       )
     ).toEqual({ ok: false, error: "拒绝非授权扩展页面的权限回包" });
+  });
+
+  it("background onConnect 接管 permission-grant-keepalive 端口并在断开后移除监听", async () => {
+    const stub = installMinimalBackgroundStub();
+    await import("../../extension/entry/background.js");
+    const onConnect = stub.onConnectListeners[0];
+    expect(typeof onConnect).toBe("function");
+
+    const disconnectListeners = new Set<() => void>();
+    const removeListener = vi.fn((fn: () => void) => disconnectListeners.delete(fn));
+    const port = {
+      name: "permission-grant-keepalive",
+      sender: {
+        id: "ext-test-id",
+        url: "moz-extension://ext-test-uuid/entry/permission-grant.html?reqId=req-1"
+      },
+      disconnect: vi.fn(),
+      onDisconnect: {
+        addListener: vi.fn((fn: () => void) => disconnectListeners.add(fn)),
+        removeListener
+      }
+    };
+
+    onConnect(port);
+    expect(port.disconnect).not.toHaveBeenCalled();
+    expect(disconnectListeners.size).toBe(1);
+
+    [...disconnectListeners].forEach((fn) => fn());
+    expect(removeListener).toHaveBeenCalledTimes(1);
+    expect(disconnectListeners.size).toBe(0);
   });
 });
 
@@ -230,5 +262,82 @@ describe("permission-grant.html / permission-grant.ts 扩展授权页", () => {
       expect(document.documentElement.getAttribute("data-palette")).toBe("editorial");
     });
     expect(document.documentElement.getAttribute("data-biliscript-onboarding")).toBe("1");
+  });
+
+  it("弹窗打开期间保持 permission-grant-keepalive 端口防 Event Page 休眠，结果回传后断开并关闭窗口", async () => {
+    vi.useFakeTimers();
+    installPermissionGrantDom(PERMISSION_GRANT_HTML);
+
+    const events: string[] = [];
+    const portDisconnect = vi.fn(() => {
+      events.push("keepalive:disconnect");
+    });
+    const connectMock = vi.fn(() => {
+      events.push("keepalive:connect");
+      return {
+        name: "permission-grant-keepalive",
+        disconnect: portDisconnect,
+        onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() }
+      };
+    });
+    const requestMock = vi.fn(async () => true);
+    const sendMessageMock = vi.fn((_msg: unknown, cb?: (resp: unknown) => void) => {
+      events.push("result:send");
+      cb?.({ ok: true });
+      return undefined;
+    });
+
+    vi.stubGlobal("chrome", {
+      permissions: { request: requestMock },
+      runtime: { connect: connectMock, sendMessage: sendMessageMock, lastError: null }
+    });
+    const closeSpy = vi.spyOn(window, "close").mockImplementation(() => {
+      events.push("window:close");
+    });
+
+    const { initPermissionGrantPage, PERMISSION_GRANT_KEEPALIVE_PORT_NAME } = await import(
+      "../../extension/entry/permission-grant.js"
+    );
+    initPermissionGrantPage(`?reqId=req-keepalive&origins=${encodeURIComponent(JSON.stringify(["http://localhost/*"]))}`);
+
+    expect(connectMock).toHaveBeenCalledWith({ name: PERMISSION_GRANT_KEEPALIVE_PORT_NAME });
+    // 超过 Firefox Event Page 30s 空闲休眠阈值期间，保活端口持续在线
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(portDisconnect).not.toHaveBeenCalled();
+
+    const allowBtn = document.getElementById("permissionGrantAllowBtn") as HTMLButtonElement;
+    allowBtn.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(portDisconnect).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([
+      "keepalive:connect",
+      "result:send",
+      "keepalive:disconnect",
+      "window:close"
+    ]);
+  });
+
+  it("窗口未点击按钮直接关闭（pagehide）时主动断开 keepalive 端口且幂等", async () => {
+    installPermissionGrantDom(PERMISSION_GRANT_HTML);
+    const portDisconnect = vi.fn();
+    const connectMock = vi.fn(() => ({
+      name: "permission-grant-keepalive",
+      disconnect: portDisconnect,
+      onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() }
+    }));
+
+    vi.stubGlobal("chrome", {
+      permissions: { request: vi.fn(async () => true) },
+      runtime: { connect: connectMock, sendMessage: vi.fn(), lastError: null }
+    });
+
+    const { initPermissionGrantPage } = await import("../../extension/entry/permission-grant.js");
+    initPermissionGrantPage(`?reqId=req-close&origins=${encodeURIComponent(JSON.stringify(["http://localhost/*"]))}`);
+
+    window.dispatchEvent(new Event("pagehide"));
+    window.dispatchEvent(new Event("beforeunload"));
+    expect(portDisconnect).toHaveBeenCalledTimes(1);
   });
 });
