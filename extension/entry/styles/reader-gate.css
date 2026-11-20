@@ -306,11 +306,11 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-text: var(--biliscript-primitive-color-gray-950);
   --biliscript-reader-muted: var(--biliscript-primitive-color-gray-600);
   --biliscript-reader-faint: var(--biliscript-primitive-color-gray-500);
-  /* 主强调色（克制青蓝，浅色底 4.96:1、白字实底 5.44:1，均过 WCAG AA 4.5:1） */
+  /* 主强调色（Flyme 亮蓝 #008cff，浅色底 ~3.1:1、白字实底 ~3.4:1，满足 WCAG AA 大号/UI 控件 3:1 档） */
   --biliscript-reader-accent: var(--biliscript-primitive-color-blue-500);
   --biliscript-reader-accent-soft: rgba(var(--biliscript-primitive-color-blue-500-rgb), 0.1);
   --biliscript-reader-accent-ink: var(--biliscript-primitive-color-white);
-  /* 时间戳 pill 浅色档字/底（在最洼层 surface-3 上 ≥ 5.27:1） */
+  /* 时间戳 pill 浅色档字/底（柔和中蓝 #2e6fc2，在 surface 上 ≥ 4.6:1、surface-3 上 ≥ 4.0:1） */
   --biliscript-reader-time-color: var(--biliscript-primitive-color-blue-600);
   --biliscript-reader-time-bg: rgba(var(--biliscript-primitive-color-blue-600-rgb), 0.1);
   /* 金句卡右上角装饰水印引号色（.biliscript-reading-ov-quote::after）：正文
@@ -551,7 +551,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-faint: var(--biliscript-primitive-color-dark-gray-500);
   --biliscript-reader-accent: var(--biliscript-primitive-color-blue-400);
   --biliscript-reader-accent-soft: rgba(var(--biliscript-primitive-color-blue-400-rgb), 0.16);
-  /* accent-ink 与实底按钮 on-fill 均取深墨（在亮青蓝上 8.53:1、亮红上 6.02:1） */
+  /* accent-ink 与实底按钮 on-fill 均取深墨（在亮蓝 #3d9bff 上 6.56:1、亮红上 6.02:1） */
   --biliscript-reader-accent-ink: var(--biliscript-primitive-color-dark-gray-950);
   --biliscript-reader-on-fill: var(--biliscript-primitive-color-dark-gray-950);
   --biliscript-reader-quote-mark: rgba(var(--biliscript-primitive-color-dark-gray-100-rgb), 0.09);

@@ -90,13 +90,13 @@
   --biliscript-primitive-color-black: oklch(0 0 0);
   --biliscript-primitive-color-black-rgb: 0, 0, 0;
 
-  /* --- 主强调色：克制青蓝族（贴合 B 站 / BewlyBewly 生态，浅/深色均满足 WCAG AA ≥ 4.5:1） --- */
-  --biliscript-primitive-color-blue-500: oklch(0.518 0.098 232);
-  --biliscript-primitive-color-blue-500-rgb: 24, 113, 151;
-  --biliscript-primitive-color-blue-400: oklch(0.745 0.112 226);
-  --biliscript-primitive-color-blue-400-rgb: 81, 187, 226;
-  --biliscript-primitive-color-blue-600: oklch(0.472 0.090 232);
-  --biliscript-primitive-color-blue-600-rgb: 18, 99, 133;
+  /* --- 主强调色：Flyme 亮蓝族（浅/深色主强调与浅色时间戳标注色） --- */
+  --biliscript-primitive-color-blue-500: oklch(0.6406 0.1974 252.97);
+  --biliscript-primitive-color-blue-500-rgb: 0, 140, 255;
+  --biliscript-primitive-color-blue-400: oklch(0.6824 0.1717 252.91);
+  --biliscript-primitive-color-blue-400-rgb: 61, 155, 255;
+  --biliscript-primitive-color-blue-600: oklch(0.5434 0.1454 256.08);
+  --biliscript-primitive-color-blue-600-rgb: 46, 111, 194;
   --biliscript-primitive-color-blue-reflection-light: oklch(0.625 0.140 245);
   --biliscript-primitive-color-blue-reflection-light-rgb: 16, 136, 247;
   --biliscript-primitive-color-blue-reflection-dark: oklch(0.750 0.125 236);
